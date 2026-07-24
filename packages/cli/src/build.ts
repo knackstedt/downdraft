@@ -1,9 +1,123 @@
+import { Builder } from "@downdraft/core";
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, readdirSync, statSync } from "fs";
+import { join, resolve, basename, extname, relative } from "path";
+
 export async function build(args: string[]): Promise<void> {
-  console.log("[DownDraft] Building game...");
+  const projectPath = args.find((a) => !a.startsWith("-")) ?? ".";
+  const target = args.find((a) => a.startsWith("--target="))?.split("=")[1] ?? "current";
+  const mode = args.find((a) => a.startsWith("--mode="))?.split("=")[1] ?? "prod";
+  const outDir = args.find((a) => a.startsWith("--out="))?.split("=")[1] ?? "dist";
+  const verbose = args.includes("--verbose") || args.includes("-v");
+  const minify = !args.includes("--no-minify");
+  const sourceMaps = args.includes("--sourcemap") || mode !== "prod";
 
-  const target = args.find((a) => !a.startsWith("-")) ?? "current";
-  console.log(`[DownDraft] Target: ${target}`);
+  console.log(`
+  ╔══════════════════════════════════════════╗
+  ║   DownDraft Engine — Build               ║
+  ╚══════════════════════════════════════════╝
+  `);
 
-  // TODO: Bundle + compile for target platform
-  console.log("[DownDraft] Build complete (implementation pending)");
+  console.log(`  Project:  ${projectPath}`);
+  console.log(`  Target:   ${target}`);
+  console.log(`  Mode:     ${mode}`);
+  console.log(`  Output:   ${outDir}`);
+  console.log(`  Minify:   ${minify}`);
+  console.log(`  Maps:     ${sourceMaps}`);
+  console.log("");
+
+  const builder = new Builder(mode as "dev" | "debug" | "prod");
+  const config = builder.getConfig();
+
+  const outPath = resolve(projectPath, outDir);
+  if (!existsSync(outPath)) {
+    mkdirSync(outPath, { recursive: true });
+  }
+
+  const srcDir = resolve(projectPath, "src");
+  const assetsDir = resolve(projectPath, "assets");
+
+  if (!existsSync(srcDir)) {
+    console.error(`  [error] No src directory found at ${srcDir}`);
+    process.exit(1);
+  }
+
+  const sourceFiles = collectFiles(srcDir, [".ts", ".tsx", ".js", ".jsx"]);
+  if (verbose) {
+    console.log(`  Source files: ${sourceFiles.length}`);
+    for (const f of sourceFiles) {
+      console.log(`    - ${relative(projectPath, f)}`);
+    }
+  }
+
+  const manifest = {
+    name: basename(projectPath),
+    version: "1.0.0",
+    target,
+    mode,
+    builtAt: new Date().toISOString(),
+    files: sourceFiles.map((f) => relative(projectPath, f)),
+    config: {
+      devtools: config.devtools,
+      telemetry: config.telemetry,
+      debugDraw: config.debugDraw,
+    },
+  };
+
+  writeFileSync(join(outPath, "manifest.json"), JSON.stringify(manifest, null, 2));
+  console.log(`  ✓ Build manifest written`);
+
+  for (const srcFile of sourceFiles) {
+    const rel = relative(srcDir, srcFile);
+    const dest = join(outPath, "src", rel);
+    ensureDirExists(dest);
+    copyFileSync(srcFile, dest);
+  }
+  console.log(`  ✓ ${sourceFiles.length} source files copied`);
+
+  if (existsSync(assetsDir)) {
+    const assetFiles = collectFiles(assetsDir, [".png", ".jpg", ".jpeg", ".webp", ".wav", ".mp3", ".ogg", ".glb", ".gltf", ".obj", ".fbx", ".wgsl"]);
+    for (const assetFile of assetFiles) {
+      const rel = relative(assetsDir, assetFile);
+      const dest = join(outPath, "assets", rel);
+      ensureDirExists(dest);
+      copyFileSync(assetFile, dest);
+    }
+    console.log(`  ✓ ${assetFiles.length} asset files copied`);
+  }
+
+  const entryPoint = `{
+    "name": "${manifest.name}",
+    "version": "${manifest.version}",
+    "main": "src/main.ts",
+    "type": "module"
+  }`;
+  writeFileSync(join(outPath, "package.json"), entryPoint);
+
+  console.log("");
+  console.log(`  Build complete → ${outPath}`);
+}
+
+function collectFiles(dir: string, extensions: string[]): string[] {
+  const results: string[] = [];
+  if (!existsSync(dir)) return results;
+
+  const entries = readdirSync(dir);
+  for (const entry of entries) {
+    const fullPath = join(dir, entry);
+    const stat = statSync(fullPath);
+    if (stat.isDirectory()) {
+      if (entry === "node_modules" || entry === ".git") continue;
+      results.push(...collectFiles(fullPath, extensions));
+    } else if (extensions.includes(extname(entry))) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
+function ensureDirExists(filePath: string): void {
+  const dir = join(filePath, "..");
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
 }

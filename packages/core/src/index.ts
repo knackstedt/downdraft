@@ -248,8 +248,24 @@ export type { AudioSABData } from "./audio/sab.ts";
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";
 export type { CrashRecoveryConfig, RecoveryState } from "./worker/crash-recovery.ts";
 
+// Particles
+export { ParticleEmitter, createParticleEmitter, createFireEmitter, createSmokeEmitter, createSparkEmitter, createExplosionEmitter } from "./particles/emitter.ts";
+export type { ParticleEmitterData, EmitterShape } from "./particles/emitter.ts";
+export { ParticleSimulator } from "./particles/simulator.ts";
+export { ParticleComputePass } from "./particles/compute-pass.ts";
+export type { ParticleComputeParams } from "./particles/compute-pass.ts";
+export { ParticleRenderPass } from "./particles/render-pass.ts";
+export { ParticleSystem, DEFAULT_PARTICLE_CONFIG } from "./particles/system.ts";
+export type { ParticleSystemConfig } from "./particles/system.ts";
+export { createParticleGPUData, packParticleBuffer, PARTICLE_STRIDE } from "./particles/particle-data.ts";
+export type { ParticleGPUData } from "./particles/particle-data.ts";
+
 // UI Panels
 export { SceneTreePanel } from "./ui/scene-tree.ts";
 export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree.ts";
 export { InspectorPanel } from "./ui/inspector.ts";
 export type { InspectorField, InspectorComponent, InspectorState } from "./ui/inspector.ts";
+
+// Debug Visualization
+export { DebugVizPass, DEFAULT_DEBUG_VIZ_SETTINGS } from "./render/passes/debug-viz.ts";
+export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.ts";

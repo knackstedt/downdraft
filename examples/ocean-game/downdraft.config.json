@@ -1,0 +1,18 @@
+{
+  "name": "ocean-survival",
+  "version": "1.0.0",
+  "engine": "downdraft",
+  "builder": {
+    "mode": "dev"
+  },
+  "plugins": [
+    "water",
+    "physics-rapier",
+    "audio-kira"
+  ],
+  "scene": {
+    "sky": true,
+    "fog": true,
+    "water": true
+  }
+}

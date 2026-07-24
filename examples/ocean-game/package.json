@@ -1,0 +1,12 @@
+{
+  "name": "ocean-survival",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "main.ts",
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@downdraft/plugin-water": "workspace:*",
+    "@downdraft/plugin-physics-rapier": "workspace:*",
+    "@downdraft/plugin-audio-kira": "workspace:*"
+  }
+}

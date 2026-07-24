@@ -7,6 +7,11 @@ export interface DebugToggleState {
   velocity: boolean;
   shadows: boolean;
   bloom: boolean;
+  aabbs: boolean;
+  overdraw: boolean;
+  lod: boolean;
+  depth: boolean;
+  tangents: boolean;
 }
 
 const DEFAULT_TOGGLES: DebugToggleState = {
@@ -16,6 +21,11 @@ const DEFAULT_TOGGLES: DebugToggleState = {
   velocity: false,
   shadows: true,
   bloom: true,
+  aabbs: false,
+  overdraw: false,
+  lod: false,
+  depth: false,
+  tangents: false,
 };
 
 export const DebugToggles: React.FC<{
@@ -33,6 +43,11 @@ export const DebugToggles: React.FC<{
     { key: "velocity", label: "Velocity" },
     { key: "shadows", label: "Shadows" },
     { key: "bloom", label: "Bloom" },
+    { key: "aabbs", label: "AABBs" },
+    { key: "overdraw", label: "Overdraw" },
+    { key: "lod", label: "LOD Visualization" },
+    { key: "depth", label: "Depth Buffer" },
+    { key: "tangents", label: "Tangents" },
   ];
 
   return (
