@@ -1,5 +1,5 @@
-import type { World } from "../ecs/world.ts";
 import type { Entity } from "../ecs/entity.ts";
+import type { World } from "../ecs/world.ts";
 import { SchemaRegistry } from "./schema.ts";
 
 export interface SaveData {
@@ -20,7 +20,7 @@ export class Serializer {
     const entities: SaveData["scene"]["entities"] = [];
     const binaryBlobs: Record<string, ArrayBuffer> = {};
 
-    for (let i = 0; i < world.entities.length; i++) {
+    for (let i = 1; i < world.entities.length; i++) {
       const meta = world.entities[i];
       if (!meta.alive) continue;
 
@@ -69,6 +69,14 @@ export class Serializer {
     const migrated = schemaRegistry.migrate(data, data.schemaVersion) as SaveData;
     const blobs = migrated.binaryBlobs ?? {};
 
+    for (let i = 0; i < world.entities.length; i++) {
+      const meta = world.entities[i];
+      if (meta.alive) {
+        world.despawn({ index: i, generation: meta.generation });
+      }
+    }
+    world.flushCommands();
+
     for (let i = 0; i < migrated.scene.entities.length; i++) {
       const entry = migrated.scene.entities[i];
       const components = new Map<number, unknown>();
@@ -100,6 +108,9 @@ export class Serializer {
   fromJSON(json: string): SaveData {
     return JSON.parse(json, (_key, value) => {
       if (value && typeof value === "object" && value.__type === "ArrayBuffer" && typeof value.__data === "string") {
+        return base64ToArrayBuffer(value.__data);
+      }
+      if (value && typeof value === "object" && value.__type === "TypedArray" && typeof value.__data === "string") {
         return base64ToArrayBuffer(value.__data);
       }
       return value;

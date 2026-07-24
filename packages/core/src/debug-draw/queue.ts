@@ -98,17 +98,17 @@ export class DebugDrawQueue {
     this.lines = this.lines.filter((l) => {
       if (l.duration === 0) return false;
       l.duration--;
-      return l.duration >= 0;
+      return l.duration > 0;
     });
     this.points = this.points.filter((p) => {
       if (p.duration === 0) return false;
       p.duration--;
-      return p.duration >= 0;
+      return p.duration > 0;
     });
     this.texts = this.texts.filter((t) => {
       if (t.duration === 0) return false;
       t.duration--;
-      return t.duration >= 0;
+      return t.duration > 0;
     });
   }
 

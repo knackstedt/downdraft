@@ -1,5 +1,6 @@
 import type { Entity } from "../ecs/entity.ts";
 import type { World } from "../ecs/world.ts";
+import type { Camera } from "./camera.ts";
 
 export interface ChunkCoord {
   x: number;
@@ -12,6 +13,7 @@ export interface ChunkKey {
 }
 
 export interface ChunkData {
+  name?: string;
   coord: ChunkCoord;
   entities: Entity[];
   loaded: boolean;
@@ -24,11 +26,13 @@ export interface StreamConfig {
   loadRadius: number;
   unloadRadius: number;
   maxConcurrentLoads: number;
-  cameraPos: () => [number, number, number];
+  cameraPos?: () => [number, number, number];
+  loader?: ChunkLoader;
+  unloader?: ChunkUnloader;
 }
 
 export type ChunkLoader = (coord: ChunkCoord) => Promise<Entity[]>;
-export type ChunkUnloader = (coord: ChunkCoord, entities: Entity[]) => void;
+export type ChunkUnloader = (coord: ChunkCoord, data: ChunkData) => void;
 
 export function chunkKey(coord: ChunkCoord): string {
   return `${coord.x}:${coord.z}`;
@@ -44,32 +48,24 @@ export function worldToChunk(pos: [number, number, number], chunkSize: number): 
 export class WorldStreamer {
   private config: StreamConfig;
   private chunks: Map<string, ChunkData> = new Map();
-  private loader: ChunkLoader | null = null;
-  private unloader: ChunkUnloader | null = null;
   private loadQueue: ChunkCoord[] = [];
   private loading: Set<string> = new Set();
   private world: World;
+  private camera: Camera;
 
-  constructor(world: World, config: StreamConfig) {
+  constructor(world: World, camera: Camera, config: StreamConfig) {
     this.world = world;
+    this.camera = camera;
     this.config = config;
   }
 
-  setLoader(loader: ChunkLoader): void {
-    this.loader = loader;
-  }
-
-  setUnloader(unloader: ChunkUnloader): void {
-    this.unloader = unloader;
-  }
-
-  update(): void {
-    const camPos = this.config.cameraPos();
+  async update(): Promise<void> {
+    const camPos = this.config.cameraPos ? this.config.cameraPos() : [this.camera.position[0], this.camera.position[1], this.camera.position[2]];
     const camChunk = worldToChunk(camPos, this.config.chunkSize);
 
     this.checkUnload(camChunk);
     this.checkLoad(camChunk);
-    this.processLoadQueue();
+    await this.processLoadQueue();
   }
 
   private checkLoad(camChunk: ChunkCoord): void {
@@ -119,8 +115,8 @@ export class WorldStreamer {
     for (const key of toUnload) {
       const chunk = this.chunks.get(key);
       if (!chunk) continue;
-      if (this.unloader) {
-        this.unloader(chunk.coord, chunk.entities);
+      if (this.config.unloader) {
+        this.config.unloader(chunk.coord, chunk);
       } else {
         for (const entity of chunk.entities) {
           this.world._despawnImmediate(entity);
@@ -133,7 +129,8 @@ export class WorldStreamer {
   }
 
   private async processLoadQueue(): Promise<void> {
-    if (!this.loader) return;
+    const loader = this.config.loader;
+    if (!loader) return;
     while (this.loadQueue.length > 0 && this.loading.size < this.config.maxConcurrentLoads) {
       const coord = this.loadQueue.shift()!;
       const key = chunkKey(coord);
@@ -143,7 +140,7 @@ export class WorldStreamer {
       this.loading.add(key);
 
       try {
-        const entities = await this.loader(coord);
+        const entities = await loader(coord);
         const chunk: ChunkData = {
           coord,
           entities,
@@ -162,6 +159,10 @@ export class WorldStreamer {
 
   getLoadedChunks(): ChunkData[] {
     return [...this.chunks.values()].filter((c) => c.loaded);
+  }
+
+  getLoadedCount(): number {
+    return this.getLoadedChunkCount();
   }
 
   getLoadedChunkCount(): number {
@@ -194,8 +195,8 @@ export class WorldStreamer {
     const key = chunkKey(coord);
     const chunk = this.chunks.get(key);
     if (!chunk || !chunk.loaded) return;
-    if (this.unloader) {
-      this.unloader(chunk.coord, chunk.entities);
+    if (this.config.unloader) {
+      this.config.unloader(chunk.coord, chunk);
     } else {
       for (const entity of chunk.entities) {
         this.world._despawnImmediate(entity);
@@ -209,8 +210,8 @@ export class WorldStreamer {
   unloadAll(): void {
     for (const [key, chunk] of this.chunks) {
       if (chunk.loaded) {
-        if (this.unloader) {
-          this.unloader(chunk.coord, chunk.entities);
+        if (this.config.unloader) {
+          this.config.unloader(chunk.coord, chunk);
         } else {
           for (const entity of chunk.entities) {
             this.world._despawnImmediate(entity);

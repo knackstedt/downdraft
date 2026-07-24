@@ -14,7 +14,9 @@ export function createEventChannel<T>(): EventChannel<T> {
       pending.push(event);
     },
     read(): T[] {
-      return current;
+      const result = current;
+      current = [];
+      return result;
     },
     swap(): void {
       const tmp = current;
@@ -39,6 +41,10 @@ export class EventBus {
       this.channels.set(name, ch);
     }
     return ch as EventChannel<T>;
+  }
+
+  channel<T>(name: string): EventChannel<T> {
+    return this.get<T>(name);
   }
 
   send<T>(name: string, event: T): void {

@@ -1,7 +1,7 @@
-import type { SimWorkerSupervisor } from "../worker/supervisor.ts";
-import type { CheckpointManager, CheckpointData } from "../scene/checkpoint.ts";
 import type { World } from "../ecs/world.ts";
-import type { Serializer, SaveData } from "../save/serializer.ts";
+import type { SaveData, Serializer } from "../save/serializer.ts";
+import type { CheckpointData, CheckpointManager } from "../scene/checkpoint.ts";
+import type { SimWorkerSupervisor } from "../worker/supervisor.ts";
 
 export interface CrashRecoveryConfig {
   checkpointIntervalMs: number;
@@ -82,8 +82,10 @@ export class CrashRecoveryManager {
     }
   }
 
+  private checkpointSeq = 0;
+
   createCheckpoint(): string {
-    const name = `${this.config.checkpointPrefix}_${Date.now()}`;
+    const name = `${this.config.checkpointPrefix}_${Date.now()}_${this.checkpointSeq++}`;
     const cp = this.checkpointManager.create(name, this.world);
     this.state.lastCheckpointTime = Date.now();
     this.state.checkpointCount++;
@@ -151,7 +153,7 @@ export class CrashRecoveryManager {
   }
 
   getState(): RecoveryState {
-    return { ...this.state };
+    return this.state;
   }
 
   getConfig(): CrashRecoveryConfig {

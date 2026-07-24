@@ -8,6 +8,7 @@ interface BoneTransform {
 }
 
 export interface PlayingAnimation {
+  name: string;
   clip: AnimationClip;
   time: number;
   speed: number;
@@ -17,11 +18,12 @@ export interface PlayingAnimation {
   blendOutDuration: number;
   blendOutElapsed: number;
   blendOutStartWeight: number;
+  paused: boolean;
 }
 
 export class AnimationPlayer {
   private skeleton: Skeleton;
-  private playing: PlayingAnimation[] = [];
+  private playing: Map<string, PlayingAnimation> = new Map();
   private boneCount: number;
   private positions: Array<[number, number, number]>;
   private rotations: Array<[number, number, number, number]>;
@@ -43,30 +45,33 @@ export class AnimationPlayer {
     this.resultScales = bindPose.map(() => [1, 1, 1] as [number, number, number]);
   }
 
-  play(clip: AnimationClip, options?: { speed?: number; weight?: number; loop?: boolean; fadeDuration?: number }): void {
+  play(name: string, clip: AnimationClip, options?: { speed?: number; weight?: number; loop?: boolean; fadeDuration?: number }): void {
     const fadeDuration = options?.fadeDuration ?? 0;
-    const existing = this.playing.find((p) => p.clip === clip);
+    const existing = this.playing.get(name);
 
     if (existing) {
+      existing.clip = clip;
       existing.speed = options?.speed ?? 1;
       existing.weight = options?.weight ?? 1;
       existing.loop = options?.loop ?? true;
       existing.blending = false;
+      existing.paused = false;
       return;
     }
 
-    if (fadeDuration > 0 && this.playing.length > 0) {
-      for (const p of this.playing) {
+    if (fadeDuration > 0 && this.playing.size > 0) {
+      for (const p of this.playing.values()) {
         p.blending = true;
         p.blendOutDuration = fadeDuration;
         p.blendOutElapsed = 0;
         p.blendOutStartWeight = p.weight;
       }
-    } else {
-      this.playing.length = 0;
+    } else if (fadeDuration === 0) {
+      this.playing.clear();
     }
 
-    this.playing.push({
+    this.playing.set(name, {
+      name,
       clip,
       time: 0,
       speed: options?.speed ?? 1,
@@ -76,60 +81,59 @@ export class AnimationPlayer {
       blendOutDuration: 0,
       blendOutElapsed: 0,
       blendOutStartWeight: 0,
+      paused: false,
     });
   }
 
-  stop(clip?: AnimationClip): void {
-    if (clip) {
-      this.playing = this.playing.filter((p) => p.clip !== clip);
+  stop(name?: string): void {
+    if (name) {
+      this.playing.delete(name);
     } else {
-      this.playing.length = 0;
+      this.playing.clear();
     }
   }
 
-  pause(clip?: AnimationClip): void {
-    if (clip) {
-      const p = this.playing.find((p) => p.clip === clip);
-      if (p) p.speed = 0;
+  pause(name?: string): void {
+    if (name) {
+      const p = this.playing.get(name);
+      if (p) p.paused = true;
     } else {
-      for (const p of this.playing) p.speed = 0;
+      for (const p of this.playing.values()) p.paused = true;
     }
   }
 
-  resume(clip?: AnimationClip): void {
-    if (clip) {
-      const p = this.playing.find((p) => p.clip === clip);
-      if (p) p.speed = 1;
+  resume(name?: string): void {
+    if (name) {
+      const p = this.playing.get(name);
+      if (p) p.paused = false;
     } else {
-      for (const p of this.playing) p.speed = 1;
+      for (const p of this.playing.values()) p.paused = false;
     }
   }
 
-  setSpeed(speed: number, clip?: AnimationClip): void {
-    if (clip) {
-      const p = this.playing.find((p) => p.clip === clip);
-      if (p) p.speed = speed;
-    } else {
-      for (const p of this.playing) p.speed = speed;
-    }
+  setSpeed(name: string, speed: number): void {
+    const p = this.playing.get(name);
+    if (p) p.speed = speed;
   }
 
-  setWeight(weight: number, clip?: AnimationClip): void {
-    if (clip) {
-      const p = this.playing.find((p) => p.clip === clip);
-      if (p) p.weight = weight;
-    } else {
-      for (const p of this.playing) p.weight = weight;
-    }
+  setWeight(name: string, weight: number): void {
+    const p = this.playing.get(name);
+    if (p) p.weight = weight;
   }
 
-  isPlaying(clip?: AnimationClip): boolean {
-    if (clip) return this.playing.some((p) => p.clip === clip);
-    return this.playing.length > 0;
+  isPlaying(name?: string): boolean {
+    if (name) {
+      const p = this.playing.get(name);
+      return p !== undefined && !p.paused;
+    }
+    for (const p of this.playing.values()) {
+      if (!p.paused) return true;
+    }
+    return false;
   }
 
   getPlayingCount(): number {
-    return this.playing.length;
+    return this.playing.size;
   }
 
   update(dt: number): void {
@@ -142,7 +146,11 @@ export class AnimationPlayer {
 
     const stillPlaying: PlayingAnimation[] = [];
 
-    for (const p of this.playing) {
+    for (const p of this.playing.values()) {
+      if (p.paused) {
+        stillPlaying.push(p);
+        continue;
+      }
       p.time += dt * p.speed;
 
       if (p.loop && p.clip.duration > 0) {
@@ -193,7 +201,8 @@ export class AnimationPlayer {
       stillPlaying.push(p);
     }
 
-    this.playing = stillPlaying;
+    this.playing.clear();
+    for (const p of stillPlaying) this.playing.set(p.name, p);
     this.skinMatrices = null;
   }
 

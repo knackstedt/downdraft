@@ -1,6 +1,6 @@
 import { Builder } from "@downdraft/core";
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, readdirSync, statSync } from "fs";
-import { join, resolve, basename, extname, relative } from "path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { basename, extname, join, relative, resolve } from "path";
 
 export async function build(args: string[]): Promise<void> {
   const projectPath = args.find((a) => !a.startsWith("-")) ?? ".";
@@ -42,6 +42,16 @@ export async function build(args: string[]): Promise<void> {
   }
 
   const sourceFiles = collectFiles(srcDir, [".ts", ".tsx", ".js", ".jsx"]);
+
+  let projectName = basename(projectPath);
+  const pkgJsonPath = join(projectPath, "package.json");
+  if (existsSync(pkgJsonPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+      if (pkg.name) projectName = pkg.name;
+    } catch {}
+  }
+
   if (verbose) {
     console.log(`  Source files: ${sourceFiles.length}`);
     for (const f of sourceFiles) {
@@ -50,7 +60,7 @@ export async function build(args: string[]): Promise<void> {
   }
 
   const manifest = {
-    name: basename(projectPath),
+    name: projectName,
     version: "1.0.0",
     target,
     mode,

@@ -13,15 +13,14 @@ let nextArchetypeId = 0;
 
 export function createArchetype(componentIds: ComponentId[]): Archetype {
   const id = nextArchetypeId++;
-  const sortedIds = [...componentIds].sort((a, b) => a - b);
   const columns = new Map<ComponentId, unknown[]>();
-  for (const cid of sortedIds) {
+  for (const cid of componentIds) {
     columns.set(cid, []);
   }
   return {
     id,
-    componentIds: sortedIds,
-    componentSet: new Set(sortedIds),
+    componentIds: [...componentIds],
+    componentSet: new Set(componentIds),
     entities: [],
     columns,
   };
@@ -58,7 +57,9 @@ export function addEntityToArchetype(arch: Archetype, entity: Entity, components
   }
 }
 
-export function removeEntityFromArchetype(arch: Archetype, row: number): void {
+export function removeEntityFromArchetype(arch: Archetype, entity: Entity): void {
+  const row = findEntityRow(arch, entity);
+  if (row < 0) return;
   const last = arch.entities.length - 1;
   if (row !== last) {
     arch.entities[row] = arch.entities[last];

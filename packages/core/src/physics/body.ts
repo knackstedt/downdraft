@@ -17,7 +17,7 @@ export interface RigidBodyData {
   lockedRotation: [boolean, boolean, boolean] | null;
 }
 
-export const RigidBody = Component.register<RigidBodyData>("RigidBody", {
+export const RigidBody = Component.register<RigidBodyData>("PhysicsRigidBody", {
   bodyType: "dynamic",
   handleRealmId: -1,
   handleBodyId: -1,

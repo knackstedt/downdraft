@@ -1,5 +1,5 @@
 import type { EngineContext } from "../engine-context.ts";
-import type { ResourceRegistration, MCPResourceResult } from "../types.ts";
+import type { MCPResourceResult, ResourceRegistration } from "../types.ts";
 
 function resourceJSON(uri: string, data: unknown): MCPResourceResult {
   return {
@@ -27,9 +27,10 @@ export function createSceneTreeResource(ctx: EngineContext): ResourceRegistratio
         for (const e of entities) {
           const arch = ctx.ecsWorld.getArchetypeForEntity(e);
           const compNames = arch ? [...arch.columns.keys()].map((id) => ctx.getComponentNameById(id)) : [];
+          const parent = ctx.hierarchy.getParent(e);
           tree.push({
             entity: ctx.getEntityKey(e),
-            parent: ctx.getEntityKey(ctx.hierarchy.getParent(e)),
+            parent: parent ? ctx.getEntityKey(parent) : "root",
             children: ctx.hierarchy.getChildren(e).map((c) => ctx.getEntityKey(c)),
             components: compNames,
           });

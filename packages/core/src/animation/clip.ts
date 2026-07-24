@@ -54,7 +54,13 @@ export class AnimationClip {
     outRotations: Array<[number, number, number, number]>,
     outScales: Array<[number, number, number]>,
   ): void {
-    const t = this.data.duration > 0 ? time % this.data.duration : 0;
+    let t: number;
+    if (this.data.duration > 0) {
+      t = time % this.data.duration;
+      if (t === 0 && time > 0) t = this.data.duration;
+    } else {
+      t = 0;
+    }
 
     for (const track of this.data.tracks) {
       switch (track.path) {

@@ -43,18 +43,34 @@ export class RPCManager {
 
   call(name: string, args: Uint8Array): void {
     const def = this.definitions.get(name);
-    if (!def) return;
-    const buf = new Uint8Array(4 + args.length);
-    const dv = new DataView(buf.buffer);
-    dv.setUint32(0, def.id);
-    buf.set(args, 4);
-    this.transport.send({
-      type: 2,
-      data: buf,
-      reliable: def.reliable,
-      ordered: true,
-      channel: 1,
-    });
+    if (def) {
+      const buf = new Uint8Array(4 + args.length);
+      const dv = new DataView(buf.buffer);
+      dv.setUint32(0, def.id);
+      buf.set(args, 4);
+      this.transport.send({
+        type: 2,
+        data: buf,
+        reliable: def.reliable,
+        ordered: true,
+        channel: 1,
+      });
+    } else {
+      const nameBytes = new TextEncoder().encode(name);
+      const buf = new Uint8Array(4 + 2 + nameBytes.length + args.length);
+      const dv = new DataView(buf.buffer);
+      dv.setUint32(0, 0);
+      dv.setUint16(4, nameBytes.length);
+      buf.set(nameBytes, 6);
+      buf.set(args, 6 + nameBytes.length);
+      this.transport.send({
+        type: 2,
+        data: buf,
+        reliable: true,
+        ordered: true,
+        channel: 1,
+      });
+    }
   }
 
   callById(rpcId: number, args: Uint8Array, reliable: boolean = true): void {
@@ -72,15 +88,33 @@ export class RPCManager {
   }
 
   private handleMessage(msg: NetMessage): void {
+    if (msg.data.length < 4) return;
     const dv = new DataView(msg.data.buffer, msg.data.byteOffset);
     const rpcId = dv.getUint32(0);
-    const handler = this.handlers.get(rpcId);
+    let handler: RPCHandler | undefined;
+    let args: Uint8Array;
+    if (rpcId === 0) {
+      if (msg.data.length < 6) return;
+      const nameLen = dv.getUint16(4);
+      if (msg.data.length < 6 + nameLen) return;
+      const name = new TextDecoder().decode(msg.data.slice(6, 6 + nameLen));
+      const def = this.definitions.get(name);
+      handler = def ? this.handlers.get(def.id) : undefined;
+      args = msg.data.slice(6 + nameLen);
+    } else {
+      handler = this.handlers.get(rpcId);
+      args = msg.data.slice(4);
+    }
     if (handler) {
-      const result = handler(msg.data.slice(4));
+      const result = handler(args);
       if (result && this.isServer) {
+        const respBuf = new Uint8Array(4 + result.length);
+        const respDv = new DataView(respBuf.buffer);
+        respDv.setUint32(0, rpcId);
+        respBuf.set(result, 4);
         this.transport.send({
           type: 2,
-          data: result,
+          data: respBuf,
           reliable: true,
           ordered: true,
           channel: 1,

@@ -1,12 +1,9 @@
 import type {
-  AudioBackend,
-  AudioBackendConfig,
-  AudioBufferDesc,
-  AudioSourceHandle,
-  AudioListenerState,
-  AudioChannel,
-  AudioEffectDesc,
-  AudioFormat,
+    AudioBackend,
+    AudioBackendConfig,
+    AudioBufferDesc,
+    AudioListenerState,
+    AudioSourceHandle
 } from "./interface.ts";
 import { DEFAULT_AUDIO_CONFIG } from "./interface.ts";
 import { AudioMixer } from "./mixer.ts";
@@ -15,7 +12,7 @@ export class AudioEngine {
   private backend: AudioBackend;
   private mixer: AudioMixer | null = null;
   private config: AudioBackendConfig;
-  private buffers: Map<number, AudioBufferDesc> = new Map();
+  private buffers: Map<string, AudioBufferDesc> = new Map();
   private sources: Map<number, AudioSourceHandle> = new Map();
   private listener: AudioListenerState = {
     position: [0, 0, 0],
@@ -32,7 +29,7 @@ export class AudioEngine {
 
   async init(): Promise<void> {
     if (this.initialized) return;
-    await this.backend.init(this.config);
+    if (this.backend.init) await this.backend.init(this.config);
     this.mixer = new AudioMixer(this.backend);
     this.backend.setListener(this.listener);
     this.initialized = true;
@@ -42,59 +39,62 @@ export class AudioEngine {
     return this.initialized;
   }
 
-  async loadBuffer(format: AudioFormat, data: ArrayBuffer): Promise<AudioBufferDesc> {
-    const buffer = await this.backend.loadBuffer(format, data);
-    this.buffers.set(buffer.id, buffer);
-    return buffer;
+  loadBuffer(desc: AudioBufferDesc): void {
+    this.backend.loadBuffer(desc);
+    this.buffers.set(desc.id, desc);
   }
 
-  unloadBuffer(bufferId: number): void {
+  unloadBuffer(bufferId: string): void {
     const buffer = this.buffers.get(bufferId);
     if (!buffer) return;
-    for (const [sourceId, source] of this.sources) {
+    for (const [id, source] of this.sources) {
       if (source.bufferId === bufferId) {
-        this.backend.stop(sourceId);
-        this.sources.delete(sourceId);
+        this.backend.stop(source);
+        this.sources.delete(id);
       }
     }
     this.backend.unloadBuffer(bufferId);
     this.buffers.delete(bufferId);
   }
 
-  getBuffer(bufferId: number): AudioBufferDesc | undefined {
-    return this.buffers.get(bufferId) ?? this.backend.getBuffer(bufferId);
+  getBuffer(bufferId: string): AudioBufferDesc | undefined {
+    return this.buffers.get(bufferId) ?? this.backend.getBuffer?.(bufferId);
   }
 
-  play(bufferId: number, opts?: Partial<AudioSourceHandle>): AudioSourceHandle {
-    const handle = this.backend.play(bufferId, opts);
-    this.sources.set(handle.sourceId, handle);
+  play(bufferId: string): AudioSourceHandle {
+    const handle = this.backend.play(bufferId);
+    const id = handle.id ?? handle.sourceId ?? 0;
+    this.sources.set(id, handle);
     return handle;
   }
 
-  stop(sourceId: number): void {
-    this.backend.stop(sourceId);
-    this.sources.delete(sourceId);
+  stop(handle: AudioSourceHandle): void {
+    this.backend.stop(handle);
+    const id = handle.id ?? handle.sourceId ?? 0;
+    this.sources.delete(id);
   }
 
   stopAll(): void {
-    for (const sourceId of this.sources.keys()) {
-      this.backend.stop(sourceId);
+    for (const [, source] of this.sources) {
+      this.backend.stop(source);
     }
     this.sources.clear();
   }
 
-  pause(sourceId: number): void {
-    this.backend.pause(sourceId);
-    const source = this.sources.get(sourceId);
+  pause(handle: AudioSourceHandle): void {
+    this.backend.pause(handle);
+    const id = handle.id ?? handle.sourceId ?? 0;
+    const source = this.sources.get(id);
     if (source) {
       source.paused = true;
       source.playing = false;
     }
   }
 
-  resume(sourceId: number): void {
-    this.backend.resume(sourceId);
-    const source = this.sources.get(sourceId);
+  resume(handle: AudioSourceHandle): void {
+    this.backend.resume(handle);
+    const id = handle.id ?? handle.sourceId ?? 0;
+    const source = this.sources.get(id);
     if (source) {
       source.paused = false;
       source.playing = true;
@@ -102,29 +102,29 @@ export class AudioEngine {
   }
 
   seek(sourceId: number, positionSec: number): void {
-    this.backend.seek(sourceId, positionSec);
+    this.backend.seek?.(sourceId, positionSec);
   }
 
   setSourceVolume(sourceId: number, volume: number): void {
-    this.backend.setSourceVolume(sourceId, volume);
+    this.backend.setSourceVolume?.(sourceId, volume);
     const source = this.sources.get(sourceId);
     if (source) source.volume = volume;
   }
 
   setSourcePitch(sourceId: number, pitch: number): void {
-    this.backend.setSourcePitch(sourceId, pitch);
+    this.backend.setSourcePitch?.(sourceId, pitch);
     const source = this.sources.get(sourceId);
     if (source) source.pitch = pitch;
   }
 
   setSourcePosition(sourceId: number, pos: [number, number, number]): void {
-    this.backend.setSourcePosition(sourceId, pos);
+    this.backend.setSourcePosition?.(sourceId, pos);
     const source = this.sources.get(sourceId);
     if (source) source.position = pos;
   }
 
   setSourceVelocity(sourceId: number, vel: [number, number, number]): void {
-    this.backend.setSourceVelocity(sourceId, vel);
+    this.backend.setSourceVelocity?.(sourceId, vel);
     const source = this.sources.get(sourceId);
     if (source) source.velocity = vel;
   }
@@ -135,7 +135,7 @@ export class AudioEngine {
   }
 
   getListener(): AudioListenerState {
-    return this.backend.getListener();
+    return this.backend.getListener?.() ?? this.listener;
   }
 
   getMixer(): AudioMixer | null {
@@ -147,21 +147,22 @@ export class AudioEngine {
   }
 
   getActiveSources(): AudioSourceHandle[] {
-    return this.backend.getActiveSources();
+    return this.backend.getActiveSources?.() ?? [...this.sources.values()];
   }
 
-  update(dt: number): void {
+  update(dt?: number): void {
     if (!this.initialized) return;
-    this.backend.update(dt);
-    const active = this.backend.getActiveSources();
+    this.backend.update(dt ?? 0);
+    const active = this.backend.getActiveSources?.() ?? [];
     this.sources.clear();
     for (const source of active) {
-      this.sources.set(source.sourceId, source);
+      const id = source.id ?? source.sourceId ?? 0;
+      this.sources.set(id, source);
     }
   }
 
   syncPositions(positionBuffer: Float32Array, sourceCount: number): void {
-    this.backend.syncPositions(positionBuffer, sourceCount);
+    this.backend.syncPositions?.(positionBuffer, sourceCount);
   }
 
   destroy(): void {

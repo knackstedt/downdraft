@@ -1,5 +1,5 @@
-import type { World } from "../ecs/world.ts";
 import type { Entity } from "../ecs/entity.ts";
+import type { World } from "../ecs/world.ts";
 
 export interface CheckpointData {
   name: string;
@@ -18,7 +18,7 @@ export class CheckpointManager {
   create(name: string, world: World): CheckpointData {
     const entities: CheckpointData["entities"] = [];
 
-    for (let i = 0; i < world.entities.length; i++) {
+    for (let i = 1; i < world.entities.length; i++) {
       const meta = world.entities[i];
       if (!meta.alive) continue;
 
@@ -60,7 +60,7 @@ export class CheckpointManager {
     const cp = this.checkpoints.get(name);
     if (!cp) return false;
 
-    // Despawn all existing alive entities to prevent duplicates
+    // Despawn all existing alive entities (including root) to prevent duplicates
     for (let i = 0; i < world.entities.length; i++) {
       const meta = world.entities[i];
       if (meta.alive) {

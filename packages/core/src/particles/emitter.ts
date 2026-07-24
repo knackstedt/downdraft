@@ -2,11 +2,16 @@ import { Component } from "../ecs/component.ts";
 
 export type EmitterShape = "point" | "sphere" | "box" | "cone" | "disc";
 
+export interface EmitterShapeData {
+  type: EmitterShape;
+  size: [number, number, number];
+}
+
 export interface ParticleEmitterData {
   [key: string]: unknown;
   maxParticles: number;
   emissionRate: number;
-  shape: EmitterShape;
+  shape: EmitterShapeData;
   shapeSize: [number, number, number];
   position: [number, number, number];
   direction: [number, number, number];
@@ -35,12 +40,12 @@ export interface ParticleEmitterData {
 export const ParticleEmitter = Component.register<ParticleEmitterData>("ParticleEmitter", {
   maxParticles: 1000,
   emissionRate: 50,
-  shape: "point",
+  shape: { type: "point", size: [0, 0, 0] },
   shapeSize: [0, 0, 0],
   position: [0, 0, 0],
   direction: [0, 1, 0],
-  speed: 5,
-  speedVariance: 1,
+  speed: 0,
+  speedVariance: 0,
   lifetime: 2,
   lifetimeVariance: 0.5,
   startColor: [1, 1, 1, 1],
@@ -69,8 +74,7 @@ export function createFireEmitter(overrides?: Partial<ParticleEmitterData>): Par
   return ParticleEmitter.create({
     maxParticles: 500,
     emissionRate: 80,
-    shape: "cone",
-    shapeSize: [0.3, 0, 0],
+    shape: { type: "cone", size: [0.3, 0, 0] },
     direction: [0, 1, 0],
     speed: 3,
     speedVariance: 1.5,
@@ -91,8 +95,7 @@ export function createSmokeEmitter(overrides?: Partial<ParticleEmitterData>): Pa
   return ParticleEmitter.create({
     maxParticles: 300,
     emissionRate: 20,
-    shape: "disc",
-    shapeSize: [0.5, 0, 0],
+    shape: { type: "disc", size: [0.5, 0, 0] },
     direction: [0, 1, 0],
     speed: 1.5,
     speedVariance: 0.5,
@@ -102,7 +105,7 @@ export function createSmokeEmitter(overrides?: Partial<ParticleEmitterData>): Pa
     endColor: [0.1, 0.1, 0.1, 0],
     startSize: 0.8,
     endSize: 2,
-    gravity: [0, 0.5, 0],
+    gravity: [0, -0.5, 0],
     drag: 0.5,
     blendAdditive: false,
     ...overrides,
@@ -113,7 +116,7 @@ export function createSparkEmitter(overrides?: Partial<ParticleEmitterData>): Pa
   return ParticleEmitter.create({
     maxParticles: 200,
     emissionRate: 100,
-    shape: "point",
+    shape: { type: "point", size: [0, 0, 0] },
     direction: [0, 1, 0],
     speed: 8,
     speedVariance: 3,
@@ -134,8 +137,7 @@ export function createExplosionEmitter(overrides?: Partial<ParticleEmitterData>)
   return ParticleEmitter.create({
     maxParticles: 800,
     emissionRate: 800,
-    shape: "sphere",
-    shapeSize: [0.1, 0, 0],
+    shape: { type: "sphere", size: [0.1, 0, 0] },
     direction: [0, 1, 0],
     speed: 10,
     speedVariance: 5,

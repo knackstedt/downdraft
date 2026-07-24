@@ -29,7 +29,7 @@ export function system(
   name: string,
   stage: Stage,
   fn: SystemFn,
-  queries: Query[] = [],
+  opts: { queries?: Query[]; after?: string[]; before?: string[] } = {},
 ): System {
-  return { name, stage, fn, queries };
+  return { name, stage, fn, queries: opts.queries ?? [], after: opts.after, before: opts.before };
 }

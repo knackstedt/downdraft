@@ -20,7 +20,7 @@ export class PhysicsLifecycle {
   }
 
   registerRealm(name: string, config: Omit<PhysicsRealmConfig, "id">, phase: BootstrapPhase = "scene-start"): void {
-    this.pending.push({ config: { ...config, name }, phase, realm: null });
+    this.pending.push({ config: { ...config }, phase, realm: null });
   }
 
   bootstrap(phase: BootstrapPhase): void {
@@ -75,6 +75,10 @@ export class PhysicsLifecycle {
 
   stepAll(dt: number): void {
     this.backend.stepAll(dt);
+  }
+
+  getRealmCount(): number {
+    return this.realms.size;
   }
 
   listRealms(): string[] {

@@ -262,6 +262,12 @@ function initTables(): void {
       MC_TRI_TABLE[i * 16 + j] = triTable[i][j];
     }
   }
+
+  for (let i = triTable.length; i < 256; i++) {
+    for (let j = 0; j < 16; j++) {
+      MC_TRI_TABLE[i * 16 + j] = -1;
+    }
+  }
 }
 
 initTables();

@@ -51,29 +51,51 @@ export class AudioMixer {
     const state = this.channels.get(channel);
     if (!state) return;
     state.muted = true;
-    this.backend.setChannelMuted(channel, true);
+    (this.backend.setChannelMuted ?? this.backend.setChannelMute)?.(channel, true);
   }
 
   unmute(channel: AudioChannel): void {
     const state = this.channels.get(channel);
     if (!state) return;
     state.muted = false;
-    this.backend.setChannelMuted(channel, false);
+    (this.backend.setChannelMuted ?? this.backend.setChannelMute)?.(channel, false);
   }
 
   isMuted(channel: AudioChannel): boolean {
     return this.channels.get(channel)?.muted ?? false;
   }
 
-  addEffect(channel: AudioChannel, type: AudioEffectType, params?: Partial<Record<string, number>>, wet = 1.0, dry = 1.0): number {
+  setChannelVolume(channel: AudioChannel, volume: number): void {
+    this.setVolume(channel, volume);
+  }
+
+  getChannelVolume(channel: AudioChannel): number {
+    return this.getVolume(channel);
+  }
+
+  setChannelMute(channel: AudioChannel, muted: boolean): void {
+    if (muted) this.mute(channel);
+    else this.unmute(channel);
+  }
+
+  isChannelMuted(channel: AudioChannel): boolean {
+    return this.isMuted(channel);
+  }
+
+  addEffect(channel: AudioChannel, typeOrEffect: AudioEffectType | AudioEffectDesc, params?: Partial<Record<string, number>>, wet = 1.0, dry = 1.0): number {
     const state = this.channels.get(channel);
     if (!state) return -1;
-    const effect: AudioEffectDesc = {
-      type,
-      params: { ...DEFAULT_EFFECT_PARAMS[type], ...params } as Record<string, number>,
-      wet,
-      dry,
-    };
+    let effect: AudioEffectDesc;
+    if (typeof typeOrEffect === "object") {
+      effect = typeOrEffect;
+    } else {
+      effect = {
+        type: typeOrEffect,
+        params: { ...DEFAULT_EFFECT_PARAMS[typeOrEffect], ...params } as Record<string, number>,
+        wet,
+        dry,
+      };
+    }
     const id = this.backend.addEffect(channel, effect);
     state.effects.set(id, effect);
     return id;
@@ -109,7 +131,7 @@ export class AudioMixer {
       state.muted = false;
       state.effects.clear();
       this.backend.setChannelVolume(name, state.volume);
-      this.backend.setChannelMuted(name, false);
+      (this.backend.setChannelMuted ?? this.backend.setChannelMute)?.(name, false);
     }
   }
 }

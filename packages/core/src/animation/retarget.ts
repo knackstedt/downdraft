@@ -1,5 +1,5 @@
-import type { SkeletonData, Bone } from "./skeleton.ts";
 import type { AnimationClipData, KeyframeTrack } from "./clip.ts";
+import type { Bone, SkeletonData } from "./skeleton.ts";
 
 export interface BoneMapping {
   sourceBoneName: string;
@@ -12,6 +12,7 @@ export interface BoneMapping {
 
 export interface RetargetMapping {
   mappings: BoneMapping[];
+  bones: Map<string, BoneMapping>;
   sourceSkeleton: SkeletonData;
   targetSkeleton: SkeletonData;
 }
@@ -21,6 +22,7 @@ export function buildRetargetMapping(
   targetSkeleton: SkeletonData,
 ): RetargetMapping {
   const mappings: BoneMapping[] = [];
+  const bones = new Map<string, BoneMapping>();
 
   for (let ti = 0; ti < targetSkeleton.bones.length; ti++) {
     const targetBone = targetSkeleton.bones[ti];
@@ -34,18 +36,20 @@ export function buildRetargetMapping(
       const posOffset = computePositionOffset(sourceBone, targetBone);
       const scaleRatio = computeScaleRatio(sourceBone, targetBone);
 
-      mappings.push({
+      const mapping: BoneMapping = {
         sourceBoneName: sourceBone.name,
         sourceBoneIndex: sourceIndex,
         targetBoneIndex: ti,
         rotationOffset: rotOffset,
         positionOffset: posOffset,
         scaleRatio,
-      });
+      };
+      mappings.push(mapping);
+      bones.set(sourceBone.name, mapping);
     }
   }
 
-  return { mappings, sourceSkeleton, targetSkeleton };
+  return { mappings, bones, sourceSkeleton, targetSkeleton };
 }
 
 export function retargetClip(

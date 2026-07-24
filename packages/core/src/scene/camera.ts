@@ -1,4 +1,4 @@
-import { mat4, vec3, type Mat4, type Vec3 } from "wgpu-matrix";
+import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 
 export interface CameraData {
   position: [number, number, number];
@@ -14,10 +14,10 @@ export interface CameraData {
 }
 
 export class Camera {
-  position: Vec3 = vec3.create(0, 5, 10);
-  target: Vec3 = vec3.create(0, 0, 0);
-  up: Vec3 = vec3.create(0, 1, 0);
-  fov: number = 60 * (Math.PI / 180);
+  position: [number, number, number] = [0, 5, 10];
+  target: [number, number, number] = [0, 0, 0];
+  up: [number, number, number] = [0, 1, 0];
+  fov: number = 60;
   aspect: number = 1;
   near: number = 0.1;
   far: number = 1000;
@@ -28,11 +28,27 @@ export class Camera {
   private viewMatrix: Mat4 = mat4.identity();
   private projMatrix: Mat4 = mat4.identity();
   private viewProjMatrix: Mat4 = mat4.identity();
-  private dirty: boolean = true;
+  private viewDirty: boolean = true;
+  private projDirty: boolean = true;
+
+  setPosition(x: number, y: number, z: number): void {
+    this.position = [x, y, z];
+    this.viewDirty = true;
+  }
+
+  setTarget(x: number, y: number, z: number): void {
+    this.target = [x, y, z];
+    this.viewDirty = true;
+  }
 
   setAspect(width: number, height: number): void {
     this.aspect = width / height;
-    this.dirty = true;
+    this.projDirty = true;
+  }
+
+  setFov(degrees: number): void {
+    this.fov = degrees;
+    this.projDirty = true;
   }
 
   orbit(deltaYaw: number, deltaPitch: number): void {
@@ -45,7 +61,7 @@ export class Camera {
   }
 
   zoom(delta: number): void {
-    this.distance += delta;
+    this.distance -= delta;
     if (this.distance < 0.1) this.distance = 0.1;
     if (this.distance > 500) this.distance = 500;
     this.updatePosition();
@@ -55,8 +71,8 @@ export class Camera {
     const forward = vec3.normalize(vec3.subtract(this.target, this.position));
     const right = vec3.normalize(vec3.cross(forward, this.up));
     const panAmount = this.distance * 0.001;
-    this.target = vec3.subtract(this.target, vec3.scale(right, deltaX * panAmount));
-    this.target = vec3.add(this.target, vec3.scale(this.up, deltaY * panAmount));
+    this.target = vec3.subtract(this.target, vec3.scale(right, deltaX * panAmount)) as [number, number, number];
+    this.target = vec3.add(this.target, vec3.scale(this.up, deltaY * panAmount)) as [number, number, number];
     this.updatePosition();
   }
 
@@ -66,34 +82,47 @@ export class Camera {
     const cosYaw = Math.cos(this.yaw);
     const sinYaw = Math.sin(this.yaw);
 
-    this.position = vec3.create(
+    this.position = [
       this.target[0] + this.distance * cosPitch * sinYaw,
       this.target[1] + this.distance * sinPitch,
       this.target[2] + this.distance * cosPitch * cosYaw,
-    );
-    this.dirty = true;
+    ];
+    this.viewDirty = true;
+  }
+
+  isViewDirty(): boolean {
+    return this.viewDirty;
+  }
+
+  isProjDirty(): boolean {
+    return this.projDirty;
   }
 
   getViewMatrix(): Mat4 {
-    if (this.dirty) this.updateMatrices();
+    if (this.viewDirty || this.projDirty) this.updateMatrices();
     return this.viewMatrix;
   }
 
-  getProjMatrix(): Mat4 {
-    if (this.dirty) this.updateMatrices();
+  getProjectionMatrix(): Mat4 {
+    if (this.viewDirty || this.projDirty) this.updateMatrices();
     return this.projMatrix;
   }
 
-  getViewProjMatrix(): Mat4 {
-    if (this.dirty) this.updateMatrices();
+  getViewProjectionMatrix(): Mat4 {
+    if (this.viewDirty || this.projDirty) this.updateMatrices();
     return this.viewProjMatrix;
   }
 
   private updateMatrices(): void {
-    this.viewMatrix = mat4.lookAt(this.position, this.target, this.up);
-    this.projMatrix = mat4.perspective(this.fov, this.aspect, this.near, this.far);
+    if (this.viewDirty) {
+      this.viewMatrix = mat4.lookAt(this.position, this.target, this.up);
+      this.viewDirty = false;
+    }
+    if (this.projDirty) {
+      this.projMatrix = mat4.perspective(this.fov * (Math.PI / 180), this.aspect, this.near, this.far);
+      this.projDirty = false;
+    }
     this.viewProjMatrix = mat4.multiply(this.projMatrix, this.viewMatrix);
-    this.dirty = false;
   }
 
   getData(): CameraData {

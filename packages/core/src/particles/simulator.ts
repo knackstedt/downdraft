@@ -1,4 +1,4 @@
-import type { ParticleEmitterData, EmitterShape } from "./emitter.ts";
+import type { EmitterShapeData, ParticleEmitterData } from "./emitter.ts";
 import type { ParticleGPUData } from "./particle-data.ts";
 
 const TWO_PI = Math.PI * 2;
@@ -11,9 +11,10 @@ function randRange(min: number, max: number): number {
   return min + rand() * (max - min);
 }
 
-function sampleShape(shape: EmitterShape, size: [number, number, number]): [number, number, number] {
+function sampleShape(shape: EmitterShapeData | string, size: [number, number, number]): [number, number, number] {
   const [sx, sy, sz] = size;
-  switch (shape) {
+  const type = typeof shape === "string" ? shape : shape?.type ?? "point";
+  switch (type) {
     case "point":
       return [0, 0, 0];
     case "sphere": {
@@ -85,25 +86,18 @@ export interface ParticleSimulatorConfig {
 }
 
 export class ParticleSimulator {
-  private gpuData: Map<number, ParticleGPUData> = new Map();
-  private cursor: Map<number, number> = new Map();
+  private emitter: ParticleEmitterData;
+  private gpuData: ParticleGPUData;
+  private cursor: number = 0;
   private config: ParticleSimulatorConfig;
 
-  constructor(config: Partial<ParticleSimulatorConfig> = {}) {
+  constructor(emitter: ParticleEmitterData, config: Partial<ParticleSimulatorConfig> = {}) {
+    this.emitter = emitter;
     this.config = {
       maxParticlesPerEmitter: config.maxParticlesPerEmitter ?? 10000,
     };
-  }
-
-  getOrCreateData(emitterId: number, maxParticles: number): ParticleGPUData {
-    let data = this.gpuData.get(emitterId);
-    if (!data) {
-      const capped = Math.min(maxParticles, this.config.maxParticlesPerEmitter);
-      data = this._createData(capped);
-      this.gpuData.set(emitterId, data);
-      this.cursor.set(emitterId, 0);
-    }
-    return data;
+    const capped = Math.min(emitter.maxParticles, this.config.maxParticlesPerEmitter);
+    this.gpuData = this._createData(capped);
   }
 
   private _createData(max: number): ParticleGPUData {
@@ -120,10 +114,15 @@ export class ParticleSimulator {
     };
   }
 
-  simulate(emitterId: number, emitter: ParticleEmitterData, dt: number): ParticleGPUData {
-    const data = this.getOrCreateData(emitterId, emitter.maxParticles);
+  getParticleData(): ParticleGPUData {
+    return this.gpuData;
+  }
+
+  update(dt: number): ParticleGPUData {
+    const emitter = this.emitter;
+    const data = this.gpuData;
     const max = Math.min(emitter.maxParticles, this.config.maxParticlesPerEmitter);
-    let cursor = this.cursor.get(emitterId) ?? 0;
+    let cursor = this.cursor;
 
     // Emit new particles
     if (emitter.active) {
@@ -133,16 +132,17 @@ export class ParticleSimulator {
       );
 
       for (let i = 0; i < toEmit; i++) {
-        const offset = sampleShape(emitter.shape, emitter.shapeSize);
+        const offset = sampleShape(emitter.shape, emitter.shapeSize ?? emitter.shape?.size ?? [0, 0, 0]);
         const px = emitter.position[0] + offset[0];
         const py = emitter.position[1] + offset[1];
         const pz = emitter.position[2] + offset[2];
 
         let dir: [number, number, number];
-        if (emitter.shape === "cone") {
+        const shapeType = typeof emitter.shape === "string" ? emitter.shape : emitter.shape?.type ?? "point";
+        if (shapeType === "cone") {
           const coneAngle = Math.PI / 6;
           dir = sampleConeDirection(emitter.direction, coneAngle);
-        } else if (emitter.shape === "sphere") {
+        } else if (shapeType === "sphere") {
           dir = normalize([offset[0], offset[1], offset[2]]);
         } else {
           dir = normalize(emitter.direction);
@@ -180,7 +180,7 @@ export class ParticleSimulator {
         cursor = (cursor + 1) % max;
       }
 
-      this.cursor.set(emitterId, cursor);
+      this.cursor = cursor;
     }
 
     // Update existing particles
@@ -229,6 +229,10 @@ export class ParticleSimulator {
     return data;
   }
 
+  simulate(emitterId: number, emitter: ParticleEmitterData, dt: number): ParticleGPUData {
+    return this.update(dt);
+  }
+
   private _countActive(data: ParticleGPUData, max: number): number {
     let count = 0;
     for (let i = 0; i < max; i++) {
@@ -241,22 +245,18 @@ export class ParticleSimulator {
     return this._countActive(data, max);
   }
 
-  reset(emitterId: number): void {
-    const data = this.gpuData.get(emitterId);
-    if (data) {
-      data.active.fill(0);
-      data.lifetime.fill(0);
-    }
-    this.cursor.set(emitterId, 0);
+  reset(): void {
+    this.gpuData.active.fill(0);
+    this.gpuData.lifetime.fill(0);
+    this.cursor = 0;
   }
 
-  dispose(emitterId: number): void {
-    this.gpuData.delete(emitterId);
-    this.cursor.delete(emitterId);
+  dispose(): void {
+    this.gpuData = this._createData(0);
+    this.cursor = 0;
   }
 
   disposeAll(): void {
-    this.gpuData.clear();
-    this.cursor.clear();
+    this.reset();
   }
 }

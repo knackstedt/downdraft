@@ -1,0 +1,113 @@
+import {
+  createArchetype,
+  archetypeMatches,
+  addEntityToArchetype,
+  removeEntityFromArchetype,
+  getComponentColumn,
+} from "./archetype.ts";
+import { component } from "./component.ts";
+import type { Entity } from "./entity.ts";
+
+const Position = component("Position", { x: 0, y: 0 });
+const Velocity = component("Velocity", { vx: 0, vy: 0 });
+const Health = component("Health", { hp: 100 });
+
+function makeEntity(index: number, generation: number = 0): Entity {
+  return { index, generation };
+}
+
+describe("Archetype", () => {
+  it("should create archetype with component IDs", () => {
+    const arch = createArchetype([Position.id, Velocity.id]);
+    expect(arch.componentIds).toEqual([Position.id, Velocity.id]);
+    expect(arch.componentSet.has(Position.id)).toBe(true);
+    expect(arch.componentSet.has(Velocity.id)).toBe(true);
+    expect(arch.entities).toEqual([]);
+  });
+
+  it("archetypeMatches should return true for matching required components", () => {
+    const arch = createArchetype([Position.id, Velocity.id]);
+    expect(archetypeMatches(arch, [Position.id, Velocity.id], [])).toBe(true);
+  });
+
+  it("archetypeMatches should return true for superset of required", () => {
+    const arch = createArchetype([Position.id, Velocity.id, Health.id]);
+    expect(archetypeMatches(arch, [Position.id, Velocity.id], [])).toBe(true);
+  });
+
+  it("archetypeMatches should return false for missing required", () => {
+    const arch = createArchetype([Position.id]);
+    expect(archetypeMatches(arch, [Position.id, Velocity.id], [])).toBe(false);
+  });
+
+  it("archetypeMatches should return false for excluded components present", () => {
+    const arch = createArchetype([Position.id, Velocity.id]);
+    expect(archetypeMatches(arch, [Position.id], [Velocity.id])).toBe(false);
+  });
+
+  it("archetypeMatches should return true when excluded not present", () => {
+    const arch = createArchetype([Position.id]);
+    expect(archetypeMatches(arch, [Position.id], [Velocity.id])).toBe(true);
+  });
+
+  it("addEntityToArchetype should add entity and store component data", () => {
+    const arch = createArchetype([Position.id]);
+    const e = makeEntity(1);
+
+    addEntityToArchetype(arch, e, new Map([
+      [Position.id, { x: 5, y: 10 }],
+    ]));
+
+    expect(arch.entities).toContain(e);
+  });
+
+  it("addEntityToArchetype should create component columns", () => {
+    const arch = createArchetype([Position.id]);
+    const e = makeEntity(1);
+
+    addEntityToArchetype(arch, e, new Map([
+      [Position.id, { x: 5, y: 10 }],
+    ]));
+
+    const col = getComponentColumn(arch, Position.id);
+    expect(col).toBeDefined();
+    expect(col![0]).toEqual({ x: 5, y: 10 });
+  });
+
+  it("removeEntityFromArchetype should remove entity", () => {
+    const arch = createArchetype([Position.id]);
+    const e1 = makeEntity(1);
+    const e2 = makeEntity(2);
+
+    addEntityToArchetype(arch, e1, new Map([[Position.id, { x: 1, y: 0 }]]));
+    addEntityToArchetype(arch, e2, new Map([[Position.id, { x: 2, y: 0 }]]));
+
+    removeEntityFromArchetype(arch, e1);
+
+    expect(arch.entities).not.toContain(e1);
+    expect(arch.entities).toContain(e2);
+  });
+
+  it("getComponentColumn should return undefined for non-existent component", () => {
+    const arch = createArchetype([Position.id]);
+    expect(getComponentColumn(arch, Velocity.id)).toBeUndefined();
+  });
+
+  it("should handle multiple entities in archetype", () => {
+    const arch = createArchetype([Position.id, Velocity.id]);
+
+    for (let i = 0; i < 10; i++) {
+      addEntityToArchetype(arch, makeEntity(i), new Map([
+        [Position.id, { x: i, y: 0 }],
+        [Velocity.id, { vx: i * 2, vy: 0 }],
+      ]));
+    }
+
+    expect(arch.entities.length).toBe(10);
+  });
+
+  it("removeEntityFromArchetype should not crash on empty archetype", () => {
+    const arch = createArchetype([Position.id]);
+    expect(() => removeEntityFromArchetype(arch, makeEntity(999))).not.toThrow();
+  });
+});

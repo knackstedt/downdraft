@@ -23,7 +23,7 @@ export interface GerstnerWaveConfig {
 
 export const DEFAULT_WAVE_CONFIG: GerstnerWaveConfig = {
   waves: [
-    { direction: [1, 0], amplitude: 0.5, wavelength: 10, speed: 1.0, steepness: 0.8 },
+    { direction: [1, 0], amplitude: 0.5, wavelength: 10, speed: 1.0, steepness: 0.75 },
     { direction: [0.7, 0.7], amplitude: 0.25, wavelength: 5, speed: 1.2, steepness: 0.6 },
     { direction: [-0.5, 0.8], amplitude: 0.15, wavelength: 3, speed: 1.5, steepness: 0.5 },
     { direction: [0.3, -0.9], amplitude: 0.08, wavelength: 1.5, speed: 2.0, steepness: 0.4 },

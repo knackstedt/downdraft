@@ -1,17 +1,16 @@
+import {
+    addEntityToArchetype,
+    type Archetype,
+    createArchetype,
+    findEntityRow,
+    getArchetypeForComponents,
+    removeEntityFromArchetype,
+} from "./archetype.ts";
+import type { ComponentId } from "./component.ts";
 import type { Entity, EntityMeta } from "./entity.ts";
 import { ROOT_ENTITY } from "./entity.ts";
-import type { ComponentId, ComponentDefinition } from "./component.ts";
-import {
-  type Archetype,
-  createArchetype,
-  getArchetypeForComponents,
-  addEntityToArchetype,
-  removeEntityFromArchetype,
-  findEntityRow,
-} from "./archetype.ts";
-import { Schedule, type SystemContext } from "./schedule.ts";
 import { EventBus } from "./events.ts";
-import type { Query } from "./query.ts";
+import { Schedule, type SystemContext } from "./schedule.ts";
 
 interface Command {
   (world: World): void;
@@ -83,10 +82,7 @@ export class World {
     const arch = this.findArchetypeById(meta.archetypeId);
     if (!arch) return;
 
-    const row = findEntityRow(arch, entity);
-    if (row >= 0) {
-      removeEntityFromArchetype(arch, row);
-    }
+    removeEntityFromArchetype(arch, entity);
 
     meta.alive = false;
     meta.generation++;
@@ -114,7 +110,7 @@ export class World {
     }
     existingComponents.set(componentId, data);
 
-    removeEntityFromArchetype(oldArch, oldRow);
+    removeEntityFromArchetype(oldArch, entity);
 
     const newArch = getArchetypeForComponents(this.archetypes, [...existingComponents.keys()]);
     this.registerArchetype(newArch);
@@ -145,7 +141,7 @@ export class World {
       }
     }
 
-    removeEntityFromArchetype(oldArch, oldRow);
+    removeEntityFromArchetype(oldArch, entity);
 
     const newArch = existingComponents.size === 0
       ? this.emptyArchetype
@@ -223,5 +219,6 @@ export class World {
   }
 }
 
-export type { Command };
 export { ROOT_ENTITY };
+export type { Command };
+

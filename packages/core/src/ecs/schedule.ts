@@ -1,7 +1,7 @@
-import { Stage, type System, type SystemFn, type SystemContext } from "./system.ts";
-export type { SystemContext };
-import type { Query } from "./query.ts";
 import type { Archetype } from "./archetype.ts";
+import type { Query } from "./query.ts";
+import { Stage, type System, type SystemContext } from "./system.ts";
+export type { SystemContext };
 
 interface ScheduledSystem {
   system: System;
@@ -14,6 +14,10 @@ export class Schedule {
   private dirty: boolean = true;
 
   add(sys: System): this {
+    return this.addSystem(sys);
+  }
+
+  addSystem(sys: System): this {
     const stage = sys.stage;
     let bucket = this.systems.get(stage);
     if (!bucket) {
@@ -26,6 +30,10 @@ export class Schedule {
   }
 
   remove(name: string): this {
+    return this.removeSystem(name);
+  }
+
+  removeSystem(name: string): this {
     for (const [stage, bucket] of this.systems) {
       const idx = bucket.findIndex((s) => s.system.name === name);
       if (idx >= 0) {
@@ -74,6 +82,13 @@ export class Schedule {
     const queries = this.getAllQueries();
     for (let i = 0; i < queries.length; i++) {
       queries[i].updateArchetypes(archetypes);
+    }
+  }
+
+  run(world: import("./world.ts").World, dt: number, tick: number): void {
+    const ctx: SystemContext = { world, dt, tick };
+    for (let s = 0; s <= 4; s++) {
+      this.runStage(s as Stage, ctx);
     }
   }
 

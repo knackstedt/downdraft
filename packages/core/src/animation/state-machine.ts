@@ -22,6 +22,7 @@ export interface AnimationState {
   blendTree?: BlendTree;
   speed: number;
   loop: boolean;
+  weight: number;
 }
 
 export interface AnimationTransition {
@@ -41,18 +42,32 @@ export class AnimationStateMachine {
   private transitionDuration = 0;
   private transitioning = false;
   private parameters: Map<string, number> = new Map();
-  private player: AnimationPlayer;
+  private player: AnimationPlayer | null = null;
 
-  constructor(player: AnimationPlayer) {
-    this.player = player;
+  constructor(player?: AnimationPlayer) {
+    this.player = player ?? null;
   }
 
-  addState(state: AnimationState): void {
-    this.states.set(state.name, state);
+  addState(name: string, opts?: { clip?: AnimationClip; weight?: number; blendTree?: BlendTree; speed?: number; loop?: boolean }): void {
+    this.states.set(name, {
+      name,
+      clip: opts?.clip,
+      blendTree: opts?.blendTree,
+      speed: opts?.speed ?? 1,
+      loop: opts?.loop ?? true,
+      weight: opts?.weight ?? 1,
+    });
   }
 
-  addTransition(transition: AnimationTransition): void {
-    this.transitions.push(transition);
+  addTransition(from: string, to: string, opts: { duration: number; conditions: Array<{ parameter: string; op: ">" | "<" | "==" | "!=" | ">=" | "<="; value: number }>; exitTime?: number }): void {
+    this.transitions.push({ from, to, duration: opts.duration, conditions: opts.conditions, exitTime: opts.exitTime });
+  }
+
+  setInitialState(name: string): void {
+    if (!this.states.has(name)) throw new Error(`State "${name}" not found`);
+    this.currentState = name;
+    this.transitioning = false;
+    this.playState(name, 1, 0);
   }
 
   setParameter(name: string, value: number): void {
@@ -64,23 +79,32 @@ export class AnimationStateMachine {
   }
 
   start(stateName: string): void {
-    if (!this.states.has(stateName)) throw new Error(`State "${stateName}" not found`);
-    this.currentState = stateName;
-    this.transitioning = false;
-    this.playState(stateName, 1, 0);
+    this.setInitialState(stateName);
   }
 
-  update(dt: number): void {
+  update(dt: number, params?: Record<string, number>): void {
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        this.setParameter(k, v);
+      }
+    }
     if (!this.currentState) return;
 
     if (this.transitioning) {
       this.transitionTime += dt;
       const alpha = Math.min(1, this.transitionTime / this.transitionDuration);
-      this.player.setWeight(1 - alpha, this.getStateClip(this.previousState!));
-      this.player.setWeight(alpha, this.getStateClip(this.currentState!));
+      if (this.player) {
+        const prevClip = this.getStateClip(this.previousState!);
+        const currClip = this.getStateClip(this.currentState!);
+        if (prevClip) this.player.setWeight(this.previousState!, 1 - alpha);
+        if (currClip) this.player.setWeight(this.currentState!, alpha);
+      }
 
       if (alpha >= 1) {
-        this.player.stop(this.getStateClip(this.previousState!));
+        if (this.player) {
+          const prevClip = this.getStateClip(this.previousState!);
+          if (prevClip) this.player.stop(this.previousState!);
+        }
         this.transitioning = false;
         this.previousState = null;
       }
@@ -105,8 +129,8 @@ export class AnimationStateMachine {
     const state = this.states.get(name);
     if (!state) return;
     const clip = this.getStateClip(name);
-    if (clip) {
-      this.player.play(clip, { speed: state.speed, weight, loop: state.loop, fadeDuration });
+    if (clip && this.player) {
+      this.player.play(name, clip, { speed: state.speed, weight, loop: state.loop, fadeDuration });
     }
   }
 
@@ -179,14 +203,14 @@ export class AnimationStateMachine {
   private updateBlendTrees(dt: number): void {
     if (!this.currentState) return;
     const state = this.states.get(this.currentState);
-    if (!state || !state.blendTree) return;
+    if (!state || !state.blendTree || !this.player) return;
 
     const activeClips = this.getActiveBlendClips(state.blendTree);
     for (const { clip, weight } of activeClips) {
       if (!this.player.isPlaying(clip)) {
-        this.player.play(clip, { speed: state.speed, weight, loop: state.loop });
+        this.player.play(state.name, clip, { speed: state.speed, weight, loop: state.loop });
       }
-      this.player.setWeight(weight, clip);
+      this.player.setWeight(state.name, weight);
     }
   }
 
@@ -225,9 +249,9 @@ export class AnimationStateMachine {
     this.transitionDuration = t.duration;
 
     const targetClip = this.getStateClip(t.to);
-    if (targetClip) {
+    if (targetClip && this.player) {
       const state = this.states.get(t.to);
-      this.player.play(targetClip, {
+      this.player.play(t.to, targetClip, {
         speed: state?.speed ?? 1,
         weight: 0,
         loop: state?.loop ?? true,

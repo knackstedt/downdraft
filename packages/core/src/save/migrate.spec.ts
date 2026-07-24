@@ -1,8 +1,8 @@
-import { SchemaRegistry, CURRENT_SCHEMA_VERSION } from "./schema.ts";
-import { Serializer, type SaveData } from "./serializer.ts";
-import { SaveSystem } from "./migrate.ts";
-import { World } from "../ecs/world.ts";
 import { component } from "../ecs/component.ts";
+import { World } from "../ecs/world.ts";
+import { SaveSystem } from "./migrate.ts";
+import { CURRENT_SCHEMA_VERSION, SchemaRegistry } from "./schema.ts";
+import { Serializer, type SaveData } from "./serializer.ts";
 
 const Health = component("Health", { hp: 100 });
 const Name = component("Name", { name: "entity" });
@@ -53,8 +53,8 @@ describe("Serializer", () => {
 
     expect(data.schemaVersion).toBe(1);
     expect(data.scene.name).toBe("test-scene");
-    // ROOT_ENTITY + 2 spawned = 3 total
-    expect(data.scene.entities.length).toBe(3);
+    // 2 spawned entities (ROOT excluded from serialization)
+    expect(data.scene.entities.length).toBe(2);
   });
 
   it("should round-trip serialize → deserialize", () => {
@@ -69,8 +69,8 @@ describe("Serializer", () => {
     const newWorld = new World();
     serializer.deserialize(data, newWorld, reg);
 
-    // ROOT_ENTITY + 1 from original + 1 from deserialize = 3
-    expect(newWorld.entityCount()).toBe(3);
+    // World cleared, then 1 entity deserialized = 1 alive
+    expect(newWorld.entityCount()).toBe(1);
   });
 
   it("should convert to and from JSON", () => {
@@ -106,7 +106,7 @@ describe("SaveSystem", () => {
     const newWorld = new World();
     save.load(data, newWorld);
 
-    expect(newWorld.entityCount()).toBe(3);
+    expect(newWorld.entityCount()).toBe(1);
   });
 
   it("should expose schema registry for migrations", () => {
