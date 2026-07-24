@@ -19,7 +19,7 @@ export function getComponentName(id: ComponentId): string {
   return componentNameRegistry.get(id) ?? `Unknown(${id})`;
 }
 
-export interface Component {
+export interface IComponent {
   readonly __componentId?: ComponentId;
 }
 
@@ -32,11 +32,11 @@ export function component<T extends Record<string, unknown>>(
     id,
     name,
     defaults,
-    create: (overrides?: Partial<T>): T & Component => ({
+    create: (overrides?: Partial<T>): T & IComponent => ({
       ...defaults,
       ...overrides,
       __componentId: id,
-    } as T & Component),
+    } as T & IComponent),
   };
 }
 
@@ -44,7 +44,7 @@ export interface ComponentDefinition<T extends Record<string, unknown>> {
   id: ComponentId;
   name: string;
   defaults: T;
-  create: (overrides?: Partial<T>) => T & Component;
+  create: (overrides?: Partial<T>) => T & IComponent;
 }
 
 export const Component = {

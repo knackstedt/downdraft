@@ -23,7 +23,7 @@ export class SaveSystem {
     this.serializer.deserialize(data, world, this.schemaRegistry);
   }
 
-  saveToFile(world: World, sceneName: string, path: string): Promise<void> {
+  saveToFile(world: World, sceneName: string, path: string): Promise<number> {
     const data = this.save(world, sceneName);
     const json = this.serializer.toJSON(data);
     return Bun.write(path, json);

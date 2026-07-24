@@ -93,8 +93,7 @@ export class OpaquePass extends RenderPass {
 
   ensureDepthTexture(width: number, height: number): GPUTexture {
     if (this.depthTexture) {
-      const size = this.depthTexture.size as GPUExtent3D;
-      if ((size as any).width === width && (size as any).height === height) {
+      if (this.depthTexture.width === width && this.depthTexture.height === height) {
         return this.depthTexture;
       }
       this.depthTexture.destroy();

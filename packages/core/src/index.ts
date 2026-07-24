@@ -3,7 +3,7 @@ export { World } from "./ecs/world.ts";
 export type { Entity, EntityMeta } from "./ecs/entity.ts";
 export { ROOT_ENTITY, entityEqual, entityToString, isAlive } from "./ecs/entity.ts";
 export { getComponentId, getComponentName, component, Component } from "./ecs/component.ts";
-export type { ComponentId, ComponentDefinition, Component } from "./ecs/component.ts";
+export type { ComponentId, ComponentDefinition, IComponent } from "./ecs/component.ts";
 export { createArchetype, archetypeMatches, getArchetypeForComponents } from "./ecs/archetype.ts";
 export type { Archetype } from "./ecs/archetype.ts";
 export { Query, query, queryExcluded, queryChanged } from "./ecs/query.ts";
@@ -112,7 +112,7 @@ export { DebugDrawQueue } from "./debug-draw/queue.ts";
 export type { DebugLine, DebugPoint, DebugText } from "./debug-draw/queue.ts";
 export { DebugLines } from "./debug-draw/lines.ts";
 export { DebugPoints } from "./debug-draw/points.ts";
-export { DebugText } from "./debug-draw/text.ts";
+export { DebugTextRenderer } from "./debug-draw/text.ts";
 
 // Builder
 export { Builder, getBuilderConfig } from "./builder/builder.ts";

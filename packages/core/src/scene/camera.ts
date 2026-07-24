@@ -55,8 +55,8 @@ export class Camera {
     const forward = vec3.normalize(vec3.subtract(this.target, this.position));
     const right = vec3.normalize(vec3.cross(forward, this.up));
     const panAmount = this.distance * 0.001;
-    this.target = vec3.subtract(this.target, vec3.multiplyScalar(right, deltaX * panAmount));
-    this.target = vec3.add(this.target, vec3.multiplyScalar(this.up, deltaY * panAmount));
+    this.target = vec3.subtract(this.target, vec3.scale(right, deltaX * panAmount));
+    this.target = vec3.add(this.target, vec3.scale(this.up, deltaY * panAmount));
     this.updatePosition();
   }
 

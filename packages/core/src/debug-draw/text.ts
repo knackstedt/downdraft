@@ -1,6 +1,6 @@
 import { DebugDrawQueue } from "./queue.ts";
 
-export class DebugText {
+export class DebugTextRenderer {
   private queue: DebugDrawQueue;
 
   constructor(queue: DebugDrawQueue) {

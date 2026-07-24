@@ -141,7 +141,7 @@ export class SeqlockBuffer<T = Record<string, unknown>> {
     return this.lastReadData;
   }
 
-  readInto(target: T): boolean {
+  readInto(target: T & Record<string, unknown>): boolean {
     const result = this.read();
     if (result === null) return false;
     Object.assign(target, result);

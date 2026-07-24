@@ -1,4 +1,5 @@
 import { Stage, type System, type SystemFn, type SystemContext } from "./system.ts";
+export type { SystemContext };
 import type { Query } from "./query.ts";
 import type { Archetype } from "./archetype.ts";
 
