@@ -15,9 +15,9 @@ export class HDRSupport {
 
   async detect(adapter: GPUAdapter): Promise<HDRConfig> {
     const features = adapter.features;
-    const hasBC = features.has("texture-compression-bc");
+    const hasFloat32Filterable = features.has("float32-filterable");
 
-    if (hasBC) {
+    if (hasFloat32Filterable) {
       this.config = {
         enabled: true,
         format: "rgba16float",

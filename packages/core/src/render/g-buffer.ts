@@ -23,8 +23,8 @@ export interface GBufferViews {
 }
 
 export class GBuffer {
-  private width: number;
-  private height: number;
+  private _width: number;
+  private _height: number;
   private textures: GBufferTextures | null = null;
   private views: GBufferViews | null = null;
   private device: GPUDevice;
@@ -32,8 +32,8 @@ export class GBuffer {
 
   constructor(device: GPUDevice, width: number, height: number, sampleCount: number = 1) {
     this.device = device;
-    this.width = width;
-    this.height = height;
+    this._width = width;
+    this._height = height;
     this.sampleCount = sampleCount;
     this.create();
   }
@@ -41,7 +41,7 @@ export class GBuffer {
   private create(): void {
     const makeTexture = (format: GPUTextureFormat, usage: GPUTextureUsageFlags) =>
       this.device.createTexture({
-        size: [this.width, this.height],
+        size: [this._width, this._height],
         format,
         usage,
         sampleCount: this.sampleCount,
@@ -68,10 +68,10 @@ export class GBuffer {
   }
 
   resize(width: number, height: number): void {
-    if (this.width === width && this.height === height) return;
+    if (this._width === width && this._height === height) return;
     this.destroy();
-    this.width = width;
-    this.height = height;
+    this._width = width;
+    this._height = height;
     this.create();
   }
 
@@ -135,6 +135,6 @@ export class GBuffer {
     }
   }
 
-  get width_(): number { return this.width; }
-  get height_(): number { return this.height; }
+  get width(): number { return this._width; }
+  get height(): number { return this._height; }
 }

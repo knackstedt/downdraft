@@ -25,13 +25,13 @@ fn vs_main(input: VertexInput) -> @builtin(position) vec4<f32> {
 export class ShadowPass extends RenderPass {
   name = "shadow";
   private device: GPUDevice;
-  private pipeline: GPURenderPipeline | null = null;
+  private pipelines: Map<number, GPURenderPipeline> = new Map();
+  private bindGroups: Map<number, GPUBindGroup> = new Map();
   private shaderModule: GPUShaderModule | null = null;
   private shadowTexture: GPUTexture | null = null;
   private shadowView: GPUTextureView | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private modelBuffer: GPUBuffer | null = null;
-  private bindGroup: GPUBindGroup | null = null;
   private shadowMapSize: number = 2048;
   private lightViewProj: Mat4 = mat4.identity();
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
@@ -63,34 +63,40 @@ export class ShadowPass extends RenderPass {
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+  }
 
-    this.pipeline = this.device.createRenderPipeline({
-      layout: "auto",
-      vertex: {
-        module: this.shaderModule,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: 48,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-          ],
-        }],
-      },
-      primitive: { topology: "triangle-list", cullMode: "back" },
-      depthStencil: {
-        format: "depth32float",
-        depthWriteEnabled: true,
-        depthCompare: "less",
-      },
-    });
-
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: this.modelBuffer } },
-      ],
-    });
+  private getPipeline(stride: number): GPURenderPipeline {
+    let pipeline = this.pipelines.get(stride);
+    if (!pipeline) {
+      pipeline = this.device.createRenderPipeline({
+        layout: "auto",
+        vertex: {
+          module: this.shaderModule!,
+          entryPoint: "vs_main",
+          buffers: [{
+            arrayStride: stride,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+            ],
+          }],
+        },
+        primitive: { topology: "triangle-list", cullMode: "back" },
+        depthStencil: {
+          format: "depth32float",
+          depthWriteEnabled: true,
+          depthCompare: "less",
+        },
+      });
+      this.pipelines.set(stride, pipeline);
+      this.bindGroups.set(stride, this.device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer! } },
+          { binding: 1, resource: { buffer: this.modelBuffer! } },
+        ],
+      }));
+    }
+    return pipeline;
   }
 
   setLightViewProj(viewProj: Mat4): void {
@@ -105,9 +111,12 @@ export class ShadowPass extends RenderPass {
   execute(ctx: RenderPassContext, mesh: MeshData, modelMatrix: Mat4): void;
   execute(ctx: RenderPassContext): void;
   execute(ctx: RenderPassContext, mesh?: MeshData, modelMatrix?: Mat4): void {
-    if (!this.pipeline || !this.bindGroup || !mesh || !modelMatrix) return;
+    if (!this.shaderModule || !mesh || !modelMatrix) return;
 
     this.setModelMatrix(modelMatrix);
+
+    const pipeline = this.getPipeline(mesh.layout.stride);
+    const bindGroup = this.bindGroups.get(mesh.layout.stride)!;
 
     const encoder = ctx.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -121,8 +130,8 @@ export class ShadowPass extends RenderPass {
     });
 
     const tracked = pass instanceof TrackedRenderPass ? pass : new TrackedRenderPass(pass);
-    tracked.setPipeline(this.pipeline);
-    tracked.setBindGroup(0, this.bindGroup);
+    tracked.setPipeline(pipeline);
+    tracked.setBindGroup(0, bindGroup);
     tracked.setVertexBuffer(0, this.getVertexBuffer(mesh));
     tracked.setIndexBuffer(this.getIndexBuffer(mesh), mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
     tracked.drawIndexed(mesh.indexCount);
@@ -185,5 +194,7 @@ export class ShadowPass extends RenderPass {
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
+    this.pipelines.clear();
+    this.bindGroups.clear();
   }
 }

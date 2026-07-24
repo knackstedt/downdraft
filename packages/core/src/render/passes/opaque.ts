@@ -109,4 +109,13 @@ export class OpaquePass extends RenderPass {
   getDepthTextureView(): GPUTextureView | null {
     return this.depthTexture?.createView() ?? null;
   }
+
+  destroy(): void {
+    this.vertexBuffer?.destroy();
+    this.indexBuffer?.destroy();
+    this.depthTexture?.destroy();
+    this.vertexBuffer = null;
+    this.indexBuffer = null;
+    this.depthTexture = null;
+  }
 }

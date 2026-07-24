@@ -2,11 +2,13 @@ import type { RenderPassContext } from "../render-pass.ts";
 import { RenderPass } from "../render-pass.ts";
 
 const FULLSCREEN_VS = `
+struct FullscreenOutput {
+  @builtin(position) clipPosition: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+};
+
 @vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> (
-  @builtin(position) vec4<f32>,
-  @location(0) vec2<f32>,
-) {
+fn vs_main(@builtin(vertex_index) vi: u32) -> FullscreenOutput {
   let positions = array<vec2<f32>, 6>(
     vec2<f32>(-1.0, -1.0),
     vec2<f32>( 1.0, -1.0),
@@ -16,7 +18,10 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> (
     vec2<f32>( 1.0,  1.0),
   );
   let pos = positions[vi];
-  return (vec4<f32>(pos, 0.0, 1.0), pos * 0.5 + 0.5);
+  var output: FullscreenOutput;
+  output.clipPosition = vec4<f32>(pos, 0.0, 1.0);
+  output.uv = pos * 0.5 + 0.5;
+  return output;
 }
 `;
 

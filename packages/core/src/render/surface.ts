@@ -11,7 +11,6 @@ export class SurfaceManager {
   private device: GPUDevice;
   private context: GPUCanvasContext | null = null;
   private config: SurfaceConfig | null = null;
-  private currentTexture: GPUTexture | null = null;
   private canvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
   constructor(device: GPUDevice) {
@@ -47,8 +46,7 @@ export class SurfaceManager {
 
   getCurrentTexture(): GPUTexture | null {
     if (!this.context) return null;
-    this.currentTexture = this.context.getCurrentTexture();
-    return this.currentTexture;
+    return this.context.getCurrentTexture();
   }
 
   reconfigure(width: number, height: number): void {

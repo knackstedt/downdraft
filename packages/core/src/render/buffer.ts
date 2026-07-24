@@ -26,7 +26,7 @@ export class RingBuffer {
     return { offset, buffer: this.buffer };
   }
 
-  write(data: ArrayBuffer, offset: number = 0): void {
+  write(data: BufferSource, offset: number = 0): void {
     if (!this.buffer) return;
     this.device.queue.writeBuffer(this.buffer, offset, data);
   }
@@ -66,7 +66,7 @@ export class ArenaBuffer {
     return result;
   }
 
-  write(data: ArrayBuffer, offset: number): void {
+  write(data: BufferSource, offset: number): void {
     if (!this.buffer) return;
     this.device.queue.writeBuffer(this.buffer, offset, data);
   }

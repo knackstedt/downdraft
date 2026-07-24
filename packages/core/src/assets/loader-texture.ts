@@ -34,16 +34,61 @@ export async function loadTextureFromImage(
   ctx.drawImage(bitmap, 0, 0);
   const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
 
-  const mipLevels = 1;
+  let data: Uint8Array = new Uint8Array(imageData.data.buffer);
+  let mipLevels = 1;
+
+  if (generateMips) {
+    mipLevels = Math.floor(Math.log2(Math.max(bitmap.width, bitmap.height))) + 1;
+    const mipChain = generateMipChain(data, bitmap.width, bitmap.height, mipLevels);
+    data = mipChain;
+  }
 
   return {
     width: bitmap.width,
     height: bitmap.height,
-    data: new Uint8Array(imageData.data.buffer),
+    data,
     format,
     mipLevels,
     isHDR: false,
   };
+}
+
+function generateMipChain(
+  baseData: Uint8Array,
+  baseWidth: number,
+  baseHeight: number,
+  mipLevels: number,
+): Uint8Array {
+  const levels: Uint8Array[] = [baseData];
+  let prevWidth = baseWidth;
+  let prevHeight = baseHeight;
+
+  for (let level = 1; level < mipLevels; level++) {
+    const w = Math.max(1, Math.floor(prevWidth / 2));
+    const h = Math.max(1, Math.floor(prevHeight / 2));
+    const prevCanvas = new OffscreenCanvas(prevWidth, prevHeight);
+    const prevCtx = prevCanvas.getContext("2d")!;
+    const prevImageData = prevCtx.createImageData(prevWidth, prevHeight);
+    prevImageData.data.set(levels[level - 1]);
+    prevCtx.putImageData(prevImageData, 0, 0);
+
+    const mipCanvas = new OffscreenCanvas(w, h);
+    const mipCtx = mipCanvas.getContext("2d")!;
+    mipCtx.drawImage(prevCanvas, 0, 0, w, h);
+    const mipImageData = mipCtx.getImageData(0, 0, w, h);
+    levels.push(new Uint8Array(mipImageData.data.buffer));
+    prevWidth = w;
+    prevHeight = h;
+  }
+
+  const totalSize = levels.reduce((sum, l) => sum + l.length, 0);
+  const result = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const level of levels) {
+    result.set(level, offset);
+    offset += level.length;
+  }
+  return result;
 }
 
 interface KTX2Header {
@@ -138,12 +183,30 @@ export function createGPUTextureFromData(
   });
 
   if (texture.data instanceof Uint8Array && !isCompressed) {
-    device.queue.writeTexture(
-      { texture: gpuTexture },
-      texture.data as unknown as BufferSource,
-      { bytesPerRow: texture.width * 4 },
-      { width: texture.width, height: texture.height },
-    );
+    if (texture.mipLevels > 1) {
+      let offset = 0;
+      let w = texture.width;
+      let h = texture.height;
+      for (let level = 0; level < texture.mipLevels; level++) {
+        const levelSize = w * h * 4;
+        device.queue.writeTexture(
+          { texture: gpuTexture, mipLevel: level },
+          texture.data.subarray(offset, offset + levelSize) as unknown as BufferSource,
+          { bytesPerRow: w * 4 },
+          { width: w, height: h },
+        );
+        offset += levelSize;
+        w = Math.max(1, Math.floor(w / 2));
+        h = Math.max(1, Math.floor(h / 2));
+      }
+    } else {
+      device.queue.writeTexture(
+        { texture: gpuTexture },
+        texture.data as unknown as BufferSource,
+        { bytesPerRow: texture.width * 4 },
+        { width: texture.width, height: texture.height },
+      );
+    }
   } else if (texture.data instanceof Uint8Array && isCompressed) {
     let offset = 0;
     let w = texture.width;

@@ -55,11 +55,11 @@ export interface TransparentRenderItem {
 export class TransparentPass extends RenderPass {
   name = "transparent";
   private device: GPUDevice;
-  private pipeline: GPURenderPipeline | null = null;
+  private pipelines: Map<number, GPURenderPipeline> = new Map();
+  private bindGroups: Map<number, GPUBindGroup> = new Map();
   private shaderModule: GPUShaderModule | null = null;
   private cameraBuffer: GPUBuffer | null = null;
   private modelBuffer: GPUBuffer | null = null;
-  private bindGroup: GPUBindGroup | null = null;
   private renderItems: TransparentRenderItem[] = [];
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
   private indexBuffers: Map<MeshData, GPUBuffer> = new Map();
@@ -86,48 +86,54 @@ export class TransparentPass extends RenderPass {
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+  }
 
-    this.pipeline = this.device.createRenderPipeline({
-      layout: "auto",
-      vertex: {
-        module: this.shaderModule,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: 48,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-            { shaderLocation: 2, offset: 24, format: "float32x2" },
-            { shaderLocation: 3, offset: 32, format: "float32x4" },
-          ],
-        }],
-      },
-      fragment: {
-        module: this.shaderModule,
-        entryPoint: "fs_main",
-        targets: [{
-          format: this.surfaceFormat,
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-          },
-        }],
-      },
-      primitive: { topology: "triangle-list", cullMode: "none" },
-      depthStencil: {
-        format: "depth32float",
-        depthWriteEnabled: false,
-        depthCompare: "less",
-      },
-    });
-
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cameraBuffer } },
-        { binding: 1, resource: { buffer: this.modelBuffer } },
-      ],
-    });
+  private getPipeline(stride: number): GPURenderPipeline {
+    let pipeline = this.pipelines.get(stride);
+    if (!pipeline) {
+      pipeline = this.device.createRenderPipeline({
+        layout: "auto",
+        vertex: {
+          module: this.shaderModule!,
+          entryPoint: "vs_main",
+          buffers: [{
+            arrayStride: stride,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x3" },
+              { shaderLocation: 2, offset: 24, format: "float32x2" },
+              { shaderLocation: 3, offset: 32, format: "float32x4" },
+            ],
+          }],
+        },
+        fragment: {
+          module: this.shaderModule!,
+          entryPoint: "fs_main",
+          targets: [{
+            format: this.surfaceFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list", cullMode: "none" },
+        depthStencil: {
+          format: "depth32float",
+          depthWriteEnabled: false,
+          depthCompare: "less",
+        },
+      });
+      this.pipelines.set(stride, pipeline);
+      this.bindGroups.set(stride, this.device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.cameraBuffer! } },
+          { binding: 1, resource: { buffer: this.modelBuffer! } },
+        ],
+      }));
+    }
+    return pipeline;
   }
 
   setCameraViewProj(viewProj: Mat4): void {
@@ -143,13 +149,17 @@ export class TransparentPass extends RenderPass {
   }
 
   execute(ctx: RenderPassContext): void {
-    if (!this.pipeline || !this.bindGroup || this.renderItems.length === 0) return;
+    if (!this.shaderModule || this.renderItems.length === 0) return;
 
     this.renderItems.sort((a, b) => b.distance - a.distance);
 
+    const firstStride = this.renderItems[0].mesh.layout.stride;
+    const pipeline = this.getPipeline(firstStride);
+    const bindGroup = this.bindGroups.get(firstStride)!;
+
     const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
-    tracked.setPipeline(this.pipeline);
-    tracked.setBindGroup(0, this.bindGroup);
+    tracked.setPipeline(pipeline);
+    tracked.setBindGroup(0, bindGroup);
 
     for (let i = 0; i < this.renderItems.length; i++) {
       const item = this.renderItems[i];
@@ -193,5 +203,7 @@ export class TransparentPass extends RenderPass {
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
+    this.pipelines.clear();
+    this.bindGroups.clear();
   }
 }

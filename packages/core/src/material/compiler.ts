@@ -7,7 +7,7 @@ export class MaterialCompiler {
 
     for (const [name, uniform] of Object.entries(def.uniforms)) {
       const wgslType = this.uniformToWGSL(uniform.type);
-      uniformDecls.push(`  @location(${uniform.binding}) ${name}: ${wgslType},`);
+      uniformDecls.push(`  @binding(${uniform.binding}) ${name}: ${wgslType},`);
     }
 
     for (const [name, tex] of Object.entries(def.textures)) {

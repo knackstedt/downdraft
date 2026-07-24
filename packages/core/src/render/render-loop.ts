@@ -120,6 +120,10 @@ export class RenderLoop {
 
   private async handleDeviceLost(): Promise<void> {
     this.stop();
+    this.opaquePass?.destroy();
+    this.cameraBuffer?.destroy();
+    this.cameraBuffer = null;
+    this.cameraBindGroup = null;
     const device = await this.deviceManager.reinit();
     if (device) {
       this.surface = new SurfaceManager(device);
