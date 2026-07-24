@@ -13,13 +13,21 @@ export interface RenderPassDescriptor {
   outputs: string[];
 }
 
+export interface ValidationError {
+  pass: string;
+  resource: string;
+  message: string;
+}
+
 export class RenderGraph {
   private passes: RenderPassDescriptor[] = [];
   private resources: Map<string, RenderResource> = new Map();
   private aliasing: Map<string, string> = new Map();
+  private executionOrder: string[] = [];
 
   addPass(pass: RenderPassDescriptor): void {
     this.passes.push(pass);
+    this.executionOrder = [];
   }
 
   registerResource(resource: RenderResource): void {
@@ -56,6 +64,72 @@ export class RenderGraph {
     }
   }
 
+  validate(): ValidationError[] {
+    const errors: ValidationError[] = [];
+    const produced = new Set<string>();
+
+    for (let i = 0; i < this.passes.length; i++) {
+      const pass = this.passes[i];
+      for (let j = 0; j < pass.inputs.length; j++) {
+        const input = pass.inputs[j];
+        if (!produced.has(input) && !this.resources.has(input)) {
+          errors.push({ pass: pass.name, resource: input, message: `Input "${input}" is not produced by any prior pass or registered as external` });
+        }
+      }
+      for (let j = 0; j < pass.outputs.length; j++) {
+        produced.add(pass.outputs[j]);
+      }
+    }
+
+    return errors;
+  }
+
+  topologicalSort(): string[] {
+    const adj = new Map<string, string[]>();
+    const inDegree = new Map<string, number>();
+
+    for (const pass of this.passes) {
+      if (!adj.has(pass.name)) adj.set(pass.name, []);
+      if (!inDegree.has(pass.name)) inDegree.set(pass.name, 0);
+    }
+
+    const resourceToPass = new Map<string, string>();
+    for (const pass of this.passes) {
+      for (const output of pass.outputs) {
+        resourceToPass.set(output, pass.name);
+      }
+    }
+
+    for (const pass of this.passes) {
+      for (const input of pass.inputs) {
+        const producer = resourceToPass.get(input);
+        if (producer && producer !== pass.name) {
+          adj.get(producer)!.push(pass.name);
+          inDegree.set(pass.name, (inDegree.get(pass.name) ?? 0) + 1);
+        }
+      }
+    }
+
+    const queue: string[] = [];
+    for (const [name, deg] of inDegree) {
+      if (deg === 0) queue.push(name);
+    }
+
+    const result: string[] = [];
+    while (queue.length > 0) {
+      const name = queue.shift()!;
+      result.push(name);
+      const neighbors = adj.get(name) ?? [];
+      for (const neighbor of neighbors) {
+        const newDeg = (inDegree.get(neighbor) ?? 1) - 1;
+        inDegree.set(neighbor, newDeg);
+        if (newDeg === 0) queue.push(neighbor);
+      }
+    }
+
+    return result;
+  }
+
   getPasses(): RenderPassDescriptor[] {
     return this.passes;
   }
@@ -64,9 +138,23 @@ export class RenderGraph {
     return this.aliasing;
   }
 
+  getExecutionOrder(): string[] {
+    if (this.executionOrder.length === 0) {
+      this.executionOrder = this.topologicalSort();
+    }
+    return this.executionOrder;
+  }
+
   syncUsageFlags(): void {
     // WGPU handles internal synchronization automatically via usage flags.
     // This method ensures each resource has correct usage flags set based on
     // which passes read/write it. No explicit barriers needed.
+  }
+
+  clear(): void {
+    this.passes = [];
+    this.resources.clear();
+    this.aliasing.clear();
+    this.executionOrder = [];
   }
 }

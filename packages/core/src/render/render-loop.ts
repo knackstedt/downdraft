@@ -1,6 +1,6 @@
 import { GPUDeviceManager } from "./device.ts";
 import { SurfaceManager } from "./surface.ts";
-import { OpaquePass, type OpaquePassMode } from "./passes/opaque.ts";
+import { OpaquePass, type OpaquePassMode, type PBRMaterialResources } from "./passes/opaque.ts";
 import { DepthPrepass } from "./passes/depth-prepass.ts";
 import { ShadowPass } from "./passes/shadow.ts";
 import { DeferredLightingPass } from "./passes/deferred-lighting.ts";
@@ -8,6 +8,7 @@ import { TransparentPass } from "./passes/transparent.ts";
 import { SkyboxPass } from "./passes/skybox.ts";
 import { PostProcessPass, type PostProcessSettings, DEFAULT_POST_PROCESS_SETTINGS } from "./passes/post-process.ts";
 import { DebugRenderPass } from "./passes/debug.ts";
+import { RenderGraph } from "./render-graph.ts";
 import { TrackedRenderPass } from "./tracked-render-pass.ts";
 import { GBuffer } from "./g-buffer.ts";
 import type { MeshData } from "../mesh/builder.ts";
@@ -28,6 +29,7 @@ export interface RenderLoopConfig {
   debugQueue?: DebugDrawQueue;
   lightData?: LightUniformData;
   postProcessSettings?: Partial<PostProcessSettings>;
+  pbrMaterial?: PBRMaterialResources;
 }
 
 export class RenderLoop {
@@ -55,6 +57,7 @@ export class RenderLoop {
   private lightData: LightUniformData;
   private postProcessSettings: PostProcessSettings;
   private useDeferred: boolean;
+  private renderGraph: RenderGraph | null = null;
 
   constructor(config: RenderLoopConfig) {
     this.deviceManager = new GPUDeviceManager();
@@ -86,6 +89,9 @@ export class RenderLoop {
     // Opaque pass
     this.opaquePass = new OpaquePass(device, surfaceFormat, this.useDeferred ? "gbuffer" : "simple");
     this.opaquePass.setMesh(this.config.mesh);
+    if (this.config.pbrMaterial) {
+      this.opaquePass.setPBRMaterial(this.config.pbrMaterial);
+    }
     this.opaquePass.prepare(device);
 
     if (this.useDeferred) {
@@ -137,12 +143,76 @@ export class RenderLoop {
 
     this.prevViewProj = this.config.camera.getViewProjMatrix();
 
+    this.buildRenderGraph();
+
     this.deviceManager.onDeviceLost(() => {
       console.warn("[RenderLoop] Device lost, attempting reinit...");
       this.handleDeviceLost();
     });
 
     return true;
+  }
+
+  private buildRenderGraph(): void {
+    this.renderGraph = new RenderGraph();
+
+    if (this.useDeferred) {
+      // External resources (canvas surface)
+      this.renderGraph.registerResource({ name: "surface", type: "texture", format: "surface" });
+
+      // Pass: depth-prepass
+      this.renderGraph.addPass({ name: "depth-prepass", inputs: [], outputs: ["gbuffer_depth"] });
+
+      // Pass: shadow
+      this.renderGraph.addPass({ name: "shadow", inputs: [], outputs: ["shadow_map"] });
+
+      // Pass: gbuffer-opaque
+      this.renderGraph.addPass({
+        name: "gbuffer-opaque",
+        inputs: ["gbuffer_depth"],
+        outputs: ["gbuffer_albedo", "gbuffer_normal", "gbuffer_metallic_emissive", "gbuffer_velocity", "gbuffer_depth"],
+      });
+
+      // Pass: deferred-lighting
+      this.renderGraph.addPass({
+        name: "deferred-lighting",
+        inputs: ["gbuffer_albedo", "gbuffer_normal", "gbuffer_metallic_emissive", "gbuffer_depth", "shadow_map"],
+        outputs: ["hdr_texture"],
+      });
+
+      // Pass: skybox
+      this.renderGraph.addPass({ name: "skybox", inputs: ["gbuffer_depth"], outputs: ["hdr_texture"] });
+
+      // Pass: transparent
+      this.renderGraph.addPass({ name: "transparent", inputs: ["gbuffer_depth"], outputs: ["hdr_texture"] });
+
+      // Pass: post-process
+      this.renderGraph.addPass({
+        name: "post-process",
+        inputs: ["hdr_texture", "gbuffer_velocity"],
+        outputs: ["surface"],
+      });
+
+      // Pass: debug
+      this.renderGraph.addPass({ name: "debug", inputs: ["surface"], outputs: ["surface"] });
+    } else {
+      this.renderGraph.registerResource({ name: "surface", type: "texture", format: "surface" });
+      this.renderGraph.addPass({ name: "opaque", inputs: [], outputs: ["surface"] });
+      this.renderGraph.addPass({ name: "transparent", inputs: [], outputs: ["surface"] });
+      this.renderGraph.addPass({ name: "debug", inputs: [], outputs: ["surface"] });
+    }
+
+    this.renderGraph.resolveAliasing();
+    this.renderGraph.syncUsageFlags();
+
+    const errors = this.renderGraph.validate();
+    if (errors.length > 0) {
+      console.warn("[RenderLoop] Render graph validation errors:", errors);
+    }
+  }
+
+  getRenderGraph(): RenderGraph | null {
+    return this.renderGraph;
   }
 
   private async handleDeviceLost(): Promise<void> {
@@ -155,6 +225,9 @@ export class RenderLoop {
       const surfaceFormat = this.surface.getFormat() ?? "bgra8unorm";
       this.opaquePass = new OpaquePass(device, surfaceFormat, this.useDeferred ? "gbuffer" : "simple");
       this.opaquePass.setMesh(this.config.mesh);
+      if (this.config.pbrMaterial) {
+        this.opaquePass.setPBRMaterial(this.config.pbrMaterial);
+      }
       this.opaquePass.prepare(device);
 
       if (this.useDeferred) {
@@ -186,6 +259,7 @@ export class RenderLoop {
         this.debugPass.setDebugQueue(this.config.debugQueue);
       }
       this.debugPass.prepare(device);
+      this.buildRenderGraph();
       this.start();
     }
   }
@@ -263,11 +337,14 @@ export class RenderLoop {
     this.opaquePass!.execute({ device, pass: tracked });
 
     if (this.transparentPass) {
+      this.transparentPass.setLightData(this.lightData);
+      this.transparentPass.setCameraViewProj(viewProj, [this.config.camera.position[0], this.config.camera.position[1], this.config.camera.position[2]]);
       this.transparentPass.execute({ device, pass: tracked });
       this.transparentPass.clearItems();
     }
 
     if (this.debugPass) {
+      this.debugPass.setScreenSize(this.width, this.height);
       this.debugPass.setCameraViewProj(viewProj);
       this.debugPass.execute({ device, pass: tracked });
     }
@@ -408,7 +485,8 @@ export class RenderLoop {
           depthStoreOp: "store",
         },
       });
-      this.transparentPass.setCameraViewProj(viewProj);
+      this.transparentPass.setLightData(this.lightData);
+      this.transparentPass.setCameraViewProj(viewProj, [cameraPos[0], cameraPos[1], cameraPos[2]]);
       this.transparentPass.execute({ device, pass });
       this.transparentPass.clearItems();
       pass.end();
@@ -434,6 +512,7 @@ export class RenderLoop {
           storeOp: "store",
         }],
       });
+      this.debugPass.setScreenSize(this.width, this.height);
       this.debugPass.setCameraViewProj(viewProj);
       this.debugPass.execute({ device, pass });
       pass.end();
@@ -468,11 +547,17 @@ export class RenderLoop {
   setLightData(data: LightUniformData): void {
     this.lightData = data;
     this.deferredPass?.updateLights(data);
+    this.transparentPass?.setLightData(data);
   }
 
   setPostProcessSettings(settings: Partial<PostProcessSettings>): void {
     this.postProcessSettings = { ...this.postProcessSettings, ...settings };
     this.postProcessPass?.setSettings(settings);
+  }
+
+  setPBRMaterial(resources: PBRMaterialResources): void {
+    this.config.pbrMaterial = resources;
+    this.opaquePass?.setPBRMaterial(resources);
   }
 
   getTransparentPass(): TransparentPass | null {
@@ -515,6 +600,7 @@ export class RenderLoop {
     this.gbuffer = null;
     this.hdrTexture = null;
     this.hdrView = null;
+    this.renderGraph = null;
   }
 
   destroy(): void {

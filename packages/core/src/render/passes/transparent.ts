@@ -3,13 +3,27 @@ import { RenderPass } from "../render-pass.ts";
 import { TrackedRenderPass } from "../tracked-render-pass.ts";
 import type { MeshData } from "../../mesh/builder.ts";
 import { mat4, type Mat4 } from "wgpu-matrix";
+import { packLightUniform, packPointLights, MAX_POINT_LIGHTS, type LightUniformData } from "../lighting.ts";
 
 const TRANSPARENT_SHADER = `
 struct CameraUniforms {
   viewProj: mat4x4<f32>,
+  cameraPos: vec3<f32>,
+  _pad0: f32,
 };
+
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var modelUniform: mat4x4<f32>;
+
+struct LightUniforms {
+  dirDirection: vec4<f32>,
+  dirColor: vec4<f32>,
+  ambient: vec4<f32>,
+  lightCount: vec4<f32>,
+};
+
+@group(0) @binding(2) var<uniform> lights: LightUniforms;
+@group(0) @binding(3) var<storage> pointLights: array<vec4<f32>>;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -31,18 +45,47 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   let worldPos = modelUniform * vec4<f32>(input.position, 1.0);
   output.clipPosition = camera.viewProj * worldPos;
   output.color = input.color;
-  output.normal = input.normal;
+  output.normal = normalize((modelUniform * vec4<f32>(input.normal, 0.0)).xyz);
   output.worldPos = worldPos.xyz;
   return output;
 }
 
+fn pointLightContribution(
+  albedo: vec3<f32>,
+  N: vec3<f32>,
+  V: vec3<f32>,
+  worldPos: vec3<f32>,
+) -> vec3<f32> {
+  var result = vec3<f32>(0.0);
+  let count = u32(lights.lightCount.x);
+  for (var i = 0u; i < 8u; i = i + 1u) {
+    if (i >= count) { break; }
+    let pos = pointLights[i * 2u].xyz;
+    let intensity = pointLights[i * 2u].w;
+    let lightColor = pointLights[i * 2u + 1u].xyz;
+    let range = pointLights[i * 2u + 1u].w;
+    let toLight = pos - worldPos;
+    let dist = length(toLight);
+    if (dist > range) { continue; }
+    let L = toLight / dist;
+    let NdotL = max(dot(N, L), 0.0);
+    let attenuation = 1.0 / (1.0 + 0.5 * dist * dist);
+    result += albedo * lightColor * intensity * NdotL * attenuation;
+  }
+  return result;
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  let lightDir = normalize(vec3<f32>(0.5, 0.8, 0.3));
-  let lambert = max(dot(normalize(input.normal), lightDir), 0.0);
-  let ambient = 0.3;
-  let intensity = ambient + lambert * 0.7;
-  return vec4<f32>(input.color.rgb * intensity, input.color.a);
+  let N = normalize(input.normal);
+  let V = normalize(camera.cameraPos - input.worldPos);
+  let L = normalize(-lights.dirDirection.xyz);
+  let NdotL = max(dot(N, L), 0.0);
+  let ambient = lights.ambient.rgb * lights.ambient.w;
+  let directional = input.color.rgb * lights.dirColor.rgb * lights.dirDirection.w * NdotL;
+  let pointLights = pointLightContribution(input.color.rgb, N, V, input.worldPos);
+  let color = input.color.rgb * ambient + directional + pointLights;
+  return vec4<f32>(color, input.color.a);
 }
 `;
 
@@ -60,6 +103,8 @@ export class TransparentPass extends RenderPass {
   private shaderModule: GPUShaderModule | null = null;
   private cameraBuffer: GPUBuffer | null = null;
   private modelBuffer: GPUBuffer | null = null;
+  private lightBuffer: GPUBuffer | null = null;
+  private pointLightBuffer: GPUBuffer | null = null;
   private renderItems: TransparentRenderItem[] = [];
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
   private indexBuffers: Map<MeshData, GPUBuffer> = new Map();
@@ -78,13 +123,23 @@ export class TransparentPass extends RenderPass {
     }
 
     this.cameraBuffer = this.device.createBuffer({
-      size: 64,
+      size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     this.modelBuffer = this.device.createBuffer({
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.lightBuffer = this.device.createBuffer({
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.pointLightBuffer = this.device.createBuffer({
+      size: MAX_POINT_LIGHTS * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
   }
 
@@ -130,14 +185,30 @@ export class TransparentPass extends RenderPass {
         entries: [
           { binding: 0, resource: { buffer: this.cameraBuffer! } },
           { binding: 1, resource: { buffer: this.modelBuffer! } },
+          { binding: 2, resource: { buffer: this.lightBuffer! } },
+          { binding: 3, resource: { buffer: this.pointLightBuffer! } },
         ],
       }));
     }
     return pipeline;
   }
 
-  setCameraViewProj(viewProj: Mat4): void {
-    this.device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as unknown as BufferSource);
+  setCameraViewProj(viewProj: Mat4, cameraPos?: [number, number, number]): void {
+    const data = new Float32Array(20);
+    data.set(viewProj as Float32Array, 0);
+    if (cameraPos) {
+      data[16] = cameraPos[0];
+      data[17] = cameraPos[1];
+      data[18] = cameraPos[2];
+    }
+    this.device.queue.writeBuffer(this.cameraBuffer!, 0, data as unknown as BufferSource);
+  }
+
+  setLightData(lightData: LightUniformData): void {
+    const packed = packLightUniform(lightData);
+    this.device.queue.writeBuffer(this.lightBuffer!, 0, packed as unknown as BufferSource);
+    const pointPacked = packPointLights(lightData);
+    this.device.queue.writeBuffer(this.pointLightBuffer!, 0, pointPacked as unknown as BufferSource);
   }
 
   addItem(mesh: MeshData, modelMatrix: Mat4, distance: number): void {
@@ -203,6 +274,8 @@ export class TransparentPass extends RenderPass {
   destroy(): void {
     this.cameraBuffer?.destroy();
     this.modelBuffer?.destroy();
+    this.lightBuffer?.destroy();
+    this.pointLightBuffer?.destroy();
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
