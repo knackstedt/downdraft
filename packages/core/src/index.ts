@@ -69,9 +69,14 @@ export { RenderPass } from "./render/render-pass.ts";
 export type { RenderPassContext } from "./render/render-pass.ts";
 export { OpaquePass } from "./render/passes/opaque.ts";
 export { TransparentPass } from "./render/passes/transparent.ts";
+export type { TransparentRenderItem } from "./render/passes/transparent.ts";
 export { DepthPrepass } from "./render/passes/depth-prepass.ts";
 export { ShadowPass } from "./render/passes/shadow.ts";
 export { PostProcessPass } from "./render/passes/post-process.ts";
+export type { PostProcessSettings } from "./render/passes/post-process.ts";
+export { DEFAULT_POST_PROCESS_SETTINGS } from "./render/passes/post-process.ts";
+export { DeferredLightingPass } from "./render/passes/deferred-lighting.ts";
+export { SkyboxPass } from "./render/passes/skybox.ts";
 export { UICompositePass } from "./render/passes/ui-composite.ts";
 export { DebugRenderPass } from "./render/passes/debug.ts";
 export { TrackedRenderPass } from "./render/tracked-render-pass.ts";
@@ -80,12 +85,25 @@ export type { RenderLoopConfig } from "./render/render-loop.ts";
 export { PipelineCache } from "./render/pipeline.ts";
 export { BindGroupCache } from "./render/bind-group.ts";
 export { RingBuffer, ArenaBuffer } from "./render/buffer.ts";
+export { GBuffer } from "./render/g-buffer.ts";
+export type { GBufferTextures, GBufferViews } from "./render/g-buffer.ts";
+export { G_BUFFER_FORMATS } from "./render/g-buffer.ts";
+export { Frustum } from "./render/frustum.ts";
+export type { AABB, FrustumPlane, CullableItem } from "./render/frustum.ts";
+export { computeAABB, transformAABB, cullItems } from "./render/frustum.ts";
+export { MaterialHotReloader } from "./render/hot-reload.ts";
+export type { WatchedShader } from "./render/hot-reload.ts";
+export { HDRSupport } from "./render/hdr.ts";
+export type { HDRConfig as RenderHDRConfig } from "./render/hdr.ts";
+export { LightType, createDirectionalLight, createPointLight, createDefaultLightUniform, packLightUniform, MAX_POINT_LIGHTS } from "./render/lighting.ts";
+export type { Light, DirectionalLight, PointLight, SpotLight, LightUniformData } from "./render/lighting.ts";
 
 // Mesh
 export { MeshBuilder } from "./mesh/builder.ts";
 export type { MeshData } from "./mesh/builder.ts";
-export { STANDARD_VERTEX_LAYOUT } from "./mesh/vertex-layout.ts";
-export type { VertexLayout, VertexAttribute } from "./mesh/vertex-layout.ts";
+export { STANDARD_VERTEX_LAYOUT, PBR_VERTEX_LAYOUT, SKINNED_VERTEX_LAYOUT } from "./mesh/vertex-layout.ts";
+export type { VertexLayout, VertexAttribute, VertexAttributeFormat } from "./mesh/vertex-layout.ts";
+export { vertexFormatSize, wgslVertexFormat, gpuVertexFormat } from "./mesh/vertex-layout.ts";
 
 // Material
 export { Material, BlendMode, CullMode } from "./material/material.ts";
@@ -141,3 +159,7 @@ export type { SaveData } from "./save/serializer.ts";
 // Assets
 export { AssetManager } from "./assets/manager.ts";
 export type { AssetRef } from "./assets/manager.ts";
+export { loadTexture, loadTextureFromImage, loadKTX2Texture, createGPUTextureFromData, createSampler, detectTextureFormat } from "./assets/loader-texture.ts";
+export type { TextureData, TextureFormat } from "./assets/loader-texture.ts";
+export { GLBLoader } from "./assets/loader-mesh.ts";
+export type { GLTFDocument, GLTFNode, GLTFMesh, GLTFPrimitive, GLTFAccessor, GLTFBufferView, GLTFBuffer } from "./assets/loader-mesh.ts";
