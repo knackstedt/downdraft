@@ -167,3 +167,37 @@ export { loadTexture, loadTextureFromImage, loadKTX2Texture, createGPUTextureFro
 export type { TextureData, TextureFormat } from "./assets/loader-texture.ts";
 export { GLBLoader } from "./assets/loader-mesh.ts";
 export type { GLTFDocument, GLTFNode, GLTFMesh, GLTFPrimitive, GLTFAccessor, GLTFBufferView, GLTFBuffer } from "./assets/loader-mesh.ts";
+
+// Physics
+export type { PhysicsBackend, BodyType, ColliderShape, BodyDesc, ColliderDesc, RigidBodyHandle, RaycastResult, ShapeCastResult, ContactManifold, PhysicsRealmConfig } from "./physics/interface.ts";
+export { physicsBackendRegistry } from "./physics/registry.ts";
+export { PhysicsRealm } from "./physics/realm.ts";
+export { RigidBody, Velocity, PhysicsTransform } from "./physics/body.ts";
+export type { RigidBodyData, VelocityData, PhysicsTransformData } from "./physics/body.ts";
+export { Collider, createBoxCollider, createSphereCollider, createCapsuleCollider, createMeshCollider, createConvexCollider } from "./physics/collider.ts";
+export type { ColliderData } from "./physics/collider.ts";
+export { CharacterController, CharacterControllerSystem } from "./physics/character.ts";
+export type { CharacterControllerData } from "./physics/character.ts";
+export { RaycastQuery } from "./physics/raycast.ts";
+export { PhysicsLifecycle } from "./physics/lifecycle.ts";
+export type { BootstrapPhase } from "./physics/lifecycle.ts";
+export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, CONTACT_CHANNEL, computeCollisionEvents, manifoldToStartedEvent } from "./physics/events.ts";
+export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from "./physics/events.ts";
+
+// Animation
+export { Skeleton, buildSkeletonFromGLTF } from "./animation/skeleton.ts";
+export type { Bone, SkeletonData, GLTFSkin } from "./animation/skeleton.ts";
+export { AnimationClip, buildAnimationClipFromGLTF } from "./animation/clip.ts";
+export type { KeyframeTrack, AnimationClipData, TrackPath } from "./animation/clip.ts";
+export { AnimationPlayer } from "./animation/player.ts";
+export type { PlayingAnimation } from "./animation/player.ts";
+export { AnimationStateMachine } from "./animation/state-machine.ts";
+export type { AnimationState, AnimationTransition, BlendTree, BlendTree1D, BlendTree2D } from "./animation/state-machine.ts";
+export { buildRetargetMapping, retargetClip } from "./animation/retarget.ts";
+export type { BoneMapping, RetargetMapping } from "./animation/retarget.ts";
+export { MixamoRetargeter, DEFAULT_MIXAMO_CONFIG } from "./animation/mixamo.ts";
+export type { MixamoRetargetConfig } from "./animation/mixamo.ts";
+
+// Mesh Skinning
+export { SkinnedMesh, BoneTransforms, buildSkinnedMeshFromGLTF, createSkinMatricesBuffer, MAX_BONES } from "./mesh/skinning.ts";
+export type { SkinnedMeshData, BoneTransformData } from "./mesh/skinning.ts";

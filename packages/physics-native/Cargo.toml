@@ -1,0 +1,11 @@
+[package]
+name = "downdraft-physics"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "downdraft_physics"
+crate-type = ["cdylib"]
+
+[dependencies]
+rapier3d = "0.22"
