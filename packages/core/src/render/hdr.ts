@@ -15,23 +15,14 @@ export class HDRSupport {
 
   async detect(adapter: GPUAdapter): Promise<HDRConfig> {
     const features = adapter.features;
+    const hasBC = features.has("texture-compression-bc");
 
-    const hasRGBA16F = features.has("rgba16float-render-attachment");
-    const hasBGRA8UnormSRGB = features.has("bgra8unorm-srgb");
-
-    if (hasRGBA16F) {
+    if (hasBC) {
       this.config = {
         enabled: true,
         format: "rgba16float",
         colorSpace: "scrgb",
         maxLuminance: 1000.0,
-      };
-    } else if (hasBGRA8UnormSRGB) {
-      this.config = {
-        enabled: false,
-        format: "bgra8unorm-srgb",
-        colorSpace: "srgb",
-        maxLuminance: 80.0,
       };
     } else {
       this.config = {

@@ -191,7 +191,7 @@ export class DeferredLightingPass extends RenderPass {
     }
 
     this.cameraBuffer = this.device.createBuffer({
-      size: 192,
+      size: 208,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -231,13 +231,13 @@ export class DeferredLightingPass extends RenderPass {
     invViewProj: Mat4,
     cameraPos: [number, number, number],
   ): void {
-    const data = new Float32Array(48);
+    const data = new Float32Array(52);
     data.set(viewProj as Float32Array, 0);
     data.set(prevViewProj as Float32Array, 16);
     data.set(invViewProj as Float32Array, 32);
-    data[44] = cameraPos[0];
-    data[45] = cameraPos[1];
-    data[46] = cameraPos[2];
+    data[48] = cameraPos[0];
+    data[49] = cameraPos[1];
+    data[50] = cameraPos[2];
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, data as unknown as BufferSource);
   }
 

@@ -222,17 +222,10 @@ export class PostProcessPass extends RenderPass {
   private tonemapPipeline: GPURenderPipeline | null = null;
 
   private taaUniformBuffer: GPUBuffer | null = null;
-  private bloomUniformBuffer: GPUBuffer | null = null;
   private bloomBrightUniformBuffer: GPUBuffer | null = null;
   private bloomBlurHUniformBuffer: GPUBuffer | null = null;
   private bloomBlurVUniformBuffer: GPUBuffer | null = null;
   private tonemapUniformBuffer: GPUBuffer | null = null;
-
-  private taaBindGroup: GPUBindGroup | null = null;
-  private bloomBrightBindGroup: GPUBindGroup | null = null;
-  private bloomBindGroupH: GPUBindGroup | null = null;
-  private bloomBindGroupV: GPUBindGroup | null = null;
-  private tonemapBindGroup: GPUBindGroup | null = null;
 
   private historyTexture: GPUTexture | null = null;
   private historyView: GPUTextureView | null = null;
@@ -265,11 +258,6 @@ export class PostProcessPass extends RenderPass {
     });
 
     this.taaUniformBuffer = this.device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    this.bloomUniformBuffer = this.device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
@@ -398,11 +386,6 @@ export class PostProcessPass extends RenderPass {
     this.bloomHalfTexture?.destroy();
     this.bloomTempTexture?.destroy();
     this.createIntermediateTextures();
-    this.taaBindGroup = null;
-    this.bloomBrightBindGroup = null;
-    this.bloomBindGroupH = null;
-    this.bloomBindGroupV = null;
-    this.tonemapBindGroup = null;
   }
 
   executeTAA(
@@ -600,7 +583,6 @@ export class PostProcessPass extends RenderPass {
     this.bloomHalfTexture?.destroy();
     this.bloomTempTexture?.destroy();
     this.taaUniformBuffer?.destroy();
-    this.bloomUniformBuffer?.destroy();
     this.bloomBrightUniformBuffer?.destroy();
     this.bloomBlurHUniformBuffer?.destroy();
     this.bloomBlurVUniformBuffer?.destroy();

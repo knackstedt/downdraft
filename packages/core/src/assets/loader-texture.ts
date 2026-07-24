@@ -34,9 +34,7 @@ export async function loadTextureFromImage(
   ctx.drawImage(bitmap, 0, 0);
   const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
 
-  const mipLevels = generateMips
-    ? Math.floor(Math.log2(Math.max(bitmap.width, bitmap.height))) + 1
-    : 1;
+  const mipLevels = 1;
 
   return {
     width: bitmap.width,

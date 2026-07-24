@@ -242,8 +242,10 @@ export class GLBLoader {
         vertices[base + 9] = (tangentData.data as Float32Array)[i * 4 + 1];
         vertices[base + 10] = (tangentData.data as Float32Array)[i * 4 + 2];
         vertices[base + 11] = (tangentData.data as Float32Array)[i * 4 + 3];
-      } else {
+      } else if (hasTangent) {
         vertices[base + 8] = 1; vertices[base + 9] = 0; vertices[base + 10] = 0; vertices[base + 11] = 1;
+      } else {
+        vertices[base + 8] = 1; vertices[base + 9] = 1; vertices[base + 10] = 1; vertices[base + 11] = 1;
       }
     }
 

@@ -70,7 +70,7 @@ export class SkyboxPass extends RenderPass {
     }
 
     this.cameraBuffer = this.device.createBuffer({
-      size: 192,
+      size: 144,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -108,12 +108,12 @@ export class SkyboxPass extends RenderPass {
     invViewProj: Mat4,
     cameraPos: [number, number, number],
   ): void {
-    const data = new Float32Array(48);
+    const data = new Float32Array(36);
     data.set(viewProj as Float32Array, 0);
     data.set(invViewProj as Float32Array, 16);
-    data[44] = cameraPos[0];
-    data[45] = cameraPos[1];
-    data[46] = cameraPos[2];
+    data[32] = cameraPos[0];
+    data[33] = cameraPos[1];
+    data[34] = cameraPos[2];
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, data as unknown as BufferSource);
   }
 
