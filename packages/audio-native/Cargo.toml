@@ -1,0 +1,11 @@
+[package]
+name = "downdraft-audio"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "downdraft_audio"
+crate-type = ["cdylib"]
+
+[dependencies]
+kira = "0.9"

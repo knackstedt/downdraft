@@ -1,0 +1,138 @@
+import type { Plugin, PluginContext, SABChannel } from "./plugin.ts";
+import { PluginRegistry } from "./registry.ts";
+import { TSPluginLoader } from "./ts-loader.ts";
+import type { World } from "../ecs/world.ts";
+import type { ComponentId } from "../ecs/component.ts";
+import { getComponentId } from "../ecs/component.ts";
+import type { Stage, SystemFn } from "../ecs/system.ts";
+import { createSABForChannel, type ChannelName } from "../sab/protocol.ts";
+
+interface ActivePlugin {
+  plugin: Plugin;
+  disposeFns: Array<() => void>;
+  sabChannels: Map<string, SharedArrayBuffer>;
+}
+
+export class PluginHost implements PluginContext {
+  private world: World;
+  private registry: PluginRegistry;
+  private tsLoader: TSPluginLoader;
+  private active: Map<string, ActivePlugin> = new Map();
+  private migrations: Map<number, (data: unknown) => unknown> = new Map();
+
+  constructor(world: World, registry?: PluginRegistry) {
+    this.world = world;
+    this.registry = registry ?? new PluginRegistry();
+    this.tsLoader = new TSPluginLoader(this.registry);
+  }
+
+  getRegistry(): PluginRegistry {
+    return this.registry;
+  }
+
+  async loadPlugin(pluginPath: string): Promise<Plugin> {
+    const plugin = await this.tsLoader.load(pluginPath);
+    this.activatePlugin(plugin);
+    return plugin;
+  }
+
+  registerPlugin(plugin: Plugin): void {
+    this.registry.register(plugin);
+    this.activatePlugin(plugin);
+  }
+
+  private activatePlugin(plugin: Plugin): void {
+    const active: ActivePlugin = {
+      plugin,
+      disposeFns: [],
+      sabChannels: new Map(),
+    };
+    this.active.set(plugin.name, active);
+    this.currentPluginName = plugin.name;
+    plugin.register(this);
+  }
+
+  unloadPlugin(name: string): void {
+    const active = this.active.get(name);
+    if (!active) return;
+    for (let i = active.disposeFns.length - 1; i >= 0; i--) {
+      try {
+        active.disposeFns[i]();
+      } catch (err) {
+        console.error(`[PluginHost] Dispose error in plugin "${name}":`, err);
+      }
+    }
+    this.active.delete(name);
+    this.registry.unregister(name);
+  }
+
+  getPlugin(name: string): Plugin | undefined {
+    return this.registry.get(name);
+  }
+
+  listPlugins(): string[] {
+    return this.registry.getAll().map((p) => p.name);
+  }
+
+  disposeAll(): void {
+    for (const name of this.active.keys()) {
+      this.unloadPlugin(name);
+    }
+  }
+
+  registerComponent<T>(name: string, _schema: T): ComponentId {
+    return getComponentId(name);
+  }
+
+  registerSystem(stage: Stage, system: SystemFn): void {
+    this.systemCounter++;
+    this.world.schedule.add({
+      name: `plugin:${this.currentPluginName}:${this.systemCounter}`,
+      stage,
+      fn: system,
+      queries: [],
+    });
+  }
+
+  allocateSABChannel(name: string, size: number): SABChannel {
+    const channelName = name as ChannelName;
+    let buffer: SharedArrayBuffer;
+    try {
+      buffer = createSABForChannel(channelName, size);
+    } catch {
+      buffer = new SharedArrayBuffer(size * 4);
+    }
+    const active = this.active.get(this.currentPluginName);
+    if (active) {
+      active.sabChannels.set(name, buffer);
+    }
+    this.world.setResource(`sab:${name}`, buffer);
+    return { name, buffer };
+  }
+
+  registerResource<T>(name: string, value: T): void {
+    this.world.setResource(name, value);
+  }
+
+  registerMigration(fromVersion: number, fn: (data: unknown) => unknown): void {
+    this.migrations.set(fromVersion, fn);
+  }
+
+  getMigration(fromVersion: number): ((data: unknown) => unknown) | undefined {
+    return this.migrations.get(fromVersion);
+  }
+
+  onDispose(fn: () => void): void {
+    const active = this.active.get(this.currentPluginName);
+    if (active) {
+      active.disposeFns.push(fn);
+    }
+  }
+
+  private currentPluginName: string = "";
+  private systemCounter = 0;
+
+  setCurrentPlugin(name: string): void {
+    this.currentPluginName = name;
+  }
+}

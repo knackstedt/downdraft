@@ -122,6 +122,17 @@ export { RenderLayer } from "./scene/layer.ts";
 export { Camera } from "./scene/camera.ts";
 export { CheckpointManager } from "./scene/checkpoint.ts";
 export type { CheckpointData } from "./scene/checkpoint.ts";
+export { PrefabRegistry, PrefabFactory, createPrefabFromComponentDefs } from "./scene/prefab.ts";
+export type { Prefab, PrefabComponentEntry, PrefabChildEntry } from "./scene/prefab.ts";
+export { SpatialGrid } from "./scene/spatial-grid.ts";
+export type { SpatialEntry, GridCell, SpatialQueryResult } from "./scene/spatial-grid.ts";
+export { WorldStreamer, worldToChunk, chunkKey } from "./scene/streaming.ts";
+export type { ChunkCoord, ChunkData, StreamConfig, ChunkLoader, ChunkUnloader } from "./scene/streaming.ts";
+export { DayNightCycle, FogSystem, computeSkyColor } from "./scene/sky.ts";
+export type { DayNightConfig, SunMoonState, FogConfig, AtmosphereConfig } from "./scene/sky.ts";
+export { DEFAULT_DAY_NIGHT_CONFIG, DEFAULT_FOG_CONFIG, DEFAULT_ATMOSPHERE_CONFIG } from "./scene/sky.ts";
+export { VegetationPatch, VegetationWindSystem, generateInstances, packInstanceData } from "./scene/vegetation.ts";
+export type { VegetationPatchData, VegetationInstance, WindState } from "./scene/vegetation.ts";
 
 // Telemetry
 export { TelemetryCollector } from "./telemetry/collector.ts";
@@ -148,6 +159,7 @@ export { HotReloader } from "./scripting/hot-reload.ts";
 // Plugin
 export type { Plugin, PluginContext, SABChannel } from "./plugin/plugin.ts";
 export { PluginRegistry } from "./plugin/registry.ts";
+export { PluginHost } from "./plugin/host.ts";
 export { TSPluginLoader } from "./plugin/ts-loader.ts";
 export { WASMPluginLoader } from "./plugin/wasm-loader.ts";
 export type { WASMABIExports, WASMABIImports } from "./plugin/wasm-loader.ts";
@@ -214,3 +226,25 @@ export type { SkinnedMeshData, BoneTransformData } from "./mesh/skinning.ts";
 // GPU Skinning Compute Pass
 export { SkinningComputePass, packBoneTransforms } from "./render/passes/skinning.ts";
 export type { SkinningComputePassResources } from "./render/passes/skinning.ts";
+
+// Audio
+export type { AudioBackend, AudioBackendConfig, AudioBufferDesc, AudioSourceHandle, AudioListenerState, AudioChannel, AudioEffectDesc, AudioEffectType, AudioFormat, AudioChannelConfig } from "./audio/interface.ts";
+export { DEFAULT_AUDIO_CONFIG } from "./audio/interface.ts";
+export { audioBackendRegistry } from "./audio/registry.ts";
+export { AudioEngine } from "./audio/engine.ts";
+export { AudioSource, createAudioSource, createSpatialAudioSource, createAmbientAudioSource } from "./audio/source.ts";
+export type { AudioSourceData } from "./audio/source.ts";
+export { AudioListener, createAudioListener, listenerToState } from "./audio/listener.ts";
+export type { AudioListenerData } from "./audio/listener.ts";
+export { AudioMixer } from "./audio/mixer.ts";
+export type { MixerChannelState } from "./audio/mixer.ts";
+
+// Crash Recovery
+export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";
+export type { CrashRecoveryConfig, RecoveryState } from "./worker/crash-recovery.ts";
+
+// UI Panels
+export { SceneTreePanel } from "./ui/scene-tree.ts";
+export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree.ts";
+export { InspectorPanel } from "./ui/inspector.ts";
+export type { InspectorField, InspectorComponent, InspectorState } from "./ui/inspector.ts";
