@@ -167,6 +167,14 @@ export { loadTexture, loadTextureFromImage, loadKTX2Texture, createGPUTextureFro
 export type { TextureData, TextureFormat } from "./assets/loader-texture.ts";
 export { GLBLoader } from "./assets/loader-mesh.ts";
 export type { GLTFDocument, GLTFNode, GLTFMesh, GLTFPrimitive, GLTFAccessor, GLTFBufferView, GLTFBuffer } from "./assets/loader-mesh.ts";
+export { AssetImporter } from "./assets/importer.ts";
+export type { ImportOptions, ImportResult } from "./assets/importer.ts";
+export { ShaderLoader } from "./assets/loader-shader.ts";
+export type { ShaderSource } from "./assets/loader-shader.ts";
+export { GPUResourceCache } from "./assets/cache.ts";
+export type { GPUCacheEntry } from "./assets/cache.ts";
+export { LODGenerator } from "./assets/lod.ts";
+export type { LODLevel, LODConfig } from "./assets/lod.ts";
 
 // Physics
 export type { PhysicsBackend, BodyType, ColliderShape, BodyDesc, ColliderDesc, RigidBodyHandle, RaycastResult, ShapeCastResult, ContactManifold, PhysicsRealmConfig } from "./physics/interface.ts";
@@ -183,6 +191,7 @@ export { PhysicsLifecycle } from "./physics/lifecycle.ts";
 export type { BootstrapPhase } from "./physics/lifecycle.ts";
 export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, CONTACT_CHANNEL, computeCollisionEvents, manifoldToStartedEvent } from "./physics/events.ts";
 export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from "./physics/events.ts";
+export { CollisionEventSystem } from "./physics/collision-system.ts";
 
 // Animation
 export { Skeleton, buildSkeletonFromGLTF } from "./animation/skeleton.ts";
@@ -201,3 +210,7 @@ export type { MixamoRetargetConfig } from "./animation/mixamo.ts";
 // Mesh Skinning
 export { SkinnedMesh, BoneTransforms, buildSkinnedMeshFromGLTF, createSkinMatricesBuffer, MAX_BONES } from "./mesh/skinning.ts";
 export type { SkinnedMeshData, BoneTransformData } from "./mesh/skinning.ts";
+
+// GPU Skinning Compute Pass
+export { SkinningComputePass, packBoneTransforms } from "./render/passes/skinning.ts";
+export type { SkinningComputePassResources } from "./render/passes/skinning.ts";

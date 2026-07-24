@@ -1,65 +1,33 @@
-use rapier3d::prelude::*;
-use std::collections::HashMap;
-use std::ffi::c_void;
+mod world;
+mod realm;
+mod body;
+mod collider;
+mod step;
+mod raycast;
 
-#[repr(C)]
-pub struct RealmConfig {
-    pub id: i32,
-    pub gravity: [f32; 3],
-}
+use realm::RealmManager;
 
-struct Realm {
-    physics: PhysicsPipeline,
-    broadphase: BroadPhase,
-    narrowphase: NarrowPhase,
-    bodies: RigidBodySet,
-    colliders: ColliderSet,
-    impulse_joints: ImpulseJointSet,
-    multibody_joints: MultibodyJointSet,
-    island_manager: IslandManager,
-    gravity: Vector<f32>,
-    body_map: HashMap<i32, RigidBodyHandle>,
-}
+static mut MANAGER: Option<RealmManager> = None;
 
-struct PhysicsState {
-    realms: HashMap<i32, Realm>,
-}
-
-static mut STATE: Option<PhysicsState> = None;
-
-fn get_state() -> &'static mut PhysicsState {
+fn get_manager() -> &'static mut RealmManager {
     unsafe {
-        if STATE.is_none() {
-            STATE = Some(PhysicsState { realms: HashMap::new() });
+        if MANAGER.is_none() {
+            MANAGER = Some(RealmManager::new());
         }
-        STATE.as_mut().unwrap()
+        MANAGER.as_mut().unwrap()
     }
 }
 
 #[no_mangle]
 pub extern "C" fn dd_create_realm(id: i32, gx: f32, gy: f32, gz: f32) -> i32 {
-    let state = get_state();
-    let realm = Realm {
-        physics: PhysicsPipeline::new(),
-        broadphase: BroadPhase::new(),
-        narrowphase: NarrowPhase::new(),
-        bodies: RigidBodySet::new(),
-        colliders: ColliderSet::new(),
-        impulse_joints: ImpulseJointSet::new(),
-        multibody_joints: MultibodyJointSet::new(),
-        island_manager: IslandManager::new(),
-        gravity: Vector::new(gx, gy, gz),
-        body_map: HashMap::new(),
-    };
-    state.realms.insert(id, realm);
-    0
+    let manager = get_manager();
+    manager.create_realm(id, [gx, gy, gz])
 }
 
 #[no_mangle]
 pub extern "C" fn dd_destroy_realm(id: i32) -> i32 {
-    let state = get_state();
-    state.realms.remove(&id);
-    0
+    let manager = get_manager();
+    manager.destroy_realm(id)
 }
 
 #[no_mangle]
@@ -70,81 +38,115 @@ pub extern "C" fn dd_create_body(
     transform_ptr: *const f32,
     mass: f32,
 ) -> i32 {
-    let state = get_state();
-    let realm = match state.realms.get_mut(&realm_id) {
-        Some(r) => r,
-        None => return -1,
-    };
-
-    let transform = unsafe {
-        let slice = std::slice::from_raw_parts(transform_ptr, 8);
-        Translation::new([slice[0], slice[1], slice[2]])
-            * UnitQuaternion::from_quaternion(Quaternion::new(slice[6], slice[3], slice[4], slice[5]))
-    };
-
-    let rb_type = match body_type {
-        0 => RigidBodyType::Fixed,
-        1 => RigidBodyType::KinematicPositionBased,
-        _ => RigidBodyType::Dynamic,
-    };
-
-    let body = RigidBodyBuilder::new(rb_type)
-        .position(transform)
-        .linvelocity(Vector::zeros())
-        .additional_mass(mass);
-
-    let handle = realm.bodies.insert(body);
-    realm.body_map.insert(body_id, handle);
-    0
+    let manager = get_manager();
+    match manager.get_realm(realm_id) {
+        Some(realm) => body::create_body(realm, body_id, body_type, transform_ptr, mass),
+        None => -1,
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn dd_destroy_body(realm_id: i32, body_id: i32) -> i32 {
-    let state = get_state();
-    if let Some(realm) = state.realms.get_mut(&realm_id) {
-        if let Some(handle) = realm.body_map.remove(&body_id) {
-            realm.bodies.remove(
-                handle,
-                &mut realm.island_manager,
-                &mut realm.colliders,
-                &mut realm.impulse_joints,
-                &mut realm.multibody_joints,
-                true,
-            );
-        }
+    let manager = get_manager();
+    match manager.get_realm(realm_id) {
+        Some(realm) => body::destroy_body(realm, body_id),
+        None => -1,
     }
-    0
+}
+
+#[no_mangle]
+pub extern "C" fn dd_set_body_type(realm_id: i32, body_id: i32, body_type: i32) -> i32 {
+    let manager = get_manager();
+    match manager.get_realm(realm_id) {
+        Some(realm) => body::set_body_type(realm, body_id, body_type),
+        None => -1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn dd_add_box_collider(
+    realm_id: i32,
+    body_id: i32,
+    half_extents_ptr: *const f32,
+    friction: f32,
+    restitution: f32,
+) -> i32 {
+    let manager = get_manager();
+    let realm = match manager.get_realm(realm_id) {
+        Some(r) => r,
+        None => return -1,
+    };
+    let handle = match realm.body_map.get(&body_id) {
+        Some(h) => *h,
+        None => return -1,
+    };
+    let half_extents = unsafe { std::slice::from_raw_parts(half_extents_ptr, 3) };
+    collider::add_box_collider(realm, handle, [half_extents[0], half_extents[1], half_extents[2]], friction, restitution) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn dd_add_sphere_collider(
+    realm_id: i32,
+    body_id: i32,
+    radius: f32,
+    friction: f32,
+    restitution: f32,
+) -> i32 {
+    let manager = get_manager();
+    let realm = match manager.get_realm(realm_id) {
+        Some(r) => r,
+        None => return -1,
+    };
+    let handle = match realm.body_map.get(&body_id) {
+        Some(h) => *h,
+        None => return -1,
+    };
+    collider::add_sphere_collider(realm, handle, radius, friction, restitution) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn dd_remove_collider(realm_id: i32, collider_id: i32) -> i32 {
+    let manager = get_manager();
+    match manager.get_realm(realm_id) {
+        Some(realm) => collider::remove_collider(realm, collider_id as u32),
+        None => -1,
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn dd_step(realm_id: i32, dt: f32) -> i32 {
-    let state = get_state();
-    let realm = match state.realms.get_mut(&realm_id) {
-        Some(r) => r,
-        None => return -1,
-    };
+    let manager = get_manager();
+    match manager.get_realm(realm_id) {
+        Some(realm) => step::step_realm(realm, dt),
+        None => -1,
+    }
+}
 
-    realm.physics.step(
-        &realm.gravity,
-        &IntegrationParameters::default().with_dt(dt),
-        &mut realm.island_manager,
-        &mut realm.broadphase,
-        &mut realm.narrowphase,
-        &mut realm.bodies,
-        &mut realm.colliders,
-        &mut realm.impulse_joints,
-        &mut realm.multibody_joints,
-        &mut CcdSolver::new(),
-        &PhysicsHooks::default(),
-    );
-
-    0
+/// Batched step: reads transforms from SAB, steps physics, writes velocities back to SAB.
+/// transform_buffer: [x,y,z, qx,qy,qz,qw] per entity (7 floats * entity_count)
+/// velocity_buffer: [vx,vy,vz, wx,wy,wz] per entity (6 floats * entity_count)
+#[no_mangle]
+pub extern "C" fn dd_step_batched(
+    realm_id: i32,
+    dt: f32,
+    transform_buffer: *const f32,
+    velocity_buffer: *mut f32,
+    entity_count: usize,
+) -> i32 {
+    let manager = get_manager();
+    match manager.get_realm(realm_id) {
+        Some(realm) => step::step_realm_batched(realm, dt, transform_buffer, velocity_buffer, entity_count),
+        None => -1,
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn dd_destroy() -> i32 {
     unsafe {
-        STATE = None;
+        if let Some(manager) = MANAGER.as_mut() {
+            manager.destroy_all();
+        }
+        MANAGER = None;
     }
     0
 }

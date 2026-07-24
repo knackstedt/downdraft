@@ -1,0 +1,50 @@
+{
+  "name": "downdraft-engine",
+  "version": "0.1.0",
+  "electrobun": {
+    "version": "0.4.0",
+    "title": "Downdraft Engine",
+    "description": "WebGPU-native game engine with AI-first tooling",
+    "windows": [
+      {
+        "name": "main",
+        "title": "Downdraft Engine",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "gpuWindow": true,
+        "browserWindow": {
+          "url": "ui://index.html",
+          "transparent": false,
+          "frameless": false,
+          "overlay": true,
+          "forwardMouseEventsToGpuWindow": false,
+          "forwardKeyEventsToGpuWindow": true
+        }
+      }
+    ],
+    "rpc": {
+      "schema": "./src/platform/rpc-schema.ts"
+    },
+    "build": {
+      "dev": {
+        "webview": "chromium",
+        "hotReload": true,
+        "devtools": true
+      },
+      "debug": {
+        "webview": "webkit",
+        "hotReload": false,
+        "devtools": false
+      },
+      "prod": {
+        "webview": "system",
+        "hotReload": false,
+        "devtools": false
+      }
+    }
+  }
+}

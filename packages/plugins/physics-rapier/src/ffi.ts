@@ -83,6 +83,11 @@ async function tryLoadNative(): Promise<PhysicsLib | null> {
       dd_create_body: { args: [FFIType.i32, FFIType.i32, FFIType.i32, FFIType.ptr, FFIType.f32], returns: FFIType.i32 },
       dd_destroy_body: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
       dd_step: { args: [FFIType.i32, FFIType.f32], returns: FFIType.i32 },
+      dd_step_batched: { args: [FFIType.i32, FFIType.f32, FFIType.ptr, FFIType.ptr, FFIType.u64], returns: FFIType.i32 },
+      dd_set_body_type: { args: [FFIType.i32, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+      dd_add_box_collider: { args: [FFIType.i32, FFIType.i32, FFIType.ptr, FFIType.f32, FFIType.f32], returns: FFIType.i32 },
+      dd_add_sphere_collider: { args: [FFIType.i32, FFIType.i32, FFIType.f32, FFIType.f32, FFIType.f32], returns: FFIType.i32 },
+      dd_remove_collider: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
       dd_raycast: { args: [FFIType.i32, FFIType.ptr, FFIType.ptr, FFIType.f32, FFIType.ptr], returns: FFIType.i32 },
       dd_destroy: { args: [], returns: FFIType.i32 },
     });
