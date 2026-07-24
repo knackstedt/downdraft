@@ -97,6 +97,10 @@ export class MaterialHotReloader {
     }
   }
 
+  async checkNow(): Promise<void> {
+    await this.check();
+  }
+
   private async check(): Promise<void> {
     await this.checkShaders();
     await this.checkMeshes();

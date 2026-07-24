@@ -197,11 +197,63 @@ export function createLightingTools(ctx: EngineContext, undoRedo: UndoRedoManage
           type: l.type,
           intensity: l.intensity,
           color: [...l.color],
-          ...(l.type === LightType.Directional ? { direction: [...l.direction], castShadows: l.castShadows } : {}),
+          ...(l.type === LightType.Directional ? { direction: [...l.direction], castShadows: l.castShadows, shadowMapSize: l.shadowMapSize, shadowBias: l.shadowBias } : {}),
           ...(l.type === LightType.Point ? { position: [...l.position], range: l.range } : {}),
           ...(l.type === LightType.Spot ? { position: [...l.position], direction: [...l.direction], range: l.range } : {}),
         }));
         return jsonResult({ count: lights.length, lights });
+      },
+    },
+
+    {
+      def: {
+        name: "configure_shadows",
+        description: "Configure shadow mapping for a directional light (resolution, bias, cascade).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            lightIndex: { type: "number", description: "Directional light index (default: 0)" },
+            shadowMapSize: { type: "number", description: "Shadow map resolution (256, 512, 1024, 2048, 4096)" },
+            shadowBias: { type: "number", description: "Shadow bias to reduce acne/peter-panning" },
+            castShadows: { type: "boolean", description: "Enable or disable shadows" },
+          },
+        },
+      },
+      handler: (params) => {
+        const lightIndex = (params.lightIndex as number) ?? 0;
+        const light = ctx.lights[lightIndex];
+        if (!light) return errorResult(`Light index ${lightIndex} out of range`);
+        if (light.type !== LightType.Directional) return errorResult(`Light ${lightIndex} is not directional`);
+
+        const dirLight = light as DirectionalLight;
+        const oldMapSize = dirLight.shadowMapSize;
+        const oldBias = dirLight.shadowBias;
+        const oldCast = dirLight.castShadows;
+
+        if (params.shadowMapSize !== undefined) dirLight.shadowMapSize = params.shadowMapSize as number;
+        if (params.shadowBias !== undefined) dirLight.shadowBias = params.shadowBias as number;
+        if (params.castShadows !== undefined) dirLight.castShadows = params.castShadows as boolean;
+
+        undoRedo.execute({
+          description: `configure_shadows(#${lightIndex})`,
+          undo: () => {
+            dirLight.shadowMapSize = oldMapSize;
+            dirLight.shadowBias = oldBias;
+            dirLight.castShadows = oldCast;
+          },
+          redo: () => {
+            if (params.shadowMapSize !== undefined) dirLight.shadowMapSize = params.shadowMapSize as number;
+            if (params.shadowBias !== undefined) dirLight.shadowBias = params.shadowBias as number;
+            if (params.castShadows !== undefined) dirLight.castShadows = params.castShadows as boolean;
+          },
+        });
+
+        return jsonResult({
+          lightIndex,
+          shadowMapSize: dirLight.shadowMapSize,
+          shadowBias: dirLight.shadowBias,
+          castShadows: dirLight.castShadows,
+        });
       },
     },
 

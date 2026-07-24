@@ -73,7 +73,7 @@ export function createMaterialTools(ctx: EngineContext, undoRedo: UndoRedoManage
         undoRedo.execute({
           description: `create_material("${name}")`,
           undo: () => {
-            ctx.materialLibrary.list(); // no unregister — just note it
+            ctx.materialLibrary.unregister(name);
           },
           redo: () => {
             ctx.materialLibrary.register(material);
@@ -219,12 +219,20 @@ export function createMaterialTools(ctx: EngineContext, undoRedo: UndoRedoManage
           required: ["path"],
         },
       },
-      handler: (params) => {
+      handler: async (params) => {
         const path = params.path as string;
+
+        const matchingMaterials = ctx.materialLibrary.list().filter((m) => m.shader === path);
+        for (const mat of matchingMaterials) {
+          ctx.materialHotReloader.watch(mat, path);
+        }
+
+        await ctx.materialHotReloader.checkNow();
+
         return jsonResult({
           hotReloaded: true,
           path,
-          note: "Shader hot-reload triggered. Pipeline cache will be invalidated on next render.",
+          affectedMaterials: matchingMaterials.map((m) => m.name),
         });
       },
     },

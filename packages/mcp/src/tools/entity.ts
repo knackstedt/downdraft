@@ -50,6 +50,8 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
 
         const entityKey = ctx.getEntityKey(entity);
 
+        const savedParent2 = parent ? parent : null;
+
         undoRedo.execute({
           description: `spawn_entity(${entityKey})`,
           undo: () => {
@@ -66,7 +68,11 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
               reComponents.set(id, { ...data });
             }
             const reEntity = ctx.ecsWorld.spawn(reComponents);
+            ctx.ecsWorld.flushCommands();
             ctx.scene.addEntity(reEntity);
+            if (savedParent2) {
+              ctx.hierarchy.setParent(reEntity, savedParent2);
+            }
           },
         });
 
@@ -165,6 +171,9 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
           }
         }
 
+        const savedParent = ctx.hierarchy.getParent(entity);
+        const savedChildren = ctx.hierarchy.getChildren(entity);
+
         ctx.ecsWorld.despawn(entity);
         ctx.ecsWorld.flushCommands();
         ctx.scene.removeEntity(entity);
@@ -172,13 +181,22 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
         undoRedo.execute({
           description: `remove_entity(${entityKey})`,
           undo: () => {
-            ctx.ecsWorld.spawn(savedComponents);
+            const restored = ctx.ecsWorld.spawn(savedComponents);
+            ctx.ecsWorld.flushCommands();
+            ctx.scene.addEntity(restored);
+            ctx.hierarchy.setParent(restored, savedParent);
+            for (const child of savedChildren) {
+              if (ctx.isEntityAlive(child)) {
+                ctx.hierarchy.setParent(child, restored);
+              }
+            }
           },
           redo: () => {
-            if (ctx.isEntityAlive(entity)) {
-              ctx.ecsWorld.despawn(entity);
+            const e = ctx.parseEntityKey(entityKey);
+            if (e && ctx.isEntityAlive(e)) {
+              ctx.ecsWorld.despawn(e);
               ctx.ecsWorld.flushCommands();
-              ctx.scene.removeEntity(entity);
+              ctx.scene.removeEntity(e);
             }
           },
         });

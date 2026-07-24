@@ -2,65 +2,6 @@ import type { EngineContext } from "../engine-context.ts";
 import type { ToolRegistration } from "../types.ts";
 import { jsonResult, errorResult } from "../types.ts";
 
-export function createAudioTools(ctx: EngineContext): ToolRegistration[] {
-  const tools: ToolRegistration[] = [
-
-    {
-      def: {
-        name: "add_audio_source",
-        description: "Add an audio source to an entity with optional spatial positioning.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            entity: { type: "string", description: "Entity key" },
-            asset: { type: "string", description: "Audio asset path" },
-            spatial: { type: "boolean", description: "Whether this is a spatial (3D) source" },
-            volume: { type: "number", description: "Volume (0-1)" },
-            loop: { type: "boolean", description: "Loop the audio" },
-          },
-          required: ["entity", "asset"],
-        },
-      },
-      handler: (params) => {
-        const entityKey = params.entity as string;
-        const entity = ctx.parseEntityKey(entityKey);
-        if (!entity || !ctx.isEntityAlive(entity)) {
-          return errorResult(`Entity ${entityKey} not found or dead`);
-        }
-
-        return jsonResult({
-          entity: entityKey,
-          asset: params.asset,
-          spatial: (params.spatial as boolean) ?? false,
-          volume: (params.volume as number) ?? 1.0,
-          loop: (params.loop as boolean) ?? false,
-        });
-      },
-    },
-
-    {
-      def: {
-        name: "set_audio_listener",
-        description: "Set the audio listener to follow an entity or camera.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            entity: { type: "string", description: "Entity key to attach listener to" },
-            followCamera: { type: "boolean", description: "Follow the camera (default: true)" },
-          },
-        },
-      },
-      handler: (params) => {
-        const followCamera = (params.followCamera as boolean) ?? true;
-        return jsonResult({ followCamera, entity: params.entity ?? null });
-      },
-    },
-
-  ];
-
-  return tools;
-}
-
 export function createAnimationTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
 
@@ -87,12 +28,26 @@ export function createAnimationTools(ctx: EngineContext): ToolRegistration[] {
           return errorResult(`Entity ${entityKey} not found or dead`);
         }
 
+        const clipName = params.clip as string;
+        const speed = (params.speed as number) ?? 1.0;
+        const loop = (params.loop as boolean) ?? true;
+        const blendWeight = (params.blendWeight as number) ?? 1.0;
+
+        const player = ctx.animationPlayers.get(entityKey);
+        if (!player) {
+          return errorResult(`No AnimationPlayer found for entity ${entityKey}. Attach a skeleton first.`);
+        }
+
+        const playing = player.isPlaying();
+        player.setSpeed(speed);
+
         return jsonResult({
           entity: entityKey,
-          clip: params.clip,
-          speed: (params.speed as number) ?? 1.0,
-          loop: (params.loop as boolean) ?? true,
-          blendWeight: (params.blendWeight as number) ?? 1.0,
+          clip: clipName,
+          speed,
+          loop,
+          blendWeight,
+          wasAlreadyPlaying: playing,
         });
       },
     },
@@ -112,7 +67,15 @@ export function createAnimationTools(ctx: EngineContext): ToolRegistration[] {
       },
       handler: (params) => {
         const entityKey = params.entity as string;
-        return jsonResult({ entity: entityKey, stopped: true, clip: params.clip ?? "all" });
+        const clipName = params.clip as string | undefined;
+
+        const player = ctx.animationPlayers.get(entityKey);
+        if (!player) {
+          return errorResult(`No AnimationPlayer found for entity ${entityKey}`);
+        }
+
+        player.stop();
+        return jsonResult({ entity: entityKey, stopped: true, clip: clipName ?? "all" });
       },
     },
 
@@ -132,10 +95,19 @@ export function createAnimationTools(ctx: EngineContext): ToolRegistration[] {
       },
       handler: (params) => {
         const entityKey = params.entity as string;
+        const stateName = params.state as string;
+        const crossfade = (params.crossfade as number) ?? 0.2;
+
+        const player = ctx.animationPlayers.get(entityKey);
+        if (!player) {
+          return errorResult(`No AnimationPlayer found for entity ${entityKey}`);
+        }
+
         return jsonResult({
           entity: entityKey,
-          state: params.state,
-          crossfade: (params.crossfade as number) ?? 0.2,
+          state: stateName,
+          crossfade,
+          playing: player.isPlaying(),
         });
       },
     },

@@ -108,12 +108,34 @@ export function createCameraTools(ctx: EngineContext, undoRedo: UndoRedoManager)
         const mode = params.mode as string;
         const followEntity = params.followEntity as string | undefined;
 
+        const prevFollow = ctx.cameraFollowEntity;
+
         if (mode === "follow" && followEntity) {
           const entity = ctx.parseEntityKey(followEntity);
           if (!entity || !ctx.isEntityAlive(entity)) {
             return errorResult(`Entity ${followEntity} not found or dead`);
           }
+          ctx.cameraFollowEntity = entity;
+        } else {
+          ctx.cameraFollowEntity = null;
         }
+
+        undoRedo.execute({
+          description: `set_camera_mode(${mode})`,
+          undo: () => {
+            ctx.cameraFollowEntity = prevFollow;
+          },
+          redo: () => {
+            if (mode === "follow" && followEntity) {
+              const entity = ctx.parseEntityKey(followEntity);
+              if (entity && ctx.isEntityAlive(entity)) {
+                ctx.cameraFollowEntity = entity;
+              }
+            } else {
+              ctx.cameraFollowEntity = null;
+            }
+          },
+        });
 
         return jsonResult({ mode, followEntity: followEntity ?? null });
       },
@@ -130,9 +152,11 @@ export function createCameraTools(ctx: EngineContext, undoRedo: UndoRedoManager)
       },
       handler: () => {
         const data = ctx.camera.getData();
+        const followKey = ctx.cameraFollowEntity ? ctx.getEntityKey(ctx.cameraFollowEntity) : null;
         return jsonResult({
           ...data,
           fov: data.fov * (180 / Math.PI),
+          followEntity: followKey,
         });
       },
     },

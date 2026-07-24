@@ -15,6 +15,10 @@ export class MaterialLibrary {
     return [...this.materials.values()];
   }
 
+  unregister(name: string): boolean {
+    return this.materials.delete(name);
+  }
+
   createPBR(name: string): Material {
     const def: MaterialDefinition = {
       name,

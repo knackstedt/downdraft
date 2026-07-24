@@ -176,6 +176,40 @@ export function createMeshTools(ctx: EngineContext, undoRedo: UndoRedoManager): 
         }
 
         const levels = params.levels as Array<{ distance: number; mesh: string }>;
+
+        const meshName = ctx.entityMeshes.get(entityKey);
+        if (!meshName) {
+          return errorResult(`Entity ${entityKey} has no mesh assigned`);
+        }
+
+        const baseMesh = ctx.meshes.get(meshName);
+        if (!baseMesh) {
+          return errorResult(`Mesh "${meshName}" not found`);
+        }
+
+        const lodLevels = levels.map((lvl, i) => {
+          const targetMesh = ctx.meshes.get(lvl.mesh);
+          if (targetMesh) {
+            return {
+              mesh: targetMesh,
+              screenSpaceError: i * 2,
+              distance: lvl.distance,
+            };
+          }
+          const generated = ctx.lodGenerator.generateLOD(baseMesh, 0.5 * (i + 1));
+          return {
+            mesh: generated,
+            screenSpaceError: i * 2,
+            distance: lvl.distance,
+          };
+        });
+
+        ctx.lodConfigs.set(entityKey, {
+          levels: lodLevels,
+          autoGenerate: true,
+          maxReduction: 0.9,
+        });
+
         return jsonResult({ entity: entityKey, lodLevels: levels.length, levels });
       },
     },

@@ -1,6 +1,8 @@
 import type { EngineContext } from "../engine-context.ts";
 import type { ToolRegistration } from "../types.ts";
 import { jsonResult, errorResult } from "../types.ts";
+import { AssetImporter } from "@downdraft/core";
+import type { ImportOptions } from "@downdraft/core";
 
 export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -25,6 +27,70 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
           return jsonResult({ imported: true, path, type: typeof data });
         } catch (e) {
           return errorResult(`Failed to import texture: ${(e as Error).message}`);
+        }
+      },
+    },
+
+    {
+      def: {
+        name: "convert_asset",
+        description: "Convert a 3D model asset (GLB/GLTF) to engine format with optional options.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Path to source asset file (GLB, GLTF)" },
+            format: {
+              type: "string",
+              enum: ["gltf", "glb"],
+              description: "Target format (default: glb)",
+            },
+            generateNormals: { type: "boolean", description: "Generate normals if missing" },
+            generateTangents: { type: "boolean", description: "Generate tangents if missing" },
+            flipY: { type: "boolean", description: "Flip Y axis (default: true)" },
+            scale: { type: "number", description: "Scale factor" },
+          },
+          required: ["path"],
+        },
+      },
+      handler: async (params) => {
+        const path = params.path as string;
+        const format = (params.format as "gltf" | "glb") ?? "glb";
+
+        const options: ImportOptions = {
+          format,
+          generateNormals: params.generateNormals as boolean | undefined,
+          generateTangents: params.generateTangents as boolean | undefined,
+          flipY: params.flipY as boolean | undefined,
+          scale: params.scale as number | undefined,
+        };
+
+        try {
+          const fileData = await Bun.file(path).arrayBuffer();
+          const ext = path.split(".").pop()?.toLowerCase() ?? "";
+
+          const loader = new (await import("@downdraft/core")).GLBLoader();
+          const importer = new AssetImporter(loader);
+
+          let result;
+          if (ext === "glb") {
+            result = await importer.importGLB(fileData, options);
+          } else if (ext === "gltf") {
+            const json = JSON.parse(new TextDecoder().decode(fileData));
+            result = await importer.importGLTF(json);
+          } else {
+            return errorResult(`Unsupported format: ${ext}. Use GLB or GLTF.`);
+          }
+
+          return jsonResult({
+            converted: true,
+            path,
+            format,
+            warnings: result.warnings,
+            nodeCount: result.document.nodes?.length ?? 0,
+            meshCount: result.document.meshes?.length ?? 0,
+          });
+        } catch (e) {
+          return errorResult(`Failed to convert asset: ${(e as Error).message}`);
         }
       },
     },

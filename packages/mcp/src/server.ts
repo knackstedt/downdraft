@@ -25,7 +25,8 @@ import { createInspectTools } from "./tools/inspect.ts";
 import { createCheckpointTools } from "./tools/checkpoint.ts";
 import { createScriptTools } from "./tools/script.ts";
 import { createAssetTools } from "./tools/asset.ts";
-import { createAudioTools, createAnimationTools } from "./tools/audio-animation.ts";
+import { createAudioTools } from "./tools/audio.ts";
+import { createAnimationTools } from "./tools/animation.ts";
 import { createBuildTools } from "./tools/build.ts";
 import { createResources } from "./resources/index.ts";
 import { createPrompts } from "./prompts/index.ts";
@@ -35,6 +36,24 @@ export interface MCPServerOptions {
   sceneName?: string;
 }
 
+interface JSONRPCRequest {
+  jsonrpc: "2.0";
+  id?: number | string;
+  method: string;
+  params?: Record<string, unknown>;
+}
+
+interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  id: number | string;
+  result?: unknown;
+  error?: { code: number; message: string };
+}
+
+const PROTOCOL_VERSION = "2024-11-05";
+const SERVER_NAME = "downdraft-mcp";
+const SERVER_VERSION = "0.1.0";
+
 export class MCPServer {
   private ctx: EngineContext;
   private undoRedo: UndoRedoManager;
@@ -42,6 +61,8 @@ export class MCPServer {
   private resources: Map<string, ResourceRegistration> = new Map();
   private prompts: Map<string, PromptRegistration> = new Map();
   private started: boolean = false;
+  private initialized: boolean = false;
+  private inputBuffer: string = "";
 
   constructor(opts: MCPServerOptions = {}) {
     this.ctx = new EngineContext(opts);
@@ -160,17 +181,165 @@ export class MCPServer {
   }
 
   start(): void {
+    if (this.started) return;
     this.started = true;
-    console.log("[DownDraft MCP] Server started (stdio transport)");
-    console.log(`[DownDraft MCP] ${this.tools.size} tools, ${this.resources.size} resources, ${this.prompts.size} prompts registered`);
+
+    const stdin = process.stdin;
+    stdin.setEncoding("utf-8");
+    stdin.resume();
+
+    stdin.on("data", (chunk: string) => {
+      this.inputBuffer += chunk;
+      this.processBuffer();
+    });
+
+    stdin.on("end", () => {
+      this.started = false;
+    });
+
+    process.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 0,
+        result: {
+          serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+        },
+      }) + "\n",
+    );
   }
 
   stop(): void {
     this.started = false;
-    console.log("[DownDraft MCP] Server stopped");
+    this.initialized = false;
+    this.inputBuffer = "";
+    process.stdin.pause();
   }
 
   isRunning(): boolean {
     return this.started;
+  }
+
+  private processBuffer(): void {
+    let newlineIdx: number;
+    while ((newlineIdx = this.inputBuffer.indexOf("\n")) >= 0) {
+      const line = this.inputBuffer.slice(0, newlineIdx).trim();
+      this.inputBuffer = this.inputBuffer.slice(newlineIdx + 1);
+      if (line) {
+        this.handleLine(line).catch((e) => {
+          this.sendError(0, -32603, `Internal error: ${(e as Error).message}`);
+        });
+      }
+    }
+  }
+
+  private async handleLine(line: string): Promise<void> {
+    let msg: JSONRPCRequest;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      this.sendError(0, -32700, "Parse error");
+      return;
+    }
+
+    const id = msg.id ?? 0;
+
+    if (msg.method === "initialize") {
+      this.initialized = true;
+      this.sendResult(id, {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {},
+        },
+        serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+      });
+      return;
+    }
+
+    if (!this.initialized) {
+      this.sendError(id, -32000, "Server not initialized");
+      return;
+    }
+
+    switch (msg.method) {
+      case "initialized":
+        return;
+
+      case "tools/list":
+        this.sendResult(id, {
+          tools: this.listTools().map((t) => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+          })),
+        });
+        return;
+
+      case "tools/call": {
+        const params = msg.params ?? {};
+        const name = params.name as string;
+        const args = (params.arguments as Record<string, unknown>) ?? {};
+        const result = await this.callTool(name, args);
+        this.sendResult(id, result);
+        return;
+      }
+
+      case "resources/list":
+        this.sendResult(id, {
+          resources: this.listResources().map((r) => ({
+            uri: r.uri,
+            name: r.name,
+            description: r.description,
+            mimeType: r.mimeType,
+          })),
+        });
+        return;
+
+      case "resources/read": {
+        const params = msg.params ?? {};
+        const uri = params.uri as string;
+        const result = await this.readResource(uri);
+        this.sendResult(id, result);
+        return;
+      }
+
+      case "prompts/list":
+        this.sendResult(id, {
+          prompts: this.listPrompts().map((p) => ({
+            name: p.name,
+            description: p.description,
+            arguments: p.arguments,
+          })),
+        });
+        return;
+
+      case "prompts/get": {
+        const params = msg.params ?? {};
+        const name = params.name as string;
+        const args = (params.arguments as Record<string, string>) ?? {};
+        const result = await this.getPrompt(name, args);
+        this.sendResult(id, result);
+        return;
+      }
+
+      case "shutdown":
+        this.initialized = false;
+        this.sendResult(id, {});
+        return;
+
+      default:
+        this.sendError(id, -32601, `Method not found: ${msg.method}`);
+    }
+  }
+
+  private sendResult(id: number | string, result: unknown): void {
+    const response: JSONRPCResponse = { jsonrpc: "2.0", id, result };
+    process.stdout.write(JSON.stringify(response) + "\n");
+  }
+
+  private sendError(id: number | string, code: number, message: string): void {
+    const response: JSONRPCResponse = { jsonrpc: "2.0", id, error: { code, message } };
+    process.stdout.write(JSON.stringify(response) + "\n");
   }
 }

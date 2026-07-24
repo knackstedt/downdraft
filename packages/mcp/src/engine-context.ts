@@ -18,6 +18,13 @@ import type {
   Light,
   PhysicsRealm,
   RaycastQuery,
+  AudioEngine,
+  AnimationPlayer,
+  MaterialHotReloader,
+  LODConfig,
+  LODGenerator,
+  AudioSourceData,
+  AudioListenerData,
 } from "@downdraft/core";
 
 import {
@@ -46,6 +53,12 @@ import {
   ROOT_ENTITY,
   entityEqual,
   isAlive,
+  MaterialHotReloader as MaterialHotReloaderClass,
+  LODGenerator as LODGeneratorClass,
+  AudioSource,
+  AudioListener,
+  createAudioSource,
+  createAudioListener,
 } from "@downdraft/core";
 
 import type { Entity } from "@downdraft/core";
@@ -78,6 +91,14 @@ export class EngineContext {
   bodyHandles: Map<string, RigidBodyHandle> = new Map();
   raycastQuery: RaycastQuery | null = null;
   debugVisualizeMode: string = "none";
+  audioEngine: AudioEngine | null = null;
+  animationPlayers: Map<string, AnimationPlayer> = new Map();
+  materialHotReloader: MaterialHotReloader;
+  lodConfigs: Map<string, LODConfig> = new Map();
+  lodGenerator: LODGenerator;
+  audioSources: Map<string, AudioSourceData> = new Map();
+  audioListeners: Map<string, AudioListenerData> = new Map();
+  cameraFollowEntity: Entity | null = null;
 
   constructor(opts: EngineContextOptions = {}) {
     const ecsWorld = new WorldClass();
@@ -94,6 +115,8 @@ export class EngineContext {
     this.debugDraw = new DebugDrawQueueClass();
     this.scriptingSystem = new ScriptingSystemClass(ecsWorld);
     this.saveSystem = new SaveSystemClass();
+    this.materialHotReloader = new MaterialHotReloaderClass();
+    this.lodGenerator = new LODGeneratorClass();
   }
 
   getEntityKey(e: Entity): string {
@@ -146,6 +169,12 @@ export {
   createPtLight as createPointLight,
   MeshBuilderClass as MeshBuilder,
   MaterialClass as Material,
+  MaterialHotReloaderClass as MaterialHotReloader,
+  LODGeneratorClass as LODGenerator,
+  AudioSource,
+  AudioListener,
+  createAudioSource,
+  createAudioListener,
   ROOT_ENTITY,
   entityEqual,
 };
