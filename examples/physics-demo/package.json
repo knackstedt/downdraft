@@ -1,0 +1,9 @@
+{
+  "name": "physics-demo",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@downdraft/physics-rapier": "workspace:*"
+  }
+}

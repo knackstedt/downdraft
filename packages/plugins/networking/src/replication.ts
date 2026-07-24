@@ -1,4 +1,5 @@
 import type { NetMessage, NetTransport } from "./transport.ts";
+import { RPCManager } from "./rpc.ts";
 
 export type ReplicationMode = "authoritative" | "client-prediction" | "interpolated";
 
@@ -40,6 +41,7 @@ export class ReplicationManager {
   private tickAccumulator = 0;
   private isServer: boolean;
   private entityComponents: Map<number, Map<number, Record<string, unknown>>> = new Map();
+  rpc: RPCManager;
 
   constructor(transport: NetTransport, isServer: boolean, config?: Partial<ReplicationConfig>) {
     this.transport = transport;
@@ -50,6 +52,7 @@ export class ReplicationManager {
       components: config?.components ?? new Map(),
     };
 
+    this.rpc = new RPCManager(transport, isServer);
     this.transport.onMessage((msg) => this.handleMessage(msg));
   }
 
@@ -132,10 +135,8 @@ export class ReplicationManager {
       const snapshot = this.deserializeSnapshot(msg.data);
       this.snapshots.set(snapshot.tick, snapshot);
       this.applySnapshot(snapshot);
-    } else if (msg.type === 2) {
-      // RPC
-      this.handleRPC(msg.data);
     }
+    // RPC messages (type 2) are handled by RPCManager directly
   }
 
   private applySnapshot(snapshot: ReplicationSnapshot): void {
@@ -311,32 +312,6 @@ export class ReplicationManager {
     }
 
     return { tick, entities };
-  }
-
-  private rpcHandlers: Map<number, (args: Uint8Array) => Uint8Array | null> = new Map();
-
-  registerRPC(rpcId: number, handler: (args: Uint8Array) => Uint8Array | null): void {
-    this.rpcHandlers.set(rpcId, handler);
-  }
-
-  callRPC(rpcId: number, args: Uint8Array, reliable: boolean = true): void {
-    const buf = new Uint8Array(4 + args.length);
-    const dv = new DataView(buf.buffer);
-    dv.setUint32(0, rpcId);
-    buf.set(args, 4);
-    this.transport.send({ type: 2, data: buf, reliable, ordered: true, channel: 1 });
-  }
-
-  private handleRPC(data: Uint8Array): void {
-    const dv = new DataView(data.buffer, data.byteOffset);
-    const rpcId = dv.getUint32(0);
-    const handler = this.rpcHandlers.get(rpcId);
-    if (handler) {
-      const result = handler(data.slice(4));
-      if (result && this.isServer) {
-        this.transport.send({ type: 2, data: result, reliable: true, ordered: true, channel: 1 });
-      }
-    }
   }
 
   getTickRate(): number { return this.config.tickRate; }

@@ -1,11 +1,13 @@
 import type { Plugin } from "@downdraft/core";
 import { createTransport, MockTransport, WebSocketTransport } from "./transport.ts";
 import { ReplicationManager } from "./replication.ts";
+import { RPCManager } from "./rpc.ts";
 import type { NetTransport, NetMessage, TransportType } from "./transport.ts";
 import type { ReplicationConfig, ReplicatedComponent, ReplicatedField, ReplicationMode, ReplicationSnapshot } from "./replication.ts";
+import type { RPCHandler, RPCDefinition } from "./rpc.ts";
 
-export { createTransport, MockTransport, WebSocketTransport, ReplicationManager };
-export type { NetTransport, NetMessage, TransportType, ReplicationConfig, ReplicatedComponent, ReplicatedField, ReplicationMode, ReplicationSnapshot };
+export { createTransport, MockTransport, WebSocketTransport, ReplicationManager, RPCManager };
+export type { NetTransport, NetMessage, TransportType, ReplicationConfig, ReplicatedComponent, ReplicatedField, ReplicationMode, ReplicationSnapshot, RPCHandler, RPCDefinition };
 
 export interface NetworkingPluginConfig {
   transport: TransportType;

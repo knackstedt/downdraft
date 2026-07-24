@@ -12,6 +12,7 @@ export interface DebugToggleState {
   lod: boolean;
   depth: boolean;
   tangents: boolean;
+  raycast: boolean;
 }
 
 const DEFAULT_TOGGLES: DebugToggleState = {
@@ -26,6 +27,7 @@ const DEFAULT_TOGGLES: DebugToggleState = {
   lod: false,
   depth: false,
   tangents: false,
+  raycast: false,
 };
 
 export const DebugToggles: React.FC<{
@@ -48,6 +50,7 @@ export const DebugToggles: React.FC<{
     { key: "lod", label: "LOD Visualization" },
     { key: "depth", label: "Depth Buffer" },
     { key: "tangents", label: "Tangents" },
+    { key: "raycast", label: "Raycast Visualization" },
   ];
 
   return (
