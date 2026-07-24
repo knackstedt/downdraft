@@ -72,7 +72,7 @@ export class AnimationPlayer {
       speed: options?.speed ?? 1,
       weight: fadeDuration > 0 ? 0 : (options?.weight ?? 1),
       loop: options?.loop ?? true,
-      blending: false,
+      blending: fadeDuration > 0,
       blendOutDuration: 0,
       blendOutElapsed: 0,
       blendOutStartWeight: 0,

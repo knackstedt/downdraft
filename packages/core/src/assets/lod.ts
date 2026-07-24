@@ -23,7 +23,8 @@ export class LODGenerator {
 
     if (targetIndexCount >= indexCount) return mesh;
 
-    const edgeCollapse = this.computeEdgeCollapses(vertices, indices, targetIndexCount);
+    const stride = mesh.layout.stride / 4;
+    const edgeCollapse = this.computeEdgeCollapses(vertices, indices, targetIndexCount, stride);
     const { newVertices, newIndices } = this.applyEdgeCollapses(vertices, indices, edgeCollapse);
 
     return {
@@ -75,6 +76,7 @@ export class LODGenerator {
     vertices: Float32Array,
     indices: Uint16Array | Uint32Array,
     targetIndexCount: number,
+    stride: number,
   ): Array<{ from: number; to: number; cost: number }> {
     const edgeMap = new Map<string, { from: number; to: number; cost: number }>();
 
@@ -85,7 +87,7 @@ export class LODGenerator {
         if (a > b) continue;
         const key = `${a}:${b}`;
         if (!edgeMap.has(key)) {
-          const cost = this.edgeCost(vertices, a, b);
+          const cost = this.edgeCost(vertices, a, b, stride);
           edgeMap.set(key, { from: a, to: b, cost });
         }
       }
@@ -96,8 +98,7 @@ export class LODGenerator {
     return edges.slice(0, collapseCount);
   }
 
-  private edgeCost(vertices: Float32Array, a: number, b: number): number {
-    const stride = 8;
+  private edgeCost(vertices: Float32Array, a: number, b: number, stride: number): number {
     const ax = vertices[a * stride], ay = vertices[a * stride + 1], az = vertices[a * stride + 2];
     const bx = vertices[b * stride], by = vertices[b * stride + 1], bz = vertices[b * stride + 2];
     const dx = ax - bx, dy = ay - by, dz = az - bz;

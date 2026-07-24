@@ -22,6 +22,8 @@ export class InputSABBridge {
     const mouseDeltaY = data.mouseDeltaY as number;
     const mouseButtons = data.mouseButtons as number[];
     const wheelDelta = data.wheelDelta as number;
+    const gamepadButtons = data.gamepadButtons as number[];
+    const gamepadAxes = data.gamepadAxes as number[];
 
     // Process keyboard — diff against current state
     const incomingKeys = new Set(keys.filter((k) => k !== 0));
@@ -45,6 +47,19 @@ export class InputSABBridge {
       } else if (!mouseButtons[i] && this.state.mouseButtons.has(i)) {
         this.state.mouseUp(i);
       }
+    }
+
+    const incomingGamepad = new Set(gamepadButtons.filter((b) => b !== 0).map((b, i) => i));
+    for (const btn of incomingGamepad) {
+      this.state.gamepadButtons.add(btn);
+    }
+    for (const btn of this.state.gamepadButtons) {
+      if (!incomingGamepad.has(btn)) {
+        this.state.gamepadButtons.delete(btn);
+      }
+    }
+    for (let i = 0; i < gamepadAxes.length && i < this.state.gamepadAxes.length; i++) {
+      this.state.gamepadAxes[i] = gamepadAxes[i];
     }
   }
 }
