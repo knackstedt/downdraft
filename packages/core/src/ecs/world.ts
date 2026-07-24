@@ -80,7 +80,7 @@ export class World {
     const meta = this.entities[entity.index];
     if (!meta || meta.generation !== entity.generation || !meta.alive) return;
 
-    const arch = this.allArchetypes[meta.archetypeId] ?? this.findArchetypeById(meta.archetypeId);
+    const arch = this.findArchetypeById(meta.archetypeId);
     if (!arch) return;
 
     const row = findEntityRow(arch, entity);
@@ -102,7 +102,7 @@ export class World {
     const meta = this.entities[entity.index];
     if (!meta || meta.generation !== entity.generation || !meta.alive) return;
 
-    const oldArch = this.allArchetypes[meta.archetypeId] ?? this.findArchetypeById(meta.archetypeId);
+    const oldArch = this.findArchetypeById(meta.archetypeId);
     if (!oldArch || oldArch.componentSet.has(componentId)) return;
 
     const oldRow = findEntityRow(oldArch, entity);
@@ -132,7 +132,7 @@ export class World {
     const meta = this.entities[entity.index];
     if (!meta || meta.generation !== entity.generation || !meta.alive) return;
 
-    const oldArch = this.allArchetypes[meta.archetypeId] ?? this.findArchetypeById(meta.archetypeId);
+    const oldArch = this.findArchetypeById(meta.archetypeId);
     if (!oldArch || !oldArch.componentSet.has(componentId)) return;
 
     const oldRow = findEntityRow(oldArch, entity);
@@ -161,7 +161,7 @@ export class World {
     const meta = this.entities[entity.index];
     if (!meta || meta.generation !== entity.generation || !meta.alive) return null;
 
-    const arch = this.allArchetypes[meta.archetypeId] ?? this.findArchetypeById(meta.archetypeId);
+    const arch = this.findArchetypeById(meta.archetypeId);
     if (!arch || !arch.componentSet.has(componentId)) return null;
 
     const row = findEntityRow(arch, entity);
@@ -173,7 +173,7 @@ export class World {
   hasComponent(entity: Entity, componentId: ComponentId): boolean {
     const meta = this.entities[entity.index];
     if (!meta || meta.generation !== entity.generation || !meta.alive) return false;
-    const arch = this.allArchetypes[meta.archetypeId] ?? this.findArchetypeById(meta.archetypeId);
+    const arch = this.findArchetypeById(meta.archetypeId);
     return arch ? arch.componentSet.has(componentId) : false;
   }
 

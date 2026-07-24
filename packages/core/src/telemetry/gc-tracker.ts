@@ -45,12 +45,25 @@ export class GCTracker {
   }
 
   static getCurrentMemory() {
-    const mem = process.memoryUsage();
-    return {
-      heapUsed: mem.heapUsed,
-      heapTotal: mem.heapTotal,
-      rss: mem.rss,
-      external: mem.external,
-    };
+    if (typeof process !== "undefined" && process.memoryUsage) {
+      const mem = process.memoryUsage();
+      return {
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+        rss: mem.rss,
+        external: mem.external,
+      };
+    }
+    // Browser fallback — performance.memory is non-standard but available in Chromium
+    const perfMem = (performance as any).memory;
+    if (perfMem) {
+      return {
+        heapUsed: perfMem.usedJSHeapSize,
+        heapTotal: perfMem.totalJSHeapSize,
+        rss: 0,
+        external: 0,
+      };
+    }
+    return { heapUsed: 0, heapTotal: 0, rss: 0, external: 0 };
   }
 }

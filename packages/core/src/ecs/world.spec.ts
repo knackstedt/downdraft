@@ -119,6 +119,24 @@ describe("ECS World", () => {
     expect(events[0]).toEqual({ a: 1, b: 2 });
   });
 
+  it("should not leak stale events across ticks after swap", () => {
+    const bus = new EventBus();
+    bus.send("collision", { a: 1, b: 2 });
+    bus.swapAll();
+    expect(bus.read("collision").length).toBe(1);
+
+    // Swap again without sending — old events should be cleared
+    bus.swapAll();
+    expect(bus.read("collision").length).toBe(0);
+
+    // Send a new event — should be the only one after swap
+    bus.send("collision", { a: 3, b: 4 });
+    bus.swapAll();
+    const events = bus.read("collision");
+    expect(events.length).toBe(1);
+    expect(events[0]).toEqual({ a: 3, b: 4 });
+  });
+
   it("should look up archetypes by ID after component add/remove", () => {
     const world = new World();
 

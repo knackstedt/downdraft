@@ -1,6 +1,7 @@
 import { InputState, InputContext } from "./state.ts";
 import { InputContextRouter } from "./context.ts";
 import { InputSABBridge } from "./sab-bridge.ts";
+import { InputSABChannel } from "../sab/input.ts";
 import { createSABForChannel } from "../sab/protocol.ts";
 
 describe("InputState", () => {
@@ -79,7 +80,6 @@ describe("InputSABBridge", () => {
     const bridge = new InputSABBridge(sab, state);
 
     // Write keys [65, 66, 0, 0, 0, 0, 0, 0] (A and B pressed)
-    const { InputSABChannel } = require("../sab/input.ts");
     const channel = new InputSABChannel(sab);
     channel.write([65, 66], 0, 0, 0, 0, [0, 0, 0], 0, [], []);
 
@@ -95,7 +95,6 @@ describe("InputSABBridge", () => {
     const state = new InputState();
     const bridge = new InputSABBridge(sab, state);
 
-    const { InputSABChannel } = require("../sab/input.ts");
     const channel = new InputSABChannel(sab);
 
     // Press A and B

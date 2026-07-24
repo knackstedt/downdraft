@@ -74,10 +74,6 @@ export class ScriptingSystem {
   }
 
   async hotReload(name: string, modulePath: string): Promise<ScriptHandle> {
-    const existing = this.scripts.get(name);
-    if (existing) {
-      existing.handle.dispose();
-    }
     return this.load(name, modulePath);
   }
 

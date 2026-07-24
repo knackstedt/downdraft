@@ -84,7 +84,8 @@ export class RenderLoop {
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
-    this.opaquePass = new OpaquePass(device);
+    const surfaceFormat = this.surface.getFormat() ?? "bgra8unorm";
+    this.opaquePass = new OpaquePass(device, surfaceFormat);
     this.opaquePass.setShaderSource(VERTEX_COLOR_SHADER);
     this.opaquePass.setMesh(this.config.mesh);
     this.opaquePass.prepare(device);
@@ -123,7 +124,8 @@ export class RenderLoop {
     if (device) {
       this.surface = new SurfaceManager(device);
       this.surface.configure(this.config.canvas);
-      this.opaquePass = new OpaquePass(device);
+      const surfaceFormat = this.surface.getFormat() ?? "bgra8unorm";
+      this.opaquePass = new OpaquePass(device, surfaceFormat);
       this.opaquePass.setShaderSource(VERTEX_COLOR_SHADER);
       this.opaquePass.setMesh(this.config.mesh);
       this.opaquePass.prepare(device);
@@ -170,8 +172,10 @@ export class RenderLoop {
     const dt = this.timer.delta();
     this.timer.tick(dt);
 
-    // Update camera
-    this.config.camera.setAspect(this.width, this.height);
+    // Update camera aspect only when dimensions change
+    if (this.config.camera.aspect !== this.width / this.height) {
+      this.config.camera.setAspect(this.width, this.height);
+    }
     const viewProj = this.config.camera.getViewProjMatrix();
     device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as Float32Array);
 
@@ -179,8 +183,9 @@ export class RenderLoop {
     const texture = this.surface.getCurrentTexture();
     if (!texture) return;
 
-    const depthView = this.opaquePass.ensureDepthTexture(this.width, this.height);
-    if (!depthView) return;
+    const depthTexture = this.opaquePass.ensureDepthTexture(this.width, this.height);
+    if (!depthTexture) return;
+    const depthView = depthTexture.createView();
 
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({

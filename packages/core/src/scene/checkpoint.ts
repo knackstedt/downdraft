@@ -60,6 +60,17 @@ export class CheckpointManager {
     const cp = this.checkpoints.get(name);
     if (!cp) return false;
 
+    // Despawn all existing alive entities to prevent duplicates
+    for (let i = 0; i < world.entities.length; i++) {
+      const meta = world.entities[i];
+      if (meta.alive) {
+        const entity: Entity = { index: i, generation: meta.generation };
+        world.despawn(entity);
+      }
+    }
+    world.flushCommands();
+
+    // Spawn entities from checkpoint
     for (let i = 0; i < cp.entities.length; i++) {
       const entry = cp.entities[i];
       const components = new Map<number, unknown>();

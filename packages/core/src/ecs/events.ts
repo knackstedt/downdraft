@@ -20,6 +20,7 @@ export function createEventChannel<T>(): EventChannel<T> {
       const tmp = current;
       current = pending;
       pending = tmp;
+      pending.length = 0;
     },
     clear(): void {
       current.length = 0;

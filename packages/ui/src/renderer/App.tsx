@@ -136,32 +136,63 @@ export const App: React.FC = () => {
   );
 };
 
+const mouseButtonsHeld = new Set<number>();
+const keysHeld = new Set<number>();
+
 function forwardInput(type: string, ...args: number[]): void {
   if (!window.downdraft?.rpc) return;
 
-  if (type === "mouseDown" || type === "mouseUp") {
-    // Track button state
+  if (type === "mouseDown") {
+    const [button, x, y] = args;
+    mouseButtonsHeld.add(button);
+    window.downdraft.rpc.emit("input", {
+      keys: [...keysHeld],
+      mouseX: x,
+      mouseY: y,
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      mouseButtons: [mouseButtonsHeld.has(0) ? 1 : 0, mouseButtonsHeld.has(1) ? 1 : 0, mouseButtonsHeld.has(2) ? 1 : 0],
+      wheelDelta: 0,
+    });
+  } else if (type === "mouseUp") {
+    const [button, x, y] = args;
+    mouseButtonsHeld.delete(button);
+    window.downdraft.rpc.emit("input", {
+      keys: [...keysHeld],
+      mouseX: x,
+      mouseY: y,
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      mouseButtons: [mouseButtonsHeld.has(0) ? 1 : 0, mouseButtonsHeld.has(1) ? 1 : 0, mouseButtonsHeld.has(2) ? 1 : 0],
+      wheelDelta: 0,
+    });
   } else if (type === "mouseMove") {
     const [, , x, y, deltaX, deltaY] = args;
     window.downdraft.rpc.emit("input", {
-      keys: [],
+      keys: [...keysHeld],
       mouseX: x,
       mouseY: y,
       mouseDeltaX: deltaX,
       mouseDeltaY: deltaY,
-      mouseButtons: [],
+      mouseButtons: [mouseButtonsHeld.has(0) ? 1 : 0, mouseButtonsHeld.has(1) ? 1 : 0, mouseButtonsHeld.has(2) ? 1 : 0],
       wheelDelta: 0,
     });
   } else if (type === "wheel") {
     const [, , , , , , delta] = args;
     window.downdraft.rpc.emit("input", {
-      keys: [],
+      keys: [...keysHeld],
       mouseX: 0,
       mouseY: 0,
       mouseDeltaX: 0,
       mouseDeltaY: 0,
-      mouseButtons: [],
+      mouseButtons: [mouseButtonsHeld.has(0) ? 1 : 0, mouseButtonsHeld.has(1) ? 1 : 0, mouseButtonsHeld.has(2) ? 1 : 0],
       wheelDelta: delta,
     });
+  } else if (type === "keyDown") {
+    const [keyCode] = args;
+    keysHeld.add(keyCode);
+  } else if (type === "keyUp") {
+    const [keyCode] = args;
+    keysHeld.delete(keyCode);
   }
 }

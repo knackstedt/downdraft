@@ -35,6 +35,10 @@ export class SimWorkerSupervisor {
   start(): void {
     this.handle = this.createWorker();
     this.handle.onCrash((err) => this.handleCrash(err));
+    this.handle.init().catch((err) => {
+      console.error("[SimWorkerSupervisor] Worker init failed:", err);
+      this.handleCrash(err instanceof Error ? err : new Error(String(err)));
+    });
   }
 
   getHandle(): SimWorkerHandle | null {
@@ -63,6 +67,10 @@ export class SimWorkerSupervisor {
 
     this.handle = this.createWorker();
     this.handle.onCrash((e) => this.handleCrash(e));
+    this.handle.init().catch((err) => {
+      console.error("[SimWorkerSupervisor] Worker init failed on restart:", err);
+      this.handleCrash(err instanceof Error ? err : new Error(String(err)));
+    });
     this.onRestarted();
   }
 
