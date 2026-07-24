@@ -148,6 +148,10 @@ export class TransparentPass extends RenderPass {
     this.renderItems.length = 0;
   }
 
+  hasItems(): boolean {
+    return this.renderItems.length > 0;
+  }
+
   execute(ctx: RenderPassContext): void {
     if (!this.shaderModule || this.renderItems.length === 0) return;
 

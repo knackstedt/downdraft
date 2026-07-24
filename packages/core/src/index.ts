@@ -68,6 +68,7 @@ export { RenderGraph } from "./render/render-graph.ts";
 export { RenderPass } from "./render/render-pass.ts";
 export type { RenderPassContext } from "./render/render-pass.ts";
 export { OpaquePass } from "./render/passes/opaque.ts";
+export type { OpaquePassMode } from "./render/passes/opaque.ts";
 export { TransparentPass } from "./render/passes/transparent.ts";
 export type { TransparentRenderItem } from "./render/passes/transparent.ts";
 export { DepthPrepass } from "./render/passes/depth-prepass.ts";

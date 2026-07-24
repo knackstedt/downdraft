@@ -14,6 +14,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
       "@downdraft/core/*": ["packages/core/src/*"],
@@ -23,6 +24,6 @@
       "@downdraft/cli/*": ["packages/cli/src/*"]
     }
   },
-  "include": ["packages/*/src/**/*.ts"],
-  "exclude": ["node_modules", "**/*.spec.ts"]
+  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
+  "exclude": ["node_modules", "**/*.spec.ts", "**/*.spec.tsx"]
 }

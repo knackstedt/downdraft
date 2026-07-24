@@ -20,8 +20,7 @@ function subVec4(a: Vec4, b: Vec4): Vec4 {
 }
 
 function getColumn(m: Mat4, col: number): Vec4 {
-  const base = col * 4;
-  return [m[base], m[base + 1], m[base + 2], m[base + 3]];
+  return [m[col], m[col + 4], m[col + 8], m[col + 12]];
 }
 
 export class Frustum {

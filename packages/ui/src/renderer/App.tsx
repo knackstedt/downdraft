@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-
-interface FPSData {
-  frameTime: number;
-  p95: number;
-  p99: number;
-}
+import { DevToolsPanel, DEFAULT_TOGGLES, type DebugToggleState, type TelemetryData, type EntityInfo } from "../devtools/panel.tsx";
 
 export const App: React.FC = () => {
-  const [fps, setFps] = useState<FPSData>({ frameTime: 0, p95: 0, p99: 0 });
+  const [telemetry, setTelemetry] = useState<TelemetryData>({ frameTime: 0, p95: 0, p99: 0 });
+  const [frameHistory, setFrameHistory] = useState<number[]>([]);
   const [showDevtools, setShowDevtools] = useState(true);
+  const [toggles, setToggles] = useState<DebugToggleState>(DEFAULT_TOGGLES);
+  const [entityCount, setEntityCount] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineInitialized = useRef(false);
 
@@ -19,7 +17,6 @@ export const App: React.FC = () => {
     const canvas = document.getElementById("gpu-canvas") as HTMLCanvasElement;
     if (!canvas) return;
 
-    // Initialize engine via preload bridge
     if (window.downdraft?.initEngine) {
       window.downdraft.initEngine(canvas);
     }
@@ -29,18 +26,33 @@ export const App: React.FC = () => {
     const interval = setInterval(async () => {
       if (window.downdraft?.rpc) {
         try {
-          const data = await window.downdraft.rpc.call("getTelemetry") as FPSData;
-          setFps(data);
+          const data = await window.downdraft.rpc.call("getTelemetry") as TelemetryData;
+          setTelemetry(data);
+          setFrameHistory((prev) => [...prev, data.frameTime].slice(-300));
+        } catch {
+          // Engine not ready yet
+        }
+        try {
+          const count = await window.downdraft.rpc.call("getEntityCount") as number;
+          setEntityCount(count);
         } catch {
           // Engine not ready yet
         }
       }
-    }, 500);
+    }, 250);
 
     return () => clearInterval(interval);
   }, []);
 
-  const fpsDisplay = fps.frameTime > 0 ? (1000 / fps.frameTime).toFixed(1) : "—";
+  const fpsDisplay = telemetry.frameTime > 0 ? (1000 / telemetry.frameTime).toFixed(1) : "—";
+
+  const entities: EntityInfo[] = entityCount > 0
+    ? Array.from({ length: entityCount }, (_, i) => ({
+        id: i,
+        name: i === 0 ? "root" : `entity_${i}`,
+        components: [],
+      }))
+    : [];
 
   return (
     <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
@@ -59,7 +71,7 @@ export const App: React.FC = () => {
       }}>
         <div>FPS: {fpsDisplay}</div>
         <div style={{ fontSize: 11, color: "#888" }}>
-          frame: {fps.frameTime.toFixed(2)}ms | p95: {fps.p95.toFixed(2)}ms | p99: {fps.p99.toFixed(2)}ms
+          frame: {telemetry.frameTime.toFixed(2)}ms | p95: {telemetry.p95.toFixed(2)}ms | p99: {telemetry.p99.toFixed(2)}ms
         </div>
       </div>
 
@@ -86,39 +98,13 @@ export const App: React.FC = () => {
 
       {/* Devtools panel */}
       {showDevtools && (
-        <div style={{
-          position: "absolute",
-          top: 50,
-          right: 12,
-          width: 280,
-          background: "rgba(0, 0, 0, 0.8)",
-          color: "#ccc",
-          border: "1px solid #333",
-          borderRadius: 6,
-          padding: 12,
-          fontFamily: "monospace",
-          fontSize: 12,
-          pointerEvents: "auto",
-        }}>
-          <div style={{ fontWeight: "bold", marginBottom: 8, color: "#fff" }}>Devtools</div>
-          <div style={{ marginBottom: 4 }}>Entity Count: 1 (cube)</div>
-          <div style={{ marginBottom: 4 }}>Camera: orbit</div>
-          <div style={{ marginBottom: 4 }}>Builder: dev</div>
-          <hr style={{ borderColor: "#333", margin: "8px 0" }} />
-          <div style={{ fontWeight: "bold", marginBottom: 4, color: "#fff" }}>Debug Toggles</div>
-          <label style={{ display: "block", marginBottom: 2 }}>
-            <input type="checkbox" /> Wireframe
-          </label>
-          <label style={{ display: "block", marginBottom: 2 }}>
-            <input type="checkbox" /> Hitboxes
-          </label>
-          <label style={{ display: "block", marginBottom: 2 }}>
-            <input type="checkbox" /> Normals
-          </label>
-          <label style={{ display: "block" }}>
-            <input type="checkbox" /> Velocity
-          </label>
-        </div>
+        <DevToolsPanel
+          telemetry={telemetry}
+          frameHistory={frameHistory}
+          entities={entities}
+          toggles={toggles}
+          onTogglesChange={setToggles}
+        />
       )}
 
       {/* Input capture — transparent overlay that forwards to engine */}

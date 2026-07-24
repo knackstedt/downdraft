@@ -1,5 +1,5 @@
 import { ElectrobunRPC } from "@downdraft/core";
-import { MeshBuilder, Camera, RenderLoop, TelemetryCollector, HighResTimer, InputSABChannel, createSABForChannel } from "@downdraft/core";
+import { MeshBuilder, Camera, RenderLoop, TelemetryCollector, HighResTimer, InputSABChannel, createSABForChannel, DebugDrawQueue, DebugLines } from "@downdraft/core";
 
 const rpc = new ElectrobunRPC();
 
@@ -19,6 +19,10 @@ camera.orbit(0, 0);
 
 // Mesh
 const mesh = MeshBuilder.cube(1);
+
+// Debug draw
+const debugQueue = new DebugDrawQueue();
+const debugLines = new DebugLines(debugQueue);
 
 // Render loop (will be initialized when canvas is available)
 let renderLoop: RenderLoop | null = null;
@@ -92,18 +96,21 @@ export async function initEngine(canvas: HTMLCanvasElement | OffscreenCanvas): P
     mesh,
     camera,
     telemetry,
+    mode: "gbuffer",
+    debugQueue,
     clearColor: { r: 0.1, g: 0.1, b: 0.12, a: 1 },
   });
 
   const success = await renderLoop.init();
   if (success) {
     renderLoop.start();
-    console.log("[DownDraft] Engine started — cube on screen");
+    console.log("[DownDraft] Engine started — deferred pipeline active");
   } else {
     console.error("[DownDraft] Failed to initialize render loop");
   }
 }
 
 export function stopEngine(): void {
-  renderLoop?.stop();
+  renderLoop?.destroy();
+  renderLoop = null;
 }

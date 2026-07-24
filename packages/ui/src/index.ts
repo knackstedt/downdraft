@@ -1,5 +1,6 @@
-export { DevToolsPanel } from "./devtools/panel.ts";
-export { AssetLoader } from "./devtools/asset-loader.ts";
-export { DebugToggles } from "./devtools/toggles.ts";
-export { TelemetryGraphs } from "./devtools/telemetry.ts";
-export { EntityInspector } from "./devtools/inspector.ts";
+export { DevToolsPanel, DEFAULT_TOGGLES } from "./devtools/panel.tsx";
+export type { DevToolsPanelProps, DebugToggleState, TelemetryData, EntityInfo } from "./devtools/panel.tsx";
+export { AssetLoader } from "./devtools/asset-loader.tsx";
+export { DebugToggles } from "./devtools/toggles.tsx";
+export { TelemetryGraphs } from "./devtools/telemetry.tsx";
+export { EntityInspector } from "./devtools/inspector.tsx";
