@@ -1,0 +1,11 @@
+{
+  "name": "@downdraft/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "draft": "src/index.ts"
+  },
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}

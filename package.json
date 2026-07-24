@@ -1,0 +1,27 @@
+{
+  "name": "downdraft-engine",
+  "version": "0.1.0",
+  "description": "AI-Driven Game Engine on Electrobun + Bun + WGPU",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run packages/cli/src/dev.ts",
+    "build": "bun run packages/cli/src/build.ts",
+    "test": "bun test",
+    "tsc": "tsc --noEmit"
+  },
+  "workspaces": [
+    "packages/core",
+    "packages/ui",
+    "packages/mcp",
+    "packages/shader-graph",
+    "packages/cli",
+    "packages/plugins/*"
+  ],
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}

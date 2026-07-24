@@ -1,0 +1,9 @@
+{
+  "name": "@downdraft/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/server.ts",
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}
