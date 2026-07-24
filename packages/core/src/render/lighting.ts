@@ -74,9 +74,7 @@ export function createDefaultLightUniform(): LightUniformData {
 }
 
 export function packLightUniform(data: LightUniformData): Float32Array {
-  const MAX = MAX_POINT_LIGHTS;
-  const size = 16 + MAX * 16 + 4;
-  const buf = new Float32Array(size);
+  const buf = new Float32Array(16);
   let offset = 0;
 
   buf[offset++] = data.directional.direction[0];
@@ -89,29 +87,35 @@ export function packLightUniform(data: LightUniformData): Float32Array {
   buf[offset++] = data.directional.color[2];
   buf[offset++] = data.directional.castShadows;
 
-  for (let i = 0; i < MAX; i++) {
-    const light = data.pointLights[i];
-    if (light) {
-      buf[offset++] = light.position[0];
-      buf[offset++] = light.position[1];
-      buf[offset++] = light.position[2];
-      buf[offset++] = light.intensity;
-
-      buf[offset++] = light.color[0];
-      buf[offset++] = light.color[1];
-      buf[offset++] = light.color[2];
-      buf[offset++] = light.range;
-    } else {
-      offset += 8;
-    }
-  }
-
-  buf[offset++] = data.pointLightCount;
   buf[offset++] = data.ambientColor[0];
   buf[offset++] = data.ambientColor[1];
   buf[offset++] = data.ambientColor[2];
   buf[offset++] = data.ambientIntensity;
 
+  buf[offset++] = data.pointLightCount;
+  buf[offset++] = 0;
+  buf[offset++] = 0;
+  buf[offset++] = 0;
+
+  return buf;
+}
+
+export function packPointLights(data: LightUniformData): Float32Array {
+  const buf = new Float32Array(MAX_POINT_LIGHTS * 8);
+  for (let i = 0; i < MAX_POINT_LIGHTS; i++) {
+    const light = data.pointLights[i];
+    const base = i * 8;
+    if (light) {
+      buf[base + 0] = light.position[0];
+      buf[base + 1] = light.position[1];
+      buf[base + 2] = light.position[2];
+      buf[base + 3] = light.intensity;
+      buf[base + 4] = light.color[0];
+      buf[base + 5] = light.color[1];
+      buf[base + 6] = light.color[2];
+      buf[base + 7] = light.range;
+    }
+  }
   return buf;
 }
 

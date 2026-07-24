@@ -16,8 +16,8 @@ export class HDRSupport {
   async detect(adapter: GPUAdapter): Promise<HDRConfig> {
     const features = adapter.features;
 
-    const hasRGBA16F = features.has("rgba16float-render-attachment") ?? true;
-    const hasBGRA8UnormSRGB = features.has("bgra8unorm-srgb") ?? true;
+    const hasRGBA16F = features.has("rgba16float-render-attachment");
+    const hasBGRA8UnormSRGB = features.has("bgra8unorm-srgb");
 
     if (hasRGBA16F) {
       this.config = {

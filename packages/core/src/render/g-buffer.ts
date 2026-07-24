@@ -83,7 +83,7 @@ export class GBuffer {
     return this.textures;
   }
 
-  getColorAttachments(clearValue: { r: number; g: number; b: number; a: number }): GPURenderPassColorAttachment[] {
+  getColorAttachments(): GPURenderPassColorAttachment[] {
     if (!this.views) return [];
     return [
       {

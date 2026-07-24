@@ -131,7 +131,7 @@ export class TransparentPass extends RenderPass {
   }
 
   setCameraViewProj(viewProj: Mat4): void {
-    this.device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as Float32Array as unknown as ArrayBuffer);
+    this.device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as unknown as BufferSource);
   }
 
   addItem(mesh: MeshData, modelMatrix: Mat4, distance: number): void {
@@ -153,7 +153,7 @@ export class TransparentPass extends RenderPass {
 
     for (let i = 0; i < this.renderItems.length; i++) {
       const item = this.renderItems[i];
-      this.device.queue.writeBuffer(this.modelBuffer!, 0, item.modelMatrix as Float32Array as unknown as ArrayBuffer);
+      this.device.queue.writeBuffer(this.modelBuffer!, 0, item.modelMatrix as unknown as BufferSource);
       tracked.setVertexBuffer(0, this.getVertexBuffer(item.mesh));
       tracked.setIndexBuffer(this.getIndexBuffer(item.mesh), item.mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(item.mesh.indexCount);

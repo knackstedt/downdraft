@@ -3,7 +3,7 @@ import { RenderPass } from "../render-pass.ts";
 import { mat4, type Mat4 } from "wgpu-matrix";
 import type { GBufferViews } from "../g-buffer.ts";
 import type { LightUniformData } from "../lighting.ts";
-import { packLightUniform, MAX_POINT_LIGHTS } from "../lighting.ts";
+import { packLightUniform, packPointLights, MAX_POINT_LIGHTS } from "../lighting.ts";
 
 const DEFERRED_SHADER = `
 struct CameraUniforms {
@@ -170,6 +170,9 @@ export class DeferredLightingPass extends RenderPass {
   private pointLightBuffer: GPUBuffer | null = null;
   private lightViewProjBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private dummyDepthTexture: GPUTexture | null = null;
+  private dummyDepthView: GPUTextureView | null = null;
+  private dummyShadowSampler: GPUSampler | null = null;
   private surfaceFormat: GPUTextureFormat;
   private width: number;
   private height: number;
@@ -235,16 +238,18 @@ export class DeferredLightingPass extends RenderPass {
     data[44] = cameraPos[0];
     data[45] = cameraPos[1];
     data[46] = cameraPos[2];
-    this.device.queue.writeBuffer(this.cameraBuffer!, 0, data.buffer);
+    this.device.queue.writeBuffer(this.cameraBuffer!, 0, data as unknown as BufferSource);
   }
 
   updateLights(lightData: LightUniformData): void {
     const packed = packLightUniform(lightData);
-    this.device.queue.writeBuffer(this.lightBuffer!, 0, packed.buffer);
+    this.device.queue.writeBuffer(this.lightBuffer!, 0, packed as unknown as BufferSource);
+    const pointPacked = packPointLights(lightData);
+    this.device.queue.writeBuffer(this.pointLightBuffer!, 0, pointPacked as unknown as BufferSource);
   }
 
   updateLightViewProj(viewProj: Mat4): void {
-    this.device.queue.writeBuffer(this.lightViewProjBuffer!, 0, viewProj as Float32Array as unknown as ArrayBuffer);
+    this.device.queue.writeBuffer(this.lightViewProjBuffer!, 0, viewProj as unknown as BufferSource);
   }
 
   createBindGroup(
@@ -264,13 +269,17 @@ export class DeferredLightingPass extends RenderPass {
       entries.push({ binding: 5, resource: shadowView });
       entries.push({ binding: 6, resource: shadowSampler });
     } else {
-      const dummyDepth = this.device.createTexture({
-        size: [1, 1],
-        format: "depth32float",
-        usage: GPUTextureUsage.TEXTURE_BINDING,
-      });
-      entries.push({ binding: 5, resource: dummyDepth.createView() });
-      entries.push({ binding: 6, resource: this.device.createSampler({ compare: "less" }) });
+      if (!this.dummyDepthTexture) {
+        this.dummyDepthTexture = this.device.createTexture({
+          size: [1, 1],
+          format: "depth32float",
+          usage: GPUTextureUsage.TEXTURE_BINDING,
+        });
+        this.dummyDepthView = this.dummyDepthTexture.createView();
+        this.dummyShadowSampler = this.device.createSampler({ compare: "less" });
+      }
+      entries.push({ binding: 5, resource: this.dummyDepthView! });
+      entries.push({ binding: 6, resource: this.dummyShadowSampler! });
     }
     entries.push({ binding: 7, resource: { buffer: this.lightBuffer! } });
     entries.push({ binding: 8, resource: { buffer: this.pointLightBuffer! } });
@@ -293,5 +302,13 @@ export class DeferredLightingPass extends RenderPass {
     pass.setPipeline(this.pipeline);
     pass.setBindGroup(0, bindGroup);
     pass.draw(6);
+  }
+
+  destroy(): void {
+    this.cameraBuffer?.destroy();
+    this.lightBuffer?.destroy();
+    this.pointLightBuffer?.destroy();
+    this.lightViewProjBuffer?.destroy();
+    this.dummyDepthTexture?.destroy();
   }
 }

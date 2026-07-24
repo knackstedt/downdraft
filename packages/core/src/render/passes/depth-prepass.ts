@@ -83,7 +83,7 @@ export class DepthPrepass extends RenderPass {
   }
 
   setCameraViewProj(viewProj: Mat4): void {
-    this.device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as Float32Array as unknown as ArrayBuffer);
+    this.device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as unknown as BufferSource);
   }
 
   execute(ctx: RenderPassContext, mesh: MeshData, modelMatrix: Mat4): void;
@@ -91,7 +91,7 @@ export class DepthPrepass extends RenderPass {
   execute(ctx: RenderPassContext, mesh?: MeshData, modelMatrix?: Mat4): void {
     if (!this.pipeline || !this.bindGroup || !mesh || !modelMatrix) return;
 
-    this.device.queue.writeBuffer(this.modelBuffer!, 0, modelMatrix as Float32Array as unknown as ArrayBuffer);
+    this.device.queue.writeBuffer(this.modelBuffer!, 0, modelMatrix as unknown as BufferSource);
 
     const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
     tracked.setPipeline(this.pipeline);

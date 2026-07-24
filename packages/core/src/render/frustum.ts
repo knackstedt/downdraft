@@ -102,14 +102,6 @@ export class Frustum {
   }
 }
 
-// mat4 row access: m[row] returns a Vec4-like
-// wgpu-matrix stores mat4 as column-major, so m[0] = first column
-// We need rows: row i = [m[0][i], m[1][i], m[2][i], m[3][i]]
-// But the code above uses m[3] + m[0] which in wgpu-matrix means
-// adding column 3 and column 0 — that's actually the Gribb-Hartmann
-// method using columns (rows in row-major = columns in column-major).
-// The math works out the same since we're using the same convention.
-
 export function computeAABB(
   positions: Float32Array,
   stride: number = 12,

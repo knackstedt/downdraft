@@ -72,8 +72,6 @@ export class MaterialHotReloader {
       if (this.pipelineCache) {
         this.pipelineCache.invalidate(material.pipelineKey);
       }
-
-      material.uniformValues.set("_reloaded", Date.now());
     } catch (e) {
       console.warn(`[HotReloader] Failed to reload shader: ${path}`, e);
     }

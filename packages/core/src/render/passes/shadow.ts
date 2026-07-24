@@ -95,11 +95,11 @@ export class ShadowPass extends RenderPass {
 
   setLightViewProj(viewProj: Mat4): void {
     this.lightViewProj = viewProj;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, viewProj as Float32Array as unknown as ArrayBuffer);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, viewProj as unknown as BufferSource);
   }
 
   setModelMatrix(model: Mat4): void {
-    this.device.queue.writeBuffer(this.modelBuffer!, 0, model as Float32Array as unknown as ArrayBuffer);
+    this.device.queue.writeBuffer(this.modelBuffer!, 0, model as unknown as BufferSource);
   }
 
   execute(ctx: RenderPassContext, mesh: MeshData, modelMatrix: Mat4): void;

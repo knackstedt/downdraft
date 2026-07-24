@@ -114,7 +114,7 @@ export class SkyboxPass extends RenderPass {
     data[44] = cameraPos[0];
     data[45] = cameraPos[1];
     data[46] = cameraPos[2];
-    this.device.queue.writeBuffer(this.cameraBuffer!, 0, data.buffer);
+    this.device.queue.writeBuffer(this.cameraBuffer!, 0, data as unknown as BufferSource);
   }
 
   setSkyboxTexture(texture: GPUTexture): void {

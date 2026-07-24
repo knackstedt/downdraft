@@ -177,7 +177,7 @@ export class RenderLoop {
       this.config.camera.setAspect(this.width, this.height);
     }
     const viewProj = this.config.camera.getViewProjMatrix();
-    device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as Float32Array as unknown as ArrayBuffer);
+    device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as unknown as BufferSource);
 
     // Get current frame texture
     const texture = this.surface.getCurrentTexture();

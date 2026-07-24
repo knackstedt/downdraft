@@ -98,12 +98,12 @@ export async function loadKTX2Texture(uri: string): Promise<TextureData | null> 
   if (!header) return null;
 
   const format = VK_FORMAT_MAP[header.vkFormat] ?? "rgba8unorm";
-  const isCompressed = header.vkFormat >= 100;
+  const isCompressed = isCompressedFormat(format);
 
   return {
     width: header.pixelWidth,
     height: header.pixelHeight,
-    data: isCompressed ? data : data,
+    data: data.subarray(80),
     format,
     mipLevels: header.levelCount,
     isHDR: header.vkFormat === 97 || header.vkFormat === 98,
@@ -131,20 +131,42 @@ export function createGPUTextureFromData(
     GPUTextureUsage.COPY_DST |
     GPUTextureUsage.RENDER_ATTACHMENT,
 ): GPUTexture {
+  const isCompressed = isCompressedFormat(texture.format);
   const gpuTexture = device.createTexture({
     size: [texture.width, texture.height],
     format: texture.format,
-    usage,
+    usage: isCompressed ? usage | GPUTextureUsage.COPY_DST : usage,
     mipLevelCount: texture.mipLevels,
   });
 
-  if (texture.data instanceof Uint8Array && !isCompressedFormat(texture.format)) {
+  if (texture.data instanceof Uint8Array && !isCompressed) {
     device.queue.writeTexture(
       { texture: gpuTexture },
-      texture.data.buffer as ArrayBuffer,
+      texture.data as unknown as BufferSource,
       { bytesPerRow: texture.width * 4 },
       { width: texture.width, height: texture.height },
     );
+  } else if (texture.data instanceof Uint8Array && isCompressed) {
+    let offset = 0;
+    let w = texture.width;
+    let h = texture.height;
+    for (let level = 0; level < texture.mipLevels; level++) {
+      const blockSize = texture.format.startsWith("bc") ? 16 : 8;
+      const blocksX = Math.max(1, Math.ceil(w / 4));
+      const blocksY = Math.max(1, Math.ceil(h / 4));
+      const levelSize = blocksX * blocksY * blockSize;
+      if (offset + levelSize <= texture.data.length) {
+        device.queue.writeTexture(
+          { texture: gpuTexture, mipLevel: level },
+          texture.data.subarray(offset, offset + levelSize) as unknown as BufferSource,
+          { bytesPerRow: blocksX * blockSize },
+          { width: w, height: h },
+        );
+      }
+      offset += levelSize;
+      w = Math.max(1, Math.floor(w / 2));
+      h = Math.max(1, Math.floor(h / 2));
+    }
   }
 
   return gpuTexture;

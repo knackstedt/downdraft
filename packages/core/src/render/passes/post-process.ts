@@ -223,15 +223,23 @@ export class PostProcessPass extends RenderPass {
 
   private taaUniformBuffer: GPUBuffer | null = null;
   private bloomUniformBuffer: GPUBuffer | null = null;
+  private bloomBrightUniformBuffer: GPUBuffer | null = null;
+  private bloomBlurHUniformBuffer: GPUBuffer | null = null;
+  private bloomBlurVUniformBuffer: GPUBuffer | null = null;
   private tonemapUniformBuffer: GPUBuffer | null = null;
 
   private taaBindGroup: GPUBindGroup | null = null;
+  private bloomBrightBindGroup: GPUBindGroup | null = null;
   private bloomBindGroupH: GPUBindGroup | null = null;
   private bloomBindGroupV: GPUBindGroup | null = null;
   private tonemapBindGroup: GPUBindGroup | null = null;
 
   private historyTexture: GPUTexture | null = null;
   private historyView: GPUTextureView | null = null;
+  private historyTexture2: GPUTexture | null = null;
+  private historyView2: GPUTextureView | null = null;
+  private taaOutputTexture: GPUTexture | null = null;
+  private taaOutputView: GPUTextureView | null = null;
   private bloomTempTexture: GPUTexture | null = null;
   private bloomTempView: GPUTextureView | null = null;
   private bloomHalfTexture: GPUTexture | null = null;
@@ -262,6 +270,21 @@ export class PostProcessPass extends RenderPass {
     });
 
     this.bloomUniformBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.bloomBrightUniformBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.bloomBlurHUniformBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.bloomBlurVUniformBuffer = this.device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
@@ -304,7 +327,7 @@ export class PostProcessPass extends RenderPass {
 
   private createIntermediateTextures(): void {
     const hdrFormat = "rgba16float" as GPUTextureFormat;
-    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
 
     this.historyTexture = this.device.createTexture({
       size: [this.width, this.height],
@@ -312,6 +335,20 @@ export class PostProcessPass extends RenderPass {
       usage,
     });
     this.historyView = this.historyTexture.createView();
+
+    this.historyTexture2 = this.device.createTexture({
+      size: [this.width, this.height],
+      format: hdrFormat,
+      usage,
+    });
+    this.historyView2 = this.historyTexture2.createView();
+
+    this.taaOutputTexture = this.device.createTexture({
+      size: [this.width, this.height],
+      format: hdrFormat,
+      usage,
+    });
+    this.taaOutputView = this.taaOutputTexture.createView();
 
     const halfW = Math.max(1, Math.floor(this.width / 2));
     const halfH = Math.max(1, Math.floor(this.height / 2));
@@ -334,12 +371,7 @@ export class PostProcessPass extends RenderPass {
   private updateUniforms(): void {
     const taaData = new Float32Array(4);
     taaData[0] = this.settings.taaBlendFactor;
-    this.device.queue.writeBuffer(this.taaUniformBuffer!, 0, taaData.buffer);
-
-    const bloomData = new Float32Array(4);
-    bloomData[0] = this.settings.bloomThreshold;
-    bloomData[1] = this.settings.bloomSoftThreshold;
-    this.device.queue.writeBuffer(this.bloomUniformBuffer!, 0, bloomData.buffer);
+    this.device.queue.writeBuffer(this.taaUniformBuffer!, 0, taaData as unknown as BufferSource);
 
     const tonemapData = new Float32Array(8);
     tonemapData[0] = this.settings.exposure;
@@ -348,7 +380,7 @@ export class PostProcessPass extends RenderPass {
     tonemapData[3] = this.settings.contrast;
     tonemapData[4] = this.settings.saturation;
     tonemapData[5] = this.settings.vignette;
-    this.device.queue.writeBuffer(this.tonemapUniformBuffer!, 0, tonemapData.buffer);
+    this.device.queue.writeBuffer(this.tonemapUniformBuffer!, 0, tonemapData as unknown as BufferSource);
   }
 
   setSettings(settings: Partial<PostProcessSettings>): void {
@@ -361,10 +393,13 @@ export class PostProcessPass extends RenderPass {
     this.width = width;
     this.height = height;
     this.historyTexture?.destroy();
+    this.historyTexture2?.destroy();
+    this.taaOutputTexture?.destroy();
     this.bloomHalfTexture?.destroy();
     this.bloomTempTexture?.destroy();
     this.createIntermediateTextures();
     this.taaBindGroup = null;
+    this.bloomBrightBindGroup = null;
     this.bloomBindGroupH = null;
     this.bloomBindGroupV = null;
     this.tonemapBindGroup = null;
@@ -375,66 +410,50 @@ export class PostProcessPass extends RenderPass {
     currentView: GPUTextureView,
     velocityView: GPUTextureView,
     outputView: GPUTextureView,
-  ): void {
-    if (!this.taaPipeline || !this.sampler) return;
+  ): GPUTextureView {
+    if (!this.taaPipeline || !this.sampler) return outputView;
 
-    if (!this.taaBindGroup) {
-      this.taaBindGroup = this.device.createBindGroup({
-        layout: this.taaPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.taaUniformBuffer! } },
-          { binding: 1, resource: currentView },
-          { binding: 2, resource: this.historyView! },
-          { binding: 3, resource: velocityView },
-          { binding: 4, resource: this.sampler },
-        ],
-      });
-    } else {
-      this.taaBindGroup = this.device.createBindGroup({
-        layout: this.taaPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.taaUniformBuffer! } },
-          { binding: 1, resource: currentView },
-          { binding: 2, resource: this.historyView! },
-          { binding: 3, resource: velocityView },
-          { binding: 4, resource: this.sampler },
-        ],
-      });
-    }
+    const bindGroup = this.device.createBindGroup({
+      layout: this.taaPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.taaUniformBuffer! } },
+        { binding: 1, resource: currentView },
+        { binding: 2, resource: this.historyView! },
+        { binding: 3, resource: velocityView },
+        { binding: 4, resource: this.sampler },
+      ],
+    });
 
     const encoder = ctx.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: outputView,
+        view: this.taaOutputView!,
         clearValue: { r: 0, g: 0, b: 0, a: 1 },
         loadOp: "clear",
         storeOp: "store",
       }],
     });
     pass.setPipeline(this.taaPipeline);
-    pass.setBindGroup(0, this.taaBindGroup);
+    pass.setBindGroup(0, bindGroup);
     pass.draw(6);
     pass.end();
 
-    const tempTex = this.historyTexture;
-    this.historyTexture = this.device.createTexture({
-      size: [this.width, this.height],
-      format: "rgba16float",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    this.historyView = this.historyTexture.createView();
     encoder.copyTextureToTexture(
-      { texture: this.getTextureFromView(outputView) },
-      { texture: this.historyTexture },
+      { texture: this.taaOutputTexture! },
+      { texture: this.historyTexture2! },
       { width: this.width, height: this.height },
     );
 
     ctx.device.queue.submit([encoder.finish()]);
-    tempTex?.destroy();
-  }
 
-  private getTextureFromView(view: GPUTextureView): GPUTexture {
-    return (view as unknown as { texture: GPUTexture }).texture;
+    const tmpTex = this.historyTexture;
+    const tmpView = this.historyView;
+    this.historyTexture = this.historyTexture2;
+    this.historyView = this.historyView2;
+    this.historyTexture2 = tmpTex;
+    this.historyView2 = tmpView;
+
+    return this.taaOutputView!;
   }
 
   executeBloom(
@@ -449,7 +468,7 @@ export class PostProcessPass extends RenderPass {
     const brightBindGroup = this.device.createBindGroup({
       layout: this.bloomPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.bloomUniformBuffer! } },
+        { binding: 0, resource: { buffer: this.bloomBrightUniformBuffer! } },
         { binding: 1, resource: sourceView },
         { binding: 2, resource: this.sampler },
       ],
@@ -458,7 +477,7 @@ export class PostProcessPass extends RenderPass {
     const blurHBindGroup = this.device.createBindGroup({
       layout: this.bloomPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.bloomUniformBuffer! } },
+        { binding: 0, resource: { buffer: this.bloomBlurHUniformBuffer! } },
         { binding: 1, resource: this.bloomHalfView! },
         { binding: 2, resource: this.sampler },
       ],
@@ -467,21 +486,30 @@ export class PostProcessPass extends RenderPass {
     const blurVBindGroup = this.device.createBindGroup({
       layout: this.bloomPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.bloomUniformBuffer! } },
+        { binding: 0, resource: { buffer: this.bloomBlurVUniformBuffer! } },
         { binding: 1, resource: this.bloomTempView! },
         { binding: 2, resource: this.sampler },
       ],
     });
 
-    const encoder = ctx.device.createCommandEncoder();
-
-    // Bright pass (direction.x = 2.0 to trigger bright pass)
     const brightData = new Float32Array(4);
     brightData[0] = this.settings.bloomThreshold;
     brightData[1] = this.settings.bloomSoftThreshold;
     brightData[2] = 2.0;
     brightData[3] = 0.0;
-    this.device.queue.writeBuffer(this.bloomUniformBuffer!, 0, brightData.buffer);
+    this.device.queue.writeBuffer(this.bloomBrightUniformBuffer!, 0, brightData as unknown as BufferSource);
+
+    const blurHData = new Float32Array(4);
+    blurHData[2] = 1.0 / halfW;
+    blurHData[3] = 0.0;
+    this.device.queue.writeBuffer(this.bloomBlurHUniformBuffer!, 0, blurHData as unknown as BufferSource);
+
+    const blurVData = new Float32Array(4);
+    blurVData[2] = 0.0;
+    blurVData[3] = 1.0 / halfH;
+    this.device.queue.writeBuffer(this.bloomBlurVUniformBuffer!, 0, blurVData as unknown as BufferSource);
+
+    const encoder = ctx.device.createCommandEncoder();
 
     let pass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -496,12 +524,6 @@ export class PostProcessPass extends RenderPass {
     pass.draw(6);
     pass.end();
 
-    // Horizontal blur
-    const blurHData = new Float32Array(4);
-    blurHData[2] = 1.0 / halfW;
-    blurHData[3] = 0.0;
-    this.device.queue.writeBuffer(this.bloomUniformBuffer!, 0, blurHData.buffer);
-
     pass = encoder.beginRenderPass({
       colorAttachments: [{
         view: this.bloomTempView!,
@@ -514,12 +536,6 @@ export class PostProcessPass extends RenderPass {
     pass.setBindGroup(0, blurHBindGroup);
     pass.draw(6);
     pass.end();
-
-    // Vertical blur
-    const blurVData = new Float32Array(4);
-    blurVData[2] = 0.0;
-    blurVData[3] = 1.0 / halfH;
-    this.device.queue.writeBuffer(this.bloomUniformBuffer!, 0, blurVData.buffer);
 
     pass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -579,10 +595,15 @@ export class PostProcessPass extends RenderPass {
 
   destroy(): void {
     this.historyTexture?.destroy();
+    this.historyTexture2?.destroy();
+    this.taaOutputTexture?.destroy();
     this.bloomHalfTexture?.destroy();
     this.bloomTempTexture?.destroy();
     this.taaUniformBuffer?.destroy();
     this.bloomUniformBuffer?.destroy();
+    this.bloomBrightUniformBuffer?.destroy();
+    this.bloomBlurHUniformBuffer?.destroy();
+    this.bloomBlurVUniformBuffer?.destroy();
     this.tonemapUniformBuffer?.destroy();
   }
 }

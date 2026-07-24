@@ -95,7 +95,7 @@ export { MaterialHotReloader } from "./render/hot-reload.ts";
 export type { WatchedShader } from "./render/hot-reload.ts";
 export { HDRSupport } from "./render/hdr.ts";
 export type { HDRConfig as RenderHDRConfig } from "./render/hdr.ts";
-export { LightType, createDirectionalLight, createPointLight, createDefaultLightUniform, packLightUniform, MAX_POINT_LIGHTS } from "./render/lighting.ts";
+export { LightType, createDirectionalLight, createPointLight, createDefaultLightUniform, packLightUniform, packPointLights, MAX_POINT_LIGHTS } from "./render/lighting.ts";
 export type { Light, DirectionalLight, PointLight, SpotLight, LightUniformData } from "./render/lighting.ts";
 
 // Mesh

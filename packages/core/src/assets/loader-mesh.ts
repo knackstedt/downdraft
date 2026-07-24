@@ -257,7 +257,11 @@ export class GLBLoader {
       } else if (indexData.data instanceof Uint8Array) {
         indices = new Uint16Array(indexData.data as Uint8Array);
       } else {
-        indices = new Uint32Array(indexData.data as unknown as ArrayLike<number>);
+        const src = indexData.data as Int8Array | Int16Array;
+        indices = new Uint32Array(indexData.count);
+        for (let i = 0; i < indexData.count; i++) {
+          indices[i] = src[i];
+        }
       }
     } else {
       indices = vertexCount > 65535
