@@ -155,6 +155,8 @@ export type { BuilderMode, BuilderConfig } from "./builder/builder.ts";
 export { ScriptingSystem } from "./scripting/script.ts";
 export type { ScriptContext, ScriptHandle, ScriptModule } from "./scripting/script.ts";
 export { HotReloader } from "./scripting/hot-reload.ts";
+export { createScriptBinding } from "./scripting/binding.ts";
+export type { ScriptBinding } from "./scripting/binding.ts";
 
 // Plugin
 export type { Plugin, PluginContext, SABChannel } from "./plugin/plugin.ts";
@@ -187,6 +189,7 @@ export { GPUResourceCache } from "./assets/cache.ts";
 export type { GPUCacheEntry } from "./assets/cache.ts";
 export { LODGenerator } from "./assets/lod.ts";
 export type { LODLevel, LODConfig } from "./assets/lod.ts";
+export { loadAudioFile, loadAudioFromBuffer, detectAudioFormat, registerAudioLoader } from "./assets/loader-audio.ts";
 
 // Physics
 export type { PhysicsBackend, BodyType, ColliderShape, BodyDesc, ColliderDesc, RigidBodyHandle, RaycastResult, ShapeCastResult, ContactManifold, PhysicsRealmConfig } from "./physics/interface.ts";
@@ -238,6 +241,8 @@ export { AudioListener, createAudioListener, listenerToState } from "./audio/lis
 export type { AudioListenerData } from "./audio/listener.ts";
 export { AudioMixer } from "./audio/mixer.ts";
 export type { MixerChannelState } from "./audio/mixer.ts";
+export { AudioSABChannel, AUDIO_SAB_LAYOUT } from "./audio/sab.ts";
+export type { AudioSABData } from "./audio/sab.ts";
 
 // Crash Recovery
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";

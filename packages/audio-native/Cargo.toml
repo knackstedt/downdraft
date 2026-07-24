@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 kira = "0.9"
+symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "wav", "pcm"] }

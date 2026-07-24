@@ -18,6 +18,7 @@ export interface SaveData {
 export class Serializer {
   serialize(world: World, sceneName: string): SaveData {
     const entities: SaveData["scene"]["entities"] = [];
+    const binaryBlobs: Record<string, ArrayBuffer> = {};
 
     for (let i = 0; i < world.entities.length; i++) {
       const meta = world.entities[i];
@@ -34,7 +35,23 @@ export class Serializer {
           (e) => e.index === entity.index && e.generation === entity.generation,
         );
         if (row >= 0) {
-          components.push({ id: cid, data: col[row] });
+          const data = col[row];
+          if (data instanceof ArrayBuffer) {
+            const blobKey = `blob_${i}_${cid}`;
+            binaryBlobs[blobKey] = data;
+            components.push({ id: cid, data: { __blobRef: blobKey } });
+          } else if (data instanceof Float32Array || data instanceof Float64Array ||
+                     data instanceof Int32Array || data instanceof Uint32Array ||
+                     data instanceof Uint8Array || data instanceof Int8Array ||
+                     data instanceof Int16Array || data instanceof Uint16Array) {
+            const blobKey = `blob_${i}_${cid}`;
+            const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+            binaryBlobs[blobKey] = buf instanceof ArrayBuffer ? buf : new ArrayBuffer(buf.byteLength);
+            new Uint8Array(binaryBlobs[blobKey]).set(new Uint8Array(buf));
+            components.push({ id: cid, data: { __blobRef: blobKey } });
+          } else {
+            components.push({ id: cid, data });
+          }
         }
       }
 
@@ -44,17 +61,25 @@ export class Serializer {
     return {
       schemaVersion: 1,
       scene: { name: sceneName, entities },
+      binaryBlobs: Object.keys(binaryBlobs).length > 0 ? binaryBlobs : undefined,
     };
   }
 
   deserialize(data: SaveData, world: World, schemaRegistry: SchemaRegistry): void {
     const migrated = schemaRegistry.migrate(data, data.schemaVersion) as SaveData;
+    const blobs = migrated.binaryBlobs ?? {};
 
     for (let i = 0; i < migrated.scene.entities.length; i++) {
       const entry = migrated.scene.entities[i];
       const components = new Map<number, unknown>();
       for (let j = 0; j < entry.components.length; j++) {
-        components.set(entry.components[j].id, entry.components[j].data);
+        const comp = entry.components[j];
+        if (comp.data && typeof comp.data === "object" && "__blobRef" in (comp.data as Record<string, unknown>)) {
+          const ref = (comp.data as Record<string, string>).__blobRef;
+          components.set(comp.id, blobs[ref] ?? new ArrayBuffer(0));
+        } else {
+          components.set(comp.id, comp.data);
+        }
       }
       world.spawn(components);
     }
@@ -63,13 +88,50 @@ export class Serializer {
   toJSON(data: SaveData): string {
     return JSON.stringify(data, (_key, value) => {
       if (value instanceof ArrayBuffer) {
-        return { __type: "ArrayBuffer", __data: "" };
+        return { __type: "ArrayBuffer", __data: arrayBufferToBase64(value) };
+      }
+      if (typeof value === "object" && value !== null && value.buffer instanceof ArrayBuffer && !Array.isArray(value)) {
+        return { __type: "TypedArray", __data: arrayBufferToBase64(value.buffer) };
       }
       return value;
     }, 2);
   }
 
   fromJSON(json: string): SaveData {
-    return JSON.parse(json);
+    return JSON.parse(json, (_key, value) => {
+      if (value && typeof value === "object" && value.__type === "ArrayBuffer" && typeof value.__data === "string") {
+        return base64ToArrayBuffer(value.__data);
+      }
+      return value;
+    });
   }
+
+  toBinary(data: SaveData): ArrayBuffer {
+    const json = this.toJSON(data);
+    const encoder = new TextEncoder();
+    return encoder.encode(json).buffer;
+  }
+
+  fromBinary(buffer: ArrayBuffer): SaveData {
+    const decoder = new TextDecoder();
+    return this.fromJSON(decoder.decode(buffer));
+  }
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
 }

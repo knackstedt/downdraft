@@ -141,6 +141,18 @@ export class SeqlockBuffer<T = Record<string, unknown>> {
     return this.lastReadData;
   }
 
+  write(data: Record<string, unknown>): void {
+    this.beginWrite();
+    for (const [name, value] of Object.entries(data)) {
+      if (Array.isArray(value)) {
+        this.writeField(name, value as number[]);
+      } else if (typeof value === "number") {
+        this.writeField(name, value);
+      }
+    }
+    this.endWrite();
+  }
+
   readInto(target: T & Record<string, unknown>): boolean {
     const result = this.read();
     if (result === null) return false;

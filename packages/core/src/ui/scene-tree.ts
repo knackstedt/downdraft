@@ -1,6 +1,8 @@
 import type { World } from "../ecs/world.ts";
 import type { Entity } from "../ecs/entity.ts";
 import type { ComponentId } from "../ecs/component.ts";
+import type { Hierarchy } from "../ecs/hierarchy.ts";
+import { ROOT_ENTITY } from "../ecs/entity.ts";
 
 export interface SceneTreeNode {
   entity: Entity;
@@ -21,14 +23,16 @@ export interface SceneTreeState {
 
 export class SceneTreePanel {
   private world: World;
+  private hierarchy: Hierarchy;
   private nodes: Map<number, SceneTreeNode> = new Map();
   private selectedEntity: Entity | null = null;
   private expanded: Set<number> = new Set();
   private nameOverrides: Map<number, string> = new Map();
   private onSelectionChange: ((entity: Entity | null) => void) | null = null;
 
-  constructor(world: World) {
+  constructor(world: World, hierarchy: Hierarchy) {
     this.world = world;
+    this.hierarchy = hierarchy;
   }
 
   setOnSelectionChange(fn: (entity: Entity | null) => void): void {
@@ -53,17 +57,19 @@ export class SceneTreePanel {
     const allNodes: SceneTreeNode[] = [];
 
     for (let i = 0; i < this.world.entities.length; i++) {
+      if (i === ROOT_ENTITY.index) continue;
       const meta = this.world.entities[i];
       if (!meta.alive) continue;
 
       const entity: Entity = { index: i, generation: meta.generation };
       const arch = this.world.archetypeById.get(meta.archetypeId);
       const componentCount = arch ? arch.componentIds.length : 0;
+      const parent = this.hierarchy.getParent(entity);
 
       const node: SceneTreeNode = {
         entity,
         name: this.getEntityName(entity),
-        parentId: -1,
+        parentId: parent.index,
         children: [],
         componentCount,
         depth: 0,
@@ -76,7 +82,7 @@ export class SceneTreePanel {
     }
 
     for (const node of allNodes) {
-      if (node.parentId >= 0) {
+      if (node.parentId >= 0 && node.parentId !== ROOT_ENTITY.index) {
         const parent = this.nodes.get(node.parentId);
         if (parent) {
           parent.children.push(node);
