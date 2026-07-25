@@ -12,9 +12,14 @@ use std::path::PathBuf;
 /// [532..536] frame time us (u32, written by Rust)
 /// [536..540] entity count (u32, written by Rust)
 /// [540..544] renderer status (u32, written by Rust)
-/// Total: 544 bytes
+/// [544..548] render data seqlock (u32, written by Bun)
+/// [548..552] render entity count (u32, written by Bun)
+/// [552..564] camera position (3 × f32, written by Bun)
+/// [564..576] camera target (3 × f32, written by Bun)
+/// [576..2368] entity array (64 × 28 bytes, written by Bun)
+/// Total: 4096 bytes
 
-pub const SHM_SIZE: usize = 544;
+pub const SHM_SIZE: usize = 4096;
 pub const CMD_SEQ_OFFSET: usize = 0;
 pub const CMD_TYPE_OFFSET: usize = 4;
 pub const CMD_SIZE_OFFSET: usize = 8;
@@ -25,6 +30,45 @@ pub const TLM_FPS_OFFSET: usize = 528;
 pub const TLM_FRAME_TIME_OFFSET: usize = 532;
 pub const TLM_ENTITY_COUNT_OFFSET: usize = 536;
 pub const TLM_STATUS_OFFSET: usize = 540;
+
+// Render data section (written by Bun, read by Rust)
+pub const RENDER_SEQ_OFFSET: usize = 544;
+pub const RENDER_ENTITY_COUNT_OFFSET: usize = 548;
+pub const RENDER_CAM_POS_OFFSET: usize = 552;
+pub const RENDER_CAM_TARGET_OFFSET: usize = 564;
+pub const RENDER_ENTITIES_OFFSET: usize = 576;
+pub const RENDER_MAX_ENTITIES: usize = 64;
+pub const RENDER_ENTITY_STRIDE: usize = 28; // type(4) + pos(12) + color(12)
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RenderEntityType {
+    Player = 0,
+    Ship = 1,
+    Shark = 2,
+    Fish = 3,
+    Debris = 4,
+    Water = 5,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct RenderEntity {
+    pub entity_type: u32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct RenderData {
+    pub camera_pos: [f32; 3],
+    pub camera_target: [f32; 3],
+    pub entities: Vec<RenderEntity>,
+}
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -85,8 +129,8 @@ impl SharedMemory {
         &mut self.mmap[..]
     }
 
-    /// Read command from Bun (seqlock read)
-    pub fn read_command(&self) -> Option<(CommandType, Vec<u8>)> {
+    /// Read command from Bun (seqlock read) — clears command after reading
+    pub fn read_command(&mut self) -> Option<(CommandType, Vec<u8>)> {
         let bytes = self.as_bytes();
         let seq_arr = unsafe {
             &*(bytes.as_ptr().add(CMD_SEQ_OFFSET) as *const std::sync::atomic::AtomicU32)
@@ -124,12 +168,70 @@ impl SharedMemory {
                     _ => CommandType::None,
                 };
                 if cmd != CommandType::None {
+                    // Clear the command type so we don't re-read it next frame
+                    let bytes_mut = self.as_bytes_mut();
+                    let cmd_type_ptr = &mut bytes_mut[CMD_TYPE_OFFSET..CMD_TYPE_OFFSET + 4];
+                    cmd_type_ptr.copy_from_slice(&0u32.to_le_bytes());
                     return Some((cmd, payload));
                 }
                 return None;
             }
         }
         None
+    }
+
+    /// Read render data from Bun (seqlock read)
+    pub fn read_render_data(&self) -> Option<RenderData> {
+        let bytes = self.as_bytes();
+        let seq_arr = unsafe {
+            &*(bytes.as_ptr().add(RENDER_SEQ_OFFSET) as *const std::sync::atomic::AtomicU32)
+        };
+
+        let s1 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 & 1 != 0 {
+            return None;
+        }
+
+        let entity_count = u32::from_le_bytes(
+            bytes[RENDER_ENTITY_COUNT_OFFSET..RENDER_ENTITY_COUNT_OFFSET + 4].try_into().unwrap()
+        ).min(RENDER_MAX_ENTITIES as u32) as usize;
+
+        let cam_pos = [
+            f32::from_le_bytes(bytes[RENDER_CAM_POS_OFFSET..RENDER_CAM_POS_OFFSET + 4].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_POS_OFFSET + 4..RENDER_CAM_POS_OFFSET + 8].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_POS_OFFSET + 8..RENDER_CAM_POS_OFFSET + 12].try_into().unwrap()),
+        ];
+
+        let cam_target = [
+            f32::from_le_bytes(bytes[RENDER_CAM_TARGET_OFFSET..RENDER_CAM_TARGET_OFFSET + 4].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_TARGET_OFFSET + 4..RENDER_CAM_TARGET_OFFSET + 8].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_TARGET_OFFSET + 8..RENDER_CAM_TARGET_OFFSET + 12].try_into().unwrap()),
+        ];
+
+        let mut entities = Vec::with_capacity(entity_count);
+        for i in 0..entity_count {
+            let off = RENDER_ENTITIES_OFFSET + i * RENDER_ENTITY_STRIDE;
+            entities.push(RenderEntity {
+                entity_type: u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()),
+                x: f32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap()),
+                y: f32::from_le_bytes(bytes[off + 8..off + 12].try_into().unwrap()),
+                z: f32::from_le_bytes(bytes[off + 12..off + 16].try_into().unwrap()),
+                r: f32::from_le_bytes(bytes[off + 16..off + 20].try_into().unwrap()),
+                g: f32::from_le_bytes(bytes[off + 20..off + 24].try_into().unwrap()),
+                b: f32::from_le_bytes(bytes[off + 24..off + 28].try_into().unwrap()),
+            });
+        }
+
+        let s2 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 != s2 || s2 & 1 != 0 {
+            return None;
+        }
+
+        Some(RenderData {
+            camera_pos: cam_pos,
+            camera_target: cam_target,
+            entities,
+        })
     }
 
     /// Write telemetry (seqlock write)

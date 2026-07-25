@@ -1,5 +1,10 @@
 import { SharedMemoryIPC, parseShmPath } from "../../packages/core/src/ipc/shared-memory.ts";
 
+// Load the example game module
+const examplePath = process.env.DOWNDRAFT_EXAMPLE ?? "examples/ocean-game/main.ts";
+const exampleDir = `${import.meta.dir}/../..`;
+const exampleModule = await import(`${exampleDir}/${examplePath}`);
+
 // Spawn the native Rust renderer
 const rendererDir = `${import.meta.dir}/../../native-renderer`;
 const rendererPath = `${rendererDir}/target/debug/native-renderer`;
@@ -49,6 +54,7 @@ const proc = Bun.spawn([rendererPath], {
 });
 
 let ipc: SharedMemoryIPC | null = null;
+let rendererReady = false;
 const reader = proc.stdout.getReader();
 const decoder = new TextDecoder();
 
@@ -68,6 +74,7 @@ const decoder = new TextDecoder();
         ipc = new SharedMemoryIPC();
         if (ipc.attach(shmPath)) {
           console.log("[DownDraft] Connected to renderer via shared memory:", shmPath);
+          rendererReady = true;
         } else {
           console.error("[DownDraft] Failed to attach to shared memory");
           ipc = null;
@@ -80,18 +87,73 @@ const decoder = new TextDecoder();
 
 // Handle cleanup
 process.on("exit", () => {
+  if (exampleModule.dispose) exampleModule.dispose({});
   ipc?.quit();
   proc.kill();
 });
 
-// Poll telemetry every 2 seconds for verification
-setInterval(() => {
-  if (ipc) {
-    const tlm = ipc.readTelemetry();
-    if (tlm) {
-      console.log(`[DownDraft] Telemetry: FPS=${tlm.fps}, frameTime=${tlm.frameTimeUs}us, entities=${tlm.entityCount}, status=${tlm.status}`);
-    }
-  }
-}, 2000);
+// Detect renderer exit
+proc.exited.then((code) => {
+  console.log(`[DownDraft] Renderer exited with code ${code}`);
+  if (exampleModule.dispose) exampleModule.dispose({});
+  process.exit(code ?? 0);
+});
 
 console.log("[DownDraft] Native renderer spawned, waiting for shared memory connection...");
+
+// Wait for renderer to be ready, then init the game and start the game loop
+const SIM_TICK_DT = 1 / 60;
+
+(async () => {
+  // Wait for IPC connection
+  while (!rendererReady) {
+    await Bun.sleep(10);
+  }
+
+  // Send LoadScene command to renderer (once)
+  ipc!.loadScene("ocean-survival");
+
+  // Initialize the game
+  if (exampleModule.init) {
+    exampleModule.init({ device: null });
+  }
+
+  // Game loop
+  let lastTime = performance.now();
+  let running = true;
+
+  process.on("SIGINT", () => { running = false; });
+  process.on("SIGTERM", () => { running = false; });
+
+  while (running) {
+    const now = performance.now();
+    let dt = (now - lastTime) / 1000;
+    if (dt < SIM_TICK_DT) {
+      await Bun.sleep(SIM_TICK_DT * 1000 - dt * 1000);
+      dt = SIM_TICK_DT;
+    }
+    dt = Math.min(SIM_TICK_DT, dt);
+    lastTime = performance.now();
+
+    if (exampleModule.tick) {
+      exampleModule.tick({ device: null, ipc: ipc }, dt);
+    }
+
+    // Write render data to shared memory for the renderer
+    if (exampleModule.getRenderData && ipc) {
+      const renderData = exampleModule.getRenderData();
+      ipc.writeRenderData(renderData);
+    }
+
+    // Check if renderer is still alive
+    if (proc.killed) {
+      running = false;
+    }
+  }
+
+  if (exampleModule.dispose) {
+    exampleModule.dispose({});
+  }
+  ipc?.quit();
+  process.exit(0);
+})();

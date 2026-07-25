@@ -259,3 +259,7 @@ export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree.ts";
 export { DEFAULT_DEBUG_VIZ_SETTINGS, DebugVizPass } from "./render/passes/debug-viz.ts";
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.ts";
 
+// IPC (Shared Memory)
+export { CommandType, RenderEntityType, SharedMemoryIPC, parseShmPath } from "./ipc/shared-memory.ts";
+export type { RenderData, RenderEntityData, Telemetry } from "./ipc/shared-memory.ts";
+
