@@ -17,9 +17,9 @@ use std::path::PathBuf;
 /// [552..564] camera position (3 × f32, written by Bun)
 /// [564..576] camera target (3 × f32, written by Bun)
 /// [576..2368] entity array (64 × 28 bytes, written by Bun)
-/// Total: 4096 bytes
+/// Total: 4MB (expanded for mesh data)
 
-pub const SHM_SIZE: usize = 4096;
+pub const SHM_SIZE: usize = 4 * 1024 * 1024; // 4MB for mesh data
 pub const CMD_SEQ_OFFSET: usize = 0;
 pub const CMD_TYPE_OFFSET: usize = 4;
 pub const CMD_SIZE_OFFSET: usize = 8;
@@ -43,6 +43,20 @@ pub const RENDER_ENTITY_STRIDE: usize = 28; // type(4) + pos(12) + color(12)
 // Input section (written by Rust renderer, read by Bun)
 pub const INPUT_OFFSET: usize = 3264;        // held_keys: u32 bitfield
 pub const INPUT_PRESSED_OFFSET: usize = 3268; // pressed_keys: u32 bitfield (one-shot)
+pub const INPUT_MOUSE_DX_OFFSET: usize = 3272;  // mouse delta X (f32)
+pub const INPUT_MOUSE_DY_OFFSET: usize = 3276;  // mouse delta Y (f32)
+pub const INPUT_WHEEL_OFFSET: usize = 3280;     // mouse wheel delta (f32)
+
+// Mesh data section (written by Bun once at init, read by Rust once)
+pub const MESH_SEQ_OFFSET: usize = 3284;       // seqlock (u32)
+pub const MESH_COUNT_OFFSET: usize = 3288;     // number of meshes (u32)
+pub const MESH_DATA_OFFSET: usize = 3292;      // mesh data starts here
+// Mesh data format per mesh:
+//   vertex_count: u32
+//   index_count: u32
+//   pos_x: f32, pos_z: f32 (island world position for model matrix)
+//   vertices: vertex_count * 9 f32 (pos.xyz, normal.xyz, color.rgb)
+//   indices: index_count * u32
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,6 +69,11 @@ pub enum RenderEntityType {
     Water = 5,
     Island = 6,
     Buildable = 7,
+    Pirate = 8,
+    Port = 9,
+    Animal = 10,
+    Plant = 11,
+    Pet = 12,
 }
 
 #[repr(C)]
@@ -67,6 +86,16 @@ pub struct RenderEntity {
     pub r: f32,
     pub g: f32,
     pub b: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct IslandMesh {
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub pos_x: f32,
+    pub pos_z: f32,
+    pub vertices: Vec<f32>,    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
+    pub indices: Vec<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -270,6 +299,90 @@ impl SharedMemory {
             .copy_from_slice(&status.to_le_bytes());
 
         seq_ptr.store(seq + 2, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Read mesh data from Bun (seqlock read, called once at startup)
+    pub fn read_mesh_data(&self) -> Vec<IslandMesh> {
+        let bytes = self.as_bytes();
+        let seq_arr = unsafe {
+            &*(bytes.as_ptr().add(MESH_SEQ_OFFSET) as *const std::sync::atomic::AtomicU32)
+        };
+
+        let s1 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 & 1 != 0 {
+            return Vec::new();
+        }
+
+        let mesh_count = u32::from_le_bytes(
+            bytes[MESH_COUNT_OFFSET..MESH_COUNT_OFFSET + 4].try_into().unwrap()
+        );
+
+        let mut meshes = Vec::with_capacity(mesh_count as usize);
+        let mut offset = MESH_DATA_OFFSET;
+
+        for _ in 0..mesh_count {
+            if offset + 16 > SHM_SIZE {
+                break;
+            }
+
+            let vertex_count = u32::from_le_bytes(
+                bytes[offset..offset + 4].try_into().unwrap()
+            );
+            let index_count = u32::from_le_bytes(
+                bytes[offset + 4..offset + 8].try_into().unwrap()
+            );
+            let pos_x = f32::from_le_bytes(
+                bytes[offset + 8..offset + 12].try_into().unwrap()
+            );
+            let pos_z = f32::from_le_bytes(
+                bytes[offset + 12..offset + 16].try_into().unwrap()
+            );
+            offset += 16;
+
+            // Read vertices: vertex_count * 9 f32 = vertex_count * 36 bytes
+            let vert_bytes = (vertex_count as usize) * 36;
+            if offset + vert_bytes > SHM_SIZE {
+                break;
+            }
+            let mut vertices = Vec::with_capacity(vertex_count as usize * 9);
+            for v in 0..(vertex_count as usize * 9) {
+                let byte_off = offset + v * 4;
+                vertices.push(f32::from_le_bytes(
+                    bytes[byte_off..byte_off + 4].try_into().unwrap()
+                ));
+            }
+            offset += vert_bytes;
+
+            // Read indices: index_count * u32 = index_count * 4 bytes
+            let idx_bytes = (index_count as usize) * 4;
+            if offset + idx_bytes > SHM_SIZE {
+                break;
+            }
+            let mut indices = Vec::with_capacity(index_count as usize);
+            for i in 0..(index_count as usize) {
+                let byte_off = offset + i * 4;
+                indices.push(u32::from_le_bytes(
+                    bytes[byte_off..byte_off + 4].try_into().unwrap()
+                ));
+            }
+            offset += idx_bytes;
+
+            meshes.push(IslandMesh {
+                vertex_count,
+                index_count,
+                pos_x,
+                pos_z,
+                vertices,
+                indices,
+            });
+        }
+
+        let s2 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 != s2 || s2 & 1 != 0 {
+            return Vec::new();
+        }
+
+        meshes
     }
 
     pub fn print_path(&self) {

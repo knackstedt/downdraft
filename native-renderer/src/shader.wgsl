@@ -16,6 +16,7 @@ var<uniform> model: ModelUniforms;
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) color: vec3<f32>,
 };
 
 struct VertexOutput {
@@ -29,7 +30,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     let world_pos = model.model * vec4<f32>(in.position, 1.0);
     out.clip_position = camera.view_proj * world_pos;
-    out.color = model.color.rgb;
+    out.color = in.color * model.color.rgb;
     out.normal = in.normal;
     return out;
 }

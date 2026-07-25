@@ -121,6 +121,7 @@ const SIM_TICK_DT = 1 / 60;
   // Game loop
   let lastTime = performance.now();
   let running = true;
+  let meshDataWritten = false;
 
   process.on("SIGINT", () => { running = false; });
   process.on("SIGTERM", () => { running = false; });
@@ -146,6 +147,17 @@ const SIM_TICK_DT = 1 / 60;
       } else {
         exampleModule.tick({ device: null, ipc: ipc }, dt);
       }
+    }
+
+    // Write island mesh data to shared memory once after first tick
+    // (query archetypes are populated during the first world.step())
+    if (!meshDataWritten && ipc && exampleModule.getMeshData) {
+      const meshData = exampleModule.getMeshData();
+      if (meshData && meshData.length > 0) {
+        console.log(`[DownDraft] Writing ${meshData.length} island meshes to shared memory`);
+        ipc.writeMeshData(meshData);
+      }
+      meshDataWritten = true;
     }
 
     // Write render data to shared memory for the renderer

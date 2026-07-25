@@ -2,7 +2,7 @@
 /// Uses Bun.mmap to memory-map a file created by the Rust binary.
 
 // Shared memory layout (must match native-renderer/src/ipc.rs)
-export const SHM_SIZE = 4096;
+export const SHM_SIZE = 4 * 1024 * 1024; // 4MB for mesh data
 const CMD_SEQ_OFFSET = 0;
 const CMD_TYPE_OFFSET = 4;
 const CMD_SIZE_OFFSET = 8;
@@ -27,12 +27,23 @@ export const RENDER_ENTITY_STRIDE = 28;  // type(4) + pos(12) + color(12) = 28 b
 // 96 entities * 28 bytes = 2688, starting at 576, ends at 3264
 export const INPUT_OFFSET = 3264;        // held_keys: u32 bitfield
 export const INPUT_PRESSED_OFFSET = 3268; // pressed_keys: u32 bitfield (one-shot)
+export const INPUT_MOUSE_DX_OFFSET = 3272;  // mouse delta X (f32)
+export const INPUT_MOUSE_DY_OFFSET = 3276;  // mouse delta Y (f32)
+export const INPUT_WHEEL_OFFSET = 3280;     // mouse wheel delta (f32)
+
+// Mesh data section (written by Bun once at init, read by Rust once)
+export const MESH_SEQ_OFFSET = 3284;       // seqlock (u32)
+export const MESH_COUNT_OFFSET = 3288;     // number of meshes (u32)
+export const MESH_DATA_OFFSET = 3292;      // mesh data starts here
 
 // Key bit assignments
 export const KEY_BITS: Record<string, number> = {
   w: 0, a: 1, s: 2, d: 3,
   shift: 4, arrowleft: 5, arrowright: 6, arrowup: 7, arrowdown: 8,
   e: 9, q: 10, r: 11, f: 12, c: 13, b: 14, t: 15,
+  g: 16, x: 17, v: 18, h: 19, j: 20, p: 21, y: 22,
+  m: 23, space: 24, ctrl: 25, f5: 26,
+  "1": 27, "2": 28, "3": 29, "4": 30, "5": 31,
 };
 
 export enum RenderEntityType {
@@ -44,6 +55,11 @@ export enum RenderEntityType {
   Water = 5,
   Island = 6,
   Buildable = 7,
+  Pirate = 8,
+  Port = 9,
+  Animal = 10,
+  Plant = 11,
+  Pet = 12,
 }
 
 export interface RenderEntityData {
@@ -56,6 +72,15 @@ export interface RenderData {
   cameraPos: [number, number, number];
   cameraTarget: [number, number, number];
   entities: RenderEntityData[];
+}
+
+export interface MeshData {
+  vertexCount: number;
+  indexCount: number;
+  posX: number;
+  posZ: number;
+  verts: Float32Array;    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
+  indices: Uint32Array;   // u32 indices
 }
 
 export enum CommandType {
@@ -255,8 +280,8 @@ export class SharedMemoryIPC {
     return { cameraPos: camPos, cameraTarget: camTarget, entities };
   }
 
-  /** Read keyboard input from shared memory (written by Rust renderer) */
-  readInput(): { keys: Set<string>; pressed: Set<string> } {
+  /** Read keyboard + mouse input from shared memory (written by Rust renderer) */
+  readInput(): { keys: Set<string>; pressed: Set<string>; mouseDX: number; mouseDY: number; wheel: number } {
     const heldBits = this.u32[INPUT_OFFSET / 4] ?? 0;
     const pressedBits = this.u32[INPUT_PRESSED_OFFSET / 4] ?? 0;
 
@@ -268,7 +293,52 @@ export class SharedMemoryIPC {
       if (pressedBits & (1 << bit)) pressed.add(key);
     }
 
-    return { keys, pressed };
+    const mouseDX = this.view.getFloat32(INPUT_MOUSE_DX_OFFSET, true);
+    const mouseDY = this.view.getFloat32(INPUT_MOUSE_DY_OFFSET, true);
+    const wheel = this.view.getFloat32(INPUT_WHEEL_OFFSET, true);
+
+    // Clear mouse deltas after reading (one-shot consumption)
+    this.view.setFloat32(INPUT_MOUSE_DX_OFFSET, 0, true);
+    this.view.setFloat32(INPUT_MOUSE_DY_OFFSET, 0, true);
+    this.view.setFloat32(INPUT_WHEEL_OFFSET, 0, true);
+
+    return { keys, pressed, mouseDX, mouseDY, wheel };
+  }
+
+  /** Write island mesh data to shared memory (called once after init) */
+  writeMeshData(meshes: MeshData[]): void {
+    const seq = this.u32[MESH_SEQ_OFFSET / 4];
+    this.u32[MESH_SEQ_OFFSET / 4] = seq + 1; // begin write (odd)
+
+    this.u32[MESH_COUNT_OFFSET / 4] = meshes.length;
+
+    let offset = MESH_DATA_OFFSET;
+    for (const mesh of meshes) {
+      // Header: vertex_count, index_count, pos_x, pos_z
+      this.u32[offset / 4] = mesh.vertexCount;
+      this.u32[(offset + 4) / 4] = mesh.indexCount;
+      this.view.setFloat32(offset + 8, mesh.posX, true);
+      this.view.setFloat32(offset + 12, mesh.posZ, true);
+      offset += 16;
+
+      // Vertices: vertexCount * 9 floats = vertexCount * 36 bytes
+      const vertBytes = mesh.vertexCount * 36;
+      if (offset + vertBytes > SHM_SIZE) break;
+      for (let i = 0; i < mesh.vertexCount * 9; i++) {
+        this.view.setFloat32(offset + i * 4, mesh.verts[i], true);
+      }
+      offset += vertBytes;
+
+      // Indices: indexCount * 4 bytes (u32)
+      const idxBytes = mesh.indexCount * 4;
+      if (offset + idxBytes > SHM_SIZE) break;
+      for (let i = 0; i < mesh.indexCount; i++) {
+        this.u32[(offset + i * 4) / 4] = mesh.indices[i];
+      }
+      offset += idxBytes;
+    }
+
+    this.u32[MESH_SEQ_OFFSET / 4] = seq + 2; // end write (even)
   }
 }
 

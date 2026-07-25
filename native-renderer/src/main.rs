@@ -16,6 +16,7 @@ use winit::{
 struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
+    color: [f32; 3],
 }
 
 #[repr(C)]
@@ -33,7 +34,7 @@ struct ModelUniforms {
 }
 
 const MODEL_UNIFORM_SIZE: u64 = 256;
-const MAX_MODEL_SLOTS: u64 = 64;
+const MAX_MODEL_SLOTS: u64 = 128;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -66,7 +67,7 @@ fn generate_cube(size: f32) -> (Vec<Vertex>, Vec<u16>) {
     for (normal, positions) in faces.iter() {
         let base = vertices.len() as u16;
         for pos in positions.iter() {
-            vertices.push(Vertex { position: *pos, normal: *normal });
+            vertices.push(Vertex { position: *pos, normal: *normal, color: [1.0, 1.0, 1.0] });
         }
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
@@ -87,6 +88,7 @@ fn generate_sphere(radius: f32, segments: usize, rings: usize) -> (Vec<Vertex>, 
             vertices.push(Vertex {
                 position: [px, py, pz],
                 normal: [px / radius, py / radius, pz / radius],
+                color: [1.0, 1.0, 1.0],
             });
         }
     }
@@ -116,6 +118,7 @@ fn generate_plane(width: f32, depth: f32, segments: usize) -> (Vec<Vertex>, Vec<
             vertices.push(Vertex {
                 position: [px, 0.0, pz],
                 normal: [0.0, 1.0, 0.0],
+                color: [1.0, 1.0, 1.0],
             });
         }
     }
@@ -206,6 +209,14 @@ struct MeshBuffers {
     index_count: u32,
 }
 
+struct IslandMeshBuffer {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    index_count: u32,
+    pos_x: f32,
+    pos_z: f32,
+}
+
 struct Renderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -223,6 +234,7 @@ struct Renderer {
     cube_mesh: MeshBuffers,
     sphere_mesh: MeshBuffers,
     plane_mesh: MeshBuffers,
+    island_meshes: Vec<IslandMeshBuffer>,
     depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
     ui_texture: wgpu::Texture,
@@ -419,6 +431,11 @@ impl Renderer {
                             format: wgpu::VertexFormat::Float32x3,
                             offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                             shader_location: 1,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                            shader_location: 2,
                         },
                     ],
                 }],
@@ -630,6 +647,7 @@ impl Renderer {
             cube_mesh,
             sphere_mesh,
             plane_mesh,
+            island_meshes: Vec::new(),
             depth_texture,
             depth_texture_view,
             ui_texture,
@@ -719,6 +737,59 @@ impl Renderer {
                 wgpu::Extent3d { width: ui_width, height: ui_height, depth_or_array_layers: 1 },
             );
         }
+    }
+
+    /// Load island mesh data from shared memory into GPU buffers (called once after SHM connect)
+    fn load_island_meshes(&mut self) {
+        let meshes = if let Some(ref shm) = self.shm {
+            shm.read_mesh_data()
+        } else {
+            Vec::new()
+        };
+
+        if meshes.is_empty() {
+            return;
+        }
+
+        println!("[renderer] Loading {} island meshes from SHM", meshes.len());
+
+        for mesh in &meshes {
+            // Convert flat f32 array to Vertex array
+            let mut vertices = Vec::with_capacity(mesh.vertex_count as usize);
+            for i in 0..(mesh.vertex_count as usize) {
+                let off = i * 9;
+                vertices.push(Vertex {
+                    position: [mesh.vertices[off], mesh.vertices[off + 1], mesh.vertices[off + 2]],
+                    normal: [mesh.vertices[off + 3], mesh.vertices[off + 4], mesh.vertices[off + 5]],
+                    color: [mesh.vertices[off + 6], mesh.vertices[off + 7], mesh.vertices[off + 8]],
+                });
+            }
+
+            let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Island Vertex Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+            let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Island Index Buffer"),
+                contents: bytemuck::cast_slice(&mesh.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+            println!("[renderer] Island mesh: {} verts, {} indices at ({:.1}, {:.1})",
+                mesh.vertex_count, mesh.index_count, mesh.pos_x, mesh.pos_z);
+
+            self.island_meshes.push(IslandMeshBuffer {
+                vertex_buffer,
+                index_buffer,
+                index_count: mesh.index_count,
+                pos_x: mesh.pos_x,
+                pos_z: mesh.pos_z,
+            });
+        }
+
+        println!("[renderer] {} island meshes loaded into GPU", self.island_meshes.len());
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -850,9 +921,10 @@ impl Renderer {
         }
 
         // Entity slots 1..N
+        let mut entity_slot_count: u64 = 1; // slot 0 = water plane
         if let Some(ref rd) = render_data {
-            for (i, entity) in rd.entities.iter().enumerate() {
-                if i >= (MAX_MODEL_SLOTS as usize - 1) {
+            for entity in rd.entities.iter() {
+                if entity_slot_count >= MAX_MODEL_SLOTS {
                     break;
                 }
 
@@ -863,8 +935,13 @@ impl Renderer {
                     3 => (&self.sphere_mesh, 0.6),  // Fish
                     4 => (&self.cube_mesh, 0.4),    // Debris
                     5 => continue,                   // Water (already drawn as plane)
-                    6 => (&self.sphere_mesh, entity.y * 2.0), // Island (dome)
+                    6 => continue,                   // Island (drawn as custom mesh below)
                     7 => (&self.cube_mesh, 0.5),    // Buildable (campfire, etc.)
+                    8 => (&self.cube_mesh, 1.8),    // Pirate ship
+                    9 => (&self.cube_mesh, 1.0),    // Port (marker)
+                    10 => (&self.sphere_mesh, 0.5), // Animal
+                    11 => (&self.sphere_mesh, 0.3), // Plant
+                    12 => (&self.sphere_mesh, 0.4), // Pet
                     _ => continue,
                 };
 
@@ -878,9 +955,10 @@ impl Renderer {
                     _padding: [0.0; 48],
                 };
 
-                let offset = (i as u64 + 1) * MODEL_UNIFORM_SIZE;
+                let offset = entity_slot_count * MODEL_UNIFORM_SIZE;
                 self.queue.write_buffer(&self.model_buffer, offset, bytemuck::cast_slice(&[model_uniforms]));
                 draw_calls.push((mesh, offset as u32));
+                entity_slot_count += 1;
             }
         }
 
@@ -926,6 +1004,22 @@ impl Renderer {
                 render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
+
+            // Draw island meshes (custom marching cubes geometry with per-vertex color)
+            for (idx, island) in self.island_meshes.iter().enumerate() {
+                let slot = (entity_slot_count + idx as u64) * MODEL_UNIFORM_SIZE;
+                let model_uniforms = ModelUniforms {
+                    model: translation_matrix(island.pos_x, 0.0, island.pos_z),
+                    color: [1.0, 1.0, 1.0, 1.0], // white — per-vertex color handles the rest
+                    _padding: [0.0; 48],
+                };
+                self.queue.write_buffer(&self.model_buffer, slot, bytemuck::cast_slice(&[model_uniforms]));
+
+                render_pass.set_bind_group(1, &self.model_bind_group, &[slot as u32]);
+                render_pass.set_vertex_buffer(0, island.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(island.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..island.index_count, 0, 0..1);
+            }
         }
 
         // Pass 2: Render UI overlay on top (alpha blended)
@@ -963,6 +1057,9 @@ struct App {
     renderer: Option<Renderer>,
     held_keys: u32,
     pressed_keys: u32,
+    mouse_dx: f32,
+    mouse_dy: f32,
+    wheel: f32,
 }
 
 impl App {
@@ -972,6 +1069,9 @@ impl App {
             renderer: None,
             held_keys: 0,
             pressed_keys: 0,
+            mouse_dx: 0.0,
+            mouse_dy: 0.0,
+            wheel: 0.0,
         }
     }
 
@@ -985,6 +1085,9 @@ impl App {
                 winit::keyboard::NamedKey::ArrowRight => "arrowright".to_string(),
                 winit::keyboard::NamedKey::ArrowUp => "arrowup".to_string(),
                 winit::keyboard::NamedKey::ArrowDown => "arrowdown".to_string(),
+                winit::keyboard::NamedKey::Space => "space".to_string(),
+                winit::keyboard::NamedKey::Control => "ctrl".to_string(),
+                winit::keyboard::NamedKey::F5 => "f5".to_string(),
                 _ => return None,
             },
             _ => return None,
@@ -995,6 +1098,10 @@ impl App {
             "arrowup" => Some(7), "arrowdown" => Some(8),
             "e" => Some(9), "q" => Some(10), "r" => Some(11),
             "f" => Some(12), "c" => Some(13), "b" => Some(14), "t" => Some(15),
+            "g" => Some(16), "x" => Some(17), "v" => Some(18), "h" => Some(19),
+            "j" => Some(20), "p" => Some(21), "y" => Some(22),
+            "m" => Some(23), "space" => Some(24), "ctrl" => Some(25), "f5" => Some(26),
+            "1" => Some(27), "2" => Some(28), "3" => Some(29), "4" => Some(30), "5" => Some(31),
             _ => None,
         }
     }
@@ -1007,6 +1114,13 @@ impl App {
                 let pressed_bytes = self.pressed_keys.to_le_bytes();
                 buf[ipc::INPUT_OFFSET..ipc::INPUT_OFFSET+4].copy_from_slice(&held_bytes);
                 buf[ipc::INPUT_PRESSED_OFFSET..ipc::INPUT_PRESSED_OFFSET+4].copy_from_slice(&pressed_bytes);
+                // Write mouse data
+                let dx_bytes = self.mouse_dx.to_le_bytes();
+                let dy_bytes = self.mouse_dy.to_le_bytes();
+                let wheel_bytes = self.wheel.to_le_bytes();
+                buf[ipc::INPUT_MOUSE_DX_OFFSET..ipc::INPUT_MOUSE_DX_OFFSET+4].copy_from_slice(&dx_bytes);
+                buf[ipc::INPUT_MOUSE_DY_OFFSET..ipc::INPUT_MOUSE_DY_OFFSET+4].copy_from_slice(&dy_bytes);
+                buf[ipc::INPUT_WHEEL_OFFSET..ipc::INPUT_WHEEL_OFFSET+4].copy_from_slice(&wheel_bytes);
             }
         }
     }
@@ -1065,12 +1179,32 @@ impl ApplicationHandler for App {
                     self.write_input_to_shm();
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                use winit::event::MouseScrollDelta;
+                match delta {
+                    MouseScrollDelta::LineDelta(_, y) => {
+                        self.wheel += y * 10.0;
+                    }
+                    MouseScrollDelta::PixelDelta(pos) => {
+                        self.wheel += pos.y as f32 * 0.1;
+                    }
+                }
+                self.write_input_to_shm();
+            }
             WindowEvent::RedrawRequested => {
-                // Clear pressed keys at start of frame (one-shot consumed by Bun)
+                // Clear pressed keys and mouse deltas at start of frame (one-shot consumed by Bun)
                 self.pressed_keys = 0;
+                self.mouse_dx = 0.0;
+                self.mouse_dy = 0.0;
+                self.wheel = 0.0;
                 self.write_input_to_shm();
 
                 if let Some(renderer) = &mut self.renderer {
+                    // Try to load island meshes once (they're written by Bun after init)
+                    if renderer.island_meshes.is_empty() {
+                        renderer.load_island_meshes();
+                    }
+
                     match renderer.render() {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost) => {
@@ -1090,6 +1224,15 @@ impl ApplicationHandler for App {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: winit::event::DeviceId, event: winit::event::DeviceEvent) {
+        // Raw mouse motion for FPS-style camera control
+        if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+            self.mouse_dx += delta.0 as f32;
+            self.mouse_dy += delta.1 as f32;
+            self.write_input_to_shm();
         }
     }
 }
