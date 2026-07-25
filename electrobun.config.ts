@@ -34,6 +34,11 @@ const config: ElectrobunConfig = {
       bundleCEF: true,
       bundleWGPU: true,
       defaultRenderer: "cef",
+      chromiumFlags: {
+        "enable-unsafe-webgpu": true,
+        "enable-features": "Vulkan",
+        "disable-gpu": false,
+      },
     },
   },
 };

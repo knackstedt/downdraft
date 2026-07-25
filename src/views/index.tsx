@@ -34,16 +34,32 @@ const compatRpc = {
   receive: (_msg: unknown) => {},
 };
 
+let gpuRenderer: GPURenderer | null = null;
+
 (window as any).downdraft = {
   rpc: compatRpc,
   sabBuffers: {},
   initEngine: async (canvas: HTMLCanvasElement) => {
     console.log("[DownDraft] initEngine called with canvas", canvas);
+    gpuRenderer = new GPURenderer(canvas);
+    const ok = await gpuRenderer.init();
+    if (!ok) {
+      console.error("[DownDraft] GPU renderer failed to init");
+      gpuRenderer = null;
+    }
   },
   stopEngine: () => {
     console.log("[DownDraft] stopEngine called");
+    gpuRenderer?.stop();
+    gpuRenderer = null;
   },
 };
+
+// Initialize GPU renderer on the canvas element
+const gpuCanvas = document.getElementById("gpu-canvas") as HTMLCanvasElement;
+if (gpuCanvas && (window as any).downdraft?.initEngine) {
+  (window as any).downdraft.initEngine(gpuCanvas);
+}
 
 const container = document.getElementById("ui-overlay");
 if (container) {
