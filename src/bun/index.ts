@@ -1,26 +1,4 @@
-import { defineElectrobunRPC } from "electrobun";
 import { SharedMemoryIPC, parseShmPath } from "../../packages/core/src/ipc/shared-memory.ts";
-import type { DownDraftRPC } from "../rpc-schema.ts";
-
-const WIDTH = 1280;
-const HEIGHT = 720;
-
-const rpc = defineElectrobunRPC<DownDraftRPC, "bun">("bun", {
-  handlers: {
-    requests: {
-      getTelemetry: () => {
-        const tlm = ipc?.readTelemetry();
-        return {
-          frameTime: tlm?.frameTimeUs ?? 0,
-          p95: 0,
-          p99: 0,
-        };
-      },
-      getEntityCount: () => ipc?.readTelemetry()?.entityCount ?? 0,
-    },
-    messages: {},
-  },
-});
 
 // Spawn the native Rust renderer
 const rendererDir = `${import.meta.dir}/../../native-renderer`;

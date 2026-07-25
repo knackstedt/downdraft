@@ -1,4 +1,4 @@
-export class ElectrobunLifecycle {
+export class Lifecycle {
   private ready: boolean = false;
   private quitHandlers: Array<() => void> = [];
 

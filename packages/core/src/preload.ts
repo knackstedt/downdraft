@@ -1,9 +1,9 @@
-import type { ElectrobunRPC, RPCMessage } from "@downdraft/core";
+import type { RPC } from "@downdraft/core";
 
 declare global {
   interface Window {
     downdraft: {
-      rpc: ElectrobunRPC;
+      rpc: RPC;
       sabBuffers: Record<string, SharedArrayBuffer>;
       initEngine: (canvas: HTMLCanvasElement) => Promise<void>;
       stopEngine: () => void;
@@ -11,4 +11,5 @@ declare global {
   }
 }
 
-export {};
+export { };
+

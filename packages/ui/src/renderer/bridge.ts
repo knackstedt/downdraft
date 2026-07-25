@@ -1,7 +1,7 @@
 import { engineConfig, initEngine, sabBuffers, stopEngine } from "@downdraft/core/main";
-import type { ElectrobunRPC, RPCMessage } from "@downdraft/core/platform/rpc";
+import type { RPC, RPCMessage } from "@downdraft/core/platform/rpc";
 
-const rpc: ElectrobunRPC = engineConfig.rpc;
+const rpc: RPC = engineConfig.rpc;
 
 rpc.setSendFn((msg: RPCMessage) => {
   rpc.receive(msg);
@@ -10,7 +10,7 @@ rpc.setSendFn((msg: RPCMessage) => {
 declare global {
   interface Window {
     downdraft: {
-      rpc: ElectrobunRPC;
+      rpc: RPC;
       sabBuffers: Record<string, SharedArrayBuffer>;
       initEngine: (canvas: HTMLCanvasElement) => Promise<void>;
       stopEngine: () => void;

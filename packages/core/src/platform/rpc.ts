@@ -9,7 +9,7 @@ export interface RPCMessage {
 
 export type RPCHandler = (payload: unknown) => Promise<unknown> | unknown;
 
-export class ElectrobunRPC {
+export class RPC {
   private handlers: Map<string, RPCHandler> = new Map();
   private pending: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
   private eventListeners: Map<string, Set<(payload: unknown) => void>> = new Map();
