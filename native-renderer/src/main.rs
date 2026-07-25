@@ -863,6 +863,8 @@ impl Renderer {
                     3 => (&self.sphere_mesh, 0.6),  // Fish
                     4 => (&self.cube_mesh, 0.4),    // Debris
                     5 => continue,                   // Water (already drawn as plane)
+                    6 => (&self.sphere_mesh, entity.y * 2.0), // Island (dome)
+                    7 => (&self.cube_mesh, 0.5),    // Buildable (campfire, etc.)
                     _ => continue,
                 };
 
@@ -959,6 +961,8 @@ impl Renderer {
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    held_keys: u32,
+    pressed_keys: u32,
 }
 
 impl App {
@@ -966,6 +970,44 @@ impl App {
         Self {
             window: None,
             renderer: None,
+            held_keys: 0,
+            pressed_keys: 0,
+        }
+    }
+
+    fn key_bit(key: &winit::keyboard::Key) -> Option<u32> {
+        use winit::keyboard::Key;
+        let s = match key {
+            Key::Character(c) => c.to_lowercase(),
+            Key::Named(named) => match named {
+                winit::keyboard::NamedKey::Shift => "shift".to_string(),
+                winit::keyboard::NamedKey::ArrowLeft => "arrowleft".to_string(),
+                winit::keyboard::NamedKey::ArrowRight => "arrowright".to_string(),
+                winit::keyboard::NamedKey::ArrowUp => "arrowup".to_string(),
+                winit::keyboard::NamedKey::ArrowDown => "arrowdown".to_string(),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        match s.as_str() {
+            "w" => Some(0), "a" => Some(1), "s" => Some(2), "d" => Some(3),
+            "shift" => Some(4), "arrowleft" => Some(5), "arrowright" => Some(6),
+            "arrowup" => Some(7), "arrowdown" => Some(8),
+            "e" => Some(9), "q" => Some(10), "r" => Some(11),
+            "f" => Some(12), "c" => Some(13), "b" => Some(14), "t" => Some(15),
+            _ => None,
+        }
+    }
+
+    fn write_input_to_shm(&mut self) {
+        if let Some(ref mut renderer) = self.renderer {
+            if let Some(ref mut shm) = renderer.shm {
+                let buf = shm.as_mut();
+                let held_bytes = self.held_keys.to_le_bytes();
+                let pressed_bytes = self.pressed_keys.to_le_bytes();
+                buf[ipc::INPUT_OFFSET..ipc::INPUT_OFFSET+4].copy_from_slice(&held_bytes);
+                buf[ipc::INPUT_PRESSED_OFFSET..ipc::INPUT_PRESSED_OFFSET+4].copy_from_slice(&pressed_bytes);
+            }
         }
     }
 }
@@ -1005,7 +1047,29 @@ impl ApplicationHandler for App {
                     renderer.resize(physical_size);
                 }
             }
+            WindowEvent::KeyboardInput { event, .. } => {
+                use winit::event::ElementState;
+                if let Some(bit) = Self::key_bit(&event.logical_key) {
+                    match event.state {
+                        ElementState::Pressed => {
+                            if (self.held_keys & (1 << bit)) == 0 {
+                                // Newly pressed — add to pressed (one-shot)
+                                self.pressed_keys |= 1 << bit;
+                            }
+                            self.held_keys |= 1 << bit;
+                        }
+                        ElementState::Released => {
+                            self.held_keys &= !(1 << bit);
+                        }
+                    }
+                    self.write_input_to_shm();
+                }
+            }
             WindowEvent::RedrawRequested => {
+                // Clear pressed keys at start of frame (one-shot consumed by Bun)
+                self.pressed_keys = 0;
+                self.write_input_to_shm();
+
                 if let Some(renderer) = &mut self.renderer {
                     match renderer.render() {
                         Ok(_) => {}

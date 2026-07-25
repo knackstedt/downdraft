@@ -37,8 +37,12 @@ pub const RENDER_ENTITY_COUNT_OFFSET: usize = 548;
 pub const RENDER_CAM_POS_OFFSET: usize = 552;
 pub const RENDER_CAM_TARGET_OFFSET: usize = 564;
 pub const RENDER_ENTITIES_OFFSET: usize = 576;
-pub const RENDER_MAX_ENTITIES: usize = 64;
+pub const RENDER_MAX_ENTITIES: usize = 96;
 pub const RENDER_ENTITY_STRIDE: usize = 28; // type(4) + pos(12) + color(12)
+
+// Input section (written by Rust renderer, read by Bun)
+pub const INPUT_OFFSET: usize = 3264;        // held_keys: u32 bitfield
+pub const INPUT_PRESSED_OFFSET: usize = 3268; // pressed_keys: u32 bitfield (one-shot)
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -49,6 +53,8 @@ pub enum RenderEntityType {
     Fish = 3,
     Debris = 4,
     Water = 5,
+    Island = 6,
+    Buildable = 7,
 }
 
 #[repr(C)]
@@ -126,6 +132,16 @@ impl SharedMemory {
     }
 
     fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.mmap[..]
+    }
+
+    /// Get a reference to the underlying bytes (for input writing)
+    pub fn as_ref(&self) -> &[u8] {
+        &self.mmap[..]
+    }
+
+    /// Get a mutable reference to the underlying bytes (for input writing)
+    pub fn as_mut(&mut self) -> &mut [u8] {
         &mut self.mmap[..]
     }
 

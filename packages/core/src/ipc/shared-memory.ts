@@ -20,8 +20,20 @@ const RENDER_ENTITY_COUNT_OFFSET = 548;
 const RENDER_CAM_POS_OFFSET = 552;       // 3 × f32 = 12 bytes
 const RENDER_CAM_TARGET_OFFSET = 564;    // 3 × f32 = 12 bytes
 const RENDER_ENTITIES_OFFSET = 576;      // array of RenderEntityData
-export const RENDER_MAX_ENTITIES = 64;
+export const RENDER_MAX_ENTITIES = 96;
 export const RENDER_ENTITY_STRIDE = 28;  // type(4) + pos(12) + color(12) = 28 bytes
+
+// Input section (written by Rust renderer, read by Bun)
+// 96 entities * 28 bytes = 2688, starting at 576, ends at 3264
+export const INPUT_OFFSET = 3264;        // held_keys: u32 bitfield
+export const INPUT_PRESSED_OFFSET = 3268; // pressed_keys: u32 bitfield (one-shot)
+
+// Key bit assignments
+export const KEY_BITS: Record<string, number> = {
+  w: 0, a: 1, s: 2, d: 3,
+  shift: 4, arrowleft: 5, arrowright: 6, arrowup: 7, arrowdown: 8,
+  e: 9, q: 10, r: 11, f: 12, c: 13, b: 14, t: 15,
+};
 
 export enum RenderEntityType {
   Player = 0,
@@ -30,6 +42,8 @@ export enum RenderEntityType {
   Fish = 3,
   Debris = 4,
   Water = 5,
+  Island = 6,
+  Buildable = 7,
 }
 
 export interface RenderEntityData {
@@ -239,6 +253,22 @@ export class SharedMemoryIPC {
     if (s1 !== s2 || s2 & 1) return null;
 
     return { cameraPos: camPos, cameraTarget: camTarget, entities };
+  }
+
+  /** Read keyboard input from shared memory (written by Rust renderer) */
+  readInput(): { keys: Set<string>; pressed: Set<string> } {
+    const heldBits = this.u32[INPUT_OFFSET / 4] ?? 0;
+    const pressedBits = this.u32[INPUT_PRESSED_OFFSET / 4] ?? 0;
+
+    const keys = new Set<string>();
+    const pressed = new Set<string>();
+
+    for (const [key, bit] of Object.entries(KEY_BITS)) {
+      if (heldBits & (1 << bit)) keys.add(key);
+      if (pressedBits & (1 << bit)) pressed.add(key);
+    }
+
+    return { keys, pressed };
   }
 }
 

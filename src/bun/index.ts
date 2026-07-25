@@ -136,7 +136,16 @@ const SIM_TICK_DT = 1 / 60;
     lastTime = performance.now();
 
     if (exampleModule.tick) {
-      exampleModule.tick({ device: null, ipc: ipc }, dt);
+      // Read keyboard input from shared memory (written by Rust renderer)
+      if (ipc) {
+        const inputState = ipc.readInput();
+        // The game's init() sets up the input resource; we update it here
+        // The game systems read from ecsWorld.getResource("input")
+        // We pass it via ctx so the game can pick it up
+        exampleModule.tick({ device: null, ipc: ipc, input: inputState }, dt);
+      } else {
+        exampleModule.tick({ device: null, ipc: ipc }, dt);
+      }
     }
 
     // Write render data to shared memory for the renderer
