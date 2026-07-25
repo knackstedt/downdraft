@@ -15,10 +15,10 @@ const rpc = Electroview.defineRPC<DownDraftRPC>({
 const electroview = new Electroview({ rpc });
 
 const compatRpc = {
-  call: (method: string, ..._args: unknown[]) => {
+  call: (method: string, ...args: unknown[]) => {
     const req = (electroview.rpc as any).request;
     if (req && typeof req[method] === "function") {
-      return req[method]();
+      return req[method](args[0]);
     }
     return Promise.reject(new Error(`[RPC] Unknown method: ${method}`));
   },

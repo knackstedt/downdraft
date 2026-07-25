@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { DevToolsPanel, DEFAULT_TOGGLES, type DebugToggleState, type TelemetryData, type EntityInfo } from "../devtools/panel.tsx";
+import React, { useEffect, useRef, useState } from "react";
+import { DEFAULT_TOGGLES, DevToolsPanel, type DebugToggleState, type EntityInfo, type TelemetryData } from "../devtools/panel.tsx";
 
 export const App: React.FC = () => {
   const [telemetry, setTelemetry] = useState<TelemetryData>({ frameTime: 0, p95: 0, p99: 0 });
@@ -68,6 +68,7 @@ export const App: React.FC = () => {
         fontSize: 14,
         borderRadius: 6,
         pointerEvents: "auto",
+        zIndex: 2,
       }}>
         <div>FPS: {fpsDisplay}</div>
         <div style={{ fontSize: 11, color: "#888" }}>
@@ -91,6 +92,7 @@ export const App: React.FC = () => {
           fontFamily: "monospace",
           fontSize: 12,
           pointerEvents: "auto",
+          zIndex: 2,
         }}
       >
         {showDevtools ? "Hide Devtools" : "Show Devtools"}
@@ -109,7 +111,7 @@ export const App: React.FC = () => {
 
       {/* Input capture — transparent overlay that forwards to engine */}
       <div
-        style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}
+        style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 0 }}
         onMouseDown={(e) => forwardInput("mouseDown", e.button, e.clientX, e.clientY)}
         onMouseUp={(e) => forwardInput("mouseUp", e.button, e.clientX, e.clientY)}
         onMouseMove={(e) => forwardInput("mouseMove", 0, e.clientX, e.clientY, e.movementX, e.movementY)}

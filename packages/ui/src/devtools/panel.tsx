@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { DebugToggles, DEFAULT_TOGGLES, type DebugToggleState } from "./toggles.tsx";
-import { TelemetryGraphs, type TelemetryData } from "./telemetry.tsx";
-import { EntityInspector, type EntityInfo } from "./inspector.tsx";
 import { AssetLoader } from "./asset-loader.tsx";
+import { EntityInspector, type EntityInfo } from "./inspector.tsx";
 import { ProfilerPanel } from "./profiler.tsx";
+import { TelemetryGraphs, type TelemetryData } from "./telemetry.tsx";
+import { DebugToggles, DEFAULT_TOGGLES, type DebugToggleState } from "./toggles.tsx";
 
 export interface DevToolsPanelProps {
   telemetry: TelemetryData;
@@ -46,6 +46,7 @@ export const DevToolsPanel: React.FC<DevToolsPanelProps> = ({
         fontFamily: "monospace",
         fontSize: 12,
         pointerEvents: "auto",
+        zIndex: 2,
         maxHeight: "calc(100% - 70px)",
         overflow: "hidden",
         display: "flex",
@@ -102,4 +103,5 @@ export const DevToolsPanel: React.FC<DevToolsPanelProps> = ({
 };
 
 export { DEFAULT_TOGGLES };
-export type { DebugToggleState, TelemetryData, EntityInfo };
+export type { DebugToggleState, EntityInfo, TelemetryData };
+
