@@ -55,12 +55,6 @@ let gpuRenderer: GPURenderer | null = null;
   },
 };
 
-// Initialize GPU renderer on the canvas element
-const gpuCanvas = document.getElementById("gpu-canvas") as HTMLCanvasElement;
-if (gpuCanvas && (window as any).downdraft?.initEngine) {
-  (window as any).downdraft.initEngine(gpuCanvas);
-}
-
 const container = document.getElementById("ui-overlay");
 if (container) {
   const root = createRoot(container);

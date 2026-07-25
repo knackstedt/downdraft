@@ -36,8 +36,11 @@ const config: ElectrobunConfig = {
       defaultRenderer: "cef",
       chromiumFlags: {
         "enable-unsafe-webgpu": true,
-        "enable-features": "Vulkan",
         "disable-gpu": false,
+        "disable-gpu-sandbox": true,
+        "disable-gpu-compositing": true,
+        "use-vulkan": true,
+        "enable-features": "Vulkan,DefaultEnableVulkan",
       },
     },
   },

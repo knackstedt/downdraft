@@ -11,15 +11,7 @@ export const App: React.FC = () => {
   const engineInitialized = useRef(false);
 
   useEffect(() => {
-    if (engineInitialized.current) return;
-    engineInitialized.current = true;
-
-    const canvas = document.getElementById("gpu-canvas") as HTMLCanvasElement;
-    if (!canvas) return;
-
-    if (window.downdraft?.initEngine) {
-      window.downdraft.initEngine(canvas);
-    }
+    // WebGPU rendering is handled by inline script in index.html
   }, []);
 
   useEffect(() => {
@@ -150,7 +142,7 @@ export const App: React.FC = () => {
 
       {/* Input capture — transparent overlay that forwards to engine */}
       <div
-        style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 0 }}
+        style={{ position: "absolute", inset: 0, pointerEvents: "auto", zIndex: 0, background: "transparent" }}
         onMouseDown={(e) => forwardInput("mouseDown", e.button, e.clientX, e.clientY)}
         onMouseUp={(e) => forwardInput("mouseUp", e.button, e.clientX, e.clientY)}
         onMouseMove={(e) => forwardInput("mouseMove", 0, e.clientX, e.clientY, e.movementX, e.movementY)}

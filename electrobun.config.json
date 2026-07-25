@@ -41,12 +41,12 @@
         }
       },
       "debug": {
-        "webview": "webkit",
+        "webview": "chromium",
         "hotReload": false,
         "devtools": false
       },
       "prod": {
-        "webview": "system",
+        "webview": "chromium",
         "hotReload": false,
         "devtools": false
       }
