@@ -30,6 +30,11 @@ const config: ElectrobunConfig = {
     },
     buildFolder: "build",
     artifactFolder: "artifacts",
+    linux: {
+      bundleCEF: true,
+      bundleWGPU: true,
+      defaultRenderer: "cef",
+    },
   },
 };
 

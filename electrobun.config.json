@@ -33,7 +33,12 @@
       "dev": {
         "webview": "chromium",
         "hotReload": true,
-        "devtools": true
+        "devtools": true,
+        "linux": {
+          "bundleCEF": true,
+          "bundleWGPU": true,
+          "defaultRenderer": "cef"
+        }
       },
       "debug": {
         "webview": "webkit",

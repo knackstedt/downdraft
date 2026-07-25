@@ -23,15 +23,51 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Measure real frame times using rAF (syncs to display refresh rate)
+    let rafId = 0;
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let frameSum = 0;
+    let lastUiUpdate = 0;
+    const RING_SIZE = 120;
+    const ringBuf = new Float64Array(RING_SIZE);
+    let ringIdx = 0;
+    let ringFull = false;
+
+    const tick = () => {
+      const now = performance.now();
+      const dt = now - lastTime;
+      lastTime = now;
+      frameCount++;
+      frameSum += dt;
+      ringBuf[ringIdx] = dt;
+      ringIdx = (ringIdx + 1) % RING_SIZE;
+      if (ringIdx === 0) ringFull = true;
+
+      // Only update React state 4x/sec to minimize overhead
+      if (now - lastUiUpdate >= 250) {
+        lastUiUpdate = now;
+        const avg = frameSum / frameCount;
+        const len = ringFull ? RING_SIZE : ringIdx;
+        const sorted = Array.from(ringBuf.subarray(0, len)).sort((a, b) => a - b);
+        const p95Idx = Math.floor(len * 0.95);
+        const p99Idx = Math.floor(len * 0.99);
+        setTelemetry({
+          frameTime: avg,
+          p95: sorted[p95Idx] ?? avg,
+          p99: sorted[p99Idx] ?? avg,
+        });
+        setFrameHistory((prev) => [...prev, avg].slice(-300));
+        frameCount = 0;
+        frameSum = 0;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    // Poll entity count via RPC (less frequent)
     const interval = setInterval(async () => {
       if (window.downdraft?.rpc) {
-        try {
-          const data = await window.downdraft.rpc.call("getTelemetry") as TelemetryData;
-          setTelemetry(data);
-          setFrameHistory((prev) => [...prev, data.frameTime].slice(-300));
-        } catch {
-          // Engine not ready yet
-        }
         try {
           const count = await window.downdraft.rpc.call("getEntityCount") as number;
           setEntityCount(count);
@@ -39,9 +75,12 @@ export const App: React.FC = () => {
           // Engine not ready yet
         }
       }
-    }, 250);
+    }, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearInterval(interval);
+    };
   }, []);
 
   const fpsDisplay = telemetry.frameTime > 0 ? (1000 / telemetry.frameTime).toFixed(1) : "—";
