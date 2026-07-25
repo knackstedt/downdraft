@@ -1,7 +1,12 @@
-import { Builder, getBuilderConfig } from "@downdraft/core";
+import { Builder } from "@downdraft/core";
+import { spawn } from "child_process";
+import { resolve } from "path";
+
+const ROOT = resolve(import.meta.dir, "../../..");
 
 export async function dev(args: string[]): Promise<void> {
   const mode = args.includes("--debug") ? "debug" : "dev";
+  const watch = args.includes("--watch");
   const builder = new Builder(mode);
   const config = builder.getConfig();
 
@@ -11,29 +16,29 @@ export async function dev(args: string[]): Promise<void> {
   console.log(`[DownDraft] Telemetry: ${config.telemetry}`);
   console.log(`[DownDraft] Hot reload: ${config.hotReload}`);
 
-  // TODO: Boot Electrobun with GpuWindow + BrowserWindow overlay
-  // The actual Electrobun integration requires the electrobun npm package
-  // and a native GpuWindow. For now, we document the boot sequence:
-  //
-  // 1. Create SAB channels (input, transform)
-  // 2. Spawn sim worker (worker_threads + SAB transfer)
-  // 3. Create GpuWindow (Electrobun native window with WGPU surface)
-  // 4. Create BrowserWindow (transparent overlay for React UI)
-  // 5. Load preload script → exposes downdraft RPC + SABs to renderer
-  // 6. Load renderer HTML → React UI with FPS counter + devtools
-  // 7. Start render loop (WGPU device + surface + opaque pass)
-  // 8. Start sim loop (step sim worker at 60Hz, read SAB transforms)
-  //
-  // When Electrobun is installed:
-  //   import { Electrobun } from "electrobun";
-  //   const electrobun = new Electrobun();
-  //   const gpuWindow = electrobun.createGpuWindow({ ... });
-  //   const overlay = electrobun.createBrowserWindow({ transparent: true, ... });
-  //   overlay.loadFile("packages/ui/index.html");
+  const electrobunBin = resolve(ROOT, "node_modules", ".bin", "electrobun");
+  const cmdArgs = ["dev"];
+  if (watch) cmdArgs.push("--watch");
 
-  console.log("");
-  console.log("[DownDraft] Electrobun integration pending — install electrobun to boot the engine.");
-  console.log("[DownDraft] The core engine (ECS, SAB, render loop, telemetry) is ready.");
-  console.log("");
-  console.log("[DownDraft] Press Ctrl+C to stop");
+  console.log(`[DownDraft] Launching Electrobun...`);
+
+  const child = spawn(electrobunBin, cmdArgs, {
+    cwd: ROOT,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      ELECTROBUN_BUILD_ENV: "dev",
+    },
+  });
+
+  child.on("exit", (code) => {
+    process.exit(code ?? 0);
+  });
+
+  process.on("SIGINT", () => {
+    child.kill("SIGINT");
+  });
+  process.on("SIGTERM", () => {
+    child.kill("SIGTERM");
+  });
 }

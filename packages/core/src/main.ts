@@ -1,5 +1,12 @@
-import { ElectrobunRPC } from "@downdraft/core";
-import { MeshBuilder, Camera, RenderLoop, TelemetryCollector, HighResTimer, InputSABChannel, createSABForChannel, DebugDrawQueue, DebugLines } from "@downdraft/core";
+import { DebugLines } from "./debug-draw/lines.ts";
+import { DebugDrawQueue } from "./debug-draw/queue.ts";
+import { MeshBuilder } from "./mesh/builder.ts";
+import { ElectrobunRPC } from "./platform/rpc.ts";
+import { RenderLoop } from "./render/render-loop.ts";
+import { InputSABChannel } from "./sab/input.ts";
+import { createSABForChannel } from "./sab/protocol.ts";
+import { Camera } from "./scene/camera.ts";
+import { TelemetryCollector } from "./telemetry/collector.ts";
 
 const rpc = new ElectrobunRPC();
 

@@ -1,0 +1,39 @@
+{
+    "workbench.iconTheme": "material-icon-theme",
+    "errorLens.excludeByMessage": [
+        "Unknown word"
+    ],
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.expand": false,
+    "explorer.fileNesting.patterns": {
+        "*.ts": "${capture}.js, ${capture}.spec.ts, ${capture}.*.spec.ts, ${capture}.test.ts",
+        "*.tsx": "${capture}.spec.ts, ${capture}.*.spec.ts, ${capture}.test.ts",
+        "*.js": "${capture}.js.map, ${capture}.min.js, ${capture}.d.ts, ${capture}.wasm, ${capture}.wasm.map, ${capture}.wat",
+        "*.jsx": "${capture}.js",
+        "tsconfig.json": "tsconfig.*.json",
+        "package.json": "package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lock"
+    },
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+    "js/ts.preferences.preferTypeOnlyAutoImports": true,
+    "files.exclude": {
+        "**/.git/objects/**": true
+    },
+    "files.watcherExclude": {
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/node_modules/**": true,
+        "**/tmp/**": true,
+        "**/dist/**": true
+    },
+    "search.exclude": {
+        "**/node_modules/**": true,
+        "**/dist/**": true,
+        "**/tmp/**": true,
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true
+    },
+    "npm.packageManager": "bun",
+    "npm.scriptRunner": "bun"
+}

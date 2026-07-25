@@ -1,23 +1,23 @@
-import { GPUDeviceManager } from "./device.ts";
-import { SurfaceManager } from "./surface.ts";
-import { OpaquePass, type OpaquePassMode, type PBRMaterialResources } from "./passes/opaque.ts";
-import { DepthPrepass } from "./passes/depth-prepass.ts";
-import { ShadowPass } from "./passes/shadow.ts";
-import { DeferredLightingPass } from "./passes/deferred-lighting.ts";
-import { TransparentPass } from "./passes/transparent.ts";
-import { SkyboxPass } from "./passes/skybox.ts";
-import { PostProcessPass, type PostProcessSettings, DEFAULT_POST_PROCESS_SETTINGS } from "./passes/post-process.ts";
-import { DebugRenderPass } from "./passes/debug.ts";
-import { RenderGraph } from "./render-graph.ts";
-import { TrackedRenderPass } from "./tracked-render-pass.ts";
-import { GBuffer } from "./g-buffer.ts";
-import type { MeshData } from "../mesh/builder.ts";
-import { Camera } from "../scene/camera.ts";
-import { HighResTimer } from "../platform/time.ts";
-import { TelemetryCollector } from "../telemetry/collector.ts";
-import { createDefaultLightUniform, type LightUniformData } from "./lighting.ts";
-import type { DebugDrawQueue } from "../debug-draw/queue.ts";
 import { mat4, type Mat4 } from "wgpu-matrix";
+import type { DebugDrawQueue } from "../debug-draw/queue.ts";
+import type { MeshData } from "../mesh/builder.ts";
+import { HighResTimer } from "../platform/time.ts";
+import { Camera } from "../scene/camera.ts";
+import { TelemetryCollector } from "../telemetry/collector.ts";
+import { GPUDeviceManager } from "./device.ts";
+import { GBuffer } from "./g-buffer.ts";
+import { createDefaultLightUniform, type LightUniformData } from "./lighting.ts";
+import { DebugRenderPass } from "./passes/debug.ts";
+import { DeferredLightingPass } from "./passes/deferred-lighting.ts";
+import { DepthPrepass } from "./passes/depth-prepass.ts";
+import { OpaquePass, type OpaquePassMode, type PBRMaterialResources } from "./passes/opaque.ts";
+import { DEFAULT_POST_PROCESS_SETTINGS, PostProcessPass, type PostProcessSettings } from "./passes/post-process.ts";
+import { ShadowPass } from "./passes/shadow.ts";
+import { SkyboxPass } from "./passes/skybox.ts";
+import { TransparentPass } from "./passes/transparent.ts";
+import { RenderGraph } from "./render-graph.ts";
+import { SurfaceManager } from "./surface.ts";
+import { TrackedRenderPass } from "./tracked-render-pass.ts";
 
 export interface RenderLoopConfig {
   canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -141,7 +141,7 @@ export class RenderLoop {
     }
     this.debugPass.prepare(device);
 
-    this.prevViewProj = this.config.camera.getViewProjMatrix();
+    this.prevViewProj = this.config.camera.getViewProjectionMatrix();
 
     this.buildRenderGraph();
 
@@ -295,7 +295,7 @@ export class RenderLoop {
     if (this.config.camera.aspect !== this.width / this.height) {
       this.config.camera.setAspect(this.width, this.height);
     }
-    const viewProj = this.config.camera.getViewProjMatrix();
+    const viewProj = this.config.camera.getViewProjectionMatrix();
 
     const texture = this.surface.getCurrentTexture();
     if (!texture) return;
