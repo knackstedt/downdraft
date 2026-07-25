@@ -1,4 +1,5 @@
 mod ui_overlay;
+mod ipc;
 
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
@@ -63,6 +64,7 @@ struct Renderer {
     frame_count: u32,
     fps: u32,
     ui: ui_overlay::UIOverlay,
+    shm: Option<ipc::SharedMemory>,
 }
 
 impl Renderer {
@@ -332,6 +334,18 @@ impl Renderer {
         let ui = ui_overlay::UIOverlay::new(ui_width, ui_height)
             .expect("Failed to initialize UI overlay");
 
+        // Create shared memory for IPC with Bun
+        let shm = match ipc::SharedMemory::create() {
+            Ok(s) => {
+                s.print_path();
+                Some(s)
+            }
+            Err(e) => {
+                eprintln!("[renderer] Failed to create shared memory: {}", e);
+                None
+            }
+        };
+
         // Clear UI texture to transparent
         let transparent = vec![0u8; (ui_width * ui_height * 4) as usize];
         queue.write_texture(
@@ -374,6 +388,7 @@ impl Renderer {
             frame_count: 0,
             fps: 0,
             ui,
+            shm,
         }
     }
 
@@ -455,6 +470,48 @@ impl Renderer {
             self.frame_count = 0;
             self.last_frame_time = std::time::Instant::now();
             self.ui.update_fps(self.fps);
+        }
+
+        // Write telemetry to shared memory
+        if let Some(ref mut shm) = self.shm {
+            let frame_time_us = (target_frame_time.as_micros() as u32).min(100000);
+            shm.write_telemetry(self.fps, frame_time_us, 1, 1);
+        }
+
+        // Poll for commands from Bun
+        if let Some(ref shm) = self.shm {
+            if let Some((cmd, payload)) = shm.read_command() {
+                match cmd {
+                    ipc::CommandType::Quit => {
+                        println!("[renderer] Quit command received");
+                        return Err(wgpu::SurfaceError::Lost);
+                    }
+                    ipc::CommandType::Pause => {
+                        println!("[renderer] Pause command received");
+                    }
+                    ipc::CommandType::Resume => {
+                        println!("[renderer] Resume command received");
+                    }
+                    ipc::CommandType::SetTimeScale => {
+                        if payload.len() >= 4 {
+                            let scale = f32::from_le_bytes(payload[0..4].try_into().unwrap());
+                            println!("[renderer] SetTimeScale: {}", scale);
+                        }
+                    }
+                    ipc::CommandType::Resize => {
+                        if payload.len() >= 8 {
+                            let w = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                            let h = u32::from_le_bytes(payload[4..8].try_into().unwrap());
+                            println!("[renderer] Resize: {}x{}", w, h);
+                        }
+                    }
+                    ipc::CommandType::LoadScene => {
+                        let scene = String::from_utf8_lossy(&payload);
+                        println!("[renderer] LoadScene: {}", scene);
+                    }
+                    ipc::CommandType::None => {}
+                }
+            }
         }
 
         let elapsed = self.start_time.elapsed().as_secs_f32();

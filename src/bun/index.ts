@@ -1,60 +1,119 @@
-import { defineElectrobunRPC, GpuWindow } from "electrobun";
+import { defineElectrobunRPC } from "electrobun";
+import { SharedMemoryIPC, parseShmPath } from "../../packages/core/src/ipc/shared-memory.ts";
 import type { DownDraftRPC } from "../rpc-schema.ts";
 
 const WIDTH = 1280;
 const HEIGHT = 720;
-const X = 100;
-const Y = 100;
-const TITLEBAR_HEIGHT = 38;
 
 const rpc = defineElectrobunRPC<DownDraftRPC, "bun">("bun", {
   handlers: {
     requests: {
-      getTelemetry: () => ({ frameTime: 0, p95: 0, p99: 0 }),
-      getEntityCount: () => 1,
+      getTelemetry: () => {
+        const tlm = ipc?.readTelemetry();
+        return {
+          frameTime: tlm?.frameTimeUs ?? 0,
+          p95: 0,
+          p99: 0,
+        };
+      },
+      getEntityCount: () => ipc?.readTelemetry()?.entityCount ?? 0,
     },
     messages: {},
   },
 });
 
-// GpuWindow: native window with WGPUView for GPU rendering
-const gpuWin = new GpuWindow({
-  title: "DownDraft Engine",
-  frame: { x: X, y: Y, width: WIDTH, height: HEIGHT },
-  titleBarStyle: "default",
-  transparent: false,
-});
+// Spawn the native Rust renderer
+const rendererDir = `${import.meta.dir}/../../native-renderer`;
+const rendererPath = `${rendererDir}/target/debug/native-renderer`;
+const SDK_DIR = `${rendererDir}/target/debug/build`;
 
-gpuWin.show();
+// Find the Ultralight SDK lib directory
+import { cpSync, existsSync, readdirSync } from "fs";
+import { join } from "path";
 
-// Trigger WGPUView rendering by accessing the native handle
+let ulLibPath = "";
+let ulResourcesPath = "";
 try {
-  const handle = gpuWin.wgpuView.getNativeHandle();
-  console.log("[DownDraft] WGPUView native handle:", handle);
-} catch (e) {
-  console.error("[DownDraft] Failed to get WGPU native handle:", e);
+  const buildDirs = readdirSync(SDK_DIR).filter((d) => d.startsWith("ul-next-sys-"));
+  for (const dir of buildDirs) {
+    const candidate = join(SDK_DIR, dir, "out", "ul-sdk", "bin");
+    const resCandidate = join(SDK_DIR, dir, "out", "ul-sdk", "resources");
+    try {
+      readdirSync(candidate);
+      ulLibPath = candidate;
+      ulResourcesPath = resCandidate;
+      break;
+    } catch {}
+  }
+} catch {}
+
+// Copy Ultralight resources to the renderer working directory if not present
+const localResources = join(rendererDir, "resources");
+if (ulResourcesPath && !existsSync(localResources)) {
+  try {
+    cpSync(ulResourcesPath, localResources, { recursive: true });
+    console.log("[DownDraft] Copied Ultralight resources to", localResources);
+  } catch (e) {
+    console.error("[DownDraft] Failed to copy Ultralight resources:", e);
+  }
 }
 
-/* overlay disabled for testing
-// BrowserWindow: transparent CEF overlay on top of GpuWindow (offset below titlebar)
-const overlayWin = new BrowserWindow({
-  title: "DownDraft Overlay",
-  frame: { x: X, y: Y + TITLEBAR_HEIGHT, width: WIDTH, height: HEIGHT - TITLEBAR_HEIGHT },
-  url: "views://index/index.html",
-  preload: null,
-  viewsRoot: join(import.meta.dir, "..", "views"),
-  renderer: "cef",
-  transparent: true,
-  titleBarStyle: "hidden",
-  rpc,
-  navigationRules: null,
-  sandbox: false,
+const env = { ...process.env };
+if (ulLibPath) {
+  env.LD_LIBRARY_PATH = `${ulLibPath}:${env.LD_LIBRARY_PATH ?? ""}`;
+}
+
+const proc = Bun.spawn([rendererPath], {
+  env,
+  cwd: rendererDir,
+  stdout: "pipe",
+  stderr: "inherit",
 });
 
-overlayWin.show();
+let ipc: SharedMemoryIPC | null = null;
+const reader = proc.stdout.getReader();
+const decoder = new TextDecoder();
 
-// Keep overlay on top of GPU window
-overlayWin.setAlwaysOnTop(true);
-*/
+// Read stdout until we find the SHM_PATH line
+(async () => {
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const shmPath = parseShmPath(trimmed);
+      if (shmPath && !ipc) {
+        ipc = new SharedMemoryIPC();
+        if (ipc.attach(shmPath)) {
+          console.log("[DownDraft] Connected to renderer via shared memory:", shmPath);
+        } else {
+          console.error("[DownDraft] Failed to attach to shared memory");
+          ipc = null;
+        }
+      }
+      if (trimmed) console.log(`[renderer] ${trimmed}`);
+    }
+  }
+})();
 
-console.log("[DownDraft] GpuWindow only mode (no overlay)");
+// Handle cleanup
+process.on("exit", () => {
+  ipc?.quit();
+  proc.kill();
+});
+
+// Poll telemetry every 2 seconds for verification
+setInterval(() => {
+  if (ipc) {
+    const tlm = ipc.readTelemetry();
+    if (tlm) {
+      console.log(`[DownDraft] Telemetry: FPS=${tlm.fps}, frameTime=${tlm.frameTimeUs}us, entities=${tlm.entityCount}, status=${tlm.status}`);
+    }
+  }
+}, 2000);
+
+console.log("[DownDraft] Native renderer spawned, waiting for shared memory connection...");
