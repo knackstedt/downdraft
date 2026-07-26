@@ -258,6 +258,7 @@ struct Renderer {
     plane_mesh: MeshBuffers,
     water_vertex_buffer: wgpu::Buffer,
     water_vertex_count: u32,
+    water_seqlock_misses: u32,
     island_meshes: Vec<IslandMeshBuffer>,
     depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
@@ -368,9 +369,10 @@ impl Renderer {
         let sphere_mesh = create_mesh(&sphere_verts, &sphere_indices);
         let plane_mesh = create_mesh(&plane_verts, &plane_indices);
 
-        // Dynamic water vertex buffer for low-poly heightfield mesh
-        // Step=4 from 256x256 grid → 63x63x2 triangles → 23814 vertices (flat-shaded, duplicated per triangle)
-        let water_max_vertices = 127 * 127 * 2 * 3; // 96774 (step=2 from 256x256 heightfield)
+        // Dynamic water vertex buffer for chunked water mesh
+        // Up to 25 chunks, each 68x68 grid, step=2 → 34*34 quads * 2 tris * 3 verts = 6936 per chunk
+        // 25 * 6936 = 173400, rounded up for safety
+        let water_max_vertices = 200_000u32;
         let water_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Water Vertex Buffer"),
             size: (water_max_vertices * std::mem::size_of::<Vertex>() as u32) as u64,
@@ -977,6 +979,7 @@ impl Renderer {
             plane_mesh,
             water_vertex_buffer,
             water_vertex_count: 0,
+            water_seqlock_misses: 0,
             island_meshes: Vec::new(),
             depth_texture,
             depth_texture_view,
@@ -1207,7 +1210,6 @@ impl Renderer {
             Some(rd) => (rd.camera_pos, rd.camera_target),
             None => ([0.0, 15.0, 15.0], [0.0, 0.0, 0.0]),
         };
-
         let aspect = self.config.width as f32 / self.config.height as f32;
         let view = look_at(cam_pos, cam_target, [0.0, 1.0, 0.0]);
         let proj = perspective(60.0_f32.to_radians(), aspect, 0.1, 1000.0);
@@ -1229,6 +1231,10 @@ impl Renderer {
             Some(w) => (w.sky_color, w.water_color, w.fog_color, w.fog_density, w.light_intensity, w.weather_type, w.is_night),
             None => ([0.1, 0.3, 0.5], [0.1, 0.3, 0.6], [0.1, 0.3, 0.5], 0.002, 1.0, 0, false),
         };
+        if self.frame_count % 120 == 0 {
+            eprintln!("[scene] water_color=({:.2},{:.2},{:.2}) fog_density={:.4} light={:.2} night={}", water_color[0], water_color[1], water_color[2], fog_density, light_intensity, is_night);
+            eprintln!("[cam] pos=({:.1},{:.1},{:.1}) target=({:.1},{:.1},{:.1}) water_verts={}", cam_pos[0], cam_pos[1], cam_pos[2], cam_target[0], cam_target[1], cam_target[2], self.water_vertex_count);
+        }
         let scene_uniforms = SceneUniforms {
             fog_color,
             fog_density,
@@ -1369,68 +1375,93 @@ impl Renderer {
 
             // Read water heightfield from shared memory and build flat-shaded mesh
             let water_data = if let Some(ref shm) = self.shm {
-                shm.read_water_data()
+                let wd = shm.read_water_data();
+                if wd.is_none() {
+                    self.water_seqlock_misses += 1;
+                    if self.water_seqlock_misses <= 3 || self.water_seqlock_misses % 100 == 0 {
+                        eprintln!("[water] seqlock miss #{}", self.water_seqlock_misses);
+                    }
+                } else {
+                    if self.water_seqlock_misses > 0 {
+                        eprintln!("[water] recovered after {} seqlock misses", self.water_seqlock_misses);
+                        self.water_seqlock_misses = 0;
+                    }
+                }
+                wd
             } else {
                 None
             };
 
             if let Some(wd) = water_data {
                 let step = 2usize;
-                let grid = wd.grid_size;
                 let ps = wd.patch_size;
-                let ox = wd.origin_x as f32;
-                let oz = wd.origin_z as f32;
-                let heights = &wd.heights;
-                let height_amp = 1.5_f32; // modest amplification — physics now produces weather-scaled heights
+                let height_amp = 1.5_f32;
 
-                let mut water_verts: Vec<Vertex> = Vec::with_capacity(127 * 127 * 2 * 3);
+                // Build mesh from all active chunks. Each chunk has its own
+                // fixed origin — vertices are placed at world coordinates so
+                // chunks never move and the mesh never twitches.
+                let mut water_verts: Vec<Vertex> = Vec::with_capacity(25 * 64 * 64 * 2 * 3);
 
-                let sample_h = |gx: usize, gz: usize| -> f32 {
-                    let idx = gz * grid + gx;
-                    if idx < heights.len() { heights[idx] } else { 0.0 }
-                };
+                for chunk in &wd.chunks {
+                    let grid = chunk.grid_size;
+                    let ox = chunk.origin_x as f32;
+                    let oz = chunk.origin_z as f32;
+                    let heights = &chunk.heights;
 
-                for gz in (0..grid.saturating_sub(step)).step_by(step) {
-                    for gx in (0..grid.saturating_sub(step)).step_by(step) {
-                        let h00 = sample_h(gx, gz);
-                        let h10 = sample_h(gx + step, gz);
-                        let h01 = sample_h(gx, gz + step);
-                        let h11 = sample_h(gx + step, gz + step);
+                    let sample_h = |gx: usize, gz: usize| -> f32 {
+                        let idx = gz * grid + gx;
+                        if idx < heights.len() { heights[idx] } else { 0.0 }
+                    };
 
-                        // Skip quads entirely outside render distance or inside island cutouts
-                        if h00 < -100.0 && h10 < -100.0 && h01 < -100.0 && h11 < -100.0 {
-                            continue;
+                    for gz in (0..grid.saturating_sub(step)).step_by(step) {
+                        for gx in (0..grid.saturating_sub(step)).step_by(step) {
+                            let h00 = sample_h(gx, gz);
+                            let h10 = sample_h(gx + step, gz);
+                            let h01 = sample_h(gx, gz + step);
+                            let h11 = sample_h(gx + step, gz + step);
+
+                            // Skip quads entirely outside render distance or inside island cutouts
+                            if h00 < -100.0 && h10 < -100.0 && h01 < -100.0 && h11 < -100.0 {
+                                continue;
+                            }
+
+                            let to_pos = |gx: usize, gz: usize, h: f32| -> [f32; 3] {
+                                let y = if h < -100.0 { -100.0 } else { h * height_amp };
+                                [ox + gx as f32 * ps, y, oz + gz as f32 * ps]
+                            };
+
+                            let p00 = to_pos(gx, gz, h00);
+                            let p10 = to_pos(gx + step, gz, h10);
+                            let p01 = to_pos(gx, gz + step, h01);
+                            let p11 = to_pos(gx + step, gz + step, h11);
+
+                            // Triangle 1: p00, p10, p11
+                            let e1 = [p10[0] - p00[0], p10[1] - p00[1], p10[2] - p00[2]];
+                            let e2 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
+                            let n1 = normalize(cross(e2, e1));
+                            water_verts.push(Vertex { position: p00, normal: n1, color: [1.0, 1.0, 1.0] });
+                            water_verts.push(Vertex { position: p10, normal: n1, color: [1.0, 1.0, 1.0] });
+                            water_verts.push(Vertex { position: p11, normal: n1, color: [1.0, 1.0, 1.0] });
+
+                            // Triangle 2: p00, p11, p01
+                            let e3 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
+                            let e4 = [p01[0] - p00[0], p01[1] - p00[1], p01[2] - p00[2]];
+                            let n2 = normalize(cross(e4, e3));
+                            water_verts.push(Vertex { position: p00, normal: n2, color: [1.0, 1.0, 1.0] });
+                            water_verts.push(Vertex { position: p11, normal: n2, color: [1.0, 1.0, 1.0] });
+                            water_verts.push(Vertex { position: p01, normal: n2, color: [1.0, 1.0, 1.0] });
                         }
-
-                        let to_pos = |gx: usize, gz: usize, h: f32| -> [f32; 3] {
-                            let y = if h < -100.0 { -100.0 } else { h * height_amp };
-                            [ox + gx as f32 * ps, y, oz + gz as f32 * ps]
-                        };
-
-                        let p00 = to_pos(gx, gz, h00);
-                        let p10 = to_pos(gx + step, gz, h10);
-                        let p01 = to_pos(gx, gz + step, h01);
-                        let p11 = to_pos(gx + step, gz + step, h11);
-
-                        // Triangle 1: p00, p10, p11 — cross(e2, e1) for upward normal
-                        let e1 = [p10[0] - p00[0], p10[1] - p00[1], p10[2] - p00[2]];
-                        let e2 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
-                        let n1 = normalize(cross(e2, e1));
-                        water_verts.push(Vertex { position: p00, normal: n1, color: [1.0, 1.0, 1.0] });
-                        water_verts.push(Vertex { position: p10, normal: n1, color: [1.0, 1.0, 1.0] });
-                        water_verts.push(Vertex { position: p11, normal: n1, color: [1.0, 1.0, 1.0] });
-
-                        // Triangle 2: p00, p11, p01 — cross(e4, e3) for upward normal
-                        let e3 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
-                        let e4 = [p01[0] - p00[0], p01[1] - p00[1], p01[2] - p00[2]];
-                        let n2 = normalize(cross(e4, e3));
-                        water_verts.push(Vertex { position: p00, normal: n2, color: [1.0, 1.0, 1.0] });
-                        water_verts.push(Vertex { position: p11, normal: n2, color: [1.0, 1.0, 1.0] });
-                        water_verts.push(Vertex { position: p01, normal: n2, color: [1.0, 1.0, 1.0] });
                     }
                 }
 
                 self.water_vertex_count = water_verts.len() as u32;
+                if self.water_vertex_count == 0 {
+                    eprintln!("[water] vertex count dropped to 0! chunks={}", wd.chunks.len());
+                } else if self.frame_count % 60 == 0 {
+                    // Periodic sample: count how many verts are at y=-100 (culled)
+                    let culled = water_verts.iter().filter(|v| v.position[1] <= -99.0).count();
+                    eprintln!("[water] {} verts, {} culled (y=-100)", self.water_vertex_count, culled);
+                }
                 if !water_verts.is_empty() {
                     self.queue.write_buffer(&self.water_vertex_buffer, 0, bytemuck::cast_slice(&water_verts));
                 }

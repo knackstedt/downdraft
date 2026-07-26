@@ -6,8 +6,9 @@
 
 import { type GerstnerWaveParams } from "./gerstner.ts";
 import { type ShoreSource, shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping.ts";
-import { WATER_GRID, WaterBuffer } from "./water-buffer.ts";
-import { type WakeSource, MAX_WAKES } from "./wave-sources.ts";
+import { WaterBuffer } from "./water-buffer.ts";
+import { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_WORLD_SIZE, MAX_CHUNKS, type WaterChunk } from "./water-chunks.ts";
+import { MAX_WAKES, type WakeSource } from "./wave-sources.ts";
 
 interface PrecomputedWave {
   k: number;
@@ -59,6 +60,8 @@ export class WaterPhysics {
   private shoreCutoutRSq: Float64Array;
   private shoreDampR: Float64Array;
   private shoreDampRange: Float64Array;
+  private chunks: Map<string, WaterChunk> = new Map();
+  private activeChunks: WaterChunk[] = [];
 
   constructor(buffer: WaterBuffer, config?: Partial<WaterPhysicsConfig>) {
     this.buffer = buffer;
@@ -118,19 +121,10 @@ export class WaterPhysics {
   update(dt: number, playerX: number, playerZ: number): void {
     this.time += dt;
     const patchSize = this.buffer.getPatchSize();
-    const gridSize = WATER_GRID;
-    const gridWorldSize = gridSize * patchSize; // 1024m
-    // Snap origin to chunk boundaries so waves don't shift when player moves
-    // within a chunk. Chunks are gridWorldSize large, so origin only moves
-    // when the player crosses a 1024m boundary.
-    const originX = Math.floor((playerX - gridWorldSize / 2) / gridWorldSize) * gridWorldSize;
-    const originZ = Math.floor((playerZ - gridWorldSize / 2) / gridWorldSize) * gridWorldSize;
-    this.buffer.setOrigin(originX, originZ);
-
     const renderDist = this.config.waterRenderDistance;
     const renderDistSq = renderDist * renderDist;
 
-    const heights = this.buffer.getHeightsRef();
+    // Precompute wave phases and shore data
     const chopAmp = windChopAmp(this.config.windSpeed);
     const waveScale = this.weatherWaveScale();
     const t = this.time;
@@ -159,10 +153,79 @@ export class WaterPhysics {
     const chopT3 = t * 0.08;
     const shoreTime = t * 0.35;
 
-    for (let gz = 0; gz < gridSize; gz++) {
+    // Determine which chunks should be active (fixed positions, loaded in circle around player)
+    const playerChunkX = Math.floor(playerX / CHUNK_WORLD_SIZE);
+    const playerChunkZ = Math.floor(playerZ / CHUNK_WORLD_SIZE);
+    const chunksPerSide = Math.ceil(renderDist / CHUNK_WORLD_SIZE) + 1;
+
+    const newActive: WaterChunk[] = [];
+    const seenKeys = new Set<string>();
+
+    for (let cz = playerChunkZ - chunksPerSide; cz <= playerChunkZ + chunksPerSide; cz++) {
+      for (let cx = playerChunkX - chunksPerSide; cx <= playerChunkX + chunksPerSide; cx++) {
+        // Check if chunk center is within render distance (plus chunk radius for overlap)
+        const chunkCenterX = cx * CHUNK_WORLD_SIZE + CHUNK_WORLD_SIZE / 2;
+        const chunkCenterZ = cz * CHUNK_WORLD_SIZE + CHUNK_WORLD_SIZE / 2;
+        const ddx = chunkCenterX - playerX;
+        const ddz = chunkCenterZ - playerZ;
+        const chunkRadius = CHUNK_WORLD_SIZE * 0.75;
+        if (ddx * ddx + ddz * ddz > (renderDist + chunkRadius) * (renderDist + chunkRadius)) continue;
+        if (newActive.length >= MAX_CHUNKS) continue;
+
+        const key = cx + "," + cz;
+        seenKeys.add(key);
+
+        let chunk = this.chunks.get(key);
+        if (!chunk) {
+          chunk = {
+            chunkX: cx,
+            chunkZ: cz,
+            originX: cx * CHUNK_WORLD_SIZE - CHUNK_OVERLAP * patchSize,
+            originZ: cz * CHUNK_WORLD_SIZE - CHUNK_OVERLAP * patchSize,
+            heights: new Float32Array(CHUNK_GRID * CHUNK_GRID),
+          };
+          this.chunks.set(key, chunk);
+        }
+        newActive.push(chunk);
+      }
+    }
+
+    // Remove inactive chunks
+    for (const [key] of this.chunks) {
+      if (!seenKeys.has(key)) this.chunks.delete(key);
+    }
+    this.activeChunks = newActive;
+
+    // Compute heights for each active chunk
+    for (const chunk of newActive) {
+      this.computeChunkHeights(chunk, playerX, playerZ, renderDistSq, patchSize, {
+        chopAmp, waveScale, t, waves, numWaves, shoreSrcs, shoreCnt, wakeSrcs, wakeCnt,
+        chopT1a, chopT1b, chopT2a, chopT2b, chopT3, shoreTime,
+      });
+    }
+  }
+
+  private computeChunkHeights(
+    chunk: WaterChunk,
+    playerX: number, playerZ: number, renderDistSq: number,
+    patchSize: number,
+    ctx: {
+      chopAmp: number; waveScale: number; t: number;
+      waves: PrecomputedWave[]; numWaves: number;
+      shoreSrcs: ShoreSource[]; shoreCnt: number;
+      wakeSrcs: WakeSource[]; wakeCnt: number;
+      chopT1a: number; chopT1b: number; chopT2a: number; chopT2b: number;
+      chopT3: number; shoreTime: number;
+    },
+  ): void {
+    const heights = chunk.heights;
+    const originX = chunk.originX;
+    const originZ = chunk.originZ;
+
+    for (let gz = 0; gz < CHUNK_GRID; gz++) {
       const worldZ = originZ + gz * patchSize;
-      const rowOffset = gz * gridSize;
-      for (let gx = 0; gx < gridSize; gx++) {
+      const rowOffset = gz * CHUNK_GRID;
+      for (let gx = 0; gx < CHUNK_GRID; gx++) {
         const worldX = originX + gx * patchSize;
 
         // Skip cells outside render distance (circular mask around player)
@@ -174,20 +237,20 @@ export class WaterPhysics {
         }
 
         let h = 0;
-        for (let i = 0; i < numWaves; i++) {
-          const w = waves[i];
-          h += w.amplitude * waveScale * Math.sin(w.k * (w.dx * worldX + w.dz * worldZ) - this.gerstnerPhase[i]);
+        for (let i = 0; i < ctx.numWaves; i++) {
+          const w = ctx.waves[i];
+          h += w.amplitude * ctx.waveScale * Math.sin(w.k * (w.dx * worldX + w.dz * worldZ) - this.gerstnerPhase[i]);
         }
 
-        h += (Math.sin(worldX * 0.15 + chopT1a) * Math.cos(worldZ * 0.12 + chopT1b) * 0.6
-            + Math.sin(worldX * 0.4 - chopT2a) * Math.cos(worldZ * 0.35 + chopT2b) * 0.15
-            + Math.sin((worldX + worldZ) * 0.1 + chopT3) * 0.3) * chopAmp * waveScale;
+        h += (Math.sin(worldX * 0.15 + ctx.chopT1a) * Math.cos(worldZ * 0.12 + ctx.chopT1b) * 0.6
+            + Math.sin(worldX * 0.4 - ctx.chopT2a) * Math.cos(worldZ * 0.35 + ctx.chopT2b) * 0.15
+            + Math.sin((worldX + worldZ) * 0.1 + ctx.chopT3) * 0.3) * ctx.chopAmp * ctx.waveScale;
 
         let damping = 1.0;
         let shoreH = 0.0;
         let cutout = false;
-        for (let i = 0; i < shoreCnt; i++) {
-          const src = shoreSrcs[i];
+        for (let i = 0; i < ctx.shoreCnt; i++) {
+          const src = ctx.shoreSrcs[i];
           const r = src.radius;
           const cr = src.cutoutRadius;
           if (r < 0.001 && cr < 0.001) continue;
@@ -219,7 +282,7 @@ export class WaterPhysics {
             if (outerFade > 0.001) {
               const ringDist = dist - r;
               const shoal = 1.0 - smoothT * 0.6;
-              const ringH = Math.sin(ringDist * 0.2 + shoreTime) * (1.5 * shoal);
+              const ringH = Math.sin(ringDist * 0.2 + ctx.shoreTime) * (1.5 * shoal);
               const distFade = Math.exp(-Math.max(ringDist - dampRange, 0.0) * 0.08);
               shoreH += ringH * distFade * outerFade;
             }
@@ -229,36 +292,29 @@ export class WaterPhysics {
         h *= damping;
         h += shoreH;
 
-        // Wake displacement from moving vessels (V-shaped wake behind ship)
-        for (let i = 0; i < wakeCnt; i++) {
-          const ws = wakeSrcs[i];
+        // Wake displacement from moving vessels
+        for (let i = 0; i < ctx.wakeCnt; i++) {
+          const ws = ctx.wakeSrcs[i];
           if (ws.speed < 0.5) continue;
           const dx = worldX - ws.x;
           const dz = worldZ - ws.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
           if (dist > 40.0) continue;
-          // Project onto ship direction (forward = behind ship for wake)
           const fwd = dx * ws.dirX + dz * ws.dirZ;
           const lat = -dx * ws.dirZ + dz * ws.dirX;
-          // Wake is behind the ship (negative forward)
           if (fwd > 2.0) continue;
           const behind = -fwd;
           if (behind > 35.0) continue;
-          // V-shaped wake spread
           const wakeSpread = 0.36;
           const wakeEdge = behind * wakeSpread;
           const latAbs = Math.abs(lat);
           if (latAbs > wakeEdge) continue;
-          // Lateral fade
           const lateralFade = 1.0 - (latAbs / Math.max(wakeEdge, 0.001));
-          // Distance fade
           const distFade = Math.exp(-behind * 0.04);
-          // Speed factor
           const speedFactor = Math.min(ws.speed / 10.0, 1.5);
-          // Wake ridges
           const k = 0.5;
-          const ridge1 = Math.sin(behind * k - t * 3.0) * 0.4;
-          const ridge2 = Math.sin(behind * k * 1.5 - t * 4.0) * 0.2;
+          const ridge1 = Math.sin(behind * k - ctx.t * 3.0) * 0.4;
+          const ridge2 = Math.sin(behind * k * 1.5 - ctx.t * 4.0) * 0.2;
           const wakeH = (ridge1 + ridge2) * distFade * lateralFade * speedFactor;
           h += wakeH * damping;
         }
@@ -270,9 +326,40 @@ export class WaterPhysics {
     }
   }
 
+  getActiveChunks(): WaterChunk[] {
+    return this.activeChunks;
+  }
+
   sampleWaterAt(worldX: number, worldZ: number): number {
     if (waterCutout(worldX, worldZ, this.shoreSources, this.shoreCount)) return -1000;
-    const rawH = this.buffer.sampleWorldHeight(worldX, worldZ);
+    // Sample from active chunks
+    const patchSize = this.buffer.getPatchSize();
+    let rawH = 0;
+    for (const chunk of this.activeChunks) {
+      const gx = (worldX - chunk.originX) / patchSize;
+      const gz = (worldZ - chunk.originZ) / patchSize;
+      if (gx >= 0 && gx < CHUNK_GRID && gz >= 0 && gz < CHUNK_GRID) {
+        const x0 = Math.floor(gx);
+        const z0 = Math.floor(gz);
+        const x1 = Math.min(x0 + 1, CHUNK_GRID - 1);
+        const z1 = Math.min(z0 + 1, CHUNK_GRID - 1);
+        const fx = gx - x0;
+        const fz = gz - z0;
+        const h00 = chunk.heights[z0 * CHUNK_GRID + x0];
+        const h10 = chunk.heights[z0 * CHUNK_GRID + x1];
+        const h01 = chunk.heights[z1 * CHUNK_GRID + x0];
+        const h11 = chunk.heights[z1 * CHUNK_GRID + x1];
+        if (h00 < -100 || h10 < -100 || h01 < -100 || h11 < -100) {
+          rawH = -1000;
+          break;
+        }
+        const h0 = h00 * (1 - fx) + h10 * fx;
+        const h1 = h01 * (1 - fx) + h11 * fx;
+        rawH = h0 * (1 - fz) + h1 * fz;
+        break;
+      }
+    }
+    if (rawH < -100) return -1000;
     const damping = shoreDamping(worldX, worldZ, this.shoreSources, this.shoreCount);
     const shore = shoreDisplacement(worldX, worldZ, this.time, this.shoreSources, this.shoreCount);
     return rawH * damping + shore;

@@ -53,14 +53,18 @@ export const MESH_COUNT_OFFSET = 3352;     // number of meshes (u32)
 export const MESH_DATA_OFFSET = 3356;      // mesh data starts here
 
 // Water data section (written by Bun each tick, read by Rust renderer)
-// 256x256 heightfield = 256KB, placed at 13MB offset to leave ~13MB for mesh data
-export const WATER_SEQ_OFFSET = 13631488;       // seqlock (u32)
-export const WATER_GRID_SIZE_OFFSET = 13631492;  // grid size (u32)
-export const WATER_PATCH_SIZE_OFFSET = 13631496; // patch size (u32)
-export const WATER_ORIGIN_X_OFFSET = 13631500;   // origin X (i32)
-export const WATER_ORIGIN_Z_OFFSET = 13631504;   // origin Z (i32)
-export const WATER_HEIGHTS_OFFSET = 13631508;    // 256*256 f32 = 262144 bytes
-export const WATER_DATA_END = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 13893652
+// Chunk-based: up to 25 chunks, each 68x68 f32 heights + header
+// Placed at 13MB offset to leave ~13MB for mesh data
+export const WATER_MAX_CHUNKS = 25;
+export const WATER_CHUNK_GRID = 68; // CHUNK_SIZE + 2*CHUNK_OVERLAP
+export const WATER_SEQ_OFFSET = 13631488;           // seqlock (u32)
+export const WATER_CHUNK_COUNT_OFFSET = 13631492;    // chunk count (u32)
+export const WATER_PATCH_SIZE_OFFSET = 13631496;     // patch size (f32)
+export const WATER_CHUNK_DATA_OFFSET = 13631500;     // first chunk starts here
+export const WATER_CHUNK_HEADER_SIZE = 12;           // originX(i32) + originZ(i32) + grid_size(u32)
+export const WATER_CHUNK_HEIGHTS_SIZE = WATER_CHUNK_GRID * WATER_CHUNK_GRID * 4; // 68*68*4 = 18496
+export const WATER_CHUNK_STRIDE = WATER_CHUNK_HEADER_SIZE + WATER_CHUNK_HEIGHTS_SIZE; // 18508
+export const WATER_DATA_END = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * WATER_CHUNK_STRIDE; // 13631500 + 25*18508 = 13777800
 
 // Game state section (written by Bun each tick, read by Rust renderer)
 export const GAME_STATE_OFFSET = WATER_DATA_END;             // is_dead: u32 (0 or 1)
@@ -413,20 +417,27 @@ export class SharedMemoryIPC {
     this.u32[MESH_SEQ_OFFSET / 4] = seq + 2; // end write (even)
   }
 
-  /** Write water heightfield data to shared memory (called each tick) */
-  writeWaterData(data: { gridSize: number; patchSize: number; originX: number; originZ: number; heights: Float32Array }): void {
+  /** Write water chunk data to shared memory (called each tick) */
+  writeWaterData(data: { patchSize: number; chunks: { originX: number; originZ: number; gridSize: number; heights: Float32Array }[] }): void {
     const seq = this.u32[WATER_SEQ_OFFSET / 4];
     this.u32[WATER_SEQ_OFFSET / 4] = seq + 1; // begin write (odd)
 
-    this.u32[WATER_GRID_SIZE_OFFSET / 4] = data.gridSize;
+    const chunkCount = Math.min(data.chunks.length, WATER_MAX_CHUNKS);
+    this.u32[WATER_CHUNK_COUNT_OFFSET / 4] = chunkCount;
     this.view.setFloat32(WATER_PATCH_SIZE_OFFSET, data.patchSize, true);
-    this.view.setInt32(WATER_ORIGIN_X_OFFSET, data.originX, true);
-    this.view.setInt32(WATER_ORIGIN_Z_OFFSET, data.originZ, true);
 
-    // Bulk copy heights via Float32Array view on shared memory
-    const count = data.gridSize * data.gridSize;
-    const dst = new Float32Array(this.bytes.buffer, this.bytes.byteOffset + WATER_HEIGHTS_OFFSET, count);
-    dst.set(data.heights.subarray(0, count));
+    for (let i = 0; i < chunkCount; i++) {
+      const chunk = data.chunks[i];
+      const base = WATER_CHUNK_DATA_OFFSET + i * WATER_CHUNK_STRIDE;
+      this.view.setInt32(base, chunk.originX, true);
+      this.view.setInt32(base + 4, chunk.originZ, true);
+      this.u32[(base + 8) / 4] = chunk.gridSize;
+
+      // Bulk copy heights
+      const count = chunk.gridSize * chunk.gridSize;
+      const dst = new Float32Array(this.bytes.buffer, this.bytes.byteOffset + base + WATER_CHUNK_HEADER_SIZE, count);
+      dst.set(chunk.heights.subarray(0, count));
+    }
 
     this.u32[WATER_SEQ_OFFSET / 4] = seq + 2; // end write (even)
   }

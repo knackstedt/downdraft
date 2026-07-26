@@ -31,6 +31,8 @@ export { BuoyancySystem } from "./buoyancy.ts";
 export type { BuoyancyEntity } from "./buoyancy.ts";
 export { shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping.ts";
 export { WATER_BUFFER_BYTES, WATER_FLOW_OFFSET, WATER_GRID, WATER_HEIGHT_OFFSET, WATER_NORMAL_OFFSET, WaterBuffer } from "./water-buffer.ts";
+export { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_SIZE, CHUNK_WORLD_SIZE, MAX_CHUNKS } from "./water-chunks.ts";
+export type { WaterChunk } from "./water-chunks.ts";
 export { DEFAULT_PHYSICS_CONFIG, WaterPhysics } from "./water-physics.ts";
 export type { WaterPhysicsConfig } from "./water-physics.ts";
 export { DEFAULT_RENDER_CONFIG, WaterRenderer } from "./water-renderer.ts";

@@ -260,7 +260,7 @@ export { DEFAULT_DEBUG_VIZ_SETTINGS, DebugVizPass } from "./render/passes/debug-
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.ts";
 
 // IPC (Shared Memory)
-export { CommandType, RenderEntityType, SharedMemoryIPC, WATER_GRID_SIZE_OFFSET, WATER_HEIGHTS_OFFSET, WATER_ORIGIN_X_OFFSET, WATER_ORIGIN_Z_OFFSET, WATER_PATCH_SIZE_OFFSET, WATER_SEQ_OFFSET, parseShmPath } from "./ipc/shared-memory.ts";
+export { CommandType, RenderEntityType, SharedMemoryIPC, WATER_CHUNK_COUNT_OFFSET, WATER_CHUNK_DATA_OFFSET, WATER_CHUNK_GRID, WATER_CHUNK_HEADER_SIZE, WATER_CHUNK_STRIDE, WATER_MAX_CHUNKS, WATER_PATCH_SIZE_OFFSET, WATER_SEQ_OFFSET, parseShmPath } from "./ipc/shared-memory.ts";
 export type { RenderData, RenderEntityData, Telemetry } from "./ipc/shared-memory.ts";
 
 // Logging

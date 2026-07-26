@@ -110,7 +110,7 @@ import {
     wildlifeAISystem,
 } from "./systems.ts";
 import { extractMeshFromField, generateVoxelField } from "./terrain.ts";
-import { waterBuffer } from "./water.ts";
+import { waterBuffer, waterPhysics } from "./water.ts";
 import {
     rainCollectors,
     setCurrentTimeOfDay,
@@ -657,19 +657,18 @@ export function dispose(ctx: any) {
 // ─── Lifecycle: getWaterData ──────────────────────────────
 
 export function getWaterData(): {
-  gridSize: number;
   patchSize: number;
-  originX: number;
-  originZ: number;
-  heights: Float32Array;
+  chunks: { originX: number; originZ: number; gridSize: number; heights: Float32Array }[];
 } {
-  const origin = waterBuffer.getOrigin();
+  const activeChunks = waterPhysics.getActiveChunks();
   return {
-    gridSize: waterBuffer.getGridSize(),
     patchSize: waterBuffer.getPatchSize(),
-    originX: origin.x,
-    originZ: origin.z,
-    heights: waterBuffer.getHeightsRef(),
+    chunks: activeChunks.map(c => ({
+      originX: c.originX,
+      originZ: c.originZ,
+      gridSize: c.heights.length ** 0.5,
+      heights: c.heights,
+    })),
   };
 }
 

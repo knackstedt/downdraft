@@ -71,15 +71,17 @@ pub const MESH_DATA_OFFSET: usize = 3356;      // mesh data starts here
 //   indices: index_count * u32
 
 // Water data section (written by Bun each tick, read by Rust renderer)
-// 256x256 heightfield = 256KB, placed at 13MB offset to leave ~13MB for mesh data
-pub const WATER_SEQ_OFFSET: usize = 13631488;       // seqlock (u32)
-pub const WATER_GRID_SIZE_OFFSET: usize = 13631492;  // grid size (u32)
-pub const WATER_PATCH_SIZE_OFFSET: usize = 13631496; // patch size (u32)
-pub const WATER_ORIGIN_X_OFFSET: usize = 13631500;   // origin X (i32)
-pub const WATER_ORIGIN_Z_OFFSET: usize = 13631504;   // origin Z (i32)
-pub const WATER_HEIGHTS_OFFSET: usize = 13631508;    // 256*256 f32 = 262144 bytes
-pub const WATER_GRID: usize = 256;
-pub const WATER_DATA_END: usize = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 13893652
+// Chunk-based: up to 25 chunks, each 68x68 f32 heights + header
+pub const WATER_MAX_CHUNKS: usize = 25;
+pub const WATER_CHUNK_GRID: usize = 68; // CHUNK_SIZE + 2*CHUNK_OVERLAP
+pub const WATER_SEQ_OFFSET: usize = 13631488;           // seqlock (u32)
+pub const WATER_CHUNK_COUNT_OFFSET: usize = 13631492;   // chunk count (u32)
+pub const WATER_PATCH_SIZE_OFFSET: usize = 13631496;    // patch size (f32)
+pub const WATER_CHUNK_DATA_OFFSET: usize = 13631500;    // first chunk starts here
+pub const WATER_CHUNK_HEADER_SIZE: usize = 12;          // originX(i32) + originZ(i32) + grid_size(u32)
+pub const WATER_CHUNK_HEIGHTS_SIZE: usize = WATER_CHUNK_GRID * WATER_CHUNK_GRID * 4; // 18496
+pub const WATER_CHUNK_STRIDE: usize = WATER_CHUNK_HEADER_SIZE + WATER_CHUNK_HEIGHTS_SIZE; // 18508
+pub const WATER_DATA_END: usize = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * WATER_CHUNK_STRIDE; // 13777800
 
 // Game state section (written by Bun each tick, read by Rust renderer)
 pub const GAME_STATE_OFFSET: usize = WATER_DATA_END;             // is_dead: u32 (0 or 1)
@@ -147,12 +149,17 @@ pub struct RenderData {
 }
 
 #[derive(Clone, Debug)]
-pub struct WaterData {
-    pub grid_size: usize,
-    pub patch_size: f32,
+pub struct WaterChunkData {
     pub origin_x: i32,
     pub origin_z: i32,
+    pub grid_size: usize,
     pub heights: Vec<f32>, // grid_size * grid_size
+}
+
+#[derive(Clone, Debug)]
+pub struct WaterData {
+    pub patch_size: f32,
+    pub chunks: Vec<WaterChunkData>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -500,7 +507,7 @@ impl SharedMemory {
         meshes
     }
 
-    /// Read water heightfield data from Bun (seqlock read, called each frame)
+    /// Read water chunk data from Bun (seqlock read, called each frame)
     pub fn read_water_data(&self) -> Option<WaterData> {
         let bytes = self.as_bytes();
         let seq_arr = unsafe {
@@ -512,28 +519,44 @@ impl SharedMemory {
             return None;
         }
 
-        let grid_size = u32::from_le_bytes(
-            bytes[WATER_GRID_SIZE_OFFSET..WATER_GRID_SIZE_OFFSET + 4].try_into().unwrap()
+        let chunk_count = u32::from_le_bytes(
+            bytes[WATER_CHUNK_COUNT_OFFSET..WATER_CHUNK_COUNT_OFFSET + 4].try_into().unwrap()
         ) as usize;
         let patch_size = f32::from_le_bytes(
             bytes[WATER_PATCH_SIZE_OFFSET..WATER_PATCH_SIZE_OFFSET + 4].try_into().unwrap()
         );
-        let origin_x = i32::from_le_bytes(
-            bytes[WATER_ORIGIN_X_OFFSET..WATER_ORIGIN_X_OFFSET + 4].try_into().unwrap()
-        );
-        let origin_z = i32::from_le_bytes(
-            bytes[WATER_ORIGIN_Z_OFFSET..WATER_ORIGIN_Z_OFFSET + 4].try_into().unwrap()
-        );
 
-        let count = grid_size * grid_size;
-        let mut heights = vec![0.0f32; count];
-        // Bulk copy: reinterpret the SHM region as f32 slice and copy
-        unsafe {
-            let src = std::slice::from_raw_parts(
-                bytes.as_ptr().add(WATER_HEIGHTS_OFFSET) as *const f32,
-                count,
+        let chunk_count = chunk_count.min(WATER_MAX_CHUNKS);
+        let mut chunks = Vec::with_capacity(chunk_count);
+
+        for i in 0..chunk_count {
+            let base = WATER_CHUNK_DATA_OFFSET + i * WATER_CHUNK_STRIDE;
+            let origin_x = i32::from_le_bytes(
+                bytes[base..base + 4].try_into().unwrap()
             );
-            heights.copy_from_slice(src);
+            let origin_z = i32::from_le_bytes(
+                bytes[base + 4..base + 8].try_into().unwrap()
+            );
+            let grid_size = u32::from_le_bytes(
+                bytes[base + 8..base + 12].try_into().unwrap()
+            ) as usize;
+
+            let count = grid_size * grid_size;
+            let mut heights = vec![0.0f32; count];
+            unsafe {
+                let src = std::slice::from_raw_parts(
+                    bytes.as_ptr().add(base + WATER_CHUNK_HEADER_SIZE) as *const f32,
+                    count,
+                );
+                heights.copy_from_slice(src);
+            }
+
+            chunks.push(WaterChunkData {
+                origin_x,
+                origin_z,
+                grid_size,
+                heights,
+            });
         }
 
         let s2 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
@@ -542,11 +565,8 @@ impl SharedMemory {
         }
 
         Some(WaterData {
-            grid_size,
             patch_size,
-            origin_x,
-            origin_z,
-            heights,
+            chunks,
         })
     }
 
