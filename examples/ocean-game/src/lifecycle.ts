@@ -122,6 +122,150 @@ import {
 
 const log = createLogger();
 
+// ─── Island generation helpers (parallel worker-based) ─────
+
+interface IslandGenParams {
+  index: number;
+  radius: number;
+  height: number;
+  biome: number;
+  islandX: number;
+  islandZ: number;
+  chunkX: number;
+  chunkZ: number;
+}
+
+type LodMesh = { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number; lodLevel: number; lodDistance: number };
+
+function spawnIslandEntities(
+  ecsWorld: World,
+  params: IslandGenParams,
+  voxelField: VoxelField,
+  lodMeshes: LodMesh[],
+): void {
+  const { index: i, radius, height, biome, islandX, islandZ, chunkX, chunkZ } = params;
+  const meshData = lodMeshes[0];
+
+  log.info("terrain", `island ${i + 1} LOD meshes: ${lodMeshes.map(l => `LOD${l.lodLevel}:${l.vertexCount}v`).join(", ")}`);
+
+  const islandComps = new Map<number, unknown>();
+  islandComps.set(Island.id, Island.create({
+    x: islandX, z: islandZ, radius, height,
+    hasTrees: Math.random() > 0.3,
+    hasRocks: Math.random() > 0.5,
+    visited: false, biome, chunkX, chunkZ,
+    voxelField, meshData, lodMeshes,
+  }));
+  const islandEntity = ecsWorld.spawn(islandComps);
+
+  if (i < PORT_COUNT) {
+    const portComps = new Map<number, unknown>();
+    portComps.set(Port.id, Port.create({
+      x: islandX, z: islandZ,
+      islandEntity: islandEntity as unknown as number,
+      name: `Port-${i + 1}`,
+      listings: [
+        { item: "wood", buyPrice: 3, sellPrice: 2, supply: 100, priceModifier: 1.0 },
+        { item: "raw_fish", buyPrice: 5, sellPrice: 4, supply: 50, priceModifier: 1.0 },
+        { item: "planks", buyPrice: 8, sellPrice: 6, supply: 80, priceModifier: 1.0 },
+        { item: "food", buyPrice: 4, sellPrice: 3, supply: 60, priceModifier: 1.0 },
+      ],
+    }));
+    ecsWorld.spawn(portComps);
+  }
+
+  for (let a = 0; a < ANIMAL_COUNT_PER_ISLAND; a++) {
+    const aAngle = Math.random() * Math.PI * 2;
+    const aDist = Math.random() * radius * 0.7;
+    const ax = islandX + Math.cos(aAngle) * aDist;
+    const az = islandZ + Math.sin(aAngle) * aDist;
+    const species = ["chicken", "goat", "sheep"][Math.floor(Math.random() * 3)];
+    const productType = species === "chicken" ? "egg" : species === "goat" ? "milk" : "wool";
+    const animalComps = new Map<number, unknown>();
+    animalComps.set(Animal.id, Animal.create({
+      x: ax, y: islandHeightAt({ x: islandX, z: islandZ, radius, height, voxelField }, ax, az),
+      z: az, species, productType, islandEntity: islandEntity as unknown as number,
+    }));
+    ecsWorld.spawn(animalComps);
+  }
+
+  for (let p = 0; p < PLANT_COUNT_PER_ISLAND; p++) {
+    const pAngle = Math.random() * Math.PI * 2;
+    const pDist = Math.random() * radius * 0.7;
+    const px = islandX + Math.cos(pAngle) * pDist;
+    const pz = islandZ + Math.sin(pAngle) * pDist;
+    const species = ["kelp", "tomato", "rice"][Math.floor(Math.random() * 3)];
+    const plantComps = new Map<number, unknown>();
+    plantComps.set(Plant.id, Plant.create({
+      x: px, y: islandHeightAt({ x: islandX, z: islandZ, radius, height, voxelField }, px, pz),
+      z: pz, species, islandEntity: islandEntity as unknown as number,
+    }));
+    ecsWorld.spawn(plantComps);
+  }
+}
+
+function startBackgroundIslandGeneration(
+  params: IslandGenParams[],
+  ecsWorld: World,
+): void {
+  if (params.length === 0) return;
+
+  const workerUrl = new URL("./island-worker.ts", import.meta.url);
+  const numWorkers = Math.min(params.length, navigator.hardwareConcurrency ?? 4);
+  const workers: Worker[] = [];
+
+  for (let i = 0; i < numWorkers; i++) {
+    workers.push(new Worker(workerUrl));
+  }
+
+  let paramIndex = 0;
+  let completedCount = 0;
+
+  function sendNext(worker: Worker) {
+    if (paramIndex >= params.length) {
+      worker.terminate();
+      return;
+    }
+    const param = params[paramIndex++];
+    worker.postMessage({
+      index: param.index,
+      chunkX: param.chunkX,
+      chunkZ: param.chunkZ,
+      radius: param.radius,
+      biome: param.biome,
+    });
+  }
+
+  for (const worker of workers) {
+    worker.onmessage = (e: MessageEvent) => {
+      const { index, voxelField, lodMeshes } = e.data;
+      const param = params.find(p => p.index === index);
+      if (param) {
+        log.info("terrain", `island ${index + 1}/${gameState.islandsTotal} generated in background worker`);
+        spawnIslandEntities(ecsWorld, param, voxelField, lodMeshes as LodMesh[]);
+        ecsWorld.schedule.updateQueryArchetypes(ecsWorld.allArchetypes);
+        gameState.islandsGenerated++;
+        gameState.meshesDirty = true;
+      }
+      completedCount++;
+      if (completedCount >= params.length) {
+        for (const w of workers) w.terminate();
+        log.info("terrain", `All ${gameState.islandsTotal} islands generated (${gameState.islandsGenerated} total)`);
+      }
+      sendNext(worker);
+    };
+    worker.onerror = (e: ErrorEvent) => {
+      log.error("terrain", `Island worker error: ${e.message}`);
+      completedCount++;
+      if (completedCount >= params.length) {
+        for (const w of workers) w.terminate();
+      }
+      sendNext(worker);
+    };
+    sendNext(worker);
+  }
+}
+
 // ─── Lifecycle: init ──────────────────────────────────────
 
 export async function init(ctx: any) {
@@ -223,10 +367,12 @@ export async function init(ctx: any) {
     ecsWorld.spawn(wlComps);
   }
 
-  // Spawn islands — with overlap prevention
+  // Compute all island positions (fast, sequential — needed for overlap prevention)
   gameState.playerSpawnX = 0;
   gameState.playerSpawnZ = 0;
+  gameState.islandsTotal = ISLAND_COUNT;
   const placedIslands: { x: number; z: number; radius: number }[] = [];
+  const islandParams: IslandGenParams[] = [];
   for (let i = 0; i < ISLAND_COUNT; i++) {
     const radius = i === 0
       ? ISLAND_MIN_RADIUS + Math.random() * (ISLAND_MAX_RADIUS - ISLAND_MIN_RADIUS) * 0.5
@@ -238,7 +384,6 @@ export async function init(ctx: any) {
       biomeRoll < 0.75 ? BiomeType.Arctic :
       biomeRoll < 0.90 ? BiomeType.Desert : BiomeType.Volcanic;
 
-    // Find a non-overlapping position
     let angle = 0, dist = 0;
     let islandX = 0, islandZ = 0;
     if (i === 0) {
@@ -246,7 +391,7 @@ export async function init(ctx: any) {
       dist = 0;
     } else {
       let attempts = 0;
-      const minGap = 40; // minimum water gap between island shores
+      const minGap = 40;
       do {
         angle = (i / ISLAND_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
         dist = 150 + Math.random() * ISLAND_SPAWN_RANGE;
@@ -265,92 +410,32 @@ export async function init(ctx: any) {
     const chunkX = Math.floor(islandX);
     const chunkZ = Math.floor(islandZ);
 
-    log.info("terrain", `generating voxel field for island ${i + 1} (biome: ${BiomeType[biome]}, radius: ${radius.toFixed(0)}, pos: (${islandX.toFixed(0)}, ${islandZ.toFixed(0)}))...`);
-    const voxelField = generateVoxelField(chunkX, chunkZ, radius, biome);
-
-    // Generate 3 LOD levels: step=1 (full detail, close), step=3 (medium), step=6 (far)
-    // LOD meshes use unique vertices per triangle (3x verts) so larger steps compensate
-    const lodConfigs = [
-      { step: 1, distance: 0 },
-      { step: 3, distance: 150 },
-      { step: 6, distance: 350 },
-    ];
-    const lodMeshes = lodConfigs.map(({ step, distance }) => {
-      const mesh = extractMeshFromField(voxelField, biome, 500000, step);
-      return { ...mesh, lodLevel: step, lodDistance: distance };
-    });
-    const meshData = lodMeshes[0]; // full-detail mesh for gameplay/physics
-    log.info("terrain", `island ${i + 1} LOD meshes: ${lodMeshes.map(l => `LOD${l.lodLevel}:${l.vertexCount}v`).join(", ")}`);
-
     placedIslands.push({ x: islandX, z: islandZ, radius });
-
-    // Yield to the event loop after each island so signal handlers can fire
-    await Bun.sleep(0);
-
-    const islandComps = new Map<number, unknown>();
-    islandComps.set(Island.id, Island.create({
-      x: islandX,
-      z: islandZ,
-      radius, height,
-      hasTrees: Math.random() > 0.3,
-      hasRocks: Math.random() > 0.5,
-      visited: false,
-      biome, chunkX, chunkZ,
-      voxelField, meshData, lodMeshes,
-    }));
-    const islandEntity = ecsWorld.spawn(islandComps);
-
-    if (i === 0) {
-      gameState.playerSpawnX = islandX + radius * 0.8;
-      gameState.playerSpawnZ = islandZ;
-    }
-
-    if (i < PORT_COUNT) {
-      const portComps = new Map<number, unknown>();
-      portComps.set(Port.id, Port.create({
-        x: islandX,
-        z: islandZ,
-        islandEntity: islandEntity as unknown as number,
-        name: `Port-${i + 1}`,
-        listings: [
-          { item: "wood", buyPrice: 3, sellPrice: 2, supply: 100, priceModifier: 1.0 },
-          { item: "raw_fish", buyPrice: 5, sellPrice: 4, supply: 50, priceModifier: 1.0 },
-          { item: "planks", buyPrice: 8, sellPrice: 6, supply: 80, priceModifier: 1.0 },
-          { item: "food", buyPrice: 4, sellPrice: 3, supply: 60, priceModifier: 1.0 },
-        ],
-      }));
-      ecsWorld.spawn(portComps);
-    }
-
-    for (let a = 0; a < ANIMAL_COUNT_PER_ISLAND; a++) {
-      const aAngle = Math.random() * Math.PI * 2;
-      const aDist = Math.random() * radius * 0.7;
-      const ax = islandX + Math.cos(aAngle) * aDist;
-      const az = islandZ + Math.sin(aAngle) * aDist;
-      const species = ["chicken", "goat", "sheep"][Math.floor(Math.random() * 3)];
-      const productType = species === "chicken" ? "egg" : species === "goat" ? "milk" : "wool";
-      const animalComps = new Map<number, unknown>();
-      animalComps.set(Animal.id, Animal.create({
-        x: ax, y: islandHeightAt({ x: islandX, z: islandZ, radius, height, voxelField }, ax, az),
-        z: az, species, productType, islandEntity: islandEntity as unknown as number,
-      }));
-      ecsWorld.spawn(animalComps);
-    }
-
-    for (let p = 0; p < PLANT_COUNT_PER_ISLAND; p++) {
-      const pAngle = Math.random() * Math.PI * 2;
-      const pDist = Math.random() * radius * 0.7;
-      const px = islandX + Math.cos(pAngle) * pDist;
-      const pz = islandZ + Math.sin(pAngle) * pDist;
-      const species = ["kelp", "tomato", "rice"][Math.floor(Math.random() * 3)];
-      const plantComps = new Map<number, unknown>();
-      plantComps.set(Plant.id, Plant.create({
-        x: px, y: islandHeightAt({ x: islandX, z: islandZ, radius, height, voxelField }, px, pz),
-        z: pz, species, islandEntity: islandEntity as unknown as number,
-      }));
-      ecsWorld.spawn(plantComps);
-    }
+    islandParams.push({ index: i, radius, height, biome, islandX, islandZ, chunkX, chunkZ });
   }
+
+  // Generate island 0 synchronously (needed for player spawn position)
+  const island0 = islandParams[0];
+  log.info("terrain", `generating voxel field for island 1 (biome: ${BiomeType[island0.biome]}, radius: ${island0.radius.toFixed(0)}, pos: (${island0.islandX.toFixed(0)}, ${island0.islandZ.toFixed(0)}))...`);
+  const lodConfigs = [
+    { step: 1, distance: 0 },
+    { step: 3, distance: 150 },
+    { step: 6, distance: 350 },
+  ];
+  const island0VoxelField = generateVoxelField(island0.chunkX, island0.chunkZ, island0.radius, island0.biome);
+  const island0LodMeshes = lodConfigs.map(({ step, distance }) => {
+    const mesh = extractMeshFromField(island0VoxelField, island0.biome, 500000, step);
+    return { ...mesh, lodLevel: step, lodDistance: distance };
+  });
+  spawnIslandEntities(ecsWorld, island0, island0VoxelField, island0LodMeshes as LodMesh[]);
+  gameState.playerSpawnX = island0.islandX + island0.radius * 0.8;
+  gameState.playerSpawnZ = island0.islandZ;
+  gameState.islandsGenerated = 1;
+  gameState.meshesDirty = true;
+
+  // Start background generation of remaining islands in parallel worker threads
+  log.info("terrain", `island 1/${ISLAND_COUNT} generated synchronously, starting ${ISLAND_COUNT - 1} background workers...`);
+  startBackgroundIslandGeneration(islandParams.slice(1), ecsWorld);
 
   // Move player to shore of first island
   const player = ecsWorld.getComponent<typeof Player.defaults>(gameState.playerEntity, Player.id);
@@ -454,7 +539,7 @@ export async function init(ctx: any) {
   log.info("ocean-survival", "Ship created (integrity: 100%)");
   log.info("ocean-survival", "2 sharks + 5 fish spawned");
   log.info("ocean-survival", "10 debris items scattered (wood/food/water)");
-  log.info("ocean-survival", `${ISLAND_COUNT} islands generated in the surrounding ocean`);
+  log.info("ocean-survival", `1 island generated, ${ISLAND_COUNT - 1} generating in background (parallel workers)`);
   log.info("ocean-survival", `${PORT_COUNT} ports with dynamic market prices`);
   log.info("ocean-survival", `${ISLAND_COUNT * ANIMAL_COUNT_PER_ISLAND} animals (chickens, goats, sheep) on islands`);
   log.info("ocean-survival", `${ISLAND_COUNT * PLANT_COUNT_PER_ISLAND} plants (kelp, tomato, rice) on islands`);
@@ -741,6 +826,18 @@ export function getWaterData(): {
     }
   }
   return result;
+}
+
+// ─── Lifecycle: consumeMeshesDirty ────────────────────────
+// Returns true if new island meshes have been generated since last check.
+// Used by the bun runner to know when to re-send mesh data to the renderer.
+
+export function consumeMeshesDirty(): boolean {
+  if (gameState.meshesDirty) {
+    gameState.meshesDirty = false;
+    return true;
+  }
+  return false;
 }
 
 // ─── Lifecycle: getMeshData ───────────────────────────────

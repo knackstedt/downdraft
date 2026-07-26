@@ -164,7 +164,6 @@ const SIM_TICK_DT = 1 / 60;
   // Game loop
   let lastTime = performance.now();
   let running = true;
-  let meshDataWritten = false;
 
   while (running) {
     const now = performance.now();
@@ -189,15 +188,15 @@ const SIM_TICK_DT = 1 / 60;
       }
     }
 
-    // Write island mesh data to shared memory once after first tick
-    // (query archetypes are populated during the first world.step())
-    if (!meshDataWritten && ipc && exampleModule.getMeshData) {
-      const meshData = exampleModule.getMeshData();
-      if (meshData && meshData.length > 0) {
-        log.info("DownDraft", `Writing ${meshData.length} island meshes to shared memory`);
-        ipc.writeMeshData(meshData);
+    // Write island mesh data to shared memory whenever new islands have been generated
+    if (ipc && exampleModule.getMeshData && (exampleModule as any).consumeMeshesDirty) {
+      if ((exampleModule as any).consumeMeshesDirty()) {
+        const meshData = exampleModule.getMeshData();
+        if (meshData && meshData.length > 0) {
+          log.info("DownDraft", `Writing ${meshData.length} island meshes to shared memory`);
+          ipc.writeMeshData(meshData);
+        }
       }
-      meshDataWritten = true;
     }
 
     // Write render data to shared memory for the renderer

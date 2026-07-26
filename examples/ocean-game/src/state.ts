@@ -22,4 +22,7 @@ export const gameState = {
   playerSpawnZ: 0,
   inventoryVisible: false,
   shipDestroyedLogged: false,
+  islandsGenerated: 0,
+  islandsTotal: 0,
+  meshesDirty: false,
 };

@@ -2,7 +2,7 @@
 // Entry point; re-exports the public API from the refactored src/ modules.
 
 export {
-  craftByRecipeId, dispose, getGameState, getInventoryState, getMeshData,
+  consumeMeshesDirty, craftByRecipeId, dispose, getGameState, getInventoryState, getMeshData,
   getRenderData, getWaterData, getWeatherVisual, init, respawn, tick, toggleInventory
 } from "./src/lifecycle.ts";
 
