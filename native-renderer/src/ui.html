@@ -174,7 +174,7 @@
     position: absolute;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    width: 560px;
+    width: 740px;
     background: rgba(15, 18, 25, 0.95);
     border: 1px solid rgba(100, 130, 180, 0.4);
     border-radius: 10px;
@@ -183,8 +183,38 @@
     display: none;
     flex-direction: column;
     pointer-events: auto;
-    overflow: hidden;
+    overflow: visible;
   }
+  #inv-tooltip {
+    position: absolute;
+    z-index: 200;
+    background: rgba(10, 12, 18, 0.97);
+    border: 1px solid rgba(100, 130, 180, 0.5);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #ddd;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.7);
+    white-space: nowrap;
+  }
+  #inv-tooltip .tt-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: #8af;
+    margin-bottom: 2px;
+  }
+  #inv-tooltip .tt-cat {
+    font-size: 10px;
+    color: #888;
+    margin-bottom: 4px;
+  }
+  #inv-tooltip .tt-row {
+    font-size: 11px;
+    color: #aaa;
+  }
+  #inv-tooltip .tt-row .tt-val { color: #8af; }
   #inventory-panel.visible { display: flex; }
   #inventory-panel .inv-header {
     display: flex;
@@ -268,7 +298,7 @@
   #inventory-panel .inv-slot .slot-spoil.warn { background: rgba(220, 180, 60, 0.9); }
   #inventory-panel .inv-slot .slot-spoil.crit { background: rgba(220, 80, 60, 0.9); }
   #inventory-panel .inv-sidebar {
-    width: 180px;
+    width: 200px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -372,6 +402,7 @@
     </div>
   </div>
   <div id="status">DownDraft Engine - Native Renderer</div>
+  <div id="inv-tooltip"></div>
   <div id="inventory-panel">
     <div class="inv-header">
       <div class="inv-title">Inventory</div>
@@ -455,6 +486,7 @@
       var invInfo = document.getElementById('inv-info');
       var invRecipes = document.getElementById('inv-recipes');
       var invCloseBtn = document.getElementById('inv-close-btn');
+      var invTooltip = document.getElementById('inv-tooltip');
       window.__inventoryVisible = false;
 
       invCloseBtn.addEventListener('click', function() {
@@ -534,6 +566,28 @@
                 slot.addEventListener('click', function() {
                   showItemInfo(itemData);
                 });
+                slot.addEventListener('mouseenter', function(e) {
+                  var tt = '<div class="tt-name">' + (itemData.name || itemData.itemId) + '</div>';
+                  if (itemData.category) tt += '<div class="tt-cat">' + itemData.category + '</div>';
+                  tt += '<div class="tt-row">Qty: <span class="tt-val">' + itemData.quantity + '</span>';
+                  if (itemData.stackLimit) tt += ' / ' + itemData.stackLimit;
+                  tt += '</div>';
+                  if (itemData.spoilPercent !== undefined && itemData.spoilPercent < 100) {
+                    tt += '<div class="tt-row">Freshness: <span class="tt-val">' + itemData.spoilPercent.toFixed(0) + '%</span></div>';
+                  }
+                  invTooltip.innerHTML = tt;
+                  invTooltip.style.display = 'block';
+                  var rect = slot.getBoundingClientRect();
+                  var panelRect = invPanel.getBoundingClientRect();
+                  var tx = rect.right - panelRect.left + 6;
+                  var ty = rect.top - panelRect.top;
+                  if (tx + 150 > 740) tx = rect.left - panelRect.left - 156;
+                  invTooltip.style.left = tx + 'px';
+                  invTooltip.style.top = ty + 'px';
+                });
+                slot.addEventListener('mouseleave', function() {
+                  invTooltip.style.display = 'none';
+                });
               })(item);
             }
             invGrid.appendChild(slot);
@@ -562,6 +616,16 @@
           cost.className = 'recipe-cost';
           cost.textContent = costStr.join(', ') + (recipe.needsFire ? ' + fire' : '');
           div.appendChild(cost);
+          (function(recipeId, recipeName, craftable) {
+            div.addEventListener('click', function() {
+              if (craftable) {
+                window.__craftRequest = recipeId;
+              } else {
+                invInfo.innerHTML = '<div class="info-name">' + recipeName + '</div>' +
+                  '<div class="info-desc">Missing ingredients — cannot craft</div>';
+              }
+            });
+          })(recipe.id, recipe.name, canCraft);
           invRecipes.appendChild(div);
         }
       };

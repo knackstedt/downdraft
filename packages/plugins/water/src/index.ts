@@ -127,12 +127,12 @@ export const WaterPlugin: Plugin = {
         renderConfig.timeOfDay = timeOfDay;
       }
 
-      // Update water physics heightfield
-      const camera = sysCtx.world?.getResource?.("camera");
-      const camX = camera?.position?.[0] ?? 0;
-      const camZ = camera?.position?.[2] ?? 0;
+      // Update water physics heightfield (centered on player, chunk-snapped)
+      const player = sysCtx.world?.getResource?.("playerPosition");
+      const pX = player?.x ?? 0;
+      const pZ = player?.z ?? 0;
       physics.setShoreSources(shoreSources, shoreCount);
-      physics.update(dt, camX, camZ);
+      physics.update(dt, pX, pZ);
 
       // Update GPU dynamic source buffers
       if (renderer.isInitialized()) {

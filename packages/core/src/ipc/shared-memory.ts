@@ -6,7 +6,7 @@ import { createLogger } from "../util/logger.ts";
 const log = createLogger();
 
 // Shared memory layout (must match native-renderer/src/ipc.rs)
-export const SHM_SIZE = 4 * 1024 * 1024; // 4MB for mesh data
+export const SHM_SIZE = 16 * 1024 * 1024; // 16MB — mesh data needs ~13MB for 6 islands
 const CMD_SEQ_OFFSET = 0;
 const CMD_TYPE_OFFSET = 4;
 const CMD_SIZE_OFFSET = 8;
@@ -53,14 +53,14 @@ export const MESH_COUNT_OFFSET = 3352;     // number of meshes (u32)
 export const MESH_DATA_OFFSET = 3356;      // mesh data starts here
 
 // Water data section (written by Bun each tick, read by Rust renderer)
-// 256x256 heightfield = 256KB, placed at 3MB offset to leave 3MB for mesh data
-export const WATER_SEQ_OFFSET = 3145728;       // seqlock (u32)
-export const WATER_GRID_SIZE_OFFSET = 3145732;  // grid size (u32)
-export const WATER_PATCH_SIZE_OFFSET = 3145736; // patch size (u32)
-export const WATER_ORIGIN_X_OFFSET = 3145740;   // origin X (i32)
-export const WATER_ORIGIN_Z_OFFSET = 3145744;   // origin Z (i32)
-export const WATER_HEIGHTS_OFFSET = 3145748;    // 256*256 f32 = 262144 bytes
-export const WATER_DATA_END = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 3407892
+// 256x256 heightfield = 256KB, placed at 13MB offset to leave ~13MB for mesh data
+export const WATER_SEQ_OFFSET = 13631488;       // seqlock (u32)
+export const WATER_GRID_SIZE_OFFSET = 13631492;  // grid size (u32)
+export const WATER_PATCH_SIZE_OFFSET = 13631496; // patch size (u32)
+export const WATER_ORIGIN_X_OFFSET = 13631500;   // origin X (i32)
+export const WATER_ORIGIN_Z_OFFSET = 13631504;   // origin Z (i32)
+export const WATER_HEIGHTS_OFFSET = 13631508;    // 256*256 f32 = 262144 bytes
+export const WATER_DATA_END = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 13893652
 
 // Game state section (written by Bun each tick, read by Rust renderer)
 export const GAME_STATE_OFFSET = WATER_DATA_END;             // is_dead: u32 (0 or 1)
@@ -75,6 +75,11 @@ export const RESPAWN_REQUEST_OFFSET = WATER_DATA_END + 68;   // respawn_requeste
 export const INVENTORY_SEQ_OFFSET = WATER_DATA_END + 72;       // seqlock (u32)
 export const INVENTORY_DATA_OFFSET = WATER_DATA_END + 76;      // JSON string
 export const INVENTORY_DATA_SIZE = 8192;                        // max bytes for inventory JSON
+
+// Craft request (written by Rust renderer, read by Bun)
+// 64-byte buffer for recipe ID (null-terminated string)
+export const CRAFT_REQUEST_OFFSET = INVENTORY_DATA_OFFSET + INVENTORY_DATA_SIZE; // [u8; 64]
+export const CRAFT_REQUEST_SIZE = 64;
 
 // Key bit assignments
 export const KEY_BITS: Record<string, number> = {
@@ -155,6 +160,7 @@ export class SharedMemoryIPC {
   private bytes: Uint8Array;
   private view: DataView;
   private u32: Uint32Array;
+  private u8!: Uint8Array;
 
   /** Attach to an existing shared memory file created by the Rust renderer */
   attach(path: string): boolean {
@@ -174,6 +180,7 @@ export class SharedMemoryIPC {
         this.bytes.byteOffset,
         SHM_SIZE / 4,
       );
+      this.u8 = this.bytes;
       return true;
     } catch (e) {
       log.error("ipc", `Failed to mmap shared memory file: ${path} ${e}`);
@@ -388,7 +395,7 @@ export class SharedMemoryIPC {
 
       // Vertices: vertexCount * 9 floats = vertexCount * 36 bytes
       const vertBytes = mesh.vertexCount * 36;
-      if (offset + vertBytes > SHM_SIZE) break;
+      if (offset + vertBytes > WATER_SEQ_OFFSET) break;
       for (let i = 0; i < mesh.vertexCount * 9; i++) {
         this.view.setFloat32(offset + i * 4, mesh.verts[i], true);
       }
@@ -396,7 +403,7 @@ export class SharedMemoryIPC {
 
       // Indices: indexCount * 4 bytes (u32)
       const idxBytes = mesh.indexCount * 4;
-      if (offset + idxBytes > SHM_SIZE) break;
+      if (offset + idxBytes > WATER_SEQ_OFFSET) break;
       for (let i = 0; i < mesh.indexCount; i++) {
         this.u32[(offset + i * 4) / 4] = mesh.indices[i];
       }
@@ -466,6 +473,23 @@ export class SharedMemoryIPC {
       this.u32[RESPAWN_REQUEST_OFFSET / 4] = 0;
     }
     return requested;
+  }
+
+  /** Read a craft request (recipe ID) from the renderer, or null if none */
+  readCraftRequest(): string | null {
+    const firstByte = this.u8[CRAFT_REQUEST_OFFSET];
+    if (firstByte === 0) return null;
+    let str = "";
+    for (let i = 0; i < CRAFT_REQUEST_SIZE; i++) {
+      const b = this.u8[CRAFT_REQUEST_OFFSET + i];
+      if (b === 0) break;
+      str += String.fromCharCode(b);
+    }
+    // Clear the buffer
+    for (let i = 0; i < CRAFT_REQUEST_SIZE; i++) {
+      this.u8[CRAFT_REQUEST_OFFSET + i] = 0;
+    }
+    return str || null;
   }
 
   /** Write inventory JSON to shared memory (called each tick by Bun) */

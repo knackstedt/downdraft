@@ -189,3 +189,8 @@ fn fs_depth(in: VertexOutput) -> @location(0) vec4<f32> {
     let v = clamp(1.0 - d, 0.0, 1.0);
     return vec4<f32>(v, v, v, 1.0);
 }
+
+@fragment
+fn fs_hitbox(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 1.0, 0.5, 1.0);
+}

@@ -31,7 +31,7 @@ import {
   type BuoyancyEntity,
   type ShoreProvider,
   type ShoreSource,
-  type WakeProvider,
+  type WakeProvider
 } from "@downdraft/plugin-water";
 import {
   canCraft,
@@ -1574,6 +1574,15 @@ const weatherState = {
   isRareEvent: false,
 };
 
+// Smoothly-interpolated visual state (lerps toward target over ~30s)
+const weatherVisualCurrent = {
+  skyColor: [0.5, 0.7, 0.85] as [number, number, number],
+  waterColor: [0.08, 0.22, 0.45] as [number, number, number],
+  fogColor: [0.5, 0.7, 0.85] as [number, number, number],
+  fogDensity: 0.002,
+  lightIntensity: 1.0,
+};
+
 // Rain collectors: entityId -> water amount
 const rainCollectors = new Map<number, number>();
 let weatherTargetWindSpeed = 2;
@@ -1590,6 +1599,10 @@ const waterShoreProviders: ShoreProvider[] = [];
 const waterShoreSources: ShoreSource[] = [];
 for (let i = 0; i < MAX_SHORES; i++) {
   waterShoreSources.push({ x: 0, z: 0, radius: 0, cutoutRadius: 0 });
+}
+const waterWakeSources: WakeSource[] = [];
+for (let i = 0; i < MAX_WAKES; i++) {
+  waterWakeSources.push({ x: 0, z: 0, dirX: 0, dirZ: 0, speed: 0 });
 }
 const waterWakeData = new Float32Array(MAX_WAKES * WAKE_FLOATS);
 const waterShoreData = new Float32Array(MAX_SHORES * SHORE_FLOATS);
@@ -1742,6 +1755,23 @@ function transitionWeather(timeOfDay: number): void {
   }
 }
 
+function updateWeatherVisualBlend(dt: number): void {
+  const target = computeWeatherVisualTarget();
+  const k = Math.min(1, dt / 10); // ~30s for 95% transition (tau=10s)
+  const c = weatherVisualCurrent;
+  c.skyColor[0] += (target.skyColor[0] - c.skyColor[0]) * k;
+  c.skyColor[1] += (target.skyColor[1] - c.skyColor[1]) * k;
+  c.skyColor[2] += (target.skyColor[2] - c.skyColor[2]) * k;
+  c.waterColor[0] += (target.waterColor[0] - c.waterColor[0]) * k;
+  c.waterColor[1] += (target.waterColor[1] - c.waterColor[1]) * k;
+  c.waterColor[2] += (target.waterColor[2] - c.waterColor[2]) * k;
+  c.fogColor[0] += (target.fogColor[0] - c.fogColor[0]) * k;
+  c.fogColor[1] += (target.fogColor[1] - c.fogColor[1]) * k;
+  c.fogColor[2] += (target.fogColor[2] - c.fogColor[2]) * k;
+  c.fogDensity += (target.fogDensity - c.fogDensity) * k;
+  c.lightIntensity += (target.lightIntensity - c.lightIntensity) * k;
+}
+
 function updateWeatherVisibility(dt: number): void {
   let targetVisibility = 1.0;
   switch (weatherState.type) {
@@ -1801,6 +1831,9 @@ const weatherSystem = system("weather", Stage.Update, (ctx) => {
 
   // Smooth toward target wind speed (~2s time constant)
   weatherState.windSpeed += (weatherTargetWindSpeed - weatherState.windSpeed) * dt * 0.5;
+
+  // Smooth visual blend toward target weather appearance (~30s)
+  updateWeatherVisualBlend(dt);
 
   // Visibility
   updateWeatherVisibility(dt);
@@ -2156,21 +2189,33 @@ const waveSourceSystem = system("wave-sources", Stage.Update, (ctx) => {
   const shoreCount = collectShoreSources(waterShoreProviders, waterShoreSources);
   packShoreSources(waterShoreSources, shoreCount, waterShoreData);
 
-  // Update water physics with shore sources and weather
+  // Populate wake sources for CPU physics
+  for (let i = 0; i < wakeCount; i++) {
+    const off = i * WAKE_FLOATS;
+    waterWakeSources[i].x = waterWakeData[off];
+    waterWakeSources[i].z = waterWakeData[off + 1];
+    waterWakeSources[i].dirX = waterWakeData[off + 2];
+    waterWakeSources[i].dirZ = waterWakeData[off + 3];
+    waterWakeSources[i].speed = waterWakeData[off + 4];
+  }
+
+  // Update water physics with shore sources, wake sources, and weather
   waterPhysics.setShoreSources(waterShoreSources, shoreCount);
+  waterPhysics.setWakeSources(waterWakeSources, wakeCount);
   waterPhysics.setConfig({
     windSpeed: weatherState.windSpeed,
     windDirX: weatherState.windDirX,
     windDirZ: weatherState.windDirZ,
   });
 
-  // Update the water heightfield grid (follows camera)
-  const cam = ctx.world.getResource<Camera>("camera");
-  const camX = cam?.position?.[0] ?? 0;
-  const camZ = cam?.position?.[2] ?? 0;
-  waterPhysics.update(ctx.dt, camX, camZ);
+  // Update the water heightfield grid (centered on player, chunk-snapped)
+  let px = 0, pz = 0;
+  playerQuery.iterate(ctx.tick, (_e, [player]) => {
+    px = player.x; pz = player.z;
+  });
+  waterPhysics.update(ctx.dt, px, pz);
   waterPhysicsTime += ctx.dt;
-}, { queries: [shipQuery, islandQuery, portQuery, pirateQuery] });
+}, { queries: [shipQuery, islandQuery, portQuery, pirateQuery, playerQuery] });
 
 // 5. SurvivalSystem — hunger, thirst, oxygen, temperature, damage (parity with SurvivalSystem.tick)
 const survivalSystem = system("survival", Stage.Update, (ctx) => {
@@ -2187,7 +2232,12 @@ const survivalSystem = system("survival", Stage.Update, (ctx) => {
       oxygen.current = Math.min(oxygen.max, oxygen.current + OXYGEN_REGEN_RATE * dt);
     }
 
-    const targetTemp = weatherState.ambientTemp + (player.isSwimming ? -2 : 0);
+    let targetTemp: number;
+    if (player.isSwimming) {
+      targetTemp = weatherState.ambientTemp - 2;
+    } else {
+      targetTemp = PLAYER_TEMP_NORM + (weatherState.ambientTemp - 20) * 0.1;
+    }
     temp.current += (targetTemp - temp.current) * 0.01 * dt;
     temp.current = Math.max(PLAYER_TEMP_MIN, Math.min(PLAYER_TEMP_MAX, temp.current));
 
@@ -3129,7 +3179,7 @@ export function init(ctx: any) {
     const voxelField = generateVoxelField(chunkX, chunkZ, radius, biome);
 
     // Extract mesh from voxel field using marching cubes
-    const meshData = extractMeshFromField(voxelField, biome, 100000);
+    const meshData = extractMeshFromField(voxelField, biome, 50000);
     log.info("terrain", `island ${i + 1} mesh: ${meshData.vertexCount} verts, ${meshData.indexCount} indices`);
 
     const islandComps = new Map<number, unknown>();
@@ -3571,7 +3621,7 @@ export function tick(ctx: any, dt: number) {
         log.debug("frame", `Level: ${prog.level} | XP: ${prog.xp}/${XP_PER_LEVEL * prog.level} | Crafting Tier: ${prog.craftingTier}`);
       }
 
-      if (ph.current <= 0) {
+      if (ph.current <= 0 && playerData && !playerData.isDead) {
         log.info("game", "Player died — game over!");
       }
     }
@@ -3880,6 +3930,73 @@ export function toggleInventory() {
   inventoryVisible = !inventoryVisible;
 }
 
+export function craftByRecipeId(recipeId: string): void {
+  const inv = ecsWorld.getComponent<typeof GridInventory.defaults>(playerEntity, GridInventory.id);
+  if (!inv) return;
+  const prog = ecsWorld.getComponent<typeof Progression.defaults>(playerEntity, Progression.id);
+  if (!prog) return;
+
+  const unlockedSet = new Set<string>(prog.unlockedRecipes);
+  unlockRecipesForTier(prog.craftingTier, unlockedSet);
+  const availableRecipes = getUnlockedRecipes(unlockedSet);
+  const recipe = availableRecipes.find(r => r.id === recipeId);
+  if (!recipe) {
+    log.info("craft", `unknown recipe: ${recipeId}`);
+    return;
+  }
+
+  // Check if near campfire for recipes that need fire
+  let nearFire = false;
+  if (recipe.needsFire) {
+    buildableQuery.iterate(frameCount, (_be, [bRaw]) => {
+      const b = bRaw as typeof Buildable.defaults;
+      const player = ecsWorld.getComponent<typeof Player.defaults>(playerEntity, Player.id);
+      if (!player) return;
+      const dx = b.x - player.x;
+      const dz = b.z - player.z;
+      if (Math.sqrt(dx * dx + dz * dz) < 3 && b.type === "campfire") nearFire = true;
+    });
+  }
+
+  // Check crafting stations
+  const stations = ecsWorld.getResource<Set<string>>("craftingStations") ?? new Set<string>();
+  if (recipe.station && !stations.has(recipe.station)) {
+    log.info("craft", `cannot craft ${recipe.name} — needs ${recipe.station}`);
+    return;
+  }
+
+  if (!canCraft(recipe, inv.grid)) {
+    log.info("craft", `cannot craft ${recipe.name} — missing resources${recipe.needsFire && !nearFire ? " or need campfire nearby" : ""}`);
+    return;
+  }
+
+  if (recipe.needsFire && !nearFire) {
+    log.info("craft", `cannot craft ${recipe.name} — need campfire nearby`);
+    return;
+  }
+
+  executeCraft(recipe, inv.grid);
+  log.info("craft", `crafted ${recipe.output.quantity}x ${recipe.output.itemId}`);
+  addXP(ecsWorld, playerEntity, XP_CRAFT);
+
+  // Place campfire in world
+  if (recipe.output.itemId === "campfire") {
+    const player = ecsWorld.getComponent<typeof Player.defaults>(playerEntity, Player.id);
+    if (player) {
+      const comps = new Map<number, unknown>();
+      comps.set(Buildable.id, Buildable.create({
+        type: "campfire",
+        x: player.x + 1,
+        y: player.y,
+        z: player.z + 1,
+        health: 100,
+      }));
+      ecsWorld.spawn(comps);
+      log.info("craft", "campfire placed near player");
+    }
+  }
+}
+
 // ─── Self-executing entry point (for `bun run examples/ocean-game/main.ts`) ─
 
 if (import.meta.main) {
@@ -3913,7 +4030,7 @@ if (import.meta.main) {
 // Computes visual parameters (sky color, water color, fog, light) from
 // the current weather state and time of day. Called each tick by bun/index.ts.
 
-export function getWeatherVisual(): {
+function computeWeatherVisualTarget(): {
   skyColor: [number, number, number];
   waterColor: [number, number, number];
   fogColor: [number, number, number];
@@ -3954,23 +4071,27 @@ export function getWeatherVisual(): {
       break;
     case WeatherType.PartlyCloudy:
       skyR *= 0.9; skyG *= 0.9; skyB *= 0.92;
+      fogR = skyR; fogG = skyG; fogB = skyB;
       lightIntensity *= 0.9;
       break;
     case WeatherType.Overcast:
       skyR *= 0.5; skyG *= 0.55; skyB *= 0.6;
       waterR *= 0.6; waterG *= 0.6; waterB *= 0.65;
+      fogR = skyR; fogG = skyG; fogB = skyB;
       fogDensity = 0.005;
       lightIntensity *= 0.6;
       break;
     case WeatherType.Rain:
       skyR *= 0.35; skyG *= 0.38; skyB *= 0.42;
       waterR *= 0.5; waterG *= 0.5; waterB *= 0.55;
+      fogR = skyR; fogG = skyG; fogB = skyB;
       fogDensity = 0.008 + weatherState.intensity * 0.005;
       lightIntensity *= 0.45;
       break;
     case WeatherType.Storm:
       skyR *= 0.2; skyG *= 0.22; skyB *= 0.25;
       waterR *= 0.35; waterG *= 0.35; waterB *= 0.4;
+      fogR = skyR; fogG = skyG; fogB = skyB;
       fogDensity = 0.015;
       lightIntensity *= 0.3;
       break;
@@ -4019,5 +4140,26 @@ export function getWeatherVisual(): {
     lightIntensity,
     weatherType: weatherState.type,
     isNight,
+  };
+}
+
+export function getWeatherVisual(): {
+  skyColor: [number, number, number];
+  waterColor: [number, number, number];
+  fogColor: [number, number, number];
+  fogDensity: number;
+  lightIntensity: number;
+  weatherType: number;
+  isNight: boolean;
+} {
+  const target = computeWeatherVisualTarget();
+  return {
+    skyColor: [...weatherVisualCurrent.skyColor] as [number, number, number],
+    waterColor: [...weatherVisualCurrent.waterColor] as [number, number, number],
+    fogColor: [...weatherVisualCurrent.fogColor] as [number, number, number],
+    fogDensity: weatherVisualCurrent.fogDensity,
+    lightIntensity: weatherVisualCurrent.lightIntensity,
+    weatherType: target.weatherType,
+    isNight: target.isNight,
   };
 }

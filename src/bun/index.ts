@@ -208,6 +208,14 @@ const SIM_TICK_DT = 1 / 60;
       }
     }
 
+    // Poll for craft request from the renderer UI (recipe click)
+    if (ipc) {
+      const recipeId = ipc.readCraftRequest();
+      if (recipeId && (exampleModule as any).craftByRecipeId) {
+        (exampleModule as any).craftByRecipeId(recipeId);
+      }
+    }
+
     // Check if renderer is still alive
     if (proc.killed || proc.exitCode !== null) {
       running = false;

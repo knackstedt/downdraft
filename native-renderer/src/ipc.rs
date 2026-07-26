@@ -19,7 +19,7 @@ use std::path::PathBuf;
 /// [576..2368] entity array (64 × 28 bytes, written by Bun)
 /// Total: 4MB (expanded for mesh data)
 
-pub const SHM_SIZE: usize = 4 * 1024 * 1024; // 4MB for mesh data
+pub const SHM_SIZE: usize = 16 * 1024 * 1024; // 16MB — mesh data needs ~13MB for 6 islands
 pub const CMD_SEQ_OFFSET: usize = 0;
 pub const CMD_TYPE_OFFSET: usize = 4;
 pub const CMD_SIZE_OFFSET: usize = 8;
@@ -71,15 +71,15 @@ pub const MESH_DATA_OFFSET: usize = 3356;      // mesh data starts here
 //   indices: index_count * u32
 
 // Water data section (written by Bun each tick, read by Rust renderer)
-// 256x256 heightfield = 256KB, placed at 3MB offset to leave 3MB for mesh data
-pub const WATER_SEQ_OFFSET: usize = 3145728;       // seqlock (u32)
-pub const WATER_GRID_SIZE_OFFSET: usize = 3145732;  // grid size (u32)
-pub const WATER_PATCH_SIZE_OFFSET: usize = 3145736; // patch size (u32)
-pub const WATER_ORIGIN_X_OFFSET: usize = 3145740;   // origin X (i32)
-pub const WATER_ORIGIN_Z_OFFSET: usize = 3145744;   // origin Z (i32)
-pub const WATER_HEIGHTS_OFFSET: usize = 3145748;    // 256*256 f32 = 262144 bytes
+// 256x256 heightfield = 256KB, placed at 13MB offset to leave ~13MB for mesh data
+pub const WATER_SEQ_OFFSET: usize = 13631488;       // seqlock (u32)
+pub const WATER_GRID_SIZE_OFFSET: usize = 13631492;  // grid size (u32)
+pub const WATER_PATCH_SIZE_OFFSET: usize = 13631496; // patch size (u32)
+pub const WATER_ORIGIN_X_OFFSET: usize = 13631500;   // origin X (i32)
+pub const WATER_ORIGIN_Z_OFFSET: usize = 13631504;   // origin Z (i32)
+pub const WATER_HEIGHTS_OFFSET: usize = 13631508;    // 256*256 f32 = 262144 bytes
 pub const WATER_GRID: usize = 256;
-pub const WATER_DATA_END: usize = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 3407892
+pub const WATER_DATA_END: usize = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 13893652
 
 // Game state section (written by Bun each tick, read by Rust renderer)
 pub const GAME_STATE_OFFSET: usize = WATER_DATA_END;             // is_dead: u32 (0 or 1)
@@ -93,6 +93,11 @@ pub const RESPAWN_REQUEST_OFFSET: usize = WATER_DATA_END + 68;   // respawn_requ
 pub const INVENTORY_SEQ_OFFSET: usize = WATER_DATA_END + 72;       // seqlock (u32)
 pub const INVENTORY_DATA_OFFSET: usize = WATER_DATA_END + 76;      // JSON string
 pub const INVENTORY_DATA_SIZE: usize = 8192;                        // max bytes for inventory JSON
+
+// Craft request (written by Rust renderer, read by Bun)
+// 64-byte buffer for recipe ID (null-terminated string)
+pub const CRAFT_REQUEST_OFFSET: usize = INVENTORY_DATA_OFFSET + INVENTORY_DATA_SIZE; // [u8; 64]
+pub const CRAFT_REQUEST_SIZE: usize = 64;
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -431,7 +436,7 @@ impl SharedMemory {
         let mut offset = MESH_DATA_OFFSET;
 
         for _ in 0..mesh_count {
-            if offset + 16 > SHM_SIZE {
+            if offset + 16 > WATER_SEQ_OFFSET {
                 break;
             }
 
@@ -451,7 +456,7 @@ impl SharedMemory {
 
             // Read vertices: vertex_count * 9 f32 = vertex_count * 36 bytes
             let vert_bytes = (vertex_count as usize) * 36;
-            if offset + vert_bytes > SHM_SIZE {
+            if offset + vert_bytes > WATER_SEQ_OFFSET {
                 break;
             }
             let mut vertices = Vec::with_capacity(vertex_count as usize * 9);
@@ -465,7 +470,7 @@ impl SharedMemory {
 
             // Read indices: index_count * u32 = index_count * 4 bytes
             let idx_bytes = (index_count as usize) * 4;
-            if offset + idx_bytes > SHM_SIZE {
+            if offset + idx_bytes > WATER_SEQ_OFFSET {
                 break;
             }
             let mut indices = Vec::with_capacity(index_count as usize);
@@ -635,6 +640,20 @@ impl SharedMemory {
         use std::io::Write;
         print!("SHM_PATH:{}\n", self.path.display());
         std::io::stdout().flush().ok();
+    }
+
+    /// Write a craft request (recipe ID) to shared memory for Bun to read
+    pub fn write_craft_request(&mut self, recipe_id: &str) {
+        let bytes_mut = self.as_bytes_mut();
+        // Clear the buffer first
+        for i in 0..CRAFT_REQUEST_SIZE {
+            bytes_mut[CRAFT_REQUEST_OFFSET + i] = 0;
+        }
+        // Write the recipe ID as ASCII bytes
+        let id_bytes = recipe_id.as_bytes();
+        let len = id_bytes.len().min(CRAFT_REQUEST_SIZE - 1);
+        bytes_mut[CRAFT_REQUEST_OFFSET..CRAFT_REQUEST_OFFSET + len]
+            .copy_from_slice(&id_bytes[..len]);
     }
 
     /// Read inventory JSON from Bun (called each render frame by Rust)

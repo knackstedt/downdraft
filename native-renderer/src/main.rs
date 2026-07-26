@@ -244,6 +244,7 @@ struct Renderer {
     wireframe_pipeline: wgpu::RenderPipeline,
     normals_pipeline: wgpu::RenderPipeline,
     depth_pipeline: wgpu::RenderPipeline,
+    hitbox_pipeline: wgpu::RenderPipeline,
     ui_pipeline: wgpu::RenderPipeline,
     ui_vertex_buffer: wgpu::Buffer,
     camera_buffer: wgpu::Buffer,
@@ -743,6 +744,55 @@ impl Renderer {
             cache: None,
         });
 
+        // Hitbox overlay pipeline: wireframe with bright color, depth test LessEqual, no depth write
+        let hitbox_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Hitbox Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_hitbox"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Line,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         // Depth texture
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Texture"),
@@ -913,6 +963,7 @@ impl Renderer {
             wireframe_pipeline,
             normals_pipeline,
             depth_pipeline,
+            hitbox_pipeline,
             ui_pipeline,
             ui_vertex_buffer,
             camera_buffer,
@@ -1165,6 +1216,9 @@ impl Renderer {
         let camera_uniforms = CameraUniforms { view_proj };
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniforms]));
 
+        // Poll debug toggles from UI (needed for scene uniforms and pipeline selection)
+        let debug_toggles = self.ui.poll_debug_toggles();
+
         // Read weather visual data from shared memory and write scene uniforms
         let weather = if let Some(ref shm) = self.shm {
             shm.read_weather_visual()
@@ -1179,7 +1233,9 @@ impl Renderer {
             fog_color,
             fog_density,
             light_intensity,
-            _pad0: [0.0; 3],
+            shadows_enabled: if debug_toggles.shadows { 1.0 } else { 0.0 },
+            bloom_enabled: if debug_toggles.bloom { 1.0 } else { 0.0 },
+            _pad0: 0.0,
             camera_pos: [cam_pos[0], cam_pos[1], cam_pos[2]],
             _pad1: 0.0,
             sky_color: [sky_color[0], sky_color[1], sky_color[2]],
@@ -1261,8 +1317,13 @@ impl Renderer {
             }
         }
 
-        // Poll debug toggles from UI
-        let debug_toggles = self.ui.poll_debug_toggles();
+        // Poll for craft request from UI recipe click
+        if let Some(recipe_id) = self.ui.poll_craft_request() {
+            if let Some(ref mut shm) = self.shm {
+                shm.write_craft_request(&recipe_id);
+                println!("[renderer] Craft request forwarded to Bun: {}", recipe_id);
+            }
+        }
 
         // Update UI overlay
         if let Some((pixels, row_bytes, ui_height)) = self.ui.render() {
@@ -1320,23 +1381,36 @@ impl Renderer {
                 let ox = wd.origin_x as f32;
                 let oz = wd.origin_z as f32;
                 let heights = &wd.heights;
-                let height_amp = 4.0_f32; // amplify wave heights for visible low-poly facets
+                let height_amp = 1.5_f32; // modest amplification — physics now produces weather-scaled heights
 
                 let mut water_verts: Vec<Vertex> = Vec::with_capacity(127 * 127 * 2 * 3);
 
-                let sample = |gx: usize, gz: usize| -> [f32; 3] {
+                let sample_h = |gx: usize, gz: usize| -> f32 {
                     let idx = gz * grid + gx;
-                    let h = if idx < heights.len() { heights[idx] } else { 0.0 };
-                    let y = if h < -100.0 { -100.0 } else { h * height_amp };
-                    [ox + gx as f32 * ps, y, oz + gz as f32 * ps]
+                    if idx < heights.len() { heights[idx] } else { 0.0 }
                 };
 
                 for gz in (0..grid.saturating_sub(step)).step_by(step) {
                     for gx in (0..grid.saturating_sub(step)).step_by(step) {
-                        let p00 = sample(gx, gz);
-                        let p10 = sample(gx + step, gz);
-                        let p01 = sample(gx, gz + step);
-                        let p11 = sample(gx + step, gz + step);
+                        let h00 = sample_h(gx, gz);
+                        let h10 = sample_h(gx + step, gz);
+                        let h01 = sample_h(gx, gz + step);
+                        let h11 = sample_h(gx + step, gz + step);
+
+                        // Skip quads entirely outside render distance or inside island cutouts
+                        if h00 < -100.0 && h10 < -100.0 && h01 < -100.0 && h11 < -100.0 {
+                            continue;
+                        }
+
+                        let to_pos = |gx: usize, gz: usize, h: f32| -> [f32; 3] {
+                            let y = if h < -100.0 { -100.0 } else { h * height_amp };
+                            [ox + gx as f32 * ps, y, oz + gz as f32 * ps]
+                        };
+
+                        let p00 = to_pos(gx, gz, h00);
+                        let p10 = to_pos(gx + step, gz, h10);
+                        let p01 = to_pos(gx, gz + step, h01);
+                        let p11 = to_pos(gx + step, gz + step, h11);
 
                         // Triangle 1: p00, p10, p11 — cross(e2, e1) for upward normal
                         let e1 = [p10[0] - p00[0], p10[1] - p00[1], p10[2] - p00[2]];
@@ -1488,6 +1562,41 @@ impl Renderer {
                 render_pass.set_vertex_buffer(0, island.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(island.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..island.index_count, 0, 0..1);
+            }
+        }
+
+        // Pass 1b: Hitbox overlay — wireframe outline of entity meshes on top of normal render
+        if debug_toggles.hitboxes {
+            let mut hitbox_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Hitbox Overlay Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            hitbox_pass.set_pipeline(&self.hitbox_pipeline);
+            hitbox_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+
+            for (mesh, offset) in &draw_calls {
+                hitbox_pass.set_bind_group(1, &self.model_bind_group, &[*offset]);
+                hitbox_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                hitbox_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                hitbox_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
 

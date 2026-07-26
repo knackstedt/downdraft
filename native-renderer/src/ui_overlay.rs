@@ -294,4 +294,16 @@ impl UIOverlay {
             _ => DebugToggles::default(),
         }
     }
+
+    /// Poll for a craft request from the UI (recipe ID string), or None.
+    pub fn poll_craft_request(&self) -> Option<String> {
+        let script = "(function() { var r = window.__craftRequest || ''; window.__craftRequest = ''; return r; })()";
+        match self.view.evaluate_script(&script) {
+            Ok(Ok(result)) => {
+                let trimmed = result.trim();
+                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            }
+            _ => None,
+        }
+    }
 }
