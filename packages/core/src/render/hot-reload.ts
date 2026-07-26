@@ -1,6 +1,9 @@
-import { PipelineCache } from "./pipeline.ts";
 import { Material } from "../material/material.ts";
 import type { MeshData } from "../mesh/builder.ts";
+import { createLogger } from "../util/logger.ts";
+import { PipelineCache } from "./pipeline.ts";
+
+const log = createLogger();
 
 export interface WatchedShader {
   path: string;
@@ -171,7 +174,7 @@ export class MaterialHotReloader {
         this.pipelineCache.invalidate(material.pipelineKey);
       }
     } catch (e) {
-      console.warn(`[HotReloader] Failed to reload shader: ${path}`, e);
+      log.warn("HotReloader", `Failed to reload shader: ${path} ${e}`);
     }
   }
 
@@ -186,7 +189,7 @@ export class MaterialHotReloader {
         onReload(result.meshes[0]);
       }
     } catch (e) {
-      console.warn(`[HotReloader] Failed to reload mesh: ${path}`, e);
+      log.warn("HotReloader", `Failed to reload mesh: ${path} ${e}`);
     }
   }
 
@@ -213,7 +216,7 @@ export class MaterialHotReloader {
       );
       watched.onReload(gpuTexture);
     } catch (e) {
-      console.warn(`[HotReloader] Failed to reload texture: ${path}`, e);
+      log.warn("HotReloader", `Failed to reload texture: ${path} ${e}`);
     }
   }
 

@@ -46,17 +46,53 @@ pub const INPUT_PRESSED_OFFSET: usize = 3268; // pressed_keys: u32 bitfield (one
 pub const INPUT_MOUSE_DX_OFFSET: usize = 3272;  // mouse delta X (f32)
 pub const INPUT_MOUSE_DY_OFFSET: usize = 3276;  // mouse delta Y (f32)
 pub const INPUT_WHEEL_OFFSET: usize = 3280;     // mouse wheel delta (f32)
+pub const INPUT_EXT_OFFSET: usize = 3284;        // held_keys_ext: u32 bitfield (numpad etc.)
+pub const INPUT_PRESSED_EXT_OFFSET: usize = 3288; // pressed_keys_ext: u32 bitfield (one-shot)
+
+// Weather visual data (written by Bun each tick, read by Rust renderer)
+pub const WEATHER_SEQ_OFFSET: usize = 3292;          // seqlock (u32)
+pub const WEATHER_SKY_COLOR_OFFSET: usize = 3296;    // 3 × f32 (rgb)
+pub const WEATHER_WATER_COLOR_OFFSET: usize = 3308;  // 3 × f32 (rgb)
+pub const WEATHER_FOG_COLOR_OFFSET: usize = 3320;    // 3 × f32 (rgb)
+pub const WEATHER_FOG_DENSITY_OFFSET: usize = 3332;  // f32
+pub const WEATHER_LIGHT_INTENSITY_OFFSET: usize = 3336; // f32
+pub const WEATHER_TYPE_OFFSET: usize = 3340;            // u32 (WeatherType enum value)
+pub const WEATHER_IS_NIGHT_OFFSET: usize = 3344;        // u32 (0 or 1)
 
 // Mesh data section (written by Bun once at init, read by Rust once)
-pub const MESH_SEQ_OFFSET: usize = 3284;       // seqlock (u32)
-pub const MESH_COUNT_OFFSET: usize = 3288;     // number of meshes (u32)
-pub const MESH_DATA_OFFSET: usize = 3292;      // mesh data starts here
+pub const MESH_SEQ_OFFSET: usize = 3348;       // seqlock (u32)
+pub const MESH_COUNT_OFFSET: usize = 3352;     // number of meshes (u32)
+pub const MESH_DATA_OFFSET: usize = 3356;      // mesh data starts here
 // Mesh data format per mesh:
 //   vertex_count: u32
 //   index_count: u32
 //   pos_x: f32, pos_z: f32 (island world position for model matrix)
 //   vertices: vertex_count * 9 f32 (pos.xyz, normal.xyz, color.rgb)
 //   indices: index_count * u32
+
+// Water data section (written by Bun each tick, read by Rust renderer)
+// 256x256 heightfield = 256KB, placed at 3MB offset to leave 3MB for mesh data
+pub const WATER_SEQ_OFFSET: usize = 3145728;       // seqlock (u32)
+pub const WATER_GRID_SIZE_OFFSET: usize = 3145732;  // grid size (u32)
+pub const WATER_PATCH_SIZE_OFFSET: usize = 3145736; // patch size (u32)
+pub const WATER_ORIGIN_X_OFFSET: usize = 3145740;   // origin X (i32)
+pub const WATER_ORIGIN_Z_OFFSET: usize = 3145744;   // origin Z (i32)
+pub const WATER_HEIGHTS_OFFSET: usize = 3145748;    // 256*256 f32 = 262144 bytes
+pub const WATER_GRID: usize = 256;
+pub const WATER_DATA_END: usize = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 3407892
+
+// Game state section (written by Bun each tick, read by Rust renderer)
+pub const GAME_STATE_OFFSET: usize = WATER_DATA_END;             // is_dead: u32 (0 or 1)
+pub const GAME_STATE_CAUSE_OFFSET: usize = WATER_DATA_END + 4;   // cause: [u8; 64]
+pub const GAME_STATE_CAUSE_SIZE: usize = 64;
+
+// Respawn request (written by Rust renderer, read by Bun)
+pub const RESPAWN_REQUEST_OFFSET: usize = WATER_DATA_END + 68;   // respawn_requested: u32 (0 or 1)
+
+// Inventory data section (written by Bun each tick, read by Rust renderer)
+pub const INVENTORY_SEQ_OFFSET: usize = WATER_DATA_END + 72;       // seqlock (u32)
+pub const INVENTORY_DATA_OFFSET: usize = WATER_DATA_END + 76;      // JSON string
+pub const INVENTORY_DATA_SIZE: usize = 8192;                        // max bytes for inventory JSON
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,6 +139,26 @@ pub struct RenderData {
     pub camera_pos: [f32; 3],
     pub camera_target: [f32; 3],
     pub entities: Vec<RenderEntity>,
+}
+
+#[derive(Clone, Debug)]
+pub struct WaterData {
+    pub grid_size: usize,
+    pub patch_size: f32,
+    pub origin_x: i32,
+    pub origin_z: i32,
+    pub heights: Vec<f32>, // grid_size * grid_size
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct WeatherVisual {
+    pub sky_color: [f32; 3],
+    pub water_color: [f32; 3],
+    pub fog_color: [f32; 3],
+    pub fog_density: f32,
+    pub light_intensity: f32,
+    pub weather_type: u32,
+    pub is_night: bool,
 }
 
 #[repr(u32)]
@@ -223,6 +279,60 @@ impl SharedMemory {
             }
         }
         None
+    }
+
+    /// Read render data from Bun (seqlock read) — returns data and seq value
+    pub fn read_render_data_with_seq(&self) -> Option<(RenderData, u32)> {
+        let bytes = self.as_bytes();
+        let seq_arr = unsafe {
+            &*(bytes.as_ptr().add(RENDER_SEQ_OFFSET) as *const std::sync::atomic::AtomicU32)
+        };
+
+        let s1 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 & 1 != 0 {
+            return None;
+        }
+
+        let entity_count = u32::from_le_bytes(
+            bytes[RENDER_ENTITY_COUNT_OFFSET..RENDER_ENTITY_COUNT_OFFSET + 4].try_into().unwrap()
+        ).min(RENDER_MAX_ENTITIES as u32) as usize;
+
+        let cam_pos = [
+            f32::from_le_bytes(bytes[RENDER_CAM_POS_OFFSET..RENDER_CAM_POS_OFFSET + 4].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_POS_OFFSET + 4..RENDER_CAM_POS_OFFSET + 8].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_POS_OFFSET + 8..RENDER_CAM_POS_OFFSET + 12].try_into().unwrap()),
+        ];
+
+        let cam_target = [
+            f32::from_le_bytes(bytes[RENDER_CAM_TARGET_OFFSET..RENDER_CAM_TARGET_OFFSET + 4].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_TARGET_OFFSET + 4..RENDER_CAM_TARGET_OFFSET + 8].try_into().unwrap()),
+            f32::from_le_bytes(bytes[RENDER_CAM_TARGET_OFFSET + 8..RENDER_CAM_TARGET_OFFSET + 12].try_into().unwrap()),
+        ];
+
+        let mut entities = Vec::with_capacity(entity_count);
+        for i in 0..entity_count {
+            let off = RENDER_ENTITIES_OFFSET + i * RENDER_ENTITY_STRIDE;
+            entities.push(RenderEntity {
+                entity_type: u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()),
+                x: f32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap()),
+                y: f32::from_le_bytes(bytes[off + 8..off + 12].try_into().unwrap()),
+                z: f32::from_le_bytes(bytes[off + 12..off + 16].try_into().unwrap()),
+                r: f32::from_le_bytes(bytes[off + 16..off + 20].try_into().unwrap()),
+                g: f32::from_le_bytes(bytes[off + 20..off + 24].try_into().unwrap()),
+                b: f32::from_le_bytes(bytes[off + 24..off + 28].try_into().unwrap()),
+            });
+        }
+
+        let s2 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 != s2 || s2 & 1 != 0 {
+            return None;
+        }
+
+        Some((RenderData {
+            camera_pos: cam_pos,
+            camera_target: cam_target,
+            entities,
+        }, s1))
     }
 
     /// Read render data from Bun (seqlock read)
@@ -385,10 +495,171 @@ impl SharedMemory {
         meshes
     }
 
+    /// Read water heightfield data from Bun (seqlock read, called each frame)
+    pub fn read_water_data(&self) -> Option<WaterData> {
+        let bytes = self.as_bytes();
+        let seq_arr = unsafe {
+            &*(bytes.as_ptr().add(WATER_SEQ_OFFSET) as *const std::sync::atomic::AtomicU32)
+        };
+
+        let s1 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 & 1 != 0 {
+            return None;
+        }
+
+        let grid_size = u32::from_le_bytes(
+            bytes[WATER_GRID_SIZE_OFFSET..WATER_GRID_SIZE_OFFSET + 4].try_into().unwrap()
+        ) as usize;
+        let patch_size = f32::from_le_bytes(
+            bytes[WATER_PATCH_SIZE_OFFSET..WATER_PATCH_SIZE_OFFSET + 4].try_into().unwrap()
+        );
+        let origin_x = i32::from_le_bytes(
+            bytes[WATER_ORIGIN_X_OFFSET..WATER_ORIGIN_X_OFFSET + 4].try_into().unwrap()
+        );
+        let origin_z = i32::from_le_bytes(
+            bytes[WATER_ORIGIN_Z_OFFSET..WATER_ORIGIN_Z_OFFSET + 4].try_into().unwrap()
+        );
+
+        let count = grid_size * grid_size;
+        let mut heights = vec![0.0f32; count];
+        // Bulk copy: reinterpret the SHM region as f32 slice and copy
+        unsafe {
+            let src = std::slice::from_raw_parts(
+                bytes.as_ptr().add(WATER_HEIGHTS_OFFSET) as *const f32,
+                count,
+            );
+            heights.copy_from_slice(src);
+        }
+
+        let s2 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 != s2 || s2 & 1 != 0 {
+            return None;
+        }
+
+        Some(WaterData {
+            grid_size,
+            patch_size,
+            origin_x,
+            origin_z,
+            heights,
+        })
+    }
+
+    /// Read weather visual data from Bun (seqlock read, called each frame)
+    pub fn read_weather_visual(&self) -> Option<WeatherVisual> {
+        let bytes = self.as_bytes();
+        let seq_arr = unsafe {
+            &*(bytes.as_ptr().add(WEATHER_SEQ_OFFSET) as *const std::sync::atomic::AtomicU32)
+        };
+
+        let s1 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 & 1 != 0 {
+            return None;
+        }
+
+        let read3 = |off: usize| [
+            f32::from_le_bytes(bytes[off..off+4].try_into().unwrap()),
+            f32::from_le_bytes(bytes[off+4..off+8].try_into().unwrap()),
+            f32::from_le_bytes(bytes[off+8..off+12].try_into().unwrap()),
+        ];
+
+        let sky_color = read3(WEATHER_SKY_COLOR_OFFSET);
+        let water_color = read3(WEATHER_WATER_COLOR_OFFSET);
+        let fog_color = read3(WEATHER_FOG_COLOR_OFFSET);
+        let fog_density = f32::from_le_bytes(
+            bytes[WEATHER_FOG_DENSITY_OFFSET..WEATHER_FOG_DENSITY_OFFSET+4].try_into().unwrap()
+        );
+        let light_intensity = f32::from_le_bytes(
+            bytes[WEATHER_LIGHT_INTENSITY_OFFSET..WEATHER_LIGHT_INTENSITY_OFFSET+4].try_into().unwrap()
+        );
+        let weather_type = u32::from_le_bytes(
+            bytes[WEATHER_TYPE_OFFSET..WEATHER_TYPE_OFFSET+4].try_into().unwrap()
+        );
+        let is_night = u32::from_le_bytes(
+            bytes[WEATHER_IS_NIGHT_OFFSET..WEATHER_IS_NIGHT_OFFSET+4].try_into().unwrap()
+        ) != 0;
+
+        let s2 = seq_arr.load(std::sync::atomic::Ordering::Acquire);
+        if s1 != s2 || s2 & 1 != 0 {
+            return None;
+        }
+
+        Some(WeatherVisual {
+            sky_color,
+            water_color,
+            fog_color,
+            fog_density,
+            light_intensity,
+            weather_type,
+            is_night,
+        })
+    }
+
+    /// Read game state from Bun (is_dead flag + cause of death)
+    pub fn read_game_state(&self) -> (bool, String) {
+        let bytes = self.as_bytes();
+        let is_dead = u32::from_le_bytes(
+            bytes[GAME_STATE_OFFSET..GAME_STATE_OFFSET + 4].try_into().unwrap()
+        ) != 0;
+
+        let cause_bytes = &bytes[GAME_STATE_CAUSE_OFFSET..GAME_STATE_CAUSE_OFFSET + GAME_STATE_CAUSE_SIZE];
+        let cause = String::from_utf8_lossy(
+            &cause_bytes[..cause_bytes.iter().position(|&b| b == 0).unwrap_or(GAME_STATE_CAUSE_SIZE)]
+        ).to_string();
+
+        (is_dead, cause)
+    }
+
+    /// Write respawn request (called when UI respawn button is clicked)
+    pub fn write_respawn_request(&mut self) {
+        let bytes = self.as_bytes_mut();
+        bytes[RESPAWN_REQUEST_OFFSET..RESPAWN_REQUEST_OFFSET + 4]
+            .copy_from_slice(&1u32.to_le_bytes());
+    }
+
+    /// Check if a respawn request is pending (called by Bun each tick)
+    pub fn read_respawn_request(&mut self) -> bool {
+        let bytes = self.as_bytes();
+        let requested = u32::from_le_bytes(
+            bytes[RESPAWN_REQUEST_OFFSET..RESPAWN_REQUEST_OFFSET + 4].try_into().unwrap()
+        ) != 0;
+        if requested {
+            let bytes_mut = self.as_bytes_mut();
+            bytes_mut[RESPAWN_REQUEST_OFFSET..RESPAWN_REQUEST_OFFSET + 4]
+                .copy_from_slice(&0u32.to_le_bytes());
+        }
+        requested
+    }
+
     pub fn print_path(&self) {
         use std::io::Write;
         print!("SHM_PATH:{}\n", self.path.display());
         std::io::stdout().flush().ok();
+    }
+
+    /// Read inventory JSON from Bun (called each render frame by Rust)
+    pub fn read_inventory(&self) -> Option<String> {
+        let bytes = self.as_bytes();
+        let seq1 = u32::from_le_bytes(
+            bytes[INVENTORY_SEQ_OFFSET..INVENTORY_SEQ_OFFSET + 4].try_into().unwrap()
+        );
+        if seq1 & 1 != 0 {
+            return None; // write in progress
+        }
+
+        let data_bytes = &bytes[INVENTORY_DATA_OFFSET..INVENTORY_DATA_OFFSET + INVENTORY_DATA_SIZE];
+        let len = data_bytes.iter().position(|&b| b == 0).unwrap_or(INVENTORY_DATA_SIZE);
+        let json = String::from_utf8_lossy(&data_bytes[..len]).to_string();
+
+        // Verify seqlock didn't change during read
+        let seq2 = u32::from_le_bytes(
+            bytes[INVENTORY_SEQ_OFFSET..INVENTORY_SEQ_OFFSET + 4].try_into().unwrap()
+        );
+        if seq1 != seq2 {
+            return None; // changed during read, skip this frame
+        }
+
+        if json.is_empty() { None } else { Some(json) }
     }
 }
 

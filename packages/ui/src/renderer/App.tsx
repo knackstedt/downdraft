@@ -15,6 +15,12 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (window.downdraft?.rpc) {
+      window.downdraft.rpc.emit("debugToggles", toggles);
+    }
+  }, [toggles]);
+
+  useEffect(() => {
     // Measure real frame times using rAF (syncs to display refresh rate)
     let rafId = 0;
     let lastTime = performance.now();

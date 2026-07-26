@@ -1,6 +1,9 @@
 import type { Entity } from "../ecs/entity.ts";
 import type { World } from "../ecs/world.ts";
+import { createLogger } from "../util/logger.ts";
 import type { Camera } from "./camera.ts";
+
+const log = createLogger();
 
 export interface ChunkCoord {
   x: number;
@@ -150,7 +153,7 @@ export class WorldStreamer {
         };
         this.chunks.set(key, chunk);
       } catch (err) {
-        console.error(`[WorldStreamer] Failed to load chunk ${key}:`, err);
+        log.error("WorldStreamer", `Failed to load chunk ${key}: ${err}`);
       } finally {
         this.loading.delete(key);
       }

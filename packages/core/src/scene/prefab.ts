@@ -1,8 +1,11 @@
-import type { World } from "../ecs/world.ts";
+import type { ComponentDefinition, ComponentId } from "../ecs/component.ts";
 import type { Entity } from "../ecs/entity.ts";
-import type { ComponentId, ComponentDefinition } from "../ecs/component.ts";
-import { Hierarchy } from "../ecs/hierarchy.ts";
 import { ROOT_ENTITY } from "../ecs/entity.ts";
+import { Hierarchy } from "../ecs/hierarchy.ts";
+import type { World } from "../ecs/world.ts";
+import { createLogger } from "../util/logger.ts";
+
+const log = createLogger();
 
 export interface PrefabComponentEntry {
   componentId: ComponentId;
@@ -27,7 +30,7 @@ export class PrefabRegistry {
 
   register(prefab: Prefab): void {
     if (this.prefabs.has(prefab.name)) {
-      console.warn(`[PrefabRegistry] Overwriting prefab "${prefab.name}"`);
+      log.warn("PrefabRegistry", `Overwriting prefab "${prefab.name}"`);
     }
     this.prefabs.set(prefab.name, prefab);
   }

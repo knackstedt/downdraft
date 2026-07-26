@@ -1,7 +1,10 @@
 import type { World } from "../ecs/world.ts";
 import type { SaveData, Serializer } from "../save/serializer.ts";
 import type { CheckpointData, CheckpointManager } from "../scene/checkpoint.ts";
+import { createLogger } from "../util/logger.ts";
 import type { SimWorkerSupervisor } from "../worker/supervisor.ts";
+
+const log = createLogger();
 
 export interface CrashRecoveryConfig {
   checkpointIntervalMs: number;
@@ -97,7 +100,7 @@ export class CrashRecoveryManager {
         key: name,
         data: saveData,
       }).catch((err) => {
-        console.error("[CrashRecovery] Failed to persist checkpoint:", err);
+        log.error("CrashRecovery", `Failed to persist checkpoint: ${err}`);
       });
     }
 
@@ -146,7 +149,7 @@ export class CrashRecoveryManager {
       this.state.isRecovering = false;
       return true;
     } catch (err) {
-      console.error("[CrashRecovery] Recovery failed:", err);
+      log.error("CrashRecovery", `Recovery failed: ${err}`);
       this.state.isRecovering = false;
       return false;
     }

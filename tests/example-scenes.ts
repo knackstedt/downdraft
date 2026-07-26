@@ -1,5 +1,7 @@
-import { VisionTestSuite, type VisionTestResult } from "@downdraft/core";
+import { VisionTestSuite, createLogger, type VisionTestResult } from "@downdraft/core";
 import { visionTestSuite, type VisionTestResult as VTR } from "../../tests/vision/index.ts";
+
+const log = createLogger();
 
 export interface ExampleSceneTest {
   name: string;
@@ -142,7 +144,7 @@ export async function runExampleSceneTests(
       );
       coreResults.push(result);
       const status = result.passed ? "PASS" : "FAIL";
-      console.log(`[Vision] ${status}: ${test.name} — ${result.message}`);
+      log.info("Vision", `${status}: ${test.name} — ${result.message}`);
     }
   }
 
@@ -177,9 +179,9 @@ export async function runExampleSceneTests(
 }
 
 export function printTestSummary(summary: { total: number; passed: number; failed: number }): void {
-  console.log("\n═══════════════════════════════════════════════");
-  console.log(`  Vision Test Summary`);
-  console.log(`  Total: ${summary.total}  Passed: ${summary.passed}  Failed: ${summary.failed}`);
-  console.log(`  Status: ${summary.failed === 0 ? "ALL PASSED ✓" : "FAILURES ✗"}`);
-  console.log("═══════════════════════════════════════════════\n");
+  log.info("Vision", "═══════════════════════════════════════════════");
+  log.info("Vision", "  Vision Test Summary");
+  log.info("Vision", `  Total: ${summary.total}  Passed: ${summary.passed}  Failed: ${summary.failed}`);
+  log.info("Vision", `  Status: ${summary.failed === 0 ? "ALL PASSED ✓" : "FAILURES ✗"}`);
+  log.info("Vision", "═══════════════════════════════════════════════");
 }

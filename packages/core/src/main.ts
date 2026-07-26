@@ -7,6 +7,9 @@ import { InputSABChannel } from "./sab/input.ts";
 import { createSABForChannel } from "./sab/protocol.ts";
 import { Camera } from "./scene/camera.ts";
 import { TelemetryCollector } from "./telemetry/collector.ts";
+import { createLogger } from "./util/logger.ts";
+
+const log = createLogger();
 
 const rpc = new RPC();
 
@@ -84,6 +87,13 @@ rpc.on("input", (payload) => {
   }
 });
 
+// Debug toggles from devtools UI
+rpc.on("debugToggles", (payload) => {
+  if (renderLoop) {
+    renderLoop.setDebugToggles(payload as import("./render/render-loop.ts").DebugToggleState);
+  }
+});
+
 // Expose SABs to renderer via preload
 export const sabBuffers = {
   input: inputSAB,
@@ -111,9 +121,9 @@ export async function initEngine(canvas: HTMLCanvasElement | OffscreenCanvas): P
   const success = await renderLoop.init();
   if (success) {
     renderLoop.start();
-    console.log("[DownDraft] Engine started — deferred pipeline active");
+    log.info("DownDraft", "Engine started — deferred pipeline active");
   } else {
-    console.error("[DownDraft] Failed to initialize render loop");
+    log.error("DownDraft", "Failed to initialize render loop");
   }
 }
 

@@ -1,3 +1,7 @@
+import { createLogger } from "../util/logger.ts";
+
+const log = createLogger();
+
 export interface SurfaceConfig {
   format: GPUTextureFormat;
   width: number;
@@ -21,7 +25,7 @@ export class SurfaceManager {
     this.canvas = canvas;
     this.context = canvas.getContext("webgpu") as GPUCanvasContext;
     if (!this.context) {
-      console.error("[DownDraft] Failed to get WebGPU context from canvas");
+      log.error("DownDraft", "Failed to get WebGPU context from canvas");
       return;
     }
 

@@ -36,6 +36,57 @@
   #devtools-btn:hover {
     background: rgba(255,255,255,0.15);
   }
+  #devtools-panel {
+    position: absolute;
+    top: 50px; right: 12px;
+    width: 300px;
+    max-height: calc(100% - 70px);
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #ccc;
+    z-index: 100;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+  }
+  #devtools-panel.visible { display: flex; }
+  #devtools-panel .header {
+    font-weight: bold;
+    padding: 8px 12px 4px;
+    color: #fff;
+  }
+  #devtools-panel .tabs {
+    display: flex;
+    border-bottom: 1px solid #333;
+    padding: 0 4px;
+  }
+  #devtools-panel .tab {
+    padding: 4px 8px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: #888;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  #devtools-panel .tab.active {
+    color: #fff;
+    border-bottom: 2px solid #8af;
+    background: rgba(60,60,80,0.4);
+  }
+  #devtools-panel .content {
+    padding: 12px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  #devtools-panel .row {
+    margin-bottom: 4px;
+  }
+  #devtools-panel .label { color: #888; }
+  #devtools-panel .value { color: #8af; }
   #status {
     position: absolute;
     bottom: 12px; left: 12px;
@@ -47,11 +98,487 @@
     pointer-events: none;
     z-index: 100;
   }
+  #death-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(20, 0, 0, 0.7);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    pointer-events: auto;
+  }
+  #death-overlay.visible { display: flex; }
+  #death-overlay h1 {
+    font-size: 48px;
+    color: #ff4444;
+    margin-bottom: 8px;
+    text-shadow: 0 0 20px rgba(255,0,0,0.5);
+  }
+  #death-overlay .cause {
+    font-size: 18px;
+    color: #ccc;
+    margin-bottom: 32px;
+  }
+  #death-overlay .respawn-btn {
+    padding: 14px 48px;
+    background: rgba(80, 160, 80, 0.9);
+    border: 2px solid rgba(120, 220, 120, 0.6);
+    border-radius: 8px;
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  #death-overlay .respawn-btn:hover {
+    background: rgba(100, 200, 100, 0.95);
+  }
+  #weather-indicator {
+    position: absolute;
+    top: 12px; left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 20px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    pointer-events: none;
+    z-index: 100;
+    text-align: center;
+    white-space: nowrap;
+  }
+  #weather-indicator .weather-label {
+    font-size: 16px;
+    margin-bottom: 2px;
+  }
+  #weather-indicator .weather-detail {
+    font-size: 11px;
+    font-weight: 400;
+    color: #aaa;
+  }
+  #weather-indicator .weather-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  /* ─── Inventory Panel ─── */
+  #inventory-panel {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 560px;
+    background: rgba(15, 18, 25, 0.95);
+    border: 1px solid rgba(100, 130, 180, 0.4);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    z-index: 150;
+    display: none;
+    flex-direction: column;
+    pointer-events: auto;
+    overflow: hidden;
+  }
+  #inventory-panel.visible { display: flex; }
+  #inventory-panel .inv-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(30, 35, 45, 0.9);
+    border-bottom: 1px solid rgba(100, 130, 180, 0.25);
+  }
+  #inventory-panel .inv-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #e0e0e0;
+  }
+  #inventory-panel .inv-close {
+    padding: 4px 12px;
+    background: rgba(60, 65, 75, 0.8);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    font-size: 14px;
+    color: #ccc;
+    cursor: pointer;
+  }
+  #inventory-panel .inv-close:hover {
+    background: rgba(80, 85, 95, 0.9);
+  }
+  #inventory-panel .inv-body {
+    display: flex;
+    padding: 16px;
+    gap: 16px;
+  }
+  #inventory-panel .inv-grid-wrap {
+    flex: 1;
+  }
+  #inventory-panel .inv-grid {
+    display: grid;
+    gap: 2px;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 4px;
+    border-radius: 6px;
+  }
+  #inventory-panel .inv-slot {
+    width: 48px;
+    height: 48px;
+    background: rgba(40, 45, 55, 0.6);
+    border: 1px solid rgba(80, 90, 100, 0.3);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    font-size: 10px;
+    color: #aaa;
+  }
+  #inventory-panel .inv-slot.filled {
+    background: rgba(50, 60, 80, 0.8);
+    border-color: rgba(100, 130, 180, 0.5);
+  }
+  #inventory-panel .inv-slot .slot-icon {
+    font-size: 22px;
+    line-height: 1;
+  }
+  #inventory-panel .inv-slot .slot-count {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+  #inventory-panel .inv-slot .slot-spoil {
+    position: absolute;
+    top: 2px;
+    left: 3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(120, 180, 80, 0.8);
+  }
+  #inventory-panel .inv-slot .slot-spoil.warn { background: rgba(220, 180, 60, 0.9); }
+  #inventory-panel .inv-slot .slot-spoil.crit { background: rgba(220, 80, 60, 0.9); }
+  #inventory-panel .inv-sidebar {
+    width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #inventory-panel .inv-info {
+    background: rgba(30, 35, 45, 0.8);
+    border: 1px solid rgba(80, 90, 100, 0.3);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 12px;
+    color: #ccc;
+    min-height: 80px;
+  }
+  #inventory-panel .inv-info .info-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #8af;
+    margin-bottom: 4px;
+  }
+  #inventory-panel .inv-info .info-desc {
+    color: #999;
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  #inventory-panel .inv-info .info-stat {
+    color: #aaa;
+    font-size: 11px;
+  }
+  #inventory-panel .inv-info .info-stat .stat-label { color: #666; }
+  #inventory-panel .inv-info .info-stat .stat-val { color: #8af; }
+  #inventory-panel .inv-recipe-list {
+    background: rgba(30, 35, 45, 0.8);
+    border: 1px solid rgba(80, 90, 100, 0.3);
+    border-radius: 6px;
+    padding: 8px;
+    flex: 1;
+    overflow-y: auto;
+    max-height: 280px;
+  }
+  #inventory-panel .inv-recipe-list .recipe-header {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e0e0e0;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(80, 90, 100, 0.3);
+  }
+  #inventory-panel .inv-recipe-list .recipe-item {
+    padding: 4px 6px;
+    margin-bottom: 2px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #aaa;
+    cursor: pointer;
+  }
+  #inventory-panel .inv-recipe-list .recipe-item:hover {
+    background: rgba(60, 70, 90, 0.6);
+  }
+  #inventory-panel .inv-recipe-list .recipe-item.can-craft {
+    color: #59F3AA;
+  }
+  #inventory-panel .inv-recipe-list .recipe-item .recipe-cost {
+    font-size: 10px;
+    color: #666;
+  }
+  #inventory-panel .inv-hint {
+    text-align: center;
+    padding: 6px;
+    font-size: 11px;
+    color: #666;
+    border-top: 1px solid rgba(80, 90, 100, 0.2);
+  }
 </style>
 </head>
 <body>
   <div id="fps-counter">FPS: --</div>
+  <div id="weather-indicator">
+    <div class="weather-label"><span class="weather-swatch" id="weather-swatch"></span><span id="weather-name">Clear</span></div>
+    <div class="weather-detail" id="weather-detail">Day | Fog: 0.002 | Light: 1.00</div>
+  </div>
   <div id="devtools-btn">DevTools</div>
+  <div id="devtools-panel">
+    <div class="header">Devtools</div>
+    <div class="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="toggles">Toggles</button>
+    </div>
+    <div class="content" id="tab-overview">
+      <div class="row"><span class="label">FPS: </span><span class="value" id="dt-fps">--</span></div>
+      <div class="row"><span class="label">Entities: </span><span class="value" id="dt-entities">--</span></div>
+      <div class="row"><span class="label">Frame: </span><span class="value" id="dt-frame">--</span></div>
+    </div>
+    <div class="content" id="tab-toggles" style="display:none">
+      <div class="row"><label><input type="checkbox" id="tg-wireframe"> Wireframe</label></div>
+      <div class="row"><label><input type="checkbox" id="tg-hitboxes"> Hitboxes</label></div>
+      <div class="row"><label><input type="checkbox" id="tg-shadows" checked> Shadows</label></div>
+      <div class="row"><label><input type="checkbox" id="tg-bloom" checked> Bloom</label></div>
+      <div class="row"><label><input type="checkbox" id="tg-aabbs"> AABBs</label></div>
+      <div class="row"><label><input type="checkbox" id="tg-normals"> Normals</label></div>
+      <div class="row"><label><input type="checkbox" id="tg-depth"> Depth</label></div>
+    </div>
+  </div>
   <div id="status">DownDraft Engine - Native Renderer</div>
+  <div id="inventory-panel">
+    <div class="inv-header">
+      <div class="inv-title">Inventory</div>
+      <button class="inv-close" id="inv-close-btn">Close (I)</button>
+    </div>
+    <div class="inv-body">
+      <div class="inv-grid-wrap">
+        <div class="inv-grid" id="inv-grid"></div>
+      </div>
+      <div class="inv-sidebar">
+        <div class="inv-info" id="inv-info">
+          <div class="info-name">Select an item</div>
+          <div class="info-desc">Click a slot to inspect</div>
+        </div>
+        <div class="inv-recipe-list">
+          <div class="recipe-header">Recipes (C to craft)</div>
+          <div id="inv-recipes"></div>
+        </div>
+      </div>
+    </div>
+    <div class="inv-hint">Press I to toggle | C to craft | T to eat | B to apply raft upgrade</div>
+  </div>
+  <div id="death-overlay">
+    <h1>You Died</h1>
+    <div class="cause" id="death-cause"></div>
+    <button class="respawn-btn" id="respawn-btn">Respawn</button>
+  </div>
+  <script>
+    (function() {
+      var btn = document.getElementById('devtools-btn');
+      var panel = document.getElementById('devtools-panel');
+      var visible = false;
+      btn.addEventListener('click', function() {
+        visible = !visible;
+        panel.className = visible ? 'visible' : '';
+        btn.textContent = visible ? 'Hide Devtools' : 'DevTools';
+      });
+      // Tab switching
+      var tabs = panel.querySelectorAll('.tab');
+      tabs.forEach(function(tab) {
+        tab.addEventListener('click', function() {
+          tabs.forEach(function(t) { t.className = 'tab'; });
+          tab.className = 'tab active';
+          panel.querySelectorAll('.content').forEach(function(c) { c.style.display = 'none'; });
+          document.getElementById('tab-' + tab.dataset.tab).style.display = '';
+        });
+      });
+      // Respawn button — sets a global flag that Rust polls via JS evaluation
+      var respawnBtn = document.getElementById('respawn-btn');
+      window.__respawnRequested = false;
+      respawnBtn.addEventListener('click', function() {
+        window.__respawnRequested = true;
+      });
+
+      // ─── Debug Toggles ───
+      window.__debugToggles = {
+        wireframe: false,
+        hitboxes: false,
+        shadows: true,
+        bloom: true,
+        aabbs: false,
+        normals: false,
+        depth: false
+      };
+      function updateToggles() {
+        var ids = ['wireframe','hitboxes','shadows','bloom','aabbs','normals','depth'];
+        for (var i = 0; i < ids.length; i++) {
+          var el = document.getElementById('tg-' + ids[i]);
+          if (el) window.__debugToggles[ids[i]] = el.checked;
+        }
+      }
+      var toggleIds = ['tg-wireframe','tg-hitboxes','tg-shadows','tg-bloom','tg-aabbs','tg-normals','tg-depth'];
+      toggleIds.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('change', updateToggles);
+      });
+
+      // ─── Inventory Panel ───
+      var invPanel = document.getElementById('inventory-panel');
+      var invGrid = document.getElementById('inv-grid');
+      var invInfo = document.getElementById('inv-info');
+      var invRecipes = document.getElementById('inv-recipes');
+      var invCloseBtn = document.getElementById('inv-close-btn');
+      window.__inventoryVisible = false;
+
+      invCloseBtn.addEventListener('click', function() {
+        window.__inventoryVisible = false;
+        invPanel.className = '';
+      });
+
+      // Item icons (emoji-based for simplicity)
+      var ITEM_ICONS = {
+        wood: '\u{1FAB5}', plank: '\u{1FAB5}', cloth: '\u{1F9FD}', rope: '\u{1FAA1}',
+        raw_fish: '\u{1F41F}', cooked_fish: '\u{1F35C}', food: '\u{1F963}', water: '\u{1F4A7}',
+        coin: '\u{1FA99}', gold: '\u{1FA99}', treasure: '\u{1F4E6}',
+        campfire: '\u{1F525}', workbench_basic: '\u{1F6E0}', raft_upgrade: '\u{26F5}',
+        sail: '\u{26F5}', plank_wall: '\u{1F6E4}', shovel: '\u{1F6E2}',
+        axe: '\u{1FAA3}', spear: '\u{1F6E1}', fishing_rod: '\u{1F3A3}',
+        kelp: '\u{1F33F}', tomato: '\u{1F345}', rice: '\u{1F33E}',
+        seeds: '\u{1F331}', meat: '\u{1F356}', egg: '\u{1F95A}',
+        feather: '\u{1FAB6}', leather: '\u{1F9B4}', milk: '\u{1F95B}',
+        wool: '\u{1F9F4}', metal: '\u{26CF}', nail: '\u{1F9F0}',
+        glass: '\u{1F9F2}', bottle: '\u{1F37C}',
+      };
+
+      function getItemIcon(id) {
+        return ITEM_ICONS[id] || '\u{2753}';
+      }
+
+      window.__updateInventory = function(jsonStr) {
+        var data;
+        try { data = JSON.parse(jsonStr); } catch(e) { return; }
+        if (!data) return;
+
+        // Toggle visibility
+        if (data.visible !== undefined) {
+          window.__inventoryVisible = data.visible;
+          invPanel.className = data.visible ? 'visible' : '';
+        }
+
+        if (!window.__inventoryVisible) return;
+
+        // Render grid
+        var w = data.width || 10;
+        var h = data.height || 6;
+        invGrid.style.gridTemplateColumns = 'repeat(' + w + ', 48px)';
+        invGrid.innerHTML = '';
+
+        var slots = data.slots || [];
+        var slotMap = {};
+        for (var i = 0; i < slots.length; i++) {
+          slotMap[slots[i].x + ',' + slots[i].y] = slots[i];
+        }
+
+        for (var y = 0; y < h; y++) {
+          for (var x = 0; x < w; x++) {
+            var slot = document.createElement('div');
+            slot.className = 'inv-slot';
+            var item = slotMap[x + ',' + y];
+            if (item) {
+              slot.className = 'inv-slot filled';
+              var icon = document.createElement('span');
+              icon.className = 'slot-icon';
+              icon.textContent = getItemIcon(item.itemId);
+              slot.appendChild(icon);
+              if (item.quantity > 1) {
+                var count = document.createElement('span');
+                count.className = 'slot-count';
+                count.textContent = item.quantity;
+                slot.appendChild(count);
+              }
+              if (item.spoilPercent !== undefined && item.spoilPercent < 100) {
+                var spoil = document.createElement('span');
+                spoil.className = 'slot-spoil';
+                if (item.spoilPercent < 30) spoil.className += ' crit';
+                else if (item.spoilPercent < 60) spoil.className += ' warn';
+                slot.appendChild(spoil);
+              }
+              (function(itemData) {
+                slot.addEventListener('click', function() {
+                  showItemInfo(itemData);
+                });
+              })(item);
+            }
+            invGrid.appendChild(slot);
+          }
+        }
+
+        // Render recipes
+        var recipes = data.recipes || [];
+        var counts = data.itemCounts || {};
+        invRecipes.innerHTML = '';
+        for (var r = 0; r < recipes.length; r++) {
+          var recipe = recipes[r];
+          var div = document.createElement('div');
+          div.className = 'recipe-item';
+          var canCraft = true;
+          var costStr = [];
+          for (var inp = 0; inp < recipe.inputs.length; inp++) {
+            var need = recipe.inputs[inp];
+            var have = counts[need.itemId] || 0;
+            if (have < need.quantity) canCraft = false;
+            costStr.push(need.itemId + ':' + need.quantity);
+          }
+          if (canCraft) div.className += ' can-craft';
+          div.textContent = recipe.name + ' (' + recipe.output.itemId + 'x' + recipe.output.quantity + ')';
+          var cost = document.createElement('div');
+          cost.className = 'recipe-cost';
+          cost.textContent = costStr.join(', ') + (recipe.needsFire ? ' + fire' : '');
+          div.appendChild(cost);
+          invRecipes.appendChild(div);
+        }
+      };
+
+      function showItemInfo(item) {
+        var html = '<div class="info-name">' + (item.name || item.itemId) + '</div>';
+        if (item.category) html += '<div class="info-desc">Category: ' + item.category + '</div>';
+        html += '<div class="info-stat"><span class="stat-label">Quantity: </span><span class="stat-val">' + item.quantity + '</span></div>';
+        if (item.spoilPercent !== undefined && item.spoilPercent < 100) {
+          html += '<div class="info-stat"><span class="stat-label">Freshness: </span><span class="stat-val">' + item.spoilPercent.toFixed(0) + '%</span></div>';
+        }
+        if (item.stackLimit) {
+          html += '<div class="info-stat"><span class="stat-label">Stack: </span><span class="stat-val">' + item.quantity + '/' + item.stackLimit + '</span></div>';
+        }
+        invInfo.innerHTML = html;
+      }
+    })();
+  </script>
 </body>
 </html>

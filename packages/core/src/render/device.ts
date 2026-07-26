@@ -1,3 +1,7 @@
+import { createLogger } from "../util/logger.ts";
+
+const log = createLogger();
+
 export interface GPUAdapterInfo {
   vendor: string;
   architecture: string;
@@ -14,7 +18,7 @@ export class GPUDeviceManager {
 
   async requestDevice(): Promise<GPUDevice | null> {
     if (!navigator.gpu) {
-      console.error("[DownDraft] WebGPU not available");
+      log.error("DownDraft", "WebGPU not available");
       return null;
     }
 
@@ -23,7 +27,7 @@ export class GPUDeviceManager {
     });
 
     if (!this.adapter) {
-      console.error("[DownDraft] No suitable GPU adapter found");
+      log.error("DownDraft", "No suitable GPU adapter found");
       return null;
     }
 

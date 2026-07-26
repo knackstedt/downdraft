@@ -3,12 +3,13 @@ mod ipc;
 
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
+use ul_next::event::MouseButton;
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowId},
+    window::{CursorGrabMode, Window, WindowId},
 };
 
 #[repr(C)]
@@ -35,6 +36,21 @@ struct ModelUniforms {
 
 const MODEL_UNIFORM_SIZE: u64 = 256;
 const MAX_MODEL_SLOTS: u64 = 128;
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct SceneUniforms {
+    fog_color: [f32; 3],
+    fog_density: f32,
+    light_intensity: f32,
+    shadows_enabled: f32,
+    bloom_enabled: f32,
+    _pad0: f32,           // padding to align camera_pos at offset 32
+    camera_pos: [f32; 3],
+    _pad1: f32,
+    sky_color: [f32; 3],
+    _pad2: f32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -224,16 +240,23 @@ struct Renderer {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    water_pipeline: wgpu::RenderPipeline,
+    wireframe_pipeline: wgpu::RenderPipeline,
+    normals_pipeline: wgpu::RenderPipeline,
+    depth_pipeline: wgpu::RenderPipeline,
     ui_pipeline: wgpu::RenderPipeline,
     ui_vertex_buffer: wgpu::Buffer,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    scene_buffer: wgpu::Buffer,
     model_buffer: wgpu::Buffer,
     model_bind_group: wgpu::BindGroup,
     model_bind_group_layout: wgpu::BindGroupLayout,
     cube_mesh: MeshBuffers,
     sphere_mesh: MeshBuffers,
     plane_mesh: MeshBuffers,
+    water_vertex_buffer: wgpu::Buffer,
+    water_vertex_count: u32,
     island_meshes: Vec<IslandMeshBuffer>,
     depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
@@ -245,11 +268,16 @@ struct Renderer {
     has_ui_content: bool,
     start_time: std::time::Instant,
     last_frame_time: std::time::Instant,
-    last_limit_time: std::time::Instant,
     frame_count: u32,
     fps: u32,
     ui: ui_overlay::UIOverlay,
     shm: Option<ipc::SharedMemory>,
+    // Frame interpolation: store prev + current render data for smooth 360fps
+    prev_render_data: Option<ipc::RenderData>,
+    curr_render_data: Option<ipc::RenderData>,
+    last_sim_update: std::time::Instant,
+    sim_dt: std::time::Duration,
+    last_render_seq: u32,
 }
 
 impl Renderer {
@@ -280,7 +308,7 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::POLYGON_MODE_LINE,
                 required_limits: wgpu::Limits::default(),
                 memory_hints: wgpu::MemoryHints::default(),
             }, None)
@@ -300,7 +328,7 @@ impl Renderer {
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::AutoVsync,
             desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             view_formats: vec![],
@@ -339,6 +367,16 @@ impl Renderer {
         let sphere_mesh = create_mesh(&sphere_verts, &sphere_indices);
         let plane_mesh = create_mesh(&plane_verts, &plane_indices);
 
+        // Dynamic water vertex buffer for low-poly heightfield mesh
+        // Step=4 from 256x256 grid → 63x63x2 triangles → 23814 vertices (flat-shaded, duplicated per triangle)
+        let water_max_vertices = 127 * 127 * 2 * 3; // 96774 (step=2 from 256x256 heightfield)
+        let water_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Water Vertex Buffer"),
+            size: (water_max_vertices * std::mem::size_of::<Vertex>() as u32) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         // Camera uniform buffer (view_proj matrix)
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Camera Buffer"),
@@ -349,25 +387,51 @@ impl Renderer {
 
         let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Camera Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        // Scene uniform buffer (fog color, fog density, light intensity)
+        let scene_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Scene Buffer"),
+            size: std::mem::size_of::<SceneUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Camera Bind Group"),
             layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: scene_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         // Model uniform buffer (per-entity model matrix + color, dynamic offset)
@@ -443,6 +507,214 @@ impl Renderer {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // Water pipeline: same layout + vertex format, uses vs_water/fs_water for Fresnel reflections
+        let water_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Water Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_water"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                            shader_location: 1,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                            shader_location: 2,
+                        },
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_water"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // Wireframe pipeline: same vertex layout, line topology, no lighting
+        let wireframe_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Wireframe Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Line,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // Normals debug pipeline: visualizes normals as RGB
+        let normals_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Normals Debug Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_normals"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // Depth debug pipeline: visualizes depth as grayscale
+        let depth_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Depth Debug Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_depth"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
@@ -637,16 +909,23 @@ impl Renderer {
             config,
             size,
             render_pipeline,
+            water_pipeline,
+            wireframe_pipeline,
+            normals_pipeline,
+            depth_pipeline,
             ui_pipeline,
             ui_vertex_buffer,
             camera_buffer,
             camera_bind_group,
+            scene_buffer,
             model_buffer,
             model_bind_group,
             model_bind_group_layout,
             cube_mesh,
             sphere_mesh,
             plane_mesh,
+            water_vertex_buffer,
+            water_vertex_count: 0,
             island_meshes: Vec::new(),
             depth_texture,
             depth_texture_view,
@@ -658,11 +937,15 @@ impl Renderer {
             has_ui_content: false,
             start_time: std::time::Instant::now(),
             last_frame_time: std::time::Instant::now(),
-            last_limit_time: std::time::Instant::now(),
             frame_count: 0,
             fps: 0,
             ui,
             shm,
+            prev_render_data: None,
+            curr_render_data: None,
+            last_sim_update: std::time::Instant::now(),
+            sim_dt: std::time::Duration::from_millis(16),
+            last_render_seq: 0,
         }
     }
 
@@ -717,6 +1000,7 @@ impl Renderer {
             });
 
             self.ui.resize(ui_width, ui_height);
+            println!("[renderer] UI resized to {}x{}", ui_width, ui_height);
             self.has_ui_content = false;
 
             // Clear new UI texture to transparent
@@ -793,15 +1077,6 @@ impl Renderer {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // Frame limiter: target 360fps (~2.78ms)
-        let target_frame_time = std::time::Duration::from_micros(2778);
-        let now = std::time::Instant::now();
-        let elapsed_since_limit = now.duration_since(self.last_limit_time);
-        if elapsed_since_limit < target_frame_time {
-            std::thread::sleep(target_frame_time - elapsed_since_limit);
-        }
-        self.last_limit_time = std::time::Instant::now();
-
         // FPS counter (update every 500ms)
         self.frame_count += 1;
         let fps_elapsed = self.last_frame_time.elapsed();
@@ -812,15 +1087,72 @@ impl Renderer {
             self.ui.update_fps(self.fps);
         }
 
-        // Read render data from shared memory
-        let render_data = if let Some(ref shm) = self.shm {
-            shm.read_render_data()
+        // Read render data from shared memory (with seqlock value)
+        let (new_render_data, new_seq) = if let Some(ref shm) = self.shm {
+            match shm.read_render_data_with_seq() {
+                Some((data, seq)) => (Some(data), seq),
+                None => (None, self.last_render_seq),
+            }
         } else {
-            None
+            (None, self.last_render_seq)
         };
 
-        // Determine camera position — use render data if available, else default
-        let (cam_pos, cam_target) = match &render_data {
+        // Detect if Bun wrote a new sim frame by comparing seqlock values
+        let sim_changed = new_seq != self.last_render_seq && new_render_data.is_some();
+
+        if sim_changed {
+            // Shift current -> previous, new -> current
+            self.prev_render_data = self.curr_render_data.take();
+            self.curr_render_data = new_render_data;
+            self.last_sim_update = std::time::Instant::now();
+            self.last_render_seq = new_seq;
+        }
+
+        // Compute interpolation alpha: how far between prev and curr we are
+        let elapsed = self.last_sim_update.elapsed();
+        let alpha = if self.prev_render_data.is_some() {
+            (elapsed.as_secs_f32() / self.sim_dt.as_secs_f32()).min(1.0)
+        } else {
+            1.0 // No previous frame — snap to current
+        };
+
+        // Interpolate render data
+        let interp_data = match (&self.prev_render_data, &self.curr_render_data) {
+            (Some(prev), Some(curr)) => {
+                let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+                let lerp3 = |a: [f32; 3], b: [f32; 3], t: f32| [
+                    lerp(a[0], b[0], t),
+                    lerp(a[1], b[1], t),
+                    lerp(a[2], b[2], t),
+                ];
+
+                // Interpolate camera
+                let cam_pos = lerp3(prev.camera_pos, curr.camera_pos, alpha);
+                let cam_target = lerp3(prev.camera_target, curr.camera_target, alpha);
+
+                // Interpolate entities — match by index (entities are in same order each frame)
+                let entities: Vec<ipc::RenderEntity> = curr.entities.iter().enumerate().map(|(i, c)| {
+                    if let Some(p) = prev.entities.get(i) {
+                        ipc::RenderEntity {
+                            entity_type: c.entity_type,
+                            x: lerp(p.x, c.x, alpha),
+                            y: lerp(p.y, c.y, alpha),
+                            z: lerp(p.z, c.z, alpha),
+                            r: c.r, g: c.g, b: c.b,
+                        }
+                    } else {
+                        *c
+                    }
+                }).collect();
+
+                Some(ipc::RenderData { camera_pos: cam_pos, camera_target: cam_target, entities })
+            }
+            (None, Some(curr)) => Some(curr.clone()),
+            _ => None,
+        };
+
+        // Determine camera position — use interpolated data if available, else default
+        let (cam_pos, cam_target) = match &interp_data {
             Some(rd) => (rd.camera_pos, rd.camera_target),
             None => ([0.0, 15.0, 15.0], [0.0, 0.0, 0.0]),
         };
@@ -833,10 +1165,40 @@ impl Renderer {
         let camera_uniforms = CameraUniforms { view_proj };
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniforms]));
 
+        // Read weather visual data from shared memory and write scene uniforms
+        let weather = if let Some(ref shm) = self.shm {
+            shm.read_weather_visual()
+        } else {
+            None
+        };
+        let (sky_color, water_color, fog_color, fog_density, light_intensity, weather_type, is_night) = match weather {
+            Some(w) => (w.sky_color, w.water_color, w.fog_color, w.fog_density, w.light_intensity, w.weather_type, w.is_night),
+            None => ([0.1, 0.3, 0.5], [0.1, 0.3, 0.6], [0.1, 0.3, 0.5], 0.002, 1.0, 0, false),
+        };
+        let scene_uniforms = SceneUniforms {
+            fog_color,
+            fog_density,
+            light_intensity,
+            _pad0: [0.0; 3],
+            camera_pos: [cam_pos[0], cam_pos[1], cam_pos[2]],
+            _pad1: 0.0,
+            sky_color: [sky_color[0], sky_color[1], sky_color[2]],
+            _pad2: 0.0,
+        };
+        self.queue.write_buffer(&self.scene_buffer, 0, bytemuck::cast_slice(&[scene_uniforms]));
+
+        // Update weather indicator overlay
+        let weather_name = match weather_type {
+            0 => "Clear", 1 => "PartlyCloudy", 2 => "Overcast", 3 => "Rain",
+            4 => "Storm", 5 => "Fog", 6 => "Eclipse", 7 => "FullMoon",
+            8 => "HellStorm", 9 => "Snow", _ => "Unknown",
+        };
+        self.ui.update_weather(weather_name, sky_color[0], sky_color[1], sky_color[2], fog_density, light_intensity, is_night);
+
         // Write telemetry to shared memory
         if let Some(ref mut shm) = self.shm {
-            let frame_time_us = (target_frame_time.as_micros() as u32).min(100000);
-            let entity_count = render_data.as_ref().map(|rd| rd.entities.len() as u32).unwrap_or(0);
+            let frame_time_us = ((1000000.0 / self.fps.max(1) as f64) as u32).min(100000);
+            let entity_count = interp_data.as_ref().map(|rd| rd.entities.len() as u32).unwrap_or(0);
             shm.write_telemetry(self.fps, frame_time_us, entity_count, 1);
         }
 
@@ -876,6 +1238,32 @@ impl Renderer {
             }
         }
 
+        // Read game state from Bun and update death overlay UI
+        let (is_dead, cause) = if let Some(ref shm) = self.shm {
+            shm.read_game_state()
+        } else {
+            (false, String::new())
+        };
+        self.ui.update_game_state(is_dead, &cause);
+
+        // Read inventory data from Bun and update inventory panel
+        if let Some(ref shm) = self.shm {
+            if let Some(inv_json) = shm.read_inventory() {
+                self.ui.update_inventory(&inv_json);
+            }
+        }
+
+        // Poll for respawn request from UI button click
+        if self.ui.poll_respawn_request() {
+            if let Some(ref mut shm) = self.shm {
+                shm.write_respawn_request();
+                println!("[renderer] Respawn request forwarded to Bun");
+            }
+        }
+
+        // Poll debug toggles from UI
+        let debug_toggles = self.ui.poll_debug_toggles();
+
         // Update UI overlay
         if let Some((pixels, row_bytes, ui_height)) = self.ui.render() {
             self.has_ui_content = true;
@@ -909,20 +1297,75 @@ impl Renderer {
         // (queue.write_buffer is async — data must be written before submit)
         let mut draw_calls: Vec<(&MeshBuffers, u32)> = Vec::new();
 
-        // Slot 0: water plane
+        // Slot 0: dynamic low-poly water mesh from heightfield
         {
             let model_uniforms = ModelUniforms {
                 model: translation_matrix(0.0, 0.0, 0.0),
-                color: [0.1, 0.3, 0.6, 1.0],
+                color: [water_color[0], water_color[1], water_color[2], 1.0],
                 _padding: [0.0; 48],
             };
             self.queue.write_buffer(&self.model_buffer, 0, bytemuck::cast_slice(&[model_uniforms]));
-            draw_calls.push((&self.plane_mesh, 0));
+
+            // Read water heightfield from shared memory and build flat-shaded mesh
+            let water_data = if let Some(ref shm) = self.shm {
+                shm.read_water_data()
+            } else {
+                None
+            };
+
+            if let Some(wd) = water_data {
+                let step = 2usize;
+                let grid = wd.grid_size;
+                let ps = wd.patch_size;
+                let ox = wd.origin_x as f32;
+                let oz = wd.origin_z as f32;
+                let heights = &wd.heights;
+                let height_amp = 4.0_f32; // amplify wave heights for visible low-poly facets
+
+                let mut water_verts: Vec<Vertex> = Vec::with_capacity(127 * 127 * 2 * 3);
+
+                let sample = |gx: usize, gz: usize| -> [f32; 3] {
+                    let idx = gz * grid + gx;
+                    let h = if idx < heights.len() { heights[idx] } else { 0.0 };
+                    let y = if h < -100.0 { -100.0 } else { h * height_amp };
+                    [ox + gx as f32 * ps, y, oz + gz as f32 * ps]
+                };
+
+                for gz in (0..grid.saturating_sub(step)).step_by(step) {
+                    for gx in (0..grid.saturating_sub(step)).step_by(step) {
+                        let p00 = sample(gx, gz);
+                        let p10 = sample(gx + step, gz);
+                        let p01 = sample(gx, gz + step);
+                        let p11 = sample(gx + step, gz + step);
+
+                        // Triangle 1: p00, p10, p11 — cross(e2, e1) for upward normal
+                        let e1 = [p10[0] - p00[0], p10[1] - p00[1], p10[2] - p00[2]];
+                        let e2 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
+                        let n1 = normalize(cross(e2, e1));
+                        water_verts.push(Vertex { position: p00, normal: n1, color: [1.0, 1.0, 1.0] });
+                        water_verts.push(Vertex { position: p10, normal: n1, color: [1.0, 1.0, 1.0] });
+                        water_verts.push(Vertex { position: p11, normal: n1, color: [1.0, 1.0, 1.0] });
+
+                        // Triangle 2: p00, p11, p01 — cross(e4, e3) for upward normal
+                        let e3 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
+                        let e4 = [p01[0] - p00[0], p01[1] - p00[1], p01[2] - p00[2]];
+                        let n2 = normalize(cross(e4, e3));
+                        water_verts.push(Vertex { position: p00, normal: n2, color: [1.0, 1.0, 1.0] });
+                        water_verts.push(Vertex { position: p11, normal: n2, color: [1.0, 1.0, 1.0] });
+                        water_verts.push(Vertex { position: p01, normal: n2, color: [1.0, 1.0, 1.0] });
+                    }
+                }
+
+                self.water_vertex_count = water_verts.len() as u32;
+                if !water_verts.is_empty() {
+                    self.queue.write_buffer(&self.water_vertex_buffer, 0, bytemuck::cast_slice(&water_verts));
+                }
+            }
         }
 
         // Entity slots 1..N
         let mut entity_slot_count: u64 = 1; // slot 0 = water plane
-        if let Some(ref rd) = render_data {
+        if let Some(ref rd) = interp_data {
             for entity in rd.entities.iter() {
                 if entity_slot_count >= MAX_MODEL_SLOTS {
                     break;
@@ -975,9 +1418,9 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.3,
-                            b: 0.5,
+                            r: sky_color[0] as f64,
+                            g: sky_color[1] as f64,
+                            b: sky_color[2] as f64,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -998,7 +1441,32 @@ impl Renderer {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
+            // Determine which pipeline to use for entities based on debug toggles
+            let entity_pipeline = if debug_toggles.wireframe {
+                &self.wireframe_pipeline
+            } else if debug_toggles.normals {
+                &self.normals_pipeline
+            } else if debug_toggles.depth {
+                &self.depth_pipeline
+            } else {
+                &self.render_pipeline
+            };
+
+            // Draw dynamic water mesh with dedicated water pipeline (Fresnel sky reflection)
+            if self.water_vertex_count > 0 {
+                if debug_toggles.wireframe {
+                    render_pass.set_pipeline(&self.wireframe_pipeline);
+                } else {
+                    render_pass.set_pipeline(&self.water_pipeline);
+                }
+                render_pass.set_bind_group(1, &self.model_bind_group, &[0]);
+                render_pass.set_vertex_buffer(0, self.water_vertex_buffer.slice(..));
+                render_pass.draw(0..self.water_vertex_count, 0..1);
+                render_pass.set_pipeline(entity_pipeline); // restore for entities
+            }
+
             for (mesh, offset) in &draw_calls {
+                render_pass.set_pipeline(entity_pipeline);
                 render_pass.set_bind_group(1, &self.model_bind_group, &[*offset]);
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -1015,6 +1483,7 @@ impl Renderer {
                 };
                 self.queue.write_buffer(&self.model_buffer, slot, bytemuck::cast_slice(&[model_uniforms]));
 
+                render_pass.set_pipeline(entity_pipeline);
                 render_pass.set_bind_group(1, &self.model_bind_group, &[slot as u32]);
                 render_pass.set_vertex_buffer(0, island.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(island.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -1057,9 +1526,15 @@ struct App {
     renderer: Option<Renderer>,
     held_keys: u32,
     pressed_keys: u32,
+    held_keys_ext: u32,
+    pressed_keys_ext: u32,
     mouse_dx: f32,
     mouse_dy: f32,
     wheel: f32,
+    cursor_pos: Option<(i32, i32)>,
+    cursor_grabbed: bool,
+    grab_locked: bool,
+    warping: bool,
 }
 
 impl App {
@@ -1069,10 +1544,48 @@ impl App {
             renderer: None,
             held_keys: 0,
             pressed_keys: 0,
+            held_keys_ext: 0,
+            pressed_keys_ext: 0,
             mouse_dx: 0.0,
             mouse_dy: 0.0,
             wheel: 0.0,
+            cursor_pos: None,
+            cursor_grabbed: false,
+            grab_locked: false,
+            warping: false,
         }
+    }
+
+    fn grab_cursor(&mut self) {
+        if let Some(window) = &self.window {
+            // Try Locked first (best for FPS — raw motion via DeviceEvent), then Confined
+            let locked = window.set_cursor_grab(CursorGrabMode::Locked).is_ok();
+            if !locked {
+                let _ = window.set_cursor_grab(CursorGrabMode::Confined);
+            }
+            window.set_cursor_visible(false);
+            self.cursor_grabbed = true;
+            self.grab_locked = locked;
+            self.warping = false;
+            println!("[renderer] Cursor grabbed (locked={})", locked);
+        }
+    }
+
+    fn release_cursor(&mut self) {
+        if let Some(window) = &self.window {
+            let _ = window.set_cursor_grab(CursorGrabMode::None);
+            window.set_cursor_visible(true);
+            self.cursor_grabbed = false;
+            self.grab_locked = false;
+            self.warping = false;
+            println!("[renderer] Cursor released");
+        }
+    }
+
+    fn cursor_center(&self) -> Option<(f64, f64)> {
+        self.renderer.as_ref().map(|r| {
+            (r.size.width as f64 / 2.0, r.size.height as f64 / 2.0)
+        })
     }
 
     fn key_bit(key: &winit::keyboard::Key) -> Option<u32> {
@@ -1106,21 +1619,62 @@ impl App {
         }
     }
 
+    fn key_bit_ext(physical_key: &winit::keyboard::PhysicalKey) -> Option<u32> {
+        use winit::keyboard::KeyCode;
+        let code = match physical_key {
+            winit::keyboard::PhysicalKey::Code(c) => *c,
+            _ => return None,
+        };
+        match code {
+            KeyCode::Numpad0 => Some(0),
+            KeyCode::Numpad1 => Some(1),
+            KeyCode::Numpad2 => Some(2),
+            KeyCode::Numpad3 => Some(3),
+            KeyCode::Numpad4 => Some(4),
+            KeyCode::Numpad5 => Some(5),
+            KeyCode::Numpad6 => Some(6),
+            KeyCode::Numpad7 => Some(7),
+            KeyCode::Numpad8 => Some(8),
+            KeyCode::Numpad9 => Some(9),
+            KeyCode::NumpadDivide => Some(10),
+            KeyCode::NumpadMultiply => Some(11),
+            KeyCode::NumpadSubtract => Some(12),
+            KeyCode::NumpadAdd => Some(13),
+            KeyCode::KeyI => Some(14),
+            _ => None,
+        }
+    }
+
     fn write_input_to_shm(&mut self) {
         if let Some(ref mut renderer) = self.renderer {
             if let Some(ref mut shm) = renderer.shm {
                 let buf = shm.as_mut();
                 let held_bytes = self.held_keys.to_le_bytes();
-                let pressed_bytes = self.pressed_keys.to_le_bytes();
                 buf[ipc::INPUT_OFFSET..ipc::INPUT_OFFSET+4].copy_from_slice(&held_bytes);
+                // OR pressed key bits into SHM so they accumulate across renderer frames
+                // until Bun reads and clears them. This prevents lost key presses when
+                // the renderer runs faster than Bun (e.g. 144Hz vs 60Hz).
+                let existing_pressed = u32::from_le_bytes(buf[ipc::INPUT_PRESSED_OFFSET..ipc::INPUT_PRESSED_OFFSET+4].try_into().unwrap());
+                let pressed_bytes = (existing_pressed | self.pressed_keys).to_le_bytes();
                 buf[ipc::INPUT_PRESSED_OFFSET..ipc::INPUT_PRESSED_OFFSET+4].copy_from_slice(&pressed_bytes);
-                // Write mouse data
-                let dx_bytes = self.mouse_dx.to_le_bytes();
-                let dy_bytes = self.mouse_dy.to_le_bytes();
-                let wheel_bytes = self.wheel.to_le_bytes();
+                // Mouse data: ADD to existing SHM values so deltas accumulate
+                // across multiple renderer frames until Bun reads and clears them.
+                // This prevents lost deltas when renderer runs faster than Bun (e.g. 144Hz vs 60Hz).
+                let existing_dx = f32::from_le_bytes(buf[ipc::INPUT_MOUSE_DX_OFFSET..ipc::INPUT_MOUSE_DX_OFFSET+4].try_into().unwrap());
+                let existing_dy = f32::from_le_bytes(buf[ipc::INPUT_MOUSE_DY_OFFSET..ipc::INPUT_MOUSE_DY_OFFSET+4].try_into().unwrap());
+                let existing_wheel = f32::from_le_bytes(buf[ipc::INPUT_WHEEL_OFFSET..ipc::INPUT_WHEEL_OFFSET+4].try_into().unwrap());
+                let dx_bytes = (existing_dx + self.mouse_dx).to_le_bytes();
+                let dy_bytes = (existing_dy + self.mouse_dy).to_le_bytes();
+                let wheel_bytes = (existing_wheel + self.wheel).to_le_bytes();
                 buf[ipc::INPUT_MOUSE_DX_OFFSET..ipc::INPUT_MOUSE_DX_OFFSET+4].copy_from_slice(&dx_bytes);
                 buf[ipc::INPUT_MOUSE_DY_OFFSET..ipc::INPUT_MOUSE_DY_OFFSET+4].copy_from_slice(&dy_bytes);
                 buf[ipc::INPUT_WHEEL_OFFSET..ipc::INPUT_WHEEL_OFFSET+4].copy_from_slice(&wheel_bytes);
+                // Write extended key bits (numpad + inventory toggle)
+                let held_ext_bytes = self.held_keys_ext.to_le_bytes();
+                buf[ipc::INPUT_EXT_OFFSET..ipc::INPUT_EXT_OFFSET+4].copy_from_slice(&held_ext_bytes);
+                let existing_pressed_ext = u32::from_le_bytes(buf[ipc::INPUT_PRESSED_EXT_OFFSET..ipc::INPUT_PRESSED_EXT_OFFSET+4].try_into().unwrap());
+                let pressed_ext_bytes = (existing_pressed_ext | self.pressed_keys_ext).to_le_bytes();
+                buf[ipc::INPUT_PRESSED_EXT_OFFSET..ipc::INPUT_PRESSED_EXT_OFFSET+4].copy_from_slice(&pressed_ext_bytes);
             }
         }
     }
@@ -1163,11 +1717,29 @@ impl ApplicationHandler for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 use winit::event::ElementState;
-                if let Some(bit) = Self::key_bit(&event.logical_key) {
+                // Release cursor on Escape
+                if event.state == ElementState::Pressed {
+                    if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) = event.logical_key {
+                        self.release_cursor();
+                    }
+                }
+                // Check numpad (physical key) FIRST, then primary key map
+                if let Some(bit) = Self::key_bit_ext(&event.physical_key) {
+                    match event.state {
+                        ElementState::Pressed => {
+                            if (self.held_keys_ext & (1 << bit)) == 0 {
+                                self.pressed_keys_ext |= 1 << bit;
+                            }
+                            self.held_keys_ext |= 1 << bit;
+                        }
+                        ElementState::Released => {
+                            self.held_keys_ext &= !(1 << bit);
+                        }
+                    }
+                } else if let Some(bit) = Self::key_bit(&event.logical_key) {
                     match event.state {
                         ElementState::Pressed => {
                             if (self.held_keys & (1 << bit)) == 0 {
-                                // Newly pressed — add to pressed (one-shot)
                                 self.pressed_keys |= 1 << bit;
                             }
                             self.held_keys |= 1 << bit;
@@ -1176,28 +1748,97 @@ impl ApplicationHandler for App {
                             self.held_keys &= !(1 << bit);
                         }
                     }
-                    self.write_input_to_shm();
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 use winit::event::MouseScrollDelta;
-                match delta {
-                    MouseScrollDelta::LineDelta(_, y) => {
-                        self.wheel += y * 10.0;
+                let scroll_delta = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y * 32.0,
+                    MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
+                };
+                self.wheel += scroll_delta;
+                // Forward scroll to UI overlay for scrollable panels
+                if let Some(renderer) = &self.renderer {
+                    renderer.ui.fire_scroll_event(scroll_delta as i32);
+                }
+            }
+            WindowEvent::MouseInput { button: winit_btn, state, .. } => {
+                use winit::event::{ElementState, MouseButton as WinitMouseButton};
+                // Only handle left-click cursor grab when not already grabbed
+                if state == ElementState::Pressed && winit_btn == WinitMouseButton::Left && !self.cursor_grabbed {
+                    // Check if the click is over a UI element — if so, forward to UI instead of grabbing
+                    if let (Some(renderer), Some(pos)) = (&self.renderer, self.cursor_pos) {
+                        let over_ui = renderer.ui.is_point_over_ui(pos.0, pos.1);
+                        println!("[renderer] MouseInput at ({},{}) over_ui={}", pos.0, pos.1, over_ui);
+                        if over_ui {
+                            renderer.ui.fire_mouse_event(pos.0, pos.1, MouseButton::Left, true);
+                            return;
+                        }
                     }
-                    MouseScrollDelta::PixelDelta(pos) => {
-                        self.wheel += pos.y as f32 * 0.1;
+                    // Not over UI — grab cursor for FPS mouse-look
+                    self.grab_cursor();
+                    return;
+                }
+                // Only forward mouse events to UI when cursor is not grabbed
+                if !self.cursor_grabbed {
+                    let button = match winit_btn {
+                        WinitMouseButton::Left => MouseButton::Left,
+                        WinitMouseButton::Middle => MouseButton::Middle,
+                        WinitMouseButton::Right => MouseButton::Right,
+                        _ => MouseButton::None,
+                    };
+                    let is_down = state == ElementState::Pressed;
+                    if let (Some(renderer), Some(pos)) = (&self.renderer, self.cursor_pos) {
+                        renderer.ui.fire_mouse_event(pos.0, pos.1, button, is_down);
                     }
                 }
-                self.write_input_to_shm();
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                // When cursor is grabbed in non-Locked mode (e.g. Wayland Confined),
+                // compute mouse deltas from center and warp back for infinite movement
+                if self.cursor_grabbed && !self.grab_locked {
+                    if self.warping {
+                        // Ignore synthetic CursorMoved from set_cursor_position
+                        self.warping = false;
+                        return;
+                    }
+                    if let Some((cx, cy)) = self.cursor_center() {
+                        self.mouse_dx += (position.x - cx) as f32;
+                        self.mouse_dy += (position.y - cy) as f32;
+                        // Warp cursor back to center for infinite mouse movement
+                        self.warping = true;
+                        if let Some(window) = &self.window {
+                            let _ = window.set_cursor_position(
+                                winit::dpi::PhysicalPosition::new(cx, cy)
+                            );
+                        }
+                    }
+                    return;
+                }
+                // Normal cursor tracking for UI when not grabbed
+                self.cursor_pos = Some((position.x as i32, position.y as i32));
+                if let Some(renderer) = &self.renderer {
+                    renderer.ui.fire_mouse_move(position.x as i32, position.y as i32);
+                }
             }
             WindowEvent::RedrawRequested => {
-                // Clear pressed keys and mouse deltas at start of frame (one-shot consumed by Bun)
+                // Write accumulated input (keys + mouse deltas) to SHM for Bun to read,
+                // then clear one-shot values for next frame
+                self.write_input_to_shm();
                 self.pressed_keys = 0;
+                self.pressed_keys_ext = 0;
                 self.mouse_dx = 0.0;
                 self.mouse_dy = 0.0;
                 self.wheel = 0.0;
-                self.write_input_to_shm();
+
+                // Auto-release cursor when inventory panel is visible so user can click slots
+                if self.cursor_grabbed {
+                    if let Some(renderer) = &self.renderer {
+                        if renderer.ui.is_inventory_visible() {
+                            self.release_cursor();
+                        }
+                    }
+                }
 
                 if let Some(renderer) = &mut self.renderer {
                     // Try to load island meshes once (they're written by Bun after init)
@@ -1228,11 +1869,13 @@ impl ApplicationHandler for App {
     }
 
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: winit::event::DeviceId, event: winit::event::DeviceEvent) {
-        // Raw mouse motion for FPS-style camera control
-        if let winit::event::DeviceEvent::MouseMotion { delta } = event {
-            self.mouse_dx += delta.0 as f32;
-            self.mouse_dy += delta.1 as f32;
-            self.write_input_to_shm();
+        // Raw mouse motion for FPS-style camera control (X11 with Locked grab)
+        // On Wayland, DeviceEvent doesn't fire — CursorMoved handles deltas instead
+        if self.cursor_grabbed && self.grab_locked {
+            if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+                self.mouse_dx += delta.0 as f32;
+                self.mouse_dy += delta.1 as f32;
+            }
         }
     }
 }
@@ -1240,7 +1883,7 @@ impl ApplicationHandler for App {
 fn main() {
     println!("[renderer] DownDraft native renderer starting...");
     let event_loop = EventLoop::new().unwrap();
-    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
     let mut app = App::new();
     event_loop.run_app(&mut app).unwrap();
 }

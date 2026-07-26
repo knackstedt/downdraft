@@ -1,8 +1,11 @@
+import { createLogger } from "@downdraft/core";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+const log = createLogger();
+
 export async function init(targetPath: string): Promise<void> {
-  console.log(`[DownDraft] Scaffolding new game project at: ${targetPath}`);
+  log.info("DownDraft", `Scaffolding new game project at: ${targetPath}`);
 
   await mkdir(join(targetPath, "scripts"), { recursive: true });
   await mkdir(join(targetPath, "assets", "models"), { recursive: true });
@@ -26,14 +29,16 @@ export async function init(targetPath: string): Promise<void> {
 
   await writeFile(join(targetPath, "package.json"), JSON.stringify(packageJson, null, 2));
 
-  const mainScript = `import { World, MeshBuilder, Camera } from "@downdraft/core";
+  const mainScript = `import { World, MeshBuilder, Camera, createLogger } from "@downdraft/core";
+
+const log = createLogger();
 
 export function init(ctx) {
   const world = new World();
   const camera = new Camera();
   camera.setAspect(16, 9);
   ctx.registerResource("camera", camera);
-  console.log("[game] initialized");
+  log.info("game", "initialized");
 }
 
 export function tick(ctx, dt) {
@@ -41,7 +46,7 @@ export function tick(ctx, dt) {
 }
 
 export function dispose(ctx) {
-  console.log("[game] disposed");
+  log.info("game", "disposed");
 }
 `;
 
@@ -58,7 +63,7 @@ export function dispose(ctx) {
 
   await writeFile(join(targetPath, "downdraft.config.json"), JSON.stringify(config, null, 2));
 
-  console.log("[DownDraft] Project scaffolded successfully!");
+  log.info("DownDraft", "Project scaffolded successfully!");
   console.log(`  cd ${targetPath}`);
   console.log(`  draft dev`);
 }

@@ -1,6 +1,8 @@
-import { Builder } from "@downdraft/core";
+import { Builder, createLogger } from "@downdraft/core";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { basename, extname, join, relative, resolve } from "path";
+
+const log = createLogger();
 
 export async function build(args: string[]): Promise<void> {
   const projectPath = args.find((a) => !a.startsWith("-")) ?? ".";
@@ -37,7 +39,7 @@ export async function build(args: string[]): Promise<void> {
   const assetsDir = resolve(projectPath, "assets");
 
   if (!existsSync(srcDir)) {
-    console.error(`  [error] No src directory found at ${srcDir}`);
+    log.error("build", `No src directory found at ${srcDir}`);
     process.exit(1);
   }
 
@@ -53,9 +55,9 @@ export async function build(args: string[]): Promise<void> {
   }
 
   if (verbose) {
-    console.log(`  Source files: ${sourceFiles.length}`);
+    log.debug("build", `Source files: ${sourceFiles.length}`);
     for (const f of sourceFiles) {
-      console.log(`    - ${relative(projectPath, f)}`);
+      log.debug("build", `  - ${relative(projectPath, f)}`);
     }
   }
 
@@ -74,7 +76,7 @@ export async function build(args: string[]): Promise<void> {
   };
 
   writeFileSync(join(outPath, "manifest.json"), JSON.stringify(manifest, null, 2));
-  console.log(`  ✓ Build manifest written`);
+  log.info("build", `Build manifest written`);
 
   for (const srcFile of sourceFiles) {
     const rel = relative(srcDir, srcFile);
@@ -82,7 +84,7 @@ export async function build(args: string[]): Promise<void> {
     ensureDirExists(dest);
     copyFileSync(srcFile, dest);
   }
-  console.log(`  ✓ ${sourceFiles.length} source files copied`);
+  log.info("build", `${sourceFiles.length} source files copied`);
 
   if (existsSync(assetsDir)) {
     const assetFiles = collectFiles(assetsDir, [".png", ".jpg", ".jpeg", ".webp", ".wav", ".mp3", ".ogg", ".glb", ".gltf", ".obj", ".fbx", ".wgsl"]);
@@ -92,7 +94,7 @@ export async function build(args: string[]): Promise<void> {
       ensureDirExists(dest);
       copyFileSync(assetFile, dest);
     }
-    console.log(`  ✓ ${assetFiles.length} asset files copied`);
+    log.info("build", `${assetFiles.length} asset files copied`);
   }
 
   const entryPoint = `{
@@ -103,8 +105,7 @@ export async function build(args: string[]): Promise<void> {
   }`;
   writeFileSync(join(outPath, "package.json"), entryPoint);
 
-  console.log("");
-  console.log(`  Build complete → ${outPath}`);
+  log.info("build", `Build complete → ${outPath}`);
 }
 
 function collectFiles(dir: string, extensions: string[]): string[] {

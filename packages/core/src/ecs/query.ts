@@ -1,6 +1,6 @@
-import type { ComponentId } from "./component.ts";
 import type { Archetype } from "./archetype.ts";
 import { archetypeMatches, getComponentColumn } from "./archetype.ts";
+import type { ComponentId } from "./component.ts";
 
 export interface QueryDescriptor {
   required: ComponentId[];
@@ -51,23 +51,25 @@ export class Query {
       const entities = arch.entities;
       const count = entities.length;
 
-      const columns: unknown[][] = [];
+      const columns: unknown[][] = new Array(required.length);
       for (let r = 0; r < required.length; r++) {
-        columns.push(getComponentColumn(arch, required[r]));
+        columns[r] = getComponentColumn(arch, required[r]);
       }
 
       if (changedFilter !== undefined) {
         const changedCol = getComponentColumn<{ lastChanged: number }>(arch, changedFilter);
         for (let row = 0; row < count; row++) {
           if (changedCol[row].lastChanged >= this.descriptor.lastReadTick) {
-            const comps = columns.map((col) => col[row]) as T;
-            fn(entities[row], comps, row);
+            const comps = new Array(columns.length);
+            for (let c = 0; c < columns.length; c++) comps[c] = columns[c][row];
+            fn(entities[row], comps as T, row);
           }
         }
       } else {
         for (let row = 0; row < count; row++) {
-          const comps = columns.map((col) => col[row]) as T;
-          fn(entities[row], comps, row);
+          const comps = new Array(columns.length);
+          for (let c = 0; c < columns.length; c++) comps[c] = columns[c][row];
+          fn(entities[row], comps as T, row);
         }
       }
     }

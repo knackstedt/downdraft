@@ -2,6 +2,7 @@ import {
   Camera,
   Component,
   createFireEmitter,
+  createLogger,
   createSmokeEmitter,
   GameWorld,
   MeshBuilder,
@@ -14,8 +15,47 @@ import {
   World,
   type Entity,
   type RenderData,
-  type RenderEntityData,
+  type RenderEntityData
 } from "@downdraft/core";
+import {
+  BuoyancySystem,
+  collectShoreSources,
+  collectWakeSources,
+  MAX_SHORES,
+  MAX_WAKES,
+  packShoreSources,
+  SHORE_FLOATS,
+  WAKE_FLOATS,
+  WaterBuffer,
+  WaterPhysics,
+  type BuoyancyEntity,
+  type ShoreProvider,
+  type ShoreSource,
+  type WakeProvider,
+} from "@downdraft/plugin-water";
+import {
+  canCraft,
+  CraftingPlugin,
+  executeCraft,
+  getUnlockedRecipes,
+  unlockRecipesForTier
+} from "./plugins/crafting-plugin.ts";
+import {
+  createGrid,
+  getGridStateForUI,
+  addItem as gridAddItem,
+  countItem as gridCountItem,
+  GridInventory,
+  removeItemById as gridRemoveItemById,
+  InventoryPlugin,
+  PLAYER_INV_HEIGHT,
+  PLAYER_INV_WIDTH,
+  type InventoryGrid
+} from "./plugins/inventory-plugin.ts";
+import { getItem } from "./plugins/items.ts";
+import { CRAFTING_TIER_RECIPES } from "./plugins/recipes.ts";
+
+const log = createLogger();
 
 // IPC mesh data format for the Rust renderer (matches shared-memory.ts MeshData)
 interface IPCMeshData {
@@ -86,7 +126,7 @@ enum TerrainType {
 const TERRAIN_CONFIG = {
   voxelSize: 2.5,
   isoLevel: 0.0,
-  maxVoxelMemory: 80_000_000,
+  maxVoxelMemory: 160_000_000,
 
   blobCount: 5,
   blobMinRadius: 0.35,
@@ -508,6 +548,24 @@ function voxelFieldHeightAt(field: VoxelField, worldX: number, worldZ: number): 
 
 // ─── Terrain Type Classification ──────────────────────────
 
+function classifyTerrainTypeByUnitY(uy: number, biome: number): TerrainType {
+  const cfg = TERRAIN_CONFIG;
+
+  if (uy < -cfg.beachThreshold * 2) return TerrainType.DeepUnderwater;
+  if (uy < -cfg.beachThreshold * 0.5) return TerrainType.ShallowUnderwater;
+  if (uy < cfg.beachThreshold * 0.5) return TerrainType.Shoreline;
+  if (uy < cfg.beachThreshold) return TerrainType.Sand;
+
+  if (biome === BiomeType.Arctic && uy > cfg.peakHeight * 0.6) return TerrainType.Snow;
+  if (biome === BiomeType.Volcanic && uy > cfg.peakHeight * 0.5) return TerrainType.Ash;
+  if (biome === BiomeType.Desert) return TerrainType.Sand;
+
+  if (uy > cfg.peakHeight * 0.7) return TerrainType.Rock;
+  if (uy > cfg.peakHeight * 0.4) return TerrainType.Stone;
+  if (uy > cfg.peakHeight * 0.2) return TerrainType.Forest;
+  return TerrainType.Grass;
+}
+
 function classifyTerrainType(
   field: VoxelField, vx: number, vy: number, vz: number, biome: number,
 ): TerrainType {
@@ -574,6 +632,265 @@ const MC_EDGE_TABLE = new Uint32Array([
   0xf00,0xe09,0xd03,0xc0a,0xb06,0xa0f,0x905,0x80c,0x70c,0x605,0x50f,0x406,0x30a,0x203,0x109,0x000,
 ]);
 
+const MC_TRI_TABLE = new Int8Array([
+-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,8,3,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,1,9,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,8,3,9,8,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,2,10,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,8,3,1,2,10,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+9,2,10,0,2,9,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+2,8,3,2,10,8,10,9,8,-1,-1,-1,-1,-1,-1,-1,
+3,11,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,11,2,8,11,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,9,0,2,3,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,11,2,1,9,11,9,8,11,-1,-1,-1,-1,-1,-1,-1,
+3,10,1,11,10,3,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,10,1,0,8,10,8,11,10,-1,-1,-1,-1,-1,-1,-1,
+3,9,0,3,11,9,11,10,9,-1,-1,-1,-1,-1,-1,-1,
+9,8,10,10,8,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,7,8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,3,0,7,3,4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,1,9,8,4,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,1,9,4,7,1,7,3,1,-1,-1,-1,-1,-1,-1,-1,
+1,2,10,8,4,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+3,4,7,3,0,4,1,2,10,-1,-1,-1,-1,-1,-1,-1,
+9,2,10,9,0,2,8,4,7,-1,-1,-1,-1,-1,-1,-1,
+2,10,9,2,9,7,2,7,3,7,9,4,-1,-1,-1,-1,
+8,4,7,3,11,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+11,4,7,11,2,4,2,0,4,-1,-1,-1,-1,-1,-1,-1,
+9,0,1,8,4,7,2,3,11,-1,-1,-1,-1,-1,-1,-1,
+4,7,11,9,4,11,9,11,2,9,2,1,-1,-1,-1,-1,
+3,10,1,3,11,10,7,8,4,-1,-1,-1,-1,-1,-1,-1,
+1,11,10,1,4,11,1,0,4,7,11,4,-1,-1,-1,-1,
+4,7,8,9,0,11,9,11,10,11,0,3,-1,-1,-1,-1,
+4,7,11,4,11,9,9,11,10,-1,-1,-1,-1,-1,-1,-1,
+9,5,4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+9,5,4,0,8,3,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,5,4,1,5,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+8,5,4,8,3,5,3,1,5,-1,-1,-1,-1,-1,-1,-1,
+1,2,10,9,5,4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+3,0,8,1,2,10,4,9,5,-1,-1,-1,-1,-1,-1,-1,
+5,2,10,5,4,2,4,0,2,-1,-1,-1,-1,-1,-1,-1,
+2,10,5,3,2,5,3,5,4,3,4,8,-1,-1,-1,-1,
+9,5,4,2,3,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,11,2,0,8,11,4,9,5,-1,-1,-1,-1,-1,-1,-1,
+0,5,4,0,1,5,2,3,11,-1,-1,-1,-1,-1,-1,-1,
+2,1,5,2,5,8,2,8,11,4,8,5,-1,-1,-1,-1,
+10,3,11,10,1,3,9,5,4,-1,-1,-1,-1,-1,-1,-1,
+4,9,5,0,8,1,8,10,1,8,11,10,-1,-1,-1,-1,
+5,4,0,5,0,11,5,11,10,11,0,3,-1,-1,-1,-1,
+5,4,8,5,8,10,10,8,11,-1,-1,-1,-1,-1,-1,-1,
+9,7,8,5,7,9,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+9,3,0,9,5,3,5,7,3,-1,-1,-1,-1,-1,-1,-1,
+0,7,8,0,1,7,1,5,7,-1,-1,-1,-1,-1,-1,-1,
+1,5,3,3,5,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+9,7,8,9,5,7,10,1,2,-1,-1,-1,-1,-1,-1,-1,
+10,1,2,9,5,0,5,3,0,5,7,3,-1,-1,-1,-1,
+8,0,2,8,2,5,8,5,7,10,5,2,-1,-1,-1,-1,
+2,10,5,2,5,3,3,5,7,-1,-1,-1,-1,-1,-1,-1,
+7,9,5,7,8,9,3,11,2,-1,-1,-1,-1,-1,-1,-1,
+9,5,7,9,7,2,9,2,0,2,7,11,-1,-1,-1,-1,
+2,3,11,0,1,8,1,7,8,1,5,7,-1,-1,-1,-1,
+11,2,1,11,1,7,7,1,5,-1,-1,-1,-1,-1,-1,-1,
+9,5,8,8,5,7,10,1,3,10,3,11,-1,-1,-1,-1,
+5,7,0,5,0,9,7,11,0,1,0,10,11,10,0,-1,
+11,10,0,11,0,3,10,5,0,8,0,7,5,7,0,-1,
+11,10,5,7,11,5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+10,6,5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,8,3,5,10,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+9,0,1,5,10,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,8,3,1,9,8,5,10,6,-1,-1,-1,-1,-1,-1,-1,
+1,6,5,2,6,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,6,5,1,2,6,3,0,8,-1,-1,-1,-1,-1,-1,-1,
+9,6,5,9,0,6,0,2,6,-1,-1,-1,-1,-1,-1,-1,
+5,9,8,5,8,2,5,2,6,3,2,8,-1,-1,-1,-1,
+2,3,11,10,6,5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+11,0,8,11,2,0,10,6,5,-1,-1,-1,-1,-1,-1,-1,
+0,1,9,2,3,11,5,10,6,-1,-1,-1,-1,-1,-1,-1,
+5,10,6,1,9,2,9,11,2,9,8,11,-1,-1,-1,-1,
+6,3,11,6,5,3,5,1,3,-1,-1,-1,-1,-1,-1,-1,
+0,8,11,0,11,5,0,5,1,5,11,6,-1,-1,-1,-1,
+3,11,6,0,3,6,0,6,5,0,5,9,-1,-1,-1,-1,
+6,5,9,6,9,11,11,9,8,-1,-1,-1,-1,-1,-1,-1,
+5,10,6,4,7,8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,3,0,4,7,3,6,5,10,-1,-1,-1,-1,-1,-1,-1,
+1,9,0,5,10,6,8,4,7,-1,-1,-1,-1,-1,-1,-1,
+10,6,5,1,9,7,1,7,3,7,9,4,-1,-1,-1,-1,
+6,1,2,6,5,1,4,7,8,-1,-1,-1,-1,-1,-1,-1,
+1,2,5,5,2,6,3,0,4,3,4,7,-1,-1,-1,-1,
+8,4,7,9,0,5,0,6,5,0,2,6,-1,-1,-1,-1,
+7,3,9,7,9,4,3,2,9,5,9,6,2,6,9,-1,
+3,11,2,7,8,4,10,6,5,-1,-1,-1,-1,-1,-1,-1,
+5,10,6,4,7,2,4,2,0,2,7,11,-1,-1,-1,-1,
+0,1,9,4,7,8,2,3,11,5,10,6,-1,-1,-1,-1,
+9,2,1,9,11,2,9,4,11,7,11,4,5,10,6,-1,
+8,4,7,3,11,5,3,5,1,5,11,6,-1,-1,-1,-1,
+5,1,11,5,11,6,1,0,11,7,11,4,0,4,11,-1,
+0,5,9,0,6,5,0,3,6,11,6,3,8,4,7,-1,
+6,5,9,6,9,11,4,7,9,7,11,9,-1,-1,-1,-1,
+10,4,9,6,4,10,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,10,6,4,9,10,0,8,3,-1,-1,-1,-1,-1,-1,-1,
+10,0,1,10,6,0,6,4,0,-1,-1,-1,-1,-1,-1,-1,
+8,3,1,8,1,6,8,6,4,6,1,10,-1,-1,-1,-1,
+1,4,9,1,2,4,2,6,4,-1,-1,-1,-1,-1,-1,-1,
+3,0,8,1,2,9,2,4,9,2,6,4,-1,-1,-1,-1,
+0,2,4,4,2,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+8,3,2,8,2,4,4,2,6,-1,-1,-1,-1,-1,-1,-1,
+10,4,9,10,6,4,11,2,3,-1,-1,-1,-1,-1,-1,-1,
+0,8,2,2,8,11,4,9,10,4,10,6,-1,-1,-1,-1,
+3,11,2,0,1,6,0,6,4,6,1,10,-1,-1,-1,-1,
+6,4,1,6,1,10,4,8,1,2,1,11,8,11,1,-1,
+9,6,4,9,3,6,9,1,3,11,6,3,-1,-1,-1,-1,
+8,11,1,8,1,0,11,6,1,9,1,4,6,4,1,-1,
+3,11,6,3,6,0,0,6,4,-1,-1,-1,-1,-1,-1,-1,
+6,4,8,11,6,8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+7,10,6,7,8,10,8,9,10,-1,-1,-1,-1,-1,-1,-1,
+0,7,3,0,10,7,0,9,10,6,7,10,-1,-1,-1,-1,
+10,6,7,1,10,7,1,7,8,1,8,0,-1,-1,-1,-1,
+10,6,7,10,7,1,1,7,3,-1,-1,-1,-1,-1,-1,-1,
+1,2,6,1,6,8,1,8,9,8,6,7,-1,-1,-1,-1,
+2,6,9,2,9,1,6,7,9,0,9,3,7,3,9,-1,
+7,8,0,7,0,6,6,0,2,-1,-1,-1,-1,-1,-1,-1,
+7,3,2,6,7,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+2,3,11,10,6,8,10,8,9,8,6,7,-1,-1,-1,-1,
+2,0,7,2,7,11,0,9,7,6,7,10,9,10,7,-1,
+1,8,0,1,7,8,1,10,7,6,7,10,2,3,11,-1,
+11,2,1,11,1,7,10,6,1,6,7,1,-1,-1,-1,-1,
+8,9,6,8,6,7,9,1,6,11,6,3,1,3,6,-1,
+0,9,1,11,6,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+7,8,0,7,0,6,3,11,0,11,6,0,-1,-1,-1,-1,
+7,11,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+7,6,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+3,0,8,11,7,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,1,9,11,7,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+8,1,9,8,3,1,11,7,6,-1,-1,-1,-1,-1,-1,-1,
+10,1,2,6,11,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,2,10,3,0,8,6,11,7,-1,-1,-1,-1,-1,-1,-1,
+2,9,0,2,10,9,6,11,7,-1,-1,-1,-1,-1,-1,-1,
+6,11,7,2,10,3,10,8,3,10,9,8,-1,-1,-1,-1,
+7,2,3,6,2,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+7,0,8,7,6,0,6,2,0,-1,-1,-1,-1,-1,-1,-1,
+2,7,6,2,3,7,0,1,9,-1,-1,-1,-1,-1,-1,-1,
+1,6,2,1,8,6,1,9,8,8,7,6,-1,-1,-1,-1,
+10,7,6,10,1,7,1,3,7,-1,-1,-1,-1,-1,-1,-1,
+10,7,6,1,7,10,1,8,7,1,0,8,-1,-1,-1,-1,
+0,3,7,0,7,10,0,10,9,6,10,7,-1,-1,-1,-1,
+7,6,10,7,10,8,8,10,9,-1,-1,-1,-1,-1,-1,-1,
+6,8,4,11,8,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+3,6,11,3,0,6,0,4,6,-1,-1,-1,-1,-1,-1,-1,
+8,6,11,8,4,6,9,0,1,-1,-1,-1,-1,-1,-1,-1,
+9,4,6,9,6,3,9,3,1,11,3,6,-1,-1,-1,-1,
+6,8,4,6,11,8,2,10,1,-1,-1,-1,-1,-1,-1,-1,
+1,2,10,3,0,11,0,6,11,0,4,6,-1,-1,-1,-1,
+4,11,8,4,6,11,0,2,9,2,10,9,-1,-1,-1,-1,
+10,9,3,10,3,2,9,4,3,11,3,6,4,6,3,-1,
+8,2,3,8,4,2,4,6,2,-1,-1,-1,-1,-1,-1,-1,
+0,4,2,4,6,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,9,0,2,3,4,2,4,6,4,3,8,-1,-1,-1,-1,
+1,9,4,1,4,2,2,4,6,-1,-1,-1,-1,-1,-1,-1,
+8,1,3,8,6,1,8,4,6,6,10,1,-1,-1,-1,-1,
+10,1,0,10,0,6,6,0,4,-1,-1,-1,-1,-1,-1,-1,
+4,6,3,4,3,8,6,10,3,0,3,9,10,9,3,-1,
+10,9,4,6,10,4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,9,5,7,6,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,8,3,4,9,5,11,7,6,-1,-1,-1,-1,-1,-1,-1,
+5,0,1,5,4,0,7,6,11,-1,-1,-1,-1,-1,-1,-1,
+11,7,6,8,3,4,3,5,4,3,1,5,-1,-1,-1,-1,
+9,5,4,10,1,2,7,6,11,-1,-1,-1,-1,-1,-1,-1,
+6,11,7,1,2,10,0,8,3,4,9,5,-1,-1,-1,-1,
+7,6,11,5,4,10,4,2,10,4,0,2,-1,-1,-1,-1,
+3,4,8,3,5,4,3,2,5,10,5,2,11,7,6,-1,
+7,2,3,7,6,2,5,4,9,-1,-1,-1,-1,-1,-1,-1,
+9,5,4,0,8,6,0,6,2,6,8,7,-1,-1,-1,-1,
+3,6,2,3,7,6,1,5,0,5,4,0,-1,-1,-1,-1,
+6,2,8,6,8,7,2,1,8,4,8,5,1,5,8,-1,
+9,5,4,10,1,6,1,7,6,1,3,7,-1,-1,-1,-1,
+1,6,10,1,7,6,1,0,7,8,7,0,9,5,4,-1,
+4,0,10,4,10,5,0,3,10,6,10,7,3,7,10,-1,
+7,6,10,7,10,8,5,4,10,4,8,10,-1,-1,-1,-1,
+6,9,5,6,11,9,11,8,9,-1,-1,-1,-1,-1,-1,-1,
+3,6,11,0,6,3,0,5,6,0,9,5,-1,-1,-1,-1,
+0,11,8,0,5,11,0,1,5,5,6,11,-1,-1,-1,-1,
+6,11,3,6,3,5,5,3,1,-1,-1,-1,-1,-1,-1,-1,
+1,2,10,9,5,11,9,11,8,11,5,6,-1,-1,-1,-1,
+0,11,3,0,6,11,0,9,6,5,6,9,1,2,10,-1,
+11,8,5,11,5,6,8,0,5,10,5,2,0,2,5,-1,
+6,11,3,6,3,5,2,10,3,10,5,3,-1,-1,-1,-1,
+5,8,9,5,2,8,5,6,2,3,8,2,-1,-1,-1,-1,
+9,5,6,9,6,0,0,6,2,-1,-1,-1,-1,-1,-1,-1,
+1,5,8,1,8,0,5,6,8,3,8,2,6,2,8,-1,
+1,5,6,2,1,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,3,6,1,6,10,3,8,6,5,6,9,8,9,6,-1,
+10,1,0,10,0,6,9,5,0,5,6,0,-1,-1,-1,-1,
+0,3,8,5,6,10,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+10,5,6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+11,5,10,7,5,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+11,5,10,11,7,5,8,3,0,-1,-1,-1,-1,-1,-1,-1,
+5,11,7,5,10,11,1,9,0,-1,-1,-1,-1,-1,-1,-1,
+10,7,5,10,11,7,9,8,1,8,3,1,-1,-1,-1,-1,
+11,1,2,11,7,1,7,5,1,-1,-1,-1,-1,-1,-1,-1,
+0,8,3,1,2,7,1,7,5,7,2,11,-1,-1,-1,-1,
+9,7,5,9,2,7,9,0,2,2,11,7,-1,-1,-1,-1,
+7,5,2,7,2,11,5,9,2,3,2,8,9,8,2,-1,
+2,5,10,2,3,5,3,7,5,-1,-1,-1,-1,-1,-1,-1,
+8,2,0,8,5,2,8,7,5,10,2,5,-1,-1,-1,-1,
+9,0,1,5,10,3,5,3,7,3,10,2,-1,-1,-1,-1,
+9,8,2,9,2,1,8,7,2,10,2,5,7,5,2,-1,
+1,3,5,3,7,5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,8,7,0,7,1,1,7,5,-1,-1,-1,-1,-1,-1,-1,
+9,0,3,9,3,5,5,3,7,-1,-1,-1,-1,-1,-1,-1,
+9,8,7,5,9,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+5,8,4,5,10,8,10,11,8,-1,-1,-1,-1,-1,-1,-1,
+5,0,4,5,11,0,5,10,11,11,3,0,-1,-1,-1,-1,
+0,1,9,8,4,10,8,10,11,10,4,5,-1,-1,-1,-1,
+10,11,4,10,4,5,11,3,4,9,4,1,3,1,4,-1,
+2,5,1,2,8,5,2,11,8,4,5,8,-1,-1,-1,-1,
+0,4,11,0,11,3,4,5,11,2,11,1,5,1,11,-1,
+0,2,5,0,5,9,2,11,5,4,5,8,11,8,5,-1,
+9,4,5,2,11,3,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+2,5,10,3,5,2,3,4,5,3,8,4,-1,-1,-1,-1,
+5,10,2,5,2,4,4,2,0,-1,-1,-1,-1,-1,-1,-1,
+3,10,2,3,5,10,3,8,5,4,5,8,0,1,9,-1,
+5,10,2,5,2,4,1,9,2,9,4,2,-1,-1,-1,-1,
+8,4,5,8,5,3,3,5,1,-1,-1,-1,-1,-1,-1,-1,
+0,4,5,1,0,5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+8,4,5,8,5,3,9,0,5,0,3,5,-1,-1,-1,-1,
+9,4,5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,11,7,4,9,11,9,10,11,-1,-1,-1,-1,-1,-1,-1,
+0,8,3,4,9,7,9,11,7,9,10,11,-1,-1,-1,-1,
+1,10,11,1,11,4,1,4,0,7,4,11,-1,-1,-1,-1,
+3,1,4,3,4,8,1,10,4,7,4,11,10,11,4,-1,
+4,11,7,9,11,4,9,2,11,9,1,2,-1,-1,-1,-1,
+9,7,4,9,11,7,9,1,11,2,11,1,0,8,3,-1,
+11,7,4,11,4,2,2,4,0,-1,-1,-1,-1,-1,-1,-1,
+11,7,4,11,4,2,8,3,4,3,2,4,-1,-1,-1,-1,
+2,9,10,2,7,9,2,3,7,7,4,9,-1,-1,-1,-1,
+9,10,7,9,7,4,10,2,7,8,7,0,2,0,7,-1,
+3,7,10,3,10,2,7,4,10,1,10,0,4,0,10,-1,
+1,10,2,8,7,4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,9,1,4,1,7,7,1,3,-1,-1,-1,-1,-1,-1,-1,
+4,9,1,4,1,7,0,8,1,8,7,1,-1,-1,-1,-1,
+4,0,3,7,4,3,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+4,8,7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+9,10,8,10,11,8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+3,0,9,3,9,11,11,9,10,-1,-1,-1,-1,-1,-1,-1,
+0,1,10,0,10,8,8,10,11,-1,-1,-1,-1,-1,-1,-1,
+3,1,10,11,3,10,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,2,11,1,11,9,9,11,8,-1,-1,-1,-1,-1,-1,-1,
+3,0,9,3,9,11,1,2,9,2,11,9,-1,-1,-1,-1,
+0,2,11,8,0,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+3,2,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+2,3,8,2,8,10,10,8,9,-1,-1,-1,-1,-1,-1,-1,
+9,10,2,0,9,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+2,3,8,2,8,10,0,1,8,1,10,8,-1,-1,-1,-1,
+1,10,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+1,3,8,9,1,8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,9,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+0,3,8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+]);
+
 // Edge-to-corner offsets (12 edges, each connects two corners)
 const MC_EDGE_CORNERS: ReadonlyArray<readonly [number, number]> = [
   [0,1],[1,2],[2,3],[3,0],
@@ -604,16 +921,8 @@ function extractMeshFromField(
     return data[x * dimYZ + y * dimZ + z];
   }
 
-  function interpVertex(edge: number, x: number, y: number, z: number, d0: number, d1: number): [number, number, number] {
-    const t = (isoLevel - d0) / (d1 - d0);
-    const [c0, c1] = MC_EDGE_CORNERS[edge];
-    const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
-    const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
-    const wx = (x + ox0 + t * (ox1 - ox0)) * vs + field.originX;
-    const wy = (y + oy0 + t * (oy1 - oy0)) * vs + field.originY;
-    const wz = (z + oz0 + t * (oz1 - oz0)) * vs + field.originZ;
-    return [wx, wy, wz];
-  }
+  // Scratch arrays for edge vertex positions (12 edges * 3 coords)
+  const edgeVertPos = new Float32Array(36);
 
   for (let x = 0; x < dimX - 1; x++) {
     for (let y = 0; y < dimY - 1; y++) {
@@ -624,7 +933,7 @@ function extractMeshFromField(
         for (let i = 0; i < 8; i++) {
           const [ox, oy, oz] = MC_CORNER_OFFSETS[i];
           d[i] = getDensity(x + ox, y + oy, z + oz);
-          if (d[i] >= isoLevel) cubeIndex |= (1 << i);
+          if (d[i] < isoLevel) cubeIndex |= (1 << i);
         }
 
         if (cubeIndex === 0 || cubeIndex === 255) continue;
@@ -632,50 +941,83 @@ function extractMeshFromField(
         const edges = MC_EDGE_TABLE[cubeIndex];
         if (edges === 0) continue;
 
-        // Interpolate edge vertices
-        const edgeVerts: (number | null)[] = new Array(12).fill(null);
+        // Interpolate edge vertex positions (store in scratch array)
         for (let e = 0; e < 12; e++) {
-          if (edges & (1 << e)) {
-            const [c0, c1] = MC_EDGE_CORNERS[e];
-            const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
-            const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
-            const d0 = getDensity(x + ox0, y + oy0, z + oz0);
-            const d1 = getDensity(x + ox1, y + oy1, z + oz1);
-            const [wx, wy, wz] = interpVertex(e, x, y, z, d0, d1);
+          if (!(edges & (1 << e))) continue;
+          const [c0, c1] = MC_EDGE_CORNERS[e];
+          const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
+          const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
+          const d0 = d[c0], d1 = d[c1];
 
-            // Determine terrain type at this vertex
-            const midY = y + 0.5;
-            const tType = classifyTerrainType(field, x, Math.floor(midY), z, biome);
-            const [r, g, b] = terrainTypeColor(tType, biome);
+          const p0x = (x + ox0) * vs + field.originX;
+          const p0y = (y + oy0) * vs + field.originY;
+          const p0z = (z + oz0) * vs + field.originZ;
+          const p1x = (x + ox1) * vs + field.originX;
+          const p1y = (y + oy1) * vs + field.originY;
+          const p1z = (z + oz1) * vs + field.originZ;
 
-            const idx = vertList.length / 9;
-            vertList.push(wx, wy, wz, 0, 1, 0, r, g, b);
-            edgeVerts[e] = idx;
-
-            if (vertList.length / 9 >= maxVerts) {
-              // Safety cap
-              const verts = new Float32Array(vertList);
-              const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
-              return { verts, indices, vertexCount: vertList.length / 9, indexCount: indexList.length };
-            }
+          let ex: number, ey: number, ez: number;
+          if (Math.abs(isoLevel - d0) < 1e-10) {
+            ex = p0x; ey = p0y; ez = p0z;
+          } else if (Math.abs(isoLevel - d1) < 1e-10) {
+            ex = p1x; ey = p1y; ez = p1z;
+          } else if (Math.abs(d0 - d1) < 1e-10) {
+            ex = p0x; ey = p0y; ez = p0z;
+          } else {
+            const t = (isoLevel - d0) / (d1 - d0);
+            ex = p0x + t * (p1x - p0x);
+            ey = p0y + t * (p1y - p0y);
+            ez = p0z + t * (p1z - p0z);
           }
+          const eo = e * 3;
+          edgeVertPos[eo] = ex;
+          edgeVertPos[eo + 1] = ey;
+          edgeVertPos[eo + 2] = ez;
         }
 
-        // Generate triangles using triTable — simplified: use edge pairs
-        // We generate triangles by walking the edge table bits
-        const triEdges: number[] = [];
-        for (let e = 0; e < 12; e++) {
-          if (edges & (1 << e)) triEdges.push(e);
-        }
-        // Generate triangles (fan triangulation for simplicity)
-        if (triEdges.length >= 3) {
-          for (let i = 1; i < triEdges.length - 1; i++) {
-            const v0 = edgeVerts[triEdges[0]];
-            const v1 = edgeVerts[triEdges[i]];
-            const v2 = edgeVerts[triEdges[i + 1]];
-            if (v0 !== null && v1 !== null && v2 !== null) {
-              indexList.push(v0, v1, v2);
-            }
+        // Generate triangles using the standard MC tri table
+        const triBase = cubeIndex * 16;
+        for (let t = 0; t < 15; t += 3) {
+          const e0 = MC_TRI_TABLE[triBase + t];
+          if (e0 < 0) break;
+          const e1 = MC_TRI_TABLE[triBase + t + 1];
+          const e2 = MC_TRI_TABLE[triBase + t + 2];
+
+          const ev0o = e0 * 3, ev1o = e1 * 3, ev2o = e2 * 3;
+          const v0x = edgeVertPos[ev0o], v0y = edgeVertPos[ev0o + 1], v0z = edgeVertPos[ev0o + 2];
+          const v1x = edgeVertPos[ev1o], v1y = edgeVertPos[ev1o + 1], v1z = edgeVertPos[ev1o + 2];
+          const v2x = edgeVertPos[ev2o], v2y = edgeVertPos[ev2o + 1], v2z = edgeVertPos[ev2o + 2];
+
+          // Compute face normal via cross product
+          const e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
+          const e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
+          let nx = e1y * e2z - e1z * e2y;
+          let ny = e1z * e2x - e1x * e2z;
+          let nz = e1x * e2y - e1y * e2x;
+          const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+          if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
+          else { nx = 0; ny = 1; nz = 0; }
+          if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+
+          // Determine terrain type at face centroid
+          const cx = (v0x + v1x + v2x) / 3;
+          const cy = (v0y + v1y + v2y) / 3;
+          const cz = (v0z + v1z + v2z) / 3;
+          const unitY = cy / field.radius;
+          const tType = classifyTerrainTypeByUnitY(unitY, biome);
+          const [r, g, b] = terrainTypeColor(tType, biome);
+
+          // Write 3 vertices (9 floats each: pos3 + normal3 + color3)
+          const baseIdx = vertList.length / 9;
+          vertList.push(v0x, v0y, v0z, nx, ny, nz, r, g, b);
+          vertList.push(v1x, v1y, v1z, nx, ny, nz, r, g, b);
+          vertList.push(v2x, v2y, v2z, nx, ny, nz, r, g, b);
+          indexList.push(baseIdx, baseIdx + 1, baseIdx + 2);
+
+          if (vertList.length / 9 >= maxVerts) {
+            const verts = new Float32Array(vertList);
+            const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
+            return { verts, indices, vertexCount: vertList.length / 9, indexCount: indexList.length };
           }
         }
       }
@@ -806,7 +1148,15 @@ const SHARK_ATTACK_COOLDOWN = 3;
 const SHARK_HUNT_RANGE = 15;
 const SHARK_DESPAWN_RANGE = 30;
 const FISH_SPEED = 1.5;
-const WEATHER_TRANSITION_INTERVAL = 120;
+const WEATHER_CLEAR_CHANCE = 0.80;
+const WEATHER_FULL_CLEAR = 0.30;
+const WEATHER_PARTLY_CLOUDY = 0.40;
+const WEATHER_OVERCAST = 0.30;
+const WEATHER_MAX_DURATION = 300;
+const WEATHER_MIN_DURATION = 60;
+const WEATHER_RARE_EVENT_CHANCE = 0.02;
+const RAIN_COLLECTOR_CAPACITY = 50;
+const RAIN_COLLECTOR_FILL_RATE = 5;
 const DAY_DURATION = 600;
 const NIGHT_START_FRAC = 0.75;
 const NIGHT_END_FRAC = 0.25;
@@ -826,11 +1176,11 @@ const COOK_FISH_TIME = 5;
 
 // Islands
 const ISLAND_COUNT = 6;
-const ISLAND_MIN_RADIUS = 8;
-const ISLAND_MAX_RADIUS = 25;
+const ISLAND_MIN_RADIUS = 50;
+const ISLAND_MAX_RADIUS = 120;
 const ISLAND_MIN_HEIGHT = 2;
 const ISLAND_MAX_HEIGHT = 8;
-const ISLAND_SPAWN_RANGE = 120;
+const ISLAND_SPAWN_RANGE = 600;
 const ISLAND_BEACH_LEVEL = 0.5;
 
 // Inventory
@@ -901,10 +1251,15 @@ const GAME_DIFFICULTY_HARD = 2;
 
 enum WeatherType {
   Clear = 0,
-  Cloudy = 1,
-  Rain = 2,
-  Storm = 3,
-  Fog = 4,
+  PartlyCloudy = 1,
+  Overcast = 2,
+  Rain = 3,
+  Storm = 4,
+  Fog = 5,
+  Eclipse = 6,
+  FullMoon = 7,
+  HellStorm = 8,
+  Snow = 9,
 }
 
 enum WildlifeState {
@@ -996,6 +1351,8 @@ const Player = Component.register("Player", {
   cameraMode: CameraMode.ThirdPerson,
   hotbarSlot: 0,
   fallStartY: 0,
+  mouseSmoothingX: 0,
+  mouseSmoothingY: 0,
 });
 
 const Ship = Component.register("Ship", {
@@ -1027,9 +1384,8 @@ const Debris = Component.register("Debris", {
   collected: false,
 });
 
-const Inventory = Component.register("Inventory", {
-  slots: [] as { item: string; count: number; spoil: number }[],
-});
+// Inventory is now grid-based via the InventoryPlugin (GridInventory component)
+// The flat Inventory component is kept for backward compat but no longer used for new logic
 
 const Island = Component.register("Island", {
   x: 0, z: 0,
@@ -1121,7 +1477,7 @@ const Progression = Component.register("Progression", {
 // ─── Queries ───────────────────────────────────────────────
 
 const playerQuery = query(Player.id, Health.id, Hunger.id, Thirst.id, Oxygen.id, Temperature.id);
-const playerInvQuery = query(Player.id, Inventory.id);
+const playerInvQuery = query(Player.id, GridInventory.id);
 const playerProgQuery = query(Player.id, Progression.id);
 const shipQuery = query(Ship.id);
 const wildlifeQuery = query(Wildlife.id);
@@ -1145,45 +1501,23 @@ function addXP(world: World, entity: Entity, amount: number) {
     prog.xp -= XP_PER_LEVEL * prog.level;
     prog.level++;
     prog.craftingTier = Math.floor(prog.level / 5);
-    console.log(`[progression] Level up! Now level ${prog.level} (crafting tier ${prog.craftingTier})`);
+    log.info("progression", `Level up! Now level ${prog.level} (crafting tier ${prog.craftingTier})`);
   }
 }
 
-// ─── Inventory helpers ──────────────────────────────────────
+// ─── Inventory helpers (now delegate to grid-based InventoryPlugin) ──
 
-function invAdd(inv: { item: string; count: number; spoil: number }[], item: string, count: number): boolean {
-  for (const s of inv) {
-    if (s.item === item && s.count > 0) {
-      s.count += count;
-      return true;
-    }
-  }
-  if (inv.length < INV_MAX_SLOTS) {
-    inv.push({ item, count, spoil: 1.0 });
-    return true;
-  }
-  return false;
+function invAdd(grid: InventoryGrid, item: string, count: number): boolean {
+  const remaining = gridAddItem(grid, item, count);
+  return remaining === 0;
 }
 
-function invRemove(inv: { item: string; count: number; spoil: number }[], item: string, count: number): boolean {
-  for (const s of inv) {
-    if (s.item === item && s.count >= count) {
-      s.count -= count;
-      if (s.count <= 0) {
-        const idx = inv.indexOf(s);
-        if (idx >= 0) inv.splice(idx, 1);
-      }
-      return true;
-    }
-  }
-  return false;
+function invRemove(grid: InventoryGrid, item: string, count: number): boolean {
+  return gridRemoveItemById(grid, item, count);
 }
 
-function invCount(inv: { item: string; count: number; spoil: number }[], item: string): number {
-  for (const s of inv) {
-    if (s.item === item) return s.count;
-  }
-  return 0;
+function invCount(grid: InventoryGrid, item: string): number {
+  return gridCountItem(grid, item);
 }
 
 // ─── Island helpers ─────────────────────────────────────────
@@ -1224,49 +1558,263 @@ function isOnIsland(px: number, pz: number): { onLand: boolean; groundY: number;
 
 // ─── Game Systems (tick order matches to-the-ocean Simulation.tick) ──
 
-// 1. WeatherSystem — weather transitions, wind, visibility, temperature
+// 1. WeatherSystem — weather transitions, wind, visibility, temperature, rain collectors
+//    (parity with to-the-ocean WeatherSystem.ts)
+
 const weatherState = {
   type: WeatherType.Clear,
   intensity: 0,
-  windSpeed: 3,
+  windSpeed: 2,
   windDirX: 1,
   windDirZ: 0,
   visibility: 1.0,
-  ambientTemp: 22,
-  transitionTimer: 0,
+  ambientTemp: 20,
+  duration: 60,
+  cooldown: 0,
+  isRareEvent: false,
 };
+
+// Rain collectors: entityId -> water amount
+const rainCollectors = new Map<number, number>();
+let weatherTargetWindSpeed = 2;
+let weatherSimTime = 0;
+let weatherIntensityMul = 1.0;
+
+// ─── Water Physics State ────────────────────────────────────
+// Low-poly water heightfield (256×256 grid, 4m per cell = 1024m coverage)
+const waterBuffer = new WaterBuffer(4);
+const waterPhysics = new WaterPhysics(waterBuffer, { waterLevel: 0 });
+const buoyancySystem_ = new BuoyancySystem(waterPhysics);
+const waterWakeProviders: WakeProvider[] = [];
+const waterShoreProviders: ShoreProvider[] = [];
+const waterShoreSources: ShoreSource[] = [];
+for (let i = 0; i < MAX_SHORES; i++) {
+  waterShoreSources.push({ x: 0, z: 0, radius: 0, cutoutRadius: 0 });
+}
+const waterWakeData = new Float32Array(MAX_WAKES * WAKE_FLOATS);
+const waterShoreData = new Float32Array(MAX_SHORES * SHORE_FLOATS);
+let waterPhysicsTime = 0;
+
+function defaultIntensityFor(type: WeatherType): number {
+  switch (type) {
+    case WeatherType.Clear: return 0;
+    case WeatherType.PartlyCloudy: return 0.3;
+    case WeatherType.Overcast: return 0.6;
+    case WeatherType.Rain: return 0.6;
+    case WeatherType.Storm: return 0.8;
+    case WeatherType.Fog: return 0.4;
+    case WeatherType.Eclipse: return 0.8;
+    case WeatherType.FullMoon: return 0.3;
+    case WeatherType.HellStorm: return 1.0;
+    case WeatherType.Snow: return 0.5;
+    default: return 0;
+  }
+}
+
+function weatherIsRaining(): boolean {
+  return weatherState.type === WeatherType.Rain ||
+    weatherState.type === WeatherType.Storm ||
+    weatherState.type === WeatherType.HellStorm;
+}
+
+function weatherIsStormy(): boolean {
+  return weatherState.type === WeatherType.Storm ||
+    weatherState.type === WeatherType.HellStorm;
+}
+
+function weatherIsRareEvent(): boolean {
+  return weatherState.isRareEvent;
+}
+
+function weatherIsHellStorm(): boolean {
+  return weatherState.type === WeatherType.HellStorm;
+}
+
+function registerRainCollector(entityId: number): void {
+  rainCollectors.set(entityId, 0);
+}
+
+function unregisterRainCollector(entityId: number): void {
+  rainCollectors.delete(entityId);
+}
+
+function getRainCollectorAmount(entityId: number): number {
+  return rainCollectors.get(entityId) ?? 0;
+}
+
+function useRainCollectorWater(entityId: number, amount: number): number {
+  const current = rainCollectors.get(entityId) ?? 0;
+  const used = Math.min(current, amount);
+  rainCollectors.set(entityId, current - used);
+  return used;
+}
+
+function setWeatherType(type: WeatherType, intensity?: number): void {
+  weatherState.type = type;
+  weatherState.intensity = intensity ?? defaultIntensityFor(type);
+  weatherState.isRareEvent = false;
+  weatherState.duration = WEATHER_MAX_DURATION;
+  weatherState.cooldown = 5;
+}
+
+function setWeatherIntensityMul(mul: number): void {
+  weatherIntensityMul = mul;
+}
+
+function transitionWeather(timeOfDay: number): void {
+  const isNight = timeOfDay > NIGHT_START_FRAC || timeOfDay < NIGHT_END_FRAC;
+  const roll = Math.random();
+
+  if (roll < WEATHER_CLEAR_CHANCE) {
+    const cloudRoll = Math.random();
+    if (cloudRoll < WEATHER_FULL_CLEAR) {
+      weatherState.type = WeatherType.Clear;
+      weatherState.intensity = 0;
+    } else if (cloudRoll < WEATHER_FULL_CLEAR + WEATHER_PARTLY_CLOUDY) {
+      weatherState.type = WeatherType.PartlyCloudy;
+      weatherState.intensity = 0.3 * weatherIntensityMul;
+    } else {
+      weatherState.type = WeatherType.Overcast;
+      weatherState.intensity = 0.6 * weatherIntensityMul;
+    }
+  } else {
+    const stormRoll = Math.random();
+    if (stormRoll < 0.4) {
+      weatherState.type = WeatherType.Rain;
+      weatherState.intensity = (0.5 + Math.random() * 0.3) * weatherIntensityMul;
+    } else if (stormRoll < 0.65) {
+      weatherState.type = WeatherType.Storm;
+      weatherState.intensity = (0.7 + Math.random() * 0.3) * weatherIntensityMul;
+    } else if (stormRoll < 0.85) {
+      weatherState.type = WeatherType.Fog;
+      weatherState.intensity = 0.4 * weatherIntensityMul;
+    } else {
+      weatherState.type = WeatherType.Snow;
+      weatherState.intensity = 0.5 * weatherIntensityMul;
+    }
+  }
+
+  // Rare event check
+  if (Math.random() < WEATHER_RARE_EVENT_CHANCE) {
+    const rareRoll = Math.random();
+    if (rareRoll < 0.34) {
+      weatherState.type = WeatherType.Eclipse;
+      weatherState.intensity = 0.8;
+      weatherState.isRareEvent = true;
+    } else if (rareRoll < 0.67 && isNight) {
+      weatherState.type = WeatherType.FullMoon;
+      weatherState.intensity = 0.3;
+      weatherState.isRareEvent = true;
+    } else {
+      weatherState.type = WeatherType.HellStorm;
+      weatherState.intensity = 1.0 * weatherIntensityMul;
+      weatherState.isRareEvent = true;
+    }
+  } else {
+    weatherState.isRareEvent = false;
+  }
+
+  // Duration
+  if (weatherState.type === WeatherType.FullMoon && isNight) {
+    let remainingFrac: number;
+    if (timeOfDay > NIGHT_START_FRAC) {
+      remainingFrac = (1.0 - timeOfDay) + NIGHT_END_FRAC;
+    } else {
+      remainingFrac = NIGHT_END_FRAC - timeOfDay;
+    }
+    weatherState.duration = Math.max(WEATHER_MIN_DURATION, remainingFrac * 1200);
+  } else if (weatherState.isRareEvent) {
+    weatherState.duration = WEATHER_MAX_DURATION;
+  } else {
+    weatherState.duration = WEATHER_MIN_DURATION + Math.random() * (WEATHER_MAX_DURATION - WEATHER_MIN_DURATION);
+  }
+  weatherState.cooldown = 5;
+
+  // Wind speed target
+  if (weatherState.type === WeatherType.Storm || weatherState.type === WeatherType.HellStorm) {
+    weatherTargetWindSpeed = 15 + Math.random() * 10;
+  } else if (weatherState.type === WeatherType.Rain) {
+    weatherTargetWindSpeed = 8 + Math.random() * 4;
+  } else if (weatherState.type === WeatherType.Overcast || weatherState.type === WeatherType.Snow) {
+    weatherTargetWindSpeed = 5;
+  } else {
+    weatherTargetWindSpeed = 2;
+  }
+}
+
+function updateWeatherVisibility(dt: number): void {
+  let targetVisibility = 1.0;
+  switch (weatherState.type) {
+    case WeatherType.Clear: targetVisibility = 1.0; break;
+    case WeatherType.PartlyCloudy: targetVisibility = 0.9; break;
+    case WeatherType.Overcast: targetVisibility = 0.75; break;
+    case WeatherType.Rain: targetVisibility = 0.5 + (1 - weatherState.intensity) * 0.3; break;
+    case WeatherType.Storm: targetVisibility = 0.3; break;
+    case WeatherType.Fog: targetVisibility = 0.2; break;
+    case WeatherType.Eclipse: targetVisibility = 0.4; break;
+    case WeatherType.HellStorm: targetVisibility = 0.25; break;
+    case WeatherType.FullMoon: targetVisibility = 0.7; break;
+    case WeatherType.Snow: targetVisibility = 0.4; break;
+  }
+  const lerpFactor = Math.min(1, dt * 0.5);
+  weatherState.visibility += (targetVisibility - weatherState.visibility) * lerpFactor;
+}
+
+function updateWeatherTemperature(dt: number, timeOfDay: number): void {
+  const dayFactor = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
+  let targetTemp = 15 + dayFactor * 10;
+
+  switch (weatherState.type) {
+    case WeatherType.Storm:
+    case WeatherType.HellStorm:
+      targetTemp -= 5; break;
+    case WeatherType.Rain:
+      targetTemp -= 3; break;
+    case WeatherType.Snow:
+      targetTemp -= 15; break;
+    case WeatherType.Fog:
+      targetTemp -= 2; break;
+    case WeatherType.Eclipse:
+      targetTemp -= 10; break;
+  }
+
+  const lerpFactor = Math.min(1, dt / 60);
+  weatherState.ambientTemp += (targetTemp - weatherState.ambientTemp) * lerpFactor;
+}
 
 const weatherSystem = system("weather", Stage.Update, (ctx) => {
   const dt = ctx.dt;
-  weatherState.transitionTimer += dt;
-  if (weatherState.transitionTimer >= WEATHER_TRANSITION_INTERVAL) {
-    weatherState.transitionTimer = 0;
-    const r = Math.random();
-    if (r < 0.4) weatherState.type = WeatherType.Clear;
-    else if (r < 0.7) weatherState.type = WeatherType.Cloudy;
-    else if (r < 0.85) weatherState.type = WeatherType.Rain;
-    else if (r < 0.95) weatherState.type = WeatherType.Storm;
-    else weatherState.type = WeatherType.Fog;
+  weatherSimTime += dt;
+  weatherState.duration -= dt;
+  weatherState.cooldown -= dt;
+
+  const timeOfDay = ctx.world.getResource<number>("timeOfDay") ?? 0;
+
+  if (weatherState.duration <= 0 && weatherState.cooldown <= 0) {
+    transitionWeather(timeOfDay);
   }
 
-  const targetWind = weatherState.type === WeatherType.Storm ? 25 :
-    weatherState.type === WeatherType.Rain ? 12 :
-    weatherState.type === WeatherType.Cloudy ? 6 : 3;
-  weatherState.windSpeed += (targetWind - weatherState.windSpeed) * 0.01;
-
-  const targetVis = weatherState.type === WeatherType.Fog ? 0.3 :
-    weatherState.type === WeatherType.Storm ? 0.5 :
-    weatherState.type === WeatherType.Rain ? 0.7 : 1.0;
-  weatherState.visibility += (targetVis - weatherState.visibility) * 0.02;
-
-  const targetTemp = weatherState.type === WeatherType.Storm ? 15 :
-    weatherState.type === WeatherType.Rain ? 18 :
-    weatherState.type === WeatherType.Clear ? 26 : 22;
-  weatherState.ambientTemp += (targetTemp - weatherState.ambientTemp) * 0.005;
-
-  const windAngle = ctx.tick * 0.001;
+  // Wind direction slowly rotates using deterministic sim time
+  const windAngle = weatherSimTime / 10000;
   weatherState.windDirX = Math.cos(windAngle);
   weatherState.windDirZ = Math.sin(windAngle);
+
+  // Smooth toward target wind speed (~2s time constant)
+  weatherState.windSpeed += (weatherTargetWindSpeed - weatherState.windSpeed) * dt * 0.5;
+
+  // Visibility
+  updateWeatherVisibility(dt);
+
+  // Temperature
+  updateWeatherTemperature(dt, timeOfDay);
+
+  // Rain collectors
+  if (weatherIsRaining()) {
+    for (const [id, amount] of rainCollectors) {
+      const newAmount = Math.min(RAIN_COLLECTOR_CAPACITY, amount + RAIN_COLLECTOR_FILL_RATE * dt * weatherState.intensity);
+      rainCollectors.set(id, newAmount);
+    }
+  }
 }, { queries: [] });
 
 // 2. PlayerMovementSystem — heading-based movement with mouse-look, swimming, diving, jumping, noclip
@@ -1288,11 +1836,18 @@ const playerMovementSystem = system("player-movement", Stage.Update, (ctx) => {
     }
 
     // ─── Mouse-look: update heading and pitch from mouse delta ───
+    // Subtle exponential smoothing: carry 15% of delta to next tick
     if (input) {
       const { dx, dy } = consumeMouseDelta(input);
-      if (dx !== 0 || dy !== 0) {
-        player.heading -= dx * MOUSE_LOOK_SENSITIVITY;
-        player.pitch -= dy * MOUSE_LOOK_SENSITIVITY;
+      player.mouseSmoothingX += dx;
+      player.mouseSmoothingY += dy;
+      const applyX = player.mouseSmoothingX * 0.85;
+      const applyY = player.mouseSmoothingY * 0.85;
+      player.mouseSmoothingX -= applyX;
+      player.mouseSmoothingY -= applyY;
+      if (applyX !== 0 || applyY !== 0) {
+        player.heading += applyX * MOUSE_LOOK_SENSITIVITY;
+        player.pitch -= applyY * MOUSE_LOOK_SENSITIVITY;
         player.pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, player.pitch));
       }
 
@@ -1307,13 +1862,13 @@ const playerMovementSystem = system("player-movement", Stage.Update, (ctx) => {
         player.cameraMode = (player.cameraMode + 1) % 3;
         const modeName = player.cameraMode === CameraMode.FirstPerson ? "FirstPerson" :
           player.cameraMode === CameraMode.ThirdPerson ? "ThirdPerson" : "FreeCam";
-        console.log(`[camera] mode: ${modeName}`);
+        log.info("camera", `mode: ${modeName}`);
       }
 
       // Noclip toggle (F5)
       if (input.pressed.has("f5")) {
         player.isNoclip = !player.isNoclip;
-        console.log(`[player] noclip: ${player.isNoclip ? "ON" : "OFF"}`);
+        log.info("player", `noclip: ${player.isNoclip ? "ON" : "OFF"}`);
       }
 
       // Hotbar selection (1-9, 0)
@@ -1328,8 +1883,11 @@ const playerMovementSystem = system("player-movement", Stage.Update, (ctx) => {
 
     const island = isOnIsland(player.x, player.z);
     const onLand = island.onLand && island.groundY > ISLAND_BEACH_LEVEL;
-    const inWater = !onLand && player.y < WATER_LEVEL + 0.5;
-    const isUnderwater = player.y < WATER_LEVEL - 0.5;
+    // Use physics-based water height for more realistic swimming
+    const waterH = waterPhysics.sampleWaterAt(player.x, player.z);
+    const effectiveWaterLevel = waterH > -100 ? waterH : WATER_LEVEL;
+    const inWater = !onLand && player.y < effectiveWaterLevel + 0.5;
+    const isUnderwater = player.y < effectiveWaterLevel - 0.5;
 
     // ─── Noclip mode: free flight ───
     if (player.isNoclip) {
@@ -1454,10 +2012,12 @@ const playerMovementSystem = system("player-movement", Stage.Update, (ctx) => {
           const fallDist = player.fallStartY - player.y;
           if (fallDist > PLAYER_FALL_DAMAGE_THRESHOLD) {
             const damage = (fallDist - PLAYER_FALL_DAMAGE_THRESHOLD) * PLAYER_FALL_DAMAGE_RATE;
-            playerQuery.iterate(ctx.tick, (_pe, [, health]) => {
+            playerQuery.iterate(ctx.tick, (_pe, [playerRaw, health]) => {
+              const player = playerRaw as typeof Player.defaults;
+              if (player.isDead) return;
               const h = health as typeof Health.defaults;
               h.current = Math.max(0, h.current - damage);
-              console.log(`[fall] took ${damage.toFixed(1)} fall damage (fell ${fallDist.toFixed(1)}m)`);
+              log.info("fall", `took ${damage.toFixed(1)} fall damage (fell ${fallDist.toFixed(1)}m)`);
             });
           }
           player.y = groundY;
@@ -1475,14 +2035,14 @@ const playerMovementSystem = system("player-movement", Stage.Update, (ctx) => {
       } else {
         player.vy = PLAYER_WATER_BUOYANCY * 0.3;
         player.y += player.vy * dt;
-        if (player.y > WATER_LEVEL + 0.5) player.y = WATER_LEVEL + 0.5;
+        if (player.y > effectiveWaterLevel + 0.5) player.y = effectiveWaterLevel + 0.5;
       }
       player.vx *= PLAYER_WATER_DAMPING;
       player.vz *= PLAYER_WATER_DAMPING;
     } else {
       player.vy -= PLAYER_GRAVITY * dt;
       player.y += player.vy * dt;
-      if (player.y < WATER_LEVEL) player.y = WATER_LEVEL;
+      if (player.y < effectiveWaterLevel) player.y = effectiveWaterLevel;
       player.isGrounded = false;
     }
   });
@@ -1520,12 +2080,97 @@ const shipControlSystem = system("ship-control", Stage.Update, (ctx) => {
   });
 }, { queries: [shipQuery] });
 
-// 4. BuoyancySystem — ship buoyancy + gravity (parity with BuoyancySystem.tick)
+// 4. BuoyancySystem — real water-physics-based ship buoyancy
+//    Samples water height from the 256×256 heightfield at bow/stern/port/starboard
+//    and applies spring forces + pitch/roll torques (parity with to-the-ocean BuoyancySystem)
 const buoyancySystem = system("buoyancy", Stage.Physics, (ctx) => {
+  const dt = ctx.dt;
   shipQuery.iterate(ctx.tick, (entity, [ship]) => {
-    ship.y = WATER_LEVEL + Math.sin(ctx.tick * 0.05) * 0.2;
+    const ent: BuoyancyEntity = {
+      x: ship.x, y: ship.y, z: ship.z,
+      vx: ship.vx, vy: 0, vz: ship.vz,
+      heading: ship.heading,
+      pitch: 0, roll: 0,
+      angularVelX: 0, angularVelZ: 0,
+      speed: ship.speed,
+      mass: 1000,
+    };
+    buoyancySystem_.applyBuoyancy(ent, dt);
+    ship.y = ent.y;
+    // Apply water height offset so ship sits on the water surface
+    const waterH = waterPhysics.sampleWaterAt(ship.x, ship.z);
+    if (waterH > -100) {
+      ship.y = waterH;
+    }
   });
 }, { queries: [shipQuery] });
+
+// 4a. WaveSourceSystem — collects wake sources from ships and shore sources from islands
+//     Feeds them into the water physics system so entities generate waves
+const waveSourceSystem = system("wave-sources", Stage.Update, (ctx) => {
+  // Collect wake sources from ships (moving vessels create V-shaped wakes)
+  waterWakeProviders.length = 0;
+  shipQuery.iterate(ctx.tick, (_e, [ship]) => {
+    if (ship.speed > 0.5) {
+      waterWakeProviders.push({
+        x: ship.x, z: ship.z,
+        heading: ship.heading,
+        speed: ship.speed,
+      });
+    }
+  });
+  // Also collect pirate ships as wake sources
+  pirateQuery.iterate(ctx.tick, (_e, [pirate]) => {
+    if (pirate.health > 0) {
+      const pSpeed = Math.sqrt((pirate.vx || 0) ** 2 + (pirate.vz || 0) ** 2);
+      if (pSpeed > 0.5) {
+        waterWakeProviders.push({
+          x: pirate.x, z: pirate.z,
+          heading: Math.atan2(pirate.vx || 0, pirate.vz || 1),
+          speed: pSpeed,
+        });
+      }
+    }
+  });
+
+  // Collect shore sources from islands (creates shore damping + ring waves)
+  waterShoreProviders.length = 0;
+  islandQuery.iterate(ctx.tick, (_e, [island]) => {
+    waterShoreProviders.push({
+      x: island.x, z: island.z,
+      radius: island.radius,
+      cutoutRadius: island.radius * 0.5,
+    });
+  });
+  // Also use ports as shore sources (smaller radius)
+  portQuery.iterate(ctx.tick, (_e, [port]) => {
+    waterShoreProviders.push({
+      x: port.x, z: port.z,
+      radius: 8,
+      cutoutRadius: 0,
+    });
+  });
+
+  // Pack into arrays for the water physics
+  const wakeCount = collectWakeSources(waterWakeProviders, waterWakeData);
+  const shoreCount = collectShoreSources(waterShoreProviders, waterShoreSources);
+  packShoreSources(waterShoreSources, shoreCount, waterShoreData);
+
+  // Update water physics with shore sources and weather
+  waterPhysics.setShoreSources(waterShoreSources, shoreCount);
+  waterPhysics.setConfig({
+    windSpeed: weatherState.windSpeed,
+    windDirX: weatherState.windDirX,
+    windDirZ: weatherState.windDirZ,
+  });
+
+  // Update the water heightfield grid (follows camera)
+  const cam = ctx.world.getResource<Camera>("camera");
+  const camX = cam?.position?.[0] ?? 0;
+  const camZ = cam?.position?.[2] ?? 0;
+  waterPhysics.update(ctx.dt, camX, camZ);
+  waterPhysicsTime += ctx.dt;
+}, { queries: [shipQuery, islandQuery, portQuery, pirateQuery] });
 
 // 5. SurvivalSystem — hunger, thirst, oxygen, temperature, damage (parity with SurvivalSystem.tick)
 const survivalSystem = system("survival", Stage.Update, (ctx) => {
@@ -1566,7 +2211,8 @@ const survivalSystem = system("survival", Stage.Update, (ctx) => {
         thirst.current <= 0 ? "dehydration" :
         temp.current < TEMP_DAMAGE_THRESHOLD_LOW ? "hypothermia" :
         temp.current > TEMP_DAMAGE_THRESHOLD_HIGH ? "hyperthermia" : "unknown";
-      console.log(`[survival] player died from ${cause}`);
+      deathCause = cause;
+      log.info("survival", `player died from ${cause}`);
     }
   });
 }, { queries: [playerQuery] });
@@ -1605,7 +2251,7 @@ const wildlifeAISystem = system("wildlife-ai", Stage.Update, (ctx) => {
           playerQuery.iterate(ctx.tick, (pe, [player, health]) => {
             if (!player.isDead) {
               health.current = Math.max(0, health.current - SHARK_ATTACK_DAMAGE);
-              console.log(`[shark] attacked player! Health: ${health.current.toFixed(0)}`);
+              log.info("shark", `attacked player! Health: ${health.current.toFixed(0)}`);
             }
           });
         }
@@ -1641,40 +2287,44 @@ const debrisCollectionSystem = system("debris-collection", Stage.Update, (ctx) =
 
     if (dist < 2) {
       debris.collected = true;
-      console.log(`[debris] collected ${debris.type}`);
+      log.info("debris", `collected ${debris.type}`);
 
       // Add to player inventory
       playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
         if (debris.type === "food") {
-          invAdd(inv.slots, "food", 1);
+          invAdd(inv.grid, "food", 1);
         } else if (debris.type === "water") {
           // Water is consumed immediately
           playerQuery.iterate(ctx.tick, (_pe, [, , , thirst]) => {
             thirst.current = Math.min(thirst.max, thirst.current + 30);
           });
         } else if (debris.type === "wood") {
-          invAdd(inv.slots, "wood", 1);
+          invAdd(inv.grid, "wood", 1);
         }
       });
     }
   });
 }, { queries: [debrisQuery, playerQuery] });
 
+let shipDestroyedLogged = false;
 // 8. ShipIntegritySystem — ship degradation (parity with structureIntegrity)
 const shipIntegritySystem = system("ship-integrity", Stage.PostUpdate, (ctx) => {
   const dt = ctx.dt;
   shipQuery.iterate(ctx.tick, (entity, [ship]) => {
-    if (weatherState.type === WeatherType.Storm) {
+    if (weatherIsHellStorm()) {
+      ship.integrity = Math.max(0, ship.integrity - 2.0 * dt);
+    } else if (weatherIsStormy()) {
       ship.integrity = Math.max(0, ship.integrity - 0.5 * dt);
     } else {
       ship.integrity = Math.max(0, ship.integrity - 0.05 * dt);
     }
 
     if (ship.integrity < 30 && ctx.tick % 300 === 0) {
-      console.log(`[ship] integrity low: ${ship.integrity.toFixed(0)}%`);
+      log.info("ship", `integrity low: ${ship.integrity.toFixed(0)}%`);
     }
-    if (ship.integrity <= 0) {
-      console.log("[ship] destroyed — game over!");
+    if (ship.integrity <= 0 && !shipDestroyedLogged) {
+      shipDestroyedLogged = true;
+      log.info("ship", "destroyed — game over!");
     }
   });
 }, { queries: [shipQuery] });
@@ -1695,13 +2345,13 @@ const shipBoardingSystem = system("ship-boarding", Stage.Update, (ctx) => {
           const dist = Math.sqrt(dx * dx + dz * dz);
           if (dist < BOARD_RANGE) {
             player.onShip = true;
-            console.log("[ship] boarded ship — WASD to steer, Shift to throttle");
+            log.info("ship", "boarded ship — WASD to steer, Shift to throttle");
           }
         } else {
           player.onShip = false;
           player.x = ship.x + 2;
           player.z = ship.z + 2;
-          console.log("[ship] left ship");
+          log.info("ship", "left ship");
         }
       }
 
@@ -1710,20 +2360,20 @@ const shipBoardingSystem = system("ship-boarding", Stage.Update, (ctx) => {
         if (isNaN(ship.anchorX)) {
           ship.anchorX = ship.x;
           ship.anchorZ = ship.z;
-          console.log("[ship] anchor dropped");
+          log.info("ship", "anchor dropped");
         } else {
           ship.anchorX = NaN;
           ship.anchorZ = NaN;
-          console.log("[ship] anchor raised");
+          log.info("ship", "anchor raised");
         }
       }
 
       // Repair with R
       if (input.keys.has("r") && player.onShip && ship.integrity < ship.maxIntegrity) {
-        if (invRemove(inv.slots, "wood", 1)) {
+        if (invRemove(inv.grid, "wood", 1)) {
           ship.integrity = Math.min(ship.maxIntegrity, ship.integrity + REPAIR_RATE * dt);
           if (ctx.tick % 60 === 0) {
-            console.log(`[ship] repaired to ${ship.integrity.toFixed(0)}%`);
+            log.info("ship", `repaired to ${ship.integrity.toFixed(0)}%`);
           }
         }
       }
@@ -1749,20 +2399,20 @@ const fishingSystem = system("fishing", Stage.Update, (ctx) => {
             line.hooked = false;
             line.timer = 0;
             line.waitTime = FISHING_MIN_WAIT + Math.random() * (FISHING_MAX_WAIT - FISHING_MIN_WAIT);
-            console.log("[fishing] line cast...");
+            log.info("fishing", "line cast...");
           }
         } else {
           // Reel in
           if (line.hooked) {
             if (Math.random() < FISHING_CATCH_CHANCE) {
-              invAdd(inv.slots, "raw_fish", 1);
-              console.log("[fishing] caught a fish!");
+              invAdd(inv.grid, "raw_fish", 1);
+              log.info("fishing", "caught a fish!");
               playerProgQuery.iterate(ctx.tick, (_pe, [pe, _]) => addXP(ctx.world, pe, XP_CATCH_FISH));
             } else {
-              console.log("[fishing] the fish got away...");
+              log.info("fishing", "the fish got away...");
             }
           } else {
-            console.log("[fishing] reeled in empty");
+            log.info("fishing", "reeled in empty");
           }
           line.cast = false;
           line.hooked = false;
@@ -1774,34 +2424,47 @@ const fishingSystem = system("fishing", Stage.Update, (ctx) => {
         line.timer += dt;
         if (line.timer >= line.waitTime) {
           line.hooked = true;
-          console.log("[fishing] something hooked! Press F to reel in");
+          log.info("fishing", "something hooked! Press F to reel in");
         }
       }
     });
   });
 }, { queries: [playerInvQuery, fishingQuery, playerProgQuery] });
 
-// 11. CraftingSystem — craft items from resources
+// 11. CraftingSystem — recipe-based crafting with tier unlocks and craft queue
 const craftingSystem = system("crafting", Stage.Update, (ctx) => {
   const input = ctx.world.getResource<{ keys: Set<string>; pressed: Set<string> }>("input");
   if (!input) return;
 
-  playerInvQuery.iterate(ctx.tick, (_e, [player, inv]) => {
-    // C = craft menu (cycles through recipes)
-    if (input.pressed.has("c")) {
-      const craftState = ctx.world.getResource<{ lastRecipe: number }>("craftState") ?? { lastRecipe: 0 };
-      const recipes = [
-        { name: "planks", input: { wood: CRAFT_PLANK_COST }, output: { item: "planks", count: 2 } },
-        { name: "campfire", input: { planks: CRAFT_CAMPFIRE_COST }, output: { item: "campfire", count: 1 } },
-        { name: "sail", input: { planks: CRAFT_SAIL_COST }, output: { item: "sail", count: 1 } },
-        { name: "cooked_fish", input: { raw_fish: 1 }, output: { item: "cooked_fish", count: 1 }, needsFire: true },
-        { name: "raft_upgrade", input: { planks: CRAFT_RAFT_COST }, output: { item: "raft_upgrade", count: 1 } },
-      ];
-      const recipe = recipes[craftState.lastRecipe % recipes.length];
-      craftState.lastRecipe = (craftState.lastRecipe + 1) % recipes.length;
-      ctx.world.setResource("craftState", craftState);
+  playerInvQuery.iterate(ctx.tick, (_e, [playerRaw, invRaw]) => {
+    const player = playerRaw as typeof Player.defaults;
+    const inv = invRaw as typeof GridInventory.defaults;
 
-      // Check if near campfire for cooking
+    // Get craft state from player's Progression component
+    let unlockedSet = new Set<string>();
+    playerProgQuery.iterate(ctx.tick, (_pe, [_pe2, progRaw]) => {
+      const prog = progRaw as typeof Progression.defaults;
+      // Ensure recipes are unlocked for current tier
+      unlockedSet = new Set<string>(prog.unlockedRecipes);
+      unlockRecipesForTier(prog.craftingTier, unlockedSet);
+      prog.unlockedRecipes = [...unlockedSet];
+    });
+
+    // C = craft (cycles through unlocked recipes)
+    if (input.pressed.has("c")) {
+      const craftRes = ctx.world.getResource<{ lastRecipe: number }>("craftState") ?? { lastRecipe: 0 };
+      const availableRecipes = getUnlockedRecipes(unlockedSet);
+
+      if (availableRecipes.length === 0) {
+        log.info("craft", "no recipes unlocked yet");
+        return;
+      }
+
+      const recipe = availableRecipes[craftRes.lastRecipe % availableRecipes.length];
+      craftRes.lastRecipe = (craftRes.lastRecipe + 1) % availableRecipes.length;
+      ctx.world.setResource("craftState", craftRes);
+
+      // Check if near campfire for recipes that need fire
       let nearFire = false;
       if (recipe.needsFire) {
         buildableQuery.iterate(ctx.tick, (_be, [b]) => {
@@ -1811,94 +2474,103 @@ const craftingSystem = system("crafting", Stage.Update, (ctx) => {
         });
       }
 
-      // Check ingredients
-      let canCraft = true;
-      for (const [item, count] of Object.entries(recipe.input)) {
-        if (invCount(inv.slots, item) < count) canCraft = false;
+      // Check crafting stations (workbench_basic, etc.)
+      const stations = ctx.world.getResource<Set<string>>("craftingStations") ?? new Set<string>();
+      if (recipe.station && !stations.has(recipe.station)) {
+        log.info("craft", `cannot craft ${recipe.name} — needs ${recipe.station}`);
+        return;
       }
-      if (recipe.needsFire && !nearFire) canCraft = false;
 
-      if (canCraft) {
-        for (const [item, count] of Object.entries(recipe.input)) {
-          invRemove(inv.slots, item, count);
-        }
-        invAdd(inv.slots, recipe.output.item, recipe.output.count);
-        console.log(`[craft] crafted ${recipe.output.count}x ${recipe.output.item}`);
-        playerProgQuery.iterate(ctx.tick, (_pe, [pe, _]) => addXP(ctx.world, pe, XP_CRAFT));
+      // Check ingredients using grid-based inventory
+      if (!canCraft(recipe, inv.grid)) {
+        log.info("craft", `cannot craft ${recipe.name} — missing resources${recipe.needsFire && !nearFire ? " or need campfire nearby" : ""}`);
+        return;
+      }
 
-        // Place campfire in world
-        if (recipe.output.item === "campfire") {
-          const comps = new Map<number, unknown>();
-          comps.set(Buildable.id, Buildable.create({
-            type: "campfire",
-            x: player.x + 1,
-            y: player.y,
-            z: player.z + 1,
-            health: 100,
-          }));
-          ecsWorld.spawn(comps);
-          console.log("[craft] campfire placed near player");
-        }
-      } else {
-        console.log(`[craft] cannot craft ${recipe.name} — missing resources${recipe.needsFire && !nearFire ? " or need campfire nearby" : ""}`);
+      if (recipe.needsFire && !nearFire) {
+        log.info("craft", `cannot craft ${recipe.name} — need campfire nearby`);
+        return;
+      }
+
+      // Execute craft (consumes inputs, produces output)
+      executeCraft(recipe, inv.grid);
+      log.info("craft", `crafted ${recipe.output.quantity}x ${recipe.output.itemId}`);
+      playerProgQuery.iterate(ctx.tick, (_pe, [pe, _]) => addXP(ctx.world, pe, XP_CRAFT));
+
+      // Place campfire in world
+      if (recipe.output.itemId === "campfire") {
+        const comps = new Map<number, unknown>();
+        comps.set(Buildable.id, Buildable.create({
+          type: "campfire",
+          x: player.x + 1,
+          y: player.y,
+          z: player.z + 1,
+          health: 100,
+        }));
+        ecsWorld.spawn(comps);
+        log.info("craft", "campfire placed near player");
+      }
+
+      // Place workbench in world and register as crafting station
+      if (recipe.output.itemId === "workbench_basic") {
+        const comps = new Map<number, unknown>();
+        comps.set(Buildable.id, Buildable.create({
+          type: "workbench_basic",
+          x: player.x + 1,
+          y: player.y,
+          z: player.z + 1,
+          health: 100,
+        }));
+        const wbEntity = ecsWorld.spawn(comps);
+        const st = ctx.world.getResource<Set<string>>("craftingStations") ?? new Set<string>();
+        st.add("workbench_basic");
+        ctx.world.setResource("craftingStations", st);
+        log.info("craft", "workbench placed near player — tier 1+ recipes unlocked");
       }
     }
 
     // Place raft upgrade (improves ship speed)
-    if (input.pressed.has("b") && invCount(inv.slots, "raft_upgrade") > 0) {
+    if (input.pressed.has("b") && invCount(inv.grid, "raft_upgrade") > 0) {
       shipQuery.iterate(ctx.tick, (_se, [ship]) => {
         const dx = ship.x - player.x;
         const dz = ship.z - player.z;
         if (Math.sqrt(dx * dx + dz * dz) < BOARD_RANGE + 2) {
-          invRemove(inv.slots, "raft_upgrade", 1);
+          invRemove(inv.grid, "raft_upgrade", 1);
           ship.maxIntegrity += 50;
           ship.integrity = ship.maxIntegrity;
-          console.log(`[craft] raft upgraded! Ship integrity: ${ship.integrity.toFixed(0)}/${ship.maxIntegrity}`);
+          log.info("craft", `raft upgraded! Ship integrity: ${ship.integrity.toFixed(0)}/${ship.maxIntegrity}`);
         }
       });
     }
 
     // Eat food
     if (input.pressed.has("t")) {
-      if (invRemove(inv.slots, "cooked_fish", 1)) {
+      if (invRemove(inv.grid, "cooked_fish", 1)) {
         playerQuery.iterate(ctx.tick, (_pe, [, , hunger]) => {
           hunger.current = Math.min(hunger.max, hunger.current + 35);
         });
-        console.log("[food] ate cooked fish (+35 hunger)");
-      } else if (invRemove(inv.slots, "raw_fish", 1)) {
+        log.info("food", "ate cooked fish (+35 hunger)");
+      } else if (invRemove(inv.grid, "raw_fish", 1)) {
         playerQuery.iterate(ctx.tick, (_pe, [, , hunger]) => {
           hunger.current = Math.min(hunger.max, hunger.current + 15);
         });
-        console.log("[food] ate raw fish (+15 hunger)");
-      } else if (invRemove(inv.slots, "food", 1)) {
+        log.info("food", "ate raw fish (+15 hunger)");
+      } else if (invRemove(inv.grid, "food", 1)) {
         playerQuery.iterate(ctx.tick, (_pe, [, , hunger]) => {
           hunger.current = Math.min(hunger.max, hunger.current + 25);
         });
-        console.log("[food] ate food (+25 hunger)");
+        log.info("food", "ate food (+25 hunger)");
       }
     }
   });
-}, { queries: [playerInvQuery, playerProgQuery, shipQuery] });
+}, { queries: [playerInvQuery, playerProgQuery, shipQuery, buildableQuery] });
 
-// 12. InventorySpoilageSystem — food spoils over time
-const spoilageSystem = system("spoilage", Stage.Update, (ctx) => {
-  const dt = ctx.dt;
-  const gameHoursPerSecond = 24 / DAY_DURATION;
-  const spoilThisTick = SPOILAGE_RATE * gameHoursPerSecond * dt;
-
-  playerInvQuery.iterate(ctx.tick, (_e, [player, inv]) => {
-    for (let i = inv.slots.length - 1; i >= 0; i--) {
-      const s = inv.slots[i];
-      if (s.item === "raw_fish" || s.item === "food" || s.item === "cooked_fish") {
-        s.spoil -= spoilThisTick;
-        if (s.spoil <= 0) {
-          console.log(`[spoilage] ${s.item} spoiled!`);
-          inv.slots.splice(i, 1);
-        }
-      }
-    }
-  });
-}, { queries: [playerInvQuery] });
+// 12. InventorySpoilageSystem — now handled by the InventoryPlugin's grid-spoilage system
+// The old flat-array spoilage system is replaced by the plugin's processSpoilage which
+// runs automatically on GridInventory components. We keep a no-op here for system ordering.
+const spoilageSystem = system("spoilage", Stage.Update, (_ctx) => {
+  // Spoilage is now handled by the InventoryPlugin's grid-spoilage system
+}, { queries: [] });
 
 // 13. ShipIslandCollisionSystem — prevent ship from sailing through islands
 const shipIslandCollisionSystem = system("ship-island-collision", Stage.Update, (ctx) => {
@@ -1932,7 +2604,8 @@ const debrisDriftSystem = system("debris-drift", Stage.Update, (ctx) => {
     if (debris.collected) return;
     debris.x += weatherState.windDirX * weatherState.windSpeed * 0.02 * dt;
     debris.z += weatherState.windDirZ * weatherState.windSpeed * 0.02 * dt;
-    debris.y = WATER_LEVEL + Math.sin(ctx.tick * 0.05 + debris.x) * 0.15;
+    const debrisWaterH = waterPhysics.sampleWaterAt(debris.x, debris.z);
+    debris.y = (debrisWaterH > -100 ? debrisWaterH : WATER_LEVEL) + Math.sin(ctx.tick * 0.05 + debris.x) * 0.15;
   });
 }, { queries: [debrisQuery] });
 
@@ -1964,7 +2637,7 @@ const pirateSystem = system("pirates", Stage.Update, (ctx) => {
           difficulty: diff,
         }));
         spawnEntity(ctx.world, comps);
-        console.log(`[pirate] spawned at (${px.toFixed(0)}, ${pz.toFixed(0)}) difficulty ${diff.toFixed(1)}`);
+        log.info("pirate", `spawned at (${px.toFixed(0)}, ${pz.toFixed(0)}) difficulty ${diff.toFixed(1)}`);
       });
     }
   }
@@ -2014,7 +2687,7 @@ const pirateSystem = system("pirates", Stage.Update, (ctx) => {
       pirate.attackCooldown = PIRATE_ATTACK_COOLDOWN;
       shipQuery.iterate(ctx.tick, (_se, [ship]) => {
         ship.integrity = Math.max(0, ship.integrity - PIRATE_ATTACK_DAMAGE * pirate.difficulty);
-        console.log(`[pirate] attacked ship! integrity: ${ship.integrity.toFixed(0)}/${ship.maxIntegrity}`);
+        log.info("pirate", `attacked ship! integrity: ${ship.integrity.toFixed(0)}/${ship.maxIntegrity}`);
       });
     }
 
@@ -2032,13 +2705,13 @@ const pirateSystem = system("pirates", Stage.Update, (ctx) => {
       const pdist = Math.sqrt(pdx * pdx + pdz * pdz);
       if (pdist < TOOL_GUN_RANGE) {
         pirate.health -= TOOL_GUN_DAMAGE;
-        console.log(`[gun] hit pirate for ${TOOL_GUN_DAMAGE} (health: ${pirate.health.toFixed(0)})`);
+        log.info("gun", `hit pirate for ${TOOL_GUN_DAMAGE} (health: ${pirate.health.toFixed(0)})`);
         if (pirate.health <= 0) {
-          console.log("[pirate] defeated! Dropping loot...");
+          log.info("pirate", "defeated! Dropping loot...");
           playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
             for (let i = 0; i < PIRATE_LOOT_DROP; i++) {
               const loot = ["wood", "food", "planks"][Math.floor(Math.random() * 3)];
-              invAdd(inv.slots, loot, 1);
+              invAdd(inv.grid, loot, 1);
             }
           });
           playerProgQuery.iterate(ctx.tick, (_pe, [pe, _]) => {
@@ -2083,20 +2756,20 @@ const portMarketSystem = system("port-market", Stage.Update, (ctx) => {
       if (dist < PORT_TRADE_RANGE) {
         playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
           // Sell raw_fish
-          const fishCount = invCount(inv.slots, "raw_fish");
+          const fishCount = invCount(inv.grid, "raw_fish");
           if (fishCount > 0) {
-            invRemove(inv.slots, "raw_fish", fishCount);
+            invRemove(inv.grid, "raw_fish", fishCount);
             const price = Math.floor(5 * (port.listings.find(l => l.item === "raw_fish")?.priceModifier ?? 1));
-            console.log(`[port] Sold ${fishCount} raw_fish for ${price * fishCount} coins`);
-            invAdd(inv.slots, "coin", price * fishCount);
+            log.info("port", `Sold ${fishCount} raw_fish for ${price * fishCount} coins`);
+            invAdd(inv.grid, "coin", price * fishCount);
           }
           // Buy wood
-          const coins = invCount(inv.slots, "coin");
+          const coins = invCount(inv.grid, "coin");
           const woodPrice = Math.floor(3 * (port.listings.find(l => l.item === "wood")?.priceModifier ?? 1));
           if (coins >= woodPrice) {
-            invRemove(inv.slots, "coin", woodPrice);
-            invAdd(inv.slots, "wood", 1);
-            console.log(`[port] Bought 1 wood for ${woodPrice} coins`);
+            invRemove(inv.grid, "coin", woodPrice);
+            invAdd(inv.grid, "wood", 1);
+            log.info("port", `Bought 1 wood for ${woodPrice} coins`);
           }
         });
       }
@@ -2113,7 +2786,7 @@ const animalSystem = system("animals", Stage.Update, (ctx) => {
     animal.age += dt;
     if (animal.stage < AnimalStage.Adult && animal.age > (animal.stage + 1) * ANIMAL_GROWTH_TIME) {
       animal.stage++;
-      console.log(`[animal] ${animal.species} grew to stage ${animal.stage}`);
+      log.info("animal", `${animal.species} grew to stage ${animal.stage}`);
     }
     animal.hunger = Math.max(0, animal.hunger - ANIMAL_HUNGER_DECAY * dt);
 
@@ -2132,7 +2805,7 @@ const animalSystem = system("animals", Stage.Update, (ctx) => {
       animal.productTimer -= dt;
       if (animal.productTimer <= 0) {
         animal.productTimer = ANIMAL_PRODUCT_TIME;
-        console.log(`[animal] ${animal.species} produced ${animal.productType}`);
+        log.info("animal", `${animal.species} produced ${animal.productType}`);
       }
     }
 
@@ -2143,10 +2816,10 @@ const animalSystem = system("animals", Stage.Update, (ctx) => {
       const d = Math.sqrt((animal.x - px) ** 2 + (animal.z - pz) ** 2);
       if (d < 3) {
         playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
-          invAdd(inv.slots, animal.productType, 1);
+          invAdd(inv.grid, animal.productType, 1);
           animal.productTimer = ANIMAL_PRODUCT_TIME;
           playerProgQuery.iterate(ctx.tick, (_pe, [pe, _]) => addXP(ctx.world, pe, XP_HARVEST));
-          console.log(`[animal] harvested ${animal.productType}`);
+          log.info("animal", `harvested ${animal.productType}`);
         });
       }
     }
@@ -2167,7 +2840,7 @@ const plantSystem = system("plants", Stage.Update, (ctx) => {
       if (plant.growthTimer >= duration) {
         plant.stage++;
         plant.growthTimer = 0;
-        console.log(`[plant] ${plant.species} grew to stage ${plant.stage}`);
+        log.info("plant", `${plant.species} grew to stage ${plant.stage}`);
       }
     }
 
@@ -2178,12 +2851,12 @@ const plantSystem = system("plants", Stage.Update, (ctx) => {
       const d = Math.sqrt((plant.x - px) ** 2 + (plant.z - pz) ** 2);
       if (d < 3) {
         playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
-          invAdd(inv.slots, plant.species, plant.yield);
+          invAdd(inv.grid, plant.species, plant.yield);
           plant.stage = PlantStage.Seed;
           plant.growthTimer = 0;
           plant.waterLevel = 100;
           playerProgQuery.iterate(ctx.tick, (_pe, [pe, _]) => addXP(ctx.world, pe, XP_HARVEST));
-          console.log(`[plant] harvested ${plant.yield} ${plant.species}`);
+          log.info("plant", `harvested ${plant.yield} ${plant.species}`);
         });
       }
     }
@@ -2195,7 +2868,7 @@ const plantSystem = system("plants", Stage.Update, (ctx) => {
       const d = Math.sqrt((plant.x - px) ** 2 + (plant.z - pz) ** 2);
       if (d < 3) {
         plant.waterLevel = 100;
-        console.log(`[plant] watered ${plant.species}`);
+        log.info("plant", `watered ${plant.species}`);
       }
     }
   });
@@ -2238,10 +2911,10 @@ const petSystem = system("pets", Stage.Update, (ctx) => {
       const pd = Math.sqrt((pet.x - px) ** 2 + (pet.z - pz) ** 2);
       if (pd < 3) {
         playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
-          if (invRemove(inv.slots, "food", 1) || invRemove(inv.slots, "raw_fish", 1)) {
+          if (invRemove(inv.grid, "food", 1) || invRemove(inv.grid, "raw_fish", 1)) {
             pet.hunger = Math.min(100, pet.hunger + 30);
             pet.happiness = Math.min(100, pet.happiness + 10);
-            console.log(`[pet] fed pet (hunger: ${pet.hunger.toFixed(0)}, happiness: ${pet.happiness.toFixed(0)})`);
+            log.info("pet", `fed pet (hunger: ${pet.hunger.toFixed(0)}, happiness: ${pet.happiness.toFixed(0)})`);
           }
         });
       }
@@ -2262,12 +2935,12 @@ const toolSystem = system("tools", Stage.Update, (ctx) => {
     if (island.onLand) {
       playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
         const wood = 1 + Math.floor(Math.random() * 2);
-        invAdd(inv.slots, "wood", wood);
+        invAdd(inv.grid, "wood", wood);
         playerProgQuery.iterate(ctx.tick, (_pe, [pe, _]) => addXP(ctx.world, pe, XP_HARVEST));
-        console.log(`[axe] chopped tree, got ${wood} wood`);
+        log.info("axe", `chopped tree, got ${wood} wood`);
       });
     } else {
-      console.log("[axe] no trees here — need to be on an island");
+      log.info("axe", "no trees here — need to be on an island");
     }
   }
 
@@ -2280,29 +2953,30 @@ const toolSystem = system("tools", Stage.Update, (ctx) => {
       playerInvQuery.iterate(ctx.tick, (_ie, [_, inv]) => {
         const find = Math.random();
         if (find < 0.3) {
-          invAdd(inv.slots, "coin", 1 + Math.floor(Math.random() * 3));
-          console.log("[shovel] dug up coins!");
+          invAdd(inv.grid, "coin", 1 + Math.floor(Math.random() * 3));
+          log.info("shovel", "dug up coins!");
         } else if (find < 0.5) {
-          invAdd(inv.slots, "wood", 1);
-          console.log("[shovel] dug up buried wood");
+          invAdd(inv.grid, "wood", 1);
+          log.info("shovel", "dug up buried wood");
         } else if (find < 0.6) {
-          invAdd(inv.slots, "food", 1);
-          console.log("[shovel] dug up food");
+          invAdd(inv.grid, "food", 1);
+          log.info("shovel", "dug up food");
         } else {
-          console.log("[shovel] nothing here...");
+          log.info("shovel", "nothing here...");
         }
       });
     }
   }
 }, { queries: [playerQuery, playerInvQuery, playerProgQuery] });
 
-// 21. ProgressionSystem — tick-based progression tracking
+// 21. ProgressionSystem — tick-based progression tracking with crafting tier unlocks
 const progressionSystem = system("progression", Stage.Update, (ctx) => {
-  // Ensure all players have progression data
-  playerProgQuery.iterate(ctx.tick, (_e, [_player, prog]) => {
+  playerProgQuery.iterate(ctx.tick, (_e, [_player, progRaw]) => {
+    const prog = progRaw as typeof Progression.defaults;
     if (prog.level === 1 && prog.xp === 0 && prog.unlockedRecipes.length === 0) {
-      prog.unlockedRecipes = ["planks", "campfire", "cooked_fish"];
-      if (prog.craftingTier >= 1) prog.unlockedRecipes.push("sail", "raft_upgrade");
+      const unlocked = new Set<string>();
+      unlockRecipesForTier(0, unlocked);
+      prog.unlockedRecipes = [...unlocked];
     }
   });
 }, { queries: [playerProgQuery] });
@@ -2318,6 +2992,8 @@ let timeOfDay = 0.3;
 let fps = 0;
 let fpsAccum = 0;
 let fpsFrames = 0;
+let deathCause = "";
+let playerSpawnX = 0, playerSpawnZ = 0;
 
 // ─── Helper: spawn entity with multiple components ─────────
 
@@ -2328,10 +3004,10 @@ function spawnEntity(world: World, components: Map<number, unknown>) {
 // ─── Lifecycle: init ───────────────────────────────────────
 
 export function init(ctx: any) {
-  console.log("╔══════════════════════════════════════════════╗");
-  console.log("║   Ocean Survival — DownDraft Engine          ║");
-  console.log("║   (parity with to-the-ocean game systems)    ║");
-  console.log("╚══════════════════════════════════════════════╝");
+  log.info("ocean-survival", "╔══════════════════════════════════════════════╗");
+  log.info("ocean-survival", "║   Ocean Survival — DownDraft Engine          ║");
+  log.info("ocean-survival", "║   (parity with to-the-ocean game systems)    ║");
+  log.info("ocean-survival", "╚══════════════════════════════════════════════╝");
 
   ecsWorld = new World();
   const scene = new Scene("ocean-survival", ecsWorld);
@@ -2380,8 +3056,8 @@ export function init(ctx: any) {
   playerComps.set(Thirst.id, Thirst.create({ current: PLAYER_MAX_THIRST, max: PLAYER_MAX_THIRST }));
   playerComps.set(Oxygen.id, Oxygen.create({ current: PLAYER_MAX_OXYGEN, max: PLAYER_MAX_OXYGEN }));
   playerComps.set(Temperature.id, Temperature.create({ current: PLAYER_TEMP_NORM }));
-  playerComps.set(Inventory.id, Inventory.create({ slots: [] }));
-  playerComps.set(Progression.id, Progression.create({ level: 1, xp: 0, craftingTier: 0, hullTier: 0, unlockedRecipes: ["planks", "campfire", "cooked_fish"] }));
+  playerComps.set(GridInventory.id, GridInventory.create({ grid: createGrid(PLAYER_INV_WIDTH, PLAYER_INV_HEIGHT) }));
+  playerComps.set(Progression.id, Progression.create({ level: 1, xp: 0, craftingTier: 0, hullTier: 0, unlockedRecipes: [...(CRAFTING_TIER_RECIPES[0] ?? [])] }));
   playerEntity = spawnEntity(ecsWorld, playerComps);
 
   // Spawn fishing line entity (singleton)
@@ -2430,11 +3106,14 @@ export function init(ctx: any) {
     spawnEntity(ecsWorld, wlComps);
   }
 
-  // Spawn islands
+  // Spawn islands — first island is placed near the player spawn
+  playerSpawnX = 0; playerSpawnZ = 0;
   for (let i = 0; i < ISLAND_COUNT; i++) {
     const angle = (i / ISLAND_COUNT) * Math.PI * 2 + Math.random() * 0.5;
-    const dist = 40 + Math.random() * ISLAND_SPAWN_RANGE;
-    const radius = ISLAND_MIN_RADIUS + Math.random() * (ISLAND_MAX_RADIUS - ISLAND_MIN_RADIUS);
+    const dist = i === 0 ? 0 : 150 + Math.random() * ISLAND_SPAWN_RANGE;
+    const radius = i === 0
+      ? ISLAND_MIN_RADIUS + Math.random() * (ISLAND_MAX_RADIUS - ISLAND_MIN_RADIUS) * 0.5
+      : ISLAND_MIN_RADIUS + Math.random() * (ISLAND_MAX_RADIUS - ISLAND_MIN_RADIUS);
     const height = ISLAND_MIN_HEIGHT + Math.random() * (ISLAND_MAX_HEIGHT - ISLAND_MIN_HEIGHT);
     // Pick a biome for this island
     const biomeRoll = Math.random();
@@ -2446,12 +3125,12 @@ export function init(ctx: any) {
     const chunkZ = Math.floor(Math.sin(angle) * dist);
 
     // Generate volumetric voxel field for this island
-    console.log(`  [terrain] generating voxel field for island ${i + 1} (biome: ${BiomeType[biome]}, radius: ${radius.toFixed(0)})...`);
+    log.info("terrain", `generating voxel field for island ${i + 1} (biome: ${BiomeType[biome]}, radius: ${radius.toFixed(0)})...`);
     const voxelField = generateVoxelField(chunkX, chunkZ, radius, biome);
 
     // Extract mesh from voxel field using marching cubes
-    const meshData = extractMeshFromField(voxelField, biome, 30000);
-    console.log(`  [terrain] island ${i + 1} mesh: ${meshData.vertexCount} verts, ${meshData.indexCount} indices`);
+    const meshData = extractMeshFromField(voxelField, biome, 100000);
+    log.info("terrain", `island ${i + 1} mesh: ${meshData.vertexCount} verts, ${meshData.indexCount} indices`);
 
     const islandComps = new Map<number, unknown>();
     islandComps.set(Island.id, Island.create({
@@ -2469,6 +3148,14 @@ export function init(ctx: any) {
       meshData,
     }));
     const islandEntity = spawnEntity(ecsWorld, islandComps);
+
+    // Place player on the shore of the first island
+    if (i === 0) {
+      const islandX = Math.cos(angle) * dist;
+      const islandZ = Math.sin(angle) * dist;
+      playerSpawnX = islandX + radius * 0.8;
+      playerSpawnZ = islandZ;
+    }
 
     // Spawn port on first PORT_COUNT islands
     if (i < PORT_COUNT) {
@@ -2525,10 +3212,26 @@ export function init(ctx: any) {
     }
   }
 
+  // Move player to the shore of the first island
+  const player = ecsWorld.getComponent<typeof Player.defaults>(playerEntity, Player.id);
+  if (player) {
+    player.x = playerSpawnX;
+    player.z = playerSpawnZ;
+    player.y = 2;
+    log.info("terrain", `player spawned near island at (${playerSpawnX.toFixed(1)}, ${playerSpawnZ.toFixed(1)})`);
+  }
+
+  // Move ship near the player
+  shipQuery.iterate(0, (_e, [shipRaw]) => {
+    const ship = shipRaw as typeof Ship.defaults;
+    ship.x = playerSpawnX + 5;
+    ship.z = playerSpawnZ + 5;
+  });
+
   // Spawn a pet companion near player
   const petComps = new Map<number, unknown>();
   petComps.set(Pet.id, Pet.create({
-    x: 2, y: 1, z: 2,
+    x: playerSpawnX + 2, y: 1, z: playerSpawnZ + 2,
     type: PetType.Cat,
     ownerId: 0,
   }));
@@ -2543,18 +3246,42 @@ export function init(ctx: any) {
     const debrisComps = new Map<number, unknown>();
     debrisComps.set(Debris.id, Debris.create({
       type,
-      x: Math.cos(angle) * dist,
+      x: playerSpawnX + Math.cos(angle) * dist,
       y: WATER_LEVEL,
-      z: Math.sin(angle) * dist,
+      z: playerSpawnZ + Math.sin(angle) * dist,
       collected: false,
     }));
     spawnEntity(ecsWorld, debrisComps);
   }
 
+  // Register plugin systems (inventory grid spoilage, crafting queue)
+  InventoryPlugin.register({
+    registerSystem: (stage: number, fn: any) => ecsWorld.schedule.addSystem({ name: "grid-spoilage", stage, fn, queries: [] }),
+    registerComponent: () => 0,
+    registerResource: () => {},
+    allocateSABChannel: () => new ArrayBuffer(0) as any,
+    registerMigration: () => {},
+    onDispose: () => {},
+  } as any);
+  CraftingPlugin.register({
+    registerSystem: (stage: number, fn: any) => ecsWorld.schedule.addSystem({ name: "crafting-queue", stage, fn, queries: [] }),
+    registerComponent: () => 0,
+    registerResource: () => {},
+    allocateSABChannel: () => new ArrayBuffer(0) as any,
+    registerMigration: () => {},
+    onDispose: () => {},
+  } as any);
+
+  // Register resources for crafting
+  ecsWorld.setResource("craftingStations", new Set<string>());
+  ecsWorld.setResource("dayDuration", DAY_DURATION);
+  ecsWorld.setResource("playerInventoryGrid", null);
+
   // Register systems in tick order (matching to-the-ocean Simulation.tick)
   ecsWorld.schedule.addSystem(weatherSystem);
   ecsWorld.schedule.addSystem(playerMovementSystem);
   ecsWorld.schedule.addSystem(shipControlSystem);
+  ecsWorld.schedule.addSystem(waveSourceSystem);
   ecsWorld.schedule.addSystem(buoyancySystem);
   ecsWorld.schedule.addSystem(survivalSystem);
   ecsWorld.schedule.addSystem(wildlifeAISystem);
@@ -2585,36 +3312,35 @@ export function init(ctx: any) {
   // Telemetry
   telemetry = new TelemetryCollector(true);
 
-  console.log("  Player spawned at origin with full survival stats");
-  console.log("  Ship created (integrity: 100%)");
-  console.log("  2 sharks + 5 fish spawned");
-  console.log("  10 debris items scattered (wood/food/water)");
-  console.log(`  ${ISLAND_COUNT} islands generated in the surrounding ocean`);
-  console.log(`  ${PORT_COUNT} ports with dynamic market prices`);
-  console.log(`  ${ISLAND_COUNT * ANIMAL_COUNT_PER_ISLAND} animals (chickens, goats, sheep) on islands`);
-  console.log(`  ${ISLAND_COUNT * PLANT_COUNT_PER_ISLAND} plants (kelp, tomato, rice) on islands`);
-  console.log("  1 pet companion (cat) spawned near player");
-  console.log("  Pirates may spawn and attack your ship!");
-  console.log("  Fire + smoke particle emitters active");
-  console.log("  Weather: Clear, wind: 3 m/s");
-  console.log("");
-  console.log("  Controls:");
-  console.log("    WASD = move (heading-based) | Mouse = look | Shift = run/throttle");
-  console.log("    Space = jump | Ctrl+Space = dive underwater | Arrows = steer ship");
-  console.log("    E = board/leave ship | Q = anchor | R = repair (needs wood)");
-  console.log("    F = fish | C = craft (cycles recipes) | B = apply raft upgrade");
-  console.log("    T = eat food | Y = trade at port");
-  console.log("    G = gun (shoot pirates) | X = axe (chop trees on islands)");
-  console.log("    V = shovel (dig for treasure) | H = harvest (animals/plants)");
-  console.log("    J = water plant | P = feed pet");
-  console.log("    M = toggle camera (1st/3rd/freecam) | F5 = noclip");
-  console.log("    1-9,0 = hotbar slots | Scroll = zoom camera");
-  console.log("  Terrain: volumetric voxel fields with marching cubes mesh extraction");
-  console.log("  Biomes: Tropical, Temperate, Arctic, Desert, Volcanic");
-  console.log("  Survival: manage hunger, thirst, oxygen, temperature");
-  console.log("  Crafting: wood->planks->campfire->cook fish->raft upgrade");
-  console.log("  Economy: sell fish at ports for coins, buy wood/supplies");
-  console.log("  Progression: gain XP from fishing, crafting, harvesting, killing pirates");
+  log.info("ocean-survival", "Player spawned at origin with full survival stats");
+  log.info("ocean-survival", "Ship created (integrity: 100%)");
+  log.info("ocean-survival", "2 sharks + 5 fish spawned");
+  log.info("ocean-survival", "10 debris items scattered (wood/food/water)");
+  log.info("ocean-survival", `${ISLAND_COUNT} islands generated in the surrounding ocean`);
+  log.info("ocean-survival", `${PORT_COUNT} ports with dynamic market prices`);
+  log.info("ocean-survival", `${ISLAND_COUNT * ANIMAL_COUNT_PER_ISLAND} animals (chickens, goats, sheep) on islands`);
+  log.info("ocean-survival", `${ISLAND_COUNT * PLANT_COUNT_PER_ISLAND} plants (kelp, tomato, rice) on islands`);
+  log.info("ocean-survival", "1 pet companion (cat) spawned near player");
+  log.info("ocean-survival", "Pirates may spawn and attack your ship!");
+  log.info("ocean-survival", "Fire + smoke particle emitters active");
+  log.info("ocean-survival", "Weather: Clear, wind: 3 m/s");
+  log.info("ocean-survival", "Controls:");
+  log.info("ocean-survival", "  WASD = move (heading-based) | Mouse = look | Shift = run/throttle");
+  log.info("ocean-survival", "  Space = jump | Ctrl+Space = dive underwater | Arrows = steer ship");
+  log.info("ocean-survival", "  E = board/leave ship | Q = anchor | R = repair (needs wood)");
+  log.info("ocean-survival", "  F = fish | C = craft (cycles recipes) | B = apply raft upgrade");
+  log.info("ocean-survival", "  T = eat food | Y = trade at port");
+  log.info("ocean-survival", "  G = gun (shoot pirates) | X = axe (chop trees on islands)");
+  log.info("ocean-survival", "  V = shovel (dig for treasure) | H = harvest (animals/plants)");
+  log.info("ocean-survival", "  J = water plant | P = feed pet");
+  log.info("ocean-survival", "  M = toggle camera (1st/3rd/freecam) | F5 = noclip");
+  log.info("ocean-survival", "  I = toggle inventory | 1-9,0 = hotbar slots | Scroll = zoom camera");
+  log.info("ocean-survival", "  Terrain: volumetric voxel fields with marching cubes mesh extraction");
+  log.info("ocean-survival", "  Biomes: Tropical, Temperate, Arctic, Desert, Volcanic");
+  log.info("ocean-survival", "  Survival: manage hunger, thirst, oxygen, temperature");
+  log.info("ocean-survival", "  Crafting: wood->planks->campfire->cook fish->raft upgrade");
+  log.info("ocean-survival", "  Economy: sell fish at ports for coins, buy wood/supplies");
+  log.info("ocean-survival", "  Progression: gain XP from fishing, crafting, harvesting, killing pirates");
 }
 
 // ─── Lifecycle: tick ───────────────────────────────────────
@@ -2669,6 +3395,42 @@ export function tick(ctx: any, dt: number) {
       // Look heading/pitch from renderer
       if (ctx.input.lookHeading !== undefined) inpState.lookHeading = ctx.input.lookHeading;
       if (ctx.input.lookPitch !== undefined) inpState.lookPitch = ctx.input.lookPitch;
+    }
+
+    // ─── Inventory toggle (I key) ───
+    if (ctx.input.pressed.has("i")) {
+      toggleInventory();
+    }
+
+    // ─── Numpad weather/time hotkeys (parity with to-the-ocean App.tsx) ───
+    const numpadWeatherMap: Record<string, WeatherType> = {
+      numpad0: WeatherType.Clear,
+      numpad1: WeatherType.PartlyCloudy,
+      numpad2: WeatherType.Overcast,
+      numpad3: WeatherType.Rain,
+      numpad4: WeatherType.Storm,
+      numpad5: WeatherType.Fog,
+      numpad6: WeatherType.Eclipse,
+      numpad7: WeatherType.FullMoon,
+      numpad8: WeatherType.HellStorm,
+      numpad9: WeatherType.Snow,
+    };
+    const numpadTimeMap: Record<string, number> = {
+      numpaddivide: 0.5,    // noon
+      numpadmultiply: 0.75, // evening
+      numpadsubtract: 0.0,  // midnight
+    };
+    for (const key of ctx.input.pressed) {
+      const wt = numpadWeatherMap[key];
+      if (wt !== undefined) {
+        setWeatherType(wt);
+        log.info("weather", `forced: ${WeatherType[wt]}`);
+      }
+      const tod = numpadTimeMap[key];
+      if (tod !== undefined) {
+        timeOfDay = tod;
+        log.info("weather", `time set: ${(tod * 24).toFixed(1)}h`);
+      }
     }
   }
 
@@ -2767,28 +3529,50 @@ export function tick(ctx: any, dt: number) {
     const th = ecsWorld.getComponent<typeof Thirst.defaults>(playerEntity, Thirst.id);
     const ox = ecsWorld.getComponent<typeof Oxygen.defaults>(playerEntity, Oxygen.id);
     const tp = ecsWorld.getComponent<typeof Temperature.defaults>(playerEntity, Temperature.id);
-    const inv = ecsWorld.getComponent<typeof Inventory.defaults>(playerEntity, Inventory.id);
+    const inv = ecsWorld.getComponent<typeof GridInventory.defaults>(playerEntity, GridInventory.id);
     const ship = ecsWorld.getComponent<typeof Ship.defaults>(ecsWorld.allArchetypes[0]?.entities?.[0] ?? 0, Ship.id);
 
     if (ph && hu && th && ox && tp) {
-      console.log(
-        `[frame ${frameCount}] FPS:${fps} | HP:${ph.current.toFixed(0)}/${ph.max} | Hunger:${hu.current.toFixed(0)} | Thirst:${th.current.toFixed(0)} | O2:${ox.current.toFixed(0)} | Temp:${tp.current.toFixed(1)}C`
-      );
-      console.log(
-        `  Weather:${WeatherType[weatherState.type]} Wind:${weatherState.windSpeed.toFixed(1)}m/s Vis:${weatherState.visibility.toFixed(2)} Time:${(timeOfDay * 24).toFixed(1)}h`
-      );
+      log.debug("frame", `FPS:${fps} | HP:${ph.current.toFixed(0)}/${ph.max} | Hunger:${hu.current.toFixed(0)} | Thirst:${th.current.toFixed(0)} | O2:${ox.current.toFixed(0)} | Temp:${tp.current.toFixed(1)}C`);
+      log.debug("frame", `Weather:${WeatherType[weatherState.type]} Wind:${weatherState.windSpeed.toFixed(1)}m/s Vis:${weatherState.visibility.toFixed(2)} Temp:${weatherState.ambientTemp.toFixed(1)}C Time:${(timeOfDay * 24).toFixed(1)}h${weatherState.isRareEvent ? " [RARE]" : ""}`);
+
+      // Weather info overlay (devtools dump)
+      const rainCollectorCount = rainCollectors.size;
+      let rainCollectorTotal = 0;
+      for (const amt of rainCollectors.values()) rainCollectorTotal += amt;
+      log.debug("weather-overlay", [
+        `╔════════════════════════════════════════════╗`,
+        `║  WEATHER OVERLAY                            ║`,
+        `╠════════════════════════════════════════════╣`,
+        `║  Type:       ${WeatherType[weatherState.type].padEnd(30)}║`,
+        `║  Intensity:  ${(weatherState.intensity.toFixed(2)).padEnd(30)}║`,
+        `║  Wind:       ${(weatherState.windSpeed.toFixed(1) + "m/s " + (Math.atan2(weatherState.windDirZ, weatherState.windDirX) * 180 / Math.PI).toFixed(0) + "°").padEnd(30)}║`,
+        `║  Visibility: ${(weatherState.visibility.toFixed(2) + " (" + (weatherState.visibility * 100).toFixed(0) + "%)").padEnd(30)}║`,
+        `║  Ambient:    ${(weatherState.ambientTemp.toFixed(1) + "°C").padEnd(30)}║`,
+        `║  Duration:   ${(weatherState.duration.toFixed(0) + "s remaining").padEnd(30)}║`,
+        `║  Rare Event: ${(weatherState.isRareEvent ? "YES" : "no").padEnd(30)}║`,
+        `║  Raining:    ${(weatherIsRaining() ? "yes" : "no").padEnd(30)}║`,
+        `║  Stormy:     ${(weatherIsStormy() ? "yes" : "no").padEnd(30)}║`,
+        `║  Time:       ${((timeOfDay * 24).toFixed(1) + "h " + (isNight ? "(night)" : "(day)")).padEnd(30)}║`,
+        `║  Rain Coll.: ${(rainCollectorCount + " collectors, " + rainCollectorTotal.toFixed(1) + " water").padEnd(30)}║`,
+        `╠════════════════════════════════════════════╣`,
+        `║  Numpad 0-9: Force weather                  ║`,
+        `║  Numpad /: Noon  *: Evening  -: Midnight    ║`,
+        `╚════════════════════════════════════════════╝`,
+      ].join("\n"));
       if (inv) {
-        const invStr = inv.slots.map((s: any) => `${s.item}x${s.count}`).join(", ") || "empty";
-        console.log(`  Inventory: ${invStr}`);
+        const gridState = getGridStateForUI(inv.grid);
+        const invStr = gridState.map((s: any) => `${s.itemId}x${s.quantity}`).join(", ") || "empty";
+        log.debug("frame", `Inventory: ${invStr}`);
       }
 
       const prog = ecsWorld.getComponent<typeof Progression.defaults>(playerEntity, Progression.id);
       if (prog) {
-        console.log(`  Level: ${prog.level} | XP: ${prog.xp}/${XP_PER_LEVEL * prog.level} | Crafting Tier: ${prog.craftingTier}`);
+        log.debug("frame", `Level: ${prog.level} | XP: ${prog.xp}/${XP_PER_LEVEL * prog.level} | Crafting Tier: ${prog.craftingTier}`);
       }
 
       if (ph.current <= 0) {
-        console.log("[game] Player died — game over!");
+        log.info("game", "Player died — game over!");
       }
     }
   }
@@ -2798,7 +3582,28 @@ export function tick(ctx: any, dt: number) {
 
 export function dispose(ctx: any) {
   particles.destroy();
-  console.log("[ocean-survival] disposed");
+  log.info("ocean-survival", "disposed");
+}
+
+// ─── Lifecycle: getWaterData ────────────────────────────────
+// Exports the current water heightfield for the Rust renderer to upload
+// as a GPU texture. Called each tick by src/bun/index.ts.
+
+export function getWaterData(): {
+  gridSize: number;
+  patchSize: number;
+  originX: number;
+  originZ: number;
+  heights: Float32Array;
+} {
+  const origin = waterBuffer.getOrigin();
+  return {
+    gridSize: waterBuffer.getGridSize(),
+    patchSize: waterBuffer.getPatchSize(),
+    originX: origin.x,
+    originZ: origin.z,
+    heights: waterBuffer.getHeightsRef(),
+  };
 }
 
 // ─── Lifecycle: getMeshData ─────────────────────────────────
@@ -2959,6 +3764,122 @@ export function getRenderData(): RenderData {
   };
 }
 
+// ─── Lifecycle: getGameState ───────────────────────────────
+
+export function getGameState(): { isDead: boolean; cause: string } {
+  const player = ecsWorld.getComponent<typeof Player.defaults>(playerEntity, Player.id);
+  return {
+    isDead: player?.isDead ?? false,
+    cause: deathCause,
+  };
+}
+
+// ─── Lifecycle: respawn ────────────────────────────────────
+
+export function respawn() {
+  const player = ecsWorld.getComponent<typeof Player.defaults>(playerEntity, Player.id);
+  if (!player) return;
+  player.isDead = false;
+  player.x = playerSpawnX; player.y = 2; player.z = playerSpawnZ;
+  player.vx = 0; player.vy = 0; player.vz = 0;
+  player.heading = 0; player.pitch = 0;
+  player.onShip = false;
+  player.isUnderwater = false;
+  player.isSwimming = false;
+  player.isSleeping = false;
+  player.isNoclip = false;
+  player.isRunning = false;
+  player.isGrounded = true;
+  player.isClimbing = false;
+  player.isDiving = false;
+
+  const health = ecsWorld.getComponent<typeof Health.defaults>(playerEntity, Health.id);
+  if (health) { health.current = health.max; }
+
+  const hunger = ecsWorld.getComponent<typeof Hunger.defaults>(playerEntity, Hunger.id);
+  if (hunger) { hunger.current = hunger.max; }
+
+  const thirst = ecsWorld.getComponent<typeof Thirst.defaults>(playerEntity, Thirst.id);
+  if (thirst) { thirst.current = thirst.max; }
+
+  const oxygen = ecsWorld.getComponent<typeof Oxygen.defaults>(playerEntity, Oxygen.id);
+  if (oxygen) { oxygen.current = oxygen.max; }
+
+  const temp = ecsWorld.getComponent<typeof Temperature.defaults>(playerEntity, Temperature.id);
+  if (temp) { temp.current = PLAYER_TEMP_NORM; }
+
+  deathCause = "";
+  log.info("respawn", "player respawned");
+}
+
+// ─── Lifecycle: getInventoryState ──────────────────────────
+
+let inventoryVisible = false;
+
+export function getInventoryState(): string {
+  const inv = ecsWorld.getComponent<typeof GridInventory.defaults>(playerEntity, GridInventory.id);
+  if (!inv) return JSON.stringify({ visible: inventoryVisible, width: 10, height: 6, slots: [], recipes: [], itemCounts: {} });
+
+  const grid = inv.grid;
+  const slots: { x: number; y: number; itemId: string; quantity: number; spoilPercent?: number; name?: string; category?: string; stackLimit?: number }[] = [];
+  const itemCounts: Record<string, number> = {};
+  const seen = new Set<unknown>();
+
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      const stack = grid.slots[y][x];
+      if (!stack) continue;
+      if (seen.has(stack)) continue;
+      seen.add(stack);
+
+      const def = getItem(stack.itemId);
+      const slot: any = {
+        x, y,
+        itemId: stack.itemId,
+        quantity: stack.quantity,
+        name: def?.name ?? stack.itemId,
+        category: def?.category,
+        stackLimit: def?.maxStack,
+      };
+      if (def?.spoilRate && def.spoilRate > 0) {
+        slot.spoilPercent = stack.spoilProgress !== undefined
+          ? (1 - stack.spoilProgress) * 100
+          : 100;
+      }
+      slots.push(slot);
+
+      itemCounts[stack.itemId] = (itemCounts[stack.itemId] ?? 0) + stack.quantity;
+    }
+  }
+
+  // Get unlocked recipes
+  const prog = ecsWorld.getComponent<typeof Progression.defaults>(playerEntity, Progression.id);
+  const unlockedSet = new Set<string>(prog?.unlockedRecipes ?? []);
+  if (prog) unlockRecipesForTier(prog.craftingTier, unlockedSet);
+  const availableRecipes = getUnlockedRecipes(unlockedSet);
+
+  const recipes = availableRecipes.map(r => ({
+    id: r.id,
+    name: r.name,
+    inputs: r.inputs,
+    output: r.output,
+    needsFire: (r as any).needsFire ?? false,
+  }));
+
+  return JSON.stringify({
+    visible: inventoryVisible,
+    width: grid.width,
+    height: grid.height,
+    slots,
+    recipes,
+    itemCounts,
+  });
+}
+
+export function toggleInventory() {
+  inventoryVisible = !inventoryVisible;
+}
+
 // ─── Self-executing entry point (for `bun run examples/ocean-game/main.ts`) ─
 
 if (import.meta.main) {
@@ -2983,13 +3904,120 @@ if (import.meta.main) {
       lastTime = performance.now();
 
       tick({}, dt);
-
-      const ph = ecsWorld.getComponent<typeof Health.defaults>(playerEntity, Health.id);
-      if (ph && ph.current <= 0) {
-        console.log("\n  Game over! Player died.");
-        running = false;
-      }
     }
     dispose({});
   })();
+}
+
+// ─── Lifecycle: getWeatherVisual ───────────────────────────
+// Computes visual parameters (sky color, water color, fog, light) from
+// the current weather state and time of day. Called each tick by bun/index.ts.
+
+export function getWeatherVisual(): {
+  skyColor: [number, number, number];
+  waterColor: [number, number, number];
+  fogColor: [number, number, number];
+  fogDensity: number;
+  lightIntensity: number;
+  weatherType: number;
+  isNight: boolean;
+} {
+  const timeOfDay = ecsWorld.getResource<number>("timeOfDay") ?? 0;
+  const isNight = timeOfDay > NIGHT_START_FRAC || timeOfDay < NIGHT_END_FRAC;
+  const dayFactor = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
+
+  // Base sky colors by time of day
+  let skyR: number, skyG: number, skyB: number;
+  if (isNight) {
+    skyR = 0.02; skyG = 0.03; skyB = 0.08;
+  } else {
+    skyR = 0.15 + dayFactor * 0.35;
+    skyG = 0.35 + dayFactor * 0.35;
+    skyB = 0.55 + dayFactor * 0.30;
+  }
+
+  // Base water colors
+  let waterR = 0.08, waterG = 0.22, waterB = 0.45;
+  if (isNight) {
+    waterR = 0.02; waterG = 0.06; waterB = 0.12;
+  }
+
+  // Fog defaults to sky color, low density
+  let fogR = skyR, fogG = skyG, fogB = skyB;
+  let fogDensity = 0.002;
+  let lightIntensity = isNight ? 0.25 : 0.6 + dayFactor * 0.4;
+
+  // Apply weather modifications
+  switch (weatherState.type) {
+    case WeatherType.Clear:
+      // No modification — clear sky
+      break;
+    case WeatherType.PartlyCloudy:
+      skyR *= 0.9; skyG *= 0.9; skyB *= 0.92;
+      lightIntensity *= 0.9;
+      break;
+    case WeatherType.Overcast:
+      skyR *= 0.5; skyG *= 0.55; skyB *= 0.6;
+      waterR *= 0.6; waterG *= 0.6; waterB *= 0.65;
+      fogDensity = 0.005;
+      lightIntensity *= 0.6;
+      break;
+    case WeatherType.Rain:
+      skyR *= 0.35; skyG *= 0.38; skyB *= 0.42;
+      waterR *= 0.5; waterG *= 0.5; waterB *= 0.55;
+      fogDensity = 0.008 + weatherState.intensity * 0.005;
+      lightIntensity *= 0.45;
+      break;
+    case WeatherType.Storm:
+      skyR *= 0.2; skyG *= 0.22; skyB *= 0.25;
+      waterR *= 0.35; waterG *= 0.35; waterB *= 0.4;
+      fogDensity = 0.015;
+      lightIntensity *= 0.3;
+      break;
+    case WeatherType.Fog:
+      skyR = 0.5; skyG = 0.55; skyB = 0.58;
+      waterR = 0.3; waterG = 0.35; waterB = 0.38;
+      fogR = 0.6; fogG = 0.62; fogB = 0.62;
+      fogDensity = 0.04;
+      lightIntensity *= 0.5;
+      break;
+    case WeatherType.Eclipse:
+      skyR = 0.01; skyG = 0.01; skyB = 0.03;
+      waterR = 0.01; waterG = 0.02; waterB = 0.04;
+      fogR = 0.02; fogG = 0.02; fogB = 0.05;
+      fogDensity = 0.01;
+      lightIntensity = 0.1;
+      break;
+    case WeatherType.FullMoon:
+      skyR = 0.05; skyG = 0.06; skyB = 0.12;
+      waterR = 0.04; waterG = 0.08; waterB = 0.15;
+      fogR = 0.08; fogG = 0.1; fogB = 0.15;
+      fogDensity = 0.003;
+      lightIntensity = 0.35;
+      break;
+    case WeatherType.HellStorm:
+      skyR = 0.3; skyG = 0.05; skyB = 0.02;
+      waterR = 0.2; waterG = 0.05; waterB = 0.03;
+      fogR = 0.35; fogG = 0.08; fogB = 0.03;
+      fogDensity = 0.02;
+      lightIntensity = 0.4;
+      break;
+    case WeatherType.Snow:
+      skyR = 0.6; skyG = 0.65; skyB = 0.7;
+      waterR = 0.3; waterG = 0.38; waterB = 0.42;
+      fogR = 0.7; fogG = 0.74; fogB = 0.78;
+      fogDensity = 0.012;
+      lightIntensity *= 0.55;
+      break;
+  }
+
+  return {
+    skyColor: [skyR, skyG, skyB],
+    waterColor: [waterR, waterG, waterB],
+    fogColor: [fogR, fogG, fogB],
+    fogDensity,
+    lightIntensity,
+    weatherType: weatherState.type,
+    isNight,
+  };
 }

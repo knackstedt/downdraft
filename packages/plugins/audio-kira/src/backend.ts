@@ -1,14 +1,17 @@
 import type {
-  AudioBackend,
-  AudioBackendConfig,
-  AudioBufferDesc,
-  AudioSourceHandle,
-  AudioListenerState,
-  AudioChannel,
-  AudioEffectDesc,
-  AudioFormat,
+    AudioBackend,
+    AudioBackendConfig,
+    AudioBufferDesc,
+    AudioChannel,
+    AudioEffectDesc,
+    AudioFormat,
+    AudioListenerState,
+    AudioSourceHandle,
 } from "@downdraft/core";
+import { createLogger } from "@downdraft/core";
 import { loadAudioLib, type AudioLib } from "./ffi.ts";
+
+const log = createLogger();
 
 interface InternalSource {
   handle: AudioSourceHandle;
@@ -65,7 +68,7 @@ export class KiraAudioBackend implements AudioBackend {
     if (this.lib) {
       const result = this.lib.init(config.sampleRate, config.bufferSize);
       if (result !== 0) {
-        console.warn("[audio-kira] Native init failed, falling back to JS mode");
+        log.warn("audio-kira", "Native init failed, falling back to JS mode");
         this.lib = null;
       }
     }

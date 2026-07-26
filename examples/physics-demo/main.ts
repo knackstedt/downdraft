@@ -1,10 +1,19 @@
 import {
-  World, Camera, MeshBuilder,
-  Component, system,
-  RigidBody, Velocity, PhysicsTransform, Collider,
-  createBoxCollider, createSphereCollider,
-  type Entity,
+    Camera,
+    Collider,
+    Component,
+    createBoxCollider,
+    createLogger,
+    createSphereCollider,
+    MeshBuilder,
+    PhysicsTransform,
+    RigidBody,
+    system,
+    Velocity,
+    World
 } from "@downdraft/core";
+
+const log = createLogger();
 
 interface PhysicsBodyData {
   [key: string]: unknown;
@@ -75,7 +84,7 @@ export function init(ctx: any) {
     color: [0.3, 0.5, 0.3],
   }));
 
-  console.log("[physics-demo] initialized — shapes will fall and bounce on the ground");
+  log.info("physics-demo", "initialized — shapes will fall and bounce on the ground");
 }
 
 export function tick(ctx: any, dt: number) {
@@ -171,5 +180,5 @@ function spawnFallingShape(): void {
 }
 
 export function dispose(ctx: any) {
-  console.log("[physics-demo] disposed");
+  log.info("physics-demo", "disposed");
 }

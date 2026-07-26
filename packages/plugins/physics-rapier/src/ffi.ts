@@ -1,5 +1,7 @@
-import type { BodyDesc, BodyType, ColliderDesc, PhysicsRealmConfig, RaycastResult, ShapeCastResult, ColliderShape } from "@downdraft/core";
-import type { Entity } from "@downdraft/core";
+import type { BodyDesc, BodyType, ColliderDesc, ColliderShape, Entity, RaycastResult, ShapeCastResult } from "@downdraft/core";
+import { createLogger } from "@downdraft/core";
+
+const log = createLogger();
 
 export interface PhysicsLib {
   createRealm(id: number, gravity: [number, number, number]): void;
@@ -62,10 +64,10 @@ export async function loadPhysicsLib(): Promise<PhysicsLib> {
       return lib;
     }
   } catch (err) {
-    console.warn("[physics-rapier] Failed to load native library:", err);
+    log.warn("physics-rapier", `Failed to load native library: ${err}`);
   }
 
-  console.warn("[physics-rapier] Native library not available. Using JS fallback physics.");
+  log.warn("physics-rapier", "Native library not available. Using JS fallback physics.");
   return null as unknown as PhysicsLib;
 }
 

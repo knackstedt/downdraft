@@ -1,6 +1,10 @@
+import { createLogger } from "../../packages/core/src/util/logger.ts";
+
+const log = createLogger();
+
+export { llmVisionBatch, llmVisionVerify, type LLMVisionOptions, type LLMVisionResult } from "./llm-vision.ts";
+export { averageColor, comparePixels, getPixel, scanRegions, type PixelScanOptions, type PixelScanResult, type RegionCheck } from "./pixel-scan.ts";
 export { captureScreenshot, captureScreenshotFromGPUTexture, saveScreenshot, type ScreenshotOptions, type ScreenshotResult } from "./screenshot.ts";
-export { comparePixels, scanRegions, getPixel, averageColor, type PixelScanOptions, type PixelScanResult, type RegionCheck } from "./pixel-scan.ts";
-export { llmVisionVerify, llmVisionBatch, type LLMVisionOptions, type LLMVisionResult } from "./llm-vision.ts";
 
 export interface VisionTestOptions {
   referenceImage?: Uint8Array;
@@ -93,12 +97,12 @@ export async function visionTestSuite(
     const result = await visionTest(test.name, test.canvas, test.options);
     results.push(result);
     const status = result.passed ? "PASS" : "FAIL";
-    console.log(`[Vision] ${status}: ${test.name} (${result.durationMs.toFixed(1)}ms)`);
+    log.info("Vision", `${status}: ${test.name} (${result.durationMs.toFixed(1)}ms)`);
     if (result.pixelScan && !result.pixelScan.passed) {
-      console.log(`  Pixel scan: ${result.pixelScan.mismatchedPixels}/${result.pixelScan.totalPixels} mismatched (max delta: ${result.pixelScan.maxDelta})`);
+      log.warn("Vision", `Pixel scan: ${result.pixelScan.mismatchedPixels}/${result.pixelScan.totalPixels} mismatched (max delta: ${result.pixelScan.maxDelta})`);
     }
     if (result.llmResult && !result.llmResult.passed) {
-      console.log(`  LLM: ${result.llmResult.reasoning}`);
+      log.warn("Vision", `LLM: ${result.llmResult.reasoning}`);
     }
   }
   return results;

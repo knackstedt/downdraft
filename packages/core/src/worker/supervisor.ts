@@ -1,4 +1,7 @@
+import { createLogger } from "../util/logger.ts";
 import type { SimWorkerHandle } from "./sim-worker.ts";
+
+const log = createLogger();
 
 interface SupervisorConfig {
   crashWindowMs: number;
@@ -36,7 +39,7 @@ export class SimWorkerSupervisor {
     this.handle = this.createWorker();
     this.handle.onCrash((err) => this.handleCrash(err));
     this.handle.init().catch((err) => {
-      console.error("[SimWorkerSupervisor] Worker init failed:", err);
+      log.error("SimWorkerSupervisor", `Worker init failed: ${err}`);
       this.handleCrash(err instanceof Error ? err : new Error(String(err)));
     });
   }
@@ -68,7 +71,7 @@ export class SimWorkerSupervisor {
     this.handle = this.createWorker();
     this.handle.onCrash((e) => this.handleCrash(e));
     this.handle.init().catch((err) => {
-      console.error("[SimWorkerSupervisor] Worker init failed on restart:", err);
+      log.error("SimWorkerSupervisor", `Worker init failed on restart: ${err}`);
       this.handleCrash(err instanceof Error ? err : new Error(String(err)));
     });
     this.onRestarted();

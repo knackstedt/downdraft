@@ -1,3 +1,7 @@
+import { createLogger } from "@downdraft/core";
+
+const log = createLogger();
+
 export interface AudioLib {
   init(sampleRate: number, bufferSize: number): number;
   destroy(): number;
@@ -28,10 +32,10 @@ export async function loadAudioLib(): Promise<AudioLib | null> {
       return lib;
     }
   } catch (err) {
-    console.warn("[audio-kira] Failed to load native library:", err);
+    log.warn("audio-kira", `Failed to load native library: ${err}`);
   }
 
-  console.warn("[audio-kira] Native library not available. Using JS fallback audio.");
+  log.warn("audio-kira", "Native library not available. Using JS fallback audio.");
   return null;
 }
 

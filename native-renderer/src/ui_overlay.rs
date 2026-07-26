@@ -1,5 +1,6 @@
 use ul_next::{
     config::ConfigBuilder,
+    event::{MouseButton, MouseEvent, MouseEventType, ScrollEvent, ScrollEventType},
     platform,
     renderer::Renderer,
     view::{View, ViewConfig},
@@ -7,12 +8,23 @@ use ul_next::{
 };
 
 pub struct UIOverlay {
-    _lib: std::sync::Arc<Library>,
+    lib: std::sync::Arc<Library>,
     renderer: Renderer,
     view: View,
     width: u32,
     height: u32,
     last_pixels: Option<(Vec<u8>, u32, u32)>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
+pub struct DebugToggles {
+    pub wireframe: bool,
+    pub hitboxes: bool,
+    pub shadows: bool,
+    pub bloom: bool,
+    pub aabbs: bool,
+    pub normals: bool,
+    pub depth: bool,
 }
 
 impl UIOverlay {
@@ -53,7 +65,7 @@ impl UIOverlay {
         println!("[ui] Ultralight UI overlay initialized ({}x{})", width, height);
 
         Ok(Self {
-            _lib: lib,
+            lib,
             renderer,
             view,
             width,
@@ -134,5 +146,152 @@ impl UIOverlay {
             fps
         );
         let _ = self.view.evaluate_script(&script);
+    }
+
+    /// Update the weather indicator overlay with current weather visual params.
+    pub fn update_weather(&self, weather_name: &str, sky_r: f32, sky_g: f32, sky_b: f32, fog_density: f32, light_intensity: f32, is_night: bool) {
+        let color_hex = format!(
+            "#{:02x}{:02x}{:02x}",
+            (sky_r * 255.0).clamp(0.0, 255.0) as u8,
+            (sky_g * 255.0).clamp(0.0, 255.0) as u8,
+            (sky_b * 255.0).clamp(0.0, 255.0) as u8,
+        );
+        let time_label = if is_night { "Night" } else { "Day" };
+        let script = format!(
+            "(function() {{ \
+               var name = document.getElementById('weather-name'); \
+               if (name) name.textContent = '{}'; \
+               var sw = document.getElementById('weather-swatch'); \
+               if (sw) sw.style.background = '{}'; \
+               var det = document.getElementById('weather-detail'); \
+               if (det) det.textContent = '{} | Fog: {:.3} | Light: {:.2}'; \
+            }})()",
+            weather_name, color_hex, time_label, fog_density, light_intensity
+        );
+        let _ = self.view.evaluate_script(&script);
+    }
+
+    /// Check if a screen-space point is over an interactive UI element (for click-through detection).
+    pub fn is_point_over_ui(&self, x: i32, y: i32) -> bool {
+        let script = format!(
+            "(function() {{ var el = document.elementFromPoint({}, {}); \
+             if (!el) return 'none'; \
+             if (el === document.body || el === document.documentElement) return 'body'; \
+             var s = window.getComputedStyle(el); \
+             return s.pointerEvents !== 'none' ? el.id + ':' + el.tagName : 'no-pointer:' + el.tagName; }})()",
+            x, y
+        );
+        match self.view.evaluate_script(&script) {
+            Ok(Ok(result)) => {
+                let trimmed = result.trim();
+                println!("[ui] is_point_over_ui({},{}) -> '{}'", x, y, trimmed);
+                trimmed != "none" && trimmed != "body" && !trimmed.starts_with("no-pointer:")
+            }
+            Ok(Err(e)) => {
+                println!("[ui] is_point_over_ui({},{}) -> JS error: {}", x, y, e);
+                false
+            }
+            Err(e) => {
+                println!("[ui] is_point_over_ui({},{}) -> eval error: {:?}", x, y, e);
+                false
+            }
+        }
+    }
+
+    /// Forward a mouse button press/release to the Ultralight view so React onClick handlers fire.
+    pub fn fire_mouse_event(&self, x: i32, y: i32, button: MouseButton, is_down: bool) {
+        let ty = if is_down {
+            MouseEventType::MouseDown
+        } else {
+            MouseEventType::MouseUp
+        };
+        if let Ok(evt) = MouseEvent::new(self.lib.clone(), ty, x, y, button) {
+            self.view.fire_mouse_event(evt);
+        }
+    }
+
+    /// Forward a mouse move to the Ultralight view for hover effects.
+    pub fn fire_mouse_move(&self, x: i32, y: i32) {
+        if let Ok(evt) = MouseEvent::new(self.lib.clone(), MouseEventType::MouseMoved, x, y, MouseButton::None) {
+            self.view.fire_mouse_event(evt);
+        }
+    }
+
+    /// Forward a scroll event to the Ultralight view so UI panels can scroll.
+    pub fn fire_scroll_event(&self, delta_y: i32) {
+        if let Ok(evt) = ScrollEvent::new(self.lib.clone(), ScrollEventType::ScrollByPixel, 0, delta_y) {
+            self.view.fire_scroll_event(evt);
+        }
+    }
+
+    /// Update the death overlay visibility and cause text.
+    pub fn update_game_state(&self, is_dead: bool, cause: &str) {
+        let escaped = cause.replace('\'', "\\'").replace('\\', "\\\\");
+        let script = format!(
+            "(function() {{ \
+               var overlay = document.getElementById('death-overlay'); \
+               if (!overlay) return; \
+               var show = {}; \
+               overlay.className = show ? 'visible' : ''; \
+               if (show) {{ \
+                 var c = document.getElementById('death-cause'); \
+                 if (c) c.textContent = 'Cause: {}'; \
+               }} \
+             }})()",
+            if is_dead { "true" } else { "false" },
+            escaped,
+        );
+        let _ = self.view.evaluate_script(&script);
+    }
+
+    /// Check if the respawn button was clicked (polls the JS flag, resets it if true).
+    pub fn poll_respawn_request(&self) -> bool {
+        let script = "(function() { var r = window.__respawnRequested || false; window.__respawnRequested = false; return r ? 'true' : 'false'; })()";
+        match self.view.evaluate_script(&script) {
+            Ok(Ok(result)) => result.trim() == "true",
+            _ => false,
+        }
+    }
+
+    /// Update the inventory panel with current inventory JSON data.
+    pub fn update_inventory(&self, json: &str) {
+        let escaped = json.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
+        let script = format!(
+            "(function() {{ if (window.__updateInventory) window.__updateInventory('{}'); }})()",
+            escaped,
+        );
+        let _ = self.view.evaluate_script(&script);
+    }
+
+    /// Check if the inventory panel is currently visible (for cursor release).
+    pub fn is_inventory_visible(&self) -> bool {
+        let script = "(function() { return window.__inventoryVisible ? 'true' : 'false'; })()";
+        match self.view.evaluate_script(&script) {
+            Ok(Ok(result)) => result.trim() == "true",
+            _ => false,
+        }
+    }
+
+    /// Poll debug toggle state from the UI overlay's JavaScript.
+    pub fn poll_debug_toggles(&self) -> DebugToggles {
+        let script = "(function() { \
+            var t = window.__debugToggles || {}; \
+            return JSON.stringify({ \
+                wireframe: !!t.wireframe, \
+                hitboxes: !!t.hitboxes, \
+                shadows: t.shadows !== false, \
+                bloom: t.bloom !== false, \
+                aabbs: !!t.aabbs, \
+                normals: !!t.normals, \
+                depth: !!t.depth \
+            }); \
+        })()";
+        match self.view.evaluate_script(&script) {
+            Ok(Ok(result)) => {
+                let trimmed = result.trim();
+                serde_json::from_str::<DebugToggles>(trimmed).unwrap_or_default()
+            }
+            _ => DebugToggles::default(),
+        }
     }
 }

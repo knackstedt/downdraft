@@ -1,5 +1,8 @@
 import { parentPort, workerData } from "worker_threads";
+import { createLogger } from "../util/logger.ts";
 import type { WorkerMessage } from "./protocol.ts";
+
+const log = createLogger();
 
 interface DBWorkerData {
   dbPath: string;
@@ -62,7 +65,7 @@ class DBWorker {
     try {
       (this.db as { exec: (sql: string) => void }).exec(sql);
     } catch (err) {
-      console.error("[db-worker] SQL exec error:", err);
+      log.error("db-worker", `SQL exec error: ${err}`);
     }
   }
 
@@ -71,7 +74,7 @@ class DBWorker {
     try {
       return (this.db as { prepare: (sql: string) => unknown }).prepare(sql);
     } catch (err) {
-      console.error("[db-worker] SQL prepare error:", err);
+      log.error("db-worker", `SQL prepare error: ${err}`);
       return null;
     }
   }
@@ -177,7 +180,7 @@ class DBWorker {
       }
       return (stmt as { all: () => unknown[] }).all();
     } catch (err) {
-      console.error("[db-worker] Query error:", err);
+      log.error("db-worker", `Query error: ${err}`);
       return [];
     }
   }
@@ -280,4 +283,5 @@ if (parentPort) {
 }
 
 export { DBWorker };
-export type { DBWorkerData, DBCommand };
+export type { DBCommand, DBWorkerData };
+

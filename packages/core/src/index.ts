@@ -85,7 +85,7 @@ export { PipelineCache } from "./render/pipeline.ts";
 export { RenderGraph } from "./render/render-graph.ts";
 export type { RenderPassDescriptor, RenderResource, ValidationError } from "./render/render-graph.ts";
 export { RenderLoop } from "./render/render-loop.ts";
-export type { RenderLoopConfig } from "./render/render-loop.ts";
+export type { DebugToggleState, RenderLoopConfig } from "./render/render-loop.ts";
 export { RenderPass } from "./render/render-pass.ts";
 export type { RenderPassContext } from "./render/render-pass.ts";
 export { SurfaceManager } from "./render/surface.ts";
@@ -260,6 +260,10 @@ export { DEFAULT_DEBUG_VIZ_SETTINGS, DebugVizPass } from "./render/passes/debug-
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.ts";
 
 // IPC (Shared Memory)
-export { CommandType, RenderEntityType, SharedMemoryIPC, parseShmPath } from "./ipc/shared-memory.ts";
+export { CommandType, RenderEntityType, SharedMemoryIPC, WATER_GRID_SIZE_OFFSET, WATER_HEIGHTS_OFFSET, WATER_ORIGIN_X_OFFSET, WATER_ORIGIN_Z_OFFSET, WATER_PATCH_SIZE_OFFSET, WATER_SEQ_OFFSET, parseShmPath } from "./ipc/shared-memory.ts";
 export type { RenderData, RenderEntityData, Telemetry } from "./ipc/shared-memory.ts";
+
+// Logging
+export { ConsoleLogger, createLogger } from "./util/logger.ts";
+export type { Logger } from "./util/logger.ts";
 

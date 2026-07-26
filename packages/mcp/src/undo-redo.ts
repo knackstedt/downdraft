@@ -1,4 +1,7 @@
+import { createLogger } from "@downdraft/core";
 import type { EngineContext } from "./engine-context.ts";
+
+const log = createLogger();
 
 export interface UndoAction {
   description: string;
@@ -32,7 +35,7 @@ export class UndoRedoManager {
       this.redoStack.push(action);
       return true;
     } catch (e) {
-      console.error("[UndoRedo] Undo failed:", e);
+      log.error("UndoRedo", `Undo failed: ${e}`);
       this.undoStack.push(action);
       return false;
     }
@@ -46,7 +49,7 @@ export class UndoRedoManager {
       this.undoStack.push(action);
       return true;
     } catch (e) {
-      console.error("[UndoRedo] Redo failed:", e);
+      log.error("UndoRedo", `Redo failed: ${e}`);
       this.redoStack.push(action);
       return false;
     }

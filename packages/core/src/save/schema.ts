@@ -1,3 +1,7 @@
+import { createLogger } from "../util/logger.ts";
+
+const log = createLogger();
+
 export const CURRENT_SCHEMA_VERSION = 1;
 
 export type MigrationFn = (data: unknown) => unknown;
@@ -27,7 +31,7 @@ export class SchemaRegistry {
       try {
         current = fn(current);
       } catch (e) {
-        console.warn(`[DownDraft] Migration v${version}→v${version + 1} failed:`, e);
+        log.warn("DownDraft", `Migration v${version}→v${version + 1} failed: ${e}`);
       }
       version++;
     }

@@ -1,13 +1,16 @@
 import type { Plugin } from "@downdraft/core";
-import { createTransport, MockTransport, WebSocketTransport } from "./transport.ts";
+import { createLogger } from "@downdraft/core";
+import type { ReplicatedComponent, ReplicatedField, ReplicationConfig, ReplicationMode, ReplicationSnapshot } from "./replication.ts";
 import { ReplicationManager } from "./replication.ts";
+import type { RPCDefinition, RPCHandler } from "./rpc.ts";
 import { RPCManager } from "./rpc.ts";
-import type { NetTransport, NetMessage, TransportType } from "./transport.ts";
-import type { ReplicationConfig, ReplicatedComponent, ReplicatedField, ReplicationMode, ReplicationSnapshot } from "./replication.ts";
-import type { RPCHandler, RPCDefinition } from "./rpc.ts";
+import type { NetMessage, NetTransport, TransportType } from "./transport.ts";
+import { createTransport, MockTransport, WebSocketTransport } from "./transport.ts";
 
-export { createTransport, MockTransport, WebSocketTransport, ReplicationManager, RPCManager };
-export type { NetTransport, NetMessage, TransportType, ReplicationConfig, ReplicatedComponent, ReplicatedField, ReplicationMode, ReplicationSnapshot, RPCHandler, RPCDefinition };
+const log = createLogger();
+
+export { createTransport, MockTransport, ReplicationManager, RPCManager, WebSocketTransport };
+export type { NetMessage, NetTransport, ReplicatedComponent, ReplicatedField, ReplicationConfig, ReplicationMode, ReplicationSnapshot, RPCDefinition, RPCHandler, TransportType };
 
 export interface NetworkingPluginConfig {
   transport: TransportType;
@@ -45,7 +48,7 @@ export const NetworkingPlugin: Plugin = {
 
     ctx.onDispose(() => {
       transport.disconnect();
-      console.log("[networking] disposed");
+      log.info("networking", "disposed");
     });
   },
 };

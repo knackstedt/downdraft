@@ -1,12 +1,15 @@
 import { parentPort, workerData } from "worker_threads";
-import { World } from "../ecs/world.ts";
 import { Hierarchy } from "../ecs/hierarchy.ts";
+import { World } from "../ecs/world.ts";
+import { HighResTimer } from "../platform/time.ts";
 import { SABReader } from "../sab/reader.ts";
 import { SABWriter } from "../sab/writer.ts";
 import { TelemetryCollector } from "../telemetry/collector.ts";
 import { GCTracker } from "../telemetry/gc-tracker.ts";
-import { HighResTimer } from "../platform/time.ts";
-import type { WorkerMessage, StepAckPayload, HeartbeatPayload } from "./protocol.ts";
+import { createLogger } from "../util/logger.ts";
+import type { HeartbeatPayload, StepAckPayload, WorkerMessage } from "./protocol.ts";
+
+const log = createLogger();
 
 interface SimWorkerData {
   sabBuffers: Record<string, SharedArrayBuffer>;
@@ -47,7 +50,7 @@ class SimWorkerRuntime {
   init(): void {
     this.timer.reset();
     this.startHeartbeat();
-    console.log("[sim-worker] Initialized");
+    log.info("sim-worker", "Initialized");
   }
 
   step(dt: number): StepAckPayload {
@@ -100,7 +103,7 @@ class SimWorkerRuntime {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
-    console.log("[sim-worker] Disposed");
+    log.info("sim-worker", "Disposed");
   }
 }
 

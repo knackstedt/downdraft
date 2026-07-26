@@ -1,5 +1,8 @@
-import type { ScriptingSystem } from "./script.ts";
 import { watch, type FSWatcher } from "fs";
+import { createLogger } from "../util/logger.ts";
+import type { ScriptingSystem } from "./script.ts";
+
+const log = createLogger();
 
 type CleanupFn = () => void;
 
@@ -67,7 +70,7 @@ export class HotReloader {
       try {
         entry.cleanups[i]();
       } catch (err) {
-        console.error(`[HotReloader] Cleanup error for "${name}":`, err);
+        log.error("HotReloader", `Cleanup error for "${name}": ${err}`);
       }
     }
     entry.cleanups = [];
@@ -76,7 +79,7 @@ export class HotReloader {
       await this.scripting.hotReload(name, path);
       if (entry.onReload) entry.onReload(path);
     } catch (err) {
-      console.error(`[HotReloader] Reload error for "${name}":`, err);
+      log.error("HotReloader", `Reload error for "${name}": ${err}`);
     }
   }
 

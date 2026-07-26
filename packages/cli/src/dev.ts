@@ -1,13 +1,15 @@
+import { createLogger } from "@downdraft/core";
 import { spawn } from "child_process";
 import { resolve } from "path";
 
+const log = createLogger();
 const ROOT = resolve(import.meta.dir, "../../..");
 
 export async function dev(args: string[]): Promise<void> {
   const watch = args.includes("--watch");
 
-  console.log("[DownDraft] Starting in dev mode...");
-  console.log("[DownDraft] Hot reload:", watch);
+  log.info("DownDraft", "Starting in dev mode...");
+  log.info("DownDraft", `Hot reload: ${watch}`);
 
   const entry = resolve(ROOT, "src", "bun", "index.ts");
 
@@ -23,10 +25,16 @@ export async function dev(args: string[]): Promise<void> {
     process.exit(code ?? 0);
   });
 
-  process.on("SIGINT", () => {
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     child.kill("SIGINT");
-  });
-  process.on("SIGTERM", () => {
-    child.kill("SIGTERM");
-  });
+    setTimeout(() => {
+      child.kill("SIGKILL");
+      process.exit(130);
+    }, 3000);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

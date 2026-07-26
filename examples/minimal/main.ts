@@ -1,4 +1,6 @@
-import { World, MeshBuilder, Camera, Stage, system } from "@downdraft/core";
+import { Camera, createLogger, MeshBuilder, World } from "@downdraft/core";
+
+const log = createLogger();
 
 export function init(ctx: any) {
   const world = new World();
@@ -12,7 +14,7 @@ export function init(ctx: any) {
   const mesh = MeshBuilder.cube(1);
   world.setResource("cubeMesh", mesh);
 
-  console.log("[minimal] initialized");
+  log.info("minimal", "initialized");
 }
 
 export function tick(ctx: any, dt: number) {
@@ -20,5 +22,5 @@ export function tick(ctx: any, dt: number) {
 }
 
 export function dispose(ctx: any) {
-  console.log("[minimal] disposed");
+  log.info("minimal", "disposed");
 }

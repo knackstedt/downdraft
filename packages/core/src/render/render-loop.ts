@@ -4,9 +4,11 @@ import type { MeshData } from "../mesh/builder.ts";
 import { HighResTimer } from "../platform/time.ts";
 import { Camera } from "../scene/camera.ts";
 import { TelemetryCollector } from "../telemetry/collector.ts";
+import { createLogger } from "../util/logger.ts";
 import { GPUDeviceManager } from "./device.ts";
 import { GBuffer } from "./g-buffer.ts";
 import { createDefaultLightUniform, type LightUniformData } from "./lighting.ts";
+import { DebugVizPass, type DebugVizMode } from "./passes/debug-viz.ts";
 import { DebugRenderPass } from "./passes/debug.ts";
 import { DeferredLightingPass } from "./passes/deferred-lighting.ts";
 import { DepthPrepass } from "./passes/depth-prepass.ts";
@@ -18,6 +20,8 @@ import { TransparentPass } from "./passes/transparent.ts";
 import { RenderGraph } from "./render-graph.ts";
 import { SurfaceManager } from "./surface.ts";
 import { TrackedRenderPass } from "./tracked-render-pass.ts";
+
+const log = createLogger();
 
 export interface RenderLoopConfig {
   canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -32,6 +36,21 @@ export interface RenderLoopConfig {
   pbrMaterial?: PBRMaterialResources;
 }
 
+export interface DebugToggleState {
+  wireframe: boolean;
+  hitboxes: boolean;
+  normals: boolean;
+  velocity: boolean;
+  shadows: boolean;
+  bloom: boolean;
+  aabbs: boolean;
+  overdraw: boolean;
+  lod: boolean;
+  depth: boolean;
+  tangents: boolean;
+  raycast: boolean;
+}
+
 export class RenderLoop {
   private deviceManager: GPUDeviceManager;
   private surface: SurfaceManager | null = null;
@@ -43,6 +62,9 @@ export class RenderLoop {
   private skyboxPass: SkyboxPass | null = null;
   private postProcessPass: PostProcessPass | null = null;
   private debugPass: DebugRenderPass | null = null;
+  private debugVizPass: DebugVizPass | null = null;
+  private shadowsEnabled: boolean = true;
+  private bloomEnabled: boolean = true;
   private gbuffer: GBuffer | null = null;
   private hdrTexture: GPUTexture | null = null;
   private hdrView: GPUTextureView | null = null;
@@ -71,7 +93,7 @@ export class RenderLoop {
   async init(): Promise<boolean> {
     const device = await this.deviceManager.requestDevice();
     if (!device) {
-      console.error("[RenderLoop] Failed to get GPU device");
+      log.error("RenderLoop", "Failed to get GPU device");
       return false;
     }
 
@@ -141,12 +163,16 @@ export class RenderLoop {
     }
     this.debugPass.prepare(device);
 
+    // Debug visualization pass
+    this.debugVizPass = new DebugVizPass(surfaceFormat);
+    this.debugVizPass.prepare(device);
+
     this.prevViewProj = this.config.camera.getViewProjectionMatrix();
 
     this.buildRenderGraph();
 
     this.deviceManager.onDeviceLost(() => {
-      console.warn("[RenderLoop] Device lost, attempting reinit...");
+      log.warn("RenderLoop", "Device lost, attempting reinit...");
       this.handleDeviceLost();
     });
 
@@ -207,7 +233,7 @@ export class RenderLoop {
 
     const errors = this.renderGraph.validate();
     if (errors.length > 0) {
-      console.warn("[RenderLoop] Render graph validation errors:", errors);
+      log.warn("RenderLoop", `Render graph validation errors: ${errors}`);
     }
   }
 
@@ -259,6 +285,8 @@ export class RenderLoop {
         this.debugPass.setDebugQueue(this.config.debugQueue);
       }
       this.debugPass.prepare(device);
+      this.debugVizPass = new DebugVizPass(surfaceFormat);
+      this.debugVizPass.prepare(device);
       this.buildRenderGraph();
       this.start();
     }
@@ -349,6 +377,16 @@ export class RenderLoop {
       this.debugPass.execute({ device, pass: tracked });
     }
 
+    if (this.debugVizPass && this.debugVizPass.getMode()) {
+      this.debugVizPass.setCamera(viewProj);
+      const vb = this.opaquePass!.getVertexBuffer();
+      const ib = this.opaquePass!.getIndexBuffer();
+      const indexCount = this.opaquePass!.getIndexCount();
+      if (vb && ib && indexCount > 0) {
+        this.debugVizPass.renderMesh({ device, pass: tracked }, vb, ib, indexCount);
+      }
+    }
+
     tracked.end();
     device.queue.submit([encoder.finish()]);
   }
@@ -391,7 +429,7 @@ export class RenderLoop {
       20,
     );
     this.shadowPass.setLightViewProj(lightViewProj);
-    {
+    if (this.shadowsEnabled) {
       const ctx = { device, pass: null as unknown as GPURenderPassEncoder };
       this.shadowPass.execute(ctx, this.config.mesh, mat4.identity());
     }
@@ -497,7 +535,9 @@ export class RenderLoop {
     {
       const ctx = { device, pass: null as unknown as GPURenderPassEncoder };
       const taaOutput = this.postProcessPass.executeTAA(ctx, this.hdrView!, gbufferViews.velocity, this.hdrView!);
-      const bloomOutput = this.postProcessPass.executeBloom(ctx, taaOutput);
+      const bloomOutput = this.bloomEnabled
+        ? this.postProcessPass.executeBloom(ctx, taaOutput)
+        : taaOutput;
       this.postProcessPass.executeTonemap(ctx, taaOutput, bloomOutput, texture.createView());
     }
 
@@ -515,6 +555,28 @@ export class RenderLoop {
       this.debugPass.setScreenSize(this.width, this.height);
       this.debugPass.setCameraViewProj(viewProj);
       this.debugPass.execute({ device, pass });
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
+
+    // 9. Debug visualization (on top of final image)
+    if (this.debugVizPass && this.debugVizPass.getMode()) {
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: texture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: "load",
+          storeOp: "store",
+        }],
+      });
+      this.debugVizPass.setCamera(viewProj);
+      const vb = this.opaquePass!.getVertexBuffer();
+      const ib = this.opaquePass!.getIndexBuffer();
+      const indexCount = this.opaquePass!.getIndexCount();
+      if (vb && ib && indexCount > 0) {
+        this.debugVizPass.renderMesh({ device, pass }, vb, ib, indexCount);
+      }
       pass.end();
       device.queue.submit([encoder.finish()]);
     }
@@ -560,6 +622,29 @@ export class RenderLoop {
     this.opaquePass?.setPBRMaterial(resources);
   }
 
+  setDebugToggles(toggles: DebugToggleState): void {
+    const modeMap: Array<{ key: keyof DebugToggleState; mode: DebugVizMode }> = [
+      { key: "wireframe", mode: "wireframe" },
+      { key: "normals", mode: "normals" },
+      { key: "overdraw", mode: "overdraw" },
+      { key: "depth", mode: "depth" },
+      { key: "tangents", mode: "tangents" },
+      { key: "lod", mode: "lod" },
+      { key: "aabbs", mode: "aabbs" },
+      { key: "hitboxes", mode: "aabbs" },
+    ];
+    let activeMode: DebugVizMode | null = null;
+    for (const { key, mode } of modeMap) {
+      if (toggles[key]) {
+        activeMode = mode;
+        break;
+      }
+    }
+    this.debugVizPass?.setMode(activeMode);
+    this.shadowsEnabled = toggles.shadows;
+    this.bloomEnabled = toggles.bloom;
+  }
+
   getTransparentPass(): TransparentPass | null {
     return this.transparentPass;
   }
@@ -588,6 +673,8 @@ export class RenderLoop {
     this.transparentPass?.destroy();
     this.skyboxPass?.destroy();
     this.postProcessPass?.destroy();
+    this.debugPass?.destroy();
+    this.debugVizPass?.destroy();
     this.gbuffer?.destroy();
     this.hdrTexture?.destroy();
     this.opaquePass = null;
@@ -597,6 +684,8 @@ export class RenderLoop {
     this.transparentPass = null;
     this.skyboxPass = null;
     this.postProcessPass = null;
+    this.debugPass = null;
+    this.debugVizPass = null;
     this.gbuffer = null;
     this.hdrTexture = null;
     this.hdrView = null;

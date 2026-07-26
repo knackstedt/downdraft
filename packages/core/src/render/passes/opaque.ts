@@ -1,8 +1,8 @@
+import { mat4, type Mat4 } from "wgpu-matrix";
+import type { MeshData } from "../../mesh/builder.ts";
 import type { RenderPassContext } from "../render-pass.ts";
 import { RenderPass } from "../render-pass.ts";
 import { TrackedRenderPass } from "../tracked-render-pass.ts";
-import type { MeshData } from "../../mesh/builder.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
 
 const GBUFFER_SHADER = `
 struct CameraUniforms {
@@ -575,6 +575,22 @@ export class OpaquePass extends RenderPass {
 
   getDepthTextureView(): GPUTextureView | null {
     return this.depthTexture?.createView() ?? null;
+  }
+
+  getVertexBuffer(): GPUBuffer | null {
+    return this.vertexBuffer;
+  }
+
+  getIndexBuffer(): GPUBuffer | null {
+    return this.indexBuffer;
+  }
+
+  getIndexCount(): number {
+    return this.mesh?.indexCount ?? 0;
+  }
+
+  getIndexFormat(): GPUIndexFormat {
+    return this.mesh?.indices instanceof Uint16Array ? "uint16" : "uint32";
   }
 
   destroy(): void {

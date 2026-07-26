@@ -1,4 +1,7 @@
 import { SharedMemoryIPC, parseShmPath } from "../../packages/core/src/ipc/shared-memory.ts";
+import { createLogger } from "../../packages/core/src/util/logger.ts";
+
+const log = createLogger();
 
 // Load the example game module
 const examplePath = process.env.DOWNDRAFT_EXAMPLE ?? "examples/ocean-game/main.ts";
@@ -35,9 +38,9 @@ const localResources = join(rendererDir, "resources");
 if (ulResourcesPath && !existsSync(localResources)) {
   try {
     cpSync(ulResourcesPath, localResources, { recursive: true });
-    console.log("[DownDraft] Copied Ultralight resources to", localResources);
+    log.info("DownDraft", `Copied Ultralight resources to ${localResources}`);
   } catch (e) {
-    console.error("[DownDraft] Failed to copy Ultralight resources:", e);
+    log.error("DownDraft", `Failed to copy Ultralight resources: ${e}`);
   }
 }
 
@@ -73,14 +76,14 @@ const decoder = new TextDecoder();
       if (shmPath && !ipc) {
         ipc = new SharedMemoryIPC();
         if (ipc.attach(shmPath)) {
-          console.log("[DownDraft] Connected to renderer via shared memory:", shmPath);
+          log.info("DownDraft", `Connected to renderer via shared memory: ${shmPath}`);
           rendererReady = true;
         } else {
-          console.error("[DownDraft] Failed to attach to shared memory");
+          log.error("DownDraft", "Failed to attach to shared memory");
           ipc = null;
         }
       }
-      if (trimmed) console.log(`[renderer] ${trimmed}`);
+      if (trimmed) log.info("renderer", trimmed.replace(/^\[renderer\]\s*/, ""));
     }
   }
 })();
@@ -92,14 +95,24 @@ process.on("exit", () => {
   proc.kill();
 });
 
+// Handle Ctrl+C — registered at top level so it works even before the renderer connects
+process.on("SIGINT", () => {
+  log.info("DownDraft", "Received SIGINT, shutting down...");
+  process.exit(130);
+});
+process.on("SIGTERM", () => {
+  log.info("DownDraft", "Received SIGTERM, shutting down...");
+  process.exit(143);
+});
+
 // Detect renderer exit
 proc.exited.then((code) => {
-  console.log(`[DownDraft] Renderer exited with code ${code}`);
+  log.info("DownDraft", `Renderer exited with code ${code}`);
   if (exampleModule.dispose) exampleModule.dispose({});
   process.exit(code ?? 0);
 });
 
-console.log("[DownDraft] Native renderer spawned, waiting for shared memory connection...");
+log.info("DownDraft", "Native renderer spawned, waiting for shared memory connection...");
 
 // Wait for renderer to be ready, then init the game and start the game loop
 const SIM_TICK_DT = 1 / 60;
@@ -122,9 +135,6 @@ const SIM_TICK_DT = 1 / 60;
   let lastTime = performance.now();
   let running = true;
   let meshDataWritten = false;
-
-  process.on("SIGINT", () => { running = false; });
-  process.on("SIGTERM", () => { running = false; });
 
   while (running) {
     const now = performance.now();
@@ -154,7 +164,7 @@ const SIM_TICK_DT = 1 / 60;
     if (!meshDataWritten && ipc && exampleModule.getMeshData) {
       const meshData = exampleModule.getMeshData();
       if (meshData && meshData.length > 0) {
-        console.log(`[DownDraft] Writing ${meshData.length} island meshes to shared memory`);
+        log.info("DownDraft", `Writing ${meshData.length} island meshes to shared memory`);
         ipc.writeMeshData(meshData);
       }
       meshDataWritten = true;
@@ -166,8 +176,40 @@ const SIM_TICK_DT = 1 / 60;
       ipc.writeRenderData(renderData);
     }
 
+    // Write water heightfield data to shared memory for the renderer
+    if (exampleModule.getWaterData && ipc) {
+      const waterData = exampleModule.getWaterData();
+      ipc.writeWaterData(waterData);
+    }
+
+    // Write weather visual data to shared memory for the renderer
+    if (exampleModule.getWeatherVisual && ipc) {
+      const weatherVisual = exampleModule.getWeatherVisual();
+      ipc.writeWeatherVisual(weatherVisual);
+    }
+
+    // Write game state (death overlay) to shared memory for the renderer
+    if (exampleModule.getGameState && ipc) {
+      const gameState = exampleModule.getGameState();
+      ipc.writeGameState(gameState.isDead, gameState.cause);
+    }
+
+    // Write inventory data to shared memory for the renderer UI
+    if (exampleModule.getInventoryState && ipc) {
+      const invJson = exampleModule.getInventoryState();
+      ipc.writeInventory(invJson);
+    }
+
+    // Poll for respawn request from the renderer UI
+    if (ipc && ipc.readRespawnRequest()) {
+      if (exampleModule.respawn) {
+        exampleModule.respawn();
+        log.info("DownDraft", "Respawn triggered by player");
+      }
+    }
+
     // Check if renderer is still alive
-    if (proc.killed) {
+    if (proc.killed || proc.exitCode !== null) {
       running = false;
     }
   }

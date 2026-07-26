@@ -1,5 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, readdirSync, statSync, readFileSync } from "fs";
-import { join, resolve, basename, extname, relative } from "path";
+import { createLogger } from "@downdraft/core";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { join, relative, resolve } from "path";
+
+const log = createLogger();
 
 export async function exportGame(args: string[]): Promise<void> {
   const projectPath = args.find((a) => !a.startsWith("-")) ?? ".";
@@ -28,20 +31,20 @@ export async function exportGame(args: string[]): Promise<void> {
   // Check for build directory
   const buildDir = resolve(projectPath, "dist");
   if (!existsSync(buildDir)) {
-    console.error(`  [error] No build found at ${buildDir}. Run 'draft build' first.`);
+    log.error("export", `No build found at ${buildDir}. Run 'draft build' first.`);
     process.exit(1);
   }
 
   // Read build manifest
   const manifestPath = join(buildDir, "manifest.json");
   if (!existsSync(manifestPath)) {
-    console.error(`  [error] No manifest found at ${manifestPath}`);
+    log.error("export", `No manifest found at ${manifestPath}`);
     process.exit(1);
   }
 
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
   if (verbose) {
-    console.log(`  Manifest: ${JSON.stringify(manifest, null, 2)}`);
+    log.debug("export", `Manifest: ${JSON.stringify(manifest, null, 2)}`);
   }
 
   // Platform-specific export
@@ -84,7 +87,7 @@ export async function exportGame(args: string[]): Promise<void> {
       launcher: launcherName,
     }, null, 2));
 
-    console.log(`  ✓ Exported ${platform} → ${platformDir}`);
+    log.info("export", `Exported ${platform} → ${platformDir}`);
   }
 
   // Write export summary
@@ -96,9 +99,8 @@ export async function exportGame(args: string[]): Promise<void> {
   };
   writeFileSync(join(outPath, "export-summary.json"), JSON.stringify(exportSummary, null, 2));
 
-  console.log("");
-  console.log(`  Export complete → ${outPath}`);
-  console.log(`  Platforms: ${platforms.join(", ")}`);
+  log.info("export", `Export complete → ${outPath}`);
+  log.info("export", `Platforms: ${platforms.join(", ")}`);
 }
 
 function collectAllFiles(dir: string): string[] {

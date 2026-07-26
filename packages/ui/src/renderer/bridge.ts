@@ -1,5 +1,8 @@
 import { engineConfig, initEngine, sabBuffers, stopEngine } from "@downdraft/core/main";
 import type { RPC, RPCMessage } from "@downdraft/core/platform/rpc";
+import { createLogger } from "@downdraft/core/util/logger";
+
+const log = createLogger();
 
 const rpc: RPC = engineConfig.rpc;
 
@@ -25,4 +28,4 @@ window.downdraft = {
   stopEngine,
 };
 
-console.log("[DownDraft] Bridge initialized — window.downdraft ready");
+log.info("DownDraft", "Bridge initialized — window.downdraft ready");

@@ -82,15 +82,54 @@ function extractShorthand(pathOrUrl: string): string {
     }
 }
 
+function getEditorScheme(): string {
+    const termProgram = process.env.TERM_PROGRAM ?? "";
+    if (termProgram === "vscode") return "vscode://file/";
+    if (termProgram === "cursor") return "cursor://file/";
+    if (termProgram === "windsurf") return "windsurf://file/";
+    return "file://";
+}
+
+let _editorScheme: string | undefined;
+function editorScheme(): string {
+    return (_editorScheme ??= getEditorScheme());
+}
+
+function makeFileLink(filePath: string): string {
+    const lineMatch = filePath.match(/(\d+)$/);
+    const line = lineMatch ? lineMatch[1] : "";
+    const path = line ? filePath.slice(0, -line.length - 1) : filePath;
+    const scheme = editorScheme();
+    if (scheme === "file://") {
+        const url = path.startsWith("/") ? `file://${path}` : path;
+        return makeTerminalLink(line ? `${url}:${line}` : url, extractShorthand(filePath));
+    }
+    const url = `${scheme}${path}:${line}`;
+    return makeTerminalLink(url, extractShorthand(filePath));
+}
+
 function makeTerminalLink(target: string, text: string): string {
     return `${OSC8_START}${target}${BEL}${text}${OSC8_END}${BEL}`;
 }
 
+function getCallerLocation(): string | null {
+    const stack = new Error().stack;
+    if (!stack) return null;
+    const lines = stack.split("\n");
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.includes("logger.ts")) continue;
+        const match = line.match(/\((.+?):(\d+):\d+\)/);
+        if (match) return `${match[1]}:${match[2]}`;
+        const atMatch = line.match(/at\s+(.+?):(\d+):\d+/);
+        if (atMatch) return `${atMatch[1]}:${atMatch[2]}`;
+    }
+    return null;
+}
+
 function linkifyModule(module: string): string {
     if (!isPathLike(module)) return module;
-    const shorthand = extractShorthand(module);
-    const target = module.startsWith("/") ? `file://${module}` : module;
-    return makeTerminalLink(target, shorthand);
+    return makeFileLink(module);
 }
 
 const JSON_COLORS = {
@@ -338,9 +377,12 @@ export class ConsoleLogger implements Logger {
         const color = (this.palette as any)[level];
         const timestamp = new Date().toTimeString().slice(0, 8);
         const linkedModule = linkifyModule(module);
-        const moduleStr = isPathLike(module)
-            ? linkedModule
-            : `${this.palette.module}${module}`;
+        let moduleStr: string;
+        if (isPathLike(module)) {
+            moduleStr = linkedModule;
+        } else {
+            moduleStr = `${this.palette.module}${module}`;
+        }
         process.stdout?.write(
             `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase().padEnd(5)}${reset} ${this.palette.gray}[${moduleStr}${this.palette.gray}] ${reset}${linkifyMessage(msg)}\n`
         );

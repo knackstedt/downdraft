@@ -1,4 +1,7 @@
+import { createLogger } from "@downdraft/core";
 import type { PhysicsLib } from "./ffi.ts";
+
+const log = createLogger();
 
 export async function loadWasmRapier(): Promise<PhysicsLib | null> {
   try {
@@ -134,7 +137,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
       },
     };
   } catch (err) {
-    console.warn("[physics-rapier] WASM Rapier not available:", err);
+    log.warn("physics-rapier", `WASM Rapier not available: ${err}`);
     return null;
   }
 }

@@ -1,5 +1,7 @@
-import { Builder, type BuilderMode } from "@downdraft/core";
+import { Builder, createLogger } from "@downdraft/core";
 import { watch } from "fs";
+
+const log = createLogger();
 
 export async function debug(args: string[]): Promise<void> {
   const projectPath = args[0] ?? ".";
@@ -24,53 +26,49 @@ export async function debug(args: string[]): Promise<void> {
   console.log("");
 
   if (config.debugDraw) {
-    console.log("  Debug features enabled:");
-    console.log("    - Debug draw queue (lines, points, text)");
-    console.log("    - Wireframe / normals / AABB visualization");
-    console.log("    - Performance profiler (frame time, system timings)");
-    console.log("    - Entity inspector");
-    console.log("    - Debug visualization modes");
-    console.log("");
+    log.info("debug", "Debug features enabled:");
+    log.info("debug", "  - Debug draw queue (lines, points, text)");
+    log.info("debug", "  - Wireframe / normals / AABB visualization");
+    log.info("debug", "  - Performance profiler (frame time, system timings)");
+    log.info("debug", "  - Entity inspector");
+    log.info("debug", "  - Debug visualization modes");
   }
 
   if (config.telemetry) {
-    console.log("  Telemetry enabled:");
-    console.log("    - Frame time tracking");
-    console.log("    - CPU/GPU timing");
-    console.log("    - Memory usage");
-    console.log("    - System-level profiling");
-    console.log("");
+    log.info("debug", "Telemetry enabled:");
+    log.info("debug", "  - Frame time tracking");
+    log.info("debug", "  - CPU/GPU timing");
+    log.info("debug", "  - Memory usage");
+    log.info("debug", "  - System-level profiling");
   }
 
   // Watch for file changes and hot-reload
   if (config.hotReload) {
-    console.log("  Hot reload: watching for changes...");
+    log.info("hot-reload", "watching for changes...");
     try {
       watch(projectPath, { recursive: true }, (event, filename) => {
         if (verbose) {
-          console.log(`  [watch] ${event}: ${filename}`);
+          log.debug("watch", `${event}: ${filename}`);
         }
         if (filename && (filename.endsWith(".ts") || filename.endsWith(".tsx") || filename.endsWith(".wgsl"))) {
-          console.log(`  [hot-reload] ${filename} changed — reloading...`);
+          log.info("hot-reload", `${filename} changed — reloading...`);
         }
       });
     } catch {
-      console.log("  [hot-reload] File watching not available on this platform");
+      log.warn("hot-reload", "File watching not available on this platform");
     }
   }
 
-  console.log("");
-  console.log("  Debug engine ready. Press Ctrl+C to stop.");
-  console.log("");
+  log.info("debug", "Debug engine ready. Press Ctrl+C to stop.");
 
   if (inspector) {
-    console.log("  Inspector mode: connect chrome://inspect to debug the engine process.");
+    log.info("debug", "Inspector mode: connect chrome://inspect to debug the engine process.");
     }
 
   // Keep process alive
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => {
-      console.log("\n  [debug] Shutting down...");
+      log.info("debug", "Shutting down...");
       resolve();
     });
   });

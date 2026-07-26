@@ -18,12 +18,17 @@
     "baseUrl": ".",
     "paths": {
       "@downdraft/core/*": ["packages/core/src/*"],
+      "@downdraft/core": ["packages/core/src/index.ts"],
       "@downdraft/ui/*": ["packages/ui/src/*"],
       "@downdraft/mcp/*": ["packages/mcp/src/*"],
       "@downdraft/shader-graph/*": ["packages/shader-graph/src/*"],
-      "@downdraft/cli/*": ["packages/cli/src/*"]
+      "@downdraft/cli/*": ["packages/cli/src/*"],
+      "@downdraft/plugin-water": ["packages/plugins/water/src/index.ts"],
+      "@downdraft/plugin-water/*": ["packages/plugins/water/src/*"],
+      "@downdraft/plugin-physics-rapier": ["packages/plugins/physics-rapier/src/index.ts"],
+      "@downdraft/plugin-audio-kira": ["packages/plugins/audio-kira/src/index.ts"]
     }
   },
-  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "examples/*/main.ts"],
   "exclude": ["node_modules", "**/*.spec.ts", "**/*.spec.tsx"]
 }

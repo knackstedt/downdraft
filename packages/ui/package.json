@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
+    "@downdraft/core": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "lucide-react": "^0.400.0"

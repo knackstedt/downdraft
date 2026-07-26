@@ -1,4 +1,4 @@
-import { MC_EDGE_TABLE, MC_TRI_TABLE, EDGE_VERTS } from "./tables.ts";
+import { EDGE_VERTS, MC_EDGE_TABLE, MC_TRI_TABLE } from "./tables.ts";
 
 export type DensityField = (x: number, y: number, z: number) => number;
 
@@ -53,10 +53,10 @@ export function generateChunk(
 
         cornerPos[0] = [wx, wy, wz];
         cornerPos[1] = [wx + scale, wy, wz];
-        cornerPos[2] = [wx + scale, wy + scale, wz];
-        cornerPos[3] = [wx, wy + scale, wz];
-        cornerPos[4] = [wx, wy, wz + scale];
-        cornerPos[5] = [wx + scale, wy, wz + scale];
+        cornerPos[2] = [wx + scale, wy, wz + scale];
+        cornerPos[3] = [wx, wy, wz + scale];
+        cornerPos[4] = [wx, wy + scale, wz];
+        cornerPos[5] = [wx + scale, wy + scale, wz];
         cornerPos[6] = [wx + scale, wy + scale, wz + scale];
         cornerPos[7] = [wx, wy + scale, wz + scale];
 

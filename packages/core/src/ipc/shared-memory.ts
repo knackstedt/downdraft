@@ -1,6 +1,10 @@
 /// Cross-process shared memory IPC for Bun <-> Rust native-renderer.
 /// Uses Bun.mmap to memory-map a file created by the Rust binary.
 
+import { createLogger } from "../util/logger.ts";
+
+const log = createLogger();
+
 // Shared memory layout (must match native-renderer/src/ipc.rs)
 export const SHM_SIZE = 4 * 1024 * 1024; // 4MB for mesh data
 const CMD_SEQ_OFFSET = 0;
@@ -30,11 +34,47 @@ export const INPUT_PRESSED_OFFSET = 3268; // pressed_keys: u32 bitfield (one-sho
 export const INPUT_MOUSE_DX_OFFSET = 3272;  // mouse delta X (f32)
 export const INPUT_MOUSE_DY_OFFSET = 3276;  // mouse delta Y (f32)
 export const INPUT_WHEEL_OFFSET = 3280;     // mouse wheel delta (f32)
+export const INPUT_EXT_OFFSET = 3284;        // held_keys_ext: u32 bitfield (numpad etc.)
+export const INPUT_PRESSED_EXT_OFFSET = 3288; // pressed_keys_ext: u32 bitfield (one-shot)
+
+// Weather visual data (written by Bun each tick, read by Rust renderer)
+export const WEATHER_SEQ_OFFSET = 3292;          // seqlock (u32)
+export const WEATHER_SKY_COLOR_OFFSET = 3296;    // 3 × f32 (rgb)
+export const WEATHER_WATER_COLOR_OFFSET = 3308;  // 3 × f32 (rgb)
+export const WEATHER_FOG_COLOR_OFFSET = 3320;    // 3 × f32 (rgb)
+export const WEATHER_FOG_DENSITY_OFFSET = 3332;  // f32
+export const WEATHER_LIGHT_INTENSITY_OFFSET = 3336; // f32
+export const WEATHER_TYPE_OFFSET = 3340;            // u32 (WeatherType enum value)
+export const WEATHER_IS_NIGHT_OFFSET = 3344;        // u32 (0 or 1)
 
 // Mesh data section (written by Bun once at init, read by Rust once)
-export const MESH_SEQ_OFFSET = 3284;       // seqlock (u32)
-export const MESH_COUNT_OFFSET = 3288;     // number of meshes (u32)
-export const MESH_DATA_OFFSET = 3292;      // mesh data starts here
+export const MESH_SEQ_OFFSET = 3348;       // seqlock (u32)
+export const MESH_COUNT_OFFSET = 3352;     // number of meshes (u32)
+export const MESH_DATA_OFFSET = 3356;      // mesh data starts here
+
+// Water data section (written by Bun each tick, read by Rust renderer)
+// 256x256 heightfield = 256KB, placed at 3MB offset to leave 3MB for mesh data
+export const WATER_SEQ_OFFSET = 3145728;       // seqlock (u32)
+export const WATER_GRID_SIZE_OFFSET = 3145732;  // grid size (u32)
+export const WATER_PATCH_SIZE_OFFSET = 3145736; // patch size (u32)
+export const WATER_ORIGIN_X_OFFSET = 3145740;   // origin X (i32)
+export const WATER_ORIGIN_Z_OFFSET = 3145744;   // origin Z (i32)
+export const WATER_HEIGHTS_OFFSET = 3145748;    // 256*256 f32 = 262144 bytes
+export const WATER_DATA_END = WATER_HEIGHTS_OFFSET + 256 * 256 * 4; // 3407892
+
+// Game state section (written by Bun each tick, read by Rust renderer)
+export const GAME_STATE_OFFSET = WATER_DATA_END;             // is_dead: u32 (0 or 1)
+export const GAME_STATE_CAUSE_OFFSET = WATER_DATA_END + 4;   // cause: [u8; 64]
+export const GAME_STATE_CAUSE_SIZE = 64;
+
+// Respawn request (written by Rust renderer, read by Bun)
+export const RESPAWN_REQUEST_OFFSET = WATER_DATA_END + 68;   // respawn_requested: u32 (0 or 1)
+
+// Inventory data section (written by Bun each tick, read by Rust renderer)
+// Stored as a JSON string for flexibility — grid slots, item names, quantities, spoil
+export const INVENTORY_SEQ_OFFSET = WATER_DATA_END + 72;       // seqlock (u32)
+export const INVENTORY_DATA_OFFSET = WATER_DATA_END + 76;      // JSON string
+export const INVENTORY_DATA_SIZE = 8192;                        // max bytes for inventory JSON
 
 // Key bit assignments
 export const KEY_BITS: Record<string, number> = {
@@ -45,6 +85,17 @@ export const KEY_BITS: Record<string, number> = {
   m: 23, space: 24, ctrl: 25, f5: 26,
   "1": 27, "2": 28, "3": 29, "4": 30, "5": 31,
 };
+
+// Extended key bits (second u32 word — numpad keys etc.)
+export const KEY_BITS_EXT: Record<string, number> = {
+  numpad0: 0, numpad1: 1, numpad2: 2, numpad3: 3, numpad4: 4,
+  numpad5: 5, numpad6: 6, numpad7: 7, numpad8: 8, numpad9: 9,
+  numpaddivide: 10, numpadmultiply: 11, numpadsubtract: 12, numpadadd: 13,
+  i: 14,
+};
+
+const KEY_BITS_ENTRIES = Object.entries(KEY_BITS);
+const KEY_BITS_EXT_ENTRIES = Object.entries(KEY_BITS_EXT);
 
 export enum RenderEntityType {
   Player = 0,
@@ -110,9 +161,7 @@ export class SharedMemoryIPC {
     try {
       this.bytes = Bun.mmap(path);
       if (this.bytes.length < SHM_SIZE) {
-        console.error(
-          `[ipc] Mapped file too small: ${this.bytes.length} < ${SHM_SIZE}`,
-        );
+        log.error("ipc", `Mapped file too small: ${this.bytes.length} < ${SHM_SIZE}`);
         return false;
       }
       this.view = new DataView(
@@ -127,7 +176,7 @@ export class SharedMemoryIPC {
       );
       return true;
     } catch (e) {
-      console.error("[ipc] Failed to mmap shared memory file:", path, e);
+      log.error("ipc", `Failed to mmap shared memory file: ${path} ${e}`);
       return false;
     }
   }
@@ -288,9 +337,19 @@ export class SharedMemoryIPC {
     const keys = new Set<string>();
     const pressed = new Set<string>();
 
-    for (const [key, bit] of Object.entries(KEY_BITS)) {
+    for (let i = 0; i < KEY_BITS_ENTRIES.length; i++) {
+      const [key, bit] = KEY_BITS_ENTRIES[i];
       if (heldBits & (1 << bit)) keys.add(key);
       if (pressedBits & (1 << bit)) pressed.add(key);
+    }
+
+    // Extended keys (numpad etc.)
+    const heldExtBits = this.u32[INPUT_EXT_OFFSET / 4] ?? 0;
+    const pressedExtBits = this.u32[INPUT_PRESSED_EXT_OFFSET / 4] ?? 0;
+    for (let i = 0; i < KEY_BITS_EXT_ENTRIES.length; i++) {
+      const [key, bit] = KEY_BITS_EXT_ENTRIES[i];
+      if (heldExtBits & (1 << bit)) keys.add(key);
+      if (pressedExtBits & (1 << bit)) pressed.add(key);
     }
 
     const mouseDX = this.view.getFloat32(INPUT_MOUSE_DX_OFFSET, true);
@@ -301,6 +360,12 @@ export class SharedMemoryIPC {
     this.view.setFloat32(INPUT_MOUSE_DX_OFFSET, 0, true);
     this.view.setFloat32(INPUT_MOUSE_DY_OFFSET, 0, true);
     this.view.setFloat32(INPUT_WHEEL_OFFSET, 0, true);
+
+    // Clear pressed key bits after reading (one-shot consumption)
+    // This prevents Bun from seeing the same key press on multiple ticks
+    // when the renderer runs faster than the simulation
+    this.u32[INPUT_PRESSED_OFFSET / 4] = 0;
+    this.u32[INPUT_PRESSED_EXT_OFFSET / 4] = 0;
 
     return { keys, pressed, mouseDX, mouseDY, wheel };
   }
@@ -339,6 +404,81 @@ export class SharedMemoryIPC {
     }
 
     this.u32[MESH_SEQ_OFFSET / 4] = seq + 2; // end write (even)
+  }
+
+  /** Write water heightfield data to shared memory (called each tick) */
+  writeWaterData(data: { gridSize: number; patchSize: number; originX: number; originZ: number; heights: Float32Array }): void {
+    const seq = this.u32[WATER_SEQ_OFFSET / 4];
+    this.u32[WATER_SEQ_OFFSET / 4] = seq + 1; // begin write (odd)
+
+    this.u32[WATER_GRID_SIZE_OFFSET / 4] = data.gridSize;
+    this.view.setFloat32(WATER_PATCH_SIZE_OFFSET, data.patchSize, true);
+    this.view.setInt32(WATER_ORIGIN_X_OFFSET, data.originX, true);
+    this.view.setInt32(WATER_ORIGIN_Z_OFFSET, data.originZ, true);
+
+    // Bulk copy heights via Float32Array view on shared memory
+    const count = data.gridSize * data.gridSize;
+    const dst = new Float32Array(this.bytes.buffer, this.bytes.byteOffset + WATER_HEIGHTS_OFFSET, count);
+    dst.set(data.heights.subarray(0, count));
+
+    this.u32[WATER_SEQ_OFFSET / 4] = seq + 2; // end write (even)
+  }
+
+  /** Write weather visual data to shared memory (called each tick) */
+  writeWeatherVisual(data: { skyColor: [number, number, number]; waterColor: [number, number, number]; fogColor: [number, number, number]; fogDensity: number; lightIntensity: number; weatherType: number; isNight: boolean }): void {
+    const seq = this.u32[WEATHER_SEQ_OFFSET / 4];
+    this.u32[WEATHER_SEQ_OFFSET / 4] = seq + 1; // begin write (odd)
+
+    this.view.setFloat32(WEATHER_SKY_COLOR_OFFSET, data.skyColor[0], true);
+    this.view.setFloat32(WEATHER_SKY_COLOR_OFFSET + 4, data.skyColor[1], true);
+    this.view.setFloat32(WEATHER_SKY_COLOR_OFFSET + 8, data.skyColor[2], true);
+
+    this.view.setFloat32(WEATHER_WATER_COLOR_OFFSET, data.waterColor[0], true);
+    this.view.setFloat32(WEATHER_WATER_COLOR_OFFSET + 4, data.waterColor[1], true);
+    this.view.setFloat32(WEATHER_WATER_COLOR_OFFSET + 8, data.waterColor[2], true);
+
+    this.view.setFloat32(WEATHER_FOG_COLOR_OFFSET, data.fogColor[0], true);
+    this.view.setFloat32(WEATHER_FOG_COLOR_OFFSET + 4, data.fogColor[1], true);
+    this.view.setFloat32(WEATHER_FOG_COLOR_OFFSET + 8, data.fogColor[2], true);
+
+    this.view.setFloat32(WEATHER_FOG_DENSITY_OFFSET, data.fogDensity, true);
+    this.view.setFloat32(WEATHER_LIGHT_INTENSITY_OFFSET, data.lightIntensity, true);
+    this.u32[WEATHER_TYPE_OFFSET / 4] = data.weatherType;
+    this.u32[WEATHER_IS_NIGHT_OFFSET / 4] = data.isNight ? 1 : 0;
+
+    this.u32[WEATHER_SEQ_OFFSET / 4] = seq + 2; // end write (even)
+  }
+
+  /** Write game state (is_dead + cause) to shared memory (called each tick by Bun) */
+  writeGameState(isDead: boolean, cause: string): void {
+    this.u32[GAME_STATE_OFFSET / 4] = isDead ? 1 : 0;
+    const causeBytes = new TextEncoder().encode(cause);
+    const len = Math.min(causeBytes.length, GAME_STATE_CAUSE_SIZE - 1);
+    this.bytes.set(causeBytes.subarray(0, len), GAME_STATE_CAUSE_OFFSET);
+    // Null-terminate
+    this.bytes[GAME_STATE_CAUSE_OFFSET + len] = 0;
+  }
+
+  /** Check if a respawn request is pending (called each tick by Bun) */
+  readRespawnRequest(): boolean {
+    const requested = (this.u32[RESPAWN_REQUEST_OFFSET / 4] ?? 0) !== 0;
+    if (requested) {
+      this.u32[RESPAWN_REQUEST_OFFSET / 4] = 0;
+    }
+    return requested;
+  }
+
+  /** Write inventory JSON to shared memory (called each tick by Bun) */
+  writeInventory(json: string): void {
+    const seq = this.u32[INVENTORY_SEQ_OFFSET / 4] ?? 0;
+    this.u32[INVENTORY_SEQ_OFFSET / 4] = seq + 1; // begin write (odd)
+
+    const jsonBytes = new TextEncoder().encode(json);
+    const len = Math.min(jsonBytes.length, INVENTORY_DATA_SIZE - 1);
+    this.bytes.set(jsonBytes.subarray(0, len), INVENTORY_DATA_OFFSET);
+    this.bytes[INVENTORY_DATA_OFFSET + len] = 0; // null-terminate
+
+    this.u32[INVENTORY_SEQ_OFFSET / 4] = seq + 2; // end write (even)
   }
 }
 

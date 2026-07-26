@@ -1,11 +1,14 @@
-import type { Plugin, PluginContext, SABChannel } from "./plugin.ts";
-import { PluginRegistry } from "./registry.ts";
-import { TSPluginLoader } from "./ts-loader.ts";
-import type { World } from "../ecs/world.ts";
 import type { ComponentId } from "../ecs/component.ts";
 import { getComponentId } from "../ecs/component.ts";
 import type { Stage, SystemFn } from "../ecs/system.ts";
+import type { World } from "../ecs/world.ts";
 import { createSABForChannel, type ChannelName } from "../sab/protocol.ts";
+import { createLogger } from "../util/logger.ts";
+import type { Plugin, PluginContext, SABChannel } from "./plugin.ts";
+import { PluginRegistry } from "./registry.ts";
+import { TSPluginLoader } from "./ts-loader.ts";
+
+const log = createLogger();
 
 interface ActivePlugin {
   plugin: Plugin;
@@ -59,7 +62,7 @@ export class PluginHost implements PluginContext {
       try {
         active.disposeFns[i]();
       } catch (err) {
-        console.error(`[PluginHost] Dispose error in plugin "${name}":`, err);
+        log.error("PluginHost", `Dispose error in plugin "${name}": ${err}`);
       }
     }
     this.active.delete(name);
