@@ -1,9 +1,12 @@
 #!/usr/bin/env bun
-import { init } from "./init.ts";
-import { dev } from "./dev.ts";
-import { debug } from "./debug.ts";
+import { createLogger } from "@downdraft/core";
 import { build } from "./build.ts";
+import { debug } from "./debug.ts";
+import { dev } from "./dev.ts";
 import { exportGame } from "./export.ts";
+import { init } from "./init.ts";
+
+const log = createLogger();
 
 const command = process.argv[2];
 
@@ -25,7 +28,7 @@ async function main() {
       await exportGame(process.argv.slice(3));
       break;
     default:
-      console.log(`DownDraft Engine CLI
+      log.info("CLI", `DownDraft Engine CLI
 
 Usage: draft <command> [options]
 

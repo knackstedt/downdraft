@@ -64,6 +64,6 @@ export function dispose(ctx) {
   await writeFile(join(targetPath, "downdraft.config.json"), JSON.stringify(config, null, 2));
 
   log.info("DownDraft", "Project scaffolded successfully!");
-  console.log(`  cd ${targetPath}`);
-  console.log(`  draft dev`);
+  log.info("DownDraft", `  cd ${targetPath}`);
+  log.info("DownDraft", `  draft dev`);
 }

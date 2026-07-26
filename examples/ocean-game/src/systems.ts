@@ -374,6 +374,7 @@ export const shipControlSystem = system("ship-control", Stage.Update, (ctx) => {
       ship.x += adx * 0.5 * dt;
       ship.z += adz * 0.5 * dt;
     }
+
   });
 }, { queries: [shipQuery] });
 
@@ -403,7 +404,7 @@ export const buoyancySystem_ = system("buoyancy", Stage.Physics, (ctx) => {
 export const waveSourceSystem = system("wave-sources", Stage.Update, (ctx) => {
   waterWakeProviders.length = 0;
   shipQuery.iterate(ctx.tick, (_e, [ship]) => {
-    if (ship.speed > 0.5) {
+    if (ship.speed > 0.5 && !Number.isNaN(ship.x) && !Number.isNaN(ship.z)) {
       waterWakeProviders.push({
         x: ship.x, z: ship.z,
         heading: ship.heading,
@@ -414,7 +415,7 @@ export const waveSourceSystem = system("wave-sources", Stage.Update, (ctx) => {
   pirateQuery.iterate(ctx.tick, (_e, [pirate]) => {
     if (pirate.health > 0) {
       const pSpeed = Math.sqrt((pirate.vx || 0) ** 2 + (pirate.vz || 0) ** 2);
-      if (pSpeed > 0.5) {
+      if (pSpeed > 0.5 && !Number.isNaN(pirate.x) && !Number.isNaN(pirate.z)) {
         waterWakeProviders.push({
           x: pirate.x, z: pirate.z,
           heading: Math.atan2(pirate.vx || 0, pirate.vz || 1),
@@ -862,13 +863,19 @@ export const shipIslandCollisionSystem = system("ship-island-collision", Stage.U
         const dz = ship.z - isl.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
         if (dist < isl.radius && islandHeightAt(isl, ship.x, ship.z) > ISLAND_BEACH_LEVEL) {
+          const safeDist = Math.max(dist, 0.001);
           const push = (isl.radius - dist) / isl.radius;
-          pushX += (dx / dist) * push * 2;
-          pushZ += (dz / dist) * push * 2;
+          pushX += (dx / safeDist) * push * 2;
+          pushZ += (dz / safeDist) * push * 2;
         }
       });
       ship.x += pushX;
       ship.z += pushZ;
+      if (Number.isNaN(ship.x) || Number.isNaN(ship.z)) {
+        console.error(`[ship-collision] NaN after push! pushX=${pushX} pushZ=${pushZ}`);
+        ship.x = 0;
+        ship.z = 0;
+      }
       ship.speed *= 0.3;
     }
   });

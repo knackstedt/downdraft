@@ -1,6 +1,6 @@
 // ─── Voxel terrain generation + marching cubes mesh extraction ──
 
-import { BiomeType, TerrainType, TERRAIN_CONFIG, BIOME_COLORS } from "./constants.ts";
+import { BIOME_COLORS, BiomeType, TERRAIN_CONFIG, TerrainType } from "./constants.ts";
 import { mulberry32, PerlinNoise, PerlinNoise3D } from "./noise.ts";
 
 // ─── Voxel Field Type ─────────────────────────────────────
@@ -190,6 +190,17 @@ export function generateVoxelField(
 
         if (uy > cfg.peakHeight) {
           density = Math.min(density, -(uy - cfg.peakHeight));
+        }
+
+        // Boundary fade: smoothly reduce density near field edges to prevent
+        // hard cliff faces that cause broken meshes at the island boundary.
+        const edgeFadeX = Math.min(vx / (dimX - 1), 1 - vx / (dimX - 1)) * 2; // 0 at edge, 1+ in interior
+        const edgeFadeZ = Math.min(vz / (dimZ - 1), 1 - vz / (dimZ - 1)) * 2;
+        const edgeFade = Math.min(edgeFadeX, edgeFadeZ);
+        const fadeStart = 0.15; // start fading when within 15% of boundary
+        if (edgeFade < fadeStart) {
+          const fadeFactor = edgeFade / fadeStart; // 0 at edge, 1 at fadeStart
+          density = density * fadeFactor - (1 - fadeFactor);
         }
 
         data[colBase + vy * dimZ] = density;
@@ -693,15 +704,13 @@ export function extractMeshFromField(
           vertList.push(v1x, v1y, v1z, nx, ny, nz, r, g, b);
           vertList.push(v2x, v2y, v2z, nx, ny, nz, r, g, b);
           indexList.push(baseIdx, baseIdx + 1, baseIdx + 2);
-
-          if (vertList.length / 9 >= maxVerts) {
-            const verts = new Float32Array(vertList);
-            const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
-            return { verts, indices, vertexCount: vertList.length / 9, indexCount: indexList.length };
-          }
         }
+        // Check maxVerts after completing this cube's triangles to avoid mid-cube holes
+        if (vertList.length / 9 >= maxVerts) break;
       }
+      if (vertList.length / 9 >= maxVerts) break;
     }
+    if (vertList.length / 9 >= maxVerts) break;
   }
 
   const verts = new Float32Array(vertList);

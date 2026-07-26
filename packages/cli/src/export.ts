@@ -11,17 +11,16 @@ export async function exportGame(args: string[]): Promise<void> {
   const verbose = args.includes("--verbose") || args.includes("-v");
   const compress = !args.includes("--no-compress");
 
-  console.log(`
+  log.info("export", `
   ╔══════════════════════════════════════════╗
   ║   DownDraft Engine — Export              ║
   ╚══════════════════════════════════════════╝
   `);
 
-  console.log(`  Project:  ${projectPath}`);
-  console.log(`  Target:   ${target}`);
-  console.log(`  Output:   ${outDir}`);
-  console.log(`  Compress: ${compress}`);
-  console.log("");
+  log.info("export", `  Project:  ${projectPath}`);
+  log.info("export", `  Target:   ${target}`);
+  log.info("export", `  Output:   ${outDir}`);
+  log.info("export", `  Compress: ${compress}`);
 
   const outPath = resolve(projectPath, outDir);
   if (!existsSync(outPath)) {

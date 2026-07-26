@@ -13,19 +13,18 @@ export async function build(args: string[]): Promise<void> {
   const minify = !args.includes("--no-minify");
   const sourceMaps = args.includes("--sourcemap") || mode !== "prod";
 
-  console.log(`
+  log.info("build", `
   ╔══════════════════════════════════════════╗
   ║   DownDraft Engine — Build               ║
   ╚══════════════════════════════════════════╝
   `);
 
-  console.log(`  Project:  ${projectPath}`);
-  console.log(`  Target:   ${target}`);
-  console.log(`  Mode:     ${mode}`);
-  console.log(`  Output:   ${outDir}`);
-  console.log(`  Minify:   ${minify}`);
-  console.log(`  Maps:     ${sourceMaps}`);
-  console.log("");
+  log.info("build", `  Project:  ${projectPath}`);
+  log.info("build", `  Target:   ${target}`);
+  log.info("build", `  Mode:     ${mode}`);
+  log.info("build", `  Output:   ${outDir}`);
+  log.info("build", `  Minify:   ${minify}`);
+  log.info("build", `  Maps:     ${sourceMaps}`);
 
   const builder = new Builder(mode as "dev" | "debug" | "prod");
   const config = builder.getConfig();

@@ -6,3 +6,6 @@ build
 native-renderer/target
 native-renderer/resources
 target
+
+# Devin MCP local overrides (personal API keys)
+.devin/config.local.json

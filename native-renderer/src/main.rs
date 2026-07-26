@@ -90,6 +90,56 @@ fn generate_cube(size: f32) -> (Vec<Vertex>, Vec<u16>) {
     (vertices, indices)
 }
 
+fn add_box(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u16>,
+    min: [f32; 3],
+    max: [f32; 3],
+) {
+    let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
+        // top
+        ([0.0, 1.0, 0.0], [[min[0], max[1], min[2]], [max[0], max[1], min[2]], [max[0], max[1], max[2]], [min[0], max[1], max[2]]]),
+        // bottom
+        ([0.0, -1.0, 0.0], [[min[0], min[1], min[2]], [min[0], min[1], max[2]], [max[0], min[1], max[2]], [max[0], min[1], min[2]]]),
+        // +x
+        ([1.0, 0.0, 0.0], [[max[0], min[1], min[2]], [max[0], min[1], max[2]], [max[0], max[1], max[2]], [max[0], max[1], min[2]]]),
+        // -x
+        ([-1.0, 0.0, 0.0], [[min[0], min[1], min[2]], [min[0], max[1], min[2]], [min[0], max[1], max[2]], [min[0], min[1], max[2]]]),
+        // +z
+        ([0.0, 0.0, 1.0], [[min[0], min[1], max[2]], [min[0], max[1], max[2]], [max[0], max[1], max[2]], [max[0], min[1], max[2]]]),
+        // -z
+        ([0.0, 0.0, -1.0], [[min[0], min[1], min[2]], [max[0], min[1], min[2]], [max[0], max[1], min[2]], [min[0], max[1], min[2]]]),
+    ];
+    for (normal, positions) in faces.iter() {
+        let base = vertices.len() as u16;
+        for pos in positions.iter() {
+            vertices.push(Vertex { position: *pos, normal: *normal, color: [1.0, 1.0, 1.0] });
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+}
+
+fn generate_humanoid() -> (Vec<Vertex>, Vec<u16>) {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    // Legs (y: 0.0 to 0.8)
+    add_box(&mut vertices, &mut indices, [-0.22, 0.0, -0.13], [0.0, 0.8, 0.13]);  // left leg
+    add_box(&mut vertices, &mut indices, [0.0, 0.0, -0.13], [0.22, 0.8, 0.13]);   // right leg
+
+    // Torso (y: 0.8 to 1.4)
+    add_box(&mut vertices, &mut indices, [-0.25, 0.8, -0.15], [0.25, 1.4, 0.15]);
+
+    // Arms (y: 0.85 to 1.4, beside torso)
+    add_box(&mut vertices, &mut indices, [-0.43, 0.85, -0.1], [-0.25, 1.4, 0.1]);  // left arm
+    add_box(&mut vertices, &mut indices, [0.25, 0.85, -0.1], [0.43, 1.4, 0.1]);    // right arm
+
+    // Head (y: 1.4 to 1.75)
+    add_box(&mut vertices, &mut indices, [-0.14, 1.4, -0.14], [0.14, 1.75, 0.14]);
+
+    (vertices, indices)
+}
+
 fn generate_sphere(radius: f32, segments: usize, rings: usize) -> (Vec<Vertex>, Vec<u16>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
@@ -256,6 +306,7 @@ struct Renderer {
     cube_mesh: MeshBuffers,
     sphere_mesh: MeshBuffers,
     plane_mesh: MeshBuffers,
+    humanoid_mesh: MeshBuffers,
     water_vertex_buffer: wgpu::Buffer,
     water_vertex_count: u32,
     water_seqlock_misses: u32,
@@ -365,9 +416,12 @@ impl Renderer {
             }
         };
 
+        let (humanoid_verts, humanoid_indices) = generate_humanoid();
+
         let cube_mesh = create_mesh(&cube_verts, &cube_indices);
         let sphere_mesh = create_mesh(&sphere_verts, &sphere_indices);
         let plane_mesh = create_mesh(&plane_verts, &plane_indices);
+        let humanoid_mesh = create_mesh(&humanoid_verts, &humanoid_indices);
 
         // Dynamic water vertex buffer for chunked water mesh
         // Up to 25 chunks, each 68x68 grid, step=2 → 34*34 quads * 2 tris * 3 verts = 6936 per chunk
@@ -977,6 +1031,7 @@ impl Renderer {
             cube_mesh,
             sphere_mesh,
             plane_mesh,
+            humanoid_mesh,
             water_vertex_buffer,
             water_vertex_count: 0,
             water_seqlock_misses: 0,
@@ -1378,8 +1433,8 @@ impl Renderer {
                 let wd = shm.read_water_data();
                 if wd.is_none() {
                     self.water_seqlock_misses += 1;
-                    if self.water_seqlock_misses <= 3 || self.water_seqlock_misses % 100 == 0 {
-                        eprintln!("[water] seqlock miss #{}", self.water_seqlock_misses);
+                    if self.water_seqlock_misses > 10 {
+                        eprintln!("[water] {} consecutive seqlock misses, verts={}", self.water_seqlock_misses, self.water_vertex_count);
                     }
                 } else {
                     if self.water_seqlock_misses > 0 {
@@ -1454,16 +1509,32 @@ impl Renderer {
                     }
                 }
 
+                let prev_count = self.water_vertex_count;
                 self.water_vertex_count = water_verts.len() as u32;
-                if self.water_vertex_count == 0 {
-                    eprintln!("[water] vertex count dropped to 0! chunks={}", wd.chunks.len());
-                } else if self.frame_count % 60 == 0 {
-                    // Periodic sample: count how many verts are at y=-100 (culled)
-                    let culled = water_verts.iter().filter(|v| v.position[1] <= -99.0).count();
-                    eprintln!("[water] {} verts, {} culled (y=-100)", self.water_vertex_count, culled);
+                if prev_count > 0 && self.water_vertex_count == 0 {
+                    eprintln!("[water] DISAPPEARED! prev={} chunks={} seqlock_misses={}", prev_count, wd.chunks.len(), self.water_seqlock_misses);
+                    for (i, chunk) in wd.chunks.iter().enumerate() {
+                        let culled = chunk.heights.iter().filter(|h| **h < -100.0).count();
+                        let total = chunk.heights.len();
+                        eprintln!("[water] chunk {} origin=({},{}) grid={} culled={}/{}", i, chunk.origin_x, chunk.origin_z, chunk.grid_size, culled, total);
+                    }
+                }
+                if prev_count == 0 && self.water_vertex_count > 0 {
+                    eprintln!("[water] REAPPEARED! verts={}", self.water_vertex_count);
+                }
+                // Log significant drops (>50% reduction)
+                if prev_count > 1000 && self.water_vertex_count > 0 && (self.water_vertex_count as f64 / prev_count as f64) < 0.5 {
+                    eprintln!("[water] SIGNIFICANT DROP! prev={} now={} chunks={}", prev_count, self.water_vertex_count, wd.chunks.len());
                 }
                 if !water_verts.is_empty() {
-                    self.queue.write_buffer(&self.water_vertex_buffer, 0, bytemuck::cast_slice(&water_verts));
+                    let max_verts = 200_000usize;
+                    if water_verts.len() > max_verts {
+                        eprintln!("[water] BUFFER OVERFLOW! {} verts > {} max, truncating", water_verts.len(), max_verts);
+                        self.queue.write_buffer(&self.water_vertex_buffer, 0, bytemuck::cast_slice(&water_verts[..max_verts]));
+                        self.water_vertex_count = max_verts as u32;
+                    } else {
+                        self.queue.write_buffer(&self.water_vertex_buffer, 0, bytemuck::cast_slice(&water_verts));
+                    }
                 }
             }
         }
@@ -1477,7 +1548,7 @@ impl Renderer {
                 }
 
                 let (mesh, scale) = match entity.entity_type {
-                    0 => (&self.cube_mesh, 1.0),    // Player
+                    0 => (&self.humanoid_mesh, 1.0), // Player (humanoid)
                     1 => (&self.cube_mesh, 2.0),    // Ship
                     2 => (&self.sphere_mesh, 1.6),  // Shark
                     3 => (&self.sphere_mesh, 0.6),  // Fish
@@ -1989,14 +2060,18 @@ impl ApplicationHandler for App {
                     match renderer.render() {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost) => {
+                            eprintln!("[renderer] Surface lost, resizing...");
                             renderer.resize(renderer.size);
                         }
                         Err(wgpu::SurfaceError::OutOfMemory) => {
                             eprintln!("[renderer] Out of memory, exiting");
                             event_loop.exit();
                         }
+                        Err(wgpu::SurfaceError::Timeout) => {
+                            eprintln!("[renderer] Surface timeout (frame {})", renderer.frame_count);
+                        }
                         Err(e) => {
-                            eprintln!("[renderer] Render error: {:?}", e);
+                            eprintln!("[renderer] Render error: {:?} (frame {})", e, renderer.frame_count);
                         }
                     }
                 }

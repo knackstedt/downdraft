@@ -11,6 +11,7 @@ export const gameState = {
   particles: null as ParticleSystem | null,
   telemetry: null as TelemetryCollector | null,
   playerEntity: 0 as unknown as Entity,
+  shipEntity: 0 as unknown as Entity,
   frameCount: 0,
   timeOfDay: 0.3,
   fps: 0,

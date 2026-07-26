@@ -179,6 +179,9 @@ const SIM_TICK_DT = 1 / 60;
     // Write water heightfield data to shared memory for the renderer
     if (exampleModule.getWaterData && ipc) {
       const waterData = exampleModule.getWaterData();
+      if (waterData.chunks.length === 0) {
+        log.warn("DownDraft", `getWaterData returned 0 chunks!`);
+      }
       ipc.writeWaterData(waterData);
     }
 

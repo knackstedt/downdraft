@@ -12,18 +12,17 @@ export async function debug(args: string[]): Promise<void> {
   const builder = new Builder("debug");
   const config = builder.getConfig();
 
-  console.log(`
+  log.info("debug", `
   ╔══════════════════════════════════════════╗
   ║   DownDraft Engine — Debug Mode          ║
   ╚══════════════════════════════════════════╝
   `);
 
-  console.log(`  Project:  ${projectPath}`);
-  console.log(`  Mode:     debug`);
-  console.log(`  DevTools: ${noDevtools ? "disabled" : "enabled"}`);
-  console.log(`  Verbose:  ${verbose ? "on" : "off"}`);
-  console.log(`  Inspector: ${inspector ? "on" : "off"}`);
-  console.log("");
+  log.info("debug", `  Project:  ${projectPath}`);
+  log.info("debug", `  Mode:     debug`);
+  log.info("debug", `  DevTools: ${noDevtools ? "disabled" : "enabled"}`);
+  log.info("debug", `  Verbose:  ${verbose ? "on" : "off"}`);
+  log.info("debug", `  Inspector: ${inspector ? "on" : "off"}`);
 
   if (config.debugDraw) {
     log.info("debug", "Debug features enabled:");

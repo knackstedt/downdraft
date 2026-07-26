@@ -1,122 +1,122 @@
 // ─── Lifecycle: init, tick, dispose, and all exported data functions ──
 
 import {
-    Camera,
-    createFireEmitter, createLogger, createSmokeEmitter,
-    GameWorld, MeshBuilder, ParticleSystem, Scene, TelemetryCollector,
-    World,
-    type RenderData, type RenderEntityData
+  Camera,
+  createFireEmitter, createLogger, createSmokeEmitter,
+  GameWorld, MeshBuilder, ParticleSystem, Scene, TelemetryCollector,
+  World,
+  type RenderData, type RenderEntityData
 } from "@downdraft/core";
 import { canCraft, CraftingPlugin, executeCraft, getUnlockedRecipes, unlockRecipesForTier } from "../plugins/crafting-plugin.ts";
 import {
-    createGrid, getGridStateForUI,
-    GridInventory,
-    InventoryPlugin,
-    PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH,
+  createGrid, getGridStateForUI,
+  GridInventory,
+  InventoryPlugin,
+  PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH,
 } from "../plugins/inventory-plugin.ts";
 import { getItem } from "../plugins/items.ts";
 import { CRAFTING_TIER_RECIPES } from "../plugins/recipes.ts";
 
 import {
-    addXP,
-    Animal,
-    animalQuery,
-    Buildable,
-    buildableQuery,
-    Debris,
-    debrisQuery,
-    FishingLine,
-    Health, Hunger,
-    Island,
-    islandQuery,
-    Oxygen,
-    Pet,
-    petQuery,
-    Pirate,
-    pirateQuery,
-    Plant,
-    plantQuery,
-    Player,
-    playerQuery,
-    Port,
-    portQuery,
-    Progression,
-    Ship,
-    shipQuery,
-    Temperature,
-    Thirst,
-    Wildlife,
-    wildlifeQuery
+  addXP,
+  Animal,
+  animalQuery,
+  Buildable,
+  buildableQuery,
+  Debris,
+  debrisQuery,
+  FishingLine,
+  Health, Hunger,
+  Island,
+  islandQuery,
+  Oxygen,
+  Pet,
+  petQuery,
+  Pirate,
+  pirateQuery,
+  Plant,
+  plantQuery,
+  Player,
+  playerQuery,
+  Port,
+  portQuery,
+  Progression,
+  Ship,
+  shipQuery,
+  Temperature,
+  Thirst,
+  Wildlife,
+  wildlifeQuery
 } from "./components.ts";
 import {
-    ANIMAL_COUNT_PER_ISLAND,
-    BiomeType,
-    CAMERA_FREECAM_SPEED,
-    CAMERA_THIRD_PERSON_DEFAULT,
-    CameraMode,
-    DAY_DURATION,
-    FISH_SPEED,
-    GAME_DIFFICULTY_NORMAL,
-    ISLAND_COUNT,
-    ISLAND_MAX_HEIGHT,
-    ISLAND_MAX_RADIUS,
-    ISLAND_MIN_HEIGHT,
-    ISLAND_MIN_RADIUS,
-    ISLAND_SPAWN_RANGE,
-    KEY,
-    NIGHT_END_FRAC,
-    NIGHT_START_FRAC,
-    PetType,
-    PLANT_COUNT_PER_ISLAND,
-    PlantStage,
-    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
-    PLAYER_MAX_OXYGEN,
-    PLAYER_MAX_THIRST,
-    PLAYER_TEMP_NORM,
-    PORT_COUNT,
-    SHARK_SPEED,
-    WATER_LEVEL,
-    WeatherType,
-    WildlifeState,
-    XP_CRAFT,
-    XP_PER_LEVEL,
-    type IPCMeshData
+  ANIMAL_COUNT_PER_ISLAND,
+  BiomeType,
+  CAMERA_FREECAM_SPEED,
+  CAMERA_THIRD_PERSON_DEFAULT,
+  CameraMode,
+  DAY_DURATION,
+  FISH_SPEED,
+  GAME_DIFFICULTY_NORMAL,
+  ISLAND_COUNT,
+  ISLAND_MAX_HEIGHT,
+  ISLAND_MAX_RADIUS,
+  ISLAND_MIN_HEIGHT,
+  ISLAND_MIN_RADIUS,
+  ISLAND_SPAWN_RANGE,
+  KEY,
+  NIGHT_END_FRAC,
+  NIGHT_START_FRAC,
+  PetType,
+  PLANT_COUNT_PER_ISLAND,
+  PlantStage,
+  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+  PLAYER_MAX_OXYGEN,
+  PLAYER_MAX_THIRST,
+  PLAYER_TEMP_NORM,
+  PORT_COUNT,
+  SHARK_SPEED,
+  WATER_LEVEL,
+  WeatherType,
+  WildlifeState,
+  XP_CRAFT,
+  XP_PER_LEVEL,
+  type IPCMeshData
 } from "./constants.ts";
 import { islandHeightAt } from "./helpers.ts";
 import type { InputState } from "./input.ts";
 import { createInputState, isKeyDown, setKey } from "./input.ts";
 import { gameState } from "./state.ts";
 import {
-    animalSystem,
-    buoyancySystem_,
-    craftingSystem,
-    debrisCollectionSystem,
-    debrisDriftSystem,
-    fishingSystem,
-    petSystem,
-    pirateSystem,
-    plantSystem,
-    playerMovementSystem,
-    portMarketSystem,
-    progressionSystem,
-    shipBoardingSystem,
-    shipControlSystem,
-    shipIntegritySystem,
-    shipIslandCollisionSystem,
-    spoilageSystem,
-    survivalSystem,
-    toolSystem,
-    waveSourceSystem,
-    wildlifeAISystem,
+  animalSystem,
+  buoyancySystem_,
+  craftingSystem,
+  debrisCollectionSystem,
+  debrisDriftSystem,
+  fishingSystem,
+  petSystem,
+  pirateSystem,
+  plantSystem,
+  playerMovementSystem,
+  portMarketSystem,
+  progressionSystem,
+  shipBoardingSystem,
+  shipControlSystem,
+  shipIntegritySystem,
+  shipIslandCollisionSystem,
+  spoilageSystem,
+  survivalSystem,
+  toolSystem,
+  waveSourceSystem,
+  wildlifeAISystem,
 } from "./systems.ts";
 import { extractMeshFromField, generateVoxelField } from "./terrain.ts";
 import { waterBuffer, waterPhysics } from "./water.ts";
 import {
-    rainCollectors,
-    setCurrentTimeOfDay,
-    setWeatherType,
-    weatherIsRaining, weatherIsStormy,
-    weatherState, weatherSystem
+  rainCollectors,
+  setCurrentTimeOfDay,
+  setWeatherType,
+  weatherIsRaining, weatherIsStormy,
+  weatherState, weatherSystem
 } from "./weather.ts";
 
 const log = createLogger();
@@ -183,7 +183,8 @@ export function init(ctx: any) {
   // Spawn ship
   const shipComps = new Map<number, unknown>();
   shipComps.set(Ship.id, Ship.create({ x: 0, y: 0, z: 0, integrity: 100, maxIntegrity: 100 }));
-  ecsWorld.spawn(shipComps);
+  const shipEntity = ecsWorld.spawn(shipComps);
+  gameState.shipEntity = shipEntity;
 
   // Spawn sharks
   for (let i = 0; i < 2; i++) {
@@ -221,12 +222,11 @@ export function init(ctx: any) {
     ecsWorld.spawn(wlComps);
   }
 
-  // Spawn islands
+  // Spawn islands — with overlap prevention
   gameState.playerSpawnX = 0;
   gameState.playerSpawnZ = 0;
+  const placedIslands: { x: number; z: number; radius: number }[] = [];
   for (let i = 0; i < ISLAND_COUNT; i++) {
-    const angle = (i / ISLAND_COUNT) * Math.PI * 2 + Math.random() * 0.5;
-    const dist = i === 0 ? 0 : 150 + Math.random() * ISLAND_SPAWN_RANGE;
     const radius = i === 0
       ? ISLAND_MIN_RADIUS + Math.random() * (ISLAND_MAX_RADIUS - ISLAND_MIN_RADIUS) * 0.5
       : ISLAND_MIN_RADIUS + Math.random() * (ISLAND_MAX_RADIUS - ISLAND_MIN_RADIUS);
@@ -236,18 +236,45 @@ export function init(ctx: any) {
       biomeRoll < 0.60 ? BiomeType.Temperate :
       biomeRoll < 0.75 ? BiomeType.Arctic :
       biomeRoll < 0.90 ? BiomeType.Desert : BiomeType.Volcanic;
-    const chunkX = Math.floor(Math.cos(angle) * dist);
-    const chunkZ = Math.floor(Math.sin(angle) * dist);
 
-    log.info("terrain", `generating voxel field for island ${i + 1} (biome: ${BiomeType[biome]}, radius: ${radius.toFixed(0)})...`);
+    // Find a non-overlapping position
+    let angle = 0, dist = 0;
+    let islandX = 0, islandZ = 0;
+    if (i === 0) {
+      angle = 0;
+      dist = 0;
+    } else {
+      let attempts = 0;
+      const minGap = 40; // minimum water gap between island shores
+      do {
+        angle = (i / ISLAND_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+        dist = 150 + Math.random() * ISLAND_SPAWN_RANGE;
+        islandX = Math.cos(angle) * dist;
+        islandZ = Math.sin(angle) * dist;
+        attempts++;
+        if (attempts > 50) break;
+      } while (placedIslands.some(prev => {
+        const dx = islandX - prev.x;
+        const dz = islandZ - prev.z;
+        return Math.sqrt(dx * dx + dz * dz) < prev.radius + radius + minGap;
+      }));
+    }
+    islandX = Math.cos(angle) * dist;
+    islandZ = Math.sin(angle) * dist;
+    const chunkX = Math.floor(islandX);
+    const chunkZ = Math.floor(islandZ);
+
+    log.info("terrain", `generating voxel field for island ${i + 1} (biome: ${BiomeType[biome]}, radius: ${radius.toFixed(0)}, pos: (${islandX.toFixed(0)}, ${islandZ.toFixed(0)}))...`);
     const voxelField = generateVoxelField(chunkX, chunkZ, radius, biome);
     const meshData = extractMeshFromField(voxelField, biome, 50000);
     log.info("terrain", `island ${i + 1} mesh: ${meshData.vertexCount} verts, ${meshData.indexCount} indices`);
 
+    placedIslands.push({ x: islandX, z: islandZ, radius });
+
     const islandComps = new Map<number, unknown>();
     islandComps.set(Island.id, Island.create({
-      x: Math.cos(angle) * dist,
-      z: Math.sin(angle) * dist,
+      x: islandX,
+      z: islandZ,
       radius, height,
       hasTrees: Math.random() > 0.3,
       hasRocks: Math.random() > 0.5,
@@ -258,8 +285,6 @@ export function init(ctx: any) {
     const islandEntity = ecsWorld.spawn(islandComps);
 
     if (i === 0) {
-      const islandX = Math.cos(angle) * dist;
-      const islandZ = Math.sin(angle) * dist;
       gameState.playerSpawnX = islandX + radius * 0.8;
       gameState.playerSpawnZ = islandZ;
     }
@@ -267,8 +292,8 @@ export function init(ctx: any) {
     if (i < PORT_COUNT) {
       const portComps = new Map<number, unknown>();
       portComps.set(Port.id, Port.create({
-        x: Math.cos(angle) * dist,
-        z: Math.sin(angle) * dist,
+        x: islandX,
+        z: islandZ,
         islandEntity: islandEntity as unknown as number,
         name: `Port-${i + 1}`,
         listings: [
@@ -284,13 +309,13 @@ export function init(ctx: any) {
     for (let a = 0; a < ANIMAL_COUNT_PER_ISLAND; a++) {
       const aAngle = Math.random() * Math.PI * 2;
       const aDist = Math.random() * radius * 0.7;
-      const ax = Math.cos(angle) * dist + Math.cos(aAngle) * aDist;
-      const az = Math.sin(angle) * dist + Math.sin(aAngle) * aDist;
+      const ax = islandX + Math.cos(aAngle) * aDist;
+      const az = islandZ + Math.sin(aAngle) * aDist;
       const species = ["chicken", "goat", "sheep"][Math.floor(Math.random() * 3)];
       const productType = species === "chicken" ? "egg" : species === "goat" ? "milk" : "wool";
       const animalComps = new Map<number, unknown>();
       animalComps.set(Animal.id, Animal.create({
-        x: ax, y: islandHeightAt({ x: Math.cos(angle) * dist, z: Math.sin(angle) * dist, radius, height, voxelField }, ax, az),
+        x: ax, y: islandHeightAt({ x: islandX, z: islandZ, radius, height, voxelField }, ax, az),
         z: az, species, productType, islandEntity: islandEntity as unknown as number,
       }));
       ecsWorld.spawn(animalComps);
@@ -299,12 +324,12 @@ export function init(ctx: any) {
     for (let p = 0; p < PLANT_COUNT_PER_ISLAND; p++) {
       const pAngle = Math.random() * Math.PI * 2;
       const pDist = Math.random() * radius * 0.7;
-      const px = Math.cos(angle) * dist + Math.cos(pAngle) * pDist;
-      const pz = Math.sin(angle) * dist + Math.sin(pAngle) * pDist;
+      const px = islandX + Math.cos(pAngle) * pDist;
+      const pz = islandZ + Math.sin(pAngle) * pDist;
       const species = ["kelp", "tomato", "rice"][Math.floor(Math.random() * 3)];
       const plantComps = new Map<number, unknown>();
       plantComps.set(Plant.id, Plant.create({
-        x: px, y: islandHeightAt({ x: Math.cos(angle) * dist, z: Math.sin(angle) * dist, radius, height, voxelField }, px, pz),
+        x: px, y: islandHeightAt({ x: islandX, z: islandZ, radius, height, voxelField }, px, pz),
         z: pz, species, islandEntity: islandEntity as unknown as number,
       }));
       ecsWorld.spawn(plantComps);
@@ -320,11 +345,12 @@ export function init(ctx: any) {
     log.info("terrain", `player spawned near island at (${gameState.playerSpawnX.toFixed(1)}, ${gameState.playerSpawnZ.toFixed(1)})`);
   }
 
-  shipQuery.iterate(0, (_e, [shipRaw]) => {
-    const ship = shipRaw as typeof Ship.defaults;
-    ship.x = gameState.playerSpawnX + 5;
-    ship.z = gameState.playerSpawnZ + 5;
-  });
+  // Reposition ship using getComponent (query doesn't work before systems are registered)
+  const shipComp = ecsWorld.getComponent<typeof Ship.defaults>(shipEntity, Ship.id);
+  if (shipComp) {
+    shipComp.x = gameState.playerSpawnX + 5;
+    shipComp.z = gameState.playerSpawnZ + 5;
+  }
 
   // Spawn pet
   const petComps = new Map<number, unknown>();
@@ -661,7 +687,7 @@ export function getWaterData(): {
   chunks: { originX: number; originZ: number; gridSize: number; heights: Float32Array }[];
 } {
   const activeChunks = waterPhysics.getActiveChunks();
-  return {
+  const result = {
     patchSize: waterBuffer.getPatchSize(),
     chunks: activeChunks.map(c => ({
       originX: c.originX,
@@ -670,6 +696,23 @@ export function getWaterData(): {
       heights: c.heights,
     })),
   };
+  // Log when something looks wrong
+  if (activeChunks.length === 0) {
+    log.warn("water-bun", `0 active chunks!`);
+  } else {
+    let totalValid = 0;
+    let totalCulled = 0;
+    for (const c of activeChunks) {
+      for (let i = 0; i < c.heights.length; i++) {
+        if (c.heights[i] < -100) totalCulled++;
+        else totalValid++;
+      }
+    }
+    if (totalValid === 0) {
+      log.warn("water-bun", `ALL heights culled! chunks=${activeChunks.length} culled=${totalCulled}`);
+    }
+  }
+  return result;
 }
 
 // ─── Lifecycle: getMeshData ───────────────────────────────
