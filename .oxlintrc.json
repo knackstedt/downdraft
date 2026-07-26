@@ -1,0 +1,6 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc-assets/main/schema.json",
+  "rules": {
+    "no-console": "error"
+  }
+}
