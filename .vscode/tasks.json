@@ -1,0 +1,54 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Native Renderer (debug)",
+      "type": "shell",
+      "command": "cargo build",
+      "options": {
+        "cwd": "${workspaceFolder}/native-renderer"
+      },
+      "problemMatcher": ["$rustc"],
+      "group": "build"
+    },
+    {
+      "label": "Dev: Ocean Game",
+      "type": "shell",
+      "command": "bun run packages/cli/src/index.ts dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "env": {
+        "DOWNDRAFT_EXAMPLE": "examples/ocean-game/main.ts"
+      },
+      "dependsOn": "Build Native Renderer (debug)",
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev: Physics Demo",
+      "type": "shell",
+      "command": "bun run packages/cli/src/index.ts dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "env": {
+        "DOWNDRAFT_EXAMPLE": "examples/physics-demo/main.ts"
+      },
+      "dependsOn": "Build Native Renderer (debug)",
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev: Minimal",
+      "type": "shell",
+      "command": "bun run packages/cli/src/index.ts dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "env": {
+        "DOWNDRAFT_EXAMPLE": "examples/minimal/main.ts"
+      },
+      "dependsOn": "Build Native Renderer (debug)",
+      "problemMatcher": []
+    }
+  ]
+}

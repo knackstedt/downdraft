@@ -24,6 +24,7 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/plugin-audio-kira": "workspace:*",
+        "@downdraft/plugin-mcp": "workspace:*",
         "@downdraft/plugin-physics-rapier": "workspace:*",
         "@downdraft/plugin-water": "workspace:*",
       },
@@ -67,6 +68,14 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/mcp": {
+      "name": "@downdraft/plugin-mcp",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/mcp": "workspace:*",
       },
     },
     "packages/plugins/networking": {
@@ -119,6 +128,8 @@
     "@downdraft/plugin-audio-kira": ["@downdraft/plugin-audio-kira@workspace:packages/plugins/audio-kira"],
 
     "@downdraft/plugin-marching-cubes": ["@downdraft/plugin-marching-cubes@workspace:packages/plugins/marching-cubes"],
+
+    "@downdraft/plugin-mcp": ["@downdraft/plugin-mcp@workspace:packages/plugins/mcp"],
 
     "@downdraft/plugin-networking": ["@downdraft/plugin-networking@workspace:packages/plugins/networking"],
 

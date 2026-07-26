@@ -1,71 +1,75 @@
 import type {
-  GameWorld,
-  Camera,
-  Hierarchy,
-  World,
-  Scene,
-  AssetManager,
-  MaterialLibrary,
-  Material,
-  CheckpointManager,
-  TelemetryCollector,
-  TelemetryReporter,
-  DebugDrawQueue,
-  ScriptingSystem,
-  SaveSystem,
-  MeshBuilder,
-  MeshData,
-  Light,
-  PhysicsRealm,
-  RaycastQuery,
-  AudioEngine,
-  AnimationPlayer,
-  MaterialHotReloader,
-  LODConfig,
-  LODGenerator,
-  AudioSourceData,
-  AudioListenerData,
+    AnimationPlayer,
+    AssetManager,
+    AudioEngine,
+    AudioListenerData,
+    AudioSourceData,
+    Camera,
+    CheckpointManager,
+    DebugDrawQueue,
+    GameWorld,
+    Hierarchy,
+    Light,
+    LODConfig,
+    LODGenerator,
+    MaterialHotReloader,
+    MaterialLibrary,
+    MeshData,
+    PhysicsRealm,
+    RaycastQuery,
+    SaveSystem,
+    Scene,
+    ScriptingSystem,
+    TelemetryCollector,
+    TelemetryReporter,
+    World
 } from "@downdraft/core";
 
 import {
-  GameWorld as GameWorldClass,
-  Scene as SceneClass,
-  Camera as CameraClass,
-  Hierarchy as HierarchyClass,
-  AssetManager as AssetManagerClass,
-  MaterialLibrary as MaterialLibraryClass,
-  Material as MaterialClass,
-  BlendMode,
-  CullMode,
-  CheckpointManager as CheckpointManagerClass,
-  TelemetryCollector as TelemetryCollectorClass,
-  TelemetryReporter as TelemetryReporterClass,
-  DebugDrawQueue as DebugDrawQueueClass,
-  ScriptingSystem as ScriptingSystemClass,
-  SaveSystem as SaveSystemClass,
-  MeshBuilder as MeshBuilderClass,
-  LightType as LightTypeEnum,
-  createDirectionalLight as createDirLight,
-  createPointLight as createPtLight,
-  World as WorldClass,
-  getComponentId,
-  getComponentName,
-  ROOT_ENTITY,
-  entityEqual,
-  isAlive,
-  MaterialHotReloader as MaterialHotReloaderClass,
-  LODGenerator as LODGeneratorClass,
-  AudioSource,
-  AudioListener,
-  createAudioSource,
-  createAudioListener,
+    AssetManager as AssetManagerClass,
+    AudioListener,
+    AudioSource,
+    BlendMode,
+    Camera as CameraClass,
+    CheckpointManager as CheckpointManagerClass,
+    createAudioListener,
+    createAudioSource,
+    createDirectionalLight as createDirLight,
+    createPointLight as createPtLight,
+    CullMode,
+    DebugDrawQueue as DebugDrawQueueClass,
+    entityEqual,
+    GameWorld as GameWorldClass,
+    getComponentId,
+    getComponentName,
+    isAlive,
+    LightType as LightTypeEnum,
+    LODGenerator as LODGeneratorClass,
+    Material as MaterialClass,
+    MaterialHotReloader as MaterialHotReloaderClass,
+    MaterialLibrary as MaterialLibraryClass,
+    MeshBuilder as MeshBuilderClass,
+    ROOT_ENTITY,
+    SaveSystem as SaveSystemClass,
+    Scene as SceneClass,
+    ScriptingSystem as ScriptingSystemClass,
+    TelemetryCollector as TelemetryCollectorClass,
+    TelemetryReporter as TelemetryReporterClass,
+    World as WorldClass
 } from "@downdraft/core";
 
-import type { Entity } from "@downdraft/core";
-import type { RigidBodyHandle, ColliderShape, BodyType } from "@downdraft/core";
+import type { Entity, RigidBodyHandle } from "@downdraft/core";
 
 export interface EngineContextOptions {
   sceneName?: string;
+  enableTelemetry?: boolean;
+}
+
+export interface EngineContextFromGameOptions {
+  ecsWorld: World;
+  scene: Scene;
+  gameWorld: GameWorld;
+  camera: Camera;
   enableTelemetry?: boolean;
 }
 
@@ -119,6 +123,19 @@ export class EngineContext {
     this.lodGenerator = new LODGeneratorClass();
   }
 
+  static fromGame(opts: EngineContextFromGameOptions): EngineContext {
+    const ctx = new EngineContext({
+      sceneName: opts.scene.name,
+      enableTelemetry: opts.enableTelemetry,
+    });
+    ctx.ecsWorld = opts.ecsWorld;
+    ctx.scene = opts.scene;
+    ctx.world = opts.gameWorld;
+    ctx.camera = opts.camera;
+    ctx.hierarchy = opts.gameWorld.hierarchy;
+    return ctx;
+  }
+
   getEntityKey(e: Entity): string {
     return `${e.index}.${e.generation}`;
   }
@@ -162,19 +179,8 @@ export class EngineContext {
 }
 
 export {
-  BlendMode,
-  CullMode,
-  LightTypeEnum as LightType,
-  createDirLight as createDirectionalLight,
-  createPtLight as createPointLight,
-  MeshBuilderClass as MeshBuilder,
-  MaterialClass as Material,
-  MaterialHotReloaderClass as MaterialHotReloader,
-  LODGeneratorClass as LODGenerator,
-  AudioSource,
-  AudioListener,
-  createAudioSource,
-  createAudioListener,
-  ROOT_ENTITY,
-  entityEqual,
+    AudioListener, AudioSource, BlendMode, createAudioListener, createAudioSource, createDirLight as createDirectionalLight,
+    createPtLight as createPointLight, CullMode, entityEqual, LightTypeEnum as LightType, LODGeneratorClass as LODGenerator, MaterialClass as Material,
+    MaterialHotReloaderClass as MaterialHotReloader, MeshBuilderClass as MeshBuilder, ROOT_ENTITY
 };
+

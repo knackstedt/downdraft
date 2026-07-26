@@ -17,6 +17,7 @@ import {
 import { getItem } from "../plugins/items.ts";
 import { CRAFTING_TIER_RECIPES } from "../plugins/recipes.ts";
 
+import { createMcpPlugin } from "@downdraft/plugin-mcp";
 import {
   addXP,
   Animal,
@@ -463,6 +464,18 @@ export function init(ctx: any) {
   log.info("ocean-survival", "  Crafting: wood->planks->campfire->cook fish->raft upgrade");
   log.info("ocean-survival", "  Economy: sell fish at ports for coins, buy wood/supplies");
   log.info("ocean-survival", "  Progression: gain XP from fishing, crafting, harvesting, killing pirates");
+
+  if (process.env.DOWNDRAFT_MCP === "1") {
+    const mcpPlugin = createMcpPlugin({
+      ecsWorld,
+      scene,
+      gameWorld,
+      camera,
+      enableTelemetry: true,
+    });
+    gameWorld.usePlugin(mcpPlugin);
+    log.info("ocean-survival", "MCP server embedded — tools available via stdin/stdout JSON-RPC");
+  }
 }
 
 // ─── Lifecycle: tick ──────────────────────────────────────

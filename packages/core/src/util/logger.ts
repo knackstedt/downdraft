@@ -383,7 +383,8 @@ export class ConsoleLogger implements Logger {
         } else {
             moduleStr = `${this.palette.module}${module}`;
         }
-        process.stdout?.write(
+        const stream = process.env.DOWNDRAFT_MCP === "1" ? process.stderr : process.stdout;
+        stream?.write(
             `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase().padEnd(5)}${reset} ${this.palette.gray}[${moduleStr}${this.palette.gray}] ${reset}${linkifyMessage(msg)}\n`
         );
     }

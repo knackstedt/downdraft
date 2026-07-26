@@ -1,39 +1,40 @@
 import { EngineContext } from "./engine-context.ts";
-import { UndoRedoManager } from "./undo-redo.ts";
 import type {
-  ToolRegistration,
-  ResourceRegistration,
-  PromptRegistration,
-  MCPToolResult,
-  MCPResourceResult,
-  MCPPromptResult,
-  MCPToolDef,
-  MCPResourceDef,
-  MCPPromptDef,
+    MCPPromptDef,
+    MCPPromptResult,
+    MCPResourceDef,
+    MCPResourceResult,
+    MCPToolDef,
+    MCPToolResult,
+    PromptRegistration,
+    ResourceRegistration,
+    ToolRegistration,
 } from "./types.ts";
+import { UndoRedoManager } from "./undo-redo.ts";
 
-import { createSceneTools } from "./tools/scene.ts";
-import { createEntityTools } from "./tools/entity.ts";
-import { createComponentTools } from "./tools/component.ts";
-import { createMaterialTools } from "./tools/material.ts";
-import { createMeshTools } from "./tools/mesh.ts";
-import { createLightingTools } from "./tools/lighting.ts";
-import { createCameraTools } from "./tools/camera.ts";
-import { createPhysicsTools } from "./tools/physics.ts";
-import { createDebugTools } from "./tools/debug.ts";
-import { createInspectTools } from "./tools/inspect.ts";
-import { createCheckpointTools } from "./tools/checkpoint.ts";
-import { createScriptTools } from "./tools/script.ts";
+import { createPrompts } from "./prompts/index.ts";
+import { createResources } from "./resources/index.ts";
+import { createAnimationTools } from "./tools/animation.ts";
 import { createAssetTools } from "./tools/asset.ts";
 import { createAudioTools } from "./tools/audio.ts";
-import { createAnimationTools } from "./tools/animation.ts";
 import { createBuildTools } from "./tools/build.ts";
-import { createResources } from "./resources/index.ts";
-import { createPrompts } from "./prompts/index.ts";
+import { createCameraTools } from "./tools/camera.ts";
+import { createCheckpointTools } from "./tools/checkpoint.ts";
+import { createComponentTools } from "./tools/component.ts";
+import { createDebugTools } from "./tools/debug.ts";
+import { createEntityTools } from "./tools/entity.ts";
+import { createInspectTools } from "./tools/inspect.ts";
+import { createLightingTools } from "./tools/lighting.ts";
+import { createMaterialTools } from "./tools/material.ts";
+import { createMeshTools } from "./tools/mesh.ts";
+import { createPhysicsTools } from "./tools/physics.ts";
+import { createSceneTools } from "./tools/scene.ts";
+import { createScriptTools } from "./tools/script.ts";
 
 export interface MCPServerOptions {
   enableTelemetry?: boolean;
   sceneName?: string;
+  engineContext?: EngineContext;
 }
 
 interface JSONRPCRequest {
@@ -65,7 +66,7 @@ export class MCPServer {
   private inputBuffer: string = "";
 
   constructor(opts: MCPServerOptions = {}) {
-    this.ctx = new EngineContext(opts);
+    this.ctx = opts.engineContext ?? new EngineContext(opts);
     this.undoRedo = new UndoRedoManager(this.ctx);
     this.registerAllTools();
     this.registerAllResources();
