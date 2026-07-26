@@ -595,30 +595,174 @@ const MC_CORNER_OFFSETS: ReadonlyArray<readonly [number, number, number]> = [
   [0,1,0],[1,1,0],[1,1,1],[0,1,1],
 ];
 
+// Maps each of the 12 cube edges to (grid-point, axis) for vertex sharing.
+// axis: 0=X, 1=Y, 2=Z. The grid point is the corner with the lower coordinate on that axis.
+const MC_EDGE_AXIS: ReadonlyArray<readonly [number, number, number, number]> = [
+  [0,0,0,0],[1,0,0,2],[0,0,1,0],[0,0,0,2], // edges 0-3 (bottom face)
+  [0,1,0,0],[1,1,0,2],[0,1,1,0],[0,1,0,2], // edges 4-7 (top face)
+  [0,0,0,1],[1,0,0,1],[1,0,1,1],[0,0,1,1], // edges 8-11 (vertical)
+];
+
 export function extractMeshFromField(
   field: VoxelField,
   biome: number,
-  maxVerts: number = 50000,
+  maxVerts: number = 500000,
+  step: number = 1,
 ): { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number } {
   const vs = field.voxelSize;
   const { dimX, dimY, dimZ, data, isoLevel } = field;
   const dimYZ = dimY * dimZ;
-
-  const vertList: number[] = [];
-  const indexList: number[] = [];
 
   function getDensity(x: number, y: number, z: number): number {
     if (x < 0 || x >= dimX || y < 0 || y >= dimY || z < 0 || z >= dimZ) return -1.0;
     return data[x * dimYZ + y * dimZ + z];
   }
 
-  // Scratch arrays for edge vertex positions (12 edges * 3 coords)
-  const edgeVertPos = new Float32Array(36);
+  // ─── LOD path (step > 1): unique vertices per triangle, per-face normal + color ───
+  // No edge cache → each triangle gets 3 own vertices with the same face normal and
+  // a solid color from the face centroid height. This gives crisp low-poly facets
+  // with no blending across terrain boundaries.
+  if (step > 1) {
+    const verts: number[] = [];
+    const indexList: number[] = [];
+    let vertIdx = 0;
+
+    for (let x = 0; x < dimX - step; x += step) {
+      for (let y = 0; y < dimY - step; y += step) {
+        for (let z = 0; z < dimZ - step; z += step) {
+          const d: number[] = new Array(8);
+          let cubeIndex = 0;
+          for (let i = 0; i < 8; i++) {
+            const [ox, oy, oz] = MC_CORNER_OFFSETS[i];
+            d[i] = getDensity(x + ox * step, y + oy * step, z + oz * step);
+            if (d[i] < isoLevel) cubeIndex |= (1 << i);
+          }
+          if (cubeIndex === 0 || cubeIndex === 255) continue;
+
+          const edges = MC_EDGE_TABLE[cubeIndex];
+          if (edges === 0) continue;
+
+          const triBase = cubeIndex * 16;
+          for (let t = 0; t < 15; t += 3) {
+            const e0 = MC_TRI_TABLE[triBase + t];
+            if (e0 < 0) break;
+            const e1 = MC_TRI_TABLE[triBase + t + 1];
+            const e2 = MC_TRI_TABLE[triBase + t + 2];
+
+            // Compute 3 edge vertex positions (no sharing)
+            const triVerts: [number, number, number][] = [];
+            for (const e of [e0, e1, e2]) {
+              const [c0, c1] = MC_EDGE_CORNERS[e];
+              const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
+              const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
+              const d0 = d[c0], d1 = d[c1];
+              const p0x = (x + ox0 * step) * vs + field.originX;
+              const p0y = (y + oy0 * step) * vs + field.originY;
+              const p0z = (z + oz0 * step) * vs + field.originZ;
+              const p1x = (x + ox1 * step) * vs + field.originX;
+              const p1y = (y + oy1 * step) * vs + field.originY;
+              const p1z = (z + oz1 * step) * vs + field.originZ;
+              let ex: number, ey: number, ez: number;
+              if (Math.abs(isoLevel - d0) < 1e-10) { ex = p0x; ey = p0y; ez = p0z; }
+              else if (Math.abs(isoLevel - d1) < 1e-10) { ex = p1x; ey = p1y; ez = p1z; }
+              else if (Math.abs(d0 - d1) < 1e-10) { ex = p0x; ey = p0y; ez = p0z; }
+              else {
+                const tt = (isoLevel - d0) / (d1 - d0);
+                ex = p0x + tt * (p1x - p0x);
+                ey = p0y + tt * (p1y - p0y);
+                ez = p0z + tt * (p1z - p0z);
+              }
+              triVerts.push([ex, ey, ez]);
+            }
+
+            const [v0, v1, v2] = triVerts;
+            // Face normal
+            const ax = v1[0] - v0[0], ay = v1[1] - v0[1], az = v1[2] - v0[2];
+            const bx = v2[0] - v0[0], by = v2[1] - v0[1], bz = v2[2] - v0[2];
+            let nx = ay * bz - az * by;
+            let ny = az * bx - ax * bz;
+            let nz = ax * by - ay * bx;
+            const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
+            else { nx = 0; ny = 1; nz = 0; }
+
+            // Per-face color from centroid height
+            const cy = (v0[1] + v1[1] + v2[1]) / 3;
+            const unitY = cy / field.radius;
+            const tType = classifyTerrainTypeByUnitY(unitY, biome);
+            const [r, g, b] = terrainTypeColor(tType, biome);
+
+            // Emit 3 unique vertices with same normal + color
+            for (const v of triVerts) {
+              verts.push(v[0], v[1], v[2], nx, ny, nz, r, g, b);
+            }
+            indexList.push(vertIdx, vertIdx + 1, vertIdx + 2);
+            vertIdx += 3;
+
+            if (vertIdx >= maxVerts) break;
+          }
+          if (vertIdx >= maxVerts) break;
+        }
+        if (vertIdx >= maxVerts) break;
+      }
+      if (vertIdx >= maxVerts) break;
+    }
+
+    const vertexCount = vertIdx;
+    if (vertexCount >= maxVerts) {
+      console.warn(`[terrain] extractMeshFromField (LOD step=${step}) hit maxVerts limit (${maxVerts}) — mesh is truncated!`);
+    }
+    const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
+    return { verts: new Float32Array(verts), indices, vertexCount, indexCount: indexList.length };
+  }
+
+  // ─── Full-detail path (step == 1): shared vertices via edge cache, smooth normals ───
+  const edgeCache = new Map<number, number>();
+  const positions: number[] = []; // x,y,z per vertex
+  const indexList: number[] = [];
+
+  function getEdgeVertex(x: number, y: number, z: number, edgeIdx: number, d: number[]): number {
+    const [ox, oy, oz, axis] = MC_EDGE_AXIS[edgeIdx];
+    const gx = x + ox, gy = y + oy, gz = z + oz;
+    const key = ((gx * dimY + gy) * dimZ + gz) * 3 + axis;
+    const cached = edgeCache.get(key);
+    if (cached !== undefined) return cached;
+
+    const [c0, c1] = MC_EDGE_CORNERS[edgeIdx];
+    const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
+    const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
+    const d0 = d[c0], d1 = d[c1];
+
+    const p0x = (x + ox0) * vs + field.originX;
+    const p0y = (y + oy0) * vs + field.originY;
+    const p0z = (z + oz0) * vs + field.originZ;
+    const p1x = (x + ox1) * vs + field.originX;
+    const p1y = (y + oy1) * vs + field.originY;
+    const p1z = (z + oz1) * vs + field.originZ;
+
+    let ex: number, ey: number, ez: number;
+    if (Math.abs(isoLevel - d0) < 1e-10) {
+      ex = p0x; ey = p0y; ez = p0z;
+    } else if (Math.abs(isoLevel - d1) < 1e-10) {
+      ex = p1x; ey = p1y; ez = p1z;
+    } else if (Math.abs(d0 - d1) < 1e-10) {
+      ex = p0x; ey = p0y; ez = p0z;
+    } else {
+      const t = (isoLevel - d0) / (d1 - d0);
+      ex = p0x + t * (p1x - p0x);
+      ey = p0y + t * (p1y - p0y);
+      ez = p0z + t * (p1z - p0z);
+    }
+
+    const idx = positions.length / 3;
+    positions.push(ex, ey, ez);
+    edgeCache.set(key, idx);
+    return idx;
+  }
 
   for (let x = 0; x < dimX - 1; x++) {
     for (let y = 0; y < dimY - 1; y++) {
       for (let z = 0; z < dimZ - 1; z++) {
-        // Sample 8 corners
         const d: number[] = new Array(8);
         let cubeIndex = 0;
         for (let i = 0; i < 8; i++) {
@@ -632,41 +776,6 @@ export function extractMeshFromField(
         const edges = MC_EDGE_TABLE[cubeIndex];
         if (edges === 0) continue;
 
-        // Interpolate edge vertex positions (store in scratch array)
-        for (let e = 0; e < 12; e++) {
-          if (!(edges & (1 << e))) continue;
-          const [c0, c1] = MC_EDGE_CORNERS[e];
-          const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
-          const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
-          const d0 = d[c0], d1 = d[c1];
-
-          const p0x = (x + ox0) * vs + field.originX;
-          const p0y = (y + oy0) * vs + field.originY;
-          const p0z = (z + oz0) * vs + field.originZ;
-          const p1x = (x + ox1) * vs + field.originX;
-          const p1y = (y + oy1) * vs + field.originY;
-          const p1z = (z + oz1) * vs + field.originZ;
-
-          let ex: number, ey: number, ez: number;
-          if (Math.abs(isoLevel - d0) < 1e-10) {
-            ex = p0x; ey = p0y; ez = p0z;
-          } else if (Math.abs(isoLevel - d1) < 1e-10) {
-            ex = p1x; ey = p1y; ez = p1z;
-          } else if (Math.abs(d0 - d1) < 1e-10) {
-            ex = p0x; ey = p0y; ez = p0z;
-          } else {
-            const t = (isoLevel - d0) / (d1 - d0);
-            ex = p0x + t * (p1x - p0x);
-            ey = p0y + t * (p1y - p0y);
-            ez = p0z + t * (p1z - p0z);
-          }
-          const eo = e * 3;
-          edgeVertPos[eo] = ex;
-          edgeVertPos[eo + 1] = ey;
-          edgeVertPos[eo + 2] = ez;
-        }
-
-        // Generate triangles using the standard MC tri table
         const triBase = cubeIndex * 16;
         for (let t = 0; t < 15; t += 3) {
           const e0 = MC_TRI_TABLE[triBase + t];
@@ -674,46 +783,76 @@ export function extractMeshFromField(
           const e1 = MC_TRI_TABLE[triBase + t + 1];
           const e2 = MC_TRI_TABLE[triBase + t + 2];
 
-          const ev0o = e0 * 3, ev1o = e1 * 3, ev2o = e2 * 3;
-          const v0x = edgeVertPos[ev0o], v0y = edgeVertPos[ev0o + 1], v0z = edgeVertPos[ev0o + 2];
-          const v1x = edgeVertPos[ev1o], v1y = edgeVertPos[ev1o + 1], v1z = edgeVertPos[ev1o + 2];
-          const v2x = edgeVertPos[ev2o], v2y = edgeVertPos[ev2o + 1], v2z = edgeVertPos[ev2o + 2];
-
-          // Compute face normal via cross product
-          const e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
-          const e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
-          let nx = e1y * e2z - e1z * e2y;
-          let ny = e1z * e2x - e1x * e2z;
-          let nz = e1x * e2y - e1y * e2x;
-          const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
-          if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
-          else { nx = 0; ny = 1; nz = 0; }
-          if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
-
-          // Determine terrain type at face centroid
-          const cx = (v0x + v1x + v2x) / 3;
-          const cy = (v0y + v1y + v2y) / 3;
-          const cz = (v0z + v1z + v2z) / 3;
-          const unitY = cy / field.radius;
-          const tType = classifyTerrainTypeByUnitY(unitY, biome);
-          const [r, g, b] = terrainTypeColor(tType, biome);
-
-          // Write 3 vertices (9 floats each: pos3 + normal3 + color3)
-          const baseIdx = vertList.length / 9;
-          vertList.push(v0x, v0y, v0z, nx, ny, nz, r, g, b);
-          vertList.push(v1x, v1y, v1z, nx, ny, nz, r, g, b);
-          vertList.push(v2x, v2y, v2z, nx, ny, nz, r, g, b);
-          indexList.push(baseIdx, baseIdx + 1, baseIdx + 2);
+          const i0 = getEdgeVertex(x, y, z, e0, d);
+          const i1 = getEdgeVertex(x, y, z, e1, d);
+          const i2 = getEdgeVertex(x, y, z, e2, d);
+          indexList.push(i0, i1, i2);
         }
-        // Check maxVerts after completing this cube's triangles to avoid mid-cube holes
-        if (vertList.length / 9 >= maxVerts) break;
+        if (positions.length / 3 >= maxVerts) break;
       }
-      if (vertList.length / 9 >= maxVerts) break;
+      if (positions.length / 3 >= maxVerts) break;
     }
-    if (vertList.length / 9 >= maxVerts) break;
+    if (positions.length / 3 >= maxVerts) break;
   }
 
-  const verts = new Float32Array(vertList);
+  const vertexCount = positions.length / 3;
+  if (vertexCount >= maxVerts) {
+    console.warn(`[terrain] extractMeshFromField hit maxVerts limit (${maxVerts}) — mesh is truncated!`);
+  }
+
+  // Compute per-vertex normals by averaging face normals.
+  const vertHeights = new Float32Array(vertexCount);
+  const vertTriCount = new Uint16Array(vertexCount);
+  const vertNormals = new Float32Array(vertexCount * 3);
+
+  for (let i = 0; i < indexList.length; i += 3) {
+    const i0 = indexList[i], i1 = indexList[i + 1], i2 = indexList[i + 2];
+    const v0y = positions[i0 * 3 + 1];
+    const v1y = positions[i1 * 3 + 1];
+    const v2y = positions[i2 * 3 + 1];
+    const cy = (v0y + v1y + v2y) / 3;
+    vertHeights[i0] += cy; vertHeights[i1] += cy; vertHeights[i2] += cy;
+    vertTriCount[i0]++; vertTriCount[i1]++; vertTriCount[i2]++;
+
+    // Face normal
+    const ax = positions[i1 * 3] - positions[i0 * 3];
+    const ay = positions[i1 * 3 + 1] - positions[i0 * 3 + 1];
+    const az = positions[i1 * 3 + 2] - positions[i0 * 3 + 2];
+    const bx = positions[i2 * 3] - positions[i0 * 3];
+    const by = positions[i2 * 3 + 1] - positions[i0 * 3 + 1];
+    const bz = positions[i2 * 3 + 2] - positions[i0 * 3 + 2];
+    const nx = ay * bz - az * by;
+    const ny = az * bx - ax * bz;
+    const nz = ax * by - ay * bx;
+    vertNormals[i0 * 3] += nx; vertNormals[i0 * 3 + 1] += ny; vertNormals[i0 * 3 + 2] += nz;
+    vertNormals[i1 * 3] += nx; vertNormals[i1 * 3 + 1] += ny; vertNormals[i1 * 3 + 2] += nz;
+    vertNormals[i2 * 3] += nx; vertNormals[i2 * 3 + 1] += ny; vertNormals[i2 * 3 + 2] += nz;
+  }
+
+  // Build final vertex buffer: pos3 + normal3 + color3 = 9 floats
+  const vertsOut = new Float32Array(vertexCount * 9);
+  for (let i = 0; i < vertexCount; i++) {
+    const avgY = vertTriCount[i] > 0 ? vertHeights[i] / vertTriCount[i] : 0;
+    const unitY = avgY / field.radius;
+    const tType = classifyTerrainTypeByUnitY(unitY, biome);
+    const [r, g, b] = terrainTypeColor(tType, biome);
+
+    // Normalize accumulated normals
+    let nx = vertNormals[i * 3];
+    let ny = vertNormals[i * 3 + 1];
+    let nz = vertNormals[i * 3 + 2];
+    const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
+    else { nx = 0; ny = 1; nz = 0; }
+
+    const o = i * 9;
+    vertsOut[o] = positions[i * 3];
+    vertsOut[o + 1] = positions[i * 3 + 1];
+    vertsOut[o + 2] = positions[i * 3 + 2];
+    vertsOut[o + 3] = nx; vertsOut[o + 4] = ny; vertsOut[o + 5] = nz;
+    vertsOut[o + 6] = r; vertsOut[o + 7] = g; vertsOut[o + 8] = b;
+  }
+
   const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
-  return { verts, indices, vertexCount: vertList.length / 9, indexCount: indexList.length };
+  return { verts: vertsOut, indices, vertexCount, indexCount: indexList.length };
 }

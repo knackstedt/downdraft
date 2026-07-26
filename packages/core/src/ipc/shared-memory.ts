@@ -6,7 +6,7 @@ import { createLogger } from "../util/logger.ts";
 const log = createLogger();
 
 // Shared memory layout (must match native-renderer/src/ipc.rs)
-export const SHM_SIZE = 16 * 1024 * 1024; // 16MB — mesh data needs ~13MB for 6 islands
+export const SHM_SIZE = 256 * 1024 * 1024; // 256MB — mesh data needs ~120MB for 6 islands at 10x resolution
 const CMD_SEQ_OFFSET = 0;
 const CMD_TYPE_OFFSET = 4;
 const CMD_SIZE_OFFSET = 8;
@@ -53,18 +53,18 @@ export const MESH_COUNT_OFFSET = 3352;     // number of meshes (u32)
 export const MESH_DATA_OFFSET = 3356;      // mesh data starts here
 
 // Water data section (written by Bun each tick, read by Rust renderer)
-// Chunk-based: up to 25 chunks, each 68x68 f32 heights + header
-// Placed at 13MB offset to leave ~13MB for mesh data
+// Chunk-based: up to 25 chunks, each 644x644 f32 heights + header (10x resolution)
+// Placed at 128MB offset to leave ~128MB for mesh data
 export const WATER_MAX_CHUNKS = 25;
 export const WATER_CHUNK_GRID = 68; // CHUNK_SIZE + 2*CHUNK_OVERLAP
-export const WATER_SEQ_OFFSET = 13631488;           // seqlock (u32)
-export const WATER_CHUNK_COUNT_OFFSET = 13631492;    // chunk count (u32)
-export const WATER_PATCH_SIZE_OFFSET = 13631496;     // patch size (f32)
-export const WATER_CHUNK_DATA_OFFSET = 13631500;     // first chunk starts here
-export const WATER_CHUNK_HEADER_SIZE = 12;           // originX(i32) + originZ(i32) + grid_size(u32)
+export const WATER_SEQ_OFFSET = 134217728;           // seqlock (u32) — 128MB
+export const WATER_CHUNK_COUNT_OFFSET = 134217732;    // chunk count (u32)
+export const WATER_PATCH_SIZE_OFFSET = 134217736;     // patch size (f32)
+export const WATER_CHUNK_DATA_OFFSET = 134217740;     // first chunk starts here
+export const WATER_CHUNK_HEADER_SIZE = 12;            // originX(i32) + originZ(i32) + grid_size(u32)
 export const WATER_CHUNK_HEIGHTS_SIZE = WATER_CHUNK_GRID * WATER_CHUNK_GRID * 4; // 68*68*4 = 18496
 export const WATER_CHUNK_STRIDE = WATER_CHUNK_HEADER_SIZE + WATER_CHUNK_HEIGHTS_SIZE; // 18508
-export const WATER_DATA_END = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * WATER_CHUNK_STRIDE; // 13631500 + 25*18508 = 13777800
+export const WATER_DATA_END = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * WATER_CHUNK_STRIDE; // 134217740 + 25*18508 = 134681940
 
 // Game state section (written by Bun each tick, read by Rust renderer)
 export const GAME_STATE_OFFSET = WATER_DATA_END;             // is_dead: u32 (0 or 1)
@@ -139,6 +139,8 @@ export interface MeshData {
   indexCount: number;
   posX: number;
   posZ: number;
+  lodLevel: number;
+  lodDistance: number;
   verts: Float32Array;    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
   indices: Uint32Array;   // u32 indices
 }
@@ -390,27 +392,27 @@ export class SharedMemoryIPC {
 
     let offset = MESH_DATA_OFFSET;
     for (const mesh of meshes) {
-      // Header: vertex_count, index_count, pos_x, pos_z
+      // Header: vertex_count, index_count, pos_x, pos_z, lod_level, lod_distance (24 bytes)
       this.u32[offset / 4] = mesh.vertexCount;
       this.u32[(offset + 4) / 4] = mesh.indexCount;
       this.view.setFloat32(offset + 8, mesh.posX, true);
       this.view.setFloat32(offset + 12, mesh.posZ, true);
-      offset += 16;
+      this.u32[(offset + 16) / 4] = mesh.lodLevel;
+      this.view.setFloat32(offset + 20, mesh.lodDistance, true);
+      offset += 24;
 
       // Vertices: vertexCount * 9 floats = vertexCount * 36 bytes
       const vertBytes = mesh.vertexCount * 36;
       if (offset + vertBytes > WATER_SEQ_OFFSET) break;
-      for (let i = 0; i < mesh.vertexCount * 9; i++) {
-        this.view.setFloat32(offset + i * 4, mesh.verts[i], true);
-      }
+      const vertSrc = new Uint8Array(mesh.verts.buffer, mesh.verts.byteOffset, vertBytes);
+      this.bytes.set(vertSrc, offset);
       offset += vertBytes;
 
       // Indices: indexCount * 4 bytes (u32)
       const idxBytes = mesh.indexCount * 4;
       if (offset + idxBytes > WATER_SEQ_OFFSET) break;
-      for (let i = 0; i < mesh.indexCount; i++) {
-        this.u32[(offset + i * 4) / 4] = mesh.indices[i];
-      }
+      const idxSrc = new Uint8Array(mesh.indices.buffer, mesh.indices.byteOffset, idxBytes);
+      this.bytes.set(idxSrc, offset);
       offset += idxBytes;
     }
 

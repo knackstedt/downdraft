@@ -2,13 +2,13 @@
 // Low-poly water heightfield (256×256 grid, 4m per cell = 1024m coverage)
 
 import {
-  BuoyancySystem as PluginBuoyancySystem,
-  WaterBuffer,
-  WaterPhysics,
   MAX_SHORES,
   MAX_WAKES,
+  BuoyancySystem as PluginBuoyancySystem,
   SHORE_FLOATS,
   WAKE_FLOATS,
+  WaterBuffer,
+  WaterPhysics,
   type BuoyancyEntity,
   type ShoreProvider,
   type ShoreSource,
@@ -17,7 +17,7 @@ import {
 } from "@downdraft/plugin-water";
 
 export const waterBuffer = new WaterBuffer(4);
-export const waterPhysics = new WaterPhysics(waterBuffer, { waterLevel: 0 });
+export const waterPhysics = new WaterPhysics(waterBuffer, { waterLevel: 0, waterRenderDistance: 300 });
 export const buoyancySystem = new PluginBuoyancySystem(waterPhysics);
 
 export const waterWakeProviders: WakeProvider[] = [];

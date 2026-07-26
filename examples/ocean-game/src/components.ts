@@ -1,13 +1,25 @@
 // ─── ECS Components & Queries ──────────────────────────────
 
-import { Component, query, type Entity, type World, createLogger } from "@downdraft/core";
+import { Component, createLogger, query, type Entity, type World } from "@downdraft/core";
 import { GridInventory } from "../plugins/inventory-plugin.ts";
 import {
-  CameraMode, BiomeType, WildlifeState, PirateState, PlantStage, AnimalStage, PetType,
-  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER, PLAYER_MAX_THIRST, PLAYER_MAX_OXYGEN, PLAYER_TEMP_NORM,
-  HEALTH_REGEN_RATE, HUNGER_DECAY_RATE, THIRST_DECAY_RATE,
-  SHARK_SPEED, PIRATE_HEALTH, ANIMAL_PRODUCT_TIME,
-  XP_PER_LEVEL, XP_MAX_LEVEL,
+    ANIMAL_PRODUCT_TIME,
+    AnimalStage,
+    BiomeType,
+    CameraMode,
+    HEALTH_REGEN_RATE, HUNGER_DECAY_RATE,
+    PetType,
+    PIRATE_HEALTH,
+    PirateState, PlantStage,
+    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+    PLAYER_MAX_OXYGEN,
+    PLAYER_MAX_THIRST,
+    PLAYER_TEMP_NORM,
+    SHARK_SPEED,
+    THIRST_DECAY_RATE,
+    WildlifeState,
+    XP_MAX_LEVEL,
+    XP_PER_LEVEL,
 } from "./constants.ts";
 import type { VoxelField } from "./terrain.ts";
 
@@ -105,6 +117,7 @@ export const Island = Component.register("Island", {
   chunkZ: 0,
   voxelField: null as VoxelField | null,
   meshData: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number } | null,
+  lodMeshes: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number; lodLevel: number; lodDistance: number }[] | null,
 });
 
 export const Buildable = Component.register("Buildable", {

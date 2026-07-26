@@ -37,9 +37,10 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) @interpolate(flat) color: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) view_dist: f32,
+    @location(3) world_pos: vec3<f32>,
 };
 
 @vertex
@@ -50,13 +51,15 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.color = in.color * model.color.rgb;
     out.normal = in.normal;
     out.view_dist = out.clip_position.w; // view-space distance for fog
+    out.world_pos = world_pos.xyz;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let normal = normalize(in.normal);
     let light_dir = normalize(vec3<f32>(0.5, 0.8, 0.3));
-    let diffuse = select(1.0, max(dot(in.normal, light_dir), 0.0) * 0.7 + 0.3, scene.shadows_enabled > 0.5);
+    let diffuse = select(1.0, max(dot(normal, light_dir), 0.0) * 0.7 + 0.3, scene.shadows_enabled > 0.5);
     var lit_color = in.color * diffuse * scene.light_intensity;
 
     // Bloom: add emissive boost to bright colors

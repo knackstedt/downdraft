@@ -872,7 +872,7 @@ export const shipIslandCollisionSystem = system("ship-island-collision", Stage.U
       ship.x += pushX;
       ship.z += pushZ;
       if (Number.isNaN(ship.x) || Number.isNaN(ship.z)) {
-        console.error(`[ship-collision] NaN after push! pushX=${pushX} pushZ=${pushZ}`);
+        log.error("ship-collision", `NaN after push! pushX=${pushX} pushZ=${pushZ}`);
         ship.x = 0;
         ship.z = 0;
       }

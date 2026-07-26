@@ -19,7 +19,7 @@ use std::path::PathBuf;
 /// [576..2368] entity array (64 × 28 bytes, written by Bun)
 /// Total: 4MB (expanded for mesh data)
 
-pub const SHM_SIZE: usize = 16 * 1024 * 1024; // 16MB — mesh data needs ~13MB for 6 islands
+pub const SHM_SIZE: usize = 256 * 1024 * 1024; // 256MB — mesh data needs ~120MB for 6 islands at 10x resolution
 pub const CMD_SEQ_OFFSET: usize = 0;
 pub const CMD_TYPE_OFFSET: usize = 4;
 pub const CMD_SIZE_OFFSET: usize = 8;
@@ -67,21 +67,22 @@ pub const MESH_DATA_OFFSET: usize = 3356;      // mesh data starts here
 //   vertex_count: u32
 //   index_count: u32
 //   pos_x: f32, pos_z: f32 (island world position for model matrix)
+//   lod_level: u32, lod_distance: f32 (LOD level and switch distance)
 //   vertices: vertex_count * 9 f32 (pos.xyz, normal.xyz, color.rgb)
 //   indices: index_count * u32
 
 // Water data section (written by Bun each tick, read by Rust renderer)
-// Chunk-based: up to 25 chunks, each 68x68 f32 heights + header
+// Chunk-based: up to 25 chunks, each 644x644 f32 heights + header (10x resolution)
 pub const WATER_MAX_CHUNKS: usize = 25;
 pub const WATER_CHUNK_GRID: usize = 68; // CHUNK_SIZE + 2*CHUNK_OVERLAP
-pub const WATER_SEQ_OFFSET: usize = 13631488;           // seqlock (u32)
-pub const WATER_CHUNK_COUNT_OFFSET: usize = 13631492;   // chunk count (u32)
-pub const WATER_PATCH_SIZE_OFFSET: usize = 13631496;    // patch size (f32)
-pub const WATER_CHUNK_DATA_OFFSET: usize = 13631500;    // first chunk starts here
+pub const WATER_SEQ_OFFSET: usize = 134217728;           // seqlock (u32) — 128MB
+pub const WATER_CHUNK_COUNT_OFFSET: usize = 134217732;   // chunk count (u32)
+pub const WATER_PATCH_SIZE_OFFSET: usize = 134217736;    // patch size (f32)
+pub const WATER_CHUNK_DATA_OFFSET: usize = 134217740;    // first chunk starts here
 pub const WATER_CHUNK_HEADER_SIZE: usize = 12;          // originX(i32) + originZ(i32) + grid_size(u32)
 pub const WATER_CHUNK_HEIGHTS_SIZE: usize = WATER_CHUNK_GRID * WATER_CHUNK_GRID * 4; // 18496
 pub const WATER_CHUNK_STRIDE: usize = WATER_CHUNK_HEADER_SIZE + WATER_CHUNK_HEIGHTS_SIZE; // 18508
-pub const WATER_DATA_END: usize = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * WATER_CHUNK_STRIDE; // 13777800
+pub const WATER_DATA_END: usize = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * WATER_CHUNK_STRIDE; // 134681940
 
 // Game state section (written by Bun each tick, read by Rust renderer)
 pub const GAME_STATE_OFFSET: usize = WATER_DATA_END;             // is_dead: u32 (0 or 1)
@@ -137,6 +138,8 @@ pub struct IslandMesh {
     pub index_count: u32,
     pub pos_x: f32,
     pub pos_z: f32,
+    pub lod_level: u32,
+    pub lod_distance: f32,
     pub vertices: Vec<f32>,    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
     pub indices: Vec<u32>,
 }
@@ -443,7 +446,7 @@ impl SharedMemory {
         let mut offset = MESH_DATA_OFFSET;
 
         for _ in 0..mesh_count {
-            if offset + 16 > WATER_SEQ_OFFSET {
+            if offset + 24 > WATER_SEQ_OFFSET {
                 break;
             }
 
@@ -459,19 +462,27 @@ impl SharedMemory {
             let pos_z = f32::from_le_bytes(
                 bytes[offset + 12..offset + 16].try_into().unwrap()
             );
-            offset += 16;
+            let lod_level = u32::from_le_bytes(
+                bytes[offset + 16..offset + 20].try_into().unwrap()
+            );
+            let lod_distance = f32::from_le_bytes(
+                bytes[offset + 20..offset + 24].try_into().unwrap()
+            );
+            offset += 24;
 
             // Read vertices: vertex_count * 9 f32 = vertex_count * 36 bytes
             let vert_bytes = (vertex_count as usize) * 36;
             if offset + vert_bytes > WATER_SEQ_OFFSET {
                 break;
             }
-            let mut vertices = Vec::with_capacity(vertex_count as usize * 9);
-            for v in 0..(vertex_count as usize * 9) {
-                let byte_off = offset + v * 4;
-                vertices.push(f32::from_le_bytes(
-                    bytes[byte_off..byte_off + 4].try_into().unwrap()
-                ));
+            let vert_count_f32 = vertex_count as usize * 9;
+            let mut vertices = vec![0.0f32; vert_count_f32];
+            unsafe {
+                let src = std::slice::from_raw_parts(
+                    bytes.as_ptr().add(offset) as *const f32,
+                    vert_count_f32,
+                );
+                vertices.copy_from_slice(src);
             }
             offset += vert_bytes;
 
@@ -480,12 +491,13 @@ impl SharedMemory {
             if offset + idx_bytes > WATER_SEQ_OFFSET {
                 break;
             }
-            let mut indices = Vec::with_capacity(index_count as usize);
-            for i in 0..(index_count as usize) {
-                let byte_off = offset + i * 4;
-                indices.push(u32::from_le_bytes(
-                    bytes[byte_off..byte_off + 4].try_into().unwrap()
-                ));
+            let mut indices = vec![0u32; index_count as usize];
+            unsafe {
+                let src = std::slice::from_raw_parts(
+                    bytes.as_ptr().add(offset) as *const u32,
+                    index_count as usize,
+                );
+                indices.copy_from_slice(src);
             }
             offset += idx_bytes;
 
@@ -494,6 +506,8 @@ impl SharedMemory {
                 index_count,
                 pos_x,
                 pos_z,
+                lod_level,
+                lod_distance,
                 vertices,
                 indices,
             });

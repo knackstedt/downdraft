@@ -283,6 +283,17 @@ struct IslandMeshBuffer {
     pos_z: f32,
 }
 
+struct IslandLODLevel {
+    buffer: IslandMeshBuffer,
+    lod_distance: f32,
+}
+
+struct IslandLODGroup {
+    lod_levels: Vec<IslandLODLevel>, // sorted by lod_distance ascending
+    pos_x: f32,
+    pos_z: f32,
+}
+
 struct Renderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -310,7 +321,7 @@ struct Renderer {
     water_vertex_buffer: wgpu::Buffer,
     water_vertex_count: u32,
     water_seqlock_misses: u32,
-    island_meshes: Vec<IslandMeshBuffer>,
+    island_lod_groups: Vec<IslandLODGroup>,
     depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
     ui_texture: wgpu::Texture,
@@ -424,9 +435,9 @@ impl Renderer {
         let humanoid_mesh = create_mesh(&humanoid_verts, &humanoid_indices);
 
         // Dynamic water vertex buffer for chunked water mesh
-        // Up to 25 chunks, each 68x68 grid, step=2 → 34*34 quads * 2 tris * 3 verts = 6936 per chunk
-        // 25 * 6936 = 173400, rounded up for safety
-        let water_max_vertices = 200_000u32;
+        // 25 chunks, step=2, subdiv=3: 34*34 cells * 9 sub-quads * 6 verts = 62K per chunk
+        // 25 * 62K = 1.56M, buffer = 1.75M * 36 bytes = 63MB
+        let water_max_vertices = 1_750_000u32;
         let water_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Water Vertex Buffer"),
             size: (water_max_vertices * std::mem::size_of::<Vertex>() as u32) as u64,
@@ -1035,7 +1046,7 @@ impl Renderer {
             water_vertex_buffer,
             water_vertex_count: 0,
             water_seqlock_misses: 0,
-            island_meshes: Vec::new(),
+            island_lod_groups: Vec::new(),
             depth_texture,
             depth_texture_view,
             ui_texture,
@@ -1146,43 +1157,75 @@ impl Renderer {
 
         println!("[renderer] Loading {} island meshes from SHM", meshes.len());
 
+        // Group meshes by (pos_x, pos_z) — meshes with the same position are LODs of the same island
+        use std::collections::HashMap;
+        let mut groups: HashMap<(u32, u32), Vec<&ipc::IslandMesh>> = HashMap::new();
         for mesh in &meshes {
-            // Convert flat f32 array to Vertex array
-            let mut vertices = Vec::with_capacity(mesh.vertex_count as usize);
-            for i in 0..(mesh.vertex_count as usize) {
-                let off = i * 9;
-                vertices.push(Vertex {
-                    position: [mesh.vertices[off], mesh.vertices[off + 1], mesh.vertices[off + 2]],
-                    normal: [mesh.vertices[off + 3], mesh.vertices[off + 4], mesh.vertices[off + 5]],
-                    color: [mesh.vertices[off + 6], mesh.vertices[off + 7], mesh.vertices[off + 8]],
+            // Quantize position to group LODs of the same island (they share exact pos)
+            let key = (mesh.pos_x.to_bits(), mesh.pos_z.to_bits());
+            groups.entry(key).or_default().push(mesh);
+        }
+
+        for (_, group_meshes) in &groups {
+            let pos_x = group_meshes[0].pos_x;
+            let pos_z = group_meshes[0].pos_z;
+
+            let mut lod_levels = Vec::new();
+            for mesh in group_meshes {
+                // Convert flat f32 array to Vertex array
+                let mut vertices = Vec::with_capacity(mesh.vertex_count as usize);
+                for i in 0..(mesh.vertex_count as usize) {
+                    let off = i * 9;
+                    vertices.push(Vertex {
+                        position: [mesh.vertices[off], mesh.vertices[off + 1], mesh.vertices[off + 2]],
+                        normal: [mesh.vertices[off + 3], mesh.vertices[off + 4], mesh.vertices[off + 5]],
+                        color: [mesh.vertices[off + 6], mesh.vertices[off + 7], mesh.vertices[off + 8]],
+                    });
+                }
+
+                let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Island Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Island Index Buffer"),
+                    contents: bytemuck::cast_slice(&mesh.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+
+                println!("[renderer] Island LOD {} mesh: {} verts, {} indices at ({:.1}, {:.1}) dist={:.0}",
+                    mesh.lod_level, mesh.vertex_count, mesh.index_count, pos_x, pos_z, mesh.lod_distance);
+
+                lod_levels.push(IslandLODLevel {
+                    buffer: IslandMeshBuffer {
+                        vertex_buffer,
+                        index_buffer,
+                        index_count: mesh.index_count,
+                        pos_x,
+                        pos_z,
+                    },
+                    lod_distance: mesh.lod_distance,
                 });
             }
 
-            let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Island Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+            // Sort by lod_distance ascending (closest detail first)
+            lod_levels.sort_by(|a, b| a.lod_distance.partial_cmp(&b.lod_distance).unwrap_or(std::cmp::Ordering::Equal));
 
-            let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Island Index Buffer"),
-                contents: bytemuck::cast_slice(&mesh.indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-
-            println!("[renderer] Island mesh: {} verts, {} indices at ({:.1}, {:.1})",
-                mesh.vertex_count, mesh.index_count, mesh.pos_x, mesh.pos_z);
-
-            self.island_meshes.push(IslandMeshBuffer {
-                vertex_buffer,
-                index_buffer,
-                index_count: mesh.index_count,
-                pos_x: mesh.pos_x,
-                pos_z: mesh.pos_z,
+            self.island_lod_groups.push(IslandLODGroup {
+                lod_levels,
+                pos_x,
+                pos_z,
             });
         }
 
-        println!("[renderer] {} island meshes loaded into GPU", self.island_meshes.len());
+        let total_verts: u32 = self.island_lod_groups.iter()
+            .flat_map(|g| g.lod_levels.iter())
+            .map(|l| l.buffer.index_count)
+            .sum();
+        println!("[renderer] {} island LOD groups loaded (total indices across all LODs: {})",
+            self.island_lod_groups.len(), total_verts);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -1451,11 +1494,14 @@ impl Renderer {
                 let step = 2usize;
                 let ps = wd.patch_size;
                 let height_amp = 1.5_f32;
+                let subdiv = 3usize; // 3x3 sub-quads per cell ≈ 10x triangle density
 
                 // Build mesh from all active chunks. Each chunk has its own
                 // fixed origin — vertices are placed at world coordinates so
                 // chunks never move and the mesh never twitches.
-                let mut water_verts: Vec<Vertex> = Vec::with_capacity(25 * 64 * 64 * 2 * 3);
+                // Each physics grid cell is subdivided into subdiv×subdiv sub-quads
+                // with bilinear interpolation for 10x rendering density.
+                let mut water_verts: Vec<Vertex> = Vec::with_capacity(25 * 64 * 64 * subdiv * subdiv * 6);
 
                 for chunk in &wd.chunks {
                     let grid = chunk.grid_size;
@@ -1480,31 +1526,49 @@ impl Renderer {
                                 continue;
                             }
 
-                            let to_pos = |gx: usize, gz: usize, h: f32| -> [f32; 3] {
-                                let y = if h < -100.0 { -100.0 } else { h * height_amp };
-                                [ox + gx as f32 * ps, y, oz + gz as f32 * ps]
+                            let base_x = ox + gx as f32 * ps;
+                            let base_z = oz + gz as f32 * ps;
+
+                            // Bilinear interpolation for height at sub-grid positions
+                            let interp_h = |fx: f32, fz: f32| -> f32 {
+                                let h = h00 * (1.0 - fx) * (1.0 - fz)
+                                      + h10 * fx * (1.0 - fz)
+                                      + h01 * (1.0 - fx) * fz
+                                      + h11 * fx * fz;
+                                if h < -100.0 { -100.0 } else { h * height_amp }
                             };
 
-                            let p00 = to_pos(gx, gz, h00);
-                            let p10 = to_pos(gx + step, gz, h10);
-                            let p01 = to_pos(gx, gz + step, h01);
-                            let p11 = to_pos(gx + step, gz + step, h11);
+                            let cell_size = ps * step as f32;
 
-                            // Triangle 1: p00, p10, p11
-                            let e1 = [p10[0] - p00[0], p10[1] - p00[1], p10[2] - p00[2]];
-                            let e2 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
-                            let n1 = normalize(cross(e2, e1));
-                            water_verts.push(Vertex { position: p00, normal: n1, color: [1.0, 1.0, 1.0] });
-                            water_verts.push(Vertex { position: p10, normal: n1, color: [1.0, 1.0, 1.0] });
-                            water_verts.push(Vertex { position: p11, normal: n1, color: [1.0, 1.0, 1.0] });
+                            for sz in 0..subdiv {
+                                for sx in 0..subdiv {
+                                    let fx0 = sx as f32 / subdiv as f32;
+                                    let fx1 = (sx + 1) as f32 / subdiv as f32;
+                                    let fz0 = sz as f32 / subdiv as f32;
+                                    let fz1 = (sz + 1) as f32 / subdiv as f32;
 
-                            // Triangle 2: p00, p11, p01
-                            let e3 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
-                            let e4 = [p01[0] - p00[0], p01[1] - p00[1], p01[2] - p00[2]];
-                            let n2 = normalize(cross(e4, e3));
-                            water_verts.push(Vertex { position: p00, normal: n2, color: [1.0, 1.0, 1.0] });
-                            water_verts.push(Vertex { position: p11, normal: n2, color: [1.0, 1.0, 1.0] });
-                            water_verts.push(Vertex { position: p01, normal: n2, color: [1.0, 1.0, 1.0] });
+                                    let p00 = [base_x + fx0 * cell_size, interp_h(fx0, fz0), base_z + fz0 * cell_size];
+                                    let p10 = [base_x + fx1 * cell_size, interp_h(fx1, fz0), base_z + fz0 * cell_size];
+                                    let p01 = [base_x + fx0 * cell_size, interp_h(fx0, fz1), base_z + fz1 * cell_size];
+                                    let p11 = [base_x + fx1 * cell_size, interp_h(fx1, fz1), base_z + fz1 * cell_size];
+
+                                    // Triangle 1: p00, p10, p11
+                                    let e1 = [p10[0] - p00[0], p10[1] - p00[1], p10[2] - p00[2]];
+                                    let e2 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
+                                    let n1 = normalize(cross(e2, e1));
+                                    water_verts.push(Vertex { position: p00, normal: n1, color: [1.0, 1.0, 1.0] });
+                                    water_verts.push(Vertex { position: p10, normal: n1, color: [1.0, 1.0, 1.0] });
+                                    water_verts.push(Vertex { position: p11, normal: n1, color: [1.0, 1.0, 1.0] });
+
+                                    // Triangle 2: p00, p11, p01
+                                    let e3 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
+                                    let e4 = [p01[0] - p00[0], p01[1] - p00[1], p01[2] - p00[2]];
+                                    let n2 = normalize(cross(e4, e3));
+                                    water_verts.push(Vertex { position: p00, normal: n2, color: [1.0, 1.0, 1.0] });
+                                    water_verts.push(Vertex { position: p11, normal: n2, color: [1.0, 1.0, 1.0] });
+                                    water_verts.push(Vertex { position: p01, normal: n2, color: [1.0, 1.0, 1.0] });
+                                }
+                            }
                         }
                     }
                 }
@@ -1527,7 +1591,7 @@ impl Renderer {
                     eprintln!("[water] SIGNIFICANT DROP! prev={} now={} chunks={}", prev_count, self.water_vertex_count, wd.chunks.len());
                 }
                 if !water_verts.is_empty() {
-                    let max_verts = 200_000usize;
+                    let max_verts = 1_750_000usize;
                     if water_verts.len() > max_verts {
                         eprintln!("[water] BUFFER OVERFLOW! {} verts > {} max, truncating", water_verts.len(), max_verts);
                         self.queue.write_buffer(&self.water_vertex_buffer, 0, bytemuck::cast_slice(&water_verts[..max_verts]));
@@ -1649,11 +1713,22 @@ impl Renderer {
                 render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
 
-            // Draw island meshes (custom marching cubes geometry with per-vertex color)
-            for (idx, island) in self.island_meshes.iter().enumerate() {
+            // Draw island meshes with distance-based LOD selection
+            for (idx, group) in self.island_lod_groups.iter().enumerate() {
+                // Compute horizontal distance from camera to island center
+                let dx = cam_pos[0] - group.pos_x;
+                let dz = cam_pos[2] - group.pos_z;
+                let dist = (dx * dx + dz * dz).sqrt();
+
+                // Select the highest-detail LOD whose distance threshold is met
+                let selected = group.lod_levels.iter()
+                    .rev()
+                    .find(|lod| dist >= lod.lod_distance)
+                    .unwrap_or(&group.lod_levels[0]);
+
                 let slot = (entity_slot_count + idx as u64) * MODEL_UNIFORM_SIZE;
                 let model_uniforms = ModelUniforms {
-                    model: translation_matrix(island.pos_x, 0.0, island.pos_z),
+                    model: translation_matrix(group.pos_x, 0.0, group.pos_z),
                     color: [1.0, 1.0, 1.0, 1.0], // white — per-vertex color handles the rest
                     _padding: [0.0; 48],
                 };
@@ -1661,9 +1736,9 @@ impl Renderer {
 
                 render_pass.set_pipeline(entity_pipeline);
                 render_pass.set_bind_group(1, &self.model_bind_group, &[slot as u32]);
-                render_pass.set_vertex_buffer(0, island.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(island.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..island.index_count, 0, 0..1);
+                render_pass.set_vertex_buffer(0, selected.buffer.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(selected.buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..selected.buffer.index_count, 0, 0..1);
             }
         }
 
@@ -2053,7 +2128,7 @@ impl ApplicationHandler for App {
 
                 if let Some(renderer) = &mut self.renderer {
                     // Try to load island meshes once (they're written by Bun after init)
-                    if renderer.island_meshes.is_empty() {
+                    if renderer.island_lod_groups.is_empty() {
                         renderer.load_island_meshes();
                     }
 

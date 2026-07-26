@@ -267,8 +267,20 @@ export function init(ctx: any) {
 
     log.info("terrain", `generating voxel field for island ${i + 1} (biome: ${BiomeType[biome]}, radius: ${radius.toFixed(0)}, pos: (${islandX.toFixed(0)}, ${islandZ.toFixed(0)}))...`);
     const voxelField = generateVoxelField(chunkX, chunkZ, radius, biome);
-    const meshData = extractMeshFromField(voxelField, biome, 50000);
-    log.info("terrain", `island ${i + 1} mesh: ${meshData.vertexCount} verts, ${meshData.indexCount} indices`);
+
+    // Generate 3 LOD levels: step=1 (full detail, close), step=3 (medium), step=6 (far)
+    // LOD meshes use unique vertices per triangle (3x verts) so larger steps compensate
+    const lodConfigs = [
+      { step: 1, distance: 0 },
+      { step: 3, distance: 150 },
+      { step: 6, distance: 350 },
+    ];
+    const lodMeshes = lodConfigs.map(({ step, distance }) => {
+      const mesh = extractMeshFromField(voxelField, biome, 500000, step);
+      return { ...mesh, lodLevel: step, lodDistance: distance };
+    });
+    const meshData = lodMeshes[0]; // full-detail mesh for gameplay/physics
+    log.info("terrain", `island ${i + 1} LOD meshes: ${lodMeshes.map(l => `LOD${l.lodLevel}:${l.vertexCount}v`).join(", ")}`);
 
     placedIslands.push({ x: islandX, z: islandZ, radius });
 
@@ -281,7 +293,7 @@ export function init(ctx: any) {
       hasRocks: Math.random() > 0.5,
       visited: false,
       biome, chunkX, chunkZ,
-      voxelField, meshData,
+      voxelField, meshData, lodMeshes,
     }));
     const islandEntity = ecsWorld.spawn(islandComps);
 
@@ -738,20 +750,41 @@ export function getMeshData(): IPCMeshData[] {
 
   islandQuery.iterate(gameState.frameCount, (_e, [islandRaw]) => {
     const island = islandRaw as typeof Island.defaults;
-    if (!island.meshData || !island.meshData.verts) return;
+    if (!island.lodMeshes) {
+      // Fallback: single mesh (no LOD)
+      if (!island.meshData || !island.meshData.verts) return;
+      const indices = island.meshData.indices instanceof Uint32Array
+        ? island.meshData.indices
+        : new Uint32Array(island.meshData.indices);
+      meshes.push({
+        vertexCount: island.meshData.vertexCount,
+        indexCount: island.meshData.indexCount,
+        posX: island.x,
+        posZ: island.z,
+        lodLevel: 1,
+        lodDistance: 0,
+        verts: island.meshData.verts,
+        indices,
+      });
+      return;
+    }
 
-    const indices = island.meshData.indices instanceof Uint32Array
-      ? island.meshData.indices
-      : new Uint32Array(island.meshData.indices);
-
-    meshes.push({
-      vertexCount: island.meshData.vertexCount,
-      indexCount: island.meshData.indexCount,
-      posX: island.x,
-      posZ: island.z,
-      verts: island.meshData.verts,
-      indices,
-    });
+    for (const lod of island.lodMeshes) {
+      if (!lod.verts) continue;
+      const indices = lod.indices instanceof Uint32Array
+        ? lod.indices
+        : new Uint32Array(lod.indices);
+      meshes.push({
+        vertexCount: lod.vertexCount,
+        indexCount: lod.indexCount,
+        posX: island.x,
+        posZ: island.z,
+        lodLevel: lod.lodLevel,
+        lodDistance: lod.lodDistance,
+        verts: lod.verts,
+        indices,
+      });
+    }
   });
 
   return meshes;

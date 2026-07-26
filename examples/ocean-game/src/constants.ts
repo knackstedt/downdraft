@@ -4,6 +4,8 @@ export interface IPCMeshData {
   indexCount: number;
   posX: number;
   posZ: number;
+  lodLevel: number;
+  lodDistance: number;
   verts: Float32Array;
   indices: Uint32Array;
 }
@@ -119,7 +121,7 @@ export enum ToolType {
 
 // ─── Terrain Config (ported from to-the-ocean TerrainConfig.ts) ──
 export const TERRAIN_CONFIG = {
-  voxelSize: 2.5,
+  voxelSize: 0.79,
   isoLevel: 0.0,
   maxVoxelMemory: 160_000_000,
 

@@ -70,7 +70,7 @@ export const WaterPlugin: Plugin = {
     ctx.registerResource("waterSAB", waterSAB);
 
     // New low-poly water physics system
-    const buffer = new WaterBuffer(4); // 4m per cell, 256*4=1024m coverage
+    const buffer = new WaterBuffer(4); // 4m per cell, renderer subdivides for 10x density
     const physics = new WaterPhysics(buffer);
     const buoyancy = new BuoyancySystem(physics);
     const renderer = new WaterRenderer();

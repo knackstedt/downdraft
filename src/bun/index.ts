@@ -53,7 +53,7 @@ const proc = Bun.spawn([rendererPath], {
   env,
   cwd: rendererDir,
   stdout: "pipe",
-  stderr: "inherit",
+  stderr: "pipe",
 });
 
 let ipc: SharedMemoryIPC | null = null;
@@ -84,6 +84,29 @@ const decoder = new TextDecoder();
         }
       }
       if (trimmed) log.info("renderer", trimmed.replace(/^\[renderer\]\s*/, ""));
+    }
+  }
+})();
+
+// Read stderr and forward through the formatted logger at warn level
+(async () => {
+  const stderrReader = proc.stderr.getReader();
+  let stderrBuffer = "";
+  while (true) {
+    const { done, value } = await stderrReader.read();
+    if (done) break;
+    stderrBuffer += decoder.decode(value, { stream: true });
+    const lines = stderrBuffer.split("\n");
+    stderrBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const modMatch = trimmed.match(/^\[(.+?)\]\s*(.*)/);
+      if (modMatch) {
+        log.warn(modMatch[1], modMatch[2]);
+      } else {
+        log.warn("renderer", trimmed);
+      }
     }
   }
 })();
