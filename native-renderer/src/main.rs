@@ -1994,6 +1994,7 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => {
                 println!("[renderer] Close requested, exiting");
+                self.release_cursor();
                 event_loop.exit();
             }
             WindowEvent::Resized(physical_size) => {
@@ -2108,6 +2109,14 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                // Check if parent process (Bun) has exited — if so, shut down cleanly
+                if !parent_process_alive() {
+                    println!("[renderer] Parent process exited, shutting down");
+                    self.release_cursor();
+                    event_loop.exit();
+                    return;
+                }
+
                 // Write accumulated input (keys + mouse deltas) to SHM for Bun to read,
                 // then clear one-shot values for next frame
                 self.write_input_to_shm();
@@ -2176,4 +2185,31 @@ fn main() {
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
     let mut app = App::new();
     event_loop.run_app(&mut app).unwrap();
+}
+
+/// Check if the parent process has exited (Linux: reparented to init PID 1).
+/// This detects when Bun was killed (e.g. SIGKILL) without cleaning up the renderer.
+fn parent_process_alive() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // Read /proc/self/stat to get ppid
+        // Format: pid (comm) state ppid ...
+        if let Ok(stat) = std::fs::read_to_string("/proc/self/stat") {
+            if let Some(pos) = stat.rfind(')') {
+                let rest = &stat[pos + 2..];
+                let fields: Vec<&str> = rest.split_whitespace().collect();
+                if fields.len() >= 2 {
+                    let ppid: u32 = fields[1].parse().unwrap_or(0);
+                    // ppid == 1 means reparented to init (parent died)
+                    return ppid != 1;
+                }
+            }
+        }
+        // Can't determine — assume alive
+        true
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
 }

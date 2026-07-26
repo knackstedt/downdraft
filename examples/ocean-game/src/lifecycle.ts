@@ -124,7 +124,7 @@ const log = createLogger();
 
 // ─── Lifecycle: init ──────────────────────────────────────
 
-export function init(ctx: any) {
+export async function init(ctx: any) {
   log.info("ocean-survival", "╔══════════════════════════════════════════════╗");
   log.info("ocean-survival", "║   Ocean Survival — DownDraft Engine          ║");
   log.info("ocean-survival", "║   (parity with to-the-ocean game systems)    ║");
@@ -283,6 +283,9 @@ export function init(ctx: any) {
     log.info("terrain", `island ${i + 1} LOD meshes: ${lodMeshes.map(l => `LOD${l.lodLevel}:${l.vertexCount}v`).join(", ")}`);
 
     placedIslands.push({ x: islandX, z: islandZ, radius });
+
+    // Yield to the event loop after each island so signal handlers can fire
+    await Bun.sleep(0);
 
     const islandComps = new Map<number, unknown>();
     islandComps.set(Island.id, Island.create({

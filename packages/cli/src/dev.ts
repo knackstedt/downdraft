@@ -19,6 +19,7 @@ export async function dev(args: string[]): Promise<void> {
     env: {
       ...process.env,
     },
+    detached: true,
   });
 
   child.on("exit", (code) => {
@@ -29,11 +30,13 @@ export async function dev(args: string[]): Promise<void> {
   const shutdown = () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    log.info("DownDraft", "Shutting down...");
     child.kill("SIGINT");
     setTimeout(() => {
-      child.kill("SIGKILL");
+      // Kill entire process group (child + renderer) as fallback
+      try { process.kill(-child.pid!, "SIGKILL"); } catch {}
       process.exit(130);
-    }, 3000);
+    }, 2000);
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);

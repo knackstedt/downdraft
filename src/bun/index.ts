@@ -115,17 +115,24 @@ const decoder = new TextDecoder();
 process.on("exit", () => {
   if (exampleModule.dispose) exampleModule.dispose({});
   ipc?.quit();
-  proc.kill();
+  try { proc.kill(); } catch {}
 });
+
+// Forceful shutdown: kill renderer immediately then exit
+function forceShutdown(code: number) {
+  try { proc.kill(); } catch {}
+  ipc?.quit();
+  process.exit(code);
+}
 
 // Handle Ctrl+C — registered at top level so it works even before the renderer connects
 process.on("SIGINT", () => {
   log.info("DownDraft", "Received SIGINT, shutting down...");
-  process.exit(130);
+  forceShutdown(130);
 });
 process.on("SIGTERM", () => {
   log.info("DownDraft", "Received SIGTERM, shutting down...");
-  process.exit(143);
+  forceShutdown(143);
 });
 
 // Detect renderer exit
@@ -149,9 +156,9 @@ const SIM_TICK_DT = 1 / 60;
   // Send LoadScene command to renderer (once)
   ipc!.loadScene("ocean-survival");
 
-  // Initialize the game
+  // Initialize the game (async — yields between island generations)
   if (exampleModule.init) {
-    exampleModule.init({ device: null });
+    await exampleModule.init({ device: null });
   }
 
   // Game loop
