@@ -143,6 +143,7 @@ export interface MeshData {
   lodDistance: number;
   verts: Float32Array;    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
   indices: Uint32Array;   // u32 indices
+  meshType: number;       // 0 = terrain, 1 = water
 }
 
 export enum CommandType {
@@ -392,14 +393,15 @@ export class SharedMemoryIPC {
 
     let offset = MESH_DATA_OFFSET;
     for (const mesh of meshes) {
-      // Header: vertex_count, index_count, pos_x, pos_z, lod_level, lod_distance (24 bytes)
+      // Header: vertex_count, index_count, pos_x, pos_z, lod_level, lod_distance, mesh_type (28 bytes)
       this.u32[offset / 4] = mesh.vertexCount;
       this.u32[(offset + 4) / 4] = mesh.indexCount;
       this.view.setFloat32(offset + 8, mesh.posX, true);
       this.view.setFloat32(offset + 12, mesh.posZ, true);
       this.u32[(offset + 16) / 4] = mesh.lodLevel;
       this.view.setFloat32(offset + 20, mesh.lodDistance, true);
-      offset += 24;
+      this.u32[(offset + 24) / 4] = mesh.meshType ?? 0;
+      offset += 28;
 
       // Vertices: vertexCount * 9 floats = vertexCount * 36 bytes
       const vertBytes = mesh.vertexCount * 36;

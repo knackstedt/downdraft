@@ -8,6 +8,7 @@ export interface IPCMeshData {
   lodDistance: number;
   verts: Float32Array;
   indices: Uint32Array;
+  meshType: number; // 0 = terrain, 1 = water
 }
 
 // ─── Simulation tick ───────────────────────────────────────
@@ -162,6 +163,17 @@ export const TERRAIN_CONFIG = {
   chunkSize: 32,
   chunkBits: 5,
   chunkMask: 31,
+} as const;
+
+// ─── Island Water Config (diffusion + wave run-up) ────────
+export const ISLAND_WATER_CONFIG = {
+  // Spring-diffusion parameters for ocean ↔ island water stitching
+  springK: 30.0,         // spring constant — higher = faster wave propagation
+  dampingK: 4.0,         // velocity damping — higher = less oscillation
+  // Wave run-up parameters for water ↔ terrain interaction
+  runUpAmplitude: 0.8,   // max height water rises above still-water on shore
+  runUpPeriod: 4.0,      // seconds between wave run-up cycles
+  runUpDamping: 0.5,     // how quickly run-up fades on steeper terrain (0-1)
 } as const;
 
 // ─── Biome-specific terrain colors ─────────────────────────

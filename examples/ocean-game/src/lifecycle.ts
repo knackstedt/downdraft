@@ -94,6 +94,8 @@ import {
   debrisCollectionSystem,
   debrisDriftSystem,
   fishingSystem,
+  islandWaterDiffusionSystem,
+  islandWaveRunUpSystem,
   petSystem,
   pirateSystem,
   plantSystem,
@@ -110,7 +112,8 @@ import {
   waveSourceSystem,
   wildlifeAISystem,
 } from "./systems.ts";
-import { extractMeshFromField, generateVoxelField } from "./terrain.ts";
+import type { VoxelField, WaterVoxelField } from "./terrain.ts";
+import { extractMeshFromField, extractWaterMeshFromField, generateVoxelField, generateWaterVoxelField } from "./terrain.ts";
 import { waterBuffer, waterPhysics } from "./water.ts";
 import {
   rainCollectors,
@@ -142,11 +145,14 @@ function spawnIslandEntities(
   params: IslandGenParams,
   voxelField: VoxelField,
   lodMeshes: LodMesh[],
+  waterVoxelField?: WaterVoxelField,
+  waterLodMeshes?: LodMesh[],
 ): void {
   const { index: i, radius, height, biome, islandX, islandZ, chunkX, chunkZ } = params;
   const meshData = lodMeshes[0];
+  const waterMeshData = waterLodMeshes?.[0] ?? null;
 
-  log.info("terrain", `island ${i + 1} LOD meshes: ${lodMeshes.map(l => `LOD${l.lodLevel}:${l.vertexCount}v`).join(", ")}`);
+  log.info("terrain", `island ${i + 1} LOD meshes: ${lodMeshes.map(l => `LOD${l.lodLevel}:${l.vertexCount}v`).join(", ")}${waterLodMeshes ? ` | water: ${waterLodMeshes.map(l => `LOD${l.lodLevel}:${l.vertexCount}v`).join(", ")}` : ""}`);
 
   const islandComps = new Map<number, unknown>();
   islandComps.set(Island.id, Island.create({
@@ -155,6 +161,9 @@ function spawnIslandEntities(
     hasRocks: Math.random() > 0.5,
     visited: false, biome, chunkX, chunkZ,
     voxelField, meshData, lodMeshes,
+    waterVoxelField: waterVoxelField ?? null,
+    waterMeshData,
+    waterLodMeshes: waterLodMeshes ?? null,
   }));
   const islandEntity = ecsWorld.spawn(islandComps);
 
@@ -238,11 +247,11 @@ function startBackgroundIslandGeneration(
 
   for (const worker of workers) {
     worker.onmessage = (e: MessageEvent) => {
-      const { index, voxelField, lodMeshes } = e.data;
+      const { index, voxelField, lodMeshes, waterVoxelField, waterLodMeshes } = e.data;
       const param = params.find(p => p.index === index);
       if (param) {
         log.info("terrain", `island ${index + 1}/${gameState.islandsTotal} generated in background worker`);
-        spawnIslandEntities(ecsWorld, param, voxelField, lodMeshes as LodMesh[]);
+        spawnIslandEntities(ecsWorld, param, voxelField, lodMeshes as LodMesh[], waterVoxelField, waterLodMeshes as LodMesh[]);
         ecsWorld.schedule.updateQueryArchetypes(ecsWorld.allArchetypes);
         gameState.islandsGenerated++;
         gameState.meshesDirty = true;
@@ -423,11 +432,16 @@ export async function init(ctx: any) {
     { step: 6, distance: 350 },
   ];
   const island0VoxelField = generateVoxelField(island0.chunkX, island0.chunkZ, island0.radius, island0.biome);
+  const island0WaterVoxelField = generateWaterVoxelField(island0VoxelField, island0.chunkX, island0.chunkZ, island0.radius);
   const island0LodMeshes = lodConfigs.map(({ step, distance }) => {
     const mesh = extractMeshFromField(island0VoxelField, island0.biome, 500000, step);
     return { ...mesh, lodLevel: step, lodDistance: distance };
   });
-  spawnIslandEntities(ecsWorld, island0, island0VoxelField, island0LodMeshes as LodMesh[]);
+  const island0WaterLodMeshes = lodConfigs.map(({ step, distance }) => {
+    const mesh = extractWaterMeshFromField(island0WaterVoxelField, 200000, step);
+    return { ...mesh, lodLevel: step, lodDistance: distance };
+  });
+  spawnIslandEntities(ecsWorld, island0, island0VoxelField, island0LodMeshes as LodMesh[], island0WaterVoxelField, island0WaterLodMeshes as LodMesh[]);
   gameState.playerSpawnX = island0.islandX + island0.radius * 0.8;
   gameState.playerSpawnZ = island0.islandZ;
   gameState.islandsGenerated = 1;
@@ -505,6 +519,8 @@ export async function init(ctx: any) {
   ecsWorld.schedule.addSystem(playerMovementSystem);
   ecsWorld.schedule.addSystem(shipControlSystem);
   ecsWorld.schedule.addSystem(waveSourceSystem);
+  ecsWorld.schedule.addSystem(islandWaterDiffusionSystem);
+  ecsWorld.schedule.addSystem(islandWaveRunUpSystem);
   ecsWorld.schedule.addSystem(buoyancySystem_);
   ecsWorld.schedule.addSystem(survivalSystem);
   ecsWorld.schedule.addSystem(wildlifeAISystem);
@@ -865,24 +881,61 @@ export function getMeshData(): IPCMeshData[] {
         lodDistance: 0,
         verts: island.meshData.verts,
         indices,
+        meshType: 0,
       });
-      return;
+    } else {
+      for (const lod of island.lodMeshes) {
+        if (!lod.verts) continue;
+        const indices = lod.indices instanceof Uint32Array
+          ? lod.indices
+          : new Uint32Array(lod.indices);
+        meshes.push({
+          vertexCount: lod.vertexCount,
+          indexCount: lod.indexCount,
+          posX: island.x,
+          posZ: island.z,
+          lodLevel: lod.lodLevel,
+          lodDistance: lod.lodDistance,
+          verts: lod.verts,
+          indices,
+          meshType: 0,
+        });
+      }
     }
 
-    for (const lod of island.lodMeshes) {
-      if (!lod.verts) continue;
-      const indices = lod.indices instanceof Uint32Array
-        ? lod.indices
-        : new Uint32Array(lod.indices);
+    // Island water meshes (LOD)
+    if (island.waterLodMeshes) {
+      for (const lod of island.waterLodMeshes) {
+        if (!lod.verts) continue;
+        const indices = lod.indices instanceof Uint32Array
+          ? lod.indices
+          : new Uint32Array(lod.indices);
+        meshes.push({
+          vertexCount: lod.vertexCount,
+          indexCount: lod.indexCount,
+          posX: island.x,
+          posZ: island.z,
+          lodLevel: lod.lodLevel,
+          lodDistance: lod.lodDistance,
+          verts: lod.verts,
+          indices,
+          meshType: 1,
+        });
+      }
+    } else if (island.waterMeshData && island.waterMeshData.verts) {
+      const indices = island.waterMeshData.indices instanceof Uint32Array
+        ? island.waterMeshData.indices
+        : new Uint32Array(island.waterMeshData.indices);
       meshes.push({
-        vertexCount: lod.vertexCount,
-        indexCount: lod.indexCount,
+        vertexCount: island.waterMeshData.vertexCount,
+        indexCount: island.waterMeshData.indexCount,
         posX: island.x,
         posZ: island.z,
-        lodLevel: lod.lodLevel,
-        lodDistance: lod.lodDistance,
-        verts: lod.verts,
+        lodLevel: 1,
+        lodDistance: 0,
+        verts: island.waterMeshData.verts,
         indices,
+        meshType: 1,
       });
     }
   });

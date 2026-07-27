@@ -21,7 +21,7 @@ import {
     XP_MAX_LEVEL,
     XP_PER_LEVEL,
 } from "./constants.ts";
-import type { VoxelField } from "./terrain.ts";
+import type { VoxelField, WaterVoxelField } from "./terrain.ts";
 
 const log = createLogger();
 
@@ -118,6 +118,9 @@ export const Island = Component.register("Island", {
   voxelField: null as VoxelField | null,
   meshData: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number } | null,
   lodMeshes: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number; lodLevel: number; lodDistance: number }[] | null,
+  waterVoxelField: null as WaterVoxelField | null,
+  waterMeshData: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number } | null,
+  waterLodMeshes: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number; lodLevel: number; lodDistance: number }[] | null,
 });
 
 export const Buildable = Component.register("Buildable", {

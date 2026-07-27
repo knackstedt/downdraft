@@ -14,6 +14,24 @@ export interface VoxelField {
   radius: number;
 }
 
+// ─── Water Voxel Field Type ───────────────────────────────
+
+export interface WaterVoxelField {
+  data: Float32Array;         // water density (positive = water, negative = air)
+  dimX: number; dimY: number; dimZ: number;
+  voxelSize: number;
+  originX: number; originY: number; originZ: number;
+  isoLevel: number;
+  radius: number;
+  // Runtime state for diffusion + run-up:
+  heights: Float32Array;      // dimX * dimZ — current water surface height per column
+  velocities: Float32Array;   // dimX * dimZ — vertical velocity for spring-diffusion
+  // Boundary mask: which columns are at the field edge (stitch zone)
+  boundaryMask: Uint8Array;   // dimX * dimZ — 1 = boundary, 0 = interior
+  // Shore mask: which columns are adjacent to terrain (for wave run-up)
+  shoreMask: Uint8Array;      // dimX * dimZ — 1 = shore, 0 = not
+}
+
 // ─── Smooth Union (for blobular terrain) ──────────────────
 
 function smoothUnion(d1: number, d2: number, k: number): number {
@@ -209,6 +227,132 @@ export function generateVoxelField(
   }
 
   return { data, dimX, dimY, dimZ, voxelSize: vs, originX, originY, originZ, isoLevel: cfg.isoLevel, radius };
+}
+
+// ─── Water Voxel Field Generation ──────────────────────────
+// Creates a paired water density field surrounding the terrain.
+// Water fills below water level outside terrain, fills underground spaces
+// (caves/overhangs below water level), and blends to pure ocean water
+// at the stitch boundary for seamless integration with global water chunks.
+
+export function generateWaterVoxelField(
+  terrainField: VoxelField,
+  _chunkX: number, _chunkZ: number, radius: number,
+): WaterVoxelField {
+  const cfg = TERRAIN_CONFIG;
+  const waterMargin = 0.3 * radius;
+  const waveHeadroom = 2.0;
+
+  // XZ extent: terrain extent + margin for stitch zone
+  const xzWorldExtent = 2.0 * radius + waterMargin;
+  // Y extent: from below water to wave headroom above
+  const yWorldExtent = cfg.depthHeight * radius * cfg.yExtentMultiplier + waveHeadroom;
+
+  const vs = cfg.voxelSize;
+  let dimX = Math.ceil((xzWorldExtent * 2) / vs) + 1;
+  let dimZ = Math.ceil((xzWorldExtent * 2) / vs) + 1;
+  let dimY = Math.ceil((yWorldExtent * 2) / vs) + 1;
+
+  // Clamp to memory limit (water fields use 1/4 of terrain budget)
+  let totalVoxels = dimX * dimY * dimZ;
+  const maxWaterMemory = cfg.maxVoxelMemory / 4;
+  if (totalVoxels * 4 > maxWaterMemory) {
+    const scale = Math.cbrt(maxWaterMemory / (totalVoxels * 4));
+    const newVs = vs / scale;
+    dimX = Math.ceil((xzWorldExtent * 2) / newVs) + 1;
+    dimZ = Math.ceil((xzWorldExtent * 2) / newVs) + 1;
+    dimY = Math.ceil((yWorldExtent * 2) / newVs) + 1;
+    totalVoxels = dimX * dimY * dimZ;
+  }
+
+  const data = new Float32Array(totalVoxels);
+  const originX = -xzWorldExtent;
+  const originY = -yWorldExtent;
+  const originZ = -xzWorldExtent;
+
+  const waterScale = 1.0 / (cfg.depthHeight * radius);
+  const dimZVal = dimZ;
+  const dimYDimZ = dimY * dimZVal;
+
+  // Terrain field sampling helpers
+  const tField = terrainField;
+  const tVs = tField.voxelSize;
+  const tDimYZ = tField.dimY * tField.dimZ;
+
+  function sampleTerrainDensity(wx: number, wy: number, wz: number): number {
+    const tvx = Math.floor((wx - tField.originX) / tVs);
+    const tvy = Math.floor((wy - tField.originY) / tVs);
+    const tvz = Math.floor((wz - tField.originZ) / tVs);
+    if (tvx < 0 || tvx >= tField.dimX || tvy < 0 || tvy >= tField.dimY || tvz < 0 || tvz >= tField.dimZ) {
+      return -1.0; // outside terrain = empty
+    }
+    return tField.data[tvx * tDimYZ + tvy * tField.dimZ + tvz];
+  }
+
+  const boundaryMask = new Uint8Array(dimX * dimZ);
+  const shoreMask = new Uint8Array(dimX * dimZ);
+  const fadeStart = 0.1;
+  const shoreThreshold = 0.3; // terrain density above which we consider it "near solid"
+
+  for (let vx = 0; vx < dimX; vx++) {
+    for (let vz = 0; vz < dimZ; vz++) {
+      const colIdx = vx * dimZVal + vz;
+      const wx = vx * vs + originX;
+      const wz = vz * vs + originZ;
+      const colBase = vx * dimYDimZ + vz;
+
+      // Determine if this column is in the stitch boundary zone
+      const edgeFadeX = Math.min(vx / (dimX - 1), 1 - vx / (dimX - 1)) * 2;
+      const edgeFadeZ = Math.min(vz / (dimZ - 1), 1 - vz / (dimZ - 1)) * 2;
+      const edgeFade = Math.min(edgeFadeX, edgeFadeZ);
+      const isBoundary = edgeFade < fadeStart ? 1 : 0;
+      boundaryMask[colIdx] = isBoundary;
+
+      // Check if this column is adjacent to terrain (shore)
+      let hasTerrainNearby = false;
+      for (let vy = 0; vy < dimY; vy++) {
+        const wy = vy * vs + originY;
+        const td = sampleTerrainDensity(wx, wy, wz);
+        if (td >= tField.isoLevel + shoreThreshold) {
+          hasTerrainNearby = true;
+          break;
+        }
+      }
+      shoreMask[colIdx] = hasTerrainNearby ? 1 : 0;
+
+      for (let vy = 0; vy < dimY; vy++) {
+        const wy = vy * vs + originY;
+
+        // Depth-based water density: positive below y=0, negative above
+        const depthDensity = -wy * waterScale;
+
+        // Terrain displacement: negative where terrain is solid
+        const terrainDensity = sampleTerrainDensity(wx, wy, wz);
+        const terrainDisplacement = -terrainDensity;
+
+        // Water exists only where both depth is below water AND terrain is empty
+        let density = Math.min(depthDensity, terrainDisplacement);
+
+        // Edge fade for stitch zone — blend to pure ocean water at boundary
+        if (isBoundary) {
+          const fadeFactor = edgeFade / fadeStart;
+          density = density * fadeFactor + depthDensity * (1 - fadeFactor);
+        }
+
+        data[colBase + vy * dimZVal] = density;
+      }
+    }
+  }
+
+  // Initialize runtime state: still water at y=0
+  const heights = new Float32Array(dimX * dimZ);
+  const velocities = new Float32Array(dimX * dimZ);
+
+  return {
+    data, dimX, dimY, dimZ, voxelSize: vs,
+    originX, originY, originZ, isoLevel: 0.0, radius,
+    heights, velocities, boundaryMask, shoreMask,
+  };
 }
 
 // ─── Terrain Height Sampling (from voxel field) ───────────
@@ -838,6 +982,263 @@ export function extractMeshFromField(
     const [r, g, b] = terrainTypeColor(tType, biome);
 
     // Normalize accumulated normals
+    let nx = vertNormals[i * 3];
+    let ny = vertNormals[i * 3 + 1];
+    let nz = vertNormals[i * 3 + 2];
+    const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
+    else { nx = 0; ny = 1; nz = 0; }
+
+    const o = i * 9;
+    vertsOut[o] = positions[i * 3];
+    vertsOut[o + 1] = positions[i * 3 + 1];
+    vertsOut[o + 2] = positions[i * 3 + 2];
+    vertsOut[o + 3] = nx; vertsOut[o + 4] = ny; vertsOut[o + 5] = nz;
+    vertsOut[o + 6] = r; vertsOut[o + 7] = g; vertsOut[o + 8] = b;
+  }
+
+  const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
+  return { verts: vertsOut, indices, vertexCount, indexCount: indexList.length };
+}
+
+// ─── Water Mesh Extraction ────────────────────────────────
+// Marching cubes on the water voxel field. Produces a mesh with water-specific
+// vertex colors (depth-based blue gradient, foam near shore).
+
+function waterColorAtHeight(_wy: number, isShore: boolean): [number, number, number] {
+  if (isShore) return [0.8, 0.9, 1.0]; // slight foam tint, still mostly white
+  return [1.0, 1.0, 1.0]; // white — actual water color comes from model uniform
+}
+
+export function extractWaterMeshFromField(
+  field: WaterVoxelField,
+  maxVerts: number = 200000,
+  step: number = 1,
+): { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number } {
+  const vs = field.voxelSize;
+  const { dimX, dimY, dimZ, data, isoLevel } = field;
+  const dimYZ = dimY * dimZ;
+
+  function getDensity(x: number, y: number, z: number): number {
+    if (x < 0 || x >= dimX || y < 0 || y >= dimY || z < 0 || z >= dimZ) return -1.0;
+    return data[x * dimYZ + y * dimZ + z];
+  }
+
+  // ─── LOD path (step > 1): unique vertices per triangle, per-face normal + color ───
+  if (step > 1) {
+    const verts: number[] = [];
+    const indexList: number[] = [];
+    let vertIdx = 0;
+
+    for (let x = 0; x < dimX - step; x += step) {
+      for (let y = 0; y < dimY - step; y += step) {
+        for (let z = 0; z < dimZ - step; z += step) {
+          const d: number[] = new Array(8);
+          let cubeIndex = 0;
+          for (let i = 0; i < 8; i++) {
+            const [ox, oy, oz] = MC_CORNER_OFFSETS[i];
+            d[i] = getDensity(x + ox * step, y + oy * step, z + oz * step);
+            if (d[i] < isoLevel) cubeIndex |= (1 << i);
+          }
+          if (cubeIndex === 0 || cubeIndex === 255) continue;
+
+          const edges = MC_EDGE_TABLE[cubeIndex];
+          if (edges === 0) continue;
+
+          const triBase = cubeIndex * 16;
+          for (let t = 0; t < 15; t += 3) {
+            const e0 = MC_TRI_TABLE[triBase + t];
+            if (e0 < 0) break;
+            const e1 = MC_TRI_TABLE[triBase + t + 1];
+            const e2 = MC_TRI_TABLE[triBase + t + 2];
+
+            const triVerts: [number, number, number][] = [];
+            for (const e of [e0, e1, e2]) {
+              const [c0, c1] = MC_EDGE_CORNERS[e];
+              const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
+              const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
+              const d0 = d[c0], d1 = d[c1];
+              const p0x = (x + ox0 * step) * vs + field.originX;
+              const p0y = (y + oy0 * step) * vs + field.originY;
+              const p0z = (z + oz0 * step) * vs + field.originZ;
+              const p1x = (x + ox1 * step) * vs + field.originX;
+              const p1y = (y + oy1 * step) * vs + field.originY;
+              const p1z = (z + oz1 * step) * vs + field.originZ;
+              let ex: number, ey: number, ez: number;
+              if (Math.abs(isoLevel - d0) < 1e-10) { ex = p0x; ey = p0y; ez = p0z; }
+              else if (Math.abs(isoLevel - d1) < 1e-10) { ex = p1x; ey = p1y; ez = p1z; }
+              else if (Math.abs(d0 - d1) < 1e-10) { ex = p0x; ey = p0y; ez = p0z; }
+              else {
+                const tt = (isoLevel - d0) / (d1 - d0);
+                ex = p0x + tt * (p1x - p0x);
+                ey = p0y + tt * (p1y - p0y);
+                ez = p0z + tt * (p1z - p0z);
+              }
+              triVerts.push([ex, ey, ez]);
+            }
+
+            const [v0, v1, v2] = triVerts;
+            const ax = v1[0] - v0[0], ay = v1[1] - v0[1], az = v1[2] - v0[2];
+            const bx = v2[0] - v0[0], by = v2[1] - v0[1], bz = v2[2] - v0[2];
+            let nx = ay * bz - az * by;
+            let ny = az * bx - ax * bz;
+            let nz = ax * by - ay * bx;
+            const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
+            else { nx = 0; ny = 1; nz = 0; }
+
+            const cy = (v0[1] + v1[1] + v2[1]) / 3;
+            const gridVx = Math.floor((v0[0] - field.originX) / vs);
+            const gridVz = Math.floor((v0[2] - field.originZ) / vs);
+            const colIdx = gridVx * dimZ + gridVz;
+            const isShore = (colIdx >= 0 && colIdx < field.shoreMask.length) ? field.shoreMask[colIdx] === 1 : false;
+            const [r, g, b] = waterColorAtHeight(cy, isShore);
+
+            for (const v of triVerts) {
+              verts.push(v[0], v[1], v[2], nx, ny, nz, r, g, b);
+            }
+            indexList.push(vertIdx, vertIdx + 1, vertIdx + 2);
+            vertIdx += 3;
+
+            if (vertIdx >= maxVerts) break;
+          }
+          if (vertIdx >= maxVerts) break;
+        }
+        if (vertIdx >= maxVerts) break;
+      }
+      if (vertIdx >= maxVerts) break;
+    }
+
+    const vertexCount = vertIdx;
+    if (vertexCount >= maxVerts) {
+      console.warn(`[terrain] extractWaterMeshFromField (LOD step=${step}) hit maxVerts limit (${maxVerts}) — mesh is truncated!`);
+    }
+    const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
+    return { verts: new Float32Array(verts), indices, vertexCount, indexCount: indexList.length };
+  }
+
+  // ─── Full-detail path (step == 1): shared vertices via edge cache, smooth normals ───
+  const edgeCache = new Map<number, number>();
+  const positions: number[] = [];
+  const indexList: number[] = [];
+
+  function getEdgeVertex(x: number, y: number, z: number, edgeIdx: number, d: number[]): number {
+    const [ox, oy, oz, axis] = MC_EDGE_AXIS[edgeIdx];
+    const gx = x + ox, gy = y + oy, gz = z + oz;
+    const key = ((gx * dimY + gy) * dimZ + gz) * 3 + axis;
+    const cached = edgeCache.get(key);
+    if (cached !== undefined) return cached;
+
+    const [c0, c1] = MC_EDGE_CORNERS[edgeIdx];
+    const [ox0, oy0, oz0] = MC_CORNER_OFFSETS[c0];
+    const [ox1, oy1, oz1] = MC_CORNER_OFFSETS[c1];
+    const d0 = d[c0], d1 = d[c1];
+
+    const p0x = (x + ox0) * vs + field.originX;
+    const p0y = (y + oy0) * vs + field.originY;
+    const p0z = (z + oz0) * vs + field.originZ;
+    const p1x = (x + ox1) * vs + field.originX;
+    const p1y = (y + oy1) * vs + field.originY;
+    const p1z = (z + oz1) * vs + field.originZ;
+
+    let ex: number, ey: number, ez: number;
+    if (Math.abs(isoLevel - d0) < 1e-10) {
+      ex = p0x; ey = p0y; ez = p0z;
+    } else if (Math.abs(isoLevel - d1) < 1e-10) {
+      ex = p1x; ey = p1y; ez = p1z;
+    } else if (Math.abs(d0 - d1) < 1e-10) {
+      ex = p0x; ey = p0y; ez = p0z;
+    } else {
+      const t = (isoLevel - d0) / (d1 - d0);
+      ex = p0x + t * (p1x - p0x);
+      ey = p0y + t * (p1y - p0y);
+      ez = p0z + t * (p1z - p0z);
+    }
+
+    const idx = positions.length / 3;
+    positions.push(ex, ey, ez);
+    edgeCache.set(key, idx);
+    return idx;
+  }
+
+  for (let x = 0; x < dimX - 1; x++) {
+    for (let y = 0; y < dimY - 1; y++) {
+      for (let z = 0; z < dimZ - 1; z++) {
+        const d: number[] = new Array(8);
+        let cubeIndex = 0;
+        for (let i = 0; i < 8; i++) {
+          const [ox, oy, oz] = MC_CORNER_OFFSETS[i];
+          d[i] = getDensity(x + ox, y + oy, z + oz);
+          if (d[i] < isoLevel) cubeIndex |= (1 << i);
+        }
+        if (cubeIndex === 0 || cubeIndex === 255) continue;
+
+        const edges = MC_EDGE_TABLE[cubeIndex];
+        if (edges === 0) continue;
+
+        const triBase = cubeIndex * 16;
+        for (let t = 0; t < 15; t += 3) {
+          const e0 = MC_TRI_TABLE[triBase + t];
+          if (e0 < 0) break;
+          const e1 = MC_TRI_TABLE[triBase + t + 1];
+          const e2 = MC_TRI_TABLE[triBase + t + 2];
+
+          const i0 = getEdgeVertex(x, y, z, e0, d);
+          const i1 = getEdgeVertex(x, y, z, e1, d);
+          const i2 = getEdgeVertex(x, y, z, e2, d);
+          indexList.push(i0, i1, i2);
+        }
+        if (positions.length / 3 >= maxVerts) break;
+      }
+      if (positions.length / 3 >= maxVerts) break;
+    }
+    if (positions.length / 3 >= maxVerts) break;
+  }
+
+  const vertexCount = positions.length / 3;
+  if (vertexCount >= maxVerts) {
+    console.warn(`[terrain] extractWaterMeshFromField hit maxVerts limit (${maxVerts}) — mesh is truncated!`);
+  }
+
+  // Compute per-vertex normals + colors
+  const vertHeights = new Float32Array(vertexCount);
+  const vertTriCount = new Uint16Array(vertexCount);
+  const vertNormals = new Float32Array(vertexCount * 3);
+
+  for (let i = 0; i < indexList.length; i += 3) {
+    const i0 = indexList[i], i1 = indexList[i + 1], i2 = indexList[i + 2];
+    const v0y = positions[i0 * 3 + 1];
+    const v1y = positions[i1 * 3 + 1];
+    const v2y = positions[i2 * 3 + 1];
+    const cy = (v0y + v1y + v2y) / 3;
+    vertHeights[i0] += cy; vertHeights[i1] += cy; vertHeights[i2] += cy;
+    vertTriCount[i0]++; vertTriCount[i1]++; vertTriCount[i2]++;
+
+    const ax = positions[i1 * 3] - positions[i0 * 3];
+    const ay = positions[i1 * 3 + 1] - positions[i0 * 3 + 1];
+    const az = positions[i1 * 3 + 2] - positions[i0 * 3 + 2];
+    const bx = positions[i2 * 3] - positions[i0 * 3];
+    const by = positions[i2 * 3 + 1] - positions[i0 * 3 + 1];
+    const bz = positions[i2 * 3 + 2] - positions[i0 * 3 + 2];
+    const nx = ay * bz - az * by;
+    const ny = az * bx - ax * bz;
+    const nz = ax * by - ay * bx;
+    vertNormals[i0 * 3] += nx; vertNormals[i0 * 3 + 1] += ny; vertNormals[i0 * 3 + 2] += nz;
+    vertNormals[i1 * 3] += nx; vertNormals[i1 * 3 + 1] += ny; vertNormals[i1 * 3 + 2] += nz;
+    vertNormals[i2 * 3] += nx; vertNormals[i2 * 3 + 1] += ny; vertNormals[i2 * 3 + 2] += nz;
+  }
+
+  const vertsOut = new Float32Array(vertexCount * 9);
+  for (let i = 0; i < vertexCount; i++) {
+    const avgY = vertTriCount[i] > 0 ? vertHeights[i] / vertTriCount[i] : 0;
+    const px = positions[i * 3];
+    const pz = positions[i * 3 + 2];
+    const gridVx = Math.floor((px - field.originX) / vs);
+    const gridVz = Math.floor((pz - field.originZ) / vs);
+    const colIdx = gridVx * dimZ + gridVz;
+    const isShore = (colIdx >= 0 && colIdx < field.shoreMask.length) ? field.shoreMask[colIdx] === 1 : false;
+    const [r, g, b] = waterColorAtHeight(avgY, isShore);
+
     let nx = vertNormals[i * 3];
     let ny = vertNormals[i * 3 + 1];
     let nz = vertNormals[i * 3 + 2];

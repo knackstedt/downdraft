@@ -68,6 +68,7 @@ pub const MESH_DATA_OFFSET: usize = 3356;      // mesh data starts here
 //   index_count: u32
 //   pos_x: f32, pos_z: f32 (island world position for model matrix)
 //   lod_level: u32, lod_distance: f32 (LOD level and switch distance)
+//   mesh_type: u32 (0 = terrain, 1 = water)
 //   vertices: vertex_count * 9 f32 (pos.xyz, normal.xyz, color.rgb)
 //   indices: index_count * u32
 
@@ -140,6 +141,7 @@ pub struct IslandMesh {
     pub pos_z: f32,
     pub lod_level: u32,
     pub lod_distance: f32,
+    pub mesh_type: u32,       // 0 = terrain, 1 = water
     pub vertices: Vec<f32>,    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
     pub indices: Vec<u32>,
 }
@@ -446,7 +448,7 @@ impl SharedMemory {
         let mut offset = MESH_DATA_OFFSET;
 
         for _ in 0..mesh_count {
-            if offset + 24 > WATER_SEQ_OFFSET {
+            if offset + 28 > WATER_SEQ_OFFSET {
                 break;
             }
 
@@ -468,7 +470,10 @@ impl SharedMemory {
             let lod_distance = f32::from_le_bytes(
                 bytes[offset + 20..offset + 24].try_into().unwrap()
             );
-            offset += 24;
+            let mesh_type = u32::from_le_bytes(
+                bytes[offset + 24..offset + 28].try_into().unwrap()
+            );
+            offset += 28;
 
             // Read vertices: vertex_count * 9 f32 = vertex_count * 36 bytes
             let vert_bytes = (vertex_count as usize) * 36;
@@ -508,6 +513,7 @@ impl SharedMemory {
                 pos_z,
                 lod_level,
                 lod_distance,
+                mesh_type,
                 vertices,
                 indices,
             });
@@ -519,6 +525,16 @@ impl SharedMemory {
         }
 
         meshes
+    }
+
+    /// Read the water data seqlock value without reading the full data.
+    /// Used to check if water data has changed since last frame.
+    pub fn read_water_seq(&self) -> u32 {
+        let bytes = self.as_bytes();
+        let seq_arr = unsafe {
+            &*(bytes.as_ptr().add(WATER_SEQ_OFFSET) as *const std::sync::atomic::AtomicU32)
+        };
+        seq_arr.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Read water chunk data from Bun (seqlock read, called each frame)

@@ -292,6 +292,7 @@ struct IslandLODGroup {
     lod_levels: Vec<IslandLODLevel>, // sorted by lod_distance ascending
     pos_x: f32,
     pos_z: f32,
+    mesh_type: u32, // 0 = terrain, 1 = water
 }
 
 struct Renderer {
@@ -342,6 +343,9 @@ struct Renderer {
     last_sim_update: std::time::Instant,
     sim_dt: std::time::Duration,
     last_render_seq: u32,
+    last_water_seq: u32,
+    ui_update_counter: u32,
+    cached_debug_toggles: ui_overlay::DebugToggles,
 }
 
 impl Renderer {
@@ -1066,6 +1070,13 @@ impl Renderer {
             last_sim_update: std::time::Instant::now(),
             sim_dt: std::time::Duration::from_millis(16),
             last_render_seq: 0,
+            last_water_seq: 0,
+            ui_update_counter: 0,
+            cached_debug_toggles: ui_overlay::DebugToggles {
+                shadows: true,
+                bloom: true,
+                ..Default::default()
+            },
         }
     }
 
@@ -1157,18 +1168,19 @@ impl Renderer {
 
         println!("[renderer] Loading {} island meshes from SHM", meshes.len());
 
-        // Group meshes by (pos_x, pos_z) — meshes with the same position are LODs of the same island
+        // Group meshes by (pos_x, pos_z, mesh_type) — meshes with the same position and type are LODs of the same island
         use std::collections::HashMap;
-        let mut groups: HashMap<(u32, u32), Vec<&ipc::IslandMesh>> = HashMap::new();
+        let mut groups: HashMap<(u32, u32, u32), Vec<&ipc::IslandMesh>> = HashMap::new();
         for mesh in &meshes {
             // Quantize position to group LODs of the same island (they share exact pos)
-            let key = (mesh.pos_x.to_bits(), mesh.pos_z.to_bits());
+            let key = (mesh.pos_x.to_bits(), mesh.pos_z.to_bits(), mesh.mesh_type);
             groups.entry(key).or_default().push(mesh);
         }
 
         for (_, group_meshes) in &groups {
             let pos_x = group_meshes[0].pos_x;
             let pos_z = group_meshes[0].pos_z;
+            let mesh_type = group_meshes[0].mesh_type;
 
             let mut lod_levels = Vec::new();
             for mesh in group_meshes {
@@ -1217,6 +1229,7 @@ impl Renderer {
                 lod_levels,
                 pos_x,
                 pos_z,
+                mesh_type,
             });
         }
 
@@ -1316,8 +1329,18 @@ impl Renderer {
         let camera_uniforms = CameraUniforms { view_proj };
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniforms]));
 
-        // Poll debug toggles from UI (needed for scene uniforms and pipeline selection)
-        let debug_toggles = self.ui.poll_debug_toggles();
+        // Poll debug toggles from UI (throttled — needed for scene uniforms and pipeline selection)
+        self.ui_update_counter += 1;
+        let should_update_ui = self.ui_update_counter >= 30;
+        if should_update_ui {
+            self.ui_update_counter = 0;
+        }
+        let debug_toggles = if should_update_ui {
+            self.cached_debug_toggles = self.ui.poll_debug_toggles();
+            self.cached_debug_toggles
+        } else {
+            self.cached_debug_toggles
+        };
 
         // Read weather visual data from shared memory and write scene uniforms
         let weather = if let Some(ref shm) = self.shm {
@@ -1329,10 +1352,6 @@ impl Renderer {
             Some(w) => (w.sky_color, w.water_color, w.fog_color, w.fog_density, w.light_intensity, w.weather_type, w.is_night),
             None => ([0.1, 0.3, 0.5], [0.1, 0.3, 0.6], [0.1, 0.3, 0.5], 0.002, 1.0, 0, false),
         };
-        if self.frame_count % 120 == 0 {
-            eprintln!("[scene] water_color=({:.2},{:.2},{:.2}) fog_density={:.4} light={:.2} night={}", water_color[0], water_color[1], water_color[2], fog_density, light_intensity, is_night);
-            eprintln!("[cam] pos=({:.1},{:.1},{:.1}) target=({:.1},{:.1},{:.1}) water_verts={}", cam_pos[0], cam_pos[1], cam_pos[2], cam_target[0], cam_target[1], cam_target[2], self.water_vertex_count);
-        }
         let scene_uniforms = SceneUniforms {
             fog_color,
             fog_density,
@@ -1347,13 +1366,15 @@ impl Renderer {
         };
         self.queue.write_buffer(&self.scene_buffer, 0, bytemuck::cast_slice(&[scene_uniforms]));
 
-        // Update weather indicator overlay
-        let weather_name = match weather_type {
-            0 => "Clear", 1 => "PartlyCloudy", 2 => "Overcast", 3 => "Rain",
-            4 => "Storm", 5 => "Fog", 6 => "Eclipse", 7 => "FullMoon",
-            8 => "HellStorm", 9 => "Snow", _ => "Unknown",
-        };
-        self.ui.update_weather(weather_name, sky_color[0], sky_color[1], sky_color[2], fog_density, light_intensity, is_night);
+        // Update weather indicator overlay (throttled)
+        if should_update_ui {
+            let weather_name = match weather_type {
+                0 => "Clear", 1 => "PartlyCloudy", 2 => "Overcast", 3 => "Rain",
+                4 => "Storm", 5 => "Fog", 6 => "Eclipse", 7 => "FullMoon",
+                8 => "HellStorm", 9 => "Snow", _ => "Unknown",
+            };
+            self.ui.update_weather(weather_name, sky_color[0], sky_color[1], sky_color[2], fog_density, light_intensity, is_night);
+        }
 
         // Write telemetry to shared memory
         if let Some(ref mut shm) = self.shm {
@@ -1398,18 +1419,20 @@ impl Renderer {
             }
         }
 
-        // Read game state from Bun and update death overlay UI
-        let (is_dead, cause) = if let Some(ref shm) = self.shm {
-            shm.read_game_state()
-        } else {
-            (false, String::new())
-        };
-        self.ui.update_game_state(is_dead, &cause);
+        // Read game state from Bun and update death overlay UI (throttled)
+        if should_update_ui {
+            let (is_dead, cause) = if let Some(ref shm) = self.shm {
+                shm.read_game_state()
+            } else {
+                (false, String::new())
+            };
+            self.ui.update_game_state(is_dead, &cause);
 
-        // Read inventory data from Bun and update inventory panel
-        if let Some(ref shm) = self.shm {
-            if let Some(inv_json) = shm.read_inventory() {
-                self.ui.update_inventory(&inv_json);
+            // Read inventory data from Bun and update inventory panel
+            if let Some(ref shm) = self.shm {
+                if let Some(inv_json) = shm.read_inventory() {
+                    self.ui.update_inventory(&inv_json);
+                }
             }
         }
 
@@ -1471,21 +1494,20 @@ impl Renderer {
             };
             self.queue.write_buffer(&self.model_buffer, 0, bytemuck::cast_slice(&[model_uniforms]));
 
-            // Read water heightfield from shared memory and build flat-shaded mesh
+            // Read water heightfield from shared memory — only rebuild mesh when data changed
             let water_data = if let Some(ref shm) = self.shm {
-                let wd = shm.read_water_data();
-                if wd.is_none() {
-                    self.water_seqlock_misses += 1;
-                    if self.water_seqlock_misses > 10 {
-                        eprintln!("[water] {} consecutive seqlock misses, verts={}", self.water_seqlock_misses, self.water_vertex_count);
-                    }
+                let current_seq = shm.read_water_seq();
+                if current_seq == self.last_water_seq {
+                    None // Data unchanged — skip rebuild, reuse existing GPU buffer
+                } else if current_seq & 1 != 0 {
+                    None // Write in progress — skip this frame
                 } else {
-                    if self.water_seqlock_misses > 0 {
-                        eprintln!("[water] recovered after {} seqlock misses", self.water_seqlock_misses);
-                        self.water_seqlock_misses = 0;
+                    let wd = shm.read_water_data();
+                    if wd.is_some() {
+                        self.last_water_seq = current_seq;
                     }
+                    wd
                 }
-                wd
             } else {
                 None
             };
@@ -1521,8 +1543,8 @@ impl Renderer {
                             let h01 = sample_h(gx, gz + step);
                             let h11 = sample_h(gx + step, gz + step);
 
-                            // Skip quads entirely outside render distance or inside island cutouts
-                            if h00 < -100.0 && h10 < -100.0 && h01 < -100.0 && h11 < -100.0 {
+                            // Skip quads where any corner is cut out (< -100)
+                            if h00 < -100.0 || h10 < -100.0 || h01 < -100.0 || h11 < -100.0 {
                                 continue;
                             }
 
@@ -1573,23 +1595,7 @@ impl Renderer {
                     }
                 }
 
-                let prev_count = self.water_vertex_count;
                 self.water_vertex_count = water_verts.len() as u32;
-                if prev_count > 0 && self.water_vertex_count == 0 {
-                    eprintln!("[water] DISAPPEARED! prev={} chunks={} seqlock_misses={}", prev_count, wd.chunks.len(), self.water_seqlock_misses);
-                    for (i, chunk) in wd.chunks.iter().enumerate() {
-                        let culled = chunk.heights.iter().filter(|h| **h < -100.0).count();
-                        let total = chunk.heights.len();
-                        eprintln!("[water] chunk {} origin=({},{}) grid={} culled={}/{}", i, chunk.origin_x, chunk.origin_z, chunk.grid_size, culled, total);
-                    }
-                }
-                if prev_count == 0 && self.water_vertex_count > 0 {
-                    eprintln!("[water] REAPPEARED! verts={}", self.water_vertex_count);
-                }
-                // Log significant drops (>50% reduction)
-                if prev_count > 1000 && self.water_vertex_count > 0 && (self.water_vertex_count as f64 / prev_count as f64) < 0.5 {
-                    eprintln!("[water] SIGNIFICANT DROP! prev={} now={} chunks={}", prev_count, self.water_vertex_count, wd.chunks.len());
-                }
                 if !water_verts.is_empty() {
                     let max_verts = 1_750_000usize;
                     if water_verts.len() > max_verts {
@@ -1729,12 +1735,20 @@ impl Renderer {
                 let slot = (entity_slot_count + idx as u64) * MODEL_UNIFORM_SIZE;
                 let model_uniforms = ModelUniforms {
                     model: translation_matrix(group.pos_x, 0.0, group.pos_z),
-                    color: [1.0, 1.0, 1.0, 1.0], // white — per-vertex color handles the rest
+                    color: if group.mesh_type == 1 {
+                        [water_color[0], water_color[1], water_color[2], 1.0]
+                    } else {
+                        [1.0, 1.0, 1.0, 1.0]
+                    },
                     _padding: [0.0; 48],
                 };
                 self.queue.write_buffer(&self.model_buffer, slot, bytemuck::cast_slice(&[model_uniforms]));
 
-                render_pass.set_pipeline(entity_pipeline);
+                render_pass.set_pipeline(if group.mesh_type == 1 {
+                    &self.water_pipeline
+                } else {
+                    entity_pipeline
+                });
                 render_pass.set_bind_group(1, &self.model_bind_group, &[slot as u32]);
                 render_pass.set_vertex_buffer(0, selected.buffer.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(selected.buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -1821,6 +1835,7 @@ struct App {
     cursor_grabbed: bool,
     grab_locked: bool,
     warping: bool,
+    frame_counter: u32,
 }
 
 impl App {
@@ -1839,6 +1854,7 @@ impl App {
             cursor_grabbed: false,
             grab_locked: false,
             warping: false,
+            frame_counter: 0,
         }
     }
 
@@ -2049,6 +2065,11 @@ impl ApplicationHandler for App {
                     renderer.ui.fire_scroll_event(scroll_delta as i32);
                 }
             }
+            WindowEvent::Focused(focused) => {
+                if !focused && self.cursor_grabbed {
+                    self.release_cursor();
+                }
+            }
             WindowEvent::MouseInput { button: winit_btn, state, .. } => {
                 use winit::event::{ElementState, MouseButton as WinitMouseButton};
                 // Only handle left-click cursor grab when not already grabbed
@@ -2056,7 +2077,6 @@ impl ApplicationHandler for App {
                     // Check if the click is over a UI element — if so, forward to UI instead of grabbing
                     if let (Some(renderer), Some(pos)) = (&self.renderer, self.cursor_pos) {
                         let over_ui = renderer.ui.is_point_over_ui(pos.0, pos.1);
-                        println!("[renderer] MouseInput at ({},{}) over_ui={}", pos.0, pos.1, over_ui);
                         if over_ui {
                             renderer.ui.fire_mouse_event(pos.0, pos.1, MouseButton::Left, true);
                             return;
@@ -2126,8 +2146,9 @@ impl ApplicationHandler for App {
                 self.mouse_dy = 0.0;
                 self.wheel = 0.0;
 
-                // Auto-release cursor when inventory panel is visible so user can click slots
-                if self.cursor_grabbed {
+                // Auto-release cursor when inventory panel is visible (throttled)
+                self.frame_counter += 1;
+                if self.cursor_grabbed && self.frame_counter % 30 == 0 {
                     if let Some(renderer) = &self.renderer {
                         if renderer.ui.is_inventory_visible() {
                             self.release_cursor();

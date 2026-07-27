@@ -17,7 +17,16 @@ import {
 } from "@downdraft/plugin-water";
 
 export const waterBuffer = new WaterBuffer(4);
-export const waterPhysics = new WaterPhysics(waterBuffer, { waterLevel: 0, waterRenderDistance: 300 });
+export const waterPhysics = new WaterPhysics(waterBuffer, {
+  waterLevel: 0,
+  waterRenderDistance: 300,
+  waves: [
+    { direction: [1, 0], amplitude: 0.5, wavelength: 10, speed: 0.3, steepness: 0.75 },
+    { direction: [0.7, 0.7], amplitude: 0.25, wavelength: 5, speed: 0.35, steepness: 0.6 },
+    { direction: [-0.5, 0.8], amplitude: 0.15, wavelength: 3, speed: 0.4, steepness: 0.5 },
+    { direction: [0.3, -0.9], amplitude: 0.08, wavelength: 1.5, speed: 0.5, steepness: 0.4 },
+  ],
+});
 export const buoyancySystem = new PluginBuoyancySystem(waterPhysics);
 
 export const waterWakeProviders: WakeProvider[] = [];

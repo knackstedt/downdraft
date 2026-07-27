@@ -51,6 +51,7 @@ import {
     HOTBAR_SLOTS,
     HUNGER_DAMAGE_RATE,
     ISLAND_BEACH_LEVEL,
+    ISLAND_WATER_CONFIG,
     KEY,
     MARKET_PRICE_RECOVERY,
     MOUSE_LOOK_SENSITIVITY,
@@ -103,10 +104,11 @@ import {
     WildlifeState,
     XP_CATCH_FISH, XP_CRAFT, XP_HARVEST, XP_KILL_PIRATE
 } from "./constants.ts";
-import { invAdd, invCount, invRemove, islandHeightAt, isOnIsland, spawnEntity } from "./helpers.ts";
+import { invAdd, invCount, invRemove, islandHeightAt, isOnIsland, isOnIslandWater, spawnEntity } from "./helpers.ts";
 import type { InputState } from "./input.ts";
 import { consumeMouseDelta, consumeWheel, isKeyDown } from "./input.ts";
 import { gameState } from "./state.ts";
+import type { WaterVoxelField } from "./terrain.ts";
 import {
     advanceWaterPhysicsTime,
     buoyancySystem,
@@ -190,7 +192,13 @@ export const playerMovementSystem = system("player-movement", Stage.Update, (ctx
 
     const island = isOnIsland(player.x, player.z);
     const onLand = island.onLand && island.groundY > ISLAND_BEACH_LEVEL;
-    const waterH = waterPhysics.sampleWaterAt(player.x, player.z);
+    const islandWater = isOnIslandWater(player.x, player.z);
+    let waterH: number;
+    if (islandWater.inIslandWater) {
+      waterH = islandWater.height;
+    } else {
+      waterH = waterPhysics.sampleWaterAt(player.x, player.z);
+    }
     const effectiveWaterLevel = waterH > -100 ? waterH : WATER_LEVEL;
     const inWater = !onLand && player.y < effectiveWaterLevel + 0.5;
     const isUnderwater = player.y < effectiveWaterLevel - 0.5;
@@ -393,7 +401,8 @@ export const buoyancySystem_ = system("buoyancy", Stage.Physics, (ctx) => {
     };
     buoyancySystem.applyBuoyancy(ent, dt);
     ship.y = ent.y;
-    const waterH = waterPhysics.sampleWaterAt(ship.x, ship.z);
+    const islandWater = isOnIslandWater(ship.x, ship.z);
+    const waterH = islandWater.inIslandWater ? islandWater.height : waterPhysics.sampleWaterAt(ship.x, ship.z);
     if (waterH > -100) {
       ship.y = waterH;
     }
@@ -430,7 +439,7 @@ export const waveSourceSystem = system("wave-sources", Stage.Update, (ctx) => {
     waterShoreProviders.push({
       x: island.x, z: island.z,
       radius: island.radius,
-      cutoutRadius: island.radius * 0.5,
+      cutoutRadius: island.radius * 2.3, // cut out global ocean covering island water mesh extent
     });
   });
   portQuery.iterate(ctx.tick, (_e, [port]) => {
@@ -469,6 +478,120 @@ export const waveSourceSystem = system("wave-sources", Stage.Update, (ctx) => {
   waterPhysics.update(ctx.dt, px, pz);
   advanceWaterPhysicsTime(ctx.dt);
 }, { queries: [shipQuery, islandQuery, portQuery, pirateQuery, playerQuery] });
+
+// 4b. IslandWaterDiffusionSystem — boundary-driven diffusion from ocean to island water
+export const islandWaterDiffusionSystem = system("island-water-diffusion", Stage.Update, (ctx) => {
+  const dt = ctx.dt;
+  const { springK, dampingK } = ISLAND_WATER_CONFIG;
+  const maxDistSq = 400 * 400; // only run diffusion for islands within 400 units of player
+
+  let px = 0, pz = 0;
+  playerQuery.iterate(ctx.tick, (_e, [player]) => {
+    px = player.x; pz = player.z;
+  });
+
+  islandQuery.iterate(ctx.tick, (_e, [islandRaw]) => {
+    const island = islandRaw as typeof Island.defaults;
+    const wvf = island.waterVoxelField as WaterVoxelField | null;
+    if (!wvf) return;
+
+    // Distance cull — skip diffusion for far islands
+    const dx = island.x - px;
+    const dz = island.z - pz;
+    if (dx * dx + dz * dz > maxDistSq) return;
+
+    const { dimX, dimZ, heights, velocities, boundaryMask, voxelSize, originX, originZ } = wvf;
+
+    // Step 1: Set boundary columns to ocean water height
+    for (let vx = 0; vx < dimX; vx++) {
+      for (let vz = 0; vz < dimZ; vz++) {
+        const colIdx = vx * dimZ + vz;
+        if (boundaryMask[colIdx] === 1) {
+          const wx = vx * voxelSize + originX + island.x;
+          const wz = vz * voxelSize + originZ + island.z;
+          const oceanH = waterPhysics.sampleWaterAt(wx, wz);
+          heights[colIdx] = oceanH > -100 ? oceanH : 0;
+          velocities[colIdx] = 0;
+        }
+      }
+    }
+
+    // Step 2: Spring-diffusion propagation for interior columns
+    for (let vx = 0; vx < dimX; vx++) {
+      for (let vz = 0; vz < dimZ; vz++) {
+        const colIdx = vx * dimZ + vz;
+        if (boundaryMask[colIdx] === 1) continue;
+
+        let neighborSum = 0;
+        let neighborCount = 0;
+        if (vx > 0) { neighborSum += heights[(vx - 1) * dimZ + vz]; neighborCount++; }
+        if (vx < dimX - 1) { neighborSum += heights[(vx + 1) * dimZ + vz]; neighborCount++; }
+        if (vz > 0) { neighborSum += heights[vx * dimZ + (vz - 1)]; neighborCount++; }
+        if (vz < dimZ - 1) { neighborSum += heights[vx * dimZ + (vz + 1)]; neighborCount++; }
+        const neighborAvg = neighborCount > 0 ? neighborSum / neighborCount : heights[colIdx];
+
+        const accel = springK * (neighborAvg - heights[colIdx]) - dampingK * velocities[colIdx];
+        velocities[colIdx] += accel * dt;
+        heights[colIdx] += velocities[colIdx] * dt;
+      }
+    }
+  });
+}, { queries: [islandQuery, playerQuery] });
+
+// 4c. IslandWaveRunUpSystem — waves washing onto and receding from terrain
+export const islandWaveRunUpSystem = system("island-wave-runup", Stage.Update, (ctx) => {
+  const dt = ctx.dt;
+  const { runUpAmplitude, runUpPeriod, runUpDamping } = ISLAND_WATER_CONFIG;
+  const time = ctx.tick * dt;
+  const maxDistSq = 400 * 400;
+
+  let px = 0, pz = 0;
+  playerQuery.iterate(ctx.tick, (_e, [player]) => {
+    px = player.x; pz = player.z;
+  });
+
+  islandQuery.iterate(ctx.tick, (_e, [islandRaw]) => {
+    const island = islandRaw as typeof Island.defaults;
+    const wvf = island.waterVoxelField as WaterVoxelField | null;
+    if (!wvf) return;
+
+    // Distance cull
+    const dx = island.x - px;
+    const dz = island.z - pz;
+    if (dx * dx + dz * dz > maxDistSq) return;
+
+    const { dimX, dimZ, heights, shoreMask, data, dimY, isoLevel, voxelSize } = wvf;
+    const dimYZ = dimY * dimZ;
+
+    const runUpPhase = Math.sin(time * (2 * Math.PI / runUpPeriod));
+    const runUpHeight = runUpAmplitude * (0.5 + 0.5 * runUpPhase);
+
+    for (let vx = 0; vx < dimX; vx++) {
+      for (let vz = 0; vz < dimZ; vz++) {
+        const colIdx = vx * dimZ + vz;
+        if (shoreMask[colIdx] !== 1) continue;
+
+        // Sample terrain height at this column
+        let terrainY = 0;
+        const colBase = vx * dimYZ + vz;
+        for (let vy = dimY - 1; vy >= 0; vy--) {
+          if (data[colBase + vy * dimZ] > isoLevel) {
+            terrainY = vy * voxelSize + wvf.originY;
+            break;
+          }
+        }
+
+        const heightAboveWater = Math.max(0, terrainY);
+        const slopeDamping = Math.exp(-heightAboveWater * runUpDamping);
+        const runUp = runUpHeight * slopeDamping;
+
+        // Set (not accumulate) — blend toward target run-up displacement
+        const target = runUp;
+        heights[colIdx] = heights[colIdx] * 0.9 + target * 0.1;
+      }
+    }
+  });
+}, { queries: [islandQuery, playerQuery] });
 
 // 5. SurvivalSystem
 export const survivalSystem = system("survival", Stage.Update, (ctx) => {

@@ -14,6 +14,7 @@ pub struct UIOverlay {
     width: u32,
     height: u32,
     last_pixels: Option<(Vec<u8>, u32, u32)>,
+    pixels_dirty: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
@@ -71,6 +72,7 @@ impl UIOverlay {
             width,
             height,
             last_pixels: None,
+            pixels_dirty: false,
         })
     }
 
@@ -82,7 +84,7 @@ impl UIOverlay {
         }
     }
 
-    /// Update and render the UI. Returns (pixels, row_bytes, height) if content is available.
+    /// Update and render the UI. Returns (pixels, row_bytes, height) only when content has changed.
     pub fn render(&mut self) -> Option<(Vec<u8>, u32, u32)> {
         self.renderer.update();
 
@@ -124,12 +126,18 @@ impl UIOverlay {
                         };
 
                         self.last_pixels = Some((pixels, expected_row_bytes, self.height));
+                        self.pixels_dirty = true;
                     }
                 }
             }
         }
 
-        self.last_pixels.clone()
+        if self.pixels_dirty {
+            self.pixels_dirty = false;
+            self.last_pixels.clone()
+        } else {
+            None
+        }
     }
 
     pub fn width(&self) -> u32 {
@@ -184,17 +192,10 @@ impl UIOverlay {
         match self.view.evaluate_script(&script) {
             Ok(Ok(result)) => {
                 let trimmed = result.trim();
-                println!("[ui] is_point_over_ui({},{}) -> '{}'", x, y, trimmed);
                 trimmed != "none" && trimmed != "body" && !trimmed.starts_with("no-pointer:")
             }
-            Ok(Err(e)) => {
-                println!("[ui] is_point_over_ui({},{}) -> JS error: {}", x, y, e);
-                false
-            }
-            Err(e) => {
-                println!("[ui] is_point_over_ui({},{}) -> eval error: {:?}", x, y, e);
-                false
-            }
+            Ok(Err(_)) => false,
+            Err(_) => false,
         }
     }
 
