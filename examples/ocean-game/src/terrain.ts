@@ -849,9 +849,9 @@ export function extractMeshFromField(
             const tType = classifyTerrainTypeByUnitY(unitY, biome);
             const [r, g, b] = terrainTypeColor(tType, biome);
 
-            // Emit 3 unique vertices with same normal + color
+            // Emit 3 unique vertices with same normal + color + material
             for (const v of triVerts) {
-              verts.push(v[0], v[1], v[2], nx, ny, nz, r, g, b);
+              verts.push(v[0], v[1], v[2], nx, ny, nz, r, g, b, tType);
             }
             indexList.push(vertIdx, vertIdx + 1, vertIdx + 2);
             vertIdx += 3;
@@ -986,8 +986,8 @@ export function extractMeshFromField(
     vertNormals[i2 * 3] += nx; vertNormals[i2 * 3 + 1] += ny; vertNormals[i2 * 3 + 2] += nz;
   }
 
-  // Build final vertex buffer: pos3 + normal3 + color3 = 9 floats
-  const vertsOut = new Float32Array(vertexCount * 9);
+  // Build final vertex buffer: pos3 + normal3 + color3 + material1 = 10 floats
+  const vertsOut = new Float32Array(vertexCount * 10);
   for (let i = 0; i < vertexCount; i++) {
     const avgY = vertTriCount[i] > 0 ? vertHeights[i] / vertTriCount[i] : 0;
     const unitY = avgY / field.radius;
@@ -1002,12 +1002,13 @@ export function extractMeshFromField(
     if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
     else { nx = 0; ny = 1; nz = 0; }
 
-    const o = i * 9;
+    const o = i * 10;
     vertsOut[o] = positions[i * 3];
     vertsOut[o + 1] = positions[i * 3 + 1];
     vertsOut[o + 2] = positions[i * 3 + 2];
     vertsOut[o + 3] = nx; vertsOut[o + 4] = ny; vertsOut[o + 5] = nz;
     vertsOut[o + 6] = r; vertsOut[o + 7] = g; vertsOut[o + 8] = b;
+    vertsOut[o + 9] = tType;
   }
 
   const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);
@@ -1108,7 +1109,7 @@ export function extractWaterMeshFromField(
             const [r, g, b] = waterColorAtHeight(cy, isShore);
 
             for (const v of triVerts) {
-              verts.push(v[0], v[1], v[2], nx, ny, nz, r, g, b);
+              verts.push(v[0], v[1], v[2], nx, ny, nz, r, g, b, 100.0);
             }
             indexList.push(vertIdx, vertIdx + 1, vertIdx + 2);
             vertIdx += 3;
@@ -1241,7 +1242,7 @@ export function extractWaterMeshFromField(
     vertNormals[i2 * 3] += nx; vertNormals[i2 * 3 + 1] += ny; vertNormals[i2 * 3 + 2] += nz;
   }
 
-  const vertsOut = new Float32Array(vertexCount * 9);
+  const vertsOut = new Float32Array(vertexCount * 10);
   for (let i = 0; i < vertexCount; i++) {
     const avgY = vertTriCount[i] > 0 ? vertHeights[i] / vertTriCount[i] : 0;
     const px = positions[i * 3];
@@ -1259,12 +1260,13 @@ export function extractWaterMeshFromField(
     if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
     else { nx = 0; ny = 1; nz = 0; }
 
-    const o = i * 9;
+    const o = i * 10;
     vertsOut[o] = positions[i * 3];
     vertsOut[o + 1] = positions[i * 3 + 1];
     vertsOut[o + 2] = positions[i * 3 + 2];
     vertsOut[o + 3] = nx; vertsOut[o + 4] = ny; vertsOut[o + 5] = nz;
     vertsOut[o + 6] = r; vertsOut[o + 7] = g; vertsOut[o + 8] = b;
+    vertsOut[o + 9] = 100.0;
   }
 
   const indices = indexList.length > 65535 ? new Uint32Array(indexList) : new Uint16Array(indexList);

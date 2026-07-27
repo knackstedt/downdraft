@@ -18,6 +18,7 @@ struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
     color: [f32; 3],
+    material: f32,
 }
 
 #[repr(C)]
@@ -83,7 +84,7 @@ fn generate_cube(size: f32) -> (Vec<Vertex>, Vec<u16>) {
     for (normal, positions) in faces.iter() {
         let base = vertices.len() as u16;
         for pos in positions.iter() {
-            vertices.push(Vertex { position: *pos, normal: *normal, color: [1.0, 1.0, 1.0] });
+            vertices.push(Vertex { position: *pos, normal: *normal, color: [1.0, 1.0, 1.0], material: 0.0 });
         }
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
@@ -113,7 +114,7 @@ fn add_box(
     for (normal, positions) in faces.iter() {
         let base = vertices.len() as u16;
         for pos in positions.iter() {
-            vertices.push(Vertex { position: *pos, normal: *normal, color: [1.0, 1.0, 1.0] });
+            vertices.push(Vertex { position: *pos, normal: *normal, color: [1.0, 1.0, 1.0], material: 0.0 });
         }
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
@@ -155,6 +156,7 @@ fn generate_sphere(radius: f32, segments: usize, rings: usize) -> (Vec<Vertex>, 
                 position: [px, py, pz],
                 normal: [px / radius, py / radius, pz / radius],
                 color: [1.0, 1.0, 1.0],
+                material: 0.0,
             });
         }
     }
@@ -185,6 +187,7 @@ fn generate_plane(width: f32, depth: f32, segments: usize) -> (Vec<Vertex>, Vec<
                 position: [px, 0.0, pz],
                 normal: [0.0, 1.0, 0.0],
                 color: [1.0, 1.0, 1.0],
+                material: 0.0,
             });
         }
     }
@@ -396,7 +399,7 @@ impl Renderer {
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoVsync,
+            present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             view_formats: vec![],
@@ -573,6 +576,11 @@ impl Renderer {
                             offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
                             shader_location: 2,
                         },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32,
+                            offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                            shader_location: 3,
+                        },
                     ],
                 }],
             },
@@ -634,6 +642,11 @@ impl Renderer {
                             offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
                             shader_location: 2,
                         },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32,
+                            offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                            shader_location: 3,
+                        },
                     ],
                 }],
             },
@@ -683,6 +696,7 @@ impl Renderer {
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress, shader_location: 3 },
                     ],
                 }],
             },
@@ -732,6 +746,7 @@ impl Renderer {
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress, shader_location: 3 },
                     ],
                 }],
             },
@@ -781,6 +796,7 @@ impl Renderer {
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress, shader_location: 3 },
                     ],
                 }],
             },
@@ -830,6 +846,7 @@ impl Renderer {
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, shader_location: 1 },
                         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, shader_location: 2 },
+                        wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32, offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress, shader_location: 3 },
                     ],
                 }],
             },
@@ -1187,11 +1204,12 @@ impl Renderer {
                 // Convert flat f32 array to Vertex array
                 let mut vertices = Vec::with_capacity(mesh.vertex_count as usize);
                 for i in 0..(mesh.vertex_count as usize) {
-                    let off = i * 9;
+                    let off = i * 10;
                     vertices.push(Vertex {
                         position: [mesh.vertices[off], mesh.vertices[off + 1], mesh.vertices[off + 2]],
                         normal: [mesh.vertices[off + 3], mesh.vertices[off + 4], mesh.vertices[off + 5]],
                         color: [mesh.vertices[off + 6], mesh.vertices[off + 7], mesh.vertices[off + 8]],
+                        material: mesh.vertices[off + 9],
                     });
                 }
 
@@ -1421,12 +1439,13 @@ impl Renderer {
 
         // Read game state from Bun and update death overlay UI (throttled)
         if should_update_ui {
-            let (is_dead, cause) = if let Some(ref shm) = self.shm {
+            let (is_dead, cause, biome) = if let Some(ref shm) = self.shm {
                 shm.read_game_state()
             } else {
-                (false, String::new())
+                (false, String::new(), 0)
             };
             self.ui.update_game_state(is_dead, &cause);
+            self.ui.update_status(biome);
 
             // Read inventory data from Bun and update inventory panel
             if let Some(ref shm) = self.shm {
@@ -1578,17 +1597,17 @@ impl Renderer {
                                     let e1 = [p10[0] - p00[0], p10[1] - p00[1], p10[2] - p00[2]];
                                     let e2 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
                                     let n1 = normalize(cross(e2, e1));
-                                    water_verts.push(Vertex { position: p00, normal: n1, color: [1.0, 1.0, 1.0] });
-                                    water_verts.push(Vertex { position: p10, normal: n1, color: [1.0, 1.0, 1.0] });
-                                    water_verts.push(Vertex { position: p11, normal: n1, color: [1.0, 1.0, 1.0] });
+                                    water_verts.push(Vertex { position: p00, normal: n1, color: [1.0, 1.0, 1.0], material: 100.0 });
+                                    water_verts.push(Vertex { position: p10, normal: n1, color: [1.0, 1.0, 1.0], material: 100.0 });
+                                    water_verts.push(Vertex { position: p11, normal: n1, color: [1.0, 1.0, 1.0], material: 100.0 });
 
                                     // Triangle 2: p00, p11, p01
                                     let e3 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]];
                                     let e4 = [p01[0] - p00[0], p01[1] - p00[1], p01[2] - p00[2]];
                                     let n2 = normalize(cross(e4, e3));
-                                    water_verts.push(Vertex { position: p00, normal: n2, color: [1.0, 1.0, 1.0] });
-                                    water_verts.push(Vertex { position: p11, normal: n2, color: [1.0, 1.0, 1.0] });
-                                    water_verts.push(Vertex { position: p01, normal: n2, color: [1.0, 1.0, 1.0] });
+                                    water_verts.push(Vertex { position: p00, normal: n2, color: [1.0, 1.0, 1.0], material: 100.0 });
+                                    water_verts.push(Vertex { position: p11, normal: n2, color: [1.0, 1.0, 1.0], material: 100.0 });
+                                    water_verts.push(Vertex { position: p01, normal: n2, color: [1.0, 1.0, 1.0], material: 100.0 });
                                 }
                             }
                         }

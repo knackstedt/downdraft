@@ -223,7 +223,7 @@ const SIM_TICK_DT = 1 / 60;
     // Write game state (death overlay) to shared memory for the renderer
     if (exampleModule.getGameState && ipc) {
       const gameState = exampleModule.getGameState();
-      ipc.writeGameState(gameState.isDead, gameState.cause);
+      ipc.writeGameState(gameState.isDead, gameState.cause, gameState.biome ?? 0);
     }
 
     // Write inventory data to shared memory for the renderer UI

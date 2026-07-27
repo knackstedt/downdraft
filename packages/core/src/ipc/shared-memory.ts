@@ -70,14 +70,15 @@ export const WATER_DATA_END = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * WATER
 export const GAME_STATE_OFFSET = WATER_DATA_END;             // is_dead: u32 (0 or 1)
 export const GAME_STATE_CAUSE_OFFSET = WATER_DATA_END + 4;   // cause: [u8; 64]
 export const GAME_STATE_CAUSE_SIZE = 64;
+export const GAME_STATE_BIOME_OFFSET = WATER_DATA_END + 68;   // biome: u32 (0-4)
 
 // Respawn request (written by Rust renderer, read by Bun)
-export const RESPAWN_REQUEST_OFFSET = WATER_DATA_END + 68;   // respawn_requested: u32 (0 or 1)
+export const RESPAWN_REQUEST_OFFSET = WATER_DATA_END + 72;   // respawn_requested: u32 (0 or 1)
 
 // Inventory data section (written by Bun each tick, read by Rust renderer)
 // Stored as a JSON string for flexibility — grid slots, item names, quantities, spoil
-export const INVENTORY_SEQ_OFFSET = WATER_DATA_END + 72;       // seqlock (u32)
-export const INVENTORY_DATA_OFFSET = WATER_DATA_END + 76;      // JSON string
+export const INVENTORY_SEQ_OFFSET = WATER_DATA_END + 76;       // seqlock (u32)
+export const INVENTORY_DATA_OFFSET = WATER_DATA_END + 80;      // JSON string
 export const INVENTORY_DATA_SIZE = 8192;                        // max bytes for inventory JSON
 
 // Craft request (written by Rust renderer, read by Bun)
@@ -141,7 +142,7 @@ export interface MeshData {
   posZ: number;
   lodLevel: number;
   lodDistance: number;
-  verts: Float32Array;    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
+  verts: Float32Array;    // 10 floats per vertex: pos.xyz, normal.xyz, color.rgb, material
   indices: Uint32Array;   // u32 indices
   meshType: number;       // 0 = terrain, 1 = water
 }
@@ -403,8 +404,8 @@ export class SharedMemoryIPC {
       this.u32[(offset + 24) / 4] = mesh.meshType ?? 0;
       offset += 28;
 
-      // Vertices: vertexCount * 9 floats = vertexCount * 36 bytes
-      const vertBytes = mesh.vertexCount * 36;
+      // Vertices: vertexCount * 10 floats = vertexCount * 40 bytes
+      const vertBytes = mesh.vertexCount * 40;
       if (offset + vertBytes > WATER_SEQ_OFFSET) break;
       const vertSrc = new Uint8Array(mesh.verts.buffer, mesh.verts.byteOffset, vertBytes);
       this.bytes.set(vertSrc, offset);
@@ -471,14 +472,15 @@ export class SharedMemoryIPC {
     this.u32[WEATHER_SEQ_OFFSET / 4] = seq + 2; // end write (even)
   }
 
-  /** Write game state (is_dead + cause) to shared memory (called each tick by Bun) */
-  writeGameState(isDead: boolean, cause: string): void {
+  /** Write game state (is_dead + cause + biome) to shared memory (called each tick by Bun) */
+  writeGameState(isDead: boolean, cause: string, biome: number): void {
     this.u32[GAME_STATE_OFFSET / 4] = isDead ? 1 : 0;
     const causeBytes = new TextEncoder().encode(cause);
     const len = Math.min(causeBytes.length, GAME_STATE_CAUSE_SIZE - 1);
     this.bytes.set(causeBytes.subarray(0, len), GAME_STATE_CAUSE_OFFSET);
     // Null-terminate
     this.bytes[GAME_STATE_CAUSE_OFFSET + len] = 0;
+    this.u32[GAME_STATE_BIOME_OFFSET / 4] = biome;
   }
 
   /** Check if a respawn request is pending (called each tick by Bun) */

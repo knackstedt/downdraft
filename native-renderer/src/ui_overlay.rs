@@ -225,6 +225,23 @@ impl UIOverlay {
         }
     }
 
+    /// Update the status bar with current biome.
+    pub fn update_status(&self, biome: u32) {
+        let biome_name = match biome {
+            0 => "Tropical",
+            1 => "Temperate",
+            2 => "Arctic",
+            3 => "Desert",
+            4 => "Volcanic",
+            _ => "Ocean",
+        };
+        let script = format!(
+            "var el = document.getElementById('status'); if (el) el.textContent = 'Biome: {}';",
+            biome_name
+        );
+        let _ = self.view.evaluate_script(&script);
+    }
+
     /// Update the death overlay visibility and cause text.
     pub fn update_game_state(&self, is_dead: bool, cause: &str) {
         let escaped = cause.replace('\'', "\\'").replace('\\', "\\\\");

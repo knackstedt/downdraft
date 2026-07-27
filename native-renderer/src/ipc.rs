@@ -69,7 +69,7 @@ pub const MESH_DATA_OFFSET: usize = 3356;      // mesh data starts here
 //   pos_x: f32, pos_z: f32 (island world position for model matrix)
 //   lod_level: u32, lod_distance: f32 (LOD level and switch distance)
 //   mesh_type: u32 (0 = terrain, 1 = water)
-//   vertices: vertex_count * 9 f32 (pos.xyz, normal.xyz, color.rgb)
+//   vertices: vertex_count * 10 f32 (pos.xyz, normal.xyz, color.rgb, material)
 //   indices: index_count * u32
 
 // Water data section (written by Bun each tick, read by Rust renderer)
@@ -89,13 +89,14 @@ pub const WATER_DATA_END: usize = WATER_CHUNK_DATA_OFFSET + WATER_MAX_CHUNKS * W
 pub const GAME_STATE_OFFSET: usize = WATER_DATA_END;             // is_dead: u32 (0 or 1)
 pub const GAME_STATE_CAUSE_OFFSET: usize = WATER_DATA_END + 4;   // cause: [u8; 64]
 pub const GAME_STATE_CAUSE_SIZE: usize = 64;
+pub const GAME_STATE_BIOME_OFFSET: usize = WATER_DATA_END + 68;   // biome: u32 (0-4)
 
 // Respawn request (written by Rust renderer, read by Bun)
-pub const RESPAWN_REQUEST_OFFSET: usize = WATER_DATA_END + 68;   // respawn_requested: u32 (0 or 1)
+pub const RESPAWN_REQUEST_OFFSET: usize = WATER_DATA_END + 72;   // respawn_requested: u32 (0 or 1)
 
 // Inventory data section (written by Bun each tick, read by Rust renderer)
-pub const INVENTORY_SEQ_OFFSET: usize = WATER_DATA_END + 72;       // seqlock (u32)
-pub const INVENTORY_DATA_OFFSET: usize = WATER_DATA_END + 76;      // JSON string
+pub const INVENTORY_SEQ_OFFSET: usize = WATER_DATA_END + 76;       // seqlock (u32)
+pub const INVENTORY_DATA_OFFSET: usize = WATER_DATA_END + 80;      // JSON string
 pub const INVENTORY_DATA_SIZE: usize = 8192;                        // max bytes for inventory JSON
 
 // Craft request (written by Rust renderer, read by Bun)
@@ -142,7 +143,7 @@ pub struct IslandMesh {
     pub lod_level: u32,
     pub lod_distance: f32,
     pub mesh_type: u32,       // 0 = terrain, 1 = water
-    pub vertices: Vec<f32>,    // 9 floats per vertex: pos.xyz, normal.xyz, color.rgb
+    pub vertices: Vec<f32>,    // 10 floats per vertex: pos.xyz, normal.xyz, color.rgb, material
     pub indices: Vec<u32>,
 }
 
@@ -475,12 +476,12 @@ impl SharedMemory {
             );
             offset += 28;
 
-            // Read vertices: vertex_count * 9 f32 = vertex_count * 36 bytes
-            let vert_bytes = (vertex_count as usize) * 36;
+            // Read vertices: vertex_count * 10 f32 = vertex_count * 40 bytes
+            let vert_bytes = (vertex_count as usize) * 40;
             if offset + vert_bytes > WATER_SEQ_OFFSET {
                 break;
             }
-            let vert_count_f32 = vertex_count as usize * 9;
+            let vert_count_f32 = vertex_count as usize * 10;
             let mut vertices = vec![0.0f32; vert_count_f32];
             unsafe {
                 let src = std::slice::from_raw_parts(
@@ -650,8 +651,8 @@ impl SharedMemory {
         })
     }
 
-    /// Read game state from Bun (is_dead flag + cause of death)
-    pub fn read_game_state(&self) -> (bool, String) {
+    /// Read game state from Bun (is_dead flag + cause of death + biome)
+    pub fn read_game_state(&self) -> (bool, String, u32) {
         let bytes = self.as_bytes();
         let is_dead = u32::from_le_bytes(
             bytes[GAME_STATE_OFFSET..GAME_STATE_OFFSET + 4].try_into().unwrap()
@@ -662,7 +663,11 @@ impl SharedMemory {
             &cause_bytes[..cause_bytes.iter().position(|&b| b == 0).unwrap_or(GAME_STATE_CAUSE_SIZE)]
         ).to_string();
 
-        (is_dead, cause)
+        let biome = u32::from_le_bytes(
+            bytes[GAME_STATE_BIOME_OFFSET..GAME_STATE_BIOME_OFFSET + 4].try_into().unwrap()
+        );
+
+        (is_dead, cause, biome)
     }
 
     /// Write respawn request (called when UI respawn button is clicked)
