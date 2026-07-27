@@ -37,7 +37,7 @@ export function islandHeightAt(
     const localX = px - island.x;
     const localZ = pz - island.z;
     const h = voxelFieldHeightAt(island.voxelField, localX, localZ);
-    if (h >= 0) return h;
+    if (h > -1) return h;
     return -1;
   }
   const dx = px - island.x;
@@ -60,7 +60,7 @@ export function isOnIsland(px: number, pz: number): { onLand: boolean; groundY: 
       bestBiome = isl.biome;
     }
   });
-  if (bestY < 0) return { onLand: false, groundY: -1, islandBiome: BiomeType.Tropical };
+  if (bestY === -1) return { onLand: false, groundY: -1, islandBiome: BiomeType.Tropical };
   return { onLand: true, groundY: bestY, islandBiome: bestBiome };
 }
 

@@ -1,126 +1,126 @@
 // ─── Lifecycle: init, tick, dispose, and all exported data functions ──
 
 import {
-    Camera,
-    createFireEmitter, createLogger, createSmokeEmitter,
-    GameWorld, MeshBuilder, ParticleSystem, Scene, TelemetryCollector,
-    World,
-    type RenderData, type RenderEntityData
+  Camera,
+  createFireEmitter, createLogger, createSmokeEmitter,
+  GameWorld, MeshBuilder, ParticleSystem, Scene, TelemetryCollector,
+  World,
+  type RenderData, type RenderEntityData
 } from "@downdraft/core";
 import { canCraft, CraftingPlugin, executeCraft, getUnlockedRecipes, unlockRecipesForTier } from "../plugins/crafting-plugin.ts";
 import {
-    createGrid, getGridStateForUI,
-    GridInventory,
-    InventoryPlugin,
-    PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH,
+  createGrid, getGridStateForUI,
+  GridInventory,
+  InventoryPlugin,
+  PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH,
 } from "../plugins/inventory-plugin.ts";
 import { getItem } from "../plugins/items.ts";
 import { CRAFTING_TIER_RECIPES } from "../plugins/recipes.ts";
 
 import { createMcpPlugin } from "@downdraft/plugin-mcp";
 import {
-    addXP,
-    Animal,
-    animalQuery,
-    Buildable,
-    buildableQuery,
-    Debris,
-    debrisQuery,
-    FishingLine,
-    Health, Hunger,
-    Island,
-    islandQuery,
-    Oxygen,
-    Pet,
-    petQuery,
-    Pirate,
-    pirateQuery,
-    Plant,
-    plantQuery,
-    Player,
-    playerQuery,
-    Port,
-    portQuery,
-    Progression,
-    Ship,
-    shipQuery,
-    Temperature,
-    Thirst,
-    Wildlife,
-    wildlifeQuery
+  addXP,
+  Animal,
+  animalQuery,
+  Buildable,
+  buildableQuery,
+  Debris,
+  debrisQuery,
+  FishingLine,
+  Health, Hunger,
+  Island,
+  islandQuery,
+  Oxygen,
+  Pet,
+  petQuery,
+  Pirate,
+  pirateQuery,
+  Plant,
+  plantQuery,
+  Player,
+  playerQuery,
+  Port,
+  portQuery,
+  Progression,
+  Ship,
+  shipQuery,
+  Temperature,
+  Thirst,
+  Wildlife,
+  wildlifeQuery
 } from "./components.ts";
 import {
-    ANIMAL_COUNT_PER_ISLAND,
-    BiomeType,
-    CAMERA_FREECAM_SPEED,
-    CAMERA_THIRD_PERSON_DEFAULT,
-    CameraMode,
-    DAY_DURATION,
-    FISH_SPEED,
-    GAME_DIFFICULTY_NORMAL,
-    ISLAND_COUNT,
-    ISLAND_MAX_HEIGHT,
-    ISLAND_MAX_RADIUS,
-    ISLAND_MIN_HEIGHT,
-    ISLAND_MIN_RADIUS,
-    ISLAND_SPAWN_RANGE,
-    KEY,
-    NIGHT_END_FRAC,
-    NIGHT_START_FRAC,
-    PetType,
-    PLANT_COUNT_PER_ISLAND,
-    PlantStage,
-    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
-    PLAYER_MAX_OXYGEN,
-    PLAYER_MAX_THIRST,
-    PLAYER_TEMP_NORM,
-    PORT_COUNT,
-    SHARK_SPEED,
-    WATER_LEVEL,
-    WeatherType,
-    WildlifeState,
-    XP_CRAFT,
-    XP_PER_LEVEL,
-    type IPCMeshData
+  ANIMAL_COUNT_PER_ISLAND,
+  BiomeType,
+  CAMERA_FREECAM_SPEED,
+  CAMERA_THIRD_PERSON_DEFAULT,
+  CameraMode,
+  DAY_DURATION,
+  FISH_SPEED,
+  GAME_DIFFICULTY_NORMAL,
+  ISLAND_COUNT,
+  ISLAND_MAX_HEIGHT,
+  ISLAND_MAX_RADIUS,
+  ISLAND_MIN_HEIGHT,
+  ISLAND_MIN_RADIUS,
+  ISLAND_SPAWN_RANGE,
+  KEY,
+  NIGHT_END_FRAC,
+  NIGHT_START_FRAC,
+  PetType,
+  PLANT_COUNT_PER_ISLAND,
+  PlantStage,
+  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+  PLAYER_MAX_OXYGEN,
+  PLAYER_MAX_THIRST,
+  PLAYER_TEMP_NORM,
+  PORT_COUNT,
+  SHARK_SPEED,
+  WATER_LEVEL,
+  WeatherType,
+  WildlifeState,
+  XP_CRAFT,
+  XP_PER_LEVEL,
+  type IPCMeshData
 } from "./constants.ts";
 import { islandHeightAt, isOnIsland } from "./helpers.ts";
 import type { InputState } from "./input.ts";
 import { createInputState, isKeyDown, setKey } from "./input.ts";
 import { gameState } from "./state.ts";
 import {
-    animalSystem,
-    buoyancySystem_,
-    craftingSystem,
-    debrisCollectionSystem,
-    debrisDriftSystem,
-    fishingSystem,
-    islandWaterDiffusionSystem,
-    islandWaveRunUpSystem,
-    petSystem,
-    pirateSystem,
-    plantSystem,
-    playerMovementSystem,
-    portMarketSystem,
-    progressionSystem,
-    shipBoardingSystem,
-    shipControlSystem,
-    shipIntegritySystem,
-    shipIslandCollisionSystem,
-    spoilageSystem,
-    survivalSystem,
-    toolSystem,
-    waveSourceSystem,
-    wildlifeAISystem,
+  animalSystem,
+  buoyancySystem_,
+  craftingSystem,
+  debrisCollectionSystem,
+  debrisDriftSystem,
+  fishingSystem,
+  islandWaterDiffusionSystem,
+  islandWaveRunUpSystem,
+  petSystem,
+  pirateSystem,
+  plantSystem,
+  playerMovementSystem,
+  portMarketSystem,
+  progressionSystem,
+  shipBoardingSystem,
+  shipControlSystem,
+  shipIntegritySystem,
+  shipIslandCollisionSystem,
+  spoilageSystem,
+  survivalSystem,
+  toolSystem,
+  waveSourceSystem,
+  wildlifeAISystem,
 } from "./systems.ts";
 import type { LodMesh, VoxelField, WaterVoxelField } from "./terrain.ts";
 import { generateIslandMeshes } from "./terrain.ts";
 import { waterBuffer, waterPhysics } from "./water.ts";
 import {
-    rainCollectors,
-    setCurrentTimeOfDay,
-    setWeatherType,
-    weatherIsRaining, weatherIsStormy,
-    weatherState, weatherSystem
+  rainCollectors,
+  setCurrentTimeOfDay,
+  setWeatherType,
+  weatherIsRaining, weatherIsStormy,
+  weatherState, weatherSystem
 } from "./weather.ts";
 
 const log = createLogger();
@@ -399,13 +399,14 @@ export async function init(ctx: any) {
     } else {
       let attempts = 0;
       const minGap = 40;
+      let distRange = ISLAND_SPAWN_RANGE;
       do {
         angle = (i / ISLAND_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-        dist = 150 + Math.random() * ISLAND_SPAWN_RANGE;
+        dist = 150 + Math.random() * distRange;
         islandX = Math.cos(angle) * dist;
         islandZ = Math.sin(angle) * dist;
         attempts++;
-        if (attempts > 50) break;
+        if (attempts > 50) distRange += ISLAND_SPAWN_RANGE;
       } while (placedIslands.some(prev => {
         const dx = islandX - prev.x;
         const dz = islandZ - prev.z;
