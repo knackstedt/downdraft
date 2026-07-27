@@ -2,52 +2,68 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build Native Renderer (debug)",
+      "label": "Build Audio Native",
       "type": "shell",
-      "command": "cargo build",
+      "command": "./build.sh",
       "options": {
-        "cwd": "${workspaceFolder}/native-renderer"
+        "cwd": "${workspaceFolder}/packages/audio-native"
       },
       "problemMatcher": ["$rustc"],
       "group": "build"
     },
     {
-      "label": "Dev: Ocean Game",
+      "label": "Build Physics Native",
       "type": "shell",
-      "command": "bun run packages/cli/src/index.ts dev",
+      "command": "./build.sh",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/packages/physics-native"
       },
-      "env": {
-        "DOWNDRAFT_EXAMPLE": "examples/ocean-game/main.ts"
-      },
-      "dependsOn": "Build Native Renderer (debug)",
+      "problemMatcher": ["$rustc"],
+      "group": "build"
+    },
+    {
+      "label": "Build All Native",
+      "type": "shell",
+      "command": "echo 'Run Build Audio Native and Build Physics Native'",
+      "dependsOn": ["Build Audio Native", "Build Physics Native"],
       "problemMatcher": []
     },
     {
-      "label": "Dev: Physics Demo",
+      "label": "Dev",
       "type": "shell",
-      "command": "bun run packages/cli/src/index.ts dev",
+      "command": "bun run dev",
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "env": {
-        "DOWNDRAFT_EXAMPLE": "examples/physics-demo/main.ts"
-      },
-      "dependsOn": "Build Native Renderer (debug)",
+      "isBackground": true,
       "problemMatcher": []
     },
     {
-      "label": "Dev: Minimal",
+      "label": "Build",
       "type": "shell",
-      "command": "bun run packages/cli/src/index.ts dev",
+      "command": "bun run build",
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "env": {
-        "DOWNDRAFT_EXAMPLE": "examples/minimal/main.ts"
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Type Check",
+      "type": "shell",
+      "command": "bun run tsc",
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
-      "dependsOn": "Build Native Renderer (debug)",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Lint",
+      "type": "shell",
+      "command": "bun run lint",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": []
     }
   ]
