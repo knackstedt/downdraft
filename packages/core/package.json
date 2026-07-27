@@ -9,8 +9,5 @@
   },
   "dependencies": {
     "wgpu-matrix": "^3.4.2"
-  },
-  "devDependencies": {
-    "@types/bun": "latest"
   }
 }

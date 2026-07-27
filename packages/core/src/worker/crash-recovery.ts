@@ -2,7 +2,10 @@ import type { World } from "../ecs/world.ts";
 import type { SaveData, Serializer } from "../save/serializer.ts";
 import type { CheckpointData, CheckpointManager } from "../scene/checkpoint.ts";
 import { createLogger } from "../util/logger.ts";
-import type { SimWorkerSupervisor } from "../worker/supervisor.ts";
+export interface SimWorkerLike {
+  restart(): Promise<void>;
+  isAlive(): boolean;
+}
 
 const log = createLogger();
 
@@ -29,7 +32,7 @@ export interface RecoveryState {
 }
 
 export class CrashRecoveryManager {
-  private supervisor: SimWorkerSupervisor;
+  private supervisor: SimWorkerLike;
   private checkpointManager: CheckpointManager;
   private world: World;
   private serializer: Serializer;
@@ -41,7 +44,7 @@ export class CrashRecoveryManager {
   private onRecovery: ((checkpointName: string) => void) | null = null;
 
   constructor(
-    supervisor: SimWorkerSupervisor,
+    supervisor: SimWorkerLike,
     checkpointManager: CheckpointManager,
     world: World,
     serializer: Serializer,

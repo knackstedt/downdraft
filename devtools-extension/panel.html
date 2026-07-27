@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="app">
+    <div id="tab-bar">
+      <button id="btn-view-scene" class="tab active" title="Scene tree view">Scene</button>
+      <button id="btn-debug-info" class="tab" title="Debug info view">Debug Info</button>
+      <button id="btn-boat-layout" class="tab" title="Boat layout view">Boat Layout</button>
+      <button id="btn-view-import" class="tab" title="Import models">Import</button>
+      <button id="btn-view-world" class="tab" title="World map controls">World</button>
+      <div class="tab-spacer"></div>
+      <button id="btn-overlays-menu" class="tab" title="Debug overlay toggles">Overlays &#9662;</button>
+    </div>
+    <div id="overlays-menu" class="overlays-menu" style="display:none">
+      <label class="overlay-toggle-row"><input type="checkbox" id="chk-labels"> Labels</label>
+      <label class="overlay-toggle-row"><input type="checkbox" id="chk-hitboxes"> Hitboxes</label>
+      <label class="overlay-toggle-row"><input type="checkbox" id="chk-chunkgrid"> Chunk Grid</label>
+      <label class="overlay-toggle-row"><input type="checkbox" id="chk-velarrows"> Vel Arrows</label>
+    </div>
+    <div id="scene-toolbar" class="scene-toolbar">
+      <div class="toolbar-group">
+        <button id="btn-translate" class="mode-btn active" title="Translate (W)">Move</button>
+        <button id="btn-rotate" class="mode-btn" title="Rotate (E)">Rotate</button>
+        <button id="btn-scale" class="mode-btn" title="Scale (R)">Scale</button>
+      </div>
+      <div class="toolbar-group">
+        <button id="btn-refresh" title="Refresh scene tree">Refresh</button>
+        <button id="btn-toggle-gizmo" title="Toggle gizmo visibility">Gizmo: On</button>
+      </div>
+    </div>
+
+    <div id="content-area">
+      <div id="main-content">
+        <div id="scene-tree-panel">
+          <div class="panel-header">
+            <h3>Scene Tree</h3>
+            <label class="filter-label">
+              <input type="checkbox" id="filter-models" checked> Models
+            </label>
+            <label class="filter-label">
+              <input type="checkbox" id="filter-entities" checked> Entities
+            </label>
+          </div>
+          <div id="scene-tree"></div>
+        </div>
+
+        <div id="properties-panel">
+          <div class="panel-header">
+            <h3>Properties</h3>
+          </div>
+          <div id="properties-content">
+            <p class="empty-state">Select a node to edit its properties</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="debug-info-panel" style="display:none">
+        <div class="panel-header">
+          <h3>Debug Info</h3>
+        </div>
+        <div id="debug-info-content">
+          <div class="debug-section">
+            <h4>Renderer Stats</h4>
+            <div id="renderer-stats" class="debug-grid"></div>
+          </div>
+          <div class="debug-section">
+            <h4>World / Sim State</h4>
+            <div id="sim-state" class="debug-grid"></div>
+          </div>
+          <div class="debug-section">
+            <h4>Physics</h4>
+            <div id="physics-stats" class="debug-grid"></div>
+          </div>
+          <div class="debug-section">
+            <h4>Players</h4>
+            <div id="player-stats"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="boat-layout-panel" style="display:none">
+        <div class="panel-header">
+          <h3>Boat Layout — 2D Layer Projections</h3>
+          <select id="boat-select"></select>
+        </div>
+        <div id="boat-layers"></div>
+        <div id="boat-orthos">
+          <div class="ortho-view">
+            <h4>Side (X-Y)</h4>
+            <canvas id="boat-side" width="400" height="200"></canvas>
+          </div>
+          <div class="ortho-view">
+            <h4>Front (Z-Y)</h4>
+            <canvas id="boat-front" width="400" height="200"></canvas>
+          </div>
+          <div class="ortho-view">
+            <h4>Top (X-Z)</h4>
+            <canvas id="boat-top" width="400" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div id="import-panel" style="display:none">
+      <div class="import-panel-header">
+        <h3>Import Model</h3>
+        <button id="btn-scan-models" class="import-action-btn" title="Scan for available models">Scan</button>
+      </div>
+      <div id="drop-zone" class="drop-zone">
+        <p>Drag &amp; drop .fbx, .gltf, .glb, or .obj files here</p>
+        <p class="drop-zone-sub">or</p>
+        <label for="file-input" class="file-input-btn">Choose Files</label>
+        <input type="file" id="file-input" accept=".fbx,.gltf,.glb,.obj" multiple>
+      </div>
+      <div id="available-models" class="available-models">
+        <div class="available-models-header">
+          <span>Available Models (from assets/models)</span>
+          <input type="text" id="model-search" class="model-search-input" placeholder="Filter by name..." />
+          <div class="model-view-toggle">
+            <button id="btn-model-grid" class="model-view-btn active" title="Grid view with thumbnails">Grid</button>
+            <button id="btn-model-tree" class="model-view-btn" title="Tree view with file paths">Tree</button>
+          </div>
+        </div>
+        <div id="available-models-list"></div>
+      </div>
+      <div id="import-status"></div>
+    </div>
+
+      <div id="world-panel" style="display:none">
+        <div class="panel-header">
+          <h3>World Control</h3>
+          <button id="btn-refresh-world" class="import-action-btn" title="Refresh world data">Refresh</button>
+          <button id="btn-clear-overrides" class="import-action-btn" title="Clear all biome/port/island overrides">Clear Overrides</button>
+        </div>
+        <div id="world-player-chunk" class="debug-section">
+          <h4>Player Position</h4>
+          <div id="world-player-info" class="debug-grid"></div>
+        </div>
+        <div class="debug-section">
+          <h4>Override Biome at Chunk</h4>
+          <div class="world-control-row">
+            <label>Chunk X <input type="number" id="world-biome-cx" value="0" step="1"></label>
+            <label>Chunk Z <input type="number" id="world-biome-cz" value="0" step="1"></label>
+            <select id="world-biome-select"></select>
+            <button id="btn-apply-biome" class="import-action-btn">Apply</button>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Force Port at Chunk</h4>
+          <div class="world-control-row">
+            <label>Chunk X <input type="number" id="world-port-cx" value="0" step="1"></label>
+            <label>Chunk Z <input type="number" id="world-port-cz" value="0" step="1"></label>
+            <button id="btn-force-port" class="import-action-btn">Force Port</button>
+            <button id="btn-remove-port" class="import-action-btn">Remove Port</button>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Force Island at Chunk</h4>
+          <div class="world-control-row">
+            <label>Chunk X <input type="number" id="world-island-cx" value="0" step="1"></label>
+            <label>Chunk Z <input type="number" id="world-island-cz" value="0" step="1"></label>
+            <button id="btn-force-island" class="import-action-btn">Force Island</button>
+            <button id="btn-remove-island" class="import-action-btn">Remove Island</button>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>World Seed</h4>
+          <div class="world-control-row">
+            <label>Seed <input type="number" id="world-seed-input" value="12345" step="1"></label>
+            <button id="btn-set-seed" class="import-action-btn">Set Seed</button>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Active Ports (<span id="world-port-count">0</span>)</h4>
+          <div id="world-port-list" class="world-entity-list"></div>
+        </div>
+        <div class="debug-section">
+          <h4>Active Islands (<span id="world-island-count">0</span>)</h4>
+          <div id="world-island-list" class="world-entity-list"></div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <div id="boat-cell-tooltip" class="boat-cell-tooltip"></div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import type { Plugin } from "./plugin.ts";
 import { PluginRegistry } from "./registry.ts";
+import { promises as fs } from "node:fs";
 
 export interface WASMABIExports {
   register: (ctxPtr: number) => void;
@@ -23,7 +24,7 @@ export class WASMPluginLoader {
   }
 
   async load(wasmPath: string, imports: Partial<WASMABIImports>): Promise<Plugin> {
-    const wasmBytes = await Bun.file(wasmPath).arrayBuffer();
+    const wasmBytes = await fs.readFile(wasmPath);
     const module = await WebAssembly.compile(wasmBytes);
     const instance = await WebAssembly.instantiate(module, { env: imports });
 

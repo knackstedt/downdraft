@@ -1,6 +1,7 @@
 import type { AudioFormat, AudioBufferDesc } from "../audio/interface.ts";
 import type { AudioEngine } from "../audio/engine.ts";
 import type { AssetManager } from "./manager.ts";
+import { promises as fs } from "node:fs";
 
 const EXTENSION_FORMAT_MAP: Record<string, AudioFormat> = {
   wav: "wav",
@@ -25,7 +26,8 @@ export async function loadAudioFile(
     throw new Error(`Unsupported audio format: ${uri}`);
   }
 
-  const data = await Bun.file(uri).arrayBuffer();
+  const buf = await fs.readFile(uri);
+  const data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   return engine.loadBuffer(format, data);
 }
 

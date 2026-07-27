@@ -1,0 +1,23 @@
+{
+  "name": "to-the-ocean",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@downdraft/plugin-water": "workspace:*",
+    "@downdraft/plugin-physics-rapier": "workspace:*",
+    "@downdraft/plugin-marching-cubes": "workspace:*",
+    "@downdraft/plugin-items": "workspace:*",
+    "@downdraft/plugin-inventory": "workspace:*",
+    "@downdraft/plugin-crafting": "workspace:*",
+    "@fontsource/doto": "^5.1.1",
+    "@fontsource/linefont": "^5.1.1",
+    "@fontsource/montserrat": "^5.1.1",
+    "@fontsource/special-elite": "^5.1.1",
+    "@fontsource/urbanist": "^5.1.1",
+    "@fontsource/wavefont": "^5.1.1",
+    "@dimforge/rapier3d-compat": "^0.14.0",
+    "zustand": "^5.0.2"
+  }
+}

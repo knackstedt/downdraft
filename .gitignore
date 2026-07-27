@@ -2,10 +2,9 @@ node_modules
 packages/*/node_modules
 build
 
-# Rust / native-renderer
-native-renderer/target
-native-renderer/resources
-target
+# Electron build output
+out
+release
 
 # Devin MCP local overrides (personal API keys)
 .devin/config.local.json

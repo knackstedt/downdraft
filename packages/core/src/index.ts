@@ -30,12 +30,9 @@ export { SeqlockBuffer, createLayout } from "./sab/seqlock.ts";
 export type { BufferField, BufferLayout } from "./sab/seqlock.ts";
 export { SABWriter } from "./sab/writer.ts";
 
-// Worker
-export { DBWorker } from "./worker/db-worker.ts";
-export type { InitPayload, StepAckPayload, StepPayload, WorkerMessage } from "./worker/protocol.ts";
-export { SimWorkerRuntime } from "./worker/sim-worker-entry.ts";
-export { SimWorkerHandle } from "./worker/sim-worker.ts";
-export { SimWorkerSupervisor } from "./worker/supervisor.ts";
+// Worker (crash recovery only — sim worker is now in src/simulation/sim-worker.ts)
+export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";
+export type { CrashRecoveryConfig, RecoveryState, SimWorkerLike } from "./worker/crash-recovery.ts";
 
 // Input
 export { InputContextRouter } from "./input/context.ts";
@@ -233,10 +230,6 @@ export type { AudioSABData } from "./audio/sab.ts";
 export { AudioSource, createAmbientAudioSource, createAudioSource, createSpatialAudioSource } from "./audio/source.ts";
 export type { AudioSourceData } from "./audio/source.ts";
 
-// Crash Recovery
-export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";
-export type { CrashRecoveryConfig, RecoveryState } from "./worker/crash-recovery.ts";
-
 // Particles
 export { ParticleComputePass } from "./particles/compute-pass.ts";
 export type { ParticleComputeParams } from "./particles/compute-pass.ts";
@@ -258,10 +251,6 @@ export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree.ts";
 // Debug Visualization
 export { DEFAULT_DEBUG_VIZ_SETTINGS, DebugVizPass } from "./render/passes/debug-viz.ts";
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.ts";
-
-// IPC (Shared Memory)
-export { CommandType, RenderEntityType, SharedMemoryIPC, WATER_CHUNK_COUNT_OFFSET, WATER_CHUNK_DATA_OFFSET, WATER_CHUNK_GRID, WATER_CHUNK_HEADER_SIZE, WATER_CHUNK_STRIDE, WATER_MAX_CHUNKS, WATER_PATCH_SIZE_OFFSET, WATER_SEQ_OFFSET, parseShmPath } from "./ipc/shared-memory.ts";
-export type { RenderData, RenderEntityData, Telemetry } from "./ipc/shared-memory.ts";
 
 // Logging
 export { ConsoleLogger, createLogger } from "./util/logger.ts";

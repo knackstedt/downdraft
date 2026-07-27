@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "outDir": "out",
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"],
+      "@main/*": ["src/main/*"],
+      "@downdraft/core/*": ["packages/core/src/*"],
+      "@downdraft/core": ["packages/core/src/index.ts"],
+      "@downdraft/mcp/*": ["packages/mcp/src/*"]
+    }
+  },
+  "include": [
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "packages/core/src/**/*.ts",
+    "packages/mcp/src/**/*.ts",
+    "electron.vite.config.ts"
+  ],
+  "exclude": ["**/*.spec.ts"]
+}

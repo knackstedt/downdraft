@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "3D Scene Inspector",
+  "version": "1.0.0",
+  "description": "Inspect and edit the 3D world scene graph",
+  "devtools_page": "devtools.html",
+  "permissions": [],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

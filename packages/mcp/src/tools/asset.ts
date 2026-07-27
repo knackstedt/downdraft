@@ -3,6 +3,7 @@ import type { ToolRegistration } from "../types.ts";
 import { jsonResult, errorResult } from "../types.ts";
 import { AssetImporter } from "@downdraft/core";
 import type { ImportOptions } from "@downdraft/core";
+import { promises as fs } from "node:fs";
 
 export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -65,7 +66,8 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
         };
 
         try {
-          const fileData = await Bun.file(path).arrayBuffer();
+          const buf = await fs.readFile(path);
+          const fileData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
           const ext = path.split(".").pop()?.toLowerCase() ?? "";
 
           const loader = new (await import("@downdraft/core")).GLBLoader();

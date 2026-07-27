@@ -1,0 +1,14 @@
+{
+  "name": "@downdraft/plugin-crafting",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@downdraft/plugin-inventory": "workspace:*"
+  }
+}

@@ -1,3 +1,5 @@
+import { existsSync, promises as fs } from "node:fs";
+
 export class VirtualFS {
   private root: string;
 
@@ -15,14 +17,15 @@ export class VirtualFS {
   }
 
   async readText(path: string): Promise<string> {
-    return Bun.file(this.resolve(path)).text();
+    return fs.readFile(this.resolve(path), "utf-8");
   }
 
   async readBinary(path: string): Promise<ArrayBuffer> {
-    return Bun.file(this.resolve(path)).arrayBuffer();
+    const buf = await fs.readFile(this.resolve(path));
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   }
 
   async exists(path: string): Promise<boolean> {
-    return await Bun.file(this.resolve(path)).exists();
+    return existsSync(this.resolve(path));
   }
 }

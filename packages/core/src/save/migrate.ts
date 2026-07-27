@@ -1,6 +1,7 @@
 import { SchemaRegistry } from "./schema.ts";
 import { Serializer, type SaveData } from "./serializer.ts";
 import type { World } from "../ecs/world.ts";
+import { promises as fs } from "node:fs";
 
 export class SaveSystem {
   private serializer: Serializer;
@@ -23,14 +24,15 @@ export class SaveSystem {
     this.serializer.deserialize(data, world, this.schemaRegistry);
   }
 
-  saveToFile(world: World, sceneName: string, path: string): Promise<number> {
+  async saveToFile(world: World, sceneName: string, path: string): Promise<number> {
     const data = this.save(world, sceneName);
     const json = this.serializer.toJSON(data);
-    return Bun.write(path, json);
+    await fs.writeFile(path, json);
+    return json.length;
   }
 
   async loadFromFile(path: string, world: World): Promise<void> {
-    const json = await Bun.file(path).text();
+    const json = await fs.readFile(path, "utf-8");
     const data = this.serializer.fromJSON(json);
     this.load(data, world);
   }
