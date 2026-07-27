@@ -315,6 +315,15 @@ export const ISLAND_MAX_HEIGHT = 8;
 export const ISLAND_SPAWN_RANGE = 600;
 export const ISLAND_BEACH_LEVEL = 0.5;
 
+export const ISLAND_LOD_CONFIGS = [
+  { step: 1, distance: 0 },
+  { step: 3, distance: 150 },
+  { step: 6, distance: 350 },
+] as const;
+
+export const ISLAND_TERRAIN_MAX_VERTS = 500_000;
+export const ISLAND_WATER_MAX_VERTS = 200_000;
+
 // ─── Inventory Constants ───────────────────────────────────
 export const INV_MAX_SLOTS = 20;
 export const SPOILAGE_RATE = 0.01;

@@ -1,6 +1,6 @@
 // ─── Voxel terrain generation + marching cubes mesh extraction ──
 
-import { BIOME_COLORS, BiomeType, TERRAIN_CONFIG, TerrainType } from "./constants.ts";
+import { BIOME_COLORS, BiomeType, ISLAND_LOD_CONFIGS, ISLAND_TERRAIN_MAX_VERTS, ISLAND_WATER_MAX_VERTS, TERRAIN_CONFIG, TerrainType } from "./constants.ts";
 import { mulberry32, PerlinNoise, PerlinNoise3D } from "./noise.ts";
 
 // ─── Voxel Field Type ─────────────────────────────────────
@@ -355,6 +355,45 @@ export function generateWaterVoxelField(
   };
 }
 
+// ─── Island Mesh Bundle (shared by worker + synchronous init) ──
+
+export interface IslandMeshBundle {
+  voxelField: VoxelField;
+  waterVoxelField: WaterVoxelField;
+  lodMeshes: LodMesh[];
+  waterLodMeshes: LodMesh[];
+}
+
+export interface LodMesh {
+  verts: Float32Array;
+  indices: Uint16Array | Uint32Array;
+  vertexCount: number;
+  indexCount: number;
+  lodLevel: number;
+  lodDistance: number;
+}
+
+export function generateIslandMeshes(
+  chunkX: number, chunkZ: number, radius: number, biome: number,
+): IslandMeshBundle {
+  const voxelField = generateVoxelField(chunkX, chunkZ, radius, biome);
+  const waterVoxelField = generateWaterVoxelField(voxelField, chunkX, chunkZ, radius);
+
+  const lodMeshes: LodMesh[] = ISLAND_LOD_CONFIGS.map(({ step, distance }) => ({
+    ...extractMeshFromField(voxelField, biome, ISLAND_TERRAIN_MAX_VERTS, step),
+    lodLevel: step,
+    lodDistance: distance,
+  }));
+
+  const waterLodMeshes: LodMesh[] = ISLAND_LOD_CONFIGS.map(({ step, distance }) => ({
+    ...extractWaterMeshFromField(waterVoxelField, ISLAND_WATER_MAX_VERTS, step),
+    lodLevel: step,
+    lodDistance: distance,
+  }));
+
+  return { voxelField, waterVoxelField, lodMeshes, waterLodMeshes };
+}
+
 // ─── Terrain Height Sampling (from voxel field) ───────────
 
 export function voxelFieldHeightAt(field: VoxelField, worldX: number, worldZ: number): number {
@@ -399,32 +438,6 @@ export function classifyTerrainTypeByUnitY(uy: number, biome: number): TerrainTy
 
   if (uy > cfg.peakHeight * 0.7) return TerrainType.Rock;
   if (uy > cfg.peakHeight * 0.4) return TerrainType.Stone;
-  if (uy > cfg.peakHeight * 0.2) return TerrainType.Forest;
-  return TerrainType.Grass;
-}
-
-export function classifyTerrainType(
-  field: VoxelField, vx: number, vy: number, vz: number, biome: number,
-): TerrainType {
-  const cfg = TERRAIN_CONFIG;
-  const wy = vy * field.voxelSize + field.originY;
-  const uy = wy / field.radius;
-
-  if (uy < -cfg.beachThreshold * 2) return TerrainType.DeepUnderwater;
-  if (uy < -cfg.beachThreshold * 0.5) return TerrainType.ShallowUnderwater;
-  if (uy < cfg.beachThreshold * 0.5) return TerrainType.Shoreline;
-  if (uy < cfg.beachThreshold) return TerrainType.Sand;
-
-  if (biome === BiomeType.Arctic && uy > cfg.peakHeight * 0.6) return TerrainType.Snow;
-  if (biome === BiomeType.Volcanic && uy > cfg.peakHeight * 0.5) return TerrainType.Ash;
-  if (biome === BiomeType.Desert) return TerrainType.Sand;
-
-  if (uy > cfg.peakHeight * 0.7) return TerrainType.Rock;
-  if (uy > cfg.peakHeight * 0.4) return TerrainType.Stone;
-
-  // Check gradient for cliff vs grass
-  const colIdx = vx * field.dimZ + vz;
-  const cliffN = 0; // Simplified — use height as proxy
   if (uy > cfg.peakHeight * 0.2) return TerrainType.Forest;
   return TerrainType.Grass;
 }

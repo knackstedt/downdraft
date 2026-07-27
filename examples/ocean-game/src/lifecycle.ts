@@ -112,8 +112,8 @@ import {
   waveSourceSystem,
   wildlifeAISystem,
 } from "./systems.ts";
-import type { VoxelField, WaterVoxelField } from "./terrain.ts";
-import { extractMeshFromField, extractWaterMeshFromField, generateVoxelField, generateWaterVoxelField } from "./terrain.ts";
+import type { LodMesh, VoxelField, WaterVoxelField } from "./terrain.ts";
+import { generateIslandMeshes } from "./terrain.ts";
 import { waterBuffer, waterPhysics } from "./water.ts";
 import {
   rainCollectors,
@@ -137,8 +137,6 @@ interface IslandGenParams {
   chunkX: number;
   chunkZ: number;
 }
-
-type LodMesh = { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number; lodLevel: number; lodDistance: number };
 
 function spawnIslandEntities(
   ecsWorld: World,
@@ -414,8 +412,6 @@ export async function init(ctx: any) {
         return Math.sqrt(dx * dx + dz * dz) < prev.radius + radius + minGap;
       }));
     }
-    islandX = Math.cos(angle) * dist;
-    islandZ = Math.sin(angle) * dist;
     const chunkX = Math.floor(islandX);
     const chunkZ = Math.floor(islandZ);
 
@@ -426,22 +422,8 @@ export async function init(ctx: any) {
   // Generate island 0 synchronously (needed for player spawn position)
   const island0 = islandParams[0];
   log.info("terrain", `generating voxel field for island 1 (biome: ${BiomeType[island0.biome]}, radius: ${island0.radius.toFixed(0)}, pos: (${island0.islandX.toFixed(0)}, ${island0.islandZ.toFixed(0)}))...`);
-  const lodConfigs = [
-    { step: 1, distance: 0 },
-    { step: 3, distance: 150 },
-    { step: 6, distance: 350 },
-  ];
-  const island0VoxelField = generateVoxelField(island0.chunkX, island0.chunkZ, island0.radius, island0.biome);
-  const island0WaterVoxelField = generateWaterVoxelField(island0VoxelField, island0.chunkX, island0.chunkZ, island0.radius);
-  const island0LodMeshes = lodConfigs.map(({ step, distance }) => {
-    const mesh = extractMeshFromField(island0VoxelField, island0.biome, 500000, step);
-    return { ...mesh, lodLevel: step, lodDistance: distance };
-  });
-  const island0WaterLodMeshes = lodConfigs.map(({ step, distance }) => {
-    const mesh = extractWaterMeshFromField(island0WaterVoxelField, 200000, step);
-    return { ...mesh, lodLevel: step, lodDistance: distance };
-  });
-  spawnIslandEntities(ecsWorld, island0, island0VoxelField, island0LodMeshes as LodMesh[], island0WaterVoxelField, island0WaterLodMeshes as LodMesh[]);
+  const island0Meshes = generateIslandMeshes(island0.chunkX, island0.chunkZ, island0.radius, island0.biome);
+  spawnIslandEntities(ecsWorld, island0, island0Meshes.voxelField, island0Meshes.lodMeshes, island0Meshes.waterVoxelField, island0Meshes.waterLodMeshes);
   gameState.playerSpawnX = island0.islandX + island0.radius * 0.8;
   gameState.playerSpawnZ = island0.islandZ;
   gameState.islandsGenerated = 1;

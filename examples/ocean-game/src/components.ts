@@ -3,25 +3,25 @@
 import { Component, createLogger, query, type Entity, type World } from "@downdraft/core";
 import { GridInventory } from "../plugins/inventory-plugin.ts";
 import {
-    ANIMAL_PRODUCT_TIME,
-    AnimalStage,
-    BiomeType,
-    CameraMode,
-    HEALTH_REGEN_RATE, HUNGER_DECAY_RATE,
-    PetType,
-    PIRATE_HEALTH,
-    PirateState, PlantStage,
-    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
-    PLAYER_MAX_OXYGEN,
-    PLAYER_MAX_THIRST,
-    PLAYER_TEMP_NORM,
-    SHARK_SPEED,
-    THIRST_DECAY_RATE,
-    WildlifeState,
-    XP_MAX_LEVEL,
-    XP_PER_LEVEL,
+  ANIMAL_PRODUCT_TIME,
+  AnimalStage,
+  BiomeType,
+  CameraMode,
+  HEALTH_REGEN_RATE, HUNGER_DECAY_RATE,
+  PetType,
+  PIRATE_HEALTH,
+  PirateState, PlantStage,
+  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+  PLAYER_MAX_OXYGEN,
+  PLAYER_MAX_THIRST,
+  PLAYER_TEMP_NORM,
+  SHARK_SPEED,
+  THIRST_DECAY_RATE,
+  WildlifeState,
+  XP_MAX_LEVEL,
+  XP_PER_LEVEL,
 } from "./constants.ts";
-import type { VoxelField, WaterVoxelField } from "./terrain.ts";
+import type { LodMesh, VoxelField, WaterVoxelField } from "./terrain.ts";
 
 const log = createLogger();
 
@@ -117,10 +117,10 @@ export const Island = Component.register("Island", {
   chunkZ: 0,
   voxelField: null as VoxelField | null,
   meshData: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number } | null,
-  lodMeshes: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number; lodLevel: number; lodDistance: number }[] | null,
+  lodMeshes: null as LodMesh[] | null,
   waterVoxelField: null as WaterVoxelField | null,
   waterMeshData: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number } | null,
-  waterLodMeshes: null as { verts: Float32Array; indices: Uint16Array | Uint32Array; vertexCount: number; indexCount: number; lodLevel: number; lodDistance: number }[] | null,
+  waterLodMeshes: null as LodMesh[] | null,
 });
 
 export const Buildable = Component.register("Buildable", {
