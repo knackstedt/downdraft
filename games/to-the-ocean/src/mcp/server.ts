@@ -2,11 +2,11 @@
 // MCP Server — Model Context Protocol for AI agent queries
 // ============================================================================
 
+import { createLogger } from "@downdraft/core/util/logger";
 import { parentPort } from "worker_threads";
-import { createLogger } from "../main/util/logger";
-import { SimBufferReader, ENT, SIM_HDR } from "../shared/sim-buffer";
-import { EntityType, PortSize, SecurityLevel } from "../shared/types";
 import { PORT_DATA, PORT_SERVICE_BITS } from "../shared/constants";
+import { ENT, SimBufferReader } from "../shared/sim-buffer";
+import { EntityType, PortSize, SecurityLevel } from "../shared/types";
 
 const log = createLogger("info");
 

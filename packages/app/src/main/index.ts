@@ -3,12 +3,12 @@
 // ============================================================================
 
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { createLogger } from "@downdraft/core/util/logger";
 import { app, BrowserWindow, ipcMain, Menu, screen, session } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { IPC } from "../shared/messages";
 import { getDb, initDb, terminateDb } from "./db";
-import { createLogger } from "./util/logger";
 
 const log = createLogger("info");
 const isDev = !app.isPackaged;

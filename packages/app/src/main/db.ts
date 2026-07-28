@@ -2,11 +2,11 @@
 // DB Manager — SurrealDB wrapper using a worker thread
 // ============================================================================
 
-import { Worker } from "worker_threads";
-import { join } from "path";
+import { createLogger } from "@downdraft/core/util/logger";
 import { app } from "electron";
+import { join } from "path";
+import { Worker } from "worker_threads";
 import { DbRequest, DbResponse } from "../shared/messages";
-import { createLogger } from "./util/logger";
 
 const log = createLogger("info");
 
