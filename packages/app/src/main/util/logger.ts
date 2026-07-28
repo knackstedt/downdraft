@@ -249,7 +249,7 @@ function getTheme(): "light" | "dark" {
         }
     }
 
-    if (process.stdout?.isTTY) {
+    if (process.platform !== "win32" && process.stdout?.isTTY) {
         try {
             const probe = `
                 if [ -t 0 ]; then

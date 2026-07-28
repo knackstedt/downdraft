@@ -303,7 +303,7 @@ function getTheme(): "light" | "dark" {
         }
     }
 
-    if (proc.stdout?.isTTY) {
+    if (proc.platform !== "win32" && proc.stdout?.isTTY) {
         try {
             const probe = `
                 if [ -t 0 ]; then

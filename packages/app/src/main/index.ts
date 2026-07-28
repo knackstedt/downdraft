@@ -87,20 +87,23 @@ process.on("unhandledRejection", (reason) => {
   showErrorDialog("Unhandled Rejection", detail);
 });
 
-// GPU command line switches for Linux WebGPU support
-// Force NVIDIA Vulkan ICD to prevent llvmpipe (software) fallback
-process.env.VK_ICD_FILENAMES = "/usr/share/vulkan/icd.d/nvidia_icd.json";
+// GPU command line switches for WebGPU support
 app.commandLine.appendSwitch("enable-unsafe-webgpu");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
 app.commandLine.appendSwitch("enable-gpu-rasterization");
 app.commandLine.appendSwitch("enable-zero-copy");
 app.commandLine.appendSwitch("enable-accelerated-video-decode");
-app.commandLine.appendSwitch(
-  "enable-features",
-  "Vulkan,VaapiVideoDecoder,VaapiVideoEncoder",
-);
 app.commandLine.appendSwitch("js-flags", "--expose-gc");
-app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+
+if (process.platform === "linux") {
+  // Force NVIDIA Vulkan ICD to prevent llvmpipe (software) fallback
+  process.env.VK_ICD_FILENAMES = "/usr/share/vulkan/icd.d/nvidia_icd.json";
+  app.commandLine.appendSwitch("enable-features", "Vulkan,VaapiVideoDecoder,VaapiVideoEncoder");
+  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+} else if (process.platform === "win32") {
+  // Windows uses D3D12 backend for WebGPU; enable hardware-accelerated decoding
+  app.commandLine.appendSwitch("enable-features", "D3D12VideoDecoder");
+}
 
 let mainWindow: BrowserWindow | null = null;
 
