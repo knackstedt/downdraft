@@ -18,7 +18,8 @@
   "include": [
     "packages/app/src/renderer/**/*",
     "packages/app/src/shared/**/*",
-    "packages/core/src/**/*.ts"
+    "packages/core/src/**/*.ts",
+    "games/*/src/**/*"
   ],
   "exclude": ["**/*.spec.ts"]
 }
