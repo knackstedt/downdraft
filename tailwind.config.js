@@ -1,8 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
-    "./src/renderer/index.html",
-    "./src/renderer/src/**/*.{js,ts,jsx,tsx}",
+    "./packages/app/index.html",
+    "./packages/app/src/renderer/**/*.{js,ts,jsx,tsx}",
     "./games/*/index.html",
     "./games/*/src/**/*.{js,ts,jsx,tsx}",
   ],

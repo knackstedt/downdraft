@@ -51,8 +51,6 @@ export function createAudioSource(bufferId: string, opts?: Partial<AudioSourceDa
 export function createSpatialAudioSource(bufferId: string, opts?: Partial<AudioSourceData>): AudioSourceData {
   return AudioSource.create({
     bufferId,
-    spatial: true,
-    spatialized: true,
     position: opts?.position ?? [0, 0, 0],
     maxDistance: opts?.maxDistance ?? 100,
     ...opts,
@@ -64,11 +62,7 @@ export function createSpatialAudioSource(bufferId: string, opts?: Partial<AudioS
 export function createAmbientAudioSource(bufferId: string, opts?: Partial<AudioSourceData>): AudioSourceData {
   return AudioSource.create({
     bufferId,
-    spatial: false,
-    spatialized: false,
     channel: "ambient",
-    loop: true,
-    looping: true,
     ...opts,
     spatialized: false,
     spatial: false,

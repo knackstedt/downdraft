@@ -33,6 +33,8 @@ export { SABWriter } from "./sab/writer.ts";
 // Worker (crash recovery only — sim worker is now in src/simulation/sim-worker.ts)
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";
 export type { CrashRecoveryConfig, RecoveryState, SimWorkerLike } from "./worker/crash-recovery.ts";
+export { getWorkerHost } from "./worker/worker-compat.ts";
+export type { HostEventCallback, HostMessageHandler, WorkerHost } from "./worker/worker-compat.ts";
 
 // Input
 export { InputContextRouter } from "./input/context.ts";
@@ -123,6 +125,8 @@ export { GameWorld } from "./scene/world.ts";
 // Telemetry
 export { TelemetryCollector } from "./telemetry/collector.ts";
 export type { SystemTiming, ThreadMetrics } from "./telemetry/collector.ts";
+export { startGCProfiler } from "./telemetry/gc-profiler.ts";
+export type { GCProfilerHandle, GCStats } from "./telemetry/gc-profiler.ts";
 export { GCTracker } from "./telemetry/gc-tracker.ts";
 export { TelemetryReporter } from "./telemetry/reporter.ts";
 
@@ -257,5 +261,5 @@ export { ConsoleLogger, createLogger } from "./util/logger.ts";
 export type { Logger } from "./util/logger.ts";
 
 // Sim Types (generic interfaces for plugin systems)
-export type { EntityId, InputReaderLike, PlayerId, Quat, SimEntityLike, SimulationContext, SimPlayerLike, Transform, Vec2, Vec3, Vec4 } from "./sim/types.ts";
+export type { EntityId, InputReaderLike, PlayerId, Quat, SimEntityLike, SimPlayerLike, SimulationContext, Transform, Vec2, Vec3, Vec4 } from "./sim/types.ts";
 

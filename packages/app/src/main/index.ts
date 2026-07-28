@@ -2,10 +2,10 @@
 // Main Process — Electron window/lifecycle management
 // ============================================================================
 
+import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { app, BrowserWindow, ipcMain, Menu, screen, session } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { startGCProfiler, type GCProfilerHandle, type GCStats } from "../shared/gc-profiler";
 import { IPC } from "../shared/messages";
 import { getDb, initDb, terminateDb } from "./db";
 import { createLogger } from "./util/logger";

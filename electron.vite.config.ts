@@ -3,7 +3,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { resolve } from "path";
 
 const game = process.env.DOWNDRAFT_GAME;
-const rendererRoot = game ? resolve("games", game) : resolve("src/renderer");
+const rendererRoot = game ? resolve("games", game) : resolve("packages/app");
 
 export default defineConfig({
   main: {
@@ -11,8 +11,8 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve("src/main/index.ts"),
-          "db-worker": resolve("src/main/db-worker.ts"),
+          index: resolve("packages/app/src/main/index.ts"),
+          "db-worker": resolve("packages/app/src/main/db-worker.ts"),
         },
         output: {
           entryFileNames: "[name].js",
@@ -20,13 +20,13 @@ export default defineConfig({
       },
     } as any,
     resolve: {
-      alias: {
-        "@main": resolve("src/main"),
-        "@shared": resolve("src/shared"),
-        "@downdraft/core": resolve("packages/core/src/index.ts"),
-        "@downdraft/core/*": resolve("packages/core/src/*"),
-        "@downdraft/mcp/*": resolve("packages/mcp/src/*"),
-      },
+      alias: [
+        { find: "@main", replacement: resolve("packages/app/src/main") },
+        { find: "@shared", replacement: resolve("packages/app/src/shared") },
+        { find: /^@downdraft\/core$/, replacement: resolve("packages/core/src/index.ts") },
+        { find: /^@downdraft\/core\//, replacement: resolve("packages/core/src") + "/" },
+        { find: /^@downdraft\/mcp\//, replacement: resolve("packages/mcp/src") + "/" },
+      ],
     },
   },
   preload: {
@@ -34,7 +34,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve("src/preload/index.ts"),
+          index: resolve("packages/app/src/preload/index.ts"),
         },
         output: {
           entryFileNames: "[name].js",
@@ -43,20 +43,22 @@ export default defineConfig({
     } as any,
     resolve: {
       alias: {
-        "@shared": resolve("src/shared"),
+        "@shared": resolve("packages/app/src/shared"),
       },
     },
   },
   renderer: {
     root: rendererRoot,
     resolve: {
-      alias: {
-        "@renderer": resolve(rendererRoot, "src"),
-        "@shared": game ? resolve(rendererRoot, "src/shared") : resolve("src/shared"),
-        "@sim": resolve(rendererRoot, "src/simulation"),
-        "@downdraft/core": resolve("packages/core/src/index.ts"),
-        "@downdraft/core/*": resolve("packages/core/src/*"),
-      },
+      alias: [
+        { find: "@renderer", replacement: resolve(rendererRoot, "src") },
+        { find: "@shared", replacement: game ? resolve(rendererRoot, "src/shared") : resolve("packages/app/src/shared") },
+        { find: "@sim", replacement: resolve(rendererRoot, "src/simulation") },
+        { find: /^@downdraft\/core$/, replacement: resolve("packages/core/src/index.ts") },
+        { find: /^@downdraft\/core\//, replacement: resolve("packages/core/src") + "/" },
+        { find: /^@downdraft\/ui$/, replacement: resolve("packages/ui/src/index.ts") },
+        { find: /^@downdraft\/ui\//, replacement: resolve("packages/ui/src") + "/" },
+      ],
     },
     build: {
       rollupOptions: {

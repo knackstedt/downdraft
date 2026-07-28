@@ -758,7 +758,7 @@ export class WebGPURenderer {
     const lightingParams = this.lightingSystem!.getLightingParams(timeOfDay, weatherType, visibility);
     this.entityRenderer!.beginFrame(camera, viewport.w, viewport.h, {
       sunDir: lightingParams.sunDir,
-      sunIntensity: lightingParams.sunIntensity,
+      sunIntensity: lightingParams.sunBrightness,
       ambient: lightingParams.ambient,
       fogColor: lightingParams.fogColor,
     });

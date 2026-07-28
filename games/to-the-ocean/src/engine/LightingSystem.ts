@@ -4,6 +4,10 @@
 
 import { WeatherType } from "@shared/types";
 
+// Base sun brightness multiplier for PBR radiance — matches core engine default (3.0).
+// The raw sunIntensity (0..1) is kept for systems that use it as a blend factor (water, clouds).
+const SUN_BRIGHTNESS = 3.0;
+
 export class LightingSystem {
   protected device: GPUDevice;
 
@@ -32,8 +36,8 @@ export class LightingSystem {
     const moonDir: [number, number, number] = [-sunDir[0], -sunDir[1], -sunDir[2]];
     const moonIntensity = Math.max(0, -Math.sin(sunAngle));
 
-    // Ambient light level
-    let ambient = 0.3 + sunIntensityRaw * 0.4;
+    // Ambient light level — boosted to compensate for the 1/π Lambertian factor in PBR shaders
+    let ambient = 0.4 + sunIntensityRaw * 0.5;
 
     // Weather reduces both ambient and directional sunlight (clouds block sun)
     let sunIntensity = sunIntensityRaw;
@@ -53,6 +57,8 @@ export class LightingSystem {
     return {
       sunDir,
       sunIntensity,
+      // PBR-scaled brightness for entity/island shaders (radiance = vec3(sunBrightness))
+      sunBrightness: sunIntensity * SUN_BRIGHTNESS,
       moonDir,
       moonIntensity,
       ambient,

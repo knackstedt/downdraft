@@ -1,1 +1,1 @@
-export * from "../../../../src/shared/gc-profiler";
+export * from "@downdraft/core/telemetry/gc-profiler";

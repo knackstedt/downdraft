@@ -7,17 +7,17 @@
     "outDir": "out",
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"],
-      "@main/*": ["src/main/*"],
+      "@shared/*": ["packages/app/src/shared/*"],
+      "@main/*": ["packages/app/src/main/*"],
       "@downdraft/core/*": ["packages/core/src/*"],
       "@downdraft/core": ["packages/core/src/index.ts"],
       "@downdraft/mcp/*": ["packages/mcp/src/*"]
     }
   },
   "include": [
-    "src/main/**/*",
-    "src/preload/**/*",
-    "src/shared/**/*",
+    "packages/app/src/main/**/*",
+    "packages/app/src/preload/**/*",
+    "packages/app/src/shared/**/*",
     "packages/core/src/**/*.ts",
     "packages/mcp/src/**/*.ts",
     "electron.vite.config.ts"

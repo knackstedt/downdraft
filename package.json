@@ -15,6 +15,7 @@
     "postinstall": "node node_modules/electron/install.js"
   },
   "workspaces": [
+    "packages/app",
     "packages/core",
     "packages/ui",
     "packages/mcp",

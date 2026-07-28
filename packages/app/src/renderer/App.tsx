@@ -1,5 +1,5 @@
+import { DEFAULT_TOGGLES, DevToolsPanel, type DebugToggleState, type EntityInfo, type TelemetryData } from "@downdraft/ui";
 import React, { useEffect, useRef, useState } from "react";
-import { DEFAULT_TOGGLES, DevToolsPanel, type DebugToggleState, type EntityInfo, type TelemetryData } from "../devtools/panel.tsx";
 
 export const App: React.FC = () => {
   const [telemetry, setTelemetry] = useState<TelemetryData>({ frameTime: 0, p95: 0, p99: 0 });

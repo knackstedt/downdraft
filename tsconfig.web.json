@@ -8,16 +8,16 @@
     "outDir": "out",
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["games/to-the-ocean/src/shared/*", "src/shared/*"],
-      "@renderer/*": ["src/renderer/src/*"],
+      "@shared/*": ["games/to-the-ocean/src/shared/*", "packages/app/src/shared/*"],
+      "@renderer/*": ["packages/app/src/renderer/*"],
       "@sim/*": ["games/to-the-ocean/src/simulation/*"],
       "@downdraft/core/*": ["packages/core/src/*"],
       "@downdraft/core": ["packages/core/src/index.ts"]
     }
   },
   "include": [
-    "src/renderer/**/*",
-    "src/shared/**/*",
+    "packages/app/src/renderer/**/*",
+    "packages/app/src/shared/**/*",
     "packages/core/src/**/*.ts"
   ],
   "exclude": ["**/*.spec.ts"]
