@@ -1,8 +1,9 @@
+import { BUILDER_CELL_OPTIONS, HOTBAR_TOOLS } from "@shared/constants";
+import { PLR, PLR_FLAG, SimBufferReader } from "@shared/sim-buffer";
+import { CameraMode, WeatherType } from "@shared/types";
 import React from "react";
 import { useGameStore } from "../stores/gameStore";
-import { SimBufferReader, PLR, PLR_FLAG } from "@shared/sim-buffer";
-import { SECURITY_NAMES, SECURITY_COLORS, BIOME_NAMES, HOTBAR_TOOLS, BUILDER_CELL_OPTIONS } from "@shared/constants";
-import { BiomeType, SecurityLevel, WeatherType, CameraMode } from "@shared/types";
+import Reticule, { type ToolAction } from "./Reticule";
 
 const WEATHER_NAMES: Record<number, string> = {
   [WeatherType.Clear]: "Clear",
@@ -129,6 +130,14 @@ export default function HUD() {
 
   return (
     <div className="w-full h-full pointer-events-none">
+      {/* First-person reticule — animated SVG that morphs between tool shapes */}
+      <Reticule
+        cameraMode={hudState.cameraMode}
+        toolAction={(HOTBAR_TOOLS[hudState.activeSlot]?.action ?? "build") as ToolAction}
+        isFishing={hudState.isFishing}
+        size={useGameStore.getState().reticleSize}
+      />
+
       {/* Top bar: time, weather, biome, camera mode */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-4 hud-panel px-6 py-2">
         <span className="text-ocean-100 font-mono">

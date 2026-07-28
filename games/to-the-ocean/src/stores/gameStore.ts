@@ -2,10 +2,10 @@
 // Game Store — Zustand state management for UI
 // ============================================================================
 
+import { WeatherType } from "@shared/types";
 import { create } from "zustand";
-import { simBridge } from "../simBridge";
 import { WebGPURenderer } from "../engine/WebGPURenderer";
-import { WeatherType, GameMode, CameraMode } from "@shared/types";
+import { simBridge } from "../simBridge";
 
 interface Bookmark {
   id: number;
@@ -47,6 +47,7 @@ interface GameStoreState {
   notifications: { id: number; text: string; type: string }[];
   suppressPauseMenu: boolean;
   hudHidden: boolean;
+  reticleSize: number; // reticle pixel size (20-160)
   builderCellType: number; // index into BUILDER_CELL_OPTIONS
   builderRotation: number; // rotation steps (0-3) for builder placement
   showBuilderWheel: boolean;
@@ -73,6 +74,7 @@ interface GameStoreState {
   equipItem: (slot: string, itemId: string | null) => void;
   setSuppressPauseMenu: (v: boolean) => void;
   setHudHidden: (v: boolean) => void;
+  setReticleSize: (v: number) => void;
   setBuilderCellType: (idx: number) => void;
   setBuilderRotation: (r: number) => void;
   setShowBuilderWheel: (v: boolean) => void;
@@ -113,6 +115,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   notifications: [],
   suppressPauseMenu: false,
   hudHidden: false,
+  reticleSize: 80,
   builderCellType: 0,
   builderRotation: 0,
   showBuilderWheel: false,
@@ -177,6 +180,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set((s) => ({ equipment: { ...s.equipment, [slot]: itemId } })),
   setSuppressPauseMenu: (v) => set({ suppressPauseMenu: v }),
   setHudHidden: (v) => set({ hudHidden: v }),
+  setReticleSize: (v) => set({ reticleSize: v }),
   setBuilderCellType: (idx) => set({ builderCellType: idx }),
   setBuilderRotation: (r) => set({ builderRotation: ((r % 4) + 4) % 4 }),
   setShowBuilderWheel: (v) => set({ showBuilderWheel: v }),
