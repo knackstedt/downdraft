@@ -751,6 +751,11 @@ export class WebGPURenderer {
     const windDir = this.simReader.getWindDir();
     const weatherIntensity = this.simReader.getWeatherIntensity();
 
+    // Advance weather blend on first viewport only — all viewports read the same blended state
+    if (viewportIdx === 0) {
+      this.lightingSystem!.updateWeatherBlend(weatherType, dt);
+    }
+
     // Prepare entity uniforms before render pass (writeBuffer is a queue op,
     // so all writes must happen before submit for the render pass to see them)
     const entityCount = this.simReader.getEntityCount();
