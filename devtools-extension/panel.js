@@ -2047,6 +2047,78 @@
     });
   }
 
+  // --- Weather buttons ---
+  // Maps button data-weather to WeatherType enum values
+  var weatherMap = {
+    clear: 0,
+    partlycloudy: 1,
+    overcast: 2,
+    rain: 3,
+    storm: 4,
+    fog: 5,
+    eclipse: 6,
+    fullmoon: 7,
+    hellstorm: 8,
+    snow: 9,
+  };
+  var weatherButtons = document.querySelectorAll(".weather-btn");
+  for (var wbi = 0; wbi < weatherButtons.length; wbi++) {
+    (function (btn) {
+      btn.addEventListener("click", function () {
+        var weather = btn.getAttribute("data-weather");
+        var weatherType = weatherMap[weather] !== undefined ? weatherMap[weather] : 0;
+        callInspector("setWeather", weatherType);
+        // Highlight active button
+        for (var k = 0; k < weatherButtons.length; k++) {
+          weatherButtons[k].classList.remove("active");
+        }
+        btn.classList.add("active");
+      });
+    })(weatherButtons[wbi]);
+  }
+
+  // --- Time of Day slider ---
+  var todSlider = document.getElementById("world-tod-slider");
+  var todDisplay = document.getElementById("world-tod-display");
+  var btnSetTod = document.getElementById("btn-set-tod");
+
+  function formatTod(hours) {
+    var h = Math.floor(hours);
+    var m = Math.round((hours - h) * 60);
+    if (m === 60) { h += 1; m = 0; }
+    if (h === 24) h = 0;
+    return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+  }
+
+  if (todSlider) {
+    todSlider.addEventListener("input", function () {
+      var val = parseFloat(todSlider.value);
+      if (todDisplay) todDisplay.textContent = formatTod(val);
+      var fraction = val / 24.0;
+      callInspector("setTimeOfDay", fraction);
+    });
+  }
+
+  if (btnSetTod) {
+    btnSetTod.addEventListener("click", function () {
+      var hours = parseFloat(todSlider.value);
+      var fraction = hours / 24.0;
+      callInspector("setTimeOfDay", fraction);
+    });
+  }
+
+  // --- Event toggles (stub) ---
+  var eventToggles = document.querySelectorAll(".event-toggle");
+  for (var ei = 0; ei < eventToggles.length; ei++) {
+    (function (chk) {
+      chk.addEventListener("change", function () {
+        var eventName = chk.getAttribute("data-event");
+        var action = chk.checked ? "start" : "stop";
+        callInspector("sendWorldCommand", [{ type: "toggle_event", payload: { event: eventName, action: action } }]);
+      });
+    })(eventToggles[ei]);
+  }
+
   // Manual refresh
   var btnRefreshWorld = document.getElementById("btn-refresh-world");
   if (btnRefreshWorld) {

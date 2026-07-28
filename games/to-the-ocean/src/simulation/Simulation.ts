@@ -1109,6 +1109,10 @@ export class Simulation {
         );
         return { success: true };
       }
+      case "toggle_event": {
+        // Stub: events not yet implemented
+        return { success: true, message: `Event '${payload.event}' ${payload.action} (stub)` };
+      }
       default:
         return { success: false, message: `Unknown world command: ${type}` };
     }

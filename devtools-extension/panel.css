@@ -1052,6 +1052,17 @@ input[type="number"]:focus, input[type="text"]:focus {
   gap: 4px;
 }
 
+.weather-btn.active {
+  background: #1177bb;
+  border-color: #1177bb;
+  font-weight: 600;
+}
+
+.world-control-row input[type="range"] {
+  accent-color: #0e639c;
+  cursor: pointer;
+}
+
 .world-entity-card {
   display: flex;
   align-items: center;

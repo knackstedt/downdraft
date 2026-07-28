@@ -175,6 +175,37 @@
           </div>
         </div>
         <div class="debug-section">
+          <h4>Weather</h4>
+          <div class="world-control-row" id="weather-buttons">
+            <button class="import-action-btn weather-btn" data-weather="clear">Clear</button>
+            <button class="import-action-btn weather-btn" data-weather="partlycloudy">Partly Cloudy</button>
+            <button class="import-action-btn weather-btn" data-weather="overcast">Overcast</button>
+            <button class="import-action-btn weather-btn" data-weather="rain">Rain</button>
+            <button class="import-action-btn weather-btn" data-weather="storm">Storm</button>
+            <button class="import-action-btn weather-btn" data-weather="fog">Fog</button>
+            <button class="import-action-btn weather-btn" data-weather="snow">Snow</button>
+            <button class="import-action-btn weather-btn" data-weather="eclipse">Eclipse</button>
+            <button class="import-action-btn weather-btn" data-weather="fullmoon">Full Moon</button>
+            <button class="import-action-btn weather-btn" data-weather="hellstorm">Hell Storm</button>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Time of Day <span id="world-tod-display" style="color:#888;font-weight:normal">12:00</span></h4>
+          <div class="world-control-row">
+            <input type="range" id="world-tod-slider" min="0" max="24" step="0.1" value="12" style="flex:1">
+            <button id="btn-set-tod" class="import-action-btn">Set</button>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Events (stub)</h4>
+          <div class="world-control-row" id="event-toggles">
+            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="storm"> Storm Event</label>
+            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="meteor"> Meteor Shower</label>
+            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="whale"> Whale Migration</label>
+            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="aurora"> Aurora</label>
+          </div>
+        </div>
+        <div class="debug-section">
           <h4>Active Ports (<span id="world-port-count">0</span>)</h4>
           <div id="world-port-list" class="world-entity-list"></div>
         </div>

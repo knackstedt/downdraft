@@ -596,7 +596,8 @@ export type WorldCommandType =
   | "remove_port"
   | "remove_island"
   | "clear_overrides"
-  | "set_seed";
+  | "set_seed"
+  | "toggle_event";
 
 export interface WorldCommand {
   type: WorldCommandType;
@@ -607,6 +608,8 @@ export interface WorldCommand {
     portSize?: number;
     islandSize?: number;
     seed?: number;
+    event?: string;
+    action?: string;
   };
 }
 

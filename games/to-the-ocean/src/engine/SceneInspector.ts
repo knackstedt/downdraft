@@ -792,6 +792,14 @@ export class SceneInspector {
         simBridge.sendWorldCommand(cmd);
       },
 
+      setWeather: (weatherType: number): void => {
+        simBridge.setWeather(weatherType);
+      },
+
+      setTimeOfDay: (time: number): void => {
+        simBridge.setTimeOfDay(time);
+      },
+
       getBiomeList: (): { value: number; name: string }[] => {
         const biomeNames: Record<number, string> = {
           0: "Lake", 1: "Arctic", 2: "Desert", 3: "Boreal Forest",
