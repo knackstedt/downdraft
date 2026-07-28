@@ -39,6 +39,22 @@ export const TERRAIN_CONFIG = {
   beachGradientScale: 0.4,    // flatten density gradient in beach zone (lower = flatter)
   beachSandColor: [0.76, 0.70, 0.50] as [number, number, number],
 
+  // --- Sand visual effects (procedural, in WGSL fragment shader) ---
+  // These values mirror the hardcoded constants in ISLAND_WGSL's sandSparkle()
+  // and islandLighting(). Documented here for future tuning — if dynamic
+  // uniform control is needed, add these to IslandUniforms struct.
+  sandVisual: {
+    sparkleIntensity: 0.8,       // overall sparkle brightness multiplier
+    sparkleScale: 120.0,         // grain frequency (higher = finer grains)
+    sparkleSharpness: 80.0,      // specular power (higher = tighter dots)
+    sparkleSamples: 6,           // number of grain samples per pixel
+    wetSandZoneWidth: 0.02,      // unit-space Y range for wet sand transition
+    wetSandRoughness: 0.25,      // roughness of wet sand
+    wetSandDarken: 0.55,         // albedo multiplier for wet sand
+    wetSandFresnelStrength: 0.4, // sky reflection blend strength at grazing angles
+    colorVariation: 0.06,        // albedo noise amplitude (±3% warm/cool)
+  },
+
   // --- Cliff bands ---
   cliffGradientThreshold: 1.2, // density gradient magnitude above which = cliff
   cliffNoiseScale: 5.0,        // noise frequency for cliff zone placement

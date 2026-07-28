@@ -11,11 +11,11 @@ import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
 import { ENT, SimBufferReader } from "@shared/sim-buffer";
 import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
 import {
-    createChunkedVoxelField,
-    generatePortVoxelField,
-    getChunkMeshSubRegion,
-    materializeChunkForMesh,
-    type ChunkedFieldContext,
+  createChunkedVoxelField,
+  generatePortVoxelField,
+  getChunkMeshSubRegion,
+  materializeChunkForMesh,
+  type ChunkedFieldContext,
 } from "@shared/TerrainGenerator";
 import { ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
 import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
@@ -872,8 +872,87 @@ fn vs_main(input: IslandVertexInput) -> IslandVertexOutput {
   return output;
 }
 
+// --- Sand grain sparkle helpers ---
+// 3D hash — wraps input to avoid float precision loss with large world positions.
+// GPU sin() loses precision above ~10000, so we keep the dot product small.
+fn hash23(p: vec3<f32>) -> f32 {
+  let q = fract(p / 73.0) * 73.0;
+  let h = dot(q, vec3<f32>(127.1, 311.7, 74.7)) +
+          dot(q, vec3<f32>(269.5, 183.3, 246.1)) * 0.5 +
+          dot(q, vec3<f32>(113.5, 271.9, 124.6)) * 0.25;
+  return fract(sin(h) * 43758.5453);
+}
+
+// 3-component hash for per-cell jitter (breaks regular grid)
+fn hash33(p: vec3<f32>) -> vec3<f32> {
+  let q = fract(p / 73.0) * 73.0;
+  return fract(sin(vec3<f32>(
+    dot(q, vec3<f32>(127.1, 311.7, 74.7)),
+    dot(q, vec3<f32>(269.5, 183.3, 246.1)),
+    dot(q, vec3<f32>(113.5, 271.9, 124.6)),
+  )) * vec3<f32>(43758.5453));
+}
+
+// Procedural sand grain sparkle — samples several virtual grains and computes
+// micro-facet specular on perturbed normals. Grains that align with the half
+// vector produce bright glints. View/light-dependent for realistic glitter.
+// Uses per-cell jitter and varying grain scales to avoid visible repetition.
+fn sandSparkle(worldPos: vec3<f32>, N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, sandMask: f32) -> vec3<f32> {
+  let baseGrainScale = 120.0;
+  let sparkleSharpness = 80.0;
+  let sparkleIntensity = 0.8;
+  let numSamples = 6u;
+
+  let H = normalize(V + L);
+  var sparkle = vec3<f32>(0.0);
+
+  for (var i = 0u; i < numSamples; i++) {
+    let fi = f32(i);
+    // Vary grain scale per octave — breaks regularity at different frequencies
+    let grainScale = baseGrainScale * (1.0 + fi * 0.37);
+    let cellPos = worldPos * grainScale + vec3<f32>(fi * 17.3, fi * 43.1, fi * 91.7);
+    let cell = floor(cellPos);
+    let fracInCell = fract(cellPos);
+
+    // Per-cell jitter: offset grain center within the cell (breaks regular grid)
+    let jitter = (hash33(cell + vec3<f32>(fi * 7.1)) - 0.5) * 0.7;
+    let grainLocal = fracInCell + jitter;
+
+    // Falloff: grains are tight dots, not full-cell coverage
+    let grainRadius = 0.35 + hash23(cell + vec3<f32>(fi * 3.7)) * 0.3;
+    let grainDist = length(grainLocal);
+    let grainFalloff = smoothstep(grainRadius, 0.0, grainDist);
+
+    // Build tangent basis from surface normal for proper 3D perturbation
+    let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(N.y) < 0.99);
+    let T = normalize(cross(up, N));
+    let B = normalize(cross(N, T));
+
+    // Perturb the surface normal per-grain in tangent space (full 3D)
+    let grainStrength = 0.25;
+    let grainN = normalize(N + (
+      T * (hash23(cell + vec3<f32>(fi * 11.3 + 1.0)) - 0.5) +
+      B * (hash23(cell + vec3<f32>(fi * 11.3 + 2.0)) - 0.5) +
+      N * (hash23(cell + vec3<f32>(fi * 11.3 + 3.0)) - 0.5) * 0.5
+    ) * grainStrength);
+
+    // Micro-facet specular: bright when grain normal aligns with half vector
+    let NdotH = max(dot(grainN, H), 0.0);
+    let glint = pow(NdotH, sparkleSharpness);
+
+    // Random brightness variation per grain
+    let grainBrightness = 0.5 + hash23(cell + vec3<f32>(fi * 5.0 + 5.0)) * 0.5;
+    sparkle += vec3<f32>(glint * grainBrightness * grainFalloff);
+  }
+
+  sparkle = sparkle / f32(numSamples) * sparkleIntensity * sandMask;
+
+  // Slight warm tint for sand grains (quartz-like)
+  return sparkle * vec3<f32>(1.0, 0.95, 0.85);
+}
+
 // PBR island lighting — derives metallic/roughness from vertex color material classification.
-// Sand = rough matte, vegetation = rough organic, rock = medium rough, shoreline = smooth/wet.
+// Sand = rough matte with sparkle, vegetation = rough organic, rock = medium rough, shoreline = smooth/wet.
 fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> vec3<f32> {
   let sunDir = normalize(uniforms.sunDirIntensity.xyz);
   let sunIntensity = uniforms.sunDirIntensity.w;
@@ -889,19 +968,32 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
   let wetMask = (1.0 - sandMask) * (1.0 - vegMask) * smoothstep(0.05, 0.10, r - b);
   let rockMask = (1.0 - sandMask) * (1.0 - vegMask) * (1.0 - wetMask);
 
+  // Wet sand zone — sand near waterline (worldPos.y ≈ 0) transitions to wet
+  let wetSandZoneWidth = 0.02;
+  let wetSandMask = sandMask * smoothstep(wetSandZoneWidth, 0.0, worldPos.y);
+
   // PBR material params from classification
   var roughness = mix(0.9, 0.75, sandMask);
   roughness = mix(roughness, 0.85, vegMask);
   roughness = mix(roughness, 0.15, wetMask);
   roughness = mix(roughness, 0.6, rockMask);
+  // Wet sand: lower roughness for specular reflection
+  roughness = mix(roughness, 0.25, wetSandMask);
 
   var metallic = 0.0;
   metallic = mix(metallic, 0.0, sandMask);
   metallic = mix(metallic, 0.0, vegMask);
   metallic = mix(metallic, 0.1, wetMask); // slight metal for wet specular
   metallic = mix(metallic, 0.0, rockMask);
+  metallic = mix(metallic, 0.15, wetSandMask); // wet sand slight metal
 
-  let albedo = baseColor;
+  // Albedo with wet sand darkening and subtle color variation
+  var albedo = baseColor;
+  // Wet sand darkening (~45% darker)
+  albedo = mix(albedo, albedo * 0.55, wetSandMask);
+  // Subtle per-pixel color noise for sand (±3% warm/cool variation)
+  let sandColorNoise = (hash23(worldPos * 5.0) - 0.5) * 0.06;
+  albedo = albedo + vec3<f32>(sandColorNoise) * sandMask;
   let V = normalize(uniforms.cameraPos - worldPos);
   let NdotV = max(dot(N, V), 0.0);
   let F0 = mix(vec3<f32>(0.04), albedo, metallic);
@@ -929,9 +1021,14 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
   let specIBL = F_ibl * (brdf.x + brdf.y) * irradiance * 0.5;
   color += specIBL;
 
-  // Fresnel sky reflection on wet surfaces (shoreline)
+  // Fresnel sky reflection on wet surfaces (shoreline + wet sand)
   let fresnel = pow(1.0 - NdotV, 5.0);
   color = mix(color, vec3<f32>(0.3, 0.5, 0.75), fresnel * wetMask * 0.3);
+  // Wet sand sky reflection — blend toward sky tint at grazing angles
+  color = mix(color, skyTint, fresnel * wetSandMask * 0.4);
+
+  // Sand grain sparkle — view/light-dependent procedural glitter
+  color += sandSparkle(worldPos, N, V, L, sandMask * (1.0 - wetSandMask));
 
   // Dynamic lights (PBR)
   color += applyPBRDynamicLights(N, worldPos, V, albedo, F0, roughness, metallic);
