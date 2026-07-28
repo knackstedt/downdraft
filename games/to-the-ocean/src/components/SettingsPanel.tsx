@@ -1,16 +1,16 @@
-import React from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Gamepad2,
-  Volume2,
-  Monitor,
-  Keyboard,
-  Play,
-  LogOut,
-  type LucideIcon,
+    Gamepad2,
+    Keyboard,
+    LogOut,
+    Monitor,
+    Play,
+    Volume2,
+    type LucideIcon,
 } from "lucide-react";
-import { useGameStore } from "../stores/gameStore";
+import React from "react";
 import { simBridge } from "../simBridge";
+import { useGameStore } from "../stores/gameStore";
 
 type TabId = "gameplay" | "audio" | "graphics" | "controls";
 
@@ -38,6 +38,7 @@ export default function SettingsPanel() {
     splitscreen: "1p",
     hudOpacity: 1.0,
     collisionLodDistance: 250,
+    reticleSize: 80,
     // Audio
     masterVolume: 0.8,
     musicVolume: 0.6,
@@ -92,6 +93,8 @@ export default function SettingsPanel() {
     setSettings((s) => ({ ...s, [key]: value }));
 
   const handleResume = () => {
+    const s = useGameStore.getState();
+    if (s.showPauseMenu) s.togglePauseMenu();
     toggle();
   };
 
@@ -344,6 +347,16 @@ function GameplayTab({ settings, update }: TabProps) {
           simBridge.setSetting("collisionLodDistance", v);
         }}
         unit="m"
+      />
+      <SettingSlider
+        label="Reticle Size"
+        value={settings.reticleSize}
+        min={20} max={160} step={4}
+        onChange={(v) => {
+          update("reticleSize", v);
+          useGameStore.getState().setReticleSize(v);
+        }}
+        unit="px"
       />
     </>
   );
