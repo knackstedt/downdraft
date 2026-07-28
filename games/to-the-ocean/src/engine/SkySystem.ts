@@ -2,9 +2,9 @@
 // Sky System — sky dome with day/night cycle, weather, stars
 // ============================================================================
 
+import { WeatherType } from "@shared/types";
 import { CameraState } from "./CameraSystem";
 import { calculateViewProj } from "./mathUtils";
-import { WeatherType } from "@shared/types";
 
 const SKY_WGSL = /* wgsl */ `
 struct Uniforms {
@@ -386,6 +386,7 @@ export class SkySystem {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,

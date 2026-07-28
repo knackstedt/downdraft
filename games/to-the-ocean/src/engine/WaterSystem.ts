@@ -2,10 +2,10 @@
 // Water System — flat-shaded low-poly water
 // ============================================================================
 
+import { WeatherType } from "@shared/types";
 import { WaterBufferReader } from "@shared/water-buffer";
 import { CameraState } from "./CameraSystem";
 import { calculateViewProj } from "./mathUtils";
-import { WeatherType } from "@shared/types";
 
 // --- Shared WGSL preamble (structs, bindings, common helpers) ---
 const PREAMBLE = /* wgsl */ `
@@ -695,6 +695,7 @@ export class WaterSystem {
         targets: [{ format: this.format, blend: blendState }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,

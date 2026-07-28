@@ -2,9 +2,9 @@
 // Particle System — rain, snow, splashes, bioluminescent particles
 // ============================================================================
 
+import { WeatherType } from "@shared/types";
 import { CameraState } from "./CameraSystem";
 import { calculateViewProj } from "./mathUtils";
-import { WeatherType } from "@shared/types";
 
 const PARTICLE_WGSL = /* wgsl */ `
 struct Uniforms {
@@ -158,6 +158,7 @@ export class ParticleSystem {
         }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,

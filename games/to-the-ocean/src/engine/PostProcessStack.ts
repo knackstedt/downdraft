@@ -28,60 +28,112 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 fn lum(c: vec3<f32>) -> f32 { return dot(c, vec3(0.299, 0.587, 0.114)); }
 `;
 
-// ── FXAA ────────────────────────────────────────────────────────────────────
+// ── FXAA 3.11 (NVIDIA, ported to WGSL) ──────────────────────────────────────
 const FXAA_FS = /* wgsl */ `
 struct U { texelSize: vec2<f32>, _p0: f32, _p1: f32, _p2: f32, _p3: f32, _p4: f32, _p5: f32, _p6: f32, };
 @group(0) @binding(0) var colorTex: texture_2d<f32>;
 @group(0) @binding(1) var dummyTex: texture_2d<f32>;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var<uniform> u: U;
+
+fn FxaaContrast(a: vec4<f32>, b: vec4<f32>) -> f32 {
+  let d = abs(a - b);
+  return max(max(max(d.r, d.g), d.b), d.a);
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  let uv = input.uv;
-  let t = u.texelSize;
-  let cM = textureSample(colorTex, samp, uv);
-  let cN = textureSample(colorTex, samp, uv + vec2(0.0, -t.y));
-  let cS = textureSample(colorTex, samp, uv + vec2(0.0,  t.y));
-  let cW = textureSample(colorTex, samp, uv + vec2(-t.x, 0.0));
-  let cE = textureSample(colorTex, samp, uv + vec2( t.x, 0.0));
-  let cNE = textureSample(colorTex, samp, uv + vec2( t.x, -t.y));
-  let cNW = textureSample(colorTex, samp, uv + vec2(-t.x, -t.y));
-  let cSE = textureSample(colorTex, samp, uv + vec2( t.x,  t.y));
-  let cSW = textureSample(colorTex, samp, uv + vec2(-t.x,  t.y));
-  let cP1H = textureSample(colorTex, samp, uv + vec2(0.0, t.y * 0.5));
-  let cP2H = textureSample(colorTex, samp, uv - vec2(0.0, t.y * 0.5));
-  let cP1V = textureSample(colorTex, samp, uv + vec2(t.x * 0.5, 0.0));
-  let cP2V = textureSample(colorTex, samp, uv - vec2(t.x * 0.5, 0.0));
+  let posM = input.uv;
+  let rcpFrame = u.texelSize;
 
-  let lM = lum(cM.rgb);
-  let lN = lum(cN.rgb);
-  let lS = lum(cS.rgb);
-  let lW = lum(cW.rgb);
-  let lE = lum(cE.rgb);
-  let lNE = lum(cNE.rgb);
-  let lNW = lum(cNW.rgb);
-  let lSE = lum(cSE.rgb);
-  let lSW = lum(cSW.rgb);
+  let rgbaM = textureSample(colorTex, samp, posM);
+  let rgbaS = textureSample(colorTex, samp, posM + vec2(0.0, rcpFrame.y));
+  let rgbaE = textureSample(colorTex, samp, posM + vec2(rcpFrame.x, 0.0));
+  let rgbaN = textureSample(colorTex, samp, posM + vec2(0.0, -rcpFrame.y));
+  let rgbaW = textureSample(colorTex, samp, posM + vec2(-rcpFrame.x, 0.0));
 
-  let lMin = min(lM, min(min(lN, lS), min(lW, lE)));
-  let lMax = max(lM, max(max(lN, lS), max(lW, lE)));
-  let lRange = lMax - lMin;
-  let skipLow = lRange < max(0.0312, 0.125 * lMax);
+  // Early exit — skip flat areas
+  let earlyExit = max(max(max(
+    FxaaContrast(rgbaM, rgbaN),
+    FxaaContrast(rgbaM, rgbaS)),
+    FxaaContrast(rgbaM, rgbaE)),
+    FxaaContrast(rgbaM, rgbaW)) < 0.2;
+  if (earlyExit) { return rgbaM; }
 
-  let edgeH = abs(-2.0 * lW + (lNE + lNW)) + abs(2.0 * lE + (lSE + lSW));
-  let edgeV = abs(-2.0 * lN + (lNE + lNW)) + abs(2.0 * lS + (lSE + lSW));
-  let isH = edgeH >= edgeV;
-  let l1 = select(lN, lW, isH);
-  let l2 = select(lS, lE, isH);
-  let grad = abs(l1 - lM) + abs(l2 - lM);
-  let skipGrad = grad < 0.125 * lRange;
+  let contrastN = FxaaContrast(rgbaM, rgbaN);
+  let contrastS = FxaaContrast(rgbaM, rgbaS);
+  let contrastE = FxaaContrast(rgbaM, rgbaE);
+  let contrastW = FxaaContrast(rgbaM, rgbaW);
 
-  let cP1 = select(cP1H, cP1V, isH);
-  let cP2 = select(cP2H, cP2V, isH);
-  let blend = clamp(0.5 + 0.5 * grad / lRange, 0.0, 1.0);
-  let aaColor = mix(cM, (cP1 + cP2) * 0.5, blend * 0.5);
+  var relativeVContrast = (contrastN + contrastS) - (contrastE + contrastW);
+  relativeVContrast = relativeVContrast * 5.0; // invEdgeThreshold = 1/0.2
 
-  return select(select(aaColor, cM, skipGrad), cM, skipLow);
+  var horzSpan = relativeVContrast > 0.0;
+
+  // 45-degree edge detection
+  if (abs(relativeVContrast) < 0.3) {
+    let dirToEdgeX = select(-1.0, 1.0, contrastE > contrastW);
+    let dirToEdgeY = select(-1.0, 1.0, contrastS > contrastN);
+
+    let rgbaAlongH = textureSample(colorTex, samp, posM + vec2(dirToEdgeX, -dirToEdgeY) * rcpFrame);
+    let matchAlongH = FxaaContrast(rgbaM, rgbaAlongH);
+
+    let rgbaAlongV = textureSample(colorTex, samp, posM + vec2(-dirToEdgeX, dirToEdgeY) * rcpFrame);
+    let matchAlongV = FxaaContrast(rgbaM, rgbaAlongV);
+
+    relativeVContrast = (matchAlongV - matchAlongH) * 5.0;
+    if (abs(relativeVContrast) < 0.3) {
+      // 45-degree edge — simple 4-tap blur
+      return mix(rgbaM, (rgbaN + rgbaS + rgbaE + rgbaW) * 0.25, 0.4);
+    }
+    horzSpan = relativeVContrast > 0.0;
+  }
+
+  // If vertical edge, swap N/S with W/E
+  var rgbaN2 = select(rgbaN, rgbaW, horzSpan);
+  var rgbaS2 = select(rgbaS, rgbaE, horzSpan);
+
+  // Pick the side with higher contrast
+  let pairN = FxaaContrast(rgbaM, rgbaN2) > FxaaContrast(rgbaM, rgbaS2);
+  if (!pairN) { rgbaN2 = rgbaS2; }
+
+  let offNPX = select(0.0, rcpFrame.x, horzSpan);
+  let offNPY = select(rcpFrame.y, 0.0, horzSpan);
+
+  // Walk along the edge to find its end
+  var doneN = false;
+  var doneP = false;
+  var nDist = 0.0;
+  var pDist = 0.0;
+  var posN = posM;
+  var posP = posM;
+
+  for (var i = 0u; i < 5u; i++) {
+    let inc = f32(i + 1u);
+    if (!doneN) {
+      nDist = nDist + inc;
+      posN = posM + vec2(offNPX, offNPY) * nDist;
+      let rgbaEndN = textureSample(colorTex, samp, posN);
+      doneN = FxaaContrast(rgbaEndN, rgbaM) > FxaaContrast(rgbaEndN, rgbaN2);
+    }
+    if (!doneP) {
+      pDist = pDist + inc;
+      posP = posM - vec2(offNPX, offNPY) * pDist;
+      let rgbaEndP = textureSample(colorTex, samp, posP);
+      doneP = FxaaContrast(rgbaEndP, rgbaM) > FxaaContrast(rgbaEndP, rgbaN2);
+    }
+    if (doneN || doneP) { break; }
+  }
+
+  if (!doneN && !doneP) { return rgbaM; }
+
+  // Blend factor: closer edge end → stronger anti-aliasing
+  let span = nDist + pDist;
+  var dist = min(nDist, pDist) / max(span, 0.001);
+  dist = 1.0 - dist;
+  dist = sqrt(dist);
+
+  return mix(rgbaM, rgbaN2, dist * 0.5);
 }
 `;
 
@@ -89,13 +141,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 const DOF_FS = /* wgsl */ `
 struct U { texelSize: vec2<f32>, focusDist: f32, focusRange: f32, maxBlur: f32, _p0: f32, _p1: f32, _p2: f32, _p3: f32, };
 @group(0) @binding(0) var colorTex: texture_2d<f32>;
-@group(0) @binding(1) var depthTex: texture_depth_2d;
+@group(0) @binding(1) var depthTex: texture_depth_2d_multisampled;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var<uniform> u: U;
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let uv = input.uv;
-  let depth = textureSample(depthTex, samp, uv);
+  let dims = textureDimensions(depthTex);
+  let coords = vec2<i32>(uv * vec2<f32>(dims));
+  let depth = textureLoad(depthTex, coords, 0);
   let coc = clamp(abs(depth - u.focusDist) / u.focusRange, 0.0, 1.0);
   let sharp = textureSample(colorTex, samp, uv);
   var color = vec3(0.0);
@@ -279,9 +333,11 @@ export class PostProcessStack {
   private blitUniform: GPUBuffer | null = null;
 
   // Scene render targets (full-res)
-  private sceneColor: GPUTexture | null = null;
-  private sceneDepth: GPUTexture | null = null;
+  private sceneColor: GPUTexture | null = null; // non-MSAA resolve target
+  private sceneDepth: GPUTexture | null = null; // MSAA depth (4x)
+  private msaaColor: GPUTexture | null = null;  // MSAA color (4x)
   private texW = 0; private texH = 0;
+  static readonly SAMPLE_COUNT = 4;
 
   // Ping-pong textures for chaining
   private pingPong: [GPUTexture | null, GPUTexture | null] = [null, null];
@@ -341,7 +397,7 @@ export class PostProcessStack {
     this.cdLayout = this.device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth", multisampled: true } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "non-filtering" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       ],
@@ -447,6 +503,7 @@ export class PostProcessStack {
     if (w === this.texW && h === this.texH && this.sceneColor) return;
     this.sceneColor?.destroy();
     this.sceneDepth?.destroy();
+    this.msaaColor?.destroy();
     this.pingPong[0]?.destroy();
     this.pingPong[1]?.destroy();
     this.afterimageTex?.destroy();
@@ -456,8 +513,16 @@ export class PostProcessStack {
 
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
       | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
+    const msaaUsage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    const sc = PostProcessStack.SAMPLE_COUNT;
+
+    // Non-MSAA resolve target (post-processing reads from this)
     this.sceneColor = this.device.createTexture({ size: [w, h], format: this.format, usage });
-    this.sceneDepth = this.device.createTexture({ size: [w, h], format: "depth32float", usage });
+    // MSAA depth (used as depth attachment and for DOF reads)
+    this.sceneDepth = this.device.createTexture({ size: [w, h], format: "depth32float", usage: msaaUsage, sampleCount: sc });
+    // MSAA color (render target, resolved to sceneColor)
+    this.msaaColor = this.device.createTexture({ size: [w, h], format: this.format, usage: msaaUsage, sampleCount: sc });
+
     this.pingPong[0] = this.device.createTexture({ size: [w, h], format: this.format, usage });
     this.pingPong[1] = this.device.createTexture({ size: [w, h], format: this.format, usage });
     this.afterimageTex = this.device.createTexture({ size: [w, h], format: this.format, usage });
@@ -476,9 +541,26 @@ export class PostProcessStack {
     return this.sceneColor.createView();
   }
 
+  getMSAAColorView(): GPUTextureView {
+    if (!this.msaaColor) throw new Error("PostProcess targets not created");
+    return this.msaaColor.createView();
+  }
+
   getSceneDepthView(): GPUTextureView {
     if (!this.sceneDepth) throw new Error("PostProcess targets not created");
     return this.sceneDepth.createView();
+  }
+
+  getSampleCount(): number {
+    return PostProcessStack.SAMPLE_COUNT;
+  }
+
+  blitToCanvas(
+    encoder: GPUCommandEncoder,
+    canvasView: GPUTextureView,
+    w: number, h: number,
+  ): void {
+    this.applyBlit(encoder, this.sceneColor!.createView(), canvasView, w, h);
   }
 
   // ── Apply the chain ──
@@ -779,6 +861,7 @@ export class PostProcessStack {
   destroy(): void {
     this.sceneColor?.destroy();
     this.sceneDepth?.destroy();
+    this.msaaColor?.destroy();
     this.pingPong[0]?.destroy();
     this.pingPong[1]?.destroy();
     this.afterimageTex?.destroy();

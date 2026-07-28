@@ -621,24 +621,29 @@ export class WebGPURenderer {
       const postEncoder = this.device!.createCommandEncoder();
       this.pixelationSystem!.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
       this.device!.queue.submit([postEncoder.finish()]);
-    } else if (usePostProcess) {
+    } else {
+      // Always render offscreen with MSAA, even when no post-processing effects are active
       this.postProcessStack!.ensureTargets(this.canvas.width, this.canvas.height);
       for (let v = 0; v < this.viewportCount; v++) {
         this.renderViewport(v, dt, "postprocess");
       }
       const canvasView = this.context!.getCurrentTexture().createView();
       const postEncoder = this.device!.createCommandEncoder();
-      this.postProcessStack!.applyChain(
-        postEncoder,
-        this.postProcessStack!.getSceneDepthView(),
-        canvasView,
-        this.canvas.width, this.canvas.height,
-      );
-      this.device!.queue.submit([postEncoder.finish()]);
-    } else {
-      for (let v = 0; v < this.viewportCount; v++) {
-        this.renderViewport(v, dt, "none");
+      if (usePostProcess) {
+        this.postProcessStack!.applyChain(
+          postEncoder,
+          this.postProcessStack!.getSceneDepthView(),
+          canvasView,
+          this.canvas.width, this.canvas.height,
+        );
+      } else {
+        this.postProcessStack!.blitToCanvas(
+          postEncoder,
+          canvasView,
+          this.canvas.width, this.canvas.height,
+        );
       }
+      this.device!.queue.submit([postEncoder.finish()]);
     }
 
     requestAnimationFrame(this.render);
@@ -1075,10 +1080,11 @@ export class WebGPURenderer {
     this.entityRenderer!.dispatchSkinningCompute(encoder);
 
     // Render pass: sky + water + terrain + entities + particles
+    // For postprocess mode: render to MSAA color, resolve to non-MSAA sceneColor
     const colorView = offscreenMode === "pixelation"
       ? this.pixelationSystem!.getOffscreenColorView()
       : offscreenMode === "postprocess"
-      ? this.postProcessStack!.getSceneColorView()
+      ? this.postProcessStack!.getMSAAColorView()
       : this.context!.getCurrentTexture().createView();
 
     const depthView = offscreenMode === "pixelation"
@@ -1092,13 +1098,22 @@ export class WebGPURenderer {
     const isFirst = viewportIdx === 0;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
 
+    const colorAttachment: GPURenderPassColorAttachment = {
+      view: colorView,
+      clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 },
+      loadOp,
+      storeOp: "store" as GPUStoreOp,
+    };
+
+    // MSAA resolve target for offscreen modes
+    if (offscreenMode === "postprocess") {
+      colorAttachment.resolveTarget = this.postProcessStack!.getSceneColorView();
+    } else if (offscreenMode === "pixelation") {
+      colorAttachment.resolveTarget = this.pixelationSystem!.getResolveColorView();
+    }
+
     const passEncoder = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: colorView,
-        clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 },
-        loadOp,
-        storeOp: "store" as GPUStoreOp,
-      }],
+      colorAttachments: [colorAttachment],
       depthStencilAttachment: {
         view: depthView,
         depthClearValue: 1.0,

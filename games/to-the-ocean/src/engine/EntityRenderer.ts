@@ -1759,6 +1759,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,
@@ -1819,6 +1820,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,
@@ -1846,6 +1848,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,
@@ -1875,6 +1878,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,
@@ -1910,6 +1914,7 @@ export class EntityRenderer {
         }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,
@@ -1995,6 +2000,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,
@@ -2075,6 +2081,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,
@@ -2104,6 +2111,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,
@@ -2132,6 +2140,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,
@@ -2305,6 +2314,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,
@@ -2399,6 +2409,7 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "line-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,

@@ -4,19 +4,19 @@
 // and highlights the hit entity's wireframe. Visible in 3rd-person & freecam.
 // ============================================================================
 
-import { SimBufferReader, ENT, PLR } from "@shared/sim-buffer";
 import { BoatBufferReader } from "@shared/boat-buffer";
-import { CameraMode, EntityType } from "@shared/types";
 import {
-  PLAYER_EYE_HEIGHT,
-  BOAT_CELL_WORLD_SIZE,
-  BOAT_LAYER_HEIGHT,
-  getCellGeometry,
-  hasSolidCollision,
-  isWalkableSurface,
+    BOAT_CELL_WORLD_SIZE,
+    BOAT_LAYER_HEIGHT,
+    getCellGeometry,
+    hasSolidCollision,
+    isWalkableSurface,
+    PLAYER_EYE_HEIGHT,
 } from "@shared/constants";
-import { calculateViewProj } from "./mathUtils";
+import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
+import { CameraMode, EntityType } from "@shared/types";
 import type { CameraState } from "./CameraSystem";
+import { calculateViewProj } from "./mathUtils";
 
 const RAY_MAX_DIST = 60; // matches GUN_RANGE
 const RAY_THICKNESS = 0.06; // world-space half-extent of the ray box cross-section
@@ -190,6 +190,7 @@ export class DebugRaycast {
       vertex: vertexState,
       fragment: fragmentState,
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: depthState,
     });
 
@@ -199,6 +200,7 @@ export class DebugRaycast {
       vertex: vertexState,
       fragment: fragmentState,
       primitive: { topology: "line-list" },
+      multisample: { count: 4 },
       depthStencil: depthState,
     });
 

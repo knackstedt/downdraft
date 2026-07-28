@@ -172,6 +172,7 @@ export class TerrainSystem {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,

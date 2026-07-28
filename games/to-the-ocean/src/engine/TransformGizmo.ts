@@ -3,9 +3,9 @@
 // Supports omnidirectional drag (center sphere) and per-axis manipulation
 // ============================================================================
 
-import { CameraState } from "./CameraSystem";
-import { calculateViewProj, invertMat4, transformVec4, normalize3, dot3 } from "./mathUtils";
 import type { GizmoMode } from "../stores/sceneStore";
+import { CameraState } from "./CameraSystem";
+import { calculateViewProj, dot3, invertMat4, normalize3, transformVec4 } from "./mathUtils";
 
 const GIZMO_WGSL = /* wgsl */ `
 struct GizmoUniforms {
@@ -174,6 +174,7 @@ export class TransformGizmo {
         ],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,

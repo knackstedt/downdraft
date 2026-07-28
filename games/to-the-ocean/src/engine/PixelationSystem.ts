@@ -21,7 +21,7 @@ struct PostProcessUniforms {
 };
 
 @group(0) @binding(0) var colorTex: texture_2d<f32>;
-@group(0) @binding(1) var depthTex: texture_depth_2d;
+@group(0) @binding(1) var depthTex: texture_depth_2d_multisampled;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var<uniform> uniforms: PostProcessUniforms;
 
@@ -46,13 +46,19 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let texel = textureSample(colorTex, samp, input.uv);
-  let depth = textureSample(depthTex, samp, input.uv);
+  let dims = textureDimensions(depthTex);
+  let coords = vec2<i32>(input.uv * vec2<f32>(dims));
+  let depth = textureLoad(depthTex, coords, 0);
 
   // Depth edge detection — sample 4 neighbours
-  let depthR = textureSample(depthTex, samp, input.uv + vec2(uniforms.texelSize.x, 0.0));
-  let depthL = textureSample(depthTex, samp, input.uv - vec2(uniforms.texelSize.x, 0.0));
-  let depthU = textureSample(depthTex, samp, input.uv + vec2(0.0, uniforms.texelSize.y));
-  let depthD = textureSample(depthTex, samp, input.uv - vec2(0.0, uniforms.texelSize.y));
+  let coordsR = vec2<i32>(clamp(vec2<f32>(coords) + vec2<f32>(1.0, 0.0), vec2<f32>(0.0), vec2<f32>(dims - 1)));
+  let coordsL = vec2<i32>(clamp(vec2<f32>(coords) - vec2<f32>(1.0, 0.0), vec2<f32>(0.0), vec2<f32>(dims - 1)));
+  let coordsU = vec2<i32>(clamp(vec2<f32>(coords) + vec2<f32>(0.0, 1.0), vec2<f32>(0.0), vec2<f32>(dims - 1)));
+  let coordsD = vec2<i32>(clamp(vec2<f32>(coords) - vec2<f32>(0.0, 1.0), vec2<f32>(0.0), vec2<f32>(dims - 1)));
+  let depthR = textureLoad(depthTex, coordsR, 0);
+  let depthL = textureLoad(depthTex, coordsL, 0);
+  let depthU = textureLoad(depthTex, coordsU, 0);
+  let depthD = textureLoad(depthTex, coordsD, 0);
 
   var diff = 0.0;
   diff += clamp(depthR - depth, 0.0, 1.0);
@@ -78,10 +84,12 @@ export class PixelationSystem {
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
 
-  private offscreenColor: GPUTexture | null = null;
-  private offscreenDepth: GPUTexture | null = null;
+  private offscreenColor: GPUTexture | null = null; // non-MSAA resolve target
+  private offscreenDepth: GPUTexture | null = null;  // MSAA depth (4x)
+  private msaaColor: GPUTexture | null = null;       // MSAA color (4x)
   private lowResWidth = 0;
   private lowResHeight = 0;
+  static readonly SAMPLE_COUNT = 4;
 
   private pixelSize = 6;
   private depthEdgeStrength = 0.4;
@@ -111,7 +119,7 @@ export class PixelationSystem {
     this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth", multisampled: true } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "non-filtering" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       ],
@@ -167,17 +175,32 @@ export class PixelationSystem {
 
     this.offscreenColor?.destroy();
     this.offscreenDepth?.destroy();
+    this.msaaColor?.destroy();
 
+    const sc = PixelationSystem.SAMPLE_COUNT;
+    const msaaUsage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+
+    // Non-MSAA resolve target (post-process reads from this)
     this.offscreenColor = this.device.createTexture({
       size: [w, h],
       format: this.format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
+    // MSAA depth
     this.offscreenDepth = this.device.createTexture({
       size: [w, h],
       format: "depth32float",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      usage: msaaUsage,
+      sampleCount: sc,
+    });
+
+    // MSAA color (render target, resolved to offscreenColor)
+    this.msaaColor = this.device.createTexture({
+      size: [w, h],
+      format: this.format,
+      usage: msaaUsage,
+      sampleCount: sc,
     });
 
     this.lowResWidth = w;
@@ -195,7 +218,12 @@ export class PixelationSystem {
   }
 
   getOffscreenColorView(): GPUTextureView {
-    if (!this.offscreenColor) throw new Error("Offscreen color texture not created");
+    if (!this.msaaColor) throw new Error("Offscreen color texture not created");
+    return this.msaaColor.createView();
+  }
+
+  getResolveColorView(): GPUTextureView {
+    if (!this.offscreenColor) throw new Error("Offscreen resolve texture not created");
     return this.offscreenColor.createView();
   }
 
@@ -249,8 +277,10 @@ export class PixelationSystem {
   destroy(): void {
     this.offscreenColor?.destroy();
     this.offscreenDepth?.destroy();
+    this.msaaColor?.destroy();
     this.offscreenColor = null;
     this.offscreenDepth = null;
+    this.msaaColor = null;
     this.uniformBuffer?.destroy();
   }
 }

@@ -137,6 +137,7 @@ export class UnderwaterFogSystem {
         }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,

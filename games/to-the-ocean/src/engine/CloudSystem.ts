@@ -10,7 +10,7 @@ import {
   generateCloudLayerField,
 } from "@shared/CloudGenerator";
 import { extractCloudMesh } from "@shared/MarchingCubes";
-import { ExtractedMesh, VoxelField } from "@shared/TerrainTypes";
+import { ExtractedMesh } from "@shared/TerrainTypes";
 import { WeatherType } from "@shared/types";
 import { CameraState } from "./CameraSystem";
 import { calculateViewProj } from "./mathUtils";
@@ -219,6 +219,7 @@ export class CloudSystem {
         }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,

@@ -3,10 +3,9 @@
 // Uses a read-only storage buffer shared across all entity pipelines.
 // ============================================================================
 
-import { WeatherType } from "@shared/types";
+import type { CameraState } from "./CameraSystem";
 import { LightingSystem } from "./LightingSystem";
 import { calculateViewProj } from "./mathUtils";
-import type { CameraState } from "./CameraSystem";
 
 export const MAX_POINT_LIGHTS = 32;
 export const MAX_SPOT_LIGHTS = 8;
@@ -335,6 +334,7 @@ export class LightSystem extends LightingSystem {
         } }],
       },
       primitive: { topology: "line-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: false,

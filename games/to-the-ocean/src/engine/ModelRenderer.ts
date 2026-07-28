@@ -4,7 +4,7 @@
 
 import { CameraState } from "./CameraSystem";
 import { calculateViewProj } from "./mathUtils";
-import type { MeshData, MaterialData } from "./ModelLoader";
+import type { MaterialData, MeshData } from "./ModelLoader";
 
 const MODEL_WGSL = /* wgsl */ `
 struct Uniforms {
@@ -192,6 +192,7 @@ export class ModelRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: 4 },
       depthStencil: {
         format: "depth32float",
         depthWriteEnabled: true,
