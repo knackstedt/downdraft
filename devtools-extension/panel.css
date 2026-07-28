@@ -1133,3 +1133,58 @@ input[type="number"]:focus, input[type="text"]:focus {
   color: #dcdcaa;
   font-family: monospace;
 }
+
+/* --- Performance Panel --- */
+
+#perf-panel {
+  padding: 8px 12px;
+  overflow-y: auto;
+  height: calc(100vh - 28px);
+}
+
+.perf-status {
+  margin-left: 12px;
+  color: #888;
+  font-size: 11px;
+}
+
+#perf-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.perf-chart-group {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.perf-chart-group h4 {
+  margin: 0 0 6px 0;
+  font-size: 11px;
+  color: #ccc;
+  font-weight: normal;
+}
+
+.perf-chart {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  background: #1a1a2e;
+  border-radius: 2px;
+}
+
+.perf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 10px;
+}
+
+.legend-item {
+  white-space: nowrap;
+}

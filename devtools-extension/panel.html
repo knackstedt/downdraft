@@ -12,6 +12,7 @@
       <button id="btn-boat-layout" class="tab" title="Boat layout view">Boat Layout</button>
       <button id="btn-view-import" class="tab" title="Import models">Import</button>
       <button id="btn-view-world" class="tab" title="World map controls">World</button>
+      <button id="btn-view-perf" class="tab" title="External performance charts">Performance</button>
       <div class="tab-spacer"></div>
       <button id="btn-overlays-menu" class="tab" title="Debug overlay toggles">Overlays &#9662;</button>
     </div>
@@ -180,6 +181,35 @@
         <div class="debug-section">
           <h4>Active Islands (<span id="world-island-count">0</span>)</h4>
           <div id="world-island-list" class="world-entity-list"></div>
+        </div>
+      </div>
+
+      <div id="perf-panel" style="display:none">
+        <div class="panel-header">
+          <h3>External Performance</h3>
+          <span id="perf-status" class="perf-status">Waiting for data...</span>
+        </div>
+        <div id="perf-charts">
+          <div class="perf-chart-group">
+            <h4>Total GPU Utilization</h4>
+            <canvas id="perf-chart-gpu" class="perf-chart" width="600" height="120"></canvas>
+            <div id="perf-legend-gpu" class="perf-legend"></div>
+          </div>
+          <div class="perf-chart-group">
+            <h4>Renderer — CPU / Mem / Disk / Network / GC</h4>
+            <canvas id="perf-chart-renderer" class="perf-chart" width="600" height="140"></canvas>
+            <div id="perf-legend-renderer" class="perf-legend"></div>
+          </div>
+          <div class="perf-chart-group">
+            <h4>Main Process — CPU / Mem / Disk / Network / GC</h4>
+            <canvas id="perf-chart-main" class="perf-chart" width="600" height="140"></canvas>
+            <div id="perf-legend-main" class="perf-legend"></div>
+          </div>
+          <div class="perf-chart-group">
+            <h4>Worker — CPU / Mem / Disk / Network / GC</h4>
+            <canvas id="perf-chart-worker" class="perf-chart" width="600" height="140"></canvas>
+            <div id="perf-legend-worker" class="perf-legend"></div>
+          </div>
         </div>
       </div>
 

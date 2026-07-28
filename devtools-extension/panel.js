@@ -1479,6 +1479,12 @@
   var simStateEl = document.getElementById("sim-state");
   var physicsStatsEl = document.getElementById("physics-stats");
   var playerStatsEl = document.getElementById("player-stats");
+  var btnViewPerf = document.getElementById("btn-view-perf");
+  var perfPanel = document.getElementById("perf-panel");
+  var perfStatusEl = document.getElementById("perf-status");
+  var perfTimer = null;
+  var perfHistory = { gpu: [], renderer: [], main: [], worker: [] };
+  var PERF_MAX_POINTS = 60;
 
   function switchView(view) {
     currentView = view;
@@ -1488,6 +1494,7 @@
     btnBoatLayout.classList.toggle("active", view === "boat");
     btnViewImport.classList.toggle("active", view === "import");
     btnViewWorld.classList.toggle("active", view === "world");
+    btnViewPerf.classList.toggle("active", view === "perf");
     // Show/hide scene toolbar (only for scene tab)
     sceneToolbarEl.classList.toggle("hidden", view !== "scene");
     // Show/hide panels
@@ -1496,6 +1503,7 @@
     boatLayoutPanel.style.display = view === "boat" ? "flex" : "none";
     importPanel.style.display = view === "import" ? "block" : "none";
     worldPanel.style.display = view === "world" ? "block" : "none";
+    perfPanel.style.display = view === "perf" ? "block" : "none";
     // Manage timers
     if (view === "debug") {
       refreshDebugInfo();
@@ -1518,6 +1526,21 @@
     if (view === "import" && availableModels.length === 0) {
       scanAvailableModels();
     }
+    if (view === "perf") {
+      evalInPage(
+        "window.__sceneInspector ? window.__sceneInspector.enablePerformanceMonitoring() : null",
+        function () {
+          refreshPerf();
+          if (!perfTimer) perfTimer = setInterval(refreshPerf, 1000);
+        },
+      );
+    } else {
+      if (perfTimer) { clearInterval(perfTimer); perfTimer = null; }
+      evalInPage(
+        "window.__sceneInspector ? window.__sceneInspector.disablePerformanceMonitoring() : null",
+        function () {},
+      );
+    }
   }
 
   btnViewScene.addEventListener("click", function () { switchView("scene"); });
@@ -1529,6 +1552,9 @@
   });
   btnDebugInfo.addEventListener("click", function () {
     if (currentView === "debug") { switchView("scene"); } else { switchView("debug"); }
+  });
+  btnViewPerf.addEventListener("click", function () {
+    if (currentView === "perf") { switchView("scene"); } else { switchView("perf"); }
   });
 
   // --- Toggles (scene overlays, not view tabs) ---
@@ -2025,6 +2051,155 @@
   var btnRefreshWorld = document.getElementById("btn-refresh-world");
   if (btnRefreshWorld) {
     btnRefreshWorld.addEventListener("click", refreshWorldPanel);
+  }
+
+  // --- External Performance Charts ---
+
+  var PERF_COLORS = {
+    cpu: "#56b6c2",
+    mem: "#e5c07b",
+    disk: "#d19a66",
+    network: "#c678dd",
+    gc: "#e06c75",
+    gpu: "#98c379",
+  };
+
+  function pushPerfHistory(key, point) {
+    var arr = perfHistory[key];
+    arr.push(point);
+    if (arr.length > PERF_MAX_POINTS) arr.shift();
+  }
+
+  function refreshPerf() {
+    evalInPage(
+      "window.__sceneInspector ? JSON.stringify(window.__sceneInspector.getPerformanceMetrics()) : null",
+      function (result, err) {
+        if (err || !result) {
+          perfStatusEl.textContent = "Not available — is debug mode enabled?";
+          return;
+        }
+        try {
+          var m = JSON.parse(result);
+          if (!m) {
+            perfStatusEl.textContent = "Not available";
+            return;
+          }
+
+          perfStatusEl.textContent =
+            "GPU: " + fmtVal(m.gpu.fps, 0) + " FPS / " + fmtVal(m.gpu.utilization, 1) + "%  |  " +
+            "R: " + fmtVal(m.renderer.cpuPercent, 0) + "%  " +
+            "M: " + fmtVal(m.main.cpuPercent, 0) + "%  " +
+            "W: " + fmtVal(m.worker.cpuPercent, 0) + "%";
+
+          pushPerfHistory("gpu", { utilization: m.gpu.utilization, fps: m.gpu.fps });
+          pushPerfHistory("renderer", m.renderer);
+          pushPerfHistory("main", m.main);
+          pushPerfHistory("worker", m.worker);
+
+          drawGpuChart();
+          drawProcessChart("renderer", "perf-chart-renderer", "perf-legend-renderer");
+          drawProcessChart("main", "perf-chart-main", "perf-legend-main");
+          drawProcessChart("worker", "perf-chart-worker", "perf-legend-worker");
+        } catch (e) {
+          perfStatusEl.textContent = "Error: " + String(e);
+        }
+      },
+    );
+  }
+
+  function drawLine(ctx, data, color, maxVal, w, h) {
+    if (!data || data.length === 0) return;
+    var padL = 40, padR = 8, padT = 8, padB = 16;
+    var plotW = w - padL - padR;
+    var plotH = h - padT - padB;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (var i = 0; i < data.length; i++) {
+      var x = padL + (plotW * i) / (PERF_MAX_POINTS - 1);
+      var v = Math.min(maxVal, data[i]);
+      var y = padT + plotH - (plotH * v) / maxVal;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function drawAxis(ctx, w, h, maxVal, unit) {
+    var padL = 40, padR = 8, padT = 8, padB = 16;
+    var plotH = h - padT - padB;
+    ctx.strokeStyle = "#3e3e3e";
+    ctx.fillStyle = "#888";
+    ctx.font = "10px monospace";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + plotH);
+    ctx.lineTo(w - padR, padT + plotH);
+    ctx.stroke();
+    for (var i = 0; i <= 4; i++) {
+      var v = (maxVal * (4 - i)) / 4;
+      var y = padT + (plotH * i) / 4;
+      ctx.fillText(fmtVal(v, 0) + unit, 2, y + 3);
+    }
+  }
+
+  function drawGpuChart() {
+    var canvas = document.getElementById("perf-chart-gpu");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, w, h);
+    var data = perfHistory.gpu.map(function (p) { return p.utilization; });
+    drawAxis(ctx, w, h, 100, "%");
+    drawLine(ctx, data, PERF_COLORS.gpu, 100, w, h);
+    var legendEl = document.getElementById("perf-legend-gpu");
+    if (legendEl) {
+      var last = perfHistory.gpu[perfHistory.gpu.length - 1];
+      legendEl.innerHTML =
+        '<span class="legend-item" style="color:' + PERF_COLORS.gpu + '">GPU Util: ' +
+        (last ? fmtVal(last.utilization, 1) + "%" : "\u2014") +
+        "  (FPS: " + (last ? fmtVal(last.fps, 0) : "\u2014") + ")</span>";
+    }
+  }
+
+  function drawProcessChart(key, canvasId, legendId) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, w, h);
+
+    var hist = perfHistory[key];
+    if (!hist || hist.length === 0) return;
+
+    var cpuData = hist.map(function (p) { return p.cpuPercent; });
+    var memData = hist.map(function (p) { return p.memUsedMB; });
+    var diskData = hist.map(function (p) { return p.diskKBps; });
+    var netData = hist.map(function (p) { return p.networkKBps; });
+    var gcData = hist.map(function (p) { return p.gc ? p.gc.count : 0; });
+
+    drawAxis(ctx, w, h, 100, "%");
+    drawLine(ctx, cpuData, PERF_COLORS.cpu, 100, w, h);
+
+    var memMax = 200;
+    drawLine(ctx, memData.map(function (v) { return (v / memMax) * 100; }), PERF_COLORS.mem, 100, w, h);
+    drawLine(ctx, diskData.map(function (v) { return Math.min(100, v); }), PERF_COLORS.disk, 100, w, h);
+    drawLine(ctx, netData.map(function (v) { return Math.min(100, v); }), PERF_COLORS.network, 100, w, h);
+    drawLine(ctx, gcData.map(function (v) { return Math.min(100, (v / 20) * 100); }), PERF_COLORS.gc, 100, w, h);
+
+    var legendEl = document.getElementById(legendId);
+    if (legendEl) {
+      var last = hist[hist.length - 1];
+      legendEl.innerHTML =
+        '<span class="legend-item" style="color:' + PERF_COLORS.cpu + '">CPU: ' + fmtVal(last.cpuPercent, 1) + '%</span>' +
+        '<span class="legend-item" style="color:' + PERF_COLORS.mem + '">Mem: ' + fmtVal(last.memUsedMB, 1) + 'MB</span>' +
+        '<span class="legend-item" style="color:' + PERF_COLORS.disk + '">Disk: ' + fmtVal(last.diskKBps, 1) + 'KB/s</span>' +
+        '<span class="legend-item" style="color:' + PERF_COLORS.network + '">Net: ' + fmtVal(last.networkKBps, 1) + 'KB/s</span>' +
+        '<span class="legend-item" style="color:' + PERF_COLORS.gc + '">GC: ' + (last.gc ? last.gc.count : 0) + ' (' + (last.gc ? fmtVal(last.gc.totalTime, 1) : "0") + 'ms)</span>';
+    }
   }
 
   // --- Utils ---
