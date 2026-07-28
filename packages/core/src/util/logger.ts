@@ -1,4 +1,14 @@
-import { execSync } from "node:child_process";
+function tryExecSync(cmd: string, opts?: { shell?: string; stdio?: any[] }): string | null {
+    try {
+        const req = (globalThis as any).require;
+        if (!req) return null;
+        return req("child_process").execSync(cmd, opts).toString();
+    } catch {
+        return null;
+    }
+}
+
+const proc: any = (globalThis as any).process ?? { env: {} as Record<string, string>, platform: "", stdout: undefined, stderr: undefined };
 
 export interface Logger {
     trace(module: string, msg: string): void;
@@ -283,7 +293,7 @@ let _theme: "light" | "dark" | undefined;
 function getTheme(): "light" | "dark" {
     if (_theme) return _theme;
 
-    const colorfgbg = process.env.COLORFGBG;
+    const colorfgbg = proc.env.COLORFGBG;
     if (colorfgbg) {
         const parts = colorfgbg.split(";");
         if (parts.length > 1) {
@@ -293,7 +303,7 @@ function getTheme(): "light" | "dark" {
         }
     }
 
-    if (process.stdout?.isTTY) {
+    if (proc.stdout?.isTTY) {
         try {
             const probe = `
                 if [ -t 0 ]; then
@@ -304,11 +314,11 @@ function getTheme(): "light" | "dark" {
                     echo $response
                 fi
             `;
-            const response = execSync(probe, {
+            const response = tryExecSync(probe, {
                 shell: "/bin/bash",
                 stdio: ["inherit", "pipe", "ignore"],
-            }).toString();
-            if (response.includes("rgb:")) {
+            });
+            if (response && response.includes("rgb:")) {
                 const match = response.match(
                     /rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/
                 );
@@ -327,39 +337,37 @@ function getTheme(): "light" | "dark" {
         }
     }
 
-    if (process.platform === "darwin") {
+    if (proc.platform === "darwin") {
         try {
-            const style = execSync("defaults read -g AppleInterfaceStyle", {
+            const style = tryExecSync("defaults read -g AppleInterfaceStyle", {
                 stdio: ["ignore", "pipe", "ignore"],
-            })
-                .toString()
-                .trim();
-            if (style === "Dark") return (_theme = "dark");
+            });
+            if (style !== null && style.trim() === "Dark") return (_theme = "dark");
         } catch {
             return (_theme = "light");
         }
-    } else if (process.platform === "linux") {
+    } else if (proc.platform === "linux") {
         try {
-            const style = execSync(
+            const style = tryExecSync(
                 "gsettings get org.gnome.desktop.interface color-scheme",
                 { stdio: ["ignore", "pipe", "ignore"] }
-            )
-                .toString()
-                .trim()
-                .replace(/'/g, "");
-            if (style === "prefer-dark" || style.includes("dark"))
-                return (_theme = "dark");
-            if (style === "prefer-light" || style.includes("light"))
-                return (_theme = "light");
+            );
+            if (style !== null) {
+                const trimmed = style.trim().replace(/'/g, "");
+                if (trimmed === "prefer-dark" || trimmed.includes("dark"))
+                    return (_theme = "dark");
+                if (trimmed === "prefer-light" || trimmed.includes("light"))
+                    return (_theme = "light");
+            }
         } catch { }
 
         try {
-            const style = execSync(
+            const style = tryExecSync(
                 "dbus-send --session --print-reply=literal --dest=org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop org.freedesktop.portal.Settings.Read string:'org.freedesktop.appearance' string:'color-scheme'",
                 { stdio: ["ignore", "pipe", "ignore"] }
-            ).toString();
-            if (style.includes("uint32 1")) return (_theme = "dark");
-            if (style.includes("uint32 2")) return (_theme = "light");
+            );
+            if (style && style.includes("uint32 1")) return (_theme = "dark");
+            if (style && style.includes("uint32 2")) return (_theme = "light");
         } catch { }
     }
 
@@ -383,10 +391,16 @@ export class ConsoleLogger implements Logger {
         } else {
             moduleStr = `${this.palette.module}${module}`;
         }
-        const stream = process.env.DOWNDRAFT_MCP === "1" ? process.stderr : process.stdout;
-        stream?.write(
-            `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase().padEnd(5)}${reset} ${this.palette.gray}[${moduleStr}${this.palette.gray}] ${reset}${linkifyMessage(msg)}\n`
-        );
+        const line = `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase().padEnd(5)}${reset} ${this.palette.gray}[${moduleStr}${this.palette.gray}] ${reset}${linkifyMessage(msg)}\n`;
+        if (proc?.stdout?.write && proc?.stderr?.write) {
+            const stream = proc.env.DOWNDRAFT_MCP === "1" ? proc.stderr : proc.stdout;
+            stream.write(line);
+        } else {
+            // Browser fallback — strip ANSI codes
+            const clean = line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+            const fn = level === "error" || level === "fatal" ? console.error : level === "warn" ? console.warn : console.log;
+            fn(clean);
+        }
     }
 
     trace(module: string, msg: string) {
@@ -425,8 +439,8 @@ const levelIntMap: Record<string, number> = {
 
 export function createLogger(
     level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" =
-        process.env.NODE_ENV === "test" ? "warn" : "info"
+        proc.env.NODE_ENV === "test" ? "warn" : "info"
 ): Logger {
-    const effectiveLevel = process.env.EMBER_LOG_LEVEL || level;
+    const effectiveLevel = proc.env.EMBER_LOG_LEVEL || level;
     return new ConsoleLogger(levelIntMap[effectiveLevel] ?? 3);
 }
