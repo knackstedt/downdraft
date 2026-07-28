@@ -30,6 +30,14 @@ import "./styles/globals.css";
 async function bootstrap() {
   const ocean = (window as any).ocean;
 
+  // Render React UI immediately so the loading screen is visible during init
+  const root = createRoot(document.getElementById("root")!);
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+
   const canvas = document.getElementById("game-canvas") as HTMLCanvasElement | null;
   if (!canvas) {
     console.error("No canvas element found — ensure <canvas id='game-canvas'> is in index.html");
@@ -38,11 +46,7 @@ async function bootstrap() {
 
   // Initialize WebGPU renderer
   const renderer = new WebGPURenderer(canvas);
-  const success = await renderer.init();
-  if (!success) {
-    console.error("WebGPU initialization failed");
-    return;
-  }
+  const isDev = !!(ocean?.isDev);
 
   // --- Spawn simulation Web Worker in renderer process ---
   // SharedArrayBuffers are shared directly between renderer and worker — zero-copy.
@@ -136,15 +140,29 @@ async function bootstrap() {
     }
   });
 
-  // Start the sim worker
-  const isDev = !!(ocean?.isDev);
-  await simWorker.start({
-    seed: 12345,
-    gamemode: 0,
-    rules: {},
-    isDev,
-  });
+  // Start renderer init and sim worker in parallel — avoids 2.2s LUT generation
+  // blocking sim worker setup (island spawning, physics field generation, etc.)
+  const [rendererSuccess] = await Promise.all([
+    renderer.init(),
+    simWorker.start({
+      seed: 12345,
+      gamemode: 0,
+      rules: {},
+      isDev,
+    }),
+  ]);
+  if (!rendererSuccess) {
+    console.error("WebGPU initialization failed");
+    return;
+  }
   if (isDev) useGameStore.getState().setIsDev(true);
+
+  // Wait for the PBR BRDF LUT to finish generating before starting the render
+  // loop and spawning the player. The LUT computation is chunked across frames
+  // to avoid blocking the main thread — this shows the loading screen during
+  // that time for a smooth startup experience.
+  await renderer.getLUTReady();
+  useGameStore.getState().setLutReady(true);
 
   // Add default player
   simWorker.addPlayer(0, "Player 1");
@@ -327,14 +345,6 @@ async function bootstrap() {
   useDebugStore.subscribe(
     (s) => s.hitboxLineWidth,
     (width) => { renderer.setHitboxLineWidth(width); },
-  );
-
-  // Render React UI
-  const root = createRoot(document.getElementById("root")!);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
   );
 }
 

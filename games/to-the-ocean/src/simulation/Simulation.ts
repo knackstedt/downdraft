@@ -235,6 +235,7 @@ export class Simulation {
     this.islandManager = new IslandManager(this.chunkManager);
     this.terrainSystem = new TerrainSystem();
     this.physics.setTerrainSystem(this.terrainSystem);
+    this.collisionSystem.setTerrainSystem(this.terrainSystem);
     this.toolSystem = new ToolSystem(this.terrainSystem);
     this.boatWriter.init();
     this.boatCellSystem.setBufferWriter(this.boatWriter);
@@ -352,6 +353,9 @@ export class Simulation {
     const t2 = performance.now();
     sysTimes.push({ name: "ports+islands", ms: t2 - t1 });
 
+    // Process pending physics field generation (time-budgeted, avoids sim stalls)
+    this.terrainSystem.processPendingPhysicsFieldGen();
+
     this.structureIntegrity.tick(dt, this.entities, this.entityCount, this.boatCellSystem);
     const t3 = performance.now();
     sysTimes.push({ name: "structureIntegrity", ms: t3 - t2 });
@@ -453,7 +457,6 @@ export class Simulation {
           const ent = this.entities[idx];
           if (ent) {
             this.physics.rebuildIslandCollider(ent, idx, dt.field, dt.dirtyMinX, dt.dirtyMaxX, dt.dirtyMinZ, dt.dirtyMaxZ);
-            this.collisionSystem.updateVoxelField(ent.chunkX, ent.chunkZ, dt.field);
           }
         }
       }

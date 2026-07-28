@@ -89,6 +89,10 @@ export class PBRSystem {
   bindGroupLayout: GPUBindGroupLayout | null = null;
   bindGroup: GPUBindGroup | null = null;
 
+  // Resolves when the BRDF LUT has been fully computed and uploaded.
+  private lutResolve: () => void = () => {};
+  readonly lutReady: Promise<void> = new Promise(resolve => { this.lutResolve = resolve; });
+
   constructor(device: GPUDevice) {
     this.device = device;
   }
@@ -125,25 +129,37 @@ export class PBRSystem {
       ],
     });
 
-    this.generateLUT();
+    // Kick off LUT generation asynchronously — GPU resources (texture, bind group)
+    // are already created and usable. The texture will contain zeros until the
+    // chunked computation finishes a few frames later.
+    this.generateLUTAsync().then(() => this.lutResolve());
   }
 
-  private generateLUT(): void {
-    // CPU-side BRDF LUT: 256x256 RGBA16Float = 256*256*4*2 = 524288 bytes
+  // Chunked async LUT generation — processes ROWS_PER_CHUNK rows per microtask,
+  // yielding to the event loop between chunks to avoid blocking the main thread.
+  private async generateLUTAsync(): Promise<void> {
+    const ROWS_PER_CHUNK = 8;
     const data = new Uint16Array(BRDF_LUT_SIZE * BRDF_LUT_SIZE * 4);
 
-    for (let y = 0; y < BRDF_LUT_SIZE; y++) {
-      for (let x = 0; x < BRDF_LUT_SIZE; x++) {
-        const NdotV = (x + 0.5) / BRDF_LUT_SIZE;
-        const roughness = (y + 0.5) / BRDF_LUT_SIZE;
-        const [scale, bias] = integrateBRDF(NdotV, roughness);
+    for (let rowStart = 0; rowStart < BRDF_LUT_SIZE; rowStart += ROWS_PER_CHUNK) {
+      const rowEnd = Math.min(rowStart + ROWS_PER_CHUNK, BRDF_LUT_SIZE);
 
-        const idx = (y * BRDF_LUT_SIZE + x) * 4;
-        data[idx] = floatToHalf(scale);
-        data[idx + 1] = floatToHalf(bias);
-        data[idx + 2] = 0;
-        data[idx + 3] = floatToHalf(1.0);
+      for (let y = rowStart; y < rowEnd; y++) {
+        for (let x = 0; x < BRDF_LUT_SIZE; x++) {
+          const NdotV = (x + 0.5) / BRDF_LUT_SIZE;
+          const roughness = (y + 0.5) / BRDF_LUT_SIZE;
+          const [scale, bias] = integrateBRDF(NdotV, roughness);
+
+          const idx = (y * BRDF_LUT_SIZE + x) * 4;
+          data[idx] = floatToHalf(scale);
+          data[idx + 1] = floatToHalf(bias);
+          data[idx + 2] = 0;
+          data[idx + 3] = floatToHalf(1.0);
+        }
       }
+
+      // Yield to the event loop between chunks
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
 
     this.device.queue.writeTexture(

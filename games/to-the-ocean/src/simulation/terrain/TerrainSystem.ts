@@ -3,20 +3,20 @@
 // Runs in the sim worker. Handles deformation from all damage sources.
 // ============================================================================
 
-import { SimEntity } from "../Simulation";
-import { EntityType } from "../../shared/types";
-import { VoxelField, ChunkedVoxelField, TerrainDeformation, setChunkedVoxel, getChunkedVoxel } from "../../shared/TerrainTypes";
 import { TERRAIN_CONFIG } from "../../shared/TerrainConfig";
 import {
-  generateVoxelField, generatePortVoxelField,
-  createChunkedVoxelField, ensureChunkGenerated,
-  getLODVoxelSize, isChunkEmpty,
-  type ChunkedFieldContext,
+    createChunkedVoxelField, ensureChunkGenerated,
+    generatePortVoxelField,
+    generateVoxelField,
+    getLODVoxelSize, isChunkEmpty,
+    type ChunkedFieldContext,
 } from "../../shared/TerrainGenerator";
-import { TerrainDeformationBroadcast } from "../../shared/types";
+import { ChunkedVoxelField, TerrainDeformation, VoxelField, getChunkedVoxel, setChunkedVoxel } from "../../shared/TerrainTypes";
+import { EntityType, TerrainDeformationBroadcast } from "../../shared/types";
+import { SimEntity } from "../Simulation";
 
 interface TerrainEntry {
-  field: VoxelField;          // legacy field (ports) or coarse field (islands)
+  field: VoxelField | null;     // null until physics field is lazily generated (islands); non-null for ports
   chunkedField: ChunkedVoxelField | null;  // chunked field for islands (null for ports)
   chunkedCtx: ChunkedFieldContext | null;  // generation context for chunked field
   entityId: number;
@@ -43,6 +43,8 @@ interface TerrainEntry {
   queueRebuildTick: number;
   // LOD hysteresis: tick when LOD was last changed (prevent rapid flapping)
   lastLODChangeTick: number;
+  // Lazy physics field generation params (islands only, null once generated)
+  pendingPhysField: { chunkX: number; chunkZ: number; radius: number; biome: number; islandSize: number; physVs: number } | null;
 }
 
 export class TerrainSystem {
@@ -50,6 +52,7 @@ export class TerrainSystem {
   private pendingDeformations: TerrainDeformation[] = [];
   private pendingBroadcasts: TerrainDeformationBroadcast[] = [];
   private pendingLODChanges: { entityId: number; chunkX: number; chunkZ: number; newVoxelSize: number }[] = [];
+  private pendingPhysFieldGen: number[] = [];  // entity IDs awaiting physics field generation
   private tickCount = 0;
 
   // Register an island's terrain when it spawns
@@ -61,18 +64,17 @@ export class TerrainSystem {
     const biome = entity.data[1] ?? 0;
     const islandSize = entity.data[2] ?? 0;
 
-    // Create chunked voxel field for on-demand chunk generation
+    // Create chunked voxel field for on-demand chunk generation (cheap — allocates empty structures)
     const { field: chunkedField, ctx: chunkedCtx } = createChunkedVoxelField(
       entity.chunkX, entity.chunkZ, r, biome, islandSize,
     );
 
-    // Also generate a coarse VoxelField for physics (at physVoxelSizeMultiplier × resolution)
-    // This is much smaller than the full-resolution field and is used for trimesh generation.
+    // Physics field generation is deferred — queued here and processed across ticks
+    // via processPendingPhysicsFieldGen() with a time budget to avoid sim stalls.
     const physVs = chunkedField.voxelSize * TERRAIN_CONFIG.physVoxelSizeMultiplier;
-    const coarseField = generateVoxelField(entity.chunkX, entity.chunkZ, r, biome, islandSize, physVs);
 
     this.terrains.set(entity.id, {
-      field: coarseField,
+      field: null,  // will be generated lazily
       chunkedField,
       chunkedCtx,
       entityId: entity.id,
@@ -91,7 +93,37 @@ export class TerrainSystem {
       pendingChunkGen: null,
       queueRebuildTick: 0,
       lastLODChangeTick: 0,
+      pendingPhysField: { chunkX: entity.chunkX, chunkZ: entity.chunkZ, radius: r, biome, islandSize, physVs },
     });
+    this.pendingPhysFieldGen.push(entity.id);
+  }
+
+  // Process pending physics field generation with a time budget.
+  // Called each tick — generates at most physFieldGenMaxPerTick islands.
+  processPendingPhysicsFieldGen(): void {
+    if (this.pendingPhysFieldGen.length === 0) return;
+    const cfg = TERRAIN_CONFIG;
+    const startTime = performance.now();
+    let generated = 0;
+
+    while (this.pendingPhysFieldGen.length > 0 && generated < cfg.physFieldGenMaxPerTick) {
+      if (performance.now() - startTime > cfg.physFieldGenTimeBudgetMs) break;
+
+      const entityId = this.pendingPhysFieldGen.shift()!;
+      const terrain = this.terrains.get(entityId);
+      if (!terrain || !terrain.pendingPhysField) continue;
+
+      const { chunkX, chunkZ, radius, biome, islandSize, physVs } = terrain.pendingPhysField;
+      terrain.field = generateVoxelField(chunkX, chunkZ, radius, biome, islandSize, physVs);
+      terrain.pendingPhysField = null;
+      generated++;
+    }
+  }
+
+  // Check if an island's physics field has been generated yet
+  hasPhysicsField(entityId: number): boolean {
+    const terrain = this.terrains.get(entityId);
+    return terrain ? terrain.field !== null : false;
   }
 
   // Register a port's terrain when it spawns
@@ -123,6 +155,7 @@ export class TerrainSystem {
       pendingChunkGen: null,
       queueRebuildTick: 0,
       lastLODChangeTick: 0,
+      pendingPhysField: null,
     });
   }
 
@@ -158,7 +191,7 @@ export class TerrainSystem {
   drainDirtyTerrains(): { entityId: number; field: VoxelField; dirtyMinX: number; dirtyMaxX: number; dirtyMinZ: number; dirtyMaxZ: number }[] {
     const out: { entityId: number; field: VoxelField; dirtyMinX: number; dirtyMaxX: number; dirtyMinZ: number; dirtyMaxZ: number }[] = [];
     this.terrains.forEach((terrain) => {
-      if (terrain.dirty) {
+      if (terrain.dirty && terrain.field) {
         out.push({
           entityId: terrain.entityId,
           field: terrain.field,
@@ -220,6 +253,75 @@ export class TerrainSystem {
       if (!terrain) continue;
 
       const field = terrain.field;
+      if (!field) {
+        // Physics field not yet generated — skip physics field deformation.
+        // Chunked field deformation below still applies.
+        // Queue broadcast so renderer can apply the deformation to its own field.
+        this.pendingBroadcasts.push({
+          chunkX: terrain.chunkX,
+          chunkZ: terrain.chunkZ,
+          isPort: terrain.isPort,
+          worldX: def.worldX,
+          worldY: def.worldY,
+          worldZ: def.worldZ,
+          entityWorldX: terrain.worldX,
+          entityWorldY: terrain.worldY,
+          entityWorldZ: terrain.worldZ,
+          radius: def.radius,
+          strength: def.strength,
+        });
+
+        // Still apply to chunked field if present
+        const cf = terrain.chunkedField;
+        const cfCtx = terrain.chunkedCtx;
+        if (cf && cfCtx) {
+          const cvs = cf.voxelSize;
+          const cDefRadiusVoxels = Math.ceil(def.radius / cvs);
+          const ccx = Math.floor((def.worldX - terrain.worldX - cf.originX) / cvs);
+          const ccy = Math.floor((def.worldY - terrain.worldY - cf.originY) / cvs);
+          const ccz = Math.floor((def.worldZ - terrain.worldZ - cf.originZ) / cvs);
+          const defRadiusSq = def.radius * def.radius;
+
+          if (!terrain.dirtyChunkKeys) terrain.dirtyChunkKeys = new Set();
+
+          for (let vx = ccx - cDefRadiusVoxels; vx <= ccx + cDefRadiusVoxels; vx++) {
+            if (vx < 0 || vx >= cf.dimX) continue;
+            for (let vy = ccy - cDefRadiusVoxels; vy <= ccy + cDefRadiusVoxels; vy++) {
+              if (vy < 0 || vy >= cf.dimY) continue;
+              for (let vz = ccz - cDefRadiusVoxels; vz <= ccz + cDefRadiusVoxels; vz++) {
+                if (vz < 0 || vz >= cf.dimZ) continue;
+
+                const wx = vx * cvs + cf.originX;
+                const wy = vy * cvs + cf.originY;
+                const wz = vz * cvs + cf.originZ;
+                const ddx = wx - (def.worldX - terrain.worldX);
+                const ddy = wy - (def.worldY - terrain.worldY);
+                const ddz = wz - (def.worldZ - terrain.worldZ);
+                const distSq = ddx * ddx + ddy * ddy + ddz * ddz;
+                if (distSq > defRadiusSq) continue;
+
+                const falloff = 1 - Math.sqrt(distSq) / def.radius;
+                const change = def.strength * falloff * falloff;
+
+                const chCx = vx >>> cf.chunkBits;
+                const chCy = vy >>> cf.chunkBits;
+                const chCz = vz >>> cf.chunkBits;
+                ensureChunkGenerated(cf, cfCtx, chCx, chCy, chCz);
+
+                const chunkKey = chCx * cf.chunkDimY * cf.chunkDimZ + chCy * cf.chunkDimZ + chCz;
+                terrain.dirtyChunkKeys.add(chunkKey);
+
+                setChunkedVoxel(cf, vx, vy, vz, getChunkedVoxel(cf, vx, vy, vz) + change);
+              }
+            }
+          }
+        }
+
+        terrain.dirty = true;
+        terrain.deformCount++;
+        continue;
+      }
+
       const vs = field.voxelSize;
 
       // Convert world-space deformation center to island-local coordinates

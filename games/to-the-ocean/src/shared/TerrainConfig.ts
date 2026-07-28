@@ -102,6 +102,10 @@ export const TERRAIN_CONFIG = {
   chunkGenTimeBudgetMs: 8,     // max time per tick for batch chunk generation in sim worker
   chunkGenMaxPerTick: 4,       // max chunks to generate per tick even if time budget remains
 
+  // --- Lazy physics field generation ---
+  physFieldGenTimeBudgetMs: 8, // max time per tick for physics voxel field generation
+  physFieldGenMaxPerTick: 1,   // max islands to generate physics fields for per tick
+
   // --- Chunked mesh streaming ---
   chunkStreamEnabled: true,     // enable sub-chunk streaming for large islands
   chunkStreamThreshold: 12_000_000, // islands with voxel fields larger than this get chunked

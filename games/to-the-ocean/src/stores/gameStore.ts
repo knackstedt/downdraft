@@ -25,6 +25,7 @@ export interface ShipHoldData {
 interface GameStoreState {
   ready: boolean;
   simReady: boolean;
+  lutReady: boolean;
   isDev: boolean;
   renderer: WebGPURenderer | null;
   fps: number;
@@ -56,6 +57,7 @@ interface GameStoreState {
 
   setReady: (r: boolean) => void;
   setSimReady: (r: boolean) => void;
+  setLutReady: (r: boolean) => void;
   setIsDev: (v: boolean) => void;
   setRenderer: (r: WebGPURenderer) => void;
   setFPS: (fps: number) => void;
@@ -94,6 +96,7 @@ let bookmarkId = 0;
 export const useGameStore = create<GameStoreState>((set, get) => ({
   ready: false,
   simReady: false,
+  lutReady: false,
   isDev: false,
   renderer: null,
   fps: 0,
@@ -125,6 +128,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   setReady: (r) => set({ ready: r }),
   setSimReady: (r) => set({ simReady: r }),
+  setLutReady: (r) => set({ lutReady: r }),
   setIsDev: (v) => set({ isDev: v }),
   setRenderer: (r) => set({ renderer: r }),
   setFPS: (fps) => set({ fps }),

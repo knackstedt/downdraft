@@ -1531,6 +1531,11 @@ export class WebGPURenderer {
     return this.entityRenderer;
   }
 
+  // Returns a promise that resolves when the PBR BRDF LUT has been computed and uploaded.
+  getLUTReady(): Promise<void> {
+    return this.pbrSystem?.lutReady ?? Promise.resolve();
+  }
+
   setHitboxLineWidth(width: number): void {
     this.entityRenderer?.setHitboxLineWidth(width);
   }

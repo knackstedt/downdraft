@@ -5,24 +5,23 @@
 // ============================================================================
 
 import RAPIER from "@dimforge/rapier3d-compat";
-import { SimEntity, SimPlayer } from "../Simulation";
-import { EntityType, EntityFlags, EntityTypeNames } from "../../shared/types";
-import { PLR_FLAG } from "../../shared/sim-buffer";
 import {
-  PORT_DATA,
-  getPortColliderDims,
-  getPortCollisionBoxes,
-  PLAYER_HEIGHT,
-  PLAYER_RADIUS,
-  SHIP_COLLISION_RESTITUTION,
-  SHIP_COLLISION_FRICTION,
+    getPortColliderDims,
+    getPortCollisionBoxes,
+    PLAYER_HEIGHT,
+    PLAYER_RADIUS,
+    PORT_DATA,
+    SHIP_COLLISION_FRICTION,
+    SHIP_COLLISION_RESTITUTION,
 } from "../../shared/constants";
+import { PLR_FLAG } from "../../shared/sim-buffer";
+import { generateTerrainTrimeshSubRegion } from "../../shared/TerrainGenerator";
+import type { VoxelField } from "../../shared/TerrainTypes";
+import { EntityFlags, EntityType, EntityTypeNames } from "../../shared/types";
 import { BoatCellSystem } from "../boat/BoatCellSystem";
 import { BoatDesignSystem } from "../boat/BoatDesignSystem";
-import { generateVoxelField, generateTerrainTrimeshSubRegion } from "../../shared/TerrainGenerator";
-import type { VoxelField } from "../../shared/TerrainTypes";
+import { SimEntity, SimPlayer } from "../Simulation";
 import type { TerrainSystem } from "../terrain/TerrainSystem";
-import { TERRAIN_CONFIG } from "../../shared/TerrainConfig";
 
 // --- Collision groups ---
 // InteractionGroups = (filter << 16) | memberships
@@ -60,6 +59,9 @@ interface EntityBody {
   chunkSize?: number; // voxels per chunk (XZ grid)
   chunkCountX?: number; // number of chunks in X
   chunkCountZ?: number; // number of chunks in Z
+  // Islands whose physics voxel field wasn't ready at body creation time.
+  // Trimesh colliders are built later once the field is generated.
+  needsTerrainCollider?: boolean;
 }
 
 export interface CollisionLogEntry {
@@ -215,23 +217,21 @@ export class RapierPhysicsSystem {
         if (!Number.isFinite(r) || r <= 0) return;
 
         // Use the coarse field from TerrainSystem (shared, no duplicate generation)
-        // Fall back to generating one if TerrainSystem isn't wired up yet.
-        let field: VoxelField | null = this.terrainSystem
+        // If the field isn't ready yet (lazy generation), create the body without
+        // colliders — they'll be built in syncEntities once the field arrives.
+        const field: VoxelField | null = this.terrainSystem
           ? this.terrainSystem.getVoxelField(entity.id)
           : null;
         if (!field) {
-          const biome = entity.data[1] ?? 0;
-          const islandSize = entity.data[2] ?? 0;
-          const physVs = TERRAIN_CONFIG.voxelSize * TERRAIN_CONFIG.physVoxelSizeMultiplier;
-          field = generateVoxelField(entity.chunkX, entity.chunkZ, r, biome, islandSize, physVs);
-        }
-        this.islandFields.set(entityIdx, field);
+          // No colliders yet — body will be flagged needsTerrainCollider
+        } else {
+          this.islandFields.set(entityIdx, field);
 
-        // Chunk the XZ grid. Each chunk is CHUNK_SIZE voxels wide.
-        // Y is always full (islands are short vertically).
-        const CHUNK_SIZE = 32;
-        const chunkCountX = Math.ceil(field.dimX / CHUNK_SIZE);
-        const chunkCountZ = Math.ceil(field.dimZ / CHUNK_SIZE);
+          // Chunk the XZ grid. Each chunk is CHUNK_SIZE voxels wide.
+          // Y is always full (islands are short vertically).
+          const CHUNK_SIZE = 32;
+          const chunkCountX = Math.ceil(field.dimX / CHUNK_SIZE);
+          const chunkCountZ = Math.ceil(field.dimZ / CHUNK_SIZE);
 
         for (let cx = 0; cx < chunkCountX; cx++) {
           for (let cz = 0; cz < chunkCountZ; cz++) {
@@ -264,6 +264,7 @@ export class RapierPhysicsSystem {
             // Track which chunk this collider desc belongs to (stored after creation)
             (cd as any)._chunkKey = `${cx},${cz}`;
           }
+        }
         }
       } else if (entity.type === EntityType.Port) {
         // Port: cuboid colliders for dock, pier, and all structure collision boxes
@@ -301,7 +302,9 @@ export class RapierPhysicsSystem {
         colliderDescs = [RAPIER.ColliderDesc.ball(radius)];
       }
 
-      if (colliderDescs.length === 0) return;
+      // Islands with no field yet: create body with no colliders, flag for later
+      const needsTerrainCollider = entity.type === EntityType.Island && colliderDescs.length === 0;
+      if (colliderDescs.length === 0 && !needsTerrainCollider) return;
 
       const bodyDesc = isShip
         ? RAPIER.RigidBodyDesc.dynamic()
@@ -360,7 +363,7 @@ export class RapierPhysicsSystem {
           console.error(`[RAPIER] createCollider ${ci}/${colliderDescs.length} failed for entity ${entityIdx} (type=${entity.type}): ${(colErr as Error).message}`);
         }
       }
-      if (createdCount === 0) {
+      if (createdCount === 0 && !needsTerrainCollider) {
         try { this.world.removeRigidBody(body); } catch {}
         return;
       }
@@ -370,6 +373,7 @@ export class RapierPhysicsSystem {
         entityType: entity.type, entityId: entity.id,
         chunkColliders: chunkColliders.size > 0 ? chunkColliders : undefined,
         chunkSize, chunkCountX, chunkCountZ,
+        needsTerrainCollider: needsTerrainCollider || undefined,
       };
       this.entityBodies.set(entityIdx, eb);
       this.bodyHandleToEntityBody.set(body.handle, eb);
@@ -817,6 +821,68 @@ export class RapierPhysicsSystem {
     }
   }
 
+  // Build chunked trimesh colliders for an island body whose physics field was
+  // not ready at creation time. Called from syncEntities once the field arrives.
+  private buildIslandTrimeshColliders(
+    entity: SimEntity, body: EntityBody, field: VoxelField,
+  ): void {
+    if (!this.world || this.failed) return;
+    const r = entity.scale;
+    if (!Number.isFinite(r) || r <= 0) return;
+
+    const rb = this.world.getRigidBody(body.handle);
+    if (!rb) return;
+
+    const entityIdx = body.entityIdx;
+    this.islandFields.set(entityIdx, field);
+
+    const CHUNK_SIZE = 32;
+    const chunkCountX = Math.ceil(field.dimX / CHUNK_SIZE);
+    const chunkCountZ = Math.ceil(field.dimZ / CHUNK_SIZE);
+    const chunkColliders = new Map<string, number>();
+
+    for (let cx = 0; cx < chunkCountX; cx++) {
+      for (let cz = 0; cz < chunkCountZ; cz++) {
+        const x0 = cx * CHUNK_SIZE;
+        const z0 = cz * CHUNK_SIZE;
+        const x1 = Math.min(x0 + CHUNK_SIZE, field.dimX);
+        const z1 = Math.min(z0 + CHUNK_SIZE, field.dimZ);
+
+        const chunkMesh = generateTerrainTrimeshSubRegion(
+          field, entity.chunkX, entity.chunkZ,
+          x0, 0, z0, x1, field.dimY, z1, false,
+        );
+        if (chunkMesh.positions.length < 9 || chunkMesh.indices.length < 3) continue;
+
+        const pos = new Float32Array(chunkMesh.positions.length);
+        let valid = true;
+        for (let vi = 0; vi < chunkMesh.positions.length; vi += 3) {
+          pos[vi]     = chunkMesh.positions[vi]     * r;
+          pos[vi + 1] = chunkMesh.positions[vi + 1] * r;
+          pos[vi + 2] = chunkMesh.positions[vi + 2] * r;
+          if (!Number.isFinite(pos[vi]) || !Number.isFinite(pos[vi + 1]) || !Number.isFinite(pos[vi + 2])) {
+            valid = false; break;
+          }
+        }
+        if (!valid) continue;
+
+        try {
+          const cd = RAPIER.ColliderDesc.trimesh(pos, chunkMesh.indices);
+          cd.setCollisionGroups(ISLAND_BOTH_GROUPS);
+          const col = this.world.createCollider(cd, rb);
+          chunkColliders.set(`${cx},${cz}`, col.handle);
+        } catch (colErr) {
+          console.error(`[RAPIER] Deferred createCollider failed for entity ${entityIdx} chunk ${cx},${cz}: ${(colErr as Error).message}`);
+        }
+      }
+    }
+
+    body.chunkColliders = chunkColliders.size > 0 ? chunkColliders : undefined;
+    body.chunkSize = CHUNK_SIZE;
+    body.chunkCountX = chunkCountX;
+    body.chunkCountZ = chunkCountZ;
+  }
+
   private syncEntities(entities: SimEntity[], entityCount: number): void {
     if (!this.world) return;
 
@@ -831,6 +897,15 @@ export class RapierPhysicsSystem {
 
       const body = this.entityBodies.get(i);
       if (!body) continue;
+
+      // Build deferred terrain colliders for islands whose physics field is now ready
+      if (body.needsTerrainCollider) {
+        const field = this.terrainSystem?.getVoxelField(ent.id);
+        if (field) {
+          this.buildIslandTrimeshColliders(ent, body, field);
+          body.needsTerrainCollider = false;
+        }
+      }
 
       const px = ent.position.x, py = ent.position.y, pz = ent.position.z;
       if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;

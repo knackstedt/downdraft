@@ -2,17 +2,19 @@
 // Collision System — entity vs entity, entity vs terrain
 // ============================================================================
 
-import { SimEntity, SimPlayer } from "../Simulation";
-import { EntityType, EntityFlags } from "../../shared/types";
 import {
-  PORT_DATA, getPortColliderDims,
-  SHIP_COLLISION_RESTITUTION,
-  ENTITY_MASS, WILDLIFE_DENSITY,
+    ENTITY_MASS,
+    getPortColliderDims,
+    PORT_DATA,
+    SHIP_COLLISION_RESTITUTION,
+    WILDLIFE_DENSITY,
 } from "../../shared/constants";
-import { BoatDesignSystem } from "../boat/BoatDesignSystem";
+import { sampleTerrainHeight } from "../../shared/TerrainGenerator";
+import { EntityFlags, EntityType } from "../../shared/types";
 import { BoatCellSystem } from "../boat/BoatCellSystem";
-import { generateVoxelField, sampleTerrainHeight } from "../../shared/TerrainGenerator";
-import { VoxelField } from "../../shared/TerrainTypes";
+import { BoatDesignSystem } from "../boat/BoatDesignSystem";
+import { SimEntity, SimPlayer } from "../Simulation";
+import type { TerrainSystem } from "../terrain/TerrainSystem";
 
 // Ship entity types
 const SHIP_TYPES = new Set<number>([
@@ -34,23 +36,10 @@ function getEntityMass(ent: SimEntity): number {
 }
 
 export class CollisionSystem {
-  private voxelFieldCache = new Map<string, VoxelField>();
+  private terrainSystem: TerrainSystem | null = null;
 
-  private getVoxelField(chunkX: number, chunkZ: number, radius: number, biome: number, islandSize: number): VoxelField {
-    const key = `${chunkX},${chunkZ}`;
-    let field = this.voxelFieldCache.get(key);
-    if (!field) {
-      field = generateVoxelField(chunkX, chunkZ, radius, biome, islandSize);
-      this.voxelFieldCache.set(key, field);
-    }
-    return field;
-  }
-
-  // Update the cached voxel field for an island with the deformed version from TerrainSystem.
-  // This ensures entity-terrain collision (wildlife, etc.) uses the deformed terrain.
-  updateVoxelField(chunkX: number, chunkZ: number, field: VoxelField): void {
-    const key = `${chunkX},${chunkZ}`;
-    this.voxelFieldCache.set(key, field);
+  setTerrainSystem(ts: TerrainSystem): void {
+    this.terrainSystem = ts;
   }
 
   tick(
@@ -187,10 +176,9 @@ export class CollisionSystem {
             const distSq2D = nx * nx + nz * nz;
             if (distSq2D > 1.3 * 1.3) continue; // outside island blob extent
 
-            // Sample terrain height from voxel field
-            const biome = statEnt.data[1] ?? 0;
-            const islandSize = statEnt.data[2] ?? 0;
-            const field = this.getVoxelField(statEnt.chunkX, statEnt.chunkZ, r, biome, islandSize);
+            // Sample terrain height from voxel field (shared with TerrainSystem)
+            const field = this.terrainSystem?.getVoxelField(statEnt.id);
+            if (!field) continue;  // physics field not yet generated — skip collision
             const terrainY = sampleTerrainHeight(field, nx, nz) * r + statEnt.position.y;
             const dynTop = dynEnt.position.y + dynEnt.scale;
 

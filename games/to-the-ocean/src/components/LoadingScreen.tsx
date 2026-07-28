@@ -1,12 +1,14 @@
-import React from "react";
 import { useGameStore } from "../stores/gameStore";
 
 export default function LoadingScreen() {
-  const { ready, simReady } = useGameStore();
+  const { ready, simReady, lutReady } = useGameStore();
 
   const stage = !ready ? "Initializing WebGPU..." :
+    !lutReady ? "Preparing lighting..." :
     !simReady ? "Starting simulation..." :
     "Loading world...";
+
+  const progress = simReady ? 100 : lutReady ? 75 : ready ? 50 : 25;
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-ocean-950">
@@ -20,7 +22,7 @@ export default function LoadingScreen() {
         <div className="w-64 h-2 bg-ocean-900 rounded-full overflow-hidden mx-auto">
           <div
             className="h-full bg-ocean-400 rounded-full transition-all duration-500"
-            style={{ width: simReady ? "100%" : ready ? "66%" : "33%" }}
+            style={{ width: `${progress}%` }}
           />
         </div>
       </div>
