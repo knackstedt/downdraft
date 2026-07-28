@@ -277,6 +277,18 @@ async function createWindow(): Promise<void> {
     sendDisplayInfo();
   });
 
+  // Forward display scale factor (DPR) changes to the renderer
+  screen.on("display-metrics-changed", (_event, display, changedMetrics) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (changedMetrics.includes("scaleFactor")) {
+      const winBounds = mainWindow.getBounds();
+      const currentDisplay = screen.getDisplayNearestPoint({ x: winBounds.x, y: winBounds.y });
+      if (currentDisplay.id === display.id) {
+        mainWindow.webContents.send(IPC.DISPLAY_METRICS_CHANGED, { scaleFactor: display.scaleFactor });
+      }
+    }
+  });
+
   let moveTimer: NodeJS.Timeout | null = null;
   mainWindow.on("move", () => {
     if (moveTimer) clearTimeout(moveTimer);

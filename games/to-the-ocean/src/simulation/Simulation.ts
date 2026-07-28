@@ -2,56 +2,66 @@
 // Simulation — main orchestrator for all game systems
 // ============================================================================
 
-import { SimBufferWriter, SimBufferReader, ENT, PLR, PLR_FLAG } from "../shared/sim-buffer";
-import { InputBufferReader } from "../shared/input-buffer";
-import { WaterBufferWriter } from "../shared/water-buffer";
 import {
-  MAX_ENTITIES, MAX_PLAYERS, SIM_TICK_DT, PHYSICS_SUBSTEPS,
-  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER, PLAYER_MAX_THIRST,
-  PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
-  DAY_DURATION_SECONDS, NIGHT_START_FRAC, NIGHT_END_FRAC,
+    MAX_ENTITIES, MAX_PLAYERS,
+    NIGHT_END_FRAC,
+    NIGHT_START_FRAC,
+    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+    PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
+    PLAYER_MAX_THIRST,
+    SIM_TICK_DT
 } from "../shared/constants";
+import { InputBufferReader } from "../shared/input-buffer";
+import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
 import {
-  EntityType, EntityFlags, GameMode, BiomeType, SecurityLevel,
-  WeatherType, CameraMode, PlayerId, EntityId, PortSize,
-  SimCommand, WorldCommand, SimToMainMessage,
+    BiomeType,
+    CameraMode,
+    EntityId,
+    EntityType,
+    GameMode,
+    PlayerId,
+    SimCommand,
+    SimToMainMessage,
+    WeatherType,
+    WorldCommand
 } from "../shared/types";
+import { WaterBufferWriter } from "../shared/water-buffer";
 
-import { WorldGenerator } from "../shared/world/WorldGenerator";
-import { ChunkManager } from "./world/ChunkManager";
-import { IslandManager } from "./world/IslandManager";
-import { BiomeSystem } from "./world/BiomeSystem";
-import { PortSystem } from "./world/PortSystem";
-import { TerrainSystem } from "./terrain/TerrainSystem";
-import { WeatherSystem } from "./weather/WeatherSystem";
-import { BuoyancySystem } from "./physics/BuoyancySystem";
-import { StructureIntegrity } from "./physics/StructureIntegrity";
-import { CollisionSystem } from "./physics/CollisionSystem";
-import { RapierPhysicsSystem, PlayerMoveRequest } from "./physics/RapierPhysicsSystem";
-import { WildlifeManager } from "./wildlife/WildlifeManager";
-import { MarketSystem } from "./economy/MarketSystem";
-import { AnimalSystem } from "./farming/AnimalSystem";
-import { PlantSystem } from "./farming/PlantSystem";
-import { PetSystem } from "./farming/PetSystem";
-import { SurvivalSystem } from "./survival/SurvivalSystem";
-import { PirateSystem } from "./pirates/PirateSystem";
-import { DockingSystem } from "./building/DockingSystem";
-import { PlaceableSystem } from "./building/PlaceableSystem";
-import { FishingSystem } from "./fishing/FishingSystem";
-import { PlayerManager } from "./player/PlayerManager";
-import { LicenseSystem } from "./player/LicenseSystem";
-import { CameraController } from "./camera/CameraController";
-import { GameModeManager } from "./gamemode/GameModeManager";
-import { ProgressionTree } from "./progression/ProgressionTree";
-import { BoatSystem } from "./boat/BoatSystem";
-import { BoatCellSystem } from "./boat/BoatCellSystem";
-import { BoatDesignSystem } from "./boat/BoatDesignSystem";
-import { AnchorSystem } from "./boat/AnchorSystem";
-import { ToolSystem } from "./tools/ToolSystem";
 import { BoatBufferWriter } from "../shared/boat-buffer";
 import { validateBoatDesign } from "../shared/boat-design/validators";
-import { InventoryGrid, createGrid, addItem, removeItem, moveItem, serializeGrid, deserializeGrid, processSpoilage, getGridStateForUI } from "./inventory/InventorySystem";
-import { PLAYER_INV_WIDTH, PLAYER_INV_HEIGHT, BOAT_HOLD_INV_WIDTH, BOAT_HOLD_INV_HEIGHT, PLAYER_HEIGHT, SHIP_DATA_SLOTS, SHIP_DATA } from "../shared/constants";
+import { BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH, PLAYER_HEIGHT, PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH, SHIP_DATA, SHIP_DATA_SLOTS } from "../shared/constants";
+import { WorldGenerator } from "../shared/world/WorldGenerator";
+import { AnchorSystem } from "./boat/AnchorSystem";
+import { BoatCellSystem } from "./boat/BoatCellSystem";
+import { BoatDesignSystem } from "./boat/BoatDesignSystem";
+import { BoatSystem } from "./boat/BoatSystem";
+import { DockingSystem } from "./building/DockingSystem";
+import { PlaceableSystem } from "./building/PlaceableSystem";
+import { CameraController } from "./camera/CameraController";
+import { MarketSystem } from "./economy/MarketSystem";
+import { AnimalSystem } from "./farming/AnimalSystem";
+import { PetSystem } from "./farming/PetSystem";
+import { PlantSystem } from "./farming/PlantSystem";
+import { FishingSystem } from "./fishing/FishingSystem";
+import { GameModeManager } from "./gamemode/GameModeManager";
+import { InventoryGrid, addItem, createGrid, deserializeGrid, getGridStateForUI, moveItem, processSpoilage, removeItem, serializeGrid } from "./inventory/InventorySystem";
+import { BuoyancySystem } from "./physics/BuoyancySystem";
+import { CollisionSystem } from "./physics/CollisionSystem";
+import { PlayerMoveRequest, RapierPhysicsSystem } from "./physics/RapierPhysicsSystem";
+import { StructureIntegrity } from "./physics/StructureIntegrity";
+import { PirateSystem } from "./pirates/PirateSystem";
+import { LicenseSystem } from "./player/LicenseSystem";
+import { PlayerManager } from "./player/PlayerManager";
+import { ProgressionTree } from "./progression/ProgressionTree";
+import { SurvivalSystem } from "./survival/SurvivalSystem";
+import { TerrainSystem } from "./terrain/TerrainSystem";
+import { ToolSystem } from "./tools/ToolSystem";
+import { WeatherSystem } from "./weather/WeatherSystem";
+import { WildlifeManager } from "./wildlife/WildlifeManager";
+import { BiomeSystem } from "./world/BiomeSystem";
+import { ChunkManager } from "./world/ChunkManager";
+import { IslandManager } from "./world/IslandManager";
+import { PortSystem } from "./world/PortSystem";
 
 export class Simulation {
   private simWriter: SimBufferWriter;
@@ -267,6 +277,7 @@ export class Simulation {
 
     // Write initial state to SAB
     this.writeToBuffer();
+    this.boatCellSystem.markBufferDirty();
     this.boatCellSystem.writeToBuffer();
   }
 
@@ -1398,6 +1409,7 @@ export class Simulation {
 
     // Write restored state to SAB
     this.writeToBuffer();
+    this.boatCellSystem.markBufferDirty();
     this.boatCellSystem.writeToBuffer();
   }
 

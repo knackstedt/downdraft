@@ -17,6 +17,7 @@ export const IPC = {
   // Main -> Renderer
   SIM_READY: "sim-ready",
   DISPLAY_INFO: "display-info",
+  DISPLAY_METRICS_CHANGED: "display-metrics-changed",
   GC_STATS: "gc-stats",
 } as const;
 

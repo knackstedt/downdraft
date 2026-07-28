@@ -13,6 +13,7 @@ import { WATER_GRID, WaterBufferReader } from "@shared/water-buffer";
 import { useGameStore } from "../stores/gameStore";
 import { useSceneStore, type GizmoMode } from "../stores/sceneStore";
 import { CameraSystem, type CameraState } from "./CameraSystem";
+import { CanvasResizeWatcher } from "./CanvasResizeWatcher";
 import { CloudSystem } from "./CloudSystem";
 import { DebugOverlay } from "./DebugOverlay";
 import { DebugRaycast } from "./DebugRaycast";
@@ -134,9 +135,27 @@ export class WebGPURenderer {
   private viewportCount = 1;
   private viewports: { x: number; y: number; w: number; h: number }[] = [];
 
+  // Canvas resize handling
+  private resizeWatcher: CanvasResizeWatcher | null = null;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.updateViewports(1);
+    this.resizeWatcher = new CanvasResizeWatcher(canvas, {
+      onResize: (cssW, cssH, dpr) => {
+        const w = Math.round(cssW * dpr);
+        const h = Math.round(cssH * dpr);
+        if (this.canvas.width !== w || this.canvas.height !== h) {
+          this.canvas.width = w;
+          this.canvas.height = h;
+          this.updateViewports(this.viewportCount);
+        }
+      },
+    });
+  }
+
+  handleDprChange(scaleFactor: number): void {
+    this.resizeWatcher?.setDpr(scaleFactor);
   }
 
   async init(): Promise<boolean> {
@@ -511,16 +530,6 @@ export class WebGPURenderer {
       this.fps = this.frameCount;
       this.frameCount = 0;
       this.fpsTimer = 0;
-    }
-
-    // Resize canvas if needed
-    const dpr = window.devicePixelRatio || 1;
-    const displayWidth = this.canvas.clientWidth * dpr;
-    const displayHeight = this.canvas.clientHeight * dpr;
-    if (this.canvas.width !== displayWidth || this.canvas.height !== displayHeight) {
-      this.canvas.width = displayWidth;
-      this.canvas.height = displayHeight;
-      this.updateViewports(this.viewportCount);
     }
 
     // Update camera mouse look before processInput zeroes mouseDelta
@@ -1747,6 +1756,8 @@ export class WebGPURenderer {
 
   destroy(): void {
     this.running = false;
+    this.resizeWatcher?.destroy();
+    this.resizeWatcher = null;
     this.pixelationSystem?.destroy();
     this.postProcessStack?.destroy();
     this.modelRenderer?.destroy();

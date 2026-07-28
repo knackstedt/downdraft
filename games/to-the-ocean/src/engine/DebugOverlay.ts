@@ -3,10 +3,11 @@
 // Projects 3D world positions to screen space and draws debug visuals
 // ============================================================================
 
-import type { CameraState } from "./CameraSystem";
-import { calculateViewProj } from "./mathUtils";
-import { SimBufferReader, ENT, PLR } from "@shared/sim-buffer";
 import { CHUNK_SIZE, CHUNKS_VISIBLE } from "@shared/constants";
+import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
+import type { CameraState } from "./CameraSystem";
+import { CanvasResizeWatcher } from "./CanvasResizeWatcher";
+import { calculateViewProj } from "./mathUtils";
 
 export class DebugOverlay {
   private canvas: HTMLCanvasElement;
@@ -14,6 +15,7 @@ export class DebugOverlay {
   private ctx: CanvasRenderingContext2D;
   private showChunkGrid = false;
   private showVelocityArrows = false;
+  private resizeWatcher: CanvasResizeWatcher;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -35,15 +37,14 @@ export class DebugOverlay {
       document.body.appendChild(this.overlay);
     }
     this.ctx = this.overlay.getContext("2d")!;
-  }
-
-  private syncSize(): void {
-    const w = this.canvas.clientWidth;
-    const h = this.canvas.clientHeight;
-    if (this.overlay.width !== w || this.overlay.height !== h) {
-      this.overlay.width = w;
-      this.overlay.height = h;
-    }
+    this.resizeWatcher = new CanvasResizeWatcher(canvas, {
+      onResize: (w, h) => {
+        if (this.overlay.width !== w || this.overlay.height !== h) {
+          this.overlay.width = w;
+          this.overlay.height = h;
+        }
+      },
+    });
   }
 
   setShowChunkGrid(show: boolean): void {
@@ -100,7 +101,6 @@ export class DebugOverlay {
     if (!this.showChunkGrid && !this.showVelocityArrows) return;
     if (!simReader.isValid()) return;
 
-    this.syncSize();
     const ctx = this.ctx;
     const canvasW = this.overlay.width;
     const canvasH = this.overlay.height;
@@ -245,6 +245,7 @@ export class DebugOverlay {
   }
 
   destroy(): void {
+    this.resizeWatcher.destroy();
     this.overlay.remove();
   }
 }

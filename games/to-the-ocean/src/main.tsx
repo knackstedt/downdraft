@@ -7,24 +7,24 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 
 // Fonts — statically bundled via @fontsource (woff2/woff embedded in build, no CDN requests)
-import "@fontsource/wavefont/400.css";
+import "@fontsource/doto/400.css";
 import "@fontsource/linefont/400.css";
-import "@fontsource/urbanist/400.css";
-import "@fontsource/urbanist/700.css";
-import "@fontsource/special-elite/400.css";
 import "@fontsource/montserrat/400.css";
 import "@fontsource/montserrat/700.css";
-import "@fontsource/doto/400.css";
+import "@fontsource/special-elite/400.css";
+import "@fontsource/urbanist/400.css";
+import "@fontsource/urbanist/700.css";
+import "@fontsource/wavefont/400.css";
 
-import "./styles/globals.css";
-import { WebGPURenderer } from "./engine/WebGPURenderer";
-import { SimWebWorker } from "./engine/SimWebWorker";
-import { useGameStore } from "./stores/gameStore";
-import { PLR } from "@shared/sim-buffer";
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
-import { useDebugStore } from "./stores/debugStore";
-import { SceneInspector } from "./engine/SceneInspector";
+import { PLR } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";
+import { SceneInspector } from "./engine/SceneInspector";
+import { SimWebWorker } from "./engine/SimWebWorker";
+import { WebGPURenderer } from "./engine/WebGPURenderer";
+import { useDebugStore } from "./stores/debugStore";
+import { useGameStore } from "./stores/gameStore";
+import "./styles/globals.css";
 
 async function bootstrap() {
   const ocean = (window as any).ocean;
@@ -214,6 +214,18 @@ async function bootstrap() {
     }
   } catch (e) {
     console.warn("[Renderer] onDisplayInfo not available:", e);
+  }
+
+  // Listen for display scale factor (DPR) changes
+  try {
+    if (ocean?.onDisplayMetricsChanged) {
+      ocean.onDisplayMetricsChanged((data: { scaleFactor: number }) => {
+        console.log(`[Renderer] Display scale factor changed: ${data.scaleFactor}`);
+        renderer.handleDprChange(data.scaleFactor);
+      });
+    }
+  } catch (e) {
+    console.warn("[Renderer] onDisplayMetricsChanged not available:", e);
   }
 
   // Update store with renderer reference

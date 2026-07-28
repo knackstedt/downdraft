@@ -3,8 +3,8 @@
 // ============================================================================
 
 import { BoatBufferWriter, MAX_BOATS, MAX_CELLS_PER_BOAT } from "../../shared/boat-buffer";
-import { BOAT_GRID_MAX, BOAT_GRID_MAX_HEIGHT, BOAT_LAYER_HEIGHT, BOAT_CELL_WORLD_SIZE, CellTemplateEntry, SHIP_MASS_PER_CELL, hasSolidCollision, isWalkableSurface, getWallCollisionBoxes, CollisionBox, getCellCollisionTopY, getCellCollisionBottomY, getCellSize, isWallType } from "../../shared/constants";
-import { BoatPresetName, BOAT_PRESETS } from "./BoatPresets";
+import { BOAT_CELL_WORLD_SIZE, BOAT_GRID_MAX, BOAT_GRID_MAX_HEIGHT, BOAT_LAYER_HEIGHT, CellTemplateEntry, SHIP_MASS_PER_CELL, getCellCollisionBottomY, getCellCollisionTopY, getCellSize, getWallCollisionBoxes, hasSolidCollision, isWalkableSurface, isWallType } from "../../shared/constants";
+import { BOAT_PRESETS, BoatPresetName } from "./BoatPresets";
 
 export interface BoatCell {
   type: number;
@@ -59,13 +59,21 @@ export class BoatCellSystem {
   private nextBufferSlot = 0;
   private bufferWriter: BoatBufferWriter | null = null;
   private onCellsChangedCb: ((entityId: number) => void) | null = null;
+  private bufferDirty = false;
 
   setBufferWriter(writer: BoatBufferWriter): void {
     this.bufferWriter = writer;
   }
 
+  markBufferDirty(): void {
+    this.bufferDirty = true;
+  }
+
   setOnCellsChanged(cb: (entityId: number) => void): void {
-    this.onCellsChangedCb = cb;
+    this.onCellsChangedCb = (entityId: number) => {
+      this.bufferDirty = true;
+      cb(entityId);
+    };
   }
 
   // Register a ship entity with the cell system and load a preset layout
@@ -1150,6 +1158,8 @@ export class BoatCellSystem {
 
   writeToBuffer(): void {
     if (!this.bufferWriter) return;
+    if (!this.bufferDirty) return;
+    this.bufferDirty = false;
     let count = 0;
     const grids = Array.from(this.boats.values());
     for (let gi = 0; gi < grids.length; gi++) {
