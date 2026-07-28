@@ -3,26 +3,28 @@
 // Boat entities use a dynamic cell-based mesh with auto-connecting tiles.
 // ============================================================================
 
+import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@shared/boat-buffer";
+import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
+import { ANCHOR_BOW_OFFSET, ANCHOR_DEPTH, BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, MAX_BONES, MAX_ENTITIES, PLAYER_HEIGHT, PLAYER_RADIUS, WALL_THICKNESS, getCellGeometry, getPortColliderDims, getPortCollisionBoxes, getWallCollisionBoxes, hasSolidCollision, isWalkableSurface, isWallType } from "@shared/constants";
+import { generateDecorationMesh, generateDecorations } from "@shared/IslandDecorations";
+import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
+import { ENT, SimBufferReader } from "@shared/sim-buffer";
+import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
+import {
+    createChunkedVoxelField,
+    generatePortVoxelField,
+    getChunkMeshSubRegion,
+    materializeChunkForMesh,
+    type ChunkedFieldContext,
+} from "@shared/TerrainGenerator";
+import { ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
+import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
+import { PerlinNoise } from "@shared/world/PerlinNoise";
 import { CameraState } from "./CameraSystem";
 import { calculateViewProj } from "./mathUtils";
-import { EntityType, PortSize, PortTheme, BiomeType, IslandSize } from "@shared/types";
-import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@shared/boat-buffer";
-import { BoatCellType, BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, PORT_DATA, PORT_SCALE, getPortColliderDims, getPortCollisionBoxes, PLAYER_HEIGHT, PLAYER_RADIUS, WALL_THICKNESS, getCellGeometry, getWallCollisionBoxes, isWallType, isWalkableSurface, hasSolidCollision, ANCHOR_DEPTH, ANCHOR_BOW_OFFSET, MAX_ENTITIES, MAX_BONES } from "@shared/constants";
-import { ENT, SimBufferReader } from "@shared/sim-buffer";
-import { type BoatDesign, RuntimeBoatGeometry } from "@shared/boat-design";
-import type { MeshData, ModelData, SkinData } from "./ModelLoader";
-import { SkeletonAnimator } from "./SkeletonAnimator";
+import type { MeshData, ModelData } from "./ModelLoader";
 import { generatePortMesh } from "./PortMeshGenerator";
-import {
-  generatePortVoxelField,
-  createChunkedVoxelField, materializeChunkForMesh, getChunkMeshSubRegion,
-  type ChunkedFieldContext,
-} from "@shared/TerrainGenerator";
-import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
-import { VoxelField, ChunkedVoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
-import { generateDecorations, generateDecorationMesh } from "@shared/IslandDecorations";
-import { PerlinNoise } from "@shared/world/PerlinNoise";
-import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
+import { SkeletonAnimator } from "./SkeletonAnimator";
 
 // Light structs and dynamic light application — shared across all lit shaders.
 // Bound at group 1, binding 0 as a read-only storage buffer.
@@ -283,8 +285,8 @@ fn entityLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
   // --- Image-based lighting (IBL) via split-sum approximation ---
   // Diffuse IBL: hemisphere ambient as irradiance proxy
   let up = vec3<f32>(0.0, 1.0, 0.0);
-  let skyTint = vec3<f32>(0.5, 0.6, 0.7);
-  let groundTint = vec3<f32>(0.3, 0.25, 0.2);
+  let skyTint = vec3<f32>(0.8, 0.85, 0.9);
+  let groundTint = vec3<f32>(0.4, 0.35, 0.3);
   let hemiAmbient = mix(groundTint, skyTint, max(dot(N, up), 0.0));
   let irradiance = hemiAmbient * ambientLevel;
   let kD_ibl = (1.0 - metallic) * (1.0 / PI);
@@ -500,8 +502,8 @@ fn instancedEntityLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f3
 
   // IBL — hemisphere ambient + BRDF LUT
   let up = vec3<f32>(0.0, 1.0, 0.0);
-  let skyTint = vec3<f32>(0.5, 0.6, 0.7);
-  let groundTint = vec3<f32>(0.3, 0.25, 0.2);
+  let skyTint = vec3<f32>(0.8, 0.85, 0.9);
+  let groundTint = vec3<f32>(0.4, 0.35, 0.3);
   let hemiAmbient = mix(groundTint, skyTint, max(dot(N, up), 0.0));
   let irradiance = hemiAmbient * ambientLevel;
   let kD_ibl = (1.0 - metallic) * (1.0 / PI);
@@ -915,8 +917,8 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
 
   // IBL — hemisphere ambient + BRDF LUT
   let up = vec3<f32>(0.0, 1.0, 0.0);
-  let skyTint = vec3<f32>(0.5, 0.6, 0.7);
-  let groundTint = vec3<f32>(0.3, 0.25, 0.2);
+  let skyTint = vec3<f32>(0.8, 0.85, 0.9);
+  let groundTint = vec3<f32>(0.4, 0.35, 0.3);
   let hemiAmbient = mix(groundTint, skyTint, max(dot(N, up), 0.0));
   let irradiance = hemiAmbient * ambientLevel;
   let kD_ibl = (1.0 - metallic) * (1.0 / PI);

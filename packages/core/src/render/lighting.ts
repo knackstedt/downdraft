@@ -68,8 +68,8 @@ export function createDefaultLightUniform(): LightUniformData {
     },
     pointLights: [],
     pointLightCount: 0,
-    ambientColor: vec3.create(0.3, 0.3, 0.35),
-    ambientIntensity: 0.3,
+    ambientColor: vec3.create(0.45, 0.5, 0.55),
+    ambientIntensity: 0.6,
   };
 }
 

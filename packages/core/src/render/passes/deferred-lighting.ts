@@ -1,9 +1,9 @@
-import type { RenderPassContext } from "../render-pass.ts";
-import { RenderPass } from "../render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
+import { type Mat4 } from "wgpu-matrix";
 import type { GBufferViews } from "../g-buffer.ts";
 import type { LightUniformData } from "../lighting.ts";
-import { packLightUniform, packPointLights, MAX_POINT_LIGHTS } from "../lighting.ts";
+import { MAX_POINT_LIGHTS, packLightUniform, packPointLights } from "../lighting.ts";
+import type { RenderPassContext } from "../render-pass.ts";
+import { RenderPass } from "../render-pass.ts";
 
 const DEFERRED_SHADER = `
 struct CameraUniforms {
@@ -137,7 +137,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   color += albedo * lights.ambient.rgb * lights.ambient.w * ao;
 
   let L = normalize(-lights.dirDirection.xyz);
-  let shadow = shadowFactor(worldPos);
+  let shadow = max(shadowFactor(worldPos), 0.35);
   color += pbrBRDF(albedo, metallic, roughness, N, V, L, lights.dirColor.rgb, lights.dirDirection.w) * shadow;
 
   let count = u32(lights.lightCount.x);

@@ -1,13 +1,13 @@
-import {
-  LightType,
-  createDirectionalLight,
-  createPointLight,
-  createDefaultLightUniform,
-  packLightUniform,
-  packPointLights,
-  MAX_POINT_LIGHTS,
-} from "./lighting.ts";
 import { vec3 } from "wgpu-matrix";
+import {
+    LightType,
+    MAX_POINT_LIGHTS,
+    createDefaultLightUniform,
+    createDirectionalLight,
+    createPointLight,
+    packLightUniform,
+    packPointLights,
+} from "./lighting.ts";
 
 describe("Lighting", () => {
   it("should create a directional light with correct defaults", () => {
@@ -30,7 +30,7 @@ describe("Lighting", () => {
   it("should create default light uniform with directional + ambient", () => {
     const data = createDefaultLightUniform();
     expect(data.directional.intensity).toBe(3.0);
-    expect(data.ambientIntensity).toBe(0.3);
+    expect(data.ambientIntensity).toBe(0.6);
     expect(data.pointLightCount).toBe(0);
   });
 

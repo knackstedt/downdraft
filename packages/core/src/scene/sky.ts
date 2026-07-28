@@ -19,7 +19,7 @@ export const DEFAULT_DAY_NIGHT_CONFIG: DayNightConfig = {
   sunIntensity: 3.0,
   moonIntensity: 0.3,
   ambientColor: [0.3, 0.35, 0.4],
-  ambientIntensity: 0.5,
+  ambientIntensity: 0.65,
   latitude: 45.0,
   axialTilt: 23.5,
 };
@@ -98,7 +98,8 @@ export class DayNightCycle {
       moonIntensity = this.config.moonIntensity * ((moonHeight + 0.1) / 0.2) * 0.5;
     }
 
-    const ambientIntensity = this.config.ambientIntensity * (0.3 + 0.7 * Math.max(0, sunHeight));
+    // sqrt curve — sky scattering ramps faster than sun elevation at low angles
+    const ambientIntensity = this.config.ambientIntensity * (0.4 + 0.6 * Math.sqrt(Math.max(0, sunHeight)));
 
     let sunColor = [...this.config.sunColor] as [number, number, number];
     if (dayPhase === "dawn" || dayPhase === "dusk") {

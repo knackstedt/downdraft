@@ -36,8 +36,10 @@ export class LightingSystem {
     const moonDir: [number, number, number] = [-sunDir[0], -sunDir[1], -sunDir[2]];
     const moonIntensity = Math.max(0, -Math.sin(sunAngle));
 
-    // Ambient light level — boosted to compensate for the 1/π Lambertian factor in PBR shaders
-    let ambient = 0.4 + sunIntensityRaw * 0.5;
+    // Ambient light level — boosted to compensate for the 1/π Lambertian factor in PBR shaders.
+    // sqrt curve makes ambient ramp up faster at low sun angles (sky scattering is significant
+    // even when the sun is near the horizon), while preserving the peak at noon.
+    let ambient = 0.7 + Math.sqrt(sunIntensityRaw) * 0.8;
 
     // Weather reduces both ambient and directional sunlight (clouds block sun)
     let sunIntensity = sunIntensityRaw;
