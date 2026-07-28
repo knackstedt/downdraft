@@ -766,6 +766,7 @@ export class WebGPURenderer {
       sunIntensity: lightingParams.sunBrightness,
       ambient: lightingParams.ambient,
       fogColor: lightingParams.fogColor,
+      wetness: lightingParams.wetness,
     });
 
     // Begin dynamic light frame — collect lights during entity iteration

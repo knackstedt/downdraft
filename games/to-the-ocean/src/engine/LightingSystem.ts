@@ -53,6 +53,11 @@ export class LightingSystem {
     const ambient = prev.ambient + (curr.ambient - prev.ambient) * easedBlend;
     const sunIntensity = prev.sunIntensity + (curr.sunIntensity - prev.sunIntensity) * easedBlend;
 
+    // Wetness factor — 0 when dry, ramps up for rain/storm/hellstorm
+    const prevWetness = this.weatherWetness(this.prevWeatherType);
+    const currWetness = this.weatherWetness(this.displayedWeatherType);
+    const wetness = prevWetness + (currWetness - prevWetness) * easedBlend;
+
     // Visibility affects fog distance
     const fogDensity = (1 - visibility) * 0.01;
 
@@ -65,6 +70,7 @@ export class LightingSystem {
       moonIntensity,
       ambient,
       fogDensity,
+      wetness,
       fogColor: [0.0, 0.1, 0.2] as [number, number, number],
     };
   }
@@ -87,6 +93,13 @@ export class LightingSystem {
     if (weatherType === WeatherType.Snow) { ambient *= 0.7; sunIntensity *= 0.4; }
     if (weatherType === WeatherType.FullMoon) ambient += moonIntensity * 0.15;
     return { ambient, sunIntensity };
+  }
+
+  private weatherWetness(weatherType: WeatherType): number {
+    if (weatherType === WeatherType.Rain) return 0.7;
+    if (weatherType === WeatherType.Storm) return 1.0;
+    if (weatherType === WeatherType.HellStorm) return 1.0;
+    return 0.0;
   }
 
   updateWeatherBlend(weatherType: WeatherType, dt: number): void {
