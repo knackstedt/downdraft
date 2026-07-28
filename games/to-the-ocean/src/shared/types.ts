@@ -625,7 +625,7 @@ export interface TerrainDeformationBroadcast {
 }
 
 export interface SimToMainMessage {
-  kind: "ready" | "saved" | "loaded" | "error" | "performance" | "player_died" | "weather_changed" | "gc_stats" | "boat_design_update" | "boat_design_remove" | "collision_log" | "fishing_result" | "terrain_deformed" | "terrain_lod_changed" | "ship_hold_update";
+  kind: "ready" | "saved" | "loaded" | "error" | "performance" | "player_died" | "weather_changed" | "gc_stats" | "perf_stats" | "boat_design_update" | "boat_design_remove" | "collision_log" | "fishing_result" | "terrain_deformed" | "terrain_lod_changed" | "ship_hold_update";
   data: any;
 }
 
@@ -678,4 +678,5 @@ export interface GameRules {
   nightSkipThreshold: number; // 0.5 = 50% of players
   portGenerationRate: number;   // chance per chunk to generate a port
   islandGenerationRate: number; // chance per chunk to generate an island
+  waterUpdateInterval: number;  // sim ticks between water height updates (1=every tick, 2=every 2nd, etc.)
 }

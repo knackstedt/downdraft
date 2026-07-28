@@ -524,8 +524,11 @@ export class Simulation {
       this.broadcastShipHoldUpdate();
     }
 
-    // Update water heightfield
-    this.updateWaterBuffer();
+    // Update water heightfield (throttled by waterUpdateInterval rule)
+    const waterInterval = (this.rules.waterUpdateInterval as number) ?? 1;
+    if (waterInterval <= 1 || this.totalTicks % waterInterval === 0) {
+      this.updateWaterBuffer();
+    }
 
     const tickEnd = performance.now();
     if (tickEnd - tickStart > 50) {

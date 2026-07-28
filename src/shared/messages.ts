@@ -19,6 +19,7 @@ export const IPC = {
   DISPLAY_INFO: "display-info",
   DISPLAY_METRICS_CHANGED: "display-metrics-changed",
   GC_STATS: "gc-stats",
+  PERF_STATS: "perf-stats",
 } as const;
 
 // --- DB Helper ---

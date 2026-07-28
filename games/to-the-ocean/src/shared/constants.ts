@@ -2,7 +2,7 @@
 // Game Constants & Tuning Values
 // ============================================================================
 
-import { BiomeType, GameMode, SecurityLevel, WeatherType, PortSize, IslandSize } from "./types";
+import { BiomeType, GameMode, IslandSize, PortSize, SecurityLevel } from "./types";
 
 // --- Simulation ---
 
@@ -890,6 +890,7 @@ export const DEFAULT_GAME_RULES = {
   collisionLodDistance: 250, // meters — entity pairs farther than this from all players skip collision
   portGenerationRate: 0.015,
   islandGenerationRate: 0.00000025,
+  waterUpdateInterval: 1, // sim ticks between water height updates
 };
 
 export const GAMEMODE_RULES: Record<GameMode, Partial<typeof DEFAULT_GAME_RULES>> = {

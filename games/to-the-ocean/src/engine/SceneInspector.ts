@@ -3,12 +3,14 @@
 // Bridges between the DevTools extension and the renderer/scene store
 // ============================================================================
 
-import { useSceneStore, type SceneTreeSnapshot, type GizmoMode } from "../stores/sceneStore";
-import { loadModel, detectFormat } from "./ModelLoader";
-import type { WebGPURenderer } from "./WebGPURenderer";
+import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
 import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
-import { WeatherType, EntityTypeNames, EntityType, BiomeType } from "@shared/types";
+import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
 import { simBridge } from "../simBridge";
+import { useDebugStore } from "../stores/debugStore";
+import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "../stores/sceneStore";
+import { detectFormat, loadModel } from "./ModelLoader";
+import type { WebGPURenderer } from "./WebGPURenderer";
 
 // Discover model files in assets/models at build time via Vite glob
 const modelGlob = import.meta.glob("../../assets/models/**/*.{fbx,gltf,glb,obj,dae,stl,FBX,GLTF,GLB,OBJ,DAE,STL}", {
@@ -189,6 +191,8 @@ async function asyncFetchArrayBuffer(url: string): Promise<ArrayBuffer | null> {
 export class SceneInspector {
   private renderer: WebGPURenderer | null = null;
   private initialized = false;
+  private perfGcHandle: GCProfilerHandle | null = null;
+  private perfActive = false;
 
   init(renderer: WebGPURenderer): void {
     this.renderer = renderer;
@@ -800,6 +804,93 @@ export class SceneInspector {
           result.push({ value: i, name: biomeNames[i] ?? `Biome ${i}` });
         }
         return result;
+      },
+
+      // --- External Performance Metrics ---
+      enablePerformanceMonitoring: (): void => {
+        if (this.perfActive) return;
+        this.perfActive = true;
+
+        // Start renderer GC profiler
+        if (!this.perfGcHandle) {
+          this.perfGcHandle = startGCProfiler('renderer', (stats: GCStats) => {
+            useDebugStore.getState().updateGCStats(stats);
+          });
+        }
+
+        // Enable debug mode on renderer + sim worker (starts their GC + perf collectors)
+        this.renderer?.setDebugMode(true);
+        simBridge.setDebugMode(true);
+      },
+
+      disablePerformanceMonitoring: (): void => {
+        if (!this.perfActive) return;
+        this.perfActive = false;
+
+        this.perfGcHandle?.stop();
+        this.perfGcHandle = null;
+
+        // Only disable debug mode if the F3 debug page isn't active
+        if (!useDebugStore.getState().showDebugPage) {
+          this.renderer?.setDebugMode(false);
+          simBridge.setDebugMode(false);
+        }
+      },
+
+      getPerformanceMetrics: (): any => {
+        const pm = (window as any).__perfMetrics ?? {};
+        const gcStats = useDebugStore.getState().gcStats;
+        const fps = this.renderer?.getFPS() ?? 0;
+        const frameTimeMs = fps > 0 ? 1000 / fps : 0;
+        const targetFrameMs = 1000 / 60;
+        const gpuUtil = Math.min(100, (frameTimeMs / targetFrameMs) * 100);
+
+        const perfMem = (performance as any).memory;
+        const rendererMemMB = perfMem ? perfMem.usedJSHeapSize / 1048576 : 0;
+
+        function gcFor(label: string) {
+          const g = gcStats[label];
+          if (!g) return { count: 0, totalTime: 0, scavengeCount: 0, majorCount: 0 };
+          return {
+            count: g.interval.count,
+            totalTime: g.interval.totalTime,
+            scavengeCount: g.interval.scavengeCount,
+            majorCount: g.interval.majorCount,
+          };
+        }
+
+        const main = pm.main;
+        const worker = pm.worker;
+
+        return {
+          gpu: {
+            utilization: gpuUtil,
+            frameTimeMs,
+            fps,
+          },
+          renderer: {
+            cpuPercent: gpuUtil,
+            memUsedMB: rendererMemMB,
+            diskKBps: 0,
+            networkKBps: 0,
+            gc: gcFor("renderer"),
+          },
+          main: {
+            cpuPercent: main?.cpuPercent ?? 0,
+            memUsedMB: main?.memUsedMB ?? 0,
+            diskKBps: 0,
+            networkKBps: 0,
+            gc: gcFor("main"),
+          },
+          worker: {
+            cpuPercent: worker?.cpuPercent ?? 0,
+            memUsedMB: worker?.memUsedMB ?? 0,
+            diskKBps: 0,
+            networkKBps: 0,
+            gc: gcFor("sim-worker"),
+          },
+          timestamp: performance.now(),
+        };
       },
 
       getVersion: (): string => {

@@ -22,6 +22,7 @@ import { SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/SceneInspector";
 import { SimWebWorker } from "./engine/SimWebWorker";
 import { WebGPURenderer } from "./engine/WebGPURenderer";
+import { simBridge } from "./simBridge";
 import { useDebugStore } from "./stores/debugStore";
 import { useGameStore } from "./stores/gameStore";
 import "./styles/globals.css";
@@ -115,6 +116,10 @@ async function bootstrap() {
         break;
       case "gc_stats":
         useDebugStore.getState().updateGCStats(msg.data);
+        break;
+      case "perf_stats":
+        (window as any).__perfMetrics = (window as any).__perfMetrics ?? {};
+        (window as any).__perfMetrics[msg.data.process] = msg.data;
         break;
       case "collision_log":
         useDebugStore.getState().setCollisionLog(msg.data);
@@ -228,6 +233,18 @@ async function bootstrap() {
     console.warn("[Renderer] onDisplayMetricsChanged not available:", e);
   }
 
+  // Listen for main process performance stats
+  try {
+    if (ocean?.onPerfStats) {
+      ocean.onPerfStats((data: any) => {
+        (window as any).__perfMetrics = (window as any).__perfMetrics ?? {};
+        (window as any).__perfMetrics[data.process] = data;
+      });
+    }
+  } catch (e) {
+    console.warn("[Renderer] onPerfStats not available:", e);
+  }
+
   // Update store with renderer reference
   useGameStore.getState().setRenderer(renderer);
   useGameStore.getState().setReady(true);
@@ -248,7 +265,7 @@ async function bootstrap() {
           });
         }
         renderer.setDebugMode(true);
-        simWorker.setDebugMode(true);
+        simBridge.setDebugMode(true);
         statsInterval = setInterval(() => {
           const sim = renderer.getSimReader();
           if (sim && sim.isValid()) {
@@ -282,7 +299,7 @@ async function bootstrap() {
         rendererGcHandle?.stop();
         rendererGcHandle = null;
         renderer.setDebugMode(false);
-        simWorker.setDebugMode(false);
+        simBridge.setDebugMode(false);
         if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
       }
     },

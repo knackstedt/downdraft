@@ -27,6 +27,8 @@ const api = {
 
   onGCStats: (cb: (data: any) => void) => ipcRenderer.on(IPC.GC_STATS, (_e, data) => cb(data)),
 
+  onPerfStats: (cb: (data: any) => void) => ipcRenderer.on(IPC.PERF_STATS, (_e, data) => cb(data)),
+
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
 
   log: (level: string, message: string) => ipcRenderer.send(IPC.RENDERER_LOG, { level, message }),

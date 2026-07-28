@@ -345,6 +345,9 @@ function registerIpcHandlers(): void {
   });
 
   let mainGcHandle: GCProfilerHandle | null = null;
+  let mainPerfTimer: ReturnType<typeof setInterval> | null = null;
+  let prevCpuUsage = process.cpuUsage();
+  let prevPerfTime = performance.now();
   ipcMain.on(IPC.DEBUG_MODE, (_event, enabled: boolean) => {
     if (enabled) {
       if (!mainGcHandle) {
@@ -352,9 +355,32 @@ function registerIpcHandlers(): void {
           mainWindow?.webContents.send(IPC.GC_STATS, stats);
         });
       }
+      if (!mainPerfTimer) {
+        prevCpuUsage = process.cpuUsage();
+        prevPerfTime = performance.now();
+        mainPerfTimer = setInterval(() => {
+          const now = performance.now();
+          const wallMs = now - prevPerfTime;
+          const cpu = process.cpuUsage(prevCpuUsage);
+          const cpuPercent = ((cpu.user + cpu.system) / 1000) / wallMs * 100;
+          const mem = process.memoryUsage();
+          mainWindow?.webContents.send(IPC.PERF_STATS, {
+            process: "main",
+            cpuPercent: Math.min(100, cpuPercent),
+            memUsedMB: mem.rss / 1048576,
+            heapUsedMB: mem.heapUsed / 1048576,
+            heapTotalMB: mem.heapTotal / 1048576,
+            externalMB: mem.external / 1048576,
+            timestamp: now,
+          });
+          prevCpuUsage = process.cpuUsage();
+          prevPerfTime = now;
+        }, 2000);
+      }
     } else {
       mainGcHandle?.stop();
       mainGcHandle = null;
+      if (mainPerfTimer) { clearInterval(mainPerfTimer); mainPerfTimer = null; }
     }
   });
 
