@@ -4,13 +4,13 @@
 // SharedArrayBuffers are shared directly with the renderer — zero-copy state.
 // ============================================================================
 
-import { Simulation } from "@sim/Simulation";
-import { SimBufferWriter } from "@shared/sim-buffer";
-import { InputBufferReader } from "@shared/input-buffer";
-import { WaterBufferWriter } from "@shared/water-buffer";
 import { BoatBufferWriter } from "@shared/boat-buffer";
-import { MainToSimMessage, SimToMainMessage } from "@shared/types";
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
+import { InputBufferReader } from "@shared/input-buffer";
+import { SimBufferWriter } from "@shared/sim-buffer";
+import { MainToSimMessage, SimToMainMessage } from "@shared/types";
+import { WaterBufferWriter } from "@shared/water-buffer";
+import { Simulation } from "@sim/Simulation";
 
 let simulation: Simulation | null = null;
 let gcHandle: GCProfilerHandle | null = null;
@@ -18,6 +18,9 @@ let debugMode = false;
 let running = true;
 let paused = false;
 let tickCount = 0;
+let tickTimeAccum = 0;
+let perfTimer: ReturnType<typeof setInterval> | null = null;
+let perfWallStart = 0;
 
 const onEvent = (msg: SimToMainMessage) => { (self as unknown as Worker).postMessage(msg); };
 
@@ -130,6 +133,29 @@ function handleCommand(msg: MainToSimMessage): void {
         gcHandle.stop();
         gcHandle = null;
       }
+      if (enabled && !perfTimer) {
+        tickTimeAccum = 0;
+        perfWallStart = performance.now();
+        perfTimer = setInterval(() => {
+          const now = performance.now();
+          const wallMs = now - perfWallStart;
+          const cpuPercent = wallMs > 0 ? Math.min(100, (tickTimeAccum / wallMs) * 100) : 0;
+          const mem = (performance as any).memory;
+          onEvent({ kind: "perf_stats", data: {
+            process: "worker",
+            cpuPercent,
+            memUsedMB: mem ? mem.usedJSHeapSize / 1048576 : 0,
+            heapUsedMB: mem ? mem.usedJSHeapSize / 1048576 : 0,
+            heapTotalMB: mem ? mem.totalJSHeapSize / 1048576 : 0,
+            timestamp: now,
+          } } as SimToMainMessage);
+          tickTimeAccum = 0;
+          perfWallStart = now;
+        }, 2000);
+      } else if (!enabled && perfTimer) {
+        clearInterval(perfTimer);
+        perfTimer = null;
+      }
       break;
     }
     case "command": {
@@ -171,7 +197,9 @@ function loop(): void {
     lastTick = now - ((now - lastTick) % TICK_MS);
     if (!paused && simulation) {
       try {
+        const tickStart = performance.now();
         simulation.tick();
+        tickTimeAccum += performance.now() - tickStart;
         tickCount++;
 
         // Forward terrain deformation broadcasts to renderer

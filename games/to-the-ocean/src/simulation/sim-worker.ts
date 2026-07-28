@@ -3,13 +3,13 @@
 // ============================================================================
 
 import { parentPort, workerData } from "worker_threads";
-import { Simulation } from "./Simulation";
-import { SimBufferWriter } from "../shared/sim-buffer";
-import { InputBufferReader } from "../shared/input-buffer";
-import { WaterBufferWriter } from "../shared/water-buffer";
 import { BoatBufferWriter } from "../shared/boat-buffer";
-import { MainToSimMessage, SimToMainMessage, SimCommand } from "../shared/types";
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "../shared/gc-profiler";
+import { InputBufferReader } from "../shared/input-buffer";
+import { SimBufferWriter } from "../shared/sim-buffer";
+import { MainToSimMessage, SimCommand, SimToMainMessage } from "../shared/types";
+import { WaterBufferWriter } from "../shared/water-buffer";
+import { Simulation } from "./Simulation";
 
 const data = workerData as {
   simBuffer: SharedArrayBuffer;
@@ -42,6 +42,10 @@ simulation.onDesignRemoved = (entityId) => {
 
 let gcHandle: GCProfilerHandle | null = null;
 let debugMode = false;
+let tickTimeAccum = 0;
+let perfTimer: ReturnType<typeof setInterval> | null = null;
+let prevCpuUsage = process.cpuUsage();
+let perfWallStart = 0;
 
 let running = true;
 let paused = false;
@@ -90,7 +94,9 @@ function loop(): void {
     lastTick = now - ((now - lastTick) % TICK_MS);
     if (!paused) {
       try {
+        const tickStart = performance.now();
         simulation.tick();
+        tickTimeAccum += performance.now() - tickStart;
         tickCount++;
 
         // Forward terrain deformation broadcasts to renderer
@@ -185,6 +191,32 @@ parentPort?.on("message", (msg: MainToSimMessage) => {
       } else if (!enabled && gcHandle) {
         gcHandle.stop();
         gcHandle = null;
+      }
+      if (enabled && !perfTimer) {
+        tickTimeAccum = 0;
+        prevCpuUsage = process.cpuUsage();
+        perfWallStart = performance.now();
+        perfTimer = setInterval(() => {
+          const now = performance.now();
+          const wallMs = now - perfWallStart;
+          const cpu = process.cpuUsage(prevCpuUsage);
+          const cpuPercent = ((cpu.user + cpu.system) / 1000) / wallMs * 100;
+          const mem = process.memoryUsage();
+          parentPort?.postMessage({ kind: "perf_stats", data: {
+            process: "worker",
+            cpuPercent: Math.min(100, cpuPercent),
+            memUsedMB: mem.rss / 1048576,
+            heapUsedMB: mem.heapUsed / 1048576,
+            heapTotalMB: mem.heapTotal / 1048576,
+            timestamp: now,
+          } } as SimToMainMessage);
+          tickTimeAccum = 0;
+          prevCpuUsage = process.cpuUsage();
+          perfWallStart = now;
+        }, 2000);
+      } else if (!enabled && perfTimer) {
+        clearInterval(perfTimer);
+        perfTimer = null;
       }
       break;
     }

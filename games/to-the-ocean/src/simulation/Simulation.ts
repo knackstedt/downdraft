@@ -131,6 +131,43 @@ export class Simulation {
   private reportedDead = new Set<number>();
   private seaState = 0.5; // smoothed wind-driven wave amplitude factor (0..1)
 
+  // --- Trig lookup table for water wave computation ---
+  // 4096 entries over 2π — linear interpolation, ~16-bit precision.
+  // Replaces ~458K Math.sin/Math.cos calls per tick with array lookups.
+  private static readonly SIN_TABLE_SIZE = 4096;
+  private static readonly SIN_TABLE: Float32Array = (() => {
+    const t = new Float32Array(Simulation.SIN_TABLE_SIZE);
+    for (let i = 0; i < Simulation.SIN_TABLE_SIZE; i++) {
+      t[i] = Math.sin((i / Simulation.SIN_TABLE_SIZE) * Math.PI * 2);
+    }
+    return t;
+  })();
+  private static readonly COS_TABLE: Float32Array = (() => {
+    const t = new Float32Array(Simulation.SIN_TABLE_SIZE);
+    for (let i = 0; i < Simulation.SIN_TABLE_SIZE; i++) {
+      t[i] = Math.cos((i / Simulation.SIN_TABLE_SIZE) * Math.PI * 2);
+    }
+    return t;
+  })();
+  private static readonly SIN_SCALE = Simulation.SIN_TABLE_SIZE / (Math.PI * 2);
+  private static readonly SIN_MASK = Simulation.SIN_TABLE_SIZE - 1;
+
+  private static fastSin(x: number): number {
+    const idx = ((x * Simulation.SIN_SCALE) | 0) & Simulation.SIN_MASK;
+    const frac = x * Simulation.SIN_SCALE - (x * Simulation.SIN_SCALE | 0);
+    const a = Simulation.SIN_TABLE[idx];
+    const b = Simulation.SIN_TABLE[(idx + 1) & Simulation.SIN_MASK];
+    return a + (b - a) * frac;
+  }
+
+  private static fastCos(x: number): number {
+    const idx = ((x * Simulation.SIN_SCALE) | 0) & Simulation.SIN_MASK;
+    const frac = x * Simulation.SIN_SCALE - (x * Simulation.SIN_SCALE | 0);
+    const a = Simulation.COS_TABLE[idx];
+    const b = Simulation.COS_TABLE[(idx + 1) & Simulation.SIN_MASK];
+    return a + (b - a) * frac;
+  }
+
   constructor(
     simWriter: SimBufferWriter,
     inputReader: InputBufferReader,
@@ -663,23 +700,42 @@ export class Simulation {
     const swellK = 3.0; // low frequency for long wavelength
     const swellAmp = 0.4 * ss; // only present when wind is strong
 
+    // Hoist loop-invariant phase terms
+    const TWO_PI = 2 * Math.PI;
+    const invGrid = TWO_PI / gridSize;
+    const p0 = time * 0.8 * speedScale;
+    const p1 = time * 1.0 * speedScale;
+    const p2 = time * 0.5 * speedScale;
+    const p3 = time * 1.5 * speedScale;
+    const p4 = time * 1.2 * speedScale;
+    const p5 = time * 0.9 * speedScale;
+    const p6 = time * 0.6 * speedScale;
+
+    // Precompute per-column wx values
+    const wxArr = new Float64Array(gridSize);
+    for (let x = 0; x < gridSize; x++) wxArr[x] = x * invGrid;
+
+    const heights = this.waterWriter.heights;
+    const windDirX = windDir.x;
+    const windDirZ = windDir.z;
+
+    const fastSin = Simulation.fastSin;
+    const fastCos = Simulation.fastCos;
+
     for (let z = 0; z < gridSize; z++) {
+      const wz = z * invGrid;
+      const rowBase = z * gridSize;
       for (let x = 0; x < gridSize; x++) {
-        const wx = x / gridSize * 2 * Math.PI;
-        const wz = z / gridSize * 2 * Math.PI;
-        // Multi-octave waves tuned for 4m grid cells (1024m total coverage)
-        // Wavelengths ~50-300m = 12-75 grid cells — clean, no aliasing
-        // Amplitudes scaled by wind-driven sea state
+        const wx = wxArr[x];
         const h =
-          (Math.sin(wx * 8 + time * 0.8 * speedScale) * 0.6 +
-           Math.sin(wz * 10 + time * 1.0 * speedScale) * 0.4 +
-           Math.sin((wx + wz) * 6 + time * 0.5 * speedScale) * 0.3 +
-           Math.sin(wx * 20 - time * 1.5 * speedScale) * 0.15 +
-           Math.cos(wz * 18 + time * 1.2 * speedScale) * 0.12 +
-           Math.sin((wx * 3 + wz * 4) * 5 + time * 0.9 * speedScale) * 0.2) * ampScale +
-          // Directional swell traveling downwind
-          Math.sin((wx * windDir.x + wz * windDir.z) * swellK + time * 0.6 * speedScale) * swellAmp;
-        this.waterWriter.setHeight(x, z, h);
+          (fastSin(wx * 8 + p0) * 0.6 +
+           fastSin(wz * 10 + p1) * 0.4 +
+           fastSin((wx + wz) * 6 + p2) * 0.3 +
+           fastSin(wx * 20 - p3) * 0.15 +
+           fastCos(wz * 18 + p4) * 0.12 +
+           fastSin((wx * 3 + wz * 4) * 5 + p5) * 0.2) * ampScale +
+          fastSin((wx * windDirX + wz * windDirZ) * swellK + p6) * swellAmp;
+        heights[rowBase + x] = h;
       }
     }
 
