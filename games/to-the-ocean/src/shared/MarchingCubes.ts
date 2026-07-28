@@ -298,8 +298,8 @@ const CORNER_OFFSET = [
   [0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1],
 ];
 
-import { VoxelField, ExtractedMesh, TerrainType } from "./TerrainTypes";
 import { TERRAIN_CONFIG } from "./TerrainConfig";
+import { ExtractedMesh, TerrainType, VoxelField } from "./TerrainTypes";
 
 // Get terrain type at a surface point based on height and gradient
 function getTerrainType(
@@ -586,6 +586,189 @@ export function extractMesh(
   }
 
   // Trim to actual used size
+  const finalVerts = verts.subarray(0, vertCount);
+  const finalIndices = useUint32
+    ? indices32.subarray(0, indexCount)
+    : indices16.subarray(0, indexCount);
+
+  return {
+    verts: finalVerts,
+    indices: finalIndices as Uint16Array | Uint32Array,
+    useUint32,
+  };
+}
+
+// Extract cloud mesh from a voxel field — same MC algorithm as extractMesh
+// but with cloud-specific coloring (no terrain types, no gradient/cliff noise).
+// Vertex format is identical: pos(3) + normal(3) + color(3) = 9 floats per vertex.
+export function extractCloudMesh(
+  field: VoxelField,
+  colorFn?: (ny: number, density: number) => [number, number, number],
+): ExtractedMesh {
+  const iso = field.isoLevel;
+  const vs = field.voxelSize;
+  const dimYDimZ = field.dimY * field.dimZ;
+  const dimZ = field.dimZ;
+  const ox = field.originX, oy = field.originY, oz = field.originZ;
+
+  let verts: Float32Array = new Float32Array(65536);
+  let vertCount = 0;
+  let indices32: Uint32Array = new Uint32Array(32768);
+  let indices16: Uint16Array = new Uint16Array(32768);
+  let indexCount = 0;
+  let useUint32 = false;
+
+  const d = SCRATCH_D;
+  const edgeVerts = SCRATCH_EDGE_VERTS;
+
+  // Default cloud color function: bright white top, warm white bottom
+  const defaultColorFn = (ny: number, density: number): [number, number, number] => {
+    // Top faces (ny > 0): pure white
+    // Bottom faces (ny < 0): warm off-white, not dark/gray
+    const topR = 0.95, topG = 0.95, topB = 0.98;
+    const botR = 0.88, botG = 0.88, botB = 0.90;
+    const bottomFactor = Math.max(0, -ny);
+    let r = topR + (botR - topR) * bottomFactor;
+    let g = topG + (botG - topG) * bottomFactor;
+    let b = topB + (botB - topB) * bottomFactor;
+    // Density-based brightness: brighter at core
+    const brightness = 0.9 + 0.1 * Math.min(1, Math.max(0, density));
+    r *= brightness;
+    g *= brightness;
+    b *= brightness;
+    return [r, g, b];
+  };
+  const cFn = colorFn ?? defaultColorFn;
+
+  for (let x = 0; x < field.dimX - 1; x++) {
+    for (let y = 0; y < field.dimY - 1; y++) {
+      for (let z = 0; z < field.dimZ - 1; z++) {
+        let cubeIndex = 0;
+        for (let c = 0; c < 8; c++) {
+          const co = CORNER_OFFSET[c];
+          const cx = x + co[0], cy = y + co[1], cz = z + co[2];
+          let val: number;
+          if (cx < 0 || cx >= field.dimX || cy < 0 || cy >= field.dimY || cz < 0 || cz >= field.dimZ) {
+            val = -1.0;
+          } else {
+            val = field.data[cx * dimYDimZ + cy * dimZ + cz];
+          }
+          d[c] = val;
+          if (val < iso) cubeIndex |= (1 << c);
+        }
+
+        const edges = EDGE_TABLE[cubeIndex];
+        if (edges === 0) continue;
+
+        for (let e = 0; e < 12; e++) {
+          if (!(edges & (1 << e))) continue;
+          const conn = EDGE_CONN[e];
+          const c1 = conn[0], c2 = conn[1];
+          const co1 = CORNER_OFFSET[c1];
+          const co2 = CORNER_OFFSET[c2];
+
+          const p1x = (x + co1[0]) * vs + ox, p1y = (y + co1[1]) * vs + oy, p1z = (z + co1[2]) * vs + oz;
+          const p2x = (x + co2[0]) * vs + ox, p2y = (y + co2[1]) * vs + oy, p2z = (z + co2[2]) * vs + oz;
+          const d1 = d[c1], d2 = d[c2];
+
+          let ex: number, ey: number, ez: number;
+          if (Math.abs(iso - d1) < 1e-10) {
+            ex = p1x; ey = p1y; ez = p1z;
+          } else if (Math.abs(iso - d2) < 1e-10) {
+            ex = p2x; ey = p2y; ez = p2z;
+          } else if (Math.abs(d1 - d2) < 1e-10) {
+            ex = p1x; ey = p1y; ez = p1z;
+          } else {
+            const t = (iso - d1) / (d2 - d1);
+            ex = p1x + t * (p2x - p1x);
+            ey = p1y + t * (p2y - p1y);
+            ez = p1z + t * (p2z - p1z);
+          }
+          const eo = e * 3;
+          edgeVerts[eo] = ex;
+          edgeVerts[eo + 1] = ey;
+          edgeVerts[eo + 2] = ez;
+        }
+
+        const triBase = cubeIndex * 16;
+        for (let t = 0; t < 15; t += 3) {
+          const e0 = TRI_TABLE[triBase + t];
+          if (e0 < 0) break;
+          const e1 = TRI_TABLE[triBase + t + 1];
+          const e2 = TRI_TABLE[triBase + t + 2];
+
+          const ev0o = e0 * 3, ev1o = e1 * 3, ev2o = e2 * 3;
+          const v0x = edgeVerts[ev0o], v0y = edgeVerts[ev0o + 1], v0z = edgeVerts[ev0o + 2];
+          const v1x = edgeVerts[ev1o], v1y = edgeVerts[ev1o + 1], v1z = edgeVerts[ev1o + 2];
+          const v2x = edgeVerts[ev2o], v2y = edgeVerts[ev2o + 1], v2z = edgeVerts[ev2o + 2];
+
+          // Compute face normal (inline cross product)
+          const e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
+          const e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
+          let nx = e1y * e2z - e1z * e2y;
+          let ny = e1z * e2x - e1x * e2z;
+          let nz = e1x * e2y - e1y * e2x;
+          const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+          if (nlen > 1e-10) { nx /= nlen; ny /= nlen; nz /= nlen; }
+          else { nx = 0; ny = 1; nz = 0; }
+          // Do NOT flip normals for clouds — we want both sides visible for volumetric look
+
+          // Cloud color from normal Y and density at centroid
+          const cx = (v0x + v1x + v2x) / 3;
+          const cy = (v0y + v1y + v2y) / 3;
+          const cz = (v0z + v1z + v2z) / 3;
+          const gx = Math.round((cx - ox) / vs), gy = Math.round((cy - oy) / vs), gz = Math.round((cz - oz) / vs);
+          let centroidDensity = -1.0;
+          if (gx >= 0 && gx < field.dimX && gy >= 0 && gy < field.dimY && gz >= 0 && gz < field.dimZ) {
+            centroidDensity = field.data[gx * dimYDimZ + gy * dimZ + gz];
+          }
+          const col = cFn(ny, centroidDensity);
+
+          if (vertCount + 27 > verts.length) {
+            verts = ensureCapacity(verts, vertCount + 27);
+          }
+          verts[vertCount++] = v0x; verts[vertCount++] = v0y; verts[vertCount++] = v0z;
+          verts[vertCount++] = nx; verts[vertCount++] = ny; verts[vertCount++] = nz;
+          verts[vertCount++] = col[0]; verts[vertCount++] = col[1]; verts[vertCount++] = col[2];
+          verts[vertCount++] = v1x; verts[vertCount++] = v1y; verts[vertCount++] = v1z;
+          verts[vertCount++] = nx; verts[vertCount++] = ny; verts[vertCount++] = nz;
+          verts[vertCount++] = col[0]; verts[vertCount++] = col[1]; verts[vertCount++] = col[2];
+          verts[vertCount++] = v2x; verts[vertCount++] = v2y; verts[vertCount++] = v2z;
+          verts[vertCount++] = nx; verts[vertCount++] = ny; verts[vertCount++] = nz;
+          verts[vertCount++] = col[0]; verts[vertCount++] = col[1]; verts[vertCount++] = col[2];
+
+          const baseIdx = (vertCount - 27) / 9;
+
+          if (!useUint32 && baseIdx + 2 > 65535) {
+            useUint32 = true;
+            if (indexCount > indices32.length) {
+              indices32 = ensureCapacityU32(indices32, indexCount);
+            }
+            for (let ci = 0; ci < indexCount; ci++) {
+              indices32[ci] = indices16[ci];
+            }
+          }
+
+          if (useUint32) {
+            if (indexCount + 3 > indices32.length) {
+              indices32 = ensureCapacityU32(indices32, indexCount + 3);
+            }
+            indices32[indexCount++] = baseIdx;
+            indices32[indexCount++] = baseIdx + 1;
+            indices32[indexCount++] = baseIdx + 2;
+          } else {
+            if (indexCount + 3 > indices16.length) {
+              indices16 = ensureCapacityU16(indices16, indexCount + 3);
+            }
+            indices16[indexCount++] = baseIdx;
+            indices16[indexCount++] = baseIdx + 1;
+            indices16[indexCount++] = baseIdx + 2;
+          }
+        }
+      }
+    }
+  }
+
   const finalVerts = verts.subarray(0, vertCount);
   const finalIndices = useUint32
     ? indices32.subarray(0, indexCount)

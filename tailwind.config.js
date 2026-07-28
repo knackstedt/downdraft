@@ -3,6 +3,8 @@ export default {
   content: [
     "./src/renderer/index.html",
     "./src/renderer/src/**/*.{js,ts,jsx,tsx}",
+    "./games/*/index.html",
+    "./games/*/src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {

@@ -88,9 +88,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // GPU command line switches for Linux WebGPU support
-// --no-sandbox eliminates the need for SUID chrome-sandbox binary (postinstall.sh)
-app.commandLine.appendSwitch("no-sandbox");
-app.commandLine.appendSwitch("disable-setuid-sandbox");
+// Force NVIDIA Vulkan ICD to prevent llvmpipe (software) fallback
 process.env.VK_ICD_FILENAMES = "/usr/share/vulkan/icd.d/nvidia_icd.json";
 app.commandLine.appendSwitch("enable-unsafe-webgpu");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");

@@ -2,35 +2,34 @@
 // WebGPU Renderer — main rendering engine
 // ============================================================================
 
-import { SimBufferReader, ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
-import { WaterBufferReader } from "@shared/water-buffer";
-import { InputBufferWriter, KEY } from "@shared/input-buffer";
-import { EntityType, CameraMode, WeatherType, EntityFlags, PortSize } from "@shared/types";
-import { ISLAND_DATA, BoatCellType, BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, PORT_DATA } from "@shared/constants";
-import { WATER_GRID } from "@shared/water-buffer";
 import { generateIslandBlobs } from "@shared/TerrainGenerator";
-import { BoatBufferReader, allocateBoatBuffer } from "@shared/boat-buffer";
-import { WaterSystem } from "./WaterSystem";
-import { SkySystem } from "./SkySystem";
-import { TerrainSystem } from "./TerrainSystem";
-import { EntityRenderer } from "./EntityRenderer";
+import { BoatBufferReader } from "@shared/boat-buffer";
+import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
+import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, ISLAND_DATA, PORT_DATA } from "@shared/constants";
+import { InputBufferWriter, KEY } from "@shared/input-buffer";
+import { ENT, PLR, PLR_FLAG, SimBufferReader } from "@shared/sim-buffer";
+import { CameraMode, EntityFlags, EntityType, EntityTypeNames, PortSize, WeatherType } from "@shared/types";
+import { WATER_GRID, WaterBufferReader } from "@shared/water-buffer";
+import { useGameStore } from "../stores/gameStore";
+import { useSceneStore, type GizmoMode } from "../stores/sceneStore";
 import { CameraSystem, type CameraState } from "./CameraSystem";
+import { CloudSystem } from "./CloudSystem";
+import { DebugOverlay } from "./DebugOverlay";
+import { DebugRaycast } from "./DebugRaycast";
+import { EntityRenderer } from "./EntityRenderer";
+import { LabelOverlay } from "./LabelOverlay";
 import { LightSystem } from "./LightSystem";
+import { loadModel, type MaterialData, type MeshData, type ModelData } from "./ModelLoader";
+import { ModelRenderer } from "./ModelRenderer";
 import { PBRSystem } from "./PBRSystem";
 import { ParticleSystem } from "./ParticleSystem";
 import { PixelationSystem } from "./PixelationSystem";
 import { PostProcessStack } from "./PostProcessStack";
-import { UnderwaterFogSystem } from "./UnderwaterFogSystem";
-import { ModelRenderer } from "./ModelRenderer";
+import { SkySystem } from "./SkySystem";
+import { TerrainSystem } from "./TerrainSystem";
 import { TransformGizmo } from "./TransformGizmo";
-import { LabelOverlay } from "./LabelOverlay";
-import { DebugOverlay } from "./DebugOverlay";
-import { DebugRaycast } from "./DebugRaycast";
-import { useSceneStore, type GizmoMode } from "../stores/sceneStore";
-import { useGameStore } from "../stores/gameStore";
-import { loadModel, type MeshData, type MaterialData, type ModelData, type AnimationData } from "./ModelLoader";
-import { EntityTypeNames } from "@shared/types";
-import { type BoatDesign, RuntimeBoatGeometry } from "@shared/boat-design";
+import { UnderwaterFogSystem } from "./UnderwaterFogSystem";
+import { WaterSystem } from "./WaterSystem";
 
 // Player model asset — resolved by Vite at build time
 const playerModelGlob = import.meta.glob(
@@ -79,6 +78,7 @@ export class WebGPURenderer {
   private pixelationSystem: PixelationSystem | null = null;
   private postProcessStack: PostProcessStack | null = null;
   private underwaterFogSystem: UnderwaterFogSystem | null = null;
+  private cloudSystem: CloudSystem | null = null;
   private modelRenderer: ModelRenderer | null = null;
   private transformGizmo: TransformGizmo | null = null;
   private labelOverlay: LabelOverlay | null = null;
@@ -335,6 +335,10 @@ export class WebGPURenderer {
 
       this.underwaterFogSystem = new UnderwaterFogSystem(this.device, this.format);
       this.underwaterFogSystem.init();
+
+      // Cloud system — 3D volumetric cloud meshes (semi-transparent, wind-drifting)
+      this.cloudSystem = new CloudSystem(this.device, this.format);
+      await this.cloudSystem.init();
 
       // Model renderer for imported 3D models
       this.modelRenderer = new ModelRenderer(this.device, this.format);
@@ -1036,6 +1040,13 @@ export class WebGPURenderer {
       this.entityRenderer!.processIslandChunkStream(camera.position[0], camera.position[2]);
     }
 
+    // Update cloud system (wind drift, slot recycling, mesh streaming)
+    if (viewportIdx === 0 && this.cloudSystem) {
+      this.cloudSystem.update(
+        dt, playerPos, windDir.x, windDir.z, windSpeed, weatherType,
+      );
+    }
+
     // Upload dynamic lights to GPU (cull by distance, sort nearest-first, write to storage buffer)
     this.lightingSystem!.upload([camera.position[0], camera.position[1], camera.position[2]]);
 
@@ -1104,6 +1115,26 @@ export class WebGPURenderer {
     }
     // Render anchor 3D meshes before water (proper depth-tested, lit geometry)
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
+
+    // Render clouds (semi-transparent, depth-tested, no depth write)
+    // After terrain and entities so clouds blend over them;
+    // before water so water can blend over clouds at the horizon.
+    if (this.cloudSystem) {
+      // Compute moon direction (opposite of sun)
+      const moonDir: [number, number, number] = [
+        -lightingParams.sunDir[0],
+        -lightingParams.sunDir[1],
+        -lightingParams.sunDir[2],
+      ];
+      const moonIntensity = Math.max(0, -Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2));
+      this.cloudSystem.render(
+        passEncoder, camera, timeOfDay, weatherType,
+        windSpeed, windDir.x, windDir.z, this.elapsedTime, playerPos,
+        lightingParams.sunDir, lightingParams.sunIntensity,
+        moonDir, moonIntensity,
+        lightingParams.fogColor, 0.0008,
+      );
+    }
 
     // Render water (semi-transparent, blends over terrain and submerged entities)
     if (this.waterReader) {
