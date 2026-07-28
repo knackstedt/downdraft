@@ -10,9 +10,10 @@
     "isolatedModules": true,
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"],
+      "@shared/*": ["games/to-the-ocean/src/shared/*", "src/shared/*"],
       "@main/*": ["src/main/*"],
       "@renderer/*": ["src/renderer/src/*"],
+      "@sim/*": ["games/to-the-ocean/src/simulation/*"],
       "@downdraft/core/*": ["packages/core/src/*"],
       "@downdraft/core": ["packages/core/src/index.ts"],
       "@downdraft/ui/*": ["packages/ui/src/*"],

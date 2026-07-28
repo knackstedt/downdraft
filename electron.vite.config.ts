@@ -1,6 +1,9 @@
-import { resolve } from "path";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react";
+import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { resolve } from "path";
+
+const game = process.env.DOWNDRAFT_GAME;
+const rendererRoot = game ? resolve("games", game) : resolve("src/renderer");
 
 export default defineConfig({
   main: {
@@ -45,11 +48,12 @@ export default defineConfig({
     },
   },
   renderer: {
-    root: "src/renderer",
+    root: rendererRoot,
     resolve: {
       alias: {
-        "@renderer": resolve("src/renderer/src"),
-        "@shared": resolve("src/shared"),
+        "@renderer": resolve(rendererRoot, "src"),
+        "@shared": game ? resolve(rendererRoot, "src/shared") : resolve("src/shared"),
+        "@sim": resolve(rendererRoot, "src/simulation"),
         "@downdraft/core": resolve("packages/core/src/index.ts"),
         "@downdraft/core/*": resolve("packages/core/src/*"),
       },
@@ -57,7 +61,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve("src/renderer/index.html"),
+          index: resolve(rendererRoot, "index.html"),
         },
       },
     } as any,

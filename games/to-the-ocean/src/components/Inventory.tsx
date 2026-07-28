@@ -1,9 +1,9 @@
+import { FloatingPortal, autoUpdate, flip, offset, shift, useFloating } from "@floating-ui/react";
+import { BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH, DAY_DURATION_SECONDS, PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH } from "@shared/constants";
+import { getItem } from "@shared/data/items";
 import React from "react";
-import { useFloating, FloatingPortal, autoUpdate, offset, shift, flip } from "@floating-ui/react";
-import { useGameStore } from "../stores/gameStore";
-import { getItem } from "../../../shared/data/items";
-import { PLAYER_INV_WIDTH, PLAYER_INV_HEIGHT, BOAT_HOLD_INV_WIDTH, BOAT_HOLD_INV_HEIGHT, DAY_DURATION_SECONDS } from "../../../shared/constants";
 import { simBridge } from "../simBridge";
+import { useGameStore } from "../stores/gameStore";
 
 interface GridItem {
   x: number;

@@ -2,27 +2,27 @@
 // App — root React component with canvas + HUD overlay
 // ============================================================================
 
-import React, { useEffect, useState } from "react";
-import { useGameStore } from "./stores/gameStore";
-import { simBridge } from "./simBridge";
-import HUD from "./components/HUD";
-import Inventory from "./components/Inventory";
-import MapView from "./components/MapView";
+import { WeatherType } from "@shared/types";
+import { useEffect, useState } from "react";
+import BuilderWheel from "./components/BuilderWheel";
 import BuildMenu from "./components/BuildMenu";
-import CraftMenu from "./components/CraftMenu";
-import FishingMinigame from "./components/FishingMinigame";
-import TradeMenu from "./components/TradeMenu";
-import SettingsPanel from "./components/SettingsPanel";
-import PauseMenu from "./components/PauseMenu";
 import CharacterCustomization from "./components/CharacterCustomization";
-import NotificationStack from "./components/NotificationStack";
-import LoadingScreen from "./components/LoadingScreen";
+import CraftMenu from "./components/CraftMenu";
+import CreditsScreen from "./components/CreditsScreen";
 import DeathScreen from "./components/DeathScreen";
 import DebugPage from "./components/DebugPage";
-import BuilderWheel from "./components/BuilderWheel";
-import CreditsScreen from "./components/CreditsScreen";
+import FishingMinigame from "./components/FishingMinigame";
+import HUD from "./components/HUD";
+import Inventory from "./components/Inventory";
+import LoadingScreen from "./components/LoadingScreen";
+import MapView from "./components/MapView";
+import NotificationStack from "./components/NotificationStack";
+import PauseMenu from "./components/PauseMenu";
+import SettingsPanel from "./components/SettingsPanel";
+import TradeMenu from "./components/TradeMenu";
+import { simBridge } from "./simBridge";
 import { useDebugStore } from "./stores/debugStore";
-import { WeatherType } from "../../shared/types";
+import { useGameStore } from "./stores/gameStore";
 
 export default function App() {
   const { ready, simReady, renderer, showInventory, showMap, showBuildMenu,

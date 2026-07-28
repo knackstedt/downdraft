@@ -256,3 +256,6 @@ export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.t
 export { ConsoleLogger, createLogger } from "./util/logger.ts";
 export type { Logger } from "./util/logger.ts";
 
+// Sim Types (generic interfaces for plugin systems)
+export type { EntityId, InputReaderLike, PlayerId, Quat, SimEntityLike, SimulationContext, SimPlayerLike, Transform, Vec2, Vec3, Vec4 } from "./sim/types.ts";
+

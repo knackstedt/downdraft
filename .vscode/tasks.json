@@ -2,27 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build Audio Native",
-      "type": "shell",
-      "command": "./build.sh",
-      "options": {
-        "cwd": "${workspaceFolder}/packages/audio-native"
-      },
-      "problemMatcher": ["$rustc"],
-      "group": "build"
-    },
-    {
-      "label": "Build Physics Native",
-      "type": "shell",
-      "command": "./build.sh",
-      "options": {
-        "cwd": "${workspaceFolder}/packages/physics-native"
-      },
-      "problemMatcher": ["$rustc"],
-      "group": "build"
-    },
-    {
-      "label": "Build All Native",
+      "label": "Cargo Build",
       "type": "shell",
       "command": "echo 'Run Build Audio Native and Build Physics Native'",
       "dependsOn": ["Build Audio Native", "Build Physics Native"],
@@ -39,6 +19,19 @@
       "problemMatcher": []
     },
     {
+      "label": "Dev: To The Ocean",
+      "type": "shell",
+      "command": "bun run dev",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DOWNDRAFT_GAME": "to-the-ocean"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
       "label": "Build",
       "type": "shell",
       "command": "bun run build",
@@ -46,24 +39,6 @@
         "cwd": "${workspaceFolder}"
       },
       "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Type Check",
-      "type": "shell",
-      "command": "bun run tsc",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": ["$tsc"]
-    },
-    {
-      "label": "Lint",
-      "type": "shell",
-      "command": "bun run lint",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
       "problemMatcher": []
     }
   ]

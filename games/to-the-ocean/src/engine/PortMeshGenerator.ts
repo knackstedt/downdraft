@@ -4,8 +4,8 @@
 // 9 floats per vertex: [px, py, pz, nx, ny, nz, r, g, b]
 // ============================================================================
 
-import { PortSize, PortTheme, PortService, BiomeType } from "../../../shared/types";
-import { PORT_DIMENSIONS } from "../../../shared/constants";
+import { PORT_DIMENSIONS } from "@shared/constants";
+import { BiomeType, PortService, PortSize, PortTheme } from "@shared/types";
 
 export interface PortMeshParams {
   size: PortSize;

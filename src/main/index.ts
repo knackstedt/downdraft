@@ -2,13 +2,13 @@
 // Main Process — Electron window/lifecycle management
 // ============================================================================
 
-import { app, BrowserWindow, ipcMain, session, screen, Menu, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, screen, session } from "electron";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { initDb, terminateDb, getDb } from "./db";
-import { IPC } from "../shared/messages";
-import { createLogger } from "./util/logger";
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "../shared/gc-profiler";
+import { IPC } from "../shared/messages";
+import { getDb, initDb, terminateDb } from "./db";
+import { createLogger } from "./util/logger";
 
 const log = createLogger("info");
 const isDev = !app.isPackaged;
@@ -200,7 +200,7 @@ async function createWindow(): Promise<void> {
     title: "Downdraft Engine",
     backgroundColor: "#001a33",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,

@@ -8,8 +8,9 @@
     "outDir": "out",
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"],
+      "@shared/*": ["games/to-the-ocean/src/shared/*", "src/shared/*"],
       "@renderer/*": ["src/renderer/src/*"],
+      "@sim/*": ["games/to-the-ocean/src/simulation/*"],
       "@downdraft/core/*": ["packages/core/src/*"],
       "@downdraft/core": ["packages/core/src/index.ts"]
     }
