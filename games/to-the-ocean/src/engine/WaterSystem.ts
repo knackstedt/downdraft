@@ -5,6 +5,7 @@
 import { WeatherType } from "@shared/types";
 import { WaterBufferReader } from "@shared/water-buffer";
 import { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj } from "./mathUtils";
 
 // --- Shared WGSL preamble (structs, bindings, common helpers) ---
@@ -695,9 +696,9 @@ export class WaterSystem {
         targets: [{ format: this.format, blend: blendState }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },

@@ -5,7 +5,9 @@
 // matrix for PCF-filtered shadow sampling in lit shaders.
 // ============================================================================
 
-import { mat4, vec3 } from "wgpu-matrix";
+import { mat4 } from "wgpu-matrix";
+
+import { DEPTH_FORMAT } from "./graphicsConfig";
 
 const SHADOW_MAP_SIZE = 2048;
 const SHADOW_DISTANCE = 600;   // distance from camera target to light source
@@ -35,7 +37,7 @@ export class ShadowMapSystem {
     // Shadow depth texture — depth32float, used as render attachment AND texture binding
     this.shadowTexture = this.device.createTexture({
       size: [SHADOW_MAP_SIZE, SHADOW_MAP_SIZE],
-      format: "depth32float",
+      format: DEPTH_FORMAT,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     this.shadowDepthView = this.shadowTexture.createView();

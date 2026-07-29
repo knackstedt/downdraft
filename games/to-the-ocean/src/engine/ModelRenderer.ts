@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj } from "./mathUtils";
 import type { MaterialData, MeshData } from "./ModelLoader";
 
@@ -192,9 +193,9 @@ export class ModelRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },

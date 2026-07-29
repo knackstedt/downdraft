@@ -5,6 +5,7 @@
 
 import type { GizmoMode } from "../stores/sceneStore";
 import { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj, dot3, invertMat4, normalize3, transformVec4 } from "./mathUtils";
 
 const GIZMO_WGSL = /* wgsl */ `
@@ -174,9 +175,9 @@ export class TransformGizmo {
         ],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "always",
       },

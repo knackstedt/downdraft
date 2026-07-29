@@ -21,6 +21,7 @@ import { ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from 
 import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
 import { PerlinNoise } from "@shared/world/PerlinNoise";
 import { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj } from "./mathUtils";
 import type { MeshData, ModelData } from "./ModelLoader";
 import { generatePortMesh } from "./PortMeshGenerator";
@@ -1762,9 +1763,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },
@@ -1823,9 +1824,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },
@@ -1851,9 +1852,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },
@@ -1881,9 +1882,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },
@@ -1917,9 +1918,9 @@ export class EntityRenderer {
         }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "less",
       },
@@ -2003,9 +2004,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },
@@ -2084,9 +2085,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: true,
         depthCompare: "less",
       },
@@ -2114,9 +2115,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "less",
       },
@@ -2143,9 +2144,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "always",
       },
@@ -2317,9 +2318,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "always",
       },
@@ -2412,9 +2413,9 @@ export class EntityRenderer {
         targets: [{ format: this.format }],
       },
       primitive: { topology: "line-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "less",
       },

@@ -4,6 +4,7 @@
 // ============================================================================
 
 import type { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { LightingSystem } from "./LightingSystem";
 import { calculateViewProj } from "./mathUtils";
 
@@ -334,9 +335,9 @@ export class LightSystem extends LightingSystem {
         } }],
       },
       primitive: { topology: "line-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "less",
       },

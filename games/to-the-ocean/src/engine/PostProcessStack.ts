@@ -9,6 +9,8 @@
 
 export interface ViewportRect { x: number; y: number; w: number; h: number; }
 
+import { DEPTH_FORMAT } from "./graphicsConfig";
+
 // ── Common fullscreen-triangle vertex shader ────────────────────────────────
 const VS = /* wgsl */ `
 struct VertexOutput {
@@ -141,15 +143,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 const DOF_FS = /* wgsl */ `
 struct U { texelSize: vec2<f32>, focusDist: f32, focusRange: f32, maxBlur: f32, _p0: f32, _p1: f32, _p2: f32, _p3: f32, };
 @group(0) @binding(0) var colorTex: texture_2d<f32>;
-@group(0) @binding(1) var depthTex: texture_depth_2d_multisampled;
+@group(0) @binding(1) var depthTex: texture_depth_2d;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var<uniform> u: U;
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let uv = input.uv;
-  let dims = textureDimensions(depthTex);
-  let coords = vec2<i32>(uv * vec2<f32>(dims));
-  let depth = textureLoad(depthTex, coords, 0);
+  let depth = textureSample(depthTex, samp, uv);
   let coc = clamp(abs(depth - u.focusDist) / u.focusRange, 0.0, 1.0);
   let sharp = textureSample(colorTex, samp, uv);
   var color = vec3(0.0);
@@ -333,11 +333,9 @@ export class PostProcessStack {
   private blitUniform: GPUBuffer | null = null;
 
   // Scene render targets (full-res)
-  private sceneColor: GPUTexture | null = null; // non-MSAA resolve target
-  private sceneDepth: GPUTexture | null = null; // MSAA depth (4x)
-  private msaaColor: GPUTexture | null = null;  // MSAA color (4x)
+  private sceneColor: GPUTexture | null = null;
+  private sceneDepth: GPUTexture | null = null;
   private texW = 0; private texH = 0;
-  static readonly SAMPLE_COUNT = 4;
 
   // Ping-pong textures for chaining
   private pingPong: [GPUTexture | null, GPUTexture | null] = [null, null];
@@ -397,7 +395,7 @@ export class PostProcessStack {
     this.cdLayout = this.device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth", multisampled: true } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "non-filtering" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       ],
@@ -503,7 +501,6 @@ export class PostProcessStack {
     if (w === this.texW && h === this.texH && this.sceneColor) return;
     this.sceneColor?.destroy();
     this.sceneDepth?.destroy();
-    this.msaaColor?.destroy();
     this.pingPong[0]?.destroy();
     this.pingPong[1]?.destroy();
     this.afterimageTex?.destroy();
@@ -513,15 +510,9 @@ export class PostProcessStack {
 
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
       | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
-    const msaaUsage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
-    const sc = PostProcessStack.SAMPLE_COUNT;
 
-    // Non-MSAA resolve target (post-processing reads from this)
     this.sceneColor = this.device.createTexture({ size: [w, h], format: this.format, usage });
-    // MSAA depth (used as depth attachment and for DOF reads)
-    this.sceneDepth = this.device.createTexture({ size: [w, h], format: "depth32float", usage: msaaUsage, sampleCount: sc });
-    // MSAA color (render target, resolved to sceneColor)
-    this.msaaColor = this.device.createTexture({ size: [w, h], format: this.format, usage: msaaUsage, sampleCount: sc });
+    this.sceneDepth = this.device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage });
 
     this.pingPong[0] = this.device.createTexture({ size: [w, h], format: this.format, usage });
     this.pingPong[1] = this.device.createTexture({ size: [w, h], format: this.format, usage });
@@ -541,26 +532,9 @@ export class PostProcessStack {
     return this.sceneColor.createView();
   }
 
-  getMSAAColorView(): GPUTextureView {
-    if (!this.msaaColor) throw new Error("PostProcess targets not created");
-    return this.msaaColor.createView();
-  }
-
   getSceneDepthView(): GPUTextureView {
     if (!this.sceneDepth) throw new Error("PostProcess targets not created");
     return this.sceneDepth.createView();
-  }
-
-  getSampleCount(): number {
-    return PostProcessStack.SAMPLE_COUNT;
-  }
-
-  blitToCanvas(
-    encoder: GPUCommandEncoder,
-    canvasView: GPUTextureView,
-    w: number, h: number,
-  ): void {
-    this.applyBlit(encoder, this.sceneColor!.createView(), canvasView, w, h);
   }
 
   // ── Apply the chain ──
@@ -861,7 +835,6 @@ export class PostProcessStack {
   destroy(): void {
     this.sceneColor?.destroy();
     this.sceneDepth?.destroy();
-    this.msaaColor?.destroy();
     this.pingPong[0]?.destroy();
     this.pingPong[1]?.destroy();
     this.afterimageTex?.destroy();

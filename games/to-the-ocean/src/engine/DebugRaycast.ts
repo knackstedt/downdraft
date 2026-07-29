@@ -16,6 +16,7 @@ import {
 import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
 import { CameraMode, EntityType } from "@shared/types";
 import type { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj } from "./mathUtils";
 
 const RAY_MAX_DIST = 60; // matches GUN_RANGE
@@ -164,7 +165,7 @@ export class DebugRaycast {
       color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
     };
     const depthState: GPUDepthStencilState = {
-      format: "depth32float",
+      format: DEPTH_FORMAT,
       depthWriteEnabled: false,
       depthCompare: "less-equal",
     };
@@ -190,7 +191,7 @@ export class DebugRaycast {
       vertex: vertexState,
       fragment: fragmentState,
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: depthState,
     });
 
@@ -200,7 +201,7 @@ export class DebugRaycast {
       vertex: vertexState,
       fragment: fragmentState,
       primitive: { topology: "line-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: depthState,
     });
 

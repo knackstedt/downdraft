@@ -13,6 +13,7 @@ import { extractCloudMesh } from "@shared/MarchingCubes";
 import { ExtractedMesh } from "@shared/TerrainTypes";
 import { WeatherType } from "@shared/types";
 import { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj } from "./mathUtils";
 
 // --- WGSL Shader ---
@@ -219,9 +220,9 @@ export class CloudSystem {
         }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "less-equal",
       },

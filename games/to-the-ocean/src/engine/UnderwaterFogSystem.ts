@@ -83,6 +83,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 `;
 
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
+
 export class UnderwaterFogSystem {
   private device: GPUDevice;
   private format: GPUTextureFormat;
@@ -137,9 +139,9 @@ export class UnderwaterFogSystem {
         }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "always",
       },

@@ -6,6 +6,7 @@
 
 import { WeatherType } from "@shared/types";
 import { CameraState } from "./CameraSystem";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj } from "./mathUtils";
 
 // --- Particle layout (12 floats = 48 bytes per particle) ---
@@ -522,9 +523,9 @@ export class ParticleSystem {
         }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: 4 },
+      multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
-        format: "depth32float",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "less",
       },
