@@ -1415,6 +1415,9 @@ export class EntityRenderer {
   private drawEntityChunkZ: number[] = [];
   private drawEntityBiome: number[] = [];
   private drawEntityIslandSize: number[] = [];
+  private drawEntityPosX: number[] = [];
+  private drawEntityPosY: number[] = [];
+  private drawEntityPosZ: number[] = [];
   private viewProjCache: Float32Array | null = null;
   private cameraPosCache: [number, number, number] = [0, 0, 0];
   private lightingParamsCache: { sunDir: [number, number, number]; sunIntensity: number; ambient: number; fogColor: [number, number, number]; wetness: number } = {
@@ -4272,6 +4275,141 @@ export class EntityRenderer {
     return this.islandVoxelFields.get(`${chunkX},${chunkZ}`) ?? null;
   }
 
+  // Extract a camera-centered voxel density grid from nearby terrain fields.
+  // Returns packed density data for GPU particle collision, or null if no terrain nearby.
+  getNearbyVoxelData(
+    camX: number, camY: number, camZ: number,
+    collisionRadius: number,
+    maxVoxelFloats: number,
+  ): {
+    data: Float32Array;
+    originX: number; originY: number; originZ: number;
+    voxelSize: number;
+    dimX: number; dimY: number; dimZ: number;
+    isoLevel: number;
+  } | null {
+    // Collect nearby fields with their world-space origins
+    const nearby: {
+      field: ChunkedVoxelField | VoxelField;
+      isChunked: boolean;
+      worldOriginX: number; worldOriginY: number; worldOriginZ: number;
+      voxelSize: number;
+      isoLevel: number;
+    }[] = [];
+
+    for (let i = 0; i < this.drawEntityCount; i++) {
+      const type = this.drawEntityTypes[i];
+      if (type !== EntityType.Island && type !== EntityType.Port) continue;
+
+      const ex = this.drawEntityPosX[i] ?? 0;
+      const ey = this.drawEntityPosY[i] ?? 0;
+      const ez = this.drawEntityPosZ[i] ?? 0;
+      const chunkX = this.drawEntityChunkX[i] ?? 0;
+      const chunkZ = this.drawEntityChunkZ[i] ?? 0;
+      const key = `${chunkX},${chunkZ}`;
+
+      let field: ChunkedVoxelField | VoxelField | null = null;
+      let isChunked = false;
+
+      if (type === EntityType.Island) {
+        const cf = this.islandChunkedFields.get(key);
+        if (cf) { field = cf; isChunked = true; }
+        else { field = this.islandVoxelFields.get(key) ?? this.islandChunkField.get(key) ?? null; }
+      } else {
+        field = this.portVoxelFields.get(key) ?? null;
+      }
+
+      if (!field) continue;
+
+      // Check if camera is within field bounds + collision radius
+      const vs = field.voxelSize;
+      const fox = ex + field.originX;
+      const foy = ey + field.originY;
+      const foz = ez + field.originZ;
+      const fieldMaxX = fox + field.dimX * vs;
+      const fieldMaxY = foy + field.dimY * vs;
+      const fieldMaxZ = foz + field.dimZ * vs;
+
+      // Expand bounds by collision radius
+      if (camX + collisionRadius < fox || camX - collisionRadius > fieldMaxX) continue;
+      if (camY + collisionRadius < foy || camY - collisionRadius > fieldMaxY) continue;
+      if (camZ + collisionRadius < foz || camZ - collisionRadius > fieldMaxZ) continue;
+
+      nearby.push({
+        field,
+        isChunked,
+        worldOriginX: fox,
+        worldOriginY: foy,
+        worldOriginZ: foz,
+        voxelSize: vs,
+        isoLevel: field.isoLevel,
+      });
+    }
+
+    if (nearby.length === 0) return null;
+
+    // Use the first nearby field's voxel size for the grid
+    const voxelSize = nearby[0].voxelSize;
+    const isoLevel = nearby[0].isoLevel;
+
+    // Compute grid dimensions — capped to fit within maxVoxelFloats
+    const maxDim = Math.floor(Math.cbrt(maxVoxelFloats));
+    const desiredExtent = collisionRadius;
+    const dim = Math.min(maxDim, Math.ceil((2 * desiredExtent) / voxelSize));
+    const dimX = dim;
+    const dimY = Math.min(dim, Math.ceil(desiredExtent / voxelSize) * 2);
+    const dimZ = dim;
+
+    // Grid origin centered on camera
+    const originX = camX - (dimX / 2) * voxelSize;
+    const originY = camY - (dimY / 2) * voxelSize;
+    const originZ = camZ - (dimZ / 2) * voxelSize;
+
+    const totalVoxels = dimX * dimY * dimZ;
+    const data = new Float32Array(totalVoxels).fill(-1.0);
+
+    // Sample from all nearby fields — take max density (solid wins)
+    for (const entry of nearby) {
+      const field = entry.field;
+      const vs = entry.voxelSize;
+      const eox = entry.worldOriginX;
+      const eoy = entry.worldOriginY;
+      const eoz = entry.worldOriginZ;
+
+      for (let gx = 0; gx < dimX; gx++) {
+        for (let gz = 0; gz < dimZ; gz++) {
+          const worldX = originX + gx * voxelSize;
+          const worldZ = originZ + gz * voxelSize;
+
+          // Convert to field-local voxel indices
+          const vx = Math.floor((worldX - eox) / vs);
+          const vz = Math.floor((worldZ - eoz) / vs);
+          if (vx < 0 || vx >= field.dimX || vz < 0 || vz >= field.dimZ) continue;
+
+          for (let gy = 0; gy < dimY; gy++) {
+            const worldY = originY + gy * voxelSize;
+            const vy = Math.floor((worldY - eoy) / vs);
+            if (vy < 0 || vy >= field.dimY) continue;
+
+            let density: number;
+            if (entry.isChunked) {
+              density = getChunkedVoxel(field as ChunkedVoxelField, vx, vy, vz);
+            } else {
+              const vf = field as VoxelField;
+              density = vf.data[vx * vf.dimY * vf.dimZ + vy * vf.dimZ + vz];
+            }
+
+            if (density > data[gx * dimY * dimZ + gy * dimZ + gz]) {
+              data[gx * dimY * dimZ + gy * dimZ + gz] = density;
+            }
+          }
+        }
+      }
+    }
+
+    return { data, originX, originY, originZ, voxelSize, dimX, dimY, dimZ, isoLevel };
+  }
+
   cleanupStaleDecorations(): void {
     for (const [key, deco] of this.decorationMeshes) {
       if (!this.activeDecorationKeys.has(key)) {
@@ -4305,6 +4443,9 @@ export class EntityRenderer {
     this.drawEntityTypes[idx] = type;
     this.drawEntityBoatSlots[idx] = boatSlot;
     this.drawEntityScales[idx] = scale;
+    this.drawEntityPosX[idx] = pos.x;
+    this.drawEntityPosY[idx] = pos.y;
+    this.drawEntityPosZ[idx] = pos.z;
 
     // Store island metadata for decoration rendering
     if (type === EntityType.Island && islandMeta) {

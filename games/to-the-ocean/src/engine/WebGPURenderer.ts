@@ -23,7 +23,7 @@ import { LightSystem } from "./LightSystem";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "./ModelLoader";
 import { ModelRenderer } from "./ModelRenderer";
 import { PBRSystem } from "./PBRSystem";
-import { ParticleSystem } from "./ParticleSystem";
+import { COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "./ParticleSystem";
 import { PixelationSystem } from "./PixelationSystem";
 import { PostProcessStack } from "./PostProcessStack";
 import { SkySystem } from "./SkySystem";
@@ -588,24 +588,57 @@ export class WebGPURenderer {
     this.processInput();
     this.onInputProcessed?.();
 
-    // Tick particle system once per frame (spawn + update)
+    // Tick particle system once per frame (GPU compute: spawn + update + LOD voxel collision)
     if (this.particleSystem && this.simReader && this.simReader.isValid()) {
       const weatherType = this.simReader.getWeatherType() as WeatherType;
-      const playerSlot0 = this.simReader.getPlayerSlot(0);
-      const camPos = this.pooledDummyCamPos;
-      if (playerSlot0) {
-        camPos[0] = playerSlot0.f32[PLR.POS_X];
-        camPos[1] = playerSlot0.f32[PLR.POS_Y];
-        camPos[2] = playerSlot0.f32[PLR.POS_Z];
-      } else {
-        camPos[0] = 0; camPos[1] = 10; camPos[2] = 0;
+
+      // Skip all particle work when weather produces no particles
+      const hasParticles = weatherType === WeatherType.Rain || weatherType === WeatherType.Storm ||
+        weatherType === WeatherType.HellStorm || weatherType === WeatherType.Snow;
+
+      if (hasParticles) {
+        const windSpeed = this.simReader.getWindSpeed();
+        const windDir = this.simReader.getWindDir();
+        const playerSlot0 = this.simReader.getPlayerSlot(0);
+        const camPos = this.pooledDummyCamPos;
+        if (playerSlot0) {
+          camPos[0] = playerSlot0.f32[PLR.POS_X];
+          camPos[1] = playerSlot0.f32[PLR.POS_Y];
+          camPos[2] = playerSlot0.f32[PLR.POS_Z];
+        } else {
+          camPos[0] = 0; camPos[1] = 10; camPos[2] = 0;
+        }
+        const dummyCamera = this.pooledDummyCamera;
+        dummyCamera.target[0] = camPos[0];
+        dummyCamera.target[1] = camPos[1];
+        dummyCamera.target[2] = camPos[2] - 1;
+        dummyCamera.aspect = this.canvas.width / this.canvas.height;
+
+        // Extract nearby voxel data for particle collision (uses previous frame's entity positions)
+        let voxelData: VoxelCollisionData | null = null;
+        if (this.entityRenderer) {
+          const raw = this.entityRenderer.getNearbyVoxelData(
+            camPos[0], camPos[1], camPos[2], COLLISION_RADIUS, MAX_VOXEL_FLOATS,
+          );
+          if (raw) {
+            voxelData = {
+              data: raw.data,
+              originX: raw.originX, originY: raw.originY, originZ: raw.originZ,
+              voxelSize: raw.voxelSize,
+              dimX: raw.dimX, dimY: raw.dimY, dimZ: raw.dimZ,
+              isoLevel: raw.isoLevel,
+            };
+          }
+        }
+
+        const computeEncoder = this.device!.createCommandEncoder();
+        this.particleSystem.tick(
+          computeEncoder, dt, dummyCamera, weatherType,
+          windDir.x * windSpeed, windDir.z * windSpeed,
+          voxelData,
+        );
+        this.device!.queue.submit([computeEncoder.finish()]);
       }
-      const dummyCamera = this.pooledDummyCamera;
-      dummyCamera.target[0] = camPos[0];
-      dummyCamera.target[1] = camPos[1];
-      dummyCamera.target[2] = camPos[2] - 1;
-      dummyCamera.aspect = this.canvas.width / this.canvas.height;
-      this.particleSystem.tick(dt, dummyCamera, weatherType);
     }
 
     // Render each viewport
@@ -1252,7 +1285,10 @@ export class WebGPURenderer {
     }
 
     // Render particles (rain, snow, etc.)
-    this.particleSystem!.render(passEncoder, camera, weatherType, timeOfDay);
+    if (weatherType === WeatherType.Rain || weatherType === WeatherType.Storm ||
+        weatherType === WeatherType.HellStorm || weatherType === WeatherType.Snow) {
+      this.particleSystem!.render(passEncoder, camera, weatherType, timeOfDay);
+    }
 
     // Render transform gizmo (always on top, no depth test)
     if (this.transformGizmo && this.transformGizmo.isVisible() && viewportIdx === 0) {
@@ -1584,6 +1620,14 @@ export class WebGPURenderer {
 
   setPixelationEnabled(enabled: boolean): void {
     this.pixelationSystem?.setEnabled(enabled);
+  }
+
+  setParticleDensity(density: number): void {
+    if (this.particleSystem) this.particleSystem.particleDensityMultiplier = density;
+  }
+
+  setParticleCullDistance(dist: number): void {
+    if (this.particleSystem) this.particleSystem.particleCullDistance = dist;
   }
 
   setPixelSize(size: number): void {

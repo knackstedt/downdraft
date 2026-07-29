@@ -207,7 +207,7 @@ export default function App() {
         "Numpad8": WeatherType.HellStorm,
         "Numpad9": WeatherType.Snow,
       };
-      const wt = map[e.code];
+      const wt = map[e.code] ?? map[`Numpad${e.key}`];
       if (wt !== undefined) {
         e.preventDefault();
         simBridge.setWeather(wt);

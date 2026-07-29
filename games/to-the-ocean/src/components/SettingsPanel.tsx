@@ -50,6 +50,7 @@ export default function SettingsPanel() {
     terrainGridSize: 128,
     waterQuality: "high",
     particleDensity: 1.0,
+    particleCullDistance: 5.0,
     fov: 60,
     vsync: true,
     textureQuality: "high",
@@ -443,7 +444,20 @@ function GraphicsTab({ settings, update }: TabProps) {
         label="Particle Density"
         value={settings.particleDensity}
         min={0} max={2} step={0.1}
-        onChange={(v) => update("particleDensity", v)}
+        onChange={(v) => {
+          update("particleDensity", v);
+          useGameStore.getState().renderer?.setParticleDensity(v);
+        }}
+      />
+      <SettingSlider
+        label="Particle Cull Distance"
+        value={settings.particleCullDistance}
+        min={1} max={20} step={0.5}
+        onChange={(v) => {
+          update("particleCullDistance", v);
+          useGameStore.getState().renderer?.setParticleCullDistance(v);
+        }}
+        unit="m"
       />
       <SettingSlider
         label="Field of View"
