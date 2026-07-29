@@ -17,6 +17,8 @@ const api = {
 
   toggleFullscreen: (): void => ipcRenderer.send(IPC.TOGGLE_FULLSCREEN),
 
+  getDisplayInfo: (): Promise<{ refreshRate: number }> => ipcRenderer.invoke(IPC.GET_DISPLAY_INFO),
+
   openExternal: (url: string): void => { shell.openExternal(url); },
 
   onSimReady: (cb: (data: any) => void) => ipcRenderer.on(IPC.SIM_READY, (_e, data) => cb(data)),

@@ -13,6 +13,7 @@ export const IPC = {
   DEBUG_MODE: "debug-mode",
   TOGGLE_DEVTOOLS: "toggle-devtools",
   TOGGLE_FULLSCREEN: "toggle-fullscreen",
+  GET_DISPLAY_INFO: "get-display-info",
 
   // Main -> Renderer
   SIM_READY: "sim-ready",

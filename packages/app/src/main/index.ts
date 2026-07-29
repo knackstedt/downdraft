@@ -365,6 +365,13 @@ function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC.GET_DISPLAY_INFO, () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { refreshRate: 0 };
+    const winBounds = mainWindow.getBounds();
+    const currentDisplay = screen.getDisplayNearestPoint({ x: winBounds.x, y: winBounds.y });
+    return { refreshRate: currentDisplay.displayFrequency };
+  });
+
   ipcMain.on(IPC.RENDERER_LOG, (_event, data: { level: string; message: string }) => {
     const level = data.level as "trace" | "debug" | "info" | "warn" | "error" | "fatal";
     const fn = (log as any)[level] ?? log.info;

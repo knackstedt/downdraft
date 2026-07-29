@@ -180,10 +180,36 @@ async function bootstrap() {
     }
   }
 
+  // Listen for display refresh rate changes (multi-monitor frame rate fix)
+  // Must be registered BEFORE renderer.start() so the initial display info
+  // from the main process (sent on did-finish-load) isn't missed.
+  try {
+    if (ocean?.onDisplayInfo) {
+      ocean.onDisplayInfo((data: { refreshRate: number }) => {
+        console.log(`[Renderer] Display refresh rate: ${data.refreshRate}Hz`);
+        renderer.setFrameRateLimit(data.refreshRate);
+      });
+    }
+    // Query current display info — the did-finish-load push was missed because
+    // bootstrap() was still awaiting renderer.init() when it fired.
+    if (ocean?.getDisplayInfo) {
+      const info = await ocean.getDisplayInfo();
+      if (info?.refreshRate > 0) {
+        console.log(`[Renderer] Display refresh rate (queried): ${info.refreshRate}Hz`);
+        renderer.setFrameRateLimit(info.refreshRate);
+      }
+    }
+  } catch (e) {
+    console.warn("[Renderer] onDisplayInfo not available:", e);
+  }
+
   // Set buffers on renderer — same SABs the sim worker writes to (zero-copy)
   renderer.setBuffers(simSAB, waterSAB, inputSAB, boatSAB);
   renderer.setupInputListeners();
   renderer.start();
+
+  // Expose renderer for debugging (frame drop simulator, etc.)
+  (window as any).__renderer = renderer;
 
   // Initialize Scene Inspector for DevTools integration
   const sceneInspector = new SceneInspector();
@@ -226,18 +252,6 @@ async function bootstrap() {
     // No-op: input is written directly to the shared SAB by the renderer's
     // InputBufferWriter. The sim worker reads from the same SharedArrayBuffer.
   };
-
-  // Listen for display refresh rate changes (multi-monitor frame rate fix)
-  try {
-    if (ocean?.onDisplayInfo) {
-      ocean.onDisplayInfo((data: { refreshRate: number }) => {
-        console.log(`[Renderer] Display refresh rate: ${data.refreshRate}Hz`);
-        renderer.setFrameRateLimit(data.refreshRate);
-      });
-    }
-  } catch (e) {
-    console.warn("[Renderer] onDisplayInfo not available:", e);
-  }
 
   // Listen for display scale factor (DPR) changes
   try {
