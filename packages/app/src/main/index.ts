@@ -16,6 +16,7 @@ const isDev = !app.isPackaged;
 // --- Error dialog ---
 
 let errorDialogOpen = false;
+let exitOnDialogClose = false;
 
 function showErrorDialog(title: string, detail: string): void {
   if (errorDialogOpen) return;
@@ -73,16 +74,39 @@ function showErrorDialog(title: string, detail: string): void {
 
   win.loadURL(`data:text/html,${encodeURIComponent(html)}`);
   win.once("ready-to-show", () => { win.show(); win.focus(); });
-  win.on("closed", () => { errorDialogOpen = false; });
+  win.on("closed", () => {
+    errorDialogOpen = false;
+    if (exitOnDialogClose) {
+      process.exit(1);
+    }
+  });
+}
+
+function isEpipeError(err: unknown): boolean {
+  if (err && typeof err === "object" && "code" in err) {
+    return (err as { code: string }).code === "EPIPE";
+  }
+  if (err instanceof Error && err.message.includes("write EPIPE")) return true;
+  return false;
 }
 
 process.on("uncaughtException", (err) => {
+  if (isEpipeError(err)) {
+    exitOnDialogClose = true;
+    showErrorDialog("Uncaught Exception (EPIPE)", err.stack ?? err.message);
+    return;
+  }
   log.error("main", `uncaughtException: ${err.stack ?? err.message}`);
   showErrorDialog("Uncaught Exception", err.stack ?? err.message);
 });
 
 process.on("unhandledRejection", (reason) => {
   const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  if (isEpipeError(reason)) {
+    exitOnDialogClose = true;
+    showErrorDialog("Unhandled Rejection (EPIPE)", detail);
+    return;
+  }
   log.error("main", `unhandledRejection: ${detail}`);
   showErrorDialog("Unhandled Rejection", detail);
 });

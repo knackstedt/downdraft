@@ -1016,7 +1016,7 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
   roughness = mix(roughness, 0.25, wetSandMask);
   // Rain wetness — stone becomes glossy when wet
   let wetness = uniforms.wetness;
-  roughness = mix(roughness, 0.25, wetness * rockMask); // wet stone: much shinier
+  roughness = mix(roughness, 0.4, wetness * rockMask); // wet stone: glossy but not mirror-like
   // Rain wetness — grass becomes shinier when wet
   roughness = mix(roughness, 0.4, wetness * vegMask);
 
@@ -1079,7 +1079,7 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
 
   // IBL — hemisphere ambient + BRDF LUT
   let up = vec3<f32>(0.0, 1.0, 0.0);
-  let skyTint = vec3<f32>(0.8, 0.85, 0.9);
+  let skyTint = mix(vec3<f32>(0.8, 0.85, 0.9), vec3<f32>(0.25, 0.25, 0.30), wetness);
   let groundTint = vec3<f32>(0.4, 0.35, 0.3);
   let hemiAmbient = mix(groundTint, skyTint, max(dot(perturbedN, up), 0.0));
   let irradiance = hemiAmbient * ambientLevel;
@@ -1097,7 +1097,7 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
   // Wet sand sky reflection — blend toward sky tint at grazing angles
   color = mix(color, skyTint, fresnel * wetSandMask * 0.4);
   // Rain wetness — Fresnel sky reflection on wet stone
-  color = mix(color, skyTint, fresnel * wetness * rockMask * 0.5);
+  color = mix(color, skyTint, fresnel * wetness * rockMask * 0.25);
 
   // Sand grain sparkle — smooth view-dependent glint modulated by grain density
   color += sandSparkle(worldPos, perturbedN, V, L, sandMask * (1.0 - wetSandMask));

@@ -394,7 +394,12 @@ export class ConsoleLogger implements Logger {
         const line = `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase().padEnd(5)}${reset} ${this.palette.gray}[${moduleStr}${this.palette.gray}] ${reset}${linkifyMessage(msg)}\n`;
         if (proc?.stdout?.write && proc?.stderr?.write) {
             const stream = proc.env.DOWNDRAFT_MCP === "1" ? proc.stderr : proc.stdout;
-            stream.write(line);
+            try {
+                stream.write(line);
+            } catch (e: any) {
+                if (e?.code === "EPIPE") return;
+                throw e;
+            }
         } else {
             // Browser fallback — strip ANSI codes
             const clean = line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
