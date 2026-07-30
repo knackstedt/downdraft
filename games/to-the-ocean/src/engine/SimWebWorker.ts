@@ -1,13 +1,14 @@
 // ============================================================================
 // SimWebWorker — manages the simulation Web Worker from the renderer process
 // Allocates SharedArrayBuffers, spawns the worker, and routes events.
-// Replaces the main-process SimManager + IPC buffer copy loop.
+// Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { allocateSimBuffer, allocateInputBuffer, allocateWaterBuffer } from "@shared/sim-buffer";
+import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import { allocateBoatBuffer } from "@shared/boat-buffer";
-import { SimToMainMessage, MainToSimMessage } from "@shared/types";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
+import { allocateInputBuffer, allocateSimBuffer, allocateWaterBuffer } from "@shared/sim-buffer";
+import { SimToMainMessage } from "@shared/types";
 
 export type SimEventCallback = (msg: SimToMainMessage) => void;
 
@@ -18,15 +19,34 @@ export interface SimWebWorkerConfig {
   isDev?: boolean;
 }
 
+type SimApi = {
+  init(simBuffer: SharedArrayBuffer, inputBuffer: SharedArrayBuffer, waterBuffer: SharedArrayBuffer, boatBuffer: SharedArrayBuffer, config: any): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  save(slotName: string): Promise<{ slotName: string; stateJson: string }>;
+  load(slotName: string, stateJson?: string): Promise<boolean>;
+  setGamemode(mode: number): Promise<void>;
+  addPlayer(playerId: number, name: string): Promise<void>;
+  removePlayer(playerId: number): Promise<void>;
+  setSetting(key: string, value: number | boolean): Promise<void>;
+  respawnPlayer(playerId: number): Promise<void>;
+  shutdown(): Promise<void>;
+  setDebugMode(enabled: boolean): Promise<void>;
+  sendCommand(cmd: any): Promise<void>;
+  sendWorldCommand(cmd: any): Promise<void>;
+  setWeather(weatherType: number): Promise<void>;
+  setTimeOfDay(time: number): Promise<void>;
+};
+
 export class SimWebWorker {
-  private worker: Worker | null = null;
   private simBuffer: SharedArrayBuffer;
   private inputBuffer: SharedArrayBuffer;
   private waterBuffer: SharedArrayBuffer;
   private boatBuffer: SharedArrayBuffer;
+  private wp: WorkerProxy<SimApi> | null = null;
   private eventCallbacks: Set<SimEventCallback> = new Set();
+  private unsubEvents: (() => void) | null = null;
   private ready: boolean = false;
-  private readyResolvers: Array<() => void> = [];
 
   constructor() {
     this.simBuffer = allocateSimBuffer();
@@ -50,159 +70,128 @@ export class SimWebWorker {
     this.eventCallbacks.delete(cb);
   }
 
+  private dispatchEvents(kind: string, data: any): void {
+    const msg = { kind, data } as SimToMainMessage;
+    for (const cb of this.eventCallbacks) {
+      try { cb(msg); } catch (err) {
+        console.error("[SimWebWorker] Event callback error:", err);
+      }
+    }
+  }
+
   async start(config: SimWebWorkerConfig): Promise<void> {
-    this.worker = new Worker(
+    const worker = new Worker(
       new URL("./sim-worker-web.ts", import.meta.url),
       { type: "module" },
     );
 
-    this.worker.onmessage = (e: MessageEvent) => {
-      const msg = e.data as SimToMainMessage;
-      if (msg.kind === "ready") {
+    this.wp = wrap<SimApi>(worker);
+
+    this.unsubEvents = this.wp.onEvents((kind, data) => {
+      if (kind === "ready") {
         this.ready = true;
-        this.readyResolvers.forEach(fn => fn());
-        this.readyResolvers = [];
       }
-      for (const cb of this.eventCallbacks) {
-        try { cb(msg); } catch (err) {
-          console.error("[SimWebWorker] Event callback error:", err);
-        }
-      }
-    };
-
-    this.worker.onerror = (e: ErrorEvent) => {
-      console.error("[SimWebWorker] Worker error:", e.message);
-      for (const cb of this.eventCallbacks) {
-        try { cb({ kind: "error", data: { message: e.message } }); } catch {}
-      }
-    };
-
-    // Wait for ready signal
-    const readyPromise = new Promise<void>((resolve) => {
-      if (this.ready) { resolve(); return; }
-      this.readyResolvers.push(resolve);
+      this.dispatchEvents(kind, data);
     });
 
-    // Send init message with SharedArrayBuffers
-    this.worker.postMessage({
-      kind: "init",
-      simBuffer: this.simBuffer,
-      inputBuffer: this.inputBuffer,
-      waterBuffer: this.waterBuffer,
-      boatBuffer: this.boatBuffer,
-      config: {
+    worker.onerror = (e: ErrorEvent) => {
+      console.error("[SimWebWorker] Worker error:", e.message);
+      this.dispatchEvents("error", { message: e.message });
+    };
+
+    // init() is an RPC call — SABs are passed as args (structured-clone shares them)
+    await this.wp.proxy.init(
+      this.simBuffer,
+      this.inputBuffer,
+      this.waterBuffer,
+      this.boatBuffer,
+      {
         seed: config.seed,
         gamemode: config.gamemode,
         rules: config.rules ?? DEFAULT_GAME_RULES,
         isDev: config.isDev,
       },
-    });
+    );
 
-    await readyPromise;
-  }
-
-  send(msg: MainToSimMessage): void {
-    this.worker?.postMessage(msg);
+    this.ready = true;
+    this.dispatchEvents("ready", {});
   }
 
   addPlayer(playerId: number, name: string): void {
-    this.send({ kind: "add_player", data: { playerId, name } });
+    this.wp?.proxy.addPlayer(playerId, name).catch(() => {});
   }
 
   removePlayer(playerId: number): void {
-    this.send({ kind: "remove_player", data: { playerId } });
+    this.wp?.proxy.removePlayer(playerId).catch(() => {});
   }
 
   pause(): void {
-    this.send({ kind: "pause", data: {} });
+    this.wp?.proxy.pause().catch(() => {});
   }
 
   resume(): void {
-    this.send({ kind: "resume", data: {} });
+    this.wp?.proxy.resume().catch(() => {});
   }
 
   async save(slotName: string): Promise<{ slotName: string; stateJson: string } | null> {
-    return new Promise((resolve) => {
-      if (!this.worker) { resolve(null); return; }
-
-      const handler = (e: MessageEvent) => {
-        const msg = e.data as SimToMainMessage;
-        if (msg.kind === "saved" && msg.data?.slotName === slotName) {
-          this.worker?.removeEventListener("message", handler);
-          resolve(msg.data);
-        }
-      };
-      this.worker.addEventListener("message", handler);
-
-      this.send({ kind: "save", data: { slotName } });
-
-      // Timeout after 10s
-      setTimeout(() => {
-        this.worker?.removeEventListener("message", handler);
-        resolve(null);
-      }, 10000);
-    });
+    if (!this.wp) return null;
+    try {
+      return await this.wp.proxy.save(slotName);
+    } catch (err) {
+      console.error("[SimWebWorker] Save failed:", err);
+      return null;
+    }
   }
 
   async load(slotName: string, stateJson?: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      if (!this.worker) { resolve(false); return; }
-
-      const handler = (e: MessageEvent) => {
-        const msg = e.data as SimToMainMessage;
-        if (msg.kind === "loaded" && msg.data?.slotName === slotName) {
-          this.worker?.removeEventListener("message", handler);
-          resolve(true);
-        }
-      };
-      this.worker.addEventListener("message", handler);
-
-      this.send({ kind: "load", data: { slotName, stateJson } });
-
-      setTimeout(() => {
-        this.worker?.removeEventListener("message", handler);
-        resolve(false);
-      }, 10000);
-    });
+    if (!this.wp) return false;
+    try {
+      return await this.wp.proxy.load(slotName, stateJson);
+    } catch (err) {
+      console.error("[SimWebWorker] Load failed:", err);
+      return false;
+    }
   }
 
   setGamemode(mode: number): void {
-    this.send({ kind: "set_gamemode", data: { mode } });
+    this.wp?.proxy.setGamemode(mode).catch(() => {});
   }
 
   setSetting(key: string, value: number | boolean): void {
-    this.send({ kind: "set_setting", data: { key, value } });
+    this.wp?.proxy.setSetting(key, value).catch(() => {});
   }
 
   respawnPlayer(playerId: number): void {
-    this.send({ kind: "respawn", data: { playerId } });
+    this.wp?.proxy.respawnPlayer(playerId).catch(() => {});
   }
 
   setDebugMode(enabled: boolean): void {
-    this.send({ kind: "debug_mode", data: { enabled } });
+    this.wp?.proxy.setDebugMode(enabled).catch(() => {});
   }
 
   sendCommand(cmd: any): void {
-    this.send({ kind: "command", data: cmd });
+    this.wp?.proxy.sendCommand(cmd).catch(() => {});
   }
 
   sendWorldCommand(cmd: any): void {
-    this.send({ kind: "world_command", data: cmd });
+    this.wp?.proxy.sendWorldCommand(cmd).catch(() => {});
   }
 
   setWeather(weatherType: number): void {
-    this.send({ kind: "set_weather", data: { weatherType } });
+    this.wp?.proxy.setWeather(weatherType).catch(() => {});
   }
 
   setTimeOfDay(time: number): void {
-    this.send({ kind: "set_time_of_day", data: { time } });
+    this.wp?.proxy.setTimeOfDay(time).catch(() => {});
   }
 
   async stop(): Promise<void> {
-    if (!this.worker) return;
-    this.send({ kind: "shutdown", data: {} });
-    this.worker.terminate();
-    this.worker = null;
+    if (!this.wp) return;
+    try { await this.wp.proxy.shutdown(); } catch {}
+    this.wp.terminate();
+    this.unsubEvents?.();
+    this.unsubEvents = null;
+    this.wp = null;
     this.ready = false;
   }
 }

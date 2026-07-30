@@ -41,11 +41,11 @@ export type {
     SlotSectionDef
 } from "./sab/types.ts";
 
-// Worker (crash recovery only — sim worker is now in src/simulation/sim-worker.ts)
+// Worker
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";
 export type { CrashRecoveryConfig, RecoveryState, SimWorkerLike } from "./worker/crash-recovery.ts";
-export { getWorkerHost } from "./worker/worker-compat.ts";
-export type { HostEventCallback, HostMessageHandler, WorkerHost } from "./worker/worker-compat.ts";
+export { expose, exposeEvents, getWorkerHost, wrap } from "./worker/rpc.ts";
+export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, WorkerHost, WorkerProxy } from "./worker/rpc.ts";
 
 // Input
 export { InputContextRouter } from "./input/context.ts";
