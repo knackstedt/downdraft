@@ -3,9 +3,9 @@ export { archetypeMatches, createArchetype, getArchetypeForComponents } from "./
 export type { Archetype } from "./ecs/archetype.ts";
 export { Component, component, getComponentId, getComponentName } from "./ecs/component.ts";
 export type { ComponentDefinition, ComponentId, IComponent } from "./ecs/component.ts";
-export { ROOT_ENTITY, entityEqual, entityToString, isAlive } from "./ecs/entity.ts";
+export { entityEqual, entityToString, isAlive, ROOT_ENTITY } from "./ecs/entity.ts";
 export type { Entity, EntityMeta } from "./ecs/entity.ts";
-export { EventBus, createEventChannel } from "./ecs/events.ts";
+export { createEventChannel, EventBus } from "./ecs/events.ts";
 export type { EventChannel } from "./ecs/events.ts";
 export { Hierarchy } from "./ecs/hierarchy.ts";
 export { Query, query, queryChanged, queryExcluded } from "./ecs/query.ts";
@@ -19,16 +19,27 @@ export { World } from "./ecs/world.ts";
 export { ChangeTracker } from "./change-detection/tracker.ts";
 
 // SAB
+export { CoreInputChannel } from "./sab/core-input-channel.ts";
 export { InputSABChannel } from "./sab/input.ts";
-export {
-    AUDIO_POSITION_LAYOUT, CHANNEL_LAYOUTS, INPUT_LAYOUT,
-    PHYSICS_LAYOUT, TERRAIN_LAYOUT, TRANSFORM_LAYOUT, WATER_LAYOUT, createSABForChannel
-} from "./sab/protocol.ts";
-export type { ChannelName } from "./sab/protocol.ts";
-export { SABReader } from "./sab/reader.ts";
-export { SeqlockBuffer, createLayout } from "./sab/seqlock.ts";
-export type { BufferField, BufferLayout } from "./sab/seqlock.ts";
-export { SABWriter } from "./sab/writer.ts";
+
+// SAB Framework
+export { defineChannel, defineManifest } from "./sab/define.ts";
+export { isDebug, resetWarnings, ValidationError as SABValidationError, setDebug, warnOnce } from "./sab/errors.ts";
+export type {
+    ChannelDef,
+    ChannelInstance,
+    ChannelLayout,
+    ChannelMode,
+    ChannelReader,
+    ChannelWriter,
+    FieldDef,
+    FieldType,
+    GridLayerDef,
+    HeaderDef,
+    ManifestInstance,
+    SlotAccessor,
+    SlotSectionDef
+} from "./sab/types.ts";
 
 // Worker (crash recovery only — sim worker is now in src/simulation/sim-worker.ts)
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery.ts";
@@ -58,15 +69,15 @@ export type { WindowConfig, WindowState } from "./platform/window.ts";
 export { BindGroupCache } from "./render/bind-group.ts";
 export { ArenaBuffer, RingBuffer } from "./render/buffer.ts";
 export { GPUDeviceManager } from "./render/device.ts";
-export { Frustum, computeAABB, cullItems, transformAABB } from "./render/frustum.ts";
+export { computeAABB, cullItems, Frustum, transformAABB } from "./render/frustum.ts";
 export type { AABB, CullableItem, FrustumPlane } from "./render/frustum.ts";
-export { GBuffer, G_BUFFER_FORMATS } from "./render/g-buffer.ts";
+export { G_BUFFER_FORMATS, GBuffer } from "./render/g-buffer.ts";
 export type { GBufferTextures, GBufferViews } from "./render/g-buffer.ts";
 export { HDRSupport } from "./render/hdr.ts";
 export type { HDRConfig as RenderHDRConfig } from "./render/hdr.ts";
 export { MaterialHotReloader } from "./render/hot-reload.ts";
 export type { HotReloadCallback, WatchedMesh, WatchedShader, WatchedTexture } from "./render/hot-reload.ts";
-export { LightType, MAX_POINT_LIGHTS, createDefaultLightUniform, createDirectionalLight, createPointLight, packLightUniform, packPointLights } from "./render/lighting.ts";
+export { createDefaultLightUniform, createDirectionalLight, createPointLight, LightType, MAX_POINT_LIGHTS, packLightUniform, packPointLights } from "./render/lighting.ts";
 export type { DirectionalLight, Light, LightUniformData, PointLight, SpotLight } from "./render/lighting.ts";
 export { DebugRenderPass } from "./render/passes/debug.ts";
 export { DeferredLightingPass } from "./render/passes/deferred-lighting.ts";
@@ -95,7 +106,7 @@ export type { DiffResult, PixelMatchOptions, PixelScanResult, VisionTestResult }
 // Mesh
 export { MeshBuilder } from "./mesh/builder.ts";
 export type { MeshData } from "./mesh/builder.ts";
-export { PBR_VERTEX_LAYOUT, SKINNED_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, gpuVertexFormat, vertexFormatSize, wgslVertexFormat } from "./mesh/vertex-layout.ts";
+export { gpuVertexFormat, PBR_VERTEX_LAYOUT, SKINNED_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, vertexFormatSize, wgslVertexFormat } from "./mesh/vertex-layout.ts";
 export type { VertexAttribute, VertexAttributeFormat, VertexLayout } from "./mesh/vertex-layout.ts";
 
 // Material
@@ -109,16 +120,16 @@ export { Camera } from "./scene/camera.ts";
 export { CheckpointManager } from "./scene/checkpoint.ts";
 export type { CheckpointData } from "./scene/checkpoint.ts";
 export { RenderLayer } from "./scene/layer.ts";
-export { PrefabFactory, PrefabRegistry, createPrefabFromComponentDefs } from "./scene/prefab.ts";
+export { createPrefabFromComponentDefs, PrefabFactory, PrefabRegistry } from "./scene/prefab.ts";
 export type { Prefab, PrefabChildEntry, PrefabComponentEntry } from "./scene/prefab.ts";
 export { Scene } from "./scene/scene.ts";
-export { DEFAULT_ATMOSPHERE_CONFIG, DEFAULT_DAY_NIGHT_CONFIG, DEFAULT_FOG_CONFIG, DayNightCycle, FogSystem, computeSkyColor } from "./scene/sky.ts";
+export { computeSkyColor, DayNightCycle, DEFAULT_ATMOSPHERE_CONFIG, DEFAULT_DAY_NIGHT_CONFIG, DEFAULT_FOG_CONFIG, FogSystem } from "./scene/sky.ts";
 export type { AtmosphereConfig, DayNightConfig, FogConfig, SunMoonState } from "./scene/sky.ts";
 export { SpatialGrid } from "./scene/spatial-grid.ts";
 export type { GridCell, SpatialEntry, SpatialQueryResult } from "./scene/spatial-grid.ts";
-export { WorldStreamer, chunkKey, worldToChunk } from "./scene/streaming.ts";
+export { chunkKey, WorldStreamer, worldToChunk } from "./scene/streaming.ts";
 export type { ChunkCoord, ChunkData, ChunkLoader, ChunkUnloader, StreamConfig } from "./scene/streaming.ts";
-export { VegetationPatch, VegetationWindSystem, generateInstances, packInstanceData } from "./scene/vegetation.ts";
+export { generateInstances, packInstanceData, VegetationPatch, VegetationWindSystem } from "./scene/vegetation.ts";
 export type { VegetationInstance, VegetationPatchData, WindState } from "./scene/vegetation.ts";
 export { GameWorld } from "./scene/world.ts";
 
@@ -149,7 +160,7 @@ export { ScriptingSystem } from "./scripting/script.ts";
 export type { ScriptContext, ScriptHandle, ScriptModule } from "./scripting/script.ts";
 
 // Plugin
-export { WASM_ABI_VERSION, createABIVTable } from "./plugin/abi.ts";
+export { createABIVTable, WASM_ABI_VERSION } from "./plugin/abi.ts";
 export type { ABIVTable } from "./plugin/abi.ts";
 export { PluginHost } from "./plugin/host.ts";
 export type { Plugin, PluginContext, SABChannel } from "./plugin/plugin.ts";
@@ -189,7 +200,7 @@ export type { CharacterControllerData } from "./physics/character.ts";
 export { Collider, createBoxCollider, createCapsuleCollider, createConvexCollider, createMeshCollider, createSphereCollider } from "./physics/collider.ts";
 export type { ColliderData } from "./physics/collider.ts";
 export { CollisionEventSystem } from "./physics/collision-system.ts";
-export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, CONTACT_CHANNEL, computeCollisionEvents, manifoldToStartedEvent } from "./physics/events.ts";
+export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, computeCollisionEvents, CONTACT_CHANNEL, manifoldToStartedEvent } from "./physics/events.ts";
 export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from "./physics/events.ts";
 export type { BodyDesc, BodyType, ColliderDesc, ColliderShape, ContactManifold, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./physics/interface.ts";
 export { PhysicsLifecycle } from "./physics/lifecycle.ts";
@@ -207,17 +218,17 @@ export { AnimationPlayer } from "./animation/player.ts";
 export type { PlayingAnimation } from "./animation/player.ts";
 export { buildRetargetMapping, retargetClip } from "./animation/retarget.ts";
 export type { BoneMapping, RetargetMapping } from "./animation/retarget.ts";
-export { Skeleton, buildSkeletonFromGLTF } from "./animation/skeleton.ts";
+export { buildSkeletonFromGLTF, Skeleton } from "./animation/skeleton.ts";
 export type { Bone, GLTFSkin, SkeletonData } from "./animation/skeleton.ts";
 export { AnimationStateMachine } from "./animation/state-machine.ts";
 export type { AnimationState, AnimationTransition, BlendTree, BlendTree1D, BlendTree2D } from "./animation/state-machine.ts";
 
 // Mesh Skinning
-export { BoneTransforms, MAX_BONES, SkinnedMesh, buildSkinnedMeshFromGLTF, createSkinMatricesBuffer } from "./mesh/skinning.ts";
+export { BoneTransforms, buildSkinnedMeshFromGLTF, createSkinMatricesBuffer, MAX_BONES, SkinnedMesh } from "./mesh/skinning.ts";
 export type { BoneTransformData, SkinnedMeshData } from "./mesh/skinning.ts";
 
 // GPU Skinning Compute Pass
-export { SkinningComputePass, packBoneTransforms } from "./render/passes/skinning.ts";
+export { packBoneTransforms, SkinningComputePass } from "./render/passes/skinning.ts";
 export type { SkinningComputePassResources } from "./render/passes/skinning.ts";
 
 // Audio
@@ -229,7 +240,7 @@ export type { AudioListenerData } from "./audio/listener.ts";
 export { AudioMixer } from "./audio/mixer.ts";
 export type { MixerChannelState } from "./audio/mixer.ts";
 export { audioBackendRegistry } from "./audio/registry.ts";
-export { AUDIO_SAB_LAYOUT, AudioSABChannel } from "./audio/sab.ts";
+export { AudioSABChannel, AudioSABChannelDef } from "./audio/sab.ts";
 export type { AudioSABData } from "./audio/sab.ts";
 export { AudioSource, createAmbientAudioSource, createAudioSource, createSpatialAudioSource } from "./audio/source.ts";
 export type { AudioSourceData } from "./audio/source.ts";
@@ -237,9 +248,9 @@ export type { AudioSourceData } from "./audio/source.ts";
 // Particles
 export { ParticleComputePass } from "./particles/compute-pass.ts";
 export type { ParticleComputeParams } from "./particles/compute-pass.ts";
-export { ParticleEmitter, createExplosionEmitter, createFireEmitter, createParticleEmitter, createSmokeEmitter, createSparkEmitter } from "./particles/emitter.ts";
+export { createExplosionEmitter, createFireEmitter, createParticleEmitter, createSmokeEmitter, createSparkEmitter, ParticleEmitter } from "./particles/emitter.ts";
 export type { EmitterShape, ParticleEmitterData } from "./particles/emitter.ts";
-export { PARTICLE_STRIDE, createParticleGPUData, packParticleBuffer } from "./particles/particle-data.ts";
+export { createParticleGPUData, packParticleBuffer, PARTICLE_STRIDE } from "./particles/particle-data.ts";
 export type { ParticleGPUData } from "./particles/particle-data.ts";
 export { ParticleRenderPass } from "./particles/render-pass.ts";
 export { ParticleSimulator } from "./particles/simulator.ts";
@@ -253,7 +264,7 @@ export { SceneTreePanel } from "./ui/scene-tree.ts";
 export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree.ts";
 
 // Debug Visualization
-export { DEFAULT_DEBUG_VIZ_SETTINGS, DebugVizPass } from "./render/passes/debug-viz.ts";
+export { DebugVizPass, DEFAULT_DEBUG_VIZ_SETTINGS } from "./render/passes/debug-viz.ts";
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.ts";
 
 // Logging

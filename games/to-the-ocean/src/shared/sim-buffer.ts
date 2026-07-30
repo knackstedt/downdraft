@@ -2,43 +2,107 @@
 // SharedArrayBuffer Layouts — zero-copy state transfer between threads
 // ============================================================================
 
-import { MAX_ENTITIES, MAX_PLAYERS, SIM_HEADER_SIZE, SIM_ENTITY_SLOT_SIZE, SIM_PLAYER_SLOT_SIZE } from "./constants";
+import { defineChannel } from "@downdraft/core/sab/define";
+import { MAX_ENTITIES, MAX_PLAYERS, SIM_ENTITY_SLOT_SIZE, SIM_PLAYER_SLOT_SIZE } from "./constants";
+import { InputChannel } from "./input-buffer";
+import { WaterChannel } from "./water-buffer";
 
-// --- Sim Buffer Magic & Version ---
+export const SimChannel = defineChannel({
+  name: "game-sim",
+  magic: 0x53494d42,
+  version: 1,
+  mode: "slots",
+  header: {
+    size: 256,
+    fields: {
+      entityCount: { type: "u32" },
+      maxEntities: { type: "u32" },
+      playerCount: { type: "u32" },
+      maxPlayers: { type: "u32" },
+      tick: { type: "u32", atomic: true },
+      timeOfDay: { type: "f32" },
+      weatherType: { type: "u32" },
+      weatherIntensity: { type: "f32" },
+      windSpeed: { type: "f32" },
+      windDirX: { type: "f32" },
+      windDirZ: { type: "f32" },
+      visibility: { type: "f32" },
+      ambientTemp: { type: "f32" },
+      activePlayers: { type: "u32" },
+      gamemode: { type: "u32" },
+      physicsInitialized: { type: "u32" },
+      physicsFailed: { type: "u32" },
+      physicsBodyCount: { type: "u32" },
+      physicsTickCount: { type: "u32" },
+      chunkCount: { type: "u32" },
+    },
+  },
+  sections: [
+    {
+      name: "entities",
+      maxSlots: MAX_ENTITIES,
+      slotSize: SIM_ENTITY_SLOT_SIZE,
+      fields: {
+        pos: { type: "f32", count: 4 },
+        rot: { type: "f32", count: 4 },
+        vel: { type: "f32", count: 3 },
+        angVel: { type: "f32", count: 3 },
+        health: { type: "f32" },
+        maxHealth: { type: "f32" },
+        type: { type: "u32" },
+        flags: { type: "u32" },
+        id: { type: "u32" },
+        parentId: { type: "u32" },
+        chunkX: { type: "i32" },
+        chunkZ: { type: "i32" },
+        data: { type: "f32", count: 8 },
+        anchorX: { type: "f32" },
+        anchorZ: { type: "f32" },
+      },
+    },
+    {
+      name: "players",
+      maxSlots: MAX_PLAYERS,
+      slotSize: SIM_PLAYER_SLOT_SIZE,
+      fields: {
+        pos: { type: "f32", count: 4 },
+        rot: { type: "f32", count: 4 },
+        health: { type: "f32" },
+        maxHealth: { type: "f32" },
+        hunger: { type: "f32" },
+        thirst: { type: "f32" },
+        oxygen: { type: "f32" },
+        maxOxygen: { type: "f32" },
+        temperature: { type: "f32" },
+        cameraMode: { type: "u32" },
+        activeSlot: { type: "u32" },
+        flags: { type: "u32" },
+        entityId: { type: "u32" },
+        playerId: { type: "u32" },
+        viewport: { type: "f32", count: 4 },
+        pitch: { type: "f32" },
+        freecam: { type: "f32", count: 5 },
+        thirdPersonDistance: { type: "f32" },
+        gold: { type: "f32" },
+        fishingTension: { type: "f32" },
+        fishingProgress: { type: "f32" },
+      },
+    },
+  ],
+});
 
-export const SIM_MAGIC = 0x53494d42; // 'SIMB'
+export const SIM_MAGIC = 0x53494d42;
 export const SIM_VERSION = 1;
-
-// --- Sim Buffer Header Layout (256 bytes) ---
-// [0x00:0x04] u32 magic
-// [0x04:0x08] u32 version
-// [0x08:0x0C] u32 entityCount
-// [0x0C:0x10] u32 maxEntities
-// [0x10:0x14] u32 playerCount
-// [0x14:0x18] u32 maxPlayers
-// [0x18:0x1C] u32 tick (atomic, incremented each sim step)
-// [0x1C:0x20] u32 sequence (atomic, incremented on state writes)
-// [0x20:0x24] f32 timeOfDay (0-1)
-// [0x24:0x28] u32 weatherType
-// [0x28:0x2C] f32 weatherIntensity
-// [0x2C:0x30] f32 windSpeed
-// [0x30:0x34] f32 windDirX
-// [0x34:0x38] f32 windDirZ
-// [0x38:0x3C] f32 visibility
-// [0x3C:0x40] f32 ambientTemp
-// [0x40:0x44] u32 activePlayers (bitmask)
-// [0x44:0x48] u32 gamemode
-// [0x48:0x100] reserved
 
 export const SIM_HDR = {
   MAGIC: 0,
   VERSION: 1,
-  ENTITY_COUNT: 2,
-  MAX_ENTITIES: 3,
-  PLAYER_COUNT: 4,
-  MAX_PLAYERS: 5,
-  TICK: 6,
-  SEQUENCE: 7,
+  ENTITY_COUNT: 3,
+  MAX_ENTITIES: 4,
+  PLAYER_COUNT: 5,
+  MAX_PLAYERS: 6,
+  TICK: 7,
+  SEQUENCE: 2,
   TIME_OF_DAY: 8,
   WEATHER_TYPE: 9,
   WEATHER_INTENSITY: 10,
@@ -49,37 +113,12 @@ export const SIM_HDR = {
   AMBIENT_TEMP: 15,
   ACTIVE_PLAYERS: 16,
   GAMEMODE: 17,
-  // Physics stats (in reserved area)
   PHYSICS_INITIALIZED: 18,
   PHYSICS_FAILED: 19,
   PHYSICS_BODY_COUNT: 20,
   PHYSICS_TICK_COUNT: 21,
-  // Chunk stats
   CHUNK_COUNT: 22,
 } as const;
-
-// --- Entity Slot Layout (128 bytes per entity) ---
-// [0x00:0x10] f32x4 position (x, y, z, scale)
-// [0x10:0x20] f32x4 rotation (qx, qy, qz, qw)
-// [0x20:0x2C] f32x3 velocity
-// [0x2C:0x38] f32x3 angularVelocity
-// [0x38:0x3C] f32 health
-// [0x3C:0x40] f32 maxHealth
-// [0x40:0x44] u32 type (EntityType)
-// [0x44:0x48] u32 flags (EntityFlags)
-// [0x48:0x4C] u32 id (EntityId)
-// [0x4C:0x50] u32 parentId
-// [0x50:0x54] i32 chunkX
-// [0x54:0x58] i32 chunkZ
-// [0x58:0x5C] f32 data[0]  (type-specific, e.g. speed, fuel, hunger)
-// [0x5C:0x60] f32 data[1]
-// [0x60:0x64] f32 data[2]
-// [0x64:0x68] f32 data[3]
-// [0x68:0x6C] f32 data[4]
-// [0x6C:0x70] f32 data[5]
-// [0x70:0x74] f32 data[6]  (ship pitch)
-// [0x74:0x78] f32 data[7]  (ship roll)
-// [0x78:0x80] reserved
 
 export const ENT = {
   POS_X: 0, POS_Y: 1, POS_Z: 2, SCALE: 3,
@@ -89,31 +128,9 @@ export const ENT = {
   HEALTH: 14, MAX_HEALTH: 15,
   TYPE: 16, FLAGS: 17, ID: 18, PARENT_ID: 19,
   CHUNK_X: 20, CHUNK_Z: 21,
-  DATA: 22, // data[0..7] at indices 22-29
-  ANCHOR_X: 30, // f32 — anchor world X (NaN = no anchor). Uses reserved space.
-  ANCHOR_Z: 31, // f32 — anchor world Z (NaN = no anchor). Uses reserved space.
+  DATA: 22,
+  ANCHOR_X: 30, ANCHOR_Z: 31,
 } as const;
-
-// --- Player Slot Layout (256 bytes per player) ---
-// [0x00:0x10] f32x4 position (x, y, z, heading)
-// [0x10:0x20] f32x4 rotation (qx, qy, qz, qw)
-// [0x20:0x24] f32 health
-// [0x24:0x28] f32 maxHealth
-// [0x28:0x2C] f32 hunger
-// [0x2C:0x30] f32 thirst
-// [0x30:0x34] f32 oxygen
-// [0x34:0x38] f32 maxOxygen
-// [0x38:0x3C] f32 temperature
-// [0x3C:0x40] u32 cameraMode
-// [0x40:0x44] u32 activeSlot
-// [0x44:0x48] u32 flags
-// [0x48:0x4C] u32 entityId
-// [0x4C:0x50] u32 playerId
-// [0x50:0x54] f32 viewportX
-// [0x54:0x58] f32 viewportY
-// [0x58:0x5C] f32 viewportW
-// [0x5C:0x60] f32 viewportH
-// [0x60:0x100] reserved
 
 export const PLR = {
   POS_X: 0, POS_Y: 1, POS_Z: 2, HEADING: 3,
@@ -138,7 +155,6 @@ export const PLR = {
   FISHING_PROGRESS: 33,
 } as const;
 
-// --- Player flags ---
 export const PLR_FLAG = {
   SLEEPING: 1 << 0,
   DEAD: 1 << 1,
@@ -146,100 +162,80 @@ export const PLR_FLAG = {
   ONBOARD: 1 << 3,
   SWIMMING: 1 << 4,
   FISHING: 1 << 5,
-  PILOTING: 1 << 6,    // player is actively controlling a ship
-  CLIMBING: 1 << 7,    // player is climbing onto a boat
-  NOCLIP: 1 << 8,      // dev vclip — no gravity, no collision, free flight
-  GROUNDED: 1 << 9,    // player is standing on a surface (port, terrain, etc.)
+  PILOTING: 1 << 6,
+  CLIMBING: 1 << 7,
+  NOCLIP: 1 << 8,
+  GROUNDED: 1 << 9,
 } as const;
 
-// --- Allocation ---
-
 export function allocateSimBuffer(): SharedArrayBuffer {
-  return new SharedArrayBuffer(
-    SIM_HEADER_SIZE + MAX_ENTITIES * SIM_ENTITY_SLOT_SIZE + MAX_PLAYERS * SIM_PLAYER_SLOT_SIZE
-  );
+  return SimChannel.allocate();
 }
 
 export function allocateInputBuffer(): SharedArrayBuffer {
-  return new SharedArrayBuffer(
-    64 + MAX_PLAYERS * 128
-  );
+  return InputChannel.allocate();
 }
 
 export function allocateWaterBuffer(): SharedArrayBuffer {
-  const gridSize = 256;
-  return new SharedArrayBuffer(
-    64 + gridSize * gridSize * 4 + gridSize * gridSize * 12 + gridSize * gridSize * 8
-  );
+  return WaterChannel.allocate();
 }
 
 // --- Sim Buffer Reader (renderer side) ---
 
 export class SimBufferReader {
-  private sab: SharedArrayBuffer;
-  private u32: Uint32Array;
-  private f32: Float32Array;
-  private entityOffset: number;
-  private playerOffset: number;
+  private reader: ReturnType<typeof SimChannel.reader>;
+  private entitySlots: ReturnType<typeof SimChannel.reader>["sections"]["entities"];
+  private playerSlots: ReturnType<typeof SimChannel.reader>["sections"]["players"];
 
   constructor(sab: SharedArrayBuffer) {
-    this.sab = sab;
-    this.u32 = new Uint32Array(sab);
-    this.f32 = new Float32Array(sab);
-    this.entityOffset = SIM_HEADER_SIZE / 4;
-    this.playerOffset = this.entityOffset + MAX_ENTITIES * (SIM_ENTITY_SLOT_SIZE / 4);
+    this.reader = SimChannel.reader(sab);
+    this.entitySlots = this.reader.sections.entities;
+    this.playerSlots = this.reader.sections.players;
   }
 
   isValid(): boolean {
-    return this.u32[SIM_HDR.MAGIC] === SIM_MAGIC && this.u32[SIM_HDR.VERSION] === SIM_VERSION;
+    return this.reader.isValid();
   }
 
-  getTick(): number { return Atomics.load(this.u32, SIM_HDR.TICK); }
-  getSequence(): number { return Atomics.load(this.u32, SIM_HDR.SEQUENCE); }
-  getEntityCount(): number { return this.u32[SIM_HDR.ENTITY_COUNT]; }
-  getPlayerCount(): number { return this.u32[SIM_HDR.PLAYER_COUNT]; }
-  getTimeOfDay(): number { return this.f32[SIM_HDR.TIME_OF_DAY]; }
-  getWeatherType(): number { return this.u32[SIM_HDR.WEATHER_TYPE]; }
-  getWeatherIntensity(): number { return this.f32[SIM_HDR.WEATHER_INTENSITY]; }
-  getWindSpeed(): number { return this.f32[SIM_HDR.WIND_SPEED]; }
+  getTick(): number { return this.reader.header.u32[SimChannel.offsets.header.tick]; }
+  getSequence(): number { return this.reader.getSequence(); }
+  getEntityCount(): number { return this.reader.header.u32[SimChannel.offsets.header.entityCount]; }
+  getPlayerCount(): number { return this.reader.header.u32[SimChannel.offsets.header.playerCount]; }
+  getTimeOfDay(): number { return this.reader.header.f32[SimChannel.offsets.header.timeOfDay]; }
+  getWeatherType(): number { return this.reader.header.u32[SimChannel.offsets.header.weatherType]; }
+  getWeatherIntensity(): number { return this.reader.header.f32[SimChannel.offsets.header.weatherIntensity]; }
+  getWindSpeed(): number { return this.reader.header.f32[SimChannel.offsets.header.windSpeed]; }
   getWindDir(): { x: number; z: number } {
-    return { x: this.f32[SIM_HDR.WIND_DIR_X], z: this.f32[SIM_HDR.WIND_DIR_Z] };
+    return {
+      x: this.reader.header.f32[SimChannel.offsets.header.windDirX],
+      z: this.reader.header.f32[SimChannel.offsets.header.windDirZ],
+    };
   }
-  getVisibility(): number { return this.f32[SIM_HDR.VISIBILITY]; }
-  getAmbientTemp(): number { return this.f32[SIM_HDR.AMBIENT_TEMP]; }
-  getActivePlayers(): number { return this.u32[SIM_HDR.ACTIVE_PLAYERS]; }
-  getGamemode(): number { return this.u32[SIM_HDR.GAMEMODE]; }
-  getPhysicsInitialized(): number { return this.u32[SIM_HDR.PHYSICS_INITIALIZED]; }
-  getPhysicsFailed(): number { return this.u32[SIM_HDR.PHYSICS_FAILED]; }
-  getPhysicsBodyCount(): number { return this.u32[SIM_HDR.PHYSICS_BODY_COUNT]; }
-  getPhysicsTickCount(): number { return this.u32[SIM_HDR.PHYSICS_TICK_COUNT]; }
-  getChunkCount(): number { return this.u32[SIM_HDR.CHUNK_COUNT]; }
+  getVisibility(): number { return this.reader.header.f32[SimChannel.offsets.header.visibility]; }
+  getAmbientTemp(): number { return this.reader.header.f32[SimChannel.offsets.header.ambientTemp]; }
+  getActivePlayers(): number { return this.reader.header.u32[SimChannel.offsets.header.activePlayers]; }
+  getGamemode(): number { return this.reader.header.u32[SimChannel.offsets.header.gamemode]; }
+  getPhysicsInitialized(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsInitialized]; }
+  getPhysicsFailed(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsFailed]; }
+  getPhysicsBodyCount(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsBodyCount]; }
+  getPhysicsTickCount(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsTickCount]; }
+  getChunkCount(): number { return this.reader.header.u32[SimChannel.offsets.header.chunkCount]; }
 
   getEntitySlot(idx: number): { f32: Float32Array; u32: Uint32Array } {
-    const base = this.entityOffset + idx * (SIM_ENTITY_SLOT_SIZE / 4);
-    return {
-      f32: new Float32Array(this.sab, base * 4, SIM_ENTITY_SLOT_SIZE / 4),
-      u32: new Uint32Array(this.sab, base * 4, SIM_ENTITY_SLOT_SIZE / 4),
-    };
+    const sv = this.entitySlots.slot(idx);
+    return { f32: sv.f32, u32: sv.u32 };
   }
 
   getPlayerSlot(idx: number): { f32: Float32Array; u32: Uint32Array } {
-    const base = this.playerOffset + idx * (SIM_PLAYER_SLOT_SIZE / 4);
-    return {
-      f32: new Float32Array(this.sab, base * 4, SIM_PLAYER_SLOT_SIZE / 4),
-      u32: new Uint32Array(this.sab, base * 4, SIM_PLAYER_SLOT_SIZE / 4),
-    };
+    const sv = this.playerSlots.slot(idx);
+    return { f32: sv.f32, u32: sv.u32 };
   }
 
   *iterEntities(): Generator<{ idx: number; f32: Float32Array; u32: Uint32Array }> {
     const count = this.getEntityCount();
     for (let i = 0; i < count; i++) {
-      const base = this.entityOffset + i * (SIM_ENTITY_SLOT_SIZE / 4);
-      yield {
-        idx: i,
-        f32: new Float32Array(this.sab, base * 4, SIM_ENTITY_SLOT_SIZE / 4),
-        u32: new Uint32Array(this.sab, base * 4, SIM_ENTITY_SLOT_SIZE / 4),
-      };
+      const sv = this.entitySlots.slot(i);
+      yield { idx: i, f32: sv.f32, u32: sv.u32 };
     }
   }
 }
@@ -247,74 +243,67 @@ export class SimBufferReader {
 // --- Sim Buffer Writer (sim worker side) ---
 
 export class SimBufferWriter {
-  private sab: SharedArrayBuffer;
-  u32: Uint32Array;
-  f32: Float32Array;
-  private entityOffset: number;
-  private playerOffset: number;
+  private writer: ReturnType<typeof SimChannel.writer>;
+  private entitySlots: ReturnType<typeof SimChannel.writer>["sections"]["entities"];
+  private playerSlots: ReturnType<typeof SimChannel.writer>["sections"]["players"];
 
   constructor(sab: SharedArrayBuffer) {
-    this.sab = sab;
-    this.u32 = new Uint32Array(sab);
-    this.f32 = new Float32Array(sab);
-    this.entityOffset = SIM_HEADER_SIZE / 4;
-    this.playerOffset = this.entityOffset + MAX_ENTITIES * (SIM_ENTITY_SLOT_SIZE / 4);
+    this.writer = SimChannel.writer(sab);
+    this.entitySlots = this.writer.sections.entities;
+    this.playerSlots = this.writer.sections.players;
   }
 
   init() {
-    this.u32[SIM_HDR.MAGIC] = SIM_MAGIC;
-    this.u32[SIM_HDR.VERSION] = SIM_VERSION;
-    this.u32[SIM_HDR.MAX_ENTITIES] = MAX_ENTITIES;
-    this.u32[SIM_HDR.MAX_PLAYERS] = MAX_PLAYERS;
-    this.u32[SIM_HDR.ENTITY_COUNT] = 0;
-    this.u32[SIM_HDR.PLAYER_COUNT] = 0;
-    this.u32[SIM_HDR.ACTIVE_PLAYERS] = 0;
+    const w = this.writer;
+    const h = SimChannel.offsets.header;
+    w.header.u32[h.maxEntities] = MAX_ENTITIES;
+    w.header.u32[h.maxPlayers] = MAX_PLAYERS;
+    w.header.u32[h.entityCount] = 0;
+    w.header.u32[h.playerCount] = 0;
+    w.header.u32[h.activePlayers] = 0;
   }
 
-  setEntityCount(n: number) { this.u32[SIM_HDR.ENTITY_COUNT] = n; }
-  setPlayerCount(n: number) { this.u32[SIM_HDR.PLAYER_COUNT] = n; }
-  setTimeOfDay(t: number) { this.f32[SIM_HDR.TIME_OF_DAY] = t; }
+  setEntityCount(n: number) { this.writer.header.u32[SimChannel.offsets.header.entityCount] = n; }
+  setPlayerCount(n: number) { this.writer.header.u32[SimChannel.offsets.header.playerCount] = n; }
+  setTimeOfDay(t: number) { this.writer.header.f32[SimChannel.offsets.header.timeOfDay] = t; }
   setWeather(type: number, intensity: number) {
-    this.u32[SIM_HDR.WEATHER_TYPE] = type;
-    this.f32[SIM_HDR.WEATHER_INTENSITY] = intensity;
+    this.writer.header.u32[SimChannel.offsets.header.weatherType] = type;
+    this.writer.header.f32[SimChannel.offsets.header.weatherIntensity] = intensity;
   }
   setWind(speed: number, dirX: number, dirZ: number) {
-    this.f32[SIM_HDR.WIND_SPEED] = speed;
-    this.f32[SIM_HDR.WIND_DIR_X] = dirX;
-    this.f32[SIM_HDR.WIND_DIR_Z] = dirZ;
+    this.writer.header.f32[SimChannel.offsets.header.windSpeed] = speed;
+    this.writer.header.f32[SimChannel.offsets.header.windDirX] = dirX;
+    this.writer.header.f32[SimChannel.offsets.header.windDirZ] = dirZ;
   }
-  setVisibility(v: number) { this.f32[SIM_HDR.VISIBILITY] = v; }
-  setAmbientTemp(t: number) { this.f32[SIM_HDR.AMBIENT_TEMP] = t; }
-  setActivePlayers(mask: number) { this.u32[SIM_HDR.ACTIVE_PLAYERS] = mask; }
-  setGamemode(mode: number) { this.u32[SIM_HDR.GAMEMODE] = mode; }
-  setPhysicsInitialized(v: number) { this.u32[SIM_HDR.PHYSICS_INITIALIZED] = v; }
-  setPhysicsFailed(v: number) { this.u32[SIM_HDR.PHYSICS_FAILED] = v; }
-  setPhysicsBodyCount(v: number) { this.u32[SIM_HDR.PHYSICS_BODY_COUNT] = v; }
-  setPhysicsTickCount(v: number) { this.u32[SIM_HDR.PHYSICS_TICK_COUNT] = v; }
-  setChunkCount(v: number) { this.u32[SIM_HDR.CHUNK_COUNT] = v; }
+  setVisibility(v: number) { this.writer.header.f32[SimChannel.offsets.header.visibility] = v; }
+  setAmbientTemp(t: number) { this.writer.header.f32[SimChannel.offsets.header.ambientTemp] = t; }
+  setActivePlayers(mask: number) { this.writer.header.u32[SimChannel.offsets.header.activePlayers] = mask; }
+  setGamemode(mode: number) { this.writer.header.u32[SimChannel.offsets.header.gamemode] = mode; }
+  setPhysicsInitialized(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsInitialized] = v; }
+  setPhysicsFailed(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsFailed] = v; }
+  setPhysicsBodyCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsBodyCount] = v; }
+  setPhysicsTickCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsTickCount] = v; }
+  setChunkCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.chunkCount] = v; }
 
   incrementTick() {
-    Atomics.add(this.u32, SIM_HDR.TICK, 1);
-    Atomics.add(this.u32, SIM_HDR.SEQUENCE, 1);
+    const h = SimChannel.offsets.header;
+    Atomics.add(this.writer.header.u32, h.tick, 1);
+    this.writer.bumpSequence();
   }
 
   getEntityF32(idx: number): Float32Array {
-    const base = this.entityOffset + idx * (SIM_ENTITY_SLOT_SIZE / 4);
-    return new Float32Array(this.sab, base * 4, SIM_ENTITY_SLOT_SIZE / 4);
+    return this.entitySlots.slot(idx).f32;
   }
 
   getEntityU32(idx: number): Uint32Array {
-    const base = this.entityOffset + idx * (SIM_ENTITY_SLOT_SIZE / 4);
-    return new Uint32Array(this.sab, base * 4, SIM_ENTITY_SLOT_SIZE / 4);
+    return this.entitySlots.slot(idx).u32;
   }
 
   getPlayerF32(idx: number): Float32Array {
-    const base = this.playerOffset + idx * (SIM_PLAYER_SLOT_SIZE / 4);
-    return new Float32Array(this.sab, base * 4, SIM_PLAYER_SLOT_SIZE / 4);
+    return this.playerSlots.slot(idx).f32;
   }
 
   getPlayerU32(idx: number): Uint32Array {
-    const base = this.playerOffset + idx * (SIM_PLAYER_SLOT_SIZE / 4);
-    return new Uint32Array(this.sab, base * 4, SIM_PLAYER_SLOT_SIZE / 4);
+    return this.playerSlots.slot(idx).u32;
   }
 }

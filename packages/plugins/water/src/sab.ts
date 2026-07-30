@@ -1,19 +1,28 @@
 import type { SABChannel } from "@downdraft/core";
-import { SeqlockBuffer, createLayout, type BufferLayout } from "@downdraft/core";
+import { defineChannel } from "@downdraft/core/sab/define";
 import { packWaveData, type GerstnerWaveConfig } from "./gerstner.ts";
 
-export const WATER_SAB_LAYOUT: BufferLayout = createLayout([
-  { name: "waveData", type: "f32", count: 16 },
-  { name: "time", type: "f32", count: 1 },
-]);
+export const WaterSimChannel = defineChannel({
+  name: "water-sim",
+  magic: 0x57415453,
+  version: 1,
+  mode: "record",
+  header: { size: 64, fields: {} },
+  fields: {
+    waveData: { type: "f32", count: 16 },
+    time: { type: "f32" },
+  },
+});
 
 export class WaterSABChannel {
-  private seqlock: SeqlockBuffer;
+  private writer: ReturnType<typeof WaterSimChannel.writer>;
+  private reader: ReturnType<typeof WaterSimChannel.reader>;
   private config: GerstnerWaveConfig;
   private time = 0;
 
   constructor(channel: SABChannel, config: GerstnerWaveConfig) {
-    this.seqlock = new SeqlockBuffer(channel.buffer, WATER_SAB_LAYOUT);
+    this.writer = WaterSimChannel.writer(channel.buffer);
+    this.reader = WaterSimChannel.reader(channel.buffer);
     this.config = config;
   }
 
@@ -23,17 +32,19 @@ export class WaterSABChannel {
 
   write(): void {
     const waveData = packWaveData(this.config, this.time);
-    this.seqlock.write({
-      waveData,
-      time: this.time,
-    });
+    const w = this.writer;
+    for (let i = 0; i < 16; i++) {
+      (w.fields.waveData as Float32Array)[i] = waveData[i] ?? 0;
+    }
+    (w.fields.time as Float32Array)[0] = this.time;
+    w.bumpSequence();
   }
 
   read(): { waveData: Float32Array; time: number } | null {
-    const data = this.seqlock.read();
+    const data = this.reader.snapshot();
     if (!data) return null;
     return {
-      waveData: data.waveData as Float32Array,
+      waveData: new Float32Array(data.waveData as number[]),
       time: data.time as number,
     };
   }

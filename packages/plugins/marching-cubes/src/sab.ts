@@ -1,36 +1,43 @@
 import type { SABChannel } from "@downdraft/core";
-import { SeqlockBuffer, createLayout, type BufferLayout } from "@downdraft/core";
+import { defineChannel } from "@downdraft/core/sab/define";
 
-export const TERRAIN_SAB_LAYOUT: BufferLayout = createLayout([
-  { name: "heightmap", type: "f32", count: 64 },
-  { name: "chunkX", type: "i32", count: 1 },
-  { name: "chunkZ", type: "i32", count: 1 },
-]);
+export const TerrainChannel = defineChannel({
+  name: "terrain",
+  magic: 0x54455252,
+  version: 1,
+  mode: "record",
+  header: { size: 64, fields: {} },
+  fields: {
+    heightmap: { type: "f32", count: 64 },
+    chunkX: { type: "i32" },
+    chunkZ: { type: "i32" },
+  },
+});
 
 export class TerrainSABChannel {
-  private seqlock: SeqlockBuffer;
+  private writer: ReturnType<typeof TerrainChannel.writer>;
+  private reader: ReturnType<typeof TerrainChannel.reader>;
 
   constructor(channel: SABChannel) {
-    this.seqlock = new SeqlockBuffer(channel.buffer, TERRAIN_SAB_LAYOUT);
+    this.writer = TerrainChannel.writer(channel.buffer);
+    this.reader = TerrainChannel.reader(channel.buffer);
   }
 
   write(heightmap: Float32Array, chunkX: number, chunkZ: number): void {
-    const data = new Float32Array(64);
+    const w = this.writer;
     for (let i = 0; i < Math.min(heightmap.length, 64); i++) {
-      data[i] = heightmap[i];
+      (w.fields.heightmap as Float32Array)[i] = heightmap[i];
     }
-    this.seqlock.write({
-      heightmap: data,
-      chunkX,
-      chunkZ,
-    });
+    (w.fields.chunkX as Int32Array)[0] = chunkX;
+    (w.fields.chunkZ as Int32Array)[0] = chunkZ;
+    w.bumpSequence();
   }
 
   read(): { heightmap: Float32Array; chunkX: number; chunkZ: number } | null {
-    const data = this.seqlock.read();
+    const data = this.reader.snapshot();
     if (!data) return null;
     return {
-      heightmap: data.heightmap as Float32Array,
+      heightmap: new Float32Array(data.heightmap as number[]),
       chunkX: data.chunkX as number,
       chunkZ: data.chunkZ as number,
     };

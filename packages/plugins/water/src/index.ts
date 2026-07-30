@@ -22,9 +22,9 @@ import {
 // Re-export legacy Gerstner-based system
 export { DEFAULT_WAVE_CONFIG, gerstnerDisplacement, gerstnerHeight, gerstnerNormal, packWaveData, packWaveUniforms } from "./gerstner.ts";
 export type { GerstnerWaveConfig, GerstnerWaveParams } from "./gerstner.ts";
-export { WATER_RENDER_LAYOUT, WaterRenderPass } from "./render.ts";
+export { WaterRenderChannel, WaterRenderPass } from "./render.ts";
 export type { WaterRenderResources } from "./render.ts";
-export { WATER_SAB_LAYOUT, WaterSABChannel } from "./sab.ts";
+export { WaterSABChannel, WaterSimChannel } from "./sab.ts";
 
 // Re-export new low-poly water physics system
 export { BuoyancySystem } from "./buoyancy.ts";

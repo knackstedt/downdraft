@@ -2,32 +2,42 @@
 // Boat Buffer — SharedArrayBuffer for boat cell grid data (sim → renderer)
 // ============================================================================
 
-export const BOAT_MAGIC = 0x424f4154; // 'BOAT'
+import { defineChannel } from "@downdraft/core/sab/define";
+
+export const BoatChannel = defineChannel({
+  name: "game-boat",
+  magic: 0x424f4154,
+  version: 1,
+  mode: "slots",
+  header: {
+    size: 64,
+    fields: {
+      boatCount: { type: "u32" },
+      previewBoatSlot: { type: "u32" },
+      previewPacked: { type: "u32" },
+      previewGridY: { type: "u32" },
+      previewRotation: { type: "u32" },
+    },
+  },
+  sections: [
+    {
+      name: "boats",
+      maxSlots: 32,
+      slotSize: 1544,
+      fields: {
+        entityId: { type: "u32" },
+        cellCount: { type: "u32" },
+        cellData: { type: "u32", count: 384 },
+      },
+    },
+  ],
+});
+
+export const BOAT_MAGIC = 0x424f4154;
 export const BOAT_VERSION = 1;
 
-// Header: 64 bytes (16 u32s)
-// [0] magic, [1] version, [2] boatCount, [3] sequence (atomic)
-// [4] preview: boatSlot, [5] preview: packed gridX|gridZ|cellType|visible, [6..15] reserved
-
-export const BOAT_HDR = {
-  MAGIC: 0,
-  VERSION: 1,
-  BOAT_COUNT: 2,
-  SEQUENCE: 3,
-  PREVIEW_BOAT_SLOT: 4,
-  PREVIEW_PACKED: 5,
-  PREVIEW_GRID_Y: 6,
-  PREVIEW_ROTATION: 7,
-} as const;
-
-// Per-boat section: 8 bytes header + MAX_CELLS_PER_BOAT * 8 bytes
-// Boat header: entityId (u32), cellCount (u32)
-// Per cell: type (u8), rotation (u8), gridX (i8), gridZ (i8), gridY (u8), sizeX (u8), sizeY (u8), sizeZ (u8)
-// Packed as 2 u32s per cell: u32_0 = type|rotation|gridX|gridZ, u32_1 = gridY|sizeX|sizeY|sizeZ
-// Sizes are stored as (size-1) so 0 means size=1 (default for all existing 1x1x1 cells)
-
-export const BOAT_SECTION_HEADER_SIZE = 8; // 2 u32s
-export const BOAT_CELL_SIZE = 8; // 2 u32s per cell
+export const BOAT_SECTION_HEADER_SIZE = 8;
+export const BOAT_CELL_SIZE = 8;
 export const MAX_BOATS = 32;
 export const MAX_CELLS_PER_BOAT = 192;
 
@@ -35,9 +45,20 @@ export const BOAT_HEADER_SIZE = 64;
 export const BOAT_SECTION_SIZE = BOAT_SECTION_HEADER_SIZE + MAX_CELLS_PER_BOAT * BOAT_CELL_SIZE;
 export const BOAT_BUFFER_SIZE = BOAT_HEADER_SIZE + MAX_BOATS * BOAT_SECTION_SIZE;
 
+// Header field indices (for backward compat with old WATER_HDR-style usage)
+export const BOAT_HDR = {
+  MAGIC: 0,
+  VERSION: 1,
+  BOAT_COUNT: 3,
+  SEQUENCE: 2,
+  PREVIEW_BOAT_SLOT: 4,
+  PREVIEW_PACKED: 5,
+  PREVIEW_GRID_Y: 6,
+  PREVIEW_ROTATION: 7,
+} as const;
+
 // Cell field packing helpers
 export function packCell(type: number, rotation: number, gridX: number, gridZ: number): number {
-  // Pack into a single u32: byte0=type, byte1=rotation, byte2=gridX (signed), byte3=gridZ (signed)
   return (
     (type & 0xff) |
     ((rotation & 0xff) << 8) |
@@ -55,11 +76,11 @@ export function unpackCellRotation(packed: number): number {
 }
 
 export function unpackCellGridX(packed: number): number {
-  return ((packed >> 16) & 0xff) << 24 >> 24; // sign-extend from 8-bit
+  return ((packed >> 16) & 0xff) << 24 >> 24;
 }
 
 export function unpackCellGridZ(packed: number): number {
-  return ((packed >> 24) & 0xff) << 24 >> 24; // sign-extend from 8-bit
+  return ((packed >> 24) & 0xff) << 24 >> 24;
 }
 
 export function packCellY(gridY: number): number {
@@ -67,7 +88,6 @@ export function packCellY(gridY: number): number {
 }
 
 export function packCellSizes(sizeX: number, sizeY: number, sizeZ: number): number {
-  // Pack sizes as (size-1) into bits 8-31 of the Y u32 (bits 0-7 are gridY)
   return (((sizeX - 1) & 0xff) << 8) | (((sizeY - 1) & 0xff) << 16) | (((sizeZ - 1) & 0xff) << 24);
 }
 
@@ -87,7 +107,6 @@ export function unpackCellY(yPacked: number): number {
   return yPacked & 0xff;
 }
 
-// Full unpack helper for the Y+sizes u32
 export function unpackCellYSizes(yPacked: number): { gridY: number; sizeX: number; sizeY: number; sizeZ: number } {
   return {
     gridY: yPacked & 0xff,
@@ -98,77 +117,77 @@ export function unpackCellYSizes(yPacked: number): { gridY: number; sizeX: numbe
 }
 
 export function allocateBoatBuffer(): SharedArrayBuffer {
-  return new SharedArrayBuffer(BOAT_BUFFER_SIZE);
+  return BoatChannel.allocate();
 }
 
 // --- Writer (sim side) ---
 
 export class BoatBufferWriter {
-  private sab: SharedArrayBuffer;
-  private u32: Uint32Array;
-  private sectionOffsets: number[] = [];
+  private writer: ReturnType<typeof BoatChannel.writer>;
+  private slotAccessor: ReturnType<typeof BoatChannel.writer>["sections"]["boats"];
 
   constructor(sab: SharedArrayBuffer) {
-    this.sab = sab;
-    this.u32 = new Uint32Array(sab);
-    for (let i = 0; i < MAX_BOATS; i++) {
-      this.sectionOffsets[i] = (BOAT_HEADER_SIZE + i * BOAT_SECTION_SIZE) / 4;
-    }
+    this.writer = BoatChannel.writer(sab);
+    this.slotAccessor = this.writer.sections.boats;
   }
 
   init(): void {
-    this.u32[BOAT_HDR.MAGIC] = BOAT_MAGIC;
-    this.u32[BOAT_HDR.VERSION] = BOAT_VERSION;
-    this.u32[BOAT_HDR.BOAT_COUNT] = 0;
+    const w = this.writer;
+    const h = BoatChannel.offsets.header;
+    w.header.u32[h.boatCount] = 0;
   }
 
   setBoatCount(n: number): void {
-    this.u32[BOAT_HDR.BOAT_COUNT] = n;
+    this.writer.header.u32[BoatChannel.offsets.header.boatCount] = n;
   }
 
   incrementSequence(): void {
-    Atomics.add(this.u32, BOAT_HDR.SEQUENCE, 1);
+    this.writer.bumpSequence();
   }
 
   writeBoat(slot: number, entityId: number, cells: { type: number; rotation: number; gridX: number; gridZ: number; gridY?: number; sizeX?: number; sizeY?: number; sizeZ?: number }[]): void {
     if (slot < 0 || slot >= MAX_BOATS) return;
-    const base = this.sectionOffsets[slot];
-    this.u32[base] = entityId;
+    const sv = this.slotAccessor.slot(slot);
+    const f = BoatChannel.offsets.sections.boats.fields;
+    sv.u32[f.entityId] = entityId;
     const count = Math.min(cells.length, MAX_CELLS_PER_BOAT);
-    this.u32[base + 1] = count;
+    sv.u32[f.cellCount] = count;
     for (let i = 0; i < count; i++) {
       const c = cells[i];
-      this.u32[base + 2 + i * 2] = packCell(c.type, c.rotation, c.gridX, c.gridZ);
-      this.u32[base + 2 + i * 2 + 1] = packCellY(c.gridY ?? 0) | packCellSizes(c.sizeX ?? 1, c.sizeY ?? 1, c.sizeZ ?? 1);
+      sv.u32[f.cellData + i * 2] = packCell(c.type, c.rotation, c.gridX, c.gridZ);
+      sv.u32[f.cellData + i * 2 + 1] = packCellY(c.gridY ?? 0) | packCellSizes(c.sizeX ?? 1, c.sizeY ?? 1, c.sizeZ ?? 1);
     }
   }
 
   clearBoat(slot: number): void {
     if (slot < 0 || slot >= MAX_BOATS) return;
-    const base = this.sectionOffsets[slot];
-    this.u32[base] = 0;
-    this.u32[base + 1] = 0;
+    const sv = this.slotAccessor.slot(slot);
+    const f = BoatChannel.offsets.sections.boats.fields;
+    sv.u32[f.entityId] = 0;
+    sv.u32[f.cellCount] = 0;
   }
 
-  // Preview cell: write which boat slot and grid position the player is aiming at
-  // packed: byte0=gridX (signed), byte1=gridZ (signed), byte2=cellType, byte3=visible (0/1)
   setPreview(boatSlot: number, gridX: number, gridZ: number, gridY: number, cellType: number, visible: boolean, rotation: number = 0): void {
-    this.u32[BOAT_HDR.PREVIEW_BOAT_SLOT] = boatSlot;
+    const w = this.writer;
+    const h = BoatChannel.offsets.header;
+    w.header.u32[h.previewBoatSlot] = boatSlot;
     const packed =
       (gridX & 0xff) |
       ((gridZ & 0xff) << 8) |
       ((cellType & 0xff) << 16) |
       (visible ? 1 : 0) << 24;
-    this.u32[BOAT_HDR.PREVIEW_PACKED] = packed;
-    this.u32[BOAT_HDR.PREVIEW_GRID_Y] = gridY & 0xff;
-    this.u32[BOAT_HDR.PREVIEW_ROTATION] = rotation & 0xff;
+    w.header.u32[h.previewPacked] = packed;
+    w.header.u32[h.previewGridY] = gridY & 0xff;
+    w.header.u32[h.previewRotation] = rotation & 0xff;
   }
 
   clearPreview(): void {
-    this.u32[BOAT_HDR.PREVIEW_BOAT_SLOT] = 0;
-    this.u32[BOAT_HDR.PREVIEW_PACKED] = 0;
-    this.u32[BOAT_HDR.PREVIEW_GRID_Y] = 0;
-    this.u32[BOAT_HDR.PREVIEW_ROTATION] = 0;
+    const w = this.writer;
+    const h = BoatChannel.offsets.header;
+    w.header.u32[h.previewBoatSlot] = 0;
+    w.header.u32[h.previewPacked] = 0;
+    w.header.u32[h.previewGridY] = 0;
+    w.header.u32[h.previewRotation] = 0;
   }
 }
 
@@ -177,29 +196,24 @@ export class BoatBufferWriter {
 type BoatCell = { type: number; rotation: number; gridX: number; gridZ: number; gridY: number; sizeX: number; sizeY: number; sizeZ: number };
 
 export class BoatBufferReader {
-  private sab: SharedArrayBuffer;
-  private u32: Uint32Array;
-  private sectionOffsets: number[] = [];
+  private reader: ReturnType<typeof BoatChannel.reader>;
+  private slotAccessor: ReturnType<typeof BoatChannel.reader>["sections"]["boats"];
   private lastSeq = -1;
 
-  // Per-slot cell cache: invalidated when buffer sequence changes
   private cellCache: BoatCell[][] = [];
   private cellCacheSeq = -1;
 
   constructor(sab: SharedArrayBuffer) {
-    this.sab = sab;
-    this.u32 = new Uint32Array(sab);
-    for (let i = 0; i < MAX_BOATS; i++) {
-      this.sectionOffsets[i] = (BOAT_HEADER_SIZE + i * BOAT_SECTION_SIZE) / 4;
-    }
+    this.reader = BoatChannel.reader(sab);
+    this.slotAccessor = this.reader.sections.boats;
   }
 
   isValid(): boolean {
-    return this.u32[BOAT_HDR.MAGIC] === BOAT_MAGIC;
+    return this.reader.isValid();
   }
 
   getSequence(): number {
-    return Atomics.load(this.u32, BOAT_HDR.SEQUENCE);
+    return this.reader.getSequence();
   }
 
   hasChanged(): boolean {
@@ -212,34 +226,34 @@ export class BoatBufferReader {
   }
 
   getBoatCount(): number {
-    return this.u32[BOAT_HDR.BOAT_COUNT];
+    return this.reader.header.u32[BoatChannel.offsets.header.boatCount];
   }
 
   getBoatEntityId(slot: number): number {
     if (slot < 0 || slot >= MAX_BOATS) return 0;
-    return this.u32[this.sectionOffsets[slot]];
+    const sv = this.slotAccessor.slot(slot);
+    return sv.u32[BoatChannel.offsets.sections.boats.fields.entityId];
   }
 
   getBoatCells(slot: number): BoatCell[] {
     if (slot < 0 || slot >= MAX_BOATS) return [];
 
-    // Invalidate cache if buffer sequence changed
     const seq = this.getSequence();
     if (seq !== this.cellCacheSeq) {
       this.cellCache = [];
       this.cellCacheSeq = seq;
     }
 
-    // Return cached cells if available
     const cached = this.cellCache[slot];
     if (cached) return cached;
 
-    const base = this.sectionOffsets[slot];
-    const count = this.u32[base + 1];
+    const sv = this.slotAccessor.slot(slot);
+    const f = BoatChannel.offsets.sections.boats.fields;
+    const count = sv.u32[f.cellCount];
     const cells: BoatCell[] = [];
     for (let i = 0; i < count && i < MAX_CELLS_PER_BOAT; i++) {
-      const packed = this.u32[base + 2 + i * 2];
-      const yPacked = this.u32[base + 2 + i * 2 + 1];
+      const packed = sv.u32[f.cellData + i * 2];
+      const yPacked = sv.u32[f.cellData + i * 2 + 1];
       const ys = unpackCellYSizes(yPacked);
       cells.push({
         type: unpackCellType(packed),
@@ -256,16 +270,17 @@ export class BoatBufferReader {
     return cells;
   }
 
-  // Preview cell: returns { boatSlot, gridX, gridZ, gridY, cellType, visible }
   getPreview(): { boatSlot: number; gridX: number; gridZ: number; gridY: number; cellType: number; visible: boolean; rotation: number } {
-    const boatSlot = this.u32[BOAT_HDR.PREVIEW_BOAT_SLOT];
-    const packed = this.u32[BOAT_HDR.PREVIEW_PACKED];
+    const r = this.reader;
+    const h = BoatChannel.offsets.header;
+    const boatSlot = r.header.u32[h.previewBoatSlot];
+    const packed = r.header.u32[h.previewPacked];
     const gridX = (packed & 0xff) << 24 >> 24;
     const gridZ = ((packed >> 8) & 0xff) << 24 >> 24;
-    const gridY = this.u32[BOAT_HDR.PREVIEW_GRID_Y] & 0xff;
+    const gridY = r.header.u32[h.previewGridY] & 0xff;
     const cellType = (packed >> 16) & 0xff;
     const visible = ((packed >> 24) & 0xff) !== 0;
-    const rotation = this.u32[BOAT_HDR.PREVIEW_ROTATION] & 0xff;
+    const rotation = r.header.u32[h.previewRotation] & 0xff;
     return { boatSlot, gridX, gridZ, gridY, cellType, visible, rotation };
   }
 }

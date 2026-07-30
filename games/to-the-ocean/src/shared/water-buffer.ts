@@ -2,75 +2,88 @@
 // Water Buffer — SharedArrayBuffer for water heightfield data
 // ============================================================================
 
-export const WATER_MAGIC = 0x57415452; // 'WATR'
+import { defineChannel } from "@downdraft/core/sab/define";
+
+export const WaterChannel = defineChannel({
+  name: "game-water",
+  magic: 0x57415452,
+  version: 1,
+  mode: "grid",
+  header: {
+    size: 64,
+    fields: {
+      gridSize: { type: "u32" },
+      patchSize: { type: "u32" },
+      originX: { type: "i32" },
+      originZ: { type: "i32" },
+    },
+  },
+  grid: {
+    size: 256,
+    layers: {
+      heights: { type: "f32", components: 1 },
+      normals: { type: "f32", components: 3 },
+      flow: { type: "f32", components: 2 },
+    },
+  },
+});
+
+export const WATER_MAGIC = 0x57415452;
 export const WATER_VERSION = 1;
-
-// Header (64 bytes / 16 u32s)
-// [0] magic, [1] version, [2] gridSize, [3] patchSize (meters)
-// [4] sequence (atomic), [5] originX (i32), [6] originZ (i32)
-// [7..15] reserved
-
-export const WATER_HDR = {
-  MAGIC: 0,
-  VERSION: 1,
-  GRID_SIZE: 2,
-  PATCH_SIZE: 3,
-  SEQUENCE: 4,
-  ORIGIN_X: 5,
-  ORIGIN_Z: 6,
-} as const;
-
-// Data layout after 64-byte header:
-// - heights: gridSize * gridSize * f32 (4 bytes each)
-// - normals: gridSize * gridSize * f32x3 (12 bytes each)
-// - flow:    gridSize * gridSize * f32x2 (8 bytes each)
-
 export const WATER_GRID = 256;
 export const WATER_HEIGHT_OFFSET = 64;
 export const WATER_NORMAL_OFFSET = WATER_HEIGHT_OFFSET + WATER_GRID * WATER_GRID * 4;
 export const WATER_FLOW_OFFSET = WATER_NORMAL_OFFSET + WATER_GRID * WATER_GRID * 12;
 
+// Header field offsets (u32 indices within header, after reserved magic/version/sequence)
+export const WATER_HDR = {
+  MAGIC: 0,
+  VERSION: 1,
+  GRID_SIZE: 3,
+  PATCH_SIZE: 4,
+  SEQUENCE: 2,
+  ORIGIN_X: 5,
+  ORIGIN_Z: 6,
+} as const;
+
 export class WaterBufferWriter {
-  private sab: SharedArrayBuffer;
-  private u32: Uint32Array;
-  private i32: Int32Array;
-  private f32: Float32Array;
+  private writer: ReturnType<typeof WaterChannel.writer>;
   heights: Float32Array;
   normals: Float32Array;
   flow: Float32Array;
 
   constructor(sab: SharedArrayBuffer) {
-    this.sab = sab;
-    this.u32 = new Uint32Array(sab);
-    this.i32 = new Int32Array(sab);
-    this.f32 = new Float32Array(sab);
-    this.heights = new Float32Array(sab, WATER_HEIGHT_OFFSET, WATER_GRID * WATER_GRID);
-    this.normals = new Float32Array(sab, WATER_NORMAL_OFFSET, WATER_GRID * WATER_GRID * 3);
-    this.flow = new Float32Array(sab, WATER_FLOW_OFFSET, WATER_GRID * WATER_GRID * 2);
+    this.writer = WaterChannel.writer(sab);
+    this.heights = this.writer.layers.heights;
+    this.normals = this.writer.layers.normals;
+    this.flow = this.writer.layers.flow;
   }
 
   init(patchSize: number) {
-    this.u32[WATER_HDR.MAGIC] = WATER_MAGIC;
-    this.u32[WATER_HDR.VERSION] = WATER_VERSION;
-    this.u32[WATER_HDR.GRID_SIZE] = WATER_GRID;
-    this.u32[WATER_HDR.PATCH_SIZE] = patchSize;
-    this.i32[WATER_HDR.ORIGIN_X] = 0;
-    this.i32[WATER_HDR.ORIGIN_Z] = 0;
+    const w = this.writer;
+    const h = WaterChannel.offsets.header;
+    w.header.u32[h.gridSize] = WATER_GRID;
+    w.header.u32[h.patchSize] = patchSize;
+    w.header.i32[h.originX] = 0;
+    w.header.i32[h.originZ] = 0;
   }
 
-  getPatchSize(): number { return this.u32[WATER_HDR.PATCH_SIZE]; }
+  getPatchSize(): number { return this.writer.header.u32[WaterChannel.offsets.header.patchSize]; }
 
   getOrigin(): { x: number; z: number } {
-    return { x: this.i32[WATER_HDR.ORIGIN_X], z: this.i32[WATER_HDR.ORIGIN_Z] };
+    return {
+      x: this.writer.header.i32[WaterChannel.offsets.header.originX],
+      z: this.writer.header.i32[WaterChannel.offsets.header.originZ],
+    };
   }
 
   setOrigin(x: number, z: number) {
-    this.i32[WATER_HDR.ORIGIN_X] = x;
-    this.i32[WATER_HDR.ORIGIN_Z] = z;
+    this.writer.header.i32[WaterChannel.offsets.header.originX] = x;
+    this.writer.header.i32[WaterChannel.offsets.header.originZ] = z;
   }
 
   incrementSequence() {
-    Atomics.add(this.u32, WATER_HDR.SEQUENCE, 1);
+    this.writer.bumpSequence();
   }
 
   setHeight(gx: number, gz: number, h: number) {
@@ -81,7 +94,6 @@ export class WaterBufferWriter {
     return this.heights[gz * WATER_GRID + gx];
   }
 
-  // Bilinear sample at fractional grid coordinates
   sampleHeight(gx: number, gz: number): number {
     const x0 = Math.floor(gx);
     const z0 = Math.floor(gz);
@@ -102,31 +114,30 @@ export class WaterBufferWriter {
 }
 
 export class WaterBufferReader {
-  private sab: SharedArrayBuffer;
-  private u32: Uint32Array;
-  private i32: Int32Array;
+  private reader: ReturnType<typeof WaterChannel.reader>;
   heights: Float32Array;
   normals: Float32Array;
   flow: Float32Array;
 
   constructor(sab: SharedArrayBuffer) {
-    this.sab = sab;
-    this.u32 = new Uint32Array(sab);
-    this.i32 = new Int32Array(sab);
-    this.heights = new Float32Array(sab, WATER_HEIGHT_OFFSET, WATER_GRID * WATER_GRID);
-    this.normals = new Float32Array(sab, WATER_NORMAL_OFFSET, WATER_GRID * WATER_GRID * 3);
-    this.flow = new Float32Array(sab, WATER_FLOW_OFFSET, WATER_GRID * WATER_GRID * 2);
+    this.reader = WaterChannel.reader(sab);
+    this.heights = this.reader.layers.heights;
+    this.normals = this.reader.layers.normals;
+    this.flow = this.reader.layers.flow;
   }
 
   isValid(): boolean {
-    return this.u32[WATER_HDR.MAGIC] === WATER_MAGIC;
+    return this.reader.isValid();
   }
 
-  getSequence(): number { return Atomics.load(this.u32, WATER_HDR.SEQUENCE); }
-  getGridSize(): number { return this.u32[WATER_HDR.GRID_SIZE]; }
-  getPatchSize(): number { return this.u32[WATER_HDR.PATCH_SIZE]; }
+  getSequence(): number { return this.reader.getSequence(); }
+  getGridSize(): number { return this.reader.header.u32[WaterChannel.offsets.header.gridSize]; }
+  getPatchSize(): number { return this.reader.header.u32[WaterChannel.offsets.header.patchSize]; }
   getOrigin(): { x: number; z: number } {
-    return { x: this.i32[WATER_HDR.ORIGIN_X], z: this.i32[WATER_HDR.ORIGIN_Z] };
+    return {
+      x: this.reader.header.i32[WaterChannel.offsets.header.originX],
+      z: this.reader.header.i32[WaterChannel.offsets.header.originZ],
+    };
   }
 
   sampleHeight(gx: number, gz: number): number {

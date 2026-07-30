@@ -77,10 +77,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let dirToEdgeX = select(-1.0, 1.0, contrastE > contrastW);
     let dirToEdgeY = select(-1.0, 1.0, contrastS > contrastN);
 
-    let rgbaAlongH = textureSample(colorTex, samp, posM + vec2(dirToEdgeX, -dirToEdgeY) * rcpFrame);
+    let rgbaAlongH = textureSampleLevel(colorTex, samp, posM + vec2(dirToEdgeX, -dirToEdgeY) * rcpFrame, 0.0);
     let matchAlongH = FxaaContrast(rgbaM, rgbaAlongH);
 
-    let rgbaAlongV = textureSample(colorTex, samp, posM + vec2(-dirToEdgeX, dirToEdgeY) * rcpFrame);
+    let rgbaAlongV = textureSampleLevel(colorTex, samp, posM + vec2(-dirToEdgeX, dirToEdgeY) * rcpFrame, 0.0);
     let matchAlongV = FxaaContrast(rgbaM, rgbaAlongV);
 
     relativeVContrast = (matchAlongV - matchAlongH) * 5.0;
@@ -115,13 +115,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (!doneN) {
       nDist = nDist + inc;
       posN = posM + vec2(offNPX, offNPY) * nDist;
-      let rgbaEndN = textureSample(colorTex, samp, posN);
+      let rgbaEndN = textureSampleLevel(colorTex, samp, posN, 0.0);
       doneN = FxaaContrast(rgbaEndN, rgbaM) > FxaaContrast(rgbaEndN, rgbaN2);
     }
     if (!doneP) {
       pDist = pDist + inc;
       posP = posM - vec2(offNPX, offNPY) * pDist;
-      let rgbaEndP = textureSample(colorTex, samp, posP);
+      let rgbaEndP = textureSampleLevel(colorTex, samp, posP, 0.0);
       doneP = FxaaContrast(rgbaEndP, rgbaM) > FxaaContrast(rgbaEndP, rgbaN2);
     }
     if (doneN || doneP) { break; }

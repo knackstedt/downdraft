@@ -1,18 +1,17 @@
-import { SeqlockBuffer } from "../sab/seqlock.ts";
-import { CHANNEL_LAYOUTS } from "../sab/protocol.ts";
+import { CoreInputChannel } from "../sab/core-input-channel.ts";
 import { InputState } from "./state.ts";
 
 export class InputSABBridge {
-  private buf: SeqlockBuffer;
+  private reader: ReturnType<typeof CoreInputChannel.reader>;
   private state: InputState;
 
   constructor(sab: SharedArrayBuffer, state: InputState) {
-    this.buf = new SeqlockBuffer(sab, CHANNEL_LAYOUTS.input);
+    this.reader = CoreInputChannel.reader(sab);
     this.state = state;
   }
 
   poll(): void {
-    const data = this.buf.read();
+    const data = this.reader.snapshot();
     if (!data) return;
 
     const keys = data.keys as number[];

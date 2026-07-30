@@ -1,8 +1,8 @@
-import { InputState, InputContext } from "./state.ts";
+import { CoreInputChannel } from "../sab/core-input-channel.ts";
+import { InputSABChannel } from "../sab/input.ts";
 import { InputContextRouter } from "./context.ts";
 import { InputSABBridge } from "./sab-bridge.ts";
-import { InputSABChannel } from "../sab/input.ts";
-import { createSABForChannel } from "../sab/protocol.ts";
+import { InputContext, InputState } from "./state.ts";
 
 describe("InputState", () => {
   it("should track key down and up events", () => {
@@ -75,7 +75,7 @@ describe("InputContextRouter", () => {
 
 describe("InputSABBridge", () => {
   it("should apply keyboard keys from SAB data", () => {
-    const sab = createSABForChannel("input", 1);
+    const sab = CoreInputChannel.allocate();
     const state = new InputState();
     const bridge = new InputSABBridge(sab, state);
 
@@ -91,7 +91,7 @@ describe("InputSABBridge", () => {
   });
 
   it("should release keys no longer in SAB data", () => {
-    const sab = createSABForChannel("input", 1);
+    const sab = CoreInputChannel.allocate();
     const state = new InputState();
     const bridge = new InputSABBridge(sab, state);
 

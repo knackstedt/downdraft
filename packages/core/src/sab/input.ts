@@ -1,16 +1,16 @@
-import { SeqlockBuffer } from "./seqlock.ts";
-import { CHANNEL_LAYOUTS, type ChannelName, createSABForChannel } from "./protocol.ts";
+import { CoreInputChannel } from "./core-input-channel.ts";
 
 export class InputSABChannel {
-  private buf: SeqlockBuffer;
+  private writer: ReturnType<typeof CoreInputChannel.writer>;
+  private sab: SharedArrayBuffer;
 
   constructor(sab?: SharedArrayBuffer) {
-    const buffer = sab ?? createSABForChannel("input", 1);
-    this.buf = new SeqlockBuffer(buffer, CHANNEL_LAYOUTS.input);
+    this.sab = sab ?? CoreInputChannel.allocate();
+    this.writer = CoreInputChannel.writer(this.sab);
   }
 
   getBuffer(): SharedArrayBuffer {
-    return this.buf.getBuffer() as SharedArrayBuffer;
+    return this.sab;
   }
 
   write(
@@ -24,20 +24,31 @@ export class InputSABChannel {
     gamepadButtons: number[],
     gamepadAxes: number[],
   ): void {
-    this.buf.beginWrite();
-    this.buf.writeField("keys", keys);
-    this.buf.writeField("mouseX", mouseX);
-    this.buf.writeField("mouseY", mouseY);
-    this.buf.writeField("mouseDeltaX", mouseDeltaX);
-    this.buf.writeField("mouseDeltaY", mouseDeltaY);
-    this.buf.writeField("mouseButtons", mouseButtons);
-    this.buf.writeField("wheelDelta", wheelDelta);
-    this.buf.writeField("gamepadButtons", gamepadButtons);
-    this.buf.writeField("gamepadAxes", gamepadAxes);
-    this.buf.endWrite();
+    const w = this.writer;
+
+    for (let i = 0; i < 8; i++) {
+      (w.fields.keys as Int32Array)[i] = i < keys.length ? keys[i] : 0;
+    }
+    (w.fields.mouseX as Float32Array)[0] = mouseX;
+    (w.fields.mouseY as Float32Array)[0] = mouseY;
+    (w.fields.mouseDeltaX as Float32Array)[0] = mouseDeltaX;
+    (w.fields.mouseDeltaY as Float32Array)[0] = mouseDeltaY;
+    for (let i = 0; i < 3; i++) {
+      (w.fields.mouseButtons as Int32Array)[i] = i < mouseButtons.length ? mouseButtons[i] : 0;
+    }
+    (w.fields.wheelDelta as Float32Array)[0] = wheelDelta;
+    for (let i = 0; i < 4; i++) {
+      (w.fields.gamepadButtons as Int32Array)[i] = i < gamepadButtons.length ? gamepadButtons[i] : 0;
+    }
+    for (let i = 0; i < 4; i++) {
+      (w.fields.gamepadAxes as Float32Array)[i] = i < gamepadAxes.length ? gamepadAxes[i] : 0;
+    }
+
+    w.bumpSequence();
   }
 
   read() {
-    return this.buf.read();
+    const reader = CoreInputChannel.reader(this.sab);
+    return reader.snapshot();
   }
 }

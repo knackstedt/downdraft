@@ -2,7 +2,6 @@ import type { ComponentId } from "../ecs/component.ts";
 import { getComponentId } from "../ecs/component.ts";
 import type { Stage, SystemFn } from "../ecs/system.ts";
 import type { World } from "../ecs/world.ts";
-import { createSABForChannel, type ChannelName } from "../sab/protocol.ts";
 import { createLogger } from "../util/logger.ts";
 import type { Plugin, PluginContext, SABChannel } from "./plugin.ts";
 import { PluginRegistry } from "./registry.ts";
@@ -98,13 +97,7 @@ export class PluginHost implements PluginContext {
   }
 
   allocateSABChannel(name: string, size: number): SABChannel {
-    const channelName = name as ChannelName;
-    let buffer: SharedArrayBuffer;
-    try {
-      buffer = createSABForChannel(channelName, size);
-    } catch {
-      buffer = new SharedArrayBuffer(size * 4);
-    }
+    const buffer = new SharedArrayBuffer(size);
     const active = this.active.get(this.currentPluginName);
     if (active) {
       active.sabChannels.set(name, buffer);

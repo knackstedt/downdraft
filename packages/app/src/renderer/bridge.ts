@@ -1,4 +1,4 @@
-import { engineConfig, initEngine, sabBuffers, stopEngine } from "@downdraft/core/main";
+import { engineConfig, initEngine, stopEngine } from "@downdraft/core/main";
 import type { RPC, RPCMessage } from "@downdraft/core/platform/rpc";
 import { createLogger } from "@downdraft/core/util/logger";
 
@@ -14,7 +14,6 @@ declare global {
   interface Window {
     downdraft: {
       rpc: RPC;
-      sabBuffers: Record<string, SharedArrayBuffer>;
       initEngine: (canvas: HTMLCanvasElement) => Promise<void>;
       stopEngine: () => void;
     };
@@ -23,7 +22,6 @@ declare global {
 
 window.downdraft = {
   rpc,
-  sabBuffers,
   initEngine,
   stopEngine,
 };

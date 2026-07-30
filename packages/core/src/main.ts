@@ -1,7 +1,6 @@
 import { RPC } from "./platform/rpc.ts";
 import { GPUDeviceManager } from "./render/device.ts";
 import { SurfaceManager } from "./render/surface.ts";
-import { CHANNEL_LAYOUTS, type ChannelName, createSABForChannel } from "./sab/protocol.ts";
 import { createLogger } from "./util/logger.ts";
 
 const log = createLogger();
@@ -13,12 +12,6 @@ export interface EngineConfig {
 }
 
 export const engineConfig: EngineConfig = { rpc };
-
-const sabBuffers: Record<string, SharedArrayBuffer> = {};
-for (const name of Object.keys(CHANNEL_LAYOUTS) as ChannelName[]) {
-  sabBuffers[name] = createSABForChannel(name, 1);
-}
-export { sabBuffers };
 
 let deviceManager: GPUDeviceManager | null = null;
 let surface: SurfaceManager | null = null;

@@ -1,16 +1,15 @@
 import type { Plugin, PluginContext } from "@downdraft/core";
-import { DEFAULT_MC_CONFIG, type MCChunkConfig } from "./generator.ts";
-import { defaultDensityField, generateChunk, type DensityField, type MCMesh } from "./generator.ts";
-import { TerrainLODManager, DEFAULT_LOD_LEVELS, type LODLevel } from "./lod.ts";
-import { TerrainSABChannel, TERRAIN_SAB_LAYOUT } from "./sab.ts";
+import { DEFAULT_MC_CONFIG, defaultDensityField, type DensityField, type MCChunkConfig } from "./generator.ts";
+import { DEFAULT_LOD_LEVELS, TerrainLODManager } from "./lod.ts";
+import { TerrainSABChannel } from "./sab.ts";
 
-export { DEFAULT_MC_CONFIG, generateChunk, defaultDensityField } from "./generator.ts";
-export type { MCChunkConfig, MCMesh, DensityField, MCVertex } from "./generator.ts";
-export { TerrainLODManager, DEFAULT_LOD_LEVELS } from "./lod.ts";
-export type { LODLevel, ChunkLODEntry } from "./lod.ts";
 export { applyDeformation, applyMultipleDeformations, deformChunk } from "./deformation.ts";
 export type { DeformationConfig } from "./deformation.ts";
-export { TerrainSABChannel, TERRAIN_SAB_LAYOUT } from "./sab.ts";
+export { DEFAULT_MC_CONFIG, defaultDensityField, generateChunk } from "./generator.ts";
+export type { DensityField, MCChunkConfig, MCMesh, MCVertex } from "./generator.ts";
+export { DEFAULT_LOD_LEVELS, TerrainLODManager } from "./lod.ts";
+export type { ChunkLODEntry, LODLevel } from "./lod.ts";
+export { TerrainChannel, TerrainSABChannel } from "./sab.ts";
 
 export const MarchingCubesPlugin: Plugin = {
   name: "marching-cubes",
