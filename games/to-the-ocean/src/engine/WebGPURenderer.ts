@@ -131,6 +131,12 @@ export class WebGPURenderer {
   // Frame rate limiter (fallback for X11 multi-monitor vsync issue where
   // requestAnimationFrame fires at the fastest monitor's refresh rate)
   private targetFrameTime = 0; // 0 = unlimited (use vsync)
+  private rafInterval = 0;       // measured rAF interval (ms)
+  private rafSum = 0;            // rolling sum for rAF interval measurement
+  private rafCount = 0;          // count of samples
+  private lastRafTime = 0;       // last rAF timestamp for interval measurement
+  private frameAccum = 0;        // phase accumulator for frame limiting
+  private limiterActive = false; // whether the software limiter should be applied
 
   // Split-screen
   private viewportCount = 1;
@@ -470,9 +476,22 @@ export class WebGPURenderer {
   setFrameRateLimit(refreshRate: number): void {
     if (refreshRate > 0) {
       this.targetFrameTime = 1000 / refreshRate;
+      this.updateLimiterState();
     } else {
       this.targetFrameTime = 0;
+      this.limiterActive = false;
     }
+  }
+
+  private updateLimiterState(): void {
+    if (this.targetFrameTime <= 0 || this.rafInterval <= 0) {
+      this.limiterActive = this.targetFrameTime > 0;
+      return;
+    }
+    // Disable limiter when rAF rate is within 15% of target (fastest monitor —
+    // rAF already fires at the right rate, limiter only causes jitter drops)
+    this.limiterActive = this.rafInterval < this.targetFrameTime * 0.85;
+    this.frameAccum = 0;
   }
 
   private deviceLost = false;
@@ -487,6 +506,20 @@ export class WebGPURenderer {
       requestAnimationFrame(this.render);
       return;
     }
+
+    // Measure rAF interval (rolling average over 60 samples)
+    const rafNow = performance.now();
+    if (this.lastRafTime > 0) {
+      this.rafSum += rafNow - this.lastRafTime;
+      this.rafCount++;
+      if (this.rafCount >= 60) {
+        this.rafInterval = this.rafSum / this.rafCount;
+        this.rafSum = 0;
+        this.rafCount = 0;
+        this.updateLimiterState();
+      }
+    }
+    this.lastRafTime = rafNow;
 
     if (this.deviceLost) {
       // Device is gone — don't spin the CPU, reload is scheduled by device.lost handler
@@ -513,12 +546,15 @@ export class WebGPURenderer {
 
     const now = performance.now();
 
-    // Frame rate limiter: skip this frame if not enough time has passed since
-    // the last rendered frame. This caps GPU work when vsync is tied to the
-    // fastest monitor (X11 multi-monitor issue).
-    if (this.targetFrameTime > 0 && (now - this.lastTime) < this.targetFrameTime) {
-      requestAnimationFrame(this.render);
-      return;
+    // Frame rate limiter: phase accumulator distributes renders evenly across
+    // rAF calls, avoiding quantization to rAF intervals.
+    if (this.limiterActive && this.targetFrameTime > 0) {
+      this.frameAccum += this.rafInterval / this.targetFrameTime;
+      if (this.frameAccum < 1) {
+        requestAnimationFrame(this.render);
+        return;
+      }
+      this.frameAccum -= 1;
     }
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
