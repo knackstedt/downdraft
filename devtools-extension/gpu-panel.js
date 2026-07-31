@@ -338,11 +338,11 @@
   // --- GPU System Metrics (nvidia-smi via IPC) ---
 
   function refreshGPUSystemMetrics() {
-    if (!window.downdraft || !window.downdraft.getGPUSystemInfo) return;
-    window.downdraft.getGPUSystemInfo().then(function (data) {
+    callInspector("getGPUSystemInfo").then(function (res) {
+      var data = res.result;
       var metricsEl = document.getElementById("gpu-system-metrics");
       var procTbody = document.getElementById("gpu-process-tbody");
-      if (!data) {
+      if (res.err || !data) {
         if (metricsEl) metricsEl.innerHTML = '<div class="debug-row"><div class="debug-label">nvidia-smi</div><div class="debug-value" style="color:#666">Not available</div></div>';
         if (procTbody) procTbody.innerHTML = "";
         return;
@@ -380,11 +380,11 @@
   // --- Electron GPU Info (app.getGPUInfo via IPC) ---
 
   function refreshElectronGPUInfo() {
-    if (!window.downdraft || !window.downdraft.getElectronGPUInfo) return;
-    window.downdraft.getElectronGPUInfo().then(function (info) {
+    callInspector("getElectronGPUInfo").then(function (res) {
+      var info = res.result;
       var el = document.getElementById("gpu-electron-info");
       if (!el) return;
-      if (!info) {
+      if (res.err || !info) {
         el.innerHTML = '<div class="debug-row"><div class="debug-label">Status</div><div class="debug-value" style="color:#666">Not available (Electron GPU info not accessible)</div></div>';
         return;
       }
@@ -414,10 +414,10 @@
   // --- Vulkan Validation Layer Status ---
 
   function refreshVulkanValidationStatus() {
-    if (!window.downdraft || !window.downdraft.getVulkanValidationStatus) return;
-    window.downdraft.getVulkanValidationStatus().then(function (data) {
+    callInspector("getVulkanValidationStatus").then(function (res) {
       var badge = document.getElementById("vulkan-validation-badge");
-      if (!badge || !data) return;
+      if (!badge || res.err || !res.result) return;
+      var data = res.result;
       if (data.enabled) {
         badge.textContent = "Vulkan Validation: ON";
         badge.className = "validation-badge validation-on";

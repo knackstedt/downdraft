@@ -2,8 +2,7 @@
 // WebGPU Renderer — main rendering engine
 // ============================================================================
 
-import type { PassTiming } from "@downdraft/core";
-import { calculateViewProj as engineCalculateViewProj, GPUTimerPool, LayoutEngine, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, LayoutEngine, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { generateIslandBlobs } from "@shared/TerrainGenerator";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -20,7 +19,6 @@ import { CloudSystem } from "./CloudSystem";
 import { DebugOverlay } from "./DebugOverlay";
 import { DebugRaycast } from "./DebugRaycast";
 import { EntityRenderer } from "./EntityRenderer";
-import { GPUResourceTracker } from "./GPUResourceTracker";
 import { LabelOverlay } from "./LabelOverlay";
 import { LightSystem } from "./LightSystem";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "./ModelLoader";
@@ -98,16 +96,7 @@ export class WebGPURenderer {
   private profilingOverlay: ProfilingOverlay | null = null;
   private frameDrawCalls: number = 0;
   private frameTriangles: number = 0;
-  private passTimings: Map<string, { cpuMs: number; gpuMs: number; drawCalls: number; triangles: number; pipelineSwitches: number; bindGroupChanges: number; bufferRebinds: number }> = new Map();
-  private passStartTimes: Map<string, number> = new Map();
-  private passGpuIndices: Map<string, number> = new Map();
-  private gpuPassCounter: number = 0;
-  private gpuTimerPool: GPUTimerPool | null = null;
-  private passTracker = { pipelineSwitches: 0, bindGroupChanges: 0, bufferRebinds: 0, drawCalls: 0, triangles: 0 };
-
-  // GPU debugging state
-  private adapterInfo: any = null;
-  private gpuErrors: Array<{ timestamp: number; message: string; label?: string }> = [];
+  private gpuProfiler: GPUProfiler | null = null;
   private gpuResourceTracker: GPUResourceTracker | null = null;
 
   // Flashlight toggle state
@@ -259,9 +248,6 @@ export class WebGPURenderer {
         return false;
       }
 
-      // Store adapter info for DevTools GPU tab
-      this.adapterInfo = (adapter as any).info ?? null;
-
       // Request timestamp-query features for GPU-side per-pass timing if available
       const requiredFeatures: GPUFeatureName[] = [];
       if (adapter.features.has("timestamp-query")) {
@@ -276,21 +262,14 @@ export class WebGPURenderer {
       this.gpuResourceTracker = new GPUResourceTracker();
       this.gpuResourceTracker.wrapDevice(this.device);
 
-      // GPU timer pool for per-pass GPU-side timestamps (requires timestamp-query feature)
-      this.gpuTimerPool = new GPUTimerPool(this.device, 16);
-      console.log("[WebGPU] GPU timer pool supported:", this.gpuTimerPool.isSupported(),
+      // GPU profiler: pass timing, error capture, GPU info
+      const adapterInfo = (adapter as any).info ?? null;
+      this.context = this.canvas.getContext("webgpu")!;
+      this.format = navigator.gpu.getPreferredCanvasFormat();
+      this.gpuProfiler = new GPUProfiler();
+      this.gpuProfiler.init(this.device, adapterInfo, this.format, 16);
+      console.log("[WebGPU] GPU timer pool supported:", this.gpuProfiler.isGpuTimerSupported(),
         "features:", Array.from(this.device.features));
-
-      // Capture silent WebGPU validation errors — without this, GPU errors
-      // (e.g. from NaN/Infinity in uniforms) go completely unreported.
-      const self = this;
-      this.device.onuncapturederror = function(ev: GPUUncapturedErrorEvent) {
-        const label = (ev.error as any)?.label ?? "";
-        const entry = { timestamp: performance.now(), message: ev.error.message, label: label || undefined };
-        self.gpuErrors.push(entry);
-        if (self.gpuErrors.length > 100) self.gpuErrors.shift();
-        console.error(`[RENDERER] ${label || ""} WebGPU uncaptured error: ${ev.error.message}`);
-      };
 
       this.device.lost.then((info: any) => {
         this.deviceLost = true;
@@ -302,8 +281,6 @@ export class WebGPURenderer {
           window.location.reload();
         }, 2000);
       });
-      this.context = this.canvas.getContext("webgpu")!;
-      this.format = navigator.gpu.getPreferredCanvasFormat();
       this.context.configure({
         device: this.device,
         format: this.format,
@@ -860,18 +837,10 @@ export class WebGPURenderer {
       this.telemetryCollector.recordGraphSample(dt * 1000);
 
       // Record per-pass timings into telemetry
-      for (const [name, t] of this.passTimings) {
-        const timing: PassTiming = {
-          name,
-          cpuMs: t.cpuMs,
-          gpuMs: t.gpuMs,
-          drawCalls: t.drawCalls,
-          triangles: t.triangles,
-          pipelineSwitches: t.pipelineSwitches,
-          bindGroupChanges: t.bindGroupChanges,
-          bufferRebinds: t.bufferRebinds,
-        };
-        this.telemetryCollector.recordPassTiming(timing);
+      if (this.gpuProfiler) {
+        for (const timing of this.gpuProfiler.getPassTimings()) {
+          this.telemetryCollector.recordPassTiming(timing);
+        }
       }
 
       // Wire GPU resource tracker data into telemetry
@@ -1350,7 +1319,7 @@ export class WebGPURenderer {
     const isFirst = viewportIdx === 0;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
 
-    const passEncoder = this.wrapTrackedPass(encoder.beginRenderPass({
+    const passEncoder = this.gpuProfiler!.wrapTrackedPass(encoder.beginRenderPass({
       colorAttachments: [{
         view: colorView,
         clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 },
@@ -1369,15 +1338,12 @@ export class WebGPURenderer {
     passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
 
     if (viewportIdx === 0) {
-      this.passStartTimes.clear();
-      this.passTimings.clear();
-      this.passGpuIndices.clear();
-      this.gpuPassCounter = 0;
+      this.gpuProfiler!.beginFrame();
     }
 
     // Render sky
     {
-      if (viewportIdx === 0) { this.passStartTimes.set("Sky", performance.now()); this.beginPassGpuTimer("Sky", passEncoder, viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Sky", passEncoder, viewportIdx); }
       // Track weather transitions for smooth visual blending
       if (weatherType !== this.skyDisplayedWeatherType) {
         this.skyPrevWeatherType = this.skyDisplayedWeatherType;
@@ -1419,12 +1385,12 @@ export class WebGPURenderer {
       skyU.weatherBlend = easedBlend;
       this.skyDomePass!.setUniforms(skyU);
       this.skyDomePass!.execute({ device: this.device!, pass: passEncoder } as any);
-      if (viewportIdx === 0) { this.endPassGpuTimer("Sky", passEncoder, viewportIdx); this.endPassTiming("Sky", viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.endPass("Sky", passEncoder, viewportIdx); }
     }
 
     // Render terrain (before water so terrain writes depth first)
     {
-      if (viewportIdx === 0) { this.passStartTimes.set("Terrain", performance.now()); this.beginPassGpuTimer("Terrain", passEncoder, viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Terrain", passEncoder, viewportIdx); }
       const viewProj = engineCalculateViewProj(camera);
       const spacing = 4.0;
       const tCam = this.pooledTerrainCameraPos;
@@ -1438,7 +1404,7 @@ export class WebGPURenderer {
         originZ: Math.round((playerPos.z - 256) / spacing) * spacing,
       });
       this.terrainPass!.execute({ device: this.device!, pass: passEncoder } as any);
-      if (viewportIdx === 0) { this.endPassGpuTimer("Terrain", passEncoder, viewportIdx); this.endPassTiming("Terrain", viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.endPass("Terrain", passEncoder, viewportIdx); }
     }
 
     // Render entities before water so boat hulls write depth first.
@@ -1447,7 +1413,7 @@ export class WebGPURenderer {
     // Water (semi-transparent) still blends over submerged hull parts correctly.
 
     // Instanced entities (fish, sharks, jellyfish, pirates, etc.) — single draw call
-    if (viewportIdx === 0) { this.passStartTimes.set("Entities", performance.now()); this.beginPassGpuTimer("Entities", passEncoder, viewportIdx); }
+    if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Entities", passEncoder, viewportIdx); }
     const _entDrawBefore = this.frameDrawCalls;
     this.entityRenderer!.renderInstanced(passEncoder);
     this.frameDrawCalls++;
@@ -1460,13 +1426,13 @@ export class WebGPURenderer {
     this.frameTriangles += this.entityRenderer!.getLastFrameTriangles();
     // Render anchor 3D meshes before water (proper depth-tested, lit geometry)
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
-    if (viewportIdx === 0) { this.endPassGpuTimer("Entities", passEncoder, viewportIdx); this.endPassTiming("Entities", viewportIdx, this.frameDrawCalls - _entDrawBefore, this.entityRenderer!.getLastFrameTriangles()); }
+    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Entities", passEncoder, viewportIdx, this.frameDrawCalls - _entDrawBefore, this.entityRenderer!.getLastFrameTriangles()); }
 
     // Render clouds (semi-transparent, depth-tested, no depth write)
     // After terrain and entities so clouds blend over them;
     // before water so water can blend over clouds at the horizon.
     if (this.cloudSystem) {
-      if (viewportIdx === 0) { this.passStartTimes.set("Clouds", performance.now()); this.beginPassGpuTimer("Clouds", passEncoder, viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Clouds", passEncoder, viewportIdx); }
       this.cloudSystem.render(
         passEncoder, camera, timeOfDay, weatherType,
         windSpeed, windDir.x, windDir.z, this.elapsedTime, playerPos,
@@ -1474,12 +1440,12 @@ export class WebGPURenderer {
         lightingParams.moonDir, lightingParams.moonIntensity,
         lightingParams.fogColor, 0.0008,
       );
-      if (viewportIdx === 0) { this.endPassGpuTimer("Clouds", passEncoder, viewportIdx); this.endPassTiming("Clouds", viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.endPass("Clouds", passEncoder, viewportIdx); }
     }
 
     // Render water (semi-transparent, blends over terrain and submerged entities)
     if (this.waterReader && this.waterReader.isValid()) {
-      if (viewportIdx === 0) { this.passStartTimes.set("Water", performance.now()); this.beginPassGpuTimer("Water", passEncoder, viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Water", passEncoder, viewportIdx); }
       const waterViewProj = engineCalculateViewProj(camera);
       const patchSize = this.waterReader.getPatchSize();
       const halfGrid = (256 * patchSize) / 2;
@@ -1509,11 +1475,11 @@ export class WebGPURenderer {
         shoreCount: 0,
       });
       this.waterPass!.execute({ device: this.device!, pass: passEncoder } as any);
-      if (viewportIdx === 0) { this.endPassGpuTimer("Water", passEncoder, viewportIdx); this.endPassTiming("Water", viewportIdx); }
+      if (viewportIdx === 0) { this.gpuProfiler!.endPass("Water", passEncoder, viewportIdx); }
     }
 
     // Render hitbox debug overlay
-    if (viewportIdx === 0) { this.passStartTimes.set("Debug", performance.now()); this.beginPassGpuTimer("Debug", passEncoder, viewportIdx); }
+    if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Debug", passEncoder, viewportIdx); }
     this.entityRenderer!.renderHitboxes(passEncoder);
 
     // Render debug raycast (aim line + target highlight)
@@ -1521,7 +1487,7 @@ export class WebGPURenderer {
 
     // Render light debug gizmos (wireframe spheres showing light radius)
     this.lightingSystem!.renderDebugGizmos(passEncoder, camera);
-    if (viewportIdx === 0) { this.endPassGpuTimer("Debug", passEncoder, viewportIdx); this.endPassTiming("Debug", viewportIdx); }
+    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Debug", passEncoder, viewportIdx); }
 
     // Sync sim entities to scene store (for DevTools inspector) — throttled to 2fps
     if (viewportIdx === 0) {
@@ -1551,7 +1517,7 @@ export class WebGPURenderer {
 
     // Render imported models
     if (this.modelRenderer && viewportIdx === 0) {
-      this.passStartTimes.set("Models", performance.now()); this.beginPassGpuTimer("Models", passEncoder, viewportIdx);
+      this.gpuProfiler!.beginPass("Models", passEncoder, viewportIdx);
       this.modelRenderer.beginFrame(camera);
       const sceneState = useSceneStore.getState();
       for (const nodeId of sceneState.rootIds) {
@@ -1565,12 +1531,12 @@ export class WebGPURenderer {
           node.scale,
         );
       }
-      this.endPassGpuTimer("Models", passEncoder, viewportIdx); this.endPassTiming("Models", viewportIdx);
+      this.gpuProfiler!.endPass("Models", passEncoder, viewportIdx);
     }
 
     // Render holo preview for boat building (if player is onboard a ship)
     if (this.boatReader && this.boatReader.isValid()) {
-      this.passStartTimes.set("Holo", performance.now()); this.beginPassGpuTimer("Holo", passEncoder, viewportIdx);
+      this.gpuProfiler!.beginPass("Holo", passEncoder, viewportIdx);
       // Find the ship entity to get its position/rotation
       for (let i = 0; i < entityCount; i++) {
         const entSlot = this.simReader.getEntitySlot(i);
@@ -1589,47 +1555,47 @@ export class WebGPURenderer {
         this.entityRenderer!.renderHoloPreview(passEncoder, sPos, sRot);
         break; // only one ship for now
       }
-      this.endPassGpuTimer("Holo", passEncoder, viewportIdx); this.endPassTiming("Holo", viewportIdx);
+      this.gpuProfiler!.endPass("Holo", passEncoder, viewportIdx);
     }
 
     // Render particles (rain, snow, etc.)
     if (weatherType === WeatherType.Rain || weatherType === WeatherType.Storm ||
         weatherType === WeatherType.HellStorm || weatherType === WeatherType.Snow) {
-      this.passStartTimes.set("Particles", performance.now()); this.beginPassGpuTimer("Particles", passEncoder, viewportIdx);
+      this.gpuProfiler!.beginPass("Particles", passEncoder, viewportIdx);
       this.particleSystem!.render(passEncoder, camera, weatherType, timeOfDay);
-      this.endPassGpuTimer("Particles", passEncoder, viewportIdx); this.endPassTiming("Particles", viewportIdx);
+      this.gpuProfiler!.endPass("Particles", passEncoder, viewportIdx);
     }
 
     // Render transform gizmo (always on top, no depth test)
     if (this.transformGizmo && this.transformGizmo.isVisible() && viewportIdx === 0) {
-      this.passStartTimes.set("Gizmo", performance.now()); this.beginPassGpuTimer("Gizmo", passEncoder, viewportIdx);
+      this.gpuProfiler!.beginPass("Gizmo", passEncoder, viewportIdx);
       this.transformGizmo.render(passEncoder, camera);
-      this.endPassGpuTimer("Gizmo", passEncoder, viewportIdx); this.endPassTiming("Gizmo", viewportIdx);
+      this.gpuProfiler!.endPass("Gizmo", passEncoder, viewportIdx);
     }
 
     // Underwater fog overlay — only when the camera itself is below the water surface
     const camWaterHeight = this.sampleWaterHeightAt(camera.position[0], camera.position[2]);
     const camDepth = camWaterHeight - camera.position[1];
     if (camDepth > 0) {
-      this.passStartTimes.set("UnderwaterFog", performance.now()); this.beginPassGpuTimer("UnderwaterFog", passEncoder, viewportIdx);
+      this.gpuProfiler!.beginPass("UnderwaterFog", passEncoder, viewportIdx);
       this.underwaterFogPass!.setDepth(camDepth, this.elapsedTime);
       this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder } as any);
-      this.endPassGpuTimer("UnderwaterFog", passEncoder, viewportIdx); this.endPassTiming("UnderwaterFog", viewportIdx);
+      this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx);
     }
 
     passEncoder.end();
 
     // Resolve GPU timestamp queries on the same command encoder
-    if (viewportIdx === 0 && this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
-      this.gpuTimerPool.resolve(encoder);
+    if (viewportIdx === 0) {
+      this.gpuProfiler!.resolveGpuTimers(encoder);
     }
 
     this.device.queue.submit([encoder.finish()]);
 
     // Read GPU timer results asynchronously (1-frame latency — results from previous frame)
-    if (viewportIdx === 0 && this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
-      this.gpuTimerPool.readAll().then(() => {
-        // Results are now in gpuTimerPool.getPassGpuMs() for next frame's endPassTiming
+    if (viewportIdx === 0) {
+      this.gpuProfiler!.readGpuTimers().then(() => {
+        // Results are now in gpuProfiler for next frame's endPass
       }).catch(() => {});
     }
 
@@ -1935,95 +1901,6 @@ export class WebGPURenderer {
     this.uiNeedsLayout = true;
   }
 
-  private endPassTiming(name: string, viewportIdx: number, drawCalls: number = 0, triangles: number = 0): void {
-    if (viewportIdx !== 0) return;
-    const start = this.passStartTimes.get(name);
-    if (start === undefined) return;
-    const cpuMs = performance.now() - start;
-    const existing = this.passTimings.get(name);
-    const gpuIdx = this.passGpuIndices.get(name);
-    const gpuMs = (gpuIdx !== undefined && this.gpuTimerPool) ? this.gpuTimerPool.getPassGpuMs(gpuIdx) : 0;
-    this.passTimings.set(name, {
-      cpuMs,
-      gpuMs,
-      drawCalls: this.passTracker.drawCalls || drawCalls || existing?.drawCalls || 0,
-      triangles: this.passTracker.triangles || triangles || existing?.triangles || 0,
-      pipelineSwitches: this.passTracker.pipelineSwitches,
-      bindGroupChanges: this.passTracker.bindGroupChanges,
-      bufferRebinds: this.passTracker.bufferRebinds,
-    });
-  }
-
-  private wrapTrackedPass(pass: GPURenderPassEncoder): GPURenderPassEncoder {
-    const tracker = this.passTracker;
-    return new Proxy(pass, {
-      get(target, prop) {
-        if (prop === "setPipeline") {
-          return (pipeline: GPURenderPipeline) => {
-            tracker.pipelineSwitches++;
-            target.setPipeline(pipeline);
-          };
-        }
-        if (prop === "setBindGroup") {
-          return (index: number, group: GPUBindGroup, dynamicOffsets?: number[] | Uint32Array) => {
-            tracker.bindGroupChanges++;
-            target.setBindGroup(index, group, dynamicOffsets ?? []);
-          };
-        }
-        if (prop === "setVertexBuffer") {
-          return (slot: number, buffer: GPUBuffer, offset: number = 0, size?: number) => {
-            tracker.bufferRebinds++;
-            target.setVertexBuffer(slot, buffer, offset, size);
-          };
-        }
-        if (prop === "setIndexBuffer") {
-          return (buffer: GPUBuffer, format: GPUIndexFormat, offset: number = 0, size?: number) => {
-            tracker.bufferRebinds++;
-            target.setIndexBuffer(buffer, format, offset, size);
-          };
-        }
-        if (prop === "draw") {
-          return (vertexCount: number, instanceCount: number = 1, firstVertex: number = 0, firstInstance: number = 0) => {
-            tracker.drawCalls++;
-            tracker.triangles += Math.floor(vertexCount / 3) * instanceCount;
-            target.draw(vertexCount, instanceCount, firstVertex, firstInstance);
-          };
-        }
-        if (prop === "drawIndexed") {
-          return (indexCount: number, instanceCount: number = 1, firstIndex: number = 0, baseVertex: number = 0, firstInstance: number = 0) => {
-            tracker.drawCalls++;
-            tracker.triangles += Math.floor(indexCount / 3) * instanceCount;
-            target.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
-          };
-        }
-        const value = Reflect.get(target, prop);
-        if (typeof value === "function") return value.bind(target);
-        return value;
-      },
-    }) as unknown as GPURenderPassEncoder;
-  }
-
-  private beginPassGpuTimer(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number): void {
-    if (viewportIdx !== 0) return;
-    this.passTracker.pipelineSwitches = 0;
-    this.passTracker.bindGroupChanges = 0;
-    this.passTracker.bufferRebinds = 0;
-    this.passTracker.drawCalls = 0;
-    this.passTracker.triangles = 0;
-    if (!this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
-    const idx = this.gpuPassCounter++;
-    if (idx >= 16) return;
-    this.passGpuIndices.set(name, idx);
-    this.gpuTimerPool.begin(passEncoder, idx);
-  }
-
-  private endPassGpuTimer(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number): void {
-    if (viewportIdx !== 0 || !this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
-    const idx = this.passGpuIndices.get(name);
-    if (idx === undefined || idx >= 16) return;
-    this.gpuTimerPool.end(passEncoder, idx);
-  }
-
   isProfilingOverlayVisible(): boolean {
     return this.profilingOverlay?.isVisible() ?? false;
   }
@@ -2033,15 +1910,15 @@ export class WebGPURenderer {
   }
 
   getAdapterInfo(): any {
-    return this.adapterInfo;
+    return this.gpuProfiler?.getAdapterInfo() ?? null;
   }
 
   getGPUErrors(): Array<{ timestamp: number; message: string; label?: string }> {
-    return this.gpuErrors;
+    return this.gpuProfiler?.getGPUErrors() ?? [];
   }
 
   clearGPUErrors(): void {
-    this.gpuErrors = [];
+    this.gpuProfiler?.clearGPUErrors();
   }
 
   getGPUResourceTracker(): GPUResourceTracker | null {
@@ -2049,70 +1926,13 @@ export class WebGPURenderer {
   }
 
   getGPUInfo(): any {
-    const a = this.adapterInfo;
-    const adapter = a ? {
-      vendor: a.vendor ?? "",
-      architecture: a.architecture ?? "",
-      device: a.device ?? "",
-      description: a.description ?? "",
-    } : null;
-
-    const limits = this.device?.limits;
-    const deviceLimits = limits ? {
-      maxTextureDimension1D: limits.maxTextureDimension1D,
-      maxTextureDimension2D: limits.maxTextureDimension2D,
-      maxTextureDimension3D: limits.maxTextureDimension3D,
-      maxTextureArrayLayers: limits.maxTextureArrayLayers,
-      maxBindGroups: limits.maxBindGroups,
-      maxBindGroupsPerShaderStage: (limits as any).maxBindGroupsPerShaderStage,
-      maxBindingsPerBindGroup: (limits as any).maxBindingsPerBindGroup,
-      maxBufferSize: limits.maxBufferSize,
-      maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
-      maxUniformBufferBindingSize: limits.maxUniformBufferBindingSize,
-      maxDynamicUniformBuffersPerPipelineLayout: limits.maxDynamicUniformBuffersPerPipelineLayout,
-      maxDynamicStorageBuffersPerPipelineLayout: limits.maxDynamicStorageBuffersPerPipelineLayout,
-      maxSampledTexturesPerShaderStage: limits.maxSampledTexturesPerShaderStage,
-      maxSamplersPerShaderStage: limits.maxSamplersPerShaderStage,
-      maxStorageBuffersPerShaderStage: limits.maxStorageBuffersPerShaderStage,
-      maxStorageTexturesPerShaderStage: limits.maxStorageTexturesPerShaderStage,
-      maxUniformBuffersPerShaderStage: limits.maxUniformBuffersPerShaderStage,
-      maxVertexAttributes: limits.maxVertexAttributes,
-      maxVertexBuffers: limits.maxVertexBuffers,
-      maxVertexBufferArrayStride: limits.maxVertexBufferArrayStride,
-      minUniformBufferOffsetAlignment: limits.minUniformBufferOffsetAlignment,
-      minStorageBufferOffsetAlignment: limits.minStorageBufferOffsetAlignment,
-      maxColorAttachments: limits.maxColorAttachments,
-      maxColorAttachmentBytesPerSample: limits.maxColorAttachmentBytesPerSample,
-      maxComputeWorkgroupStorageSize: limits.maxComputeWorkgroupStorageSize,
-      maxComputeInvocationsPerWorkgroup: limits.maxComputeInvocationsPerWorkgroup,
-      maxComputeWorkgroupSizeX: limits.maxComputeWorkgroupSizeX,
-      maxComputeWorkgroupSizeY: limits.maxComputeWorkgroupSizeY,
-      maxComputeWorkgroupSizeZ: limits.maxComputeWorkgroupSizeZ,
-      maxComputeWorkgroupsPerDimension: limits.maxComputeWorkgroupsPerDimension,
-    } : null;
-
-    return {
-      adapter,
-      deviceLost: this.deviceLost,
-      canvasFormat: this.format,
-      msaaSampleCount: MSAA_SAMPLE_COUNT,
-      canvasSize: { width: this.canvas.width, height: this.canvas.height },
-      deviceLimits,
-    };
+    if (!this.gpuProfiler) return null;
+    return this.gpuProfiler.getGPUInfo(this.canvas, MSAA_SAMPLE_COUNT);
   }
 
   getFrameTelemetry(): any {
     if (!this.telemetryCollector) return null;
-    return {
-      frameTimes: this.telemetryCollector.getFrameTimes(),
-      avgFrameTime: this.telemetryCollector.getAverageFrameTime(),
-      p95: this.telemetryCollector.getFrameTimePercentile(0.95),
-      p99: this.telemetryCollector.getFrameTimePercentile(0.99),
-      fps: this.telemetryCollector.getFPS(),
-      drawCalls: this.telemetryCollector.getDrawStats().drawCalls,
-      triangles: this.telemetryCollector.getDrawStats().triangles,
-      gpuTimeMs: this.telemetryCollector.getGpuTime(),
-    };
+    return this.telemetryCollector.getFrameTelemetry();
   }
 
   markUILayoutDirty(): void {
@@ -2388,8 +2208,8 @@ export class WebGPURenderer {
     this.debugRaycast?.destroy();
     this.profilingOverlay?.destroy();
     this.profilingOverlay = null;
-    this.gpuTimerPool?.destroy();
-    this.gpuTimerPool = null;
+    this.gpuProfiler?.destroy();
+    this.gpuProfiler = null;
     this.telemetryCollector = null;
     this.device = null;
     for (const tex of this.depthTextures.values()) {

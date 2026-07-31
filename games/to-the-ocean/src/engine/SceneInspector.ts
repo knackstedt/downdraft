@@ -194,10 +194,21 @@ export class SceneInspector {
   private initialized = false;
   private perfGcHandle: GCProfilerHandle | null = null;
   private perfActive = false;
+  private cachedGpuSystemInfo: any = null;
+  private cachedElectronGpuInfo: any = null;
+  private cachedVulkanValidation: any = null;
+  private ipcFetchInterval: ReturnType<typeof setInterval> | null = null;
 
   init(renderer: WebGPURenderer): void {
     this.renderer = renderer;
     this.initialized = true;
+
+    // Start background IPC polling for GPU system metrics, Electron GPU info,
+    // and Vulkan validation status. These are async IPC calls that can't be
+    // exposed directly to DevTools (which needs synchronous return values),
+    // so we cache results and expose them via synchronous getters.
+    this.fetchIpcData();
+    this.ipcFetchInterval = setInterval(() => this.fetchIpcData(), 2000);
 
     const api = {
       getSceneTree: (): SceneTreeSnapshot => {
@@ -959,6 +970,18 @@ export class SceneInspector {
       getVersion: (): string => {
         return "1.0.0";
       },
+
+      getGPUSystemInfo: (): any => {
+        return this.cachedGpuSystemInfo;
+      },
+
+      getElectronGPUInfo: (): any => {
+        return this.cachedElectronGpuInfo;
+      },
+
+      getVulkanValidationStatus: (): any => {
+        return this.cachedVulkanValidation;
+      },
     };
 
     (window as any).__sceneInspector = api;
@@ -972,9 +995,26 @@ export class SceneInspector {
     this.renderer?.setShowVelocityArrows(true);
   }
 
+  private fetchIpcData(): void {
+    const w = window as any;
+    if (w.downdraft?.getGPUSystemInfo) {
+      w.downdraft.getGPUSystemInfo().then((data: any) => { this.cachedGpuSystemInfo = data; }).catch(() => {});
+    }
+    if (w.downdraft?.getElectronGPUInfo) {
+      w.downdraft.getElectronGPUInfo().then((info: any) => { this.cachedElectronGpuInfo = info; }).catch(() => {});
+    }
+    if (w.downdraft?.getVulkanValidationStatus) {
+      w.downdraft.getVulkanValidationStatus().then((data: any) => { this.cachedVulkanValidation = data; }).catch(() => {});
+    }
+  }
+
   destroy(): void {
     this.initialized = false;
     this.renderer = null;
+    if (this.ipcFetchInterval) {
+      clearInterval(this.ipcFetchInterval);
+      this.ipcFetchInterval = null;
+    }
     delete (window as any).__sceneInspector;
   }
 }
