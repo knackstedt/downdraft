@@ -51,14 +51,14 @@ export class AudioMixer {
     const state = this.channels.get(channel);
     if (!state) return;
     state.muted = true;
-    (this.backend.setChannelMuted ?? this.backend.setChannelMute)?.(channel, true);
+    this.backend.setChannelMuted?.(channel, true);
   }
 
   unmute(channel: AudioChannel): void {
     const state = this.channels.get(channel);
     if (!state) return;
     state.muted = false;
-    (this.backend.setChannelMuted ?? this.backend.setChannelMute)?.(channel, false);
+    this.backend.setChannelMuted?.(channel, false);
   }
 
   isMuted(channel: AudioChannel): boolean {
@@ -131,7 +131,7 @@ export class AudioMixer {
       state.muted = false;
       state.effects.clear();
       this.backend.setChannelVolume(name, state.volume);
-      (this.backend.setChannelMuted ?? this.backend.setChannelMute)?.(name, false);
+      this.backend.setChannelMuted?.(name, false);
     }
   }
 }

@@ -1,7 +1,7 @@
-import { AudioMixer } from "./mixer.ts";
 import { AudioEngine } from "./engine.ts";
-import { createAudioSource, createSpatialAudioSource, createAmbientAudioSource, type AudioSourceData } from "./source.ts";
-import type { AudioBackend, AudioBufferDesc, AudioSourceHandle, AudioListenerState, AudioEffectDesc, AudioChannelConfig, AudioBackendConfig } from "./interface.ts";
+import type { AudioBackend, AudioBufferDesc, AudioEffectDesc, AudioSourceHandle } from "./interface.ts";
+import { AudioMixer } from "./mixer.ts";
+import { createAmbientAudioSource, createAudioSource, createSpatialAudioSource } from "./source.ts";
 
 function makeMockBackend(): AudioBackend {
   const buffers = new Map<string, AudioBufferDesc>();
@@ -20,19 +20,16 @@ function makeMockBackend(): AudioBackend {
     stop: (h: AudioSourceHandle) => { sources.delete(h.id); },
     pause: () => {},
     resume: () => {},
-    setVolume: () => {},
     setMasterVolume: (v: number) => { masterVolume = v; },
     getMasterVolume: () => masterVolume,
-    setPitch: () => {},
     setListener: () => {},
     setSourcePosition: () => {},
     setSourceVelocity: () => {},
-    isPlaying: () => false,
     update: () => {},
     addEffect: () => {},
     removeEffect: () => {},
     setChannelVolume: () => {},
-    setChannelMute: () => {},
+    setChannelMuted: () => {},
     getChannelVolume: () => 1,
     isChannelMuted: () => false,
   };

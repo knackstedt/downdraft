@@ -112,7 +112,6 @@ export interface AudioBackend {
   getListener?(): AudioListenerState;
 
   setChannelVolume(channel: AudioChannel, volume: number): void;
-  setChannelMute?(channel: AudioChannel, muted: boolean): void;
   setChannelMuted?(channel: AudioChannel, muted: boolean): void;
   getChannelVolume(channel: AudioChannel): number;
   isChannelMuted(channel: AudioChannel): boolean;
@@ -124,13 +123,8 @@ export interface AudioBackend {
   update(dt?: number): void;
   syncPositions?(positionBuffer: Float32Array, sourceCount: number): void;
 
-  init?(config: AudioBackendConfig): Promise<void>;
-  isInitialized?(): boolean;
-  setVolume?(): void;
   setMasterVolume?(v: number): void;
   getMasterVolume?(): number;
-  setPitch?(): void;
-  isPlaying?(): boolean;
 
   destroy(): void;
 }
