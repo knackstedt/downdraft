@@ -5,7 +5,8 @@
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { execSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "path";
 import { IPC } from "../shared/messages";
 import { getDb, initDb, terminateDb } from "./db";
@@ -436,6 +437,100 @@ function registerIpcHandlers(): void {
 
   ipcMain.on(IPC.OPEN_EXTERNAL, (_event, url: string) => {
     shell.openExternal(url);
+  });
+
+  // --- GPU System Info (nvidia-smi) ---
+
+  ipcMain.handle(IPC.GPU_SYSTEM_INFO, async () => {
+    try {
+      const gpuQuery = "utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.sm,clocks.mem,name,driver_version";
+      const output = execSync(
+        `nvidia-smi --query-gpu=${gpuQuery} --format=csv,noheader,nounits`,
+        { timeout: 3000, encoding: "utf-8" },
+      ).trim();
+
+      const labels = gpuQuery.split(",");
+      const gpus = output.split("\n").map((line: string) => {
+        const vals = line.trim().split(",").map((v: string) => v.trim());
+        const obj: Record<string, unknown> = {};
+        for (let i = 0; i < labels.length && i < vals.length; i++) {
+          const num = parseFloat(vals[i]);
+          obj[labels[i]] = isNaN(num) ? vals[i] : num;
+        }
+        return obj;
+      });
+
+      let processes: Array<Record<string, unknown>> = [];
+      try {
+        const procOutput = execSync(
+          "nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits",
+          { timeout: 3000, encoding: "utf-8" },
+        ).trim();
+        if (procOutput) {
+          processes = procOutput.split("\n").map((line: string) => {
+            const vals = line.trim().split(",").map((v: string) => v.trim());
+            return {
+              pid: parseInt(vals[0]) || 0,
+              processName: vals[1] || "",
+              usedMemoryMB: parseFloat(vals[2]) || 0,
+            };
+          });
+        }
+      } catch {
+        // nvidia-smi process query not available
+      }
+
+      return { gpus, processes, source: "nvidia-smi", timestamp: Date.now() };
+    } catch {
+      return null;
+    }
+  });
+
+  // --- Electron GPU Info (app.getGPUInfo) ---
+
+  ipcMain.handle(IPC.ELECTRON_GPU_INFO, async () => {
+    try {
+      const info = await app.getGPUInfo("complete");
+      if (info && typeof info === "object") {
+        const g = info as any;
+        return {
+          gpuDevice: g.gpuDevice,
+          gpuDriver: g.gpuDriver,
+          gpuDriverVersion: g.gpuDriverVersion,
+          gpuVendor: g.gpuVendor,
+          gpuActive: g.gpuActive,
+          auxAttributes: g.auxAttributes,
+          featureStatus: g.featureStatus,
+          source: "electron app.getGPUInfo",
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  // --- Vulkan Validation Layer Status ---
+
+  ipcMain.handle(IPC.VULKAN_VALIDATION_STATUS, async () => {
+    const enabled = process.env.VK_LAYER_KHRONOS_validation === "1" ||
+      process.env.VK_LAYER_KHRONOS_validation === "true" ||
+      process.env.ENABLE_VULKAN_VALIDATION === "1";
+    return { enabled, envVar: process.env.VK_LAYER_KHRONOS_VALIDATION ?? null };
+  });
+
+  // --- Open chrome:// URL in new window ---
+
+  ipcMain.on(IPC.OPEN_CHROME_URL, (_event, url: string) => {
+    const win = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    win.loadURL(url);
   });
 
   ipcMain.handle(IPC.QUIT, () => {

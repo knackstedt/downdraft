@@ -1330,6 +1330,13 @@ input[type="number"]:focus, input[type="text"]:focus {
   white-space: nowrap;
 }
 
+.gpu-res-format-col {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gpu-res-copy-btn {
   padding: 1px 6px;
   border: 1px solid #3e3e3e;
@@ -1517,4 +1524,74 @@ input[type="number"]:focus, input[type="text"]:focus {
 
 #gpu-pass-timing-tbody .pass-cpu {
   color: #4ec9b0;
+}
+
+/* --- GPU Panel: Validation Badge --- */
+
+.validation-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.validation-unknown {
+  background: #3c3c3c;
+  color: #888;
+  border: 1px solid #555;
+}
+
+.validation-on {
+  background: #1a3a1a;
+  color: #6a9955;
+  border: 1px solid #3e553e;
+}
+
+.validation-off {
+  background: #3c1f1f;
+  color: #f44747;
+  border: 1px solid #5a1d1d;
+}
+
+/* --- GPU Panel: Section Source Label --- */
+
+.gpu-section-source {
+  font-size: 9px;
+  color: #888;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-left: 4px;
+}
+
+/* --- GPU Panel: Quick Launch Buttons --- */
+
+.gpu-quick-launch {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+.gpu-launch-btn {
+  padding: 6px 14px;
+  border: 1px solid #0e639c;
+  background: #0e639c;
+  color: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.gpu-launch-btn:hover {
+  background: #1177bb;
+  border-color: #1177bb;
+}
+
+.gpu-launch-btn:active {
+  background: #0a5a8a;
 }

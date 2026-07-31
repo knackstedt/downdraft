@@ -98,11 +98,12 @@ export class WebGPURenderer {
   private profilingOverlay: ProfilingOverlay | null = null;
   private frameDrawCalls: number = 0;
   private frameTriangles: number = 0;
-  private passTimings: Map<string, { cpuMs: number; gpuMs: number; drawCalls: number; triangles: number }> = new Map();
+  private passTimings: Map<string, { cpuMs: number; gpuMs: number; drawCalls: number; triangles: number; pipelineSwitches: number; bindGroupChanges: number; bufferRebinds: number }> = new Map();
   private passStartTimes: Map<string, number> = new Map();
   private passGpuIndices: Map<string, number> = new Map();
   private gpuPassCounter: number = 0;
   private gpuTimerPool: GPUTimerPool | null = null;
+  private passTracker = { pipelineSwitches: 0, bindGroupChanges: 0, bufferRebinds: 0, drawCalls: 0, triangles: 0 };
 
   // GPU debugging state
   private adapterInfo: any = null;
@@ -866,9 +867,9 @@ export class WebGPURenderer {
           gpuMs: t.gpuMs,
           drawCalls: t.drawCalls,
           triangles: t.triangles,
-          pipelineSwitches: 0,
-          bindGroupChanges: 0,
-          bufferRebinds: 0,
+          pipelineSwitches: t.pipelineSwitches,
+          bindGroupChanges: t.bindGroupChanges,
+          bufferRebinds: t.bufferRebinds,
         };
         this.telemetryCollector.recordPassTiming(timing);
       }
@@ -1349,7 +1350,7 @@ export class WebGPURenderer {
     const isFirst = viewportIdx === 0;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
 
-    const passEncoder = encoder.beginRenderPass({
+    const passEncoder = this.wrapTrackedPass(encoder.beginRenderPass({
       colorAttachments: [{
         view: colorView,
         clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 },
@@ -1362,7 +1363,7 @@ export class WebGPURenderer {
         depthLoadOp: loadOp,
         depthStoreOp: "store" as GPUStoreOp,
       },
-    });
+    }));
 
     passEncoder.setViewport(viewport.x, viewport.y, viewport.w, viewport.h, 0, 1);
     passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
@@ -1417,7 +1418,7 @@ export class WebGPURenderer {
       skyU.prevWeatherType = this.skyPrevWeatherType;
       skyU.weatherBlend = easedBlend;
       this.skyDomePass!.setUniforms(skyU);
-      this.skyDomePass!.execute({ device: this.device!, pass: passEncoder });
+      this.skyDomePass!.execute({ device: this.device!, pass: passEncoder } as any);
       if (viewportIdx === 0) { this.endPassGpuTimer("Sky", passEncoder, viewportIdx); this.endPassTiming("Sky", viewportIdx); }
     }
 
@@ -1436,7 +1437,7 @@ export class WebGPURenderer {
         originX: Math.round((playerPos.x - 256) / spacing) * spacing,
         originZ: Math.round((playerPos.z - 256) / spacing) * spacing,
       });
-      this.terrainPass!.execute({ device: this.device!, pass: passEncoder });
+      this.terrainPass!.execute({ device: this.device!, pass: passEncoder } as any);
       if (viewportIdx === 0) { this.endPassGpuTimer("Terrain", passEncoder, viewportIdx); this.endPassTiming("Terrain", viewportIdx); }
     }
 
@@ -1507,7 +1508,7 @@ export class WebGPURenderer {
         wakeCount: 0,
         shoreCount: 0,
       });
-      this.waterPass!.execute({ device: this.device!, pass: passEncoder });
+      this.waterPass!.execute({ device: this.device!, pass: passEncoder } as any);
       if (viewportIdx === 0) { this.endPassGpuTimer("Water", passEncoder, viewportIdx); this.endPassTiming("Water", viewportIdx); }
     }
 
@@ -1612,7 +1613,7 @@ export class WebGPURenderer {
     if (camDepth > 0) {
       this.passStartTimes.set("UnderwaterFog", performance.now()); this.beginPassGpuTimer("UnderwaterFog", passEncoder, viewportIdx);
       this.underwaterFogPass!.setDepth(camDepth, this.elapsedTime);
-      this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder });
+      this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder } as any);
       this.endPassGpuTimer("UnderwaterFog", passEncoder, viewportIdx); this.endPassTiming("UnderwaterFog", viewportIdx);
     }
 
@@ -1945,13 +1946,71 @@ export class WebGPURenderer {
     this.passTimings.set(name, {
       cpuMs,
       gpuMs,
-      drawCalls: drawCalls || existing?.drawCalls || 0,
-      triangles: triangles || existing?.triangles || 0,
+      drawCalls: this.passTracker.drawCalls || drawCalls || existing?.drawCalls || 0,
+      triangles: this.passTracker.triangles || triangles || existing?.triangles || 0,
+      pipelineSwitches: this.passTracker.pipelineSwitches,
+      bindGroupChanges: this.passTracker.bindGroupChanges,
+      bufferRebinds: this.passTracker.bufferRebinds,
     });
   }
 
+  private wrapTrackedPass(pass: GPURenderPassEncoder): GPURenderPassEncoder {
+    const tracker = this.passTracker;
+    return new Proxy(pass, {
+      get(target, prop) {
+        if (prop === "setPipeline") {
+          return (pipeline: GPURenderPipeline) => {
+            tracker.pipelineSwitches++;
+            target.setPipeline(pipeline);
+          };
+        }
+        if (prop === "setBindGroup") {
+          return (index: number, group: GPUBindGroup, dynamicOffsets?: number[] | Uint32Array) => {
+            tracker.bindGroupChanges++;
+            target.setBindGroup(index, group, dynamicOffsets ?? []);
+          };
+        }
+        if (prop === "setVertexBuffer") {
+          return (slot: number, buffer: GPUBuffer, offset: number = 0, size?: number) => {
+            tracker.bufferRebinds++;
+            target.setVertexBuffer(slot, buffer, offset, size);
+          };
+        }
+        if (prop === "setIndexBuffer") {
+          return (buffer: GPUBuffer, format: GPUIndexFormat, offset: number = 0, size?: number) => {
+            tracker.bufferRebinds++;
+            target.setIndexBuffer(buffer, format, offset, size);
+          };
+        }
+        if (prop === "draw") {
+          return (vertexCount: number, instanceCount: number = 1, firstVertex: number = 0, firstInstance: number = 0) => {
+            tracker.drawCalls++;
+            tracker.triangles += Math.floor(vertexCount / 3) * instanceCount;
+            target.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+          };
+        }
+        if (prop === "drawIndexed") {
+          return (indexCount: number, instanceCount: number = 1, firstIndex: number = 0, baseVertex: number = 0, firstInstance: number = 0) => {
+            tracker.drawCalls++;
+            tracker.triangles += Math.floor(indexCount / 3) * instanceCount;
+            target.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+          };
+        }
+        const value = Reflect.get(target, prop);
+        if (typeof value === "function") return value.bind(target);
+        return value;
+      },
+    }) as unknown as GPURenderPassEncoder;
+  }
+
   private beginPassGpuTimer(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number): void {
-    if (viewportIdx !== 0 || !this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
+    if (viewportIdx !== 0) return;
+    this.passTracker.pipelineSwitches = 0;
+    this.passTracker.bindGroupChanges = 0;
+    this.passTracker.bufferRebinds = 0;
+    this.passTracker.drawCalls = 0;
+    this.passTracker.triangles = 0;
+    if (!this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
     const idx = this.gpuPassCounter++;
     if (idx >= 16) return;
     this.passGpuIndices.set(name, idx);

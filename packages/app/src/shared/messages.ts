@@ -15,6 +15,10 @@ export const IPC = {
   TOGGLE_FULLSCREEN: "toggle-fullscreen",
   GET_DISPLAY_INFO: "get-display-info",
   OPEN_EXTERNAL: "open-external",
+  GPU_SYSTEM_INFO: "gpu-system-info",
+  ELECTRON_GPU_INFO: "electron-gpu-info",
+  VULKAN_VALIDATION_STATUS: "vulkan-validation-status",
+  OPEN_CHROME_URL: "open-chrome-url",
 
   // Main -> Renderer
   SIM_READY: "sim-ready",

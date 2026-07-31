@@ -21,6 +21,11 @@ const api = {
 
   openExternal: (url: string): void => { ipcRenderer.send(IPC.OPEN_EXTERNAL, url); },
 
+  getGPUSystemInfo: (): Promise<any> => ipcRenderer.invoke(IPC.GPU_SYSTEM_INFO),
+  getElectronGPUInfo: (): Promise<any> => ipcRenderer.invoke(IPC.ELECTRON_GPU_INFO),
+  getVulkanValidationStatus: (): Promise<any> => ipcRenderer.invoke(IPC.VULKAN_VALIDATION_STATUS),
+  openChromeUrl: (url: string): void => { ipcRenderer.send(IPC.OPEN_CHROME_URL, url); },
+
   onSimReady: (cb: (data: any) => void) => ipcRenderer.on(IPC.SIM_READY, (_e, data) => cb(data)),
 
   onDisplayInfo: (cb: (data: { refreshRate: number }) => void) => ipcRenderer.on(IPC.DISPLAY_INFO, (_e, data) => cb(data)),
@@ -36,4 +41,7 @@ const api = {
   log: (level: string, message: string) => ipcRenderer.send(IPC.RENDERER_LOG, { level, message }),
 };
 
+contextBridge.exposeInMainWorld("downdraft", api);
+
+// Backward-compatible alias for game code that still references window.ocean
 contextBridge.exposeInMainWorld("ocean", api);

@@ -34,23 +34,25 @@ function getCallsite(): string {
   const stack = new Error().stack;
   if (!stack) return "";
   const lines = stack.split("\n");
-  // Skip Error, wrapDevice wrapper, and the createTexture/createBuffer wrapper
-  // to find the actual caller
-  for (let i = 3; i < lines.length; i++) {
+  // Walk the stack and return the first frame that is NOT inside GPUResourceTracker.
+  // This is more robust than a fixed skip count because Vite/dev mode may add
+  // extra wrapper frames (module system, HMR, etc.).
+  for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (line && !line.includes("GPUResourceTracker")) {
-      // Extract the file:line:col part from the stack line
-      // Chrome format: "at FunctionName (file:line:col)" or "at file:line:col"
-      const match = line.match(/\((.*?):(\d+):(\d+)\)/) || line.match(/at\s+(.*?):(\d+):(\d+)/);
-      if (match) {
-        const file = match[1];
-        const lineNum = match[2];
-        // Shorten to just the filename + line
-        const shortFile = file.split("/").pop() || file;
-        return shortFile + ":" + lineNum;
-      }
-      return line;
+    if (!line || line.includes("GPUResourceTracker")) continue;
+    // Extract the file:line:col part from the stack line
+    // Chrome format: "at FunctionName (file:line:col)" or "at file:line:col"
+    const match = line.match(/\((.*?):(\d+):(\d+)\)/) || line.match(/at\s+(.*?):(\d+):(\d+)/);
+    if (match) {
+      let file = match[1];
+      // Strip Vite query params (e.g. "file.ts?t=1682345678" -> "file.ts")
+      file = file.split("?")[0];
+      const lineNum = match[2];
+      // Shorten to just the filename + line
+      const shortFile = file.split("/").pop() || file;
+      return shortFile + ":" + lineNum;
     }
+    return line;
   }
   return "";
 }

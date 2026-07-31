@@ -322,15 +322,108 @@
           html += '<td>' + escapeHtml(r.label) + '</td>';
           html += '<td class="gpu-res-callsite">' + escapeHtml(r.callsite || '') + '</td>';
           html += '<td>' + formatBytes(r.size) + '</td>';
-          html += '<td>' + escapeHtml(formatOrUsage) + '</td>';
+          html += '<td class="gpu-res-format-col">' + escapeHtml(formatOrUsage) + '</td>';
           html += '<td>' + escapeHtml(dims) + '</td>';
-          html += '<td><button class="gpu-res-copy-btn" data-copy="' + escapeHtml(copyData) + '">Copy</button></td>';
+          html += '<td><button class="gpu-res-copy-btn" data-copy=\'' + copyData.replace(/'/g, '&#39;') + '\'>Copy</button></td>';
           html += '</tr>';
         }
         if (resources.length > 200) {
           html += '<tr><td colspan="7" style="color:#888;text-align:center;">... ' + (resources.length - 200) + ' more resources (sorted by size, top 200 shown)</td></tr>';
         }
         tbody.innerHTML = html;
+      }
+    });
+  }
+
+  // --- GPU System Metrics (nvidia-smi via IPC) ---
+
+  function refreshGPUSystemMetrics() {
+    if (!window.downdraft || !window.downdraft.getGPUSystemInfo) return;
+    window.downdraft.getGPUSystemInfo().then(function (data) {
+      var metricsEl = document.getElementById("gpu-system-metrics");
+      var procTbody = document.getElementById("gpu-process-tbody");
+      if (!data) {
+        if (metricsEl) metricsEl.innerHTML = '<div class="debug-row"><div class="debug-label">nvidia-smi</div><div class="debug-value" style="color:#666">Not available</div></div>';
+        if (procTbody) procTbody.innerHTML = "";
+        return;
+      }
+      var gpu = data.gpus && data.gpus[0];
+      if (gpu && metricsEl) {
+        metricsEl.innerHTML = debugGridHtml([
+          ["GPU Name", gpu.name || "—"],
+          ["Driver", gpu.driver_version || "—"],
+          ["GPU Utilization", fmtVal(gpu.utilization_gpu, 0) + "%"],
+          ["VRAM Used", fmtVal(gpu.memory_used, 0) + " / " + fmtVal(gpu.memory_total, 0) + " MB"],
+          ["Temperature", fmtVal(gpu.temperature_gpu, 0) + " C"],
+          ["Power Draw", fmtVal(gpu.power_draw, 1) + " W"],
+          ["SM Clock", fmtVal(gpu.clocks_sm, 0) + " MHz"],
+          ["Mem Clock", fmtVal(gpu.clocks_mem, 0) + " MHz"],
+        ]);
+      }
+      if (procTbody) {
+        var procs = data.processes || [];
+        var html = "";
+        for (var i = 0; i < procs.length; i++) {
+          var p = procs[i];
+          html += '<tr><td>' + escapeHtml(String(p.pid)) + '</td>';
+          html += '<td>' + escapeHtml(p.processName) + '</td>';
+          html += '<td>' + fmtVal(p.usedMemoryMB, 0) + '</td></tr>';
+        }
+        if (procs.length === 0) {
+          html = '<tr><td colspan="3" style="color:#666;text-align:center;">No GPU processes</td></tr>';
+        }
+        procTbody.innerHTML = html;
+      }
+    });
+  }
+
+  // --- Electron GPU Info (app.getGPUInfo via IPC) ---
+
+  function refreshElectronGPUInfo() {
+    if (!window.downdraft || !window.downdraft.getElectronGPUInfo) return;
+    window.downdraft.getElectronGPUInfo().then(function (info) {
+      var el = document.getElementById("gpu-electron-info");
+      if (!el) return;
+      if (!info) {
+        el.innerHTML = '<div class="debug-row"><div class="debug-label">Status</div><div class="debug-value" style="color:#666">Not available (Electron GPU info not accessible)</div></div>';
+        return;
+      }
+      var rows = [
+        ["GPU Vendor", info.gpuVendor || "—"],
+        ["GPU Device", info.gpuDevice || "—"],
+        ["GPU Driver", info.gpuDriver || "—"],
+        ["Driver Version", info.gpuDriverVersion || "—"],
+        ["GPU Active", info.gpuActive ? "Yes" : "No"],
+      ];
+      if (info.auxAttributes) {
+        var aux = info.auxAttributes;
+        if (aux.vendorId) rows.push(["Vendor ID", aux.vendorId]);
+        if (aux.deviceId) rows.push(["Device ID", aux.deviceId]);
+        if (aux.optimus !== undefined) rows.push(["Optimus", aux.optimus ? "Yes" : "No"]);
+      }
+      if (info.featureStatus) {
+        var fs = info.featureStatus;
+        if (fs.gpu_rasterization !== undefined) rows.push(["GPU Rasterization", fs.gpu_rasterization ? "On" : "Off"]);
+        if (fs.webgl !== undefined) rows.push(["WebGL", fs.webgl ? "On" : "Off"]);
+        if (fs.vulkan !== undefined) rows.push(["Vulkan", fs.vulkan ? "On" : "Off"]);
+      }
+      el.innerHTML = debugGridHtml(rows);
+    });
+  }
+
+  // --- Vulkan Validation Layer Status ---
+
+  function refreshVulkanValidationStatus() {
+    if (!window.downdraft || !window.downdraft.getVulkanValidationStatus) return;
+    window.downdraft.getVulkanValidationStatus().then(function (data) {
+      var badge = document.getElementById("vulkan-validation-badge");
+      if (!badge || !data) return;
+      if (data.enabled) {
+        badge.textContent = "Vulkan Validation: ON";
+        badge.className = "validation-badge validation-on";
+      } else {
+        badge.textContent = "Vulkan Validation: OFF";
+        badge.className = "validation-badge validation-off";
       }
     });
   }
@@ -630,6 +723,23 @@
     });
   }
 
+  // Quick Launch buttons (chrome://tracing, chrome://gpu)
+  // DevTools panel runs in its own context — window.downdraft is on the inspected page,
+  // so we use evalInPage to invoke the IPC call from there.
+  var btnChromeTracing = document.getElementById("btn-open-chrome-tracing");
+  if (btnChromeTracing) {
+    btnChromeTracing.addEventListener("click", function () {
+      evalInPage("window.downdraft && window.downdraft.openChromeUrl && window.downdraft.openChromeUrl('chrome://tracing')", function () {});
+    });
+  }
+
+  var btnChromeGpu = document.getElementById("btn-open-chrome-gpu");
+  if (btnChromeGpu) {
+    btnChromeGpu.addEventListener("click", function () {
+      evalInPage("window.downdraft && window.downdraft.openChromeUrl && window.downdraft.openChromeUrl('chrome://gpu')", function () {});
+    });
+  }
+
   // Copy-to-clipboard for external tool commands
   var toolCmds = document.querySelectorAll(".gpu-tool-command");
   for (var ci = 0; ci < toolCmds.length; ci++) {
@@ -655,6 +765,33 @@
     })(toolCmds[ci]);
   }
 
+  // Copy-to-clipboard for GPU resource rows (uses event delegation because
+  // the table tbody is re-rendered every 500ms)
+  var resTbody = document.getElementById("gpu-resource-tbody");
+  if (resTbody) {
+    resTbody.addEventListener("click", function (ev) {
+      var target = ev.target;
+      if (!target || !target.classList || !target.classList.contains("gpu-res-copy-btn")) return;
+      var data = target.getAttribute("data-copy");
+      if (!data) return;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(data).then(function () {
+          target.classList.add("copied");
+          setTimeout(function () { target.classList.remove("copied"); }, 1500);
+        });
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = data;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta);
+        target.classList.add("copied");
+        setTimeout(function () { target.classList.remove("copied"); }, 1500);
+      }
+    });
+  }
+
   // --- Init: start refresh cycle immediately ---
 
   refreshGPUInfo();
@@ -664,6 +801,9 @@
   refreshPassTimings();
   drawPerfGraph();
   refreshSnapshots();
+  refreshGPUSystemMetrics();
+  refreshElectronGPUInfo();
+  refreshVulkanValidationStatus();
 
   gpuTimer = setInterval(function () {
     refreshGPUInfo();
@@ -672,6 +812,11 @@
     refreshGPUResources();
     refreshPassTimings();
     drawPerfGraph();
+    refreshGPUSystemMetrics();
+    refreshElectronGPUInfo();
   }, 500);
+
+  // Vulkan validation status rarely changes — check once on load
+  setInterval(refreshVulkanValidationStatus, 10000);
 
 })();
