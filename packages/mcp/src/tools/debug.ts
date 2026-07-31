@@ -1,6 +1,6 @@
 import type { EngineContext } from "../engine-context.ts";
 import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult, textResult } from "../types.ts";
+import { errorResult, jsonResult } from "../types.ts";
 import type { UndoRedoManager } from "../undo-redo.ts";
 
 export function createDebugTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
@@ -22,10 +22,13 @@ export function createDebugTools(ctx: EngineContext, undoRedo: UndoRedoManager):
           frameTime: snap.averageFrameTime,
           p95FrameTime: snap.p95FrameTime,
           p99FrameTime: snap.p99FrameTime,
+          fps: snap.fps,
           systemTimings: snap.systemTimings,
           entityCount: ctx.ecsWorld.entityCount(),
-          drawCalls: 0,
-          triangles: 0,
+          drawCalls: snap.drawCalls,
+          triangles: snap.triangles,
+          gpuTimeMs: snap.gpuTimeMs,
+          memory: snap.memory,
         });
       },
     },

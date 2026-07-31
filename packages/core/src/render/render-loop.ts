@@ -85,6 +85,8 @@ export class RenderLoop {
   private renderGraph: RenderGraph | null = null;
   private autonomous: boolean;
   private alpha: number = 0;
+  private frameDrawCalls: number = 0;
+  private frameTriangles: number = 0;
 
   constructor(config: RenderLoopConfig) {
     this.deviceManager = new GPUDeviceManager();
@@ -356,6 +358,9 @@ export class RenderLoop {
     const device = this.deviceManager.getDevice();
     if (!device || !this.surface || !this.opaquePass) return;
 
+    this.frameDrawCalls = 0;
+    this.frameTriangles = 0;
+
     const dt = this.timer.delta();
     this.timer.tick(dt);
 
@@ -375,6 +380,7 @@ export class RenderLoop {
 
     if (this.config.telemetry) {
       this.config.telemetry.recordFrame(dt * 1000);
+      this.config.telemetry.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
     }
   }
 
@@ -427,6 +433,7 @@ export class RenderLoop {
     }
 
     tracked.end();
+    this.accumulateDrawStats(tracked);
     device.queue.submit([encoder.finish()]);
 
     // UI composite (on top of final image)
@@ -473,6 +480,7 @@ export class RenderLoop {
       this.depthPrepass.setCameraViewProj(viewProj);
       this.depthPrepass.execute({ device, pass: tracked }, this.config.mesh, mat4.identity());
       tracked.end();
+      this.accumulateDrawStats(tracked);
       device.queue.submit([encoder.finish()]);
     }
 
@@ -508,6 +516,7 @@ export class RenderLoop {
       const tracked = new TrackedRenderPass(pass);
       this.opaquePass!.execute({ device, pass: tracked });
       tracked.end();
+      this.accumulateDrawStats(tracked);
       device.queue.submit([encoder.finish()]);
     }
 
@@ -738,6 +747,11 @@ export class RenderLoop {
 
   getDeviceManager(): GPUDeviceManager {
     return this.deviceManager;
+  }
+
+  private accumulateDrawStats(tracked: TrackedRenderPass): void {
+    this.frameDrawCalls += tracked.drawCalls;
+    this.frameTriangles += tracked.triangles;
   }
 
   private destroyPasses(): void {

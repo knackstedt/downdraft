@@ -26,7 +26,8 @@ interface CacheKey {
 
 const ATLAS_PADDING = 2;
 const MAX_ATLAS_WIDTH = 2048;
-const ATLAS_HEIGHT = 64;
+const ATLAS_HEIGHT = 512;
+const ROW_HEIGHT = 64;
 
 export class TextAtlasCache {
   private device: GPUDevice;
@@ -36,6 +37,7 @@ export class TextAtlasCache {
   private atlasTexture: GPUTexture | null = null;
   private atlasView: GPUTextureView | null = null;
   private cursorX: number = 0;
+  private cursorY: number = 0;
   private atlasRowHeight: number = 0;
   private entries: Map<string, TextCacheEntry> = new Map();
   private dirty: boolean = true;
@@ -82,7 +84,20 @@ export class TextAtlasCache {
     const textHeight = Math.ceil(opts.fontSize * 1.3) + ATLAS_PADDING * 2;
 
     if (this.cursorX + textWidth > MAX_ATLAS_WIDTH) {
-      return null;
+      // Wrap to next row
+      this.cursorX = 0;
+      this.cursorY += this.atlasRowHeight;
+      this.atlasRowHeight = 0;
+    }
+
+    if (this.cursorY + textHeight > ATLAS_HEIGHT) {
+      // Atlas full — clear and start fresh
+      this.entries.clear();
+      this.cursorX = 0;
+      this.cursorY = 0;
+      this.atlasRowHeight = 0;
+      // Clear the canvas so stale pixels don't bleed into new entries
+      this.atlasCtx.clearRect(0, 0, MAX_ATLAS_WIDTH, ATLAS_HEIGHT);
     }
 
     if (textHeight > this.atlasRowHeight) {
@@ -90,21 +105,22 @@ export class TextAtlasCache {
     }
 
     const entryX = this.cursorX;
+    const entryY = this.cursorY;
     this.cursorX += textWidth;
     this.dirty = true;
 
-    ctx.fillText(text, entryX + ATLAS_PADDING, ATLAS_PADDING + opts.fontSize);
+    ctx.fillText(text, entryX + ATLAS_PADDING, entryY + ATLAS_PADDING);
 
     const entry: TextCacheEntry = {
       texture: null as any,
       view: null as any,
       width: textWidth - ATLAS_PADDING * 2,
-      height: textHeight - ATLAS_PADDING * 2,
+      height: textHeight,
       uv: [
         entryX / MAX_ATLAS_WIDTH,
-        0,
+        entryY / ATLAS_HEIGHT,
         (entryX + textWidth) / MAX_ATLAS_WIDTH,
-        1,
+        (entryY + textHeight) / ATLAS_HEIGHT,
       ],
     };
     this.entries.set(key, entry);
@@ -123,12 +139,13 @@ export class TextAtlasCache {
       this.atlasView = this.atlasTexture.createView();
     }
 
-    const imageData = this.atlasCtx.getImageData(0, 0, this.cursorX, ATLAS_HEIGHT);
+    const usedHeight = this.cursorY + this.atlasRowHeight;
+    const imageData = this.atlasCtx.getImageData(0, 0, MAX_ATLAS_WIDTH, usedHeight);
     this.device.queue.writeTexture(
       { texture: this.atlasTexture },
       imageData.data as unknown as BufferSource,
-      { bytesPerRow: this.cursorX * 4, rowsPerImage: ATLAS_HEIGHT },
-      [this.cursorX, ATLAS_HEIGHT],
+      { bytesPerRow: MAX_ATLAS_WIDTH * 4, rowsPerImage: usedHeight },
+      [MAX_ATLAS_WIDTH, usedHeight],
     );
 
     for (const entry of this.entries.values()) {

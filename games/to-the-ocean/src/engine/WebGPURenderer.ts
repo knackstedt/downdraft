@@ -2,7 +2,7 @@
 // WebGPU Renderer — main rendering engine
 // ============================================================================
 
-import { calculateViewProj as engineCalculateViewProj, LayoutEngine, SkyDomePass, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { calculateViewProj as engineCalculateViewProj, LayoutEngine, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { generateIslandBlobs } from "@shared/TerrainGenerator";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -90,6 +90,11 @@ export class WebGPURenderer {
   private uiLayoutEngine: LayoutEngine | null = null;
   private uiInputRouter: UIInputRouter | null = null;
   private uiNeedsLayout: boolean = true;
+
+  // Profiling telemetry + debug overlay
+  private telemetryCollector: TelemetryCollector | null = null;
+  private profilingOverlay: ProfilingOverlay | null = null;
+  private frameDrawCalls: number = 0;
 
   // Flashlight toggle state
   private flashlightOn = false;
@@ -296,6 +301,18 @@ export class WebGPURenderer {
       this.uiLayoutEngine.setTextCache(this.uiRenderer.getTextCache());
       this.uiInputRouter = new UIInputRouter();
       this.uiInputRouter.setRoot(this.uiRoot);
+
+      // Profiling telemetry + debug overlay
+      this.telemetryCollector = new TelemetryCollector(true);
+      const dpr = window.devicePixelRatio || 1;
+      this.profilingOverlay = new ProfilingOverlay(this.telemetryCollector, {
+        position: "top-left",
+        updateIntervalMs: 100,
+        fontSize: Math.round(16 * dpr),
+        showGpuTime: false,
+        showPercentiles: false,
+      });
+      this.profilingOverlay.setScreenSize(this.canvas.width, this.canvas.height);
 
       if (this.boatReader) {
         this.entityRenderer.setBoatBufferReader(this.boatReader);
@@ -625,6 +642,12 @@ export class WebGPURenderer {
       this.fpsTimer = 0;
     }
 
+    // Record telemetry after rendering — measure actual render time
+    // (moved to end of frame, see renderFrameEnd)
+    if (this.profilingOverlay) {
+      this.profilingOverlay.update(dt);
+    }
+
     // Update camera mouse look before processInput zeroes mouseDelta
     if (this.cameraSystem && this.simReader && this.simReader.isValid()) {
       const playerSlot0 = this.simReader.getPlayerSlot(0);
@@ -789,6 +812,13 @@ export class WebGPURenderer {
         uiPass.end();
         this.device.queue.submit([uiEncoder.finish()]);
       }
+    }
+
+    // Record telemetry — use inter-frame interval for FPS and frame time
+    if (this.telemetryCollector) {
+      this.telemetryCollector.recordFrame(dt * 1000);
+      this.telemetryCollector.recordDrawStats(this.frameDrawCalls, 0);
+      this.frameDrawCalls = 0;
     }
 
     requestAnimationFrame(this.render);
@@ -1328,10 +1358,12 @@ export class WebGPURenderer {
 
     // Instanced entities (fish, sharks, jellyfish, pirates, etc.) — single draw call
     this.entityRenderer!.renderInstanced(passEncoder);
+    this.frameDrawCalls++;
 
     // Non-instanced entities (players, ships, islands, ports) — individual draw calls
     for (let d = 0; d < drawEntityCount.length; d++) {
       this.entityRenderer!.render(passEncoder, d);
+      this.frameDrawCalls++;
     }
     // Render anchor 3D meshes before water (proper depth-tested, lit geometry)
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
@@ -1768,6 +1800,27 @@ export class WebGPURenderer {
     return this.uiRoot;
   }
 
+  toggleProfilingOverlay(): void {
+    if (!this.profilingOverlay || !this.uiRoot) return;
+    this.profilingOverlay.toggle();
+    if (this.profilingOverlay.isVisible()) {
+      // Add the panel directly, not the overlay's UIRoot wrapper,
+      // to avoid nested root layout interference
+      this.uiRoot.addChild(this.profilingOverlay.getPanel());
+    } else {
+      this.uiRoot.removeChild(this.profilingOverlay.getPanel());
+    }
+    this.uiNeedsLayout = true;
+  }
+
+  isProfilingOverlayVisible(): boolean {
+    return this.profilingOverlay?.isVisible() ?? false;
+  }
+
+  getTelemetryCollector(): TelemetryCollector | null {
+    return this.telemetryCollector;
+  }
+
   markUILayoutDirty(): void {
     this.uiNeedsLayout = true;
   }
@@ -1783,6 +1836,7 @@ export class WebGPURenderer {
       this.uiRoot.height = this.canvas.height;
       this.uiNeedsLayout = true;
     }
+    this.profilingOverlay?.setScreenSize(this.canvas.width, this.canvas.height);
   }
 
   // Returns a promise that resolves when the PBR BRDF LUT has been computed and uploaded.
@@ -2038,6 +2092,9 @@ export class WebGPURenderer {
     this.labelOverlay?.destroy();
     this.debugOverlay?.destroy();
     this.debugRaycast?.destroy();
+    this.profilingOverlay?.destroy();
+    this.profilingOverlay = null;
+    this.telemetryCollector = null;
     this.device = null;
     for (const tex of this.depthTextures.values()) {
       tex.destroy();

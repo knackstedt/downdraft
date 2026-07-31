@@ -46,7 +46,17 @@ async function bootstrap() {
 
   // Initialize WebGPU renderer
   const renderer = new WebGPURenderer(canvas);
-  const isDev = !!(ocean?.isDev);
+  let isDev = !!(ocean?.isDev) || import.meta.env.DEV === true;
+
+  // Register for sim-ready event from main process (carries isDev flag)
+  if (ocean?.onSimReady) {
+    ocean.onSimReady((data: any) => {
+      if (data?.isDev) {
+        isDev = true;
+        useGameStore.getState().setIsDev(true);
+      }
+    });
+  }
 
   // --- Spawn simulation Web Worker in renderer process ---
   // SharedArrayBuffers are shared directly between renderer and worker — zero-copy.

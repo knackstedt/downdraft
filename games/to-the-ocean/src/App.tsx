@@ -27,7 +27,7 @@ import { useGameStore } from "./stores/gameStore";
 export default function App() {
   const { ready, simReady, lutReady, renderer, showInventory, showMap, showBuildMenu,
     showCraftMenu, showFishingMinigame, showTradeMenu, showSettings, showPauseMenu,
-    showCharacterCustomization, showCredits, playerDied, hudHidden, showBuilderWheel } = useGameStore();
+    showCharacterCustomization, showCredits, playerDied, hudHidden, showBuilderWheel, isDev } = useGameStore();
   const showDebugPage = useDebugStore((s) => s.showDebugPage);
   const [pointerLocked, setPointerLocked] = useState(document.pointerLockElement !== null);
   const [f1Devtools, setF1Devtools] = useState(false);
@@ -164,6 +164,14 @@ export default function App() {
         useDebugStore.getState().toggleDebugPage();
       }
     };
+    // F7 toggles profiling overlay (dev only)
+    const onF7 = (e: KeyboardEvent) => {
+      if (e.key === "F7" && isDev) {
+        e.preventDefault();
+        const r = useGameStore.getState().renderer;
+        r?.toggleProfilingOverlay();
+      }
+    };
     // F2 toggles hitbox visualization
     const onF2 = (e: KeyboardEvent) => {
       if (e.key === "F2") {
@@ -226,6 +234,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keydown", onF3);
+    window.addEventListener("keydown", onF7);
     window.addEventListener("keydown", onF2);
     window.addEventListener("keydown", onF6);
     window.addEventListener("keydown", onF11);
@@ -280,6 +289,7 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keydown", onF3);
+      window.removeEventListener("keydown", onF7);
       window.removeEventListener("keydown", onF2);
       window.removeEventListener("keydown", onF6);
       window.removeEventListener("keydown", onF11);
@@ -288,7 +298,7 @@ export default function App() {
       document.removeEventListener("pointerlockchange", onPointerLockChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [ready, lutReady, simReady]);
+  }, [ready, lutReady, simReady, isDev]);
 
   if (!ready || !lutReady || !simReady) {
     return <LoadingScreen />;

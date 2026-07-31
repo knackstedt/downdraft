@@ -1,4 +1,4 @@
-import type { TelemetryCollector, ThreadMetrics, SystemTiming } from "./collector.ts";
+import type { DrawStats, SystemTiming, TelemetryCollector, ThreadMetrics } from "./collector.ts";
 
 export class TelemetryReporter {
   private collector: TelemetryCollector;
@@ -8,6 +8,8 @@ export class TelemetryReporter {
   }
 
   getSnapshot() {
+    const mem = this.collector.getMemoryUsage();
+    const drawStats = this.collector.getDrawStats();
     return {
       threads: this.collector.getThreadMetrics(),
       systemTimings: this.collector.getSystemTimings(),
@@ -15,6 +17,11 @@ export class TelemetryReporter {
       averageFrameTime: this.collector.getAverageFrameTime(),
       p99FrameTime: this.collector.getFrameTimePercentile(0.99),
       p95FrameTime: this.collector.getFrameTimePercentile(0.95),
+      fps: this.collector.getFPS(),
+      drawCalls: drawStats.drawCalls,
+      triangles: drawStats.triangles,
+      gpuTimeMs: this.collector.getGpuTime(),
+      memory: mem,
       timestamp: Date.now(),
     };
   }
@@ -37,8 +44,15 @@ export class TelemetryReporter {
         avgMs: snap.averageFrameTime,
         p95Ms: snap.p95FrameTime,
         p99Ms: snap.p99FrameTime,
+        fps: snap.fps,
         history: snap.frameTimes,
       },
+      draw: {
+        calls: snap.drawCalls,
+        triangles: snap.triangles,
+        gpuTimeMs: snap.gpuTimeMs,
+      } as DrawStats & { gpuTimeMs: number },
+      memory: snap.memory,
       systems: snap.systemTimings.map((s: SystemTiming) => ({
         name: s.name,
         durationMs: s.durationMs,

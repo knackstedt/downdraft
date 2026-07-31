@@ -164,10 +164,13 @@ export type { WorldResources } from "./scene/world.ts";
 
 // Telemetry
 export { TelemetryCollector } from "./telemetry/collector.ts";
-export type { SystemTiming, ThreadMetrics } from "./telemetry/collector.ts";
+export type { DrawStats, SystemTiming, ThreadMetrics } from "./telemetry/collector.ts";
+export { DebugOverlay, DEFAULT_DEBUG_OVERLAY_CONFIG } from "./telemetry/debug-overlay.ts";
+export type { DebugOverlayConfig } from "./telemetry/debug-overlay.ts";
 export { startGCProfiler } from "./telemetry/gc-profiler.ts";
 export type { GCProfilerHandle, GCStats } from "./telemetry/gc-profiler.ts";
 export { GCTracker } from "./telemetry/gc-tracker.ts";
+export { GPUTimer } from "./telemetry/gpu-timer.ts";
 export { TelemetryReporter } from "./telemetry/reporter.ts";
 
 // Debug Draw

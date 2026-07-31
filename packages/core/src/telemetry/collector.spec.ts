@@ -111,4 +111,65 @@ describe("TelemetryCollector", () => {
     t.setEnabled(false);
     expect(t.isEnabled()).toBe(false);
   });
+
+  it("should record draw stats when enabled", () => {
+    const t = new TelemetryCollector(true);
+    t.recordDrawStats(5, 1200);
+    const stats = t.getDrawStats();
+    expect(stats.drawCalls).toBe(5);
+    expect(stats.triangles).toBe(1200);
+  });
+
+  it("should not record draw stats when disabled", () => {
+    const t = new TelemetryCollector(false);
+    t.recordDrawStats(5, 1200);
+    const stats = t.getDrawStats();
+    expect(stats.drawCalls).toBe(0);
+    expect(stats.triangles).toBe(0);
+  });
+
+  it("should record GPU time when enabled", () => {
+    const t = new TelemetryCollector(true);
+    t.recordGpuTime(8.5);
+    expect(t.getGpuTime()).toBe(8.5);
+  });
+
+  it("should not record GPU time when disabled", () => {
+    const t = new TelemetryCollector(false);
+    t.recordGpuTime(8.5);
+    expect(t.getGpuTime()).toBe(0);
+  });
+
+  it("should compute FPS from average frame time", () => {
+    const t = new TelemetryCollector(true);
+    t.recordFrame(16.67);
+    t.recordFrame(16.67);
+    expect(t.getFPS()).toBeCloseTo(60, 0);
+  });
+
+  it("should return 0 FPS with no frame data", () => {
+    const t = new TelemetryCollector(true);
+    expect(t.getFPS()).toBe(0);
+  });
+
+  it("should get memory usage from thread metrics", () => {
+    const t = new TelemetryCollector(true);
+    t.updateThreadMetrics("main", { heapUsed: 1048576, heapTotal: 2097152, rss: 4194304 });
+    const mem = t.getMemoryUsage();
+    expect(mem.heapUsed).toBe(1048576);
+    expect(mem.heapTotal).toBe(2097152);
+    expect(mem.rss).toBe(4194304);
+  });
+
+  it("should reset draw stats and GPU time", () => {
+    const t = new TelemetryCollector(true);
+    t.recordDrawStats(5, 1200);
+    t.recordGpuTime(8.5);
+
+    t.reset();
+
+    expect(t.getDrawStats().drawCalls).toBe(0);
+    expect(t.getDrawStats().triangles).toBe(0);
+    expect(t.getGpuTime()).toBe(0);
+  });
 });
