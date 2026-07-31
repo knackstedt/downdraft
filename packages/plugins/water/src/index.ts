@@ -36,7 +36,7 @@ export type { WaterChunk } from "./water-chunks.ts";
 export { DEFAULT_PHYSICS_CONFIG, WaterPhysics } from "./water-physics.ts";
 export type { WaterPhysicsConfig } from "./water-physics.ts";
 export { DEFAULT_RENDER_CONFIG, WaterRenderer } from "./water-renderer.ts";
-export type { WaterRenderConfig } from "./water-renderer.ts";
+export type { WaterRenderConfig, WaterRendererOptions } from "./water-renderer.ts";
 export {
     MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS, collectShoreSources, collectWakeSources, packShoreSources
 } from "./wave-sources.ts";
