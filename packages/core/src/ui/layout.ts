@@ -1,6 +1,13 @@
 import type { UIElement } from "./element.ts";
+import type { TextAtlasCache } from "./text-cache.ts";
 
 export class LayoutEngine {
+  private textCache: TextAtlasCache | null = null;
+
+  setTextCache(cache: TextAtlasCache | null): void {
+    this.textCache = cache;
+  }
+
   layout(root: UIElement): void {
     this.layoutElement(root, 0, 0);
   }
@@ -36,10 +43,43 @@ export class LayoutEngine {
         this.layoutElement(child, cursorX + ml, innerY);
         cursorX += child.width + ml + mr;
       }
+    } else if (el.layoutMode === "grid") {
+      const cols = (el as unknown as { gridColumns: number }).gridColumns || 1;
+      const gap = (el as unknown as { gridGap: number }).gridGap || 0;
+      let cursorX = innerX;
+      let cursorY = innerY;
+      let col = 0;
+      const cellW = (innerW - gap * (cols - 1)) / cols;
+      for (const child of el.children) {
+        if (!child.visible) continue;
+        if (col >= cols) {
+          col = 0;
+          cursorX = innerX;
+          cursorY += child.height + gap;
+        }
+        child.x = cursorX - innerX;
+        child.y = cursorY - innerY;
+        if (child.width === 0 || child.width < cellW) {
+          child.width = cellW;
+        }
+        this.layoutElement(child, cursorX, cursorY);
+        cursorX += cellW + gap;
+        col++;
+      }
     }
   }
 
-  measureText(text: string, fontSize: number): { width: number; height: number } {
+  measureText(text: string, fontSize: number, fontFamily?: string, fontWeight?: string): { width: number; height: number } {
+    if (this.textCache && fontFamily) {
+      return this.textCache.measureText(text, {
+        fontFamily,
+        fontSize,
+        fontWeight: fontWeight ?? "normal",
+        color: "#fff",
+        textAlign: "left",
+        textBaseline: "top",
+      });
+    }
     const charW = fontSize * 0.6;
     const charH = fontSize * 1.2;
     const lines = text.split("\n");
@@ -54,7 +94,7 @@ export class LayoutEngine {
   autoSize(el: UIElement): void {
     if (el.type === "text") {
       const text = (el as unknown as { text: string }).text;
-      const measured = this.measureText(text, el.style.fontSize);
+      const measured = this.measureText(text, el.style.fontSize, el.style.fontFamily, el.style.fontWeight);
       if (el.width === 0) el.width = measured.width + el.style.padding[1] + el.style.padding[3];
       if (el.height === 0) el.height = measured.height + el.style.padding[0] + el.style.padding[2];
     }

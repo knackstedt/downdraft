@@ -2,7 +2,7 @@
 // WebGPU Renderer — main rendering engine
 // ============================================================================
 
-import { SkyDomePass, TerrainPass, UnderwaterFogPass, WaterPass, calculateViewProj as engineCalculateViewProj } from "@downdraft/core";
+import { calculateViewProj as engineCalculateViewProj, LayoutEngine, SkyDomePass, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { generateIslandBlobs } from "@shared/TerrainGenerator";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -83,6 +83,13 @@ export class WebGPURenderer {
   private labelOverlay: LabelOverlay | null = null;
   private debugOverlay: DebugOverlay | null = null;
   private debugRaycast: DebugRaycast | null = null;
+
+  // GPU UI system
+  private uiRenderer: UIRenderer | null = null;
+  private uiRoot: UIRoot | null = null;
+  private uiLayoutEngine: LayoutEngine | null = null;
+  private uiInputRouter: UIInputRouter | null = null;
+  private uiNeedsLayout: boolean = true;
 
   // Flashlight toggle state
   private flashlightOn = false;
@@ -196,6 +203,7 @@ export class WebGPURenderer {
           this.canvas.width = w;
           this.canvas.height = h;
           this.updateViewports(this.viewportCount);
+          this.updateUIScreenSize();
         }
       },
     });
@@ -278,6 +286,17 @@ export class WebGPURenderer {
       this.entityRenderer.setPBRBindGroup(this.pbrSystem.getBindGroup()!);
       this.waterPass.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.lightingSystem.initDebugGizmos(this.format);
+
+      // Initialize GPU UI system
+      this.uiRenderer = new UIRenderer(this.format);
+      this.uiRenderer.prepare(this.device);
+      this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
+      this.uiRoot = new UIRoot(this.canvas.width, this.canvas.height);
+      this.uiLayoutEngine = new LayoutEngine();
+      this.uiLayoutEngine.setTextCache(this.uiRenderer.getTextCache());
+      this.uiInputRouter = new UIInputRouter();
+      this.uiInputRouter.setRoot(this.uiRoot);
+
       if (this.boatReader) {
         this.entityRenderer.setBoatBufferReader(this.boatReader);
       }
@@ -745,6 +764,30 @@ export class WebGPURenderer {
     } else {
       for (let v = 0; v < this.viewportCount; v++) {
         this.renderViewport(v, dt, "none");
+      }
+    }
+
+    // Render GPU UI on top of final image
+    if (this.uiRenderer && this.uiRoot && this.device && this.context) {
+      if (this.uiNeedsLayout && this.uiLayoutEngine) {
+        this.uiLayoutEngine.layout(this.uiRoot);
+        this.uiNeedsLayout = false;
+      }
+      const drawables = this.uiRoot.getDrawable();
+      if (drawables.length > 0) {
+        const canvasView = this.context.getCurrentTexture().createView();
+        const uiEncoder = this.device.createCommandEncoder();
+        const uiPass = uiEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: canvasView,
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: "load" as GPULoadOp,
+            storeOp: "store" as GPUStoreOp,
+          }],
+        });
+        this.uiRenderer.render({ device: this.device, pass: uiPass }, drawables);
+        uiPass.end();
+        this.device.queue.submit([uiEncoder.finish()]);
       }
     }
 
@@ -1613,6 +1656,7 @@ export class WebGPURenderer {
   setupInputListeners(): void {
     window.addEventListener("keydown", (e) => {
       this.keysDown.add(e.keyCode);
+      this.uiInputRouter?.handleKeyDown(e.keyCode);
       // Builder rotation: R or ] = rotate CW, [ = rotate CCW (only when builder tool active)
       if (!e.repeat && (e.keyCode === KEY.R || e.keyCode === KEY.BRACKET_LEFT || e.keyCode === KEY.BRACKET_RIGHT)) {
         this.tryBuilderRotate(e.keyCode === KEY.BRACKET_LEFT ? -1 : 1);
@@ -1620,6 +1664,7 @@ export class WebGPURenderer {
     });
     window.addEventListener("keyup", (e) => {
       this.keysDown.delete(e.keyCode);
+      this.uiInputRouter?.handleKeyUp(e.keyCode);
     });
     this.canvas.addEventListener("click", () => {
       if (!this.pointerLocked) {
@@ -1659,20 +1704,27 @@ export class WebGPURenderer {
       const rect = this.canvas.getBoundingClientRect();
       this.mouseState.x = e.clientX - rect.left;
       this.mouseState.y = e.clientY - rect.top;
+      this.uiInputRouter?.handleMouseMove(e.clientX, e.clientY);
       if (this.pointerLocked) {
         this.mouseDelta.dx += e.movementX;
         this.mouseDelta.dy += e.movementY;
       }
     });
     this.canvas.addEventListener("mousedown", (e) => {
-      if (e.button === 0) this.mouseState.left = true;
+      if (e.button === 0) {
+        this.mouseState.left = true;
+        this.uiInputRouter?.handleMouseDown(e.clientX, e.clientY);
+      }
       if (e.button === 2) {
         this.mouseState.right = true;
         this.tryOpenBuilderWheel();
       }
     });
     this.canvas.addEventListener("mouseup", (e) => {
-      if (e.button === 0) this.mouseState.left = false;
+      if (e.button === 0) {
+        this.mouseState.left = false;
+        this.uiInputRouter?.handleMouseUp(e.clientX, e.clientY);
+      }
       if (e.button === 2) this.mouseState.right = false;
     });
     this.canvas.addEventListener("wheel", (e) => {
@@ -1710,6 +1762,27 @@ export class WebGPURenderer {
 
   getEntityRenderer(): EntityRenderer | null {
     return this.entityRenderer;
+  }
+
+  getUIRoot(): UIRoot | null {
+    return this.uiRoot;
+  }
+
+  markUILayoutDirty(): void {
+    this.uiNeedsLayout = true;
+  }
+
+  getUIInputRouter(): UIInputRouter | null {
+    return this.uiInputRouter;
+  }
+
+  updateUIScreenSize(): void {
+    if (this.uiRenderer && this.uiRoot) {
+      this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
+      this.uiRoot.width = this.canvas.width;
+      this.uiRoot.height = this.canvas.height;
+      this.uiNeedsLayout = true;
+    }
   }
 
   // Returns a promise that resolves when the PBR BRDF LUT has been computed and uploaded.

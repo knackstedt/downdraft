@@ -1,5 +1,5 @@
-import type { UIElement, UIRoot } from "./element.ts";
 import type { InputState } from "../input/state.ts";
+import type { UIElement, UIRoot } from "./element.ts";
 
 export class UIInputRouter {
   private root: UIRoot | null = null;
@@ -68,6 +68,22 @@ export class UIInputRouter {
     if (this.focusedElement) {
       this.focusedElement.callbacks.onKeyUp?.(this.focusedElement, code);
     }
+  }
+
+  handleMouseMove(mx: number, my: number): void {
+    if (mx !== this.lastMouseX || my !== this.lastMouseY) {
+      this.lastMouseX = mx;
+      this.lastMouseY = my;
+      this.updateHover(mx, my);
+    }
+  }
+
+  handleMouseDown(mx: number, my: number): void {
+    this.handlePress(mx, my);
+  }
+
+  handleMouseUp(mx: number, my: number): void {
+    this.handleRelease(mx, my);
   }
 
   private updateHover(mx: number, my: number): void {
