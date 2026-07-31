@@ -2,18 +2,19 @@
 // Buoyancy System — hull-based boat buoyancy with per-cell forces & torques
 // ============================================================================
 
-import { WaterBufferWriter, WATER_GRID } from "../../shared/water-buffer";
+import type { JobScheduler } from "@downdraft/core/ecs/job-system";
+import {
+    BOAT_CELL_WORLD_SIZE,
+    BOAT_LAYER_HEIGHT,
+    SHIP_DATA,
+    isHullShellCell,
+} from "../../shared/constants";
+import { ShoreSource, collectShoreSources, shoreDamping, shoreDisplacement, waterCutout } from "../../shared/shore-damping";
+import { EntityFlags, EntityType } from "../../shared/types";
+import { WATER_GRID, WaterBufferWriter } from "../../shared/water-buffer";
 import { SimEntity } from "../Simulation";
 import { BoatCellSystem } from "../boat/BoatCellSystem";
 import { BoatDesignSystem } from "../boat/BoatDesignSystem";
-import {
-  BOAT_CELL_WORLD_SIZE,
-  BOAT_LAYER_HEIGHT,
-  SHIP_DATA,
-  isHullShellCell,
-} from "../../shared/constants";
-import { EntityType, EntityFlags } from "../../shared/types";
-import { collectShoreSources, shoreDamping, shoreDisplacement, waterCutout, ShoreSource } from "../../shared/shore-damping";
 
 // Physics constants
 const GRAVITY = 9.8;
@@ -27,6 +28,102 @@ const TILT_SETTLE_THRESHOLD = 0.009; // slightly above deadzone — catches resi
 
 // All foundational cells displace water for buoyancy (hull, walls, floors, decks, bridges, pontoons, etc.)
 
+// --- Serializable types for parallel buoyancy computation ---
+
+export interface BuoyancyComputeInput {
+  entityIndex: number;
+  position: { x: number; y: number; z: number };
+  heading: number;
+  pitch: number;
+  roll: number;
+  cells: { type: number; gridX: number; gridY: number; gridZ: number }[];
+  massProps: { mass: number; centerX: number; centerY: number; centerZ: number; Ixx: number; Izz: number };
+  waterHeights: number[]; // pre-sampled for each hull cell (same order as cells)
+}
+
+export interface BuoyancyComputeOutput {
+  entityIndex: number;
+  totalForceY: number;
+  totalTorqueX: number;
+  totalTorqueZ: number;
+  shipMass: number;
+  Ixx: number;
+  Izz: number;
+  hullCellCount: number;
+}
+
+/**
+ * Pure function: compute buoyancy forces from pre-sampled water heights.
+ * No side effects, no SAB access — safe for worker dispatch.
+ */
+export function computeBuoyancyBatch(
+  inputs: BuoyancyComputeInput[],
+): BuoyancyComputeOutput[] {
+  const results: BuoyancyComputeOutput[] = [];
+  const cellArea = BOAT_CELL_WORLD_SIZE * BOAT_CELL_WORLD_SIZE;
+  const cellHeight = BOAT_LAYER_HEIGHT;
+
+  for (let s = 0; s < inputs.length; s++) {
+    const inp = inputs[s];
+    const cosH = Math.cos(inp.heading);
+    const sinH = Math.sin(inp.heading);
+    const cosP = Math.cos(inp.pitch);
+    const sinP = Math.sin(inp.pitch);
+    const cosR = Math.cos(inp.roll);
+    const sinR = Math.sin(inp.roll);
+
+    let totalForceY = 0;
+    let totalTorqueX = 0;
+    let totalTorqueZ = 0;
+    let hullCellCount = 0;
+    let waterIdx = 0;
+
+    for (let i = 0; i < inp.cells.length; i++) {
+      const cell = inp.cells[i];
+      if (!isHullShellCell(cell.type)) continue;
+
+      const localX = cell.gridX * BOAT_CELL_WORLD_SIZE;
+      const localY = cell.gridY * BOAT_LAYER_HEIGHT + BOAT_LAYER_HEIGHT / 2;
+      const localZ = cell.gridZ * BOAT_CELL_WORLD_SIZE;
+
+      const armX = localX - inp.massProps.centerX;
+      const armY = localY - inp.massProps.centerY;
+      const armZ = localZ - inp.massProps.centerZ;
+
+      const pY = armY * cosP - armZ * sinP;
+      const rY = armX * sinR + pY * cosR;
+      const worldY = inp.position.y + rY;
+
+      const waterHeight = inp.waterHeights[waterIdx++];
+
+      const cellBottom = worldY - cellHeight / 2;
+      if (waterHeight <= cellBottom) continue;
+
+      const submersionDepth = Math.min(waterHeight - cellBottom, cellHeight);
+      const submergedVolume = cellArea * submersionDepth;
+      const buoyancyForce = WATER_DENSITY * submergedVolume * GRAVITY;
+
+      totalForceY += buoyancyForce;
+      totalTorqueX += -armZ * buoyancyForce;
+      totalTorqueZ += armX * buoyancyForce;
+      hullCellCount++;
+    }
+
+    results.push({
+      entityIndex: inp.entityIndex,
+      totalForceY,
+      totalTorqueX,
+      totalTorqueZ,
+      shipMass: inp.massProps.mass,
+      Ixx: inp.massProps.Ixx,
+      Izz: inp.massProps.Izz,
+      hullCellCount,
+    });
+  }
+
+  return results;
+}
+
 export class BuoyancySystem {
   private waterWriter: WaterBufferWriter;
   private boatCellSystem: BoatCellSystem | null = null;
@@ -34,9 +131,16 @@ export class BuoyancySystem {
   private shoreSources: ShoreSource[] = [];
   private shoreCount = 0;
   private simTime = 0;
+  private scheduler: JobScheduler | null = null;
 
   constructor(waterWriter: WaterBufferWriter) {
     this.waterWriter = waterWriter;
+  }
+
+  setJobScheduler(scheduler: JobScheduler): void {
+    this.scheduler = scheduler;
+    // Register the compute function for worker dispatch
+    scheduler.workerPool.registerFunction("computeBuoyancyBatch", computeBuoyancyBatch as (...args: unknown[]) => unknown);
   }
 
   setBoatCellSystem(bcs: BoatCellSystem): void {
@@ -98,6 +202,132 @@ export class BuoyancySystem {
     const tEnd = performance.now();
     if (tEnd - tStart > 10) {
       console.error(`[BUOY] Slow buoyancy tick: ${(tEnd - tStart).toFixed(1)}ms total, slowest entity=${slowEntity} (${slowMs.toFixed(1)}ms)`);
+    }
+  }
+
+  /**
+   * Parallel buoyancy tick — splits ship buoyancy force computation across workers.
+   * Water heights are pre-sampled on the sim thread (reads SAB), then pure force
+   * math is dispatched via parallelMap. Results are applied sequentially.
+   * Falls back to inline applyBuoyancy for ships without cell data.
+   */
+  async tickParallel(dt: number, entities: SimEntity[], count: number): Promise<void> {
+    this.simTime += dt;
+    if (this.shoreSources.length < 128) this.shoreSources = [];
+    while (this.shoreSources.length < 128) this.shoreSources.push({ x: 0, z: 0, radius: 0, cutoutRadius: 0 });
+    this.shoreCount = collectShoreSources(entities, count, this.shoreSources);
+
+    const tStart = performance.now();
+
+    // Phase 1: Collect ships with cell data for parallel computation.
+    // Ships without cells fall back to inline applyBuoyancy.
+    const computeInputs: BuoyancyComputeInput[] = [];
+    const shipIndices: number[] = []; // entity array index for each compute input
+    const fallbackIndices: Set<number> = new Set(); // entities needing inline applyBuoyancy
+
+    for (let i = 0; i < count; i++) {
+      const ent = entities[i];
+      if (!ent) continue;
+      if (ent.type === EntityType.Player) continue;
+
+      if (ent.type === EntityType.Ship || ent.type === EntityType.SmallCraft) {
+        const cells = this.boatCellSystem?.getCells(ent.id);
+        if (cells && cells.length > 0) {
+          const mp = this.boatCellSystem!.getMassProperties(ent.id);
+          const heading = ent.data[SHIP_DATA.HEADING] ?? 0;
+          const pitch = ent.data[SHIP_DATA.PITCH] ?? 0;
+          const roll = ent.data[SHIP_DATA.ROLL] ?? 0;
+          const cosH = Math.cos(heading);
+          const sinH = Math.sin(heading);
+
+          // Pre-sample water heights for each hull cell (yaw-only position)
+          const waterHeights: number[] = [];
+          for (let c = 0; c < cells.length; c++) {
+            if (!isHullShellCell(cells[c].type)) continue;
+            const localX = cells[c].gridX * BOAT_CELL_WORLD_SIZE;
+            const localZ = cells[c].gridZ * BOAT_CELL_WORLD_SIZE;
+            const armX = localX - mp.centerX;
+            const armZ = localZ - mp.centerZ;
+            const yawX = armX * cosH - armZ * sinH;
+            const yawZ = armX * sinH + armZ * cosH;
+            waterHeights.push(this.sampleWaterAt(ent.position.x + yawX, ent.position.z + yawZ));
+          }
+
+          computeInputs.push({
+            entityIndex: i,
+            position: { x: ent.position.x, y: ent.position.y, z: ent.position.z },
+            heading,
+            pitch,
+            roll,
+            cells: cells.map((c) => ({ type: c.type, gridX: c.gridX, gridY: c.gridY, gridZ: c.gridZ })),
+            massProps: { mass: mp.mass, centerX: mp.centerX, centerY: mp.centerY, centerZ: mp.centerZ, Ixx: mp.Ixx, Izz: mp.Izz },
+            waterHeights,
+          });
+          shipIndices.push(i);
+        } else {
+          fallbackIndices.push(i);
+        }
+      }
+    }
+
+    // Phase 2: Dispatch force computation in parallel
+    let results: BuoyancyComputeOutput[] = [];
+    if (computeInputs.length > 0 && this.scheduler) {
+      const { parallelMap } = await import("@downdraft/core/ecs/job-system");
+      results = await parallelMap<BuoyancyComputeInput, BuoyancyComputeOutput>(
+        this.scheduler,
+        "computeBuoyancyBatch",
+        computeInputs,
+        { batchSize: Math.max(1, Math.ceil(computeInputs.length / 4)) },
+      );
+    } else if (computeInputs.length > 0) {
+      results = computeBuoyancyBatch(computeInputs);
+    }
+
+    // Phase 3: Apply results to entities + gravity/velocity for all non-player entities
+    let resultIdx = 0;
+    for (let i = 0; i < count; i++) {
+      const ent = entities[i];
+      if (!ent) continue;
+      if (ent.type === EntityType.Player) continue;
+
+      // Apply buoyancy
+      if (ent.type === EntityType.Ship || ent.type === EntityType.SmallCraft) {
+        if (resultIdx < results.length && results[resultIdx].entityIndex === i) {
+          const r = results[resultIdx++];
+          if (r.hullCellCount > 0) {
+            this.integrateBuoyancy(ent, dt, r.shipMass, r.totalForceY, r.totalTorqueX, r.totalTorqueZ, r.Ixx, r.Izz);
+          } else {
+            this.applySimpleBuoyancy(ent, dt);
+          }
+        } else if (fallbackIndices.includes(i)) {
+          this.applyBuoyancy(ent, dt);
+        }
+      }
+
+      // Apply gravity to non-static entities (but not ships — they use buoyancy only)
+      if (!(ent.flags & EntityFlags.Static)) {
+        if (ent.type !== EntityType.Ship && ent.type !== EntityType.SmallCraft) {
+          ent.velocity.y -= GRAVITY * dt;
+        }
+      }
+
+      // Apply velocity to position
+      ent.position.x += ent.velocity.x * dt;
+      ent.position.y += ent.velocity.y * dt;
+      ent.position.z += ent.velocity.z * dt;
+
+      // Simple ground collision (seabed)
+      const seabedHeight = -50;
+      if (ent.position.y < seabedHeight) {
+        ent.position.y = seabedHeight;
+        ent.velocity.y = Math.max(0, ent.velocity.y);
+      }
+    }
+
+    const tEnd = performance.now();
+    if (tEnd - tStart > 10) {
+      console.error(`[BUOY] Slow parallel tick: ${(tEnd - tStart).toFixed(1)}ms, ships=${computeInputs.length}, fallback=${fallbackIndices.length}`);
     }
   }
 
