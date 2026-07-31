@@ -22,7 +22,7 @@ export class LightingSystem {
 
   // Calculate lighting parameters based on time of day and weather
   getLightingParams(timeOfDay: number, weatherType: WeatherType, visibility: number) {
-    // Sun angle — matches SkySystem calculation exactly
+    // Sun angle — matches SkyDomePass calculation exactly
     const sunAngle = timeOfDay * Math.PI * 2 - Math.PI / 2;
     const sunDirRaw: [number, number, number] = [
       Math.cos(sunAngle),
