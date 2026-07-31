@@ -1,4 +1,7 @@
+import type { ShaderGraphProfile } from "@downdraft/shader-graph";
+import { getProfile } from "@downdraft/shader-graph";
 import { mat4, type Mat4 } from "wgpu-matrix";
+import type { Material } from "../../material/material.ts";
 import type { MeshData } from "../../mesh/builder.ts";
 import type { RenderPassContext } from "../render-pass.ts";
 import { RenderPass } from "../render-pass.ts";
@@ -258,6 +261,16 @@ export class OpaquePass extends RenderPass {
   private pbrMaterialBindGroup: GPUBindGroup | null = null;
   private pbrMaterial: PBRMaterialResources | null = null;
   private lastViewProj: Mat4 = mat4.identity();
+  private graphMaterial: Material | null = null;
+  private graphPipeline: GPURenderPipeline | null = null;
+  private graphShaderModule: GPUShaderModule | null = null;
+  private graphCameraBuffer: GPUBuffer | null = null;
+  private graphBindGroup: GPUBindGroup | null = null;
+  private graphProfile: ShaderGraphProfile | null = null;
+  private graphExtraBindGroups: Map<number, GPUBindGroup> = new Map();
+  private graphInstanceBuffer: GPUBuffer | null = null;
+  private graphInstanceCount: number = 0;
+  private graphUniformData: Float32Array | null = null;
 
   constructor(device: GPUDevice, surfaceFormat?: GPUTextureFormat, mode: OpaquePassMode = "gbuffer") {
     super();
@@ -299,6 +312,187 @@ export class OpaquePass extends RenderPass {
     this.pbrMaterial = resources;
     this.pbrPipeline = null;
     this.pbrMaterialBindGroup = null;
+  }
+
+  setMaterial(material: Material): void {
+    if (!material.inlineShaderSource) return;
+    this.graphMaterial = material;
+    this.graphPipeline = null;
+    this.graphBindGroup = null;
+    this.graphExtraBindGroups.clear();
+    if (material.profile) {
+      this.graphProfile = getProfile(material.profile) ?? null;
+    }
+  }
+
+  setGraphProfile(profile: ShaderGraphProfile): void {
+    this.graphProfile = profile;
+    this.graphPipeline = null;
+    this.graphBindGroup = null;
+    this.graphExtraBindGroups.clear();
+  }
+
+  setExtraBindGroup(group: number, bindGroup: GPUBindGroup): void {
+    this.graphExtraBindGroups.set(group, bindGroup);
+  }
+
+  setInstanceBuffer(buffer: GPUBuffer, count: number): void {
+    this.graphInstanceBuffer = buffer;
+    this.graphInstanceCount = count;
+  }
+
+  setGraphUniformData(data: Float32Array): void {
+    this.graphUniformData = data;
+  }
+
+  private ensureGraphPipeline(): void {
+    if (this.graphPipeline || !this.mesh || !this.graphMaterial?.inlineShaderSource) return;
+
+    this.graphShaderModule = this.device.createShaderModule({ code: this.graphMaterial.inlineShaderSource });
+
+    const profile = this.graphProfile;
+    const uniformSize = profile
+      ? this.calcUniformSize(profile)
+      : 192;
+
+    this.graphCameraBuffer = this.device.createBuffer({
+      size: Math.max(uniformSize, 16),
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const vertexAttrs = profile
+      ? profile.vertexLayout.attributes.map((a) => ({
+          shaderLocation: a.location,
+          offset: a.offset,
+          format: a.format as GPUVertexFormat,
+        }))
+      : [
+          { shaderLocation: 0, offset: 0, format: "float32x3" as GPUVertexFormat },
+          { shaderLocation: 1, offset: 12, format: "float32x3" as GPUVertexFormat },
+          { shaderLocation: 2, offset: 24, format: "float32x2" as GPUVertexFormat },
+        ];
+
+    const stride = profile?.vertexLayout.stride ?? this.mesh.layout.stride;
+
+    const targets = profile
+      ? this.getProfileTargets(profile)
+      : [{ format: this.surfaceFormat }];
+
+    const topology = profile?.topology ?? "triangle-list";
+    const cullMode = this.graphMaterial.cullMode === "front" ? "front" : this.graphMaterial.cullMode === "none" ? "none" : "back";
+    const depthWrite = profile?.depthWriteEnabled ?? true;
+
+    this.graphPipeline = this.device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: this.graphShaderModule,
+        entryPoint: "vs_main",
+        buffers: [{
+          arrayStride: stride,
+          attributes: vertexAttrs,
+        }],
+      },
+      fragment: {
+        module: this.graphShaderModule,
+        entryPoint: "fs_main",
+        targets,
+      },
+      primitive: {
+        topology: topology as GPUPrimitiveTopology,
+        cullMode: cullMode as GPUCullMode,
+      },
+      depthStencil: {
+        format: "depth32float",
+        depthWriteEnabled: depthWrite,
+        depthCompare: "less",
+      },
+    });
+
+    // Build bind group 0 — uniform buffer + any profile-defined group 0 bindings
+    const group0Entries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: { buffer: this.graphCameraBuffer } },
+    ];
+
+    // Add profile-defined bindings for group 0 (e.g. sampler, texture, storage)
+    if (profile) {
+      const g0 = profile.bindGroups.find((bg) => bg.group === 0);
+      if (g0) {
+        for (const entry of g0.entries) {
+          if (entry.binding === 0) continue; // Already added uniform
+          // These resources need to be provided externally — skip if not set
+        }
+      }
+    }
+
+    this.graphBindGroup = this.device.createBindGroup({
+      layout: this.graphPipeline.getBindGroupLayout(0),
+      entries: group0Entries,
+    });
+  }
+
+  private calcUniformSize(profile: ShaderGraphProfile): number {
+    let size = 0;
+    for (const field of profile.uniformFields) {
+      if (field.type === "mat4x4<f32>") size += 64;
+      else if (field.type === "vec4<f32>") size += 16;
+      else if (field.type === "vec3<f32>") size += 16; // vec3 aligned to 16
+      else if (field.type === "vec2<f32>") size += 8;
+      else if (field.type === "f32") size += 4;
+      else if (field.type === "u32") size += 4;
+      else size += 16;
+    }
+    // Align to 16
+    return Math.ceil(size / 16) * 16;
+  }
+
+  private getProfileTargets(profile: ShaderGraphProfile): GPUColorTargetState[] {
+    if (profile.blend === "transparent") {
+      return [{
+        format: this.surfaceFormat,
+        blend: {
+          color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+          alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+        },
+      }];
+    }
+    if (profile.blend === "additive") {
+      return [{
+        format: this.surfaceFormat,
+        blend: {
+          color: { srcFactor: "one", dstFactor: "one", operation: "add" },
+          alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+        },
+      }];
+    }
+    return [{ format: this.surfaceFormat }];
+  }
+
+  private updateGraphCamera(viewProj: Mat4): void {
+    if (!this.graphCameraBuffer) return;
+    // If custom uniform data is provided, use it directly
+    if (this.graphUniformData) {
+      this.device.queue.writeBuffer(this.graphCameraBuffer, 0, this.graphUniformData as unknown as BufferSource);
+      return;
+    }
+    // Default: write viewProj + modelMatrix + cameraPos + time
+    const profile = this.graphProfile;
+    const size = profile ? this.calcUniformSize(profile) : 192;
+    const data = new Float32Array(size / 4);
+    data.set(viewProj as Float32Array, 0);
+    if (profile) {
+      let offset = 16; // after viewProj (mat4x4)
+      const hasModelMatrix = profile.uniformFields.some((f) => f.name === "modelMatrix");
+      if (hasModelMatrix) {
+        data.set(this.modelMatrix as Float32Array, offset);
+        offset += 16;
+      }
+      // cameraPos (vec3) + time (f32) = 4 floats
+      data.set([0, 0, 0, 0], offset);
+    } else {
+      data.set(this.modelMatrix as Float32Array, 16);
+      data.set([0, 0, 0, 0], 32);
+    }
+    this.device.queue.writeBuffer(this.graphCameraBuffer, 0, data as unknown as BufferSource);
   }
 
   private ensurePBRPipeline(): void {
@@ -532,6 +726,26 @@ export class OpaquePass extends RenderPass {
       ? ctx.pass
       : new TrackedRenderPass(ctx.pass);
 
+    if (this.graphMaterial && this.graphMaterial.inlineShaderSource) {
+      this.ensureGraphPipeline();
+      if (!this.graphPipeline || !this.graphBindGroup) return;
+      this.updateGraphCamera(this.lastViewProj);
+      tracked.setPipeline(this.graphPipeline);
+      tracked.setBindGroup(0, this.graphBindGroup);
+      // Set extra bind groups (lights, IBL, etc.)
+      for (const [group, bg] of this.graphExtraBindGroups) {
+        tracked.setBindGroup(group, bg);
+      }
+      tracked.setVertexBuffer(0, this.vertexBuffer);
+      tracked.setIndexBuffer(this.indexBuffer, this.mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
+      if (this.graphInstanceBuffer && this.graphInstanceCount > 0) {
+        tracked.drawIndexed(this.mesh.indexCount, this.graphInstanceCount);
+      } else {
+        tracked.drawIndexed(this.mesh.indexCount);
+      }
+      return;
+    }
+
     if (this.pbrMaterial && this.mode === "gbuffer") {
       this.ensurePBRPipeline();
       this.ensurePBRMaterialBindGroup();
@@ -613,5 +827,16 @@ export class OpaquePass extends RenderPass {
     this.pbrMaterialBuffer = null;
     this.pbrMaterialBindGroup = null;
     this.pbrMaterial = null;
+    this.graphCameraBuffer?.destroy();
+    this.graphPipeline = null;
+    this.graphShaderModule = null;
+    this.graphCameraBuffer = null;
+    this.graphBindGroup = null;
+    this.graphMaterial = null;
+    this.graphProfile = null;
+    this.graphExtraBindGroups.clear();
+    this.graphInstanceBuffer = null;
+    this.graphInstanceCount = 0;
+    this.graphUniformData = null;
   }
 }

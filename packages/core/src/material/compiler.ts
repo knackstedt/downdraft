@@ -1,7 +1,11 @@
-import { Material, type MaterialDefinition } from "./material.ts";
+import { type MaterialDefinition } from "./material.ts";
 
 export class MaterialCompiler {
   compile(def: MaterialDefinition): string {
+    if (def.inlineShaderSource) {
+      return def.inlineShaderSource;
+    }
+
     const uniformDecls: string[] = [];
     const textureDecls: string[] = [];
 

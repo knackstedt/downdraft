@@ -1,6 +1,6 @@
-import { Material, BlendMode, CullMode, type MaterialDefinition } from "./material.ts";
-import { MaterialLibrary } from "./library.ts";
 import { MaterialCompiler } from "./compiler.ts";
+import { MaterialLibrary } from "./library.ts";
+import { BlendMode, CullMode, Material, type MaterialDefinition } from "./material.ts";
 
 function makeTestMaterialDef(): MaterialDefinition {
   return {
@@ -61,6 +61,28 @@ describe("Material", () => {
   it("should have distinct pipeline keys for different blend modes", () => {
     const def1 = makeTestMaterialDef();
     const def2 = { ...makeTestMaterialDef(), blendMode: BlendMode.Additive };
+    const mat1 = new Material(def1);
+    const mat2 = new Material(def2);
+    expect(mat1.pipelineKey).not.toBe(mat2.pipelineKey);
+  });
+
+  it("should store inlineShaderSource when provided", () => {
+    const def = makeTestMaterialDef();
+    def.inlineShaderSource = "// inline WGSL";
+    const mat = new Material(def);
+    expect(mat.inlineShaderSource).toBe("// inline WGSL");
+  });
+
+  it("should have undefined inlineShaderSource by default", () => {
+    const mat = new Material(makeTestMaterialDef());
+    expect(mat.inlineShaderSource).toBeUndefined();
+  });
+
+  it("should include inline shader hash in pipeline key", () => {
+    const def1 = makeTestMaterialDef();
+    def1.inlineShaderSource = "shader A";
+    const def2 = makeTestMaterialDef();
+    def2.inlineShaderSource = "shader B";
     const mat1 = new Material(def1);
     const mat2 = new Material(def2);
     expect(mat1.pipelineKey).not.toBe(mat2.pipelineKey);

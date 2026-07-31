@@ -1,12 +1,9 @@
-// ============================================================================
-// Terrain System — seabed, islands, ports rendering
-// ============================================================================
+import type { RenderPassContext } from "../render-pass.ts";
+import { RenderPass } from "../render-pass.ts";
+import { TrackedRenderPass } from "../tracked-render-pass.ts";
+import { mat4, type Mat4 } from "wgpu-matrix";
 
-import { CameraState } from "./CameraSystem";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
-import { calculateViewProj } from "./mathUtils";
-
-const TERRAIN_WGSL = /* wgsl */ `
+const TERRAIN_SHADER = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4<f32>,
   cameraPos: vec3<f32>,
@@ -51,7 +48,7 @@ fn terrainHeight(x: f32, z: f32) -> f32 {
   h += noise(p * 2.0) * 20.0;
   h += noise(p * 4.0) * 10.0;
   h += noise(p * 8.0) * 5.0;
-  return -h - 10.0; // below sea level
+  return -h - 10.0;
 }
 
 @vertex
@@ -71,15 +68,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let depth = input.depth;
 
-  // Color based on depth
-  let shallowColor = vec3<f32>(0.6, 0.5, 0.3);   // sandy
-  let midColor = vec3<f32>(0.3, 0.3, 0.2);        // rocky
-  let deepColor = vec3<f32>(0.1, 0.1, 0.05);      // dark seabed
+  let shallowColor = vec3<f32>(0.6, 0.5, 0.3);
+  let midColor = vec3<f32>(0.3, 0.3, 0.2);
+  let deepColor = vec3<f32>(0.1, 0.1, 0.05);
 
   var color = mix(shallowColor, midColor, smoothstep(10.0, 50.0, depth));
   color = mix(color, deepColor, smoothstep(50.0, 200.0, depth));
 
-  // Distance fog
   let dist = length(uniforms.cameraPos - input.worldPos);
   let fogFactor = min(dist / 500.0, 1.0);
   color = mix(color, vec3<f32>(0.0, 0.1, 0.2), fogFactor);
@@ -88,32 +83,48 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 `;
 
-export class TerrainSystem {
+export interface TerrainUniforms {
+  viewProj: Mat4;
+  cameraPos: [number, number, number];
+  time: number;
+  patchSize: number;
+  originX: number;
+  originZ: number;
+}
+
+export class TerrainPass extends RenderPass {
+  name = "terrain";
   private device: GPUDevice;
-  private format: GPUTextureFormat;
   private pipeline: GPURenderPipeline | null = null;
-  private bindGroup: GPUBindGroup | null = null;
+  private shaderModule: GPUShaderModule | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private bindGroup: GPUBindGroup | null = null;
   private vertexBuffer: GPUBuffer | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
   private indexBuffer: GPUBuffer | null = null;
   private indexCount = 0;
+  private surfaceFormat: GPUTextureFormat;
+  private msaaSampleCount: number = 1;
+  private gridSize: number;
 
-  constructor(device: GPUDevice, format: GPUTextureFormat) {
+  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1, gridSize = 128) {
+    super();
     this.device = device;
-    this.format = format;
+    this.surfaceFormat = surfaceFormat;
+    this.msaaSampleCount = msaaSampleCount;
+    this.gridSize = gridSize;
   }
 
-  async init(): Promise<void> {
-    const shaderModule = this.device.createShaderModule({ code: TERRAIN_WGSL });
+  prepare(_device: GPUDevice): void {
+    if (this.pipeline) return;
+
+    this.shaderModule = this.device.createShaderModule({ code: TERRAIN_SHADER });
 
     this.uniformBuffer = this.device.createBuffer({
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Generate terrain grid (128x128)
-    const gridSize = 128;
+    const gridSize = this.gridSize;
     const vertices: number[] = [];
     for (let z = 0; z <= gridSize; z++) {
       for (let x = 0; x <= gridSize; x++) {
@@ -126,7 +137,6 @@ export class TerrainSystem {
     });
     this.device.queue.writeBuffer(this.vertexBuffer, 0, new Float32Array(vertices));
 
-    // Generate indices
     const indices: number[] = [];
     for (let z = 0; z < gridSize; z++) {
       for (let x = 0; x < gridSize; x++) {
@@ -142,25 +152,10 @@ export class TerrainSystem {
     });
     this.device.queue.writeBuffer(this.indexBuffer, 0, new Uint16Array(indices));
 
-    this.bindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-      ],
-    });
-
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
-    });
-
-    const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
-    });
-
     this.pipeline = this.device.createRenderPipeline({
-      layout: pipelineLayout,
+      layout: "auto",
       vertex: {
-        module: shaderModule,
+        module: this.shaderModule,
         entryPoint: "vs_main",
         buffers: [{
           arrayStride: 8,
@@ -168,49 +163,59 @@ export class TerrainSystem {
         }],
       },
       fragment: {
-        module: shaderModule,
+        module: this.shaderModule,
         entryPoint: "fs_main",
-        targets: [{ format: this.format }],
+        targets: [{ format: this.surfaceFormat }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: MSAA_SAMPLE_COUNT },
+      multisample: { count: this.msaaSampleCount },
       depthStencil: {
-        format: DEPTH_FORMAT,
+        format: "depth32float",
         depthWriteEnabled: true,
         depthCompare: "less",
       },
     });
+
+    this.bindGroup = this.device.createBindGroup({
+      layout: this.pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
+    });
   }
 
-  render(
-    passEncoder: GPURenderPassEncoder,
-    camera: CameraState,
-    playerPos: { x: number; y: number; z: number },
-  ): void {
-    if (!this.pipeline || !this.bindGroup || !this.uniformBuffer) return;
-
-    const viewProj = calculateViewProj(camera);
-
-    const uniforms = new Float32Array(16 + 8);
-    for (let i = 0; i < 16; i++) uniforms[i] = viewProj[i];
-    uniforms[16] = camera.position[0];
-    uniforms[17] = camera.position[1];
-    uniforms[18] = camera.position[2];
-    uniforms[19] = performance.now() / 1000;
-    uniforms[20] = 512; // patch size
-    // Snap origin to vertex spacing (4.0) so grid vertices always sample
-    // the same world positions, preventing terrain from boiling/flickering
-    const spacing = 4.0;
-    uniforms[21] = Math.round((playerPos.x - 256) / spacing) * spacing;
-    uniforms[22] = Math.round((playerPos.z - 256) / spacing) * spacing;
-
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
-
-    passEncoder.setPipeline(this.pipeline);
-    passEncoder.setBindGroup(0, this.bindGroup);
-    passEncoder.setVertexBuffer(0, this.vertexBuffer);
-    passEncoder.setIndexBuffer(this.indexBuffer!, "uint16");
-    passEncoder.drawIndexed(this.indexCount);
+  setUniforms(u: TerrainUniforms): void {
+    if (!this.uniformBuffer) return;
+    const data = new Float32Array(24);
+    data.set(u.viewProj as Float32Array, 0);
+    data[16] = u.cameraPos[0];
+    data[17] = u.cameraPos[1];
+    data[18] = u.cameraPos[2];
+    data[19] = u.time;
+    data[20] = u.patchSize;
+    data[21] = u.originX;
+    data[22] = u.originZ;
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
   }
 
+  execute(ctx: RenderPassContext): void {
+    if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer) return;
+
+    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    tracked.setPipeline(this.pipeline);
+    tracked.setBindGroup(0, this.bindGroup);
+    tracked.setVertexBuffer(0, this.vertexBuffer);
+    tracked.setIndexBuffer(this.indexBuffer, "uint16");
+    tracked.drawIndexed(this.indexCount);
+  }
+
+  destroy(): void {
+    this.uniformBuffer?.destroy();
+    this.vertexBuffer?.destroy();
+    this.indexBuffer?.destroy();
+    this.uniformBuffer = null;
+    this.vertexBuffer = null;
+    this.indexBuffer = null;
+    this.pipeline = null;
+    this.shaderModule = null;
+    this.bindGroup = null;
+  }
 }

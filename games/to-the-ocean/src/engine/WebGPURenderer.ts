@@ -2,6 +2,7 @@
 // WebGPU Renderer — main rendering engine
 // ============================================================================
 
+import { SkyDomePass, TerrainPass, UnderwaterFogPass, WaterPass, calculateViewProj as engineCalculateViewProj } from "@downdraft/core";
 import { generateIslandBlobs } from "@shared/TerrainGenerator";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -26,12 +27,8 @@ import { PBRSystem } from "./PBRSystem";
 import { COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "./ParticleSystem";
 import { PixelationSystem } from "./PixelationSystem";
 import { PostProcessStack } from "./PostProcessStack";
-import { SkySystem } from "./SkySystem";
-import { TerrainSystem } from "./TerrainSystem";
 import { TransformGizmo } from "./TransformGizmo";
-import { UnderwaterFogSystem } from "./UnderwaterFogSystem";
-import { WaterSystem } from "./WaterSystem";
-import { DEPTH_FORMAT } from "./graphicsConfig";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 
 // Player model asset — resolved by Vite at build time
 const playerModelGlob = import.meta.glob(
@@ -69,9 +66,9 @@ export class WebGPURenderer {
   private boatSAB: SharedArrayBuffer | null = null;
   private boatDesigns = new Map<number, { design: BoatDesign; geometry: RuntimeBoatGeometry }>();
 
-  private waterSystem: WaterSystem | null = null;
-  private skySystem: SkySystem | null = null;
-  private terrainSystem: TerrainSystem | null = null;
+  private waterPass: WaterPass | null = null;
+  private skyDomePass: SkyDomePass | null = null;
+  private terrainPass: TerrainPass | null = null;
   private entityRenderer: EntityRenderer | null = null;
   private cameraSystem: CameraSystem | null = null;
   private lightingSystem: LightSystem | null = null;
@@ -79,7 +76,7 @@ export class WebGPURenderer {
   private particleSystem: ParticleSystem | null = null;
   private pixelationSystem: PixelationSystem | null = null;
   private postProcessStack: PostProcessStack | null = null;
-  private underwaterFogSystem: UnderwaterFogSystem | null = null;
+  private underwaterFogPass: UnderwaterFogPass | null = null;
   private cloudSystem: CloudSystem | null = null;
   private modelRenderer: ModelRenderer | null = null;
   private transformGizmo: TransformGizmo | null = null;
@@ -89,6 +86,13 @@ export class WebGPURenderer {
 
   // Flashlight toggle state
   private flashlightOn = false;
+
+  // Sky weather transition state (for SkyDomePass)
+  private skyPrevWeatherType: WeatherType = WeatherType.Clear;
+  private skyDisplayedWeatherType: WeatherType = WeatherType.Clear;
+  private skyWeatherBlend: number = 1.0;
+  private skyLastTime: number = 0;
+  private readonly skyWeatherTransitionDuration: number = 30.0;
 
   // Scene inspector state
   private gizmoEnabled = false;
@@ -219,24 +223,24 @@ export class WebGPURenderer {
       });
 
       // Initialize subsystems
-      this.waterSystem = new WaterSystem(this.device, this.format);
-      this.skySystem = new SkySystem(this.device, this.format);
-      this.terrainSystem = new TerrainSystem(this.device, this.format);
+      this.waterPass = new WaterPass(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat, MSAA_SAMPLE_COUNT);
+      this.skyDomePass = new SkyDomePass(this.device, this.format);
+      this.terrainPass = new TerrainPass(this.device, this.format);
       this.entityRenderer = new EntityRenderer(this.device, this.format);
       this.cameraSystem = new CameraSystem();
       this.lightingSystem = new LightSystem(this.device);
       this.particleSystem = new ParticleSystem(this.device, this.format);
 
-      await this.waterSystem.init();
-      await this.skySystem.init();
-      await this.terrainSystem.init();
+      this.waterPass.prepare(this.device);
+      this.skyDomePass.prepare(this.device);
+      this.terrainPass.prepare(this.device);
       this.lightingSystem.init();
       this.pbrSystem = new PBRSystem(this.device);
       this.pbrSystem.init();
       await this.entityRenderer.init(this.lightingSystem.getLightBindGroupLayout() ?? undefined, this.pbrSystem.getBindGroupLayout() ?? undefined);
       this.entityRenderer.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.entityRenderer.setPBRBindGroup(this.pbrSystem.getBindGroup()!);
-      this.waterSystem.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
+      this.waterPass.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.lightingSystem.initDebugGizmos(this.format);
       if (this.boatReader) {
         this.entityRenderer.setBoatBufferReader(this.boatReader);
@@ -359,8 +363,8 @@ export class WebGPURenderer {
       this.postProcessStack = new PostProcessStack(this.device, this.format);
       this.postProcessStack.init();
 
-      this.underwaterFogSystem = new UnderwaterFogSystem(this.device, this.format);
-      this.underwaterFogSystem.init();
+      this.underwaterFogPass = new UnderwaterFogPass(this.device, this.format);
+      this.underwaterFogPass.prepare(this.device);
 
       // Cloud system — 3D volumetric cloud meshes (semi-transparent, wind-drifting)
       this.cloudSystem = new CloudSystem(this.device, this.format);
@@ -1115,7 +1119,7 @@ export class WebGPURenderer {
 
     // Update water dynamic sources (wakes + shores) before render pass
     if (viewportIdx === 0) {
-      this.waterSystem!.updateDynamics(this.wakeArray, wakeCount, this.shoreArray, shoreCount);
+      this.waterPass!.updateDynamics(this.wakeArray, wakeCount, this.shoreArray, shoreCount);
     }
 
     // Process pending island chunk streaming and terrain deformations before the render pass
@@ -1181,10 +1185,60 @@ export class WebGPURenderer {
     passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
 
     // Render sky
-    this.skySystem!.render(passEncoder, camera, timeOfDay, weatherType, this.elapsedTime);
+    {
+      // Track weather transitions for smooth visual blending
+      if (weatherType !== this.skyDisplayedWeatherType) {
+        this.skyPrevWeatherType = this.skyDisplayedWeatherType;
+        this.skyDisplayedWeatherType = weatherType;
+        this.skyWeatherBlend = 0.0;
+      }
+      if (this.skyWeatherBlend < 1.0) {
+        const skyDt = this.skyLastTime > 0 ? Math.min(0.1, this.elapsedTime - this.skyLastTime) : 0;
+        this.skyWeatherBlend = Math.min(1.0, this.skyWeatherBlend + skyDt / this.skyWeatherTransitionDuration);
+      }
+      this.skyLastTime = this.elapsedTime;
+      const easedBlend = this.skyWeatherBlend * this.skyWeatherBlend * (3 - 2 * this.skyWeatherBlend);
+
+      const sunAngle = timeOfDay * Math.PI * 2 - Math.PI / 2;
+      const sunDirRaw = [Math.cos(sunAngle), Math.sin(sunAngle), 0.3];
+      const sunLen = Math.sqrt(sunDirRaw[0] ** 2 + sunDirRaw[1] ** 2 + sunDirRaw[2] ** 2);
+      const sunDir: [number, number, number] = [sunDirRaw[0] / sunLen, sunDirRaw[1] / sunLen, sunDirRaw[2] / sunLen];
+      const moonDir: [number, number, number] = [-sunDir[0], -sunDir[1], -sunDir[2]];
+      const sunIntensity = Math.max(0, Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2));
+      const moonIntensity = Math.max(0, -Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2));
+
+      const viewProj = engineCalculateViewProj(camera);
+
+      this.skyDomePass!.setUniforms({
+        viewProj,
+        cameraPos: [camera.position[0], camera.position[1], camera.position[2]],
+        timeOfDay,
+        weatherType: this.skyDisplayedWeatherType,
+        sunDir,
+        sunIntensity,
+        moonDir,
+        moonIntensity,
+        time: this.elapsedTime,
+        prevWeatherType: this.skyPrevWeatherType,
+        weatherBlend: easedBlend,
+      });
+      this.skyDomePass!.execute({ device: this.device!, pass: passEncoder });
+    }
 
     // Render terrain (before water so terrain writes depth first)
-    this.terrainSystem!.render(passEncoder, camera, playerPos);
+    {
+      const viewProj = engineCalculateViewProj(camera);
+      const spacing = 4.0;
+      this.terrainPass!.setUniforms({
+        viewProj,
+        cameraPos: [camera.position[0], camera.position[1], camera.position[2]],
+        time: performance.now() / 1000,
+        patchSize: 512,
+        originX: Math.round((playerPos.x - 256) / spacing) * spacing,
+        originZ: Math.round((playerPos.z - 256) / spacing) * spacing,
+      });
+      this.terrainPass!.execute({ device: this.device!, pass: passEncoder });
+    }
 
     // Render entities before water so boat hulls write depth first.
     // This prevents the water plane from clipping through the far side of the boat —
@@ -1222,12 +1276,36 @@ export class WebGPURenderer {
     }
 
     // Render water (semi-transparent, blends over terrain and submerged entities)
-    if (this.waterReader) {
-      this.waterSystem!.render(
-        passEncoder, camera, this.waterReader, timeOfDay, weatherType, visibility,
-        windSpeed, windDir.x, windDir.z, weatherIntensity,
-        lightingParams.sunDir, lightingParams.sunIntensity,
-      );
+    if (this.waterReader && this.waterReader.isValid()) {
+      const waterViewProj = engineCalculateViewProj(camera);
+      const patchSize = this.waterReader.getPatchSize();
+      const halfGrid = (256 * patchSize) / 2;
+      const originX = Math.round((camera.position[0] - halfGrid) / patchSize) * patchSize;
+      const originZ = Math.round((camera.position[2] - halfGrid) / patchSize) * patchSize;
+
+      this.waterPass!.setHeightData(this.waterReader.heights);
+      this.waterPass!.setUniforms({
+        viewProj: waterViewProj,
+        cameraPos: camera.position,
+        time: this.elapsedTime,
+        gridSize: 256,
+        patchSize,
+        originX,
+        originZ,
+        visibility,
+        weatherType,
+        timeOfDay,
+        waveHeight: 2.0,
+        windSpeed,
+        windDirX: windDir.x,
+        windDirZ: windDir.z,
+        weatherIntensity,
+        sunDir: lightingParams.sunDir,
+        sunIntensity: lightingParams.sunIntensity,
+        wakeCount: 0,
+        shoreCount: 0,
+      });
+      this.waterPass!.execute({ device: this.device!, pass: passEncoder });
     }
 
     // Render hitbox debug overlay
@@ -1321,7 +1399,8 @@ export class WebGPURenderer {
     const camWaterHeight = this.sampleWaterHeightAt(camera.position[0], camera.position[2]);
     const camDepth = camWaterHeight - camera.position[1];
     if (camDepth > 0) {
-      this.underwaterFogSystem!.render(passEncoder, camDepth, this.elapsedTime);
+      this.underwaterFogPass!.setDepth(camDepth, this.elapsedTime);
+      this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder });
     }
 
     passEncoder.end();

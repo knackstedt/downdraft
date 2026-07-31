@@ -1,8 +1,8 @@
-// ============================================================================
-// Underwater Fog System — fullscreen fog overlay when camera is below water
-// ============================================================================
+import type { RenderPassContext } from "../render-pass.ts";
+import { RenderPass } from "../render-pass.ts";
+import { TrackedRenderPass } from "../tracked-render-pass.ts";
 
-const FOG_WGSL = /* wgsl */ `
+const UNDERWATER_FOG_SHADER = /* wgsl */ `
 struct Uniforms {
   depth: f32,
   time: f32,
@@ -63,106 +63,107 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let depth = max(uniforms.depth, 0.3);
   let fogIntensity = 1.0 - exp(-depth * 0.8);
 
-  // Animated caustic-like pattern
   let causticUV = input.uv * 6.0 + vec2<f32>(uniforms.time * 0.25, uniforms.time * 0.18);
   let n1 = perlin2d(causticUV);
   let n2 = perlin2d(causticUV * 2.0 + 10.0);
   let n3 = perlin2d(causticUV * 4.0 + 20.0);
   let caustic = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2);
 
-  // Underwater fog color — deep blue-green, gets darker with depth
   var fogColor = vec3<f32>(0.05, 0.25, 0.35);
   fogColor = fogColor + vec3<f32>(0.0, 0.06, 0.08) * caustic;
 
-  // Deeper = darker and more blue
   fogColor = mix(fogColor, vec3<f32>(0.0, 0.08, 0.15), min(depth * 0.04, 0.7));
 
-  // Stronger alpha — ensure visible even at shallow depths
   let alpha = clamp(fogIntensity * 1.5, 0.4, 0.95);
   return vec4<f32>(fogColor, alpha);
 }
 `;
 
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
-
-export class UnderwaterFogSystem {
+export class UnderwaterFogPass extends RenderPass {
+  name = "underwater-fog";
   private device: GPUDevice;
-  private format: GPUTextureFormat;
   private pipeline: GPURenderPipeline | null = null;
-  private bindGroup: GPUBindGroup | null = null;
+  private shaderModule: GPUShaderModule | null = null;
   private uniformBuffer: GPUBuffer | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private surfaceFormat: GPUTextureFormat;
+  private msaaSampleCount: number = 1;
+  private depth: number = 0;
+  private time: number = 0;
 
-  constructor(device: GPUDevice, format: GPUTextureFormat) {
+  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1) {
+    super();
     this.device = device;
-    this.format = format;
+    this.surfaceFormat = surfaceFormat;
+    this.msaaSampleCount = msaaSampleCount;
   }
 
-  init(): void {
-    const shaderModule = this.device.createShaderModule({ code: FOG_WGSL });
+  prepare(_device: GPUDevice): void {
+    if (this.pipeline) return;
+
+    this.shaderModule = this.device.createShaderModule({ code: UNDERWATER_FOG_SHADER });
 
     this.uniformBuffer = this.device.createBuffer({
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.bindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-      ],
-    });
-
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
-    });
-
-    const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
-    });
-
     this.pipeline = this.device.createRenderPipeline({
-      layout: pipelineLayout,
+      layout: "auto",
       vertex: {
-        module: shaderModule,
+        module: this.shaderModule,
         entryPoint: "vs_main",
       },
       fragment: {
-        module: shaderModule,
+        module: this.shaderModule,
         entryPoint: "fs_main",
         targets: [{
-          format: this.format,
+          format: this.surfaceFormat,
           blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
-            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
           },
         }],
       },
       primitive: { topology: "triangle-list" },
-      multisample: { count: MSAA_SAMPLE_COUNT },
+      multisample: { count: this.msaaSampleCount },
       depthStencil: {
-        format: DEPTH_FORMAT,
+        format: "depth32float",
         depthWriteEnabled: false,
         depthCompare: "always",
       },
     });
+
+    this.bindGroup = this.device.createBindGroup({
+      layout: this.pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
+    });
   }
 
-  render(
-    passEncoder: GPURenderPassEncoder,
-    depth: number,
-    time: number,
-  ): void {
-    if (!this.pipeline || !this.bindGroup || !this.uniformBuffer) return;
+  setDepth(depth: number, time: number): void {
+    this.depth = depth;
+    this.time = time;
+    if (!this.uniformBuffer) return;
+    const data = new Float32Array(4);
+    data[0] = depth;
+    data[1] = time;
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
+  }
 
-    const uniforms = new Float32Array(4);
-    uniforms[0] = depth;
-    uniforms[1] = time;
+  execute(ctx: RenderPassContext): void {
+    if (!this.pipeline || !this.bindGroup) return;
 
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    tracked.setPipeline(this.pipeline);
+    tracked.setBindGroup(0, this.bindGroup);
+    tracked.draw(3);
+  }
 
-    passEncoder.setPipeline(this.pipeline);
-    passEncoder.setBindGroup(0, this.bindGroup);
-    passEncoder.draw(3);
+  destroy(): void {
+    this.uniformBuffer?.destroy();
+    this.uniformBuffer = null;
+    this.pipeline = null;
+    this.shaderModule = null;
+    this.bindGroup = null;
   }
 }

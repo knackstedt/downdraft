@@ -93,10 +93,17 @@ export type { PostProcessSettings } from "./render/passes/post-process.ts";
 export { ShadowMapSystem } from "./render/passes/shadow-map.ts";
 export type { ShadowMapOptions } from "./render/passes/shadow-map.ts";
 export { ShadowPass } from "./render/passes/shadow.ts";
+export { SkyDomePass } from "./render/passes/sky-dome.ts";
+export type { SkyDomeUniforms } from "./render/passes/sky-dome.ts";
 export { SkyboxPass } from "./render/passes/skybox.ts";
+export { TerrainPass } from "./render/passes/terrain.ts";
+export type { TerrainUniforms } from "./render/passes/terrain.ts";
 export { TransparentPass } from "./render/passes/transparent.ts";
 export type { TransparentRenderItem } from "./render/passes/transparent.ts";
 export { UICompositePass } from "./render/passes/ui-composite.ts";
+export { UnderwaterFogPass } from "./render/passes/underwater-fog.ts";
+export { WaterPass } from "./render/passes/water.ts";
+export type { WaterUniforms } from "./render/passes/water.ts";
 export { PBRSystem } from "./render/pbr.ts";
 export { PipelineCache } from "./render/pipeline.ts";
 export { RenderGraph } from "./render/render-graph.ts";
@@ -121,6 +128,8 @@ export type { ExtractedMesh, VoxelField } from "./mesh/voxel-field.ts";
 
 // Material
 export { MaterialCompiler } from "./material/compiler.ts";
+export { compileGraphToMaterial, compileUIGraphToMaterial, uiGraphToMaterialGraph } from "./material/graph-bridge.ts";
+export type { GraphToMaterialOptions, UIConnection, UINodeData } from "./material/graph-bridge.ts";
 export { MaterialLibrary } from "./material/library.ts";
 export { BlendMode, CullMode, Material } from "./material/material.ts";
 export type { MaterialDefinition, MaterialTexture, MaterialUniform } from "./material/material.ts";
