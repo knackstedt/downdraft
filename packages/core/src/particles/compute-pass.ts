@@ -1,5 +1,5 @@
-import { RenderPass, type RenderPassContext } from "../render/render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
+import type { GraphRenderContext } from "../render/frame-graph.ts";
+import { RenderPass } from "../render/render-pass.ts";
 
 const PARTICLE_COMPUTE_SHADER = `
 struct Particle {
@@ -354,7 +354,7 @@ export class ParticleComputePass extends RenderPass {
     this.device.queue.submit([encoder.finish()]);
   }
 
-  execute(_ctx: RenderPassContext): void {
+  execute(_ctx: GraphRenderContext): void {
     // Compute passes are invoked via emit() and update() directly
   }
 

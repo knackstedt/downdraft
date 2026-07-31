@@ -1,10 +1,12 @@
 import type { UIRoot } from "../../ui/element.ts";
 import { LayoutEngine } from "../../ui/layout.ts";
 import type { UIRenderer } from "../../ui/renderer.ts";
-import { RenderPass, type RenderPassContext } from "../render-pass.ts";
+import type { TextureHandle } from "../frame-graph.ts";
+import { RenderPass } from "../render-pass.ts";
 
 export class UICompositePass extends RenderPass {
   name = "ui-composite";
+  surfaceHandle: TextureHandle | null = null;
   private renderer: UIRenderer | null = null;
   private root: UIRoot | null = null;
   private layoutEngine: LayoutEngine = new LayoutEngine();
@@ -28,8 +30,12 @@ export class UICompositePass extends RenderPass {
     this.renderer?.prepare(device);
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.renderer || !this.root) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.surfaceHandle) builder.colorAttachment({ handle: this.surfaceHandle, loadOp: "load", storeOp: "store" });
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!this.renderer || !this.root || !ctx.pass) return;
 
     if (this.needsLayout) {
       this.layoutEngine.layout(this.root);

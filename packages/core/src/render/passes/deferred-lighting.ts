@@ -2,7 +2,6 @@ import { type Mat4 } from "wgpu-matrix";
 import type { GBufferViews } from "../g-buffer.ts";
 import type { LightUniformData } from "../lighting.ts";
 import { MAX_POINT_LIGHTS, packLightUniform, packPointLights } from "../lighting.ts";
-import type { RenderPassContext } from "../render-pass.ts";
 import { RenderPass } from "../render-pass.ts";
 
 const DEFERRED_SHADER = `
@@ -162,6 +161,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
 export class DeferredLightingPass extends RenderPass {
   name = "deferred-lighting";
+  // Graph handles (set by RenderLoop before graph build)
+  gbufferAlbedoHandle: TextureHandle | null = null;
+  gbufferNormalHandle: TextureHandle | null = null;
+  gbufferMetallicEmissiveHandle: TextureHandle | null = null;
+  gbufferDepthHandle: TextureHandle | null = null;
+  shadowHandle: TextureHandle | null = null;
+  hdrHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private shaderModule: GPUShaderModule | null = null;
@@ -296,12 +302,40 @@ export class DeferredLightingPass extends RenderPass {
     this.height = height;
   }
 
-  execute(ctx: RenderPassContext, bindGroup?: GPUBindGroup): void {
-    if (!this.pipeline || !bindGroup) return;
-    const pass = ctx.pass;
-    pass.setPipeline(this.pipeline);
-    pass.setBindGroup(0, bindGroup);
-    pass.draw(6);
+  setup(builder: FrameGraphBuilder): void {
+    // Read gbuffer textures
+    if (this.gbufferAlbedoHandle) builder.read(this.gbufferAlbedoHandle);
+    if (this.gbufferNormalHandle) builder.read(this.gbufferNormalHandle);
+    if (this.gbufferMetallicEmissiveHandle) builder.read(this.gbufferMetallicEmissiveHandle);
+    if (this.gbufferDepthHandle) builder.read(this.gbufferDepthHandle);
+    // Read shadow map
+    if (this.shadowHandle) builder.read(this.shadowHandle);
+    // Write HDR
+    if (this.hdrHandle) builder.colorAttachment({ handle: this.hdrHandle, loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } });
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !ctx.pass) return;
+
+    // Build bind group from resolved views
+    const gbufferViews: GBufferViews = {
+      albedo: ctx.getView(this.gbufferAlbedoHandle!),
+      normal: ctx.getView(this.gbufferNormalHandle!),
+      metallicEmissive: ctx.getView(this.gbufferMetallicEmissiveHandle!),
+      depth: ctx.getView(this.gbufferDepthHandle!),
+    };
+    const shadowView = this.shadowHandle ? ctx.getView(this.shadowHandle) : null;
+    const bindGroup = this.createBindGroup(gbufferViews, shadowView, ctx.shadowSampler);
+
+    // Update camera and lighting uniforms
+    this.updateCamera(ctx.viewProj, ctx.prevViewProj, ctx.invViewProj, ctx.cameraPos);
+    this.updateLightViewProj(ctx.lightViewProj);
+    this.updateLights(ctx.lightData);
+
+    const tracked = ctx.pass;
+    tracked.setPipeline(this.pipeline);
+    tracked.setBindGroup(0, bindGroup);
+    tracked.draw(6);
   }
 
   destroy(): void {

@@ -3,9 +3,7 @@ import { getProfile } from "@downdraft/shader-graph";
 import { mat4, type Mat4 } from "wgpu-matrix";
 import type { Material } from "../../material/material.ts";
 import type { MeshData } from "../../mesh/builder.ts";
-import type { RenderPassContext } from "../render-pass.ts";
 import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
 
 const GBUFFER_SHADER = `
 struct CameraUniforms {
@@ -237,6 +235,14 @@ export interface PBRMaterialResources {
 
 export class OpaquePass extends RenderPass {
   name = "opaque";
+  // Graph handles (set by RenderLoop before graph build)
+  gbufferAlbedoHandle: TextureHandle | null = null;
+  gbufferNormalHandle: TextureHandle | null = null;
+  gbufferMetallicEmissiveHandle: TextureHandle | null = null;
+  gbufferVelocityHandle: TextureHandle | null = null;
+  gbufferDepthHandle: TextureHandle | null = null;
+  surfaceHandle: TextureHandle | null = null;  // for simple mode
+  depthHandle: TextureHandle | null = null;  // for simple mode depth
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private vertexBuffer: GPUBuffer | null = null;
@@ -719,12 +725,26 @@ export class OpaquePass extends RenderPass {
     }
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.vertexBuffer || !this.indexBuffer || !this.mesh) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.mode === "gbuffer") {
+      if (this.gbufferAlbedoHandle) builder.colorAttachment({ handle: this.gbufferAlbedoHandle, loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } });
+      if (this.gbufferNormalHandle) builder.colorAttachment({ handle: this.gbufferNormalHandle, loadOp: "clear", storeOp: "store", clearValue: { r: 0.5, g: 0.5, b: 0.5, a: 1 } });
+      if (this.gbufferMetallicEmissiveHandle) builder.colorAttachment({ handle: this.gbufferMetallicEmissiveHandle, loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } });
+      if (this.gbufferVelocityHandle) builder.colorAttachment({ handle: this.gbufferVelocityHandle, loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } });
+      if (this.gbufferDepthHandle) builder.depthAttachment({ handle: this.gbufferDepthHandle, depthLoadOp: "load", depthStoreOp: "store", depthClearValue: 1.0 });
+    } else {
+      if (this.surfaceHandle) builder.colorAttachment({ handle: this.surfaceHandle, loadOp: "clear", storeOp: "store", clearValue: { r: 0.1, g: 0.1, b: 0.12, a: 1 } });
+      if (this.depthHandle) builder.depthAttachment({ handle: this.depthHandle, depthLoadOp: "clear", depthStoreOp: "store", depthClearValue: 1.0 });
+    }
+  }
 
-    const tracked = ctx.pass instanceof TrackedRenderPass
-      ? ctx.pass
-      : new TrackedRenderPass(ctx.pass);
+  execute(ctx: GraphRenderContext): void {
+    if (!this.vertexBuffer || !this.indexBuffer || !this.mesh || !ctx.pass) return;
+
+    this.setPrevViewProj(ctx.prevViewProj);
+    this.updateCamera(ctx.viewProj);
+
+    const tracked = ctx.pass;
 
     if (this.graphMaterial && this.graphMaterial.inlineShaderSource) {
       this.ensureGraphPipeline();

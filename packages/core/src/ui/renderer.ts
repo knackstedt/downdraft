@@ -1,5 +1,3 @@
-import type { RenderPassContext } from "../render/render-pass.ts";
-import { TrackedRenderPass } from "../render/tracked-render-pass.ts";
 import type { UIDrawable } from "./element.ts";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas.ts";
 import { TextAtlasCache } from "./text-cache.ts";
@@ -421,11 +419,11 @@ export class UIRenderer {
     }
   }
 
-  render(ctx: RenderPassContext, drawables: UIDrawable[]): void {
-    if (!this.device || !this.prepared) return;
+  render(ctx: GraphRenderContext, drawables: UIDrawable[]): void {
+    if (!this.device || !this.prepared || !ctx.pass) return;
     if (drawables.length === 0) return;
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    const tracked = ctx.pass;
 
     const quadVerts: number[] = [];
     const textVerts: number[] = [];

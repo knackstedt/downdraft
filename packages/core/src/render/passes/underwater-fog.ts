@@ -1,6 +1,5 @@
-import type { RenderPassContext } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
 
 const UNDERWATER_FOG_SHADER = /* wgsl */ `
 struct Uniforms {
@@ -81,6 +80,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
 export class UnderwaterFogPass extends RenderPass {
   name = "underwater-fog";
+  surfaceHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private shaderModule: GPUShaderModule | null = null;
@@ -150,10 +150,14 @@ export class UnderwaterFogPass extends RenderPass {
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.pipeline || !this.bindGroup) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.surfaceHandle) builder.colorAttachment({ handle: this.surfaceHandle, loadOp: "load", storeOp: "store" });
+  }
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+  execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !this.bindGroup || !ctx.pass) return;
+
+    const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
     tracked.setBindGroup(0, this.bindGroup);
     tracked.draw(3);

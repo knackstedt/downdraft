@@ -1,4 +1,4 @@
-import type { RenderPassContext } from "../render-pass.ts";
+import { PassType } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
 const FULLSCREEN_VS = `
@@ -216,6 +216,11 @@ export const DEFAULT_POST_PROCESS_SETTINGS: PostProcessSettings = {
 
 export class PostProcessPass extends RenderPass {
   name = "post-process";
+  passType = PassType.Custom;
+  // Graph handles (set by RenderLoop before graph build)
+  hdrHandle: TextureHandle | null = null;
+  velocityHandle: TextureHandle | null = null;
+  surfaceHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private surfaceFormat: GPUTextureFormat;
   private width: number;
@@ -394,7 +399,7 @@ export class PostProcessPass extends RenderPass {
   }
 
   executeTAA(
-    ctx: RenderPassContext,
+    ctx: GraphRenderContext,
     currentView: GPUTextureView,
     velocityView: GPUTextureView,
     outputView: GPUTextureView,
@@ -445,7 +450,7 @@ export class PostProcessPass extends RenderPass {
   }
 
   executeBloom(
-    ctx: RenderPassContext,
+    ctx: GraphRenderContext,
     sourceView: GPUTextureView,
   ): GPUTextureView {
     if (!this.bloomPipeline || !this.sampler) return sourceView;
@@ -544,7 +549,7 @@ export class PostProcessPass extends RenderPass {
   }
 
   executeTonemap(
-    ctx: RenderPassContext,
+    ctx: GraphRenderContext,
     sourceView: GPUTextureView,
     bloomView: GPUTextureView,
     outputView: GPUTextureView,
@@ -577,8 +582,30 @@ export class PostProcessPass extends RenderPass {
     ctx.device.queue.submit([encoder.finish()]);
   }
 
-  execute(_ctx: RenderPassContext): void {
-    // Use executeTAA, executeBloom, executeTonemap individually
+  setup(builder: FrameGraphBuilder): void {
+    if (this.hdrHandle) builder.read(this.hdrHandle);
+    if (this.velocityHandle) builder.read(this.velocityHandle);
+    if (this.surfaceHandle) builder.write(this.surfaceHandle);
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!this.hdrHandle || !this.surfaceHandle) return;
+
+    const hdrView = ctx.getView(this.hdrHandle);
+    const surfaceView = ctx.getView(this.surfaceHandle);
+    const velocityView = this.velocityHandle ? ctx.getView(this.velocityHandle) : hdrView;
+
+    // TAA stage
+    const taaOutput = this.executeTAA(ctx, hdrView, velocityView, this.taaOutputView!);
+
+    // Bloom stage (if enabled)
+    let bloomView = taaOutput;
+    if (ctx.bloomEnabled) {
+      bloomView = this.executeBloom(ctx, taaOutput);
+    }
+
+    // Tonemap stage → output to surface
+    this.executeTonemap(ctx, taaOutput, bloomView, surfaceView);
   }
 
   destroy(): void {

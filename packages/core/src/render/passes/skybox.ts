@@ -1,7 +1,5 @@
-import type { RenderPassContext } from "../render-pass.ts";
+import { type Mat4 } from "wgpu-matrix";
 import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
 
 const SKYBOX_SHADER = `
 struct CameraUniforms {
@@ -48,6 +46,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
 export class SkyboxPass extends RenderPass {
   name = "skybox";
+  depthHandle: TextureHandle | null = null;
+  hdrHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private shaderModule: GPUShaderModule | null = null;
@@ -135,12 +135,19 @@ export class SkyboxPass extends RenderPass {
     });
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.pipeline) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.depthHandle) builder.depthAttachment({ handle: this.depthHandle, depthLoadOp: "load", depthStoreOp: "store", depthReadOnly: true });
+    if (this.hdrHandle) builder.colorAttachment({ handle: this.hdrHandle, loadOp: "load", storeOp: "store" });
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !ctx.pass) return;
     this.ensureBindGroup();
     if (!this.bindGroup) return;
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    this.setCamera(ctx.viewProj, ctx.invViewProj, ctx.cameraPos);
+
+    const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
     tracked.setBindGroup(0, this.bindGroup);
     tracked.draw(6);

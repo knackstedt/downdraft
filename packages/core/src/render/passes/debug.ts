@@ -1,7 +1,6 @@
-import { RenderPass, type RenderPassContext } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
+import { type Mat4 } from "wgpu-matrix";
 import type { DebugDrawQueue, DebugText } from "../../debug-draw/queue.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
+import { RenderPass } from "../render-pass.ts";
 
 const DEBUG_LINE_SHADER = `
 struct CameraUniforms {
@@ -273,6 +272,8 @@ function getGlyphUV(code: number): [number, number, number, number] {
 
 export class DebugRenderPass extends RenderPass {
   name = "debug";
+  surfaceHandle: TextureHandle | null = null;
+  depthHandle: TextureHandle | null = null;
   private debugQueue: DebugDrawQueue | null = null;
   private device: GPUDevice | null = null;
   private surfaceFormat: GPUTextureFormat;
@@ -475,14 +476,22 @@ export class DebugRenderPass extends RenderPass {
     this.screenHeight = height;
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.debugQueue || this.debugQueue.isEmpty() || !this.device) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.depthHandle) builder.depthAttachment({ handle: this.depthHandle, depthLoadOp: "load", depthStoreOp: "store", depthReadOnly: true });
+    if (this.surfaceHandle) builder.colorAttachment({ handle: this.surfaceHandle, loadOp: "load", storeOp: "store" });
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!this.debugQueue || this.debugQueue.isEmpty() || !this.device || !ctx.pass) return;
     if (!this.linePipeline || !this.pointPipeline || !this.lineBindGroup || !this.pointBindGroup) return;
+
+    this.setScreenSize(ctx.width, ctx.height);
+    this.setCameraViewProj(ctx.viewProj);
 
     const lines = this.debugQueue.getLines();
     const points = this.debugQueue.getPoints();
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    const tracked = ctx.pass;
 
     if (lines.length > 0) {
       const vertexCount = Math.min(lines.length * 2, this.maxLineVertices);

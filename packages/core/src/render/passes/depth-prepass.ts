@@ -1,8 +1,6 @@
-import type { RenderPassContext } from "../render-pass.ts";
-import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
+import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
+import { RenderPass } from "../render-pass.ts";
 
 const DEPTH_PREPASS_SHADER = `
 struct CameraUniforms {
@@ -24,6 +22,7 @@ fn vs_main(input: VertexInput) -> @builtin(position) vec4<f32> {
 
 export class DepthPrepass extends RenderPass {
   name = "depth-prepass";
+  depthHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipelines: Map<number, GPURenderPipeline> = new Map();
   private bindGroups: Map<number, GPUBindGroup> = new Map();
@@ -92,17 +91,28 @@ export class DepthPrepass extends RenderPass {
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, viewProj as unknown as BufferSource);
   }
 
-  execute(ctx: RenderPassContext, mesh: MeshData, modelMatrix: Mat4): void;
-  execute(ctx: RenderPassContext): void;
-  execute(ctx: RenderPassContext, mesh?: MeshData, modelMatrix?: Mat4): void {
-    if (!this.shaderModule || !mesh || !modelMatrix) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (!this.depthHandle) return;
+    builder.depthAttachment({
+      handle: this.depthHandle,
+      depthLoadOp: "clear",
+      depthStoreOp: "store",
+      depthClearValue: 1.0,
+    });
+  }
 
+  execute(ctx: GraphRenderContext): void {
+    if (!this.shaderModule || !ctx.pass) return;
+    const mesh = ctx.mesh;
+    const modelMatrix = ctx.modelMatrix;
+
+    this.setCameraViewProj(ctx.viewProj);
     this.device.queue.writeBuffer(this.modelBuffer!, 0, modelMatrix as unknown as BufferSource);
 
     const pipeline = this.getPipeline(mesh.layout.stride);
     const bindGroup = this.bindGroups.get(mesh.layout.stride)!;
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    const tracked = ctx.pass;
     tracked.setPipeline(pipeline);
     tracked.setBindGroup(0, bindGroup);
     tracked.setVertexBuffer(0, this.getVertexBuffer(mesh));
