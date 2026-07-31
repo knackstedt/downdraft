@@ -1,7 +1,10 @@
+import { createLogger } from "../util/logger.ts";
 import type { Archetype } from "./archetype.ts";
 import type { Query } from "./query.ts";
 import { Stage, type System, type SystemContext } from "./system.ts";
 export type { SystemContext };
+
+const log = createLogger();
 
 interface ScheduledSystem {
   system: System;
@@ -196,7 +199,10 @@ export class Schedule {
 
     const visit = (name: string, path: Set<string>) => {
       if (visited.has(name)) return;
-      if (path.has(name)) return; // cycle — skip
+      if (path.has(name)) {
+        log.warn("Schedule", `System dependency cycle detected involving "${name}" — skipping`);
+        return;
+      }
       const entry = nameToSys.get(name);
       if (!entry) return;
 
