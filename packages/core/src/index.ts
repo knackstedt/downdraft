@@ -198,7 +198,14 @@ export type { TextureData, TextureFormat } from "./assets/loader-texture.ts";
 export { LODGenerator } from "./assets/lod.ts";
 export type { LODConfig, LODLevel } from "./assets/lod.ts";
 export { AssetManager } from "./assets/manager.ts";
-export type { AssetRef } from "./assets/manager.ts";
+export type {
+    AssetDestructor,
+    AssetLoadProgress,
+    AssetManagerOptions,
+    AssetPriority,
+    AssetRef,
+    ProgressCallback
+} from "./assets/manager.ts";
 
 // Physics
 export { PhysicsTransform, RigidBody, Velocity } from "./physics/body.ts";

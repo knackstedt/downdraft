@@ -1,3 +1,4 @@
+import type { AssetManager, AssetPriority } from "../assets/manager.ts";
 import type { Entity } from "../ecs/entity.ts";
 import type { World } from "../ecs/world.ts";
 import { createLogger } from "../util/logger.ts";
@@ -32,10 +33,21 @@ export interface StreamConfig {
   cameraPos?: () => [number, number, number];
   loader?: ChunkLoader;
   unloader?: ChunkUnloader;
+  assetManager?: AssetManager;
+  assetUriPrefix?: string;
 }
 
 export type ChunkLoader = (coord: ChunkCoord) => Promise<Entity[]>;
 export type ChunkUnloader = (coord: ChunkCoord, data: ChunkData) => void;
+
+function distanceToPriority(distSq: number, loadRadius: number): AssetPriority {
+  const dist = Math.sqrt(distSq);
+  const ratio = dist / loadRadius;
+  if (ratio < 0.25) return "critical";
+  if (ratio < 0.5) return "high";
+  if (ratio < 0.75) return "normal";
+  return "low";
+}
 
 export function chunkKey(coord: ChunkCoord): string {
   return `${coord.x}:${coord.z}`;
@@ -48,10 +60,24 @@ export function worldToChunk(pos: [number, number, number], chunkSize: number): 
   };
 }
 
+interface ChunkLoadEntry {
+  coord: ChunkCoord;
+  priority: AssetPriority;
+  priorityValue: number;
+}
+
+const CHUNK_PRIORITY_VALUES: Record<AssetPriority, number> = {
+  critical: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+  background: 4,
+};
+
 export class WorldStreamer {
   private config: StreamConfig;
   private chunks: Map<string, ChunkData> = new Map();
-  private loadQueue: ChunkCoord[] = [];
+  private loadQueue: ChunkLoadEntry[] = [];
   private loading: Set<string> = new Set();
   private world: World;
   private camera: Camera;
@@ -85,18 +111,24 @@ export class WorldStreamer {
         }
 
         if (this.loading.has(key)) continue;
-        if (this.loadQueue.some((c) => c.x === coord.x && c.z === coord.z)) continue;
+        if (this.loadQueue.some((e) => e.coord.x === coord.x && e.coord.z === coord.z)) continue;
 
         const distSq = dx * dx + dz * dz;
         if (distSq > radius * radius) continue;
 
-        this.loadQueue.push(coord);
+        const priority = distanceToPriority(distSq, radius);
+        this.loadQueue.push({
+          coord,
+          priority,
+          priorityValue: CHUNK_PRIORITY_VALUES[priority],
+        });
       }
     }
 
     this.loadQueue.sort((a, b) => {
-      const distA = (a.x - camChunk.x) ** 2 + (a.z - camChunk.z) ** 2;
-      const distB = (b.x - camChunk.x) ** 2 + (b.z - camChunk.z) ** 2;
+      if (a.priorityValue !== b.priorityValue) return a.priorityValue - b.priorityValue;
+      const distA = (a.coord.x - camChunk.x) ** 2 + (a.coord.z - camChunk.z) ** 2;
+      const distB = (b.coord.x - camChunk.x) ** 2 + (b.coord.z - camChunk.z) ** 2;
       return distA - distB;
     });
   }
@@ -135,7 +167,8 @@ export class WorldStreamer {
     const loader = this.config.loader;
     if (!loader) return;
     while (this.loadQueue.length > 0 && this.loading.size < this.config.maxConcurrentLoads) {
-      const coord = this.loadQueue.shift()!;
+      const entry = this.loadQueue.shift()!;
+      const coord = entry.coord;
       const key = chunkKey(coord);
       if (this.loading.has(key)) continue;
       if (this.chunks.has(key) && this.chunks.get(key)!.loaded) continue;
@@ -143,6 +176,11 @@ export class WorldStreamer {
       this.loading.add(key);
 
       try {
+        if (this.config.assetManager && this.config.assetUriPrefix) {
+          const assetUri = `${this.config.assetUriPrefix}${key}.chunk`;
+          await this.config.assetManager.load(assetUri, entry.priority);
+        }
+
         const entities = await loader(coord);
         const chunk: ChunkData = {
           coord,
@@ -180,6 +218,10 @@ export class WorldStreamer {
     return this.loadQueue.length + this.loading.size;
   }
 
+  getLoadQueuePriorities(): { coord: ChunkCoord; priority: AssetPriority }[] {
+    return this.loadQueue.map((e) => ({ coord: e.coord, priority: e.priority }));
+  }
+
   isChunkLoaded(coord: ChunkCoord): boolean {
     const chunk = this.chunks.get(chunkKey(coord));
     return chunk?.loaded ?? false;
@@ -190,7 +232,11 @@ export class WorldStreamer {
   }
 
   forceLoad(coord: ChunkCoord): Promise<void> {
-    this.loadQueue.unshift(coord);
+    this.loadQueue.unshift({
+      coord,
+      priority: "critical",
+      priorityValue: 0,
+    });
     return this.processLoadQueue();
   }
 

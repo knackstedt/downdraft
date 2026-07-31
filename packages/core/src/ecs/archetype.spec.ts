@@ -1,9 +1,10 @@
 import {
-  createArchetype,
-  archetypeMatches,
-  addEntityToArchetype,
-  removeEntityFromArchetype,
-  getComponentColumn,
+    addEntityToArchetype,
+    archetypeMatches,
+    createArchetype,
+    findEntityRow,
+    getComponentColumn,
+    removeEntityFromArchetype,
 } from "./archetype.ts";
 import { component } from "./component.ts";
 import type { Entity } from "./entity.ts";
@@ -109,5 +110,41 @@ describe("Archetype", () => {
   it("removeEntityFromArchetype should not crash on empty archetype", () => {
     const arch = createArchetype([Position.id]);
     expect(() => removeEntityFromArchetype(arch, makeEntity(999))).not.toThrow();
+  });
+
+  it("findEntityRow should return correct row after swap-and-pop removal", () => {
+    const arch = createArchetype([Position.id]);
+    const e1 = makeEntity(1);
+    const e2 = makeEntity(2);
+    const e3 = makeEntity(3);
+
+    addEntityToArchetype(arch, e1, new Map([[Position.id, { x: 1, y: 0 }]]));
+    addEntityToArchetype(arch, e2, new Map([[Position.id, { x: 2, y: 0 }]]));
+    addEntityToArchetype(arch, e3, new Map([[Position.id, { x: 3, y: 0 }]]));
+
+    // Remove e2 — triggers swap-and-pop: e3 moves from row 2 to row 1
+    removeEntityFromArchetype(arch, e2);
+
+    // e1 should still be at row 0
+    expect(findEntityRow(arch, e1)).toBe(0);
+    // e3 should now be at row 1 (swapped from row 2)
+    expect(findEntityRow(arch, e3)).toBe(1);
+    // e2 should not be found
+    expect(findEntityRow(arch, e2)).toBe(-1);
+
+    // Component data should reflect the swap
+    const col = getComponentColumn<typeof Position.defaults>(arch, Position.id);
+    expect(col[0].x).toBe(1);
+    expect(col[1].x).toBe(3);
+  });
+
+  it("findEntityRow should return -1 for stale generation", () => {
+    const arch = createArchetype([Position.id]);
+    const e = makeEntity(5, 0);
+
+    addEntityToArchetype(arch, e, new Map([[Position.id, { x: 0, y: 0 }]]));
+
+    // Same index but different generation — should not match
+    expect(findEntityRow(arch, makeEntity(5, 1))).toBe(-1);
   });
 });

@@ -1,7 +1,7 @@
-import { Query, query, queryExcluded, queryChanged } from "./query.ts";
-import { createArchetype, archetypeMatches, addEntityToArchetype } from "./archetype.ts";
+import { addEntityToArchetype, createArchetype } from "./archetype.ts";
 import { component } from "./component.ts";
 import type { Entity } from "./entity.ts";
+import { Query, query, queryChanged, queryExcluded } from "./query.ts";
 
 const Position = component("Position", { x: 0, y: 0, lastChanged: 0 });
 const Velocity = component("Velocity", { vx: 0, vy: 0, lastChanged: 0 });
@@ -141,6 +141,42 @@ describe("Query", () => {
     });
 
     expect(count).toBe(1);
+  });
+
+  it("iterate should provide correct component data for each entity across multiple iterations", () => {
+    const arch = createArchetype([Position.id, Velocity.id]);
+    const e1 = makeEntity(1);
+    const e2 = makeEntity(2);
+    const e3 = makeEntity(3);
+
+    addEntityToArchetype(arch, e1, new Map([
+      [Position.id, { x: 10, y: 0, lastChanged: 0 }],
+      [Velocity.id, { vx: 100, vy: 0, lastChanged: 0 }],
+    ]));
+    addEntityToArchetype(arch, e2, new Map([
+      [Position.id, { x: 20, y: 0, lastChanged: 0 }],
+      [Velocity.id, { vx: 200, vy: 0, lastChanged: 0 }],
+    ]));
+    addEntityToArchetype(arch, e3, new Map([
+      [Position.id, { x: 30, y: 0, lastChanged: 0 }],
+      [Velocity.id, { vx: 300, vy: 0, lastChanged: 0 }],
+    ]));
+
+    const q = query(Position.id, Velocity.id);
+    q.updateArchetypes([arch]);
+
+    const results: Array<{ entityIndex: number; posX: number; velX: number }> = [];
+    q.iterate(1, (entity, comps) => {
+      const pos = comps[0] as { x: number; y: number };
+      const vel = comps[1] as { vx: number; vy: number };
+      results.push({ entityIndex: entity.index, posX: pos.x, velX: vel.vx });
+    });
+
+    expect(results).toEqual([
+      { entityIndex: 1, posX: 10, velX: 100 },
+      { entityIndex: 2, posX: 20, velX: 200 },
+      { entityIndex: 3, posX: 30, velX: 300 },
+    ]);
   });
 
   it("iterate should update lastReadTick", () => {
