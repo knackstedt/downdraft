@@ -1573,6 +1573,7 @@ export class EntityRenderer {
   private instanceDataF32: Float32Array | null = null;
   private instanceDataU32: Uint32Array | null = null;
   private instanceCount = 0;
+  private _lastFrameTriangles = 0;
   private frameUniformData = new Float32Array(32); // 128 bytes
 
   // Pooled voxel collision data (avoids per-frame allocation when weather particles active)
@@ -4688,7 +4689,7 @@ export class EntityRenderer {
   }
 
   renderInstanced(passEncoder: GPURenderPassEncoder): void {
-    if (!this.instancedPipeline || !this.instancedBindGroup || !this.cubeVertices || !this.cubeIndices || this.instanceCount === 0) return;
+    if (!this.instancedPipeline || !this.instancedBindGroup || !this.cubeVertices || !this.cubeIndices || this.instanceCount === 0) { this._lastFrameTriangles = 0; return; }
     passEncoder.setPipeline(this.instancedPipeline);
     passEncoder.setBindGroup(0, this.instancedBindGroup);
     if (this.lightBindGroup) {
@@ -4700,6 +4701,11 @@ export class EntityRenderer {
     passEncoder.setVertexBuffer(0, this.cubeVertices);
     passEncoder.setIndexBuffer(this.cubeIndices, "uint16");
     passEncoder.drawIndexed(this.cubeIndexCount, this.instanceCount);
+    this._lastFrameTriangles = Math.floor(this.cubeIndexCount / 3) * this.instanceCount;
+  }
+
+  getLastFrameTriangles(): number {
+    return this._lastFrameTriangles;
   }
 
   writeInstancedHitbox(
@@ -5424,7 +5430,9 @@ export class EntityRenderer {
   }
 
   render(passEncoder: GPURenderPassEncoder, idx: number): void {
-    if (!this.bindGroup || !this.uniformBuffer) return;
+    if (!this.bindGroup || !this.uniformBuffer) { return; }
+
+    let tris = 0;
 
     // Bind dynamic light storage buffer (group 1) — same for all lit pipelines in this frame
     if (this.lightBindGroup) {
@@ -5447,6 +5455,7 @@ export class EntityRenderer {
       passEncoder.setVertexBuffer(0, this.skinnedPlayerVertices);
       passEncoder.setIndexBuffer(this.skinnedPlayerIndices, this.skinnedPlayerIndexFormat);
       passEncoder.drawIndexed(this.skinnedPlayerIndexCount);
+      tris += Math.floor(this.skinnedPlayerIndexCount / 3);
 
       // Render clothing pieces (share same bone matrix bind group)
       for (let ci = 0; ci < this.clothingPieces.length; ci++) {
@@ -5455,7 +5464,9 @@ export class EntityRenderer {
         passEncoder.setVertexBuffer(0, piece.vertices);
         passEncoder.setIndexBuffer(piece.indices, piece.indexFormat);
         passEncoder.drawIndexed(piece.indexCount);
+        tris += Math.floor(piece.indexCount / 3);
       }
+      this._lastFrameTriangles += tris;
       return;
     }
 
@@ -5466,6 +5477,7 @@ export class EntityRenderer {
       passEncoder.setVertexBuffer(0, this.playerMeshVertices);
       passEncoder.setIndexBuffer(this.playerMeshIndices, this.playerMeshIndexFormat);
       passEncoder.drawIndexed(this.playerMeshIndexCount);
+      this._lastFrameTriangles += Math.floor(this.playerMeshIndexCount / 3);
       return;
     }
 
@@ -5481,6 +5493,7 @@ export class EntityRenderer {
         passEncoder.setVertexBuffer(0, islandMesh.vertices);
         passEncoder.setIndexBuffer(islandMesh.indices, islandMesh.useUint32 ? "uint32" : "uint16");
         passEncoder.drawIndexed(islandMesh.indexCount);
+        tris += Math.floor(islandMesh.indexCount / 3);
 
         // Render decorations for this island (second draw call, same pipeline/uniform)
         const deco = this.decorationMeshes.get(islandKey);
@@ -5488,6 +5501,7 @@ export class EntityRenderer {
           passEncoder.setVertexBuffer(0, deco.vertices);
           passEncoder.setIndexBuffer(deco.indices, "uint16");
           passEncoder.drawIndexed(deco.indexCount);
+          tris += Math.floor(deco.indexCount / 3);
         }
       } else {
         // Render chunked island meshes (progressive streaming)
@@ -5502,6 +5516,7 @@ export class EntityRenderer {
               passEncoder.setVertexBuffer(0, chunk.vertices);
               passEncoder.setIndexBuffer(chunk.indices, chunk.useUint32 ? "uint32" : "uint16");
               passEncoder.drawIndexed(chunk.indexCount);
+              tris += Math.floor(chunk.indexCount / 3);
             }
           }
           // Render decorations for this island
@@ -5510,9 +5525,11 @@ export class EntityRenderer {
             passEncoder.setVertexBuffer(0, deco.vertices);
             passEncoder.setIndexBuffer(deco.indices, "uint16");
             passEncoder.drawIndexed(deco.indexCount);
+            tris += Math.floor(deco.indexCount / 3);
           }
         }
       }
+      this._lastFrameTriangles += tris;
       return;
     }
 
@@ -5529,6 +5546,7 @@ export class EntityRenderer {
         passEncoder.setVertexBuffer(0, portTerrain.vertices);
         passEncoder.setIndexBuffer(portTerrain.indices, portTerrain.useUint32 ? "uint32" : "uint16");
         passEncoder.drawIndexed(portTerrain.indexCount);
+        tris += Math.floor(portTerrain.indexCount / 3);
       }
 
       // Second: render biome-specific port structures (dock, pier, buildings)
@@ -5539,6 +5557,8 @@ export class EntityRenderer {
         passEncoder.setVertexBuffer(0, portStruct.vertices);
         passEncoder.setIndexBuffer(portStruct.indices, portStruct.useUint32 ? "uint32" : "uint16");
         passEncoder.drawIndexed(portStruct.indexCount);
+        tris += Math.floor(portStruct.indexCount / 3);
+        this._lastFrameTriangles += tris;
         return;
       }
 
@@ -5555,6 +5575,7 @@ export class EntityRenderer {
           passEncoder.setVertexBuffer(0, pv);
           passEncoder.setIndexBuffer(pi, "uint16");
           passEncoder.drawIndexed(pic);
+          this._lastFrameTriangles += Math.floor(pic / 3);
           return;
         }
       }
@@ -5569,6 +5590,7 @@ export class EntityRenderer {
         passEncoder.setVertexBuffer(0, this.boatVertices);
         passEncoder.setIndexBuffer(this.boatIndices, "uint16");
         passEncoder.drawIndexed(count, 1, offset, 0, 0);
+        this._lastFrameTriangles += Math.floor(count / 3);
         return;
       }
     }
@@ -5578,6 +5600,7 @@ export class EntityRenderer {
       passEncoder.setVertexBuffer(0, this.cubeVertices);
       passEncoder.setIndexBuffer(this.cubeIndices, "uint16");
       passEncoder.drawIndexed(this.cubeIndexCount);
+      this._lastFrameTriangles += Math.floor(this.cubeIndexCount / 3);
     }
   }
 

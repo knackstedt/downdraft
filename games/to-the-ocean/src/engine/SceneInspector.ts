@@ -901,6 +901,30 @@ export class SceneInspector {
         };
       },
 
+      // --- GPU Debugging ---
+
+      getGPUInfo: (): any => {
+        return this.renderer?.getGPUInfo() ?? null;
+      },
+
+      getGPUErrors: (): any => {
+        return this.renderer?.getGPUErrors() ?? [];
+      },
+
+      clearGPUErrors: (): void => {
+        this.renderer?.clearGPUErrors();
+      },
+
+      getFrameTelemetry: (): any => {
+        return this.renderer?.getFrameTelemetry() ?? null;
+      },
+
+      getGPUResourceStats: (): any => {
+        const tracker = this.renderer?.getGPUResourceTracker();
+        if (!tracker) return null;
+        return tracker.getStats();
+      },
+
       getVersion: (): string => {
         return "1.0.0";
       },

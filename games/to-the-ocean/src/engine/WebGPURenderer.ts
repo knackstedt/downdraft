@@ -19,6 +19,7 @@ import { CloudSystem } from "./CloudSystem";
 import { DebugOverlay } from "./DebugOverlay";
 import { DebugRaycast } from "./DebugRaycast";
 import { EntityRenderer } from "./EntityRenderer";
+import { GPUResourceTracker } from "./GPUResourceTracker";
 import { LabelOverlay } from "./LabelOverlay";
 import { LightSystem } from "./LightSystem";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "./ModelLoader";
@@ -95,6 +96,12 @@ export class WebGPURenderer {
   private telemetryCollector: TelemetryCollector | null = null;
   private profilingOverlay: ProfilingOverlay | null = null;
   private frameDrawCalls: number = 0;
+  private frameTriangles: number = 0;
+
+  // GPU debugging state
+  private adapterInfo: any = null;
+  private gpuErrors: Array<{ timestamp: number; message: string; label?: string }> = [];
+  private gpuResourceTracker: GPUResourceTracker | null = null;
 
   // Flashlight toggle state
   private flashlightOn = false;
@@ -245,12 +252,24 @@ export class WebGPURenderer {
         return false;
       }
 
+      // Store adapter info for DevTools GPU tab
+      this.adapterInfo = (adapter as any).info ?? null;
+
       this.device = await adapter.requestDevice();
+
+      // Wrap device with GPU resource tracker for VRAM visibility
+      this.gpuResourceTracker = new GPUResourceTracker();
+      this.gpuResourceTracker.wrapDevice(this.device);
 
       // Capture silent WebGPU validation errors — without this, GPU errors
       // (e.g. from NaN/Infinity in uniforms) go completely unreported.
+      const self = this;
       this.device.onuncapturederror = function(ev: GPUUncapturedErrorEvent) {
-        console.error(`[RENDERER] ${this.label} WebGPU uncaptured error: ${ev.error.message}`);
+        const label = (ev.error as any)?.label ?? "";
+        const entry = { timestamp: performance.now(), message: ev.error.message, label: label || undefined };
+        self.gpuErrors.push(entry);
+        if (self.gpuErrors.length > 100) self.gpuErrors.shift();
+        console.error(`[RENDERER] ${label || ""} WebGPU uncaptured error: ${ev.error.message}`);
       };
 
       this.device.lost.then((info: any) => {
@@ -817,8 +836,9 @@ export class WebGPURenderer {
     // Record telemetry — use inter-frame interval for FPS and frame time
     if (this.telemetryCollector) {
       this.telemetryCollector.recordFrame(dt * 1000);
-      this.telemetryCollector.recordDrawStats(this.frameDrawCalls, 0);
+      this.telemetryCollector.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
       this.frameDrawCalls = 0;
+      this.frameTriangles = 0;
     }
 
     requestAnimationFrame(this.render);
@@ -1365,6 +1385,7 @@ export class WebGPURenderer {
       this.entityRenderer!.render(passEncoder, d);
       this.frameDrawCalls++;
     }
+    this.frameTriangles += this.entityRenderer!.getLastFrameTriangles();
     // Render anchor 3D meshes before water (proper depth-tested, lit geometry)
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
 
@@ -1819,6 +1840,89 @@ export class WebGPURenderer {
 
   getTelemetryCollector(): TelemetryCollector | null {
     return this.telemetryCollector;
+  }
+
+  getAdapterInfo(): any {
+    return this.adapterInfo;
+  }
+
+  getGPUErrors(): Array<{ timestamp: number; message: string; label?: string }> {
+    return this.gpuErrors;
+  }
+
+  clearGPUErrors(): void {
+    this.gpuErrors = [];
+  }
+
+  getGPUResourceTracker(): GPUResourceTracker | null {
+    return this.gpuResourceTracker;
+  }
+
+  getGPUInfo(): any {
+    const a = this.adapterInfo;
+    const adapter = a ? {
+      vendor: a.vendor ?? "",
+      architecture: a.architecture ?? "",
+      device: a.device ?? "",
+      description: a.description ?? "",
+    } : null;
+
+    const limits = this.device?.limits;
+    const deviceLimits = limits ? {
+      maxTextureDimension1D: limits.maxTextureDimension1D,
+      maxTextureDimension2D: limits.maxTextureDimension2D,
+      maxTextureDimension3D: limits.maxTextureDimension3D,
+      maxTextureArrayLayers: limits.maxTextureArrayLayers,
+      maxBindGroups: limits.maxBindGroups,
+      maxBindGroupsPerShaderStage: (limits as any).maxBindGroupsPerShaderStage,
+      maxBindingsPerBindGroup: (limits as any).maxBindingsPerBindGroup,
+      maxBufferSize: limits.maxBufferSize,
+      maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
+      maxUniformBufferBindingSize: limits.maxUniformBufferBindingSize,
+      maxDynamicUniformBuffersPerPipelineLayout: limits.maxDynamicUniformBuffersPerPipelineLayout,
+      maxDynamicStorageBuffersPerPipelineLayout: limits.maxDynamicStorageBuffersPerPipelineLayout,
+      maxSampledTexturesPerShaderStage: limits.maxSampledTexturesPerShaderStage,
+      maxSamplersPerShaderStage: limits.maxSamplersPerShaderStage,
+      maxStorageBuffersPerShaderStage: limits.maxStorageBuffersPerShaderStage,
+      maxStorageTexturesPerShaderStage: limits.maxStorageTexturesPerShaderStage,
+      maxUniformBuffersPerShaderStage: limits.maxUniformBuffersPerShaderStage,
+      maxVertexAttributes: limits.maxVertexAttributes,
+      maxVertexBuffers: limits.maxVertexBuffers,
+      maxVertexBufferArrayStride: limits.maxVertexBufferArrayStride,
+      minUniformBufferOffsetAlignment: limits.minUniformBufferOffsetAlignment,
+      minStorageBufferOffsetAlignment: limits.minStorageBufferOffsetAlignment,
+      maxColorAttachments: limits.maxColorAttachments,
+      maxColorAttachmentBytesPerSample: limits.maxColorAttachmentBytesPerSample,
+      maxComputeWorkgroupStorageSize: limits.maxComputeWorkgroupStorageSize,
+      maxComputeInvocationsPerWorkgroup: limits.maxComputeInvocationsPerWorkgroup,
+      maxComputeWorkgroupSizeX: limits.maxComputeWorkgroupSizeX,
+      maxComputeWorkgroupSizeY: limits.maxComputeWorkgroupSizeY,
+      maxComputeWorkgroupSizeZ: limits.maxComputeWorkgroupSizeZ,
+      maxComputeWorkgroupsPerDimension: limits.maxComputeWorkgroupsPerDimension,
+    } : null;
+
+    return {
+      adapter,
+      deviceLost: this.deviceLost,
+      canvasFormat: this.format,
+      msaaSampleCount: MSAA_SAMPLE_COUNT,
+      canvasSize: { width: this.canvas.width, height: this.canvas.height },
+      deviceLimits,
+    };
+  }
+
+  getFrameTelemetry(): any {
+    if (!this.telemetryCollector) return null;
+    return {
+      frameTimes: this.telemetryCollector.getFrameTimes(),
+      avgFrameTime: this.telemetryCollector.getAverageFrameTime(),
+      p95: this.telemetryCollector.getFrameTimePercentile(0.95),
+      p99: this.telemetryCollector.getFrameTimePercentile(0.99),
+      fps: this.telemetryCollector.getFPS(),
+      drawCalls: this.telemetryCollector.getDrawStats().drawCalls,
+      triangles: this.telemetryCollector.getDrawStats().triangles,
+      gpuTimeMs: this.telemetryCollector.getGpuTime(),
+    };
   }
 
   markUILayoutDirty(): void {

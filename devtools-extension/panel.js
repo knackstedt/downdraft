@@ -76,7 +76,7 @@
   }
 
   function callInspector(method, args) {
-    var code = "(window.__sceneInspector && window.__sceneInspector." + method + "(";
+    var code = "(function(){ var r = window.__sceneInspector && window.__sceneInspector." + method + "(";
     if (args !== undefined && args !== null) {
       if (Array.isArray(args)) {
         code += args.map(function (a) { return JSON.stringify(a); }).join(",");
@@ -84,9 +84,16 @@
         code += JSON.stringify(args);
       }
     }
-    code += "))";
+    code += "); return r === undefined ? null : (typeof r === 'object' ? JSON.stringify(r) : r); })()";
     return new Promise(function (resolve) {
       evalInPage(code, function (result, err) {
+        if (err || result === null || result === undefined) {
+          resolve({ result: null, err: err });
+          return;
+        }
+        if (typeof result === "string") {
+          try { result = JSON.parse(result); } catch (e) { /* leave as string */ }
+        }
         resolve({ result: result, err: err });
       });
     });
@@ -1486,6 +1493,13 @@
   var perfHistory = { gpu: [], renderer: [], main: [], worker: [] };
   var PERF_MAX_POINTS = 60;
 
+  // GPU tab
+  var btnViewGpu = document.getElementById("btn-view-gpu");
+  var gpuPanel = document.getElementById("gpu-panel");
+  var gpuStatusEl = document.getElementById("gpu-status");
+  var gpuTimer = null;
+  var gpuErrorCount = -1; // track to avoid re-rendering error log when unchanged
+
   function switchView(view) {
     currentView = view;
     // Update tab button states
@@ -1495,6 +1509,7 @@
     btnViewImport.classList.toggle("active", view === "import");
     btnViewWorld.classList.toggle("active", view === "world");
     btnViewPerf.classList.toggle("active", view === "perf");
+    btnViewGpu.classList.toggle("active", view === "gpu");
     // Show/hide scene toolbar (only for scene tab)
     sceneToolbarEl.classList.toggle("hidden", view !== "scene");
     // Show/hide panels
@@ -1504,6 +1519,7 @@
     importPanel.style.display = view === "import" ? "block" : "none";
     worldPanel.style.display = view === "world" ? "block" : "none";
     perfPanel.style.display = view === "perf" ? "block" : "none";
+    gpuPanel.style.display = view === "gpu" ? "block" : "none";
     // Manage timers
     if (view === "debug") {
       refreshDebugInfo();
@@ -1541,6 +1557,20 @@
         function () {},
       );
     }
+    if (view === "gpu") {
+      refreshGPUInfo();
+      refreshGPUErrors();
+      refreshFrameTelemetry();
+      refreshGPUResources();
+      if (!gpuTimer) gpuTimer = setInterval(function () {
+        refreshGPUInfo();
+        refreshGPUErrors();
+        refreshFrameTelemetry();
+        refreshGPUResources();
+      }, 500);
+    } else {
+      if (gpuTimer) { clearInterval(gpuTimer); gpuTimer = null; }
+    }
   }
 
   btnViewScene.addEventListener("click", function () { switchView("scene"); });
@@ -1555,6 +1585,9 @@
   });
   btnViewPerf.addEventListener("click", function () {
     if (currentView === "perf") { switchView("scene"); } else { switchView("perf"); }
+  });
+  btnViewGpu.addEventListener("click", function () {
+    if (currentView === "gpu") { switchView("scene"); } else { switchView("gpu"); }
   });
 
   // --- Toggles (scene overlays, not view tabs) ---
@@ -2279,5 +2312,304 @@
     var div = document.createElement("div");
     div.textContent = String(str);
     return div.innerHTML;
+  }
+
+  // --- GPU Debugging Tab ---
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + " MB";
+    return (bytes / 1073741824).toFixed(2) + " GB";
+  }
+
+  function formatUsageFlags(usage) {
+    if (usage === undefined || usage === null) return "";
+    var flags = [];
+    if (usage & 0x01) flags.push("MAP_READ");
+    if (usage & 0x02) flags.push("MAP_WRITE");
+    if (usage & 0x04) flags.push("COPY_SRC");
+    if (usage & 0x08) flags.push("COPY_DST");
+    if (usage & 0x10) flags.push("INDEX");
+    if (usage & 0x20) flags.push("VERTEX");
+    if (usage & 0x40) flags.push("UNIFORM");
+    if (usage & 0x80) flags.push("STORAGE");
+    if (usage & 0x100) flags.push("INDIRECT");
+    if (usage & 0x200) flags.push("QUERY_RESOLVE");
+    return flags.join("|");
+  }
+
+  function refreshGPUInfo() {
+    callInspector("getGPUInfo").then(function (res) {
+      if (res.err || !res.result) {
+        gpuStatusEl.textContent = "Not available — is the renderer initialized?";
+        return;
+      }
+      var info = res.result;
+      var a = info.adapter || {};
+      gpuStatusEl.textContent =
+        (a.vendor || "Unknown") + " " + (a.architecture || "") + " — " +
+        (info.deviceLost ? "DEVICE LOST" : "OK");
+
+      // Adapter info
+      var adapterRows = [
+        ["Vendor", a.vendor || "—"],
+        ["Architecture", a.architecture || "—"],
+        ["Device", a.device || "—"],
+        ["Description", a.description || "—"],
+        ["Canvas Format", info.canvasFormat || "—"],
+        ["MSAA Samples", String(info.msaaSampleCount || 1)],
+        ["Canvas Size", (info.canvasSize ? info.canvasSize.width + "x" + info.canvasSize.height : "—")],
+        ["Device Lost", info.deviceLost ? "YES" : "No"],
+      ];
+      var adapterEl = document.getElementById("gpu-adapter-info");
+      if (adapterEl) adapterEl.innerHTML = debugGridHtml(adapterRows);
+
+      // Device limits
+      var limitsEl = document.getElementById("gpu-device-limits");
+      if (limitsEl && info.deviceLimits) {
+        var L = info.deviceLimits;
+        var limitRows = [
+          ["Max Texture D2", L.maxTextureDimension2D || "—"],
+          ["Max Texture D3", L.maxTextureDimension3D || "—"],
+          ["Max Buffer Size", formatBytes(L.maxBufferSize || 0)],
+          ["Max Bind Groups", String(L.maxBindGroups || "—")],
+          ["Max Bind Group Buffers", String(L.maxStorageBuffersPerShaderStage || "—")],
+          ["Max Storage Buffers", String(L.maxStorageBuffersPerShaderStage || "—")],
+          ["Max Samplers", String(L.maxSamplersPerShaderStage || "—")],
+          ["Max Sampled Textures", String(L.maxSampledTexturesPerShaderStage || "—")],
+          ["Max Storage Textures", String(L.maxStorageTexturesPerShaderStage || "—")],
+          ["Max Uniform Buffer Bnd", String(L.maxUniformBuffersPerShaderStage || "—")],
+          ["Max Uniform Buffer Size", formatBytes(L.maxUniformBufferBindingSize || 0)],
+          ["Max Storage Buffer Bnd Size", formatBytes(L.maxStorageBufferBindingSize || 0)],
+          ["Max Vertex Buffers", String(L.maxVertexBuffers || "—")],
+          ["Max Vertex Attributes", String(L.maxVertexAttributes || "—")],
+          ["Max Color Attachments", String(L.maxColorAttachments || "—")],
+          ["Min Subgroup Size", String(L.minSubgroupSize || "—")],
+          ["Max Subgroup Size", String(L.maxSubgroupSize || "—")],
+        ];
+        limitsEl.innerHTML = debugGridHtml(limitRows);
+      }
+    });
+  }
+
+  function refreshGPUErrors() {
+    callInspector("getGPUErrors").then(function (res) {
+      if (res.err || !res.result) return;
+      var errors = res.result;
+      if (errors.length === gpuErrorCount) return; // no change
+      gpuErrorCount = errors.length;
+      var logEl = document.getElementById("gpu-error-log");
+      if (!logEl) return;
+      if (errors.length === 0) {
+        logEl.innerHTML = '<div class="gpu-error-empty">No GPU errors recorded</div>';
+        return;
+      }
+      var html = "";
+      for (var i = errors.length - 1; i >= 0; i--) {
+        var e = errors[i];
+        var t = new Date(e.timestamp);
+        var ts = (t.getHours() < 10 ? "0" : "") + t.getHours() + ":" +
+                 (t.getMinutes() < 10 ? "0" : "") + t.getMinutes() + ":" +
+                 (t.getSeconds() < 10 ? "0" : "") + t.getSeconds() + "." +
+                 Math.floor(t.getMilliseconds() / 100);
+        html += '<div class="gpu-error-entry">';
+        html += '<span class="gpu-error-time">' + ts + '</span>';
+        if (e.label) html += '<span class="gpu-error-label">[' + escapeHtml(e.label) + ']</span>';
+        html += '<span class="gpu-error-msg">' + escapeHtml(e.message) + '</span>';
+        html += '</div>';
+      }
+      logEl.innerHTML = html;
+    });
+  }
+
+  function refreshFrameTelemetry() {
+    callInspector("getFrameTelemetry").then(function (res) {
+      if (res.err || !res.result) return;
+      var t = res.result;
+      var statsEl = document.getElementById("gpu-frame-stats");
+      if (statsEl) {
+        statsEl.innerHTML = debugGridHtml([
+          ["FPS", fmtVal(t.fps, 0)],
+          ["Avg Frame Time", fmtVal(t.avgFrameTime, 2) + " ms"],
+          ["P95 Frame Time", fmtVal(t.p95, 2) + " ms"],
+          ["P99 Frame Time", fmtVal(t.p99, 2) + " ms"],
+          ["Draw Calls", String(t.drawCalls)],
+          ["Triangles", String(t.triangles)],
+          ["GPU Time", t.gpuTimeMs > 0 ? fmtVal(t.gpuTimeMs, 2) + " ms" : "—"],
+        ]);
+      }
+      drawFrameTimeChart(t.frameTimes || []);
+    });
+  }
+
+  function drawFrameTimeChart(frameTimes) {
+    var canvas = document.getElementById("gpu-frame-chart");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    var padL = 40, padR = 8, padT = 8, padB = 16;
+    var plotW = w - padL - padR;
+    var plotH = h - padT - padB;
+
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, w, h);
+
+    // Y-axis max: 50ms or max frame time, whichever is larger
+    var maxMs = 50;
+    for (var i = 0; i < frameTimes.length; i++) {
+      if (frameTimes[i] > maxMs) maxMs = frameTimes[i];
+    }
+    maxMs = Math.ceil(maxMs / 10) * 10;
+
+    // Draw axes
+    ctx.strokeStyle = "#3e3e3e";
+    ctx.fillStyle = "#888";
+    ctx.font = "10px monospace";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + plotH);
+    ctx.lineTo(w - padR, padT + plotH);
+    ctx.stroke();
+
+    // Y-axis labels
+    for (var j = 0; j <= 5; j++) {
+      var v = (maxMs * (5 - j)) / 5;
+      var y = padT + (plotH * j) / 5;
+      ctx.fillText(fmtVal(v, 0) + "ms", 2, y + 3);
+    }
+
+    // 60fps reference line (16.67ms)
+    var y60 = padT + plotH - (plotH * 16.67) / maxMs;
+    ctx.strokeStyle = "#4ec9b0";
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padL, y60);
+    ctx.lineTo(w - padR, y60);
+    ctx.stroke();
+
+    // 30fps reference line (33.33ms)
+    var y30 = padT + plotH - (plotH * 33.33) / maxMs;
+    if (y30 > padT && y30 < padT + plotH) {
+      ctx.strokeStyle = "#e06c75";
+      ctx.beginPath();
+      ctx.moveTo(padL, y30);
+      ctx.lineTo(w - padR, y30);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Draw frame time line
+    if (frameTimes.length > 0) {
+      ctx.strokeStyle = "#98c379";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (var k = 0; k < frameTimes.length; k++) {
+        var x = padL + (plotW * k) / Math.max(1, frameTimes.length - 1);
+        var v = Math.min(maxMs, frameTimes[k]);
+        var y = padT + plotH - (plotH * v) / maxMs;
+        if (k === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Legend
+    var legendEl = document.getElementById("gpu-frame-legend");
+    if (legendEl) {
+      legendEl.innerHTML =
+        '<span class="legend-item" style="color:#98c379">Frame Time</span>' +
+        '<span class="legend-item" style="color:#4ec9b0">16.67ms (60fps)</span>' +
+        '<span class="legend-item" style="color:#e06c75">33.33ms (30fps)</span>';
+    }
+  }
+
+  function refreshGPUResources() {
+    callInspector("getGPUResourceStats").then(function (res) {
+      if (res.err || !res.result) return;
+      var stats = res.result;
+
+      // Summary
+      var summaryEl = document.getElementById("gpu-resource-summary");
+      if (summaryEl) {
+        summaryEl.innerHTML = debugGridHtml([
+          ["Textures", String(stats.textureCount)],
+          ["Texture VRAM", formatBytes(stats.textureBytes)],
+          ["Buffers", String(stats.bufferCount)],
+          ["Buffer VRAM", formatBytes(stats.bufferBytes)],
+          ["Total Resources", String(stats.textureCount + stats.bufferCount)],
+          ["Total VRAM", formatBytes(stats.totalBytes)],
+        ]);
+      }
+
+      // Resource table
+      var tbody = document.getElementById("gpu-resource-tbody");
+      if (tbody) {
+        var resources = stats.resources || [];
+        // Limit to top 200 by size to avoid DOM overload
+        var shown = resources.slice(0, 200);
+        var html = "";
+        for (var i = 0; i < shown.length; i++) {
+          var r = shown[i];
+          var typeClass = r.type === "texture" ? "gpu-res-type-text" : "gpu-res-type-buffer";
+          var formatOrUsage = r.type === "texture"
+            ? (r.format || "—")
+            : formatUsageFlags(r.usageFlags);
+          var dims = r.type === "texture"
+            ? (r.width || 0) + "x" + (r.height || 0) + (r.depthOrArrayLayers > 1 ? "x" + r.depthOrArrayLayers : "") + (r.mipLevelCount > 1 ? " (" + r.mipLevelCount + " mip)" : "")
+            : formatBytes(r.size);
+          html += '<tr>';
+          html += '<td class="' + typeClass + '">' + r.type + '</td>';
+          html += '<td>' + escapeHtml(r.label) + '</td>';
+          html += '<td class="gpu-res-callsite">' + escapeHtml(r.callsite || '') + '</td>';
+          html += '<td>' + formatBytes(r.size) + '</td>';
+          html += '<td>' + escapeHtml(formatOrUsage) + '</td>';
+          html += '<td>' + escapeHtml(dims) + '</td>';
+          html += '</tr>';
+        }
+        if (resources.length > 200) {
+          html += '<tr><td colspan="6" style="color:#888;text-align:center;">... ' + (resources.length - 200) + ' more resources (sorted by size, top 200 shown)</td></tr>';
+        }
+        tbody.innerHTML = html;
+      }
+    });
+  }
+
+  // Clear GPU errors button
+  var btnClearGpuErrors = document.getElementById("btn-clear-gpu-errors");
+  if (btnClearGpuErrors) {
+    btnClearGpuErrors.addEventListener("click", function () {
+      callInspector("clearGPUErrors").then(function () {
+        gpuErrorCount = -1;
+        refreshGPUErrors();
+      });
+    });
+  }
+
+  // Copy-to-clipboard for external tool commands
+  var toolCmds = document.querySelectorAll(".gpu-tool-command");
+  for (var ci = 0; ci < toolCmds.length; ci++) {
+    (function (el) {
+      el.addEventListener("click", function () {
+        var cmd = el.getAttribute("data-cmd") || el.textContent;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(cmd).then(function () {
+            el.classList.add("copied");
+            setTimeout(function () { el.classList.remove("copied"); }, 1500);
+          });
+        } else {
+          // Fallback for older browsers
+          var ta = document.createElement("textarea");
+          ta.value = cmd;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand("copy"); } catch (e) {}
+          document.body.removeChild(ta);
+          el.classList.add("copied");
+          setTimeout(function () { el.classList.remove("copied"); }, 1500);
+        }
+      });
+    })(toolCmds[ci]);
   }
 })();
