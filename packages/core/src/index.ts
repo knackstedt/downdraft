@@ -296,6 +296,13 @@ export type { InspectorComponent, InspectorField, InspectorState } from "./ui/in
 export { SceneTreePanel } from "./ui/scene-tree.ts";
 export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree.ts";
 
+// UI Rendering System
+export { UIButton, UIElement, UIImage, UIPanel, UIRoot, UIText } from "./ui/element.ts";
+export type { UICallbacks, UIColor, UIDrawable, UIHorizontalAlign, UILayoutMode, UIStyle, UIVerticalAlign } from "./ui/element.ts";
+export { UIInputRouter } from "./ui/input.ts";
+export { LayoutEngine } from "./ui/layout.ts";
+export { UIRenderer } from "./ui/renderer.ts";
+
 // Debug Visualization
 export { DebugVizPass, DEFAULT_DEBUG_VIZ_SETTINGS } from "./render/passes/debug-viz.ts";
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz.ts";
