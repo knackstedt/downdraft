@@ -284,11 +284,52 @@
                     <th>Size</th>
                     <th>Format/Usage</th>
                     <th>Dims</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody id="gpu-resource-tbody"></tbody>
               </table>
             </div>
+          </div>
+          <div class="debug-section">
+            <h4>Per-Pass GPU Timing</h4>
+            <div id="gpu-pass-timing-status" class="debug-label">Waiting for data...</div>
+            <div class="gpu-resource-table-wrap">
+              <table class="gpu-resource-table">
+                <thead>
+                  <tr>
+                    <th>Pass</th>
+                    <th>CPU (ms)</th>
+                    <th>GPU (ms)</th>
+                    <th>Draws</th>
+                    <th>Tris</th>
+                    <th>Pipe</th>
+                    <th>Bind</th>
+                    <th>Rebind</th>
+                  </tr>
+                </thead>
+                <tbody id="gpu-pass-timing-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="debug-section">
+            <h4>Performance Graph</h4>
+            <div class="gpu-chart-group">
+              <canvas id="gpu-perf-graph" class="perf-chart" width="600" height="160"></canvas>
+              <div id="gpu-perf-graph-legend" class="perf-legend"></div>
+            </div>
+          </div>
+          <div class="debug-section">
+            <h4>Snapshot Comparison (A/B Diff)</h4>
+            <div class="gpu-snapshot-controls">
+              <button id="btn-gpu-snapshot-save" class="gpu-clear-btn">Save Snapshot</button>
+              <button id="btn-gpu-snapshot-clear" class="gpu-clear-btn">Clear All</button>
+              <select id="gpu-snapshot-a" class="gpu-snapshot-select"><option value="-1">— Snapshot A —</option></select>
+              <select id="gpu-snapshot-b" class="gpu-snapshot-select"><option value="-1">— Snapshot B —</option></select>
+              <button id="btn-gpu-snapshot-diff" class="gpu-clear-btn">Diff A→B</button>
+            </div>
+            <div id="gpu-snapshot-list" class="gpu-snapshot-list"></div>
+            <div id="gpu-snapshot-diff" class="gpu-snapshot-diff"></div>
           </div>
           <div class="debug-section">
             <h4>GPU Diagnostics</h4>

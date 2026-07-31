@@ -1330,6 +1330,28 @@ input[type="number"]:focus, input[type="text"]:focus {
   white-space: nowrap;
 }
 
+.gpu-res-copy-btn {
+  padding: 1px 6px;
+  border: 1px solid #3e3e3e;
+  background: #1a1a2e;
+  color: #888;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  font-family: monospace;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.gpu-res-copy-btn:hover {
+  border-color: #0e639c;
+  color: #dcdcaa;
+}
+
+.gpu-res-copy-btn.copied {
+  border-color: #4ec9b0;
+  color: #4ec9b0;
+}
+
 .gpu-tools-list {
   display: flex;
   flex-direction: column;
@@ -1382,5 +1404,117 @@ input[type="number"]:focus, input[type="text"]:focus {
 
 .gpu-tool-command.copied {
   border-color: #4ec9b0;
+  color: #4ec9b0;
+}
+
+/* --- GPU Snapshot Controls --- */
+
+.gpu-snapshot-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+}
+
+.gpu-snapshot-controls .gpu-clear-btn {
+  float: none;
+  margin-left: 0;
+}
+
+.gpu-snapshot-select {
+  background: #1a1a2e;
+  border: 1px solid #3e3e3e;
+  color: #dcdcaa;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: monospace;
+  cursor: pointer;
+}
+
+.gpu-snapshot-list {
+  font-size: 11px;
+  font-family: monospace;
+  color: #888;
+  padding: 4px 0;
+}
+
+.gpu-snapshot-list .snap-item {
+  padding: 2px 0;
+  border-bottom: 1px solid #222;
+}
+
+.gpu-snapshot-list .snap-label {
+  color: #4ec9b0;
+}
+
+.gpu-snapshot-list .snap-time {
+  color: #666;
+  margin-left: 8px;
+}
+
+.gpu-snapshot-diff {
+  margin-top: 8px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.gpu-snapshot-diff .diff-row {
+  display: flex;
+  gap: 12px;
+  padding: 3px 6px;
+  border-bottom: 1px solid #222;
+}
+
+.gpu-snapshot-diff .diff-label {
+  color: #dcdcaa;
+  min-width: 160px;
+}
+
+.gpu-snapshot-diff .diff-val-a {
+  color: #569cd6;
+  min-width: 80px;
+  text-align: right;
+}
+
+.gpu-snapshot-diff .diff-val-b {
+  color: #c678dd;
+  min-width: 80px;
+  text-align: right;
+}
+
+.gpu-snapshot-diff .diff-delta {
+  color: #4ec9b0;
+  min-width: 80px;
+  text-align: right;
+}
+
+.gpu-snapshot-diff .diff-delta.negative {
+  color: #f44747;
+}
+
+.gpu-snapshot-diff .diff-header {
+  font-weight: 600;
+  color: #888;
+  border-bottom: 1px solid #3e3e3e;
+  padding: 4px 6px;
+}
+
+/* Pass timing table value colors */
+#gpu-pass-timing-tbody td {
+  color: #dcdcaa;
+}
+
+#gpu-pass-timing-tbody .pass-name {
+  color: #569cd6;
+  font-weight: 600;
+}
+
+#gpu-pass-timing-tbody .pass-gpu {
+  color: #c678dd;
+}
+
+#gpu-pass-timing-tbody .pass-cpu {
   color: #4ec9b0;
 }

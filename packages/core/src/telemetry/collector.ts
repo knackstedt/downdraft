@@ -20,15 +20,77 @@ export interface DrawStats {
   triangles: number;
 }
 
+export interface PassTiming {
+  name: string;
+  cpuMs: number;
+  gpuMs: number;
+  drawCalls: number;
+  triangles: number;
+  pipelineSwitches: number;
+  bindGroupChanges: number;
+  bufferRebinds: number;
+}
+
+export interface ResourceStats {
+  textureCount: number;
+  bufferCount: number;
+  totalBytes: number;
+  textureBytes: number;
+  bufferBytes: number;
+  resources: ResourceEntry[];
+}
+
+export interface ResourceEntry {
+  id: number;
+  type: "texture" | "buffer";
+  label: string;
+  size: number;
+  callsite?: string;
+  width?: number;
+  height?: number;
+  format?: string;
+}
+
+export interface TelemetrySnapshot {
+  timestamp: number;
+  label: string;
+  frameTimes: number[];
+  avgFrame: number;
+  p95: number;
+  p99: number;
+  fps: number;
+  drawCalls: number;
+  triangles: number;
+  gpuTimeMs: number;
+  heapUsed: number;
+  heapTotal: number;
+  passTimings: PassTiming[];
+  resourceStats: ResourceStats | null;
+}
+
+export interface SnapshotDiff {
+  metric: string;
+  a: number;
+  b: number;
+  delta: number;
+  deltaPct: number;
+}
+
 export class TelemetryCollector {
   private enabled: boolean;
   private threadMetrics: Map<string, ThreadMetrics> = new Map();
   private systemTimings: SystemTiming[] = [];
   private frameTimes: number[] = [];
+  private graphHistory: number[] = [];
+  private maxGraphHistory: number = 120;
   private maxFrameHistory: number = 300;
   private drawStats: DrawStats = { drawCalls: 0, triangles: 0 };
   private lastDrawStats: DrawStats = { drawCalls: 0, triangles: 0 };
   private gpuTimeMs: number = 0;
+  private passTimings: PassTiming[] = [];
+  private resourceStats: ResourceStats | null = null;
+  private snapshots: TelemetrySnapshot[] = [];
+  private maxSnapshots: number = 10;
 
   constructor(enabled: boolean = false) {
     this.enabled = enabled;
@@ -143,12 +205,118 @@ export class TelemetryCollector {
     return avg > 0 ? Math.round(1000 / avg) : 0;
   }
 
+  recordPassTiming(timing: PassTiming): void {
+    if (!this.enabled) return;
+    const existing = this.passTimings.find((p) => p.name === timing.name);
+    if (existing) {
+      Object.assign(existing, timing);
+    } else {
+      this.passTimings.push({ ...timing });
+    }
+  }
+
+  getPassTimings(): PassTiming[] {
+    return this.passTimings.map((p) => ({ ...p }));
+  }
+
+  clearPassTimings(): void {
+    this.passTimings.length = 0;
+  }
+
+  recordResourceStats(stats: ResourceStats): void {
+    if (!this.enabled) return;
+    this.resourceStats = { ...stats, resources: stats.resources.map((r) => ({ ...r })) };
+  }
+
+  getResourceStats(): ResourceStats | null {
+    return this.resourceStats;
+  }
+
+  getGraphHistory(): number[] {
+    return [...this.graphHistory];
+  }
+
+  recordGraphSample(frameTimeMs: number): void {
+    this.graphHistory.push(frameTimeMs);
+    if (this.graphHistory.length > this.maxGraphHistory) {
+      this.graphHistory.shift();
+    }
+  }
+
+  snapshot(label: string): TelemetrySnapshot {
+    const mem = this.getMemoryUsage();
+    return {
+      timestamp: Date.now(),
+      label,
+      frameTimes: [...this.frameTimes],
+      avgFrame: this.getAverageFrameTime(),
+      p95: this.getFrameTimePercentile(0.95),
+      p99: this.getFrameTimePercentile(0.99),
+      fps: this.getFPS(),
+      drawCalls: this.drawStats.drawCalls,
+      triangles: this.drawStats.triangles,
+      gpuTimeMs: this.gpuTimeMs,
+      heapUsed: mem.heapUsed,
+      heapTotal: mem.heapTotal,
+      passTimings: this.passTimings.map((p) => ({ ...p })),
+      resourceStats: this.resourceStats ? { ...this.resourceStats, resources: this.resourceStats.resources.map((r) => ({ ...r })) } : null,
+    };
+  }
+
+  saveSnapshot(label: string): TelemetrySnapshot {
+    const snap = this.snapshot(label);
+    this.snapshots.push(snap);
+    if (this.snapshots.length > this.maxSnapshots) {
+      this.snapshots.shift();
+    }
+    return snap;
+  }
+
+  getSnapshots(): TelemetrySnapshot[] {
+    return [...this.snapshots];
+  }
+
+  clearSnapshots(): void {
+    this.snapshots.length = 0;
+  }
+
+  static diffSnapshots(a: TelemetrySnapshot, b: TelemetrySnapshot): SnapshotDiff[] {
+    const diffs: SnapshotDiff[] = [];
+    const addDiff = (metric: string, av: number, bv: number) => {
+      const delta = bv - av;
+      const deltaPct = av !== 0 ? (delta / av) * 100 : 0;
+      diffs.push({ metric, a: av, b: bv, delta, deltaPct });
+    };
+    addDiff("FPS", a.fps, b.fps);
+    addDiff("Avg Frame (ms)", a.avgFrame, b.avgFrame);
+    addDiff("p95 (ms)", a.p95, b.p95);
+    addDiff("p99 (ms)", a.p99, b.p99);
+    addDiff("Draw Calls", a.drawCalls, b.drawCalls);
+    addDiff("Triangles", a.triangles, b.triangles);
+    addDiff("GPU Time (ms)", a.gpuTimeMs, b.gpuTimeMs);
+    addDiff("Heap Used (MB)", a.heapUsed / 1048576, b.heapUsed / 1048576);
+    if (a.resourceStats && b.resourceStats) {
+      addDiff("VRAM (MB)", a.resourceStats.totalBytes / 1048576, b.resourceStats.totalBytes / 1048576);
+      addDiff("Textures", a.resourceStats.textureCount, b.resourceStats.textureCount);
+      addDiff("Buffers", a.resourceStats.bufferCount, b.resourceStats.bufferCount);
+    }
+    for (const pa of a.passTimings) {
+      const pb = b.passTimings.find((p) => p.name === pa.name);
+      if (pb) addDiff(`Pass: ${pa.name} (ms)`, pa.cpuMs, pb.cpuMs);
+    }
+    return diffs;
+  }
+
   reset(): void {
     this.frameTimes.length = 0;
+    this.graphHistory.length = 0;
     this.systemTimings.length = 0;
     this.threadMetrics.clear();
     this.drawStats = { drawCalls: 0, triangles: 0 };
     this.lastDrawStats = { drawCalls: 0, triangles: 0 };
     this.gpuTimeMs = 0;
+    this.passTimings.length = 0;
+    this.resourceStats = null;
+    this.snapshots.length = 0;
   }
 }

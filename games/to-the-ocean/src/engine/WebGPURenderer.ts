@@ -2,7 +2,8 @@
 // WebGPU Renderer — main rendering engine
 // ============================================================================
 
-import { calculateViewProj as engineCalculateViewProj, LayoutEngine, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import type { PassTiming } from "@downdraft/core";
+import { calculateViewProj as engineCalculateViewProj, GPUTimerPool, LayoutEngine, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { generateIslandBlobs } from "@shared/TerrainGenerator";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -97,6 +98,11 @@ export class WebGPURenderer {
   private profilingOverlay: ProfilingOverlay | null = null;
   private frameDrawCalls: number = 0;
   private frameTriangles: number = 0;
+  private passTimings: Map<string, { cpuMs: number; gpuMs: number; drawCalls: number; triangles: number }> = new Map();
+  private passStartTimes: Map<string, number> = new Map();
+  private passGpuIndices: Map<string, number> = new Map();
+  private gpuPassCounter: number = 0;
+  private gpuTimerPool: GPUTimerPool | null = null;
 
   // GPU debugging state
   private adapterInfo: any = null;
@@ -255,11 +261,24 @@ export class WebGPURenderer {
       // Store adapter info for DevTools GPU tab
       this.adapterInfo = (adapter as any).info ?? null;
 
-      this.device = await adapter.requestDevice();
+      // Request timestamp-query features for GPU-side per-pass timing if available
+      const requiredFeatures: GPUFeatureName[] = [];
+      if (adapter.features.has("timestamp-query")) {
+        requiredFeatures.push("timestamp-query");
+      }
+      if (adapter.features.has("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName)) {
+        requiredFeatures.push("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName);
+      }
+      this.device = await adapter.requestDevice({ requiredFeatures });
 
       // Wrap device with GPU resource tracker for VRAM visibility
       this.gpuResourceTracker = new GPUResourceTracker();
       this.gpuResourceTracker.wrapDevice(this.device);
+
+      // GPU timer pool for per-pass GPU-side timestamps (requires timestamp-query feature)
+      this.gpuTimerPool = new GPUTimerPool(this.device, 16);
+      console.log("[WebGPU] GPU timer pool supported:", this.gpuTimerPool.isSupported(),
+        "features:", Array.from(this.device.features));
 
       // Capture silent WebGPU validation errors — without this, GPU errors
       // (e.g. from NaN/Infinity in uniforms) go completely unreported.
@@ -837,6 +856,45 @@ export class WebGPURenderer {
     if (this.telemetryCollector) {
       this.telemetryCollector.recordFrame(dt * 1000);
       this.telemetryCollector.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
+      this.telemetryCollector.recordGraphSample(dt * 1000);
+
+      // Record per-pass timings into telemetry
+      for (const [name, t] of this.passTimings) {
+        const timing: PassTiming = {
+          name,
+          cpuMs: t.cpuMs,
+          gpuMs: t.gpuMs,
+          drawCalls: t.drawCalls,
+          triangles: t.triangles,
+          pipelineSwitches: 0,
+          bindGroupChanges: 0,
+          bufferRebinds: 0,
+        };
+        this.telemetryCollector.recordPassTiming(timing);
+      }
+
+      // Wire GPU resource tracker data into telemetry
+      if (this.gpuResourceTracker) {
+        const resStats = this.gpuResourceTracker.getStats();
+        this.telemetryCollector.recordResourceStats({
+          textureCount: resStats.textureCount,
+          bufferCount: resStats.bufferCount,
+          totalBytes: resStats.totalBytes,
+          textureBytes: resStats.textureBytes,
+          bufferBytes: resStats.bufferBytes,
+          resources: resStats.resources.map((r) => ({
+            id: r.id,
+            type: r.type,
+            label: r.label,
+            size: r.size,
+            callsite: r.callsite,
+            width: r.width,
+            height: r.height,
+            format: r.format,
+          })),
+        });
+      }
+
       this.frameDrawCalls = 0;
       this.frameTriangles = 0;
     }
@@ -1309,8 +1367,16 @@ export class WebGPURenderer {
     passEncoder.setViewport(viewport.x, viewport.y, viewport.w, viewport.h, 0, 1);
     passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
 
+    if (viewportIdx === 0) {
+      this.passStartTimes.clear();
+      this.passTimings.clear();
+      this.passGpuIndices.clear();
+      this.gpuPassCounter = 0;
+    }
+
     // Render sky
     {
+      if (viewportIdx === 0) { this.passStartTimes.set("Sky", performance.now()); this.beginPassGpuTimer("Sky", passEncoder, viewportIdx); }
       // Track weather transitions for smooth visual blending
       if (weatherType !== this.skyDisplayedWeatherType) {
         this.skyPrevWeatherType = this.skyDisplayedWeatherType;
@@ -1352,10 +1418,12 @@ export class WebGPURenderer {
       skyU.weatherBlend = easedBlend;
       this.skyDomePass!.setUniforms(skyU);
       this.skyDomePass!.execute({ device: this.device!, pass: passEncoder });
+      if (viewportIdx === 0) { this.endPassGpuTimer("Sky", passEncoder, viewportIdx); this.endPassTiming("Sky", viewportIdx); }
     }
 
     // Render terrain (before water so terrain writes depth first)
     {
+      if (viewportIdx === 0) { this.passStartTimes.set("Terrain", performance.now()); this.beginPassGpuTimer("Terrain", passEncoder, viewportIdx); }
       const viewProj = engineCalculateViewProj(camera);
       const spacing = 4.0;
       const tCam = this.pooledTerrainCameraPos;
@@ -1369,6 +1437,7 @@ export class WebGPURenderer {
         originZ: Math.round((playerPos.z - 256) / spacing) * spacing,
       });
       this.terrainPass!.execute({ device: this.device!, pass: passEncoder });
+      if (viewportIdx === 0) { this.endPassGpuTimer("Terrain", passEncoder, viewportIdx); this.endPassTiming("Terrain", viewportIdx); }
     }
 
     // Render entities before water so boat hulls write depth first.
@@ -1377,6 +1446,8 @@ export class WebGPURenderer {
     // Water (semi-transparent) still blends over submerged hull parts correctly.
 
     // Instanced entities (fish, sharks, jellyfish, pirates, etc.) — single draw call
+    if (viewportIdx === 0) { this.passStartTimes.set("Entities", performance.now()); this.beginPassGpuTimer("Entities", passEncoder, viewportIdx); }
+    const _entDrawBefore = this.frameDrawCalls;
     this.entityRenderer!.renderInstanced(passEncoder);
     this.frameDrawCalls++;
 
@@ -1388,11 +1459,13 @@ export class WebGPURenderer {
     this.frameTriangles += this.entityRenderer!.getLastFrameTriangles();
     // Render anchor 3D meshes before water (proper depth-tested, lit geometry)
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
+    if (viewportIdx === 0) { this.endPassGpuTimer("Entities", passEncoder, viewportIdx); this.endPassTiming("Entities", viewportIdx, this.frameDrawCalls - _entDrawBefore, this.entityRenderer!.getLastFrameTriangles()); }
 
     // Render clouds (semi-transparent, depth-tested, no depth write)
     // After terrain and entities so clouds blend over them;
     // before water so water can blend over clouds at the horizon.
     if (this.cloudSystem) {
+      if (viewportIdx === 0) { this.passStartTimes.set("Clouds", performance.now()); this.beginPassGpuTimer("Clouds", passEncoder, viewportIdx); }
       this.cloudSystem.render(
         passEncoder, camera, timeOfDay, weatherType,
         windSpeed, windDir.x, windDir.z, this.elapsedTime, playerPos,
@@ -1400,10 +1473,12 @@ export class WebGPURenderer {
         lightingParams.moonDir, lightingParams.moonIntensity,
         lightingParams.fogColor, 0.0008,
       );
+      if (viewportIdx === 0) { this.endPassGpuTimer("Clouds", passEncoder, viewportIdx); this.endPassTiming("Clouds", viewportIdx); }
     }
 
     // Render water (semi-transparent, blends over terrain and submerged entities)
     if (this.waterReader && this.waterReader.isValid()) {
+      if (viewportIdx === 0) { this.passStartTimes.set("Water", performance.now()); this.beginPassGpuTimer("Water", passEncoder, viewportIdx); }
       const waterViewProj = engineCalculateViewProj(camera);
       const patchSize = this.waterReader.getPatchSize();
       const halfGrid = (256 * patchSize) / 2;
@@ -1433,9 +1508,11 @@ export class WebGPURenderer {
         shoreCount: 0,
       });
       this.waterPass!.execute({ device: this.device!, pass: passEncoder });
+      if (viewportIdx === 0) { this.endPassGpuTimer("Water", passEncoder, viewportIdx); this.endPassTiming("Water", viewportIdx); }
     }
 
     // Render hitbox debug overlay
+    if (viewportIdx === 0) { this.passStartTimes.set("Debug", performance.now()); this.beginPassGpuTimer("Debug", passEncoder, viewportIdx); }
     this.entityRenderer!.renderHitboxes(passEncoder);
 
     // Render debug raycast (aim line + target highlight)
@@ -1443,6 +1520,7 @@ export class WebGPURenderer {
 
     // Render light debug gizmos (wireframe spheres showing light radius)
     this.lightingSystem!.renderDebugGizmos(passEncoder, camera);
+    if (viewportIdx === 0) { this.endPassGpuTimer("Debug", passEncoder, viewportIdx); this.endPassTiming("Debug", viewportIdx); }
 
     // Sync sim entities to scene store (for DevTools inspector) — throttled to 2fps
     if (viewportIdx === 0) {
@@ -1472,6 +1550,7 @@ export class WebGPURenderer {
 
     // Render imported models
     if (this.modelRenderer && viewportIdx === 0) {
+      this.passStartTimes.set("Models", performance.now()); this.beginPassGpuTimer("Models", passEncoder, viewportIdx);
       this.modelRenderer.beginFrame(camera);
       const sceneState = useSceneStore.getState();
       for (const nodeId of sceneState.rootIds) {
@@ -1485,10 +1564,12 @@ export class WebGPURenderer {
           node.scale,
         );
       }
+      this.endPassGpuTimer("Models", passEncoder, viewportIdx); this.endPassTiming("Models", viewportIdx);
     }
 
     // Render holo preview for boat building (if player is onboard a ship)
     if (this.boatReader && this.boatReader.isValid()) {
+      this.passStartTimes.set("Holo", performance.now()); this.beginPassGpuTimer("Holo", passEncoder, viewportIdx);
       // Find the ship entity to get its position/rotation
       for (let i = 0; i < entityCount; i++) {
         const entSlot = this.simReader.getEntitySlot(i);
@@ -1507,30 +1588,49 @@ export class WebGPURenderer {
         this.entityRenderer!.renderHoloPreview(passEncoder, sPos, sRot);
         break; // only one ship for now
       }
+      this.endPassGpuTimer("Holo", passEncoder, viewportIdx); this.endPassTiming("Holo", viewportIdx);
     }
 
     // Render particles (rain, snow, etc.)
     if (weatherType === WeatherType.Rain || weatherType === WeatherType.Storm ||
         weatherType === WeatherType.HellStorm || weatherType === WeatherType.Snow) {
+      this.passStartTimes.set("Particles", performance.now()); this.beginPassGpuTimer("Particles", passEncoder, viewportIdx);
       this.particleSystem!.render(passEncoder, camera, weatherType, timeOfDay);
+      this.endPassGpuTimer("Particles", passEncoder, viewportIdx); this.endPassTiming("Particles", viewportIdx);
     }
 
     // Render transform gizmo (always on top, no depth test)
     if (this.transformGizmo && this.transformGizmo.isVisible() && viewportIdx === 0) {
+      this.passStartTimes.set("Gizmo", performance.now()); this.beginPassGpuTimer("Gizmo", passEncoder, viewportIdx);
       this.transformGizmo.render(passEncoder, camera);
+      this.endPassGpuTimer("Gizmo", passEncoder, viewportIdx); this.endPassTiming("Gizmo", viewportIdx);
     }
 
     // Underwater fog overlay — only when the camera itself is below the water surface
     const camWaterHeight = this.sampleWaterHeightAt(camera.position[0], camera.position[2]);
     const camDepth = camWaterHeight - camera.position[1];
     if (camDepth > 0) {
+      this.passStartTimes.set("UnderwaterFog", performance.now()); this.beginPassGpuTimer("UnderwaterFog", passEncoder, viewportIdx);
       this.underwaterFogPass!.setDepth(camDepth, this.elapsedTime);
       this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder });
+      this.endPassGpuTimer("UnderwaterFog", passEncoder, viewportIdx); this.endPassTiming("UnderwaterFog", viewportIdx);
     }
 
     passEncoder.end();
 
+    // Resolve GPU timestamp queries on the same command encoder
+    if (viewportIdx === 0 && this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
+      this.gpuTimerPool.resolve(encoder);
+    }
+
     this.device.queue.submit([encoder.finish()]);
+
+    // Read GPU timer results asynchronously (1-frame latency — results from previous frame)
+    if (viewportIdx === 0 && this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
+      this.gpuTimerPool.readAll().then(() => {
+        // Results are now in gpuTimerPool.getPassGpuMs() for next frame's endPassTiming
+      }).catch(() => {});
+    }
 
     // Only clean up stale meshes after the LAST viewport's submit.
     // Destroying buffers between viewports causes "buffer used in submit while
@@ -1832,6 +1932,37 @@ export class WebGPURenderer {
       this.uiRoot.removeChild(this.profilingOverlay.getPanel());
     }
     this.uiNeedsLayout = true;
+  }
+
+  private endPassTiming(name: string, viewportIdx: number, drawCalls: number = 0, triangles: number = 0): void {
+    if (viewportIdx !== 0) return;
+    const start = this.passStartTimes.get(name);
+    if (start === undefined) return;
+    const cpuMs = performance.now() - start;
+    const existing = this.passTimings.get(name);
+    const gpuIdx = this.passGpuIndices.get(name);
+    const gpuMs = (gpuIdx !== undefined && this.gpuTimerPool) ? this.gpuTimerPool.getPassGpuMs(gpuIdx) : 0;
+    this.passTimings.set(name, {
+      cpuMs,
+      gpuMs,
+      drawCalls: drawCalls || existing?.drawCalls || 0,
+      triangles: triangles || existing?.triangles || 0,
+    });
+  }
+
+  private beginPassGpuTimer(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number): void {
+    if (viewportIdx !== 0 || !this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
+    const idx = this.gpuPassCounter++;
+    if (idx >= 16) return;
+    this.passGpuIndices.set(name, idx);
+    this.gpuTimerPool.begin(passEncoder, idx);
+  }
+
+  private endPassGpuTimer(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number): void {
+    if (viewportIdx !== 0 || !this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
+    const idx = this.passGpuIndices.get(name);
+    if (idx === undefined || idx >= 16) return;
+    this.gpuTimerPool.end(passEncoder, idx);
   }
 
   isProfilingOverlayVisible(): boolean {
@@ -2198,6 +2329,8 @@ export class WebGPURenderer {
     this.debugRaycast?.destroy();
     this.profilingOverlay?.destroy();
     this.profilingOverlay = null;
+    this.gpuTimerPool?.destroy();
+    this.gpuTimerPool = null;
     this.telemetryCollector = null;
     this.device = null;
     for (const tex of this.depthTextures.values()) {
