@@ -4,6 +4,7 @@ import type { MeshData } from "../mesh/builder.ts";
 import { HighResTimer } from "../platform/time.ts";
 import { Camera } from "../scene/camera.ts";
 import { TelemetryCollector } from "../telemetry/collector.ts";
+import { UIRenderer } from "../ui/renderer.ts";
 import { createLogger } from "../util/logger.ts";
 import { GPUDeviceManager } from "./device.ts";
 import { GBuffer } from "./g-buffer.ts";
@@ -17,6 +18,7 @@ import { DEFAULT_POST_PROCESS_SETTINGS, PostProcessPass, type PostProcessSetting
 import { ShadowPass } from "./passes/shadow.ts";
 import { SkyboxPass } from "./passes/skybox.ts";
 import { TransparentPass } from "./passes/transparent.ts";
+import { UICompositePass } from "./passes/ui-composite.ts";
 import { RenderGraph } from "./render-graph.ts";
 import { SurfaceManager } from "./surface.ts";
 import { TrackedRenderPass } from "./tracked-render-pass.ts";
@@ -63,6 +65,7 @@ export class RenderLoop {
   private postProcessPass: PostProcessPass | null = null;
   private debugPass: DebugRenderPass | null = null;
   private debugVizPass: DebugVizPass | null = null;
+  private uiCompositePass: UICompositePass | null = null;
   private shadowsEnabled: boolean = true;
   private bloomEnabled: boolean = true;
   private gbuffer: GBuffer | null = null;
@@ -170,6 +173,11 @@ export class RenderLoop {
     this.debugVizPass = new DebugVizPass(surfaceFormat);
     this.debugVizPass.prepare(device);
 
+    // UI composite pass
+    this.uiCompositePass = new UICompositePass();
+    this.uiCompositePass.setRenderer(new UIRenderer(surfaceFormat));
+    this.uiCompositePass.prepare(device);
+
     this.prevViewProj = this.config.camera.getViewProjectionMatrix();
 
     this.buildRenderGraph();
@@ -224,11 +232,15 @@ export class RenderLoop {
 
       // Pass: debug
       this.renderGraph.addPass({ name: "debug", inputs: ["surface"], outputs: ["surface"] });
+
+      // Pass: ui-composite
+      this.renderGraph.addPass({ name: "ui-composite", inputs: ["surface"], outputs: ["surface"] });
     } else {
       this.renderGraph.registerResource({ name: "surface", type: "texture", format: "surface" });
       this.renderGraph.addPass({ name: "opaque", inputs: [], outputs: ["surface"] });
       this.renderGraph.addPass({ name: "transparent", inputs: [], outputs: ["surface"] });
       this.renderGraph.addPass({ name: "debug", inputs: [], outputs: ["surface"] });
+      this.renderGraph.addPass({ name: "ui-composite", inputs: [], outputs: ["surface"] });
     }
 
     this.renderGraph.resolveAliasing();
@@ -290,6 +302,9 @@ export class RenderLoop {
       this.debugPass.prepare(device);
       this.debugVizPass = new DebugVizPass(surfaceFormat);
       this.debugVizPass.prepare(device);
+      this.uiCompositePass = new UICompositePass();
+      this.uiCompositePass.setRenderer(new UIRenderer(surfaceFormat));
+      this.uiCompositePass.prepare(device);
       this.buildRenderGraph();
       this.start();
     }
@@ -413,6 +428,22 @@ export class RenderLoop {
 
     tracked.end();
     device.queue.submit([encoder.finish()]);
+
+    // UI composite (on top of final image)
+    if (this.uiCompositePass) {
+      const uiEncoder = device.createCommandEncoder();
+      const uiPass = uiEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: texture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: "load",
+          storeOp: "store",
+        }],
+      });
+      this.uiCompositePass.execute({ device, pass: uiPass });
+      uiPass.end();
+      device.queue.submit([uiEncoder.finish()]);
+    }
   }
 
   private renderDeferred(device: GPUDevice, texture: GPUTexture, viewProj: Mat4): void {
@@ -605,6 +636,22 @@ export class RenderLoop {
       device.queue.submit([encoder.finish()]);
     }
 
+    // 10. UI composite (on top of final image)
+    if (this.uiCompositePass) {
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: texture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: "load",
+          storeOp: "store",
+        }],
+      });
+      this.uiCompositePass.execute({ device, pass });
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
+
     this.prevViewProj = viewProj;
   }
 
@@ -681,6 +728,10 @@ export class RenderLoop {
     return this.skyboxPass;
   }
 
+  getUICompositePass(): UICompositePass | null {
+    return this.uiCompositePass;
+  }
+
   isRunning(): boolean {
     return this.running;
   }
@@ -699,6 +750,7 @@ export class RenderLoop {
     this.postProcessPass?.destroy();
     this.debugPass?.destroy();
     this.debugVizPass?.destroy();
+    this.uiCompositePass?.destroy();
     this.gbuffer?.destroy();
     this.hdrTexture?.destroy();
     this.opaquePass = null;
@@ -710,6 +762,7 @@ export class RenderLoop {
     this.postProcessPass = null;
     this.debugPass = null;
     this.debugVizPass = null;
+    this.uiCompositePass = null;
     this.gbuffer = null;
     this.hdrTexture = null;
     this.hdrView = null;

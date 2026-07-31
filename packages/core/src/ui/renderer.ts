@@ -1,0 +1,512 @@
+import type { UIDrawable } from "./element.ts";
+import { buildGlyphAtlasData, getGlyphUV, getAtlasDimensions, GLYPH_W, GLYPH_H } from "./glyph-atlas.ts";
+import { TrackedRenderPass } from "../render/tracked-render-pass.ts";
+import type { RenderPassContext } from "../render/render-pass.ts";
+
+const QUAD_SHADER = `
+struct ScreenUniforms {
+  screenSize: vec2<f32>,
+  _pad: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> screen: ScreenUniforms;
+
+struct QuadVertexInput {
+  @location(0) position: vec2<f32>,
+  @location(1) size: vec2<f32>,
+  @location(2) color: vec4<f32>,
+  @location(3) borderRadius: f32,
+  @location(4) borderWidth: f32,
+  @location(5) borderColor: vec4<f32>,
+};
+
+struct QuadVertexOutput {
+  @builtin(position) clipPosition: vec4<f32>,
+  @location(0) localPos: vec2<f32>,
+  @location(1) size: vec2<f32>,
+  @location(2) color: vec4<f32>,
+  @location(3) borderRadius: f32,
+  @location(4) borderWidth: f32,
+  @location(5) borderColor: vec4<f32>,
+};
+
+@vertex
+fn vs_main(input: QuadVertexInput) -> QuadVertexOutput {
+  var output: QuadVertexOutput;
+  let ndcX = (input.position.x / screen.screenSize.x) * 2.0 - 1.0;
+  let ndcY = 1.0 - (input.position.y / screen.screenSize.y) * 2.0;
+  output.clipPosition = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+  output.localPos = vec2<f32>(0.0, 0.0);
+  output.size = input.size;
+  output.color = input.color;
+  output.borderRadius = input.borderRadius;
+  output.borderWidth = input.borderWidth;
+  output.borderColor = input.borderColor;
+  return output;
+}
+
+fn sdfRoundedBox(p: vec2<f32>, halfSize: vec2<f32>, radius: f32) -> f32 {
+  let q = abs(p) - halfSize + vec2<f32>(radius, radius);
+  return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+@fragment
+fn fs_main(input: QuadVertexOutput) -> @location(0) vec4<f32> {
+  let center = input.size * 0.5;
+  let p = input.localPos - center;
+  let halfSize = input.size * 0.5;
+  let dist = sdfRoundedBox(p, halfSize, input.borderRadius);
+
+  if (dist > 0.0) {
+    discard;
+  }
+
+  var color = input.color;
+
+  if (input.borderWidth > 0.0) {
+    let borderDist = sdfRoundedBox(p, halfSize - vec2<f32>(input.borderWidth, input.borderWidth), max(input.borderRadius - input.borderWidth, 0.0));
+    if (borderDist > 0.0) {
+      color = input.borderColor;
+    }
+  }
+
+  return color;
+}
+`;
+
+const TEXT_SHADER = `
+struct ScreenUniforms {
+  screenSize: vec2<f32>,
+  _pad: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> screen: ScreenUniforms;
+@group(0) @binding(1) var glyphAtlas: texture_2d<f32>;
+@group(0) @binding(2) var glyphSampler: sampler;
+
+struct TextVertexInput {
+  @location(0) position: vec2<f32>,
+  @location(1) uv: vec2<f32>,
+  @location(2) color: vec4<f32>,
+};
+
+struct TextVertexOutput {
+  @builtin(position) clipPosition: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(input: TextVertexInput) -> TextVertexOutput {
+  var output: TextVertexOutput;
+  let ndcX = (input.position.x / screen.screenSize.x) * 2.0 - 1.0;
+  let ndcY = 1.0 - (input.position.y / screen.screenSize.y) * 2.0;
+  output.clipPosition = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+  output.uv = input.uv;
+  output.color = input.color;
+  return output;
+}
+
+@fragment
+fn fs_main(input: TextVertexOutput) -> @location(0) vec4<f32> {
+  let sampled = textureSample(glyphAtlas, glyphSampler, input.uv);
+  return vec4<f32>(input.color.rgb, sampled.r * input.color.a);
+}
+`;
+
+const IMAGE_SHADER = `
+struct ScreenUniforms {
+  screenSize: vec2<f32>,
+  _pad: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> screen: ScreenUniforms;
+@group(0) @binding(1) var imageTex: texture_2d<f32>;
+@group(0) @binding(2) var imageSampler: sampler;
+
+struct ImageVertexInput {
+  @location(0) position: vec2<f32>,
+  @location(1) uv: vec2<f32>,
+  @location(2) color: vec4<f32>,
+};
+
+struct ImageVertexOutput {
+  @builtin(position) clipPosition: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(input: ImageVertexInput) -> ImageVertexOutput {
+  var output: ImageVertexOutput;
+  let ndcX = (input.position.x / screen.screenSize.x) * 2.0 - 1.0;
+  let ndcY = 1.0 - (input.position.y / screen.screenSize.y) * 2.0;
+  output.clipPosition = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+  output.uv = input.uv;
+  output.color = input.color;
+  return output;
+}
+
+@fragment
+fn fs_main(input: ImageVertexOutput) -> @location(0) vec4<f32> {
+  let sampled = textureSample(imageTex, imageSampler, input.uv);
+  return sampled * input.color;
+}
+`;
+
+const QUAD_VERTEX_STRIDE = 48; // 2 pos + 2 size + 4 color + 1 radius + 1 borderWidth + 4 borderColor = 12 floats * 4
+const TEXT_VERTEX_STRIDE = 32; // 2 pos + 2 uv + 4 color = 8 floats * 4
+const IMAGE_VERTEX_STRIDE = 32; // 2 pos + 2 uv + 4 color = 8 floats * 4
+
+const MAX_QUAD_VERTICES = 65536;
+const MAX_TEXT_VERTICES = 131072;
+const MAX_IMAGE_VERTICES = 65536;
+
+export class UIRenderer {
+  private device: GPUDevice | null = null;
+  private surfaceFormat: GPUTextureFormat;
+  private screenBuffer: GPUBuffer | null = null;
+  private screenWidth: number = 0;
+  private screenHeight: number = 0;
+
+  private quadPipeline: GPURenderPipeline | null = null;
+  private quadVertexBuffer: GPUBuffer | null = null;
+  private quadBindGroup: GPUBindGroup | null = null;
+  private quadShaderModule: GPUShaderModule | null = null;
+
+  private textPipeline: GPURenderPipeline | null = null;
+  private textVertexBuffer: GPUBuffer | null = null;
+  private textBindGroup: GPUBindGroup | null = null;
+  private textShaderModule: GPUShaderModule | null = null;
+  private glyphAtlasTexture: GPUTexture | null = null;
+  private glyphSampler: GPUSampler | null = null;
+
+  private imagePipeline: GPURenderPipeline | null = null;
+  private imageVertexBuffer: GPUBuffer | null = null;
+  private imageShaderModule: GPUShaderModule | null = null;
+  private imageSampler: GPUSampler | null = null;
+
+  private prepared: boolean = false;
+
+  constructor(surfaceFormat: GPUTextureFormat = "bgra8unorm") {
+    this.surfaceFormat = surfaceFormat;
+  }
+
+  prepare(device: GPUDevice): void {
+    if (this.prepared) return;
+    this.device = device;
+
+    this.screenBuffer = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.quadShaderModule = device.createShaderModule({ code: QUAD_SHADER });
+    this.textShaderModule = device.createShaderModule({ code: TEXT_SHADER });
+    this.imageShaderModule = device.createShaderModule({ code: IMAGE_SHADER });
+
+    this.quadVertexBuffer = device.createBuffer({
+      size: MAX_QUAD_VERTICES * QUAD_VERTEX_STRIDE,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+
+    this.textVertexBuffer = device.createBuffer({
+      size: MAX_TEXT_VERTICES * TEXT_VERTEX_STRIDE,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+
+    this.imageVertexBuffer = device.createBuffer({
+      size: MAX_IMAGE_VERTICES * IMAGE_VERTEX_STRIDE,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+
+    const atlasData = buildGlyphAtlasData();
+    const { width: atlasW, height: atlasH } = getAtlasDimensions();
+    this.glyphAtlasTexture = device.createTexture({
+      size: [atlasW, atlasH],
+      format: "r8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    device.queue.writeTexture(
+      { texture: this.glyphAtlasTexture },
+      atlasData as unknown as BufferSource,
+      { bytesPerRow: atlasW, rowsPerImage: atlasH },
+      [atlasW, atlasH],
+    );
+
+    this.glyphSampler = device.createSampler({
+      magFilter: "nearest",
+      minFilter: "nearest",
+    });
+
+    this.imageSampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+    });
+
+    const blendState: GPUBlendState = {
+      color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+      alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+    };
+
+    this.quadPipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: this.quadShaderModule,
+        entryPoint: "vs_main",
+        buffers: [{
+          arrayStride: QUAD_VERTEX_STRIDE,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+            { shaderLocation: 2, offset: 16, format: "float32x4" },
+            { shaderLocation: 3, offset: 32, format: "float32" },
+            { shaderLocation: 4, offset: 36, format: "float32" },
+            { shaderLocation: 5, offset: 40, format: "float32x4" },
+          ],
+        }],
+      },
+      fragment: {
+        module: this.quadShaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format: this.surfaceFormat, blend: blendState }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+
+    this.quadBindGroup = device.createBindGroup({
+      layout: this.quadPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.screenBuffer } }],
+    });
+
+    this.textPipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: this.textShaderModule,
+        entryPoint: "vs_main",
+        buffers: [{
+          arrayStride: TEXT_VERTEX_STRIDE,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+            { shaderLocation: 2, offset: 16, format: "float32x4" },
+          ],
+        }],
+      },
+      fragment: {
+        module: this.textShaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format: this.surfaceFormat, blend: blendState }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+
+    this.textBindGroup = device.createBindGroup({
+      layout: this.textPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.screenBuffer } },
+        { binding: 1, resource: this.glyphAtlasTexture.createView() },
+        { binding: 2, resource: this.glyphSampler },
+      ],
+    });
+
+    this.imagePipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: this.imageShaderModule,
+        entryPoint: "vs_main",
+        buffers: [{
+          arrayStride: IMAGE_VERTEX_STRIDE,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+            { shaderLocation: 2, offset: 16, format: "float32x4" },
+          ],
+        }],
+      },
+      fragment: {
+        module: this.imageShaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format: this.surfaceFormat, blend: blendState }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+
+    this.prepared = true;
+  }
+
+  setScreenSize(width: number, height: number): void {
+    this.screenWidth = width;
+    this.screenHeight = height;
+    if (this.device && this.screenBuffer) {
+      const data = new Float32Array(4);
+      data[0] = width;
+      data[1] = height;
+      this.device.queue.writeBuffer(this.screenBuffer, 0, data as unknown as BufferSource);
+    }
+  }
+
+  render(ctx: RenderPassContext, drawables: UIDrawable[]): void {
+    if (!this.device || !this.prepared) return;
+    if (drawables.length === 0) return;
+
+    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+
+    const quadVerts: number[] = [];
+    const textVerts: number[] = [];
+    const imageEntries: { verts: number[]; textureView: GPUTextureView }[] = [];
+
+    for (const d of drawables) {
+      if (d.kind === "rect") {
+        this.buildQuadVertices(d, quadVerts);
+      } else if (d.kind === "text" && d.text) {
+        this.buildTextVertices(d, textVerts);
+      } else if (d.kind === "image" && d.textureView) {
+        let entry = imageEntries.find((e) => e.textureView === d.textureView);
+        if (!entry) {
+          entry = { verts: [], textureView: d.textureView };
+          imageEntries.push(entry);
+        }
+        this.buildImageVertices(d, entry.verts);
+      }
+    }
+
+    if (quadVerts.length > 0 && this.quadPipeline && this.quadBindGroup) {
+      const count = Math.min(quadVerts.length / 12, MAX_QUAD_VERTICES);
+      const data = new Float32Array(quadVerts.slice(0, count * 12));
+      this.device.queue.writeBuffer(this.quadVertexBuffer!, 0, data as unknown as BufferSource);
+      tracked.setPipeline(this.quadPipeline);
+      tracked.setBindGroup(0, this.quadBindGroup);
+      tracked.setVertexBuffer(0, this.quadVertexBuffer!);
+      tracked.draw(count);
+    }
+
+    if (textVerts.length > 0 && this.textPipeline && this.textBindGroup) {
+      const count = Math.min(textVerts.length / 8, MAX_TEXT_VERTICES);
+      const data = new Float32Array(textVerts.slice(0, count * 8));
+      this.device.queue.writeBuffer(this.textVertexBuffer!, 0, data as unknown as BufferSource);
+      tracked.setPipeline(this.textPipeline);
+      tracked.setBindGroup(0, this.textBindGroup);
+      tracked.setVertexBuffer(0, this.textVertexBuffer!);
+      tracked.draw(count);
+    }
+
+    for (const entry of imageEntries) {
+      if (entry.verts.length === 0 || !this.imagePipeline) continue;
+      const count = Math.min(entry.verts.length / 8, MAX_IMAGE_VERTICES);
+      const data = new Float32Array(entry.verts.slice(0, count * 8));
+      this.device.queue.writeBuffer(this.imageVertexBuffer!, 0, data as unknown as BufferSource);
+      const bindGroup = this.device.createBindGroup({
+        layout: this.imagePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.screenBuffer! } },
+          { binding: 1, resource: entry.textureView },
+          { binding: 2, resource: this.imageSampler! },
+        ],
+      });
+      tracked.setPipeline(this.imagePipeline);
+      tracked.setBindGroup(0, bindGroup);
+      tracked.setVertexBuffer(0, this.imageVertexBuffer!);
+      tracked.draw(count);
+    }
+  }
+
+  private buildQuadVertices(d: UIDrawable, out: number[]): void {
+    const { x, y, width, height, color, borderRadius, borderWidth, borderColor } = d;
+    const positions = [
+      [x, y], [x + width, y], [x + width, y + height],
+      [x, y], [x + width, y + height], [x, y + height],
+    ];
+    const localOffsets = [
+      [0, 0], [width, 0], [width, height],
+      [0, 0], [width, height], [0, height],
+    ];
+    for (let i = 0; i < 6; i++) {
+      out.push(positions[i][0], positions[i][1]);
+      out.push(width, height);
+      out.push(color[0], color[1], color[2], color[3]);
+      out.push(borderRadius);
+      out.push(borderWidth);
+      out.push(borderColor[0], borderColor[1], borderColor[2], borderColor[3]);
+    }
+  }
+
+  private buildTextVertices(d: UIDrawable, out: number[]): void {
+    if (!d.text || !d.fontSize || !d.textColor) return;
+    const text = d.text;
+    const fontSize = d.fontSize;
+    const charW = fontSize * 0.6;
+    const charH = fontSize * 1.2;
+    const [r, g, b, a] = d.textColor;
+    const [px, py] = [d.x, d.y];
+
+    let cursorX = px;
+    let cursorY = py;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === "\n") {
+        cursorX = px;
+        cursorY += charH;
+        continue;
+      }
+      const code = text.charCodeAt(i);
+      if (code < 32 || code > 126) continue;
+
+      const [u0, v0, u1, v1] = getGlyphUV(code);
+      const x0 = cursorX;
+      const x1 = cursorX + charW;
+      const y0 = cursorY;
+      const y1 = cursorY + charH;
+
+      const corners = [
+        [x0, y0], [x1, y0], [x1, y1],
+        [x0, y0], [x1, y1], [x0, y1],
+      ];
+      const uvs = [
+        [u0, v0], [u1, v0], [u1, v1],
+        [u0, v0], [u1, v1], [u0, v1],
+      ];
+      for (let j = 0; j < 6; j++) {
+        out.push(corners[j][0], corners[j][1]);
+        out.push(uvs[j][0], uvs[j][1]);
+        out.push(r, g, b, a);
+      }
+      cursorX += charW;
+    }
+  }
+
+  private buildImageVertices(d: UIDrawable, out: number[]): void {
+    if (!d.uv) return;
+    const { x, y, width, height, color, uv } = d;
+    const [u0, v0, u1, v1] = uv;
+    const [r, g, b, a] = color;
+    const corners = [
+      [x, y], [x + width, y], [x + width, y + height],
+      [x, y], [x + width, y + height], [x, y + height],
+    ];
+    const uvs = [
+      [u0, v0], [u1, v0], [u1, v1],
+      [u0, v0], [u1, v1], [u0, v1],
+    ];
+    for (let i = 0; i < 6; i++) {
+      out.push(corners[i][0], corners[i][1]);
+      out.push(uvs[i][0], uvs[i][1]);
+      out.push(r, g, b, a);
+    }
+  }
+
+  destroy(): void {
+    this.quadVertexBuffer?.destroy();
+    this.textVertexBuffer?.destroy();
+    this.imageVertexBuffer?.destroy();
+    this.screenBuffer?.destroy();
+    this.glyphAtlasTexture?.destroy();
+    this.quadVertexBuffer = null;
+    this.textVertexBuffer = null;
+    this.imageVertexBuffer = null;
+    this.screenBuffer = null;
+    this.glyphAtlasTexture = null;
+    this.quadPipeline = null;
+    this.textPipeline = null;
+    this.imagePipeline = null;
+    this.prepared = false;
+  }
+}
