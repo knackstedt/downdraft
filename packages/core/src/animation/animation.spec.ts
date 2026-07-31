@@ -1,8 +1,10 @@
-import { AnimationClip, buildAnimationClipFromGLTF, type AnimationClipData, type KeyframeTrack } from "./clip.ts";
-import { Skeleton, buildSkeletonFromGLTF, type SkeletonData } from "./skeleton.ts";
+import { AnimationClip, type KeyframeTrack } from "./clip.ts";
 import { AnimationPlayer } from "./player.ts";
-import { AnimationStateMachine, type AnimationState, type AnimationTransition } from "./state-machine.ts";
-import { buildRetargetMapping, retargetClip, type BoneMapping } from "./retarget.ts";
+import { buildRetargetMapping, retargetClip } from "./retarget.ts";
+import type { AnimationChannel, AnimationData, SkinData } from "./skeleton-animator.ts";
+import { SkeletonAnimator, skinDataToSkeletonData } from "./skeleton-animator.ts";
+import { Skeleton, type SkeletonData } from "./skeleton.ts";
+import { AnimationStateMachine } from "./state-machine.ts";
 
 function makeSimpleSkeleton(): SkeletonData {
   return {
@@ -206,6 +208,20 @@ describe("AnimationPlayer", () => {
   });
 });
 
+function makeClipForBone(boneIndex: number, startPos: [number, number, number], endPos: [number, number, number]): AnimationClip {
+  const tracks: KeyframeTrack[] = [
+    {
+      boneName: `bone_${boneIndex}`,
+      boneIndex,
+      path: "position",
+      times: new Float32Array([0, 1]),
+      values: new Float32Array([...startPos, ...endPos]),
+      interpolation: "linear",
+    },
+  ];
+  return new AnimationClip({ name: `clip_bone${boneIndex}`, duration: 1, tracks });
+}
+
 describe("AnimationStateMachine", () => {
   it("should add states", () => {
     const sm = new AnimationStateMachine();
@@ -265,6 +281,147 @@ describe("AnimationStateMachine", () => {
   });
 });
 
+describe("AnimationPlayer bone masking / layering", () => {
+  it("should only affect masked bones", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(1, [0, 1, 0], [0, 5, 0]);
+
+    player.play("lower", clipA);
+    player.play("upper", clipB, { boneMask: [1] });
+
+    player.update(0.5);
+
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(1, 5);
+    expect(transforms.positions[1][1]).toBeCloseTo(3, 5);
+  });
+
+  it("should not clear existing animations when boneMask is set", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(1, [0, 1, 0], [0, 5, 0]);
+
+    player.play("lower", clipA);
+    player.play("upper", clipB, { boneMask: [1] });
+
+    expect(player.getPlayingCount()).toBe(2);
+  });
+});
+
+describe("AnimationPlayer additive blending", () => {
+  it("should add delta from bind pose on top of base animation", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const baseClip = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const addClip = makeClipForBone(0, [0, 0, 0], [0, 3, 0]);
+
+    player.play("base", baseClip);
+    player.play("add", addClip, { additive: true, weight: 1 });
+
+    player.update(0.5);
+
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(2.5, 5);
+  });
+
+  it("should scale additive by weight", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const baseClip = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const addClip = makeClipForBone(0, [0, 0, 0], [0, 4, 0]);
+
+    player.play("base", baseClip);
+    player.play("add", addClip, { additive: true, weight: 0.5 });
+
+    player.update(0.5);
+
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(2, 5);
+  });
+});
+
+describe("AnimationPlayer root motion", () => {
+  it("should return zero delta on first update", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+
+    player.play("walk", clip);
+    player.update(0.5);
+
+    const delta = player.getRootMotionDelta();
+    expect(delta).toEqual([0, 0, 0]);
+  });
+
+  it("should compute per-frame root motion delta", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const tracks: KeyframeTrack[] = [{
+      boneName: "root",
+      boneIndex: 0,
+      path: "position",
+      times: new Float32Array([0, 2]),
+      values: new Float32Array([0, 0, 0, 0, 4, 0]),
+      interpolation: "linear",
+    }];
+    const clip = new AnimationClip({ name: "walk", duration: 2, tracks });
+
+    player.play("walk", clip);
+    player.update(0.5);
+    player.update(0.5);
+
+    const delta = player.getRootMotionDelta();
+    expect(delta[1]).toBeCloseTo(1, 5);
+  });
+
+  it("should reset root motion", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+
+    player.play("walk", clip);
+    player.update(0.5);
+    player.update(0.5);
+
+    player.resetRootMotion();
+    const delta = player.getRootMotionDelta();
+    expect(delta).toEqual([0, 0, 0]);
+  });
+});
+
+describe("AnimationStateMachine bone masks", () => {
+  it("should pass boneMask to player when setting initial state", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+    const clip = makeSimpleClip();
+
+    sm.addState("idle", { clip, boneMask: [0] });
+    sm.setInitialState("idle");
+
+    expect(player.isPlaying("idle")).toBe(true);
+  });
+
+  it("should pass additive flag to player", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+    const clip = makeSimpleClip();
+
+    sm.addState("aim", { clip, additive: true });
+    sm.setInitialState("aim");
+
+    expect(player.isPlaying("aim")).toBe(true);
+  });
+});
+
 describe("Retarget", () => {
   it("should build retarget mapping for matching bone names", () => {
     const sourceSkeleton = makeSimpleSkeleton();
@@ -295,5 +452,130 @@ describe("Retarget", () => {
     };
     const mapping = buildRetargetMapping(sourceSkeleton, targetSkeleton);
     expect(mapping.bones.size).toBe(0);
+  });
+});
+
+function makeSimpleSkin(): SkinData {
+  const boneNameToIndex = new Map<string, number>();
+  boneNameToIndex.set("root", 0);
+  boneNameToIndex.set("child", 1);
+  return {
+    bones: [
+      {
+        name: "root",
+        nodeIndex: 0,
+        parentIndex: -1,
+        restTranslation: [0, 0, 0],
+        restRotation: [0, 0, 0, 1],
+        restScale: [1, 1, 1],
+        inverseBindMatrix: new Float32Array(16),
+      },
+      {
+        name: "child",
+        nodeIndex: 1,
+        parentIndex: 0,
+        restTranslation: [0, 1, 0],
+        restRotation: [0, 0, 0, 1],
+        restScale: [1, 1, 1],
+        inverseBindMatrix: new Float32Array(16),
+      },
+    ],
+    boneNameToIndex,
+  };
+}
+
+function makeSimpleAnimData(name: string, boneName: string, endRot: [number, number, number, number]): AnimationData {
+  const channels: AnimationChannel[] = [
+    {
+      targetNode: boneName,
+      path: "rotation",
+      keyframeTimes: new Float32Array([0, 1]),
+      keyframeValues: new Float32Array([0, 0, 0, 1, ...endRot]),
+      interpolation: "LINEAR",
+    },
+  ];
+  return { name, duration: 1, channels };
+}
+
+describe("skinDataToSkeletonData", () => {
+  it("should convert SkinData to SkeletonData", () => {
+    const skin = makeSimpleSkin();
+    const skelData = skinDataToSkeletonData(skin);
+    expect(skelData.bones.length).toBe(2);
+    expect(skelData.bones[0].name).toBe("root");
+    expect(skelData.bones[0].parentIndex).toBe(-1);
+    expect(skelData.bones[0].childrenIndices).toEqual([1]);
+    expect(skelData.bones[1].parentIndex).toBe(0);
+    expect(skelData.rootBoneIndex).toBe(0);
+  });
+});
+
+describe("SkeletonAnimator", () => {
+  it("should construct from SkinData", () => {
+    const skin = makeSimpleSkin();
+    const animator = new SkeletonAnimator(skin);
+    expect(animator.getBoneCount()).toBe(2);
+    expect(animator.getCurrentState()).toBe("Idle");
+  });
+
+  it("should register and play animations via AnimationPlayer", () => {
+    const skin = makeSimpleSkin();
+    const animator = new SkeletonAnimator(skin);
+    animator.registerAnimations([makeSimpleAnimData("Walk", "root", [0, 0, 0.7071, 0.7071])]);
+    expect(animator.hasAnimation("Walk")).toBe(true);
+    expect(animator.hasAnimation("Run")).toBe(false);
+  });
+
+  it("should sample animation through tick", () => {
+    const skin = makeSimpleSkin();
+    const animator = new SkeletonAnimator(skin);
+    animator.registerAnimations([makeSimpleAnimData("Walk", "root", [0, 0, 0.7071, 0.7071])]);
+
+    // Use protected methods via a subclass
+    class TestAnimator extends SkeletonAnimator {
+      testSetState(state: string) { this.setAnimationState(state); }
+      testTick(dt: number) { this.tick(dt); }
+    }
+
+    const test = new TestAnimator(skin);
+    test.registerAnimations([makeSimpleAnimData("Walk", "root", [0, 0, 0.7071, 0.7071])]);
+    test.testSetState("Walk");
+    // tick clamps dt to 0.1, so call multiple times to reach t=0.5
+    for (let i = 0; i < 5; i++) test.testTick(0.1);
+
+    const rot = test.getLocalRotFlat();
+    // At t=0.5, slerp from [0,0,0,1] to pre-baked [0,-0.7071,0,0.7071] (axis-swapped)
+    // gives approximately [0, -0.3827, 0, 0.9239]
+    expect(rot[1]).toBeCloseTo(-0.3827, 3);
+    expect(rot[3]).toBeCloseTo(0.9239, 3);
+  });
+
+  it("should expose root motion delta", () => {
+    const skin = makeSimpleSkin();
+    class TestAnimator extends SkeletonAnimator {
+      testSetState(state: string) { this.setAnimationState(state); }
+      testTick(dt: number) { this.tick(dt); }
+    }
+
+    const test = new TestAnimator(skin);
+    test.registerAnimations([makeSimpleAnimData("Walk", "root", [0, 0, 0.7071, 0.7071])]);
+    test.testSetState("Walk");
+    // tick clamps dt to 0.1
+    test.testTick(0.1); // first update: delta should be 0
+    expect(test.getRootMotionDelta()[0]).toBe(0);
+    expect(test.getRootMotionDelta()[1]).toBe(0);
+    expect(test.getRootMotionDelta()[2]).toBe(0);
+    test.testTick(0.1); // second update: root position unchanged (rotation only), so delta still 0
+    expect(test.getRootMotionDelta()[0]).toBe(0);
+    expect(test.getRootMotionDelta()[1]).toBe(0);
+    expect(test.getRootMotionDelta()[2]).toBe(0);
+  });
+
+  it("should expose AnimationPlayer and Skeleton", () => {
+    const skin = makeSimpleSkin();
+    const animator = new SkeletonAnimator(skin);
+    expect(animator.getPlayer()).toBeDefined();
+    expect(animator.getSkeleton()).toBeDefined();
+    expect(animator.getSkeleton().getBoneCount()).toBe(2);
   });
 });

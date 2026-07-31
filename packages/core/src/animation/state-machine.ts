@@ -23,6 +23,8 @@ export interface AnimationState {
   speed: number;
   loop: boolean;
   weight: number;
+  boneMask: number[] | null;
+  additive: boolean;
 }
 
 export interface AnimationTransition {
@@ -48,7 +50,7 @@ export class AnimationStateMachine {
     this.player = player ?? null;
   }
 
-  addState(name: string, opts?: { clip?: AnimationClip; weight?: number; blendTree?: BlendTree; speed?: number; loop?: boolean }): void {
+  addState(name: string, opts?: { clip?: AnimationClip; weight?: number; blendTree?: BlendTree; speed?: number; loop?: boolean; boneMask?: number[]; additive?: boolean }): void {
     this.states.set(name, {
       name,
       clip: opts?.clip,
@@ -56,6 +58,8 @@ export class AnimationStateMachine {
       speed: opts?.speed ?? 1,
       loop: opts?.loop ?? true,
       weight: opts?.weight ?? 1,
+      boneMask: opts?.boneMask ?? null,
+      additive: opts?.additive ?? false,
     });
   }
 
@@ -130,7 +134,7 @@ export class AnimationStateMachine {
     if (!state) return;
     const clip = this.getStateClip(name);
     if (clip && this.player) {
-      this.player.play(name, clip, { speed: state.speed, weight, loop: state.loop, fadeDuration });
+      this.player.play(name, clip, { speed: state.speed, weight, loop: state.loop, fadeDuration, boneMask: state.boneMask ?? undefined, additive: state.additive });
     }
   }
 
@@ -256,6 +260,8 @@ export class AnimationStateMachine {
         weight: 0,
         loop: state?.loop ?? true,
         fadeDuration: 0,
+        boneMask: state?.boneMask ?? undefined,
+        additive: state?.additive,
       });
     }
   }

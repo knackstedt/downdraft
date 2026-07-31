@@ -18,7 +18,11 @@ export interface PlayingAnimation {
   blendOutDuration: number;
   blendOutElapsed: number;
   blendOutStartWeight: number;
+  fadeInDuration: number;
+  fadeInElapsed: number;
   paused: boolean;
+  boneMask: Set<number> | null;
+  additive: boolean;
 }
 
 export class AnimationPlayer {
@@ -32,6 +36,16 @@ export class AnimationPlayer {
   private resultRotations: Array<[number, number, number, number]>;
   private resultScales: Array<[number, number, number]>;
   private skinMatrices: Float32Array | null = null;
+  private bindPositions: Array<[number, number, number]>;
+  private bindRotations: Array<[number, number, number, number]>;
+  private bindScales: Array<[number, number, number]>;
+  private rootBoneIndex: number;
+  private lastRootPos: [number, number, number] | null = null;
+  private rootMotionDelta: [number, number, number] = [0, 0, 0];
+  private accPos: Float32Array;
+  private accRot: Float32Array;
+  private accScale: Float32Array;
+  private accWeight: Float32Array;
 
   constructor(skeleton: Skeleton) {
     this.skeleton = skeleton;
@@ -43,10 +57,22 @@ export class AnimationPlayer {
     this.resultPositions = bindPose.map(() => [0, 0, 0] as [number, number, number]);
     this.resultRotations = bindPose.map(() => [0, 0, 0, 1] as [number, number, number, number]);
     this.resultScales = bindPose.map(() => [1, 1, 1] as [number, number, number]);
+    this.bindPositions = bindPose.map((b) => [...b.position] as [number, number, number]);
+    this.bindRotations = bindPose.map((b) => [...b.rotation] as [number, number, number, number]);
+    this.bindScales = bindPose.map((b) => [...b.scale] as [number, number, number]);
+    this.rootBoneIndex = skeleton.data.rootBoneIndex;
+    this.accPos = new Float32Array(this.boneCount * 3);
+    this.accRot = new Float32Array(this.boneCount * 4);
+    this.accScale = new Float32Array(this.boneCount * 3);
+    this.accWeight = new Float32Array(this.boneCount);
   }
 
-  play(name: string, clip: AnimationClip, options?: { speed?: number; weight?: number; loop?: boolean; fadeDuration?: number }): void {
+  play(name: string, clip: AnimationClip, options?: { speed?: number; weight?: number; loop?: boolean; fadeDuration?: number; boneMask?: number[] | Set<number>; additive?: boolean }): void {
     const fadeDuration = options?.fadeDuration ?? 0;
+    const boneMask = options?.boneMask
+      ? (options.boneMask instanceof Set ? options.boneMask : new Set(options.boneMask))
+      : null;
+    const additive = options?.additive ?? false;
     const existing = this.playing.get(name);
 
     if (existing) {
@@ -56,6 +82,8 @@ export class AnimationPlayer {
       existing.loop = options?.loop ?? true;
       existing.blending = false;
       existing.paused = false;
+      existing.boneMask = boneMask;
+      existing.additive = additive;
       return;
     }
 
@@ -66,7 +94,7 @@ export class AnimationPlayer {
         p.blendOutElapsed = 0;
         p.blendOutStartWeight = p.weight;
       }
-    } else if (fadeDuration === 0) {
+    } else if (fadeDuration === 0 && !boneMask && !additive) {
       this.playing.clear();
     }
 
@@ -81,7 +109,11 @@ export class AnimationPlayer {
       blendOutDuration: 0,
       blendOutElapsed: 0,
       blendOutStartWeight: 0,
+      fadeInDuration: fadeDuration,
+      fadeInElapsed: 0,
       paused: false,
+      boneMask,
+      additive,
     });
   }
 
@@ -138,72 +170,169 @@ export class AnimationPlayer {
 
   update(dt: number): void {
     const bindPose = this.skeleton.getBindPose();
-    for (let i = 0; i < this.boneCount; i++) {
-      this.positions[i] = [...bindPose[i].position] as [number, number, number];
-      this.rotations[i] = [...bindPose[i].rotation] as [number, number, number, number];
-      this.scales[i] = [...bindPose[i].scale] as [number, number, number];
-    }
-
     const stillPlaying: PlayingAnimation[] = [];
+    const activeNonAdditive: PlayingAnimation[] = [];
+    const activeAdditive: PlayingAnimation[] = [];
 
+    // Phase 1: Time update and weight fade for all animations
     for (const p of this.playing.values()) {
-      if (p.paused) {
-        stillPlaying.push(p);
-        continue;
-      }
-      p.time += dt * p.speed;
+      if (!p.paused) {
+        p.time += dt * p.speed;
 
-      if (p.loop && p.clip.duration > 0) {
-        p.time = p.time % p.clip.duration;
-        if (p.time < 0) p.time += p.clip.duration;
-      } else if (p.time >= p.clip.duration || p.time < 0) {
-        p.time = Math.max(0, Math.min(p.time, p.clip.duration));
-        p.weight = 0;
-      }
+        if (p.loop && p.clip.duration > 0) {
+          p.time = p.time % p.clip.duration;
+          if (p.time < 0) p.time += p.clip.duration;
+        } else if (p.time >= p.clip.duration || p.time < 0) {
+          p.time = Math.max(0, Math.min(p.time, p.clip.duration));
+          p.weight = 0;
+        }
 
-      if (p.blending && p.blendOutDuration > 0) {
-        p.blendOutElapsed += dt;
-        const alpha = Math.min(1, p.blendOutElapsed / p.blendOutDuration);
-        p.weight = p.blendOutStartWeight * (1 - alpha);
-        if (alpha >= 1) continue;
-      }
+        // Fade out
+        if (p.blending && p.blendOutDuration > 0) {
+          p.blendOutElapsed += dt;
+          const alpha = Math.min(1, p.blendOutElapsed / p.blendOutDuration);
+          p.weight = p.blendOutStartWeight * (1 - alpha);
+          if (alpha >= 1) continue;
+        }
 
-      if (p.blending && p.blendOutDuration === 0) {
-        p.weight = Math.min(1, p.weight + dt * 5);
-        if (p.weight >= 1) p.blending = false;
+        // Fade in
+        if (p.blending && p.fadeInDuration > 0) {
+          p.fadeInElapsed += dt;
+          const alpha = Math.min(1, p.fadeInElapsed / p.fadeInDuration);
+          p.weight = alpha;
+          if (alpha >= 1) p.blending = false;
+        }
       }
 
       if (p.weight <= 0.001) continue;
 
-      p.clip.sample(p.time, this.resultPositions, this.resultRotations, this.resultScales);
-
-      const w = p.weight;
-      for (let i = 0; i < this.boneCount; i++) {
-        if (w >= 0.999) {
-          this.positions[i] = [...this.resultPositions[i]] as [number, number, number];
-          this.rotations[i] = [...this.resultRotations[i]] as [number, number, number, number];
-          this.scales[i] = [...this.resultScales[i]] as [number, number, number];
-        } else {
-          const rp = this.resultPositions[i];
-          this.positions[i][0] += (rp[0] - this.positions[i][0]) * w;
-          this.positions[i][1] += (rp[1] - this.positions[i][1]) * w;
-          this.positions[i][2] += (rp[2] - this.positions[i][2]) * w;
-
-          this.rotations[i] = slerpQuat(this.rotations[i], this.resultRotations[i], w);
-
-          const rs = this.resultScales[i];
-          this.scales[i][0] += (rs[0] - this.scales[i][0]) * w;
-          this.scales[i][1] += (rs[1] - this.scales[i][1]) * w;
-          this.scales[i][2] += (rs[2] - this.scales[i][2]) * w;
-        }
-      }
-
       stillPlaying.push(p);
+      if (p.additive) activeAdditive.push(p);
+      else activeNonAdditive.push(p);
+    }
+
+    // Phase 2: Reset accumulators
+    this.accPos.fill(0);
+    this.accRot.fill(0);
+    this.accScale.fill(0);
+    this.accWeight.fill(0);
+
+    // Phase 3: Sample and accumulate non-additive animations (weighted average)
+    for (const p of activeNonAdditive) {
+      p.clip.sample(p.time, this.resultPositions, this.resultRotations, this.resultScales);
+      const w = p.weight;
+      for (const boneIdx of p.clip.trackedBones) {
+        if (p.boneMask && !p.boneMask.has(boneIdx)) continue;
+        const i3 = boneIdx * 3;
+        const i4 = boneIdx * 4;
+
+        this.accPos[i3] += this.resultPositions[boneIdx][0] * w;
+        this.accPos[i3 + 1] += this.resultPositions[boneIdx][1] * w;
+        this.accPos[i3 + 2] += this.resultPositions[boneIdx][2] * w;
+
+        // Quaternion sign consistency for weighted average
+        if (this.accWeight[boneIdx] === 0) {
+          this.accRot[i4] = this.resultRotations[boneIdx][0] * w;
+          this.accRot[i4 + 1] = this.resultRotations[boneIdx][1] * w;
+          this.accRot[i4 + 2] = this.resultRotations[boneIdx][2] * w;
+          this.accRot[i4 + 3] = this.resultRotations[boneIdx][3] * w;
+        } else {
+          let sign = 1;
+          if (this.accRot[i4] * this.resultRotations[boneIdx][0] +
+              this.accRot[i4 + 1] * this.resultRotations[boneIdx][1] +
+              this.accRot[i4 + 2] * this.resultRotations[boneIdx][2] +
+              this.accRot[i4 + 3] * this.resultRotations[boneIdx][3] < 0) {
+            sign = -1;
+          }
+          this.accRot[i4] += this.resultRotations[boneIdx][0] * w * sign;
+          this.accRot[i4 + 1] += this.resultRotations[boneIdx][1] * w * sign;
+          this.accRot[i4 + 2] += this.resultRotations[boneIdx][2] * w * sign;
+          this.accRot[i4 + 3] += this.resultRotations[boneIdx][3] * w * sign;
+        }
+
+        this.accScale[i3] += this.resultScales[boneIdx][0] * w;
+        this.accScale[i3 + 1] += this.resultScales[boneIdx][1] * w;
+        this.accScale[i3 + 2] += this.resultScales[boneIdx][2] * w;
+
+        this.accWeight[boneIdx] += w;
+      }
+    }
+
+    // Phase 4: Normalize by total weight, fallback to bind pose
+    for (let i = 0; i < this.boneCount; i++) {
+      const i3 = i * 3;
+      const i4 = i * 4;
+      if (this.accWeight[i] > 0.001) {
+        const invW = 1 / this.accWeight[i];
+        this.positions[i][0] = this.accPos[i3] * invW;
+        this.positions[i][1] = this.accPos[i3 + 1] * invW;
+        this.positions[i][2] = this.accPos[i3 + 2] * invW;
+        const rx = this.accRot[i4], ry = this.accRot[i4 + 1], rz = this.accRot[i4 + 2], rw = this.accRot[i4 + 3];
+        const rlen = Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw);
+        if (rlen > 0) {
+          this.rotations[i][0] = rx / rlen;
+          this.rotations[i][1] = ry / rlen;
+          this.rotations[i][2] = rz / rlen;
+          this.rotations[i][3] = rw / rlen;
+        }
+        this.scales[i][0] = this.accScale[i3] * invW;
+        this.scales[i][1] = this.accScale[i3 + 1] * invW;
+        this.scales[i][2] = this.accScale[i3 + 2] * invW;
+      } else {
+        this.positions[i][0] = bindPose[i].position[0];
+        this.positions[i][1] = bindPose[i].position[1];
+        this.positions[i][2] = bindPose[i].position[2];
+        this.rotations[i][0] = bindPose[i].rotation[0];
+        this.rotations[i][1] = bindPose[i].rotation[1];
+        this.rotations[i][2] = bindPose[i].rotation[2];
+        this.rotations[i][3] = bindPose[i].rotation[3];
+        this.scales[i][0] = bindPose[i].scale[0];
+        this.scales[i][1] = bindPose[i].scale[1];
+        this.scales[i][2] = bindPose[i].scale[2];
+      }
+    }
+
+    // Phase 5: Apply additive animations on top
+    for (const p of activeAdditive) {
+      p.clip.sample(p.time, this.resultPositions, this.resultRotations, this.resultScales);
+      const w = p.weight;
+      for (const boneIdx of p.clip.trackedBones) {
+        if (p.boneMask && !p.boneMask.has(boneIdx)) continue;
+
+        const rp = this.resultPositions[boneIdx];
+        const bp = this.bindPositions[boneIdx];
+        this.positions[boneIdx][0] += (rp[0] - bp[0]) * w;
+        this.positions[boneIdx][1] += (rp[1] - bp[1]) * w;
+        this.positions[boneIdx][2] += (rp[2] - bp[2]) * w;
+
+        const deltaRot = quatMulTuple(quatInvertTuple(this.bindRotations[boneIdx]), this.resultRotations[boneIdx]);
+        const appliedRot = slerpQuat(IDENTITY_QUAT, deltaRot, w);
+        this.rotations[boneIdx] = quatMulTuple(this.rotations[boneIdx], appliedRot);
+
+        const rs = this.resultScales[boneIdx];
+        const bs = this.bindScales[boneIdx];
+        this.scales[boneIdx][0] += (rs[0] - bs[0]) * w;
+        this.scales[boneIdx][1] += (rs[1] - bs[1]) * w;
+        this.scales[boneIdx][2] += (rs[2] - bs[2]) * w;
+      }
     }
 
     this.playing.clear();
     for (const p of stillPlaying) this.playing.set(p.name, p);
     this.skinMatrices = null;
+
+    // Root motion
+    const rootPos = this.positions[this.rootBoneIndex];
+    if (this.lastRootPos) {
+      this.rootMotionDelta[0] = rootPos[0] - this.lastRootPos[0];
+      this.rootMotionDelta[1] = rootPos[1] - this.lastRootPos[1];
+      this.rootMotionDelta[2] = rootPos[2] - this.lastRootPos[2];
+    } else {
+      this.rootMotionDelta[0] = 0;
+      this.rootMotionDelta[1] = 0;
+      this.rootMotionDelta[2] = 0;
+    }
+    this.lastRootPos = [rootPos[0], rootPos[1], rootPos[2]];
   }
 
   getSkinMatrices(): Float32Array {
@@ -228,6 +357,32 @@ export class AnimationPlayer {
       scales: this.scales,
     };
   }
+
+  getRootMotionDelta(): [number, number, number] {
+    return [this.rootMotionDelta[0], this.rootMotionDelta[1], this.rootMotionDelta[2]];
+  }
+
+  resetRootMotion(): void {
+    this.lastRootPos = null;
+    this.rootMotionDelta = [0, 0, 0];
+  }
+}
+
+const IDENTITY_QUAT: [number, number, number, number] = [0, 0, 0, 1];
+
+function quatMulTuple(a: [number, number, number, number], b: [number, number, number, number]): [number, number, number, number] {
+  const ax = a[0], ay = a[1], az = a[2], aw = a[3];
+  const bx = b[0], by = b[1], bz = b[2], bw = b[3];
+  return [
+    aw * bx + ax * bw + ay * bz - az * by,
+    aw * by - ax * bz + ay * bw + az * bx,
+    aw * bz + ax * by - ay * bx + az * bw,
+    aw * bw - ax * bx - ay * by - az * bz,
+  ];
+}
+
+function quatInvertTuple(q: [number, number, number, number]): [number, number, number, number] {
+  return [-q[0], -q[1], -q[2], q[3]];
 }
 
 function slerpQuat(
@@ -251,12 +406,12 @@ function slerpQuat(
   }
   const theta = Math.acos(Math.min(1, Math.max(-1, dot)));
   const sinTheta = Math.sin(theta);
-  const sinT = Math.sin(t * theta) / sinTheta;
-  const cosT = Math.cos(t * theta);
+  const sinT0 = Math.sin((1 - t) * theta) / sinTheta;
+  const sinT1 = Math.sin(t * theta) / sinTheta;
   return [
-    a[0] * cosT + bx * sinT,
-    a[1] * cosT + by * sinT,
-    a[2] * cosT + bz * sinT,
-    a[3] * cosT + bw * sinT,
+    a[0] * sinT0 + bx * sinT1,
+    a[1] * sinT0 + by * sinT1,
+    a[2] * sinT0 + bz * sinT1,
+    a[3] * sinT0 + bw * sinT1,
   ];
 }

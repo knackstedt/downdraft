@@ -1,7 +1,15 @@
 // ============================================================================
 // Skeleton Animator — skeletal animation with crossfade blending, retargeting,
 // procedural idle, and foot IK. Generic, game-agnostic.
+// Uses AnimationPlayer internally for blending (bone masks, additive, root motion).
 // ============================================================================
+
+import type { KeyframeTrack, TrackPath } from "./clip.ts";
+import { AnimationClip } from "./clip.ts";
+import { AnimationPlayer } from "./player.ts";
+import type { Bone, SkeletonData } from "./skeleton.ts";
+import { Skeleton } from "./skeleton.ts";
+
 
 export interface AnimationChannel {
   targetNode: string;
@@ -35,6 +43,37 @@ export interface SkinData {
 }
 
 export type AnimState = string;
+
+// ── SkinData → SkeletonData conversion ──
+
+export function skinDataToSkeletonData(skin: SkinData): SkeletonData {
+  const bones: Bone[] = skin.bones.map((b) => ({
+    name: b.name,
+    parentIndex: b.parentIndex,
+    childrenIndices: [] as number[],
+    bindPosition: b.restTranslation,
+    bindRotation: b.restRotation,
+    bindScale: b.restScale,
+    inverseBindMatrix: b.inverseBindMatrix,
+  }));
+
+  for (let i = 0; i < bones.length; i++) {
+    const parentIdx = bones[i].parentIndex;
+    if (parentIdx >= 0 && parentIdx < bones.length) {
+      bones[parentIdx].childrenIndices.push(i);
+    }
+  }
+
+  let rootBoneIndex = 0;
+  for (let i = 0; i < bones.length; i++) {
+    if (bones[i].parentIndex < 0) {
+      rootBoneIndex = i;
+      break;
+    }
+  }
+
+  return { bones, name: "skeleton", rootBoneIndex };
+}
 
 // ── Vec3 / Quaternion math helpers ──
 
@@ -128,6 +167,9 @@ export class SkeletonAnimator {
   private parentIndices: Int32Array;
   private inverseBindMatrices: Float32Array[];
 
+  private skeleton: Skeleton;
+  private player: AnimationPlayer;
+
   private localPos: Float32Array[];
   private localRot: Float32Array[];
   private localScale: Float32Array[];
@@ -147,21 +189,12 @@ export class SkeletonAnimator {
   private normalizationMatrix: Float32Array | null = null;
   private inverseNormalizationMatrix: Float32Array | null = null;
 
-  private animations: Map<string, AnimationData> = new Map();
+  private clips: Map<string, AnimationClip> = new Map();
   private currentState: AnimState = "Idle";
-  private currentAnim: AnimationData | null = null;
-  private animTime = 0;
   private timeSinceLastStateChange = 0;
-  private blendAnim: AnimationData | null = null;
-  private blendTime = 0;
   private blendDuration = 0.2;
-  private prevState: AnimState | null = null;
   private sourceRestRotations: Map<string, Map<string, [number, number, number, number]>> = new Map();
   private sourcePreRotations: Map<string, Map<string, [number, number, number, number]>> = new Map();
-
-  private blendLocalPos: Float32Array[];
-  private blendLocalRot: Float32Array[];
-  private blendLocalScale: Float32Array[];
 
   private ikEnabled = true;
   private leftFootTarget: Float32Array | null = null;
@@ -188,6 +221,11 @@ export class SkeletonAnimator {
     this.inverseBindMatrices = [];
     this.boneNameToIndex = skin.boneNameToIndex;
 
+    // Create Skeleton and AnimationPlayer from SkinData
+    const skelData = skinDataToSkeletonData(skin);
+    this.skeleton = new Skeleton(skelData);
+    this.player = new AnimationPlayer(this.skeleton);
+
     this.localPos = [];
     this.localRot = [];
     this.localScale = [];
@@ -195,9 +233,6 @@ export class SkeletonAnimator {
     this.restRot = [];
     this.restScale = [];
     this.worldMatrices = [];
-    this.blendLocalPos = [];
-    this.blendLocalRot = [];
-    this.blendLocalScale = [];
 
     for (let i = 0; i < this.boneCount; i++) {
       const bone = skin.bones[i];
@@ -219,9 +254,6 @@ export class SkeletonAnimator {
       this.localScale.push(new Float32Array(rs));
 
       this.worldMatrices.push(new Float32Array(16));
-      this.blendLocalPos.push(new Float32Array(3));
-      this.blendLocalRot.push(new Float32Array(4));
-      this.blendLocalScale.push(new Float32Array(3));
     }
 
     this.inverseBindMatricesFlat = new Float32Array(this.boneCount * 16);
@@ -261,8 +293,108 @@ export class SkeletonAnimator {
 
   registerAnimations(animations: AnimationData[]): void {
     for (let i = 0; i < animations.length; i++) {
-      this.animations.set(animations[i].name, animations[i]);
+      const clip = this.animationDataToClip(animations[i], animations[i].name);
+      if (clip) {
+        this.clips.set(animations[i].name, clip);
+      }
     }
+  }
+
+  private animationDataToClip(anim: AnimationData, animName: string): AnimationClip | null {
+    const tracks: KeyframeTrack[] = [];
+    const preRotMap = this.sourcePreRotations.get(animName);
+    const restRotMap = this.sourceRestRotations.get(animName);
+
+    for (let c = 0; c < anim.channels.length; c++) {
+      const ch = anim.channels[c];
+      let nodeName = ch.targetNode;
+      if (nodeName.endsWith("Model")) nodeName = nodeName.slice(0, -5);
+
+      // For non-Mixamo, apply bone name mapping
+      if (!this.isMixamoSkeleton) {
+        nodeName = nodeName.startsWith("mixamorig:")
+          ? (SkeletonAnimator.MIXAMO_TO_UE[nodeName] ?? nodeName)
+          : nodeName;
+        // Non-Mixamo retargeting skips translation channels
+        if (ch.path === "translation") continue;
+      }
+
+      const boneIdx = this.boneNameToIndex.get(nodeName);
+      if (boneIdx === undefined) continue;
+
+      const path: TrackPath = ch.path === "translation" ? "position" : ch.path === "rotation" ? "rotation" : "scale";
+      const interpolation = ch.interpolation === "LINEAR" ? "linear" : ch.interpolation === "STEP" ? "step" : "cubic";
+      const times = ch.keyframeTimes;
+      const srcValues = ch.keyframeValues;
+
+      if (path === "rotation") {
+        // Pre-bake retargeting for rotation at each keyframe
+        const values = new Float32Array(srcValues.length);
+        const srcPreRot = preRotMap?.get(nodeName);
+        const srcRest = restRotMap?.get(nodeName);
+
+        for (let k = 0; k < times.length; k++) {
+          const v0 = k * 4;
+          const q = new Float32Array([srcValues[v0], srcValues[v0 + 1], srcValues[v0 + 2], srcValues[v0 + 3]]);
+          const result = new Float32Array(4);
+
+          if (this.isMixamoSkeleton) {
+            // Direct Mixamo: apply pre-rotation
+            if (srcPreRot) {
+              quatMul(new Float32Array(srcPreRot), q, result);
+            } else {
+              result.set(q);
+            }
+          } else if (srcRest && srcPreRot) {
+            // Full retargeting: preRot * q, then delta = invRest * (preRot * q), then axis swap, then * restRot
+            const fullAnimRot = new Float32Array(4);
+            quatMul(new Float32Array(srcPreRot), q, fullAnimRot);
+            const invSrcRest = new Float32Array(4);
+            quatInvert(new Float32Array(srcRest), invSrcRest);
+            const deltaYup = new Float32Array(4);
+            quatMul(invSrcRest, fullAnimRot, deltaYup);
+            const deltaLocal = new Float32Array(4);
+            deltaLocal[0] = deltaYup[0];
+            deltaLocal[1] = -deltaYup[2];
+            deltaLocal[2] = deltaYup[1];
+            deltaLocal[3] = deltaYup[3];
+            quatMul(this.restRot[boneIdx], deltaLocal, result);
+          } else {
+            // Simple axis swap + rest rotation
+            const animLclLocal = new Float32Array(4);
+            animLclLocal[0] = q[0];
+            animLclLocal[1] = -q[2];
+            animLclLocal[2] = q[1];
+            animLclLocal[3] = q[3];
+            quatMul(this.restRot[boneIdx], animLclLocal, result);
+          }
+
+          values[v0] = result[0]; values[v0 + 1] = result[1]; values[v0 + 2] = result[2]; values[v0 + 3] = result[3];
+        }
+        tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values, interpolation });
+      } else if (path === "position") {
+        // For non-Mixamo, axis-swap position. For Mixamo, direct copy.
+        if (this.isMixamoSkeleton) {
+          tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values: srcValues, interpolation });
+        } else {
+          // Axis swap: x=x, y=-z, z=y
+          const values = new Float32Array(srcValues.length);
+          for (let k = 0; k < times.length; k++) {
+            const v0 = k * 3;
+            values[v0] = srcValues[v0];
+            values[v0 + 1] = -srcValues[v0 + 2];
+            values[v0 + 2] = srcValues[v0 + 1];
+          }
+          tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values, interpolation });
+        }
+      } else {
+        // Scale: direct copy
+        tracks.push({ boneName: nodeName, boneIndex: boneIdx, path, times, values: srcValues, interpolation });
+      }
+    }
+
+    if (tracks.length === 0) return null;
+    return new AnimationClip({ name: animName, duration: anim.duration, tracks });
   }
 
   private static MIXAMO_TO_UE: Record<string, string> = {
@@ -321,64 +453,35 @@ export class SkeletonAnimator {
   };
 
   registerRetargetedAnimations(animations: AnimationData[], stateName: string): void {
-    if (this.isMixamoSkeleton) {
-      const preRotMap = new Map<string, [number, number, number, number]>();
-      const sourcePreRots = animations[0]?.sourcePreRotations;
-      if (sourcePreRots) {
-        for (const [boneName, quat] of sourcePreRots) {
-          let name = boneName;
-          if (name.endsWith("Model")) name = name.slice(0, -5);
-          if (this.boneNameToIndex.has(name)) {
-            preRotMap.set(name, quat);
-          }
-        }
-      }
-      if (preRotMap.size > 0) {
-        this.sourcePreRotations.set(stateName, preRotMap);
-      }
-
-      const channels: AnimationChannel[] = [];
-      for (let i = 0; i < animations.length; i++) {
-        const anim = animations[i];
-        for (let c = 0; c < anim.channels.length; c++) {
-          const ch = anim.channels[c];
-          let nodeName = ch.targetNode;
-          if (nodeName.endsWith("Model")) nodeName = nodeName.slice(0, -5);
-          if (this.boneNameToIndex.has(nodeName)) {
-            channels.push({ ...ch, targetNode: nodeName });
-          }
-        }
-      }
-      if (channels.length > 0) {
-        this.animations.set(stateName, {
-          name: stateName,
-          duration: animations[0]?.duration ?? 0,
-          channels,
-        });
-        console.log(`[Anim] Registered: ${stateName} (${channels.length} channels, direct Mixamo)`);
-      }
-      return;
-    }
-
+    // Extract and store source rest/pre-rotations for pre-baking
     const map = SkeletonAnimator.MIXAMO_TO_UE;
-    const retargeted: AnimationChannel[] = [];
-    const restRotMap = new Map<string, [number, number, number, number]>();
-    const preRotMap = new Map<string, [number, number, number, number]>();
     const sourceRests = animations[0]?.sourceRestRotations;
     const sourcePreRots = animations[0]?.sourcePreRotations;
-    if (sourceRests) {
-      for (const [mixamoName, quat] of sourceRests) {
-        const ueName = mixamoName.startsWith("mixamorig:") ? (map[mixamoName] ?? mixamoName) : mixamoName;
-        if (this.boneNameToIndex.has(ueName)) {
-          restRotMap.set(ueName, quat);
+
+    const restRotMap = new Map<string, [number, number, number, number]>();
+    const preRotMap = new Map<string, [number, number, number, number]>();
+
+    if (sourcePreRots) {
+      for (const [boneName, quat] of sourcePreRots) {
+        let name = boneName;
+        if (name.endsWith("Model")) name = name.slice(0, -5);
+        const targetName = this.isMixamoSkeleton
+          ? name
+          : (name.startsWith("mixamorig:") ? (map[name] ?? name) : name);
+        if (this.boneNameToIndex.has(targetName)) {
+          preRotMap.set(targetName, quat);
         }
       }
     }
-    if (sourcePreRots) {
-      for (const [mixamoName, quat] of sourcePreRots) {
-        const ueName = mixamoName.startsWith("mixamorig:") ? (map[mixamoName] ?? mixamoName) : mixamoName;
-        if (this.boneNameToIndex.has(ueName)) {
-          preRotMap.set(ueName, quat);
+    if (sourceRests) {
+      for (const [boneName, quat] of sourceRests) {
+        let name = boneName;
+        if (name.endsWith("Model")) name = name.slice(0, -5);
+        const targetName = this.isMixamoSkeleton
+          ? name
+          : (name.startsWith("mixamorig:") ? (map[name] ?? name) : name);
+        if (this.boneNameToIndex.has(targetName)) {
+          restRotMap.set(targetName, quat);
         }
       }
     }
@@ -388,47 +491,50 @@ export class SkeletonAnimator {
     if (preRotMap.size > 0) {
       this.sourcePreRotations.set(stateName, preRotMap);
     }
+
+    // Merge all animation channels into one AnimationData, then pre-bake to AnimationClip
+    const allChannels: AnimationChannel[] = [];
+    let duration = 0;
     for (let i = 0; i < animations.length; i++) {
       const anim = animations[i];
+      duration = Math.max(duration, anim.duration);
       for (let c = 0; c < anim.channels.length; c++) {
         const ch = anim.channels[c];
-        if (ch.path === "translation") continue;
         let nodeName = ch.targetNode;
         if (nodeName.endsWith("Model")) nodeName = nodeName.slice(0, -5);
-        const targetName = nodeName.startsWith("mixamorig:")
-          ? map[nodeName] ?? nodeName
-          : nodeName;
+        const targetName = this.isMixamoSkeleton
+          ? nodeName
+          : (nodeName.startsWith("mixamorig:") ? (map[nodeName] ?? nodeName) : nodeName);
         if (this.boneNameToIndex.has(targetName)) {
-          retargeted.push({
-            ...ch,
-            targetNode: targetName,
-          });
+          allChannels.push({ ...ch, targetNode: targetName });
         }
       }
     }
-    if (retargeted.length > 0) {
-      const retargetedAnim: AnimationData = {
-        name: stateName,
-        duration: animations[0]?.duration ?? 0,
-        channels: retargeted,
-      };
-      this.animations.set(stateName, retargetedAnim);
-      console.log(`[Anim] Registered: ${stateName} (${retargeted.length} rot channels, ${restRotMap.size} rest rots)`);
+
+    if (allChannels.length === 0) return;
+
+    const mergedAnim: AnimationData = {
+      name: stateName,
+      duration,
+      channels: allChannels,
+    };
+
+    const clip = this.animationDataToClip(mergedAnim, stateName);
+    if (clip) {
+      this.clips.set(stateName, clip);
+      console.log(`[Anim] Registered: ${stateName} (${allChannels.length} channels, ${this.isMixamoSkeleton ? "direct Mixamo" : "retargeted"})`);
     }
   }
 
   protected setAnimationState(state: AnimState): void {
-    if (state === this.currentState && this.currentAnim !== null) return;
-    if (this.timeSinceLastStateChange < 0.5 && this.currentAnim !== null) return;
-    const anim = this.animations.get(state);
-    if (!anim) return;
+    if (state === this.currentState && this.player.isPlaying(state)) return;
+    if (this.timeSinceLastStateChange < 0.5 && this.player.isPlaying()) return;
+    const clip = this.clips.get(state);
+    if (!clip) return;
 
-    this.prevState = this.currentState;
-    this.blendAnim = this.currentAnim;
-    this.blendTime = 0;
+    // Use AnimationPlayer's fade for crossfade blending
+    this.player.play(state, clip, { fadeDuration: this.blendDuration });
     this.currentState = state;
-    this.currentAnim = anim;
-    this.animTime = 0;
     this.timeSinceLastStateChange = 0;
   }
 
@@ -442,48 +548,44 @@ export class SkeletonAnimator {
   }
 
   hasAnimation(name: string): boolean {
-    return this.animations.has(name);
+    return this.clips.has(name);
   }
 
   protected tick(dt: number): void {
     if (dt > 0.1) dt = 0.1;
     this.timeSinceLastStateChange += dt;
 
-    if (this.currentAnim) {
-      this.animTime += dt;
-      if (this.currentAnim.duration > 0 && this.animTime >= this.currentAnim.duration) {
-        this.animTime = this.animTime % this.currentAnim.duration;
-      }
+    // Let AnimationPlayer handle time progression, blending, and sampling
+    this.player.update(dt);
+
+    // Copy AnimationPlayer output to local arrays
+    const transforms = this.player.getBoneTransforms();
+    const hasActiveAnim = this.player.isPlaying();
+
+    for (let i = 0; i < this.boneCount; i++) {
+      this.localPos[i][0] = transforms.positions[i][0];
+      this.localPos[i][1] = transforms.positions[i][1];
+      this.localPos[i][2] = transforms.positions[i][2];
+      this.localRot[i][0] = transforms.rotations[i][0];
+      this.localRot[i][1] = transforms.rotations[i][1];
+      this.localRot[i][2] = transforms.rotations[i][2];
+      this.localRot[i][3] = transforms.rotations[i][3];
+      this.localScale[i][0] = transforms.scales[i][0];
+      this.localScale[i][1] = transforms.scales[i][1];
+      this.localScale[i][2] = transforms.scales[i][2];
     }
 
-    if (this.blendAnim !== null) {
-      this.blendTime += dt;
-      if (this.blendTime >= this.blendDuration) {
-        this.blendAnim = null;
-        this.prevState = null;
-      }
-    }
-
-    this.sampleAnimation(this.currentAnim, this.animTime, this.localPos, this.localRot, this.localScale, this.currentState);
-
-    if (this.blendAnim !== null && this.prevState !== null) {
-      this.sampleAnimation(this.blendAnim, this.blendTime, this.blendLocalPos, this.blendLocalRot, this.blendLocalScale, this.prevState);
-      const blendFactor = this.blendTime / this.blendDuration;
-      for (let i = 0; i < this.boneCount; i++) {
-        vec3Lerp(this.blendLocalPos[i], this.localPos[i], blendFactor, this.localPos[i]);
-        quatSlerp(this.blendLocalRot[i], this.localRot[i], blendFactor, this.localRot[i]);
-        vec3Lerp(this.blendLocalScale[i], this.localScale[i], blendFactor, this.localScale[i]);
-      }
-    }
-
-    if (!this.currentAnim) {
+    // Apply procedural idle when no animation is playing
+    if (!hasActiveAnim) {
       this.applyProceduralIdle(dt);
     }
 
-    if (false && this.ikEnabled) {
+    // Apply foot IK as post-processing
+    if (this.ikEnabled) {
       this.applyFootIK();
     }
 
+    // Flatten for GPU upload
     for (let i = 0; i < this.boneCount; i++) {
       this.localPosFlat[i * 4]     = this.localPos[i][0];
       this.localPosFlat[i * 4 + 1] = this.localPos[i][1];
@@ -497,161 +599,6 @@ export class SkeletonAnimator {
       this.localScaleFlat[i * 4 + 1] = this.localScale[i][1];
       this.localScaleFlat[i * 4 + 2] = this.localScale[i][2];
       this.localScaleFlat[i * 4 + 3] = 0.0;
-    }
-  }
-
-  protected sampleAnimation(
-    anim: AnimationData | null,
-    time: number,
-    posArr: Float32Array[],
-    rotArr: Float32Array[],
-    scaleArr: Float32Array[],
-    animName?: string,
-  ): void {
-    if (!anim) {
-      for (let i = 0; i < this.boneCount; i++) {
-        posArr[i].set(this.restPos[i]);
-        rotArr[i].set(this.restRot[i]);
-        scaleArr[i].set(this.restScale[i]);
-      }
-      return;
-    }
-
-    for (let i = 0; i < this.boneCount; i++) {
-      posArr[i].set(this.restPos[i]);
-      rotArr[i].set(this.restRot[i]);
-      scaleArr[i].set(this.restScale[i]);
-    }
-
-    if (this.isMixamoSkeleton) {
-      for (let c = 0; c < anim.channels.length; c++) {
-        const ch = anim.channels[c];
-        const boneIdx = this.boneNameToIndex.get(ch.targetNode);
-        if (boneIdx === undefined) continue;
-
-        const times = ch.keyframeTimes;
-        const values = ch.keyframeValues;
-        if (times.length === 0) continue;
-
-        let k0 = 0, k1 = 0, t = 0;
-        if (time <= times[0]) {
-          k0 = 0; k1 = 0; t = 0;
-        } else if (time >= times[times.length - 1]) {
-          k0 = times.length - 1; k1 = k0; t = 0;
-        } else {
-          for (let k = 0; k < times.length - 1; k++) {
-            if (time >= times[k] && time <= times[k + 1]) {
-              k0 = k; k1 = k + 1;
-              const range = times[k1] - times[k0];
-              t = range > 0 ? (time - times[k0]) / range : 0;
-              break;
-            }
-          }
-        }
-
-        if (ch.path === "translation") {
-          const v0 = k0 * 3;
-          const v1 = k1 * 3;
-          posArr[boneIdx][0] = values[v0] + (values[v1] - values[v0]) * t;
-          posArr[boneIdx][1] = values[v0 + 1] + (values[v1 + 1] - values[v0 + 1]) * t;
-          posArr[boneIdx][2] = values[v0 + 2] + (values[v1 + 2] - values[v0 + 2]) * t;
-        } else if (ch.path === "rotation") {
-          const v0 = k0 * 4;
-          const v1 = k1 * 4;
-          const q0 = new Float32Array([values[v0], values[v0 + 1], values[v0 + 2], values[v0 + 3]]);
-          const q1 = new Float32Array([values[v1], values[v1 + 1], values[v1 + 2], values[v1 + 3]]);
-          const animLcl = new Float32Array(4);
-          quatSlerp(q0, q1, t, animLcl);
-          const preRotMap = animName ? this.sourcePreRotations.get(animName) : undefined;
-          const srcPreRot = preRotMap?.get(ch.targetNode);
-          if (srcPreRot) {
-            quatMul(new Float32Array(srcPreRot), animLcl, rotArr[boneIdx]);
-          } else {
-            rotArr[boneIdx].set(animLcl);
-          }
-        } else if (ch.path === "scale") {
-          const v0 = k0 * 3;
-          const v1 = k1 * 3;
-          scaleArr[boneIdx][0] = values[v0] + (values[v1] - values[v0]) * t;
-          scaleArr[boneIdx][1] = values[v0 + 1] + (values[v1 + 1] - values[v0 + 1]) * t;
-          scaleArr[boneIdx][2] = values[v0 + 2] + (values[v1 + 2] - values[v0 + 2]) * t;
-        }
-      }
-      return;
-    }
-
-    for (let c = 0; c < anim.channels.length; c++) {
-      const ch = anim.channels[c];
-      const boneIdx = this.boneNameToIndex.get(ch.targetNode);
-      if (boneIdx === undefined) continue;
-
-      const times = ch.keyframeTimes;
-      const values = ch.keyframeValues;
-      if (times.length === 0) continue;
-
-      let k0 = 0;
-      let k1 = 0;
-      let t = 0;
-      if (time <= times[0]) {
-        k0 = 0; k1 = 0; t = 0;
-      } else if (time >= times[times.length - 1]) {
-        k0 = times.length - 1; k1 = k0; t = 0;
-      } else {
-        for (let k = 0; k < times.length - 1; k++) {
-          if (time >= times[k] && time <= times[k + 1]) {
-            k0 = k; k1 = k + 1;
-            const range = times[k1] - times[k0];
-            t = range > 0 ? (time - times[k0]) / range : 0;
-            break;
-          }
-        }
-      }
-
-      if (ch.path === "translation") {
-        const v0 = k0 * 3;
-        const v1 = k1 * 3;
-        posArr[boneIdx][0] = values[v0] + (values[v1] - values[v0]) * t;
-        posArr[boneIdx][1] = -(values[v0 + 2] + (values[v1 + 2] - values[v0 + 2]) * t);
-        posArr[boneIdx][2] = values[v0 + 1] + (values[v1 + 1] - values[v0 + 1]) * t;
-      } else if (ch.path === "rotation") {
-        const v0 = k0 * 4;
-        const v1 = k1 * 4;
-        const q0 = new Float32Array([values[v0], values[v0 + 1], values[v0 + 2], values[v0 + 3]]);
-        const q1 = new Float32Array([values[v1], values[v1 + 1], values[v1 + 2], values[v1 + 3]]);
-        const animLcl = new Float32Array(4);
-        quatSlerp(q0, q1, t, animLcl);
-        const restRotMap = animName ? this.sourceRestRotations.get(animName) : undefined;
-        const preRotMap = animName ? this.sourcePreRotations.get(animName) : undefined;
-        const srcRest = restRotMap?.get(ch.targetNode);
-        const srcPreRot = preRotMap?.get(ch.targetNode);
-        if (srcRest && srcPreRot) {
-          const fullAnimRot = new Float32Array(4);
-          quatMul(new Float32Array(srcPreRot), animLcl, fullAnimRot);
-          const invSrcRest = new Float32Array(4);
-          quatInvert(new Float32Array(srcRest), invSrcRest);
-          const deltaYup = new Float32Array(4);
-          quatMul(invSrcRest, fullAnimRot, deltaYup);
-          const deltaLocal = new Float32Array(4);
-          deltaLocal[0] = deltaYup[0];
-          deltaLocal[1] = -deltaYup[2];
-          deltaLocal[2] = deltaYup[1];
-          deltaLocal[3] = deltaYup[3];
-          quatMul(this.restRot[boneIdx], deltaLocal, rotArr[boneIdx]);
-        } else {
-          const animLclLocal = new Float32Array(4);
-          animLclLocal[0] = animLcl[0];
-          animLclLocal[1] = -animLcl[2];
-          animLclLocal[2] = animLcl[1];
-          animLclLocal[3] = animLcl[3];
-          quatMul(this.restRot[boneIdx], animLclLocal, rotArr[boneIdx]);
-        }
-      } else if (ch.path === "scale") {
-        const v0 = k0 * 3;
-        const v1 = k1 * 3;
-        scaleArr[boneIdx][0] = values[v0] + (values[v1] - values[v0]) * t;
-        scaleArr[boneIdx][1] = values[v0 + 1] + (values[v1 + 1] - values[v0 + 1]) * t;
-        scaleArr[boneIdx][2] = values[v0 + 2] + (values[v1 + 2] - values[v0 + 2]) * t;
-      }
     }
   }
 
@@ -805,4 +752,7 @@ export class SkeletonAnimator {
   getInverseNormalizationMatrix(): Float32Array | null { return this.inverseNormalizationMatrix; }
   getBoneCount(): number { return this.boneCount; }
   getCurrentState(): AnimState { return this.currentState; }
+  getRootMotionDelta(): [number, number, number] { return this.player.getRootMotionDelta(); }
+  getPlayer(): AnimationPlayer { return this.player; }
+  getSkeleton(): Skeleton { return this.skeleton; }
 }

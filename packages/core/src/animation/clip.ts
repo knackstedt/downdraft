@@ -18,10 +18,13 @@ export interface AnimationClipData {
 export class AnimationClip {
   data: AnimationClipData;
   private trackIndexMap: Map<string, KeyframeTrack[]> = new Map();
+  trackedBones: Set<number>;
 
   constructor(data: AnimationClipData) {
     this.data = data;
+    this.trackedBones = new Set();
     for (const track of data.tracks) {
+      this.trackedBones.add(track.boneIndex);
       const key = `${track.boneIndex}:${track.path}`;
       let tracks = this.trackIndexMap.get(key);
       if (!tracks) {
@@ -134,13 +137,13 @@ function slerpQuat(
   }
   const theta = Math.acos(Math.min(1, Math.max(-1, dot)));
   const sinTheta = Math.sin(theta);
-  const sinT = Math.sin(t * theta) / sinTheta;
-  const cosT = Math.cos(t * theta);
+  const sinT0 = Math.sin((1 - t) * theta) / sinTheta;
+  const sinT1 = Math.sin(t * theta) / sinTheta;
   return [
-    a[0] * cosT + bx * sinT,
-    a[1] * cosT + by * sinT,
-    a[2] * cosT + bz * sinT,
-    a[3] * cosT + bw * sinT,
+    a[0] * sinT0 + bx * sinT1,
+    a[1] * sinT0 + by * sinT1,
+    a[2] * sinT0 + bz * sinT1,
+    a[3] * sinT0 + bw * sinT1,
   ];
 }
 
