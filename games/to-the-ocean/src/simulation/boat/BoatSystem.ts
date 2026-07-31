@@ -2,21 +2,36 @@
 // Boat System — boarding, disembarking, ship control, propulsion, repair
 // ============================================================================
 
-import { InputBufferReader, KEY } from "../../shared/input-buffer";
-import { SimEntity, SimPlayer } from "../Simulation";
-import { EntityType, EntityFlags } from "../../shared/types";
-import { PLR_FLAG } from "../../shared/sim-buffer";
 import {
-  SHIP_BASE_SPEED, SHIP_MAX_SPEED, SHIP_ACCEL_RATE, SHIP_TURN_RATE,
-  SHIP_TURN_SPEED_FACTOR, SHIP_BOARDING_RANGE, SHIP_DISEMBARK_OFFSET,
-  SHIP_REPAIR_RATE, SHIP_DRAG, SHIP_ANGULAR_DRAG, SHIP_DATA,
-  SHIP_YAW_MAX,
-  HOTBAR_TOOLS, BUILDER_CELL_OPTIONS, BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BOAT_GRID_MAX, BoatCellType,
-  PLAYER_JUMP_FORCE, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, CellTemplateEntry, rotateTemplate,
+    BOAT_CELL_WORLD_SIZE,
+    BOAT_GRID_MAX,
+    BOAT_LAYER_HEIGHT,
+    BoatCellType,
+    BUILDER_CELL_OPTIONS,
+    CellTemplateEntry,
+    HOTBAR_TOOLS,
+    PLAYER_EYE_HEIGHT, PLAYER_HEIGHT,
+    PLAYER_JUMP_FORCE,
+    rotateTemplate,
+    SHIP_ACCEL_RATE,
+    SHIP_ANGULAR_DRAG,
+    SHIP_BASE_SPEED,
+    SHIP_DATA,
+    SHIP_DISEMBARK_OFFSET,
+    SHIP_DRAG,
+    SHIP_MAX_SPEED,
+    SHIP_REPAIR_RATE,
+    SHIP_TURN_RATE,
+    SHIP_TURN_SPEED_FACTOR,
+    SHIP_YAW_MAX
 } from "../../shared/constants";
+import { InputBufferReader, KEY } from "../../shared/input-buffer";
+import { PLR_FLAG } from "../../shared/sim-buffer";
+import { EntityType } from "../../shared/types";
+import { SimEntity, SimPlayer } from "../Simulation";
+import { AnchorSystem } from "./AnchorSystem";
 import { BoatCellSystem } from "./BoatCellSystem";
 import { BoatDesignSystem } from "./BoatDesignSystem";
-import { AnchorSystem } from "./AnchorSystem";
 
 interface ClimbAnimState {
   shipEntityId: number;
@@ -329,8 +344,8 @@ export class BoatSystem {
 
       // Transform player position to ship-local space
       const heading = ship.data[SHIP_DATA.HEADING] ?? 0;
-      const cos = Math.cos(-heading);
-      const sin = Math.sin(-heading);
+      const cos = Math.cos(heading);
+      const sin = Math.sin(heading);
       const localX = sdx * cos - sdz * sin;
       const localZ = sdx * sin + sdz * cos;
       const localY = player.position.y - ship.position.y;
@@ -472,8 +487,8 @@ export class BoatSystem {
       const heading = ent.data[SHIP_DATA.HEADING] ?? 0;
       const dx = player.position.x - ent.position.x;
       const dz = player.position.z - ent.position.z;
-      const cos = Math.cos(-heading);
-      const sin = Math.sin(-heading);
+      const cos = Math.cos(heading);
+      const sin = Math.sin(heading);
       const localX = dx * cos - dz * sin;
       const localZ = dx * sin + dz * cos;
 
@@ -542,8 +557,8 @@ export class BoatSystem {
     const heading = ship.data[SHIP_DATA.HEADING] ?? 0;
     const dx = player.position.x - ship.position.x;
     const dz = player.position.z - ship.position.z;
-    const cos = Math.cos(-heading);
-    const sin = Math.sin(-heading);
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
     return {
       localX: dx * cos - dz * sin,
       localZ: dx * sin + dz * cos,
@@ -580,11 +595,11 @@ export class BoatSystem {
     // Roll (around Z): y' = x*sinR + y*cosR, x' = x*cosR - y*sinR
     const rY = localX * sinR + pY * cosR;
     const rX = localX * cosR - pY * sinR;
-    // Yaw (around Y): x' = x*cosH - z*sinH, z' = x*sinH + z*cosH
+    // Yaw (around Y): x' = x*cosH + z*sinH, z' = -x*sinH + z*cosH
     return {
-      x: posX + rX * cosH - pZ * sinH,
+      x: posX + rX * cosH + pZ * sinH,
       y: posY + rY,
-      z: posZ + rX * sinH + pZ * cosH,
+      z: posZ - rX * sinH + pZ * cosH,
     };
   }
 
@@ -598,12 +613,12 @@ export class BoatSystem {
     const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
     const cosR = Math.cos(roll), sinR = Math.sin(roll);
 
-    // Inverse yaw
+    // Inverse yaw: localX = dx*cosH - dz*sinH, localZ = dx*sinH + dz*cosH
     const dx = worldX - posX;
     const dy = worldY - posY;
     const dz = worldZ - posZ;
-    const yx = dx * cosH + dz * sinH;
-    const yz = -dx * sinH + dz * cosH;
+    const yx = dx * cosH - dz * sinH;
+    const yz = dx * sinH + dz * cosH;
     const yy = dy;
     // Inverse roll: x = x'*cosR + y'*sinR, y = -x'*sinR + y'*cosR
     const rx = yx * cosR + yy * sinR;
@@ -626,10 +641,10 @@ export class BoatSystem {
   ): void {
     const ship = this.findEntityById(entities, entityCount, state.shipEntityId);
     if (ship) {
-      // Place player beside the ship at water level
+      // Place player beside the ship at water level (stern / local +Z)
       const heading = ship.data[SHIP_DATA.HEADING] ?? 0;
-      const offsetX = Math.cos(heading + Math.PI / 2) * SHIP_DISEMBARK_OFFSET;
-      const offsetZ = Math.sin(heading + Math.PI / 2) * SHIP_DISEMBARK_OFFSET;
+      const offsetX = Math.sin(heading) * SHIP_DISEMBARK_OFFSET;
+      const offsetZ = Math.cos(heading) * SHIP_DISEMBARK_OFFSET;
       player.position.x = ship.position.x + offsetX;
       player.position.y = ship.position.y + 1;
       player.position.z = ship.position.z + offsetZ;
@@ -1061,13 +1076,13 @@ export class BoatSystem {
     // Transform eye position into ship-local space for raycasting
     const dx = eyeX - ship.position.x;
     const dz = eyeZ - ship.position.z;
-    const cos = Math.cos(-shipHeading);
-    const sin = Math.sin(-shipHeading);
+    const cos = Math.cos(shipHeading);
+    const sin = Math.sin(shipHeading);
     const localEyeX = dx * cos - dz * sin;
     const localEyeZ = dx * sin + dz * cos;
     const localEyeY = eyeY - ship.position.y;
 
-    // Transform direction into ship-local space (rotate by -heading)
+    // Transform direction into ship-local space (rotate by heading)
     const localDirX = dirX * cos - dirZ * sin;
     const localDirZ = dirX * sin + dirZ * cos;
     const localDirY = dirY;
