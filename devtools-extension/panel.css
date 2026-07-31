@@ -1199,3 +1199,188 @@ input[type="number"]:focus, input[type="text"]:focus {
 .legend-item {
   white-space: nowrap;
 }
+
+/* --- GPU Panel --- */
+
+#gpu-panel {
+  padding: 8px 12px;
+  overflow-y: auto;
+  height: calc(100vh - 28px);
+}
+
+#gpu-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.gpu-clear-btn {
+  float: right;
+  padding: 2px 8px;
+  border: 1px solid #5a1d1d;
+  background: #3c1f1f;
+  color: #f44747;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  margin-left: 8px;
+}
+
+.gpu-clear-btn:hover {
+  background: #5a1d1d;
+}
+
+.gpu-error-log {
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.gpu-error-entry {
+  padding: 3px 6px;
+  border-bottom: 1px solid #222;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.gpu-error-entry .gpu-error-time {
+  color: #888;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.gpu-error-entry .gpu-error-label {
+  color: #d19a66;
+  white-space: nowrap;
+}
+
+.gpu-error-entry .gpu-error-msg {
+  color: #f44747;
+  flex: 1;
+  word-break: break-word;
+}
+
+.gpu-error-empty {
+  color: #666;
+  font-style: italic;
+  padding: 8px;
+  text-align: center;
+}
+
+.gpu-chart-group {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+  margin-top: 8px;
+}
+
+.gpu-resource-table-wrap {
+  max-height: 400px;
+  overflow-y: auto;
+  margin-top: 8px;
+  border: 1px solid #333;
+  border-radius: 3px;
+}
+
+.gpu-resource-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.gpu-resource-table th {
+  position: sticky;
+  top: 0;
+  background: #2d2d2d;
+  color: #888;
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid #3e3e3e;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gpu-resource-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid #222;
+  color: #dcdcaa;
+  font-family: monospace;
+}
+
+.gpu-resource-table tr:hover td {
+  background: #2a2d2e;
+}
+
+.gpu-resource-table .gpu-res-type-text {
+  color: #569cd6;
+}
+
+.gpu-resource-table .gpu-res-type-buffer {
+  color: #c678dd;
+}
+
+.gpu-res-callsite {
+  color: #7f8c8d;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.gpu-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.gpu-tool-card {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.gpu-tool-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4ec9b0;
+  margin-bottom: 4px;
+}
+
+.gpu-tool-desc {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.gpu-tool-command {
+  background: #1e1e1e;
+  border: 1px solid #3e3e3e;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #dcdcaa;
+  cursor: pointer;
+  user-select: all;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.gpu-tool-command:hover {
+  border-color: #0e639c;
+  background: #252530;
+}
+
+.gpu-tool-command:active {
+  border-color: #1177bb;
+}
+
+.gpu-tool-command.copied {
+  border-color: #4ec9b0;
+  color: #4ec9b0;
+}
