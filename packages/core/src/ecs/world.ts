@@ -189,6 +189,7 @@ export class World {
     this.schedule.runStage(1, ctx); // Update
     this.schedule.runStage(2, ctx); // Physics
     this.schedule.runStage(3, ctx); // PostUpdate
+    this.schedule.runStage(4, ctx); // Render (render-prep systems)
     this.flushCommands();
   }
 

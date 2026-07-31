@@ -122,6 +122,8 @@ export type { MaterialDefinition, MaterialTexture, MaterialUniform } from "./mat
 export { Camera } from "./scene/camera.ts";
 export { CheckpointManager } from "./scene/checkpoint.ts";
 export type { CheckpointData } from "./scene/checkpoint.ts";
+export { GameLoop } from "./scene/game-loop.ts";
+export type { GameLoopConfig, GameLoopStats } from "./scene/game-loop.ts";
 export { RenderLayer } from "./scene/layer.ts";
 export { createPrefabFromComponentDefs, PrefabFactory, PrefabRegistry } from "./scene/prefab.ts";
 export type { Prefab, PrefabChildEntry, PrefabComponentEntry } from "./scene/prefab.ts";
@@ -135,6 +137,7 @@ export type { ChunkCoord, ChunkData, ChunkLoader, ChunkUnloader, StreamConfig } 
 export { generateInstances, packInstanceData, VegetationPatch, VegetationWindSystem } from "./scene/vegetation.ts";
 export type { VegetationInstance, VegetationPatchData, WindState } from "./scene/vegetation.ts";
 export { GameWorld } from "./scene/world.ts";
+export type { WorldResources } from "./scene/world.ts";
 
 // Telemetry
 export { TelemetryCollector } from "./telemetry/collector.ts";

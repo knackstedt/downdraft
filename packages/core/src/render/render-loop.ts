@@ -80,6 +80,8 @@ export class RenderLoop {
   private postProcessSettings: PostProcessSettings;
   private useDeferred: boolean;
   private renderGraph: RenderGraph | null = null;
+  private autonomous: boolean;
+  private alpha: number = 0;
 
   constructor(config: RenderLoopConfig) {
     this.deviceManager = new GPUDeviceManager();
@@ -88,6 +90,7 @@ export class RenderLoop {
     this.lightData = config.lightData ?? createDefaultLightUniform();
     this.postProcessSettings = { ...DEFAULT_POST_PROCESS_SETTINGS, ...config.postProcessSettings };
     this.useDeferred = (config.mode ?? "gbuffer") === "gbuffer";
+    this.autonomous = true;
   }
 
   async init(): Promise<boolean> {
@@ -292,11 +295,29 @@ export class RenderLoop {
     }
   }
 
+  setAutonomous(autonomous: boolean): void {
+    this.autonomous = autonomous;
+  }
+
+  isAutonomous(): boolean {
+    return this.autonomous;
+  }
+
+  setAlpha(alpha: number): void {
+    this.alpha = alpha;
+  }
+
+  getAlpha(): number {
+    return this.alpha;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
     this.timer.reset();
-    this.loop();
+    if (this.autonomous) {
+      this.loop();
+    }
   }
 
   stop(): void {
@@ -308,12 +329,15 @@ export class RenderLoop {
   }
 
   private loop = (): void => {
-    if (!this.running) return;
+    if (!this.running || !this.autonomous) return;
     this.rafId = requestAnimationFrame(this.loop);
-    this.render();
+    this.renderFrame();
   };
 
-  private render(): void {
+  renderFrame(alpha?: number): void {
+    if (alpha !== undefined) {
+      this.alpha = alpha;
+    }
     const device = this.deviceManager.getDevice();
     if (!device || !this.surface || !this.opaquePass) return;
 

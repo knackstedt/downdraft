@@ -1,22 +1,24 @@
-import type { World } from "../ecs/world.ts";
-import type { Scene } from "./scene.ts";
-import type { Camera } from "./camera.ts";
-import type { Plugin } from "../plugin/plugin.ts";
-import { PluginHost } from "../plugin/host.ts";
-import { PrefabRegistry, PrefabFactory } from "./prefab.ts";
-import { Hierarchy } from "../ecs/hierarchy.ts";
 import type { Entity } from "../ecs/entity.ts";
+import { Hierarchy } from "../ecs/hierarchy.ts";
+import type { World } from "../ecs/world.ts";
+import { PluginHost } from "../plugin/host.ts";
+import type { Plugin } from "../plugin/plugin.ts";
+import type { Camera } from "./camera.ts";
+import { PrefabFactory, PrefabRegistry } from "./prefab.ts";
+import type { Scene } from "./scene.ts";
 
 export interface WorldResources {
   camera?: Camera;
   time: number;
   dt: number;
+  /** Interpolation alpha (0.0–1.0) set by GameLoop for render interpolation. */
+  alpha: number;
 }
 
 export class GameWorld {
   scene: Scene;
   world: World;
-  resources: WorldResources = { time: 0, dt: 0 };
+  resources: WorldResources = { time: 0, dt: 0, alpha: 0 };
   pluginHost: PluginHost;
   prefabRegistry: PrefabRegistry;
   prefabFactory: PrefabFactory;
@@ -55,9 +57,12 @@ export class GameWorld {
     return this.prefabFactory.spawn(prefabName, parent);
   }
 
-  step(dt: number): void {
+  step(dt: number, alpha?: number): void {
     this.resources.dt = dt;
     this.resources.time += dt;
+    if (alpha !== undefined) {
+      this.resources.alpha = alpha;
+    }
     this.world.step(dt);
   }
 
