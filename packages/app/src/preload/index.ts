@@ -2,7 +2,7 @@
 // Preload — context bridge between renderer and main process
 // ============================================================================
 
-import { contextBridge, ipcRenderer, shell } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 import { IPC } from "../shared/messages";
 
 const api = {
@@ -19,7 +19,7 @@ const api = {
 
   getDisplayInfo: (): Promise<{ refreshRate: number }> => ipcRenderer.invoke(IPC.GET_DISPLAY_INFO),
 
-  openExternal: (url: string): void => { shell.openExternal(url); },
+  openExternal: (url: string): void => { ipcRenderer.send(IPC.OPEN_EXTERNAL, url); },
 
   onSimReady: (cb: (data: any) => void) => ipcRenderer.on(IPC.SIM_READY, (_e, data) => cb(data)),
 

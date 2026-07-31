@@ -4,7 +4,7 @@
 
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
-import { app, BrowserWindow, ipcMain, Menu, screen, session } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { IPC } from "../shared/messages";
@@ -225,10 +225,10 @@ async function createWindow(): Promise<void> {
     title: "Downdraft Engine",
     backgroundColor: "#001a33",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.mjs"),
+      preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       webgpu: true,
       enableBlinkFeatures: "SharedArrayBuffer",
     } as any,
@@ -432,6 +432,10 @@ function registerIpcHandlers(): void {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
     }
+  });
+
+  ipcMain.on(IPC.OPEN_EXTERNAL, (_event, url: string) => {
+    shell.openExternal(url);
   });
 
   ipcMain.handle(IPC.QUIT, () => {

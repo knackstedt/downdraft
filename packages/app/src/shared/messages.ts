@@ -14,6 +14,7 @@ export const IPC = {
   TOGGLE_DEVTOOLS: "toggle-devtools",
   TOGGLE_FULLSCREEN: "toggle-fullscreen",
   GET_DISPLAY_INFO: "get-display-info",
+  OPEN_EXTERNAL: "open-external",
 
   // Main -> Renderer
   SIM_READY: "sim-ready",

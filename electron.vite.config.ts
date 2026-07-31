@@ -30,14 +30,28 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin(),
+      {
+        name: "force-cjs-preload",
+        configResolved(config) {
+          const output = config.build.rollupOptions.output;
+          const out = Array.isArray(output) ? output[0] : output;
+          if (out) {
+            out.format = "cjs";
+            out.entryFileNames = "[name].cjs";
+          }
+        },
+      },
+    ],
     build: {
       rollupOptions: {
         input: {
           index: resolve("packages/app/src/preload/index.ts"),
         },
         output: {
-          entryFileNames: "[name].js",
+          format: "cjs",
+          entryFileNames: "[name].cjs",
         },
       },
     } as any,
@@ -58,6 +72,8 @@ export default defineConfig({
         { find: /^@downdraft\/core\//, replacement: resolve("packages/core/src") + "/" },
         { find: /^@downdraft\/ui$/, replacement: resolve("packages/ui/src/index.ts") },
         { find: /^@downdraft\/ui\//, replacement: resolve("packages/ui/src") + "/" },
+        { find: /^node:fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
+        { find: /^fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
       ],
     },
     build: {
