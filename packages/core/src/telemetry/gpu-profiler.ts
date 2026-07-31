@@ -1,0 +1,312 @@
+// ============================================================================
+// GPUProfiler — consolidated GPU debugging: pass timing, error capture,
+// GPU info/limits snapshot, and tracked render pass wrapping.
+// ============================================================================
+
+import { GPUTimerPool } from "./gpu-timer-pool.ts";
+import type { PassTiming } from "./collector.ts";
+
+export interface GPUErrors {
+  timestamp: number;
+  message: string;
+  label?: string;
+}
+
+export interface GPUAdapterInfo {
+  vendor: string;
+  architecture: string;
+  device: string;
+  description: string;
+}
+
+export interface GPUInfo {
+  adapter: GPUAdapterInfo | null;
+  deviceLost: boolean;
+  canvasFormat: GPUTextureFormat | null;
+  msaaSampleCount: number;
+  canvasSize: { width: number; height: number };
+  deviceLimits: Record<string, number> | null;
+}
+
+export interface PassTrackerStats {
+  pipelineSwitches: number;
+  bindGroupChanges: number;
+  bufferRebinds: number;
+  drawCalls: number;
+  triangles: number;
+}
+
+interface PassTimingEntry {
+  cpuMs: number;
+  gpuMs: number;
+  drawCalls: number;
+  triangles: number;
+  pipelineSwitches: number;
+  bindGroupChanges: number;
+  bufferRebinds: number;
+}
+
+export class GPUProfiler {
+  private passTimings: Map<string, PassTimingEntry> = new Map();
+  private passStartTimes: Map<string, number> = new Map();
+  private passGpuIndices: Map<string, number> = new Map();
+  private gpuPassCounter: number = 0;
+  private gpuTimerPool: GPUTimerPool | null = null;
+  private passTracker: PassTrackerStats = {
+    pipelineSwitches: 0,
+    bindGroupChanges: 0,
+    bufferRebinds: 0,
+    drawCalls: 0,
+    triangles: 0,
+  };
+
+  private adapterInfo: any = null;
+  private gpuErrors: GPUErrors[] = [];
+  private deviceLost: boolean = false;
+  private canvasFormat: GPUTextureFormat | null = null;
+
+  private device: GPUDevice | null = null;
+
+  init(device: GPUDevice, adapterInfo: any, canvasFormat: GPUTextureFormat, maxPasses: number = 16): void {
+    this.device = device;
+    this.adapterInfo = adapterInfo;
+    this.canvasFormat = canvasFormat;
+    this.gpuTimerPool = new GPUTimerPool(device, maxPasses);
+
+    const self = this;
+    device.onuncapturederror = function (ev: GPUUncapturedErrorEvent) {
+      const label = (ev.error as any)?.label ?? "";
+      const entry: GPUErrors = {
+        timestamp: performance.now(),
+        message: ev.error.message,
+        label: label || undefined,
+      };
+      self.gpuErrors.push(entry);
+      if (self.gpuErrors.length > 100) self.gpuErrors.shift();
+      console.error(`[GPU] ${label || ""} WebGPU uncaptured error: ${ev.error.message}`);
+    };
+
+    device.lost.then((info: any) => {
+      self.deviceLost = true;
+      console.error(`[GPU] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+    });
+  }
+
+  getGPUTimerPool(): GPUTimerPool | null {
+    return this.gpuTimerPool;
+  }
+
+  isGpuTimerSupported(): boolean {
+    return this.gpuTimerPool?.isSupported() ?? false;
+  }
+
+  // --- Pass timing ---
+
+  beginFrame(): void {
+    this.passStartTimes.clear();
+    this.passTimings.clear();
+    this.passGpuIndices.clear();
+    this.gpuPassCounter = 0;
+  }
+
+  beginPass(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number): void {
+    if (viewportIdx !== 0) return;
+    this.passStartTimes.set(name, performance.now());
+    this.passTracker.pipelineSwitches = 0;
+    this.passTracker.bindGroupChanges = 0;
+    this.passTracker.bufferRebinds = 0;
+    this.passTracker.drawCalls = 0;
+    this.passTracker.triangles = 0;
+    if (!this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
+    const idx = this.gpuPassCounter++;
+    if (idx >= 16) return;
+    this.passGpuIndices.set(name, idx);
+    this.gpuTimerPool.begin(passEncoder, idx);
+  }
+
+  endPass(name: string, passEncoder: GPURenderPassEncoder, viewportIdx: number, drawCalls: number = 0, triangles: number = 0): void {
+    if (viewportIdx !== 0) return;
+    // End GPU timer
+    if (this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
+      const idx = this.passGpuIndices.get(name);
+      if (idx !== undefined && idx < 16) {
+        this.gpuTimerPool.end(passEncoder, idx);
+      }
+    }
+    // Record timing
+    const start = this.passStartTimes.get(name);
+    if (start === undefined) return;
+    const cpuMs = performance.now() - start;
+    const existing = this.passTimings.get(name);
+    const gpuIdx = this.passGpuIndices.get(name);
+    const gpuMs = (gpuIdx !== undefined && this.gpuTimerPool) ? this.gpuTimerPool.getPassGpuMs(gpuIdx) : 0;
+    this.passTimings.set(name, {
+      cpuMs,
+      gpuMs,
+      drawCalls: this.passTracker.drawCalls || drawCalls || existing?.drawCalls || 0,
+      triangles: this.passTracker.triangles || triangles || existing?.triangles || 0,
+      pipelineSwitches: this.passTracker.pipelineSwitches,
+      bindGroupChanges: this.passTracker.bindGroupChanges,
+      bufferRebinds: this.passTracker.bufferRebinds,
+    });
+  }
+
+  resolveGpuTimers(encoder: GPUCommandEncoder): void {
+    if (this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
+      this.gpuTimerPool.resolve(encoder);
+    }
+  }
+
+  readGpuTimers(): Promise<Map<number, number>> {
+    if (this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
+      return this.gpuTimerPool.readAll();
+    }
+    return Promise.resolve(new Map());
+  }
+
+  getPassTimings(): PassTiming[] {
+    const result: PassTiming[] = [];
+    for (const [name, t] of this.passTimings) {
+      result.push({
+        name,
+        cpuMs: t.cpuMs,
+        gpuMs: t.gpuMs,
+        drawCalls: t.drawCalls,
+        triangles: t.triangles,
+        pipelineSwitches: t.pipelineSwitches,
+        bindGroupChanges: t.bindGroupChanges,
+        bufferRebinds: t.bufferRebinds,
+      });
+    }
+    return result;
+  }
+
+  // --- Tracked render pass ---
+
+  wrapTrackedPass(pass: GPURenderPassEncoder): GPURenderPassEncoder {
+    const tracker = this.passTracker;
+    return new Proxy(pass, {
+      get(target, prop) {
+        if (prop === "setPipeline") {
+          return (pipeline: GPURenderPipeline) => {
+            tracker.pipelineSwitches++;
+            target.setPipeline(pipeline);
+          };
+        }
+        if (prop === "setBindGroup") {
+          return (index: number, group: GPUBindGroup, dynamicOffsets?: number[] | Uint32Array) => {
+            tracker.bindGroupChanges++;
+            target.setBindGroup(index, group, dynamicOffsets ?? []);
+          };
+        }
+        if (prop === "setVertexBuffer") {
+          return (slot: number, buffer: GPUBuffer, offset: number = 0, size?: number) => {
+            tracker.bufferRebinds++;
+            target.setVertexBuffer(slot, buffer, offset, size);
+          };
+        }
+        if (prop === "setIndexBuffer") {
+          return (buffer: GPUBuffer, format: GPUIndexFormat, offset: number = 0, size?: number) => {
+            tracker.bufferRebinds++;
+            target.setIndexBuffer(buffer, format, offset, size);
+          };
+        }
+        if (prop === "draw") {
+          return (vertexCount: number, instanceCount: number = 1, firstVertex: number = 0, firstInstance: number = 0) => {
+            tracker.drawCalls++;
+            tracker.triangles += Math.floor(vertexCount / 3) * instanceCount;
+            target.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+          };
+        }
+        if (prop === "drawIndexed") {
+          return (indexCount: number, instanceCount: number = 1, firstIndex: number = 0, baseVertex: number = 0, firstInstance: number = 0) => {
+            tracker.drawCalls++;
+            tracker.triangles += Math.floor(indexCount / 3) * instanceCount;
+            target.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+          };
+        }
+        const value = Reflect.get(target, prop);
+        if (typeof value === "function") return value.bind(target);
+        return value;
+      },
+    }) as unknown as GPURenderPassEncoder;
+  }
+
+  // --- GPU errors ---
+
+  getGPUErrors(): GPUErrors[] {
+    return this.gpuErrors;
+  }
+
+  clearGPUErrors(): void {
+    this.gpuErrors = [];
+  }
+
+  isDeviceLost(): boolean {
+    return this.deviceLost;
+  }
+
+  // --- GPU info / limits ---
+
+  getGPUInfo(canvas: HTMLCanvasElement, msaaSampleCount: number): GPUInfo {
+    const a = this.adapterInfo;
+    const adapter = a ? {
+      vendor: a.vendor ?? "",
+      architecture: a.architecture ?? "",
+      device: a.device ?? "",
+      description: a.description ?? "",
+    } : null;
+
+    const limits = this.device?.limits;
+    const deviceLimits = limits ? {
+      maxTextureDimension1D: limits.maxTextureDimension1D,
+      maxTextureDimension2D: limits.maxTextureDimension2D,
+      maxTextureDimension3D: limits.maxTextureDimension3D,
+      maxTextureArrayLayers: limits.maxTextureArrayLayers,
+      maxBindGroups: limits.maxBindGroups,
+      maxBindGroupsPerShaderStage: (limits as any).maxBindGroupsPerShaderStage,
+      maxBindingsPerBindGroup: (limits as any).maxBindingsPerBindGroup,
+      maxBufferSize: limits.maxBufferSize,
+      maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
+      maxUniformBufferBindingSize: limits.maxUniformBufferBindingSize,
+      maxDynamicUniformBuffersPerPipelineLayout: limits.maxDynamicUniformBuffersPerPipelineLayout,
+      maxDynamicStorageBuffersPerPipelineLayout: limits.maxDynamicStorageBuffersPerPipelineLayout,
+      maxSampledTexturesPerShaderStage: limits.maxSampledTexturesPerShaderStage,
+      maxSamplersPerShaderStage: limits.maxSamplersPerShaderStage,
+      maxStorageBuffersPerShaderStage: limits.maxStorageBuffersPerShaderStage,
+      maxStorageTexturesPerShaderStage: limits.maxStorageTexturesPerShaderStage,
+      maxUniformBuffersPerShaderStage: limits.maxUniformBuffersPerShaderStage,
+      maxVertexAttributes: limits.maxVertexAttributes,
+      maxVertexBuffers: limits.maxVertexBuffers,
+      maxVertexBufferArrayStride: limits.maxVertexBufferArrayStride,
+      minUniformBufferOffsetAlignment: limits.minUniformBufferOffsetAlignment,
+      minStorageBufferOffsetAlignment: limits.minStorageBufferOffsetAlignment,
+      maxColorAttachments: limits.maxColorAttachments,
+      maxColorAttachmentBytesPerSample: limits.maxColorAttachmentBytesPerSample,
+      maxComputeWorkgroupStorageSize: limits.maxComputeWorkgroupStorageSize,
+      maxComputeInvocationsPerWorkgroup: limits.maxComputeInvocationsPerWorkgroup,
+      maxComputeWorkgroupSizeX: limits.maxComputeWorkgroupSizeX,
+      maxComputeWorkgroupSizeY: limits.maxComputeWorkgroupSizeY,
+      maxComputeWorkgroupSizeZ: limits.maxComputeWorkgroupSizeZ,
+      maxComputeWorkgroupsPerDimension: limits.maxComputeWorkgroupsPerDimension,
+    } : null;
+
+    return {
+      adapter,
+      deviceLost: this.deviceLost,
+      canvasFormat: this.canvasFormat,
+      msaaSampleCount,
+      canvasSize: { width: canvas.width, height: canvas.height },
+      deviceLimits,
+    };
+  }
+
+  getAdapterInfo(): any {
+    return this.adapterInfo;
+  }
+
+  destroy(): void {
+    this.gpuTimerPool?.destroy();
+    this.gpuTimerPool = null;
+  }
+}

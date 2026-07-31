@@ -449,7 +449,7 @@ function registerIpcHandlers(): void {
         { timeout: 3000, encoding: "utf-8" },
       ).trim();
 
-      const labels = gpuQuery.split(",");
+      const labels = gpuQuery.split(",").map(l => l.replace(/\./g, "_"));
       const gpus = output.split("\n").map((line: string) => {
         const vals = line.trim().split(",").map((v: string) => v.trim());
         const obj: Record<string, unknown> = {};
@@ -493,11 +493,13 @@ function registerIpcHandlers(): void {
       const info = await app.getGPUInfo("complete");
       if (info && typeof info === "object") {
         const g = info as any;
+        const devices = Array.isArray(g.gpuDevice) ? g.gpuDevice : [];
+        const primary = devices[0] ?? {};
         return {
-          gpuDevice: g.gpuDevice,
-          gpuDriver: g.gpuDriver,
-          gpuDriverVersion: g.gpuDriverVersion,
-          gpuVendor: g.gpuVendor,
+          gpuVendor: g.gpuVendor || primary.vendor || "",
+          gpuDevice: primary.device || (devices.length > 0 ? devices.map((d: any) => d.device || d.description || "").join(", ") : ""),
+          gpuDriver: g.gpuDriver || "",
+          gpuDriverVersion: g.gpuDriverVersion || "",
           gpuActive: g.gpuActive,
           auxAttributes: g.auxAttributes,
           featureStatus: g.featureStatus,

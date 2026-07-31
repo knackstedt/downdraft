@@ -76,6 +76,17 @@ export interface SnapshotDiff {
   deltaPct: number;
 }
 
+export interface FrameTelemetry {
+  frameTimes: number[];
+  avgFrameTime: number;
+  p95: number;
+  p99: number;
+  fps: number;
+  drawCalls: number;
+  triangles: number;
+  gpuTimeMs: number;
+}
+
 export class TelemetryCollector {
   private enabled: boolean;
   private threadMetrics: Map<string, ThreadMetrics> = new Map();
@@ -203,6 +214,20 @@ export class TelemetryCollector {
   getFPS(): number {
     const avg = this.getAverageFrameTime();
     return avg > 0 ? Math.round(1000 / avg) : 0;
+  }
+
+  getFrameTelemetry(): FrameTelemetry | null {
+    if (!this.enabled) return null;
+    return {
+      frameTimes: this.getFrameTimes(),
+      avgFrameTime: this.getAverageFrameTime(),
+      p95: this.getFrameTimePercentile(0.95),
+      p99: this.getFrameTimePercentile(0.99),
+      fps: this.getFPS(),
+      drawCalls: this.drawStats.drawCalls,
+      triangles: this.drawStats.triangles,
+      gpuTimeMs: this.gpuTimeMs,
+    };
   }
 
   recordPassTiming(timing: PassTiming): void {
