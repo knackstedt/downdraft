@@ -13,9 +13,24 @@ export class TrackedRenderPass {
     indexFormat: null,
   };
   private pass: GPURenderPassEncoder;
+  private _drawCalls: number = 0;
+  private _triangles: number = 0;
 
   constructor(pass: GPURenderPassEncoder) {
     this.pass = pass;
+  }
+
+  get drawCalls(): number {
+    return this._drawCalls;
+  }
+
+  get triangles(): number {
+    return this._triangles;
+  }
+
+  resetStats(): void {
+    this._drawCalls = 0;
+    this._triangles = 0;
   }
 
   setPipeline(pipeline: GPURenderPipeline): void {
@@ -51,10 +66,14 @@ export class TrackedRenderPass {
 
   draw(vertexCount: number, instanceCount: number = 1, firstVertex: number = 0, firstInstance: number = 0): void {
     this.pass.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+    this._drawCalls++;
+    this._triangles += Math.floor(vertexCount / 3) * instanceCount;
   }
 
   drawIndexed(indexCount: number, instanceCount: number = 1, firstIndex: number = 0, baseVertex: number = 0, firstInstance: number = 0): void {
     this.pass.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+    this._drawCalls++;
+    this._triangles += Math.floor(indexCount / 3) * instanceCount;
   }
 
   end(): void {
