@@ -15,6 +15,11 @@ export { Stage, system } from "./ecs/system.ts";
 export type { System, SystemContext, SystemFn } from "./ecs/system.ts";
 export { World } from "./ecs/world.ts";
 
+// Job System
+export { JobScheduler, parallelMap, WorkerPool } from "./ecs/job-system.ts";
+export type { BatchOptions, Job, JobResult, JobSchedulerOptions, WorkerPoolOptions } from "./ecs/job-system.ts";
+export { hasTask, registerTask, unregisterTask } from "./worker/task-worker.ts";
+
 // Change Detection
 export { ChangeTracker } from "./change-detection/tracker.ts";
 

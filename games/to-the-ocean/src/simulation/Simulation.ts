@@ -27,6 +27,7 @@ import {
 } from "../shared/types";
 import { WaterBufferWriter } from "../shared/water-buffer";
 
+import type { JobScheduler } from "@downdraft/core/ecs/job-system";
 import { BoatBufferWriter } from "../shared/boat-buffer";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import { BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH, PLAYER_HEIGHT, PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH, SHIP_DATA, SHIP_DATA_SLOTS } from "../shared/constants";
@@ -123,6 +124,7 @@ export class Simulation {
   private terrainSystem: TerrainSystem;
   private toolSystem: ToolSystem;
   private shipInventories = new Map<number, InventoryGrid>();
+  private jobScheduler: JobScheduler | null = null;
 
   // State
   private gamemode = GameMode.Survival;
@@ -319,7 +321,12 @@ export class Simulation {
     this.boatCellSystem.writeToBuffer();
   }
 
-  tick(): void {
+  setJobScheduler(scheduler: JobScheduler): void {
+    this.jobScheduler = scheduler;
+    this.buoyancySystem.setJobScheduler(scheduler);
+  }
+
+  async tick(): Promise<void> {
     const tickStart = performance.now();
     const dt = SIM_TICK_DT;
     this.totalTicks++;
@@ -365,8 +372,12 @@ export class Simulation {
     const t4 = performance.now();
     sysTimes.push({ name: "boatControl", ms: t4 - t3 });
 
-    // BuoyancySystem handles ship buoyancy + gravity for non-static entities
-    this.buoyancySystem.tick(dt, this.entities, this.entityCount);
+    // BuoyancySystem: use parallel path when scheduler is available, else inline
+    if (this.jobScheduler) {
+      await this.buoyancySystem.tickParallel(dt, this.entities, this.entityCount);
+    } else {
+      this.buoyancySystem.tick(dt, this.entities, this.entityCount);
+    }
     const t5 = performance.now();
     sysTimes.push({ name: "buoyancy", ms: t5 - t4 });
 

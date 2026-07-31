@@ -23,13 +23,23 @@ export interface System {
   queries: Query[];
   after?: string[];
   before?: string[];
+  /** If true, this system can be dispatched to the JobScheduler for parallel execution. */
+  parallelizable?: boolean;
 }
 
 export function system(
   name: string,
   stage: Stage,
   fn: SystemFn,
-  opts: { queries?: Query[]; after?: string[]; before?: string[] } = {},
+  opts: { queries?: Query[]; after?: string[]; before?: string[]; parallelizable?: boolean } = {},
 ): System {
-  return { name, stage, fn, queries: opts.queries ?? [], after: opts.after, before: opts.before };
+  return {
+    name,
+    stage,
+    fn,
+    queries: opts.queries ?? [],
+    after: opts.after,
+    before: opts.before,
+    parallelizable: opts.parallelizable,
+  };
 }

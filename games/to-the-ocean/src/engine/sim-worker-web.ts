@@ -157,7 +157,7 @@ expose({
 const TICK_MS = 1000 / 60;
 let lastTick = performance.now();
 
-function loop(): void {
+async function loop(): Promise<void> {
   if (!running) return;
 
   const now = performance.now();
@@ -166,7 +166,7 @@ function loop(): void {
     if (!paused && simulation) {
       try {
         const tickStart = performance.now();
-        simulation.tick();
+        await simulation.tick();
         tickTimeAccum += performance.now() - tickStart;
         tickCount++;
 
