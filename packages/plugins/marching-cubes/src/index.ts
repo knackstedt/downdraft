@@ -11,6 +11,24 @@ export { DEFAULT_LOD_LEVELS, TerrainLODManager } from "./lod.ts";
 export type { ChunkLODEntry, LODLevel } from "./lod.ts";
 export { TerrainChannel, TerrainSABChannel } from "./sab.ts";
 
+// Chunked voxel field storage
+export {
+    allocateChunk, createChunkedVoxelField,
+    getChunkedVoxel, isChunkEmpty,
+    isChunkGenerated, markChunkGenerated, setChunkedVoxel
+} from "./chunked-field.ts";
+export type { ChunkedVoxelField } from "./chunked-field.ts";
+
+// Terrain streaming config
+export { DEFAULT_STREAMING_CONFIG, getLODVoxelSize } from "./streaming-config.ts";
+export type { LODLevelConfig, TerrainStreamingConfig } from "./streaming-config.ts";
+
+// Terrain streaming manager
+export { TerrainStreamingManager } from "./streaming-manager.ts";
+export type {
+    ChunkEmptyChecker, ChunkFieldFactory, ChunkGenerator, DirtyTerrain, PhysicsFieldFactory, Deformation as TerrainDeformation, EntityPosition as TerrainEntityPosition, TerrainEntry, LODChange as TerrainLODChange, VoxelField
+} from "./streaming-manager.ts";
+
 export const MarchingCubesPlugin: Plugin = {
   name: "marching-cubes",
   version: "0.1.0",

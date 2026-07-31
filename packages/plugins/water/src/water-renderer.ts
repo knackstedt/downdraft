@@ -10,6 +10,9 @@ import { MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS } from "./wave-sources
 const log = createLogger();
 
 const PREAMBLE = /* wgsl */ `
+const MAX_POINT_LIGHTS = 32u;
+const MAX_SPOT_LIGHTS = 8u;
+
 struct Uniforms {
   viewProj: mat4x4<f32>,
   cameraPos: vec3<f32>,
@@ -47,6 +50,33 @@ struct ShoreSource {
   cutoutRadius: f32,
 };
 
+struct PointLight {
+  position: vec3<f32>,
+  radius: f32,
+  color: vec3<f32>,
+  intensity: f32,
+};
+
+struct SpotLight {
+  position: vec3<f32>,
+  radius: f32,
+  direction: vec3<f32>,
+  cosInner: f32,
+  color: vec3<f32>,
+  cosOuter: f32,
+  intensity: f32,
+  _pad: f32,
+};
+
+struct LightStorage {
+  numPointLights: u32,
+  numSpotLights: u32,
+  _pad0: u32,
+  _pad1: u32,
+  pointLights: array<PointLight, MAX_POINT_LIGHTS>,
+  spotLights: array<SpotLight, MAX_SPOT_LIGHTS>,
+};
+
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var heightTex: texture_2d<f32>;
 @group(0) @binding(2) var normalTex: texture_2d<f32>;
@@ -54,6 +84,7 @@ struct ShoreSource {
 @group(0) @binding(4) var samp: sampler;
 @group(0) @binding(5) var<storage, read> wakeSources: array<WakeSource>;
 @group(0) @binding(6) var<storage, read> shoreSources: array<ShoreSource>;
+@group(1) @binding(0) var<storage, read> lightData: LightStorage;
 
 struct VertexInput {
   @location(0) position: vec2<f32>,
@@ -250,6 +281,44 @@ fn fogAndNight(dist: f32, color: vec3<f32>) -> vec3<f32> {
   }
   return c;
 }
+
+fn applyWaterDynamicLights(worldPos: vec3<f32>, N: vec3<f32>, viewDir: vec3<f32>) -> vec3<f32> {
+  var color = vec3<f32>(0.0);
+  let numPoint = lightData.numPointLights;
+  for (var i = 0u; i < MAX_POINT_LIGHTS; i++) {
+    if (i >= numPoint) { break; }
+    let light = lightData.pointLights[i];
+    let toLight = light.position - worldPos;
+    let dist = length(toLight);
+    if (dist > light.radius) { continue; }
+    let L = toLight / max(dist, 0.001);
+    let atten = 1.0 - smoothstep(0.0, light.radius, dist);
+    let diff = max(dot(N, L), 0.0);
+    color += light.color * diff * light.intensity * atten * 0.5;
+    let halfDir = normalize(L + viewDir);
+    let NdotH = max(dot(N, halfDir), 0.0);
+    color += light.color * pow(NdotH, 32.0) * light.intensity * atten * 0.3;
+  }
+  let numSpot = lightData.numSpotLights;
+  for (var i = 0u; i < MAX_SPOT_LIGHTS; i++) {
+    if (i >= numSpot) { break; }
+    let light = lightData.spotLights[i];
+    let toLight = light.position - worldPos;
+    let dist = length(toLight);
+    if (dist > light.radius) { continue; }
+    let L = toLight / max(dist, 0.001);
+    let spotCos = dot(-L, light.direction);
+    if (spotCos < light.cosOuter) { continue; }
+    let spotAtten = smoothstep(light.cosOuter, light.cosInner, spotCos);
+    let atten = (1.0 - smoothstep(0.0, light.radius, dist)) * spotAtten;
+    let diff = max(dot(N, L), 0.0);
+    color += light.color * diff * light.intensity * atten * 0.5;
+    let halfDir = normalize(L + viewDir);
+    let NdotH = max(dot(N, halfDir), 0.0);
+    color += light.color * pow(NdotH, 32.0) * light.intensity * atten * 0.3;
+  }
+  return color;
+}
 `;
 
 const WATER_WGSL = PREAMBLE + /* wgsl */ `
@@ -364,6 +433,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let wakeFoamMask = smoothstep(0.3, 0.5, input.foam);
   waterColor = mix(waterColor, foamColor, wakeFoamMask * 0.8);
 
+  waterColor += applyWaterDynamicLights(input.worldPos, faceNormal, viewDir);
+
   let c = fogAndNight(dist, waterColor);
 
   let cosTheta = max(dot(viewDir, vec3<f32>(0.0, 1.0, 0.0)), 0.05);
@@ -388,6 +459,12 @@ export interface WaterRenderConfig {
   sunIntensity: number;
 }
 
+export interface WaterRendererOptions {
+  format?: GPUTextureFormat;
+  depthFormat?: GPUTextureFormat;
+  msaaSampleCount?: number;
+}
+
 export const DEFAULT_RENDER_CONFIG: WaterRenderConfig = {
   timeOfDay: 0.3,
   weatherType: 0,
@@ -403,8 +480,12 @@ export const DEFAULT_RENDER_CONFIG: WaterRenderConfig = {
 export class WaterRenderer {
   private device: GPUDevice | null = null;
   private format: GPUTextureFormat;
+  private depthFormat: GPUTextureFormat;
+  private msaaSampleCount: number;
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
+  private lightBindGroupLayout: GPUBindGroupLayout | null = null;
+  private lightBindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private vertexBuffer: GPUBuffer | null = null;
   private indexBuffer: GPUBuffer | null = null;
@@ -425,8 +506,10 @@ export class WaterRenderer {
   private cachedHeightData: Float32Array | null = null;
   private initialized = false;
 
-  constructor(format: GPUTextureFormat = "bgra8unorm") {
-    this.format = format;
+  constructor(opts: WaterRendererOptions = {}) {
+    this.format = opts.format ?? "bgra8unorm";
+    this.depthFormat = opts.depthFormat ?? "depth32float";
+    this.msaaSampleCount = opts.msaaSampleCount ?? 1;
     this.wakeData = new Float32Array(MAX_WAKES * WAKE_FLOATS);
     this.shoreData = new Float32Array(MAX_SHORES * SHORE_FLOATS);
   }
@@ -524,8 +607,15 @@ export class WaterRenderer {
       ],
     });
 
+    // Light bind group layout (group 1 — shared with entity renderer)
+    this.lightBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      ],
+    });
+
     const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayout, this.lightBindGroupLayout],
     });
 
     const vertexLayout = {
@@ -552,8 +642,9 @@ export class WaterRenderer {
         targets: [{ format: this.format, blend: blendState }],
       },
       primitive: { topology: "triangle-list" },
+      multisample: { count: this.msaaSampleCount },
       depthStencil: {
-        format: "depth32float",
+        format: this.depthFormat,
         depthWriteEnabled: true,
         depthCompare: "less",
       },
@@ -561,6 +652,14 @@ export class WaterRenderer {
 
     this.initialized = true;
     log.info("WaterRenderer", "Initialized flat-shaded low-poly water");
+  }
+
+  setLightBindGroup(bg: GPUBindGroup): void {
+    this.lightBindGroup = bg;
+  }
+
+  getLightBindGroupLayout(): GPUBindGroupLayout | null {
+    return this.lightBindGroupLayout;
   }
 
   updateDynamics(
@@ -658,6 +757,9 @@ export class WaterRenderer {
 
     passEncoder.setPipeline(this.pipeline);
     passEncoder.setBindGroup(0, this.bindGroup);
+    if (this.lightBindGroup) {
+      passEncoder.setBindGroup(1, this.lightBindGroup);
+    }
     passEncoder.setVertexBuffer(0, this.vertexBuffer);
     passEncoder.setIndexBuffer(this.indexBuffer!, "uint16");
     passEncoder.drawIndexed(this.indexCount);
@@ -669,6 +771,8 @@ export class WaterRenderer {
     this.pipeline = null;
     this.bindGroup = null;
     this.bindGroupLayout = null;
+    this.lightBindGroup = null;
+    this.lightBindGroupLayout = null;
     this.uniformBuffer = null;
     this.vertexBuffer = null;
     this.indexBuffer = null;

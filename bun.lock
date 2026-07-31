@@ -41,6 +41,7 @@
         "@downdraft/plugin-inventory": "workspace:*",
         "@downdraft/plugin-items": "workspace:*",
         "@downdraft/plugin-marching-cubes": "workspace:*",
+        "@downdraft/plugin-models": "workspace:*",
         "@downdraft/plugin-physics-rapier": "workspace:*",
         "@downdraft/plugin-survival": "workspace:*",
         "@downdraft/plugin-water": "workspace:*",
@@ -153,6 +154,14 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/mcp": "workspace:*",
+      },
+    },
+    "packages/plugins/models": {
+      "name": "@downdraft/plugin-models",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "fflate": "^0.8.2",
       },
     },
     "packages/plugins/networking": {
@@ -284,6 +293,8 @@
     "@downdraft/plugin-marching-cubes": ["@downdraft/plugin-marching-cubes@workspace:packages/plugins/marching-cubes"],
 
     "@downdraft/plugin-mcp": ["@downdraft/plugin-mcp@workspace:packages/plugins/mcp"],
+
+    "@downdraft/plugin-models": ["@downdraft/plugin-models@workspace:packages/plugins/models"],
 
     "@downdraft/plugin-networking": ["@downdraft/plugin-networking@workspace:packages/plugins/networking"],
 
