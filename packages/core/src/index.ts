@@ -259,7 +259,7 @@ export { AnimationPlayer } from "./animation/player.ts";
 export type { PlayingAnimation } from "./animation/player.ts";
 export { buildRetargetMapping, retargetClip } from "./animation/retarget.ts";
 export type { BoneMapping, RetargetMapping } from "./animation/retarget.ts";
-export { SkeletonAnimator } from "./animation/skeleton-animator.ts";
+export { SkeletonAnimator, skinDataToSkeletonData } from "./animation/skeleton-animator.ts";
 export type { AnimationChannel, AnimationData, AnimState, BoneData, SkinData } from "./animation/skeleton-animator.ts";
 export { buildSkeletonFromGLTF, Skeleton } from "./animation/skeleton.ts";
 export type { Bone, GLTFSkin, SkeletonData } from "./animation/skeleton.ts";
