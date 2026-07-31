@@ -1562,11 +1562,16 @@
       refreshGPUErrors();
       refreshFrameTelemetry();
       refreshGPUResources();
+      refreshPassTimings();
+      drawPerfGraph();
+      refreshSnapshots();
       if (!gpuTimer) gpuTimer = setInterval(function () {
         refreshGPUInfo();
         refreshGPUErrors();
         refreshFrameTelemetry();
         refreshGPUResources();
+        refreshPassTimings();
+        drawPerfGraph();
       }, 500);
     } else {
       if (gpuTimer) { clearInterval(gpuTimer); gpuTimer = null; }
@@ -2559,6 +2564,7 @@
           var dims = r.type === "texture"
             ? (r.width || 0) + "x" + (r.height || 0) + (r.depthOrArrayLayers > 1 ? "x" + r.depthOrArrayLayers : "") + (r.mipLevelCount > 1 ? " (" + r.mipLevelCount + " mip)" : "")
             : formatBytes(r.size);
+          var copyData = JSON.stringify(r);
           html += '<tr>';
           html += '<td class="' + typeClass + '">' + r.type + '</td>';
           html += '<td>' + escapeHtml(r.label) + '</td>';
@@ -2566,12 +2572,40 @@
           html += '<td>' + formatBytes(r.size) + '</td>';
           html += '<td>' + escapeHtml(formatOrUsage) + '</td>';
           html += '<td>' + escapeHtml(dims) + '</td>';
+          html += '<td><button class="gpu-res-copy-btn" data-copy="' + escapeHtml(copyData) + '">Copy</button></td>';
           html += '</tr>';
         }
         if (resources.length > 200) {
-          html += '<tr><td colspan="6" style="color:#888;text-align:center;">... ' + (resources.length - 200) + ' more resources (sorted by size, top 200 shown)</td></tr>';
+          html += '<tr><td colspan="7" style="color:#888;text-align:center;">... ' + (resources.length - 200) + ' more resources (sorted by size, top 200 shown)</td></tr>';
         }
         tbody.innerHTML = html;
+      }
+    });
+  }
+
+  // GPU resource copy button handler (event delegation)
+  var gpuResTbody = document.getElementById("gpu-resource-tbody");
+  if (gpuResTbody) {
+    gpuResTbody.addEventListener("click", function (e) {
+      var btn = e.target;
+      if (!btn || !btn.classList || !btn.classList.contains("gpu-res-copy-btn")) return;
+      var data = btn.getAttribute("data-copy") || "";
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(data).then(function () {
+          btn.textContent = "Copied!";
+          btn.classList.add("copied");
+          setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1500);
+        });
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = data;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (err) {}
+        document.body.removeChild(ta);
+        btn.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1500);
       }
     });
   }
@@ -2583,6 +2617,274 @@
       callInspector("clearGPUErrors").then(function () {
         gpuErrorCount = -1;
         refreshGPUErrors();
+      });
+    });
+  }
+
+  // --- Per-Pass GPU Timing ---
+
+  function refreshPassTimings() {
+    callInspector("getPassTimings").then(function (res) {
+      if (res.err || !res.result) return;
+      var passes = res.result;
+      var statusEl = document.getElementById("gpu-pass-timing-status");
+      var tbody = document.getElementById("gpu-pass-timing-tbody");
+      if (!tbody) return;
+
+      if (!passes || passes.length === 0) {
+        if (statusEl) statusEl.textContent = "No pass timing data yet.";
+        tbody.innerHTML = "";
+        return;
+      }
+      if (statusEl) statusEl.textContent = passes.length + " passes tracked";
+
+      var html = "";
+      for (var i = 0; i < passes.length; i++) {
+        var p = passes[i];
+        var gpuStr = p.gpuMs > 0 ? fmtVal(p.gpuMs, 3) : "—";
+        var trisStr = p.triangles >= 1000 ? fmtVal(p.triangles / 1000, 1) + "K" : String(p.triangles);
+        html += '<tr>';
+        html += '<td class="pass-name">' + escapeHtml(p.name) + '</td>';
+        html += '<td class="pass-cpu">' + fmtVal(p.cpuMs, 3) + '</td>';
+        html += '<td class="pass-gpu">' + gpuStr + '</td>';
+        html += '<td>' + String(p.drawCalls) + '</td>';
+        html += '<td>' + trisStr + '</td>';
+        html += '<td>' + String(p.pipelineSwitches || 0) + '</td>';
+        html += '<td>' + String(p.bindGroupChanges || 0) + '</td>';
+        html += '<td>' + String(p.bufferRebinds || 0) + '</td>';
+        html += '</tr>';
+      }
+      tbody.innerHTML = html;
+    });
+  }
+
+  // --- Performance Graph ---
+
+  var perfGraphHistory = [];
+  var PERF_GRAPH_MAX = 120;
+
+  function drawPerfGraph() {
+    var canvas = document.getElementById("gpu-perf-graph");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    var padL = 40, padR = 8, padT = 8, padB = 16;
+    var plotW = w - padL - padR;
+    var plotH = h - padT - padB;
+
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, w, h);
+
+    // Fetch latest frame telemetry for the graph
+    callInspector("getFrameTelemetry").then(function (res) {
+      if (res.err || !res.result) return;
+      var t = res.result;
+      perfGraphHistory.push({
+        frameTime: t.avgFrameTime || 16.67,
+        gpuTime: t.gpuTimeMs || 0,
+        drawCalls: t.drawCalls || 0,
+      });
+      if (perfGraphHistory.length > PERF_GRAPH_MAX) perfGraphHistory.shift();
+
+      var maxMs = 50;
+      for (var i = 0; i < perfGraphHistory.length; i++) {
+        if (perfGraphHistory[i].frameTime > maxMs) maxMs = perfGraphHistory[i].frameTime;
+      }
+      maxMs = Math.ceil(maxMs / 10) * 10;
+
+      // Axes
+      ctx.strokeStyle = "#3e3e3e";
+      ctx.fillStyle = "#888";
+      ctx.font = "10px monospace";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, padT);
+      ctx.lineTo(padL, padT + plotH);
+      ctx.lineTo(w - padR, padT + plotH);
+      ctx.stroke();
+
+      // Y-axis labels
+      for (var j = 0; j <= 5; j++) {
+        var v = (maxMs * (5 - j)) / 5;
+        var y = padT + (plotH * j) / 5;
+        ctx.fillText(fmtVal(v, 0) + "ms", 2, y + 3);
+      }
+
+      // 60fps reference line
+      var y60 = padT + plotH - (plotH * 16.67) / maxMs;
+      ctx.strokeStyle = "#4ec9b0";
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(padL, y60);
+      ctx.lineTo(w - padR, y60);
+      ctx.stroke();
+
+      // 30fps reference line
+      var y30 = padT + plotH - (plotH * 33.33) / maxMs;
+      if (y30 > padT && y30 < padT + plotH) {
+        ctx.strokeStyle = "#e06c75";
+        ctx.beginPath();
+        ctx.moveTo(padL, y30);
+        ctx.lineTo(w - padR, y30);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Frame time line
+      if (perfGraphHistory.length > 1) {
+        ctx.strokeStyle = "#98c379";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (var k = 0; k < perfGraphHistory.length; k++) {
+          var x = padL + (plotW * k) / (PERF_GRAPH_MAX - 1);
+          var y = padT + plotH - (plotH * perfGraphHistory[k].frameTime) / maxMs;
+          if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // GPU time line
+        if (perfGraphHistory[0].gpuTime > 0) {
+          ctx.strokeStyle = "#c678dd";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          for (var g = 0; g < perfGraphHistory.length; g++) {
+            var gx = padL + (plotW * g) / (PERF_GRAPH_MAX - 1);
+            var gy = padT + plotH - (plotH * perfGraphHistory[g].gpuTime) / maxMs;
+            if (g === 0) ctx.moveTo(gx, gy); else ctx.lineTo(gx, gy);
+          }
+          ctx.stroke();
+        }
+      }
+
+      // Legend
+      var legendEl = document.getElementById("gpu-perf-graph-legend");
+      if (legendEl) {
+        legendEl.innerHTML =
+          '<span class="legend-item" style="color:#98c379">Frame Time</span>' +
+          '<span class="legend-item" style="color:#c678dd">GPU Time</span>' +
+          '<span class="legend-item" style="color:#4ec9b0">— 60fps</span>' +
+          '<span class="legend-item" style="color:#e06c75">— 30fps</span>';
+      }
+    });
+  }
+
+  // --- Snapshot Comparison ---
+
+  function refreshSnapshots() {
+    callInspector("getSnapshots").then(function (res) {
+      if (res.err || !res.result) return;
+      var snaps = res.result || [];
+      var listEl = document.getElementById("gpu-snapshot-list");
+      var selA = document.getElementById("gpu-snapshot-a");
+      var selB = document.getElementById("gpu-snapshot-b");
+
+      // Update list display
+      if (listEl) {
+        if (snaps.length === 0) {
+          listEl.innerHTML = '<div style="color:#666;font-style:italic;padding:4px">No snapshots saved</div>';
+        } else {
+          var html = "";
+          for (var i = 0; i < snaps.length; i++) {
+            var s = snaps[i];
+            var t = new Date(s.timestamp);
+            var ts = t.getHours() + ":" + (t.getMinutes() < 10 ? "0" : "") + t.getMinutes() + ":" +
+                     (t.getSeconds() < 10 ? "0" : "") + t.getSeconds();
+            html += '<div class="snap-item"><span class="snap-label">[' + i + '] ' + escapeHtml(s.label) +
+                    '</span><span class="snap-time">' + ts + '</span>' +
+                    ' — FPS:' + fmtVal(s.fps, 0) + ' Draws:' + String(s.drawCalls) +
+                    ' Tris:' + String(s.triangles) + ' GPU:' + fmtVal(s.gpuTimeMs, 2) + 'ms</div>';
+          }
+          listEl.innerHTML = html;
+        }
+      }
+
+      // Update dropdowns
+      function fillSelect(sel, snaps) {
+        if (!sel) return;
+        var prevVal = sel.value;
+        var html = '<option value="-1">— Select —</option>';
+        for (var i = 0; i < snaps.length; i++) {
+          html += '<option value="' + i + '">[' + i + '] ' + escapeHtml(snaps[i].label) + '</option>';
+        }
+        sel.innerHTML = html;
+        sel.value = prevVal;
+      }
+      fillSelect(selA, snaps);
+      fillSelect(selB, snaps);
+    });
+  }
+
+  function showSnapshotDiff(diffs) {
+    var diffEl = document.getElementById("gpu-snapshot-diff");
+    if (!diffEl) return;
+    if (!diffs || diffs.length === 0) {
+      diffEl.innerHTML = '<div style="color:#666;font-style:italic;padding:4px">No differences or invalid selection</div>';
+      return;
+    }
+
+    var html = '<div class="diff-row diff-header">' +
+      '<div class="diff-label">Metric</div>' +
+      '<div class="diff-val-a">Snapshot A</div>' +
+      '<div class="diff-val-b">Snapshot B</div>' +
+      '<div class="diff-delta">Delta</div>' +
+      '</div>';
+
+    for (var i = 0; i < diffs.length; i++) {
+      var d = diffs[i];
+      var deltaStr = d.delta >= 0 ? "+" : "";
+      var deltaVal = deltaStr + fmtVal(d.delta, d.delta % 1 === 0 ? 0 : 2);
+      var deltaClass = d.delta < 0 ? "diff-delta negative" : "diff-delta";
+      var valA = d.a % 1 === 0 ? String(d.a) : fmtVal(d.a, 2);
+      var valB = d.b % 1 === 0 ? String(d.b) : fmtVal(d.b, 2);
+      html += '<div class="diff-row">' +
+        '<div class="diff-label">' + escapeHtml(d.metric) + '</div>' +
+        '<div class="diff-val-a">' + valA + '</div>' +
+        '<div class="diff-val-b">' + valB + '</div>' +
+        '<div class="' + deltaClass + '">' + deltaVal + '</div>' +
+        '</div>';
+    }
+    diffEl.innerHTML = html;
+  }
+
+  // Snapshot button handlers
+  var btnSnapSave = document.getElementById("btn-gpu-snapshot-save");
+  if (btnSnapSave) {
+    btnSnapSave.addEventListener("click", function () {
+      var label = "Snap " + new Date().toLocaleTimeString();
+      callInspector("saveSnapshot", [label]).then(function () {
+        refreshSnapshots();
+      });
+    });
+  }
+
+  var btnSnapClear = document.getElementById("btn-gpu-snapshot-clear");
+  if (btnSnapClear) {
+    btnSnapClear.addEventListener("click", function () {
+      callInspector("clearSnapshots").then(function () {
+        refreshSnapshots();
+        var diffEl = document.getElementById("gpu-snapshot-diff");
+        if (diffEl) diffEl.innerHTML = "";
+      });
+    });
+  }
+
+  var btnSnapDiff = document.getElementById("btn-gpu-snapshot-diff");
+  if (btnSnapDiff) {
+    btnSnapDiff.addEventListener("click", function () {
+      var selA = document.getElementById("gpu-snapshot-a");
+      var selB = document.getElementById("gpu-snapshot-b");
+      var idxA = parseInt(selA ? selA.value : "-1", 10);
+      var idxB = parseInt(selB ? selB.value : "-1", 10);
+      if (idxA < 0 || idxB < 0) {
+        showSnapshotDiff([]);
+        return;
+      }
+      callInspector("diffSnapshots", [idxA, idxB]).then(function (res) {
+        if (res.err || !res.result) {
+          showSnapshotDiff([]);
+          return;
+        }
+        showSnapshotDiff(res.result);
       });
     });
   }

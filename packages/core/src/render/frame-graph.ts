@@ -251,6 +251,14 @@ export class FrameGraph {
     tracked.end();
     frameCtx.addDrawCalls(tracked.drawCalls);
     frameCtx.addTriangles(tracked.triangles);
+    (frameCtx as any).lastPassStats = {
+      name: pass.name,
+      drawCalls: tracked.drawCalls,
+      triangles: tracked.triangles,
+      pipelineSwitches: tracked.pipelineSwitches,
+      bindGroupChanges: tracked.bindGroupChanges,
+      bufferRebinds: tracked.bufferRebinds,
+    };
     device.queue.submit([encoder.finish()]);
   }
 

@@ -15,6 +15,9 @@ export class TrackedRenderPass {
   private pass: GPURenderPassEncoder;
   private _drawCalls: number = 0;
   private _triangles: number = 0;
+  private _pipelineSwitches: number = 0;
+  private _bindGroupChanges: number = 0;
+  private _bufferRebinds: number = 0;
 
   constructor(pass: GPURenderPassEncoder) {
     this.pass = pass;
@@ -28,15 +31,31 @@ export class TrackedRenderPass {
     return this._triangles;
   }
 
+  get pipelineSwitches(): number {
+    return this._pipelineSwitches;
+  }
+
+  get bindGroupChanges(): number {
+    return this._bindGroupChanges;
+  }
+
+  get bufferRebinds(): number {
+    return this._bufferRebinds;
+  }
+
   resetStats(): void {
     this._drawCalls = 0;
     this._triangles = 0;
+    this._pipelineSwitches = 0;
+    this._bindGroupChanges = 0;
+    this._bufferRebinds = 0;
   }
 
   setPipeline(pipeline: GPURenderPipeline): void {
     if (this.state.pipeline !== pipeline) {
       this.pass.setPipeline(pipeline);
       this.state.pipeline = pipeline;
+      this._pipelineSwitches++;
     }
   }
 
@@ -45,6 +64,7 @@ export class TrackedRenderPass {
     if (existing !== group) {
       this.pass.setBindGroup(index, group, dynamicOffsets ?? []);
       this.state.bindGroups.set(index, group);
+      this._bindGroupChanges++;
     }
   }
 
@@ -53,6 +73,7 @@ export class TrackedRenderPass {
     if (existing !== buffer) {
       this.pass.setVertexBuffer(slot, buffer, offset);
       this.state.vertexBuffers.set(slot, buffer);
+      this._bufferRebinds++;
     }
   }
 
@@ -61,6 +82,7 @@ export class TrackedRenderPass {
       this.pass.setIndexBuffer(buffer, format, offset);
       this.state.indexBuffer = buffer;
       this.state.indexFormat = format;
+      this._bufferRebinds++;
     }
   }
 

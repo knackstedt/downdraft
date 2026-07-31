@@ -3,6 +3,7 @@
 // Bridges between the DevTools extension and the renderer/scene store
 // ============================================================================
 
+import { TelemetryCollector } from "@downdraft/core";
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
 import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
@@ -923,6 +924,36 @@ export class SceneInspector {
         const tracker = this.renderer?.getGPUResourceTracker();
         if (!tracker) return null;
         return tracker.getStats();
+      },
+
+      getPassTimings: (): any => {
+        const tc = this.renderer?.getTelemetryCollector();
+        if (!tc) return [];
+        return tc.getPassTimings();
+      },
+
+      saveSnapshot: (label: string): any => {
+        const tc = this.renderer?.getTelemetryCollector();
+        if (!tc) return null;
+        return tc.saveSnapshot(label || "Snapshot");
+      },
+
+      getSnapshots: (): any => {
+        const tc = this.renderer?.getTelemetryCollector();
+        if (!tc) return [];
+        return tc.getSnapshots();
+      },
+
+      clearSnapshots: (): void => {
+        this.renderer?.getTelemetryCollector()?.clearSnapshots();
+      },
+
+      diffSnapshots: (idxA: number, idxB: number): any => {
+        const tc = this.renderer?.getTelemetryCollector();
+        if (!tc) return [];
+        const snaps = tc.getSnapshots();
+        if (idxA < 0 || idxB < 0 || idxA >= snaps.length || idxB >= snaps.length) return [];
+        return TelemetryCollector.diffSnapshots(snaps[idxA], snaps[idxB]);
       },
 
       getVersion: (): string => {
