@@ -403,9 +403,37 @@
       }
       if (info.featureStatus) {
         var fs = info.featureStatus;
-        if (fs.gpu_rasterization !== undefined) rows.push(["GPU Rasterization", fs.gpu_rasterization ? "On" : "Off"]);
-        if (fs.webgl !== undefined) rows.push(["WebGL", fs.webgl ? "On" : "Off"]);
-        if (fs.vulkan !== undefined) rows.push(["Vulkan", fs.vulkan ? "On" : "Off"]);
+        function fmtFs(val) {
+          if (val === undefined || val === null) return null;
+          var s = String(val);
+          if (s === "enabled" || s === "true") return "Enabled";
+          if (s === "disabled" || s === "false") return "Disabled";
+          if (s === "software" || s === "software_only") return "Software only";
+          return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+        var fsMap = [
+          ["2d_canvas", "Canvas"],
+          ["direct_rendering_display_compositor", "Direct Rendering Display Compositor"],
+          ["gpu_compositing", "Compositing"],
+          ["multiple_raster_threads", "Multiple Raster Threads"],
+          ["opengl", "OpenGL"],
+          ["rasterization", "Rasterization"],
+          ["raw_draw", "Raw Draw"],
+          ["skia_graphite", "Skia Graphite"],
+          ["trees_in_viz", "TreesInViz"],
+          ["video_decode", "Video Decode"],
+          ["video_encode", "Video Encode"],
+          ["vulkan", "Vulkan"],
+          ["webgl", "WebGL"],
+          ["webgpu", "WebGPU"],
+          ["webgpu_interop", "WebGPU interop"],
+          ["webnn", "WebNN"],
+        ];
+        for (var i = 0; i < fsMap.length; i++) {
+          var key = fsMap[i][0], label = fsMap[i][1];
+          var val = fmtFs(fs[key]);
+          if (val !== null) rows.push([label, val]);
+        }
       }
       el.innerHTML = debugGridHtml(rows);
     });
