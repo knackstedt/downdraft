@@ -173,7 +173,7 @@ export { startGCProfiler } from "./telemetry/gc-profiler.ts";
 export type { GCProfilerHandle, GCStats } from "./telemetry/gc-profiler.ts";
 export { GCTracker } from "./telemetry/gc-tracker.ts";
 export { GPUProfiler } from "./telemetry/gpu-profiler.ts";
-export type { GPUAdapterInfo, GPUErrors, GPUInfo, PassTrackerStats } from "./telemetry/gpu-profiler.ts";
+export type { FrameGraphData, FrameGraphEdge, FrameGraphNode, FrameGraphValidation, GPUAdapterInfo, GPUErrors, GPUInfo, PassTrackerStats, PostProcessInfo } from "./telemetry/gpu-profiler.ts";
 export { GPUResourceTracker } from "./telemetry/gpu-resource-tracker.ts";
 export type { GPUResourceStats, TrackedResource } from "./telemetry/gpu-resource-tracker.ts";
 export { GPUTimerPool } from "./telemetry/gpu-timer-pool.ts";

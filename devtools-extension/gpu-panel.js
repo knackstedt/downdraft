@@ -751,6 +751,377 @@
     });
   }
 
+  // --- Frame Graph Visualizer ---
+
+  var fgCanvas = document.getElementById("gpu-framegraph-canvas");
+  var fgCtx = fgCanvas ? fgCanvas.getContext("2d") : null;
+  var fgDetailEl = document.getElementById("gpu-framegraph-detail");
+  var fgSummaryEl = document.getElementById("gpu-framegraph-summary");
+  var fgValidationsEl = document.getElementById("gpu-framegraph-validations");
+  var fgSelectedNode = null;
+  var fgNodePositions = [];
+  var fgScale = 1;
+  var fgOffsetX = 0;
+  var fgOffsetY = 0;
+  var fgLastData = null;
+  var fgIsDragging = false;
+  var fgDragStartX = 0;
+  var fgDragStartY = 0;
+  var fgDragOffX = 0;
+  var fgDragOffY = 0;
+  var fgHasMoved = false;
+
+  function fgColorForGpuMs(gpuMs) {
+    if (gpuMs <= 0) return "#4a4a5a";
+    if (gpuMs < 0.5) return "#4ec9b0";
+    if (gpuMs < 1.5) return "#dcdcaa";
+    if (gpuMs < 3.0) return "#ce9178";
+    return "#f44747";
+  }
+
+  function fgCategoryColor(category) {
+    switch (category) {
+      case "scene": return "#569cd6";
+      case "postprocess": return "#c678dd";
+      case "pixelation": return "#d19a66";
+      case "ui": return "#4ec9b0";
+      default: return "#888";
+    }
+  }
+
+  function refreshFrameGraph() {
+    callInspector("getFrameGraph").then(function (res) {
+      if (res.err || !res.result) {
+        if (fgSummaryEl) {
+          if (res.err) {
+            fgSummaryEl.innerHTML = '<span style="color:#f44747">Frame graph error: ' + escapeHtml(String(res.err)) + '</span>';
+          } else {
+            fgSummaryEl.textContent = "Frame graph not available — is the renderer initialized?";
+          }
+        }
+        return;
+      }
+      var data = res.result;
+      fgLastData = data;
+      drawFrameGraph(data);
+      renderFrameGraphSummary(data);
+      renderFrameGraphValidations(data);
+    });
+  }
+
+  function fgRedraw() {
+    if (fgLastData) drawFrameGraph(fgLastData);
+  }
+
+  function drawFrameGraph(data) {
+    if (!fgCtx || !fgCanvas) return;
+    var W = fgCanvas.width;
+    var H = fgCanvas.height;
+    fgCtx.clearRect(0, 0, W, H);
+    fgCtx.fillStyle = "#1a1a2e";
+    fgCtx.fillRect(0, 0, W, H);
+
+    fgCtx.save();
+    fgCtx.translate(fgOffsetX, fgOffsetY);
+    fgCtx.scale(fgScale, fgScale);
+
+    var nodes = data.nodes;
+    var edges = data.edges;
+    if (!nodes || nodes.length === 0) {
+      fgCtx.restore();
+      fgCtx.fillStyle = "#666";
+      fgCtx.font = "11px monospace";
+      fgCtx.textAlign = "center";
+      fgCtx.fillText("No frame graph data", W / 2, H / 2);
+      return;
+    }
+
+    // Group nodes by layer
+    var layers = [[], [], []];
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.active) layers[n.layer].push(n);
+    }
+
+    // Layout: each layer is a column, nodes stacked vertically
+    var layerX = [60, W / 2, W - 60];
+    var nodeW = 110;
+    var nodeH = 36;
+    var padY = 20;
+    fgNodePositions = [];
+
+    for (var li = 0; li < 3; li++) {
+      var layerNodes = layers[li];
+      var count = layerNodes.length;
+      if (count === 0) continue;
+      var totalH = count * nodeH + (count - 1) * padY;
+      var startY = (H - totalH) / 2;
+      if (startY < 10) startY = 10;
+
+      for (var ni = 0; ni < count; ni++) {
+        var node = layerNodes[ni];
+        var x = layerX[li] - nodeW / 2;
+        var y = startY + ni * (nodeH + padY);
+        fgNodePositions.push({ id: node.id, node: node, x: x, y: y, w: nodeW, h: nodeH });
+      }
+    }
+
+    // Draw edges
+    var nodeMap = {};
+    for (var pi = 0; pi < fgNodePositions.length; pi++) {
+      nodeMap[fgNodePositions[pi].id] = fgNodePositions[pi];
+    }
+
+    for (var ei = 0; ei < edges.length; ei++) {
+      var edge = edges[ei];
+      var from = nodeMap[edge.from];
+      var to = nodeMap[edge.to];
+      if (!from || !to) continue;
+
+      var x1 = from.x + from.w;
+      var y1 = from.y + from.h / 2;
+      var x2 = to.x;
+      var y2 = to.y + to.h / 2;
+      var midX = (x1 + x2) / 2;
+
+      fgCtx.strokeStyle = edge.type === "chain" ? "#c678dd" : "#555";
+      fgCtx.lineWidth = edge.type === "chain" ? 2 : 1.5;
+      fgCtx.globalAlpha = 0.6;
+      fgCtx.beginPath();
+      fgCtx.moveTo(x1, y1);
+      fgCtx.bezierCurveTo(midX, y1, midX, y2, x2, y2);
+      fgCtx.stroke();
+      fgCtx.globalAlpha = 1;
+
+      // Arrow head
+      var angle = Math.atan2(y2 - y1, x2 - midX);
+      fgCtx.fillStyle = edge.type === "chain" ? "#c678dd" : "#555";
+      fgCtx.beginPath();
+      fgCtx.moveTo(x2, y2);
+      fgCtx.lineTo(x2 - 6 * Math.cos(angle - 0.4), y2 - 6 * Math.sin(angle - 0.4));
+      fgCtx.lineTo(x2 - 6 * Math.cos(angle + 0.4), y2 - 6 * Math.sin(angle + 0.4));
+      fgCtx.closePath();
+      fgCtx.fill();
+    }
+
+    // Draw nodes
+    for (var nj = 0; nj < fgNodePositions.length; nj++) {
+      var pos = fgNodePositions[nj];
+      var nd = pos.node;
+      var isSelected = fgSelectedNode && fgSelectedNode === nd.id;
+
+      // Node background
+      fgCtx.fillStyle = isSelected ? "#2d4d6d" : "#252535";
+      fgCtx.strokeStyle = fgCategoryColor(nd.category);
+      fgCtx.lineWidth = isSelected ? 2.5 : 1.5;
+      roundRect(fgCtx, pos.x, pos.y, pos.w, pos.h, 4);
+      fgCtx.fill();
+      fgCtx.stroke();
+
+      // GPU time bar
+      if (nd.gpuMs > 0) {
+        var barW = Math.min(pos.w - 8, nd.gpuMs * 20);
+        fgCtx.fillStyle = fgColorForGpuMs(nd.gpuMs);
+        fgCtx.globalAlpha = 0.3;
+        fgCtx.fillRect(pos.x + 4, pos.y + pos.h - 5, barW, 3);
+        fgCtx.globalAlpha = 1;
+      }
+
+      // Node label
+      fgCtx.fillStyle = "#d4d4d4";
+      fgCtx.font = "10px monospace";
+      fgCtx.textAlign = "center";
+      fgCtx.textBaseline = "middle";
+      var label = nd.name.length > 14 ? nd.name.substring(0, 13) + "\u2026" : nd.name;
+      fgCtx.fillText(label, pos.x + pos.w / 2, pos.y + 12);
+
+      // GPU time
+      if (nd.gpuMs > 0) {
+        fgCtx.fillStyle = fgColorForGpuMs(nd.gpuMs);
+        fgCtx.font = "9px monospace";
+        fgCtx.fillText(nd.gpuMs.toFixed(2) + "ms", pos.x + pos.w / 2, pos.y + 24);
+      } else if (nd.drawCalls > 0) {
+        fgCtx.fillStyle = "#888";
+        fgCtx.font = "9px monospace";
+        fgCtx.fillText(nd.drawCalls + "dc", pos.x + pos.w / 2, pos.y + 24);
+      }
+    }
+
+    // Layer labels
+    fgCtx.fillStyle = "#555";
+    fgCtx.font = "9px monospace";
+    fgCtx.textAlign = "center";
+    fgCtx.fillText("Scene Passes", layerX[0], 12);
+    fgCtx.fillText("Post-Process", layerX[1], 12);
+    fgCtx.fillText("Composite", layerX[2], 12);
+
+    fgCtx.restore();
+
+    // Zoom indicator (drawn in screen space)
+    fgCtx.fillStyle = "#555";
+    fgCtx.font = "9px monospace";
+    fgCtx.textAlign = "right";
+    fgCtx.textBaseline = "top";
+    fgCtx.fillText("Zoom: " + fgScale.toFixed(1) + "x  (scroll=zoom, drag=pan, dbl-click=reset)", W - 6, H - 14);
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function renderFrameGraphSummary(data) {
+    if (!fgSummaryEl) return;
+    var html = '<div class="gpu-framegraph-stats">';
+    html += '<span class="fg-stat">GPU: <b style="color:' + fgColorForGpuMs(data.totalGpuMs) + '">' + data.totalGpuMs.toFixed(2) + 'ms</b></span>';
+    html += '<span class="fg-stat">CPU: <b>' + data.totalCpuMs.toFixed(2) + 'ms</b></span>';
+    html += '<span class="fg-stat">Draws: <b>' + data.totalDrawCalls + '</b></span>';
+    html += '<span class="fg-stat">Tris: <b>' + data.totalTriangles.toLocaleString() + '</b></span>';
+    html += '<span class="fg-stat">Nodes: <b>' + data.nodes.length + '</b></span>';
+    html += '<span class="fg-stat">Edges: <b>' + data.edges.length + '</b></span>';
+    html += '</div>';
+    fgSummaryEl.innerHTML = html;
+  }
+
+  function renderFrameGraphValidations(data) {
+    if (!fgValidationsEl) return;
+    var vals = data.validations || [];
+    if (vals.length === 0) {
+      fgValidationsEl.innerHTML = '<div class="fg-validation-none">No validation issues</div>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i];
+      var cls = v.level === "warning" ? "fg-validation-warning" : "fg-validation-info";
+      html += '<div class="' + cls + '">';
+      html += '<span class="fg-validation-icon">' + (v.level === "warning" ? "\u26a0" : "\u2139") + "</span>";
+      html += escapeHtml(v.message);
+      html += '</div>';
+    }
+    fgValidationsEl.innerHTML = html;
+  }
+
+  function renderFrameGraphDetail(node) {
+    if (!fgDetailEl) return;
+    if (!node) {
+      fgDetailEl.innerHTML = '<div class="fg-detail-empty">Click a node for details</div>';
+      return;
+    }
+    var html = '<div class="fg-detail-header" style="color:' + fgCategoryColor(node.category) + '">' + escapeHtml(node.name) + '</div>';
+    html += '<div class="fg-detail-grid">';
+    html += '<div class="fg-detail-row"><span>GPU Time</span><b style="color:' + fgColorForGpuMs(node.gpuMs) + '">' + node.gpuMs.toFixed(3) + ' ms</b></div>';
+    html += '<div class="fg-detail-row"><span>CPU Time</span><b>' + node.cpuMs.toFixed(3) + ' ms</b></div>';
+    html += '<div class="fg-detail-row"><span>Draw Calls</span><b>' + node.drawCalls + '</b></div>';
+    html += '<div class="fg-detail-row"><span>Triangles</span><b>' + node.triangles.toLocaleString() + '</b></div>';
+    html += '<div class="fg-detail-row"><span>Pipeline Switches</span><b>' + node.pipelineSwitches + '</b></div>';
+    html += '<div class="fg-detail-row"><span>Bind Group Changes</span><b>' + node.bindGroupChanges + '</b></div>';
+    html += '<div class="fg-detail-row"><span>Buffer Rebinds</span><b>' + node.bufferRebinds + '</b></div>';
+    html += '<div class="fg-detail-row"><span>Category</span><b>' + node.category + '</b></div>';
+    html += '<div class="fg-detail-row"><span>Active</span><b>' + (node.active ? "yes" : "no") + '</b></div>';
+    html += '</div>';
+    fgDetailEl.innerHTML = html;
+  }
+
+  // Convert screen mouse coords to graph world coords
+  function fgScreenToWorld(clientX, clientY) {
+    var rect = fgCanvas.getBoundingClientRect();
+    var scaleX = fgCanvas.width / rect.width;
+    var scaleY = fgCanvas.height / rect.height;
+    var sx = (clientX - rect.left) * scaleX;
+    var sy = (clientY - rect.top) * scaleY;
+    return {
+      x: (sx - fgOffsetX) / fgScale,
+      y: (sy - fgOffsetY) / fgScale,
+      sx: sx,
+      sy: sy,
+    };
+  }
+
+  // Canvas click handler for node selection
+  if (fgCanvas) {
+    fgCanvas.addEventListener("click", function (ev) {
+      if (fgHasMoved) return; // suppress click after drag
+      var w = fgScreenToWorld(ev.clientX, ev.clientY);
+
+      for (var i = 0; i < fgNodePositions.length; i++) {
+        var pos = fgNodePositions[i];
+        if (w.x >= pos.x && w.x <= pos.x + pos.w && w.y >= pos.y && w.y <= pos.y + pos.h) {
+          fgSelectedNode = pos.node.id;
+          renderFrameGraphDetail(pos.node);
+          fgRedraw();
+          return;
+        }
+      }
+    });
+
+    // Double-click resets view
+    fgCanvas.addEventListener("dblclick", function () {
+      fgScale = 1;
+      fgOffsetX = 0;
+      fgOffsetY = 0;
+      fgRedraw();
+    });
+
+    // Wheel to zoom (centered on cursor)
+    fgCanvas.addEventListener("wheel", function (ev) {
+      ev.preventDefault();
+      var w = fgScreenToWorld(ev.clientX, ev.clientY);
+      var delta = ev.deltaY > 0 ? 0.9 : 1.1;
+      var newScale = Math.max(0.3, Math.min(5, fgScale * delta));
+      // Adjust offset so the world point under cursor stays fixed
+      fgOffsetX = w.sx - w.x * newScale;
+      fgOffsetY = w.sy - w.y * newScale;
+      fgScale = newScale;
+      fgRedraw();
+    }, { passive: false });
+
+    // Drag to pan
+    fgCanvas.addEventListener("mousedown", function (ev) {
+      fgIsDragging = true;
+      fgHasMoved = false;
+      fgDragStartX = ev.clientX;
+      fgDragStartY = ev.clientY;
+      fgDragOffX = fgOffsetX;
+      fgDragOffY = fgOffsetY;
+      fgCanvas.style.cursor = "grabbing";
+    });
+
+    window.addEventListener("mousemove", function (ev) {
+      if (!fgIsDragging) return;
+      var dx = ev.clientX - fgDragStartX;
+      var dy = ev.clientY - fgDragStartY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) fgHasMoved = true;
+      var rect = fgCanvas.getBoundingClientRect();
+      var scaleX = fgCanvas.width / rect.width;
+      var scaleY = fgCanvas.height / rect.height;
+      fgOffsetX = fgDragOffX + dx * scaleX;
+      fgOffsetY = fgDragOffY + dy * scaleY;
+      fgRedraw();
+    });
+
+    window.addEventListener("mouseup", function () {
+      if (fgIsDragging) {
+        fgIsDragging = false;
+        fgCanvas.style.cursor = "grab";
+      }
+    });
+
+    fgCanvas.style.cursor = "grab";
+  }
+
+  // Initial detail placeholder
+  renderFrameGraphDetail(null);
+
   // Quick Launch buttons (chrome://tracing, chrome://gpu)
   // DevTools panel runs in its own context — window.downdraft is on the inspected page,
   // so we use evalInPage to invoke the IPC call from there.
@@ -829,6 +1200,7 @@
   refreshPassTimings();
   drawPerfGraph();
   refreshSnapshots();
+  refreshFrameGraph();
   refreshGPUSystemMetrics();
   refreshElectronGPUInfo();
   refreshVulkanValidationStatus();
@@ -840,6 +1212,7 @@
     refreshGPUResources();
     refreshPassTimings();
     drawPerfGraph();
+    refreshFrameGraph();
     refreshGPUSystemMetrics();
     refreshElectronGPUInfo();
   }, 500);

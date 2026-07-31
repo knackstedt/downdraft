@@ -1925,6 +1925,18 @@ export class WebGPURenderer {
     return this.gpuResourceTracker;
   }
 
+  getGPUProfiler(): GPUProfiler | null {
+    return this.gpuProfiler;
+  }
+
+  getPostProcessInfo(): { pixelationEnabled: boolean; pixelSize: number; postProcessEffects: string[] } {
+    return {
+      pixelationEnabled: this.pixelationSystem?.isEnabled() ?? false,
+      pixelSize: this.pixelationSystem?.getPixelSize() ?? 4,
+      postProcessEffects: this.postProcessStack?.getEnabledEffects() ?? [],
+    };
+  }
+
   getGPUInfo(): any {
     if (!this.gpuProfiler) return null;
     return this.gpuProfiler.getGPUInfo(this.canvas, MSAA_SAMPLE_COUNT);

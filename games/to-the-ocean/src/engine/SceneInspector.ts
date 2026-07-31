@@ -943,6 +943,104 @@ export class SceneInspector {
         return tc.getPassTimings();
       },
 
+      getFrameGraph: (): any => {
+        try {
+          const profiler = this.renderer?.getGPUProfiler();
+          if (!profiler) {
+            console.warn("[SceneInspector] getFrameGraph: gpuProfiler is null");
+            return null;
+          }
+          const passTimings = profiler.getPassTimings();
+          const ppInfo = this.renderer?.getPostProcessInfo() ?? {
+            pixelationEnabled: false, pixelSize: 4, postProcessEffects: [],
+          };
+
+          // Build frame graph data inline (avoids static method import issues)
+          const SCENE_PASSES = ["Sky", "Terrain", "Entities", "Clouds", "Water", "Debug", "Models", "Holo", "Particles", "Gizmo", "UnderwaterFog"];
+          const timingMap = new Map<string, any>();
+          for (const t of passTimings) timingMap.set(t.name, t);
+
+          const nodes: any[] = [];
+          const edges: any[] = [];
+          const validations: any[] = [];
+          let totalGpuMs = 0, totalCpuMs = 0, totalDrawCalls = 0, totalTriangles = 0;
+
+          const activeSceneIds: string[] = [];
+          for (const name of SCENE_PASSES) {
+            const t = timingMap.get(name);
+            const active = !!t;
+            const id = "scene:" + name;
+            nodes.push({
+              id, name, category: "scene", layer: 0,
+              cpuMs: t?.cpuMs ?? 0, gpuMs: t?.gpuMs ?? 0,
+              drawCalls: t?.drawCalls ?? 0, triangles: t?.triangles ?? 0,
+              pipelineSwitches: t?.pipelineSwitches ?? 0,
+              bindGroupChanges: t?.bindGroupChanges ?? 0,
+              bufferRebinds: t?.bufferRebinds ?? 0,
+              active,
+            });
+            if (active) {
+              activeSceneIds.push(id);
+              totalGpuMs += t.gpuMs;
+              totalCpuMs += t.cpuMs;
+              totalDrawCalls += t.drawCalls;
+              totalTriangles += t.triangles;
+            }
+          }
+
+          for (let i = 0; i < activeSceneIds.length - 1; i++) {
+            edges.push({ from: activeSceneIds[i], to: activeSceneIds[i + 1], resource: "color+depth", type: "color" });
+          }
+
+          const layer1Ids: string[] = [];
+          if (ppInfo.pixelationEnabled) {
+            const id = "pp:Pixelation";
+            nodes.push({ id, name: "Pixelation (size=" + ppInfo.pixelSize + ")", category: "pixelation", layer: 1, cpuMs: 0, gpuMs: 0, drawCalls: 0, triangles: 0, pipelineSwitches: 0, bindGroupChanges: 0, bufferRebinds: 0, active: true });
+            layer1Ids.push(id);
+          } else if (ppInfo.postProcessEffects.length > 0) {
+            for (const eff of ppInfo.postProcessEffects) {
+              const id = "pp:" + eff;
+              nodes.push({ id, name: eff, category: "postprocess", layer: 1, cpuMs: 0, gpuMs: 0, drawCalls: 0, triangles: 0, pipelineSwitches: 0, bindGroupChanges: 0, bufferRebinds: 0, active: true });
+              layer1Ids.push(id);
+            }
+            for (let i = 0; i < layer1Ids.length - 1; i++) {
+              edges.push({ from: layer1Ids[i], to: layer1Ids[i + 1], resource: "intermediate", type: "chain" });
+            }
+          }
+
+          const lastSceneId = activeSceneIds.length > 0 ? activeSceneIds[activeSceneIds.length - 1] : null;
+          if (lastSceneId && layer1Ids.length > 0) {
+            edges.push({ from: lastSceneId, to: layer1Ids[0], resource: "color attachment", type: "color" });
+          }
+
+          const uiId = "ui:Composite";
+          nodes.push({ id: uiId, name: "UI Composite", category: "ui", layer: 2, cpuMs: 0, gpuMs: 0, drawCalls: 0, triangles: 0, pipelineSwitches: 0, bindGroupChanges: 0, bufferRebinds: 0, active: true });
+          if (layer1Ids.length > 0) {
+            edges.push({ from: layer1Ids[layer1Ids.length - 1], to: uiId, resource: "canvas", type: "color" });
+          } else if (lastSceneId) {
+            edges.push({ from: lastSceneId, to: uiId, resource: "canvas", type: "color" });
+          }
+
+          for (const node of nodes) {
+            if (node.category !== "scene" || !node.active) continue;
+            if (node.drawCalls === 0 && node.name !== "Gizmo") {
+              validations.push({ level: "info", message: 'Pass "' + node.name + '" executed with 0 draw calls', passName: node.name });
+            }
+            if (node.pipelineSwitches > 0 && node.drawCalls > 0 && node.pipelineSwitches / node.drawCalls > 2) {
+              validations.push({ level: "warning", message: 'Pass "' + node.name + '" has excessive pipeline switches (' + node.pipelineSwitches + "/" + node.drawCalls + ")", passName: node.name });
+            }
+            if (node.gpuMs > 3) {
+              validations.push({ level: "warning", message: 'Pass "' + node.name + '" took ' + node.gpuMs.toFixed(2) + "ms GPU time — exceeds 3ms budget", passName: node.name });
+            }
+          }
+
+          return { nodes, edges, validations, totalGpuMs, totalCpuMs, totalDrawCalls, totalTriangles, timestamp: Date.now() };
+        } catch (e) {
+          console.error("[SceneInspector] getFrameGraph error:", e);
+          return null;
+        }
+      },
+
       saveSnapshot: (label: string): any => {
         const tc = this.renderer?.getTelemetryCollector();
         if (!tc) return null;
