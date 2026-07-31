@@ -45,14 +45,16 @@ export class Query {
   ): void {
     const required = this.descriptor.required;
     const changedFilter = this.descriptor.changedFilter;
+    const ncomps = required.length;
+    const comps = new Array(ncomps);
 
     for (let a = 0; a < this.archetypes.length; a++) {
       const arch = this.archetypes[a];
       const entities = arch.entities;
       const count = entities.length;
 
-      const columns: unknown[][] = new Array(required.length);
-      for (let r = 0; r < required.length; r++) {
+      const columns: unknown[][] = new Array(ncomps);
+      for (let r = 0; r < ncomps; r++) {
         columns[r] = getComponentColumn(arch, required[r]);
       }
 
@@ -60,15 +62,13 @@ export class Query {
         const changedCol = getComponentColumn<{ lastChanged: number }>(arch, changedFilter);
         for (let row = 0; row < count; row++) {
           if (changedCol[row].lastChanged >= this.descriptor.lastReadTick) {
-            const comps = new Array(columns.length);
-            for (let c = 0; c < columns.length; c++) comps[c] = columns[c][row];
+            for (let c = 0; c < ncomps; c++) comps[c] = columns[c][row];
             fn(entities[row], comps as T, row);
           }
         }
       } else {
         for (let row = 0; row < count; row++) {
-          const comps = new Array(columns.length);
-          for (let c = 0; c < columns.length; c++) comps[c] = columns[c][row];
+          for (let c = 0; c < ncomps; c++) comps[c] = columns[c][row];
           fn(entities[row], comps as T, row);
         }
       }

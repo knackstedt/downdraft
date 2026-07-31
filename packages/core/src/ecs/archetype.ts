@@ -7,6 +7,7 @@ export interface Archetype {
   componentSet: Set<ComponentId>;
   entities: Entity[];
   columns: Map<ComponentId, unknown[]>;
+  entityRowMap: Map<number, number>;
 }
 
 let nextArchetypeId = 0;
@@ -23,6 +24,7 @@ export function createArchetype(componentIds: ComponentId[]): Archetype {
     componentSet: new Set(componentIds),
     entities: [],
     columns,
+    entityRowMap: new Map(),
   };
 }
 
@@ -52,6 +54,7 @@ export function getArchetypeForComponents(
 export function addEntityToArchetype(arch: Archetype, entity: Entity, components: Map<ComponentId, unknown>): void {
   const row = arch.entities.length;
   arch.entities.push(entity);
+  arch.entityRowMap.set(entity.index, row);
   for (const cid of arch.componentIds) {
     arch.columns.get(cid)!.push(components.get(cid));
   }
@@ -63,11 +66,13 @@ export function removeEntityFromArchetype(arch: Archetype, entity: Entity): void
   const last = arch.entities.length - 1;
   if (row !== last) {
     arch.entities[row] = arch.entities[last];
+    arch.entityRowMap.set(arch.entities[row].index, row);
     for (const col of arch.columns.values()) {
       col[row] = col[last];
     }
   }
   arch.entities.pop();
+  arch.entityRowMap.delete(entity.index);
   for (const col of arch.columns.values()) {
     col.pop();
   }
@@ -78,12 +83,10 @@ export function getComponentColumn<T>(arch: Archetype, cid: ComponentId): T[] {
 }
 
 export function findEntityRow(arch: Archetype, entity: Entity): number {
-  for (let i = 0; i < arch.entities.length; i++) {
-    if (arch.entities[i].index === entity.index && arch.entities[i].generation === entity.generation) {
-      return i;
-    }
-  }
-  return -1;
+  const row = arch.entityRowMap.get(entity.index);
+  if (row === undefined) return -1;
+  if (arch.entities[row].generation !== entity.generation) return -1;
+  return row;
 }
 
 export function updateEntityMeta(entities: EntityMeta[], index: number, archetypeId: number): void {
