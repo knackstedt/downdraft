@@ -1,3 +1,4 @@
+import { createLogger } from "../util/logger.ts";
 import {
     addEntityToArchetype,
     type Archetype,
@@ -11,6 +12,8 @@ import type { Entity, EntityMeta } from "./entity.ts";
 import { ROOT_ENTITY } from "./entity.ts";
 import { EventBus } from "./events.ts";
 import { Schedule, type SystemContext } from "./schedule.ts";
+
+const log = createLogger();
 
 interface Command {
   (world: World): void;
@@ -175,7 +178,11 @@ export class World {
 
   flushCommands(): void {
     for (let i = 0; i < this.commands.length; i++) {
-      this.commands[i](this);
+      try {
+        this.commands[i](this);
+      } catch (err) {
+        log.error("World", `Command at index ${i} threw: ${err}`);
+      }
     }
     this.commands.length = 0;
   }
