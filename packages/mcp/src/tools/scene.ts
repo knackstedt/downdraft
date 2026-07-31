@@ -1,6 +1,6 @@
 import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration, MCPToolResult } from "../types.ts";
-import { jsonResult, errorResult, textResult } from "../types.ts";
+import type { ToolRegistration } from "../types.ts";
+import { errorResult, jsonResult, textResult } from "../types.ts";
 import type { UndoRedoManager } from "../undo-redo.ts";
 
 export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
@@ -9,7 +9,7 @@ export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager):
     {
       def: {
         name: "create_scene",
-        description: "Create a new scene with the given name. Clears the current world.",
+        description: "Create a new scene with the given name. Unloads the current scene and activates the new one.",
         inputSchema: {
           type: "object",
           properties: {
@@ -18,30 +18,35 @@ export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager):
           required: ["name"],
         },
       },
-      handler: (params) => {
+      handler: async (params) => {
         const name = params.name as string;
         if (!name) return errorResult("name is required");
 
-        const oldEntities = ctx.getAllAliveEntities();
         const oldName = ctx.scene.name;
+        const oldScene = ctx.world.sceneManager.get(oldName) ?? ctx.scene;
+        const oldData = oldScene.serialize();
 
-        for (const e of oldEntities) {
-          ctx.ecsWorld.despawn(e);
-        }
-        ctx.ecsWorld.flushCommands();
-        ctx.scene.name = name;
+        // Unload current scene via scene manager
+        ctx.world.sceneManager.unload(oldName);
+
+        // Create, load, and activate new scene
+        const newScene = ctx.world.sceneManager.create(name);
+        await newScene.load();
+        ctx.world.sceneManager.activate(name);
+        ctx.scene = newScene;
 
         undoRedo.execute({
           description: `create_scene("${name}")`,
           undo: () => {
-            for (const e of ctx.getAllAliveEntities()) {
-              ctx.ecsWorld.despawn(e);
-            }
-            ctx.ecsWorld.flushCommands();
-            ctx.scene.name = oldName;
+            ctx.world.sceneManager.unload(name);
+            oldScene.deserialize(oldData);
+            ctx.world.sceneManager.activate(oldName);
+            ctx.scene = oldScene;
           },
           redo: () => {
-            ctx.scene.name = name;
+            ctx.world.sceneManager.unload(oldName);
+            ctx.world.sceneManager.activate(name);
+            ctx.scene = newScene;
           },
         });
 

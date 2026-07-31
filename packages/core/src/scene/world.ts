@@ -5,6 +5,7 @@ import { PluginHost } from "../plugin/host.ts";
 import type { Plugin } from "../plugin/plugin.ts";
 import type { Camera } from "./camera.ts";
 import { PrefabFactory, PrefabRegistry } from "./prefab.ts";
+import { SceneManager } from "./scene-manager.ts";
 import type { Scene } from "./scene.ts";
 
 export interface WorldResources {
@@ -17,6 +18,7 @@ export interface WorldResources {
 
 export class GameWorld {
   scene: Scene;
+  sceneManager: SceneManager;
   world: World;
   resources: WorldResources = { time: 0, dt: 0, alpha: 0 };
   pluginHost: PluginHost;
@@ -27,6 +29,8 @@ export class GameWorld {
   constructor(scene: Scene) {
     this.scene = scene;
     this.world = scene.world;
+    this.sceneManager = new SceneManager(this.world);
+    this.sceneManager.register(scene);
     this.hierarchy = new Hierarchy();
     this.pluginHost = new PluginHost(this.world);
     this.prefabRegistry = new PrefabRegistry();
@@ -67,6 +71,7 @@ export class GameWorld {
   }
 
   dispose(): void {
+    this.sceneManager.dispose();
     this.pluginHost.disposeAll();
   }
 }

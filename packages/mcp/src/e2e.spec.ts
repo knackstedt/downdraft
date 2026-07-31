@@ -311,4 +311,50 @@ describe("MCP End-to-End: AI Agent Scene Building", () => {
     expect(audioData.volume).toBe(0.8);
     expect(audioData.loop).toBe(true);
   });
+
+  it("create_scene should use SceneManager lifecycle", async () => {
+    // Spawn an entity in the current scene to verify it gets cleared
+    await server.callTool("spawn_entity", {
+      components: {
+        Transform: { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: 1 },
+      },
+    });
+
+    // Create a new scene — should unload the old one and activate the new one
+    let result = await server.callTool("create_scene", { name: "lifecycle-test" });
+    let data = parseJSON(result);
+    expect(data.scene).toBe("lifecycle-test");
+    expect(data.entityCount).toBe(0);
+
+    // Verify the scene manager has the new scene as current
+    const ctx = (server as any).ctx;
+    expect(ctx.scene.name).toBe("lifecycle-test");
+    expect(ctx.world.sceneManager.getCurrentScene()).toBe(ctx.scene);
+    expect(ctx.world.sceneManager.has("lifecycle-test")).toBe(true);
+    expect(ctx.scene.isActive()).toBe(true);
+  });
+
+  it("create_scene should support undo back to previous scene", async () => {
+    // Start from lifecycle-test (set by previous test)
+    const ctx = (server as any).ctx;
+    const beforeName = ctx.scene.name;
+
+    // Create another new scene
+    let result = await server.callTool("create_scene", { name: "undo-scene-test" });
+    let data = parseJSON(result);
+    expect(data.scene).toBe("undo-scene-test");
+    expect(ctx.scene.name).toBe("undo-scene-test");
+
+    // Undo should restore previous scene name
+    result = await server.callTool("undo", {});
+    data = parseJSON(result);
+    expect(data.undone).toBe(true);
+    expect(ctx.scene.name).toBe(beforeName);
+
+    // Redo should go back to the new scene
+    result = await server.callTool("redo", {});
+    data = parseJSON(result);
+    expect(data.redone).toBe(true);
+    expect(ctx.scene.name).toBe("undo-scene-test");
+  });
 });

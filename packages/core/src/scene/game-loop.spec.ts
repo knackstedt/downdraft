@@ -180,3 +180,48 @@ describe("GameLoop", () => {
     loop.stop();
   });
 });
+
+describe("GameWorld SceneManager integration", () => {
+  it("should expose sceneManager on GameWorld", () => {
+    const gw = makeGameWorld();
+    expect(gw.sceneManager).toBeDefined();
+    expect(gw.sceneManager.getCurrentScene()).toBeNull();
+  });
+
+  it("should register the initial scene in SceneManager", () => {
+    const gw = makeGameWorld();
+    expect(gw.sceneManager.has("test")).toBe(true);
+    expect(gw.sceneManager.get("test")).toBe(gw.scene);
+  });
+
+  it("should dispose SceneManager on GameWorld.dispose()", () => {
+    const gw = makeGameWorld();
+    const scene = gw.sceneManager.create("extra", (s) => {
+      s.spawn(new Map());
+    });
+    // Load to populate entities
+    scene.load();
+    expect(gw.world.entityCount()).toBeGreaterThan(1);
+
+    gw.dispose();
+    // After dispose, all scenes unloaded and cleared
+    expect(gw.sceneManager.list()).toHaveLength(0);
+    expect(gw.sceneManager.getCurrentScene()).toBeNull();
+  });
+
+  it("should support scene transition via SceneManager", async () => {
+    const gw = makeGameWorld();
+    const scene2 = gw.sceneManager.create("level2", (s) => {
+      s.spawn(new Map());
+    });
+
+    // Activate initial scene
+    gw.sceneManager.activate("test");
+    expect(gw.sceneManager.getCurrentScene()).toBe(gw.scene);
+
+    // Transition to level2
+    await gw.sceneManager.transition("level2");
+    expect(gw.sceneManager.getCurrentScene()).toBe(scene2);
+    expect(scene2.isActive()).toBe(true);
+  });
+});
