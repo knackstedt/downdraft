@@ -462,6 +462,16 @@ export class PostProcessStack {
     return Object.values(this.enabled).some(v => v);
   }
 
+  getEnabledEffects(): string[] {
+    return CHAIN_ORDER.filter(id => this.enabled[id]).map(id => {
+      const names: Record<EffectId, string> = {
+        dof: "DOF", bloom: "Bloom", fxaa: "FXAA",
+        sobel: "Sobel", afterimage: "Afterimage", ascii: "ASCII",
+      };
+      return names[id];
+    });
+  }
+
   setEnabled(id: EffectId, enabled: boolean): void {
     this.enabled[id] = enabled;
   }

@@ -1595,3 +1595,124 @@ input[type="number"]:focus, input[type="text"]:focus {
 .gpu-launch-btn:active {
   background: #0a5a8a;
 }
+
+/* --- GPU Panel: Frame Graph Visualizer --- */
+
+.gpu-framegraph-summary {
+  padding: 4px 8px;
+}
+
+.gpu-framegraph-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.gpu-framegraph-stats .fg-stat {
+  color: #888;
+}
+
+.gpu-framegraph-stats .fg-stat b {
+  color: #dcdcaa;
+}
+
+.gpu-framegraph-wrap {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  align-items: flex-start;
+}
+
+.gpu-framegraph-canvas {
+  flex: 1;
+  max-width: 100%;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.gpu-framegraph-detail {
+  width: 200px;
+  flex-shrink: 0;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 11px;
+  min-height: 100px;
+}
+
+.fg-detail-empty {
+  color: #666;
+  font-style: italic;
+  text-align: center;
+  padding: 16px 0;
+}
+
+.fg-detail-header {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #333;
+}
+
+.fg-detail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fg-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fg-detail-row span {
+  color: #888;
+}
+
+.fg-detail-row b {
+  color: #dcdcaa;
+  font-family: monospace;
+}
+
+.gpu-framegraph-validations {
+  padding: 4px 8px 8px 8px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.fg-validation-none {
+  color: #4ec9b0;
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.fg-validation-warning,
+.fg-validation-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 6px;
+  border-bottom: 1px solid #222;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.fg-validation-warning {
+  color: #f44747;
+}
+
+.fg-validation-info {
+  color: #569cd6;
+}
+
+.fg-validation-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+}
