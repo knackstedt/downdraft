@@ -50,12 +50,13 @@ const KEY_SPACE = 32, KEY_SHIFT = 16;
 
 const tmpProj = new Float32Array(16);
 const tmpView = new Float32Array(16);
+const tmpResult = new Float32Array(16);
 
 export function calculateViewProj(camera: CameraState): Float32Array {
   const fov = (camera.fov * Math.PI) / 180;
   mat4.perspective(fov, camera.aspect, camera.near, camera.far, tmpProj);
   mat4.lookAt(camera.position, camera.target, camera.up, tmpView);
-  return mat4.multiply(tmpProj, tmpView, new Float32Array(16));
+  return mat4.multiply(tmpProj, tmpView, tmpResult);
 }
 
 export function invertMat4(m: Float32Array): Float32Array {

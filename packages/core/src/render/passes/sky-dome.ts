@@ -1,7 +1,7 @@
+import { type Mat4 } from "wgpu-matrix";
 import type { RenderPassContext } from "../render-pass.ts";
 import { RenderPass } from "../render-pass.ts";
 import { TrackedRenderPass } from "../tracked-render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
 
 const SKY_DOME_SHADER = /* wgsl */ `
 struct Uniforms {
@@ -295,6 +295,8 @@ export class SkyDomePass extends RenderPass {
   private indexCount = 0;
   private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
+  private uniformData = new Float32Array(35);
+  private uniformU32View = new Uint32Array(this.uniformData.buffer);
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1) {
     super();
@@ -371,14 +373,13 @@ export class SkyDomePass extends RenderPass {
 
   setUniforms(u: SkyDomeUniforms): void {
     if (!this.uniformBuffer) return;
-    const data = new Float32Array(35);
+    const data = this.uniformData;
     data.set(u.viewProj as Float32Array, 0);
     data[16] = u.cameraPos[0];
     data[17] = u.cameraPos[1];
     data[18] = u.cameraPos[2];
     data[19] = u.timeOfDay;
-    const u32View = new Uint32Array(data.buffer);
-    u32View[20] = u.weatherType;
+    this.uniformU32View[20] = u.weatherType;
     data[24] = u.sunDir[0];
     data[25] = u.sunDir[1];
     data[26] = u.sunDir[2];
@@ -388,7 +389,7 @@ export class SkyDomePass extends RenderPass {
     data[30] = u.moonDir[2];
     data[31] = u.moonIntensity;
     data[32] = u.time;
-    u32View[33] = u.prevWeatherType;
+    this.uniformU32View[33] = u.prevWeatherType;
     data[34] = u.weatherBlend;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
   }

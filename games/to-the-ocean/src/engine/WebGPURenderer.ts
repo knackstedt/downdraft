@@ -120,6 +120,42 @@ export class WebGPURenderer {
   // Reusable objects for per-frame camera/player data (avoids GC pressure)
   private pooledViewportPlayerPos = { x: 0, y: 0, z: 0 };
   private pooledFreecamPlayerPos = { x: 0, y: 0, z: 0 };
+  // Reusable scratch objects for entity loop (avoids per-entity allocation)
+  private pooledEntPos = { x: 0, y: 0, z: 0 };
+  private pooledEntRot = { x: 0, y: 0, z: 0, w: 1 };
+  private pooledShipPos = { x: 0, y: 0, z: 0 };
+  private pooledShipRot = { x: 0, y: 0, z: 0, w: 1 };
+  private pooledDrawEntityCount: number[] = [];
+  private pooledPrevPlayerPos: { x: number; y: number; z: number }[] = [];
+  // Pooled sky uniform scratch (avoids per-frame object/array allocation)
+  private pooledSkyCameraPos: [number, number, number] = [0, 0, 0];
+  private pooledTerrainCameraPos: [number, number, number] = [0, 0, 0];
+  private pooledWaterCameraPos: [number, number, number] = [0, 0, 0];
+  private pooledSkyUniforms: {
+    viewProj: Float32Array;
+    cameraPos: [number, number, number];
+    timeOfDay: number;
+    weatherType: number;
+    sunDir: [number, number, number];
+    sunIntensity: number;
+    moonDir: [number, number, number];
+    moonIntensity: number;
+    time: number;
+    prevWeatherType: number;
+    weatherBlend: number;
+  } = {
+    viewProj: new Float32Array(16),
+    cameraPos: [0, 0, 0],
+    timeOfDay: 0,
+    weatherType: 0,
+    sunDir: [0, 0, 0],
+    sunIntensity: 0,
+    moonDir: [0, 0, 0],
+    moonIntensity: 0,
+    time: 0,
+    prevWeatherType: 0,
+    weatherBlend: 0,
+  };
   private pooledDummyCamPos: [number, number, number] = [0, 10, 0];
   private pooledDummyCamTarget: [number, number, number] = [0, 10, -1];
   private pooledDummyCamera: CameraState = {
@@ -502,9 +538,6 @@ export class WebGPURenderer {
   private lastInvalidLog = 0;
   private simWasValid = false;
 
-  // Previous player positions for velocity computation (per viewport)
-  private prevPlayerPos: { x: number; y: number; z: number }[] = [];
-
   private render = (): void => {
     if (!this.running || !this.device || !this.context) {
       requestAnimationFrame(this.render);
@@ -873,17 +906,18 @@ export class WebGPURenderer {
     if (animator) {
       const playerFlags = playerU32[PLR.FLAGS] ?? 0;
       // Compute velocity from position delta
-      const prevPos = this.prevPlayerPos[viewportIdx] ?? { x: playerPos.x, y: playerPos.y, z: playerPos.z };
+      const prevPos = this.pooledPrevPlayerPos[viewportIdx] ?? (this.pooledPrevPlayerPos[viewportIdx] = { x: playerPos.x, y: playerPos.y, z: playerPos.z });
       const velX = (playerPos.x - prevPos.x) / dt;
       const velZ = (playerPos.z - prevPos.z) / dt;
       const velocity = Math.sqrt(velX * velX + velZ * velZ);
-      this.prevPlayerPos[viewportIdx] = { x: playerPos.x, y: playerPos.y, z: playerPos.z };
+      prevPos.x = playerPos.x; prevPos.y = playerPos.y; prevPos.z = playerPos.z;
 
       animator.update(dt, playerFlags, velocity);
       this.entityRenderer!.updateBoneLocalTransforms();
     }
 
-    const drawEntityCount: number[] = [];
+    const drawEntityCount = this.pooledDrawEntityCount;
+    drawEntityCount.length = 0;
     let drawIdx = 0;
     let wakeCount = 0;
     let shoreCount = 0;
@@ -893,18 +927,16 @@ export class WebGPURenderer {
       const entId = entSlot.u32[ENT.ID];
       if (entId === playerId && cameraMode === CameraMode.FirstPerson) continue;
       const type = entSlot.u32[ENT.TYPE] as EntityType;
-      const ePos = {
-        x: Number.isFinite(entSlot.f32[ENT.POS_X]) ? entSlot.f32[ENT.POS_X] : 0,
-        y: Number.isFinite(entSlot.f32[ENT.POS_Y]) ? entSlot.f32[ENT.POS_Y] : 0,
-        z: Number.isFinite(entSlot.f32[ENT.POS_Z]) ? entSlot.f32[ENT.POS_Z] : 0,
-      };
+      const ePos = this.pooledEntPos;
+      ePos.x = Number.isFinite(entSlot.f32[ENT.POS_X]) ? entSlot.f32[ENT.POS_X] : 0;
+      ePos.y = Number.isFinite(entSlot.f32[ENT.POS_Y]) ? entSlot.f32[ENT.POS_Y] : 0;
+      ePos.z = Number.isFinite(entSlot.f32[ENT.POS_Z]) ? entSlot.f32[ENT.POS_Z] : 0;
       const scale = Number.isFinite(entSlot.f32[ENT.SCALE]) ? entSlot.f32[ENT.SCALE] : 1;
-      const eRot = {
-        x: Number.isFinite(entSlot.f32[ENT.ROT_X]) ? entSlot.f32[ENT.ROT_X] : 0,
-        y: Number.isFinite(entSlot.f32[ENT.ROT_Y]) ? entSlot.f32[ENT.ROT_Y] : 0,
-        z: Number.isFinite(entSlot.f32[ENT.ROT_Z]) ? entSlot.f32[ENT.ROT_Z] : 0,
-        w: Number.isFinite(entSlot.f32[ENT.ROT_W]) ? entSlot.f32[ENT.ROT_W] : 1,
-      };
+      const eRot = this.pooledEntRot;
+      eRot.x = Number.isFinite(entSlot.f32[ENT.ROT_X]) ? entSlot.f32[ENT.ROT_X] : 0;
+      eRot.y = Number.isFinite(entSlot.f32[ENT.ROT_Y]) ? entSlot.f32[ENT.ROT_Y] : 0;
+      eRot.z = Number.isFinite(entSlot.f32[ENT.ROT_Z]) ? entSlot.f32[ENT.ROT_Z] : 0;
+      eRot.w = Number.isFinite(entSlot.f32[ENT.ROT_W]) ? entSlot.f32[ENT.ROT_W] : 1;
       // For boat entities, find the matching boat buffer slot
       let boatSlot = -1;
       if ((type === EntityType.Ship || type === EntityType.SmallCraft) && this.boatReader && this.boatReader.isValid()) {
@@ -1200,28 +1232,32 @@ export class WebGPURenderer {
       const easedBlend = this.skyWeatherBlend * this.skyWeatherBlend * (3 - 2 * this.skyWeatherBlend);
 
       const sunAngle = timeOfDay * Math.PI * 2 - Math.PI / 2;
-      const sunDirRaw = [Math.cos(sunAngle), Math.sin(sunAngle), 0.3];
-      const sunLen = Math.sqrt(sunDirRaw[0] ** 2 + sunDirRaw[1] ** 2 + sunDirRaw[2] ** 2);
-      const sunDir: [number, number, number] = [sunDirRaw[0] / sunLen, sunDirRaw[1] / sunLen, sunDirRaw[2] / sunLen];
-      const moonDir: [number, number, number] = [-sunDir[0], -sunDir[1], -sunDir[2]];
-      const sunIntensity = Math.max(0, Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2));
-      const moonIntensity = Math.max(0, -Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2));
+      const cosA = Math.cos(sunAngle);
+      const sinA = Math.sin(sunAngle);
+      const rawZ = 0.3;
+      const sunLen = Math.sqrt(cosA * cosA + sinA * sinA + rawZ * rawZ);
+      const skyU = this.pooledSkyUniforms;
+      skyU.sunDir[0] = cosA / sunLen;
+      skyU.sunDir[1] = sinA / sunLen;
+      skyU.sunDir[2] = rawZ / sunLen;
+      skyU.moonDir[0] = -skyU.sunDir[0];
+      skyU.moonDir[1] = -skyU.sunDir[1];
+      skyU.moonDir[2] = -skyU.sunDir[2];
+      skyU.sunIntensity = Math.max(0, sinA);
+      skyU.moonIntensity = Math.max(0, -sinA);
 
       const viewProj = engineCalculateViewProj(camera);
 
-      this.skyDomePass!.setUniforms({
-        viewProj,
-        cameraPos: [camera.position[0], camera.position[1], camera.position[2]],
-        timeOfDay,
-        weatherType: this.skyDisplayedWeatherType,
-        sunDir,
-        sunIntensity,
-        moonDir,
-        moonIntensity,
-        time: this.elapsedTime,
-        prevWeatherType: this.skyPrevWeatherType,
-        weatherBlend: easedBlend,
-      });
+      skyU.viewProj = viewProj;
+      skyU.cameraPos[0] = camera.position[0];
+      skyU.cameraPos[1] = camera.position[1];
+      skyU.cameraPos[2] = camera.position[2];
+      skyU.timeOfDay = timeOfDay;
+      skyU.weatherType = this.skyDisplayedWeatherType;
+      skyU.time = this.elapsedTime;
+      skyU.prevWeatherType = this.skyPrevWeatherType;
+      skyU.weatherBlend = easedBlend;
+      this.skyDomePass!.setUniforms(skyU);
       this.skyDomePass!.execute({ device: this.device!, pass: passEncoder });
     }
 
@@ -1229,9 +1265,11 @@ export class WebGPURenderer {
     {
       const viewProj = engineCalculateViewProj(camera);
       const spacing = 4.0;
+      const tCam = this.pooledTerrainCameraPos;
+      tCam[0] = camera.position[0]; tCam[1] = camera.position[1]; tCam[2] = camera.position[2];
       this.terrainPass!.setUniforms({
         viewProj,
-        cameraPos: [camera.position[0], camera.position[1], camera.position[2]],
+        cameraPos: tCam,
         time: performance.now() / 1000,
         patchSize: 512,
         originX: Math.round((playerPos.x - 256) / spacing) * spacing,
@@ -1259,18 +1297,11 @@ export class WebGPURenderer {
     // After terrain and entities so clouds blend over them;
     // before water so water can blend over clouds at the horizon.
     if (this.cloudSystem) {
-      // Compute moon direction (opposite of sun)
-      const moonDir: [number, number, number] = [
-        -lightingParams.sunDir[0],
-        -lightingParams.sunDir[1],
-        -lightingParams.sunDir[2],
-      ];
-      const moonIntensity = Math.max(0, -Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2));
       this.cloudSystem.render(
         passEncoder, camera, timeOfDay, weatherType,
         windSpeed, windDir.x, windDir.z, this.elapsedTime, playerPos,
         lightingParams.sunDir, lightingParams.sunIntensity,
-        moonDir, moonIntensity,
+        lightingParams.moonDir, lightingParams.moonIntensity,
         lightingParams.fogColor, 0.0008,
       );
     }
@@ -1368,17 +1399,15 @@ export class WebGPURenderer {
         if (!entSlot) continue;
         const type = entSlot.u32[ENT.TYPE] as EntityType;
         if (type !== EntityType.Ship) continue;
-        const sPos = {
-          x: entSlot.f32[ENT.POS_X],
-          y: entSlot.f32[ENT.POS_Y],
-          z: entSlot.f32[ENT.POS_Z],
-        };
-        const sRot = {
-          x: entSlot.f32[ENT.ROT_X],
-          y: entSlot.f32[ENT.ROT_Y],
-          z: entSlot.f32[ENT.ROT_Z],
-          w: entSlot.f32[ENT.ROT_W],
-        };
+        const sPos = this.pooledShipPos;
+        sPos.x = entSlot.f32[ENT.POS_X];
+        sPos.y = entSlot.f32[ENT.POS_Y];
+        sPos.z = entSlot.f32[ENT.POS_Z];
+        const sRot = this.pooledShipRot;
+        sRot.x = entSlot.f32[ENT.ROT_X];
+        sRot.y = entSlot.f32[ENT.ROT_Y];
+        sRot.z = entSlot.f32[ENT.ROT_Z];
+        sRot.w = entSlot.f32[ENT.ROT_W];
         this.entityRenderer!.renderHoloPreview(passEncoder, sPos, sRot);
         break; // only one ship for now
       }

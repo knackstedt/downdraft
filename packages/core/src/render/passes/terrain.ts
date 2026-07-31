@@ -1,7 +1,7 @@
+import { type Mat4 } from "wgpu-matrix";
 import type { RenderPassContext } from "../render-pass.ts";
 import { RenderPass } from "../render-pass.ts";
 import { TrackedRenderPass } from "../tracked-render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
 
 const TERRAIN_SHADER = /* wgsl */ `
 struct Uniforms {
@@ -105,6 +105,7 @@ export class TerrainPass extends RenderPass {
   private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
   private gridSize: number;
+  private uniformData = new Float32Array(24);
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1, gridSize = 128) {
     super();
@@ -184,7 +185,7 @@ export class TerrainPass extends RenderPass {
 
   setUniforms(u: TerrainUniforms): void {
     if (!this.uniformBuffer) return;
-    const data = new Float32Array(24);
+    const data = this.uniformData;
     data.set(u.viewProj as Float32Array, 0);
     data[16] = u.cameraPos[0];
     data[17] = u.cameraPos[1];

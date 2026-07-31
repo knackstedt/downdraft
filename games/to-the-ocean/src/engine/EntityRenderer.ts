@@ -11,11 +11,11 @@ import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
 import { ENT, SimBufferReader } from "@shared/sim-buffer";
 import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
 import {
-  createChunkedVoxelField,
-  generatePortVoxelField,
-  getChunkMeshSubRegion,
-  materializeChunkForMesh,
-  type ChunkedFieldContext,
+    createChunkedVoxelField,
+    generatePortVoxelField,
+    getChunkMeshSubRegion,
+    materializeChunkForMesh,
+    type ChunkedFieldContext,
 } from "@shared/TerrainGenerator";
 import { ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
 import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
@@ -1574,6 +1574,11 @@ export class EntityRenderer {
   private instanceDataU32: Uint32Array | null = null;
   private instanceCount = 0;
   private frameUniformData = new Float32Array(32); // 128 bytes
+
+  // Pooled voxel collision data (avoids per-frame allocation when weather particles active)
+  private pooledVoxelData: Float32Array | null = null;
+  private pooledVoxelResult: { data: Float32Array; originX: number; originY: number; originZ: number; voxelSize: number; dimX: number; dimY: number; dimZ: number; isoLevel: number } | null = null;
+  private pooledNearby: { field: ChunkedVoxelField | VoxelField; isChunked: boolean; worldOriginX: number; worldOriginY: number; worldOriginZ: number; voxelSize: number; isoLevel: number }[] = [];
 
   // Per-island decoration meshes (keyed by "chunkX,chunkZ")
   private decorationMeshes = new Map<string, { vertices: GPUBuffer; indices: GPUBuffer; indexCount: number }>();
@@ -4290,13 +4295,8 @@ export class EntityRenderer {
     isoLevel: number;
   } | null {
     // Collect nearby fields with their world-space origins
-    const nearby: {
-      field: ChunkedVoxelField | VoxelField;
-      isChunked: boolean;
-      worldOriginX: number; worldOriginY: number; worldOriginZ: number;
-      voxelSize: number;
-      isoLevel: number;
-    }[] = [];
+    const nearby = this.pooledNearby;
+    nearby.length = 0;
 
     for (let i = 0; i < this.drawEntityCount; i++) {
       const type = this.drawEntityTypes[i];
@@ -4367,7 +4367,11 @@ export class EntityRenderer {
     const originZ = camZ - (dimZ / 2) * voxelSize;
 
     const totalVoxels = dimX * dimY * dimZ;
-    const data = new Float32Array(totalVoxels).fill(-1.0);
+    if (!this.pooledVoxelData || this.pooledVoxelData.length < totalVoxels) {
+      this.pooledVoxelData = new Float32Array(totalVoxels);
+    }
+    const data = this.pooledVoxelData;
+    data.fill(-1.0, 0, totalVoxels);
 
     // Sample from all nearby fields — take max density (solid wins)
     for (const entry of nearby) {
@@ -4408,7 +4412,17 @@ export class EntityRenderer {
       }
     }
 
-    return { data, originX, originY, originZ, voxelSize, dimX, dimY, dimZ, isoLevel };
+    const result = this.pooledVoxelResult ?? (this.pooledVoxelResult = { data: data, originX, originY, originZ, voxelSize, dimX, dimY, dimZ, isoLevel });
+    result.data = data;
+    result.originX = originX;
+    result.originY = originY;
+    result.originZ = originZ;
+    result.voxelSize = voxelSize;
+    result.dimX = dimX;
+    result.dimY = dimY;
+    result.dimZ = dimZ;
+    result.isoLevel = isoLevel;
+    return result;
   }
 
   cleanupStaleDecorations(): void {
