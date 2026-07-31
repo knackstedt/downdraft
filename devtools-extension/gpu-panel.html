@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="app">
+    <div id="gpu-panel">
+      <div class="panel-header">
+        <h3>GPU Debugging</h3>
+        <span id="gpu-status" class="perf-status">Waiting for data...</span>
+      </div>
+      <div id="gpu-content">
+        <div class="debug-section">
+          <h4>GPU Adapter Info</h4>
+          <div id="gpu-adapter-info" class="debug-grid"></div>
+        </div>
+        <div class="debug-section">
+          <h4>Device Limits</h4>
+          <div id="gpu-device-limits" class="debug-grid"></div>
+        </div>
+        <div class="debug-section">
+          <h4>GPU Error Log <button id="btn-clear-gpu-errors" class="gpu-clear-btn">Clear</button></h4>
+          <div id="gpu-error-log" class="gpu-error-log"></div>
+        </div>
+        <div class="debug-section">
+          <h4>Frame Performance</h4>
+          <div id="gpu-frame-stats" class="debug-grid"></div>
+          <div class="gpu-chart-group">
+            <canvas id="gpu-frame-chart" class="perf-chart" width="600" height="140"></canvas>
+            <div id="gpu-frame-legend" class="perf-legend"></div>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>GPU Resources (VRAM Tracking)</h4>
+          <div id="gpu-resource-summary" class="debug-grid"></div>
+          <div id="gpu-resource-table-wrap" class="gpu-resource-table-wrap">
+            <table class="gpu-resource-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Label</th>
+                  <th>Callsite</th>
+                  <th>Size</th>
+                  <th>Format/Usage</th>
+                  <th>Dims</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="gpu-resource-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Per-Pass GPU Timing</h4>
+          <div id="gpu-pass-timing-status" class="debug-label">Waiting for data...</div>
+          <div class="gpu-resource-table-wrap">
+            <table class="gpu-resource-table">
+              <thead>
+                <tr>
+                  <th>Pass</th>
+                  <th>CPU (ms)</th>
+                  <th>GPU (ms)</th>
+                  <th>Draws</th>
+                  <th>Tris</th>
+                  <th>Pipe</th>
+                  <th>Bind</th>
+                  <th>Rebind</th>
+                </tr>
+              </thead>
+              <tbody id="gpu-pass-timing-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Performance Graph</h4>
+          <div class="gpu-chart-group">
+            <canvas id="gpu-perf-graph" class="perf-chart" width="600" height="160"></canvas>
+            <div id="gpu-perf-graph-legend" class="perf-legend"></div>
+          </div>
+        </div>
+        <div class="debug-section">
+          <h4>Snapshot Comparison (A/B Diff)</h4>
+          <div class="gpu-snapshot-controls">
+            <button id="btn-gpu-snapshot-save" class="gpu-clear-btn">Save Snapshot</button>
+            <button id="btn-gpu-snapshot-clear" class="gpu-clear-btn">Clear All</button>
+            <select id="gpu-snapshot-a" class="gpu-snapshot-select"><option value="-1">— Snapshot A —</option></select>
+            <select id="gpu-snapshot-b" class="gpu-snapshot-select"><option value="-1">— Snapshot B —</option></select>
+            <button id="btn-gpu-snapshot-diff" class="gpu-clear-btn">Diff A→B</button>
+          </div>
+          <div id="gpu-snapshot-list" class="gpu-snapshot-list"></div>
+          <div id="gpu-snapshot-diff" class="gpu-snapshot-diff"></div>
+        </div>
+        <div class="debug-section">
+          <h4>GPU Diagnostics</h4>
+          <div class="gpu-tools-list">
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">GPU System Metrics (MCP: gpu_system_info)</div>
+              <div class="gpu-tool-desc">Real-time GPU utilization %, VRAM usage, temperature, power draw, clock speeds, and per-process VRAM — all available to AI agents via the <code>gpu_system_info</code> MCP tool or <code>downdraft://gpu-info</code> resource. No external terminal needed.</div>
+              <div class="gpu-tool-command" data-cmd="gpu_system_info">MCP tool: gpu_system_info</div>
+            </div>
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">Electron GPU Info (MCP: inspect_gpu)</div>
+              <div class="gpu-tool-desc">Driver version, vendor, GPU device, active feature status — retrieved via Electron's <code>app.getGPUInfo()</code> and available through the <code>inspect_gpu</code> MCP tool. Replaces the need for chrome://gpu.</div>
+              <div class="gpu-tool-command" data-cmd="inspect_gpu">MCP tool: inspect_gpu</div>
+            </div>
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">VRAM Resource Tracking (in-engine)</div>
+              <div class="gpu-tool-desc">Per-buffer and per-texture VRAM allocation with callsite tracking — shown in the GPU Resources table above. More granular than per-process nvidia-smi. Use <code>getGPUResourceStats</code> via SceneInspector API.</div>
+              <div class="gpu-tool-command" data-cmd="getGPUResourceStats">SceneInspector: getGPUResourceStats</div>
+            </div>
+          </div>
+          <h4 style="margin-top: 12px;">External Tools (interactive, not automatable)</h4>
+          <div class="gpu-tools-list">
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">nvtop (htop-style GPU view)</div>
+              <div class="gpu-tool-desc">Live htop-style view of GPU processes. Easier to correlate spikes with what you're doing in-app.</div>
+              <div class="gpu-tool-command" data-cmd="nvtop">nvtop</div>
+            </div>
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">Vulkan Validation Layer</div>
+              <div class="gpu-tool-desc">Flags redundant barriers, suboptimal memory types, and other things that silently cost GPU time. Set as env var before launching the app.</div>
+              <div class="gpu-tool-command" data-cmd="VK_LAYER_KHRONOS_validation=1">VK_LAYER_KHRONOS_validation=1</div>
+            </div>
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">chrome://tracing</div>
+              <div class="gpu-tool-desc">Chromium compositor/GPU-process behavior specific to the Electron-style host. Catches sync stalls or redundant work from multi-process model.</div>
+              <div class="gpu-tool-command" data-cmd="chrome://tracing">chrome://tracing</div>
+            </div>
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">RenderDoc (Vulkan frame capture)</div>
+              <div class="gpu-tool-desc">Since Dawn renders via Vulkan on Linux, RenderDoc captures individual frames from the Vulkan backend. Fastest path to "why is this draw call expensive" — pipeline state, texture sizes, redundant passes, overdraw all show up per-frame.</div>
+              <div class="gpu-tool-command" data-cmd="renderdoc">Launch RenderDoc, then inject into the Electron renderer process</div>
+            </div>
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">NVIDIA Nsight Graphics</div>
+              <div class="gpu-tool-desc">Deeper GPU-side metrics (SM occupancy, memory bandwidth, shader stalls) than RenderDoc. Worth it once RenderDoc tells you which pass is the problem and you need to know why at the hardware level.</div>
+              <div class="gpu-tool-command" data-cmd="nsight-graph">Launch Nsight Graphics, connect to the Vulkan process</div>
+            </div>
+            <div class="gpu-tool-card">
+              <div class="gpu-tool-title">NVIDIA Nsight Systems</div>
+              <div class="gpu-tool-desc">Timeline view across CPU and GPU. Useful for spotting sync stalls or redundant work caused by Electron's multi-process model (e.g. compositor process doing unexpected work).</div>
+              <div class="gpu-tool-command" data-cmd="nsys profile">nsys profile &lt;your-app-launch-command&gt;</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="gpu-panel.js"></script>
+</body>
+</html>
