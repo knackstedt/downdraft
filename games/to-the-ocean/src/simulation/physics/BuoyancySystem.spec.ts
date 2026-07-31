@@ -2,12 +2,11 @@
 // Run with: bun test src/simulation/physics/BuoyancySystem.spec.ts
 
 import {
-  BOAT_CELL_WORLD_SIZE,
-  BOAT_LAYER_HEIGHT,
-  SHIP_MASS_PER_CELL,
-  SHIP_DATA,
-  BoatCellType,
-  isHullShellCell,
+    BOAT_CELL_WORLD_SIZE,
+    BOAT_LAYER_HEIGHT,
+    BoatCellType,
+    isHullShellCell,
+    SHIP_MASS_PER_CELL
 } from "../../shared/constants";
 
 // --- Physics constants (must match BuoyancySystem.ts) ---
@@ -149,8 +148,8 @@ function buoyancyTick(
     const armZ = localZ - mp.centerZ;
 
     // Yaw-only horizontal position for water sampling
-    const yawX = armX * cosH - armZ * sinH;
-    const yawZ = armX * sinH + armZ * cosH;
+    const yawX = armX * cosH + armZ * sinH;
+    const yawZ = -armX * sinH + armZ * cosH;
     const sampleX = yawX; // ship at origin
     const sampleZ = yawZ;
 

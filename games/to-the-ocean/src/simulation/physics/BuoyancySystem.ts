@@ -155,8 +155,8 @@ export class BuoyancySystem {
             const localZ = cells[c].gridZ * BOAT_CELL_WORLD_SIZE;
             const armX = localX - mp.centerX;
             const armZ = localZ - mp.centerZ;
-            const yawX = armX * cosH - armZ * sinH;
-            const yawZ = armX * sinH + armZ * cosH;
+            const yawX = armX * cosH + armZ * sinH;
+            const yawZ = -armX * sinH + armZ * cosH;
             waterHeights.push(this.sampleWaterAt(ent.position.x + yawX, ent.position.z + yawZ));
           }
 
@@ -325,8 +325,8 @@ export class BuoyancySystem {
 
       // --- Yaw-only horizontal position for water sampling ---
       // This breaks the tilt→sample→more-tilt feedback loop.
-      const yawX = armX * cosH - armZ * sinH;
-      const yawZ = armX * sinH + armZ * cosH;
+      const yawX = armX * cosH + armZ * sinH;
+      const yawZ = -armX * sinH + armZ * cosH;
       const sampleX = ent.position.x + yawX;
       const sampleZ = ent.position.z + yawZ;
 

@@ -2,7 +2,7 @@
 // Boat Design Runtime Geometry — watertight mesh, mass, collision, and buoyancy
 // ============================================================================
 
-import type { Vec2, Vec3, Quat, BoatDesign, HullBody, DeckLevel } from "./types";
+import type { BoatDesign, DeckLevel, HullBody, Quat, Vec2, Vec3 } from "./types";
 
 const EPS = 1e-6;
 
@@ -1072,8 +1072,8 @@ export class RuntimeBoatGeometry {
         const z = g.z0 + (iz + 0.5) * g.step;
         const armX = x - comX;
         const armZ = z - comZ;
-        const yawX = armX * cosH - armZ * sinH;
-        const yawZ = armX * sinH + armZ * cosH;
+        const yawX = armX * cosH + armZ * sinH;
+        const yawZ = -armX * sinH + armZ * cosH;
         const waterHeight = waterSampler(shipPos.x + yawX, shipPos.z + yawZ);
         if (!Number.isFinite(waterHeight)) continue;
 

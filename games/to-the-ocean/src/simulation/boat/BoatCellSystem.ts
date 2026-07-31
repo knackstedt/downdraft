@@ -604,10 +604,10 @@ export class BoatCellSystem {
     // Transform world position into ship-local space
     const dx = worldX - shipX;
     const dz = worldZ - shipZ;
-    // Rotate by -heading to get ship-local coordinates
+    // Rotate by heading to get ship-local coordinates (inverse of localToWorldRot yaw)
     // heading 0 = forward -Z, sin(heading) = x component, cos(heading) = z component
-    const cos = Math.cos(-shipHeading);
-    const sin = Math.sin(-shipHeading);
+    const cos = Math.cos(shipHeading);
+    const sin = Math.sin(shipHeading);
     const localX = dx * cos - dz * sin;
     const localZ = dx * sin + dz * cos;
     // Convert to grid coordinates
@@ -924,8 +924,9 @@ export class BoatCellSystem {
         if (hasSolidCollision(cell.type) &&
             cellMaxY > feetY + 0.15 && cellMinY < headY - 0.1) {
 
-          // Step-up: cell top is low enough to step on — treat as floor, skip wall push
-          if (cellMaxY - feetY <= stepUpThreshold) {
+          // Step-up: low wall-type cells can be stepped over — treat as floor, skip wall push
+          // Only apply to wall types; solid non-wall cells (HELM, PONTOON, BED, etc.) should block
+          if (isWallType(cell.type) && cellMaxY - feetY <= stepUpThreshold) {
             if (cellMaxY > floorY) floorY = cellMaxY;
             continue;
           }
@@ -991,8 +992,8 @@ export class BoatCellSystem {
           (size.sizeY > 1 ? (size.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
         // Only check Y overlap with player body
         if (cellMaxY <= feetY + 0.15 || cellMinY >= headY - 0.1) continue;
-        // Step-up cells are floors, not walls
-        if (cellMaxY - feetY <= stepUpThreshold) continue;
+        // Step-up wall cells are floors, not walls; solid non-wall cells always block
+        if (isWallType(cell.type) && cellMaxY - feetY <= stepUpThreshold) continue;
 
         const cellCx = cell.gridX * BOAT_CELL_WORLD_SIZE + (size.sizeX - 1) * BOAT_CELL_WORLD_SIZE / 2;
         const cellCz = cell.gridZ * BOAT_CELL_WORLD_SIZE + (size.sizeZ - 1) * BOAT_CELL_WORLD_SIZE / 2;
