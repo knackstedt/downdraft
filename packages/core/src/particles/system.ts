@@ -1,10 +1,10 @@
-import { ParticleSimulator } from "./simulator.ts";
-import { ParticleRenderPass } from "./render-pass.ts";
+import { type Mat4 } from "wgpu-matrix";
+import type { GraphRenderContext } from "../render/frame-graph.ts";
 import { ParticleComputePass } from "./compute-pass.ts";
 import type { ParticleEmitterData } from "./emitter.ts";
 import type { ParticleGPUData } from "./particle-data.ts";
-import type { RenderPassContext } from "../render/render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
+import { ParticleRenderPass } from "./render-pass.ts";
+import { ParticleSimulator } from "./simulator.ts";
 
 export interface ParticleSystemConfig {
   maxParticlesPerEmitter: number;
@@ -133,7 +133,7 @@ export class ParticleSystem {
     }
   }
 
-  render(ctx: RenderPassContext, viewProj: Mat4, cameraPos: [number, number, number]): void {
+  render(ctx: GraphRenderContext, viewProj: Mat4, cameraPos: [number, number, number]): void {
     if (!this.renderPass) return;
 
     this.renderPass.setCamera(viewProj, cameraPos);

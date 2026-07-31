@@ -7,6 +7,7 @@ import { TelemetryCollector } from "../telemetry/collector.ts";
 import { UIRenderer } from "../ui/renderer.ts";
 import { createLogger } from "../util/logger.ts";
 import { GPUDeviceManager } from "./device.ts";
+import { FrameGraph } from "./frame-graph.ts";
 import { GBuffer } from "./g-buffer.ts";
 import { createDefaultLightUniform, type LightUniformData } from "./lighting.ts";
 import { DebugVizPass, type DebugVizMode } from "./passes/debug-viz.ts";
@@ -19,9 +20,7 @@ import { ShadowPass } from "./passes/shadow.ts";
 import { SkyboxPass } from "./passes/skybox.ts";
 import { TransparentPass } from "./passes/transparent.ts";
 import { UICompositePass } from "./passes/ui-composite.ts";
-import { RenderGraph } from "./render-graph.ts";
 import { SurfaceManager } from "./surface.ts";
-import { TrackedRenderPass } from "./tracked-render-pass.ts";
 
 const log = createLogger();
 
@@ -82,7 +81,7 @@ export class RenderLoop {
   private lightData: LightUniformData;
   private postProcessSettings: PostProcessSettings;
   private useDeferred: boolean;
-  private renderGraph: RenderGraph | null = null;
+  private frameGraph: FrameGraph | null = null;
   private autonomous: boolean;
   private alpha: number = 0;
   private frameDrawCalls: number = 0;
@@ -182,8 +181,6 @@ export class RenderLoop {
 
     this.prevViewProj = this.config.camera.getViewProjectionMatrix();
 
-    this.buildRenderGraph();
-
     this.deviceManager.onDeviceLost(() => {
       log.warn("RenderLoop", "Device lost, attempting reinit...");
       this.handleDeviceLost();
@@ -192,70 +189,109 @@ export class RenderLoop {
     return true;
   }
 
-  private buildRenderGraph(): void {
-    this.renderGraph = new RenderGraph();
+  private buildFrameGraph(surfaceTexture: GPUTexture): FrameGraph {
+    const device = this.deviceManager.getDevice()!;
+    const fg = new FrameGraph();
+
+    // Import the canvas surface texture
+    const surfaceHandle = fg.importTexture("surface", surfaceTexture);
 
     if (this.useDeferred) {
-      // External resources (canvas surface)
-      this.renderGraph.registerResource({ name: "surface", type: "texture", format: "surface" });
+      // Import GBuffer textures
+      const gbufferTextures = this.gbuffer!.getTextures()!;
+      const gbufferAlbedoHandle = fg.importTexture("gbuffer_albedo", gbufferTextures.albedo);
+      const gbufferNormalHandle = fg.importTexture("gbuffer_normal", gbufferTextures.normal);
+      const gbufferMetallicEmissiveHandle = fg.importTexture("gbuffer_metallic_emissive", gbufferTextures.metallicEmissive);
+      const gbufferVelocityHandle = fg.importTexture("gbuffer_velocity", gbufferTextures.velocity);
+      const gbufferDepthHandle = fg.importTexture("gbuffer_depth", gbufferTextures.depth);
 
-      // Pass: depth-prepass
-      this.renderGraph.addPass({ name: "depth-prepass", inputs: [], outputs: ["gbuffer_depth"] });
+      // Import HDR texture
+      const hdrHandle = fg.importTexture("hdr", this.hdrTexture!);
 
-      // Pass: shadow
-      this.renderGraph.addPass({ name: "shadow", inputs: [], outputs: ["shadow_map"] });
+      // Import shadow map
+      const shadowHandle = this.shadowPass!.getShadowTexture()
+        ? fg.importTexture("shadow_map", this.shadowPass!.getShadowTexture()!)
+        : null;
 
-      // Pass: gbuffer-opaque
-      this.renderGraph.addPass({
-        name: "gbuffer-opaque",
-        inputs: ["gbuffer_depth"],
-        outputs: ["gbuffer_albedo", "gbuffer_normal", "gbuffer_metallic_emissive", "gbuffer_velocity", "gbuffer_depth"],
-      });
+      // Set handles on passes
+      this.depthPrepass!.depthHandle = gbufferDepthHandle;
 
-      // Pass: deferred-lighting
-      this.renderGraph.addPass({
-        name: "deferred-lighting",
-        inputs: ["gbuffer_albedo", "gbuffer_normal", "gbuffer_metallic_emissive", "gbuffer_depth", "shadow_map"],
-        outputs: ["hdr_texture"],
-      });
+      this.opaquePass!.gbufferAlbedoHandle = gbufferAlbedoHandle;
+      this.opaquePass!.gbufferNormalHandle = gbufferNormalHandle;
+      this.opaquePass!.gbufferMetallicEmissiveHandle = gbufferMetallicEmissiveHandle;
+      this.opaquePass!.gbufferVelocityHandle = gbufferVelocityHandle;
+      this.opaquePass!.gbufferDepthHandle = gbufferDepthHandle;
 
-      // Pass: skybox
-      this.renderGraph.addPass({ name: "skybox", inputs: ["gbuffer_depth"], outputs: ["hdr_texture"] });
+      this.deferredPass!.gbufferAlbedoHandle = gbufferAlbedoHandle;
+      this.deferredPass!.gbufferNormalHandle = gbufferNormalHandle;
+      this.deferredPass!.gbufferMetallicEmissiveHandle = gbufferMetallicEmissiveHandle;
+      this.deferredPass!.gbufferDepthHandle = gbufferDepthHandle;
+      this.deferredPass!.shadowHandle = shadowHandle;
+      this.deferredPass!.hdrHandle = hdrHandle;
 
-      // Pass: transparent
-      this.renderGraph.addPass({ name: "transparent", inputs: ["gbuffer_depth"], outputs: ["hdr_texture"] });
+      if (this.shadowPass) this.shadowPass.shadowHandle = shadowHandle;
 
-      // Pass: post-process
-      this.renderGraph.addPass({
-        name: "post-process",
-        inputs: ["hdr_texture", "gbuffer_velocity"],
-        outputs: ["surface"],
-      });
+      this.skyboxPass!.depthHandle = gbufferDepthHandle;
+      this.skyboxPass!.hdrHandle = hdrHandle;
 
-      // Pass: debug
-      this.renderGraph.addPass({ name: "debug", inputs: ["surface"], outputs: ["surface"] });
+      this.transparentPass!.depthHandle = gbufferDepthHandle;
+      this.transparentPass!.hdrHandle = hdrHandle;
 
-      // Pass: ui-composite
-      this.renderGraph.addPass({ name: "ui-composite", inputs: ["surface"], outputs: ["surface"] });
+      this.postProcessPass!.hdrHandle = hdrHandle;
+      this.postProcessPass!.velocityHandle = gbufferVelocityHandle;
+      this.postProcessPass!.surfaceHandle = surfaceHandle;
+
+      this.debugPass!.surfaceHandle = surfaceHandle;
+      this.debugPass!.depthHandle = gbufferDepthHandle;
+
+      this.debugVizPass!.surfaceHandle = surfaceHandle;
+      this.debugVizPass!.depthHandle = gbufferDepthHandle;
+
+      this.uiCompositePass!.surfaceHandle = surfaceHandle;
+
+      // Add passes in order
+      fg.addPass(this.depthPrepass!);
+      if (this.shadowPass) fg.addPass(this.shadowPass);
+      fg.addPass(this.opaquePass!);
+      fg.addPass(this.deferredPass!);
+      if (this.skyboxPass) fg.addPass(this.skyboxPass);
+      if (this.transparentPass && this.transparentPass.hasItems()) fg.addPass(this.transparentPass);
+      fg.addPass(this.postProcessPass!);
+      if (this.debugPass && this.config.debugQueue && !this.config.debugQueue.isEmpty()) fg.addPass(this.debugPass);
+      if (this.debugVizPass && this.debugVizPass.getMode()) fg.addPass(this.debugVizPass);
+      if (this.uiCompositePass) fg.addPass(this.uiCompositePass);
     } else {
-      this.renderGraph.registerResource({ name: "surface", type: "texture", format: "surface" });
-      this.renderGraph.addPass({ name: "opaque", inputs: [], outputs: ["surface"] });
-      this.renderGraph.addPass({ name: "transparent", inputs: [], outputs: ["surface"] });
-      this.renderGraph.addPass({ name: "debug", inputs: [], outputs: ["surface"] });
-      this.renderGraph.addPass({ name: "ui-composite", inputs: [], outputs: ["surface"] });
+      // Simple mode
+      const depthTexture = this.opaquePass!.ensureDepthTexture(this.width, this.height);
+      const depthHandle = depthTexture ? fg.importTexture("depth", depthTexture) : null;
+
+      this.opaquePass!.surfaceHandle = surfaceHandle;
+      this.opaquePass!.depthHandle = depthHandle;
+
+      this.transparentPass!.surfaceHandle = surfaceHandle;
+      this.transparentPass!.depthHandle = depthHandle;
+
+      this.debugPass!.surfaceHandle = surfaceHandle;
+      this.debugPass!.depthHandle = depthHandle;
+
+      this.debugVizPass!.surfaceHandle = surfaceHandle;
+      this.debugVizPass!.depthHandle = depthHandle;
+
+      this.uiCompositePass!.surfaceHandle = surfaceHandle;
+
+      fg.addPass(this.opaquePass!);
+      if (this.transparentPass && this.transparentPass.hasItems()) fg.addPass(this.transparentPass);
+      if (this.debugPass && this.config.debugQueue && !this.config.debugQueue.isEmpty()) fg.addPass(this.debugPass);
+      if (this.debugVizPass && this.debugVizPass.getMode()) fg.addPass(this.debugVizPass);
+      if (this.uiCompositePass) fg.addPass(this.uiCompositePass);
     }
 
-    this.renderGraph.resolveAliasing();
-    this.renderGraph.syncUsageFlags();
-
-    const errors = this.renderGraph.validate();
-    if (errors.length > 0) {
-      log.warn("RenderLoop", `Render graph validation errors: ${errors}`);
-    }
+    fg.compile(device, this.width, this.height);
+    return fg;
   }
 
-  getRenderGraph(): RenderGraph | null {
-    return this.renderGraph;
+  getFrameGraph(): FrameGraph | null {
+    return this.frameGraph;
   }
 
   private async handleDeviceLost(): Promise<void> {
@@ -307,7 +343,6 @@ export class RenderLoop {
       this.uiCompositePass = new UICompositePass();
       this.uiCompositePass.setRenderer(new UIRenderer(surfaceFormat));
       this.uiCompositePass.prepare(device);
-      this.buildRenderGraph();
       this.start();
     }
   }
@@ -372,296 +407,52 @@ export class RenderLoop {
     const texture = this.surface.getCurrentTexture();
     if (!texture) return;
 
-    if (this.useDeferred) {
-      this.renderDeferred(device, texture, viewProj);
-    } else {
-      this.renderSimple(device, texture, viewProj);
-    }
+    // Build and execute the frame graph
+    this.frameGraph?.destroy();
+    this.frameGraph = this.buildFrameGraph(texture);
+
+    const cameraPos = this.config.camera.position;
+    const invViewProj = mat4.inverse(viewProj);
+    const lightDir = this.lightData.directional.direction;
+    const lightViewProj = this.shadowPass
+      ? this.shadowPass.computeLightViewProj([lightDir[0], lightDir[1], lightDir[2]], [0, 0, 0], 20)
+      : mat4.identity();
+
+    const frameCtx: FrameContext = {
+      device,
+      width: this.width,
+      height: this.height,
+      viewProj,
+      invViewProj,
+      prevViewProj: this.prevViewProj,
+      cameraPos: [cameraPos[0], cameraPos[1], cameraPos[2]],
+      lightData: this.lightData,
+      lightViewProj,
+      mesh: this.config.mesh,
+      modelMatrix: mat4.identity(),
+      shadowsEnabled: this.shadowsEnabled,
+      bloomEnabled: this.bloomEnabled,
+      shadowSampler: this.shadowSampler,
+      debugQueue: this.config.debugQueue ?? null,
+      opaqueVertexBuffer: this.opaquePass.getVertexBuffer(),
+      opaqueIndexBuffer: this.opaquePass.getIndexBuffer(),
+      opaqueIndexCount: this.opaquePass.getIndexCount(),
+      opaqueIndexFormat: this.config.mesh.indices instanceof Uint16Array ? "uint16" : "uint32",
+      addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
+      addTriangles: (n: number) => { this.frameTriangles += n; },
+    };
+
+    this.frameGraph.execute(frameCtx);
+
+    // Clear transparent items after frame
+    this.transparentPass?.clearItems();
+
+    this.prevViewProj = viewProj;
 
     if (this.config.telemetry) {
       this.config.telemetry.recordFrame(dt * 1000);
       this.config.telemetry.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
     }
-  }
-
-  private renderSimple(device: GPUDevice, texture: GPUTexture, viewProj: Mat4): void {
-    this.opaquePass!.updateCamera(viewProj);
-
-    const depthTexture = this.opaquePass!.ensureDepthTexture(this.width, this.height);
-    if (!depthTexture) return;
-
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: texture.createView(),
-        clearValue: this.config.clearColor ?? { r: 0.1, g: 0.1, b: 0.12, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-      depthStencilAttachment: {
-        view: depthTexture.createView(),
-        depthClearValue: 1.0,
-        depthLoadOp: "clear",
-        depthStoreOp: "store",
-      },
-    });
-
-    const tracked = new TrackedRenderPass(pass);
-    this.opaquePass!.execute({ device, pass: tracked });
-
-    if (this.transparentPass) {
-      this.transparentPass.setLightData(this.lightData);
-      this.transparentPass.setCameraViewProj(viewProj, [this.config.camera.position[0], this.config.camera.position[1], this.config.camera.position[2]]);
-      this.transparentPass.execute({ device, pass: tracked });
-      this.transparentPass.clearItems();
-    }
-
-    if (this.debugPass) {
-      this.debugPass.setScreenSize(this.width, this.height);
-      this.debugPass.setCameraViewProj(viewProj);
-      this.debugPass.execute({ device, pass: tracked });
-    }
-
-    if (this.debugVizPass && this.debugVizPass.getMode()) {
-      this.debugVizPass.setCamera(viewProj);
-      const vb = this.opaquePass!.getVertexBuffer();
-      const ib = this.opaquePass!.getIndexBuffer();
-      const indexCount = this.opaquePass!.getIndexCount();
-      if (vb && ib && indexCount > 0) {
-        this.debugVizPass.renderMesh({ device, pass: tracked }, vb, ib, indexCount);
-      }
-    }
-
-    tracked.end();
-    this.accumulateDrawStats(tracked);
-    device.queue.submit([encoder.finish()]);
-
-    // UI composite (on top of final image)
-    if (this.uiCompositePass) {
-      const uiEncoder = device.createCommandEncoder();
-      const uiPass = uiEncoder.beginRenderPass({
-        colorAttachments: [{
-          view: texture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "load",
-          storeOp: "store",
-        }],
-      });
-      this.uiCompositePass.execute({ device, pass: uiPass });
-      uiPass.end();
-      device.queue.submit([uiEncoder.finish()]);
-    }
-  }
-
-  private renderDeferred(device: GPUDevice, texture: GPUTexture, viewProj: Mat4): void {
-    if (!this.gbuffer || !this.depthPrepass || !this.shadowPass || !this.deferredPass || !this.postProcessPass) return;
-
-    const invViewProj = mat4.inverse(viewProj);
-    const cameraPos = this.config.camera.position;
-
-    // Update prev matrices for velocity
-    this.opaquePass!.setPrevViewProj(this.prevViewProj);
-    this.opaquePass!.updateCamera(viewProj);
-
-    // 1. Depth prepass
-    const depthView = this.gbuffer.getViews()!.depth;
-    {
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [],
-        depthStencilAttachment: {
-          view: depthView,
-          depthClearValue: 1.0,
-          depthLoadOp: "clear",
-          depthStoreOp: "store",
-        },
-      });
-      const tracked = new TrackedRenderPass(pass);
-      this.depthPrepass.setCameraViewProj(viewProj);
-      this.depthPrepass.execute({ device, pass: tracked }, this.config.mesh, mat4.identity());
-      tracked.end();
-      this.accumulateDrawStats(tracked);
-      device.queue.submit([encoder.finish()]);
-    }
-
-    // 2. Shadow pass
-    const lightDir = this.lightData.directional.direction;
-    const lightViewProj = this.shadowPass.computeLightViewProj(
-      [lightDir[0], lightDir[1], lightDir[2]],
-      [0, 0, 0],
-      20,
-    );
-    this.shadowPass.setLightViewProj(lightViewProj);
-    if (this.shadowsEnabled) {
-      const ctx = { device, pass: null as unknown as GPURenderPassEncoder };
-      this.shadowPass.execute(ctx, this.config.mesh, mat4.identity());
-    }
-
-    // 3. G-Buffer opaque pass (load depth from prepass)
-    {
-      const encoder = device.createCommandEncoder();
-      const colorAttachments = this.gbuffer.getColorAttachments().map(a => ({
-        ...a,
-        loadOp: "clear" as GPULoadOp,
-      }));
-      const pass = encoder.beginRenderPass({
-        colorAttachments,
-        depthStencilAttachment: {
-          view: depthView,
-          depthClearValue: 1.0,
-          depthLoadOp: "load",
-          depthStoreOp: "store",
-        },
-      });
-      const tracked = new TrackedRenderPass(pass);
-      this.opaquePass!.execute({ device, pass: tracked });
-      tracked.end();
-      this.accumulateDrawStats(tracked);
-      device.queue.submit([encoder.finish()]);
-    }
-
-    // 4. Deferred lighting
-    const gbufferViews = this.gbuffer.getViews()!;
-    const shadowView = this.shadowPass.getShadowView();
-    const deferredBindGroup = this.deferredPass.createBindGroup(
-      gbufferViews,
-      shadowView,
-      this.shadowSampler,
-    ) ?? undefined;
-    this.deferredPass.updateCamera(viewProj, this.prevViewProj, invViewProj, [cameraPos[0], cameraPos[1], cameraPos[2]]);
-    this.deferredPass.updateLightViewProj(lightViewProj);
-    {
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.hdrView!,
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "clear",
-          storeOp: "store",
-        }],
-      });
-      this.deferredPass.execute({ device, pass }, deferredBindGroup);
-      pass.end();
-      device.queue.submit([encoder.finish()]);
-    }
-
-    // 5. Skybox (depth-tested against G-Buffer depth, no write)
-    {
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.hdrView!,
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "load",
-          storeOp: "store",
-        }],
-        depthStencilAttachment: {
-          view: depthView,
-          depthClearValue: 1.0,
-          depthLoadOp: "load",
-          depthStoreOp: "store",
-        },
-      });
-      if (this.skyboxPass) {
-        this.skyboxPass.setCamera(viewProj, invViewProj, [cameraPos[0], cameraPos[1], cameraPos[2]]);
-        this.skyboxPass.execute({ device, pass });
-      }
-      pass.end();
-      device.queue.submit([encoder.finish()]);
-    }
-
-    // 6. Transparent objects (blend into HDR)
-    if (this.transparentPass && this.transparentPass.hasItems()) {
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.hdrView!,
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "load",
-          storeOp: "store",
-        }],
-        depthStencilAttachment: {
-          view: depthView,
-          depthClearValue: 1.0,
-          depthLoadOp: "load",
-          depthStoreOp: "store",
-        },
-      });
-      this.transparentPass.setLightData(this.lightData);
-      this.transparentPass.setCameraViewProj(viewProj, [cameraPos[0], cameraPos[1], cameraPos[2]]);
-      this.transparentPass.execute({ device, pass });
-      this.transparentPass.clearItems();
-      pass.end();
-      device.queue.submit([encoder.finish()]);
-    }
-
-    // 7. Post-process: TAA → Bloom → Tonemap → surface
-    {
-      const ctx = { device, pass: null as unknown as GPURenderPassEncoder };
-      const taaOutput = this.postProcessPass.executeTAA(ctx, this.hdrView!, gbufferViews.velocity, this.hdrView!);
-      const bloomOutput = this.bloomEnabled
-        ? this.postProcessPass.executeBloom(ctx, taaOutput)
-        : taaOutput;
-      this.postProcessPass.executeTonemap(ctx, taaOutput, bloomOutput, texture.createView());
-    }
-
-    // 8. Debug render (on top of final image)
-    if (this.debugPass && this.config.debugQueue && !this.config.debugQueue.isEmpty()) {
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: texture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "load",
-          storeOp: "store",
-        }],
-      });
-      this.debugPass.setScreenSize(this.width, this.height);
-      this.debugPass.setCameraViewProj(viewProj);
-      this.debugPass.execute({ device, pass });
-      pass.end();
-      device.queue.submit([encoder.finish()]);
-    }
-
-    // 9. Debug visualization (on top of final image)
-    if (this.debugVizPass && this.debugVizPass.getMode()) {
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: texture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "load",
-          storeOp: "store",
-        }],
-      });
-      this.debugVizPass.setCamera(viewProj);
-      const vb = this.opaquePass!.getVertexBuffer();
-      const ib = this.opaquePass!.getIndexBuffer();
-      const indexCount = this.opaquePass!.getIndexCount();
-      if (vb && ib && indexCount > 0) {
-        this.debugVizPass.renderMesh({ device, pass }, vb, ib, indexCount);
-      }
-      pass.end();
-      device.queue.submit([encoder.finish()]);
-    }
-
-    // 10. UI composite (on top of final image)
-    if (this.uiCompositePass) {
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: texture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "load",
-          storeOp: "store",
-        }],
-      });
-      this.uiCompositePass.execute({ device, pass });
-      pass.end();
-      device.queue.submit([encoder.finish()]);
-    }
-
-    this.prevViewProj = viewProj;
   }
 
   resize(width: number, height: number): void {
@@ -749,11 +540,6 @@ export class RenderLoop {
     return this.deviceManager;
   }
 
-  private accumulateDrawStats(tracked: TrackedRenderPass): void {
-    this.frameDrawCalls += tracked.drawCalls;
-    this.frameTriangles += tracked.triangles;
-  }
-
   private destroyPasses(): void {
     this.opaquePass?.destroy();
     this.depthPrepass?.destroy();
@@ -780,7 +566,8 @@ export class RenderLoop {
     this.gbuffer = null;
     this.hdrTexture = null;
     this.hdrView = null;
-    this.renderGraph = null;
+    this.frameGraph?.destroy();
+    this.frameGraph = null;
   }
 
   destroy(): void {

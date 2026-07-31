@@ -76,6 +76,8 @@ export { ArenaBuffer, RingBuffer } from "./render/buffer.ts";
 export { calculateViewProj, CameraMode, CameraSystem, dot3, invertMat4, normalize3, transformVec4 } from "./render/camera.ts";
 export type { CameraConfig, CameraState } from "./render/camera.ts";
 export { GPUDeviceManager } from "./render/device.ts";
+export { FrameGraph, TextureHandle } from "./render/frame-graph.ts";
+export type { ColorAttachmentDesc, DepthAttachmentDesc, FrameContext, TextureDesc } from "./render/frame-graph.ts";
 export { computeAABB, cullItems, Frustum, transformAABB } from "./render/frustum.ts";
 export type { AABB, CullableItem, FrustumPlane } from "./render/frustum.ts";
 export { G_BUFFER_FORMATS, GBuffer } from "./render/g-buffer.ts";
@@ -116,7 +118,7 @@ export type { RenderPassDescriptor, RenderResource, ValidationError } from "./re
 export { RenderLoop } from "./render/render-loop.ts";
 export type { DebugToggleState, RenderLoopConfig } from "./render/render-loop.ts";
 export { RenderPass } from "./render/render-pass.ts";
-export type { RenderPassContext } from "./render/render-pass.ts";
+export type { FrameGraphBuilder, GraphRenderContext, PassType, RenderPassContext } from "./render/render-pass.ts";
 export { SurfaceManager } from "./render/surface.ts";
 export { TrackedRenderPass } from "./render/tracked-render-pass.ts";
 export { VisionTest, VisionTestSuite } from "./render/vision-test.ts";

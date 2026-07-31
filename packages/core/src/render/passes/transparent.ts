@@ -1,9 +1,7 @@
-import type { RenderPassContext } from "../render-pass.ts";
-import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
+import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
-import { packLightUniform, packPointLights, MAX_POINT_LIGHTS, type LightUniformData } from "../lighting.ts";
+import { MAX_POINT_LIGHTS, packLightUniform, packPointLights, type LightUniformData } from "../lighting.ts";
+import { RenderPass } from "../render-pass.ts";
 
 const TRANSPARENT_SHADER = `
 struct CameraUniforms {
@@ -97,6 +95,8 @@ export interface TransparentRenderItem {
 
 export class TransparentPass extends RenderPass {
   name = "transparent";
+  hdrHandle: TextureHandle | null = null;
+  depthHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipelines: Map<number, GPURenderPipeline> = new Map();
   private bindGroups: Map<number, GPUBindGroup> = new Map();
@@ -223,8 +223,16 @@ export class TransparentPass extends RenderPass {
     return this.renderItems.length > 0;
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.shaderModule || this.renderItems.length === 0) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.depthHandle) builder.depthAttachment({ handle: this.depthHandle, depthLoadOp: "load", depthStoreOp: "store", depthReadOnly: true });
+    if (this.hdrHandle) builder.colorAttachment({ handle: this.hdrHandle, loadOp: "load", storeOp: "store" });
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!this.shaderModule || this.renderItems.length === 0 || !ctx.pass) return;
+
+    this.setCameraViewProj(ctx.viewProj, ctx.cameraPos);
+    this.setLightData(ctx.lightData);
 
     this.renderItems.sort((a, b) => b.distance - a.distance);
 
@@ -232,7 +240,7 @@ export class TransparentPass extends RenderPass {
     const pipeline = this.getPipeline(firstStride);
     const bindGroup = this.bindGroups.get(firstStride)!;
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    const tracked = ctx.pass;
     tracked.setPipeline(pipeline);
     tracked.setBindGroup(0, bindGroup);
 

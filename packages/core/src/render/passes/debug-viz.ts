@@ -1,5 +1,5 @@
-import { RenderPass, type RenderPassContext } from "../render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
+import { type Mat4 } from "wgpu-matrix";
+import { RenderPass } from "../render-pass.ts";
 
 const WIREFRAME_SHADER = `
 struct CameraUniforms {
@@ -238,6 +238,8 @@ export const DEFAULT_DEBUG_VIZ_SETTINGS: DebugVizSettings = {
 
 export class DebugVizPass extends RenderPass {
   name = "debug-viz";
+  surfaceHandle: TextureHandle | null = null;
+  depthHandle: TextureHandle | null = null;
   private device: GPUDevice | null = null;
   private surfaceFormat: GPUTextureFormat;
   private pipelines: Map<DebugVizMode, GPURenderPipeline> = new Map();
@@ -382,8 +384,8 @@ export class DebugVizPass extends RenderPass {
     this.settings = { ...this.settings, mode };
   }
 
-  renderMesh(ctx: RenderPassContext, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer | null, indexCount: number): void {
-    if (!this.settings.mode || !this.bindGroup) return;
+  renderMesh(ctx: GraphRenderContext, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer | null, indexCount: number): void {
+    if (!this.settings.mode || !this.bindGroup || !ctx.pass) return;
 
     if (this.settings.mode === "lod") {
       const pipeline = this.pipelines.get("lod");
@@ -416,7 +418,7 @@ export class DebugVizPass extends RenderPass {
     }
   }
 
-  renderAABB(ctx: RenderPassContext, min: [number, number, number], max: [number, number, number]): void {
+  renderAABB(ctx: GraphRenderContext, min: [number, number, number], max: [number, number, number]): void {
     if (!this.device || !this.aabbPipeline || !this.aabbBindGroup || !this.aabbBuffer) return;
 
     const [minX, minY, minZ] = min;
@@ -453,8 +455,22 @@ export class DebugVizPass extends RenderPass {
     this.device.queue.writeBuffer(this.lodBuffer, 0, data as unknown as BufferSource);
   }
 
-  execute(_ctx: RenderPassContext): void {
-    // Rendering is done via renderMesh() / renderAABB() calls from the render loop
+  setup(builder: FrameGraphBuilder): void {
+    if (this.depthHandle) builder.depthAttachment({ handle: this.depthHandle, depthLoadOp: "load", depthStoreOp: "store", depthReadOnly: true });
+    if (this.surfaceHandle) builder.colorAttachment({ handle: this.surfaceHandle, loadOp: "load", storeOp: "store" });
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!ctx.pass) return;
+    this.setCamera(ctx.viewProj);
+    if (!this.settings.mode) return;
+
+    const vb = ctx.opaqueVertexBuffer;
+    const ib = ctx.opaqueIndexBuffer;
+    const indexCount = ctx.opaqueIndexCount;
+    if (vb && ib && indexCount > 0) {
+      this.renderMesh(ctx, vb, ib, indexCount);
+    }
   }
 
   destroy(): void {

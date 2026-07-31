@@ -1,7 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { RenderPassContext } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
 
 const WATER_GRID = 256;
 const MAX_WAKES = 16;
@@ -469,6 +468,8 @@ export interface WaterUniforms {
 
 export class WaterPass extends RenderPass {
   name = "water";
+  hdrHandle: TextureHandle | null = null;
+  depthHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private shaderModule: GPUShaderModule | null = null;
@@ -710,8 +711,13 @@ export class WaterPass extends RenderPass {
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.depthHandle) builder.depthAttachment({ handle: this.depthHandle, depthLoadOp: "load", depthStoreOp: "store", depthReadOnly: true });
+    if (this.hdrHandle) builder.colorAttachment({ handle: this.hdrHandle, loadOp: "load", storeOp: "store" });
+  }
+
+  execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer || !ctx.pass) return;
 
     // Write default normal data once
     if (!this.cachedNormalData) {
@@ -730,7 +736,7 @@ export class WaterPass extends RenderPass {
       { width: this.gridSize, height: this.gridSize },
     );
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
     tracked.setBindGroup(0, this.bindGroup);
     if (this.lightBindGroup) {

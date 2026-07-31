@@ -1,7 +1,6 @@
-import type { RenderPassContext } from "../render-pass.ts";
+import { type Mat4 } from "wgpu-matrix";
+import type { FrameGraphBuilder, GraphRenderContext } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
 
 const CLOUD_SHADER = /* wgsl */ `
 struct CloudUniforms {
@@ -138,6 +137,7 @@ export interface CloudLayerData {
 
 export class CloudPass extends RenderPass {
   name = "clouds";
+  hdrHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private shaderModule: GPUShaderModule | null = null;
@@ -260,10 +260,14 @@ export class CloudPass extends RenderPass {
     });
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.pipeline || !this.uniformBuffer) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.hdrHandle) builder.colorAttachment({ handle: this.hdrHandle, loadOp: "load", storeOp: "store" });
+  }
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+  execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !this.uniformBuffer || !ctx.pass) return;
+
+    const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
 
     for (const layer of this.layers) {

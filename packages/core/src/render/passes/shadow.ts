@@ -1,8 +1,8 @@
-import type { RenderPassContext } from "../render-pass.ts";
+import { mat4, type Mat4 } from "wgpu-matrix";
+import type { MeshData } from "../../mesh/builder.ts";
+import { PassType } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 import { TrackedRenderPass } from "../tracked-render-pass.ts";
-import type { MeshData } from "../../mesh/builder.ts";
-import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 
 const SHADOW_SHADER = `
 struct CameraUniforms {
@@ -24,6 +24,8 @@ fn vs_main(input: VertexInput) -> @builtin(position) vec4<f32> {
 
 export class ShadowPass extends RenderPass {
   name = "shadow";
+  passType = PassType.Custom;
+  shadowHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipelines: Map<number, GPURenderPipeline> = new Map();
   private bindGroups: Map<number, GPUBindGroup> = new Map();
@@ -108,13 +110,23 @@ export class ShadowPass extends RenderPass {
     this.device.queue.writeBuffer(this.modelBuffer!, 0, model as unknown as BufferSource);
   }
 
-  execute(ctx: RenderPassContext, mesh: MeshData, modelMatrix: Mat4): void;
-  execute(ctx: RenderPassContext): void;
-  execute(ctx: RenderPassContext, mesh?: MeshData, modelMatrix?: Mat4): void {
-    if (!this.shaderModule || !mesh || !modelMatrix) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.shadowHandle) {
+      builder.write(this.shadowHandle);
+    }
+  }
 
-    this.setModelMatrix(modelMatrix);
+  getShadowTexture(): GPUTexture | null {
+    return this.shadowTexture;
+  }
 
+  execute(ctx: GraphRenderContext): void {
+    if (!this.shaderModule || !ctx.shadowsEnabled) return;
+
+    this.setLightViewProj(ctx.lightViewProj);
+    this.setModelMatrix(ctx.modelMatrix);
+
+    const mesh = ctx.mesh;
     const pipeline = this.getPipeline(mesh.layout.stride);
     const bindGroup = this.bindGroups.get(mesh.layout.stride)!;
 
@@ -129,7 +141,7 @@ export class ShadowPass extends RenderPass {
       },
     });
 
-    const tracked = pass instanceof TrackedRenderPass ? pass : new TrackedRenderPass(pass);
+    const tracked = new TrackedRenderPass(pass);
     tracked.setPipeline(pipeline);
     tracked.setBindGroup(0, bindGroup);
     tracked.setVertexBuffer(0, this.getVertexBuffer(mesh));
@@ -138,6 +150,8 @@ export class ShadowPass extends RenderPass {
     tracked.end();
 
     ctx.device.queue.submit([encoder.finish()]);
+    ctx.addDrawCalls(1);
+    ctx.addTriangles(Math.floor(mesh.indexCount / 3));
   }
 
   private getVertexBuffer(mesh: MeshData): GPUBuffer {

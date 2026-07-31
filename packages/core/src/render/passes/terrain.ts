@@ -1,7 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { RenderPassContext } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
 
 const TERRAIN_SHADER = /* wgsl */ `
 struct Uniforms {
@@ -94,6 +93,8 @@ export interface TerrainUniforms {
 
 export class TerrainPass extends RenderPass {
   name = "terrain";
+  hdrHandle: TextureHandle | null = null;
+  depthHandle: TextureHandle | null = null;
   private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private shaderModule: GPUShaderModule | null = null;
@@ -197,10 +198,15 @@ export class TerrainPass extends RenderPass {
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
   }
 
-  execute(ctx: RenderPassContext): void {
-    if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer) return;
+  setup(builder: FrameGraphBuilder): void {
+    if (this.depthHandle) builder.depthAttachment({ handle: this.depthHandle, depthLoadOp: "load", depthStoreOp: "store", depthReadOnly: true });
+    if (this.hdrHandle) builder.colorAttachment({ handle: this.hdrHandle, loadOp: "load", storeOp: "store" });
+  }
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+  execute(ctx: GraphRenderContext): void {
+    if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer || !ctx.pass) return;
+
+    const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
     tracked.setBindGroup(0, this.bindGroup);
     tracked.setVertexBuffer(0, this.vertexBuffer);

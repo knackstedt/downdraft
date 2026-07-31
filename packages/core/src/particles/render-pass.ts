@@ -1,6 +1,6 @@
-import { RenderPass, type RenderPassContext } from "../render/render-pass.ts";
-import { TrackedRenderPass } from "../render/tracked-render-pass.ts";
-import { mat4, type Mat4 } from "wgpu-matrix";
+import { type Mat4 } from "wgpu-matrix";
+import type { GraphRenderContext } from "../render/frame-graph.ts";
+import { RenderPass } from "../render/render-pass.ts";
 import type { ParticleGPUData } from "./particle-data.ts";
 import { packParticleBuffer } from "./particle-data.ts";
 
@@ -291,8 +291,8 @@ export class ParticleRenderPass extends RenderPass {
     this.useTexture = true;
   }
 
-  renderInstances(ctx: RenderPassContext, data: ParticleGPUData, maxParticles: number): void {
-    if (!this.device || !this.pipeline) return;
+  renderInstances(ctx: GraphRenderContext, data: ParticleGPUData, maxParticles: number): void {
+    if (!this.device || !this.pipeline || !ctx.pass) return;
 
     const packed = packParticleBuffer(data, maxParticles);
     const activeCount = this._countActive(data, maxParticles);
@@ -319,7 +319,7 @@ export class ParticleRenderPass extends RenderPass {
     const byteSize = Math.min(activeCount * INSTANCE_STRIDE, this.maxInstances * INSTANCE_STRIDE);
     this.device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData.subarray(0, byteSize / 4) as unknown as BufferSource);
 
-    const tracked = ctx.pass instanceof TrackedRenderPass ? ctx.pass : new TrackedRenderPass(ctx.pass);
+    const tracked = ctx.pass;
 
     if (this.useTexture && this.bindGroup) {
       tracked.setPipeline(this.pipeline);
@@ -340,8 +340,9 @@ export class ParticleRenderPass extends RenderPass {
     return count;
   }
 
-  execute(ctx: RenderPassContext): void {
+  execute(ctx: GraphRenderContext): void {
     // Use renderInstances() directly with particle data
+    void ctx;
   }
 
   destroy(): void {
