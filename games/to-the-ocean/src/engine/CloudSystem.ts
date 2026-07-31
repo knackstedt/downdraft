@@ -5,9 +5,9 @@
 // ============================================================================
 
 import {
-  CLOUD_CONFIG,
-  CloudLayerType,
-  generateCloudLayerField,
+    CLOUD_CONFIG,
+    CloudLayerType,
+    generateCloudLayerField,
 } from "@shared/CloudGenerator";
 import { extractCloudMesh } from "@shared/MarchingCubes";
 import { ExtractedMesh } from "@shared/TerrainTypes";
@@ -169,6 +169,9 @@ export class CloudSystem {
 
   private layers: CloudLayer[] = [];
   private genThisFrame = 0;
+  private uniformData = new Float32Array(40);
+  private uniformU32View = new Uint32Array(this.uniformData.buffer);
+  private perLayerData = new Float32Array(4);
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -400,14 +403,13 @@ export class CloudSystem {
     const viewProj = calculateViewProj(camera);
 
     // Write main uniforms (same layout as before)
-    const uniforms = new Float32Array(40);
+    const uniforms = this.uniformData;
     for (let i = 0; i < 16; i++) uniforms[i] = viewProj[i];
     uniforms[16] = camera.position[0];
     uniforms[17] = camera.position[1];
     uniforms[18] = camera.position[2];
     uniforms[19] = timeOfDay;
-    const u32View = new Uint32Array(uniforms.buffer);
-    u32View[20] = weatherType;
+    this.uniformU32View[20] = weatherType;
     uniforms[24] = sunDir[0];
     uniforms[25] = sunDir[1];
     uniforms[26] = sunDir[2];
@@ -423,7 +425,7 @@ export class CloudSystem {
     uniforms[38] = fogColor[2];
     uniforms[39] = fogDensity;
 
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms as unknown as BufferSource);
 
     passEncoder.setPipeline(this.pipeline);
 
@@ -434,7 +436,7 @@ export class CloudSystem {
       // Per-layer uniform: world position of the field center
       // The mesh vertices are relative to field origin, so we offset by (centerX, altitude, centerZ)
       // minus the wind offset that was baked into the field at generation time
-      const perLayerData = new Float32Array(4);
+      const perLayerData = this.perLayerData;
       perLayerData[0] = layer.genCenterX - layer.windOffsetX;
       perLayerData[1] = layer.altitude;
       perLayerData[2] = layer.genCenterZ - layer.windOffsetZ;

@@ -497,6 +497,8 @@ export class WaterPass extends RenderPass {
   private time = 0;
   private cachedNormalData: Uint8Array | null = null;
   private cachedHeightData: Float32Array | null = null;
+  private uniformData = new Float32Array(40);
+  private uniformU32View = new Uint32Array(this.uniformData.buffer);
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth32float", msaaSampleCount = 1, gridSize = WATER_GRID) {
     super();
@@ -681,7 +683,7 @@ export class WaterPass extends RenderPass {
   setUniforms(u: WaterUniforms): void {
     if (!this.uniformBuffer) return;
     this.time = u.time;
-    const data = new Float32Array(38);
+    const data = this.uniformData;
     data.set(u.viewProj as Float32Array, 0);
     data[16] = u.cameraPos[0];
     data[17] = u.cameraPos[1];
@@ -692,8 +694,7 @@ export class WaterPass extends RenderPass {
     data[22] = u.originX;
     data[23] = u.originZ;
     data[24] = u.visibility;
-    const dv = new DataView(data.buffer);
-    dv.setUint32(100, u.weatherType, true);
+    this.uniformU32View[25] = u.weatherType;
     data[26] = u.timeOfDay;
     data[27] = u.waveHeight;
     data[28] = u.windSpeed;
@@ -704,9 +705,8 @@ export class WaterPass extends RenderPass {
     data[33] = u.sunDir[1];
     data[34] = u.sunDir[2];
     data[35] = u.sunIntensity;
-    const uniformU32 = new Uint32Array(data.buffer, 144, 2);
-    uniformU32[0] = this.wakeCount;
-    uniformU32[1] = this.shoreCount;
+    this.uniformU32View[36] = this.wakeCount;
+    this.uniformU32View[37] = this.shoreCount;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
   }
 

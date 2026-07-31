@@ -15,6 +15,19 @@ export class LightingSystem {
   protected device: GPUDevice;
   protected weatherBlend: WeatherBlend;
 
+  // Pooled return object for getLightingParams (avoids per-frame allocation)
+  private pooledResult = {
+    sunDir: [0, 0, 0] as [number, number, number],
+    sunIntensity: 0,
+    sunBrightness: 0,
+    moonDir: [0, 0, 0] as [number, number, number],
+    moonIntensity: 0,
+    ambient: 0,
+    fogDensity: 0,
+    wetness: 0,
+    fogColor: [0.0, 0.1, 0.2] as [number, number, number],
+  };
+
   constructor(device: GPUDevice) {
     this.device = device;
     this.weatherBlend = new WeatherBlend(30.0);
@@ -22,46 +35,32 @@ export class LightingSystem {
 
   // Calculate lighting parameters based on time of day and weather
   getLightingParams(timeOfDay: number, weatherType: WeatherType, visibility: number) {
-    // Sun angle — matches SkyDomePass calculation exactly
     const sunAngle = timeOfDay * Math.PI * 2 - Math.PI / 2;
-    const sunDirRaw: [number, number, number] = [
-      Math.cos(sunAngle),
-      Math.sin(sunAngle),
-      0.3,
-    ];
-    const sunLen = Math.sqrt(sunDirRaw[0] ** 2 + sunDirRaw[1] ** 2 + sunDirRaw[2] ** 2);
-    const sunDir: [number, number, number] = [
-      sunDirRaw[0] / sunLen,
-      sunDirRaw[1] / sunLen,
-      sunDirRaw[2] / sunLen,
-    ];
-    const sunIntensityRaw = Math.max(0, Math.sin(sunAngle));
+    const cosA = Math.cos(sunAngle);
+    const sinA = Math.sin(sunAngle);
+    const rawZ = 0.3;
+    const sunLen = Math.sqrt(cosA * cosA + sinA * sinA + rawZ * rawZ);
 
-    // Moon (opposite of sun)
-    const moonDir: [number, number, number] = [-sunDir[0], -sunDir[1], -sunDir[2]];
-    const moonIntensity = Math.max(0, -Math.sin(sunAngle));
+    const result = this.pooledResult;
+    result.sunDir[0] = cosA / sunLen;
+    result.sunDir[1] = sinA / sunLen;
+    result.sunDir[2] = rawZ / sunLen;
+    result.moonDir[0] = -result.sunDir[0];
+    result.moonDir[1] = -result.sunDir[1];
+    result.moonDir[2] = -result.sunDir[2];
+    result.moonIntensity = Math.max(0, -sinA);
 
     // Blend lighting using the shared WeatherBlend from the plugin
     const blended = this.weatherBlend.getLightingParams(timeOfDay, weatherType, visibility);
-    const ambient = blended.ambient;
-    const sunIntensity = blended.sunIntensity;
-    const wetness = blended.wetness;
+    result.ambient = blended.ambient;
+    result.sunIntensity = blended.sunIntensity;
+    result.wetness = blended.wetness;
+    result.sunBrightness = blended.sunIntensity * SUN_BRIGHTNESS;
 
     // Visibility affects fog distance
-    const fogDensity = (1 - visibility) * 0.01;
+    result.fogDensity = (1 - visibility) * 0.01;
 
-    return {
-      sunDir,
-      sunIntensity,
-      // PBR-scaled brightness for entity/island shaders (radiance = vec3(sunBrightness))
-      sunBrightness: sunIntensity * SUN_BRIGHTNESS,
-      moonDir,
-      moonIntensity,
-      ambient,
-      fogDensity,
-      wetness,
-      fogColor: [0.0, 0.1, 0.2] as [number, number, number],
-    };
+    return result;
   }
 
   updateWeatherBlend(weatherType: WeatherType, dt: number): void {

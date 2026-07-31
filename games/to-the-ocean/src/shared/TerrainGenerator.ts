@@ -11,11 +11,11 @@
 // caves/secret tunnels beneath the dock.
 // ============================================================================
 
-import { VoxelField, ChunkedVoxelField, getChunkedVoxel } from "./TerrainTypes";
-import { TERRAIN_CONFIG } from "./TerrainConfig";
-import { PerlinNoise } from "./world/PerlinNoise";
-import { PerlinNoise3D } from "./PerlinNoise3D";
 import { extractMesh, extractMeshSubRegion } from "./MarchingCubes";
+import { PerlinNoise3D } from "./PerlinNoise3D";
+import { TERRAIN_CONFIG } from "./TerrainConfig";
+import { ChunkedVoxelField, getChunkedVoxel, VoxelField } from "./TerrainTypes";
+import { PerlinNoise } from "./world/PerlinNoise";
 
 // Get the appropriate voxel size for a given distance from the player.
 // Returns 0 for "use base voxelSize" (closest LOD level).
@@ -100,9 +100,15 @@ export interface IslandBlob {
   heightMul: number;
 }
 
+// Cache for generateIslandBlobs — islands don't move, so blobs are deterministic per chunk
+const islandBlobCache = new Map<string, IslandBlob[]>();
+
 // Generate blob centers for an island without building the full voxel field.
 // The rng sequence MUST match generateVoxelField exactly so blobs are identical.
 export function generateIslandBlobs(chunkX: number, chunkZ: number): IslandBlob[] {
+  const key = `${chunkX},${chunkZ}`;
+  const cached = islandBlobCache.get(key);
+  if (cached) return cached;
   const cfg = TERRAIN_CONFIG;
   const seed = chunkX * 92837111 + chunkZ * 72635341;
   const rng = mulberry32(seed);
@@ -134,6 +140,7 @@ export function generateIslandBlobs(chunkX: number, chunkZ: number): IslandBlob[
     const heightMul = rng() * 0.05;
     blobs.push({ x: Math.cos(angle) * dist, z: Math.sin(angle) * dist, radius, heightMul });
   }
+  islandBlobCache.set(key, blobs);
   return blobs;
 }
 

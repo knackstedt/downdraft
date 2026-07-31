@@ -36,6 +36,18 @@ export class LightSystem extends LightingSystem {
 
   private pointLights: PointLightData[] = [];
   private spotLights: SpotLightData[] = [];
+  private pointLightCount = 0;
+  private spotLightCount = 0;
+
+  // Pre-allocated light objects to avoid per-frame allocation
+  private pointLightPool: PointLightData[] = [];
+  private spotLightPool: SpotLightData[] = [];
+
+  // Pre-allocated cull arrays to avoid per-frame allocation
+  private culledPointIndices: number[] = [];
+  private culledPointDistSq: number[] = [];
+  private culledSpotIndices: number[] = [];
+  private culledSpotDistSq: number[] = [];
 
   // Packed data for GPU upload — matches WGSL LightStorage struct layout.
   // Header: 4 floats (16 bytes)
@@ -99,8 +111,8 @@ export class LightSystem extends LightingSystem {
   }
 
   beginFrame(): void {
-    this.pointLights.length = 0;
-    this.spotLights.length = 0;
+    this.pointLightCount = 0;
+    this.spotLightCount = 0;
   }
 
   addPointLight(
@@ -109,8 +121,19 @@ export class LightSystem extends LightingSystem {
     intensity: number,
     radius: number,
   ): void {
-    if (this.pointLights.length >= MAX_POINT_LIGHTS) return;
-    this.pointLights.push({ pos, color, intensity, radius });
+    if (this.pointLightCount >= MAX_POINT_LIGHTS) return;
+    let light = this.pointLightPool[this.pointLightCount];
+    if (!light) {
+      light = { pos, color, intensity, radius };
+      this.pointLightPool[this.pointLightCount] = light;
+    } else {
+      light.pos = pos;
+      light.color = color;
+      light.intensity = intensity;
+      light.radius = radius;
+    }
+    this.pointLights[this.pointLightCount] = light;
+    this.pointLightCount++;
   }
 
   addSpotLight(
@@ -122,16 +145,33 @@ export class LightSystem extends LightingSystem {
     cosInner: number,
     cosOuter: number,
   ): void {
-    if (this.spotLights.length >= MAX_SPOT_LIGHTS) return;
-    this.spotLights.push({ pos, dir, color, intensity, radius, cosInner, cosOuter });
+    if (this.spotLightCount >= MAX_SPOT_LIGHTS) return;
+    let light = this.spotLightPool[this.spotLightCount];
+    if (!light) {
+      light = { pos, dir, color, intensity, radius, cosInner, cosOuter };
+      this.spotLightPool[this.spotLightCount] = light;
+    } else {
+      light.pos = pos;
+      light.dir = dir;
+      light.color = color;
+      light.intensity = intensity;
+      light.radius = radius;
+      light.cosInner = cosInner;
+      light.cosOuter = cosOuter;
+    }
+    this.spotLights[this.spotLightCount] = light;
+    this.spotLightCount++;
   }
 
   upload(cameraPos: [number, number, number]): void {
     if (!this.lightStorageBuffer) return;
 
     // Cull and sort point lights by distance to camera (nearest first)
-    const culledPoints: { light: PointLightData; distSq: number }[] = [];
-    for (let i = 0; i < this.pointLights.length; i++) {
+    const culledIndices = this.culledPointIndices;
+    const culledDistSq = this.culledPointDistSq;
+    culledIndices.length = 0;
+    culledDistSq.length = 0;
+    for (let i = 0; i < this.pointLightCount; i++) {
       const pl = this.pointLights[i];
       const dx = pl.pos[0] - cameraPos[0];
       const dy = pl.pos[1] - cameraPos[1];
@@ -139,15 +179,31 @@ export class LightSystem extends LightingSystem {
       const distSq = dx * dx + dy * dy + dz * dz;
       const maxDist = pl.radius + CULL_MARGIN;
       if (distSq <= maxDist * maxDist) {
-        culledPoints.push({ light: pl, distSq });
+        culledIndices.push(i);
+        culledDistSq.push(distSq);
       }
     }
-    culledPoints.sort((a, b) => a.distSq - b.distSq);
-    const numPoints = Math.min(culledPoints.length, MAX_POINT_LIGHTS);
+    // Simple insertion sort (small N, avoids sort closure allocation)
+    for (let i = 1; i < culledIndices.length; i++) {
+      const keyIdx = culledIndices[i];
+      const keyDist = culledDistSq[i];
+      let j = i - 1;
+      while (j >= 0 && culledDistSq[j] > keyDist) {
+        culledIndices[j + 1] = culledIndices[j];
+        culledDistSq[j + 1] = culledDistSq[j];
+        j--;
+      }
+      culledIndices[j + 1] = keyIdx;
+      culledDistSq[j + 1] = keyDist;
+    }
+    const numPoints = Math.min(culledIndices.length, MAX_POINT_LIGHTS);
 
     // Cull and sort spot lights
-    const culledSpots: { light: SpotLightData; distSq: number }[] = [];
-    for (let i = 0; i < this.spotLights.length; i++) {
+    const culledSpotIdx = this.culledSpotIndices;
+    const culledSpotDist = this.culledSpotDistSq;
+    culledSpotIdx.length = 0;
+    culledSpotDist.length = 0;
+    for (let i = 0; i < this.spotLightCount; i++) {
       const sl = this.spotLights[i];
       const dx = sl.pos[0] - cameraPos[0];
       const dy = sl.pos[1] - cameraPos[1];
@@ -155,11 +211,23 @@ export class LightSystem extends LightingSystem {
       const distSq = dx * dx + dy * dy + dz * dz;
       const maxDist = sl.radius + CULL_MARGIN;
       if (distSq <= maxDist * maxDist) {
-        culledSpots.push({ light: sl, distSq });
+        culledSpotIdx.push(i);
+        culledSpotDist.push(distSq);
       }
     }
-    culledSpots.sort((a, b) => a.distSq - b.distSq);
-    const numSpots = Math.min(culledSpots.length, MAX_SPOT_LIGHTS);
+    for (let i = 1; i < culledSpotIdx.length; i++) {
+      const keyIdx = culledSpotIdx[i];
+      const keyDist = culledSpotDist[i];
+      let j = i - 1;
+      while (j >= 0 && culledSpotDist[j] > keyDist) {
+        culledSpotIdx[j + 1] = culledSpotIdx[j];
+        culledSpotDist[j + 1] = culledSpotDist[j];
+        j--;
+      }
+      culledSpotIdx[j + 1] = keyIdx;
+      culledSpotDist[j + 1] = keyDist;
+    }
+    const numSpots = Math.min(culledSpotIdx.length, MAX_SPOT_LIGHTS);
 
     // Pack into Float32Array matching WGSL LightStorage struct layout
     const data = this.lightDataArray;
@@ -173,7 +241,7 @@ export class LightSystem extends LightingSystem {
 
     // Point lights: 8 floats each starting at offset 4
     for (let i = 0; i < numPoints; i++) {
-      const pl = culledPoints[i].light;
+      const pl = this.pointLights[culledIndices[i]];
       const off = 4 + i * 8;
       data[off] = pl.pos[0];
       data[off + 1] = pl.pos[1];
@@ -188,7 +256,7 @@ export class LightSystem extends LightingSystem {
     // Spot lights: 16 floats each starting at offset 4 + MAX_POINT_LIGHTS * 8
     const spotBase = 4 + MAX_POINT_LIGHTS * 8;
     for (let i = 0; i < numSpots; i++) {
-      const sl = culledSpots[i].light;
+      const sl = this.spotLights[culledSpotIdx[i]];
       const off = spotBase + i * 16;
       data[off] = sl.pos[0];
       data[off + 1] = sl.pos[1];
@@ -349,15 +417,13 @@ export class LightSystem extends LightingSystem {
     if (!this.debugInstanceBuffer || !this.debugInstanceData || !this.debugSphereVerts || !this.debugSphereIndexBuffer) return;
 
     const viewProj = calculateViewProj(camera);
-    const uniformData = new Float32Array(16);
-    for (let i = 0; i < 16; i++) uniformData[i] = viewProj[i];
-    this.device.queue.writeBuffer(this.debugUniformBuffer, 0, uniformData);
+    this.device.queue.writeBuffer(this.debugUniformBuffer, 0, viewProj as unknown as BufferSource);
 
     // Collect instances from point lights + spot lights
     const data = this.debugInstanceData;
     data.fill(0);
     let count = 0;
-    for (let i = 0; i < this.pointLights.length && count < this.MAX_DEBUG_INSTANCES; i++) {
+    for (let i = 0; i < this.pointLightCount && count < this.MAX_DEBUG_INSTANCES; i++) {
       const pl = this.pointLights[i];
       const off = count * 8;
       data[off] = pl.pos[0]; data[off + 1] = pl.pos[1]; data[off + 2] = pl.pos[2];
@@ -365,7 +431,7 @@ export class LightSystem extends LightingSystem {
       data[off + 4] = pl.color[0]; data[off + 5] = pl.color[1]; data[off + 6] = pl.color[2];
       count++;
     }
-    for (let i = 0; i < this.spotLights.length && count < this.MAX_DEBUG_INSTANCES; i++) {
+    for (let i = 0; i < this.spotLightCount && count < this.MAX_DEBUG_INSTANCES; i++) {
       const sl = this.spotLights[i];
       const off = count * 8;
       data[off] = sl.pos[0]; data[off + 1] = sl.pos[1]; data[off + 2] = sl.pos[2];

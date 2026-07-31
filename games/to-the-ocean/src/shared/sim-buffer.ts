@@ -205,11 +205,13 @@ export class SimBufferReader {
   getWeatherType(): number { return this.reader.header.u32[SimChannel.offsets.header.weatherType]; }
   getWeatherIntensity(): number { return this.reader.header.f32[SimChannel.offsets.header.weatherIntensity]; }
   getWindSpeed(): number { return this.reader.header.f32[SimChannel.offsets.header.windSpeed]; }
+  private pooledWindDir = { x: 0, z: 0 };
+
   getWindDir(): { x: number; z: number } {
-    return {
-      x: this.reader.header.f32[SimChannel.offsets.header.windDirX],
-      z: this.reader.header.f32[SimChannel.offsets.header.windDirZ],
-    };
+    const dir = this.pooledWindDir;
+    dir.x = this.reader.header.f32[SimChannel.offsets.header.windDirX];
+    dir.z = this.reader.header.f32[SimChannel.offsets.header.windDirZ];
+    return dir;
   }
   getVisibility(): number { return this.reader.header.f32[SimChannel.offsets.header.visibility]; }
   getAmbientTemp(): number { return this.reader.header.f32[SimChannel.offsets.header.ambientTemp]; }
