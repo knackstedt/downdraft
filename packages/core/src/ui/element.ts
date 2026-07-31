@@ -13,6 +13,9 @@ export interface UIStyle {
   textColor: UIColor;
   borderRadius: number;
   opacity: number;
+  fontFamily: string;
+  fontWeight: string;
+  textAlign: CanvasTextAlign;
 }
 
 export const DEFAULT_STYLE: UIStyle = {
@@ -25,9 +28,12 @@ export const DEFAULT_STYLE: UIStyle = {
   textColor: [1, 1, 1, 1],
   borderRadius: 0,
   opacity: 1.0,
+  fontFamily: "sans-serif",
+  fontWeight: "normal",
+  textAlign: "left",
 };
 
-export type UILayoutMode = "absolute" | "vertical" | "horizontal";
+export type UILayoutMode = "absolute" | "vertical" | "horizontal" | "grid";
 
 export interface UICallbacks {
   onClick?: (el: UIElement) => void;
@@ -147,7 +153,7 @@ export abstract class UIElement {
 }
 
 export interface UIDrawable {
-  kind: "rect" | "text" | "image";
+  kind: "rect" | "text" | "image" | "lines";
   x: number;
   y: number;
   width: number;
@@ -159,8 +165,14 @@ export interface UIDrawable {
   text?: string;
   fontSize?: number;
   textColor?: UIColor;
+  fontFamily?: string;
+  fontWeight?: string;
+  textAlign?: CanvasTextAlign;
+  maxWidth?: number;
   textureView?: GPUTextureView;
   uv?: [number, number, number, number];
+  lines?: number[]; // flat array: x1,y1,x2,y2,color(r,g,b,a) per segment
+  lineWidth?: number;
 }
 
 export class UIPanel extends UIElement {
@@ -222,6 +234,9 @@ export class UIText extends UIElement {
       text: this.text,
       fontSize: this.style.fontSize,
       textColor: [...this.style.textColor] as UIColor,
+      fontFamily: this.style.fontFamily,
+      fontWeight: this.style.fontWeight,
+      textAlign: this.style.textAlign,
     }];
   }
 }
@@ -278,6 +293,9 @@ export class UIButton extends UIElement {
       text: this.label,
       fontSize: this.style.fontSize,
       textColor: [...this.style.textColor] as UIColor,
+      fontFamily: this.style.fontFamily,
+      fontWeight: this.style.fontWeight,
+      textAlign: "center",
     });
     return drawables;
   }
@@ -313,6 +331,37 @@ export class UIImage extends UIElement {
       borderColor: [0, 0, 0, 0],
       textureView: this.textureView,
       uv: this.uv,
+    }];
+  }
+}
+
+export class UILine extends UIElement {
+  segments: number[] = []; // flat: x1,y1,x2,y2 per segment
+  lineWidth: number = 1.5;
+  lineColor: UIColor = [1, 1, 1, 1];
+
+  constructor() {
+    super("lines");
+  }
+
+  setSegments(segments: number[]): void {
+    this.segments = segments;
+  }
+
+  getDrawable(): UIDrawable[] {
+    if (!this.visible || this.segments.length === 0) return [];
+    return [{
+      kind: "lines",
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height,
+      color: [...this.lineColor] as UIColor,
+      borderRadius: 0,
+      borderWidth: 0,
+      borderColor: [0, 0, 0, 0],
+      lines: this.segments,
+      lineWidth: this.lineWidth,
     }];
   }
 }

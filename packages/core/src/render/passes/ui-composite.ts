@@ -12,6 +12,7 @@ export class UICompositePass extends RenderPass {
 
   setRenderer(renderer: UIRenderer): void {
     this.renderer = renderer;
+    this.layoutEngine.setTextCache(renderer.getTextCache());
   }
 
   setRoot(root: UIRoot | null): void {

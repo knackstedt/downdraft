@@ -297,11 +297,17 @@ export { SceneTreePanel } from "./ui/scene-tree.ts";
 export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree.ts";
 
 // UI Rendering System
-export { UIButton, UIElement, UIImage, UIPanel, UIRoot, UIText } from "./ui/element.ts";
+export { Easing, UIAnimationManager, UILerpController, UIPropertyTween } from "./ui/animation.ts";
+export type { EasingFunction, UIAnimationConfig } from "./ui/animation.ts";
+export { UIButton, UIElement, UIImage, UILine, UIPanel, UIRoot, UIText } from "./ui/element.ts";
 export type { UICallbacks, UIColor, UIDrawable, UIHorizontalAlign, UILayoutMode, UIStyle, UIVerticalAlign } from "./ui/element.ts";
 export { UIInputRouter } from "./ui/input.ts";
 export { LayoutEngine } from "./ui/layout.ts";
 export { UIRenderer } from "./ui/renderer.ts";
+export { UIScrollPanel } from "./ui/scroll.ts";
+export { TextAtlasCache } from "./ui/text-cache.ts";
+export type { TextCacheEntry, TextRenderOptions } from "./ui/text-cache.ts";
+export { UIModal, UIProgressBar, UISlider, UITabBar, UITextInput, UIToggle } from "./ui/widgets.ts";
 
 // Debug Visualization
 export { DebugVizPass, DEFAULT_DEBUG_VIZ_SETTINGS } from "./render/passes/debug-viz.ts";
