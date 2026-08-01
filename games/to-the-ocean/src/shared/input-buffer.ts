@@ -145,7 +145,7 @@ export class InputBufferWriter {
   setWheel(playerIdx: number, delta: number) {
     const sv = this.slot(playerIdx);
     const f = InputChannel.offsets.sections.players.fields;
-    sv.f32[f.wheel] = delta;
+    sv.f32[f.wheel] += delta;
   }
 
   setMouseDelta(playerIdx: number, dx: number, dy: number) {
