@@ -31,7 +31,11 @@
     "@downdraft/plugin-weatherfx": ["packages/plugins/weatherfx/src/index.ts"],
     "@downdraft/plugin-weatherfx/*": ["packages/plugins/weatherfx/src/*"],
     "@downdraft/plugin-weather": ["packages/plugins/weather/src/index.ts"],
-    "@downdraft/plugin-weather/*": ["packages/plugins/weather/src/*"]
+    "@downdraft/plugin-weather/*": ["packages/plugins/weather/src/*"],
+    "@downdraft/plugin-entities": ["packages/plugins/entities/src/index.ts"],
+    "@downdraft/plugin-entities/*": ["packages/plugins/entities/src/*"],
+    "@downdraft/plugin-models": ["packages/plugins/models/src/index.ts"],
+    "@downdraft/plugin-models/*": ["packages/plugins/models/src/*"]
     }
   },
   "references": [
