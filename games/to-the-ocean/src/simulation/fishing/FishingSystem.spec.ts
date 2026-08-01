@@ -1,22 +1,22 @@
 // Deterministic fishing system regression tests
 // Run with: bun test src/simulation/fishing/FishingSystem.spec.ts
 
-import { FishingSystem } from "./FishingSystem";
-import { BiomeSystem } from "../world/BiomeSystem";
-import { WaterBufferWriter } from "../../shared/water-buffer";
-import { InputBufferReader, InputBufferWriter, KEY } from "../../shared/input-buffer";
-import { SimPlayer } from "../Simulation";
-import { BiomeType, WeatherType, WeatherState } from "../../shared/types";
-import { PLR_FLAG } from "../../shared/sim-buffer";
-import { createGrid } from "../inventory/InventorySystem";
 import {
-  FISHING_TENSION_MAX, FISHING_TENSION_BREAK, FISHING_TENSION_SLIP,
-  FISHING_REEL_POWER, FISHING_FISH_PULL_MULT,
-  FISHING_GOOD_ZONE_MIN, FISHING_GOOD_ZONE_MAX,
-  FISHING_PROGRESS_RATE, FISHING_PERFECT_PROGRESS_RATE,
-  FISHING_PROGRESS_DECAY, FISHING_MINIGAME_DURATION,
-  FISHING_PERFECT_ZONE,
+    FISHING_FISH_PULL_MULT,
+    FISHING_MINIGAME_DURATION,
+    FISHING_PERFECT_PROGRESS_RATE,
+    FISHING_PERFECT_ZONE,
+    FISHING_REEL_POWER,
+    FISHING_TENSION_MAX
 } from "../../shared/constants";
+import { InputBufferReader, InputBufferWriter, KEY } from "../../shared/input-buffer";
+import { PLR_FLAG } from "../../shared/sim-buffer";
+import { BiomeType, WeatherState, WeatherType } from "../../shared/types";
+import { WaterBufferWriter } from "../../shared/water-buffer";
+import { createGrid } from "../inventory/InventorySystem";
+import { SimPlayer } from "../Simulation";
+import { BiomeSystem } from "../world/BiomeSystem";
+import { FishingSystem } from "./FishingSystem";
 
 let passed = 0;
 let failed = 0;
@@ -117,7 +117,7 @@ function testReelOvercomesFishPull(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Clear);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader, writer } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -166,7 +166,7 @@ function testProgressIncreasesInGoodZone(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Clear);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -207,7 +207,7 @@ function testCanCatchFish(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Clear);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader, writer } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -265,7 +265,7 @@ function testTensionStaysInBounds(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Storm);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -294,7 +294,7 @@ function testDeadMinigameCleanedUp(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Clear);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -322,7 +322,7 @@ function testFishingFlagClearedOnEnd(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Clear);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -357,7 +357,7 @@ function testWaterProximityCheck(): void {
     water.heights[i] = -1000;
   }
 
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader, writer } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -396,7 +396,7 @@ function testNoFishingWhileSwimming(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Clear);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader, writer } = createInputReader();
   const players = [createPlayer(0)];
 
@@ -419,7 +419,7 @@ function testNoFishingWhilePiloting(): void {
   const biome = makeMockBiome(BiomeType.Ocean);
   const weather = makeMockWeather(WeatherType.Clear);
   const water = createWaterWriter();
-  const fs = new FishingSystem(biome, weather as any, water);
+  const fs = new FishingSystem(biome, weather as any, water, () => {});
   const { reader, writer } = createInputReader();
   const players = [createPlayer(0)];
 
