@@ -88,6 +88,8 @@ export default defineConfig({
         { find: /^@downdraft\/plugin-entities\//, replacement: resolve("packages/plugins/entities/src") + "/" },
         { find: /^@downdraft\/plugin-models$/, replacement: resolve("packages/plugins/models/src/index.ts") },
         { find: /^@downdraft\/plugin-models\//, replacement: resolve("packages/plugins/models/src") + "/" },
+        { find: /^@downdraft\/plugin-devtools$/, replacement: resolve("packages/plugins/devtools/src/index.ts") },
+        { find: /^@downdraft\/plugin-devtools\//, replacement: resolve("packages/plugins/devtools/src") + "/" },
         { find: /^node:fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
         { find: /^fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
       ],

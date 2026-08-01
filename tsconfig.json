@@ -35,7 +35,9 @@
     "@downdraft/plugin-entities": ["packages/plugins/entities/src/index.ts"],
     "@downdraft/plugin-entities/*": ["packages/plugins/entities/src/*"],
     "@downdraft/plugin-models": ["packages/plugins/models/src/index.ts"],
-    "@downdraft/plugin-models/*": ["packages/plugins/models/src/*"]
+    "@downdraft/plugin-models/*": ["packages/plugins/models/src/*"],
+    "@downdraft/plugin-devtools": ["packages/plugins/devtools/src/index.ts"],
+    "@downdraft/plugin-devtools/*": ["packages/plugins/devtools/src/*"]
     }
   },
   "references": [

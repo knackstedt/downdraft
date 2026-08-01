@@ -3,11 +3,13 @@
 // Tracks sim entities (read-only) and imported models (editable)
 // ============================================================================
 
-import { create } from "zustand";
-import type { MeshData, ModelData } from "../engine/ModelLoader";
 import { EntityType } from "@shared/types";
+import { create } from "zustand";
+import type { ModelData } from "../engine/ModelLoader";
 
-export type GizmoMode = "translate" | "rotate" | "scale";
+import { type GizmoMode } from "@downdraft/plugin-devtools";
+
+export type { GizmoMode } from "@downdraft/plugin-devtools";
 
 export interface SceneNode {
   id: string;
