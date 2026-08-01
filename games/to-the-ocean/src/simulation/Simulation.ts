@@ -267,6 +267,11 @@ export class Simulation {
 
     // Initialize ECS bridge (parallel to legacy arrays, enables incremental migration)
     this.ecs = new SimEcsWorld();
+    this.ecs.registerPirateSystem(
+      (x, z) => this.chunkManager.getSecurityLevelAt(x, z),
+      (type, opts) => this.spawnEntity(type, opts),
+      (id) => this.removeEntity(id),
+    );
   }
 
   async init(): Promise<void> {
@@ -517,8 +522,10 @@ export class Simulation {
     this.shipInventories.forEach((grid) => {
       processSpoilage(grid, dt, gameHoursPerSecond);
     });
-    this.pirateSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount, this.chunkManager);
-    this.dockingSystem.tick(dt, this.entities, this.entityCount);
+    // PirateSystem now runs as ECS system (EcsPirateSystem) during ecs.step()
+    // this.pirateSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount, this.chunkManager);
+    // DockingSystem now runs as ECS system (EcsDockingSystem) during ecs.step()
+    // this.dockingSystem.tick(dt, this.entities, this.entityCount);
 
     this.portSystem.tick(dt, this.inputReader, this.entities, this.entityCount, this.players, this.playerCount, this.boatSystem.getPilotedShipIds());
     this.fishingSystem.tick(dt, this.inputReader, this.players, this.playerCount);
@@ -1532,6 +1539,7 @@ export class Simulation {
     // Cleanup systems
     this.physics?.shutdown();
     this.wildlifeManager.shutdown();
+    this.ecs?.shutdownPirates();
     this.pirateSystem.shutdown();
     this.portSystem.shutdown();
   }

@@ -14,6 +14,7 @@
 
 import { Query, Stage, system, World, type Entity } from "@downdraft/core";
 import type { EntityId } from "@shared/types";
+import { EntityType, SecurityLevel } from "@shared/types";
 import type { SimEntity, SimPlayer } from "../Simulation.ts";
 import {
     ComponentIds,
@@ -26,7 +27,9 @@ import {
     SimVelocity,
 } from "./components.ts";
 import { createEcsAnimalSystem } from "./EcsAnimalSystem.ts";
+import { createEcsDockingSystem } from "./EcsDockingSystem.ts";
 import { createEcsPetSystem } from "./EcsPetSystem.ts";
+import { createEcsPirateSystem, shutdownEcsPirates } from "./EcsPirateSystem.ts";
 import { createEcsPlantSystem } from "./EcsPlantSystem.ts";
 
 export class SimEcsWorld {
@@ -50,6 +53,8 @@ export class SimEcsWorld {
   readonly plants: Query;
   readonly pets: Query;
   readonly wildlifeWithHealth: Query;
+  readonly pirates: Query;
+  readonly smallCraft: Query;
 
   constructor() {
     this.world = new World();
@@ -69,19 +74,45 @@ export class SimEcsWorld {
     this.plants = new Query([ComponentIds.EntityMeta, ComponentIds.EntityData]);
     this.pets = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData]);
     this.wildlifeWithHealth = new Query([ComponentIds.EntityMeta, ComponentIds.Transform, ComponentIds.Health]);
+    this.pirates = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData, ComponentIds.Health]);
+    this.smallCraft = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData]);
 
     // Register queries with the schedule so they get archetype updates
     this.world.schedule.add(system(
       "ecs-bridge-queries",
       Stage.Input,
       () => {},
-      { queries: [this.allEntities, this.ships, this.wildlife, this.islands, this.ports, this.players, this.livestock, this.plants, this.pets, this.wildlifeWithHealth] },
+      { queries: [this.allEntities, this.ships, this.wildlife, this.islands, this.ports, this.players, this.livestock, this.plants, this.pets, this.wildlifeWithHealth, this.pirates, this.smallCraft] },
     ));
 
     // Register migrated ECS systems
     this.world.schedule.add(createEcsAnimalSystem(this.livestock));
     this.world.schedule.add(createEcsPlantSystem(this.plants));
     this.world.schedule.add(createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth));
+    this.world.schedule.add(createEcsDockingSystem(this.ships, this.smallCraft));
+  }
+
+  // --- Late registration (needs Simulation callbacks) ---
+
+  registerPirateSystem(
+    getSecurityLevel: (x: number, z: number) => SecurityLevel,
+    spawnEntity: (type: EntityType, opts: {
+      position: { x: number; y: number; z: number };
+      scale?: number;
+      health?: number;
+      maxHealth?: number;
+      flags?: number;
+      data?: Float32Array;
+    }) => number,
+    removeEntity: (id: number) => void,
+  ): void {
+    this.world.schedule.add(createEcsPirateSystem(
+      this.pirates, this.players, getSecurityLevel, spawnEntity, removeEntity,
+    ));
+  }
+
+  shutdownPirates(): void {
+    shutdownEcsPirates();
   }
 
   // --- Entity lifecycle (called by Simulation) ---
