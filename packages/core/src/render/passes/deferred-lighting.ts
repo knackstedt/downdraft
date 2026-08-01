@@ -1,10 +1,14 @@
 import { type Mat4 } from "wgpu-matrix";
 import type { GBufferViews } from "../g-buffer.ts";
+import { createIBLShaderChunk } from "../ibl-bind-group.ts";
 import type { LightUniformData } from "../lighting.ts";
 import { MAX_POINT_LIGHTS, packLightUniform, packPointLights } from "../lighting.ts";
 import { RenderPass } from "../render-pass.ts";
 
+const IBL_CHUNK = createIBLShaderChunk(1, true);
+
 const DEFERRED_SHADER = `
+${IBL_CHUNK}
 struct CameraUniforms {
   viewProj: mat4x4<f32>,
   prevViewProj: mat4x4<f32>,
@@ -133,7 +137,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let V = normalize(camera.cameraPos - worldPos);
 
   var color = vec3<f32>(0.0);
-  color += albedo * lights.ambient.rgb * lights.ambient.w * ao;
+  // IBL diffuse + specular from captured environment
+  let R = reflect(-V, N);
+  let F0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
+  let NdotV = max(dot(N, V), 0.0);
+  let F_ibl = F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
+  let iblDiffuse = getIBLDiffuse(N) * lights.ambient.w * ao;
+  let iblSpecular = getIBLSpecular(N, R, roughness) * F_ibl * lights.ambient.w * ao;
+  let kD_ibl = (1.0 - metallic) * (1.0 / 3.14159265);
+  color += albedo * kD_ibl * iblDiffuse + iblSpecular;
 
   let L = normalize(-lights.dirDirection.xyz);
   let shadow = max(shadowFactor(worldPos), 0.35);
@@ -176,6 +188,8 @@ export class DeferredLightingPass extends RenderPass {
   private pointLightBuffer: GPUBuffer | null = null;
   private lightViewProjBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private iblBindGroup: GPUBindGroup | null = null;
+  private iblBindGroupLayout: GPUBindGroupLayout | null = null;
   private dummyDepthTexture: GPUTexture | null = null;
   private dummyDepthView: GPUTextureView | null = null;
   private dummyShadowSampler: GPUSampler | null = null;
@@ -229,6 +243,8 @@ export class DeferredLightingPass extends RenderPass {
       },
       primitive: { topology: "triangle-list" },
     });
+
+    this.iblBindGroupLayout = this.pipeline.getBindGroupLayout(1);
   }
 
   updateCamera(
@@ -297,6 +313,14 @@ export class DeferredLightingPass extends RenderPass {
     });
   }
 
+  setIBLBindGroup(bg: GPUBindGroup): void {
+    this.iblBindGroup = bg;
+  }
+
+  getIBLBindGroupLayout(): GPUBindGroupLayout | null {
+    return this.iblBindGroupLayout;
+  }
+
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
@@ -335,6 +359,9 @@ export class DeferredLightingPass extends RenderPass {
     const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
     tracked.setBindGroup(0, bindGroup);
+    if (this.iblBindGroup) {
+      tracked.setBindGroup(1, this.iblBindGroup);
+    }
     tracked.draw(6);
   }
 

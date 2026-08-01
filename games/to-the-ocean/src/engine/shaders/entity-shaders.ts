@@ -3,6 +3,7 @@
 // Extracted from EntityRenderer.ts — all shader constants for entity rendering
 // ============================================================================
 
+import { createIBLShaderChunk } from "@downdraft/core";
 import { BoatCellType, MAX_BONES } from "@shared/constants";
 
 export const LIGHT_STRUCTS = /* wgsl */ `
@@ -83,12 +84,9 @@ fn applyDynamicLights(N: vec3<f32>, worldPos: vec3<f32>, viewDir: vec3<f32>,
 }
 `;
 
-// PBR bind group declarations — bound at group 2 for all lit pipelines.
-// BRDF LUT provides the split-sum approximation for specular IBL.
-export const PBR_BINDINGS = /* wgsl */ `
-@group(2) @binding(0) var brdfLUT: texture_2d<f32>;
-@group(2) @binding(1) var brdfSampler: sampler;
-`;
+// IBL bind group declarations — bound at group 2 for all lit pipelines.
+// Provides irradiance cubemap, prefiltered specular cubemap, BRDF LUT, and samplers.
+export const PBR_BINDINGS = createIBLShaderChunk(2, true);
 
 // PBR constant PI
 export const PBR_CONST = /* wgsl */ `
@@ -227,7 +225,7 @@ fn applyPBRDynamicLights(N: vec3<f32>, worldPos: vec3<f32>, V: vec3<f32>,
 }
 `;
 
-// Shared PBR lighting function — Cook-Torrance direct lighting + IBL via BRDF LUT + hemisphere ambient + fog.
+// Shared PBR lighting function — Cook-Torrance direct lighting + IBL (irradiance + prefiltered specular) + fog.
 // Uses uniforms struct (sunDirIntensity, ambientParams, fogColor, cameraPos, time, entityFlags).
 export const LIGHTING_FN = /* wgsl */ `
 ${LIGHT_STRUCTS}
@@ -259,20 +257,14 @@ fn entityLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
   let spec = cookTorranceSpecular(N, V, L, F0, roughness) * NdotL * radiance;
   var color = diffuse + spec;
 
-  // --- Image-based lighting (IBL) via split-sum approximation ---
-  // Diffuse IBL: hemisphere ambient as irradiance proxy
-  let up = vec3<f32>(0.0, 1.0, 0.0);
-  let skyTint = vec3<f32>(0.8, 0.85, 0.9);
-  let groundTint = vec3<f32>(0.4, 0.35, 0.3);
-  let hemiAmbient = mix(groundTint, skyTint, max(dot(N, up), 0.0));
-  let irradiance = hemiAmbient * ambientLevel;
+  // --- Image-based lighting (IBL) from captured environment ---
+  let R = reflect(-V, N);
+  let irradiance = getIBLDiffuse(N) * ambientLevel;
   let kD_ibl = (1.0 - metallic) * (1.0 / PI);
   color += albedo * kD_ibl * irradiance;
 
-  // Specular IBL: BRDF LUT provides (scale, bias) for split-sum approximation
   let F_ibl = fresnelSchlickRoughness(NdotV, F0, roughness);
-  let brdf = textureSample(brdfLUT, brdfSampler, vec2<f32>(NdotV, roughness)).rg;
-  let specIBL = F_ibl * (brdf.x + brdf.y) * irradiance * 0.5;
+  let specIBL = getIBLSpecular(N, R, roughness) * F_ibl * ambientLevel;
   color += specIBL;
 
   // --- Dynamic point/spot lights (PBR) ---
@@ -477,18 +469,14 @@ fn instancedEntityLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f3
   let spec = cookTorranceSpecular(N, V, L, F0, roughness) * NdotL * radiance;
   var color = diffuse + spec;
 
-  // IBL — hemisphere ambient + BRDF LUT
-  let up = vec3<f32>(0.0, 1.0, 0.0);
-  let skyTint = vec3<f32>(0.8, 0.85, 0.9);
-  let groundTint = vec3<f32>(0.4, 0.35, 0.3);
-  let hemiAmbient = mix(groundTint, skyTint, max(dot(N, up), 0.0));
-  let irradiance = hemiAmbient * ambientLevel;
+  // IBL from captured environment
+  let R = reflect(-V, N);
+  let irradiance = getIBLDiffuse(N) * ambientLevel;
   let kD_ibl = (1.0 - metallic) * (1.0 / PI);
   color += albedo * kD_ibl * irradiance;
 
   let F_ibl = fresnelSchlickRoughness(NdotV, F0, roughness);
-  let brdf = textureSample(brdfLUT, brdfSampler, vec2<f32>(NdotV, roughness)).rg;
-  let specIBL = F_ibl * (brdf.x + brdf.y) * irradiance * 0.5;
+  let specIBL = getIBLSpecular(N, R, roughness) * F_ibl * ambientLevel;
   color += specIBL;
 
   // Dynamic lights (PBR)
@@ -1054,21 +1042,18 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
   let spec = cookTorranceSpecular(perturbedN, V, L, F0, roughness) * NdotL * radiance;
   var color = diffuse + spec;
 
-  // IBL — hemisphere ambient + BRDF LUT
-  let up = vec3<f32>(0.0, 1.0, 0.0);
-  let skyTint = mix(vec3<f32>(0.8, 0.85, 0.9), vec3<f32>(0.25, 0.25, 0.30), wetness);
-  let groundTint = vec3<f32>(0.4, 0.35, 0.3);
-  let hemiAmbient = mix(groundTint, skyTint, max(dot(perturbedN, up), 0.0));
-  let irradiance = hemiAmbient * ambientLevel;
+  // IBL from captured environment
+  let R = reflect(-V, perturbedN);
+  let irradiance = getIBLDiffuse(perturbedN) * ambientLevel;
   let kD_ibl = (1.0 - metallic) * (1.0 / PI);
   color += albedo * kD_ibl * irradiance;
 
   let F_ibl = fresnelSchlickRoughness(NdotV, F0, roughness);
-  let brdf = textureSample(brdfLUT, brdfSampler, vec2<f32>(NdotV, roughness)).rg;
-  let specIBL = F_ibl * (brdf.x + brdf.y) * irradiance * 0.5;
+  let specIBL = getIBLSpecular(perturbedN, R, roughness) * F_ibl * ambientLevel;
   color += specIBL;
 
   // Fresnel sky reflection on wet surfaces (shoreline + wet sand)
+  let skyTint = mix(vec3<f32>(0.8, 0.85, 0.9), vec3<f32>(0.25, 0.25, 0.30), wetness);
   let fresnel = pow(1.0 - NdotV, 5.0);
   color = mix(color, vec3<f32>(0.3, 0.5, 0.75), fresnel * wetMask * 0.3);
   // Wet sand sky reflection — blend toward sky tint at grazing angles
