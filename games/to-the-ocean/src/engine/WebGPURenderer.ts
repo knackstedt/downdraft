@@ -2,7 +2,10 @@
 // WebGPU Renderer — main rendering engine
 // ============================================================================
 
-import { calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, LayoutEngine, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { LightSystem } from "@downdraft/plugin-lighting";
+import { PixelationSystem } from "@downdraft/plugin-postfx";
+import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/plugin-weatherfx";
 import { generateIslandBlobs } from "@shared/TerrainGenerator";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -15,20 +18,16 @@ import { useGameStore } from "../stores/gameStore";
 import { useSceneStore, type GizmoMode } from "../stores/sceneStore";
 import { CameraSystem, type CameraState } from "./CameraSystem";
 import { CanvasResizeWatcher } from "./CanvasResizeWatcher";
-import { CloudSystem } from "./CloudSystem";
 import { DebugOverlay } from "./DebugOverlay";
 import { DebugRaycast } from "./DebugRaycast";
 import { EntityRenderer } from "./EntityRenderer";
+import { GameCloudMeshProvider } from "./GameCloudProvider";
 import { LabelOverlay } from "./LabelOverlay";
-import { LightSystem } from "./LightSystem";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "./ModelLoader";
 import { ModelRenderer } from "./ModelRenderer";
 import { PBRSystem } from "./PBRSystem";
-import { COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "./ParticleSystem";
-import { PixelationSystem } from "./PixelationSystem";
 import { PostProcessStack } from "./PostProcessStack";
 import { TransformGizmo } from "./TransformGizmo";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 
 // Player model asset — resolved by Vite at build time
 const playerModelGlob = import.meta.glob(
@@ -455,7 +454,7 @@ export class WebGPURenderer {
       this.underwaterFogPass.prepare(this.device);
 
       // Cloud system — 3D volumetric cloud meshes (semi-transparent, wind-drifting)
-      this.cloudSystem = new CloudSystem(this.device, this.format);
+      this.cloudSystem = new CloudSystem(this.device, this.format, new GameCloudMeshProvider());
       await this.cloudSystem.init();
 
       // Model renderer for imported 3D models

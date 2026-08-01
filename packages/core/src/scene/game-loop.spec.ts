@@ -10,21 +10,13 @@ function makeGameWorld(): GameWorld {
   return new GameWorld(scene);
 }
 
-function makeMockRenderLoop(): any {
+function makeMockRenderCallback(): { alphaValues: number[]; renderCount: number; cb: (alpha: number) => void } {
   const mock = {
     alphaValues: [] as number[],
     renderCount: 0,
-    _autonomous: true,
-    _running: false,
-    setAutonomous(a: boolean) { this._autonomous = a; },
-    isAutonomous() { return this._autonomous; },
-    setAlpha(a: number) {},
-    getAlpha() { return 0; },
-    start() { this._running = true; },
-    stop() { this._running = false; },
-    renderFrame(alpha?: number) {
-      this.renderCount++;
-      if (alpha !== undefined) this.alphaValues.push(alpha);
+    cb(alpha: number) {
+      mock.renderCount++;
+      mock.alphaValues.push(alpha);
     },
   };
   return mock;
@@ -78,15 +70,12 @@ describe("GameLoop", () => {
     loop.stop();
   });
 
-  it("should call renderLoop.renderFrame with alpha when renderLoop is provided", () => {
+  it("should call onRender with alpha when provided", () => {
     const gw = makeGameWorld();
-    const mock = makeMockRenderLoop();
+    const mock = makeMockRenderCallback();
 
-    const loop = new GameLoop(gw, { fixedDt: 0.016, maxStepsPerFrame: 5, renderLoop: mock });
+    const loop = new GameLoop(gw, { fixedDt: 0.016, maxStepsPerFrame: 5, onRender: mock.cb });
     loop.start();
-
-    // Should have set autonomous to false
-    expect(mock.isAutonomous()).toBe(false);
 
     // 0.024s → 1 step, alpha = 0.5
     loop.runFrame(0.024);
@@ -95,15 +84,6 @@ describe("GameLoop", () => {
     expect(mock.alphaValues).toEqual([0.5]);
 
     loop.stop();
-  });
-
-  it("should set renderLoop to non-autonomous on construction", () => {
-    const gw = makeGameWorld();
-    const mock = makeMockRenderLoop();
-    expect(mock.isAutonomous()).toBe(true);
-
-    new GameLoop(gw, { fixedDt: 0.016, maxStepsPerFrame: 5, renderLoop: mock });
-    expect(mock.isAutonomous()).toBe(false);
   });
 
   it("should handle zero delta time gracefully", () => {
