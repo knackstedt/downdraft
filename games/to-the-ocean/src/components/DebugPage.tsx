@@ -103,14 +103,16 @@ export default function DebugPage() {
               <div>Players: <span className="text-ocean-100">{rendererStats.playerCount}</span></div>
               <div>Canvas: <span className="text-ocean-100">{rendererStats.canvasW}x{rendererStats.canvasH}</span></div>
               <div>Viewport: <span className="text-ocean-100">{rendererStats.viewportW}x{rendererStats.viewportH}</span></div>
-              <div>Water: <span className="text-ocean-100">{rendererStats.waterValid ? `valid (${rendererStats.waterGrid})` : "invalid"}</span></div>
-              <div>Cam mode: <span className="text-ocean-100">{rendererStats.cameraMode}</span></div>
-              <div className="col-span-2">Player pos: <span className="text-ocean-100">({rendererStats.playerPos[0].toFixed(1)}, {rendererStats.playerPos[1].toFixed(1)}, {rendererStats.playerPos[2].toFixed(1)})</span></div>
-              <div className="col-span-2">Cam pos: <span className="text-ocean-100">({rendererStats.cameraPos[0].toFixed(1)}, {rendererStats.cameraPos[1].toFixed(1)}, {rendererStats.cameraPos[2].toFixed(1)})</span></div>
-              <div className="col-span-2">Cam target: <span className="text-ocean-100">({rendererStats.cameraTarget[0].toFixed(1)}, {rendererStats.cameraTarget[1].toFixed(1)}, {rendererStats.cameraTarget[2].toFixed(1)})</span></div>
-              <div>Heading: <span className="text-ocean-100">{rendererStats.heading.toFixed(2)}</span></div>
-              <div>Pitch: <span className="text-ocean-100">{rendererStats.pitch.toFixed(2)}</span></div>
-              <div className="col-span-2">Keys: <span className="text-ocean-100">[{rendererStats.keys}]</span></div>
+              {(() => { const x = rendererStats.extra ?? {}; return (<>
+              <div>Water: <span className="text-ocean-100">{x.waterValid ? `valid (${x.waterGrid})` : "invalid"}</span></div>
+              <div>Cam mode: <span className="text-ocean-100">{x.cameraMode}</span></div>
+              <div className="col-span-2">Player pos: <span className="text-ocean-100">({x.playerPos[0].toFixed(1)}, {x.playerPos[1].toFixed(1)}, {x.playerPos[2].toFixed(1)})</span></div>
+              <div className="col-span-2">Cam pos: <span className="text-ocean-100">({x.cameraPos[0].toFixed(1)}, {x.cameraPos[1].toFixed(1)}, {x.cameraPos[2].toFixed(1)})</span></div>
+              <div className="col-span-2">Cam target: <span className="text-ocean-100">({x.cameraTarget[0].toFixed(1)}, {x.cameraTarget[1].toFixed(1)}, {x.cameraTarget[2].toFixed(1)})</span></div>
+              <div>Heading: <span className="text-ocean-100">{x.heading.toFixed(2)}</span></div>
+              <div>Pitch: <span className="text-ocean-100">{x.pitch.toFixed(2)}</span></div>
+              <div className="col-span-2">Keys: <span className="text-ocean-100">[{x.keys}]</span></div>
+              </>); })()}
             </div>
           ) : (
             <div className="text-ocean-500 text-xs italic">Waiting for renderer stats...</div>

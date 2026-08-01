@@ -4,7 +4,6 @@
 // ============================================================================
 
 import type { GizmoMode } from "./index.ts";
-import type { ModelData } from "@downdraft/plugin-models";
 
 /** Minimal renderer interface that BaseSceneInspector requires. */
 export interface IDevToolsRenderer {
@@ -22,6 +21,7 @@ export interface IDevToolsRenderer {
 
   // Debug overlays (hitboxes are generic)
   setShowHitboxes(show: boolean): void;
+  getShowHitboxes(): boolean;
   setHitboxLineWidth(width: number): void;
   getHitboxLineWidth(): number;
   setDebugMode(enabled: boolean): void;

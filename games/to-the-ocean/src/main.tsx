@@ -346,15 +346,17 @@ async function bootstrap() {
                 canvasH: renderer.getCanvasHeight(),
                 viewportW: renderer.getViewportWidth(0),
                 viewportH: renderer.getViewportHeight(0),
-                waterValid: renderer.getWaterReader()?.isValid() ?? false,
-                waterGrid: renderer.getWaterReader()?.getGridSize() ?? 0,
-                cameraPos: [0, 0, 0],
-                cameraTarget: [0, 0, 0],
-                playerPos: [f32[PLR.POS_X], f32[PLR.POS_Y], f32[PLR.POS_Z]],
-                heading: f32[PLR.HEADING],
-                pitch: f32[PLR.PITCH] ?? 0,
-                cameraMode: u32[PLR.CAMERA_MODE],
-                keys: Array.from((renderer as any).keysDown as Set<number>).map((k) => String.fromCharCode(k)).join(","),
+                extra: {
+                  waterValid: renderer.getWaterReader()?.isValid() ?? false,
+                  waterGrid: renderer.getWaterReader()?.getGridSize() ?? 0,
+                  cameraPos: [0, 0, 0],
+                  cameraTarget: [0, 0, 0],
+                  playerPos: [f32[PLR.POS_X], f32[PLR.POS_Y], f32[PLR.POS_Z]],
+                  heading: f32[PLR.HEADING],
+                  pitch: f32[PLR.PITCH] ?? 0,
+                  cameraMode: u32[PLR.CAMERA_MODE],
+                  keys: Array.from((renderer as any).keysDown as Set<number>).map((k) => String.fromCharCode(k)).join(","),
+                },
               });
             }
           }
