@@ -396,8 +396,8 @@ export class Simulation {
     const t5 = performance.now();
     sysTimes.push({ name: "buoyancy", ms: t5 - t4 });
 
-    // AnchorSystem applies spring-force constraint to anchored ships
-    this.anchorSystem.tick(dt, this.entities, this.entityCount);
+    // AnchorSystem now runs as ECS system (EcsAnchorSystem) during ecs.step()
+    // this.anchorSystem.tick(dt, this.entities, this.entityCount);
     const t5a = performance.now();
     sysTimes.push({ name: "anchor", ms: t5a - t5 });
 

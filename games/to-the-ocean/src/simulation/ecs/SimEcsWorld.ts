@@ -28,6 +28,7 @@ import {
     SimTransform,
     SimVelocity,
 } from "./components.ts";
+import { createEcsAnchorSystem } from "./EcsAnchorSystem.ts";
 import { createEcsAnimalSystem } from "./EcsAnimalSystem.ts";
 import { createEcsCameraSystem } from "./EcsCameraSystem.ts";
 import { createEcsDockingSystem } from "./EcsDockingSystem.ts";
@@ -91,6 +92,7 @@ export class SimEcsWorld {
 
     // Register migrated ECS systems
     this.world.schedule.add(createEcsAnimalSystem(this.livestock));
+    this.world.schedule.add(createEcsAnchorSystem(this.ships));
     this.world.schedule.add(createEcsPlantSystem(this.plants));
     this.world.schedule.add(createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth));
     this.world.schedule.add(createEcsDockingSystem(this.ships, this.smallCraft));
