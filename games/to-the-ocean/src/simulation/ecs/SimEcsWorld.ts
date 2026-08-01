@@ -26,6 +26,8 @@ import {
     SimVelocity,
 } from "./components.ts";
 import { createEcsAnimalSystem } from "./EcsAnimalSystem.ts";
+import { createEcsPetSystem } from "./EcsPetSystem.ts";
+import { createEcsPlantSystem } from "./EcsPlantSystem.ts";
 
 export class SimEcsWorld {
   readonly world: World;
@@ -45,6 +47,9 @@ export class SimEcsWorld {
   readonly ports: Query;
   readonly players: Query;
   readonly livestock: Query;
+  readonly plants: Query;
+  readonly pets: Query;
+  readonly wildlifeWithHealth: Query;
 
   constructor() {
     this.world = new World();
@@ -61,17 +66,22 @@ export class SimEcsWorld {
     this.ports = new Query([ComponentIds.Transform, ComponentIds.EntityMeta]);
     this.players = new Query([ComponentIds.PlayerState]);
     this.livestock = new Query([ComponentIds.EntityMeta, ComponentIds.Health, ComponentIds.EntityData]);
+    this.plants = new Query([ComponentIds.EntityMeta, ComponentIds.EntityData]);
+    this.pets = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData]);
+    this.wildlifeWithHealth = new Query([ComponentIds.EntityMeta, ComponentIds.Transform, ComponentIds.Health]);
 
     // Register queries with the schedule so they get archetype updates
     this.world.schedule.add(system(
       "ecs-bridge-queries",
       Stage.Input,
       () => {},
-      { queries: [this.allEntities, this.ships, this.wildlife, this.islands, this.ports, this.players, this.livestock] },
+      { queries: [this.allEntities, this.ships, this.wildlife, this.islands, this.ports, this.players, this.livestock, this.plants, this.pets, this.wildlifeWithHealth] },
     ));
 
     // Register migrated ECS systems
     this.world.schedule.add(createEcsAnimalSystem(this.livestock));
+    this.world.schedule.add(createEcsPlantSystem(this.plants));
+    this.world.schedule.add(createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth));
   }
 
   // --- Entity lifecycle (called by Simulation) ---
