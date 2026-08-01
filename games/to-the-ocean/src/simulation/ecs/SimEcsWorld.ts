@@ -15,6 +15,8 @@
 import { Query, Stage, system, World, type Entity } from "@downdraft/core";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
+import { InputBufferReader } from "../../shared/input-buffer";
+import type { BoatCellSystem } from "../boat/BoatCellSystem";
 import type { SimEntity, SimPlayer } from "../Simulation.ts";
 import {
     ComponentIds,
@@ -27,10 +29,12 @@ import {
     SimVelocity,
 } from "./components.ts";
 import { createEcsAnimalSystem } from "./EcsAnimalSystem.ts";
+import { createEcsCameraSystem } from "./EcsCameraSystem.ts";
 import { createEcsDockingSystem } from "./EcsDockingSystem.ts";
 import { createEcsPetSystem } from "./EcsPetSystem.ts";
 import { createEcsPirateSystem, shutdownEcsPirates } from "./EcsPirateSystem.ts";
 import { createEcsPlantSystem } from "./EcsPlantSystem.ts";
+import { createEcsStructureIntegritySystem } from "./EcsStructureIntegritySystem.ts";
 
 export class SimEcsWorld {
   readonly world: World;
@@ -113,6 +117,14 @@ export class SimEcsWorld {
 
   shutdownPirates(): void {
     shutdownEcsPirates();
+  }
+
+  registerCameraSystem(getInput: () => InputBufferReader): void {
+    this.world.schedule.add(createEcsCameraSystem(this.players, getInput));
+  }
+
+  registerStructureIntegritySystem(getBoatCellSystem: () => BoatCellSystem | undefined): void {
+    this.world.schedule.add(createEcsStructureIntegritySystem(this.ships, getBoatCellSystem));
   }
 
   // --- Entity lifecycle (called by Simulation) ---
