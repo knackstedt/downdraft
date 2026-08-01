@@ -356,19 +356,11 @@ export class GPUProfiler {
 
   // --- Frame Graph Builder ---
 
-  static readonly DEFAULT_SCENE_PASS_ORDER = [
-    "Sky", "Terrain", "Entities", "Clouds", "Water",
-    "Debug", "Models", "Holo", "Particles", "Gizmo", "UnderwaterFog",
-  ];
-
-  private static readonly POST_PROCESS_CHAIN = [
-    "DOF", "Bloom", "FXAA", "Sobel", "Afterimage", "ASCII",
-  ];
-
   static buildFrameGraphData(
     passTimings: PassTiming[],
     ppInfo: PostProcessInfo,
-    scenePassOrder: string[] = GPUProfiler.DEFAULT_SCENE_PASS_ORDER,
+    scenePassOrder: string[],
+    alwaysOnPasses: string[] = [],
   ): FrameGraphData {
     const timingMap = new Map<string, PassTiming>();
     for (const t of passTimings) timingMap.set(t.name, t);
@@ -508,7 +500,7 @@ export class GPUProfiler {
     for (const node of nodes) {
       if (node.category !== "scene") continue;
       if (!node.active) continue;
-      if (node.drawCalls === 0 && node.name !== "Gizmo") {
+      if (node.drawCalls === 0 && !alwaysOnPasses.includes(node.name)) {
         validations.push({
           level: "info",
           message: `Pass "${node.name}" executed with 0 draw calls — consider skipping when empty`,
@@ -535,7 +527,6 @@ export class GPUProfiler {
     }
 
     // Check for inactive scene passes that are always-on
-    const alwaysOnPasses = scenePassOrder.slice(0, 5);
     for (const name of alwaysOnPasses) {
       const node = nodes.find(n => n.name === name);
       if (node && !node.active) {
