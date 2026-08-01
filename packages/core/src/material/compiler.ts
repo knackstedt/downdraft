@@ -15,7 +15,8 @@ export class MaterialCompiler {
     }
 
     for (const [name, tex] of Object.entries(def.textures)) {
-      textureDecls.push(`@group(0) @binding(${tex.binding}) var ${name}: texture_2d<f32>;`);
+      const dim = tex.dimension === "cube" ? "texture_cube<f32>" : "texture_2d<f32>";
+      textureDecls.push(`@group(0) @binding(${tex.binding}) var ${name}: ${dim};`);
     }
 
     return `// Auto-generated from material definition: ${def.name}
@@ -60,6 +61,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
       case "vec3": return "vec3<f32>";
       case "vec4": return "vec4<f32>";
       case "mat4": return "mat4x4<f32>";
+      case "u32": return "u32";
+      case "vec4Array": return "array<vec4<f32>>";
       default: return "f32";
     }
   }

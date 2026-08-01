@@ -2,6 +2,7 @@ export const G_BUFFER_FORMATS = {
   albedo: "rgba8unorm" as GPUTextureFormat,
   normal: "rgba8unorm" as GPUTextureFormat,
   metallicEmissive: "rgba8unorm" as GPUTextureFormat,
+  roughnessAO: "rgba8unorm" as GPUTextureFormat,
   velocity: "rg16float" as GPUTextureFormat,
   depth: "depth32float" as GPUTextureFormat,
 } as const;
@@ -10,6 +11,7 @@ export interface GBufferTextures {
   albedo: GPUTexture;
   normal: GPUTexture;
   metallicEmissive: GPUTexture;
+  roughnessAO: GPUTexture;
   velocity: GPUTexture;
   depth: GPUTexture;
 }
@@ -18,6 +20,7 @@ export interface GBufferViews {
   albedo: GPUTextureView;
   normal: GPUTextureView;
   metallicEmissive: GPUTextureView;
+  roughnessAO: GPUTextureView;
   velocity: GPUTextureView;
   depth: GPUTextureView;
 }
@@ -54,6 +57,7 @@ export class GBuffer {
       albedo: makeTexture(G_BUFFER_FORMATS.albedo, rtUsage),
       normal: makeTexture(G_BUFFER_FORMATS.normal, rtUsage),
       metallicEmissive: makeTexture(G_BUFFER_FORMATS.metallicEmissive, rtUsage),
+      roughnessAO: makeTexture(G_BUFFER_FORMATS.roughnessAO, rtUsage),
       velocity: makeTexture(G_BUFFER_FORMATS.velocity, rtUsage),
       depth: makeTexture(G_BUFFER_FORMATS.depth, depthUsage),
     };
@@ -62,6 +66,7 @@ export class GBuffer {
       albedo: this.textures.albedo.createView(),
       normal: this.textures.normal.createView(),
       metallicEmissive: this.textures.metallicEmissive.createView(),
+      roughnessAO: this.textures.roughnessAO.createView(),
       velocity: this.textures.velocity.createView(),
       depth: this.textures.depth.createView(),
     };
@@ -105,6 +110,12 @@ export class GBuffer {
         storeOp: "store",
       },
       {
+        view: this.views.roughnessAO,
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: "clear",
+        storeOp: "store",
+      },
+      {
         view: this.views.velocity,
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
         loadOp: "clear",
@@ -128,6 +139,7 @@ export class GBuffer {
       this.textures.albedo.destroy();
       this.textures.normal.destroy();
       this.textures.metallicEmissive.destroy();
+      this.textures.roughnessAO.destroy();
       this.textures.velocity.destroy();
       this.textures.depth.destroy();
       this.textures = null;

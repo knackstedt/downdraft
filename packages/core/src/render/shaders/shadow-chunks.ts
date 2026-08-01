@@ -1,31 +1,4 @@
-// Shadow map pass — depth-only from directional light perspective
-// Updated with CSM, point light shadow, and spot light shadow sampling
-
-struct CameraUniforms {
-  lightViewProj: mat4x4<f32>,
-};
-
-@group(0) @binding(0) var<uniform> camera: CameraUniforms;
-@group(0) @binding(1) var modelUniform: mat4x4<f32>;
-
-struct VertexInput {
-  @location(0) position: vec3<f32>,
-};
-
-struct VertexOutput {
-  @builtin(position) clipPosition: vec4<f32>,
-};
-
-@vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
-  var output: VertexOutput;
-  let worldPos = modelUniform * vec4<f32>(input.position, 1.0);
-  output.clipPosition = camera.lightViewProj * worldPos;
-  return output;
-}
-
-// ─── CSM Shadow Sampling ───────────────────────────────────────────────────
-
+export const CSM_SHADER_CHUNK = /* wgsl */ `
 const MAX_CASCADES = 4u;
 
 struct CSMUniforms {
@@ -67,6 +40,7 @@ fn csmShadowFactor(worldPos: vec3<f32>, viewDepth: f32, N: vec3<f32>) -> f32 {
   let slopeScale = clamp(1.0 - dot(N, lightDir), 0.0, 1.0);
   let adjustedBias = bias + normalBias * slopeScale;
 
+  // 3x3 PCF
   var shadow = 0.0;
   let texelSize = 1.0 / f32(textureDimensions(csmShadowMap, 0).x);
   for (var y = -1; y <= 1; y++) {
@@ -81,10 +55,11 @@ fn csmShadowFactor(worldPos: vec3<f32>, viewDepth: f32, N: vec3<f32>) -> f32 {
   }
   shadow = shadow / 9.0;
 
+  // Cascade blend
   let blendDist = csmUniforms.cascadeCount.w;
   let cascadeFar = csmUniforms.cascadeSplits[cascadeIdx];
   let distToEdge = cascadeFar - viewDepth;
-  if (distToEdge < blendDist && cascadeIdx < u32(csmUniforms.cascadeCount.x) - 1u) {
+  if (distToEdge < blendDist && cascadeIdx < count - 1u) {
     let blendFactor = distToEdge / blendDist;
     let nextIdx = cascadeIdx + 1u;
     let nextVP = csmUniforms.cascades[nextIdx];
@@ -110,9 +85,9 @@ fn csmShadowFactor(worldPos: vec3<f32>, viewDepth: f32, N: vec3<f32>) -> f32 {
 
   return shadow;
 }
+`;
 
-// ─── Point Light Shadow Sampling ───────────────────────────────────────────
-
+export const POINT_SHADOW_SHADER_CHUNK = /* wgsl */ `
 const MAX_POINT_LIGHT_SHADOWS = 4u;
 
 @group(0) @binding(14) var pointShadowMaps: array<texture_depth_cube, MAX_POINT_LIGHT_SHADOWS>;
@@ -129,9 +104,9 @@ fn pointLightShadow(worldPos: vec3<f32>, lightPos: vec3<f32>, lightIndex: u32, f
     dir, normalizedDepth - bias,
   );
 }
+`;
 
-// ─── Spot Light Shadow Sampling ────────────────────────────────────────────
-
+export const SPOT_SHADOW_SHADER_CHUNK = /* wgsl */ `
 const MAX_SPOT_LIGHT_SHADOWS = 4u;
 
 struct SpotShadowData {
@@ -157,3 +132,4 @@ fn spotLightShadow(worldPos: vec3<f32>, lightIndex: u32) -> f32 {
     shadowDepth - bias,
   );
 }
+`;

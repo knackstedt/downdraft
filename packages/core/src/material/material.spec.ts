@@ -1,6 +1,6 @@
 import { MaterialCompiler } from "./compiler.ts";
 import { MaterialLibrary } from "./library.ts";
-import { BlendMode, CullMode, Material, type MaterialDefinition } from "./material.ts";
+import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } from "./material.ts";
 
 function makeTestMaterialDef(): MaterialDefinition {
   return {
@@ -155,6 +155,95 @@ describe("MaterialLibrary", () => {
     expect(mat.shader).toBe("shaders/postprocess.wgsl");
     expect(mat.textures.has("source")).toBe(true);
   });
+
+  it("should create physical material with clearcoat and sheen uniforms", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createPhysical("phys");
+    expect(mat.name).toBe("phys");
+    expect(mat.materialType).toBe(MaterialType.Physical);
+    expect(mat.uniforms.has("clearcoat")).toBe(true);
+    expect(mat.uniforms.has("sheenColor")).toBe(true);
+    expect(mat.uniforms.has("transmission")).toBe(true);
+    expect(mat.uniforms.has("iridescence")).toBe(true);
+    expect(mat.textures.has("clearcoatNormalMap")).toBe(true);
+  });
+
+  it("should create toon material with step and rim uniforms", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createToon("toon");
+    expect(mat.name).toBe("toon");
+    expect(mat.materialType).toBe(MaterialType.Toon);
+    expect(mat.uniforms.has("stepCount")).toBe(true);
+    expect(mat.uniforms.has("rimColor")).toBe(true);
+    expect(mat.uniforms.has("outlineWidth")).toBe(true);
+  });
+
+  it("should create matcap material with matcap texture", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createMatcap("mc");
+    expect(mat.name).toBe("mc");
+    expect(mat.materialType).toBe(MaterialType.Matcap);
+    expect(mat.textures.has("matcapMap")).toBe(true);
+  });
+
+  it("should create normal material", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createNormal("nrm");
+    expect(mat.name).toBe("nrm");
+    expect(mat.materialType).toBe(MaterialType.Normal);
+  });
+
+  it("should create depth material with near/far planes", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createDepth("dep");
+    expect(mat.name).toBe("dep");
+    expect(mat.materialType).toBe(MaterialType.Depth);
+    expect(mat.uniforms.has("nearPlane")).toBe(true);
+    expect(mat.uniforms.has("farPlane")).toBe(true);
+  });
+
+  it("should create shadow material with alpha blend", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createShadow("shd");
+    expect(mat.name).toBe("shd");
+    expect(mat.materialType).toBe(MaterialType.Shadow);
+    expect(mat.blendMode).toBe(BlendMode.AlphaBlend);
+  });
+
+  it("should create SSS material with subsurface color", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createSSS("sss");
+    expect(mat.name).toBe("sss");
+    expect(mat.materialType).toBe(MaterialType.SSS);
+    expect(mat.uniforms.has("subsurfaceColor")).toBe(true);
+    expect(mat.uniforms.has("scatterRadius")).toBe(true);
+  });
+
+  it("should create sprite material with alpha blend", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createSprite("spr");
+    expect(mat.name).toBe("spr");
+    expect(mat.materialType).toBe(MaterialType.Sprite);
+    expect(mat.blendMode).toBe(BlendMode.AlphaBlend);
+    expect(mat.textures.has("spriteMap")).toBe(true);
+  });
+
+  it("should create line material with dash parameters", () => {
+    const lib = new MaterialLibrary();
+    const mat = lib.createLine("ln");
+    expect(mat.name).toBe("ln");
+    expect(mat.materialType).toBe(MaterialType.Line);
+    expect(mat.uniforms.has("lineWidth")).toBe(true);
+    expect(mat.uniforms.has("dashSize")).toBe(true);
+  });
+
+  it("should include materialType in pipeline key", () => {
+    const lib = new MaterialLibrary();
+    const pbr = lib.createPBR("pbr");
+    const toon = lib.createToon("toon");
+    expect(pbr.pipelineKey).toContain(MaterialType.PBR);
+    expect(toon.pipelineKey).toContain(MaterialType.Toon);
+  });
 });
 
 describe("MaterialCompiler", () => {
@@ -215,5 +304,29 @@ describe("MaterialCompiler", () => {
     def.uniforms = { transform: { name: "transform", type: "mat4", binding: 0 } };
     const wgsl = compiler.compile(def);
     expect(wgsl).toContain("mat4x4<f32>");
+  });
+
+  it("should handle u32 uniform type", () => {
+    const compiler = new MaterialCompiler();
+    const def = makeTestMaterialDef();
+    def.uniforms = { count: { name: "count", type: "u32", binding: 0 } };
+    const wgsl = compiler.compile(def);
+    expect(wgsl).toContain("u32");
+  });
+
+  it("should handle vec4Array uniform type", () => {
+    const compiler = new MaterialCompiler();
+    const def = makeTestMaterialDef();
+    def.uniforms = { data: { name: "data", type: "vec4Array", binding: 0 } };
+    const wgsl = compiler.compile(def);
+    expect(wgsl).toContain("array<vec4<f32>>");
+  });
+
+  it("should handle cube texture dimension", () => {
+    const compiler = new MaterialCompiler();
+    const def = makeTestMaterialDef();
+    def.textures = { envMap: { name: "envMap", binding: 0, sampler: "linear-clamp", dimension: "cube" } };
+    const wgsl = compiler.compile(def);
+    expect(wgsl).toContain("texture_cube<f32>");
   });
 });
