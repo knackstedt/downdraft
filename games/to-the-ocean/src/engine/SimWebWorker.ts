@@ -38,6 +38,7 @@ type SimApi = {
   setTimeOfDay(time: number): Promise<void>;
   setSimSpeed(speed: number): Promise<void>;
   getSimSpeed(): Promise<number>;
+  restoreFromState(stateJson: string): Promise<void>;
 };
 
 export class SimWebWorker {
@@ -82,41 +83,7 @@ export class SimWebWorker {
   }
 
   async start(config: SimWebWorkerConfig): Promise<void> {
-    const worker = new Worker(
-      new URL("./sim-worker-web.ts", import.meta.url),
-      { type: "module" },
-    );
-
-    this.wp = wrap<SimApi>(worker);
-
-    this.unsubEvents = this.wp.onEvents((kind, data) => {
-      if (kind === "ready") {
-        this.ready = true;
-      }
-      this.dispatchEvents(kind, data);
-    });
-
-    worker.onerror = (e: ErrorEvent) => {
-      console.error("[SimWebWorker] Worker error:", e.message);
-      this.dispatchEvents("error", { message: e.message });
-    };
-
-    // init() is an RPC call — SABs are passed as args (structured-clone shares them)
-    await this.wp.proxy.init(
-      this.simBuffer,
-      this.inputBuffer,
-      this.waterBuffer,
-      this.boatBuffer,
-      {
-        seed: config.seed,
-        gamemode: config.gamemode,
-        rules: config.rules ?? DEFAULT_GAME_RULES,
-        isDev: config.isDev,
-      },
-    );
-
-    this.ready = true;
-    this.dispatchEvents("ready", {});
+    await this.startInternal(config);
   }
 
   addPlayer(playerId: number, name: string): void {
@@ -196,6 +163,43 @@ export class SimWebWorker {
     return this.wp.proxy.getSimSpeed().catch(() => 1.0);
   }
 
+  async restoreFromState(stateJson: string): Promise<void> {
+    if (!this.wp) throw new Error("Worker not started");
+    await this.wp.proxy.restoreFromState(stateJson);
+  }
+
+  async hotReload(config: SimWebWorkerConfig, preserveState: boolean): Promise<void> {
+    if (!import.meta.env.DEV) return;
+
+    let stateJson: string | null = null;
+
+    // 1. Save state if preserving
+    if (preserveState) {
+      try {
+        const result = await this.save("hot-reload");
+        if (result?.stateJson) stateJson = result.stateJson;
+      } catch (err) {
+        console.warn(`[HMR] State save failed, reloading without preservation: ${err}`);
+      }
+    }
+
+    // 2. Stop current worker
+    await this.stop();
+
+    // 3. Spawn new worker (cache-bust via timestamp query param)
+    const cacheBust = Date.now();
+    await this.startInternal(config, cacheBust);
+
+    // 4. Restore state if preserving
+    if (preserveState && stateJson) {
+      try {
+        await this.restoreFromState(stateJson);
+      } catch (err) {
+        console.error(`[HMR] State restore failed: ${err}. Starting fresh.`);
+      }
+    }
+  }
+
   async stop(): Promise<void> {
     if (!this.wp) return;
     try { await this.wp.proxy.shutdown(); } catch {}
@@ -204,5 +208,43 @@ export class SimWebWorker {
     this.unsubEvents = null;
     this.wp = null;
     this.ready = false;
+  }
+
+  private async startInternal(config: SimWebWorkerConfig, cacheBust?: number): Promise<void> {
+    const workerUrl = new URL("./sim-worker-web.ts", import.meta.url);
+    if (cacheBust) {
+      workerUrl.searchParams.set("t", String(cacheBust));
+    }
+    const worker = new Worker(workerUrl, { type: "module" });
+
+    this.wp = wrap<SimApi>(worker);
+
+    this.unsubEvents = this.wp.onEvents((kind, data) => {
+      if (kind === "ready") {
+        this.ready = true;
+      }
+      this.dispatchEvents(kind, data);
+    });
+
+    worker.onerror = (e: ErrorEvent) => {
+      console.error("[SimWebWorker] Worker error:", e.message);
+      this.dispatchEvents("error", { message: e.message });
+    };
+
+    await this.wp.proxy.init(
+      this.simBuffer,
+      this.inputBuffer,
+      this.waterBuffer,
+      this.boatBuffer,
+      {
+        seed: config.seed,
+        gamemode: config.gamemode,
+        rules: config.rules ?? DEFAULT_GAME_RULES,
+        isDev: config.isDev,
+      },
+    );
+
+    this.ready = true;
+    this.dispatchEvents("ready", {});
   }
 }

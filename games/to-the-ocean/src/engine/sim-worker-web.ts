@@ -161,6 +161,18 @@ expose({
   getSimSpeed(): number {
     return simLoop?.getSpeed() ?? 1.0;
   },
+
+  async restoreFromState(stateJson: string): Promise<void> {
+    if (!simulation) throw new Error("Simulation not initialized");
+    simLoop?.pause();
+    simulation.restoreState(stateJson);
+    await simulation.rebuildAfterRestore();
+    // Re-emit boat designs to renderer
+    for (const { entityId, design } of simulation.getBoatDesignSystem().getDesigns()) {
+      events.emit("boat_design_update", { entityId, designJson: JSON.stringify(design) });
+    }
+    simLoop?.resume();
+  },
 });
 
 // --- Event forwarding ---

@@ -1,6 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { resolve } from "path";
+import { hotReloadPlugin } from "./packages/core/src/vite/hot-reload-plugin";
 
 const game = process.env.DOWNDRAFT_GAME;
 const rendererRoot = game ? resolve("games", game) : resolve("packages/app");
@@ -101,6 +102,14 @@ export default defineConfig({
         },
       },
     } as any,
-    plugins: [react()],
+    plugins: [
+      react(),
+      hotReloadPlugin({
+        simPaths: ["simulation/", "shared/", "packages/core/", "packages/plugins/"],
+        rendererPaths: ["engine/", "stores/"],
+        shaderExts: [".wgsl"],
+        assetExts: [".glb", ".png", ".jpg", ".jpeg", ".webp"],
+      }),
+    ],
   },
 });
