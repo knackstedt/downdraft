@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
 import { PixelationSystem } from "@downdraft/plugin-postfx";
 import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/plugin-weatherfx";
@@ -24,7 +25,6 @@ import { EntityRenderer } from "./EntityRenderer";
 import { GameCloudMeshProvider } from "./GameCloudProvider";
 import { LabelOverlay } from "./LabelOverlay";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "./ModelLoader";
-import { ModelRenderer } from "./ModelRenderer";
 import { PBRSystem } from "./PBRSystem";
 import { PostProcessStack } from "./PostProcessStack";
 import { TransformGizmo } from "./TransformGizmo";
