@@ -3,12 +3,12 @@
 // Extracted from WebGPURenderer for modularity
 // ============================================================================
 
+import type { UIInputRouter } from "@downdraft/core";
 import { InputBufferWriter, KEY } from "@shared/input-buffer";
 import { PLR, PLR_FLAG, SimBufferReader } from "@shared/sim-buffer";
 import { CameraMode } from "@shared/types";
 import { useGameStore } from "../stores/gameStore";
 import type { CameraSystem } from "./CameraSystem";
-import type { UIInputRouter } from "@downdraft/core";
 
 export class RendererInputHandler {
   private canvas: HTMLCanvasElement;
@@ -256,7 +256,7 @@ export class RendererInputHandler {
       if (e.button === 2) this.mouseState.right = false;
     });
     this.canvas.addEventListener("wheel", (e) => {
-      this.mouseState.wheel = e.deltaY;
+      this.mouseState.wheel += e.deltaY;
     });
     this.canvas.addEventListener("contextmenu", (e) => {
       e.preventDefault();

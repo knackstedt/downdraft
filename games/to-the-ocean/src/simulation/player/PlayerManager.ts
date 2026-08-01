@@ -2,19 +2,26 @@
 // Player Manager — health, movement, swimming, oxygen tanks, death/respawn
 // ============================================================================
 
-import { InputBufferReader, KEY } from "../../shared/input-buffer";
-import { SimPlayer, SimEntity } from "../Simulation";
-import { CameraMode } from "../../shared/types";
 import {
-  PLAYER_SWIM_SPEED, PLAYER_WALK_SPEED, PLAYER_RUN_SPEED,
-  PLAYER_MAX_HEALTH, HOTBAR_SLOTS, HOTBAR_TOOLS,
-  PLAYER_FLOAT_FORCE, PLAYER_DIVE_FORCE, PLAYER_WATER_SINK_RATE,
-  PLAYER_WATER_DRAG, PLAYER_SWIM_VERTICAL_MAX, PLAYER_GRAVITY, PLAYER_JUMP_FORCE,
+    HOTBAR_SLOTS, HOTBAR_TOOLS,
+    PLAYER_DIVE_FORCE,
+    PLAYER_FLOAT_FORCE,
+    PLAYER_GRAVITY, PLAYER_JUMP_FORCE,
+    PLAYER_MAX_HEALTH,
+    PLAYER_RUN_SPEED,
+    PLAYER_SWIM_SPEED,
+    PLAYER_SWIM_VERTICAL_MAX,
+    PLAYER_WALK_SPEED,
+    PLAYER_WATER_DRAG,
+    PLAYER_WATER_SINK_RATE,
 } from "../../shared/constants";
+import { InputBufferReader, KEY } from "../../shared/input-buffer";
+import { collectShoreSources, shoreDamping, shoreDisplacement, ShoreSource, waterCutout } from "../../shared/shore-damping";
 import { PLR_FLAG } from "../../shared/sim-buffer";
-import { WaterBufferWriter, WATER_GRID } from "../../shared/water-buffer";
+import { CameraMode } from "../../shared/types";
+import { WATER_GRID, WaterBufferWriter } from "../../shared/water-buffer";
 import { PlayerMoveRequest } from "../physics/RapierPhysicsSystem";
-import { collectShoreSources, shoreDamping, shoreDisplacement, waterCutout, ShoreSource } from "../../shared/shore-damping";
+import { SimEntity, SimPlayer } from "../Simulation";
 
 const VCLIP_BASE_SPEED = 20; // m/s base flight speed
 
@@ -133,7 +140,8 @@ export class PlayerManager {
       const wheel = input.consumeWheel(i);
       if (wheel !== 0) {
         const totalTools = HOTBAR_TOOLS.length;
-        if (wheel > 0) {
+        const steps = Math.sign(wheel);
+        if (steps > 0) {
           p.activeSlot = (p.activeSlot + 1) % totalTools;
         } else {
           p.activeSlot = (p.activeSlot - 1 + totalTools) % totalTools;
