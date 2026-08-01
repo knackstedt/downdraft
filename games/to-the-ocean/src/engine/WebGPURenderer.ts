@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { TransformGizmo } from "@downdraft/plugin-devtools";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
 import { PixelationSystem } from "@downdraft/plugin-postfx";
@@ -27,7 +28,6 @@ import { LabelOverlay } from "./LabelOverlay";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "./ModelLoader";
 import { PBRSystem } from "./PBRSystem";
 import { PostProcessStack } from "./PostProcessStack";
-import { TransformGizmo } from "./TransformGizmo";
 
 // Player model asset — resolved by Vite at build time
 const playerModelGlob = import.meta.glob(

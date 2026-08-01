@@ -24,7 +24,9 @@
       "@downdraft/plugin-entities": ["packages/plugins/entities/src/index.ts"],
       "@downdraft/plugin-entities/*": ["packages/plugins/entities/src/*"],
       "@downdraft/plugin-models": ["packages/plugins/models/src/index.ts"],
-      "@downdraft/plugin-models/*": ["packages/plugins/models/src/*"]
+      "@downdraft/plugin-models/*": ["packages/plugins/models/src/*"],
+      "@downdraft/plugin-devtools": ["packages/plugins/devtools/src/index.ts"],
+      "@downdraft/plugin-devtools/*": ["packages/plugins/devtools/src/*"]
     }
   },
   "include": [
@@ -37,6 +39,7 @@
     "packages/plugins/weather/src/**/*.ts",
     "packages/plugins/entities/src/**/*.ts",
     "packages/plugins/models/src/**/*.ts",
+    "packages/plugins/devtools/src/**/*.ts",
     "games/*/src/**/*"
   ],
   "exclude": ["**/*.spec.ts"]
