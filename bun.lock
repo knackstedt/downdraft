@@ -35,6 +35,8 @@
         "@dimforge/rapier3d-compat": "^0.14.0",
         "@downdraft/core": "workspace:*",
         "@downdraft/plugin-boats": "workspace:*",
+        "@downdraft/plugin-buoyancy": "workspace:*",
+        "@downdraft/plugin-collision": "workspace:*",
         "@downdraft/plugin-crafting": "workspace:*",
         "@downdraft/plugin-economy": "workspace:*",
         "@downdraft/plugin-fishing": "workspace:*",
@@ -46,6 +48,7 @@
         "@downdraft/plugin-survival": "workspace:*",
         "@downdraft/plugin-water": "workspace:*",
         "@downdraft/plugin-weather": "workspace:*",
+        "@downdraft/plugin-wildlife": "workspace:*",
         "@floating-ui/react": "^0.27.0",
         "@fontsource/doto": "^5.1.1",
         "@fontsource/linefont": "^5.1.1",
@@ -103,6 +106,20 @@
     },
     "packages/plugins/boats": {
       "name": "@downdraft/plugin-boats",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/buoyancy": {
+      "name": "@downdraft/plugin-buoyancy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/collision": {
+      "name": "@downdraft/plugin-collision",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -241,6 +258,13 @@
         "@downdraft/plugin-weather": "workspace:*",
       },
     },
+    "packages/plugins/wildlife": {
+      "name": "@downdraft/plugin-wildlife",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
     "packages/shader-graph": {
       "name": "@downdraft/shader-graph",
       "version": "0.1.0",
@@ -357,6 +381,10 @@
 
     "@downdraft/plugin-boats": ["@downdraft/plugin-boats@workspace:packages/plugins/boats"],
 
+    "@downdraft/plugin-buoyancy": ["@downdraft/plugin-buoyancy@workspace:packages/plugins/buoyancy"],
+
+    "@downdraft/plugin-collision": ["@downdraft/plugin-collision@workspace:packages/plugins/collision"],
+
     "@downdraft/plugin-crafting": ["@downdraft/plugin-crafting@workspace:packages/plugins/crafting"],
 
     "@downdraft/plugin-devtools": ["@downdraft/plugin-devtools@workspace:packages/plugins/devtools"],
@@ -392,6 +420,8 @@
     "@downdraft/plugin-weather": ["@downdraft/plugin-weather@workspace:packages/plugins/weather"],
 
     "@downdraft/plugin-weatherfx": ["@downdraft/plugin-weatherfx@workspace:packages/plugins/weatherfx"],
+
+    "@downdraft/plugin-wildlife": ["@downdraft/plugin-wildlife@workspace:packages/plugins/wildlife"],
 
     "@downdraft/shader-graph": ["@downdraft/shader-graph@workspace:packages/shader-graph"],
 

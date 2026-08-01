@@ -13,6 +13,9 @@
 // ============================================================================
 
 import { Query, Stage, system, World, type Entity } from "@downdraft/core";
+import { createBuoyancySystem, type BuoyancyConfig, type BuoyancyDeps } from "@downdraft/plugin-buoyancy";
+import { createCollisionSystem, type CollisionConfig, type CollisionDeps } from "@downdraft/plugin-collision";
+import { createWildlifeSystem, shutdownWildlife, type WildlifeConfig, type WildlifeDeps } from "@downdraft/plugin-wildlife";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
 import { InputBufferReader } from "../../shared/input-buffer";
@@ -60,6 +63,9 @@ export class SimEcsWorld {
   readonly wildlifeWithHealth: Query;
   readonly pirates: Query;
   readonly smallCraft: Query;
+  readonly wildlifeAI: Query;
+  readonly shipsWithHealth: Query;
+  readonly allEntitiesWithVelocity: Query;
 
   constructor() {
     this.world = new World();
@@ -81,13 +87,16 @@ export class SimEcsWorld {
     this.wildlifeWithHealth = new Query([ComponentIds.EntityMeta, ComponentIds.Transform, ComponentIds.Health]);
     this.pirates = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData, ComponentIds.Health]);
     this.smallCraft = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData]);
+    this.wildlifeAI = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData, ComponentIds.Health]);
+    this.shipsWithHealth = new Query([ComponentIds.Transform, ComponentIds.EntityMeta, ComponentIds.EntityData, ComponentIds.Health]);
+    this.allEntitiesWithVelocity = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData]);
 
     // Register queries with the schedule so they get archetype updates
     this.world.schedule.add(system(
       "ecs-bridge-queries",
       Stage.Input,
       () => {},
-      { queries: [this.allEntities, this.ships, this.wildlife, this.islands, this.ports, this.players, this.livestock, this.plants, this.pets, this.wildlifeWithHealth, this.pirates, this.smallCraft] },
+      { queries: [this.allEntities, this.ships, this.wildlife, this.islands, this.ports, this.players, this.livestock, this.plants, this.pets, this.wildlifeWithHealth, this.pirates, this.smallCraft, this.wildlifeAI, this.shipsWithHealth, this.allEntitiesWithVelocity] },
     ));
 
     // Register migrated ECS systems
@@ -127,6 +136,28 @@ export class SimEcsWorld {
 
   registerStructureIntegritySystem(getBoatCellSystem: () => BoatCellSystem | undefined): void {
     this.world.schedule.add(createEcsStructureIntegritySystem(this.ships, getBoatCellSystem));
+  }
+
+  registerWildlifeSystem(deps: WildlifeDeps, config: WildlifeConfig): void {
+    this.world.schedule.add(createWildlifeSystem(
+      this.wildlifeAI, this.players, this.shipsWithHealth, this.allEntities, deps, config,
+    ));
+  }
+
+  shutdownWildlife(): void {
+    shutdownWildlife();
+  }
+
+  registerBuoyancySystem(deps: BuoyancyDeps, config: BuoyancyConfig): void {
+    this.world.schedule.add(createBuoyancySystem(
+      this.ships, this.allEntitiesWithVelocity, deps, config,
+    ));
+  }
+
+  registerCollisionSystem(deps: CollisionDeps, config: CollisionConfig): void {
+    this.world.schedule.add(createCollisionSystem(
+      this.allEntitiesWithVelocity, this.players, deps, config,
+    ));
   }
 
   // --- Entity lifecycle (called by Simulation) ---

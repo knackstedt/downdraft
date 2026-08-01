@@ -28,9 +28,37 @@ import {
 import { WaterBufferWriter } from "../shared/water-buffer";
 
 import type { JobScheduler } from "@downdraft/core/ecs/job-system";
+import type { BuoyancyConfig, BuoyancyDeps } from "@downdraft/plugin-buoyancy";
+import type { CollisionConfig, CollisionDeps } from "@downdraft/plugin-collision";
+import type { WildlifeConfig, WildlifeDeps } from "@downdraft/plugin-wildlife";
 import { BoatBufferWriter } from "../shared/boat-buffer";
 import { validateBoatDesign } from "../shared/boat-design/validators";
-import { BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH, PLAYER_HEIGHT, PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH, SHIP_DATA, SHIP_DATA_SLOTS } from "../shared/constants";
+import {
+  BOAT_CELL_WORLD_SIZE,
+  BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH,
+  BOAT_LAYER_HEIGHT,
+  DEVIL_SHRIP_ATTACK_DAMAGE, EEL_SHOCK_DAMAGE,
+  ENTITY_MASS,
+  JELLYFISH_DOT_DAMAGE, PLAYER_HEIGHT, PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH,
+  PORT_DATA,
+  SHARK_ATTACK_DAMAGE, SHARK_DETECT_BOAT_SPEED,
+  SHIP_COLLISION_RESTITUTION,
+  SHIP_DATA, SHIP_DATA_SLOTS,
+  WILDLIFE_DENSITY,
+  WILDLIFE_DESPAWN_RADIUS, WILDLIFE_MAX_PER_BIOME, WILDLIFE_SPAWN_RADIUS,
+  getPortColliderDims,
+  isHullShellCell,
+} from "../shared/constants";
+import {
+  collectShoreSources,
+  shoreDamping,
+  shoreDisplacement,
+  waterCutout,
+  type ShoreSource,
+} from "../shared/shore-damping";
+import { sampleTerrainHeight } from "../shared/TerrainGenerator";
+import { EntityFlags } from "../shared/types";
+import { WATER_GRID } from "../shared/water-buffer";
 import { WorldGenerator } from "../shared/world/WorldGenerator";
 import { AnchorSystem } from "./boat/AnchorSystem";
 import { BoatCellSystem } from "./boat/BoatCellSystem";
@@ -128,6 +156,9 @@ export class Simulation {
   private shipInventories = new Map<number, InventoryGrid>();
   private jobScheduler: JobScheduler | null = null;
   private ecs: SimEcsWorld | null = null;
+  private buoyancyShoreSources: ShoreSource[] = [];
+  private buoyancyShoreCount = 0;
+  private buoyancySimTime = 0;
 
   // State
   private gamemode = GameMode.Survival;
@@ -274,6 +305,115 @@ export class Simulation {
     );
     this.ecs.registerCameraSystem(() => this.inputReader);
     this.ecs.registerStructureIntegritySystem(() => this.boatCellSystem);
+
+    // Register ECS wildlife system (replaces legacy WildlifeManager.tick)
+    const wildlifeConfig: WildlifeConfig = {
+      entityTypes: {
+        fish: EntityType.Fish, shark: EntityType.Shark, eel: EntityType.Eel,
+        jellyfish: EntityType.Jellyfish, devilShrimp: EntityType.DevilShrimp,
+        whale: EntityType.Whale, dolphin: EntityType.Dolphin, turtle: EntityType.Turtle,
+        crustacean: EntityType.Crustacean, coral: EntityType.Coral, moose: EntityType.Moose,
+        ship: EntityType.Ship, pirateShip: EntityType.PirateShip,
+        port: EntityType.Port, island: EntityType.Island, player: EntityType.Player,
+      },
+      entityFlags: {
+        static: EntityFlags.Static,
+        bioluminescent: EntityFlags.Bioluminescent,
+      },
+      playerFlags: {
+        swimming: PLR_FLAG.SWIMMING,
+        onboard: PLR_FLAG.ONBOARD,
+      },
+      biomes: {
+        ocean: BiomeType.Ocean, tropical: BiomeType.Tropical, subTropical: BiomeType.SubTropical,
+        deepOcean: BiomeType.DeepOcean, coralReef: BiomeType.CoralReef,
+        kelpForest: BiomeType.KelpForest, volcanic: BiomeType.Volcanic,
+        hell: BiomeType.Hell, arctic: BiomeType.Arctic, garbagePatch: BiomeType.GarbagePatch,
+      },
+      spawnRadius: WILDLIFE_SPAWN_RADIUS,
+      maxPerBiome: WILDLIFE_MAX_PER_BIOME,
+      despawnRadius: WILDLIFE_DESPAWN_RADIUS,
+      shipClearance: 32,
+      pirateShipClearance: 25,
+      portClearanceMargin: 10,
+      islandClearanceMargin: 15,
+      maxSpawnAttempts: 5,
+      sharkAttackDamage: SHARK_ATTACK_DAMAGE,
+      eelShockDamage: EEL_SHOCK_DAMAGE,
+      jellyfishDotDamage: JELLYFISH_DOT_DAMAGE,
+      devilShrimpAttackDamage: DEVIL_SHRIP_ATTACK_DAMAGE,
+      sharkDetectBoatSpeed: SHARK_DETECT_BOAT_SPEED,
+      shipDataSpeedIndex: SHIP_DATA.SPEED,
+    };
+    const wildlifeDeps: WildlifeDeps = {
+      getBiomeAt: (x, z) => this.chunkManager.getBiomeAt(x, z),
+      getOnboardShipId: (playerId) => this.boatSystem.getOnboardShipId(playerId),
+      spawnEntity: (type, opts) => this.spawnEntity(type, opts),
+      removeEntity: (id) => this.removeEntity(id),
+    };
+    this.ecs.registerWildlifeSystem(wildlifeDeps, wildlifeConfig);
+
+    // Register ECS buoyancy system (replaces legacy BuoyancySystem.tick inline path)
+    // Parallel path (tickParallel) is not used — jobScheduler is never set externally.
+    const buoyancyConfig: BuoyancyConfig = {
+      entityTypes: {
+        player: EntityType.Player,
+        ship: EntityType.Ship,
+        smallCraft: EntityType.SmallCraft,
+      },
+      entityFlags: {
+        static: EntityFlags.Static,
+      },
+      shipData: {
+        heading: SHIP_DATA.HEADING,
+        pitch: SHIP_DATA.PITCH,
+        roll: SHIP_DATA.ROLL,
+      },
+      physics: {
+        gravity: 9.8,
+        waterDensity: 1000,
+        maxTilt: Math.PI / 6,
+        restoringStiffness: 20.0,
+        verticalDamping: 5.0,
+        angularDamping: 4.0,
+      },
+      boatCellWorldSize: BOAT_CELL_WORLD_SIZE,
+      boatLayerHeight: BOAT_LAYER_HEIGHT,
+      seabedHeight: -50,
+      isHullShellCell,
+    };
+    const buoyancyDeps: BuoyancyDeps = {
+      sampleWaterAt: (x: number, z: number) => this.sampleWaterForBuoyancy(x, z),
+      getBoatCells: (entityId: number) => this.boatCellSystem.getCells(entityId),
+      getMassProperties: (entityId: number) => this.boatCellSystem.getMassProperties(entityId),
+    };
+    this.ecs.registerBuoyancySystem(buoyancyDeps, buoyancyConfig);
+
+    // Register ECS collision system (replaces legacy CollisionSystem.tick)
+    const collisionConfig: CollisionConfig = {
+      entityTypes: {
+        player: EntityType.Player,
+        ship: EntityType.Ship,
+        smallCraft: EntityType.SmallCraft,
+        pirateShip: EntityType.PirateShip,
+        port: EntityType.Port,
+        island: EntityType.Island,
+      },
+      entityFlags: {
+        static: EntityFlags.Static,
+      },
+      portDataIndex: PORT_DATA.SIZE,
+      shipCollisionRestitution: SHIP_COLLISION_RESTITUTION,
+      entityMass: ENTITY_MASS,
+      wildlifeDensity: WILDLIFE_DENSITY,
+      defaultLodDistance: (this.rules.collisionLodDistance as number) ?? 250,
+    };
+    const collisionDeps: CollisionDeps = {
+      getVoxelField: (entityId: number) => this.terrainSystem.getVoxelField(entityId) as any,
+      sampleTerrainHeight: (field, ux, uz) => sampleTerrainHeight(field as any, ux, uz),
+      getPortColliderDims: (size: number, scale: number) => getPortColliderDims(size, scale) as any,
+    };
+    this.ecs.registerCollisionSystem(collisionDeps, collisionConfig);
   }
 
   async init(): Promise<void> {
@@ -387,12 +527,17 @@ export class Simulation {
     const t4 = performance.now();
     sysTimes.push({ name: "boatControl", ms: t4 - t3 });
 
-    // BuoyancySystem: use parallel path when scheduler is available, else inline
-    if (this.jobScheduler) {
-      await this.buoyancySystem.tickParallel(dt, this.entities, this.entityCount);
-    } else {
-      this.buoyancySystem.tick(dt, this.entities, this.entityCount);
-    }
+    // BuoyancySystem now runs as ECS system (createBuoyancySystem) during ecs.step()
+    // Collect shore sources for water sampling before ECS step
+    this.buoyancySimTime += dt;
+    if (this.buoyancyShoreSources.length < 128) this.buoyancyShoreSources = [];
+    while (this.buoyancyShoreSources.length < 128) this.buoyancyShoreSources.push({ x: 0, z: 0, radius: 0, cutoutRadius: 0 });
+    this.buoyancyShoreCount = collectShoreSources(this.entities, this.entityCount, this.buoyancyShoreSources);
+    // if (this.jobScheduler) {
+    //   await this.buoyancySystem.tickParallel(dt, this.entities, this.entityCount);
+    // } else {
+    //   this.buoyancySystem.tick(dt, this.entities, this.entityCount);
+    // }
     const t5 = performance.now();
     sysTimes.push({ name: "buoyancy", ms: t5 - t4 });
 
@@ -440,8 +585,8 @@ export class Simulation {
     const t5b = performance.now();
     sysTimes.push({ name: "playerMove+physics+sync", ms: t5b - t5 });
 
-    // CollisionSystem: non-ship, non-player entity collisions only
-    this.collisionSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount, this.boatDesignSystem, this.boatSystem.getPilotedShipIds(), this.boatCellSystem, (this.rules.collisionLodDistance as number) ?? 250);
+    // CollisionSystem now runs as ECS system (createCollisionSystem) during ecs.step()
+    // this.collisionSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount, this.boatDesignSystem, this.boatSystem.getPilotedShipIds(), this.boatCellSystem, (this.rules.collisionLodDistance as number) ?? 250);
     const t6 = performance.now();
     sysTimes.push({ name: "collision", ms: t6 - t5b });
 
@@ -496,7 +641,8 @@ export class Simulation {
     const t8 = performance.now();
     sysTimes.push({ name: "boatUpdate", ms: t8 - t7 });
 
-    this.wildlifeManager.tick(dt, this.entities, this.entityCount, this.players, this.playerCount, this.spawnEntity.bind(this), this.removeEntity.bind(this));
+    // WildlifeManager now runs as ECS system (createWildlifeSystem) during ecs.step()
+    // this.wildlifeManager.tick(dt, this.entities, this.entityCount, this.players, this.playerCount, this.spawnEntity.bind(this), this.removeEntity.bind(this));
     const t9 = performance.now();
     sysTimes.push({ name: "wildlife", ms: t9 - t8 });
     this.marketSystem.tick(dt);
@@ -1539,10 +1685,23 @@ export class Simulation {
     this.boatCellSystem.writeToBuffer();
   }
 
+  private sampleWaterForBuoyancy(x: number, z: number): number {
+    if (waterCutout(x, z, this.buoyancyShoreSources, this.buoyancyShoreCount)) return -1000;
+    const patchSize = this.waterWriter.getPatchSize() || 4;
+    const origin = this.waterWriter.getOrigin();
+    const gx = ((x - origin.x) / patchSize % WATER_GRID + WATER_GRID) % WATER_GRID;
+    const gz = ((z - origin.z) / patchSize % WATER_GRID + WATER_GRID) % WATER_GRID;
+    const rawH = this.waterWriter.sampleHeight(gx, gz);
+    const damping = shoreDamping(x, z, this.buoyancyShoreSources, this.buoyancyShoreCount);
+    const shore = shoreDisplacement(x, z, this.buoyancySimTime, this.buoyancyShoreSources, this.buoyancyShoreCount);
+    return rawH * damping + shore;
+  }
+
   shutdown(): void {
     // Cleanup systems
     this.physics?.shutdown();
     this.wildlifeManager.shutdown();
+    this.ecs?.shutdownWildlife();
     this.ecs?.shutdownPirates();
     this.pirateSystem.shutdown();
     this.portSystem.shutdown();
