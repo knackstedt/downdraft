@@ -42,15 +42,7 @@ interface DebugState {
     canvasH: number;
     viewportW: number;
     viewportH: number;
-    waterValid: boolean;
-    waterGrid: number;
-    cameraPos: [number, number, number];
-    cameraTarget: [number, number, number];
-    playerPos: [number, number, number];
-    heading: number;
-    pitch: number;
-    cameraMode: number;
-    keys: string;
+    extra: Record<string, any>;
   } | null;
   setRendererStats: (stats: DebugState["rendererStats"]) => void;
 }

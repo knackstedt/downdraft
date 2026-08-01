@@ -10,11 +10,11 @@ import { detectFormat, loadModel } from "@downdraft/plugin-models";
 import { useDebugStore } from "./debug-store.ts";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store.ts";
 import type {
-  IAssetResolver,
-  IDevToolsRenderer,
-  IDebugOverlayProvider,
-  IDebugModeProvider,
-  IPerformanceMetricsProvider,
+    IAssetResolver,
+    IDebugModeProvider,
+    IDebugOverlayProvider,
+    IDevToolsRenderer,
+    IPerformanceMetricsProvider,
 } from "./types.ts";
 
 export abstract class BaseSceneInspector {
@@ -59,15 +59,8 @@ export abstract class BaseSceneInspector {
     (window as any).__sceneInspector = api;
     console.log("[BaseSceneInspector] API exposed on window.__sceneInspector");
 
-    // Apply default overlay states
+    // Apply default label visibility (generic)
     useSceneStore.getState().setShowLabels(true);
-    this.renderer.setShowHitboxes(true);
-
-    const overlay = this.getDebugOverlayProvider();
-    if (overlay) {
-      overlay.setShowChunkGrid(true);
-      overlay.setShowVelocityArrows(true);
-    }
   }
 
   protected buildApi(): Record<string, any> {
@@ -304,7 +297,7 @@ export abstract class BaseSceneInspector {
         this.renderer?.setShowHitboxes(show);
       },
       getShowHitboxes: (): boolean => {
-        return (this.renderer as any)?.entityRenderer?.showHitboxes ?? false;
+        return this.renderer?.getShowHitboxes() ?? false;
       },
       setHitboxLineWidth: (width: number): void => {
         this.renderer?.setHitboxLineWidth(width);

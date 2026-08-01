@@ -1001,6 +1001,7 @@ export class WebGPURenderer {
   getFPS(): number { return this.accessors.getFPS(); }
   setDebugMode(e: boolean): void { this.accessors.setDebugMode(e); }
   setShowHitboxes(s: boolean): void { this.accessors.setShowHitboxes(s); }
+  getShowHitboxes(): boolean { return this.accessors.getEntityRenderer()?.isHitboxVisible() ?? false; }
   setShowLightGizmos(s: boolean): void { this.accessors.setShowLightGizmos(s); }
   setShowRaycast(s: boolean): void { this.accessors.setShowRaycast(s); }
   getEntityRenderer() { return this.accessors.getEntityRenderer(); }

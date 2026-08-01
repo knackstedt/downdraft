@@ -74,6 +74,14 @@ export class SceneInspector extends BaseSceneInspector {
   init(renderer: WebGPURenderer): void {
     this.gameRenderer = renderer;
     super.init(renderer);
+
+    // Game-specific default overlay states
+    renderer.setShowHitboxes(true);
+    const overlay = this.getDebugOverlayProvider();
+    if (overlay) {
+      overlay.setShowChunkGrid(true);
+      overlay.setShowVelocityArrows(true);
+    }
   }
 
   // --- Build API with game-specific extensions ---
