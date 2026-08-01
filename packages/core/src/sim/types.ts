@@ -80,3 +80,27 @@ export interface InputReaderLike {
   isKeyDown(playerSlot: number, key: number): boolean;
   getAxis(playerSlot: number, axis: number): number;
 }
+
+// --- Simulation Interface ---
+// Games implement this so engine features (hot-reload, save/load, debugging)
+// can depend on a stable contract instead of a concrete class.
+
+export interface ISimulation {
+  tick(dt: number): Promise<void>;
+  serializeState(): string;
+  restoreState(stateJson: string): void;
+  rebuildAfterRestore(): Promise<void>;
+  shutdown(): void;
+}
+
+// --- Hot-Reloadable Interface ---
+// Worker managers implement this so the renderer's HMR handlers can interact
+// with any game's worker layer through a common interface.
+
+export interface IHotReloadable {
+  start(config: unknown): Promise<void>;
+  stop(): Promise<void>;
+  save(slotName: string): Promise<{ slotName: string; stateJson: string } | null>;
+  restoreFromState(stateJson: string): Promise<void>;
+  hotReload(config: unknown, preserveState: boolean): Promise<void>;
+}
