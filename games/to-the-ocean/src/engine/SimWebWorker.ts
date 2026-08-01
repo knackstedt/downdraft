@@ -4,6 +4,7 @@
 // Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
+import type { IHotReloadable } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import { allocateBoatBuffer } from "@shared/boat-buffer";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
@@ -41,7 +42,7 @@ type SimApi = {
   restoreFromState(stateJson: string): Promise<void>;
 };
 
-export class SimWebWorker {
+export class SimWebWorker implements IHotReloadable {
   private simBuffer: SharedArrayBuffer;
   private inputBuffer: SharedArrayBuffer;
   private waterBuffer: SharedArrayBuffer;

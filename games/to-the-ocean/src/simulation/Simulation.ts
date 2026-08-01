@@ -27,6 +27,7 @@ import {
 } from "../shared/types";
 import { WaterBufferWriter } from "../shared/water-buffer";
 
+import type { ISimulation } from "@downdraft/core";
 import type { JobScheduler } from "@downdraft/core/ecs/job-system";
 import type { BuoyancyConfig, BuoyancyDeps } from "@downdraft/plugin-buoyancy";
 import type { CollisionConfig, CollisionDeps } from "@downdraft/plugin-collision";
@@ -94,7 +95,7 @@ import { ChunkManager } from "./world/ChunkManager";
 import { IslandManager } from "./world/IslandManager";
 import { PortSystem } from "./world/PortSystem";
 
-export class Simulation {
+export class Simulation implements ISimulation {
   private simWriter: SimBufferWriter;
   private inputReader: InputBufferReader;
   private waterWriter: WaterBufferWriter;
