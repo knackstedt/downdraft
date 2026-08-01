@@ -4,6 +4,7 @@
 // Uses the RPC layer (expose/exposeEvents) for typed async communication.
 // ============================================================================
 
+import { SimWorkerLoop } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { BoatBufferWriter } from "@shared/boat-buffer";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
@@ -17,14 +18,10 @@ import { Simulation } from "@sim/Simulation";
 let simulation: Simulation | null = null;
 let gcHandle: GCProfilerHandle | null = null;
 let debugMode = false;
-let running = true;
-let paused = false;
-let simSpeed = 1.0;
-let tickAccumulator = 0;
-let tickCount = 0;
-let tickTimeAccum = 0;
 let perfTimer: ReturnType<typeof setInterval> | null = null;
 let perfWallStart = 0;
+
+let simLoop: SimWorkerLoop | null = null;
 
 const events = exposeEvents();
 
@@ -66,8 +63,8 @@ expose({
     }
   },
 
-  pause() { paused = true; },
-  resume() { paused = false; },
+  pause() { simLoop?.pause(); },
+  resume() { simLoop?.resume(); },
 
   async save(slotName: string): Promise<{ slotName: string; stateJson: string }> {
     if (!simulation) throw new Error("Simulation not initialized");
@@ -92,7 +89,7 @@ expose({
   respawnPlayer(playerId: number) { simulation?.respawnPlayer(playerId); },
 
   shutdown() {
-    running = false;
+    simLoop?.stop();
     gcHandle?.stop();
     simulation?.shutdown();
     setTimeout(() => getWorkerHost().close(), 0);
@@ -109,11 +106,12 @@ expose({
       gcHandle = null;
     }
     if (enabled && !perfTimer) {
-      tickTimeAccum = 0;
+      simLoop?.resetTickTimeAccum();
       perfWallStart = performance.now();
       perfTimer = setInterval(() => {
         const now = performance.now();
         const wallMs = now - perfWallStart;
+        const tickTimeAccum = simLoop?.getTickTimeAccum() ?? 0;
         const cpuPercent = wallMs > 0 ? Math.min(100, (tickTimeAccum / wallMs) * 100) : 0;
         const mem = (performance as any).memory;
         events.emit("perf_stats", {
@@ -124,7 +122,7 @@ expose({
           heapTotalMB: mem ? mem.totalJSHeapSize / 1048576 : 0,
           timestamp: now,
         });
-        tickTimeAccum = 0;
+        simLoop?.resetTickTimeAccum();
         perfWallStart = now;
       }, 2000);
     } else if (!enabled && perfTimer) {
@@ -157,21 +155,20 @@ expose({
   setTimeOfDay(time: number) { simulation?.setTimeOfDay(time); },
 
   setSimSpeed(speed: number) {
-    simSpeed = Math.max(MIN_SIM_SPEED, Math.min(MAX_SIM_SPEED, speed));
-    tickAccumulator = 0;
-    events.emit("sim_speed_changed", { speed: simSpeed });
+    simLoop?.setSpeed(speed);
+    events.emit("sim_speed_changed", { speed: simLoop?.getSpeed() ?? speed });
   },
 
   getSimSpeed(): number {
-    return simSpeed;
+    return simLoop?.getSpeed() ?? 1.0;
   },
 });
 
-const TICK_MS = 1000 / 60;
-let lastTick = performance.now();
+// --- Event forwarding ---
 
 function drainAndForwardEvents(): void {
   if (!simulation) return;
+  const tickCount = simLoop?.getTickCount() ?? 0;
   const deformBroadcasts = simulation.getTerrainSystem().drainBroadcasts();
   if (deformBroadcasts.length > 0) {
     events.emit("terrain_deformed", deformBroadcasts);
@@ -191,67 +188,32 @@ function drainAndForwardEvents(): void {
   }
 }
 
-async function loop(): Promise<void> {
-  if (!running) return;
+// --- SimWorkerLoop setup ---
 
-  const now = performance.now();
-  if (now - lastTick >= TICK_MS) {
-    lastTick = now - ((now - lastTick) % TICK_MS);
-    if (!paused && simulation && simSpeed > 0) {
-      try {
-        if (simSpeed < 1.0) {
-          // Variable dt: 1 tick per loop iteration with scaled dt (slow-motion)
-          const dt = SIM_TICK_DT * simSpeed;
-          const tickStart = performance.now();
-          await simulation.tick(dt);
-          tickTimeAccum += performance.now() - tickStart;
-          tickCount++;
-          drainAndForwardEvents();
-        } else {
-          // Tick multiplier: N ticks per loop iteration with dt=SIM_TICK_DT (speed-up)
-          tickAccumulator += simSpeed;
-          const pendingDeforms: any[] = [];
-          const pendingLOD: any[] = [];
-          while (tickAccumulator >= 1) {
-            const tickStart = performance.now();
-            await simulation.tick(SIM_TICK_DT);
-            tickTimeAccum += performance.now() - tickStart;
-            tickCount++;
-            tickAccumulator--;
-            // Accumulate broadcasts across ticks — emit once after the loop
-            pendingDeforms.push(...simulation.getTerrainSystem().drainBroadcasts());
-            pendingLOD.push(...simulation.getTerrainSystem().drainLODChanges());
-          }
-          if (pendingDeforms.length > 0) events.emit("terrain_deformed", pendingDeforms);
-          if (pendingLOD.length > 0) events.emit("terrain_lod_changed", pendingLOD);
-          if (debugMode && tickCount % 30 === 0) {
-            const log = simulation.getCollisionLog();
-            if (log.length > 0) events.emit("collision_log", log);
-          }
-          if (tickCount % 300 === 0) {
-            events.emit("performance", { tick: tickCount, msg: "sim ticking" });
-          }
-        }
-      } catch (err) {
-        const errMsg = `Sim tick crashed at tick ${tickCount}: ${(err as Error).message}\n${(err as Error).stack}`;
-        console.error(`[SIM WORKER] ${errMsg}`);
-        events.emit("error", { message: errMsg });
-        running = false;
-        setTimeout(() => getWorkerHost().close(), 0);
-        return;
-      }
-    }
-  }
-
-  setTimeout(loop, Math.max(1, TICK_MS - (performance.now() - now)));
-}
+simLoop = new SimWorkerLoop({
+  fixedDt: SIM_TICK_DT,
+  maxSpeed: MAX_SIM_SPEED,
+  minSpeed: MIN_SIM_SPEED,
+  tick: async (dt: number) => {
+    if (simulation) await simulation.tick(dt);
+  },
+  onAfterTicks: (_ticksThisIteration: number) => {
+    drainAndForwardEvents();
+  },
+  onError: (err: Error) => {
+    const errMsg = `Sim tick crashed at tick ${simLoop?.getTickCount()}: ${err.message}\n${err.stack}`;
+    console.error(`[SIM WORKER] ${errMsg}`);
+    events.emit("error", { message: errMsg });
+    setTimeout(() => getWorkerHost().close(), 0);
+  },
+});
 
 // Error handlers
 self.onerror = (e: ErrorEvent) => {
   const msg = `Sim worker uncaught error: ${e.message}`;
   console.error(`[SIM WORKER] ${msg}`);
   events.emit("error", { message: msg });
-  running = false;
+  simLoop?.stop();
 };
 
 self.onunhandledrejection = (e: PromiseRejectionEvent) => {
@@ -259,8 +221,8 @@ self.onunhandledrejection = (e: PromiseRejectionEvent) => {
   const msg = `Sim worker unhandled rejection: ${err?.message ?? err}\n${err?.stack ?? ""}`;
   console.error(`[SIM WORKER] ${msg}`);
   events.emit("error", { message: msg });
-  running = false;
+  simLoop?.stop();
 };
 
 // Start the loop — init() is called via RPC when the main thread sends it
-loop();
+simLoop.start();
