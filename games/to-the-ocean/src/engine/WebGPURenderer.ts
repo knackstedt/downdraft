@@ -1019,6 +1019,14 @@ export class WebGPURenderer {
   getGPUInfo() { return this.accessors.getGPUInfo(); }
   getFrameTelemetry() { return this.accessors.getFrameTelemetry(); }
   getPostProcessInfo() { return this.accessors.getPostProcessInfo(); }
+  getFrameGraph() {
+    const profiler = this.accessors.getGPUProfiler();
+    if (!profiler) return null;
+    const passTimings = profiler.getPassTimings();
+    const ppInfo = this.accessors.getPostProcessInfo();
+    const passNames = passTimings.map(t => t.name);
+    return GPUProfiler.buildFrameGraphData(passTimings, ppInfo, passNames);
+  }
   setPixelationEnabled(e: boolean): void { this.accessors.setPixelationEnabled(e); }
   setPixelSize(s: number): void { this.accessors.setPixelSize(s); }
   setDepthEdgeStrength(s: number): void { this.accessors.setDepthEdgeStrength(s); }
