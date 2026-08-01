@@ -4,7 +4,7 @@
 // accessors → RendererAccessors
 // ============================================================================
 
-import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { TransformGizmo } from "@downdraft/plugin-devtools";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
@@ -76,6 +76,7 @@ export class WebGPURenderer {
   private cameraSystem: CameraSystem | null = null;
   private lightingSystem: LightSystem | null = null;
   private pbrSystem: PBRSystem | null = null;
+  private iblSystem: IBLSystem | null = null;
   private particleSystem: ParticleSystem | null = null;
   private pixelationSystem: PixelationSystem | null = null;
   private postProcessStack: PostProcessStack | null = null;
@@ -280,9 +281,12 @@ export class WebGPURenderer {
       this.lightingSystem.init();
       this.pbrSystem = new PBRSystem(this.device);
       this.pbrSystem.init();
-      await this.entityRenderer.init(this.lightingSystem.getLightBindGroupLayout() ?? undefined, this.pbrSystem.getBindGroupLayout() ?? undefined);
+      this.iblSystem = new IBLSystem(this.device, { faceSize: 256, recaptureInterval: 120 });
+      this.iblSystem.setBRDFLUT(this.pbrSystem.brdfLUT!);
+      this.iblSystem.init();
+      await this.entityRenderer.init(this.lightingSystem.getLightBindGroupLayout() ?? undefined, this.iblSystem.getBindGroupLayout() ?? undefined);
       this.entityRenderer.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
-      this.entityRenderer.setPBRBindGroup(this.pbrSystem.getBindGroup()!);
+      this.entityRenderer.setPBRBindGroup(this.iblSystem.getBindGroup() ?? this.pbrSystem.getBindGroup()!);
       this.waterPass.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.lightingSystem.initDebugGizmos(this.format);
 
@@ -893,6 +897,24 @@ export class WebGPURenderer {
     this.skyDomePass!.setUniforms(su);
     this.skyDomePass!.execute({ device: this.device!, pass: passEncoder } as any);
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Sky", passEncoder, viewportIdx); }
+    // IBL — recapture environment from sky dome (throttled by IBLSystem)
+    if (viewportIdx === 0 && this.iblSystem) {
+      this.iblSystem.updateFromSkyDome({
+        timeOfDay: su.timeOfDay,
+        weatherType: su.weatherType,
+        sunDir: su.sunDir,
+        sunIntensity: su.sunIntensity,
+        moonDir: su.moonDir,
+        moonIntensity: su.moonIntensity,
+        time: su.time,
+        prevWeatherType: su.prevWeatherType,
+        weatherBlend: su.weatherBlend,
+      }, timeOfDay);
+      if (this.iblSystem.isReady() && this.entityRenderer) {
+        const iblBg = this.iblSystem.getBindGroup();
+        if (iblBg) { this.entityRenderer.setPBRBindGroup(iblBg); }
+      }
+    }
     // Terrain
     if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Terrain", passEncoder, viewportIdx); }
     const tvp = engineCalculateViewProj(camera);
@@ -1085,6 +1107,7 @@ export class WebGPURenderer {
     this.labelOverlay?.destroy();
     this.debugOverlay?.destroy();
     this.debugRaycast?.destroy();
+    this.iblSystem?.destroy();
     this.profilingOverlay?.destroy();
     this.profilingOverlay = null;
     this.gpuProfiler?.destroy();
