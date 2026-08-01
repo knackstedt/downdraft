@@ -215,4 +215,136 @@ describe("AssetManager", () => {
     const mgr = new AssetManager();
     await expect(mgr.load("unknown.xyz")).rejects.toThrow();
   });
+
+  it("should resolve URIs through search paths", async () => {
+    const mgr = new AssetManager();
+    const seenUris: string[] = [];
+    mgr.registerLoader("txt", async (uri) => {
+      seenUris.push(uri);
+      return `data:${uri}`;
+    });
+    mgr.addSearchPath("engine", "/engine/resources/");
+    mgr.addSearchPath("game", "/game/assets/");
+
+    await mgr.load("fonts/doto.txt");
+    expect(seenUris[0]).toBe("/game/assets/fonts/doto.txt");
+  });
+
+  it("should try later search paths when earlier ones fail", async () => {
+    const mgr = new AssetManager();
+    const seenUris: string[] = [];
+    mgr.registerLoader("txt", async (uri) => {
+      seenUris.push(uri);
+      if (uri.includes("/game/assets/")) throw new Error("not found");
+      return `data:${uri}`;
+    });
+    mgr.addSearchPath("engine", "/engine/resources/");
+    mgr.addSearchPath("game", "/game/assets/");
+
+    const data = await mgr.load("shaders/default.txt");
+    expect(seenUris).toContain("/game/assets/shaders/default.txt");
+    expect(seenUris).toContain("/engine/resources/shaders/default.txt");
+    expect(data).toBe("data:/engine/resources/shaders/default.txt");
+  });
+
+  it("should pass absolute URIs through without search path resolution", async () => {
+    const mgr = new AssetManager();
+    const seenUris: string[] = [];
+    mgr.registerLoader("txt", async (uri) => {
+      seenUris.push(uri);
+      return `data:${uri}`;
+    });
+    mgr.addSearchPath("game", "/game/assets/");
+
+    await mgr.load("/absolute/path/file.txt");
+    expect(seenUris).toEqual(["/absolute/path/file.txt"]);
+  });
+
+  it("should pass protocol URIs through without search path resolution", async () => {
+    const mgr = new AssetManager();
+    const seenUris: string[] = [];
+    mgr.registerLoader("txt", async (uri) => {
+      seenUris.push(uri);
+      return `data:${uri}`;
+    });
+    mgr.addSearchPath("game", "/game/assets/");
+
+    await mgr.load("https://example.com/file.txt");
+    expect(seenUris).toEqual(["https://example.com/file.txt"]);
+  });
+
+  it("should resolveUriCandidates with last-added search path first", () => {
+    const mgr = new AssetManager();
+    mgr.addSearchPath("engine", "/engine/resources/");
+    mgr.addSearchPath("game", "/game/assets/");
+
+    const candidates = mgr.resolveUriCandidates("textures/sky.png");
+    expect(candidates[0]).toBe("/game/assets/textures/sky.png");
+    expect(candidates[1]).toBe("/engine/resources/textures/sky.png");
+    expect(candidates[2]).toBe("textures/sky.png");
+  });
+
+  it("should remove search paths by name", () => {
+    const mgr = new AssetManager();
+    mgr.addSearchPath("engine", "/engine/resources/");
+    mgr.addSearchPath("game", "/game/assets/");
+
+    expect(mgr.removeSearchPath("engine")).toBe(true);
+    expect(mgr.getSearchPaths()).toHaveLength(1);
+    expect(mgr.getSearchPaths()[0].name).toBe("game");
+    expect(mgr.removeSearchPath("nonexistent")).toBe(false);
+  });
+
+  it("should clear all search paths", () => {
+    const mgr = new AssetManager();
+    mgr.addSearchPath("engine", "/engine/resources/");
+    mgr.addSearchPath("game", "/game/assets/");
+
+    mgr.clearSearchPaths();
+    expect(mgr.getSearchPaths()).toHaveLength(0);
+    expect(mgr.resolveUriCandidates("file.txt")).toEqual(["file.txt"]);
+  });
+
+  it("should accept search paths via constructor options", () => {
+    const mgr = new AssetManager({
+      searchPaths: [
+        { name: "engine", basePath: "/engine/resources/" },
+        { name: "game", basePath: "/game/assets/" },
+      ],
+    });
+    expect(mgr.getSearchPaths()).toHaveLength(2);
+    const candidates = mgr.resolveUriCandidates("file.txt");
+    expect(candidates[0]).toBe("/game/assets/file.txt");
+    expect(candidates[1]).toBe("/engine/resources/file.txt");
+  });
+
+  it("should replace search path when adding with same name", () => {
+    const mgr = new AssetManager();
+    mgr.addSearchPath("game", "/old/path/");
+    mgr.addSearchPath("game", "/new/path/");
+
+    expect(mgr.getSearchPaths()).toHaveLength(1);
+    expect(mgr.getSearchPaths()[0].basePath).toBe("/new/path/");
+  });
+
+  it("should normalize base paths to end with /", () => {
+    const mgr = new AssetManager();
+    mgr.addSearchPath("game", "/game/assets");
+    expect(mgr.getSearchPaths()[0].basePath).toBe("/game/assets/");
+  });
+
+  it("should cache by logical URI, not resolved path", async () => {
+    const mgr = new AssetManager();
+    let loadCount = 0;
+    mgr.registerLoader("txt", async (uri) => {
+      loadCount++;
+      return `data:${uri}`;
+    });
+    mgr.addSearchPath("game", "/game/assets/");
+
+    await mgr.load("file.txt");
+    await mgr.load("file.txt");
+    expect(loadCount).toBe(1);
+    expect(mgr.has("file.txt")).toBe(true);
+  });
 });
