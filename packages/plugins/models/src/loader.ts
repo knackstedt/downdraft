@@ -3,13 +3,15 @@
 // ============================================================================
 
 import type { AssetManager } from "@downdraft/core";
-import { detectFormat } from "./types.ts";
-import type { ModelData } from "./types.ts";
-import { parseOBJ } from "./obj.ts";
-import { parseGLTF } from "./gltf.ts";
-import { parseFBX } from "./fbx.ts";
 import { parseDAE } from "./dae.ts";
+import { parseFBX } from "./fbx.ts";
+import { parseGLTF } from "./gltf.ts";
+import { parseOBJ } from "./obj.ts";
+import { parsePLY } from "./ply.ts";
 import { parseSTL } from "./stl.ts";
+import { parse3DS } from "./threeds.ts";
+import type { ModelData } from "./types.ts";
+import { detectFormat } from "./types.ts";
 
 export interface ModelLoaderOptions {
   fetchFn?: (uri: string) => Promise<Response>;
@@ -41,6 +43,10 @@ export function loadModel(
       return parseDAE(data, baseName);
     case "stl":
       return parseSTL(data, baseName);
+    case "ply":
+      return parsePLY(data, baseName);
+    case "3ds":
+      return parse3DS(data, baseName);
   }
 }
 
@@ -86,6 +92,10 @@ export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
         return parseDAE(data, baseName);
       case "stl":
         return parseSTL(data, baseName);
+      case "ply":
+        return parsePLY(data, baseName);
+      case "3ds":
+        return parse3DS(data, baseName);
     }
   };
 }
@@ -95,7 +105,7 @@ export function registerModelLoaders(
   opts: ModelLoaderOptions = {},
 ): void {
   const loader = createModelAsyncLoader(opts);
-  const extensions = ["fbx", "gltf", "glb", "obj", "dae", "stl"];
+  const extensions = ["fbx", "gltf", "glb", "obj", "dae", "stl", "ply", "3ds"];
   for (const ext of extensions) {
     assetManager.registerLoader(ext, loader);
   }

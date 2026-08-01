@@ -97,6 +97,7 @@ export { HDRSupport } from "./render/hdr.ts";
 export type { HDRConfig as RenderHDRConfig } from "./render/hdr.ts";
 export { MaterialHotReloader } from "./render/hot-reload.ts";
 export type { HotReloadCallback, WatchedMesh, WatchedShader, WatchedTexture } from "./render/hot-reload.ts";
+export { IBL_SHADER_CHUNK, IBLBindGroup } from "./render/ibl-bind-group.ts";
 export { InputManager } from "./render/input-manager.ts";
 export type { RenderInputState } from "./render/input-manager.ts";
 export { createDefaultLightUniform, createDirectionalLight, createPointLight, LightType, MAX_POINT_LIGHTS, packLightUniform, packPointLights } from "./render/lighting.ts";
@@ -132,6 +133,8 @@ export { RenderPass } from "./render/render-pass.ts";
 export type { FrameGraphBuilder, GraphRenderContext, PassType, RenderPassContext } from "./render/render-pass.ts";
 export { RenderPipeline } from "./render/render-pipeline.ts";
 export type { RenderContext, RenderPassEntry, RenderPassSlot } from "./render/render-pipeline.ts";
+export { SkyboxRenderer } from "./render/skybox.ts";
+export type { SkyboxOptions } from "./render/skybox.ts";
 export { SurfaceManager } from "./render/surface.ts";
 export { TrackedRenderPass } from "./render/tracked-render-pass.ts";
 export { ViewportLayout, viewportRectToPixels } from "./render/viewport.ts";
@@ -231,14 +234,24 @@ export type { SaveData } from "./save/serializer.ts";
 // Assets
 export { GPUResourceCache } from "./assets/cache.ts";
 export type { GPUCacheEntry } from "./assets/cache.ts";
+export { EquirectToCubemapConverter } from "./assets/cubemap-converter.ts";
+export type { EquirectToCubemapOptions } from "./assets/cubemap-converter.ts";
+export { EnvironmentManager } from "./assets/environment-manager.ts";
+export type { EnvironmentManagerOptions, EnvironmentMap } from "./assets/environment-manager.ts";
 export { AssetImporter } from "./assets/importer.ts";
 export type { ImportOptions, ImportResult } from "./assets/importer.ts";
+export { IrradianceGenerator } from "./assets/irradiance-generator.ts";
+export type { IrradianceOptions } from "./assets/irradiance-generator.ts";
 export { detectAudioFormat, loadAudioFile, loadAudioFromBuffer, registerAudioLoader } from "./assets/loader-audio.ts";
+export { createEquirectangularGPUTexture, createGPUCubemap, loadCubemapFromDirectory, loadCubemapFromFiles } from "./assets/loader-cubemap.ts";
+export type { CubemapData, CubemapFaceData } from "./assets/loader-cubemap.ts";
+export { loadDDSFromBuffer, loadDDSTexture, parseDDS } from "./assets/loader-dds.ts";
+export { loadEXRTexture, loadHDRFile, loadHDRTexture, parseEXR, parseHDR } from "./assets/loader-hdr.ts";
 export { GLBLoader } from "./assets/loader-mesh.ts";
 export type { GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFDocument, GLTFMesh, GLTFNode, GLTFPrimitive } from "./assets/loader-mesh.ts";
 export { ShaderLoader } from "./assets/loader-shader.ts";
 export type { ShaderSource } from "./assets/loader-shader.ts";
-export { createGPUTextureFromData, createSampler, detectTextureFormat, loadKTX2Texture, loadTexture, loadTextureFromImage } from "./assets/loader-texture.ts";
+export { createGPUTextureFromData, createSampler, detectTextureFormat, loadKTX2Texture, loadTexture, loadTextureFromImage, parseKTX2FromBuffer } from "./assets/loader-texture.ts";
 export type { TextureData, TextureFormat } from "./assets/loader-texture.ts";
 export { LODGenerator } from "./assets/lod.ts";
 export type { LODConfig, LODLevel } from "./assets/lod.ts";
@@ -252,6 +265,16 @@ export type {
     ProgressCallback,
     SearchPath
 } from "./assets/manager.ts";
+export { bridgeMaterial, bridgeMaterials } from "./assets/material-bridge.ts";
+export type { BridgedMaterial } from "./assets/material-bridge.ts";
+export { importMaterial, importModel, importSingleMesh } from "./assets/model-importer.ts";
+export type { ImportedModel, ImportModelOptions } from "./assets/model-importer.ts";
+export { destroyGPUMesh, uploadMeshesToGPU, uploadMeshToGPU } from "./assets/model-to-gpu.ts";
+export type { GPUMesh } from "./assets/model-to-gpu.ts";
+export { convertPluginMesh, convertPluginModel } from "./assets/model-to-mesh.ts";
+export type { PluginMaterialData, PluginMeshData, PluginModelData, TargetLayout } from "./assets/model-to-mesh.ts";
+export { PrefilteredSpecularGenerator } from "./assets/prefilter-generator.ts";
+export type { PrefilterOptions } from "./assets/prefilter-generator.ts";
 
 // Blob Storage & Asset Manifest
 export { makeBlobUri, parseBlobUri } from "./assets/blob-store.ts";

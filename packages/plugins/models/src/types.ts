@@ -72,7 +72,7 @@ export interface ModelData {
   skin?: SkinData;
 }
 
-export type ModelFormat = "obj" | "gltf" | "glb" | "fbx" | "dae" | "stl";
+export type ModelFormat = "obj" | "gltf" | "glb" | "fbx" | "dae" | "stl" | "ply" | "3ds";
 
 export function detectFormat(filename: string): ModelFormat | null {
   const lower = filename.toLowerCase();
@@ -82,5 +82,7 @@ export function detectFormat(filename: string): ModelFormat | null {
   if (lower.endsWith(".fbx")) return "fbx";
   if (lower.endsWith(".dae")) return "dae";
   if (lower.endsWith(".stl")) return "stl";
+  if (lower.endsWith(".ply")) return "ply";
+  if (lower.endsWith(".3ds")) return "3ds";
   return null;
 }

@@ -1,4 +1,5 @@
 import { strFromU8 } from "fflate";
+import { processMaterialExtensions, type ExtensionProcessingContext } from "./gltf-extensions.ts";
 import type { AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData, ModelNode, SkinData } from "./types.ts";
 
 interface GLTFJson {
@@ -41,6 +42,7 @@ interface GLTFJson {
     alphaMode?: string;
     alphaCutoff?: number;
     doubleSided?: boolean;
+    extensions?: Record<string, unknown>;
   }[];
   textures?: { sampler?: number; source?: number }[];
   images?: { uri?: string; bufferView?: number; mimeType?: string; name?: string }[];
@@ -211,7 +213,7 @@ export function parseGLTF(data: ArrayBuffer, name: string, isGLB: boolean, binDa
         }
       }
 
-      materials.push({
+      const baseMat: MaterialData = {
         name: mat.name ?? `material_${i}`,
         baseColor: [baseColor[0], baseColor[1], baseColor[2], baseColor[3] ?? 1],
         metallic: pbr.metallicFactor ?? 0,
@@ -220,7 +222,15 @@ export function parseGLTF(data: ArrayBuffer, name: string, isGLB: boolean, binDa
         textureData,
         normalTextureUri,
         emissiveColor: mat.emissiveFactor ? [mat.emissiveFactor[0], mat.emissiveFactor[1], mat.emissiveFactor[2]] : undefined,
-      });
+      };
+
+      const extCtx: ExtensionProcessingContext = {
+        textures: json.textures,
+        images: json.images,
+        samplers: json.samplers,
+      };
+      const processedMat = processMaterialExtensions(baseMat, mat.extensions, extCtx);
+      materials.push(processedMat);
     }
   }
 

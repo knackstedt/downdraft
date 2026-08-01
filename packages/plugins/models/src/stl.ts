@@ -13,14 +13,18 @@ function isBinarySTL(data: ArrayBuffer): boolean {
   // If size matches binary format, it's binary
   if (expectedSize === data.byteLength) return true;
 
-  // Also check if it doesn't start with "solid" (ASCII check)
-  const header = new TextDecoder().decode(new Uint8Array(data, 0, 5));
-  if (header !== "solid") return true;
-
-  // Fallback: check for "facet" keyword in first 512 bytes (ASCII indicator)
-  const checkLen = Math.min(512, data.byteLength);
+  // Check for "facet" keyword in first 2048 bytes (ASCII indicator)
+  // This takes priority over the "solid" prefix check, since some ASCII STL
+  // files have comments before the "solid" keyword
+  const checkLen = Math.min(2048, data.byteLength);
   const text = new TextDecoder().decode(new Uint8Array(data, 0, checkLen));
-  return !text.includes("facet");
+  if (text.includes("facet")) return false;
+
+  // If no "facet" keyword found, check if it starts with "solid"
+  if (text.startsWith("solid")) return false;
+
+  // No ASCII indicators found, assume binary
+  return true;
 }
 
 function parseBinarySTL(data: ArrayBuffer, name: string): ModelData {
@@ -108,8 +112,9 @@ function parseASCIISTL(data: ArrayBuffer, name: string): ModelData {
         vertexMap.set(key, idx);
       }
       faceVerts.push(idx);
-    } else if (trimmed === "endfacet") {
+    } else if (trimmed === "endfacet" || trimmed === "endloop") {
       // Triangulate face (usually 3 verts, but handle n-gons)
+      // Some STL files omit "endfacet" and only use "endloop"
       if (faceVerts.length >= 3) {
         for (let j = 1; j < faceVerts.length - 1; j++) {
           indices.push(faceVerts[0], faceVerts[j], faceVerts[j + 1]);
