@@ -18,29 +18,14 @@
 
 import type { ChunkedVoxelField } from "./chunked-field.ts";
 import {
-  allocateChunk,
-  getChunkedVoxel,
-  isChunkEmpty,
-  isChunkGenerated,
-  markChunkGenerated,
-  setChunkedVoxel,
+    getChunkedVoxel,
+    isChunkEmpty,
+    isChunkGenerated,
+    setChunkedVoxel
 } from "./chunked-field.ts";
 import type { TerrainStreamingConfig } from "./streaming-config.ts";
 import { getLODVoxelSize } from "./streaming-config.ts";
-
-export interface VoxelField {
-  data: Float32Array;
-  dimX: number;
-  dimY: number;
-  dimZ: number;
-  voxelSize: number;
-  originX: number;
-  originY: number;
-  originZ: number;
-  isoLevel: number;
-  radius: number;
-}
-
+import type { VoxelField } from "./types.ts";
 export interface TerrainEntry {
   id: number;
   chunkX: number;

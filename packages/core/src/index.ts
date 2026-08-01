@@ -142,11 +142,8 @@ export type { DiffResult, PixelMatchOptions, PixelScanResult, VisionTestResult }
 // Mesh
 export { MeshBuilder } from "./mesh/builder.ts";
 export type { MeshData } from "./mesh/builder.ts";
-export { extractMeshFromField } from "./mesh/marching-cubes.ts";
-export type { ExtractMeshOptions, MeshColorFn } from "./mesh/marching-cubes.ts";
 export { gpuVertexFormat, PBR_VERTEX_LAYOUT, SKINNED_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, vertexFormatSize, wgslVertexFormat } from "./mesh/vertex-layout.ts";
 export type { VertexAttribute, VertexAttributeFormat, VertexLayout } from "./mesh/vertex-layout.ts";
-export type { ExtractedMesh, VoxelField } from "./mesh/voxel-field.ts";
 
 // Material
 export { MaterialCompiler } from "./material/compiler.ts";
