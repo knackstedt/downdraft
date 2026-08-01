@@ -368,3 +368,7 @@ export type { Logger } from "./util/logger.ts";
 // Sim Types (generic interfaces for plugin systems)
 export type { EntityId, InputReaderLike, PlayerId, Quat, SimEntityLike, SimPlayerLike, SimulationContext, Transform, Vec2, Vec3, Vec4 } from "./sim/types.ts";
 
+// Sim Worker Loop (reusable setTimeout-based loop for Web Workers)
+export { SimWorkerLoop } from "./sim/worker-loop.ts";
+export type { SimWorkerLoopConfig, SimWorkerLoopStats } from "./sim/worker-loop.ts";
+
