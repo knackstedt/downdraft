@@ -8,3 +8,6 @@ release
 
 # Devin MCP local overrides (personal API keys)
 .devin/config.local.json
+
+# Asset cache (downloaded from blob store)
+.downdraft-cache
