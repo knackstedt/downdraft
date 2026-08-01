@@ -2,116 +2,12 @@ import { type Mat4 } from "wgpu-matrix";
 import type { DebugDrawQueue, DebugText } from "../../debug-draw/queue.ts";
 import { RenderPass } from "../render-pass.ts";
 
-const DEBUG_LINE_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-};
-@group(0) @binding(0) var<uniform> camera: CameraUniforms;
-
-struct LineVertexInput {
-  @location(0) position: vec3<f32>,
-  @location(1) color: vec4<f32>,
-};
-
-struct LineVertexOutput {
-  @builtin(position) clipPosition: vec4<f32>,
-  @location(0) color: vec4<f32>,
-};
-
-@vertex
-fn vs_main(input: LineVertexInput) -> LineVertexOutput {
-  var output: LineVertexOutput;
-  output.clipPosition = camera.viewProj * vec4<f32>(input.position, 1.0);
-  output.color = input.color;
-  return output;
-}
-
-@fragment
-fn fs_main(input: LineVertexOutput) -> @location(0) vec4<f32> {
-  return input.color;
-}
-`;
-
-const DEBUG_POINT_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-};
-@group(0) @binding(0) var<uniform> camera: CameraUniforms;
-
-struct PointVertexInput {
-  @location(0) position: vec3<f32>,
-  @location(1) color: vec4<f32>,
-  @location(2) size: f32,
-};
-
-struct PointVertexOutput {
-  @builtin(position) clipPosition: vec4<f32>,
-  @location(0) color: vec4<f32>,
-  @location(1) pointSize: f32,
-};
-
-@vertex
-fn vs_main(input: PointVertexInput) -> PointVertexOutput {
-  var output: PointVertexOutput;
-  output.clipPosition = camera.viewProj * vec4<f32>(input.position, 1.0);
-  output.color = input.color;
-  output.pointSize = input.size;
-  return output;
-}
-
-@fragment
-fn fs_main(input: PointVertexOutput) -> @location(0) vec4<f32> {
-  return input.color;
-}
-`;
+import DEBUG_LINE_SHADER from "../shaders/debug/debug-line.wgsl?raw";
+import DEBUG_POINT_SHADER from "../shaders/debug/debug-point.wgsl?raw";
+import DEBUG_TEXT_SHADER from "../shaders/debug/debug-text.wgsl?raw";
 
 const LINE_STRIDE = 28;
 const POINT_STRIDE = 32;
-
-const DEBUG_TEXT_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  screenSize: vec2<f32>,
-  _pad: vec2<f32>,
-};
-@group(0) @binding(0) var<uniform> camera: CameraUniforms;
-@group(0) @binding(1) var glyphAtlas: texture_2d<f32>;
-@group(0) @binding(2) var glyphSampler: sampler;
-
-struct TextVertexInput {
-  @location(0) position: vec3<f32>,
-  @location(1) uv: vec2<f32>,
-  @location(2) color: vec4<f32>,
-};
-
-struct TextVertexOutput {
-  @builtin(position) clipPosition: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-  @location(1) color: vec4<f32>,
-};
-
-@vertex
-fn vs_main(input: TextVertexInput) -> TextVertexOutput {
-  var output: TextVertexOutput;
-  if (input.position.z == -1.0) {
-    // Screen space: position is in pixels, convert to NDC
-    let ndcX = (input.position.x / camera.screenSize.x) * 2.0 - 1.0;
-    let ndcY = 1.0 - (input.position.y / camera.screenSize.y) * 2.0;
-    output.clipPosition = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
-  } else {
-    output.clipPosition = camera.viewProj * vec4<f32>(input.position, 1.0);
-  }
-  output.uv = input.uv;
-  output.color = input.color;
-  return output;
-}
-
-@fragment
-fn fs_main(input: TextVertexOutput) -> @location(0) vec4<f32> {
-  let sampled = textureSample(glyphAtlas, glyphSampler, input.uv);
-  return vec4<f32>(input.color.rgb, sampled.r * input.color.a);
-}
-`;
 
 const GLYPH_W = 8;
 const GLYPH_H = 12;
