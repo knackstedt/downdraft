@@ -934,13 +934,13 @@
 
   chkChunkGrid.addEventListener("change", function () {
     chunkGridVisible = chkChunkGrid.checked;
-    callInspector("setShowChunkGrid", chunkGridVisible);
+    if (availableFeatures.setShowChunkGrid) callInspector("setShowChunkGrid", chunkGridVisible);
     saveOverlayState();
   });
 
   chkVelArrows.addEventListener("change", function () {
     velArrowsVisible = chkVelArrows.checked;
-    callInspector("setShowVelocityArrows", velArrowsVisible);
+    if (availableFeatures.setShowVelocityArrows) callInspector("setShowVelocityArrows", velArrowsVisible);
     saveOverlayState();
   });
 
@@ -1007,6 +1007,64 @@
     }
   });
 
+  // --- Feature Detection ---
+  // Query the page for available __sceneInspector methods and hide
+  // game-specific tabs/overlays for features that aren't present.
+  var availableFeatures = {};
+
+  function detectFeatures(callback) {
+    var code =
+      "(function(){ var s = window.__sceneInspector; if (!s) return null;" +
+      " return JSON.stringify({" +
+      "  getBoatLayout: typeof s.getBoatLayout === 'function'," +
+      "  getSimState: typeof s.getSimState === 'function'," +
+      "  getPlayerStats: typeof s.getPlayerStats === 'function'," +
+      "  getPhysicsStats: typeof s.getPhysicsStats === 'function'," +
+      "  getRendererStats: typeof s.getRendererStats === 'function'," +
+      "  getWorldEntities: typeof s.getWorldEntities === 'function'," +
+      "  getPlayerChunk: typeof s.getPlayerChunk === 'function'," +
+      "  sendWorldCommand: typeof s.sendWorldCommand === 'function'," +
+      "  setWeather: typeof s.setWeather === 'function'," +
+      "  setTimeOfDay: typeof s.setTimeOfDay === 'function'," +
+      "  setSimSpeed: typeof s.setSimSpeed === 'function'," +
+      "  getSimSpeed: typeof s.getSimSpeed === 'function'," +
+      "  getBiomeList: typeof s.getBiomeList === 'function'," +
+      "  setShowChunkGrid: typeof s.setShowChunkGrid === 'function'," +
+      "  setShowVelocityArrows: typeof s.setShowVelocityArrows === 'function'" +
+      "}); })()";
+    evalInPage(code, function (result, err) {
+      if (result) {
+        try { availableFeatures = JSON.parse(result); } catch (e) { availableFeatures = {}; }
+      }
+      applyFeatureVisibility();
+      callback();
+    });
+  }
+
+  function applyFeatureVisibility() {
+    // Debug Info tab: requires sim/player/physics stats
+    var hasDebugInfo = availableFeatures.getSimState || availableFeatures.getPlayerStats ||
+      availableFeatures.getPhysicsStats || availableFeatures.getRendererStats;
+    var hasBoatLayout = availableFeatures.getBoatLayout;
+    var hasWorld = availableFeatures.getWorldEntities && availableFeatures.sendWorldCommand;
+    var hasChunkGrid = availableFeatures.setShowChunkGrid;
+    var hasVelArrows = availableFeatures.setShowVelocityArrows;
+
+    // Hide/show game-specific tabs
+    var debugTab = document.getElementById("btn-debug-info");
+    if (debugTab) debugTab.style.display = hasDebugInfo ? "" : "none";
+    var boatTab = document.getElementById("btn-boat-layout");
+    if (boatTab) boatTab.style.display = hasBoatLayout ? "" : "none";
+    var worldTab = document.getElementById("btn-view-world");
+    if (worldTab) worldTab.style.display = hasWorld ? "" : "none";
+
+    // Hide/show game-specific overlay toggles
+    var chunkGridLabel = document.querySelector('label[data-game-specific] > #chk-chunkgrid');
+    if (chunkGridLabel) chunkGridLabel.parentElement.style.display = hasChunkGrid ? "" : "none";
+    var velArrowsLabel = document.querySelector('label[data-game-specific] > #chk-velarrows');
+    if (velArrowsLabel) velArrowsLabel.parentElement.style.display = hasVelArrows ? "" : "none";
+  }
+
   // --- Init ---
   function start() {
     refreshSceneTree();
@@ -1019,19 +1077,21 @@
     chkVelArrows.checked = velArrowsVisible;
     callInspector("setShowLabels", labelsVisible);
     callInspector("setShowHitboxes", hitboxesVisible);
-    callInspector("setShowChunkGrid", chunkGridVisible);
-    callInspector("setShowVelocityArrows", velArrowsVisible);
+    if (availableFeatures.setShowChunkGrid) callInspector("setShowChunkGrid", chunkGridVisible);
+    if (availableFeatures.setShowVelocityArrows) callInspector("setShowVelocityArrows", velArrowsVisible);
     // Auto-refresh every 500ms
     refreshTimer = setInterval(refreshSceneTree, 500);
-    // Auto-open debug info view on startup
-    switchView("debug");
+    // Auto-open debug info view if available, otherwise scene
+    var hasDebugInfo = availableFeatures.getSimState || availableFeatures.getPlayerStats ||
+      availableFeatures.getPhysicsStats || availableFeatures.getRendererStats;
+    switchView(hasDebugInfo ? "debug" : "scene");
   }
 
   // Check if inspector is ready, then start
   function waitForInspector() {
     getSceneInspector().then(function (inspector) {
       if (inspector) {
-        start();
+        detectFeatures(start);
       } else {
         setTimeout(waitForInspector, 1000);
       }
@@ -1495,6 +1555,13 @@
 
 
   function switchView(view) {
+    // Guard: fall back to scene if game-specific view is unavailable
+    if (view === "debug" && !(availableFeatures.getSimState || availableFeatures.getPlayerStats ||
+      availableFeatures.getPhysicsStats || availableFeatures.getRendererStats)) {
+      view = "scene";
+    }
+    if (view === "boat" && !availableFeatures.getBoatLayout) view = "scene";
+    if (view === "world" && !(availableFeatures.getWorldEntities && availableFeatures.sendWorldCommand)) view = "scene";
     currentView = view;
     // Update tab button states
     btnViewScene.classList.toggle("active", view === "scene");
