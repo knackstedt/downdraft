@@ -36,6 +36,8 @@ type SimApi = {
   sendWorldCommand(cmd: any): Promise<void>;
   setWeather(weatherType: number): Promise<void>;
   setTimeOfDay(time: number): Promise<void>;
+  setSimSpeed(speed: number): Promise<void>;
+  getSimSpeed(): Promise<number>;
 };
 
 export class SimWebWorker {
@@ -183,6 +185,15 @@ export class SimWebWorker {
 
   setTimeOfDay(time: number): void {
     this.wp?.proxy.setTimeOfDay(time).catch(() => {});
+  }
+
+  setSimSpeed(speed: number): void {
+    this.wp?.proxy.setSimSpeed(speed).catch(() => {});
+  }
+
+  async getSimSpeed(): Promise<number> {
+    if (!this.wp) return 1.0;
+    return this.wp.proxy.getSimSpeed().catch(() => 1.0);
   }
 
   async stop(): Promise<void> {

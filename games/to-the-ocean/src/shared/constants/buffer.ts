@@ -3,6 +3,8 @@
 export const SIM_TICK_RATE = 60;           // Hz
 export const SIM_TICK_DT = 1 / SIM_TICK_RATE;
 export const PHYSICS_SUBSTEPS = 3;
+export const MAX_SIM_SPEED = 10;           // max tick multiplier for speed-up
+export const MIN_SIM_SPEED = 0;            // 0 = paused (no ticks)
 export const MAX_ENTITIES = 8192;
 export const MAX_PLAYERS = 8;
 export const CHUNK_SIZE = 256;             // meters
