@@ -23,7 +23,15 @@
       "@downdraft/plugin-water": ["packages/plugins/water/src/index.ts"],
       "@downdraft/plugin-water/*": ["packages/plugins/water/src/*"],
       "@downdraft/plugin-physics-rapier": ["packages/plugins/physics-rapier/src/index.ts"],
-      "@downdraft/plugin-audio-kira": ["packages/plugins/audio-kira/src/index.ts"]
+      "@downdraft/plugin-audio-kira": ["packages/plugins/audio-kira/src/index.ts"],
+    "@downdraft/plugin-postfx": ["packages/plugins/postfx/src/index.ts"],
+    "@downdraft/plugin-postfx/*": ["packages/plugins/postfx/src/*"],
+    "@downdraft/plugin-lighting": ["packages/plugins/lighting/src/index.ts"],
+    "@downdraft/plugin-lighting/*": ["packages/plugins/lighting/src/*"],
+    "@downdraft/plugin-weatherfx": ["packages/plugins/weatherfx/src/index.ts"],
+    "@downdraft/plugin-weatherfx/*": ["packages/plugins/weatherfx/src/*"],
+    "@downdraft/plugin-weather": ["packages/plugins/weather/src/index.ts"],
+    "@downdraft/plugin-weather/*": ["packages/plugins/weather/src/*"]
     }
   },
   "references": [

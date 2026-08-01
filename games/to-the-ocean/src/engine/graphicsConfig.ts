@@ -1,2 +1,1 @@
-export const MSAA_SAMPLE_COUNT = 1;
-export const DEPTH_FORMAT: GPUTextureFormat = "depth32float";
+export { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";

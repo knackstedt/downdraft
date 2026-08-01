@@ -1,13 +1,14 @@
-import type { RenderLoop } from "../render/render-loop.ts";
 import type { GameWorld } from "./world.ts";
+
+export type RenderCallback = (alpha: number) => void;
 
 export interface GameLoopConfig {
   /** Fixed simulation timestep in seconds (e.g., 1/60 for 60Hz). */
   fixedDt: number;
   /** Maximum simulation steps per frame to prevent the spiral of death. */
   maxStepsPerFrame: number;
-  /** Optional RenderLoop for GPU rendering. When provided, GameLoop drives rendering. */
-  renderLoop?: RenderLoop;
+  /** Optional render callback invoked once per frame with interpolation alpha. */
+  onRender?: RenderCallback;
 }
 
 export interface GameLoopStats {
@@ -28,12 +29,12 @@ export interface GameLoopStats {
  * 5. Compute interpolation alpha = accumulator / fixedDt.
  * 6. Render once per frame, passing alpha for interpolation.
  *
- * The RenderLoop (if provided) is set to non-autonomous mode so GameLoop
- * controls when rendering happens — no separate RAF loop.
+ * The render callback (if provided) is invoked once per frame after
+ * simulation steps, receiving the interpolation alpha.
  */
 export class GameLoop {
   private gameWorld: GameWorld;
-  private renderLoop: RenderLoop | null;
+  private renderCb: RenderCallback | null;
   private fixedDt: number;
   private maxSteps: number;
   private running: boolean = false;
@@ -48,13 +49,9 @@ export class GameLoop {
 
   constructor(gameWorld: GameWorld, config: GameLoopConfig) {
     this.gameWorld = gameWorld;
-    this.renderLoop = config.renderLoop ?? null;
+    this.renderCb = config.onRender ?? null;
     this.fixedDt = config.fixedDt;
     this.maxSteps = config.maxStepsPerFrame;
-
-    if (this.renderLoop) {
-      this.renderLoop.setAutonomous(false);
-    }
   }
 
   /** Start the unified game loop. */
@@ -63,10 +60,6 @@ export class GameLoop {
     this.running = true;
     this.accumulator = 0;
     this.lastTime = performance.now();
-
-    if (this.renderLoop) {
-      this.renderLoop.start();
-    }
 
     // Only start the RAF loop if requestAnimationFrame is available
     // (not in test environments like bun test).
@@ -81,9 +74,6 @@ export class GameLoop {
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
       this.rafId = 0;
-    }
-    if (this.renderLoop) {
-      this.renderLoop.stop();
     }
   }
 
@@ -132,19 +122,9 @@ export class GameLoop {
     return this.maxSteps;
   }
 
-  /** Attach or detach a RenderLoop at runtime. */
-  setRenderLoop(renderLoop: RenderLoop | null): void {
-    if (this.renderLoop) {
-      this.renderLoop.setAutonomous(true);
-      this.renderLoop.stop();
-    }
-    this.renderLoop = renderLoop;
-    if (renderLoop) {
-      renderLoop.setAutonomous(false);
-      if (this.running) {
-        renderLoop.start();
-      }
-    }
+  /** Attach or detach a render callback at runtime. */
+  setRenderCallback(cb: RenderCallback | null): void {
+    this.renderCb = cb;
   }
 
   getStats(): GameLoopStats {
@@ -197,8 +177,8 @@ export class GameLoop {
     this.gameWorld.resources.alpha = this.alpha;
 
     // Render once per frame
-    if (this.renderLoop) {
-      this.renderLoop.renderFrame(this.alpha);
+    if (this.renderCb) {
+      this.renderCb(this.alpha);
     }
 
     return steps;

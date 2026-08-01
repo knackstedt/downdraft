@@ -12,13 +12,25 @@
       "@renderer/*": ["packages/app/src/renderer/*"],
       "@sim/*": ["games/to-the-ocean/src/simulation/*"],
       "@downdraft/core/*": ["packages/core/src/*"],
-      "@downdraft/core": ["packages/core/src/index.ts"]
+      "@downdraft/core": ["packages/core/src/index.ts"],
+      "@downdraft/plugin-postfx": ["packages/plugins/postfx/src/index.ts"],
+      "@downdraft/plugin-postfx/*": ["packages/plugins/postfx/src/*"],
+      "@downdraft/plugin-lighting": ["packages/plugins/lighting/src/index.ts"],
+      "@downdraft/plugin-lighting/*": ["packages/plugins/lighting/src/*"],
+      "@downdraft/plugin-weatherfx": ["packages/plugins/weatherfx/src/index.ts"],
+      "@downdraft/plugin-weatherfx/*": ["packages/plugins/weatherfx/src/*"],
+      "@downdraft/plugin-weather": ["packages/plugins/weather/src/index.ts"],
+      "@downdraft/plugin-weather/*": ["packages/plugins/weather/src/*"]
     }
   },
   "include": [
     "packages/app/src/renderer/**/*",
     "packages/app/src/shared/**/*",
     "packages/core/src/**/*.ts",
+    "packages/plugins/postfx/src/**/*.ts",
+    "packages/plugins/lighting/src/**/*.ts",
+    "packages/plugins/weatherfx/src/**/*.ts",
+    "packages/plugins/weather/src/**/*.ts",
     "games/*/src/**/*"
   ],
   "exclude": ["**/*.spec.ts"]
