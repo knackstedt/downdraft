@@ -21,15 +21,20 @@ struct CameraUniforms {
 struct LightUniforms {
   dirDirection: vec4<f32>,  // xyz + intensity
   dirColor: vec4<f32>,      // xyz + castShadows
+  hemiDirIntensity: vec4<f32>, // xyz + intensity*hasHemisphere
+  hemiSkyColor: vec4<f32>,  // xyz + hasHemisphere
+  hemiGroundColor: vec4<f32>, // xyz + pad
   ambient: vec4<f32>,       // xyz + intensity
-  lightCount: vec4<f32>,    // x = count
+  lightCount: vec4<f32>,    // x = pointCount, y = spotCount
 };
 
 @group(0) @binding(7) var<uniform> lights: LightUniforms;
 
-@group(0) @binding(8) var pointLights: array<vec4<f32>, 16>;  // 8 lights * 2 vec4s
+@group(0) @binding(8) var<storage> pointLights: array<vec4<f32>>;
 
 @group(0) @binding(9) var lightViewProj: mat4x4<f32>;
+
+@group(0) @binding(10) var<storage> spotLights: array<vec4<f32>>;
 
 struct OutputResult {
   @location(0) color: vec4<f32>,
@@ -116,6 +121,15 @@ fn shadowFactor(worldPos: vec3<f32>) -> f32 {
   return result;
 }
 
+fn hemisphereAmbient(N: vec3<f32>) -> vec3<f32> {
+  if (lights.hemiDirIntensity.w < 0.5) {
+    return lights.ambient.rgb * lights.ambient.w;
+  }
+  let up = normalize(lights.hemiDirIntensity.xyz);
+  let hemiMix = max(dot(N, up), 0.0);
+  return mix(lights.hemiGroundColor.rgb, lights.hemiSkyColor.rgb, hemiMix) * lights.hemiDirIntensity.w;
+}
+
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> OutputResult {
   let albedoAO = textureLoad(albedoTex, vec2<i32>(uv * vec2<f32>(1280.0, 720.0)), 0);
@@ -139,8 +153,9 @@ fn fs_main(@location(0) uv: vec2<f32>) -> OutputResult {
 
   var color = vec3<f32>(0.0);
 
-  // Ambient
-  color += albedo * lights.ambient.rgb * lights.ambient.w * ao;
+  // Ambient / hemisphere ambient
+  let ambientTerm = hemisphereAmbient(N) * ao;
+  color += albedo * ambientTerm;
 
   // Directional light
   let L = normalize(-lights.dirDirection.xyz);
@@ -148,9 +163,9 @@ fn fs_main(@location(0) uv: vec2<f32>) -> OutputResult {
   color += pbrBRDF(albedo, metallic, roughness, N, V, L, lights.dirColor.rgb, lights.dirDirection.w) * shadow;
 
   // Point lights
-  let count = u32(lights.lightCount.x);
-  for (var i: u32 = 0u; i < 8u; i = i + 1u) {
-    if (i >= count) { break; }
+  let pointCount = u32(lights.lightCount.x);
+  for (var i: u32 = 0u; i < 32u; i = i + 1u) {
+    if (i >= pointCount) { break; }
     let pos = pointLights[i * 2u].xyz;
     let intensity = pointLights[i * 2u].w;
     let lightColor = pointLights[i * 2u + 1u].xyz;
@@ -162,6 +177,29 @@ fn fs_main(@location(0) uv: vec2<f32>) -> OutputResult {
 
     let Lp = toLight / dist;
     let attenuation = 1.0 / (1.0 + 0.5 * dist * dist);
+    color += pbrBRDF(albedo, metallic, roughness, N, V, Lp, lightColor, intensity) * attenuation;
+  }
+
+  // Spot lights (4 vec4s per spot light)
+  let spotCount = u32(lights.lightCount.y);
+  for (var i: u32 = 0u; i < 8u; i = i + 1u) {
+    if (i >= spotCount) { break; }
+    let base = i * 4u;
+    let pos = spotLights[base].xyz;
+    let intensity = spotLights[base].w;
+    let dir = spotLights[base + 1u].xyz;
+    let range = spotLights[base + 1u].w;
+    let lightColor = spotLights[base + 2u].xyz;
+    let innerCos = spotLights[base + 2u].w;
+    let outerCos = spotLights[base + 3u].x;
+    let toLight = pos - worldPos;
+    let dist = length(toLight);
+    if (dist > range) { continue; }
+    let Lp = toLight / dist;
+    let spotCos = dot(-Lp, dir);
+    if (spotCos < outerCos) { continue; }
+    let spotAtten = smoothstep(outerCos, innerCos, spotCos);
+    let attenuation = (1.0 / (1.0 + 0.5 * dist * dist)) * spotAtten;
     color += pbrBRDF(albedo, metallic, roughness, N, V, Lp, lightColor, intensity) * attenuation;
   }
 

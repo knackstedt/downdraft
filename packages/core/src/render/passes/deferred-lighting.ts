@@ -2,7 +2,7 @@ import { type Mat4 } from "wgpu-matrix";
 import type { GBufferViews } from "../g-buffer.ts";
 import { createIBLShaderChunk } from "../ibl-bind-group.ts";
 import type { LightUniformData } from "../lighting.ts";
-import { MAX_POINT_LIGHTS, packLightUniform, packPointLights } from "../lighting.ts";
+import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights } from "../lighting.ts";
 import { RenderPass } from "../render-pass.ts";
 
 const IBL_CHUNK = createIBLShaderChunk(1, true);
@@ -28,6 +28,9 @@ struct CameraUniforms {
 struct LightUniforms {
   dirDirection: vec4<f32>,
   dirColor: vec4<f32>,
+  hemiDirIntensity: vec4<f32>,
+  hemiSkyColor: vec4<f32>,
+  hemiGroundColor: vec4<f32>,
   ambient: vec4<f32>,
   lightCount: vec4<f32>,
 };
@@ -35,6 +38,7 @@ struct LightUniforms {
 @group(0) @binding(7) var<uniform> lights: LightUniforms;
 @group(0) @binding(8) var<storage> pointLights: array<vec4<f32>>;
 @group(0) @binding(9) var<uniform> lightViewProj: mat4x4<f32>;
+@group(0) @binding(10) var<storage> spotLights: array<vec4<f32>>;
 
 struct VertexOutput {
   @builtin(position) clipPosition: vec4<f32>,
@@ -112,6 +116,15 @@ fn shadowFactor(worldPos: vec3<f32>) -> f32 {
   return textureSampleCompare(shadowMapTex, shadowSampler, shadowUV, shadowDepth - bias);
 }
 
+fn hemisphereAmbient(N: vec3<f32>) -> vec3<f32> {
+  if (lights.hemiDirIntensity.w < 0.5) {
+    return lights.ambient.rgb * lights.ambient.w;
+  }
+  let up = normalize(lights.hemiDirIntensity.xyz);
+  let hemiMix = max(dot(N, up), 0.0);
+  return mix(lights.hemiGroundColor.rgb, lights.hemiSkyColor.rgb, hemiMix) * lights.hemiDirIntensity.w;
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let dims = vec2<f32>(textureDimensions(albedoTex, 0));
@@ -137,23 +150,26 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let V = normalize(camera.cameraPos - worldPos);
 
   var color = vec3<f32>(0.0);
+  // Ambient / hemisphere ambient
+  let ambientTerm = hemisphereAmbient(N) * ao;
   // IBL diffuse + specular from captured environment
   let R = reflect(-V, N);
   let F0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
   let NdotV = max(dot(N, V), 0.0);
   let F_ibl = F0 + (max(vec3<f32>(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
-  let iblDiffuse = getIBLDiffuse(N) * lights.ambient.w * ao;
-  let iblSpecular = getIBLSpecular(N, R, roughness) * F_ibl * lights.ambient.w * ao;
+  let iblDiffuse = getIBLDiffuse(N) * ao;
+  let iblSpecular = getIBLSpecular(N, R, roughness) * F_ibl * ao;
   let kD_ibl = (1.0 - metallic) * (1.0 / 3.14159265);
-  color += albedo * kD_ibl * iblDiffuse + iblSpecular;
+  color += albedo * kD_ibl * (iblDiffuse + ambientTerm) + iblSpecular;
 
   let L = normalize(-lights.dirDirection.xyz);
   let shadow = max(shadowFactor(worldPos), 0.35);
   color += pbrBRDF(albedo, metallic, roughness, N, V, L, lights.dirColor.rgb, lights.dirDirection.w) * shadow;
 
-  let count = u32(lights.lightCount.x);
-  for (var i = 0u; i < 8u; i = i + 1u) {
-    if (i >= count) { break; }
+  // Point lights
+  let pointCount = u32(lights.lightCount.x);
+  for (var i = 0u; i < ${MAX_POINT_LIGHTS}u; i = i + 1u) {
+    if (i >= pointCount) { break; }
     let pos = pointLights[i * 2u].xyz;
     let intensity = pointLights[i * 2u].w;
     let lightColor = pointLights[i * 2u + 1u].xyz;
@@ -163,6 +179,29 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (dist > range) { continue; }
     let Lp = toLight / dist;
     let attenuation = 1.0 / (1.0 + 0.5 * dist * dist);
+    color += pbrBRDF(albedo, metallic, roughness, N, V, Lp, lightColor, intensity) * attenuation;
+  }
+
+  // Spot lights (4 vec4s per spot light = 16 floats)
+  let spotCount = u32(lights.lightCount.y);
+  for (var i = 0u; i < ${MAX_SPOT_LIGHTS}u; i = i + 1u) {
+    if (i >= spotCount) { break; }
+    let base = i * 4u;
+    let pos = spotLights[base].xyz;
+    let intensity = spotLights[base].w;
+    let dir = spotLights[base + 1u].xyz;
+    let range = spotLights[base + 1u].w;
+    let lightColor = spotLights[base + 2u].xyz;
+    let innerCos = spotLights[base + 2u].w;
+    let outerCos = spotLights[base + 3u].x;
+    let toLight = pos - worldPos;
+    let dist = length(toLight);
+    if (dist > range) { continue; }
+    let Lp = toLight / dist;
+    let spotCos = dot(-Lp, dir);
+    if (spotCos < outerCos) { continue; }
+    let spotAtten = smoothstep(outerCos, innerCos, spotCos);
+    let attenuation = (1.0 / (1.0 + 0.5 * dist * dist)) * spotAtten;
     color += pbrBRDF(albedo, metallic, roughness, N, V, Lp, lightColor, intensity) * attenuation;
   }
 
@@ -186,6 +225,7 @@ export class DeferredLightingPass extends RenderPass {
   private cameraBuffer: GPUBuffer | null = null;
   private lightBuffer: GPUBuffer | null = null;
   private pointLightBuffer: GPUBuffer | null = null;
+  private spotLightBuffer: GPUBuffer | null = null;
   private lightViewProjBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private iblBindGroup: GPUBindGroup | null = null;
@@ -216,12 +256,17 @@ export class DeferredLightingPass extends RenderPass {
     });
 
     this.lightBuffer = this.device.createBuffer({
-      size: 64,
+      size: 128,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     this.pointLightBuffer = this.device.createBuffer({
       size: MAX_POINT_LIGHTS * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    this.spotLightBuffer = this.device.createBuffer({
+      size: MAX_SPOT_LIGHTS * 64,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
@@ -268,6 +313,8 @@ export class DeferredLightingPass extends RenderPass {
     this.device.queue.writeBuffer(this.lightBuffer!, 0, packed as unknown as BufferSource);
     const pointPacked = packPointLights(lightData);
     this.device.queue.writeBuffer(this.pointLightBuffer!, 0, pointPacked as unknown as BufferSource);
+    const spotPacked = packSpotLightsExtended(lightData);
+    this.device.queue.writeBuffer(this.spotLightBuffer!, 0, spotPacked as unknown as BufferSource);
   }
 
   updateLightViewProj(viewProj: Mat4): void {
@@ -306,6 +353,7 @@ export class DeferredLightingPass extends RenderPass {
     entries.push({ binding: 7, resource: { buffer: this.lightBuffer! } });
     entries.push({ binding: 8, resource: { buffer: this.pointLightBuffer! } });
     entries.push({ binding: 9, resource: { buffer: this.lightViewProjBuffer! } });
+    entries.push({ binding: 10, resource: { buffer: this.spotLightBuffer! } });
 
     return this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
@@ -369,6 +417,7 @@ export class DeferredLightingPass extends RenderPass {
     this.cameraBuffer?.destroy();
     this.lightBuffer?.destroy();
     this.pointLightBuffer?.destroy();
+    this.spotLightBuffer?.destroy();
     this.lightViewProjBuffer?.destroy();
     this.dummyDepthTexture?.destroy();
   }

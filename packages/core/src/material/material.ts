@@ -1,3 +1,17 @@
+export enum MaterialType {
+  PBR = "pbr",
+  Physical = "physical",
+  Toon = "toon",
+  Matcap = "matcap",
+  Normal = "normal",
+  Depth = "depth",
+  Shadow = "shadow",
+  Unlit = "unlit",
+  SSS = "sss",
+  Sprite = "sprite",
+  Line = "line",
+}
+
 export enum BlendMode {
   Opaque = "opaque",
   AlphaBlend = "alpha-blend",
@@ -13,7 +27,7 @@ export enum CullMode {
 
 export interface MaterialUniform {
   name: string;
-  type: "f32" | "vec2" | "vec3" | "vec4" | "mat4";
+  type: "f32" | "vec2" | "vec3" | "vec4" | "mat4" | "u32" | "vec4Array";
   binding: number;
 }
 
@@ -21,6 +35,7 @@ export interface MaterialTexture {
   name: string;
   binding: number;
   sampler: "linear-repeat" | "linear-clamp" | "point";
+  dimension?: "2d" | "cube";
 }
 
 export interface MaterialDefinition {
@@ -32,6 +47,7 @@ export interface MaterialDefinition {
   blendMode: BlendMode;
   cullMode: CullMode;
   profile?: string;
+  materialType?: MaterialType;
 }
 
 export class Material {
@@ -45,6 +61,7 @@ export class Material {
   uniformValues: Map<string, unknown> = new Map();
   pipelineKey: string = "";
   profile: string | undefined;
+  materialType: MaterialType;
 
   constructor(def: MaterialDefinition) {
     this.name = def.name;
@@ -55,6 +72,7 @@ export class Material {
     this.blendMode = def.blendMode;
     this.cullMode = def.cullMode;
     this.profile = def.profile;
+    this.materialType = def.materialType ?? MaterialType.PBR;
     this.updatePipelineKey();
   }
 
@@ -70,6 +88,6 @@ export class Material {
     const shaderHash = this.inlineShaderSource
       ? `${this.inlineShaderSource.length}:${this.inlineShaderSource.slice(0, 32)}`
       : this.shader;
-    this.pipelineKey = `${this.name}:${this.blendMode}:${this.cullMode}:${shaderHash}`;
+    this.pipelineKey = `${this.name}:${this.materialType}:${this.blendMode}:${this.cullMode}:${shaderHash}`;
   }
 }

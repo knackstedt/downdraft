@@ -1,6 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder.ts";
-import { MAX_POINT_LIGHTS, packLightUniform, packPointLights, type LightUniformData } from "../lighting.ts";
+import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights, packSpotLightsExtended, type LightUniformData } from "../lighting.ts";
 import { RenderPass } from "../render-pass.ts";
 
 const TRANSPARENT_SHADER = `
@@ -16,12 +16,16 @@ struct CameraUniforms {
 struct LightUniforms {
   dirDirection: vec4<f32>,
   dirColor: vec4<f32>,
+  hemiDirIntensity: vec4<f32>,
+  hemiSkyColor: vec4<f32>,
+  hemiGroundColor: vec4<f32>,
   ambient: vec4<f32>,
   lightCount: vec4<f32>,
 };
 
 @group(0) @binding(2) var<uniform> lights: LightUniforms;
 @group(0) @binding(3) var<storage> pointLights: array<vec4<f32>>;
+@group(0) @binding(4) var<storage> spotLights: array<vec4<f32>>;
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -56,7 +60,7 @@ fn pointLightContribution(
 ) -> vec3<f32> {
   var result = vec3<f32>(0.0);
   let count = u32(lights.lightCount.x);
-  for (var i = 0u; i < 8u; i = i + 1u) {
+  for (var i = 0u; i < ${MAX_POINT_LIGHTS}u; i = i + 1u) {
     if (i >= count) { break; }
     let pos = pointLights[i * 2u].xyz;
     let intensity = pointLights[i * 2u].w;
@@ -73,16 +77,58 @@ fn pointLightContribution(
   return result;
 }
 
+fn spotLightContribution(
+  albedo: vec3<f32>,
+  N: vec3<f32>,
+  V: vec3<f32>,
+  worldPos: vec3<f32>,
+) -> vec3<f32> {
+  var result = vec3<f32>(0.0);
+  let count = u32(lights.lightCount.y);
+  for (var i = 0u; i < ${MAX_SPOT_LIGHTS}u; i = i + 1u) {
+    if (i >= count) { break; }
+    let base = i * 4u;
+    let pos = spotLights[base].xyz;
+    let intensity = spotLights[base].w;
+    let dir = spotLights[base + 1u].xyz;
+    let range = spotLights[base + 1u].w;
+    let lightColor = spotLights[base + 2u].xyz;
+    let innerCos = spotLights[base + 2u].w;
+    let outerCos = spotLights[base + 3u].x;
+    let toLight = pos - worldPos;
+    let dist = length(toLight);
+    if (dist > range) { continue; }
+    let L = toLight / dist;
+    let spotCos = dot(-L, dir);
+    if (spotCos < outerCos) { continue; }
+    let spotAtten = smoothstep(outerCos, innerCos, spotCos);
+    let attenuation = (1.0 / (1.0 + 0.5 * dist * dist)) * spotAtten;
+    let NdotL = max(dot(N, L), 0.0);
+    result += albedo * lightColor * intensity * NdotL * attenuation;
+  }
+  return result;
+}
+
+fn hemisphereAmbient(N: vec3<f32>) -> vec3<f32> {
+  if (lights.hemiDirIntensity.w < 0.5) {
+    return lights.ambient.rgb * lights.ambient.w;
+  }
+  let up = normalize(lights.hemiDirIntensity.xyz);
+  let hemiMix = max(dot(N, up), 0.0);
+  return mix(lights.hemiGroundColor.rgb, lights.hemiSkyColor.rgb, hemiMix) * lights.hemiDirIntensity.w;
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let N = normalize(input.normal);
   let V = normalize(camera.cameraPos - input.worldPos);
   let L = normalize(-lights.dirDirection.xyz);
   let NdotL = max(dot(N, L), 0.0);
-  let ambient = lights.ambient.rgb * lights.ambient.w;
+  let ambient = hemisphereAmbient(N);
   let directional = input.color.rgb * lights.dirColor.rgb * lights.dirDirection.w * NdotL;
   let pointLights = pointLightContribution(input.color.rgb, N, V, input.worldPos);
-  let color = input.color.rgb * ambient + directional + pointLights;
+  let spotLights = spotLightContribution(input.color.rgb, N, V, input.worldPos);
+  let color = input.color.rgb * ambient + directional + pointLights + spotLights;
   return vec4<f32>(color, input.color.a);
 }
 `;
@@ -105,6 +151,7 @@ export class TransparentPass extends RenderPass {
   private modelBuffer: GPUBuffer | null = null;
   private lightBuffer: GPUBuffer | null = null;
   private pointLightBuffer: GPUBuffer | null = null;
+  private spotLightBuffer: GPUBuffer | null = null;
   private renderItems: TransparentRenderItem[] = [];
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
   private indexBuffers: Map<MeshData, GPUBuffer> = new Map();
@@ -133,12 +180,17 @@ export class TransparentPass extends RenderPass {
     });
 
     this.lightBuffer = this.device.createBuffer({
-      size: 64,
+      size: 128,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     this.pointLightBuffer = this.device.createBuffer({
       size: MAX_POINT_LIGHTS * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    this.spotLightBuffer = this.device.createBuffer({
+      size: MAX_SPOT_LIGHTS * 64,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
   }
@@ -187,6 +239,7 @@ export class TransparentPass extends RenderPass {
           { binding: 1, resource: { buffer: this.modelBuffer! } },
           { binding: 2, resource: { buffer: this.lightBuffer! } },
           { binding: 3, resource: { buffer: this.pointLightBuffer! } },
+          { binding: 4, resource: { buffer: this.spotLightBuffer! } },
         ],
       }));
     }
@@ -209,6 +262,8 @@ export class TransparentPass extends RenderPass {
     this.device.queue.writeBuffer(this.lightBuffer!, 0, packed as unknown as BufferSource);
     const pointPacked = packPointLights(lightData);
     this.device.queue.writeBuffer(this.pointLightBuffer!, 0, pointPacked as unknown as BufferSource);
+    const spotPacked = packSpotLightsExtended(lightData);
+    this.device.queue.writeBuffer(this.spotLightBuffer!, 0, spotPacked as unknown as BufferSource);
   }
 
   addItem(mesh: MeshData, modelMatrix: Mat4, distance: number): void {
@@ -284,6 +339,7 @@ export class TransparentPass extends RenderPass {
     this.modelBuffer?.destroy();
     this.lightBuffer?.destroy();
     this.pointLightBuffer?.destroy();
+    this.spotLightBuffer?.destroy();
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
