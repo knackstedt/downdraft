@@ -3,27 +3,27 @@
 // ============================================================================
 
 import {
-  MAX_ENTITIES, MAX_PLAYERS,
-  NIGHT_END_FRAC,
-  NIGHT_START_FRAC,
-  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
-  PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
-  PLAYER_MAX_THIRST,
-  SIM_TICK_DT
+    MAX_ENTITIES, MAX_PLAYERS,
+    NIGHT_END_FRAC,
+    NIGHT_START_FRAC,
+    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+    PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
+    PLAYER_MAX_THIRST,
+    SIM_TICK_DT
 } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
 import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
 import {
-  BiomeType,
-  CameraMode,
-  EntityId,
-  EntityType,
-  GameMode,
-  PlayerId,
-  SimCommand,
-  SimToMainMessage,
-  WeatherType,
-  WorldCommand
+    BiomeType,
+    CameraMode,
+    EntityId,
+    EntityType,
+    GameMode,
+    PlayerId,
+    SimCommand,
+    SimToMainMessage,
+    WeatherType,
+    WorldCommand
 } from "../shared/types";
 import { WaterBufferWriter } from "../shared/water-buffer";
 
@@ -40,6 +40,7 @@ import { DockingSystem } from "./building/DockingSystem";
 import { PlaceableSystem } from "./building/PlaceableSystem";
 import { CameraController } from "./camera/CameraController";
 import { MarketSystem } from "./economy/MarketSystem";
+import { SimEcsWorld } from "./ecs/SimEcsWorld";
 import { AnimalSystem } from "./farming/AnimalSystem";
 import { PetSystem } from "./farming/PetSystem";
 import { PlantSystem } from "./farming/PlantSystem";
@@ -126,6 +127,7 @@ export class Simulation {
   private toolSystem: ToolSystem;
   private shipInventories = new Map<number, InventoryGrid>();
   private jobScheduler: JobScheduler | null = null;
+  private ecs: SimEcsWorld | null = null;
 
   // State
   private gamemode = GameMode.Survival;
@@ -262,6 +264,9 @@ export class Simulation {
       this.marketSystem.initPortMarket(portId, size);
     };
     this.portSystem.setBoatCellSystem(this.boatCellSystem);
+
+    // Initialize ECS bridge (parallel to legacy arrays, enables incremental migration)
+    this.ecs = new SimEcsWorld();
   }
 
   async init(): Promise<void> {
@@ -339,6 +344,10 @@ export class Simulation {
 
     // Check for night skip (all sleeping players)
     this.checkNightSkip();
+
+    // Sync legacy arrays → ECS components (enables query-based system migration)
+    this.ecs?.syncEntities(this.entities, this.entityCount);
+    this.ecs?.syncPlayers(this.players, this.playerCount);
 
     // Update systems in order
     const sysTimes: { name: string; ms: number }[] = [];
@@ -487,7 +496,8 @@ export class Simulation {
     const t9 = performance.now();
     sysTimes.push({ name: "wildlife", ms: t9 - t8 });
     this.marketSystem.tick(dt);
-    this.animalSystem.tick(dt, this.entities, this.entityCount);
+    // AnimalSystem now runs as ECS system (EcsAnimalSystem) during ecs.step()
+    // this.animalSystem.tick(dt, this.entities, this.entityCount);
     this.plantSystem.tick(dt, this.entities, this.entityCount);
     this.petSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount);
     this.survivalSystem.tick(dt, this.players, this.playerCount, this.timeOfDay, this.weatherSystem, this.survivalBiomeAdapter);
@@ -545,6 +555,12 @@ export class Simulation {
     if (waterInterval <= 1 || this.totalTicks % waterInterval === 0) {
       this.updateWaterBuffer();
     }
+
+    // Step ECS world (flushes commands, runs any ECS-registered systems)
+    this.ecs?.step(dt);
+    // Write back ECS component changes to legacy arrays
+    this.ecs?.writeBackEntities(this.entities, this.entityCount);
+    this.ecs?.writeBackPlayers(this.players, this.playerCount);
 
     const tickEnd = performance.now();
     if (tickEnd - tickStart > 50) {
@@ -837,6 +853,9 @@ export class Simulation {
     if (slot === this.entityCount) this.entityCount++;
     this.entityIndex.set(id, { slot, gen });
 
+    // Sync to ECS bridge
+    this.ecs?.onSpawn(slot, this.entities[slot]!);
+
     // Register island terrain for volumetric deformation
     if (type === EntityType.Island) {
       this.terrainSystem.registerIsland(this.entities[slot]!);
@@ -881,6 +900,12 @@ export class Simulation {
     this.entityIndex.delete(id);
     this.entityCount--;
     this.freeSlots.push(lastIdx);
+
+    // Sync to ECS bridge
+    this.ecs?.onRemove(idx, id);
+    if (lastIdx !== idx) {
+      this.ecs?.onRemap(lastIdx, idx);
+    }
   }
 
   getBoatBuffer(): SharedArrayBuffer { return this.boatBuffer; }
@@ -989,6 +1014,9 @@ export class Simulation {
     };
 
     this.inputReader && this.simWriter.setPlayerCount(this.playerCount);
+
+    // Sync to ECS bridge
+    this.ecs?.onAddPlayer(idx, this.players[idx]!);
   }
 
   removePlayer(playerId: number): void {
@@ -1004,6 +1032,12 @@ export class Simulation {
         this.players[lastIdx] = undefined as any;
         this.playerCount--;
         this.simWriter.setPlayerCount(this.playerCount);
+
+        // Sync to ECS bridge
+        this.ecs?.onRemovePlayer(i);
+        if (lastIdx !== i) {
+          this.ecs?.onRemapPlayer(lastIdx, i);
+        }
         return;
       }
     }
