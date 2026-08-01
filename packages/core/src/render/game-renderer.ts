@@ -6,19 +6,19 @@
 // logic through callback hooks.
 // ============================================================================
 
+import { TelemetryCollector } from "../telemetry/collector.ts";
+import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay.ts";
+import { GPUProfiler, type FrameGraphData } from "../telemetry/gpu-profiler.ts";
+import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker.ts";
+import { UIRoot } from "../ui/element.ts";
+import { UIInputRouter } from "../ui/input.ts";
+import { LayoutEngine } from "../ui/layout.ts";
+import { UIRenderer } from "../ui/renderer.ts";
 import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher.ts";
 import { GPUDeviceManager } from "./device.ts";
 import { InputManager } from "./input-manager.ts";
 import { RenderPipeline, type RenderContext } from "./render-pipeline.ts";
 import { SurfaceManager } from "./surface.ts";
-import { GPUProfiler } from "../telemetry/gpu-profiler.ts";
-import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker.ts";
-import { TelemetryCollector } from "../telemetry/collector.ts";
-import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay.ts";
-import { LayoutEngine } from "../ui/layout.ts";
-import { UIInputRouter } from "../ui/input.ts";
-import { UIRenderer } from "../ui/renderer.ts";
-import { UIRoot } from "../ui/element.ts";
 
 export interface ViewportRect {
   x: number;
@@ -48,6 +48,7 @@ export interface FrameCallbacks {
   afterViewports?: (dt: number, elapsedTime: number) => void;
   afterFrame?: (dt: number, elapsedTime: number) => void;
   onResize?: (cssWidth: number, cssHeight: number, dpr: number) => void;
+  getPostProcessInfo?: () => { pixelationEnabled: boolean; pixelSize: number; postProcessEffects: string[] };
 }
 
 export interface CameraViewportInfo {
@@ -736,6 +737,16 @@ export class GameRenderer implements CanvasResizeHandler {
 
   getGPUProfiler(): GPUProfiler | null {
     return this.gpuProfiler;
+  }
+
+  getFrameGraph(): FrameGraphData | null {
+    if (!this.gpuProfiler) return null;
+    const passTimings = this.gpuProfiler.getPassTimings();
+    const ppInfo = this.callbacks.getPostProcessInfo?.() ?? {
+      pixelationEnabled: false, pixelSize: 4, postProcessEffects: [],
+    };
+    const passNames = this.pipeline.getEntries().map(e => e.name);
+    return GPUProfiler.buildFrameGraphData(passTimings, ppInfo, passNames);
   }
 
   getGPUResourceTracker(): GPUResourceTracker | null {

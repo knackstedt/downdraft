@@ -4,6 +4,8 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@downdraft/core": "workspace:*"
+    "@downdraft/core": "workspace:*",
+    "@downdraft/plugin-models": "workspace:*",
+    "zustand": "^5.0.2"
   }
 }

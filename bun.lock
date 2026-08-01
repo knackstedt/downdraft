@@ -138,6 +138,8 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
+        "@downdraft/plugin-models": "workspace:*",
+        "zustand": "^5.0.2",
       },
     },
     "packages/plugins/economy": {

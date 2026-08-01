@@ -356,7 +356,7 @@ export class GPUProfiler {
 
   // --- Frame Graph Builder ---
 
-  private static readonly SCENE_PASS_ORDER = [
+  static readonly DEFAULT_SCENE_PASS_ORDER = [
     "Sky", "Terrain", "Entities", "Clouds", "Water",
     "Debug", "Models", "Holo", "Particles", "Gizmo", "UnderwaterFog",
   ];
@@ -368,6 +368,7 @@ export class GPUProfiler {
   static buildFrameGraphData(
     passTimings: PassTiming[],
     ppInfo: PostProcessInfo,
+    scenePassOrder: string[] = GPUProfiler.DEFAULT_SCENE_PASS_ORDER,
   ): FrameGraphData {
     const timingMap = new Map<string, PassTiming>();
     for (const t of passTimings) timingMap.set(t.name, t);
@@ -383,7 +384,7 @@ export class GPUProfiler {
 
     // --- Scene passes (layer 0) ---
     const activeScenePasses: string[] = [];
-    for (const name of GPUProfiler.SCENE_PASS_ORDER) {
+    for (const name of scenePassOrder) {
       const t = timingMap.get(name);
       const active = !!t;
       const node: FrameGraphNode = {
@@ -534,7 +535,7 @@ export class GPUProfiler {
     }
 
     // Check for inactive scene passes that are always-on
-    const alwaysOnPasses = ["Sky", "Terrain", "Entities", "Water", "Debug"];
+    const alwaysOnPasses = scenePassOrder.slice(0, 5);
     for (const name of alwaysOnPasses) {
       const node = nodes.find(n => n.name === name);
       if (node && !node.active) {
