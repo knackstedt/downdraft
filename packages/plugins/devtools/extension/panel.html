@@ -8,10 +8,10 @@
   <div id="app">
     <div id="tab-bar">
       <button id="btn-view-scene" class="tab active" title="Scene tree view">Scene</button>
-      <button id="btn-debug-info" class="tab" title="Debug info view">Debug Info</button>
-      <button id="btn-boat-layout" class="tab" title="Boat layout view">Boat Layout</button>
+      <button id="btn-debug-info" class="tab" data-game-specific title="Debug info view">Debug Info</button>
+      <button id="btn-boat-layout" class="tab" data-game-specific title="Boat layout view">Boat Layout</button>
       <button id="btn-view-import" class="tab" title="Import models">Import</button>
-      <button id="btn-view-world" class="tab" title="World map controls">World</button>
+      <button id="btn-view-world" class="tab" data-game-specific title="World map controls">World</button>
       <button id="btn-view-perf" class="tab" title="External performance charts">Performance</button>
       <div class="tab-spacer"></div>
       <button id="btn-overlays-menu" class="tab" title="Debug overlay toggles">Overlays &#9662;</button>
@@ -19,8 +19,8 @@
     <div id="overlays-menu" class="overlays-menu" style="display:none">
       <label class="overlay-toggle-row"><input type="checkbox" id="chk-labels"> Labels</label>
       <label class="overlay-toggle-row"><input type="checkbox" id="chk-hitboxes"> Hitboxes</label>
-      <label class="overlay-toggle-row"><input type="checkbox" id="chk-chunkgrid"> Chunk Grid</label>
-      <label class="overlay-toggle-row"><input type="checkbox" id="chk-velarrows"> Vel Arrows</label>
+      <label class="overlay-toggle-row" data-game-specific><input type="checkbox" id="chk-chunkgrid"> Chunk Grid</label>
+      <label class="overlay-toggle-row" data-game-specific><input type="checkbox" id="chk-velarrows"> Vel Arrows</label>
     </div>
     <div id="scene-toolbar" class="scene-toolbar">
       <div class="toolbar-group">

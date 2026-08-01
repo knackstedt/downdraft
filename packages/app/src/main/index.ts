@@ -247,7 +247,7 @@ async function createWindow(): Promise<void> {
 
   // Load DevTools extension for 3D Scene Inspector
   const devtoolsExtPath = isDev
-    ? join(__dirname, "../../devtools-extension")
+    ? join(__dirname, "../../packages/plugins/devtools/extension")
     : join(process.resourcesPath, "devtools-extension");
 
   if (existsSync(devtoolsExtPath)) {
