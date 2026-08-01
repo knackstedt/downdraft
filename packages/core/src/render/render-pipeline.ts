@@ -5,19 +5,7 @@
 
 import type { CameraState } from "./camera.ts";
 
-export type RenderPassSlot =
-  | "sky"
-  | "terrain"
-  | "entities"
-  | "clouds"
-  | "water"
-  | "debug"
-  | "models"
-  | "holo"
-  | "particles"
-  | "gizmo"
-  | "underwater-fog"
-  | "custom";
+export type RenderPassSlot = string;
 
 export interface RenderContext {
   device: GPUDevice;
@@ -40,31 +28,24 @@ export interface RenderPassEntry {
   order: number;
 }
 
-const SLOT_ORDER: RenderPassSlot[] = [
-  "sky",
-  "terrain",
-  "entities",
-  "clouds",
-  "water",
-  "debug",
-  "models",
-  "holo",
-  "particles",
-  "gizmo",
-  "underwater-fog",
-  "custom",
-];
-
-const SLOT_INDEX: Record<string, number> = {};
-SLOT_ORDER.forEach((s, i) => { SLOT_INDEX[s] = i; });
-
 export class RenderPipeline {
   private entries: RenderPassEntry[] = [];
   private sorted: RenderPassEntry[] = [];
   private dirty = true;
+  private slotOrder: string[] = [];
+  private slotIndex: Record<string, number> = {};
+
+  /** Games define their slot order by passing an ordered list of slot names. */
+  setSlotOrder(slots: string[]): void {
+    this.slotOrder = [...slots];
+    this.slotIndex = {};
+    this.slotOrder.forEach((s, i) => { this.slotIndex[s] = i; });
+    // Re-sort existing entries
+    this.dirty = true;
+  }
 
   registerPass(slot: RenderPassSlot, name: string, render: (ctx: RenderContext) => void): void {
-    this.entries.push({ slot, name, render, order: SLOT_INDEX[slot] ?? SLOT_ORDER.length });
+    this.entries.push({ slot, name, render, order: this.slotIndex[slot] ?? this.slotOrder.length });
     this.dirty = true;
   }
 

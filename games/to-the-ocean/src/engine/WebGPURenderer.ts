@@ -1026,7 +1026,8 @@ export class WebGPURenderer {
     const passTimings = profiler.getPassTimings();
     const ppInfo = this.accessors.getPostProcessInfo();
     const passNames = passTimings.map(t => t.name);
-    return GPUProfiler.buildFrameGraphData(passTimings, ppInfo, passNames);
+    const alwaysOn = ["Sky", "Terrain", "Entities", "Clouds", "Water"];
+    return GPUProfiler.buildFrameGraphData(passTimings, ppInfo, passNames, alwaysOn);
   }
   setPixelationEnabled(e: boolean): void { this.accessors.setPixelationEnabled(e); }
   setPixelSize(s: number): void { this.accessors.setPixelSize(s); }
