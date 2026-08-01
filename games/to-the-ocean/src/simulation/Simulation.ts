@@ -350,10 +350,6 @@ export class Simulation {
     // Check for night skip (all sleeping players)
     this.checkNightSkip();
 
-    // Sync legacy arrays → ECS components (enables query-based system migration)
-    this.ecs?.syncEntities(this.entities, this.entityCount);
-    this.ecs?.syncPlayers(this.players, this.playerCount);
-
     // Update systems in order
     const sysTimes: { name: string; ms: number }[] = [];
     const t0 = performance.now();
@@ -564,6 +560,10 @@ export class Simulation {
     if (waterInterval <= 1 || this.totalTicks % waterInterval === 0) {
       this.updateWaterBuffer();
     }
+
+    // Sync legacy arrays → ECS components (after legacy systems, so ECS has latest state)
+    this.ecs?.syncEntities(this.entities, this.entityCount);
+    this.ecs?.syncPlayers(this.players, this.playerCount);
 
     // Step ECS world (flushes commands, runs any ECS-registered systems)
     this.ecs?.step(dt);
