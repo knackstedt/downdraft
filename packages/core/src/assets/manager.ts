@@ -24,10 +24,16 @@ export interface AssetRef {
   priority: AssetPriority;
 }
 
+export interface SearchPath {
+  name: string;
+  basePath: string;
+}
+
 export interface AssetManagerOptions {
   maxConcurrentLoads?: number;
   memoryBudget?: number;
   progressCallback?: ProgressCallback;
+  searchPaths?: SearchPath[];
 }
 
 interface LoadQueueEntry {
@@ -59,11 +65,50 @@ export class AssetManager {
   private memoryBudget: number;
   private currentMemoryUsage: number = 0;
   private globalProgressCallback?: ProgressCallback;
+  private searchPaths: SearchPath[] = [];
 
   constructor(opts: AssetManagerOptions = {}) {
     this.maxConcurrentLoads = opts.maxConcurrentLoads ?? 4;
     this.memoryBudget = opts.memoryBudget ?? 0;
     this.globalProgressCallback = opts.progressCallback;
+    if (opts.searchPaths) {
+      for (const sp of opts.searchPaths) {
+        this.addSearchPath(sp.name, sp.basePath);
+      }
+    }
+  }
+
+  addSearchPath(name: string, basePath: string): void {
+    const normalized = basePath.endsWith("/") ? basePath : basePath + "/";
+    this.removeSearchPath(name);
+    this.searchPaths.push({ name, basePath: normalized });
+  }
+
+  removeSearchPath(name: string): boolean {
+    const idx = this.searchPaths.findIndex((sp) => sp.name === name);
+    if (idx === -1) return false;
+    this.searchPaths.splice(idx, 1);
+    return true;
+  }
+
+  clearSearchPaths(): void {
+    this.searchPaths = [];
+  }
+
+  getSearchPaths(): readonly SearchPath[] {
+    return this.searchPaths;
+  }
+
+  resolveUriCandidates(uri: string): string[] {
+    if (/^(https?:|data:|blob:|file:)/i.test(uri)) return [uri];
+    if (uri.startsWith("/")) return [uri];
+    if (this.searchPaths.length === 0) return [uri];
+    const candidates: string[] = [];
+    for (let i = this.searchPaths.length - 1; i >= 0; i--) {
+      candidates.push(this.searchPaths[i].basePath + uri);
+    }
+    candidates.push(uri);
+    return candidates;
   }
 
   registerLoader(
@@ -178,8 +223,20 @@ export class AssetManager {
 
       this.tryEvictMemory(uri, entry.priority);
 
+      const candidates = this.resolveUriCandidates(uri);
+
       try {
-        const data = await loader(uri);
+        let data: unknown | undefined;
+        let lastError: Error | null = null;
+        for (const candidate of candidates) {
+          try {
+            data = await loader(candidate);
+            break;
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+          }
+        }
+        if (data === undefined) throw lastError ?? new Error(`Failed to load ${uri}`);
         const size = this.estimateSize(data);
 
         while (

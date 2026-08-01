@@ -249,7 +249,8 @@ export type {
     AssetManagerOptions,
     AssetPriority,
     AssetRef,
-    ProgressCallback
+    ProgressCallback,
+    SearchPath
 } from "./assets/manager.ts";
 
 // Physics
