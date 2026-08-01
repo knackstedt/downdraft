@@ -1,0 +1,5 @@
+  wetness: f32,
+  _pad3: f32,
+  sunDirIntensity: vec4<f32>,
+  ambientParams: vec4<f32>,
+  fogColor: vec4<f32>,

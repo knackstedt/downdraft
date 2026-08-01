@@ -5,6 +5,7 @@
 
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { LightingSystem } from "./lighting-system.ts";
+import DEBUG_WGSL from "./shaders/light-debug.wgsl?raw";
 
 export const MAX_POINT_LIGHTS = 32;
 export const MAX_SPOT_LIGHTS = 8;
@@ -344,38 +345,6 @@ export class LightSystem extends LightingSystem {
       entries: [{ binding: 0, resource: { buffer: this.debugUniformBuffer } }],
     });
 
-    const DEBUG_WGSL = /* wgsl */ `
-      struct Uniforms {
-        viewProj: mat4x4<f32>,
-      };
-      @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-
-      struct VertexInput {
-        @location(0) position: vec3<f32>,
-        @location(1) instancePos: vec3<f32>,
-        @location(2) instanceRadius: f32,
-        @location(3) instanceColor: vec3<f32>,
-      };
-
-      struct VertexOutput {
-        @builtin(position) clipPos: vec4<f32>,
-        @location(0) color: vec3<f32>,
-      };
-
-      @vertex
-      fn vs_main(input: VertexInput) -> VertexOutput {
-        var output: VertexOutput;
-        let worldPos = input.position * input.instanceRadius + input.instancePos;
-        output.clipPos = uniforms.viewProj * vec4<f32>(worldPos, 1.0);
-        output.color = input.instanceColor;
-        return output;
-      }
-
-      @fragment
-      fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-        return vec4<f32>(input.color, 0.4);
-      }
-    `;
 
     const shaderModule = this.device.createShaderModule({ code: DEBUG_WGSL });
     this.debugPipeline = this.device.createRenderPipeline({

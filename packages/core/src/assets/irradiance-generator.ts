@@ -59,7 +59,7 @@ fn sampleCubemap(dir: vec3<f32>) -> vec3<f32> {
   let u = info.x;
   let v = info.y;
   let coords = vec2<i32>(i32(u * f32(textureDimensions(srcTex, 0).x)), i32(v * f32(textureDimensions(srcTex, 0).y)));
-  return textureLoad(srcTex, coords, i32(face)).rgb;
+  return textureLoad(srcTex, coords, i32(face), 0).rgb;
 }
 
 fn tangentToWorld(N: vec3<f32>, tangent: vec3<f32>, bitangent: vec3<f32>, sample: vec3<f32>) -> vec3<f32> {

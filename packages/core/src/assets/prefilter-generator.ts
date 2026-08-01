@@ -60,7 +60,7 @@ fn sampleCubemap(dir: vec3<f32>) -> vec3<f32> {
     i32(clamp(info.x, 0.0, 1.0) * f32(uniforms.srcSize)),
     i32(clamp(info.y, 0.0, 1.0) * f32(uniforms.srcSize)),
   );
-  return textureLoad(srcTex, coords, i32(face)).rgb;
+  return textureLoad(srcTex, coords, i32(face), 0).rgb;
 }
 
 fn radicalInverse(bits: u32) -> f32 {

@@ -4,24 +4,6 @@ export interface IBLBindGroupOptions {
   includeBRDFLUT?: boolean;
 }
 
-const IBL_LAYOUT_WITH_LUT: GPUBindGroupLayoutEntry[] = [
-  { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
-  { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
-  { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-  { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-  { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-  { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-  { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-];
-
-const IBL_LAYOUT_WITHOUT_LUT: GPUBindGroupLayoutEntry[] = [
-  { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
-  { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
-  { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-  { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-  { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-];
-
 export class IBLBindGroup {
   private device: GPUDevice;
   private includeBRDFLUT: boolean;
@@ -32,6 +14,8 @@ export class IBLBindGroup {
   private prefilterSampler: GPUSampler;
   private brdfSampler: GPUSampler;
   private defaultLUTTexture: GPUTexture | null = null;
+  private defaultIrradianceTex: GPUTexture | null = null;
+  private defaultPrefilterTex: GPUTexture | null = null;
 
   constructor(device: GPUDevice, options: IBLBindGroupOptions = {}) {
     this.device = device;
@@ -56,6 +40,31 @@ export class IBLBindGroup {
       addressModeU: "clamp-to-edge",
       addressModeV: "clamp-to-edge",
     });
+
+    // Eagerly create the bind group layout so pipelines can reference @group(2)
+    // before any environment map has been captured.
+    const entries: GPUBindGroupLayoutEntry[] = this.includeBRDFLUT
+      ? [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
+          { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+          { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        ]
+      : [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "cube" } },
+          { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        ];
+    this.bindGroupLayout = device.createBindGroupLayout({ entries });
+
+    // Create a default bind group with placeholder textures so pipelines
+    // can render before any environment map has been captured.
+    this.createDefaultBindGroup();
   }
 
   getBindGroupLayout(): GPUBindGroupLayout | null {
@@ -63,12 +72,6 @@ export class IBLBindGroup {
   }
 
   createBindGroup(envMap: EnvironmentMap): GPUBindGroup {
-    if (!this.bindGroupLayout) {
-      this.bindGroupLayout = this.device.createBindGroupLayout({
-        entries: this.includeBRDFLUT ? IBL_LAYOUT_WITH_LUT : IBL_LAYOUT_WITHOUT_LUT,
-      });
-    }
-
     if (!this.uniformBuffer) {
       this.uniformBuffer = this.device.createBuffer({
         size: 16,
@@ -132,9 +135,74 @@ export class IBLBindGroup {
     return this.defaultLUTTexture.createView();
   }
 
+  private createDefaultCubemapView(tex: GPUTexture | null, label: string): GPUTextureView {
+    if (!tex) {
+      tex = this.device.createTexture({
+        size: [1, 1, 6],
+        format: "rgba16float",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        label,
+      });
+      const faceData = new Uint16Array(6 * 4);
+      for (let i = 0; i < 6; i++) {
+        faceData[i * 4 + 0] = 0x3C00;
+        faceData[i * 4 + 1] = 0x3C00;
+        faceData[i * 4 + 2] = 0x3C00;
+        faceData[i * 4 + 3] = 0x3C00;
+      }
+      this.device.queue.writeTexture(
+        { texture: tex },
+        faceData,
+        { bytesPerRow: 8, rowsPerImage: 1 },
+        { width: 1, height: 1, depthOrArrayLayers: 6 },
+      );
+      if (label === "default_irradiance") this.defaultIrradianceTex = tex;
+      else this.defaultPrefilterTex = tex;
+    }
+    return tex.createView({ dimension: "cube" });
+  }
+
+  private createDefaultBindGroup(): void {
+    if (!this.uniformBuffer) {
+      this.uniformBuffer = this.device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+    }
+    const mipData = new Float32Array(4);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, mipData);
+
+    const irradianceView = this.createDefaultCubemapView(this.defaultIrradianceTex, "default_irradiance");
+    const prefilterView = this.createDefaultCubemapView(this.defaultPrefilterTex, "default_prefilter");
+
+    const entries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: irradianceView },
+      { binding: 1, resource: prefilterView },
+    ];
+
+    if (this.includeBRDFLUT) {
+      entries.push({ binding: 2, resource: this.createDefaultLUTView() });
+      entries.push({ binding: 3, resource: this.irradianceSampler });
+      entries.push({ binding: 4, resource: this.prefilterSampler });
+      entries.push({ binding: 5, resource: this.brdfSampler });
+      entries.push({ binding: 6, resource: { buffer: this.uniformBuffer } });
+    } else {
+      entries.push({ binding: 2, resource: this.irradianceSampler });
+      entries.push({ binding: 3, resource: this.prefilterSampler });
+      entries.push({ binding: 4, resource: { buffer: this.uniformBuffer } });
+    }
+
+    this.bindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout!,
+      entries,
+    });
+  }
+
   destroy(): void {
     this.uniformBuffer?.destroy();
     this.defaultLUTTexture?.destroy();
+    this.defaultIrradianceTex?.destroy();
+    this.defaultPrefilterTex?.destroy();
   }
 }
 
