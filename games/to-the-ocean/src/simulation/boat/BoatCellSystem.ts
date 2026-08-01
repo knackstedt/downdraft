@@ -40,6 +40,7 @@ interface BoatGrid {
   entityId: number;
   cells: Map<string, BoatCell>; // key = "x,y,z"
   bufferSlot: number;
+  presetName: string;
   massCache: BoatMassProperties | null;
   cellsCache: BoatCell[] | null;       // cached unique origin cells
   xzIndex: Map<string, boolean> | null; // cached "x,z" → true for fast isOverShipCells
@@ -85,6 +86,7 @@ export class BoatCellSystem {
       entityId,
       cells: new Map(),
       bufferSlot: this.nextBufferSlot++,
+      presetName: preset,
       massCache: null,
       cellsCache: null,
       xzIndex: null,
@@ -212,6 +214,25 @@ export class BoatCellSystem {
       this.bufferWriter.clearBoat(grid.bufferSlot);
     }
     this.boats.delete(entityId);
+  }
+
+  clear(): void {
+    if (this.bufferWriter) {
+      for (const grid of this.boats.values()) {
+        this.bufferWriter.clearBoat(grid.bufferSlot);
+      }
+    }
+    this.boats.clear();
+    this.nextBufferSlot = 0;
+    this.bufferDirty = true;
+  }
+
+  getAllBoats(): Map<number, { presetName: string }> {
+    const result = new Map<number, { presetName: string }>();
+    for (const [entityId, grid] of this.boats) {
+      result.set(entityId, { presetName: grid.presetName });
+    }
+    return result;
   }
 
   // --- Cell operations ---

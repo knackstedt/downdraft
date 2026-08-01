@@ -478,6 +478,15 @@ export class SimEcsWorld {
     return this.entityToSlot.get(`${entity.index}:${entity.generation}`);
   }
 
+  clearAll(): void {
+    for (const entity of this.slotToEntity.values()) {
+      this.world.despawn(entity);
+    }
+    this.slotToEntity.clear();
+    this.entityToSlot.clear();
+    this.idToEntity.clear();
+  }
+
   // --- ECS step (flushes commands, runs schedule) ---
 
   step(dt: number): void {

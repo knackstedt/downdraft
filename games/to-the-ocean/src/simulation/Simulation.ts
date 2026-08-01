@@ -63,6 +63,7 @@ import { WorldGenerator } from "../shared/world/WorldGenerator";
 import { AnchorSystem } from "./boat/AnchorSystem";
 import { BoatCellSystem } from "./boat/BoatCellSystem";
 import { BoatDesignSystem } from "./boat/BoatDesignSystem";
+import type { BoatPresetName } from "./boat/BoatPresets";
 import { BoatSystem } from "./boat/BoatSystem";
 import { DockingSystem } from "./building/DockingSystem";
 import { PlaceableSystem } from "./building/PlaceableSystem";
@@ -1516,6 +1517,11 @@ export class Simulation {
         inventory: serializeGrid(p.inventory),
       })),
       boatDesigns: this.boatDesignSystem.getDesigns(),
+      boatPresets: Object.fromEntries(
+        Array.from(this.boatCellSystem.getAllBoats().entries()).map(
+          ([id, info]) => [id, info.presetName],
+        ),
+      ),
       shipInventories: Array.from(this.shipInventories.entries()).map(([id, grid]) => ({
         shipId: id,
         items: serializeGrid(grid),
@@ -1563,6 +1569,9 @@ export class Simulation {
     this.entityIndex.clear();
     this.generations.fill(0);
     this.reportedDead.clear();
+
+    // Clear boat cell system before restoring entities
+    this.boatCellSystem.clear();
 
     // Restore entities
     if (state.entities) {
@@ -1635,6 +1644,16 @@ export class Simulation {
       }
     }
 
+    // Restore boat cell grids from saved presets
+    if (state.boatPresets) {
+      for (const [entityIdStr, preset] of Object.entries(state.boatPresets)) {
+        const entityId = Number(entityIdStr);
+        if (this.getEntitySlot(entityId) >= 0) {
+          this.boatCellSystem.createBoat(entityId, preset as BoatPresetName);
+        }
+      }
+    }
+
     // Restore players
     if (state.players) {
       for (const p of state.players) {
@@ -1683,6 +1702,36 @@ export class Simulation {
     this.chunkManager.updateChunks(this.getPlayerCenterX(), this.getPlayerCenterZ());
 
     // Write restored state to SAB
+    this.writeToBuffer();
+    this.boatCellSystem.markBufferDirty();
+    this.boatCellSystem.writeToBuffer();
+  }
+
+  async rebuildAfterRestore(): Promise<void> {
+    // 1. Clear and rebuild ECS world — restoreState() bypasses spawnEntity()/addPlayer(),
+    //    so ecs.onSpawn()/ecs.onAddPlayer() were never called. Without this, all migrated
+    //    ECS systems silently no-op because slotToEntity map is empty.
+    if (this.ecs) {
+      this.ecs.clearAll();
+      for (let i = 0; i < this.entityCount; i++) {
+        if (this.entities[i]) {
+          this.ecs.onSpawn(i, this.entities[i]!);
+        }
+      }
+      for (let i = 0; i < this.playerCount; i++) {
+        if (this.players[i]) {
+          this.ecs.onAddPlayer(i, this.players[i]!);
+        }
+      }
+    }
+
+    // 2. Recreate physics world — WASM stays loaded, only recreateWorld() runs (~1ms)
+    if (this.physics) {
+      this.physics.shutdown();
+      await this.physics.init();
+    }
+
+    // 3. Write to buffers
     this.writeToBuffer();
     this.boatCellSystem.markBufferDirty();
     this.boatCellSystem.writeToBuffer();

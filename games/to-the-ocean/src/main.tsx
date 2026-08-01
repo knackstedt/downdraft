@@ -20,11 +20,12 @@ import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft
 import { PLR } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/SceneInspector";
-import { SimWebWorker } from "./engine/SimWebWorker";
+import { SimWebWorker, type SimWebWorkerConfig } from "./engine/SimWebWorker";
 import { WebGPURenderer } from "./engine/WebGPURenderer";
 import { simBridge } from "./simBridge";
 import { useDebugStore } from "./stores/debugStore";
 import { useGameStore } from "./stores/gameStore";
+import { useHotReloadStore } from "./stores/hotReloadStore";
 import "./styles/globals.css";
 
 async function bootstrap() {
@@ -191,6 +192,23 @@ async function bootstrap() {
       }
     } catch {
       console.log("[Renderer] No autosave found, starting fresh game");
+    }
+  }
+
+  // Restore hot-reload state if pending (renderer was reloaded after sim/engine code change)
+  if (sessionStorage.getItem("hot-reload-pending")) {
+    sessionStorage.removeItem("hot-reload-pending");
+    try {
+      if (ocean?.loadGameState) {
+        const hotReloadState = await ocean.loadGameState("hot-reload");
+        if (hotReloadState) {
+          await simWorker.restoreFromState(hotReloadState);
+          console.log("[HMR] Restored state after page reload");
+          if (ocean.deleteGameState) ocean.deleteGameState("hot-reload");
+        }
+      }
+    } catch (err) {
+      console.error(`[HMR] Failed to restore hot-reload state: ${err}. Starting fresh.`);
     }
   }
 
@@ -368,6 +386,67 @@ async function bootstrap() {
     (s) => s.showRaycast,
     (show) => { renderer.setShowRaycast(show); },
   );
+
+  // --- Hot-Reload event handlers (dev only) ---
+  if (import.meta.env.DEV && import.meta.hot) {
+    const simConfig: SimWebWorkerConfig = { seed: 12345, gamemode: 0, rules: {}, isDev };
+
+    import.meta.hot.on("sim:hot-reload", async (data: { file: string; timestamp: number }) => {
+      const store = useHotReloadStore.getState();
+      if (!store.enabled) return;
+
+      console.log(`%c[HMR] Sim file changed: ${data.file}`, "color: cyan");
+      store.setStatus("reloading");
+      const t0 = performance.now();
+
+      try {
+        await simWorker.hotReload(simConfig, store.preserveState);
+        const elapsed = (performance.now() - t0).toFixed(0);
+        console.log(`%c[HMR] Sim hot-reload complete (${elapsed}ms)`, "color: cyan; font-weight: bold");
+        store.setStatus("ready");
+        store.setLastReload({ file: data.file, elapsed: Number(elapsed), timestamp: data.timestamp });
+      } catch (err) {
+        console.error(`%c[HMR] Sim hot-reload failed: ${(err as Error).message}`, "color: red; font-weight: bold");
+        store.setStatus("error", (err as Error).message);
+        console.warn("[HMR] Falling back to full page reload");
+        window.location.reload();
+      }
+    });
+
+    import.meta.hot.on("renderer:hot-reload", async (data: { file: string; timestamp: number }) => {
+      const store = useHotReloadStore.getState();
+      if (!store.enabled) return;
+
+      console.log(`%c[HMR] Renderer file changed: ${data.file}`, "color: yellow");
+      store.setStatus("reloading");
+
+      if (store.preserveState) {
+        try {
+          const result = await simWorker.save("hot-reload");
+          if (result?.stateJson && ocean?.saveGameState) {
+            ocean.saveGameState("hot-reload", result.stateJson);
+            sessionStorage.setItem("hot-reload-pending", "1");
+            console.log("[HMR] State saved, reloading page...");
+          }
+        } catch (err) {
+          console.warn(`[HMR] State save failed, reloading without preservation: ${err}`);
+        }
+      }
+
+      window.location.reload();
+    });
+
+    import.meta.hot.on("shader:hot-reload", (data: { file: string }) => {
+      console.log(`%c[HMR] Shader changed: ${data.file}`, "color: green");
+      // MaterialHotReloader not yet wired into WebGPURenderer — will log for now
+      console.warn("[HMR] Shader hot-reload not yet wired — requires MaterialHotReloader integration");
+    });
+
+    import.meta.hot.on("asset:hot-reload", (data: { file: string }) => {
+      console.log(`%c[HMR] Asset changed: ${data.file}`, "color: green");
+      console.warn("[HMR] Asset hot-reload not yet wired — requires MaterialHotReloader integration");
+    });
+  }
 
   // Hitbox line width
   useDebugStore.subscribe(
