@@ -4,12 +4,12 @@
 // Generates low-poly mesh geometry in unit space (same format as island mesh).
 // ============================================================================
 
-import { PerlinNoise } from "./world/PerlinNoise";
-import { BiomeType, IslandSize } from "./types";
 import { computeFlatNormals } from "./IslandNoise";
-import { generateVoxelField, sampleTerrainHeight } from "./TerrainGenerator";
+import { generateVoxelField, sampleTerrainHeight } from "./terrain";
 import { TERRAIN_CONFIG } from "./TerrainConfig";
 import type { VoxelField } from "./TerrainTypes";
+import { BiomeType, IslandSize } from "./types";
+import { PerlinNoise } from "./world/PerlinNoise";
 
 // --- Decoration types ---
 export enum DecorationType {

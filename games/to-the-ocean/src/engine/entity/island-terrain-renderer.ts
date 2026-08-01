@@ -1,13 +1,13 @@
 import { generateDecorationMesh, generateDecorations } from "@shared/IslandDecorations";
 import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
-import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
 import {
     createChunkedVoxelField,
     generatePortVoxelField,
     getChunkMeshSubRegion,
     materializeChunkForMesh,
     type ChunkedFieldContext,
-} from "@shared/TerrainGenerator";
+} from "@shared/terrain";
+import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
 import { ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
 import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
 import { PerlinNoise } from "@shared/world/PerlinNoise";

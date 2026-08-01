@@ -1,6 +1,6 @@
+import type { GCStats } from "@downdraft/core";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import type { GCStats } from "@shared/gc-profiler";
 
 export interface CollisionLogEntry {
   label: string;

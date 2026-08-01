@@ -3,14 +3,14 @@
 // Runs in the sim worker. Handles deformation from all damage sources.
 // ============================================================================
 
-import { TERRAIN_CONFIG } from "../../shared/TerrainConfig";
 import {
     createChunkedVoxelField, ensureChunkGenerated,
     generatePortVoxelField,
     generateVoxelField,
     getLODVoxelSize, isChunkEmpty,
     type ChunkedFieldContext,
-} from "../../shared/TerrainGenerator";
+} from "../../shared/terrain";
+import { TERRAIN_CONFIG } from "../../shared/TerrainConfig";
 import { ChunkedVoxelField, TerrainDeformation, VoxelField, getChunkedVoxel, setChunkedVoxel } from "../../shared/TerrainTypes";
 import { EntityType, TerrainDeformationBroadcast } from "../../shared/types";
 import { SimEntity } from "../Simulation";

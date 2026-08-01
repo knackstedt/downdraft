@@ -3,23 +3,23 @@
 // Extracted from WebGPURenderer for modularity
 // ============================================================================
 
-import { MSAA_SAMPLE_COUNT, type TelemetryCollector, type GPUProfiler, type GPUResourceTracker, type UIRoot, type UIInputRouter, type UIRenderer, type LayoutEngine, type DebugOverlay as ProfilingOverlay } from "@downdraft/core";
+import { MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
+import type { GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
+import type { ModelRenderer } from "@downdraft/plugin-entities";
+import type { LightSystem } from "@downdraft/plugin-lighting";
+import type { MaterialData, MeshData } from "@downdraft/plugin-models";
 import type { PixelationSystem } from "@downdraft/plugin-postfx";
 import type { ParticleSystem } from "@downdraft/plugin-weatherfx";
-import type { ModelRenderer } from "@downdraft/plugin-entities";
-import type { TransformGizmo, GizmoMode } from "@downdraft/plugin-devtools";
-import type { LightSystem } from "@downdraft/plugin-lighting";
-import type { PostProcessStack } from "./PostProcessStack";
-import type { SimBufferReader } from "@shared/sim-buffer";
-import type { WaterBufferReader } from "@shared/water-buffer";
 import type { BoatBufferReader } from "@shared/boat-buffer";
+import type { SimBufferReader } from "@shared/sim-buffer";
+import { PLR } from "@shared/sim-buffer";
+import type { WaterBufferReader } from "@shared/water-buffer";
 import type { CameraSystem } from "./CameraSystem";
 import type { DebugOverlay } from "./DebugOverlay";
 import type { DebugRaycast } from "./DebugRaycast";
-import type { PBRSystem } from "./PBRSystem";
 import type { EntityRenderer } from "./EntityRenderer";
-import type { MeshData, MaterialData } from "./ModelLoader";
-import { PLR } from "@shared/sim-buffer";
+import type { PBRSystem } from "./PBRSystem";
+import type { PostProcessStack } from "./PostProcessStack";
 
 export class RendererAccessors {
   // Public state (read/write by WebGPURenderer)

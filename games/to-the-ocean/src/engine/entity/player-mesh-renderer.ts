@@ -1,8 +1,8 @@
+import type { MeshData, ModelData } from "@downdraft/plugin-models";
 import { MAX_BONES } from "@shared/constants";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
+import { PLAYER_WGSL, SKINNED_PLAYER_WGSL, SKINNING_COMPUTE_WGSL } from "../shaders/entity-shaders";
 import { SkeletonAnimator } from "../SkeletonAnimator";
-import { PLAYER_WGSL, SKINNING_COMPUTE_WGSL, SKINNED_PLAYER_WGSL } from "../shaders/entity-shaders";
-import type { MeshData, ModelData } from "../ModelLoader";
 import type { EntityRenderContext } from "./render-context";
 
 interface ClothingPiece {

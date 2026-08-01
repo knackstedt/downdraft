@@ -3,14 +3,13 @@
 // Bridges between the DevTools extension and the renderer/scene store
 // ============================================================================
 
-import { TelemetryCollector } from "@downdraft/core";
-import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
+import { startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { detectFormat, loadModel } from "@downdraft/plugin-models";
 import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
 import { simBridge } from "../simBridge";
 import { useDebugStore } from "../stores/debugStore";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "../stores/sceneStore";
-import { detectFormat, loadModel } from "./ModelLoader";
 import type { WebGPURenderer } from "./WebGPURenderer";
 
 

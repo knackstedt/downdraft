@@ -1,6 +1,5 @@
 // Extracted from SceneInspector.ts — model loading utilities and caches
 
-import { detectFormat, loadModel } from "./ModelLoader";
 
 const modelGlob = import.meta.glob("../../assets/models/**/*.{fbx,gltf,glb,obj,dae,stl,FBX,GLTF,GLB,OBJ,DAE,STL}", {
   query: "?url",

@@ -2,20 +2,20 @@
 // Entity Renderer — facade that delegates to sub-renderers for each entity type
 // ============================================================================
 
+import type { MeshData, ModelData } from "@downdraft/plugin-models";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import {
-  BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT,
-  getCellGeometry, getPortColliderDims, getPortCollisionBoxes,
-  getWallCollisionBoxes, hasSolidCollision, isWalkableSurface, isWallType,
-  PLAYER_HEIGHT, PLAYER_RADIUS
+    BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT,
+    getCellGeometry, getPortColliderDims, getPortCollisionBoxes,
+    getWallCollisionBoxes, hasSolidCollision, isWalkableSurface, isWallType,
+    PLAYER_HEIGHT, PLAYER_RADIUS
 } from "@shared/constants";
 import { SimBufferReader } from "@shared/sim-buffer";
 import { EntityType, PortSize } from "@shared/types";
 import { CameraState } from "./CameraSystem";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { calculateViewProj } from "./mathUtils";
-import type { MeshData, ModelData } from "./ModelLoader";
 
 import { ENTITY_WGSL } from "./shaders/entity-shaders";
 

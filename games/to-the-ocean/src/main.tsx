@@ -16,7 +16,7 @@ import "@fontsource/urbanist/400.css";
 import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
-import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
+import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { PLR } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/SceneInspector";

@@ -7,8 +7,8 @@
 // ============================================================================
 
 import { SimEntity } from "../simulation/Simulation";
+import { generateIslandBlobs } from "./terrain";
 import { EntityType } from "./types";
-import { generateIslandBlobs } from "./TerrainGenerator";
 
 export interface ShoreSource {
   x: number;

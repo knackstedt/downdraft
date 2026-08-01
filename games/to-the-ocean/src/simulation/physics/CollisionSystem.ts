@@ -9,7 +9,7 @@ import {
     SHIP_COLLISION_RESTITUTION,
     WILDLIFE_DENSITY,
 } from "../../shared/constants";
-import { sampleTerrainHeight } from "../../shared/TerrainGenerator";
+import { sampleTerrainHeight } from "../../shared/terrain";
 import { EntityFlags, EntityType } from "../../shared/types";
 import { BoatCellSystem } from "../boat/BoatCellSystem";
 import { BoatDesignSystem } from "../boat/BoatDesignSystem";
