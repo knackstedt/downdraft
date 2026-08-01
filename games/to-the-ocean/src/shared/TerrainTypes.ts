@@ -24,8 +24,8 @@ export {
 } from "@downdraft/plugin-marching-cubes";
 export type { ChunkedVoxelField } from "@downdraft/plugin-marching-cubes";
 
-// Re-export VoxelField and ExtractedMesh from core
-export type { ExtractedMesh, VoxelField } from "@downdraft/core";
+// Re-export VoxelField and ExtractedMesh from the marching cubes plugin
+export type { ExtractedMesh, VoxelField } from "@downdraft/plugin-marching-cubes";
 
 // A deformation request to modify terrain
 export interface TerrainDeformation {

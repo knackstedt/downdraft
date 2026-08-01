@@ -1,10 +1,10 @@
 // ============================================================================
-// MarchingCubes — game-specific mesh extraction using core MC algorithm
+// MarchingCubes — game-specific mesh extraction using plugin MC algorithm
 // Terrain coloring and cloud coloring are game-specific; the core algorithm
-// (extractMeshFromField) lives in @downdraft/core.
+// (extractMeshFromField) lives in @downdraft/plugin-marching-cubes.
 // ============================================================================
 
-import { extractMeshFromField, type MeshColorFn } from "@downdraft/core";
+import { extractMeshFromField, type MeshColorFn } from "@downdraft/plugin-marching-cubes";
 import { TERRAIN_CONFIG } from "./TerrainConfig";
 import type { ExtractedMesh, VoxelField } from "./TerrainTypes";
 import { TerrainType } from "./TerrainTypes";
