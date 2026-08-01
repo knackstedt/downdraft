@@ -80,6 +80,16 @@ export const simBridge = {
     getSimWorker()?.setTimeOfDay(time);
   },
 
+  setSimSpeed(speed: number): void {
+    getSimWorker()?.setSimSpeed(speed);
+  },
+
+  async getSimSpeed(): Promise<number> {
+    const worker = getSimWorker();
+    if (!worker) return 1.0;
+    return worker.getSimSpeed();
+  },
+
   // --- Debug ---
   setDebugMode(enabled: boolean): void {
     getSimWorker()?.setDebugMode(enabled);

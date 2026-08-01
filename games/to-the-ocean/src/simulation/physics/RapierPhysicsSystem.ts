@@ -13,6 +13,7 @@ import {
     PORT_DATA,
     SHIP_COLLISION_FRICTION,
     SHIP_COLLISION_RESTITUTION,
+    SIM_TICK_DT,
 } from "../../shared/constants";
 import { PLR_FLAG } from "../../shared/sim-buffer";
 import { generateTerrainTrimeshSubRegion } from "../../shared/TerrainGenerator";
@@ -152,6 +153,7 @@ export class RapierPhysicsSystem {
 
     const gravity = { x: 0, y: -9.8, z: 0 };
     this.world = new RAPIER.World(gravity);
+    this.world.integrationParameters.dt = SIM_TICK_DT;
     this.eventQueue = new RAPIER.EventQueue(true);
   }
 
@@ -777,6 +779,12 @@ export class RapierPhysicsSystem {
     }
   }
 
+  setTimestep(dt: number): void {
+    if (this.world && this.world.integrationParameters.dt !== dt) {
+      this.world.integrationParameters.dt = dt;
+    }
+  }
+
   // --- Main tick ---
 
   tick(
@@ -808,6 +816,7 @@ export class RapierPhysicsSystem {
       const t1 = performance.now();
       this.syncEntities(entities, entityCount);
       const t2 = performance.now();
+      this.setTimestep(dt);
       this.world.step(this.eventQueue!);
       const t3 = performance.now();
       this.readBackShipPositions(entities, entityCount);

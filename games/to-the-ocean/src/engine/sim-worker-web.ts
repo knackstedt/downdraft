@@ -6,6 +6,7 @@
 
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { BoatBufferWriter } from "@shared/boat-buffer";
+import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
 import { InputBufferReader } from "@shared/input-buffer";
 import { SimBufferWriter } from "@shared/sim-buffer";
@@ -18,6 +19,8 @@ let gcHandle: GCProfilerHandle | null = null;
 let debugMode = false;
 let running = true;
 let paused = false;
+let simSpeed = 1.0;
+let tickAccumulator = 0;
 let tickCount = 0;
 let tickTimeAccum = 0;
 let perfTimer: ReturnType<typeof setInterval> | null = null;
@@ -152,10 +155,41 @@ expose({
 
   setWeather(weatherType: number) { simulation?.setWeather(weatherType); },
   setTimeOfDay(time: number) { simulation?.setTimeOfDay(time); },
+
+  setSimSpeed(speed: number) {
+    simSpeed = Math.max(MIN_SIM_SPEED, Math.min(MAX_SIM_SPEED, speed));
+    tickAccumulator = 0;
+    events.emit("sim_speed_changed", { speed: simSpeed });
+  },
+
+  getSimSpeed(): number {
+    return simSpeed;
+  },
 });
 
 const TICK_MS = 1000 / 60;
 let lastTick = performance.now();
+
+function drainAndForwardEvents(): void {
+  if (!simulation) return;
+  const deformBroadcasts = simulation.getTerrainSystem().drainBroadcasts();
+  if (deformBroadcasts.length > 0) {
+    events.emit("terrain_deformed", deformBroadcasts);
+  }
+  const lodChanges = simulation.getTerrainSystem().drainLODChanges();
+  if (lodChanges.length > 0) {
+    events.emit("terrain_lod_changed", lodChanges);
+  }
+  if (debugMode && tickCount % 30 === 0) {
+    const log = simulation.getCollisionLog();
+    if (log.length > 0) {
+      events.emit("collision_log", log);
+    }
+  }
+  if (tickCount % 300 === 0) {
+    events.emit("performance", { tick: tickCount, msg: "sim ticking" });
+  }
+}
 
 async function loop(): Promise<void> {
   if (!running) return;
@@ -163,34 +197,40 @@ async function loop(): Promise<void> {
   const now = performance.now();
   if (now - lastTick >= TICK_MS) {
     lastTick = now - ((now - lastTick) % TICK_MS);
-    if (!paused && simulation) {
+    if (!paused && simulation && simSpeed > 0) {
       try {
-        const tickStart = performance.now();
-        await simulation.tick();
-        tickTimeAccum += performance.now() - tickStart;
-        tickCount++;
-
-        // Forward terrain deformation broadcasts to renderer
-        const deformBroadcasts = simulation.getTerrainSystem().drainBroadcasts();
-        if (deformBroadcasts.length > 0) {
-          events.emit("terrain_deformed", deformBroadcasts);
-        }
-
-        // Forward LOD changes to renderer
-        const lodChanges = simulation.getTerrainSystem().drainLODChanges();
-        if (lodChanges.length > 0) {
-          events.emit("terrain_lod_changed", lodChanges);
-        }
-
-        // Post collision log every 30 ticks (~0.5s) when debug mode is on
-        if (debugMode && tickCount % 30 === 0) {
-          const log = simulation.getCollisionLog();
-          if (log.length > 0) {
-            events.emit("collision_log", log);
+        if (simSpeed < 1.0) {
+          // Variable dt: 1 tick per loop iteration with scaled dt (slow-motion)
+          const dt = SIM_TICK_DT * simSpeed;
+          const tickStart = performance.now();
+          await simulation.tick(dt);
+          tickTimeAccum += performance.now() - tickStart;
+          tickCount++;
+          drainAndForwardEvents();
+        } else {
+          // Tick multiplier: N ticks per loop iteration with dt=SIM_TICK_DT (speed-up)
+          tickAccumulator += simSpeed;
+          const pendingDeforms: any[] = [];
+          const pendingLOD: any[] = [];
+          while (tickAccumulator >= 1) {
+            const tickStart = performance.now();
+            await simulation.tick(SIM_TICK_DT);
+            tickTimeAccum += performance.now() - tickStart;
+            tickCount++;
+            tickAccumulator--;
+            // Accumulate broadcasts across ticks — emit once after the loop
+            pendingDeforms.push(...simulation.getTerrainSystem().drainBroadcasts());
+            pendingLOD.push(...simulation.getTerrainSystem().drainLODChanges());
           }
-        }
-        if (tickCount % 300 === 0) {
-          events.emit("performance", { tick: tickCount, msg: "sim ticking" });
+          if (pendingDeforms.length > 0) events.emit("terrain_deformed", pendingDeforms);
+          if (pendingLOD.length > 0) events.emit("terrain_lod_changed", pendingLOD);
+          if (debugMode && tickCount % 30 === 0) {
+            const log = simulation.getCollisionLog();
+            if (log.length > 0) events.emit("collision_log", log);
+          }
+          if (tickCount % 300 === 0) {
+            events.emit("performance", { tick: tickCount, msg: "sim ticking" });
+          }
         }
       } catch (err) {
         const errMsg = `Sim tick crashed at tick ${tickCount}: ${(err as Error).message}\n${(err as Error).stack}`;

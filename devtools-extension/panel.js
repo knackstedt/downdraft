@@ -1516,6 +1516,16 @@
     if (view === "debug") {
       refreshDebugInfo();
       if (!debugInfoTimer) debugInfoTimer = setInterval(refreshDebugInfo, 500);
+      // Query current sim speed and update slider
+      callInspector("getSimSpeed").then(function (res) {
+        if (res.result != null) {
+          var speed = res.result;
+          var slider = document.getElementById("sim-speed-slider");
+          var display = document.getElementById("sim-speed-display");
+          if (slider) slider.value = speed;
+          if (display) display.textContent = speed.toFixed(2) + "x";
+        }
+      });
     } else {
       if (debugInfoTimer) { clearInterval(debugInfoTimer); debugInfoTimer = null; }
     }
@@ -1561,6 +1571,25 @@
   btnDebugInfo.addEventListener("click", function () {
     if (currentView === "debug") { switchView("scene"); } else { switchView("debug"); }
   });
+
+  // Sim speed slider
+  var simSpeedSlider = document.getElementById("sim-speed-slider");
+  var simSpeedDisplay = document.getElementById("sim-speed-display");
+  if (simSpeedSlider) {
+    simSpeedSlider.addEventListener("input", function () {
+      var speed = parseFloat(simSpeedSlider.value);
+      if (simSpeedDisplay) simSpeedDisplay.textContent = speed.toFixed(2) + "x";
+      callInspector("setSimSpeed", [speed]);
+    });
+  }
+  var btnSimSpeedReset = document.getElementById("btn-sim-speed-reset");
+  if (btnSimSpeedReset) {
+    btnSimSpeedReset.addEventListener("click", function () {
+      if (simSpeedSlider) simSpeedSlider.value = 1;
+      if (simSpeedDisplay) simSpeedDisplay.textContent = "1.00x";
+      callInspector("setSimSpeed", [1]);
+    });
+  }
   btnViewPerf.addEventListener("click", function () {
     if (currentView === "perf") { switchView("scene"); } else { switchView("perf"); }
   });

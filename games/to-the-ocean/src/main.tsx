@@ -147,6 +147,10 @@ async function bootstrap() {
       case "performance":
         // Command results etc. — could be forwarded to debug store if needed
         break;
+      case "sim_speed_changed":
+        (window as any).__currentSimSpeed = msg.data?.speed ?? 1.0;
+        console.log(`[Renderer] Sim speed changed to ${msg.data?.speed}x`);
+        break;
     }
   });
 

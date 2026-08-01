@@ -65,6 +65,13 @@
         </div>
         <div id="debug-info-content">
           <div class="debug-section">
+            <h4>Simulation Speed <span id="sim-speed-display" style="color:#888;font-weight:normal">1.00x</span></h4>
+            <div class="world-control-row">
+              <input type="range" id="sim-speed-slider" min="0" max="10" step="0.25" value="1" style="flex:1">
+              <button id="btn-sim-speed-reset" class="import-action-btn">Reset</button>
+            </div>
+          </div>
+          <div class="debug-section">
             <h4>Renderer Stats</h4>
             <div id="renderer-stats" class="debug-grid"></div>
           </div>

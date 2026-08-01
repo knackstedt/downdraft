@@ -15,15 +15,13 @@ import type { WebGPURenderer } from "./WebGPURenderer";
 
 
 import {
-  type AvailableModelFile,
-  availableModelFiles,
-  textureUrlMap,
-  syncFetchArrayBuffer,
-  evictThumbnailCache,
-  findMTLForOBJ,
-  findBinForGLTF,
-  asyncFetchArrayBuffer,
-  thumbnailCache,
+    availableModelFiles,
+    evictThumbnailCache,
+    findBinForGLTF,
+    findMTLForOBJ,
+    syncFetchArrayBuffer,
+    textureUrlMap,
+    thumbnailCache
 } from "./scene-inspector-utils";
 
 export class SceneInspector {
@@ -647,6 +645,15 @@ export class SceneInspector {
 
       setTimeOfDay: (time: number): void => {
         simBridge.setTimeOfDay(time);
+      },
+
+      setSimSpeed: (speed: number): void => {
+        (window as any).__currentSimSpeed = speed;
+        simBridge.setSimSpeed(speed);
+      },
+
+      getSimSpeed: (): number => {
+        return (window as any).__currentSimSpeed ?? 1.0;
       },
 
       getBiomeList: (): { value: number; name: string }[] => {

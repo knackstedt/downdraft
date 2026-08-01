@@ -117,6 +117,7 @@ export class Simulation {
   // Time
   private timeOfDay = 0.3; // start at morning
   private totalTicks = 0;
+  private simTime = 0; // accumulated sim time (seconds) — handles variable dt
 
   // Systems
   private worldGen: WorldGenerator;
@@ -480,9 +481,9 @@ export class Simulation {
     this.buoyancySystem.setJobScheduler(scheduler);
   }
 
-  async tick(): Promise<void> {
+  async tick(dt: number = SIM_TICK_DT): Promise<void> {
     const tickStart = performance.now();
-    const dt = SIM_TICK_DT;
+    this.simTime += dt;
     this.totalTicks++;
 
     // Update time of day
@@ -873,7 +874,7 @@ export class Simulation {
 
   private updateWaterBuffer(): void {
     const gridSize = 256;
-    const time = this.totalTicks * SIM_TICK_DT;
+    const time = this.simTime;
 
     // --- Wind-driven sea state ---
     // Map wind speed (2 m/s calm → 25 m/s hellstorm) to a 0..1 factor,
@@ -1493,6 +1494,7 @@ export class Simulation {
     const state = {
       timeOfDay: this.timeOfDay,
       totalTicks: this.totalTicks,
+      simTime: this.simTime,
       gamemode: this.gamemode,
       rules: this.rules,
       seed: this.seed,
@@ -1544,6 +1546,7 @@ export class Simulation {
 
     this.timeOfDay = state.timeOfDay ?? 0.3;
     this.totalTicks = state.totalTicks ?? 0;
+    this.simTime = state.simTime ?? this.totalTicks * SIM_TICK_DT;
     this.gamemode = state.gamemode ?? GameMode.Survival;
     this.rules = state.rules ?? this.rules;
     this.seed = state.seed ?? this.seed;
