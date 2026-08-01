@@ -253,6 +253,24 @@ export type {
     SearchPath
 } from "./assets/manager.ts";
 
+// Blob Storage & Asset Manifest
+export { makeBlobUri, parseBlobUri } from "./assets/blob-store.ts";
+export type {
+    BlobGetOptions,
+    BlobListOptions,
+    BlobListResult,
+    BlobObject,
+    BlobPutOptions,
+    BlobStore,
+    BlobStoreConfig
+} from "./assets/blob-store.ts";
+export {
+    createEmptyManifest, DEFAULT_CACHE_DIR,
+    MANIFEST_FILENAME, packCacheKey,
+    validateManifest
+} from "./assets/manifest.ts";
+export type { AssetManifest, AssetPackEntry } from "./assets/manifest.ts";
+
 // Physics
 export { PhysicsTransform, RigidBody, Velocity } from "./physics/body.ts";
 export type { PhysicsTransformData, RigidBodyData, VelocityData } from "./physics/body.ts";

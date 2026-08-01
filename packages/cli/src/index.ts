@@ -27,6 +27,9 @@ async function main() {
     case "export":
       await exportGame(process.argv.slice(3));
       break;
+    case "assets":
+      await assets(process.argv.slice(3));
+      break;
     default:
       log.info("CLI", `DownDraft Engine CLI
 
@@ -38,6 +41,7 @@ Commands:
   debug [options]   Run engine in debug mode with profiling/visualization
   build [options]   Build for target platform
   export [options]  Package for distribution
+  assets <cmd>      Manage remote asset packs (pull, push, list, init, add)
 
 Options:
   --verbose, -v     Enable verbose logging
