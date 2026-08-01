@@ -498,8 +498,10 @@ export class Simulation {
     this.marketSystem.tick(dt);
     // AnimalSystem now runs as ECS system (EcsAnimalSystem) during ecs.step()
     // this.animalSystem.tick(dt, this.entities, this.entityCount);
-    this.plantSystem.tick(dt, this.entities, this.entityCount);
-    this.petSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount);
+    // PlantSystem now runs as ECS system (EcsPlantSystem) during ecs.step()
+    // this.plantSystem.tick(dt, this.entities, this.entityCount);
+    // PetSystem now runs as ECS system (EcsPetSystem) during ecs.step()
+    // this.petSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount);
     this.survivalSystem.tick(dt, this.players, this.playerCount, this.timeOfDay, this.weatherSystem, this.survivalBiomeAdapter);
     const t10 = performance.now();
     sysTimes.push({ name: "market+animals+plants+pets+survival", ms: t10 - t9 });
