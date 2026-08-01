@@ -3,27 +3,27 @@
 // ============================================================================
 
 import {
-    MAX_ENTITIES, MAX_PLAYERS,
-    NIGHT_END_FRAC,
-    NIGHT_START_FRAC,
-    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
-    PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
-    PLAYER_MAX_THIRST,
-    SIM_TICK_DT
+  MAX_ENTITIES, MAX_PLAYERS,
+  NIGHT_END_FRAC,
+  NIGHT_START_FRAC,
+  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+  PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
+  PLAYER_MAX_THIRST,
+  SIM_TICK_DT
 } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
 import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
 import {
-    BiomeType,
-    CameraMode,
-    EntityId,
-    EntityType,
-    GameMode,
-    PlayerId,
-    SimCommand,
-    SimToMainMessage,
-    WeatherType,
-    WorldCommand
+  BiomeType,
+  CameraMode,
+  EntityId,
+  EntityType,
+  GameMode,
+  PlayerId,
+  SimCommand,
+  SimToMainMessage,
+  WeatherType,
+  WorldCommand
 } from "../shared/types";
 import { WaterBufferWriter } from "../shared/water-buffer";
 
@@ -54,7 +54,7 @@ import { PirateSystem } from "./pirates/PirateSystem";
 import { LicenseSystem } from "./player/LicenseSystem";
 import { PlayerManager } from "./player/PlayerManager";
 import { ProgressionTree } from "./progression/ProgressionTree";
-import { SurvivalSystem } from "./survival/SurvivalSystem";
+import { SurvivalBiomeAdapter, SurvivalSystem } from "./survival/SurvivalSystem";
 import { TerrainSystem } from "./terrain/TerrainSystem";
 import { ToolSystem } from "./tools/ToolSystem";
 import { WeatherSystem } from "./weather/WeatherSystem";
@@ -104,6 +104,7 @@ export class Simulation {
   private plantSystem: PlantSystem;
   private petSystem: PetSystem;
   private survivalSystem: SurvivalSystem;
+  private survivalBiomeAdapter: SurvivalBiomeAdapter;
   private pirateSystem: PirateSystem;
   private dockingSystem: DockingSystem;
   private placeableSystem: PlaceableSystem;
@@ -223,6 +224,7 @@ export class Simulation {
     this.animalSystem = new AnimalSystem();
     this.plantSystem = new PlantSystem();
     this.petSystem = new PetSystem();
+    this.survivalBiomeAdapter = new SurvivalBiomeAdapter(this.chunkManager, this.biomeSystem);
     this.survivalSystem = new SurvivalSystem(this.rules);
     this.pirateSystem = new PirateSystem(this.chunkManager);
     this.dockingSystem = new DockingSystem();
@@ -488,7 +490,7 @@ export class Simulation {
     this.animalSystem.tick(dt, this.entities, this.entityCount);
     this.plantSystem.tick(dt, this.entities, this.entityCount);
     this.petSystem.tick(dt, this.entities, this.entityCount, this.players, this.playerCount);
-    this.survivalSystem.tick(dt, this.players, this.playerCount, this.timeOfDay, this.weatherSystem, this.biomeSystem, this.chunkManager);
+    this.survivalSystem.tick(dt, this.players, this.playerCount, this.timeOfDay, this.weatherSystem, this.survivalBiomeAdapter);
     const t10 = performance.now();
     sysTimes.push({ name: "market+animals+plants+pets+survival", ms: t10 - t9 });
 
