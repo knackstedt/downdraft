@@ -9,7 +9,7 @@ import {
     type IAssetResolver,
     type IDebugModeProvider,
     type IDebugOverlayProvider,
-    type IPerformanceMetricsProvider,
+    type IPerformanceMetricsProvider
 } from "@downdraft/plugin-devtools";
 import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
@@ -67,6 +67,16 @@ export class SceneInspector extends BaseSceneInspector {
     return {
       getPerformanceMetrics: () => this.getGamePerformanceMetrics(),
     };
+  }
+
+  // --- Panel extensions (game-specific DevTools tabs and overlay toggles) ---
+
+  protected getPanelExtensions(): IDevToolsPanelExtension[] {
+    return getPanelExtensions();
+  }
+
+  protected getOverlayToggles(): IDevToolsOverlayToggle[] {
+    return getOverlayToggles();
   }
 
   // --- Init ---

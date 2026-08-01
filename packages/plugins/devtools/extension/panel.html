@@ -8,10 +8,7 @@
   <div id="app">
     <div id="tab-bar">
       <button id="btn-view-scene" class="tab active" title="Scene tree view">Scene</button>
-      <button id="btn-debug-info" class="tab" data-game-specific title="Debug info view">Debug Info</button>
-      <button id="btn-boat-layout" class="tab" data-game-specific title="Boat layout view">Boat Layout</button>
       <button id="btn-view-import" class="tab" title="Import models">Import</button>
-      <button id="btn-view-world" class="tab" data-game-specific title="World map controls">World</button>
       <button id="btn-view-perf" class="tab" title="External performance charts">Performance</button>
       <div class="tab-spacer"></div>
       <button id="btn-overlays-menu" class="tab" title="Debug overlay toggles">Overlays &#9662;</button>
@@ -19,8 +16,6 @@
     <div id="overlays-menu" class="overlays-menu" style="display:none">
       <label class="overlay-toggle-row"><input type="checkbox" id="chk-labels"> Labels</label>
       <label class="overlay-toggle-row"><input type="checkbox" id="chk-hitboxes"> Hitboxes</label>
-      <label class="overlay-toggle-row" data-game-specific><input type="checkbox" id="chk-chunkgrid"> Chunk Grid</label>
-      <label class="overlay-toggle-row" data-game-specific><input type="checkbox" id="chk-velarrows"> Vel Arrows</label>
     </div>
     <div id="scene-toolbar" class="scene-toolbar">
       <div class="toolbar-group">
@@ -59,59 +54,6 @@
         </div>
       </div>
 
-      <div id="debug-info-panel" style="display:none">
-        <div class="panel-header">
-          <h3>Debug Info</h3>
-        </div>
-        <div id="debug-info-content">
-          <div class="debug-section">
-            <h4>Simulation Speed <span id="sim-speed-display" style="color:#888;font-weight:normal">1.00x</span></h4>
-            <div class="world-control-row">
-              <input type="range" id="sim-speed-slider" min="0" max="10" step="0.25" value="1" style="flex:1">
-              <button id="btn-sim-speed-reset" class="import-action-btn">Reset</button>
-            </div>
-          </div>
-          <div class="debug-section">
-            <h4>Renderer Stats</h4>
-            <div id="renderer-stats" class="debug-grid"></div>
-          </div>
-          <div class="debug-section">
-            <h4>World / Sim State</h4>
-            <div id="sim-state" class="debug-grid"></div>
-          </div>
-          <div class="debug-section">
-            <h4>Physics</h4>
-            <div id="physics-stats" class="debug-grid"></div>
-          </div>
-          <div class="debug-section">
-            <h4>Players</h4>
-            <div id="player-stats"></div>
-          </div>
-        </div>
-      </div>
-
-      <div id="boat-layout-panel" style="display:none">
-        <div class="panel-header">
-          <h3>Boat Layout — 2D Layer Projections</h3>
-          <select id="boat-select"></select>
-        </div>
-        <div id="boat-layers"></div>
-        <div id="boat-orthos">
-          <div class="ortho-view">
-            <h4>Side (X-Y)</h4>
-            <canvas id="boat-side" width="400" height="200"></canvas>
-          </div>
-          <div class="ortho-view">
-            <h4>Front (Z-Y)</h4>
-            <canvas id="boat-front" width="400" height="200"></canvas>
-          </div>
-          <div class="ortho-view">
-            <h4>Top (X-Z)</h4>
-            <canvas id="boat-top" width="400" height="200"></canvas>
-          </div>
-        </div>
-      </div>
-
       <div id="import-panel" style="display:none">
       <div class="import-panel-header">
         <h3>Import Model</h3>
@@ -136,91 +78,6 @@
       </div>
       <div id="import-status"></div>
     </div>
-
-      <div id="world-panel" style="display:none">
-        <div class="panel-header">
-          <h3>World Control</h3>
-          <button id="btn-refresh-world" class="import-action-btn" title="Refresh world data">Refresh</button>
-          <button id="btn-clear-overrides" class="import-action-btn" title="Clear all biome/port/island overrides">Clear Overrides</button>
-        </div>
-        <div id="world-player-chunk" class="debug-section">
-          <h4>Player Position</h4>
-          <div id="world-player-info" class="debug-grid"></div>
-        </div>
-        <div class="debug-section">
-          <h4>Override Biome at Chunk</h4>
-          <div class="world-control-row">
-            <label>Chunk X <input type="number" id="world-biome-cx" value="0" step="1"></label>
-            <label>Chunk Z <input type="number" id="world-biome-cz" value="0" step="1"></label>
-            <select id="world-biome-select"></select>
-            <button id="btn-apply-biome" class="import-action-btn">Apply</button>
-          </div>
-        </div>
-        <div class="debug-section">
-          <h4>Force Port at Chunk</h4>
-          <div class="world-control-row">
-            <label>Chunk X <input type="number" id="world-port-cx" value="0" step="1"></label>
-            <label>Chunk Z <input type="number" id="world-port-cz" value="0" step="1"></label>
-            <button id="btn-force-port" class="import-action-btn">Force Port</button>
-            <button id="btn-remove-port" class="import-action-btn">Remove Port</button>
-          </div>
-        </div>
-        <div class="debug-section">
-          <h4>Force Island at Chunk</h4>
-          <div class="world-control-row">
-            <label>Chunk X <input type="number" id="world-island-cx" value="0" step="1"></label>
-            <label>Chunk Z <input type="number" id="world-island-cz" value="0" step="1"></label>
-            <button id="btn-force-island" class="import-action-btn">Force Island</button>
-            <button id="btn-remove-island" class="import-action-btn">Remove Island</button>
-          </div>
-        </div>
-        <div class="debug-section">
-          <h4>World Seed</h4>
-          <div class="world-control-row">
-            <label>Seed <input type="number" id="world-seed-input" value="12345" step="1"></label>
-            <button id="btn-set-seed" class="import-action-btn">Set Seed</button>
-          </div>
-        </div>
-        <div class="debug-section">
-          <h4>Weather</h4>
-          <div class="world-control-row" id="weather-buttons">
-            <button class="import-action-btn weather-btn" data-weather="clear">Clear</button>
-            <button class="import-action-btn weather-btn" data-weather="partlycloudy">Partly Cloudy</button>
-            <button class="import-action-btn weather-btn" data-weather="overcast">Overcast</button>
-            <button class="import-action-btn weather-btn" data-weather="rain">Rain</button>
-            <button class="import-action-btn weather-btn" data-weather="storm">Storm</button>
-            <button class="import-action-btn weather-btn" data-weather="fog">Fog</button>
-            <button class="import-action-btn weather-btn" data-weather="snow">Snow</button>
-            <button class="import-action-btn weather-btn" data-weather="eclipse">Eclipse</button>
-            <button class="import-action-btn weather-btn" data-weather="fullmoon">Full Moon</button>
-            <button class="import-action-btn weather-btn" data-weather="hellstorm">Hell Storm</button>
-          </div>
-        </div>
-        <div class="debug-section">
-          <h4>Time of Day <span id="world-tod-display" style="color:#888;font-weight:normal">12:00</span></h4>
-          <div class="world-control-row">
-            <input type="range" id="world-tod-slider" min="0" max="24" step="0.1" value="12" style="flex:1">
-            <button id="btn-set-tod" class="import-action-btn">Set</button>
-          </div>
-        </div>
-        <div class="debug-section">
-          <h4>Events (stub)</h4>
-          <div class="world-control-row" id="event-toggles">
-            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="storm"> Storm Event</label>
-            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="meteor"> Meteor Shower</label>
-            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="whale"> Whale Migration</label>
-            <label class="overlay-toggle-row"><input type="checkbox" class="event-toggle" data-event="aurora"> Aurora</label>
-          </div>
-        </div>
-        <div class="debug-section">
-          <h4>Active Ports (<span id="world-port-count">0</span>)</h4>
-          <div id="world-port-list" class="world-entity-list"></div>
-        </div>
-        <div class="debug-section">
-          <h4>Active Islands (<span id="world-island-count">0</span>)</h4>
-          <div id="world-island-list" class="world-entity-list"></div>
-        </div>
-      </div>
 
       <div id="perf-panel" style="display:none">
         <div class="panel-header">
@@ -254,8 +111,6 @@
     </div>
 
   </div>
-
-  <div id="boat-cell-tooltip" class="boat-cell-tooltip"></div>
 
   <script src="panel.js"></script>
 </body>

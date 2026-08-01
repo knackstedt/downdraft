@@ -11,6 +11,6 @@ export type { SceneNode, SceneTreeSnapshot, SimEntitySnapshot } from "./scene-st
 // Base inspector & interfaces
 export { BaseSceneInspector } from "./scene-inspector.ts";
 export type {
-    GameDevToolsTab, IAssetResolver, IDebugModeProvider, IDebugOverlayProvider, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, IPerformanceMetricsProvider
+    GameDevToolsTab, IAssetResolver, IDebugModeProvider, IDebugOverlayProvider, IDevToolsOverlayToggle, IDevToolsPanelExtension, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, IPerformanceMetricsProvider
 } from "./types.ts";
 

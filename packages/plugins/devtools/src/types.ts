@@ -77,6 +77,51 @@ export interface GameDevToolsTab {
   onDeactivate(): void;
 }
 
+/**
+ * Game-specific DevTools panel extension.
+ * Games declare tabs with HTML content, CSS, and a JS script that runs
+ * in the DevTools panel context. The script receives DevToolsPanel helpers
+ * and returns lifecycle callbacks.
+ */
+export interface IDevToolsPanelExtension {
+  /** Unique id for this extension (e.g. "debug-info", "boat-layout"). */
+  id: string;
+  /** Tab label shown in the tab bar. */
+  tabLabel: string;
+  /** Tab tooltip. */
+  tabTooltip?: string;
+  /** Order/priority for tab placement. Core tabs: 0-100, game tabs: 100+. Default: 100. */
+  order?: number;
+  /** __sceneInspector methods that must exist for this tab to be shown. */
+  requiredMethods?: string[];
+  /** HTML content for the panel body (inserted into a container div). */
+  html: string;
+  /** CSS to inject into the panel document. */
+  css?: string;
+  /**
+   * JS to eval in the panel context. Receives a DevToolsPanelHelpers object
+   * and returns { onActivate?, onDeactivate?, onRefresh?, onDestroy? }.
+   */
+  script?: string;
+}
+
+/**
+ * Game-specific overlay toggle for the overlays dropdown menu.
+ */
+export interface IDevToolsOverlayToggle {
+  /** Unique id (e.g. "chunk-grid", "vel-arrows"). */
+  id: string;
+  /** Label shown next to the checkbox. */
+  label: string;
+  /** __sceneInspector methods that must exist for this toggle to be shown. */
+  requiredMethods?: string[];
+  /**
+   * JS to eval in the panel context. Receives DevToolsPanelHelpers.
+   * Should set up a checkbox listener on #chk-{id} that calls callInspector.
+   */
+  script?: string;
+}
+
 /** Combined provider interface that games implement for game-specific devtools features. */
 export interface IGameDevToolsExtension {
   assetResolver?: IAssetResolver;

@@ -13,6 +13,8 @@ import type {
     IAssetResolver,
     IDebugModeProvider,
     IDebugOverlayProvider,
+    IDevToolsOverlayToggle,
+    IDevToolsPanelExtension,
     IDevToolsRenderer,
     IPerformanceMetricsProvider,
 } from "./types.ts";
@@ -44,6 +46,16 @@ export abstract class BaseSceneInspector {
 
   protected getPerformanceMetricsProvider(): IPerformanceMetricsProvider | null {
     return null;
+  }
+
+  /** Games override this to declare custom DevTools panel tabs. */
+  protected getPanelExtensions(): IDevToolsPanelExtension[] {
+    return [];
+  }
+
+  /** Games override this to declare custom overlay toggles. */
+  protected getOverlayToggles(): IDevToolsOverlayToggle[] {
+    return [];
   }
 
   // --- Init ---
@@ -456,6 +468,10 @@ export abstract class BaseSceneInspector {
       getVulkanValidationStatus: (): any => {
         return this.cachedVulkanValidation;
       },
+
+      // --- Panel extensions (game-specific tabs and overlay toggles) ---
+      getPanelExtensions: (): IDevToolsPanelExtension[] => this.getPanelExtensions(),
+      getOverlayToggles: (): IDevToolsOverlayToggle[] => this.getOverlayToggles(),
     };
   }
 
