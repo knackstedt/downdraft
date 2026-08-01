@@ -11,11 +11,11 @@ import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
 import { ENT, SimBufferReader } from "@shared/sim-buffer";
 import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
 import {
-    createChunkedVoxelField,
-    generatePortVoxelField,
-    getChunkMeshSubRegion,
-    materializeChunkForMesh,
-    type ChunkedFieldContext,
+  createChunkedVoxelField,
+  generatePortVoxelField,
+  getChunkMeshSubRegion,
+  materializeChunkForMesh,
+  type ChunkedFieldContext,
 } from "@shared/TerrainGenerator";
 import { ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
 import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
@@ -5761,10 +5761,10 @@ export class EntityRenderer {
     uniforms[21] = holoPos.y;
     uniforms[22] = holoPos.z;
     uniforms[23] = 1; // scale = 1 (geometry already in world units)
-    uniforms[24] = 0; // identity rotation
-    uniforms[25] = 0;
-    uniforms[26] = 0;
-    uniforms[27] = 1;
+    uniforms[24] = shipRot.x; // rotate ghost to match ship orientation
+    uniforms[25] = shipRot.y;
+    uniforms[26] = shipRot.z;
+    uniforms[27] = shipRot.w;
     const holoDv = new DataView(uniforms.buffer);
     holoDv.setUint32(112, 0, true); // entityType
     // Lighting params (same layout as entity uniforms)

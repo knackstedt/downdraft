@@ -1,4 +1,4 @@
-import type { Plugin } from "@downdraft/core";
+import { WebRTCTransport } from "./webrtc.ts";
 
 export type NetMessageType = number;
 
@@ -9,6 +9,7 @@ export interface NetMessage {
   ordered: boolean;
   channel: number;
 }
+
 
 export type TransportType = "websocket" | "webrtc" | "mock";
 
@@ -163,6 +164,7 @@ export class WebSocketTransport implements NetTransport {
 export function createTransport(type: TransportType): NetTransport {
   switch (type) {
     case "websocket": return new WebSocketTransport();
+    case "webrtc": return new WebRTCTransport();
     case "mock": return new MockTransport();
     default: return new MockTransport();
   }

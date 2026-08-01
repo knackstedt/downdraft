@@ -26,6 +26,8 @@ export { ChangeTracker } from "./change-detection/tracker.ts";
 // SAB
 export { CoreInputChannel } from "./sab/core-input-channel.ts";
 export { InputSABChannel } from "./sab/input.ts";
+export { createMultiInputChannel, DEFAULT_KEY_BITFIELD_COUNT, DEFAULT_MAX_PLAYERS, MultiInputChannel } from "./sab/multi-input-channel.ts";
+export type { MultiInputChannelInstance, MultiInputChannelOptions } from "./sab/multi-input-channel.ts";
 
 // SAB Framework
 export { defineChannel, defineManifest } from "./sab/define.ts";
@@ -54,7 +56,11 @@ export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, 
 
 // Input
 export { InputContextRouter } from "./input/context.ts";
+export { LocalPlayerManager } from "./input/local-player-manager.ts";
+export type { DeviceConnectCallback, DeviceDisconnectCallback, InputDevice } from "./input/local-player-manager.ts";
 export { InputMapping } from "./input/mapping.ts";
+export { createMultiInputBridge, createMultiInputWriter, MultiInputSABBridge, MultiInputSABWriter } from "./input/multi-sab-bridge.ts";
+export { MultiInputState } from "./input/multi-state.ts";
 export { InputSABBridge } from "./input/sab-bridge.ts";
 export { InputContext, InputState } from "./input/state.ts";
 
@@ -88,6 +94,8 @@ export { MaterialHotReloader } from "./render/hot-reload.ts";
 export type { HotReloadCallback, WatchedMesh, WatchedShader, WatchedTexture } from "./render/hot-reload.ts";
 export { createDefaultLightUniform, createDirectionalLight, createPointLight, LightType, MAX_POINT_LIGHTS, packLightUniform, packPointLights } from "./render/lighting.ts";
 export type { DirectionalLight, Light, LightUniformData, PointLight, SpotLight } from "./render/lighting.ts";
+export { MultiCameraRenderLoop } from "./render/multi-render-loop.ts";
+export type { CameraRenderCallback, MultiCameraRenderConfig } from "./render/multi-render-loop.ts";
 export { DebugRenderPass } from "./render/passes/debug.ts";
 export { DeferredLightingPass } from "./render/passes/deferred-lighting.ts";
 export { DepthPrepass } from "./render/passes/depth-prepass.ts";
@@ -121,6 +129,8 @@ export { RenderPass } from "./render/render-pass.ts";
 export type { FrameGraphBuilder, GraphRenderContext, PassType, RenderPassContext } from "./render/render-pass.ts";
 export { SurfaceManager } from "./render/surface.ts";
 export { TrackedRenderPass } from "./render/tracked-render-pass.ts";
+export { ViewportLayout, viewportRectToPixels } from "./render/viewport.ts";
+export type { ViewportMode, ViewportRect } from "./render/viewport.ts";
 export { VisionTest, VisionTestSuite } from "./render/vision-test.ts";
 export type { DiffResult, PixelMatchOptions, PixelScanResult, VisionTestResult } from "./render/vision-test.ts";
 
