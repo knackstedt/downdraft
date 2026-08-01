@@ -1,0 +1,82 @@
+/* Custom theme overrides for DownDraft — Fire & Hearth (matching Ember) */
+
+:root {
+	--sl-color-accent-high: #ff8c42;
+	--sl-color-accent: #ff5e1a;
+	--sl-color-accent-low: #7a1f00;
+	--sl-color-bg: #0a0504;
+	--sl-color-bg-nav: #140a08;
+	--sl-color-bg-sidebar: #140a08;
+	--sl-color-text: #fff5f0;
+	--sl-color-text-invert: #0a0504;
+	--sl-color-gray-1: #ffe8df;
+	--sl-color-gray-2: #c4a89b;
+	--sl-color-gray-3: #8f6e5e;
+	--sl-color-gray-4: #6b4a3e;
+	--sl-color-gray-5: #4a2e24;
+	--sl-color-gray-6: #2b1610;
+	--sl-color-black: #0a0504;
+	--sl-color-white: #fff5f0;
+}
+
+[data-theme='light'] {
+	--sl-color-accent-high: #d13800;
+	--sl-color-accent: #ff5e1a;
+	--sl-color-accent-low: #ffe0d0;
+	--sl-color-bg: #fff8f5;
+	--sl-color-bg-nav: #fff0ea;
+	--sl-color-bg-sidebar: #fff0ea;
+	--sl-color-text: #1f0f0a;
+	--sl-color-text-invert: #fff8f5;
+	--sl-color-gray-1: #1f0f0a;
+	--sl-color-gray-2: #4a2e24;
+	--sl-color-gray-3: #6b4a3e;
+	--sl-color-gray-4: #a38072;
+	--sl-color-gray-5: #dcc0b6;
+	--sl-color-gray-6: #f0ddd5;
+	--sl-color-black: #1f0f0a;
+	--sl-color-white: #fff8f5;
+}
+
+/* Hero title gradient — sparks/embers */
+.hero-title {
+	background: linear-gradient(135deg, #ff2a00 0%, #ff5e1a 25%, #ffb347 60%, #ffeebb 100%);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+	background-clip: text;
+	filter: drop-shadow(0 0 12px rgba(255, 94, 26, 0.45));
+}
+
+/* Glowing accent links */
+a,
+.sl-link-card,
+.starlight-sidebar-preview a {
+	transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+a:hover,
+.starlight-sidebar-preview a:hover {
+	text-shadow: 0 0 8px rgba(255, 94, 26, 0.5), 0 0 16px rgba(255, 140, 66, 0.25);
+}
+
+/* Button / action ember glow */
+.sl-button.primary {
+	box-shadow: 0 0 0 1px rgba(255, 94, 26, 0.3), 0 0 20px rgba(255, 94, 26, 0.15);
+	transition: box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.sl-button.primary:hover {
+	box-shadow: 0 0 0 1px rgba(255, 94, 26, 0.5), 0 0 28px rgba(255, 94, 26, 0.35);
+	transform: translateY(-1px);
+}
+
+/* Sidebar active indicator — ember bar */
+.starlight-sidebar-preview [aria-current='page'] {
+	border-inline-start-color: #ff5e1a;
+	background: linear-gradient(90deg, rgba(255, 94, 26, 0.12), transparent);
+}
+
+/* Card hover glow */
+.sl-card:hover {
+	box-shadow: 0 0 0 1px rgba(255, 94, 26, 0.15), 0 8px 32px rgba(0, 0, 0, 0.4);
+}

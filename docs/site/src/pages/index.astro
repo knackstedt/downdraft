@@ -1,0 +1,633 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import logoSvg from '../assets/logo.svg';
+---
+
+<StarlightPage frontmatter={{ title: 'DownDraft', template: 'splash' }} hasSidebar={false}>
+	<div class="landing-root">
+		<!-- Ambient ember particles -->
+		<div class="particles" aria-hidden="true">
+			{Array.from({ length: 24 }).map((_, i) => (
+				<div class="particle" style={`--i: ${i}; --delay: ${Math.random() * 5}s; --size: ${2 + Math.random() * 4}px; --left: ${Math.random() * 100}%`} />
+			))}
+		</div>
+
+		<!-- HERO -->
+		<section class="hero">
+			<div class="hero-inner">
+				<div class="logo-ring">
+					<img src={logoSvg.src} alt="DownDraft" width={80} height={80} class="hero-logo" />
+				</div>
+				<h1 class="headline">
+					<span class="line">AI-Driven.</span>
+					<span class="line">WebGPU.</span>
+					<span class="line accent">TypeScript-first.</span>
+				</h1>
+				<p class="subheadline">
+					A cross-platform game engine built on Electron + Bun + WebGPU, with a built-in MCP
+					server that lets AI agents design, build, debug, and manage game assets via natural
+					language prompts.
+				</p>
+				<div class="cta-row">
+					<a href="/getting-started/introduction/" class="btn btn-primary">
+						<span>Get Started</span>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+					</a>
+					<a href="https://github.com/knackstedt/downdraft-engine" class="btn btn-secondary" target="_blank" rel="noopener">
+						<span>GitHub</span>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+					</a>
+				</div>
+			</div>
+		</section>
+
+		<!-- ONE-LINE INSTALL -->
+		<section class="install-section">
+			<div class="section-inner">
+				<p class="section-eyebrow">Quick Start</p>
+				<h2 class="section-title">One command. Zero fuss.</h2>
+				<p class="install-subtitle">Clone, install, and launch the engine in seconds.</p>
+				<div class="terminal">
+					<div class="terminal-header">
+						<div class="terminal-dots">
+							<span class="dot red" />
+							<span class="dot yellow" />
+							<span class="dot green" />
+						</div>
+						<span class="terminal-title">bash</span>
+					</div>
+					<div class="terminal-body">
+						<code class="terminal-code">git clone https://github.com/knackstedt/downdraft-engine && cd downdraft-engine && bun install && bun run dev</code>
+						<button class="copy-btn" aria-label="Copy to clipboard" data-command="git clone https://github.com/knackstedt/downdraft-engine && cd downdraft-engine && bun install && bun run dev">
+							<svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+							<svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+						</button>
+					</div>
+				</div>
+				<div class="install-meta">
+					<span class="pill">Electron</span>
+					<span class="pill">WebGPU</span>
+					<span class="pill">Bun</span>
+					<span class="pill">TypeScript</span>
+				</div>
+			</div>
+		</section>
+
+		<!-- FEATURES -->
+		<section class="features-section">
+			<div class="section-inner">
+				<p class="section-eyebrow">Capabilities</p>
+				<h2 class="section-title">Everything you need to build games</h2>
+				<div class="feature-grid">
+					<article class="feature-card">
+						<div class="feature-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+						</div>
+						<h3 class="feature-title">ECS Architecture</h3>
+						<p class="feature-desc">Archetype-based entity component system with change detection, hierarchy, and double-buffered events.</p>
+					</article>
+					<article class="feature-card">
+						<div class="feature-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+						</div>
+						<h3 class="feature-title">WebGPU Rendering</h3>
+						<p class="feature-desc">Deferred pipeline with G-Buffer, shadow maps, post-processing, and a Bevy-style render graph with automatic resource aliasing.</p>
+					</article>
+					<article class="feature-card">
+						<div class="feature-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
+						</div>
+						<h3 class="feature-title">Plugin System</h3>
+						<p class="feature-desc">Tiered TypeScript and WASM plugins. First-party plugins for water, terrain, physics, audio, networking, and more.</p>
+					</article>
+					<article class="feature-card">
+						<div class="feature-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+						</div>
+						<h3 class="feature-title">MCP / AI Agents</h3>
+						<p class="feature-desc">Built-in MCP server lets AI agents design scenes, spawn entities, manage assets, and debug via natural language.</p>
+					</article>
+					<article class="feature-card">
+						<div class="feature-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+						</div>
+						<h3 class="feature-title">Physics</h3>
+						<p class="feature-desc">Pluggable physics abstraction with Rapier3D backend, multi-realm support, and character controllers.</p>
+					</article>
+					<article class="feature-card">
+						<div class="feature-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+						</div>
+						<h3 class="feature-title">Audio</h3>
+						<p class="feature-desc">Spatial audio with Kira backend via Rust FFI, mixer, effects, and listener tracking.</p>
+					</article>
+				</div>
+			</div>
+		</section>
+
+		<!-- TECH STACK -->
+		<section class="stack-section">
+			<div class="section-inner narrow">
+				<p class="section-eyebrow">Architecture</p>
+				<h2 class="section-title">Built for performance</h2>
+				<p class="section-lead">
+					DownDraft leverages four isolated execution contexts with zero-copy
+					SharedArrayBuffer communication, a deferred WebGPU render pipeline, and a
+					modular plugin ecosystem — all orchestrated through Electron.
+				</p>
+				<div class="stack-grid">
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>Electron + electron-vite</span>
+					</div>
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>WebGPU / WGPU</span>
+					</div>
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>Bun runtime</span>
+					</div>
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>SurrealDB (SurrealKV)</span>
+					</div>
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>Rapier3D physics</span>
+					</div>
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>Kira audio (Rust FFI)</span>
+					</div>
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>React + Tailwind UI</span>
+					</div>
+					<div class="stack-item">
+						<div class="stack-dot" />
+						<span>MCP (JSON-RPC)</span>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- FOOTER CTA -->
+		<section class="footer-cta">
+			<div class="section-inner">
+				<h2 class="footer-title">Ready to build something great?</h2>
+				<p class="footer-lead">Dive into the docs and start creating games with AI-assisted tooling.</p>
+				<div class="cta-row">
+					<a href="/getting-started/introduction/" class="btn btn-primary">
+						<span>Get Started</span>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+					</a>
+					<a href="https://github.com/knackstedt/downdraft-engine" class="btn btn-secondary" target="_blank" rel="noopener">
+						<span>Star on GitHub</span>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+					</a>
+				</div>
+			</div>
+		</section>
+	</div>
+</StarlightPage>
+
+<script>
+	const copyBtns = document.querySelectorAll('.copy-btn');
+	copyBtns.forEach(btn => {
+		btn.addEventListener('click', async () => {
+			const command = btn.getAttribute('data-command');
+			if (!command) return;
+			try {
+				await navigator.clipboard.writeText(command);
+				btn.classList.add('copied');
+				setTimeout(() => btn.classList.remove('copied'), 2000);
+			} catch (e) {
+				console.error('Copy failed', e);
+			}
+		});
+	});
+
+	// Fade-up on scroll via IntersectionObserver
+	const observer = new IntersectionObserver((entries) => {
+		entries.forEach(entry => {
+			if (entry.isIntersecting) {
+				entry.target.classList.add('visible');
+				observer.unobserve(entry.target);
+			}
+		});
+	}, { threshold: 0.1 });
+
+	document.querySelectorAll('.feature-card, .stack-item, .section-title, .section-lead').forEach(el => {
+		el.classList.add('reveal');
+		observer.observe(el);
+	});
+</script>
+
+<style>
+	.landing-root {
+		--ember-orange: #ff5e1a;
+		--ember-glow: #ff8c42;
+		--ember-deep: #7a1f00;
+		--ember-dim: #c4a89b;
+		--bg-dark: #0a0504;
+		--bg-elevated: #140a08;
+		--text-primary: #fff5f0;
+		--text-secondary: #c4a89b;
+		--radius: 16px;
+		--radius-sm: 10px;
+	}
+
+	/* Particles */
+	.particles {
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
+		z-index: 0;
+		overflow: hidden;
+	}
+	.particle {
+		position: absolute;
+		left: var(--left);
+		bottom: -10px;
+		width: var(--size);
+		height: var(--size);
+		background: radial-gradient(circle, rgba(255,94,26,0.9) 0%, rgba(255,140,66,0.4) 60%, transparent 100%);
+		border-radius: 50%;
+		filter: blur(1px);
+		animation: rise 8s ease-in infinite;
+		animation-delay: var(--delay);
+		opacity: 0;
+	}
+	@keyframes rise {
+		0% { transform: translateY(0) scale(1); opacity: 0; }
+		10% { opacity: 0.8; }
+		90% { opacity: 0.4; }
+		100% { transform: translateY(-110vh) scale(0.4); opacity: 0; }
+	}
+
+	/* Hero */
+	.hero {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 90vh;
+		padding: 6rem 1.5rem 4rem;
+		text-align: center;
+	}
+	.hero-inner {
+		max-width: 720px;
+		animation: fadeUp 1s ease-out both;
+	}
+	.logo-ring {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 120px;
+		height: 120px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, rgba(255,94,26,0.15), rgba(255,140,66,0.05));
+		box-shadow: 0 0 40px rgba(255,94,26,0.2), inset 0 0 20px rgba(255,94,26,0.05);
+		margin-bottom: 2rem;
+		animation: pulseGlow 4s ease-in-out infinite;
+	}
+	.hero-logo {
+		width: 64px;
+		height: 64px;
+		filter: drop-shadow(0 0 12px rgba(255,94,26,0.6));
+	}
+	@keyframes pulseGlow {
+		0%, 100% { box-shadow: 0 0 40px rgba(255,94,26,0.2), inset 0 0 20px rgba(255,94,26,0.05); }
+		50% { box-shadow: 0 0 60px rgba(255,94,26,0.35), inset 0 0 30px rgba(255,94,26,0.08); }
+	}
+	.headline {
+		font-size: clamp(2.5rem, 6vw, 4.5rem);
+		font-weight: 800;
+		line-height: 1.1;
+		letter-spacing: -0.03em;
+		margin: 0 0 1.25rem;
+		color: var(--text-primary);
+	}
+	.headline .line {
+		display: block;
+	}
+	.headline .accent {
+		background: linear-gradient(135deg, #ff2a00 0%, #ff5e1a 40%, #ffb347 80%, #ffeebb 100%);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+		filter: drop-shadow(0 0 18px rgba(255,94,26,0.35));
+	}
+	.subheadline {
+		font-size: clamp(1.05rem, 2vw, 1.35rem);
+		line-height: 1.6;
+		color: var(--text-secondary);
+		max-width: 560px;
+		margin: 0 auto 2.5rem;
+	}
+	.cta-row {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.85rem 1.6rem;
+		border-radius: 9999px;
+		font-weight: 600;
+		font-size: 1rem;
+		text-decoration: none;
+		transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+		cursor: pointer;
+		border: none;
+	}
+	.btn-primary {
+		background: linear-gradient(135deg, #ff5e1a, #ff8c42);
+		color: #fff;
+		box-shadow: 0 0 0 1px rgba(255,94,26,0.4), 0 4px 24px rgba(255,94,26,0.3);
+	}
+	.btn-primary:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 0 0 1px rgba(255,94,26,0.6), 0 8px 32px rgba(255,94,26,0.45);
+	}
+	.btn-secondary {
+		background: rgba(255,255,255,0.05);
+		color: var(--text-primary);
+		border: 1px solid rgba(255,255,255,0.1);
+		box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+	}
+	.btn-secondary:hover {
+		background: rgba(255,255,255,0.1);
+		border-color: rgba(255,255,255,0.18);
+		transform: translateY(-2px);
+	}
+
+	/* Sections common */
+	section {
+		position: relative;
+		z-index: 1;
+	}
+	.section-inner {
+		max-width: 1100px;
+		margin: 0 auto;
+		padding: 5rem 1.5rem;
+	}
+	.section-inner.narrow {
+		max-width: 760px;
+	}
+	.section-eyebrow {
+		font-size: 0.8rem;
+		font-weight: 700;
+		letter-spacing: 0.15em;
+		text-transform: uppercase;
+		color: var(--ember-orange);
+		margin: 0 0 0.75rem;
+	}
+	.section-title {
+		font-size: clamp(1.8rem, 4vw, 2.8rem);
+		font-weight: 800;
+		letter-spacing: -0.02em;
+		margin: 0 0 1rem;
+		color: var(--text-primary);
+	}
+	.section-lead {
+		font-size: 1.1rem;
+		line-height: 1.65;
+		color: var(--text-secondary);
+		margin: 0;
+	}
+
+	/* Install */
+	.install-section {
+		background: linear-gradient(180deg, transparent 0%, rgba(255,94,26,0.03) 50%, transparent 100%);
+	}
+	.install-subtitle {
+		font-size: 1.05rem;
+		color: var(--text-secondary);
+		margin: 0 0 1.75rem;
+	}
+	.terminal {
+		max-width: 640px;
+		margin: 0 auto;
+		border-radius: var(--radius);
+		overflow: hidden;
+		background: #0d0a09;
+		border: 1px solid rgba(255,255,255,0.06);
+		box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,94,26,0.08);
+		transition: box-shadow 0.3s ease, transform 0.3s ease;
+	}
+	.terminal:hover {
+		box-shadow: 0 24px 72px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,94,26,0.15), 0 0 40px rgba(255,94,26,0.08);
+		transform: translateY(-2px);
+	}
+	.terminal-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: rgba(255,255,255,0.03);
+		border-bottom: 1px solid rgba(255,255,255,0.05);
+	}
+	.terminal-dots {
+		display: flex;
+		gap: 0.4rem;
+	}
+	.dot {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+	}
+	.dot.red { background: #ff5f56; }
+	.dot.yellow { background: #ffbd2e; }
+	.dot.green { background: #27c93f; }
+	.terminal-title {
+		margin-left: 0.5rem;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+	}
+	.terminal-body {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1.1rem 1.25rem;
+		overflow-x: auto;
+	}
+	.terminal-code {
+		font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+		font-size: 0.95rem;
+		color: #e8e0dc;
+		white-space: nowrap;
+		letter-spacing: 0.01em;
+	}
+	.copy-btn {
+		margin-left: auto;
+		flex-shrink: 0;
+		background: rgba(255,255,255,0.06);
+		border: 1px solid rgba(255,255,255,0.08);
+		color: var(--text-secondary);
+		border-radius: var(--radius-sm);
+		padding: 0.4rem 0.5rem;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+		display: grid;
+		place-items: center;
+	}
+	.copy-btn:hover {
+		background: rgba(255,255,255,0.1);
+		color: var(--text-primary);
+		border-color: rgba(255,255,255,0.15);
+	}
+	.copy-btn .check-icon { display: none; }
+	.copy-btn.copied .copy-icon { display: none; }
+	.copy-btn.copied .check-icon { display: block; color: #27c93f; }
+	.install-meta {
+		display: flex;
+		gap: 0.5rem;
+		justify-content: center;
+		margin-top: 1.25rem;
+		flex-wrap: wrap;
+	}
+	.pill {
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.3rem 0.7rem;
+		border-radius: 9999px;
+		background: rgba(255,255,255,0.04);
+		border: 1px solid rgba(255,255,255,0.08);
+		color: var(--text-secondary);
+		letter-spacing: 0.02em;
+	}
+
+	/* Features */
+	.features-section {
+		background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.2) 100%);
+	}
+	.feature-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 1.25rem;
+		margin-top: 2.5rem;
+	}
+	.feature-card {
+		background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+		border: 1px solid rgba(255,255,255,0.06);
+		border-radius: var(--radius);
+		padding: 1.75rem;
+		transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+	}
+	.feature-card:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 12px 40px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,94,26,0.12);
+		border-color: rgba(255,94,26,0.15);
+	}
+	.feature-icon {
+		width: 44px;
+		height: 44px;
+		display: grid;
+		place-items: center;
+		border-radius: var(--radius-sm);
+		background: linear-gradient(135deg, rgba(255,94,26,0.15), rgba(255,140,66,0.05));
+		color: var(--ember-orange);
+		margin-bottom: 1rem;
+	}
+	.feature-title {
+		font-size: 1.15rem;
+		font-weight: 700;
+		margin: 0 0 0.5rem;
+		color: var(--text-primary);
+	}
+	.feature-desc {
+		font-size: 0.95rem;
+		line-height: 1.55;
+		color: var(--text-secondary);
+		margin: 0;
+	}
+
+	/* Stack */
+	.stack-section {
+		background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, transparent 100%);
+	}
+	.stack-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 0.75rem;
+		margin-top: 2rem;
+	}
+	.stack-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		border-radius: var(--radius-sm);
+		background: rgba(255,255,255,0.03);
+		border: 1px solid rgba(255,255,255,0.05);
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		transition: background 0.2s, border-color 0.2s;
+	}
+	.stack-item:hover {
+		background: rgba(255,255,255,0.05);
+		border-color: rgba(255,94,26,0.12);
+	}
+	.stack-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #ff5e1a, #ff8c42);
+		box-shadow: 0 0 8px rgba(255,94,26,0.4);
+	}
+
+	/* Footer CTA */
+	.footer-cta {
+		text-align: center;
+		padding: 3rem 0 6rem;
+	}
+	.footer-title {
+		font-size: clamp(1.8rem, 4vw, 2.6rem);
+		font-weight: 800;
+		letter-spacing: -0.02em;
+		margin: 0 0 0.75rem;
+		color: var(--text-primary);
+	}
+	.footer-lead {
+		font-size: 1.1rem;
+		color: var(--text-secondary);
+		margin: 0 0 2rem;
+	}
+
+	/* Scroll reveal */
+	.reveal {
+		opacity: 0;
+		transform: translateY(24px);
+		transition: opacity 0.6s ease, transform 0.6s ease;
+	}
+	.reveal.visible {
+		opacity: 1;
+		transform: translateY(0);
+	}
+
+	/* Keyframes */
+	@keyframes fadeUp {
+		from { opacity: 0; transform: translateY(20px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	/* Responsive */
+	@media (max-width: 640px) {
+		.hero { min-height: 80vh; padding: 5rem 1rem 3rem; }
+		.logo-ring { width: 96px; height: 96px; }
+		.hero-logo { width: 48px; height: 48px; }
+		.terminal-body { padding: 1rem; }
+		.terminal-code { font-size: 0.8rem; }
+		.section-inner { padding: 3rem 1rem; }
+		.footer-cta { padding: 2rem 0 4rem; }
+	}
+</style>
