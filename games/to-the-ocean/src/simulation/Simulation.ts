@@ -3,27 +3,27 @@
 // ============================================================================
 
 import {
-    MAX_ENTITIES, MAX_PLAYERS,
-    NIGHT_END_FRAC,
-    NIGHT_START_FRAC,
-    PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
-    PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
-    PLAYER_MAX_THIRST,
-    SIM_TICK_DT
+  MAX_ENTITIES, MAX_PLAYERS,
+  NIGHT_END_FRAC,
+  NIGHT_START_FRAC,
+  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
+  PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
+  PLAYER_MAX_THIRST,
+  SIM_TICK_DT
 } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
 import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
 import {
-    BiomeType,
-    CameraMode,
-    EntityId,
-    EntityType,
-    GameMode,
-    PlayerId,
-    SimCommand,
-    SimToMainMessage,
-    WeatherType,
-    WorldCommand
+  BiomeType,
+  CameraMode,
+  EntityId,
+  EntityType,
+  GameMode,
+  PlayerId,
+  SimCommand,
+  SimToMainMessage,
+  WeatherType,
+  WorldCommand
 } from "../shared/types";
 import { WaterBufferWriter } from "../shared/water-buffer";
 
@@ -272,6 +272,8 @@ export class Simulation {
       (type, opts) => this.spawnEntity(type, opts),
       (id) => this.removeEntity(id),
     );
+    this.ecs.registerCameraSystem(() => this.inputReader);
+    this.ecs.registerStructureIntegritySystem(() => this.boatCellSystem);
   }
 
   async init(): Promise<void> {
@@ -375,7 +377,8 @@ export class Simulation {
     // Process pending physics field generation (time-budgeted, avoids sim stalls)
     this.terrainSystem.processPendingPhysicsFieldGen();
 
-    this.structureIntegrity.tick(dt, this.entities, this.entityCount, this.boatCellSystem);
+    // StructureIntegrity now runs as ECS system (EcsStructureIntegritySystem) during ecs.step()
+    // this.structureIntegrity.tick(dt, this.entities, this.entityCount, this.boatCellSystem);
     const t3 = performance.now();
     sysTimes.push({ name: "structureIntegrity", ms: t3 - t2 });
 
@@ -525,7 +528,8 @@ export class Simulation {
 
     this.portSystem.tick(dt, this.inputReader, this.entities, this.entityCount, this.players, this.playerCount, this.boatSystem.getPilotedShipIds());
     this.fishingSystem.tick(dt, this.inputReader, this.players, this.playerCount);
-    this.cameraController.tick(dt, this.inputReader, this.players, this.playerCount, this.entities, this.entityCount);
+    // CameraController now runs as ECS system (EcsCameraSystem) during ecs.step()
+    // this.cameraController.tick(dt, this.inputReader, this.players, this.playerCount, this.entities, this.entityCount);
     // Phase 3: Player tracking on ships (after final ship motion)
     this.boatSystem.postPhysicsTick(dt, this.inputReader, this.players, this.playerCount, this.entities, this.entityCount, this.boatCellSystem);
     this.progressionTree.tick(dt, this.players, this.playerCount);
