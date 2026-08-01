@@ -4,11 +4,10 @@
 // Uses the RPC layer (expose/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { SimWorkerLoop } from "@downdraft/core";
+import { SimWorkerLoop, startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { BoatBufferWriter } from "@shared/boat-buffer";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
-import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@shared/gc-profiler";
 import { InputBufferReader } from "@shared/input-buffer";
 import { SimBufferWriter } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";

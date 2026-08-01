@@ -56,7 +56,7 @@ import {
   waterCutout,
   type ShoreSource,
 } from "../shared/shore-damping";
-import { sampleTerrainHeight } from "../shared/TerrainGenerator";
+import { sampleTerrainHeight } from "../shared/terrain";
 import { EntityFlags } from "../shared/types";
 import { WATER_GRID } from "../shared/water-buffer";
 import { WorldGenerator } from "../shared/world/WorldGenerator";

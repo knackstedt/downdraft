@@ -16,7 +16,7 @@ import {
     SIM_TICK_DT,
 } from "../../shared/constants";
 import { PLR_FLAG } from "../../shared/sim-buffer";
-import { generateTerrainTrimeshSubRegion } from "../../shared/TerrainGenerator";
+import { generateTerrainTrimeshSubRegion } from "../../shared/terrain";
 import type { VoxelField } from "../../shared/TerrainTypes";
 import { EntityFlags, EntityType, EntityTypeNames } from "../../shared/types";
 import { BoatCellSystem } from "../boat/BoatCellSystem";
