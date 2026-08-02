@@ -5,6 +5,7 @@ interface WalkableCell {
   z: number;
   height: number;
   region: number;
+  walkable: boolean;
 }
 
 export class NavMeshGenerator {
@@ -41,9 +42,9 @@ export class NavMeshGenerator {
         const wz = minZ + z * cs;
         if (sampler.isWalkable(wx, wz)) {
           const h = sampler.sampleHeight(wx, wz);
-          grid[z][x] = { x, z, height: h, region: -1 };
+          grid[z][x] = { x, z, height: h, region: -1, walkable: true };
         } else {
-          grid[z][x] = { x, z, height: 0, region: -1 };
+          grid[z][x] = { x, z, height: 0, region: -1, walkable: false };
         }
       }
     }
@@ -57,10 +58,15 @@ export class NavMeshGenerator {
     const cols = rows > 0 ? cells[0].length : 0;
     const minSize = this.config.regionMinSize;
     const visited: boolean[][] = Array.from({ length: rows }, () => new Array(cols).fill(false));
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (!cells[z][x].walkable) visited[z][x] = true;
+      }
+    }
 
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
-        if (visited[z][x] || cells[z][x].region >= 0) continue;
+        if (visited[z][x] || !cells[z][x].walkable || cells[z][x].region >= 0) continue;
 
         const flood: WalkableCell[] = [];
         const queue: [number, number][] = [[x, z]];
@@ -83,7 +89,7 @@ export class NavMeshGenerator {
             if (nx < 0 || nx >= cols || nz < 0 || nz >= rows) continue;
             if (visited[nz][nx]) continue;
             const nc = cells[nz][nx];
-            if (nc.region >= 0) continue;
+            if (!nc.walkable || nc.region >= 0) continue;
 
             const heightDiff = Math.abs(nc.height - cell.height);
             if (heightDiff > this.config.maxStep) continue;
@@ -250,7 +256,7 @@ export class NavMeshGenerator {
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
         const cell = cells[z][x];
-        if (cell.region < 0) continue;
+        if (cell.region < 0 || !cell.walkable) continue;
 
         const h = cell.height;
         const wx = originX + x * cs;

@@ -1,10 +1,11 @@
-import type { ComponentDefinition } from "@downdraft/core/src/ecs/component.ts";
-import { Component } from "@downdraft/core/src/ecs/component.ts";
-import type { Entity } from "@downdraft/core/src/ecs/entity.ts";
-import type { Query } from "@downdraft/core/src/ecs/query.ts";
-import { Stage, system } from "@downdraft/core/src/ecs/system.ts";
-import type { World } from "@downdraft/core/src/ecs/world.ts";
-import { SpatialGrid } from "@downdraft/core/src/scene/spatial-grid.ts";
+import type { ComponentDefinition } from "@downdraft/core/ecs/component.ts";
+import { Component } from "@downdraft/core/ecs/component.ts";
+import type { Entity } from "@downdraft/core/ecs/entity.ts";
+import type { Query } from "@downdraft/core/ecs/query.ts";
+import { Stage, system } from "@downdraft/core/ecs/system.ts";
+import type { World } from "@downdraft/core/ecs/world.ts";
+import { PhysicsTransform } from "@downdraft/core/physics/body.ts";
+import { SpatialGrid } from "@downdraft/core/scene/spatial-grid.ts";
 import type { NavMesh } from "./navmesh.ts";
 import type { Pathfinder } from "./pathfinder.ts";
 import type { CrowdSystemConfig, NavAgentData, Vec3 } from "./types.ts";
@@ -97,8 +98,8 @@ export class CrowdSystem {
     }
 
     const waypoint = agent.path[agent.pathIndex];
-    const dx = waypoint[0] - pos[0];
-    const dz = waypoint[2] - pos[2];
+    let dx = waypoint[0] - pos[0];
+    let dz = waypoint[2] - pos[2];
     const distToWaypoint = Math.sqrt(dx * dx + dz * dz);
 
     if (distToWaypoint < 0.3) {
@@ -108,6 +109,9 @@ export class CrowdSystem {
         agent.velocity = [0, 0, 0];
         return;
       }
+      const nextWaypoint = agent.path[agent.pathIndex];
+      dx = nextWaypoint[0] - pos[0];
+      dz = nextWaypoint[2] - pos[2];
     }
 
     const desiredDir = this.normalize([dx, 0, dz]);
