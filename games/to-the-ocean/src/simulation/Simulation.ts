@@ -3,27 +3,21 @@
 // ============================================================================
 
 import {
-  MAX_ENTITIES, MAX_PLAYERS,
-  NIGHT_END_FRAC,
-  NIGHT_START_FRAC,
-  PLAYER_MAX_HEALTH, PLAYER_MAX_HUNGER,
-  PLAYER_MAX_OXYGEN, PLAYER_MAX_TEMPERATURE,
-  PLAYER_MAX_THIRST,
-  SIM_TICK_DT
+    MAX_ENTITIES,
+    SIM_TICK_DT
 } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
-import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
+import { PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
 import {
-  BiomeType,
-  CameraMode,
-  EntityId,
-  EntityType,
-  GameMode,
-  PlayerId,
-  SimCommand,
-  SimToMainMessage,
-  WeatherType,
-  WorldCommand
+    BiomeType,
+    CameraMode,
+    EntityId,
+    EntityType,
+    GameMode,
+    PlayerId,
+    SimCommand,
+    SimToMainMessage,
+    WorldCommand
 } from "../shared/types";
 import { WaterBufferWriter } from "../shared/water-buffer";
 
@@ -35,31 +29,28 @@ import type { WildlifeConfig, WildlifeDeps } from "@downdraft/plugin-wildlife";
 import { BoatBufferWriter } from "../shared/boat-buffer";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import {
-  BOAT_CELL_WORLD_SIZE,
-  BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH,
-  BOAT_LAYER_HEIGHT,
-  DEVIL_SHRIP_ATTACK_DAMAGE, EEL_SHOCK_DAMAGE,
-  ENTITY_MASS,
-  JELLYFISH_DOT_DAMAGE, PLAYER_HEIGHT, PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH,
-  PORT_DATA,
-  SHARK_ATTACK_DAMAGE, SHARK_DETECT_BOAT_SPEED,
-  SHIP_COLLISION_RESTITUTION,
-  SHIP_DATA, SHIP_DATA_SLOTS,
-  WILDLIFE_DENSITY,
-  WILDLIFE_DESPAWN_RADIUS, WILDLIFE_MAX_PER_BIOME, WILDLIFE_SPAWN_RADIUS,
-  getPortColliderDims,
-  isHullShellCell,
+    BOAT_CELL_WORLD_SIZE,
+    BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH,
+    BOAT_LAYER_HEIGHT,
+    DEVIL_SHRIP_ATTACK_DAMAGE, EEL_SHOCK_DAMAGE,
+    ENTITY_MASS,
+    JELLYFISH_DOT_DAMAGE,
+    PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH,
+    PORT_DATA,
+    SHARK_ATTACK_DAMAGE, SHARK_DETECT_BOAT_SPEED,
+    SHIP_COLLISION_RESTITUTION,
+    SHIP_DATA, SHIP_DATA_SLOTS,
+    WILDLIFE_DENSITY,
+    WILDLIFE_DESPAWN_RADIUS, WILDLIFE_MAX_PER_BIOME, WILDLIFE_SPAWN_RADIUS,
+    getCellGeometry,
+    getPortColliderDims,
+    isHullShellCell
 } from "../shared/constants";
 import {
-  collectShoreSources,
-  shoreDamping,
-  shoreDisplacement,
-  waterCutout,
-  type ShoreSource,
+    type ShoreSource
 } from "../shared/shore-damping";
 import { sampleTerrainHeight } from "../shared/terrain";
 import { EntityFlags } from "../shared/types";
-import { WATER_GRID } from "../shared/water-buffer";
 import { WorldGenerator } from "../shared/world/WorldGenerator";
 import { AnchorSystem } from "./boat/AnchorSystem";
 import { BoatCellSystem } from "./boat/BoatCellSystem";
@@ -76,10 +67,10 @@ import { PetSystem } from "./farming/PetSystem";
 import { PlantSystem } from "./farming/PlantSystem";
 import { FishingSystem } from "./fishing/FishingSystem";
 import { GameModeManager } from "./gamemode/GameModeManager";
-import { InventoryGrid, addItem, createGrid, deserializeGrid, getGridStateForUI, moveItem, processSpoilage, removeItem, serializeGrid } from "./inventory/InventorySystem";
+import { InventoryGrid, createGrid, deserializeGrid, serializeGrid } from "./inventory/InventorySystem";
 import { BuoyancySystem } from "./physics/BuoyancySystem";
 import { CollisionSystem } from "./physics/CollisionSystem";
-import { PlayerMoveRequest, RapierPhysicsSystem } from "./physics/RapierPhysicsSystem";
+import { RapierPhysicsSystem } from "./physics/RapierPhysicsSystem";
 import { StructureIntegrity } from "./physics/StructureIntegrity";
 import { PirateSystem } from "./pirates/PirateSystem";
 import { LicenseSystem } from "./player/LicenseSystem";
@@ -95,9 +86,9 @@ import { ChunkManager } from "./world/ChunkManager";
 import { IslandManager } from "./world/IslandManager";
 import { PortSystem } from "./world/PortSystem";
 
-import { spawnEntity, removeEntity, getEntity, getEntitySlot, addPlayer, removePlayer, determineCauseOfDeath, respawnPlayer, checkNightSkip, getPlayerCenterX, getPlayerCenterZ } from "./SimulationEntityManager";
-import { writeToBuffer, updateWaterBuffer, broadcastShipHoldUpdate, sampleWaterForBuoyancy } from "./SimulationBufferWriter";
-import { handleCommand, handleWorldCommand, setSetting, setWeather, setTimeOfDay, setGamemode } from "./SimulationCommands";
+import { broadcastShipHoldUpdate, sampleWaterForBuoyancy, updateWaterBuffer, writeToBuffer } from "./SimulationBufferWriter";
+import { handleCommand, handleWorldCommand, setGamemode, setSetting, setTimeOfDay, setWeather } from "./SimulationCommands";
+import { addPlayer, checkNightSkip, getEntity, getEntitySlot, getPlayerCenterX, getPlayerCenterZ, removeEntity, removePlayer, respawnPlayer, spawnEntity } from "./SimulationEntityManager";
 import { tick as simTick } from "./SimulationTick";
 
 export class Simulation implements ISimulation {
@@ -352,6 +343,10 @@ export class Simulation implements ISimulation {
       boatLayerHeight: BOAT_LAYER_HEIGHT,
       seabedHeight: -50,
       isHullShellCell,
+      getCellVerticalExtent: (cellType: number) => {
+        const geo = getCellGeometry(cellType);
+        return { y0: geo.y0, y1: geo.y1 };
+      },
     };
     const buoyancyDeps: BuoyancyDeps = {
       sampleWaterAt: (x: number, z: number) => this.sampleWaterForBuoyancy(x, z),

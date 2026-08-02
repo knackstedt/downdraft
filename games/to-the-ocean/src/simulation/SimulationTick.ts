@@ -115,7 +115,7 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   // Process pending physics field generation (time-budgeted, avoids sim stalls)
   sim.terrainSystem.processPendingPhysicsFieldGen();
   const t3 = performance.now();
-  sysTimes.push({ name: "structureIntegrity", ms: t3 - t2 });
+  sysTimes.push({ name: "physFieldGen", ms: t3 - t2 });
 
   // Phase 1: Ship controls (before buoyancy/collision so velocity is authoritative)
   sim.boatSystem.controlTick(dt, sim.inputReader, sim.players, sim.playerCount, sim.entities, sim.entityCount, sim.boatCellSystem);
