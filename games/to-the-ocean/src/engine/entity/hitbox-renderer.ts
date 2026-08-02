@@ -95,7 +95,7 @@ export class HitboxRenderer {
           ]}],
         },
         fragment: { module: hitboxShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
-        primitive: { topology: "line-list" },
+        primitive: { topology: "triangle-list" },
         multisample: { count: MSAA_SAMPLE_COUNT },
         depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
       });
@@ -163,7 +163,7 @@ export class HitboxRenderer {
         entryPoint: "fs_main",
         targets: [{ format }],
       },
-      primitive: { topology: "line-list" },
+      primitive: { topology: "triangle-list" },
       multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
         format: DEPTH_FORMAT,
