@@ -1098,11 +1098,16 @@ export class BoatSystem {
     let gridX: number, gridY: number, gridZ: number;
 
     if (rayHit) {
-      // Hit an existing cell — place adjacent to the hit face
+      // Hit an existing cell — place adjacent to the hit face (for build)
       gridX = rayHit.gridX;
       gridY = rayHit.gridY;
       gridZ = rayHit.gridZ;
     } else {
+      // For delete/rotate, no cell hit means nothing to do
+      if (tool.action === "delete" || tool.action === "rotate") {
+        boatCellSystem.clearPreview();
+        return;
+      }
       // No cell hit — fall back to deck plane intersection at the player's current layer
       // Use feet position (eye - PLAYER_EYE_HEIGHT) so the layer matches where the player stands
       const feetY = localEyeY - PLAYER_EYE_HEIGHT;
@@ -1123,6 +1128,11 @@ export class BoatSystem {
       gridZ = Math.round(hitZ / BOAT_CELL_WORLD_SIZE);
       gridY = Math.round(deckY / BOAT_LAYER_HEIGHT);
     }
+
+    // For delete/rotate, target the actual hit cell, not the adjacent placement position
+    const targetGridX = (tool.action === "delete" || tool.action === "rotate") && rayHit ? rayHit.hitCellX : gridX;
+    const targetGridY = (tool.action === "delete" || tool.action === "rotate") && rayHit ? rayHit.hitCellY : gridY;
+    const targetGridZ = (tool.action === "delete" || tool.action === "rotate") && rayHit ? rayHit.hitCellZ : gridZ;
 
     // For the Builder tool, read the selected cell type and rotation from the input buffer
     let buildCellType: number = BoatCellType.HULL;
@@ -1148,9 +1158,19 @@ export class BoatSystem {
     const previewCellType = tool.action === "delete" ? 255 : (effectiveTemplate?.[0]?.type ?? buildCellType);
     const previewRotation = tool.action === "delete" ? 0 : (effectiveTemplate?.[0]?.rotation ?? buildRotation);
 
-    // Write preview every tick so renderer can show holo (only if valid placement)
-    const isValid = boatCellSystem.canPlaceCell(ship.id, tool.action, gridX, gridY, gridZ, effectiveTemplate, buildCellType, buildRotation);
-    boatCellSystem.setPreview(bufferSlot, gridX, gridY, gridZ, previewCellType, isValid, previewRotation);
+    // Write preview every tick so renderer can show holo
+    const isDeleteOrRotate = tool.action === "delete" || tool.action === "rotate";
+    const previewX = isDeleteOrRotate ? targetGridX : gridX;
+    const previewY = isDeleteOrRotate ? targetGridY : gridY;
+    const previewZ = isDeleteOrRotate ? targetGridZ : gridZ;
+    const isValid = boatCellSystem.canPlaceCell(ship.id, tool.action, previewX, previewY, previewZ, effectiveTemplate, buildCellType, buildRotation);
+    // For delete/rotate, always show the highlight when a cell exists at the target,
+    // even if it can't be removed (canRemoveWithoutDisconnect). The isValid flag
+    // still gates the actual action.
+    const previewVisible = isDeleteOrRotate
+      ? boatCellSystem.getCellAt(ship.id, previewX, previewY, previewZ) !== null
+      : isValid;
+    boatCellSystem.setPreview(bufferSlot, previewX, previewY, previewZ, previewCellType, previewVisible, previewRotation);
 
     // Edge-detect mouse left click
     const mouseLeft = input.isMouseDown(playerIdx, 0);
@@ -1173,10 +1193,10 @@ export class BoatSystem {
         break;
       }
       case "delete":
-        boatCellSystem.removeCell(ship.id, gridX, gridY, gridZ);
+        boatCellSystem.removeCell(ship.id, targetGridX, targetGridY, targetGridZ);
         break;
       case "rotate":
-        boatCellSystem.rotateCell(ship.id, gridX, gridY, gridZ);
+        boatCellSystem.rotateCell(ship.id, targetGridX, targetGridY, targetGridZ);
         break;
     }
   }

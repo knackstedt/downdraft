@@ -1,6 +1,6 @@
+import { BUILDER_CELL_OPTIONS } from "@shared/constants";
 import React from "react";
 import { useGameStore } from "../stores/gameStore";
-import { BUILDER_CELL_OPTIONS } from "@shared/constants";
 
 const BUILDER_GROUPS: { label: string; icon: string; indices: number[] }[] = [
   { label: "Hull", icon: "⬢", indices: [0, 1, 2, 3, 4, 5] },
@@ -54,6 +54,7 @@ export default function BuilderWheel() {
   }, []);
 
   const options = BUILDER_CELL_OPTIONS;
+  const currentGroup = expandedGroup !== null ? BUILDER_GROUPS[expandedGroup] : null;
 
   return (
     <div
@@ -61,42 +62,38 @@ export default function BuilderWheel() {
       onClick={close}
       onContextMenu={(e) => { e.preventDefault(); close(); }}
     >
-      <div
-        className="hud-panel rounded-xl p-4 w-[420px] max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3 pb-2 border-b border-ocean-700">
-          <div className="flex items-center gap-2">
-            <span className="text-amber-400 text-lg">🔨</span>
-            <span className="text-ocean-100 font-bold text-sm">Builder</span>
-            <span className="text-ocean-400 text-xs">
-              · {options[builderCellType]?.name ?? "Hull"}
-            </span>
+      {/* Flex row: panel + flyout with no gap between them */}
+      <div className="flex items-stretch" onClick={(e) => e.stopPropagation()}>
+        {/* Left: static-height group list */}
+        <div className="hud-panel rounded-l-xl p-4 w-[200px]">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3 pb-2 border-b border-ocean-700">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-400 text-lg">🔨</span>
+              <span className="text-ocean-100 font-bold text-sm">Builder</span>
+            </div>
+            <button
+              className="text-ocean-400 hover:text-ocean-200 text-xs px-2 py-1 rounded hover:bg-ocean-700/50"
+              onClick={close}
+            >
+              Esc ✕
+            </button>
           </div>
-          <button
-            className="text-ocean-400 hover:text-ocean-200 text-xs px-2 py-1 rounded hover:bg-ocean-700/50"
-            onClick={close}
-          >
-            Esc ✕
-          </button>
-        </div>
 
-        {/* Grouped sections */}
-        <div className="flex flex-col gap-1.5">
-          {BUILDER_GROUPS.map((group, gi) => {
-            const isExpanded = expandedGroup === gi;
-            const hasSelected = group.indices.includes(builderCellType);
+          {/* Static-height group list */}
+          <div className="flex flex-col gap-1">
+            {BUILDER_GROUPS.map((group, gi) => {
+              const isExpanded = expandedGroup === gi;
+              const hasSelected = group.indices.includes(builderCellType);
 
-            return (
-              <div key={gi} className="rounded-lg overflow-hidden">
-                {/* Group header */}
+              return (
                 <button
+                  key={gi}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left ${
                     hasSelected
                       ? "bg-ocean-700/60 border border-amber-500/40"
                       : "bg-ocean-800/50 hover:bg-ocean-700/40 border border-ocean-700/50"
-                  }`}
+                  } ${isExpanded ? "ring-1 ring-amber-400/60" : ""}`}
                   onMouseEnter={() => setExpandedGroup(gi)}
                   onClick={() => setExpandedGroup(isExpanded ? null : gi)}
                 >
@@ -111,46 +108,50 @@ export default function BuilderWheel() {
                     ▶
                   </span>
                 </button>
+              );
+            })}
+          </div>
 
-                {/* Expanded items */}
-                {isExpanded && (
-                  <div onMouseLeave={() => setExpandedGroup(null)}>
-                  <div className="grid grid-cols-3 gap-1.5 mt-1.5 p-1">
-                    {group.indices.map((idx) => {
-                      const opt = options[idx];
-                      const isSelected = idx === builderCellType;
-                      const isHovered = idx === hoveredIdx;
-
-                      return (
-                        <button
-                          key={idx}
-                          className={`rounded-lg px-2 py-2.5 text-[11px] font-semibold text-center transition-all ${
-                            isSelected
-                              ? "bg-amber-600/80 text-white border border-amber-400"
-                              : isHovered
-                              ? "bg-ocean-600/60 text-ocean-100 border border-ocean-400"
-                              : "bg-ocean-800/60 text-ocean-200 border border-ocean-700/50 hover:border-ocean-500"
-                          }`}
-                          onMouseEnter={() => setHoveredIdx(idx)}
-                          onMouseLeave={() => setHoveredIdx(null)}
-                          onClick={() => selectAndClose(idx)}
-                        >
-                          {opt.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {/* Footer hint */}
+          <div className="text-ocean-500 text-[10px] text-center mt-3 pt-2 border-t border-ocean-700/50">
+            Hover to browse · Click to select
+          </div>
         </div>
 
-        {/* Footer hint */}
-        <div className="text-ocean-500 text-[10px] text-center mt-3 pt-2 border-t border-ocean-700/50">
-          Click a cell type to select · Right-click or Esc to close
-        </div>
+        {/* Right: flyout panel — always rendered, visibility toggled via CSS */}
+        {/* No gap: the flyout is directly adjacent to the panel */}
+        {currentGroup && (
+          <div
+            className="hud-panel rounded-r-xl p-2"
+            onMouseEnter={() => setExpandedGroup(expandedGroup)}
+          >
+            <div className="grid grid-cols-3 gap-1.5 min-w-[240px]">
+              {currentGroup.indices.map((idx) => {
+                const opt = options[idx];
+                const isSelected = idx === builderCellType;
+                const isHovered = idx === hoveredIdx;
+
+                return (
+                  <button
+                    key={idx}
+                    className={`rounded-lg px-2 py-2.5 text-[11px] font-semibold text-center transition-all ${
+                      isSelected
+                        ? "bg-amber-600/80 text-white border border-amber-400"
+                        : isHovered
+                        ? "bg-ocean-600/60 text-ocean-100 border border-ocean-400"
+                        : "bg-ocean-800/60 text-ocean-200 border border-ocean-700/50 hover:border-ocean-500"
+                    }`}
+                    onMouseEnter={() => setHoveredIdx(idx)}
+                    onMouseLeave={() => setHoveredIdx(null)}
+                    onClick={() => selectAndClose(idx)}
+                  >
+                    {opt.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
