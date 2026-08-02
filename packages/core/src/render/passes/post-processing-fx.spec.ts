@@ -508,3 +508,176 @@ describe("GlowPass", () => {
     });
   });
 });
+
+// ─── Execute with handles (device path) ───
+
+describe("Execute with handles — device path", () => {
+  it("GrainPass should execute with non-null handles", () => {
+    const device = makeMockDevice();
+    const pass = new GrainPass(device as GPUDevice);
+    pass.prepare(device as GPUDevice, null);
+    pass.colorHandle = 1 as never;
+    pass.outputHandle = 2 as never;
+    const ctx = makeMockCtx(device);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("SharpenPass should execute with non-null handles", () => {
+    const device = makeMockDevice();
+    const pass = new SharpenPass(device as GPUDevice);
+    pass.prepare(device as GPUDevice, null);
+    pass.setResolution(800, 600);
+    pass.colorHandle = 1 as never;
+    pass.outputHandle = 2 as never;
+    const ctx = makeMockCtx(device);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("EdgesPass should execute with non-null handles", () => {
+    const device = makeMockDevice();
+    const pass = new EdgesPass(device as GPUDevice);
+    pass.prepare(device as GPUDevice, null);
+    pass.setResolution(800, 600);
+    pass.normalHandle = 1 as never;
+    pass.depthHandle = 2 as never;
+    pass.outputHandle = 3 as never;
+    const ctx = makeMockCtx(device);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("LensFlarePass should execute with non-null handles", () => {
+    const device = makeMockDevice();
+    const pass = new LensFlarePass(device as GPUDevice);
+    pass.prepare(device as GPUDevice, null);
+    pass.setLightScreenPos(0.5, 0.5);
+    pass.colorHandle = 1 as never;
+    pass.depthHandle = 2 as never;
+    pass.outputHandle = 3 as never;
+    const ctx = makeMockCtx(device);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("OutlinePass should skip execute when no targets set", () => {
+    const device = makeMockDevice();
+    const pass = new OutlinePass(device as GPUDevice);
+    pass.prepare(device as GPUDevice, null);
+    pass.setResolution(800, 600);
+    pass.colorHandle = 1 as never;
+    pass.outputHandle = 2 as never;
+    pass.setTargets([]);
+    const ctx = makeMockCtx(device);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("HighlightPass should skip execute when no targets set", () => {
+    const device = makeMockDevice();
+    const pass = new HighlightPass(device as GPUDevice);
+    pass.prepare(device as GPUDevice, null);
+    pass.setResolution(800, 600);
+    pass.colorHandle = 1 as never;
+    pass.outputHandle = 2 as never;
+    pass.setTargets([]);
+    const ctx = makeMockCtx(device);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("GlowPass should skip execute when no targets set", () => {
+    const device = makeMockDevice();
+    const pass = new GlowPass(device as GPUDevice);
+    pass.prepare(device as GPUDevice, null);
+    pass.setResolution(800, 600);
+    pass.colorHandle = 1 as never;
+    pass.outputHandle = 2 as never;
+    pass.setTargets([]);
+    const ctx = makeMockCtx(device);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+});
+
+// ─── Execute with handles (backend path) ───
+
+describe("Execute with handles — backend path", () => {
+  it("GrainPass should execute via backend", () => {
+    const backend = makeMockBackend();
+    const pass = new GrainPass(makeMockDevice() as GPUDevice);
+    pass.prepare(makeMockDevice() as GPUDevice, backend as never);
+    pass.colorHandle = 1 as never;
+    pass.outputHandle = 2 as never;
+    const ctx = makeMockCtx(null, backend);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("SharpenPass should execute via backend", () => {
+    const backend = makeMockBackend();
+    const pass = new SharpenPass(makeMockDevice() as GPUDevice);
+    pass.prepare(makeMockDevice() as GPUDevice, backend as never);
+    pass.setResolution(800, 600);
+    pass.colorHandle = 1 as never;
+    pass.outputHandle = 2 as never;
+    const ctx = makeMockCtx(null, backend);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("EdgesPass should execute via backend", () => {
+    const backend = makeMockBackend();
+    const pass = new EdgesPass(makeMockDevice() as GPUDevice);
+    pass.prepare(makeMockDevice() as GPUDevice, backend as never);
+    pass.setResolution(800, 600);
+    pass.normalHandle = 1 as never;
+    pass.depthHandle = 2 as never;
+    pass.outputHandle = 3 as never;
+    const ctx = makeMockCtx(null, backend);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+
+  it("LensFlarePass should execute via backend", () => {
+    const backend = makeMockBackend();
+    const pass = new LensFlarePass(makeMockDevice() as GPUDevice);
+    pass.prepare(makeMockDevice() as GPUDevice, backend as never);
+    pass.setLightScreenPos(0.3, 0.7);
+    pass.colorHandle = 1 as never;
+    pass.depthHandle = 2 as never;
+    pass.outputHandle = 3 as never;
+    const ctx = makeMockCtx(null, backend);
+    expect(() => pass.execute(ctx as never)).not.toThrow();
+  });
+});
+
+// ─── Settings mutation ───
+
+describe("Settings mutation", () => {
+  it("GrainPass should apply setSettings", () => {
+    const pass = new GrainPass(makeMockDevice() as GPUDevice);
+    pass.setSettings({ intensity: 0.3, luminanceAware: false });
+  });
+
+  it("SharpenPass should apply setSettings", () => {
+    const pass = new SharpenPass(makeMockDevice() as GPUDevice);
+    pass.setSettings({ sharpness: 2.0 });
+  });
+
+  it("EdgesPass should apply setSettings", () => {
+    const pass = new EdgesPass(makeMockDevice() as GPUDevice);
+    pass.setSettings({ threshold: 0.9, edgeColor: [0, 1, 0] });
+  });
+
+  it("LensFlarePass should apply setSettings", () => {
+    const pass = new LensFlarePass(makeMockDevice() as GPUDevice);
+    pass.setSettings({ intensity: 1.5, ghostCount: 12 });
+  });
+
+  it("OutlinePass should apply setSettings", () => {
+    const pass = new OutlinePass(makeMockDevice() as GPUDevice);
+    pass.setSettings({ outlineWidth: 5, opacity: 0.5 });
+  });
+
+  it("HighlightPass should apply setSettings", () => {
+    const pass = new HighlightPass(makeMockDevice() as GPUDevice);
+    pass.setSettings({ intensity: 1.5, blurRadius: 8 });
+  });
+
+  it("GlowPass should apply setSettings", () => {
+    const pass = new GlowPass(makeMockDevice() as GPUDevice);
+    pass.setSettings({ intensity: 3.0, blurRadius: 12 });
+  });
+});
