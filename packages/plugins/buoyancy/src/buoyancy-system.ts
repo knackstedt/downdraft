@@ -12,9 +12,11 @@
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import type {
-  BuoyancyConfig, BuoyancyDeps, BuoyancyTransform, BuoyancyVelocity,
-  BuoyancyEntityMeta, BuoyancyEntityData,
-  BoatCell, BoatMassProperties,
+    BoatCell,
+    BuoyancyConfig, BuoyancyDeps,
+    BuoyancyEntityData,
+    BuoyancyEntityMeta,
+    BuoyancyTransform, BuoyancyVelocity
 } from "./types.ts";
 
 export function createBuoyancySystem(
@@ -118,7 +120,6 @@ function applyCellBuoyancy(
   const sinR = Math.sin(roll);
 
   const cellArea = config.boatCellWorldSize * config.boatCellWorldSize;
-  const cellHeight = config.boatLayerHeight;
 
   let totalForceY = 0;
   let totalTorqueX = 0;
@@ -130,8 +131,10 @@ function applyCellBuoyancy(
     if (!config.isHullShellCell(cell.type)) continue;
     hullCellCount++;
 
+    const ext = config.getCellVerticalExtent(cell.type);
+    const cellHeight = ext.y1 - ext.y0;
     const localX = cell.gridX * config.boatCellWorldSize;
-    const localY = cell.gridY * config.boatLayerHeight + config.boatLayerHeight / 2;
+    const localY = cell.gridY * config.boatLayerHeight + (ext.y0 + ext.y1) / 2;
     const localZ = cell.gridZ * config.boatCellWorldSize;
 
     const armX = localX - mp.centerX;

@@ -5,6 +5,7 @@ import {
     BOAT_CELL_WORLD_SIZE,
     BOAT_LAYER_HEIGHT,
     BoatCellType,
+    getCellGeometry,
     isHullShellCell,
     SHIP_MASS_PER_CELL
 } from "../../shared/constants";
@@ -129,7 +130,6 @@ function buoyancyTick(
   const sinR = Math.sin(state.roll);
 
   const cellArea = BOAT_CELL_WORLD_SIZE * BOAT_CELL_WORLD_SIZE;
-  const cellHeight = BOAT_LAYER_HEIGHT;
 
   let totalForceY = 0;
   let totalTorqueX = 0;
@@ -139,8 +139,10 @@ function buoyancyTick(
     const cell = cells[i];
     if (!isHullShellCell(cell.type)) continue;
 
+    const geo = getCellGeometry(cell.type);
+    const cellHeight = geo.y1 - geo.y0;
     const localX = cell.gridX * BOAT_CELL_WORLD_SIZE;
-    const localY = cell.gridY * BOAT_LAYER_HEIGHT + BOAT_LAYER_HEIGHT / 2;
+    const localY = cell.gridY * BOAT_LAYER_HEIGHT + (geo.y0 + geo.y1) / 2;
     const localZ = cell.gridZ * BOAT_CELL_WORLD_SIZE;
 
     const armX = localX - mp.centerX;

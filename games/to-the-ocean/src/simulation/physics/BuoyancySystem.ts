@@ -7,6 +7,7 @@ import {
     BOAT_CELL_WORLD_SIZE,
     BOAT_LAYER_HEIGHT,
     SHIP_DATA,
+    getCellGeometry,
     isHullShellCell,
 } from "../../shared/constants";
 import { ShoreSource, collectShoreSources, shoreDamping, shoreDisplacement, waterCutout } from "../../shared/shore-damping";
@@ -299,7 +300,6 @@ export class BuoyancySystem {
     const sinR = Math.sin(roll);
 
     const cellArea = BOAT_CELL_WORLD_SIZE * BOAT_CELL_WORLD_SIZE;
-    const cellHeight = BOAT_LAYER_HEIGHT;
 
     let totalForceY = 0;
     let totalTorqueX = 0;
@@ -313,9 +313,14 @@ export class BuoyancySystem {
       if (!isHullShellCell(cell.type)) continue;
       hullCellCount++;
 
+      // Use actual cell geometry for height and vertical center — pontoon cells
+      // are shorter (y0=-0.3, y1=0.5) than hull cells (y0=-0.3, y1=0.9)
+      const geo = getCellGeometry(cell.type);
+      const cellHeight = geo.y1 - geo.y0;
+
       // Cell center in local space (relative to grid origin)
       const localX = cell.gridX * BOAT_CELL_WORLD_SIZE;
-      const localY = cell.gridY * BOAT_LAYER_HEIGHT + BOAT_LAYER_HEIGHT / 2;
+      const localY = cell.gridY * BOAT_LAYER_HEIGHT + (geo.y0 + geo.y1) / 2;
       const localZ = cell.gridZ * BOAT_CELL_WORLD_SIZE;
 
       // Lever arm relative to center of mass
