@@ -1,6 +1,6 @@
-import { parsePLY, parseSplat, parseGaussianSplatFile } from "./parser.ts";
-import { sortSplats, filterByDistance } from "./sorter.ts";
 import type { GaussianSplatData } from "./parser.ts";
+import { parseGaussianSplatFile, parsePLY, parseSplat } from "./parser.ts";
+import { filterByDistance, sortSplats } from "./sorter.ts";
 
 describe("Gaussian Splats", () => {
   describe("parsePLY (ascii)", () => {
@@ -142,6 +142,133 @@ end_header
 
       const visible = filterByDistance(splatData, [0, 0, 0], 100);
       expect(visible.length).toBe(2);
+    });
+
+    it("should return empty when max distance is 0", () => {
+      const splatData: GaussianSplatData = {
+        splats: [
+          { position: [1, 0, 0], scale: [0.1, 0.1, 0.1], rotation: [0, 0, 0, 1], color: [1, 1, 1, 1], opacity: 1 },
+        ],
+        count: 1,
+        shDegree: 0,
+        version: 1,
+      };
+
+      const visible = filterByDistance(splatData, [0, 0, 0], 0);
+      expect(visible.length).toBe(0);
+    });
+
+    it("should include splat at exactly max distance", () => {
+      const splatData: GaussianSplatData = {
+        splats: [
+          { position: [5, 0, 0], scale: [0.1, 0.1, 0.1], rotation: [0, 0, 0, 1], color: [1, 1, 1, 1], opacity: 1 },
+        ],
+        count: 1,
+        shDegree: 0,
+        version: 1,
+      };
+
+      const visible = filterByDistance(splatData, [0, 0, 0], 5);
+      expect(visible.length).toBe(1);
+    });
+  });
+
+  describe("sortSplats additional", () => {
+    it("should handle single splat", () => {
+      const splatData: GaussianSplatData = {
+        splats: [
+          { position: [1, 2, 3], scale: [0.1, 0.1, 0.1], rotation: [0, 0, 0, 1], color: [1, 1, 1, 1], opacity: 1 },
+        ],
+        count: 1,
+        shDegree: 0,
+        version: 1,
+      };
+
+      const result = sortSplats(splatData, [0, 0, 0]);
+      expect(result.indices[0]).toBe(0);
+    });
+
+    it("should handle empty splat data", () => {
+      const splatData: GaussianSplatData = {
+        splats: [],
+        count: 0,
+        shDegree: 0,
+        version: 1,
+      };
+
+      const result = sortSplats(splatData, [0, 0, 0]);
+      expect(result.indices.length).toBe(0);
+    });
+
+    it("should sort 3D distances correctly", () => {
+      const splatData: GaussianSplatData = {
+        splats: [
+          { position: [0, 0, 5], scale: [0.1, 0.1, 0.1], rotation: [0, 0, 0, 1], color: [1, 1, 1, 1], opacity: 1 },
+          { position: [3, 0, 0], scale: [0.1, 0.1, 0.1], rotation: [0, 0, 0, 1], color: [1, 1, 1, 1], opacity: 1 },
+          { position: [0, 4, 0], scale: [0.1, 0.1, 0.1], rotation: [0, 0, 0, 1], color: [1, 1, 1, 1], opacity: 1 },
+        ],
+        count: 3,
+        shDegree: 0,
+        version: 1,
+      };
+
+      const result = sortSplats(splatData, [0, 0, 0]);
+      const d0 = result.distances[result.indices[0]];
+      const d1 = result.distances[result.indices[1]];
+      const d2 = result.distances[result.indices[2]];
+      expect(d0).toBeLessThanOrEqual(d1);
+      expect(d1).toBeLessThanOrEqual(d2);
+    });
+  });
+
+  describe("parseSplat additional", () => {
+    it("should apply exp() to scale values", () => {
+      const buf = new ArrayBuffer(32);
+      const view = new DataView(buf);
+      view.setFloat32(0, 0, true);
+      view.setFloat32(4, 0, true);
+      view.setFloat32(8, 0, true);
+      view.setFloat32(12, Math.log(0.1), true);
+      view.setFloat32(16, Math.log(0.2), true);
+      view.setFloat32(20, Math.log(0.3), true);
+      view.setFloat32(24, 0, true);
+      view.setFloat32(28, 0, true);
+
+      const result = parseSplat(new Uint8Array(buf));
+      expect(result.splats[0].scale[0]).toBeCloseTo(0.1, 3);
+      expect(result.splats[0].scale[1]).toBeCloseTo(0.2, 3);
+      expect(result.splats[0].scale[2]).toBeCloseTo(0.3, 3);
+    });
+
+    it("should parse multiple splats", () => {
+      const buf = new ArrayBuffer(64);
+      const view = new DataView(buf);
+      for (let i = 0; i < 2; i++) {
+        const base = i * 32;
+        view.setFloat32(base, i + 1, true);
+        view.setFloat32(base + 4, 0, true);
+        view.setFloat32(base + 8, 0, true);
+      }
+
+      const result = parseSplat(new Uint8Array(buf));
+      expect(result.count).toBe(2);
+      expect(result.splats[0].position[0]).toBe(1);
+      expect(result.splats[1].position[0]).toBe(2);
+    });
+  });
+
+  describe("parseGaussianSplatFile splat format", () => {
+    it("should dispatch to splat parser", () => {
+      const buf = new ArrayBuffer(32);
+      const view = new DataView(buf);
+      view.setFloat32(0, 7, true);
+      view.setFloat32(4, 8, true);
+      view.setFloat32(8, 9, true);
+
+      const data = new Uint8Array(buf);
+      const result = parseGaussianSplatFile(data, "splat");
+      expect(result.count).toBe(1);
+      expect(result.splats[0].position).toEqual([7, 8, 9]);
     });
   });
 });

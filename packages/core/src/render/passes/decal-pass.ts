@@ -1,7 +1,7 @@
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder.ts";
-import { RenderPass } from "../render-pass.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
+import { RenderPass } from "../render-pass.ts";
 
 const DECAL_SHADER = `
 struct CameraUniforms {
@@ -143,7 +143,7 @@ export class DecalPass extends RenderPass {
   execute(ctx: GraphRenderContext): void {
     if (!this.device || this.items.length === 0 || !ctx.pass || !this.depthTextureView) return;
     this.ensurePipeline();
-    if (!this.pipeline || !this.bindGroup) return;
+    if (!this.pipeline) return;
 
     const camData = new Float32Array(20);
     camData.set(ctx.viewProj as Float32Array, 0);
