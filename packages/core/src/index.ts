@@ -184,8 +184,21 @@ export * from "./render/backend/index.ts";
 // Mesh
 export { MeshBuilder } from "./mesh/builder.ts";
 export type { MeshData } from "./mesh/builder.ts";
+export { BSPNode, csgIntersect, csgSubtract, csgUnion } from "./mesh/csg.ts";
+export type { CSGOperation, CSGPolygon, Vec3 as CSGVec3 } from "./mesh/csg.ts";
+export {
+    createGreasedLine, createGreasedLineMeshData
+} from "./mesh/greased-line.ts";
+export type { GreasedLineData, GreasedLineOptions, GreasedLinePoint } from "./mesh/greased-line.ts";
+export { cone, cylinder, disc, lathe, ribbon, tessellatedPlane, torus, tube } from "./mesh/parametric.ts";
+export type { TubePathPoint } from "./mesh/parametric.ts";
 export { gpuVertexFormat, PBR_VERTEX_LAYOUT, SKINNED_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, vertexFormatSize, wgslVertexFormat } from "./mesh/vertex-layout.ts";
 export type { VertexAttribute, VertexAttributeFormat, VertexLayout } from "./mesh/vertex-layout.ts";
+export { computeDecalProjectionMatrix, computeDecalViewMatrix, createDecalMesh } from "./render/passes/decal-mesh.ts";
+export type { DecalProjector } from "./render/passes/decal-mesh.ts";
+export { DecalPass } from "./render/passes/decal-pass.ts";
+export type { DecalItem } from "./render/passes/decal-pass.ts";
+export { GreasedLinePass } from "./render/passes/greased-line-pass.ts";
 
 // Material
 export { MaterialCompiler } from "./material/compiler.ts";

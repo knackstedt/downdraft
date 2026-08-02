@@ -12,6 +12,36 @@ export interface LODConfig {
   maxReduction: number;
 }
 
+type Quadric = { a: number; b: number; c: number; d: number };
+
+function addQuadric(q1: Quadric, q2: Quadric): Quadric {
+  return { a: q1.a + q2.a, b: q1.b + q2.b, c: q1.c + q2.c, d: q1.d + q2.d };
+}
+
+function quadricError(q: Quadric, x: number, y: number, z: number): number {
+  return q.a * x * x + q.b * y * y + q.c * z * z + 2 * (q.a * y * z + q.b * x * z + q.c * x * y) + q.d * x + q.d * y + q.d * z;
+}
+
+function quadricFromPlane(a: number, b: number, c: number, d: number): Quadric {
+  return { a: a * a, b: b * b, c: c * c, d: d };
+}
+
+function quadricFromTriangle(
+  p0: [number, number, number],
+  p1: [number, number, number],
+  p2: [number, number, number],
+): Quadric {
+  const ex = p1[0] - p0[0], ey = p1[1] - p0[1], ez = p1[2] - p0[2];
+  const fx = p2[0] - p0[0], fy = p2[1] - p0[1], fz = p2[2] - p0[2];
+  const nx = ey * fz - ez * fy;
+  const ny = ez * fx - ex * fz;
+  const nz = ex * fy - ey * fx;
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  const a = nx / len, b = ny / len, c = nz / len;
+  const d = -(a * p0[0] + b * p0[1] + c * p0[2]);
+  return quadricFromPlane(a, b, c, d);
+}
+
 export class LODGenerator {
   generateLOD(mesh: MeshData, targetReduction: number): MeshData {
     if (targetReduction <= 0 || targetReduction >= 1) return mesh;
@@ -24,14 +54,14 @@ export class LODGenerator {
     if (targetIndexCount >= indexCount) return mesh;
 
     const stride = mesh.layout.stride / 4;
-    const edgeCollapse = this.computeEdgeCollapses(vertices, indices, targetIndexCount, stride);
-    const { newVertices, newIndices } = this.applyEdgeCollapses(vertices, indices, edgeCollapse);
+    const edgeCollapses = this.computeQEMEdgeCollapses(vertices, indices, targetIndexCount, stride);
+    const { newVertices, newIndices } = this.applyEdgeCollapses(vertices, indices, edgeCollapses, stride);
 
     return {
       vertices: newVertices,
       indices: newIndices,
       layout: mesh.layout,
-      vertexCount: mesh.vertexCount,
+      vertexCount: newVertices.length / stride,
       indexCount: newIndices.length,
     };
   }
@@ -72,14 +102,28 @@ export class LODGenerator {
     return selected;
   }
 
-  private computeEdgeCollapses(
+  private computeQEMEdgeCollapses(
     vertices: Float32Array,
     indices: Uint16Array | Uint32Array,
     targetIndexCount: number,
     stride: number,
   ): Array<{ from: number; to: number; cost: number }> {
-    const edgeMap = new Map<string, { from: number; to: number; cost: number }>();
+    const vertexCount = vertices.length / stride;
+    const quadrics: Quadric[] = new Array(vertexCount);
+    for (let i = 0; i < vertexCount; i++) quadrics[i] = { a: 0, b: 0, c: 0, d: 0 };
 
+    for (let i = 0; i < indices.length; i += 3) {
+      const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+      const p0: [number, number, number] = [vertices[a * stride], vertices[a * stride + 1], vertices[a * stride + 2]];
+      const p1: [number, number, number] = [vertices[b * stride], vertices[b * stride + 1], vertices[b * stride + 2]];
+      const p2: [number, number, number] = [vertices[c * stride], vertices[c * stride + 1], vertices[c * stride + 2]];
+      const q = quadricFromTriangle(p0, p1, p2);
+      quadrics[a] = addQuadric(quadrics[a], q);
+      quadrics[b] = addQuadric(quadrics[b], q);
+      quadrics[c] = addQuadric(quadrics[c], q);
+    }
+
+    const edgeMap = new Map<string, { from: number; to: number; cost: number }>();
     for (let i = 0; i < indices.length; i += 3) {
       for (let j = 0; j < 3; j++) {
         const a = indices[i + j];
@@ -87,7 +131,11 @@ export class LODGenerator {
         if (a > b) continue;
         const key = `${a}:${b}`;
         if (!edgeMap.has(key)) {
-          const cost = this.edgeCost(vertices, a, b, stride);
+          const combined = addQuadric(quadrics[a], quadrics[b]);
+          const mx = (vertices[a * stride] + vertices[b * stride]) / 2;
+          const my = (vertices[a * stride + 1] + vertices[b * stride + 1]) / 2;
+          const mz = (vertices[a * stride + 2] + vertices[b * stride + 2]) / 2;
+          const cost = quadricError(combined, mx, my, mz);
           edgeMap.set(key, { from: a, to: b, cost });
         }
       }
@@ -98,17 +146,11 @@ export class LODGenerator {
     return edges.slice(0, collapseCount);
   }
 
-  private edgeCost(vertices: Float32Array, a: number, b: number, stride: number): number {
-    const ax = vertices[a * stride], ay = vertices[a * stride + 1], az = vertices[a * stride + 2];
-    const bx = vertices[b * stride], by = vertices[b * stride + 1], bz = vertices[b * stride + 2];
-    const dx = ax - bx, dy = ay - by, dz = az - bz;
-    return Math.sqrt(dx * dx + dy * dy + dz * dz);
-  }
-
   private applyEdgeCollapses(
     vertices: Float32Array,
     indices: Uint16Array | Uint32Array,
     collapses: Array<{ from: number; to: number }>,
+    stride: number,
   ): { newVertices: Float32Array; newIndices: Uint32Array } {
     const remap = new Map<number, number>();
     for (const c of collapses) {
@@ -130,9 +172,27 @@ export class LODGenerator {
       }
     }
 
+    const usedVertices = new Set<number>();
+    for (const idx of newIndices) usedVertices.add(idx);
+
+    const compactedVertices: number[] = [];
+    const vertexRemap = new Map<number, number>();
+    let compactIdx = 0;
+    for (let i = 0; i < vertices.length / stride; i++) {
+      if (usedVertices.has(i)) {
+        for (let j = 0; j < stride; j++) {
+          compactedVertices.push(vertices[i * stride + j]);
+        }
+        vertexRemap.set(i, compactIdx);
+        compactIdx++;
+      }
+    }
+
+    const compactedIndices = newIndices.map(idx => vertexRemap.get(idx)!);
+
     return {
-      newVertices: vertices,
-      newIndices: new Uint32Array(newIndices),
+      newVertices: new Float32Array(compactedVertices),
+      newIndices: new Uint32Array(compactedIndices),
     };
   }
 }
