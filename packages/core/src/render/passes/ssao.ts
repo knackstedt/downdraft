@@ -1,3 +1,7 @@
+import type { RenderBackend } from "../backend/render-backend.ts";
+import { wgslShader } from "../backend/shader-source.ts";
+import type { BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, BackendSampler, BackendTexture, BackendTextureView } from "../backend/types.ts";
+import { SHADER_STAGE_FRAGMENT, SHADER_STAGE_VERTEX } from "../backend/types.ts";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -159,13 +163,29 @@ export class SSAOPass extends RenderPass {
   private ssaoTexture: GPUTexture | null = null;
   private ssaoView: GPUTextureView | null = null;
 
+  // Backend-agnostic resources
+  private _backend: RenderBackend | null = null;
+  private _bgSsaoPipeline: BackendRenderPipeline | null = null;
+  private _bgBlurPipeline: BackendRenderPipeline | null = null;
+  private _bgUniformBuffer: BackendBuffer | null = null;
+  private _bgBlurUniformBuffer: BackendBuffer | null = null;
+  private _bgNoiseTexture: BackendTexture | null = null;
+  private _bgNoiseView: BackendTextureView | null = null;
+  private _bgSampler: BackendSampler | null = null;
+  private _bgSsaoLayout: BackendBindGroupLayout | null = null;
+  private _bgBlurLayout: BackendBindGroupLayout | null = null;
+
   constructor(device: GPUDevice, settings: Partial<SSAOSettings> = {}) {
     super();
     this.device = device;
     this.settings = { ...DEFAULT_SSAO_SETTINGS, ...settings };
   }
 
-  prepare(_device: GPUDevice): void {
+  prepare(_device: GPUDevice, backend?: RenderBackend | null): void {
+    if (backend) {
+      this.prepareBackend(backend);
+      return;
+    }
     this.sampler = this.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
@@ -193,7 +213,7 @@ export class SSAOPass extends RenderPass {
     );
 
     this.uniformBuffer = this.device.createBuffer({
-      size: 112,
+      size: 220,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -229,8 +249,82 @@ export class SSAOPass extends RenderPass {
     });
   }
 
+  prepareBackend(backend: RenderBackend): void {
+    this._backend = backend;
+    this._bgSampler = backend.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
+
+    const noiseData = new Uint8Array(this.settings.noiseSize * this.settings.noiseSize * 4);
+    for (let i = 0; i < noiseData.length; i += 4) {
+      noiseData[i] = Math.floor(Math.random() * 255);
+      noiseData[i + 1] = Math.floor(Math.random() * 255);
+      noiseData[i + 2] = 0;
+      noiseData[i + 3] = 255;
+    }
+    this._bgNoiseTexture = backend.createTexture({
+      label: "ssao-noise",
+      size: [this.settings.noiseSize, this.settings.noiseSize],
+      format: "rgba8unorm",
+      usage: 0x08 | 0x04, // TEXTURE_BINDING | COPY_DST
+    });
+    backend.queue.writeTexture(
+      { texture: this._bgNoiseTexture, mipLevel: 0, origin: [0, 0, 0] },
+      noiseData,
+      { offset: 0, bytesPerRow: this.settings.noiseSize * 4 },
+      [this.settings.noiseSize, this.settings.noiseSize],
+    );
+    this._bgNoiseView = backend.createTextureView(this._bgNoiseTexture);
+
+    this._bgUniformBuffer = backend.createBuffer({ label: "ssao-uniforms", size: 220, usage: 0x40 | 0x08 });
+    this._bgBlurUniformBuffer = backend.createBuffer({ label: "ssao-blur-uniforms", size: 16, usage: 0x40 | 0x08 });
+
+    this._bgSsaoLayout = backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+        { binding: 3, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+        { binding: 4, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
+      ],
+    });
+    this._bgBlurLayout = backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+        { binding: 3, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
+      ],
+    });
+
+    const vsModule = backend.createShaderModule(wgslShader(FULLSCREEN_VS, "fullscreen-vs"), "wgsl");
+    const ssaoFsModule = backend.createShaderModule(wgslShader(SSAO_FS, "ssao-fs"), "wgsl");
+    const blurFsModule = backend.createShaderModule(wgslShader(SSAO_BLUR_FS, "ssao-blur-fs"), "wgsl");
+
+    const ssaoLayout = backend.createPipelineLayout({ label: "ssao-layout", bindGroupLayouts: [this._bgSsaoLayout] });
+    const blurLayout = backend.createPipelineLayout({ label: "ssao-blur-layout", bindGroupLayouts: [this._bgBlurLayout] });
+
+    this._bgSsaoPipeline = backend.createRenderPipeline({
+      label: "ssao-pipeline",
+      layout: ssaoLayout,
+      vertex: { module: vsModule, entryPoint: "vs_main" },
+      fragment: { module: ssaoFsModule, entryPoint: "ssao_fs", targets: [{ format: "r8unorm" }] },
+      primitive: { topology: "triangle-list" },
+    });
+    this._bgBlurPipeline = backend.createRenderPipeline({
+      label: "ssao-blur-pipeline",
+      layout: blurLayout,
+      vertex: { module: vsModule, entryPoint: "vs_main" },
+      fragment: { module: blurFsModule, entryPoint: "blur_fs", targets: [{ format: "r8unorm" }] },
+      primitive: { topology: "triangle-list" },
+    });
+  }
+
   setProjectionMatrices(proj: Float32Array, invProj: Float32Array, view: Float32Array, screenWidth: number, screenHeight: number): void {
-    const data = new Float32Array(28);
+    const data = new Float32Array(55);
     data.set(proj, 0);
     data.set(invProj, 16);
     data.set(view, 32);
@@ -241,7 +335,11 @@ export class SSAOPass extends RenderPass {
     data[52] = this.settings.noiseSize;
     data[53] = screenWidth;
     data[54] = screenHeight;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    if (this._backend && this._bgUniformBuffer) {
+      this._backend.queue.writeBuffer(this._bgUniformBuffer, 0, data as unknown as BufferSource);
+    } else {
+      this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    }
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -251,7 +349,12 @@ export class SSAOPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
-    if (!this.depthHandle || !this.outputHandle || !this.ssaoPipeline) return;
+    if (!this.depthHandle || !this.outputHandle) return;
+    if (ctx.backend && this._bgSsaoPipeline) {
+      this.executeBackend(ctx);
+      return;
+    }
+    if (!this.ssaoPipeline || !ctx.device) return;
     const depthView = ctx.getView(this.depthHandle);
     const normalView = this.normalHandle ? ctx.getView(this.normalHandle) : depthView;
     const outputView = ctx.getView(this.outputHandle);
@@ -281,6 +384,39 @@ export class SSAOPass extends RenderPass {
     pass.draw(6);
     pass.end();
     ctx.device.queue.submit([encoder.finish()]);
+  }
+
+  private executeBackend(ctx: GraphRenderContext): void {
+    const backend = ctx.backend!;
+    const depthView = ctx.getBackendView(this.depthHandle!);
+    const normalView = this.normalHandle ? ctx.getBackendView(this.normalHandle) : depthView;
+    const outputView = ctx.getBackendView(this.outputHandle!);
+
+    const bindGroup = backend.createBindGroup({
+      layout: this._bgSsaoLayout!,
+      entries: [
+        { binding: 0, resource: { buffer: this._bgUniformBuffer! } },
+        { binding: 1, resource: { textureView: depthView } },
+        { binding: 2, resource: { textureView: normalView } },
+        { binding: 3, resource: { textureView: this._bgNoiseView! } },
+        { binding: 4, resource: { sampler: this._bgSampler! } },
+      ],
+    });
+
+    const encoder = backend.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: outputView,
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: "clear",
+        storeOp: "store",
+      }],
+    });
+    pass.setPipeline(this._bgSsaoPipeline!);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(6);
+    pass.end();
+    backend.queue.submit([encoder.finish()]);
   }
 
   destroy(): void {
