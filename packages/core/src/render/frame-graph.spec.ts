@@ -347,7 +347,18 @@ function createMockBackend(): RenderBackend {
     createPipelineLayout: vi.fn(),
     createBindGroup: vi.fn(),
     createRenderPipeline: vi.fn(),
-    createCommandEncoder: vi.fn(),
+    createCommandEncoder: vi.fn(() => ({
+      beginRenderPass: vi.fn(() => ({
+        setPipeline: vi.fn(),
+        setBindGroup: vi.fn(),
+        setVertexBuffer: vi.fn(),
+        setIndexBuffer: vi.fn(),
+        draw: vi.fn(),
+        drawIndexed: vi.fn(),
+        end: vi.fn(),
+      })),
+      finish: vi.fn(() => ({})),
+    })),
     createTextureView: vi.fn(() => ({ getNative: vi.fn() }) as unknown as BackendTextureView),
     queue: {
       submit: vi.fn(),
@@ -555,7 +566,7 @@ describe("FrameGraph — backend-agnostic", () => {
   });
 
   describe("execute with backend (device null)", () => {
-    it("executeRenderPass falls back to executeCustomPass when device is null", () => {
+    it("executeRenderPass uses backend path when device is null and backend is available", () => {
       const fg = new FrameGraph();
       const backend = createMockBackend();
       const surface = fg.importTexture("surface", createMockBackendTexture());
@@ -564,7 +575,7 @@ describe("FrameGraph — backend-agnostic", () => {
       }));
       fg.compile(null, 800, 600, backend);
 
-      // execute should not throw even with null device — Render pass falls back to Custom
+      // execute should not throw — Render pass uses backend path via executeRenderPassBackend
       const frameCtx = {
         backend,
         device: null,
@@ -580,6 +591,8 @@ describe("FrameGraph — backend-agnostic", () => {
         addDrawCalls: vi.fn(), addTriangles: vi.fn(),
       };
       expect(() => fg.execute(frameCtx)).not.toThrow();
+      expect(backend.createCommandEncoder).toHaveBeenCalled();
+      expect(backend.queue.submit).toHaveBeenCalled();
     });
 
     it("execute with Custom pass and backend does not require device", () => {
@@ -673,6 +686,7 @@ describe("FrameGraph — backend-agnostic", () => {
       // The getBackendView accessor should use the stored backend to create views
       let capturedGetBackendView: ((h: TextureHandle) => BackendTextureView) | null = null;
       class CapturePass extends MockPass {
+        passType = PassType.Custom;
         execute(ctx: GraphRenderContext): void {
           capturedGetBackendView = ctx.getBackendView;
         }

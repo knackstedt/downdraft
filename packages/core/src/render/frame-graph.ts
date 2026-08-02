@@ -6,7 +6,7 @@ import type { RenderBackend } from "./backend/render-backend.ts";
 import type { BackendTexture, BackendTextureView, TextureFormat } from "./backend/types.ts";
 import type { LightUniformData } from "./lighting.ts";
 import type { RenderPass } from "./render-pass.ts";
-import { TrackedRenderPass } from "./tracked-render-pass.ts";
+import { BackendTrackedRenderPass, TrackedRenderPass, type ITrackedRenderPass } from "./tracked-render-pass.ts";
 
 const log = createLogger();
 
@@ -83,8 +83,8 @@ export interface FrameContext {
 }
 
 export interface GraphRenderContext extends FrameContext {
-  /** TrackedRenderPass for Render-type passes. null for Custom passes. */
-  pass: TrackedRenderPass | null;
+  /** ITrackedRenderPass for Render-type passes. null for Custom passes. */
+  pass: ITrackedRenderPass | null;
   /** Resolve a texture handle to a GPUTextureView (native WebGPU). */
   getView: (handle: TextureHandle) => GPUTextureView;
   /** Resolve a texture handle to a GPUTexture (native WebGPU). */
@@ -249,12 +249,18 @@ export class FrameGraph {
   private executeRenderPass(frameCtx: FrameContext, entry: GraphPassEntry): void {
     const { pass, builder } = entry;
     const device = frameCtx.device;
+    const backend = frameCtx.backend;
+
+    if (!device && backend) {
+      this.executeRenderPassBackend(frameCtx, entry, backend);
+      return;
+    }
+
     if (!device) {
-      // Backend-only path not yet supported for Render-type passes
-      // (requires backend TrackedRenderPass wrapper)
       this.executeCustomPass(frameCtx, entry);
       return;
     }
+
     const encoder = device.createCommandEncoder();
 
     const colorAttachments: GPURenderPassColorAttachment[] = builder.colorAttachments.map(a => ({
@@ -305,6 +311,60 @@ export class FrameGraph {
       bufferRebinds: tracked.bufferRebinds,
     };
     device.queue.submit([encoder.finish()]);
+  }
+
+  private executeRenderPassBackend(frameCtx: FrameContext, entry: GraphPassEntry, backend: RenderBackend): void {
+    const { pass, builder } = entry;
+    const encoder = backend.createCommandEncoder();
+
+    const colorAttachments = builder.colorAttachments.map(a => ({
+      view: this.getBackendTextureView(a.handle),
+      loadOp: a.loadOp as "clear" | "load",
+      storeOp: a.storeOp as "store" | "discard",
+      clearValue: a.clearValue ?? { r: 0, g: 0, b: 0, a: 1 },
+    }));
+
+    let depthAttachment: import("./backend/types.ts").RenderPassDepthStencilAttachment | undefined;
+    if (builder.depthAttachmentDesc) {
+      const da = builder.depthAttachmentDesc;
+      depthAttachment = {
+        view: this.getBackendTextureView(da.handle),
+        depthLoadOp: da.depthLoadOp as "clear" | "load",
+        depthStoreOp: da.depthStoreOp as "store" | "discard",
+        depthClearValue: da.depthClearValue ?? 1.0,
+        depthReadOnly: da.depthReadOnly ?? false,
+      };
+    }
+
+    const renderPass = encoder.beginRenderPass({
+      colorAttachments,
+      depthStencilAttachment: depthAttachment,
+    });
+
+    const tracked = new BackendTrackedRenderPass(renderPass);
+
+    const ctx: GraphRenderContext = {
+      ...frameCtx,
+      pass: tracked,
+      getView: (h: TextureHandle) => this.getTextureView(h),
+      getTexture: (h: TextureHandle) => this.getTexture(h),
+      getBackendView: (h: TextureHandle) => this.getBackendTextureView(h),
+      getBackendTexture: (h: TextureHandle) => this.getBackendTexture(h),
+    };
+
+    pass.execute(ctx);
+    tracked.end();
+    frameCtx.addDrawCalls(tracked.drawCalls);
+    frameCtx.addTriangles(tracked.triangles);
+    (frameCtx as any).lastPassStats = {
+      name: pass.name,
+      drawCalls: tracked.drawCalls,
+      triangles: tracked.triangles,
+      pipelineSwitches: tracked.pipelineSwitches,
+      bindGroupChanges: tracked.bindGroupChanges,
+      bufferRebinds: tracked.bufferRebinds,
+    };
+    backend.queue.submit([encoder.finish()]);
   }
 
   private executeCustomPass(frameCtx: FrameContext, entry: GraphPassEntry): void {
