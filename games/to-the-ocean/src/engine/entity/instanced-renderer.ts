@@ -36,18 +36,65 @@ export class InstancedEntityRenderer {
     lightBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout,
     pbrBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout,
   ): void {
-    const device = this.ctx.device!;
+    const device = this.ctx.device;
+    const backend = this.ctx.backend;
     const format = this.ctx.format;
     this.cubeVertices = cubeVertices;
     this.cubeIndices = cubeIndices;
     this.cubeIndexCount = cubeIndexCount;
 
-    const instancedShaderModule = device.createShaderModule({ code: INSTANCED_ENTITY_WGSL });
-    this.instancedFrameUniformBuffer = device.createBuffer({
+    if (backend && !device) {
+      const instancedShaderModule = backend.createShaderModule({ wgsl: INSTANCED_ENTITY_WGSL }, "wgsl");
+      this.instancedFrameUniformBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
+      this.instanceStorageBuffer = backend.createBuffer({ size: MAX_ENTITIES * 48, usage: 0x80 | 0x08 });
+      this.instanceDataAb = new ArrayBuffer(MAX_ENTITIES * 48);
+      this.instanceDataF32 = new Float32Array(this.instanceDataAb);
+      this.instanceDataU32 = new Uint32Array(this.instanceDataAb);
+
+      this.instancedBindGroupLayout = backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: 0x3, buffer: { type: "uniform" } },
+          { binding: 1, visibility: 0x1, buffer: { type: "read-only-storage" } },
+        ],
+      });
+      this.instancedBindGroup = backend.createBindGroup({
+        layout: this.instancedBindGroupLayout as any,
+        entries: [
+          { binding: 0, resource: { buffer: this.instancedFrameUniformBuffer as any, size: 256 } },
+          { binding: 1, resource: { buffer: this.instanceStorageBuffer as any } },
+        ],
+      });
+
+      const instancedLitLayout = (lightBindGroupLayout && pbrBindGroupLayout)
+        ? backend.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any, pbrBindGroupLayout as any] })
+        : lightBindGroupLayout
+          ? backend.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any] })
+          : backend.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any] });
+
+      this.instancedPipeline = backend.createRenderPipeline({
+        layout: instancedLitLayout as any,
+        vertex: {
+          module: instancedShaderModule, entryPoint: "vs_main",
+          buffers: [{ arrayStride: 24, attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+          ]}],
+        },
+        fragment: { module: instancedShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: true, depthCompare: "less" },
+      });
+      return;
+    }
+
+    const dev = device!;
+    const instancedShaderModule = dev.createShaderModule({ code: INSTANCED_ENTITY_WGSL });
+    this.instancedFrameUniformBuffer = dev.createBuffer({
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.instanceStorageBuffer = device.createBuffer({
+    this.instanceStorageBuffer = dev.createBuffer({
       size: MAX_ENTITIES * 48,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
@@ -55,13 +102,13 @@ export class InstancedEntityRenderer {
     this.instanceDataF32 = new Float32Array(this.instanceDataAb);
     this.instanceDataU32 = new Uint32Array(this.instanceDataAb);
 
-    this.instancedBindGroupLayout = device.createBindGroupLayout({
+    this.instancedBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       ],
     });
-    this.instancedBindGroup = device.createBindGroup({
+    this.instancedBindGroup = dev.createBindGroup({
       layout: this.instancedBindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.instancedFrameUniformBuffer, size: 256 } },
@@ -70,12 +117,12 @@ export class InstancedEntityRenderer {
     });
 
     const instancedLitLayout = (lightBindGroupLayout && pbrBindGroupLayout)
-      ? device.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any, pbrBindGroupLayout as any] })
+      ? dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any, pbrBindGroupLayout as any] })
       : lightBindGroupLayout
-        ? device.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any] })
-        : device.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any] });
+        ? dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any] })
+        : dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any] });
 
-    this.instancedPipeline = device.createRenderPipeline({
+    this.instancedPipeline = dev.createRenderPipeline({
       layout: instancedLitLayout,
       vertex: {
         module: instancedShaderModule,

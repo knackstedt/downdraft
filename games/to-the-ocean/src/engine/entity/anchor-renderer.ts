@@ -33,9 +33,9 @@ export class AnchorRenderer {
   }
 
   init(pbrLitPipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
-    const device = this.ctx.device!;
+    const device = this.ctx.device;
+    const backend = this.ctx.backend;
     const format = this.ctx.format;
-    const boatShaderModule = device.createShaderModule({ code: BOAT_WGSL });
 
     // Build anchor mesh: cylindrical shank + stock, triangular flukes, crown
     const av: number[] = [];
@@ -118,16 +118,6 @@ export class AnchorRenderer {
     const anchorVerts = new Float32Array(av);
     const anchorIdx = new Uint16Array(ai);
     this.anchorMeshIndexCount = anchorIdx.length;
-    this.anchorMeshVerts = device.createBuffer({
-      size: anchorVerts.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.anchorMeshVerts as any, 0, anchorVerts);
-    this.anchorMeshIdx = device.createBuffer({
-      size: anchorIdx.byteLength,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.anchorMeshIdx as any, 0, anchorIdx);
 
     // Build chain link mesh
     const cv: number[] = [];
@@ -159,18 +149,60 @@ export class AnchorRenderer {
     const chainVerts = new Float32Array(cv);
     const chainIdx = new Uint16Array(ci);
     this.chainLinkIndexCount = chainIdx.length;
-    this.chainLinkVerts = device.createBuffer({
+
+    if (backend && !device) {
+      this.anchorMeshVerts = backend.createBuffer({ size: anchorVerts.byteLength, usage: 0x20 | 0x08 });
+      backend.queue.writeBuffer(this.anchorMeshVerts as any, 0, anchorVerts as any);
+      this.anchorMeshIdx = backend.createBuffer({ size: anchorIdx.byteLength, usage: 0x10 | 0x08 });
+      backend.queue.writeBuffer(this.anchorMeshIdx as any, 0, anchorIdx as any);
+      this.chainLinkVerts = backend.createBuffer({ size: chainVerts.byteLength, usage: 0x20 | 0x08 });
+      backend.queue.writeBuffer(this.chainLinkVerts as any, 0, chainVerts as any);
+      this.chainLinkIdx = backend.createBuffer({ size: chainIdx.byteLength, usage: 0x10 | 0x08 });
+      backend.queue.writeBuffer(this.chainLinkIdx as any, 0, chainIdx as any);
+
+      const boatShaderModule = backend.createShaderModule({ wgsl: BOAT_WGSL }, "wgsl");
+      this.anchorPipeline3D = backend.createRenderPipeline({
+        layout: pbrLitPipelineLayout as any,
+        vertex: {
+          module: boatShaderModule, entryPoint: "vs_main",
+          buffers: [{ arrayStride: 36, attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+            { shaderLocation: 2, offset: 24, format: "float32x3" },
+          ]}],
+        },
+        fragment: { module: boatShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "always" },
+      });
+      return;
+    }
+
+    const dev = device!;
+    const boatShaderModule = dev.createShaderModule({ code: BOAT_WGSL });
+    this.anchorMeshVerts = dev.createBuffer({
+      size: anchorVerts.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    dev.queue.writeBuffer(this.anchorMeshVerts as any, 0, anchorVerts);
+    this.anchorMeshIdx = dev.createBuffer({
+      size: anchorIdx.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    dev.queue.writeBuffer(this.anchorMeshIdx as any, 0, anchorIdx);
+    this.chainLinkVerts = dev.createBuffer({
       size: chainVerts.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.chainLinkVerts as any, 0, chainVerts);
-    this.chainLinkIdx = device.createBuffer({
+    dev.queue.writeBuffer(this.chainLinkVerts as any, 0, chainVerts);
+    this.chainLinkIdx = dev.createBuffer({
       size: chainIdx.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.chainLinkIdx as any, 0, chainIdx);
+    dev.queue.writeBuffer(this.chainLinkIdx as any, 0, chainIdx);
 
-    this.anchorPipeline3D = device.createRenderPipeline({
+    this.anchorPipeline3D = dev.createRenderPipeline({
       layout: pbrLitPipelineLayout as any,
       vertex: {
         module: boatShaderModule,
