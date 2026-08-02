@@ -85,10 +85,10 @@ export class PlayerMeshRenderer {
         usage: 0x8 | 0x4,
       });
       backend.queue.writeTexture(
-        { texture: this.playerTexture as any },
-        new Uint8Array([255, 255, 255, 255]),
-        { bytesPerRow: 4 },
-        { width: 1, height: 1 },
+        { texture: this.playerTexture } as any,
+        new Uint8Array([255, 255, 255, 255]) as any,
+        { bytesPerRow: 4 } as any,
+        { width: 1, height: 1 } as any,
       );
       this.playerBindGroup = backend.createBindGroup({
         layout: playerBindGroupLayout as any,
