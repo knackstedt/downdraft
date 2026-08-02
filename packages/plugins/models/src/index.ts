@@ -17,7 +17,7 @@ import { detectFormat } from "./types.ts";
 
 export { parseDAE } from "./dae.ts";
 export { parseFBX } from "./fbx.ts";
-export { getSupportedExtensions, isExtensionSupported, processMaterialExtensions, processMeshPrimitiveExtensions } from "./gltf-extensions.ts";
+export { getSupportedExtensions, isExtensionSupported, parseAnimationEvents, parseMorphTargets, processMaterialExtensions, processMeshPrimitiveExtensions } from "./gltf-extensions.ts";
 export { parseGLTF } from "./gltf.ts";
 export { parseOBJ } from "./obj.ts";
 export { parsePLY } from "./ply.ts";
@@ -25,8 +25,8 @@ export { parseSTL } from "./stl.ts";
 export { parse3DS } from "./threeds.ts";
 export { detectFormat } from "./types.ts";
 export type {
-    AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData,
-    ModelFormat, ModelNode,
+    AnimationChannel, AnimationData, AnimationEvent, BoneData, MaterialData, MeshData, ModelData,
+    ModelFormat, ModelNode, MorphTargetData,
     SkinData
 } from "./types.ts";
 

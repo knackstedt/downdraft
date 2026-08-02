@@ -1,5 +1,9 @@
+import type { AnimationEvent } from "./animation-event.ts";
+import { getEventsInRange } from "./animation-event.ts";
 import type { AnimationClip } from "./clip.ts";
 import type { Skeleton } from "./skeleton.ts";
+
+export const MAX_MORPH_TARGETS = 64;
 
 interface BoneTransform {
   position: [number, number, number];
@@ -46,6 +50,14 @@ export class AnimationPlayer {
   private accRot: Float32Array;
   private accScale: Float32Array;
   private accWeight: Float32Array;
+  private morphWeights: Float32Array;
+  private accMorphWeights: Float32Array;
+  private accMorphWeight: Float32Array;
+  private resultMorphWeights: Float32Array;
+  private maxMorphTargets: number;
+  private eventHandlers: Map<string, Array<(event: AnimationEvent) => void>> = new Map();
+  private pendingEvents: AnimationEvent[] = [];
+  private lastSampleTimes: Map<string, number> = new Map();
 
   constructor(skeleton: Skeleton) {
     this.skeleton = skeleton;
@@ -65,6 +77,41 @@ export class AnimationPlayer {
     this.accRot = new Float32Array(this.boneCount * 4);
     this.accScale = new Float32Array(this.boneCount * 3);
     this.accWeight = new Float32Array(this.boneCount);
+    this.maxMorphTargets = MAX_MORPH_TARGETS;
+    this.morphWeights = new Float32Array(this.maxMorphTargets);
+    this.accMorphWeights = new Float32Array(this.maxMorphTargets);
+    this.accMorphWeight = new Float32Array(this.maxMorphTargets);
+    this.resultMorphWeights = new Float32Array(this.maxMorphTargets);
+  }
+
+  onEvent(type: string, handler: (event: AnimationEvent) => void): void {
+    let handlers = this.eventHandlers.get(type);
+    if (!handlers) {
+      handlers = [];
+      this.eventHandlers.set(type, handlers);
+    }
+    handlers.push(handler);
+  }
+
+  offEvent(type: string, handler?: (event: AnimationEvent) => void): void {
+    if (!handler) {
+      this.eventHandlers.delete(type);
+      return;
+    }
+    const handlers = this.eventHandlers.get(type);
+    if (handlers) {
+      const idx = handlers.indexOf(handler);
+      if (idx >= 0) handlers.splice(idx, 1);
+      if (handlers.length === 0) this.eventHandlers.delete(type);
+    }
+  }
+
+  getPendingEvents(): AnimationEvent[] {
+    return this.pendingEvents;
+  }
+
+  clearPendingEvents(): void {
+    this.pendingEvents = [];
   }
 
   play(name: string, clip: AnimationClip, options?: { speed?: number; weight?: number; loop?: boolean; fadeDuration?: number; boneMask?: number[] | Set<number>; additive?: boolean }): void {
@@ -115,6 +162,7 @@ export class AnimationPlayer {
       boneMask,
       additive,
     });
+    this.lastSampleTimes.set(name, 0);
   }
 
   stop(name?: string): void {
@@ -206,6 +254,19 @@ export class AnimationPlayer {
 
       if (p.weight <= 0.001) continue;
 
+      const prevTime = this.lastSampleTimes.get(p.name) ?? p.time;
+      if (p.clip.eventTrack && !p.paused) {
+        const events = getEventsInRange(p.clip.eventTrack, prevTime, p.time, p.clip.duration);
+        for (const e of events) {
+          this.pendingEvents.push(e);
+          const handlers = this.eventHandlers.get(e.type);
+          if (handlers) {
+            for (const h of handlers) h(e);
+          }
+        }
+      }
+      this.lastSampleTimes.set(p.name, p.time);
+
       stillPlaying.push(p);
       if (p.additive) activeAdditive.push(p);
       else activeNonAdditive.push(p);
@@ -216,11 +277,18 @@ export class AnimationPlayer {
     this.accRot.fill(0);
     this.accScale.fill(0);
     this.accWeight.fill(0);
+    this.accMorphWeights.fill(0);
+    this.accMorphWeight.fill(0);
 
     // Phase 3: Sample and accumulate non-additive animations (weighted average)
     for (const p of activeNonAdditive) {
       p.clip.sample(p.time, this.resultPositions, this.resultRotations, this.resultScales);
+      p.clip.sampleMorphWeights(p.time, this.resultMorphWeights);
       const w = p.weight;
+      for (const targetIdx of p.clip.morphTrackedTargets) {
+        this.accMorphWeights[targetIdx] += this.resultMorphWeights[targetIdx] * w;
+        this.accMorphWeight[targetIdx] += w;
+      }
       for (const boneIdx of p.clip.trackedBones) {
         if (p.boneMask && !p.boneMask.has(boneIdx)) continue;
         const i3 = boneIdx * 3;
@@ -259,6 +327,13 @@ export class AnimationPlayer {
     }
 
     // Phase 4: Normalize by total weight, fallback to bind pose
+    for (let i = 0; i < this.maxMorphTargets; i++) {
+      if (this.accMorphWeight[i] > 0.001) {
+        this.morphWeights[i] = this.accMorphWeights[i] / this.accMorphWeight[i];
+      } else {
+        this.morphWeights[i] = 0;
+      }
+    }
     for (let i = 0; i < this.boneCount; i++) {
       const i3 = i * 3;
       const i4 = i * 4;
@@ -295,7 +370,11 @@ export class AnimationPlayer {
     // Phase 5: Apply additive animations on top
     for (const p of activeAdditive) {
       p.clip.sample(p.time, this.resultPositions, this.resultRotations, this.resultScales);
+      p.clip.sampleMorphWeights(p.time, this.resultMorphWeights);
       const w = p.weight;
+      for (const targetIdx of p.clip.morphTrackedTargets) {
+        this.morphWeights[targetIdx] += this.resultMorphWeights[targetIdx] * w;
+      }
       for (const boneIdx of p.clip.trackedBones) {
         if (p.boneMask && !p.boneMask.has(boneIdx)) continue;
 
@@ -320,6 +399,10 @@ export class AnimationPlayer {
     this.playing.clear();
     for (const p of stillPlaying) this.playing.set(p.name, p);
     this.skinMatrices = null;
+
+    for (const p of stillPlaying) {
+      this.lastSampleTimes.set(p.name, p.time);
+    }
 
     // Root motion
     const rootPos = this.positions[this.rootBoneIndex];
@@ -360,6 +443,24 @@ export class AnimationPlayer {
 
   getRootMotionDelta(): [number, number, number] {
     return [this.rootMotionDelta[0], this.rootMotionDelta[1], this.rootMotionDelta[2]];
+  }
+
+  getMorphWeights(): Float32Array {
+    return this.morphWeights;
+  }
+
+  getMaxMorphTargets(): number {
+    return this.maxMorphTargets;
+  }
+
+  setMaxMorphTargets(count: number): void {
+    if (count > MAX_MORPH_TARGETS) count = MAX_MORPH_TARGETS;
+    if (count === this.maxMorphTargets) return;
+    this.maxMorphTargets = count;
+    this.morphWeights = new Float32Array(count);
+    this.accMorphWeights = new Float32Array(count);
+    this.accMorphWeight = new Float32Array(count);
+    this.resultMorphWeights = new Float32Array(count);
   }
 
   resetRootMotion(): void {

@@ -368,11 +368,20 @@ export { PhysicsRealm } from "./physics/realm.ts";
 export { physicsBackendRegistry } from "./physics/registry.ts";
 
 // Animation
+export { createAnimationEventTrack, getEventsInRange } from "./animation/animation-event.ts";
+export type { AnimationEvent, AnimationEventTrack } from "./animation/animation-event.ts";
+export { AnimationGroup } from "./animation/animation-group.ts";
+export type { AnimationLayerOptions } from "./animation/animation-group.ts";
+export { AnimationLayerManager } from "./animation/animation-layers.ts";
+export type { AnimationLayerConfig, LayerBlendMode } from "./animation/animation-layers.ts";
+export { BoneMaskPreset, buildBoneMask, buildCustomBoneMask, registerCustomMask } from "./animation/bone-mask.ts";
 export { AnimationClip, buildAnimationClipFromGLTF } from "./animation/clip.ts";
 export type { AnimationClipData, KeyframeTrack, TrackPath } from "./animation/clip.ts";
 export { DEFAULT_MIXAMO_CONFIG, MixamoRetargeter } from "./animation/mixamo.ts";
 export type { MixamoRetargetConfig } from "./animation/mixamo.ts";
-export { AnimationPlayer } from "./animation/player.ts";
+export { buildMorphTargetData, createMorphTargetTrack, findMorphKeyframeIndex, sampleMorphWeight } from "./animation/morph-target.ts";
+export type { MorphTarget, MorphTargetData, MorphTargetTrack } from "./animation/morph-target.ts";
+export { AnimationPlayer, MAX_MORPH_TARGETS } from "./animation/player.ts";
 export type { PlayingAnimation } from "./animation/player.ts";
 export { buildRetargetMapping, retargetClip } from "./animation/retarget.ts";
 export type { BoneMapping, RetargetMapping } from "./animation/retarget.ts";
@@ -382,6 +391,9 @@ export { buildSkeletonFromGLTF, Skeleton } from "./animation/skeleton.ts";
 export type { Bone, GLTFSkin, SkeletonData } from "./animation/skeleton.ts";
 export { AnimationStateMachine } from "./animation/state-machine.ts";
 export type { AnimationState, AnimationTransition, BlendTree, BlendTree1D, BlendTree2D } from "./animation/state-machine.ts";
+export { createSkinningPass, MAX_BONE_INFLUENCES, MAX_BONES_VS, SKINNING_VS_GLSL, SKINNING_VS_WGSL } from "./render/passes/skinning-vs.ts";
+export type { SkinningMode, SkinningPass } from "./render/passes/skinning-vs.ts";
+export { packBoneTransformsVec4, VertexSkinningPass } from "./render/passes/skinning.ts";
 
 // Mesh Skinning
 export { BoneTransforms, buildSkinnedMeshFromGLTF, createSkinMatricesBuffer, MAX_BONES, SkinnedMesh } from "./mesh/skinning.ts";

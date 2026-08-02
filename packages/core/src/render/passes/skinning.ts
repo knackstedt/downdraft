@@ -232,3 +232,93 @@ export function packBoneTransforms(
   }
   return buffer;
 }
+
+export function packBoneTransformsVec4(
+  positions: Array<[number, number, number]>,
+  rotations: Array<[number, number, number, number]>,
+  scales: Array<[number, number, number]>,
+): Float32Array {
+  const boneCount = positions.length;
+  const buffer = new Float32Array(boneCount * 12);
+  for (let i = 0; i < boneCount; i++) {
+    const offset = i * 12;
+    buffer[offset + 0] = positions[i][0];
+    buffer[offset + 1] = positions[i][1];
+    buffer[offset + 2] = positions[i][2];
+    buffer[offset + 3] = rotations[i][0];
+    buffer[offset + 4] = rotations[i][1];
+    buffer[offset + 5] = rotations[i][2];
+    buffer[offset + 6] = rotations[i][3];
+    buffer[offset + 7] = scales[i][0];
+    buffer[offset + 8] = scales[i][1];
+    buffer[offset + 9] = scales[i][2];
+    buffer[offset + 10] = 0;
+    buffer[offset + 11] = 0;
+  }
+  return buffer;
+}
+
+export class VertexSkinningPass {
+  readonly name = "skinning-vertex";
+  private device: GPUDevice | null;
+  private boneTransformBuffer: GPUBuffer | null = null;
+  private inverseBindBuffer: GPUBuffer | null = null;
+  private boneCountBuffer: GPUBuffer | null = null;
+  private maxBones: number;
+
+  constructor(device: GPUDevice | null, maxBones: number = 256) {
+    this.device = device;
+    this.maxBones = maxBones;
+  }
+
+  prepare(): void {
+    if (!this.device) return;
+
+    const boneTransformSize = this.maxBones * 12 * 4;
+    const inverseBindSize = this.maxBones * 16 * 4;
+
+    this.boneTransformBuffer = this.device.createBuffer({
+      size: boneTransformSize,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.inverseBindBuffer = this.device.createBuffer({
+      size: inverseBindSize,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.boneCountBuffer = this.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+  }
+
+  updateBoneTransforms(transforms: Float32Array): void {
+    if (!this.boneTransformBuffer || !this.device) return;
+    this.device.queue.writeBuffer(this.boneTransformBuffer, 0, transforms.buffer as ArrayBuffer, 0, transforms.byteLength);
+  }
+
+  updateInverseBindMatrices(matrices: Float32Array): void {
+    if (!this.inverseBindBuffer || !this.device) return;
+    this.device.queue.writeBuffer(this.inverseBindBuffer, 0, matrices.buffer as ArrayBuffer, 0, matrices.byteLength);
+  }
+
+  updateBoneCount(count: number): void {
+    if (!this.boneCountBuffer || !this.device) return;
+    const buf = new Uint32Array([count]);
+    this.device.queue.writeBuffer(this.boneCountBuffer, 0, buf.buffer as ArrayBuffer, 0, buf.byteLength);
+  }
+
+  getBoneTransformBuffer(): GPUBuffer | null { return this.boneTransformBuffer; }
+  getInverseBindBuffer(): GPUBuffer | null { return this.inverseBindBuffer; }
+  getBoneCountBuffer(): GPUBuffer | null { return this.boneCountBuffer; }
+
+  destroy(): void {
+    this.boneTransformBuffer?.destroy();
+    this.inverseBindBuffer?.destroy();
+    this.boneCountBuffer?.destroy();
+    this.boneTransformBuffer = null;
+    this.inverseBindBuffer = null;
+    this.boneCountBuffer = null;
+  }
+}

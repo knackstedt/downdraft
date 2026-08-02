@@ -1,3 +1,9 @@
+export interface MorphTargetData {
+  name: string;
+  deltaPositions: Float32Array;
+  deltaNormals?: Float32Array;
+}
+
 export interface MeshData {
   vertices: Float32Array;
   indices: Uint16Array | Uint32Array;
@@ -8,6 +14,8 @@ export interface MeshData {
   materialIndex?: number;
   joints?: Uint8Array;    // 4 bone indices per vertex (uint8, max 255 bones)
   weights?: Float32Array; // 4 bone weights per vertex (normalized)
+  morphTargets?: MorphTargetData[];
+  morphTargetNames?: string[];
 }
 
 export interface MaterialData {
@@ -27,6 +35,12 @@ export interface AnimationChannel {
   keyframeTimes: Float32Array;
   keyframeValues: Float32Array;
   interpolation: "LINEAR" | "STEP" | "CUBICSPLINE";
+}
+
+export interface AnimationEvent {
+  time: number;
+  type: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface AnimationData {
@@ -70,6 +84,7 @@ export interface ModelData {
   animations?: AnimationData[];
   nodes?: ModelNode[];
   skin?: SkinData;
+  morphTargetNames?: string[];
 }
 
 export type ModelFormat = "obj" | "gltf" | "glb" | "fbx" | "dae" | "stl" | "ply" | "3ds";
