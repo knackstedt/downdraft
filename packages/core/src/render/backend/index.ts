@@ -3,106 +3,38 @@
 // ============================================================================
 
 export type {
-  BackendType,
-  TextureFormat,
-  IndexFormat,
-  PrimitiveTopology,
-  CullMode,
-  FrontFace,
-  CompareFunction,
-  StencilOperation,
-  BlendFactor,
-  BlendOperation,
-  LoadOp,
-  StoreOp,
-  ShaderStageFlags,
-  BufferUsageFlags,
-  TextureUsageFlags,
-  ColorWriteFlags,
-  BufferDescriptor,
-  TextureDescriptor,
-  SamplerDescriptor,
-  VertexAttribute,
-  VertexBufferLayout,
-  VertexFormat,
-  BlendComponent,
-  BlendState,
-  ColorTargetState,
-  DepthStencilState,
-  StencilFaceState,
-  RenderPipelineDescriptor,
-  BindGroupLayoutEntry,
-  BindGroupLayoutDescriptor,
-  BindGroupEntry,
-  BindGroupDescriptor,
-  PipelineLayoutDescriptor,
-  RenderPassColorAttachment,
-  RenderPassDepthStencilAttachment,
-  RenderPassDescriptor,
-  BackendBuffer,
-  BackendTexture,
-  TextureViewDescriptor,
-  BackendTextureView,
-  BackendSampler,
-  BackendShaderModule,
-  BackendBindGroupLayout,
-  BackendPipelineLayout,
-  BackendBindGroup,
-  BackendRenderPipeline,
-  BackendCommandEncoder,
-  BackendCommandBuffer,
-  BackendRenderPassEncoder,
-  BackendComputePassEncoder,
-  BackendQueue,
+    BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendCommandBuffer, BackendCommandEncoder, BackendComputePassEncoder, BackendPipelineLayout, BackendQueue, BackendRenderPassEncoder, BackendRenderPipeline, BackendSampler,
+    BackendShaderModule, BackendTexture, BackendTextureView, BackendType, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BlendComponent, BlendFactor,
+    BlendOperation, BlendState, BufferDescriptor, BufferUsageFlags, ColorTargetState, ColorWriteFlags, CompareFunction, CullMode, DepthStencilState, FrontFace, IndexFormat, LoadOp, PipelineLayoutDescriptor, PrimitiveTopology, RenderPassColorAttachment,
+    RenderPassDepthStencilAttachment,
+    RenderPassDescriptor, RenderPipelineDescriptor, SamplerDescriptor, ShaderStageFlags, StencilFaceState, StencilOperation, StoreOp, TextureDescriptor, TextureFormat, TextureUsageFlags, TextureViewDescriptor, VertexAttribute,
+    VertexBufferLayout,
+    VertexFormat
 } from "./types.ts";
 
 export {
-  SHADER_STAGE_NONE,
-  SHADER_STAGE_VERTEX,
-  SHADER_STAGE_FRAGMENT,
-  SHADER_STAGE_COMPUTE,
-  BUFFER_USAGE_NONE,
-  BUFFER_USAGE_MAP_READ,
-  BUFFER_USAGE_MAP_WRITE,
-  BUFFER_USAGE_COPY_SRC,
-  BUFFER_USAGE_COPY_DST,
-  BUFFER_USAGE_INDEX,
-  BUFFER_USAGE_VERTEX,
-  BUFFER_USAGE_UNIFORM,
-  BUFFER_USAGE_STORAGE,
-  BUFFER_USAGE_INDIRECT,
-  BUFFER_USAGE_QUERY_RESOLVE,
-  TEXTURE_USAGE_NONE,
-  TEXTURE_USAGE_COPY_SRC,
-  TEXTURE_USAGE_COPY_DST,
-  TEXTURE_USAGE_TEXTURE_BINDING,
-  TEXTURE_USAGE_STORAGE_BINDING,
-  TEXTURE_USAGE_RENDER_ATTACHMENT,
-  COLOR_WRITE_RED,
-  COLOR_WRITE_GREEN,
-  COLOR_WRITE_BLUE,
-  COLOR_WRITE_ALPHA,
-  COLOR_WRITE_ALL,
+    BUFFER_USAGE_COPY_DST, BUFFER_USAGE_COPY_SRC, BUFFER_USAGE_INDEX, BUFFER_USAGE_INDIRECT, BUFFER_USAGE_MAP_READ,
+    BUFFER_USAGE_MAP_WRITE, BUFFER_USAGE_NONE, BUFFER_USAGE_QUERY_RESOLVE, BUFFER_USAGE_STORAGE, BUFFER_USAGE_UNIFORM, BUFFER_USAGE_VERTEX, COLOR_WRITE_ALL, COLOR_WRITE_ALPHA, COLOR_WRITE_BLUE, COLOR_WRITE_GREEN, COLOR_WRITE_RED, SHADER_STAGE_COMPUTE, SHADER_STAGE_FRAGMENT, SHADER_STAGE_NONE,
+    SHADER_STAGE_VERTEX, TEXTURE_USAGE_COPY_DST, TEXTURE_USAGE_COPY_SRC, TEXTURE_USAGE_NONE, TEXTURE_USAGE_RENDER_ATTACHMENT, TEXTURE_USAGE_STORAGE_BINDING, TEXTURE_USAGE_TEXTURE_BINDING
 } from "./types.ts";
 
+export { createWebGL2Capabilities, createWebGPUCapabilities } from "./capabilities.ts";
 export type { BackendCapabilities } from "./capabilities.ts";
-export { createWebGPUCapabilities, createWebGL2Capabilities } from "./capabilities.ts";
 
-export type { ShaderSource, ShaderLanguage } from "./shader-source.ts";
-export { wgslShader, dualShader, glslShader, hasShaderVariant } from "./shader-source.ts";
+export { dualShader, glslShader, hasShaderVariant, wgslShader } from "./shader-source.ts";
+export type { ShaderLanguage, ShaderSource } from "./shader-source.ts";
 
 export {
-  getFormatInfo,
-  isDepthFormat,
-  isCompressedFormat,
-  isFilterableFormat,
-  isRenderableFormat,
-  toWebGPUFormat,
-  fromWebGPUFormat,
-  getWebGL2FormatMapping,
-  getWebGL2FallbackFormat,
+    fromWebGPUFormat, getFormatInfo, getWebGL2FallbackFormat, getWebGL2FormatMapping, isCompressedFormat, isDepthFormat, isFilterableFormat,
+    isRenderableFormat,
+    toWebGPUFormat
 } from "./format-mapping.ts";
 export type { FormatInfo, WebGL2FormatMapping } from "./format-mapping.ts";
 
-export type { RenderBackend, SurfaceConfiguration, BackendCreateOptions } from "./render-backend.ts";
 export { createBackend, detectBackends } from "./render-backend.ts";
+export type { BackendCreateOptions, RenderBackend, SurfaceConfiguration } from "./render-backend.ts";
+
+export { getShaderSource, getTranspiler, registerShader, transpileShader } from "./shader-registry.ts";
+export { ShaderTranspiler } from "./shader-transpiler.ts";
+export type { TranspileResult } from "./shader-transpiler.ts";
+
