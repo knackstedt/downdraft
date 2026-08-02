@@ -131,4 +131,7 @@ export const TERRAIN_CONFIG = {
   portCaveNoiseScale: 5.0,
   portCaveThreshold: 0.25,      // higher threshold = fewer/smaller caves than islands
   portCaveMinDepth: 0.3,        // caves only deep underwater (well below dock)
+
+  // --- Mesh extraction algorithm ---
+  useMarchingTetrahedra: true,  // true = Marching Tetrahedra, false = Marching Cubes
 } as const;
