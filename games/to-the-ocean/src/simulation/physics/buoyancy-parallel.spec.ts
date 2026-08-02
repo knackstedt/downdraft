@@ -4,9 +4,9 @@
 // (Uses custom harness to avoid bun:test workspace resolution issues)
 
 import {
-  BOAT_CELL_WORLD_SIZE,
-  BOAT_LAYER_HEIGHT,
-  BoatCellType,
+    BOAT_CELL_WORLD_SIZE,
+    BoatCellType,
+    getCellGeometry
 } from "../../shared/constants";
 import { computeBuoyancyBatch, type BuoyancyComputeInput } from "./buoyancy-compute";
 
@@ -86,7 +86,8 @@ function testForceMagnitude(): void {
 
   const results = computeBuoyancyBatch([input]);
   const cellArea = BOAT_CELL_WORLD_SIZE * BOAT_CELL_WORLD_SIZE;
-  const cellHeight = BOAT_LAYER_HEIGHT;
+  const geo = getCellGeometry(BoatCellType.HULL);
+  const cellHeight = geo.y1 - geo.y0;
   const cellBottom = -1 - cellHeight / 2;
   const expectedSubmersion = Math.min(0 - cellBottom, cellHeight);
   const expectedForce = WATER_DENSITY * cellArea * expectedSubmersion * GRAVITY;

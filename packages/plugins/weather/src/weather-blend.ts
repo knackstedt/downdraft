@@ -91,7 +91,7 @@ export class WeatherBlend {
   ): { ambient: number; sunIntensity: number } {
     let ambient = baseAmbient;
     let sunIntensity = baseSunIntensity;
-    if (weatherType === WeatherType.PartlyCloudy) { ambient *= 0.9; sunIntensity *= 0.85; }
+    if (weatherType === WeatherType.PartlyCloudy) { ambient *= 0.97; sunIntensity *= 0.93; }
     if (weatherType === WeatherType.Overcast) { ambient *= 0.7; sunIntensity *= 0.4; }
     if (weatherType === WeatherType.Rain) { ambient *= 0.6; sunIntensity *= 0.3; }
     if (weatherType === WeatherType.Storm) { ambient *= 0.4; sunIntensity *= 0.15; }

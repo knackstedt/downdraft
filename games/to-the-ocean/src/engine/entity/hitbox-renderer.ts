@@ -283,7 +283,8 @@ export class HitboxRenderer {
     hbUniforms[36] = color[0];
     hbUniforms[37] = color[1];
     hbUniforms[38] = color[2];
-    ctx.device?.queue?.writeBuffer(this.hitboxUniformBuffer as any, this.hitboxEntryCount * 256, hbUniforms as any);
+    const queue = ctx.device?.queue ?? ctx.backend?.queue;
+    queue?.writeBuffer(this.hitboxUniformBuffer as any, this.hitboxEntryCount * 256, hbUniforms as any);
     this.hitboxEntryCount++;
   }
 

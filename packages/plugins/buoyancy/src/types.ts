@@ -87,6 +87,7 @@ export interface BuoyancyConfig {
   boatLayerHeight: number;
   seabedHeight: number;
   isHullShellCell(cellType: number): boolean;
+  getCellVerticalExtent(cellType: number): { y0: number; y1: number };
 }
 
 // --- System factory deps ---

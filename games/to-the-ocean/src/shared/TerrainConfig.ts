@@ -84,7 +84,7 @@ export const TERRAIN_CONFIG = {
   chunkSize: 32,                // voxels per chunk edge (must be power of 2)
   chunkBits: 5,                 // log2(chunkSize) — for fast bit-shift division
   chunkMask: 31,                // chunkSize - 1 — for fast modulo
-  physVoxelSizeMultiplier: 1,   // physics voxels are N× coarser than render voxels (1 = same resolution)
+  physVoxelSizeMultiplier: 2,   // physics voxels are 2× coarser than render voxels (reduces voxel count ~8×)
 
   // --- Distance-based LOD (Phase 3) ---
   // Distant islands use coarser voxels to reduce memory and generation time.
