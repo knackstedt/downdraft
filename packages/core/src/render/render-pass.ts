@@ -10,7 +10,7 @@ export type { FrameGraphBuilder, GraphRenderContext, PassType } from "./frame-gr
 export interface RenderPassContext {
   device: GPUDevice | null;
   backend: RenderBackend | null;
-  pass: GPURenderPassEncoder | import("./tracked-render-pass.ts").TrackedRenderPass;
+  pass: GPURenderPassEncoder | import("./tracked-render-pass.ts").ITrackedRenderPass;
 }
 
 export abstract class RenderPass {
