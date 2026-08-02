@@ -1,3 +1,4 @@
+import type { RenderBackend } from "./backend/render-backend.ts";
 import type { FrameGraphBuilder, GraphRenderContext } from "./frame-graph.ts";
 import { PassType } from "./frame-graph.ts";
 
@@ -7,14 +8,15 @@ export type { FrameGraphBuilder, GraphRenderContext, PassType } from "./frame-gr
  * @deprecated Use GraphRenderContext instead. Kept for backward compatibility.
  */
 export interface RenderPassContext {
-  device: GPUDevice;
+  device: GPUDevice | null;
+  backend: RenderBackend | null;
   pass: GPURenderPassEncoder | import("./tracked-render-pass.ts").TrackedRenderPass;
 }
 
 export abstract class RenderPass {
   abstract name: string;
   passType: PassType = PassType.Render;
-  abstract prepare(device: GPUDevice): void;
+  abstract prepare(device: GPUDevice, backend?: RenderBackend | null): void;
 
   /** Declare resource reads/writes and attachments. Called during graph build. */
   setup(builder: FrameGraphBuilder): void {

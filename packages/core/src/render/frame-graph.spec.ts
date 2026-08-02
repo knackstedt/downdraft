@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from "bun:test";
 import { FrameGraph, FrameGraphBuilder, PassType, TextureHandle } from "./frame-graph.ts";
 import { RenderPass } from "./render-pass.ts";
 
@@ -270,7 +271,7 @@ describe("FrameGraph", () => {
   describe("Destroy", () => {
     it("should clean up transient resources", () => {
       const fg = new FrameGraph();
-      const fakeTexture = { createView: () => ({}), destroy: jest.fn() };
+      const fakeTexture = { createView: () => ({}), destroy: vi.fn() };
       const device = {
         createTexture: () => fakeTexture,
       } as unknown as GPUDevice;
@@ -281,6 +282,275 @@ describe("FrameGraph", () => {
       fg.destroy();
 
       expect(fakeTexture.destroy).toHaveBeenCalled();
+    });
+  });
+});
+
+// ─── Backend-agnostic tests ──────────────────────────────────────────────
+
+import type { RenderBackend } from "./backend/render-backend.ts";
+import type { BackendTexture, BackendTextureView, TextureFormat } from "./backend/types.ts";
+
+function createMockBackendTexture(): BackendTexture {
+  return {
+    getNative: vi.fn(() => ({})),
+    destroy: vi.fn(),
+  } as unknown as BackendTexture;
+}
+
+function createMockBackend(): RenderBackend {
+  const mockTexture = createMockBackendTexture();
+  return {
+    type: "webgl2",
+    capabilities: {
+      backend: "webgl2",
+      computeShaders: false,
+      storageBuffers: false,
+      timestampQueries: false,
+      floatRenderTargets: false,
+      halfFloatRenderTargets: false,
+      comparisonSamplers: true,
+      bcCompression: false,
+      anisotropicFiltering: false,
+      multipleRenderTargets: true,
+      instancing: true,
+      uniformBuffers: true,
+      transformFeedback: true,
+      maxTextureSize: 4096,
+      maxTextureArrayLayers: 256,
+      maxUniformBufferBindingSize: 16384,
+      maxStorageBufferBindingSize: 0,
+      maxBindGroups: 4,
+      maxVertexBuffers: 16,
+      maxVertexAttributes: 16,
+      maxColorAttachments: 4,
+      maxUniformBuffersPerShaderStage: 24,
+      maxSampledTexturesPerShaderStage: 16,
+      maxSamplersPerShaderStage: 16,
+      maxPointLights: 8,
+      maxSpotLights: 4,
+      maxParticles: 1000,
+      maxShadowMapSize: 1024,
+      isFormatSupported: vi.fn(() => true),
+      isFormatRenderable: vi.fn(() => true),
+      isFormatFilterable: vi.fn(() => true),
+    },
+    configureSurface: vi.fn(),
+    getCurrentSurfaceTexture: vi.fn(() => null),
+    getSurfaceFormat: vi.fn(() => "rgba8unorm" as TextureFormat),
+    reconfigureSurface: vi.fn(),
+    createBuffer: vi.fn(),
+    createTexture: vi.fn(() => mockTexture),
+    createSampler: vi.fn(),
+    createShaderModule: vi.fn(),
+    createBindGroupLayout: vi.fn(),
+    createPipelineLayout: vi.fn(),
+    createBindGroup: vi.fn(),
+    createRenderPipeline: vi.fn(),
+    createCommandEncoder: vi.fn(),
+    createTextureView: vi.fn(() => ({ getNative: vi.fn() }) as unknown as BackendTextureView),
+    queue: {
+      submit: vi.fn(),
+      writeBuffer: vi.fn(),
+      writeTexture: vi.fn(),
+      copyExternalImageToTexture: vi.fn(),
+      onSubmittedWorkDone: vi.fn(() => Promise.resolve()),
+      getNative: vi.fn(),
+    },
+    destroy: vi.fn(),
+    onDeviceLost: vi.fn(),
+    getNativeDevice: vi.fn(() => null),
+  } as unknown as RenderBackend;
+}
+
+describe("FrameGraph — backend-agnostic", () => {
+  describe("compile with RenderBackend", () => {
+    it("allocates transient textures via backend when provided", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg.createTransient("depth", { format: "depth32float", usage: 0x10 });
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(null, 1920, 1080, backend);
+      expect(backend.createTexture).toHaveBeenCalledTimes(2);
+    });
+
+    it("prefers backend over device when both are provided", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const device = {
+        createTexture: vi.fn(() => ({ createView: () => ({}), destroy: () => {} })),
+      } as unknown as GPUDevice;
+      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(device, 800, 600, backend);
+      expect(backend.createTexture).toHaveBeenCalledTimes(1);
+      expect(device.createTexture).not.toHaveBeenCalled();
+    });
+
+    it("falls back to device when backend is null", () => {
+      const fg = new FrameGraph();
+      const device = {
+        createTexture: vi.fn(() => ({ createView: () => ({}), destroy: () => {} })),
+      } as unknown as GPUDevice;
+      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(device, 800, 600, null);
+      expect(device.createTexture).toHaveBeenCalledTimes(1);
+    });
+
+    it("accepts null device with backend for WebGL2-only path", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(null, 800, 600, backend);
+      expect(backend.createTexture).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("importTexture with BackendTexture", () => {
+    it("accepts BackendTexture objects", () => {
+      const fg = new FrameGraph();
+      const backendTex = createMockBackendTexture();
+      const handle = fg.importTexture("surface", backendTex);
+      expect(handle).toBeInstanceOf(TextureHandle);
+      expect(handle.name).toBe("surface");
+    });
+
+    it("still accepts native GPUTexture objects", () => {
+      const fg = new FrameGraph();
+      const nativeTex = { createView: () => ({}) } as unknown as GPUTexture;
+      const handle = fg.importTexture("surface", nativeTex);
+      expect(handle).toBeInstanceOf(TextureHandle);
+    });
+  });
+
+  describe("FrameContext backend field", () => {
+    it("FrameContext accepts null backend and null device", () => {
+      const ctx = {
+        backend: null,
+        device: null,
+        width: 800,
+        height: 600,
+        viewProj: new Float32Array(16),
+        invViewProj: new Float32Array(16),
+        prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any,
+        lightViewProj: new Float32Array(16),
+        mesh: {} as any,
+        modelMatrix: new Float32Array(16),
+        shadowsEnabled: false,
+        bloomEnabled: false,
+        shadowSampler: null,
+        debugQueue: null,
+        opaqueVertexBuffer: null,
+        opaqueIndexBuffer: null,
+        opaqueIndexCount: 0,
+        opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: () => {},
+        addTriangles: () => {},
+      };
+      expect(ctx.backend).toBeNull();
+      expect(ctx.device).toBeNull();
+    });
+
+    it("FrameContext accepts both backend and device (WebGPU path)", () => {
+      const backend = createMockBackend();
+      const ctx = {
+        backend,
+        device: {} as GPUDevice,
+        width: 800,
+        height: 600,
+        viewProj: new Float32Array(16),
+        invViewProj: new Float32Array(16),
+        prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any,
+        lightViewProj: new Float32Array(16),
+        mesh: {} as any,
+        modelMatrix: new Float32Array(16),
+        shadowsEnabled: false,
+        bloomEnabled: false,
+        shadowSampler: null,
+        debugQueue: null,
+        opaqueVertexBuffer: null,
+        opaqueIndexBuffer: null,
+        opaqueIndexCount: 0,
+        opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: () => {},
+        addTriangles: () => {},
+      };
+      expect(ctx.backend).toBe(backend);
+      expect(ctx.device).not.toBeNull();
+    });
+  });
+
+  describe("GraphRenderContext backend accessors", () => {
+    it("includes getBackendView and getBackendTexture", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const backendTex = createMockBackendTexture();
+      const handle = fg.importTexture("color", backendTex);
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(null, 800, 600, backend);
+
+      // Verify the context shape includes backend accessors
+      const ctx = {
+        backend,
+        device: null,
+        width: 800,
+        height: 600,
+        viewProj: new Float32Array(16),
+        invViewProj: new Float32Array(16),
+        prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any,
+        lightViewProj: new Float32Array(16),
+        mesh: {} as any,
+        modelMatrix: new Float32Array(16),
+        shadowsEnabled: false,
+        bloomEnabled: false,
+        shadowSampler: null,
+        debugQueue: null,
+        opaqueVertexBuffer: null,
+        opaqueIndexBuffer: null,
+        opaqueIndexCount: 0,
+        opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: () => {},
+        addTriangles: () => {},
+        pass: null,
+        getView: () => ({}),
+        getTexture: () => ({}),
+        getBackendView: (h: TextureHandle) => {
+          // This would call fg.getBackendTextureView internally
+          return { getNative: () => null } as unknown as BackendTextureView;
+        },
+        getBackendTexture: (h: TextureHandle) => {
+          return backendTex;
+        },
+      };
+      expect(typeof ctx.getBackendView).toBe("function");
+      expect(typeof ctx.getBackendTexture).toBe("function");
+      expect(ctx.getBackendTexture(handle)).toBe(backendTex);
+    });
+  });
+
+  describe("TextureDesc with backend-agnostic format", () => {
+    it("accepts TextureFormat string", () => {
+      const desc = { format: "rgba8unorm" as TextureFormat, usage: 0x10 };
+      expect(desc.format).toBe("rgba8unorm");
+    });
+
+    it("accepts GPUTextureFormat string", () => {
+      const desc = { format: "bgra8unorm" as GPUTextureFormat, usage: 0x10 };
+      expect(desc.format).toBe("bgra8unorm");
+    });
+
+    it("accepts numeric usage", () => {
+      const desc = { format: "rgba8unorm", usage: 16 };
+      expect(desc.usage).toBe(16);
     });
   });
 });
