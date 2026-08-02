@@ -28,6 +28,22 @@
         "vite": "^6.0.0",
       },
     },
+    "examples/plugin-tester": {
+      "name": "plugin-tester-example",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/mcp": "workspace:*",
+        "@downdraft/plugin-crafting": "workspace:*",
+        "@downdraft/plugin-economy": "workspace:*",
+        "@downdraft/plugin-fishing": "workspace:*",
+        "@downdraft/plugin-inventory": "workspace:*",
+        "@downdraft/plugin-items": "workspace:*",
+        "@downdraft/plugin-navmesh": "workspace:*",
+        "@downdraft/plugin-survival": "workspace:*",
+        "@downdraft/plugin-water": "workspace:*",
+      },
+    },
     "games/to-the-ocean": {
       "name": "to-the-ocean",
       "version": "0.1.0",
@@ -166,6 +182,13 @@
         "@downdraft/plugin-weather": "workspace:*",
       },
     },
+    "packages/plugins/gaussian-splats": {
+      "name": "@downdraft/plugin-gaussian-splats",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
     "packages/plugins/inventory": {
       "name": "@downdraft/plugin-inventory",
       "version": "0.1.0",
@@ -209,8 +232,22 @@
         "fflate": "^0.8.2",
       },
     },
+    "packages/plugins/navmesh": {
+      "name": "@downdraft/plugin-navmesh",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
     "packages/plugins/networking": {
       "name": "@downdraft/plugin-networking",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/physics-native": {
+      "name": "@downdraft/plugin-physics-native",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -263,6 +300,13 @@
     },
     "packages/plugins/wildlife": {
       "name": "@downdraft/plugin-wildlife",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/xr": {
+      "name": "@downdraft/plugin-xr",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -398,6 +442,8 @@
 
     "@downdraft/plugin-fishing": ["@downdraft/plugin-fishing@workspace:packages/plugins/fishing"],
 
+    "@downdraft/plugin-gaussian-splats": ["@downdraft/plugin-gaussian-splats@workspace:packages/plugins/gaussian-splats"],
+
     "@downdraft/plugin-inventory": ["@downdraft/plugin-inventory@workspace:packages/plugins/inventory"],
 
     "@downdraft/plugin-items": ["@downdraft/plugin-items@workspace:packages/plugins/items"],
@@ -410,7 +456,11 @@
 
     "@downdraft/plugin-models": ["@downdraft/plugin-models@workspace:packages/plugins/models"],
 
+    "@downdraft/plugin-navmesh": ["@downdraft/plugin-navmesh@workspace:packages/plugins/navmesh"],
+
     "@downdraft/plugin-networking": ["@downdraft/plugin-networking@workspace:packages/plugins/networking"],
+
+    "@downdraft/plugin-physics-native": ["@downdraft/plugin-physics-native@workspace:packages/plugins/physics-native"],
 
     "@downdraft/plugin-physics-rapier": ["@downdraft/plugin-physics-rapier@workspace:packages/plugins/physics-rapier"],
 
@@ -425,6 +475,8 @@
     "@downdraft/plugin-weatherfx": ["@downdraft/plugin-weatherfx@workspace:packages/plugins/weatherfx"],
 
     "@downdraft/plugin-wildlife": ["@downdraft/plugin-wildlife@workspace:packages/plugins/wildlife"],
+
+    "@downdraft/plugin-xr": ["@downdraft/plugin-xr@workspace:packages/plugins/xr"],
 
     "@downdraft/shader-graph": ["@downdraft/shader-graph@workspace:packages/shader-graph"],
 
@@ -1217,6 +1269,8 @@
     "pirates": ["pirates@4.0.7", "", {}, "sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA=="],
 
     "plist": ["plist@3.1.1", "", { "dependencies": { "@xmldom/xmldom": "^0.9.10", "base64-js": "^1.5.1", "xmlbuilder": "^15.1.1" } }, "sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA=="],
+
+    "plugin-tester-example": ["plugin-tester-example@workspace:examples/plugin-tester"],
 
     "postcss": ["postcss@8.5.23", "", { "dependencies": { "nanoid": "^3.3.16", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg=="],
 

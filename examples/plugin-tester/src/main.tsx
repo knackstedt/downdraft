@@ -94,14 +94,14 @@ async function main(): Promise<void> {
       renderer = new SimpleRenderer(device, context, format);
       await withTimeout(renderer.init(), 5000, "renderer.init");
       useWebGPU = true;
-      statusLine.textContent = "WebGPU renderer ready.";
+      statusLine.textContent = `Running — Renderer: WebGPU`;
     } catch (e) {
       console.warn("[main] WebGPU init failed, using Canvas2D fallback:", e);
-      statusLine.textContent = `WebGPU unavailable (${(e as Error).message}). Using Canvas2D fallback.`;
+      statusLine.textContent = `Running — Renderer: Canvas2D (WebGPU unavailable: ${(e as Error).message})`;
       fallback.style.display = "none";
     }
   } else {
-    statusLine.textContent = "WebGPU not available. Using Canvas2D fallback.";
+    statusLine.textContent = `Running — Renderer: Canvas2D (WebGPU not available)`;
   }
 
   // Resize canvas
@@ -142,6 +142,9 @@ async function main(): Promise<void> {
       const gameData = snapshot.gameplay;
 
       infoSections.innerHTML = `
+        <div class="section">
+          <span class="section-title">Renderer:</span> ${useWebGPU ? "WebGPU" : "Canvas2D"} | ${canvas.width}x${canvas.height} | DPR=${window.devicePixelRatio || 1}
+        </div>
         <div class="section">
           <span class="section-title">NavMesh:</span> ${navData.polyCount} polys, ${navData.agents.length} agents
           ${navData.agents.map((a: any) => `#${a.index}(${a.state}) pos=[${a.pos.map((v: number) => v.toFixed(1)).join(", ")}]`).join(" | ")}

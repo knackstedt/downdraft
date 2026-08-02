@@ -22,7 +22,8 @@
     "packages/shader-graph",
     "packages/cli",
     "packages/plugins/*",
-    "games/to-the-ocean"
+    "games/to-the-ocean",
+    "examples/plugin-tester"
   ],
   "devDependencies": {
     "@types/node": "^22.10.0",
