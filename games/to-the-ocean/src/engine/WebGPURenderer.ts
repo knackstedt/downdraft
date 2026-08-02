@@ -6,7 +6,7 @@
 
 import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { createBackend, type RenderBackend } from "@downdraft/core/render/backend/render-backend";
-import type { TextureFormat } from "@downdraft/core/render/backend/types";
+import type { BackendTexture, BackendTextureView, TextureFormat } from "@downdraft/core/render/backend/types";
 import { TransformGizmo } from "@downdraft/plugin-devtools";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
@@ -190,6 +190,7 @@ export class WebGPURenderer {
   private simWasValid = false;
 
   private depthTextures = new Map<string, GPUTexture>();
+  private backendDepthTextures = new Map<string, { texture: BackendTexture; view: BackendTextureView }>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -653,7 +654,11 @@ export class WebGPURenderer {
   }
 
   private render = (): void => {
-    if (!this.running || !this.device || !this.context) {
+    if (!this.running) {
+      requestAnimationFrame(this.render);
+      return;
+    }
+    if (!this.device && !this.backend) {
       requestAnimationFrame(this.render);
       return;
     }
@@ -739,21 +744,23 @@ export class WebGPURenderer {
           const raw = this.entityRenderer.getNearbyVoxelData(cp[0], cp[1], cp[2], COLLISION_RADIUS, MAX_VOXEL_FLOATS);
           if (raw) { vd = { data: raw.data, originX: raw.originX, originY: raw.originY, originZ: raw.originZ, voxelSize: raw.voxelSize, dimX: raw.dimX, dimY: raw.dimY, dimZ: raw.dimZ, isoLevel: raw.isoLevel }; }
         }
-        const ce = this.device!.createCommandEncoder();
-        this.particleSystem.tick(ce, dt, dc, wt, wd.x * ws, wd.z * ws, vd);
-        this.device!.queue.submit([ce.finish()]);
+        if (this.device) {
+          const ce = this.device.createCommandEncoder();
+          this.particleSystem.tick(ce, dt, dc, wt, wd.x * ws, wd.z * ws, vd);
+          this.device.queue.submit([ce.finish()]);
+        }
       }
     }
     const usePix = this.pixelationSystem?.isEnabled() ?? false;
     const usePP = this.postProcessStack?.hasEnabledEffects() ?? false;
-    if (usePix) {
+    if (usePix && this.device) {
       this.pixelationSystem!.ensureTargets(this.canvas.width, this.canvas.height);
       for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "pixelation"); }
       const cv = this.context!.getCurrentTexture().createView();
       const pe = this.device!.createCommandEncoder();
       this.pixelationSystem!.applyPostprocess(pe, cv, this.canvas.width, this.canvas.height);
       this.device!.queue.submit([pe.finish()]);
-    } else if (usePP) {
+    } else if (usePP && this.device) {
       this.postProcessStack!.ensureTargets(this.canvas.width, this.canvas.height);
       for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "postprocess"); }
       const cv = this.context!.getCurrentTexture().createView();
@@ -790,7 +797,8 @@ export class WebGPURenderer {
   }
 
   private renderViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "pixelation" | "postprocess" = "none"): void {
-    if (!this.device || !this.context || !this.simReader) return;
+    if (!this.simReader) return;
+    if (!this.device && !this.backend) return;
     if (!this.simReader.isValid()) {
       if (this.simWasValid && viewportIdx === 0 && performance.now() - (this.lastInvalidLog ?? 0) > 2000) { this.lastInvalidLog = performance.now(); console.warn("[RENDERER] Sim buffer invalid — not rendering."); }
       return;
@@ -933,18 +941,33 @@ export class WebGPURenderer {
     this.lightingSystem!.upload([camera.position[0], camera.position[1], camera.position[2]]);
     this.entityRenderer!.uploadInstanceData();
     // --- GPU render pass ---
-    const encoder = this.device.createCommandEncoder();
-    this.entityRenderer!.dispatchSkinningCompute(encoder);
-    const colorView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenColorView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.context!.getCurrentTexture().createView();
-    const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTexture(origViewport.w, origViewport.h);
-    const isFirst = viewportIdx === 0;
-    const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
-    const passEncoder = this.gpuProfiler!.wrapTrackedPass(encoder.beginRenderPass({ colorAttachments: [{ view: colorView, clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 }, loadOp, storeOp: "store" as GPUStoreOp }], depthStencilAttachment: { view: depthView, depthClearValue: 1.0, depthLoadOp: loadOp, depthStoreOp: "store" as GPUStoreOp } }));
-    passEncoder.setViewport(viewport.x, viewport.y, viewport.w, viewport.h, 0, 1);
-    passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
-    if (viewportIdx === 0) { this.gpuProfiler!.beginFrame(); }
+    const isBackend = !this.device && !!this.backend;
+    let encoder: GPUCommandEncoder | any;
+    let passEncoder: any;
+    if (isBackend) {
+      encoder = this.backend!.createCommandEncoder();
+      const surfaceTex = this.backend!.getCurrentSurfaceTexture();
+      const colorView = surfaceTex ? this.backend!.createTextureView(surfaceTex) : null;
+      const depthView = this.createBackendDepthTexture(origViewport.w, origViewport.h);
+      const isFirst = viewportIdx === 0;
+      const loadOp = useOffscreen && !isFirst ? "load" : "clear";
+      passEncoder = encoder.beginRenderPass({ colorAttachments: [{ view: colorView, clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 }, loadOp, storeOp: "store" }], depthStencilAttachment: { view: depthView, depthClearValue: 1.0, depthLoadOp: loadOp, depthStoreOp: "store" } });
+      passEncoder.setViewport(viewport.x, viewport.y, viewport.w, viewport.h, 0, 1);
+      passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
+    } else {
+      encoder = this.device!.createCommandEncoder();
+      this.entityRenderer!.dispatchSkinningCompute(encoder);
+      const colorView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenColorView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.context!.getCurrentTexture().createView();
+      const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTexture(origViewport.w, origViewport.h);
+      const isFirst = viewportIdx === 0;
+      const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
+      passEncoder = this.gpuProfiler!.wrapTrackedPass(encoder.beginRenderPass({ colorAttachments: [{ view: colorView, clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 }, loadOp, storeOp: "store" as GPUStoreOp }], depthStencilAttachment: { view: depthView, depthClearValue: 1.0, depthLoadOp: loadOp, depthStoreOp: "store" as GPUStoreOp } }));
+      passEncoder.setViewport(viewport.x, viewport.y, viewport.w, viewport.h, 0, 1);
+      passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
+      if (viewportIdx === 0) { this.gpuProfiler!.beginFrame(); }
+    }
     // Sky
-    if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Sky", passEncoder, viewportIdx); }
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.beginPass("Sky", passEncoder, viewportIdx); }
     if (weatherType !== this.skyDisplayedWeatherType) { this.skyPrevWeatherType = this.skyDisplayedWeatherType; this.skyDisplayedWeatherType = weatherType; this.skyWeatherBlend = 0.0; }
     if (this.skyWeatherBlend < 1.0) { const sd = this.skyLastTime > 0 ? Math.min(0.1, this.elapsedTime - this.skyLastTime) : 0; this.skyWeatherBlend = Math.min(1.0, this.skyWeatherBlend + sd / this.skyWeatherTransitionDuration); }
     this.skyLastTime = this.elapsedTime;
@@ -958,8 +981,8 @@ export class WebGPURenderer {
     su.cameraPos[0] = camera.position[0]; su.cameraPos[1] = camera.position[1]; su.cameraPos[2] = camera.position[2];
     su.timeOfDay = timeOfDay; su.weatherType = this.skyDisplayedWeatherType; su.time = this.elapsedTime; su.prevWeatherType = this.skyPrevWeatherType; su.weatherBlend = eb;
     this.skyDomePass!.setUniforms(su);
-    this.skyDomePass!.execute({ device: this.device!, pass: passEncoder } as any);
-    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Sky", passEncoder, viewportIdx); }
+    this.skyDomePass!.execute({ device: this.device, pass: passEncoder, backend: this.backend } as any);
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.endPass("Sky", passEncoder, viewportIdx); }
     // IBL — recapture environment from sky dome (throttled by IBLSystem)
     if (viewportIdx === 0 && this.iblSystem) {
       this.iblSystem.updateFromSkyDome({
@@ -979,43 +1002,42 @@ export class WebGPURenderer {
       }
     }
     // Terrain
-    if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Terrain", passEncoder, viewportIdx); }
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.beginPass("Terrain", passEncoder, viewportIdx); }
     const tvp = engineCalculateViewProj(camera);
     const tc = this.pooledTerrainCameraPos; tc[0] = camera.position[0]; tc[1] = camera.position[1]; tc[2] = camera.position[2];
     this.terrainPass!.setUniforms({ viewProj: tvp, cameraPos: tc, time: performance.now() / 1000, patchSize: 512, originX: Math.round((playerPos.x - 256) / 4.0) * 4.0, originZ: Math.round((playerPos.z - 256) / 4.0) * 4.0 });
-    this.terrainPass!.execute({ device: this.device!, pass: passEncoder } as any);
-    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Terrain", passEncoder, viewportIdx); }
+    this.terrainPass!.execute({ device: this.device, pass: passEncoder, backend: this.backend } as any);
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.endPass("Terrain", passEncoder, viewportIdx); }
     // Entities
-    if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Entities", passEncoder, viewportIdx); }
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.beginPass("Entities", passEncoder, viewportIdx); }
     const _ed = this.frameDrawCalls;
     this.entityRenderer!.renderInstanced(passEncoder); this.frameDrawCalls++;
     for (let d = 0; d < drawEntityCount.length; d++) { this.entityRenderer!.render(passEncoder, d); this.frameDrawCalls++; }
     this.frameTriangles += this.entityRenderer!.getLastFrameTriangles();
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
-    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Entities", passEncoder, viewportIdx, this.frameDrawCalls - _ed, this.entityRenderer!.getLastFrameTriangles()); }
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.endPass("Entities", passEncoder, viewportIdx, this.frameDrawCalls - _ed, this.entityRenderer!.getLastFrameTriangles()); }
     // Clouds
-    if (this.cloudSystem) {
+    if (this.cloudSystem && !isBackend) {
       if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Clouds", passEncoder, viewportIdx); }
       this.cloudSystem.render(passEncoder, camera, timeOfDay, weatherType, windSpeed, windDir.x, windDir.z, this.elapsedTime, playerPos, lp.sunDir, lp.sunIntensity, lp.moonDir, lp.moonIntensity, lp.fogColor, 0.0008);
       if (viewportIdx === 0) { this.gpuProfiler!.endPass("Clouds", passEncoder, viewportIdx); }
     }
     // Water
     if (this.waterReader && this.waterReader.isValid()) {
-      if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Water", passEncoder, viewportIdx); }
+      if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.beginPass("Water", passEncoder, viewportIdx); }
       const wvp = engineCalculateViewProj(camera);
       const ps = this.waterReader.getPatchSize(); const hg = (256 * ps) / 2;
       const ox = Math.round((camera.position[0] - hg) / ps) * ps; const oz = Math.round((camera.position[2] - hg) / ps) * ps;
       this.waterPass!.setHeightData(this.waterReader.heights);
       this.waterPass!.setUniforms({ viewProj: wvp, cameraPos: camera.position, time: this.elapsedTime, gridSize: 256, patchSize: ps, originX: ox, originZ: oz, visibility, weatherType, timeOfDay, waveHeight: 2.0, windSpeed, windDirX: windDir.x, windDirZ: windDir.z, weatherIntensity, sunDir: lp.sunDir, sunIntensity: lp.sunIntensity, wakeCount: 0, shoreCount: 0 });
-      this.waterPass!.execute({ device: this.device!, pass: passEncoder } as any);
-      if (viewportIdx === 0) { this.gpuProfiler!.endPass("Water", passEncoder, viewportIdx); }
+      this.waterPass!.execute({ device: this.device, pass: passEncoder, backend: this.backend } as any);
+      if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.endPass("Water", passEncoder, viewportIdx); }
     }
     // Debug
-    if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Debug", passEncoder, viewportIdx); }
-    this.entityRenderer!.renderHitboxes(passEncoder);
-    this.debugRaycast?.render(passEncoder);
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.beginPass("Debug", passEncoder, viewportIdx); }
+    if (!isBackend) { this.entityRenderer!.renderHitboxes(passEncoder); this.debugRaycast?.render(passEncoder); }
     this.lightingSystem!.renderDebugGizmos(passEncoder, camera);
-    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Debug", passEncoder, viewportIdx); }
+    if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.endPass("Debug", passEncoder, viewportIdx); }
     // Scene sync (throttled)
     if (viewportIdx === 0) { this.sceneSync.maybeSync(500); }
     // Label overlay
@@ -1027,7 +1049,7 @@ export class WebGPURenderer {
     // Debug overlay
     if (this.debugOverlay && viewportIdx === 0) { this.debugOverlay.update(camera, this.simReader, origViewport); }
     // Models
-    if (this.modelRenderer && viewportIdx === 0) {
+    if (this.modelRenderer && viewportIdx === 0 && !isBackend) {
       this.gpuProfiler!.beginPass("Models", passEncoder, viewportIdx);
       this.modelRenderer.beginFrame(camera);
       const ss = useSceneStore.getState();
@@ -1035,19 +1057,19 @@ export class WebGPURenderer {
       this.gpuProfiler!.endPass("Models", passEncoder, viewportIdx);
     }
     // Holo preview
-    if (this.boatReader && this.boatReader.isValid()) {
+    if (this.boatReader && this.boatReader.isValid() && !isBackend) {
       this.gpuProfiler!.beginPass("Holo", passEncoder, viewportIdx);
       for (let i = 0; i < entityCount; i++) { const es2 = this.simReader.getEntitySlot(i); if (!es2) continue; if (es2.u32[ENT.TYPE] !== EntityType.Ship) continue; const sp = this.pooledShipPos; sp.x = es2.f32[ENT.POS_X]; sp.y = es2.f32[ENT.POS_Y]; sp.z = es2.f32[ENT.POS_Z]; const sr = this.pooledShipRot; sr.x = es2.f32[ENT.ROT_X]; sr.y = es2.f32[ENT.ROT_Y]; sr.z = es2.f32[ENT.ROT_Z]; sr.w = es2.f32[ENT.ROT_W]; this.entityRenderer!.renderHoloPreview(passEncoder, sp, sr); break; }
       this.gpuProfiler!.endPass("Holo", passEncoder, viewportIdx);
     }
     // Particles
     if (weatherType === WeatherType.Rain || weatherType === WeatherType.Storm || weatherType === WeatherType.HellStorm || weatherType === WeatherType.Snow) {
-      this.gpuProfiler!.beginPass("Particles", passEncoder, viewportIdx);
+      if (!isBackend) { this.gpuProfiler!.beginPass("Particles", passEncoder, viewportIdx); }
       this.particleSystem!.render(passEncoder, camera, weatherType, timeOfDay);
-      this.gpuProfiler!.endPass("Particles", passEncoder, viewportIdx);
+      if (!isBackend) { this.gpuProfiler!.endPass("Particles", passEncoder, viewportIdx); }
     }
     // Gizmo
-    if (this.transformGizmo && this.transformGizmo.isVisible() && viewportIdx === 0) {
+    if (this.transformGizmo && this.transformGizmo.isVisible() && viewportIdx === 0 && !isBackend) {
       this.gpuProfiler!.beginPass("Gizmo", passEncoder, viewportIdx);
       this.transformGizmo.render(passEncoder, camera);
       this.gpuProfiler!.endPass("Gizmo", passEncoder, viewportIdx);
@@ -1055,11 +1077,15 @@ export class WebGPURenderer {
     // Underwater fog
     const cwh = this.sampleWaterHeightAt(camera.position[0], camera.position[2]);
     const cd = cwh - camera.position[1];
-    if (cd > 0) { this.gpuProfiler!.beginPass("UnderwaterFog", passEncoder, viewportIdx); this.underwaterFogPass!.setDepth(cd, this.elapsedTime); this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder } as any); this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx); }
+    if (cd > 0 && !isBackend) { this.gpuProfiler!.beginPass("UnderwaterFog", passEncoder, viewportIdx); this.underwaterFogPass!.setDepth(cd, this.elapsedTime); this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder } as any); this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx); }
     passEncoder.end();
-    if (viewportIdx === 0) { this.gpuProfiler!.resolveGpuTimers(encoder); }
-    this.device.queue.submit([encoder.finish()]);
-    if (viewportIdx === 0) { this.gpuProfiler!.readGpuTimers().then(() => {}).catch(() => {}); }
+    if (isBackend) {
+      this.backend!.queue.submit([encoder.finish()]);
+    } else {
+      if (viewportIdx === 0) { this.gpuProfiler!.resolveGpuTimers(encoder); }
+      this.device!.queue.submit([encoder.finish()]);
+      if (viewportIdx === 0) { this.gpuProfiler!.readGpuTimers().then(() => {}).catch(() => {}); }
+    }
     if (viewportIdx === this.viewportCount - 1) { this.entityRenderer!.cleanupStaleDecorations(); this.entityRenderer!.cleanupStaleIslandMeshes(); }
   }
 
@@ -1069,6 +1095,23 @@ export class WebGPURenderer {
     let tex = this.depthTextures.get(key);
     if (!tex) { tex = this.device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT }); this.depthTextures.set(key, tex); }
     return tex.createView();
+  }
+
+  private createBackendDepthTexture(w: number, h: number): BackendTextureView {
+    if (!this.backend) throw new Error("No backend");
+    const key = `${w}x${h}`;
+    let entry = this.backendDepthTextures.get(key);
+    if (!entry) {
+      const tex = this.backend.createTexture({
+        size: [w, h],
+        format: DEPTH_FORMAT as TextureFormat,
+        usage: 0x10, // RENDER_ATTACHMENT
+      });
+      const view = this.backend.createTextureView(tex);
+      entry = { texture: tex, view };
+      this.backendDepthTextures.set(key, entry);
+    }
+    return entry.view;
   }
 
   private sampleWaterHeightAt(x: number, z: number): number {
