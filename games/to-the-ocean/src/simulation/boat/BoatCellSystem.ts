@@ -874,7 +874,6 @@ export class BoatCellSystem {
         const cell = cells[ci];
         const size = getCellSize(cell.type, cell.rotation);
 
-        const walkable = isWalkableSurface(cell.type);
         const cellMinY = getCellCollisionBottomY(cell.type, cell.gridY);
         const cellMaxY = getCellCollisionTopY(cell.type, cell.gridY) +
           (size.sizeY > 1 ? (size.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
@@ -882,7 +881,7 @@ export class BoatCellSystem {
         // Compute XZ overlap for ALL cells — no cell type can skip this.
         // getWallCollisionBoxes returns a full-cell box for non-wall types,
         // so this works for walkable surfaces (DECK, BRIDGE) too.
-        // For multi-cell types, scale the collision box to span the full size.
+        // For multi-cell types, scale the collision box to span full size.
         const cellCx = cell.gridX * BOAT_CELL_WORLD_SIZE + (size.sizeX - 1) * BOAT_CELL_WORLD_SIZE / 2;
         const cellCz = cell.gridZ * BOAT_CELL_WORLD_SIZE + (size.sizeZ - 1) * BOAT_CELL_WORLD_SIZE / 2;
         const boxes = getWallCollisionBoxes(cell.type, cell.rotation);
@@ -908,21 +907,6 @@ export class BoatCellSystem {
           }
         }
         if (!xzOverlaps) continue;
-
-        // Walkable surfaces (BRIDGE, DECK) are thin deck plates. The player
-        // stands on TOP of the plate at cellMaxY. The space above is NOT solid.
-        if (walkable) {
-          // Floor detection: deck top at cellMaxY is at or below player's feet
-          if (cellMaxY <= feetY + 0.15) {
-            if (cellMaxY > floorY) floorY = cellMaxY;
-          }
-          // Track for snap-up when player is below the deck
-          if (cellMaxY > feetY + 0.15) {
-            if (cellMaxY < lowestFloorAbove) lowestFloorAbove = cellMaxY;
-          }
-          // No wall collision for walkable surfaces
-          continue;
-        }
 
         // Floor detection: solid cell top is at or below player's feet (with small tolerance).
         if (cellMaxY <= feetY + 0.15) {
@@ -1000,7 +984,6 @@ export class BoatCellSystem {
       for (let ci = 0; ci < safetyCells.length; ci++) {
         const cell = safetyCells[ci];
         if (!hasSolidCollision(cell.type)) continue;
-        if (isWalkableSurface(cell.type)) continue;
         const size = getCellSize(cell.type, cell.rotation);
         const cellMinY = getCellCollisionBottomY(cell.type, cell.gridY);
         const cellMaxY = getCellCollisionTopY(cell.type, cell.gridY) +

@@ -190,9 +190,9 @@ export class BoatMeshBuilder {
       const ncy = neighbor.gridY * BOAT_LAYER_HEIGHT;
       const ny0 = ncy + nh.y0;
       const ny1 = ncy + nh.y1 + (neighbor.sizeY > 1 ? (neighbor.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
-      // Walls have thin XZ footprints — they don't cover the full top/bottom
-      // of a neighboring cell, so don't cull top/bottom faces for wall neighbors.
-      if ((dir === 4 || dir === 5) && isWallType(neighbor.type)) return false;
+      // Walls have thin XZ footprints — they don't cover the full face of
+      // a neighboring cell in any direction, so never cull for wall neighbors.
+      if (isWallType(neighbor.type)) return false;
       // Hull types have narrowed bottoms (vScale=0.55) — the neighbor above
       // doesn't cover the full top face of the current cell.
       if (dir === 4 && isHullType(neighbor.type)) return false;
