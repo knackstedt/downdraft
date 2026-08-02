@@ -134,7 +134,7 @@ export class IBLSystem {
     this.frameCounter++;
     if (this.frameCounter < this.recaptureInterval) return false;
     const timeDelta = Math.abs(timeOfDay - this.lastTimeOfDay);
-    if (this.lastTimeOfDay >= 0 && timeDelta < 0.05 && this.currentEnv) return false;
+    if (this.lastTimeOfDay >= 0 && timeDelta < 0.02 && this.currentEnv) return false;
     return true;
   }
 

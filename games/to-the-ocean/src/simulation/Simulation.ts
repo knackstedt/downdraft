@@ -68,7 +68,6 @@ import { PlantSystem } from "./farming/PlantSystem";
 import { FishingSystem } from "./fishing/FishingSystem";
 import { GameModeManager } from "./gamemode/GameModeManager";
 import { InventoryGrid, createGrid, deserializeGrid, serializeGrid } from "./inventory/InventorySystem";
-import { BuoyancySystem } from "./physics/BuoyancySystem";
 import { CollisionSystem } from "./physics/CollisionSystem";
 import { RapierPhysicsSystem } from "./physics/RapierPhysicsSystem";
 import { StructureIntegrity } from "./physics/StructureIntegrity";
@@ -122,7 +121,6 @@ export class Simulation implements ISimulation {
   public chunkManager: ChunkManager;
   public biomeSystem: BiomeSystem;
   public weatherSystem: WeatherSystem;
-  public buoyancySystem: BuoyancySystem;
   public structureIntegrity: StructureIntegrity;
   public collisionSystem: CollisionSystem;
   public physics: RapierPhysicsSystem | null = null;
@@ -201,15 +199,12 @@ export class Simulation implements ISimulation {
     this.chunkManager = new ChunkManager(this.worldGen);
     this.biomeSystem = new BiomeSystem();
     this.weatherSystem = new WeatherSystem(this.biomeSystem, (config.rules.weatherIntensity as number) ?? 1.0);
-    this.buoyancySystem = new BuoyancySystem(this.waterWriter);
     this.structureIntegrity = new StructureIntegrity();
     this.collisionSystem = new CollisionSystem();
     this.boatCellSystem = new BoatCellSystem();
     this.boatDesignSystem = new BoatDesignSystem();
     this.physics = new RapierPhysicsSystem(this.boatCellSystem);
     this.physics.setBoatDesignSystem(this.boatDesignSystem);
-    this.buoyancySystem.setBoatCellSystem(this.boatCellSystem);
-    this.buoyancySystem.setBoatDesignSystem(this.boatDesignSystem);
     this.boatSystem = new BoatSystem();
     this.boatSystem.setBoatDesignSystem(this.boatDesignSystem);
     this.anchorSystem = new AnchorSystem();
@@ -315,8 +310,7 @@ export class Simulation implements ISimulation {
     };
     this.ecs.registerWildlifeSystem(wildlifeDeps, wildlifeConfig);
 
-    // Register ECS buoyancy system (replaces legacy BuoyancySystem.tick inline path)
-    // Parallel path (tickParallel) is not used — jobScheduler is never set externally.
+    // Register ECS buoyancy system
     const buoyancyConfig: BuoyancyConfig = {
       entityTypes: {
         player: EntityType.Player,
@@ -443,7 +437,6 @@ export class Simulation implements ISimulation {
 
   setJobScheduler(scheduler: JobScheduler): void {
     this.jobScheduler = scheduler;
-    this.buoyancySystem.setJobScheduler(scheduler);
   }
 
   // --- Tick (delegated to SimulationTick.ts) ---

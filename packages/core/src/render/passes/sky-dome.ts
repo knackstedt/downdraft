@@ -175,8 +175,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let sunsetColor = vec3<f32>(0.9, 0.4, 0.2);
 
   let dayFactor = smoothstep(0.2, 0.4, uniforms.timeOfDay) * (1.0 - smoothstep(0.65, 0.8, uniforms.timeOfDay));
-  let sunsetFactor = smoothstep(0.15, 0.25, uniforms.timeOfDay) * (1.0 - smoothstep(0.25, 0.35, uniforms.timeOfDay))
-    + smoothstep(0.65, 0.75, uniforms.timeOfDay) * (1.0 - smoothstep(0.75, 0.85, uniforms.timeOfDay));
+  let sunsetFactor = smoothstep(0.15, 0.25, uniforms.timeOfDay) * (1.0 - smoothstep(0.25, 0.45, uniforms.timeOfDay))
+    + smoothstep(0.65, 0.75, uniforms.timeOfDay) * (1.0 - smoothstep(0.75, 0.95, uniforms.timeOfDay));
 
   var skyColor = mix(nightColor, dayColor, dayFactor);
   skyColor = mix(skyColor, sunsetColor, sunsetFactor * 0.7);
