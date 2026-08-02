@@ -1,3 +1,4 @@
+import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPassEncoder, BackendRenderPipeline, BackendSampler, BackendTexture } from "@downdraft/core/render/backend/types";
 import type { MeshData, ModelData } from "@downdraft/plugin-models";
 import { MAX_BONES } from "@shared/constants";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
@@ -7,11 +8,11 @@ import type { EntityRenderContext } from "./render-context";
 
 interface ClothingPiece {
   name: string;
-  vertices: GPUBuffer;
-  indices: GPUBuffer;
+  vertices: GPUBuffer | BackendBuffer;
+  indices: GPUBuffer | BackendBuffer;
   indexCount: number;
   indexFormat: GPUIndexFormat;
-  texture: GPUTexture | null;
+  texture: GPUTexture | BackendTexture | null;
   visible: boolean;
 }
 
@@ -19,37 +20,37 @@ export class PlayerMeshRenderer {
   private ctx: EntityRenderContext;
 
   // Static player mesh
-  private playerMeshVertices: GPUBuffer | null = null;
-  private playerMeshIndices: GPUBuffer | null = null;
+  private playerMeshVertices: GPUBuffer | BackendBuffer | null = null;
+  private playerMeshIndices: GPUBuffer | BackendBuffer | null = null;
   private playerMeshIndexCount = 0;
   private playerMeshIndexFormat: GPUIndexFormat = "uint16";
-  playerPipeline: GPURenderPipeline | null = null;
-  playerBindGroup: GPUBindGroup | null = null;
-  private playerBindGroupLayout: GPUBindGroupLayout | null = null;
-  private playerTexture: GPUTexture | null = null;
-  private playerSampler: GPUSampler | null = null;
+  playerPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  playerBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private playerBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private playerTexture: GPUTexture | BackendTexture | null = null;
+  private playerSampler: GPUSampler | BackendSampler | null = null;
 
   // Skinned player mesh
-  private skinnedPlayerVertices: GPUBuffer | null = null;
-  private skinnedPlayerIndices: GPUBuffer | null = null;
+  private skinnedPlayerVertices: GPUBuffer | BackendBuffer | null = null;
+  private skinnedPlayerIndices: GPUBuffer | BackendBuffer | null = null;
   private skinnedPlayerIndexCount = 0;
   private skinnedPlayerIndexFormat: GPUIndexFormat = "uint16";
-  skinnedPlayerPipeline: GPURenderPipeline | null = null;
-  skinnedPlayerBindGroup: GPUBindGroup | null = null;
-  skinnedPlayerBindGroupLayout: GPUBindGroupLayout | null = null;
-  private boneMatrixBuffer: GPUBuffer | null = null;
+  skinnedPlayerPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  skinnedPlayerBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  skinnedPlayerBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private boneMatrixBuffer: GPUBuffer | BackendBuffer | null = null;
   private skeletonAnimator: SkeletonAnimator | null = null;
 
   // GPU skinning compute pipeline
   private skinningComputePipeline: GPUComputePipeline | null = null;
-  private skinningComputeBindGroup: GPUBindGroup | null = null;
-  private skinningComputeBindGroupLayout: GPUBindGroupLayout | null = null;
-  private skinningUniformBuffer: GPUBuffer | null = null;
-  private localPosBuffer: GPUBuffer | null = null;
-  private localRotBuffer: GPUBuffer | null = null;
-  private localScaleBuffer: GPUBuffer | null = null;
-  private parentIndexBuffer: GPUBuffer | null = null;
-  private inverseBindBuffer: GPUBuffer | null = null;
+  private skinningComputeBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private skinningComputeBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private skinningUniformBuffer: GPUBuffer | BackendBuffer | null = null;
+  private localPosBuffer: GPUBuffer | BackendBuffer | null = null;
+  private localRotBuffer: GPUBuffer | BackendBuffer | null = null;
+  private localScaleBuffer: GPUBuffer | BackendBuffer | null = null;
+  private parentIndexBuffer: GPUBuffer | BackendBuffer | null = null;
+  private inverseBindBuffer: GPUBuffer | BackendBuffer | null = null;
   private skinningBoneCount = 0;
 
   // Clothing pieces
@@ -59,8 +60,10 @@ export class PlayerMeshRenderer {
     this.ctx = ctx;
   }
 
-  init(lightBindGroupLayout: GPUBindGroupLayout | null, pbrBindGroupLayout: GPUBindGroupLayout | null): void {
-    const { device, format, uniformBuffer } = this.ctx;
+  init(lightBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null, pbrBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null): void {
+    const device = this.ctx.device!;
+    const format = this.ctx.format;
+    const uniformBuffer = this.ctx.uniformBuffer;
 
     // Player textured pipeline
     const playerShaderModule = device.createShaderModule({ code: PLAYER_WGSL });
@@ -89,17 +92,17 @@ export class PlayerMeshRenderer {
     this.playerBindGroup = device.createBindGroup({
       layout: playerBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: uniformBuffer!, size: 256 } },
-        { binding: 1, resource: this.playerSampler },
-        { binding: 2, resource: this.playerTexture.createView() },
+        { binding: 0, resource: { buffer: uniformBuffer! as any, size: 256 } },
+        { binding: 1, resource: this.playerSampler as any },
+        { binding: 2, resource: this.playerTexture!.createView() as any },
       ],
     });
     this.playerPipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({
         bindGroupLayouts: (lightBindGroupLayout && pbrBindGroupLayout)
-          ? [playerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout]
+          ? [playerBindGroupLayout, lightBindGroupLayout as any, pbrBindGroupLayout as any]
           : lightBindGroupLayout
-            ? [playerBindGroupLayout, lightBindGroupLayout]
+            ? [playerBindGroupLayout, lightBindGroupLayout as any]
             : [playerBindGroupLayout],
       }),
       vertex: {
@@ -159,9 +162,9 @@ export class PlayerMeshRenderer {
     this.skinnedPlayerPipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({
         bindGroupLayouts: (lightBindGroupLayout && pbrBindGroupLayout)
-          ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout]
+          ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout as any, pbrBindGroupLayout as any]
           : lightBindGroupLayout
-            ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout]
+            ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout as any]
             : [skinnedPlayerBindGroupLayout],
       }),
       vertex: {
@@ -187,7 +190,7 @@ export class PlayerMeshRenderer {
   }
 
   setPlayerMesh(meshes: MeshData[]): void {
-    const { device } = this.ctx;
+    const device = this.ctx.device!;
     const allVerts: number[] = [];
     const allIdx: number[] = [];
     let vertOffset = 0;
@@ -263,7 +266,8 @@ export class PlayerMeshRenderer {
   }
 
   setSkinnedPlayerMesh(modelData: ModelData): void {
-    const { device, uniformBuffer } = this.ctx;
+    const device = this.ctx.device!;
+    const uniformBuffer = this.ctx.uniformBuffer;
     if (!modelData.skin || !this.boneMatrixBuffer || !this.skinnedPlayerBindGroupLayout) {
       console.warn("[PlayerMeshRenderer] Cannot set skinned player mesh: missing skin data or pipeline");
       return;
@@ -392,12 +396,12 @@ export class PlayerMeshRenderer {
     device.queue.writeBuffer(this.skinnedPlayerIndices, 0, idxArray);
 
     this.skinnedPlayerBindGroup = device.createBindGroup({
-      layout: this.skinnedPlayerBindGroupLayout,
+      layout: this.skinnedPlayerBindGroupLayout as any,
       entries: [
-        { binding: 0, resource: { buffer: uniformBuffer!, size: 256 } },
-        { binding: 1, resource: this.playerSampler! },
-        { binding: 2, resource: this.playerTexture!.createView() },
-        { binding: 3, resource: { buffer: this.boneMatrixBuffer! } },
+        { binding: 0, resource: { buffer: uniformBuffer! as any, size: 256 } },
+        { binding: 1, resource: this.playerSampler! as any },
+        { binding: 2, resource: this.playerTexture!.createView() as any },
+        { binding: 3, resource: { buffer: this.boneMatrixBuffer! as any } },
       ],
     });
 
@@ -428,18 +432,18 @@ export class PlayerMeshRenderer {
       u32View[0] = boneCount; u32View[1] = hasNorm;
       if (nm) f32U.set(nm, 4);
       if (inm) f32U.set(inm, 20);
-      device.queue.writeBuffer(this.skinningUniformBuffer, 0, uniformData);
+      device.queue.writeBuffer(this.skinningUniformBuffer as any, 0, uniformData);
 
       this.skinningComputeBindGroup = device.createBindGroup({
-        layout: this.skinningComputeBindGroupLayout!,
+        layout: this.skinningComputeBindGroupLayout! as any,
         entries: [
-          { binding: 0, resource: { buffer: this.skinningUniformBuffer! } },
-          { binding: 1, resource: { buffer: this.localPosBuffer! } },
-          { binding: 2, resource: { buffer: this.localRotBuffer! } },
-          { binding: 3, resource: { buffer: this.localScaleBuffer! } },
-          { binding: 4, resource: { buffer: this.parentIndexBuffer! } },
-          { binding: 5, resource: { buffer: this.inverseBindBuffer! } },
-          { binding: 6, resource: { buffer: this.boneMatrixBuffer! } },
+          { binding: 0, resource: { buffer: this.skinningUniformBuffer! as any } },
+          { binding: 1, resource: { buffer: this.localPosBuffer! as any } },
+          { binding: 2, resource: { buffer: this.localRotBuffer! as any } },
+          { binding: 3, resource: { buffer: this.localScaleBuffer! as any } },
+          { binding: 4, resource: { buffer: this.parentIndexBuffer! as any } },
+          { binding: 5, resource: { buffer: this.inverseBindBuffer! as any } },
+          { binding: 6, resource: { buffer: this.boneMatrixBuffer! as any } },
         ],
       });
 
@@ -455,23 +459,23 @@ export class PlayerMeshRenderer {
 
   updateBoneLocalTransforms(): void {
     if (!this.skeletonAnimator || !this.localPosBuffer || !this.localRotBuffer || !this.localScaleBuffer) return;
-    const { device } = this.ctx;
+    const device = this.ctx.device!;
     const pos = this.skeletonAnimator.getLocalPosFlat();
     const rot = this.skeletonAnimator.getLocalRotFlat();
     const scale = this.skeletonAnimator.getLocalScaleFlat();
     const posCopy = new Float32Array(pos.length); posCopy.set(pos);
     const rotCopy = new Float32Array(rot.length); rotCopy.set(rot);
     const scaleCopy = new Float32Array(scale.length); scaleCopy.set(scale);
-    device.queue.writeBuffer(this.localPosBuffer, 0, posCopy.buffer);
-    device.queue.writeBuffer(this.localRotBuffer, 0, rotCopy.buffer);
-    device.queue.writeBuffer(this.localScaleBuffer, 0, scaleCopy.buffer);
+    device.queue.writeBuffer(this.localPosBuffer as any, 0, posCopy.buffer);
+    device.queue.writeBuffer(this.localRotBuffer as any, 0, rotCopy.buffer);
+    device.queue.writeBuffer(this.localScaleBuffer as any, 0, scaleCopy.buffer);
   }
 
-  dispatchSkinningCompute(encoder: GPUCommandEncoder): void {
+  dispatchSkinningCompute(encoder: GPUCommandEncoder | import("@downdraft/core/render/backend/types").BackendCommandEncoder): void {
     if (!this.skinningComputePipeline || !this.skinningComputeBindGroup || this.skinningBoneCount === 0) return;
     const passEncoder = encoder.beginComputePass();
-    passEncoder.setPipeline(this.skinningComputePipeline);
-    passEncoder.setBindGroup(0, this.skinningComputeBindGroup);
+    passEncoder.setPipeline(this.skinningComputePipeline as any);
+    passEncoder.setBindGroup(0, this.skinningComputeBindGroup as any);
     const workgroupCount = Math.ceil(this.skinningBoneCount / 64);
     passEncoder.dispatchWorkgroups(workgroupCount);
     passEncoder.end();
@@ -482,7 +486,7 @@ export class PlayerMeshRenderer {
   }
 
   addClothingPiece(name: string, modelData: ModelData): void {
-    const { device } = this.ctx;
+    const device = this.ctx.device!;
     if (!modelData.skin || !this.skinnedPlayerBindGroupLayout) {
       console.warn(`[PlayerMeshRenderer] Cannot add clothing piece "${name}": missing skin data or pipeline`);
       return;
@@ -587,7 +591,8 @@ export class PlayerMeshRenderer {
   }
 
   setPlayerTexture(image: ImageBitmap | HTMLImageElement): void {
-    const { device, uniformBuffer } = this.ctx;
+    const device = this.ctx.device!;
+    const uniformBuffer = this.ctx.uniformBuffer;
     if (this.playerTexture) this.playerTexture.destroy();
     this.playerTexture = device.createTexture({
       size: [image.width, image.height], format: "rgba8unorm",
@@ -600,42 +605,42 @@ export class PlayerMeshRenderer {
     );
     if (this.playerBindGroupLayout && this.playerSampler && uniformBuffer) {
       this.playerBindGroup = device.createBindGroup({
-        layout: this.playerBindGroupLayout,
+        layout: this.playerBindGroupLayout as any,
         entries: [
-          { binding: 0, resource: { buffer: uniformBuffer, size: 256 } },
-          { binding: 1, resource: this.playerSampler },
-          { binding: 2, resource: this.playerTexture.createView() },
+          { binding: 0, resource: { buffer: uniformBuffer as any, size: 256 } },
+          { binding: 1, resource: this.playerSampler as any },
+          { binding: 2, resource: this.playerTexture!.createView() as any },
         ],
       });
     }
   }
 
-  renderSkinnedPlayer(passEncoder: GPURenderPassEncoder, idx: number): number {
+  renderSkinnedPlayer(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, idx: number): number {
     if (!this.skinnedPlayerVertices || !this.skinnedPlayerIndices || !this.skinnedPlayerPipeline || !this.skinnedPlayerBindGroup) return 0;
     let tris = 0;
-    passEncoder.setPipeline(this.skinnedPlayerPipeline);
-    passEncoder.setBindGroup(0, this.skinnedPlayerBindGroup, [idx * 256]);
-    passEncoder.setVertexBuffer(0, this.skinnedPlayerVertices);
-    passEncoder.setIndexBuffer(this.skinnedPlayerIndices, this.skinnedPlayerIndexFormat);
+    passEncoder.setPipeline(this.skinnedPlayerPipeline as any);
+    passEncoder.setBindGroup(0, this.skinnedPlayerBindGroup as any, [idx * 256]);
+    passEncoder.setVertexBuffer(0, this.skinnedPlayerVertices as any);
+    passEncoder.setIndexBuffer(this.skinnedPlayerIndices as any, this.skinnedPlayerIndexFormat);
     passEncoder.drawIndexed(this.skinnedPlayerIndexCount);
     tris += Math.floor(this.skinnedPlayerIndexCount / 3);
     for (let ci = 0; ci < this.clothingPieces.length; ci++) {
       const piece = this.clothingPieces[ci];
       if (!piece.visible) continue;
-      passEncoder.setVertexBuffer(0, piece.vertices);
-      passEncoder.setIndexBuffer(piece.indices, piece.indexFormat);
+      passEncoder.setVertexBuffer(0, piece.vertices as any);
+      passEncoder.setIndexBuffer(piece.indices as any, piece.indexFormat);
       passEncoder.drawIndexed(piece.indexCount);
       tris += Math.floor(piece.indexCount / 3);
     }
     return tris;
   }
 
-  renderStaticPlayer(passEncoder: GPURenderPassEncoder, idx: number): number {
+  renderStaticPlayer(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, idx: number): number {
     if (!this.playerMeshVertices || !this.playerMeshIndices || !this.playerPipeline || !this.playerBindGroup) return 0;
-    passEncoder.setPipeline(this.playerPipeline);
-    passEncoder.setBindGroup(0, this.playerBindGroup, [idx * 256]);
-    passEncoder.setVertexBuffer(0, this.playerMeshVertices);
-    passEncoder.setIndexBuffer(this.playerMeshIndices, this.playerMeshIndexFormat);
+    passEncoder.setPipeline(this.playerPipeline as any);
+    passEncoder.setBindGroup(0, this.playerBindGroup as any, [idx * 256]);
+    passEncoder.setVertexBuffer(0, this.playerMeshVertices as any);
+    passEncoder.setIndexBuffer(this.playerMeshIndices as any, this.playerMeshIndexFormat);
     passEncoder.drawIndexed(this.playerMeshIndexCount);
     return Math.floor(this.playerMeshIndexCount / 3);
   }

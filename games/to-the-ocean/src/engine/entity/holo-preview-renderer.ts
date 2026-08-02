@@ -1,3 +1,4 @@
+import type { BackendBuffer, BackendRenderPassEncoder, BackendRenderPipeline } from "@downdraft/core/render/backend/types";
 import type { BoatBufferReader } from "@shared/boat-buffer";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType } from "@shared/constants";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
@@ -28,9 +29,9 @@ export class HoloPreviewRenderer {
   private ctx: EntityRenderContext;
   private deps: HoloMeshDeps | null = null;
 
-  private holoPipeline: GPURenderPipeline | null = null;
-  private holoVertices: GPUBuffer | null = null;
-  private holoIndices: GPUBuffer | null = null;
+  private holoPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  private holoVertices: GPUBuffer | BackendBuffer | null = null;
+  private holoIndices: GPUBuffer | BackendBuffer | null = null;
   private holoVertCapacity = 0;
   private holoIndexCapacity = 0;
 
@@ -52,11 +53,12 @@ export class HoloPreviewRenderer {
     this.boatBufferReader = reader;
   }
 
-  init(litPipelineLayout: GPUPipelineLayout): void {
-    const { device, format } = this.ctx;
+  init(litPipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
+    const device = this.ctx.device!;
+    const format = this.ctx.format;
     const holoShaderModule = device.createShaderModule({ code: HOLO_WGSL });
     this.holoPipeline = device.createRenderPipeline({
-      layout: litPipelineLayout,
+      layout: litPipelineLayout as any,
       vertex: {
         module: holoShaderModule,
         entryPoint: "vs_main",
@@ -104,7 +106,7 @@ export class HoloPreviewRenderer {
   private ensureHoloCapacity(neededVerts: number, neededIndices: number): boolean {
     if (neededVerts <= this.holoVertCapacity && neededIndices <= this.holoIndexCapacity) return true;
     if (!this.holoVertices || !this.holoIndices) return false;
-    const { device } = this.ctx;
+    const device = this.ctx.device!;
     const newVertCap = Math.max(neededVerts, this.holoVertCapacity * 2);
     const newIndexCap = Math.max(neededIndices, this.holoIndexCapacity * 2);
     this.holoVertices.destroy();
@@ -117,7 +119,7 @@ export class HoloPreviewRenderer {
   }
 
   render(
-    passEncoder: GPURenderPassEncoder,
+    passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder,
     shipPos: { x: number; y: number; z: number },
     shipRot: { x: number; y: number; z: number; w: number },
   ): void {
@@ -180,11 +182,11 @@ export class HoloPreviewRenderer {
     const neededIndices = holoIndices.length;
     if (!this.ensureHoloCapacity(neededVerts, neededIndices)) return;
 
-    const { device } = this.ctx;
+    const queue = ctx.device?.queue ?? ctx.backend?.queue;
     const vertData = new Float32Array(holoVerts);
-    device.queue.writeBuffer(this.holoVertices, 0, vertData);
+    queue?.writeBuffer(this.holoVertices as any, 0, vertData);
     const idxData = new Uint16Array(holoIndices);
-    device.queue.writeBuffer(this.holoIndices, 0, idxData);
+    queue?.writeBuffer(this.holoIndices as any, 0, idxData);
     const indexCount = holoIndices.length;
 
     const holoIdx = 511;
@@ -220,12 +222,12 @@ export class HoloPreviewRenderer {
     uniforms[41] = lp.fogColor[1];
     uniforms[42] = lp.fogColor[2];
     uniforms[43] = 0;
-    device.queue.writeBuffer(ctx.uniformBuffer, offset, uniforms as any);
+    queue?.writeBuffer(ctx.uniformBuffer as any, offset, uniforms as any);
 
-    passEncoder.setPipeline(this.holoPipeline);
-    passEncoder.setBindGroup(0, ctx.bindGroup, [holoIdx * 256]);
-    passEncoder.setVertexBuffer(0, this.holoVertices);
-    passEncoder.setIndexBuffer(this.holoIndices, "uint16");
+    passEncoder.setPipeline(this.holoPipeline as any);
+    passEncoder.setBindGroup(0, ctx.bindGroup as any, [holoIdx * 256]);
+    passEncoder.setVertexBuffer(0, this.holoVertices as any);
+    passEncoder.setIndexBuffer(this.holoIndices as any, "uint16");
     passEncoder.drawIndexed(indexCount);
   }
 }

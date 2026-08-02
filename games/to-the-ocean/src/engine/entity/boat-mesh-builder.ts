@@ -1,3 +1,4 @@
+import type { BackendBuffer, BackendRenderPassEncoder } from "@downdraft/core/render/backend/types";
 import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, WALL_THICKNESS, getCellGeometry } from "@shared/constants";
@@ -48,8 +49,8 @@ const CELL_COLORS: Record<number, [number, number, number]> = {
 export class BoatMeshBuilder {
   private ctx: EntityRenderContext;
 
-  boatVertices: GPUBuffer | null = null;
-  boatIndices: GPUBuffer | null = null;
+  boatVertices: GPUBuffer | BackendBuffer | null = null;
+  boatIndices: GPUBuffer | BackendBuffer | null = null;
   boatIndexCount = 0;
   boatVertOffsets: number[] = [];
   boatIndexOffsets: number[] = [];
@@ -78,8 +79,20 @@ export class BoatMeshBuilder {
   }
 
   init(): void {
-    const { device } = this.ctx;
+    const device = this.ctx.device!;
+    const backend = this.ctx.backend;
     const maxBoatVerts = MAX_BOATS * MAX_CELLS_PER_BOAT * 48 * 6;
+    if (backend && !device) {
+      this.boatVertices = backend.createBuffer({
+        size: Math.max(4, maxBoatVerts * 36),
+        usage: 0x20 | 0x08,
+      });
+      this.boatIndices = backend.createBuffer({
+        size: Math.max(4, maxBoatVerts * 6 * 2),
+        usage: 0x10 | 0x08,
+      });
+      return;
+    }
     this.boatVertices = device.createBuffer({
       size: Math.max(4, maxBoatVerts * 36),
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -129,7 +142,7 @@ export class BoatMeshBuilder {
     return this.boatBufferReader;
   }
 
-  renderBoat(passEncoder: GPURenderPassEncoder, pipeline: GPURenderPipeline, idx: number, boatSlot: number): number {
+  renderBoat(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, pipeline: GPURenderPipeline | import("@downdraft/core/render/backend/types").BackendRenderPipeline, idx: number, boatSlot: number): number {
     const ctx = this.ctx;
     if (!ctx.bindGroup || !this.boatVertices || !this.boatIndices) return 0;
     const vertOffset = this.boatVertOffsets[boatSlot] ?? 0;
@@ -137,10 +150,10 @@ export class BoatMeshBuilder {
     const idxCount = this.boatIndexCounts[boatSlot] ?? 0;
     if (idxCount === 0) return 0;
 
-    passEncoder.setPipeline(pipeline);
-    passEncoder.setBindGroup(0, ctx.bindGroup, [idx * 256]);
-    passEncoder.setVertexBuffer(0, this.boatVertices);
-    passEncoder.setIndexBuffer(this.boatIndices, "uint16");
+    passEncoder.setPipeline(pipeline as any);
+    passEncoder.setBindGroup(0, ctx.bindGroup as any, [idx * 256]);
+    passEncoder.setVertexBuffer(0, this.boatVertices as any);
+    passEncoder.setIndexBuffer(this.boatIndices as any, "uint16");
     passEncoder.drawIndexed(idxCount, 1, idxOffset, vertOffset);
     return Math.floor(idxCount / 3);
   }
@@ -324,7 +337,7 @@ export class BoatMeshBuilder {
 
   private rebuildBoatMesh(): void {
     if (!this.boatBufferReader || !this.boatVertices || !this.boatIndices) return;
-    const { device } = this.ctx;
+    const queue = this.ctx.device?.queue ?? this.ctx.backend?.queue;
     const boatCount = this.boatBufferReader.getBoatCount();
     const allVerts = this.boatAllVerts;
     const allIdx = this.boatAllIdx;
@@ -388,13 +401,13 @@ export class BoatMeshBuilder {
     if (allVerts.length === 0) { this.boatIndexCount = 0; return; }
     const vertData = new Float32Array(allVerts);
     const idxData = new Uint16Array(allIdx);
-    device.queue.writeBuffer(this.boatVertices, 0, vertData);
+    queue?.writeBuffer(this.boatVertices as any, 0, vertData);
     if (idxData.byteLength % 4 !== 0) {
       const padded = new Uint16Array(allIdx.length + 1);
       padded.set(idxData);
-      device.queue.writeBuffer(this.boatIndices, 0, padded);
+      queue?.writeBuffer(this.boatIndices as any, 0, padded);
     } else {
-      device.queue.writeBuffer(this.boatIndices, 0, idxData);
+      queue?.writeBuffer(this.boatIndices as any, 0, idxData);
     }
     this.boatIndexCount = idxData.length;
   }
