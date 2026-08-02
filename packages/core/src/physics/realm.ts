@@ -1,5 +1,5 @@
-import type { PhysicsBackend, PhysicsRealmConfig, RigidBodyHandle, BodyDesc, ColliderDesc, RaycastResult, ContactManifold } from "./interface.ts";
 import type { Entity } from "../ecs/entity.ts";
+import type { BodyDesc, ColliderDesc, ContactManifold, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle } from "./interface.ts";
 
 export class PhysicsRealm {
   readonly id: number;
@@ -40,6 +40,34 @@ export class PhysicsRealm {
     this.backend.removeCollider(handle, colliderId);
   }
 
+  setBodyType(handle: RigidBodyHandle, type: BodyType): void {
+    this.backend.setBodyType(handle, type);
+  }
+
+  setPosition(handle: RigidBodyHandle, pos: [number, number, number]): void {
+    this.backend.setPosition(handle, pos);
+  }
+
+  getPosition(handle: RigidBodyHandle): [number, number, number] {
+    return this.backend.getPosition(handle);
+  }
+
+  setRotation(handle: RigidBodyHandle, rot: [number, number, number, number]): void {
+    this.backend.setRotation(handle, rot);
+  }
+
+  getRotation(handle: RigidBodyHandle): [number, number, number, number] {
+    return this.backend.getRotation(handle);
+  }
+
+  setLinearVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void {
+    this.backend.setLinearVelocity(handle, vel);
+  }
+
+  getLinearVelocity(handle: RigidBodyHandle): [number, number, number] {
+    return this.backend.getLinearVelocity(handle);
+  }
+
   applyForce(handle: RigidBodyHandle, force: [number, number, number]): void {
     this.backend.applyForce(handle, force);
   }
@@ -72,6 +100,26 @@ export class PhysicsRealm {
 
   getContacts(): ContactManifold[] {
     return this.backend.getContacts(this.id);
+  }
+
+  createCharacterController(desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle {
+    return this.backend.createCharacterController(this.id, desc, entity);
+  }
+
+  destroyCharacterController(handle: CharacterControllerHandle): void {
+    this.backend.destroyCharacterController(handle);
+  }
+
+  characterMove(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult {
+    return this.backend.characterMove(handle, desiredMovement, dt);
+  }
+
+  createJoint(parentHandle: RigidBodyHandle, childHandle: RigidBodyHandle, desc: JointDesc): number {
+    return this.backend.createJoint(this.id, parentHandle, childHandle, desc);
+  }
+
+  destroyJoint(jointId: number): void {
+    this.backend.destroyJoint(this.id, jointId);
   }
 
   syncTransforms(transformBuffer: Float32Array, entityCount: number): void {

@@ -1,7 +1,7 @@
-import { PhysicsRealm } from "./realm.ts";
-import { RaycastQuery } from "./raycast.ts";
+import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, Entity, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface.ts";
 import { PhysicsLifecycle } from "./lifecycle.ts";
-import type { PhysicsBackend, PhysicsRealmConfig, RigidBodyHandle, BodyDesc, ColliderDesc, RaycastResult, ShapeCastResult, ContactManifold, Entity } from "./interface.ts";
+import { RaycastQuery } from "./raycast.ts";
+import { PhysicsRealm } from "./realm.ts";
 
 function makeMockBackend(): PhysicsBackend {
   const realms = new Map<number, PhysicsRealmConfig>();
@@ -50,6 +50,15 @@ function makeMockBackend(): PhysicsBackend {
     step(): void {},
     stepAll(): void {},
     getContacts(): ContactManifold[] { return []; },
+    createCharacterController(realmId: number, _desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle {
+      return { realmId, controllerId: ++nextBodyId, entity };
+    },
+    destroyCharacterController(): void {},
+    characterMove(): CharacterMoveResult {
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+    },
+    createJoint(): number { return ++nextBodyId; },
+    destroyJoint(): void {},
     syncTransforms(): void {},
     readTransforms(): void {},
     destroy(): void {},

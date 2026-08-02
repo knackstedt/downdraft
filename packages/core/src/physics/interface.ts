@@ -77,6 +77,47 @@ export interface PhysicsRealmConfig {
   broadphaseSize?: [number, number, number];
 }
 
+export interface CharacterControllerDesc {
+  offset: [number, number, number];
+  radius: number;
+  halfHeight: number;
+  slide: boolean;
+  autostep: {
+    enabled: boolean;
+    minWidth: number;
+    maxHeight: number;
+  };
+  maxSlope: number;
+  snapToGround: number;
+}
+
+export interface CharacterControllerHandle {
+  realmId: number;
+  controllerId: number;
+  entity: Entity;
+}
+
+export interface CharacterMoveResult {
+  grounded: boolean;
+  groundNormal: [number, number, number];
+  groundEntity: Entity | null;
+  slid: boolean;
+  stepped: boolean;
+  effectiveMovement: [number, number, number];
+}
+
+export type JointType = "cone-twist" | "fixed" | "revolute" | "prismatic";
+
+export interface JointDesc {
+  type: JointType;
+  anchorA: [number, number, number];
+  anchorB: [number, number, number];
+  coneAngle?: number;
+  twistAngle?: number;
+  axis?: [number, number, number];
+  limits?: { min: number; max: number };
+}
+
 export interface PhysicsBackend {
   readonly name: string;
   readonly version: string;
@@ -141,6 +182,13 @@ export interface PhysicsBackend {
   stepAll(dt: number): void;
 
   getContacts(realmId: number): ContactManifold[];
+
+  createCharacterController(realmId: number, desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle;
+  destroyCharacterController(handle: CharacterControllerHandle): void;
+  characterMove(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult;
+
+  createJoint(realmId: number, parentHandle: RigidBodyHandle, childHandle: RigidBodyHandle, desc: JointDesc): number;
+  destroyJoint(realmId: number, jointId: number): void;
 
   syncTransforms(
     realmId: number,
