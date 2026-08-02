@@ -1,14 +1,14 @@
 // ============================================================================
 // ECS Docking System — migrated from array-based DockingSystem
 //
-// Query: ships (Transform + EntityMeta + EntityData) for ship positions
+// Query: ships (Transform + Velocity + EntityMeta + EntityData) for ship positions
 // Query: smallCraft (Transform + Velocity + EntityMeta + EntityData) for craft
 // Dock state remains in the shipDocks Map (external state, not per-entity)
 // ============================================================================
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { EntityFlags, EntityType } from "@shared/types";
 import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components.ts";
-import { EntityType, EntityFlags } from "@shared/types";
 
 enum DockState { Approach, Align, Locking, Docked, Released }
 
@@ -57,8 +57,8 @@ export function createEcsDockingSystem(shipsQuery: Query, smallCraftQuery: Query
       // Collect ship positions
       const shipList: { id: number; x: number; z: number }[] = [];
       shipsQuery.iterate(ctx.tick, (_entity, comps) => {
-        const meta = comps[1] as ReturnType<typeof SimEntityMeta.create>;
         const transform = comps[0] as ReturnType<typeof SimTransform.create>;
+        const meta = comps[2] as ReturnType<typeof SimEntityMeta.create>;
         if (meta.type !== EntityType.Ship) return;
         const docks = shipDocks.get(meta.id);
         if (!docks || docks.length === 0) return;
@@ -130,3 +130,4 @@ export function createEcsDockingSystem(shipsQuery: Query, smallCraftQuery: Query
 
 export { shipDocks as ecsShipDocks };
 export type { DockSlot };
+
