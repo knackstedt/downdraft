@@ -65,6 +65,25 @@
   var perfHistory = { gpu: [], renderer: [], main: [], worker: [] };
   var PERF_MAX_POINTS = 60;
 
+  // Editor panel elements
+  var btnViewMaterial = document.getElementById("btn-view-material");
+  var btnViewRenderGraph = document.getElementById("btn-view-rendergraph");
+  var btnViewParticles = document.getElementById("btn-view-particles");
+  var btnViewPlayground = document.getElementById("btn-view-playground");
+  var btnViewInspector2 = document.getElementById("btn-view-inspector2");
+  var materialPanel = document.getElementById("material-panel");
+  var renderGraphPanel = document.getElementById("rendergraph-panel");
+  var particlesPanel = document.getElementById("particles-panel");
+  var playgroundPanel = document.getElementById("playground-panel");
+  var inspector2Panel = document.getElementById("inspector2-panel");
+
+  // Editor instances (lazy-initialized)
+  var materialEditor = null;
+  var renderGraphEditor = null;
+  var particleEditor = null;
+  var playgroundInstance = null;
+  var inspector2Instance = null;
+
   // --- Eval helper ---
   function evalInPage(code, callback) {
     chrome.devtools.inspectedWindow.eval(code, function (result, isException) {
@@ -1007,10 +1026,48 @@
     // Show/hide scene toolbar
     sceneToolbarEl.classList.toggle("hidden", view !== "scene");
 
+    // Update editor tab button states
+    if (btnViewMaterial) btnViewMaterial.classList.toggle("active", view === "material");
+    if (btnViewRenderGraph) btnViewRenderGraph.classList.toggle("active", view === "rendergraph");
+    if (btnViewParticles) btnViewParticles.classList.toggle("active", view === "particles");
+    if (btnViewPlayground) btnViewPlayground.classList.toggle("active", view === "playground");
+    if (btnViewInspector2) btnViewInspector2.classList.toggle("active", view === "inspector2");
+
     // Show/hide core panels
     mainContentEl.style.display = view === "scene" ? "flex" : "none";
     importPanel.style.display = view === "import" ? "block" : "none";
     perfPanel.style.display = view === "perf" ? "block" : "none";
+
+    // Show/hide editor panels
+    if (materialPanel) materialPanel.style.display = view === "material" ? "flex" : "none";
+    if (renderGraphPanel) renderGraphPanel.style.display = view === "rendergraph" ? "flex" : "none";
+    if (particlesPanel) particlesPanel.style.display = view === "particles" ? "flex" : "none";
+    if (playgroundPanel) playgroundPanel.style.display = view === "playground" ? "flex" : "none";
+    if (inspector2Panel) inspector2Panel.style.display = view === "inspector2" ? "flex" : "none";
+
+    // Lazy-init editors on first view
+    if (view === "material" && !materialEditor && typeof MaterialEditor !== "undefined") {
+      materialEditor = new MaterialEditor(materialPanel, { evalInPage: evalInPage, callInspector: callInspector });
+    }
+    if (view === "rendergraph" && !renderGraphEditor && typeof RenderGraphEditor !== "undefined") {
+      renderGraphEditor = new RenderGraphEditor(renderGraphPanel, { evalInPage: evalInPage, callInspector: callInspector });
+    }
+    if (view === "particles" && !particleEditor && typeof ParticleEditor !== "undefined") {
+      particleEditor = new ParticleEditor(particlesPanel, { evalInPage: evalInPage, callInspector: callInspector });
+    }
+    if (view === "playground" && !playgroundInstance && typeof Playground !== "undefined") {
+      playgroundInstance = new Playground(playgroundPanel, { evalInPage: evalInPage, callInspector: callInspector });
+    }
+    if (view === "inspector2" && !inspector2Instance && typeof InspectorV2 !== "undefined") {
+      inspector2Instance = new InspectorV2(inspector2Panel, { evalInPage: evalInPage, callInspector: callInspector });
+    }
+
+    // Activate/deactivate editors
+    if (materialEditor) materialEditor.setActive(view === "material");
+    if (renderGraphEditor) renderGraphEditor.setActive(view === "rendergraph");
+    if (particleEditor) particleEditor.setActive(view === "particles");
+    if (playgroundInstance) playgroundInstance.setActive(view === "playground");
+    if (inspector2Instance) inspector2Instance.setActive(view === "inspector2");
 
     // Show/hide extension panels
     for (var j = 0; j < panelExtensions.length; j++) {
@@ -1062,6 +1119,21 @@
   });
   btnViewPerf.addEventListener("click", function () {
     if (currentView === "perf") switchView("scene"); else switchView("perf");
+  });
+  if (btnViewMaterial) btnViewMaterial.addEventListener("click", function () {
+    if (currentView === "material") switchView("scene"); else switchView("material");
+  });
+  if (btnViewRenderGraph) btnViewRenderGraph.addEventListener("click", function () {
+    if (currentView === "rendergraph") switchView("scene"); else switchView("rendergraph");
+  });
+  if (btnViewParticles) btnViewParticles.addEventListener("click", function () {
+    if (currentView === "particles") switchView("scene"); else switchView("particles");
+  });
+  if (btnViewPlayground) btnViewPlayground.addEventListener("click", function () {
+    if (currentView === "playground") switchView("scene"); else switchView("playground");
+  });
+  if (btnViewInspector2) btnViewInspector2.addEventListener("click", function () {
+    if (currentView === "inspector2") switchView("scene"); else switchView("inspector2");
   });
 
   // --- Performance Panel ---
@@ -1280,6 +1352,12 @@
   window.addEventListener("beforeunload", function () {
     if (refreshTimer) clearInterval(refreshTimer);
     if (perfTimer) clearInterval(perfTimer);
+    // Clean up editor instances
+    if (materialEditor) materialEditor.destroy();
+    if (renderGraphEditor) renderGraphEditor.destroy();
+    if (particleEditor) particleEditor.destroy();
+    if (playgroundInstance) playgroundInstance.destroy();
+    if (inspector2Instance) inspector2Instance.destroy();
     // Clean up extension timers
     for (var id in extensionTimers) {
       if (extensionTimers[id]) clearInterval(extensionTimers[id]);

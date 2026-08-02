@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="graph-editor/graph-editor.css">
+  <link rel="stylesheet" href="inspector-v2/inspector-v2.css">
 </head>
 <body>
   <div id="app">
@@ -10,6 +12,11 @@
       <button id="btn-view-scene" class="tab active" title="Scene tree view">Scene</button>
       <button id="btn-view-import" class="tab" title="Import models">Import</button>
       <button id="btn-view-perf" class="tab" title="External performance charts">Performance</button>
+      <button id="btn-view-material" class="tab" title="Node Material Editor">Material</button>
+      <button id="btn-view-rendergraph" class="tab" title="Node Render Graph Editor">Render Graph</button>
+      <button id="btn-view-particles" class="tab" title="Node Particle Editor">Particles</button>
+      <button id="btn-view-playground" class="tab" title="Playground / Sandbox">Playground</button>
+      <button id="btn-view-inspector2" class="tab" title="Enhanced Inspector v2">Inspector v2</button>
       <div class="tab-spacer"></div>
       <button id="btn-overlays-menu" class="tab" title="Debug overlay toggles">Overlays &#9662;</button>
     </div>
@@ -108,10 +115,26 @@
         </div>
       </div>
 
+      <div id="material-panel" style="display:none"></div>
+      <div id="rendergraph-panel" style="display:none"></div>
+      <div id="particles-panel" style="display:none"></div>
+      <div id="playground-panel" style="display:none"></div>
+      <div id="inspector2-panel" style="display:none"></div>
+
     </div>
 
   </div>
 
+  <script src="graph-editor/graph-editor.js"></script>
+  <script src="graph-editor/node-palette.js"></script>
+  <script src="graph-editor/properties-sidebar.js"></script>
+  <script src="graph-editor/graph-serializer.js"></script>
+  <script src="material-editor/material-nodes.js"></script>
+  <script src="material-editor/material-editor.js"></script>
+  <script src="render-graph-editor/render-graph-editor.js"></script>
+  <script src="particle-editor/particle-editor.js"></script>
+  <script src="playground/playground.js"></script>
+  <script src="inspector-v2/inspector-v2.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>
