@@ -4,12 +4,13 @@
 // Uses AnimationPlayer internally for blending (bone masks, additive, root motion).
 // ============================================================================
 
+import type { AnimationEvent } from "./animation-event.ts";
+import type { AnimationGroup } from "./animation-group.ts";
 import type { KeyframeTrack, TrackPath } from "./clip.ts";
 import { AnimationClip } from "./clip.ts";
 import { AnimationPlayer } from "./player.ts";
 import type { Bone, SkeletonData } from "./skeleton.ts";
 import { Skeleton } from "./skeleton.ts";
-
 
 export interface AnimationChannel {
   targetNode: string;
@@ -169,6 +170,8 @@ export class SkeletonAnimator {
 
   private skeleton: Skeleton;
   private player: AnimationPlayer;
+  private animationGroup: AnimationGroup | null = null;
+  private layerManager: AnimationLayerManager | null = null;
 
   private localPos: Float32Array[];
   private localRot: Float32Array[];
@@ -555,11 +558,21 @@ export class SkeletonAnimator {
     if (dt > 0.1) dt = 0.1;
     this.timeSinceLastStateChange += dt;
 
-    // Let AnimationPlayer handle time progression, blending, and sampling
-    this.player.update(dt);
+    // Let AnimationPlayer (or AnimationGroup/LayerManager) handle time progression, blending, and sampling
+    if (this.layerManager) {
+      this.layerManager.update(dt);
+    } else if (this.animationGroup) {
+      this.animationGroup.update(dt);
+    } else {
+      this.player.update(dt);
+    }
 
-    // Copy AnimationPlayer output to local arrays
-    const transforms = this.player.getBoneTransforms();
+    // Copy output to local arrays
+    const transforms = this.layerManager
+      ? this.layerManager.getBoneTransforms()
+      : this.animationGroup
+        ? this.animationGroup.getBoneTransforms()
+        : this.player.getBoneTransforms();
     const hasActiveAnim = this.player.isPlaying();
 
     for (let i = 0; i < this.boneCount; i++) {
@@ -755,4 +768,36 @@ export class SkeletonAnimator {
   getRootMotionDelta(): [number, number, number] { return this.player.getRootMotionDelta(); }
   getPlayer(): AnimationPlayer { return this.player; }
   getSkeleton(): Skeleton { return this.skeleton; }
+
+  setAnimationGroup(group: AnimationGroup | null): void {
+    this.animationGroup = group;
+  }
+
+  getAnimationGroup(): AnimationGroup | null {
+    return this.animationGroup;
+  }
+
+  setLayerManager(manager: AnimationLayerManager | null): void {
+    this.layerManager = manager;
+  }
+
+  getLayerManager(): AnimationLayerManager | null {
+    return this.layerManager;
+  }
+
+  onAnimationEvent(type: string, handler: (event: AnimationEvent) => void): void {
+    this.player.onEvent(type, handler);
+  }
+
+  offAnimationEvent(type: string, handler?: (event: AnimationEvent) => void): void {
+    this.player.offEvent(type, handler);
+  }
+
+  getPendingAnimationEvents(): AnimationEvent[] {
+    return this.player.getPendingEvents();
+  }
+
+  clearPendingAnimationEvents(): void {
+    this.player.clearPendingEvents();
+  }
 }

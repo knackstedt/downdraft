@@ -1,3 +1,6 @@
+import type { MorphTargetTrack } from "./morph-target.ts";
+import { sampleMorphWeight } from "./morph-target.ts";
+
 export type TrackPath = "position" | "rotation" | "scale";
 
 export interface KeyframeTrack {
@@ -13,12 +16,15 @@ export interface AnimationClipData {
   name: string;
   duration: number;
   tracks: KeyframeTrack[];
+  morphTracks?: MorphTargetTrack[];
+  eventTrack?: AnimationEventTrack;
 }
 
 export class AnimationClip {
   data: AnimationClipData;
   private trackIndexMap: Map<string, KeyframeTrack[]> = new Map();
   trackedBones: Set<number>;
+  morphTrackedTargets: Set<number> = new Set();
 
   constructor(data: AnimationClipData) {
     this.data = data;
@@ -33,6 +39,11 @@ export class AnimationClip {
       }
       tracks.push(track);
     }
+    if (data.morphTracks) {
+      for (const mt of data.morphTracks) {
+        this.morphTrackedTargets.add(mt.targetIndex);
+      }
+    }
   }
 
   get duration(): number {
@@ -45,6 +56,18 @@ export class AnimationClip {
 
   get trackCount(): number {
     return this.data.tracks.length;
+  }
+
+  get morphTrackCount(): number {
+    return this.data.morphTracks?.length ?? 0;
+  }
+
+  get morphTracks(): MorphTargetTrack[] {
+    return this.data.morphTracks ?? [];
+  }
+
+  get eventTrack(): AnimationEventTrack | undefined {
+    return this.data.eventTrack;
   }
 
   getTracksForBone(boneIndex: number, path: TrackPath): KeyframeTrack[] {
@@ -77,6 +100,20 @@ export class AnimationClip {
           outScales[track.boneIndex] = sampleVec3(track, t, outScales[track.boneIndex] ?? [1, 1, 1]);
           break;
       }
+    }
+  }
+
+  sampleMorphWeights(time: number, outWeights: Float32Array): void {
+    if (!this.data.morphTracks || this.data.morphTracks.length === 0) return;
+    let t: number;
+    if (this.data.duration > 0) {
+      t = time % this.data.duration;
+      if (t === 0 && time > 0) t = this.data.duration;
+    } else {
+      t = 0;
+    }
+    for (const track of this.data.morphTracks) {
+      outWeights[track.targetIndex] = sampleMorphWeight(track, t);
     }
   }
 }
@@ -180,11 +217,19 @@ export function buildAnimationClipFromGLTF(
     values: Float32Array;
     interpolation?: "step" | "linear" | "cubicspline";
   }>,
+  morphTracks?: MorphTargetTrack[],
 ): AnimationClip {
   let maxTime = 0;
   for (const ch of channels) {
     for (let i = 0; i < ch.times.length; i++) {
       if (ch.times[i] > maxTime) maxTime = ch.times[i];
+    }
+  }
+  if (morphTracks) {
+    for (const mt of morphTracks) {
+      for (let i = 0; i < mt.times.length; i++) {
+        if (mt.times[i] > maxTime) maxTime = mt.times[i];
+      }
     }
   }
 
@@ -201,5 +246,6 @@ export function buildAnimationClipFromGLTF(
     name,
     duration: maxTime,
     tracks,
+    morphTracks,
   });
 }

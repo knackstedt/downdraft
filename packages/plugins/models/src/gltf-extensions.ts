@@ -1,4 +1,4 @@
-import type { MaterialData } from "./types.ts";
+import type { MaterialData, MorphTargetData } from "./types.ts";
 
 export interface GLTFExtension {
   [key: string]: unknown;
@@ -94,6 +94,70 @@ export function processMeshPrimitiveExtensions(
   const quantized = !!extensions["KHR_mesh_quantization"];
 
   return { dracoCompressed, quantized };
+}
+
+export interface GLTFMorphTarget {
+  input: string;
+  output: string;
+  interpolation?: "LINEAR" | "STEP" | "CUBICSPLINE";
+}
+
+export interface GLTFMorphTargetData {
+  targets: Array<{
+    POSITION?: number;
+    NORMAL?: number;
+  }>;
+  targetNames?: string[];
+}
+
+export function parseMorphTargets(
+  primitive: { targets?: Array<{ POSITION?: number; NORMAL?: number }> },
+  extras: { targetNames?: string[] } | undefined,
+  accessorData: Map<number, Float32Array>,
+  vertexCount: number,
+): MorphTargetData[] {
+  if (!primitive.targets || primitive.targets.length === 0) return [];
+
+  const result: MorphTargetData[] = [];
+  for (let i = 0; i < primitive.targets.length; i++) {
+    const target = primitive.targets[i];
+    const name = extras?.targetNames?.[i] ?? `morph_${i}`;
+
+    let deltaPositions: Float32Array | undefined;
+    let deltaNormals: Float32Array | undefined;
+
+    if (target.POSITION !== undefined) {
+      const data = accessorData.get(target.POSITION);
+      if (data) {
+        deltaPositions = data;
+      }
+    }
+
+    if (target.NORMAL !== undefined) {
+      const data = accessorData.get(target.NORMAL);
+      if (data) {
+        deltaNormals = data;
+      }
+    }
+
+    if (deltaPositions) {
+      result.push({ name, deltaPositions, deltaNormals });
+    }
+  }
+
+  return result;
+}
+
+export function parseAnimationEvents(
+  extras: { events?: Array<{ time: number; type: string; payload?: Record<string, unknown> }> } | undefined,
+): AnimationEvent[] {
+  if (!extras?.events || !Array.isArray(extras.events)) return [];
+
+  return extras.events.map((e) => ({
+    time: e.time,
+    type: e.type,
+    payload: e.payload,
+  }));
 }
 
 export function getSupportedExtensions(): string[] {
