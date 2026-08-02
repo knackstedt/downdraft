@@ -77,6 +77,17 @@ interface PlayerCharacter {
   playerIdx: number;
 }
 
+// A single chunk of an island's trimesh collider, queued for incremental construction.
+interface PendingTrimeshChunk {
+  entityIdx: number;
+  entity: SimEntity;
+  field: VoxelField;
+  rbHandle: number;
+  cx: number;
+  cz: number;
+  chunkSize: number;
+}
+
 // Desired movement for a player this tick — computed by PlayerManager before Rapier runs.
 export interface PlayerMoveRequest {
   playerIdx: number;
@@ -99,6 +110,10 @@ export class RapierPhysicsSystem {
   // Voxel fields for ALL islands — used for manual terrain Y collision in tickPlayers.
   // Updated with deformed fields when terrain changes.
   private islandFields = new Map<number, VoxelField>();
+
+  // Incremental trimesh chunk queue — spreads island collider construction across ticks
+  private pendingTrimeshChunks: PendingTrimeshChunk[] = [];
+  private static readonly TRIMESH_TIME_BUDGET_MS = 8;
 
   private boatCellSystem: BoatCellSystem;
   private boatDesignSystem: BoatDesignSystem | null = null;
@@ -148,6 +163,7 @@ export class RapierPhysicsSystem {
     this.bodyHandleToEntityBody.clear();
     this.pendingShipRebuilds.clear();
     this.pendingIslandRebuilds.clear();
+    this.pendingTrimeshChunks.length = 0;
     this.playerCharacters.clear();
     this.collisionLog = [];
 
@@ -392,6 +408,10 @@ export class RapierPhysicsSystem {
     this.islandFields.delete(entityIdx);
     const body = this.entityBodies.get(entityIdx);
     if (!body) return;
+    // Remove any pending trimesh chunks for this entity
+    if (this.pendingTrimeshChunks.length > 0) {
+      this.pendingTrimeshChunks = this.pendingTrimeshChunks.filter(c => c.entityIdx !== entityIdx);
+    }
     try {
       const rb = this.world.getRigidBody(body.handle);
       if (rb) this.world.removeRigidBody(rb);
@@ -412,6 +432,12 @@ export class RapierPhysicsSystem {
     if (field) {
       this.islandFields.set(newIdx, field);
       this.islandFields.delete(oldIdx);
+    }
+    // Update pending trimesh chunk references
+    for (let i = 0; i < this.pendingTrimeshChunks.length; i++) {
+      if (this.pendingTrimeshChunks[i].entityIdx === oldIdx) {
+        this.pendingTrimeshChunks[i].entityIdx = newIdx;
+      }
     }
   }
 
@@ -830,17 +856,15 @@ export class RapierPhysicsSystem {
     }
   }
 
-  // Build chunked trimesh colliders for an island body whose physics field was
-  // not ready at creation time. Called from syncEntities once the field arrives.
-  private buildIslandTrimeshColliders(
+  // Queue chunked trimesh collider construction for an island body whose physics
+  // field was not ready at creation time. Chunks are built incrementally across
+  // ticks via processPendingTrimeshChunks() with a time budget to avoid sim stalls.
+  private queueIslandTrimeshChunks(
     entity: SimEntity, body: EntityBody, field: VoxelField,
   ): void {
     if (!this.world || this.failed) return;
     const r = entity.scale;
     if (!Number.isFinite(r) || r <= 0) return;
-
-    const rb = this.world.getRigidBody(body.handle);
-    if (!rb) return;
 
     const entityIdx = body.entityIdx;
     this.islandFields.set(entityIdx, field);
@@ -848,14 +872,47 @@ export class RapierPhysicsSystem {
     const CHUNK_SIZE = 32;
     const chunkCountX = Math.ceil(field.dimX / CHUNK_SIZE);
     const chunkCountZ = Math.ceil(field.dimZ / CHUNK_SIZE);
-    const chunkColliders = new Map<string, number>();
 
+    body.chunkColliders = new Map<string, number>();
+    body.chunkSize = CHUNK_SIZE;
+    body.chunkCountX = chunkCountX;
+    body.chunkCountZ = chunkCountZ;
+
+    // Queue all chunks for incremental processing
     for (let cx = 0; cx < chunkCountX; cx++) {
       for (let cz = 0; cz < chunkCountZ; cz++) {
-        const x0 = cx * CHUNK_SIZE;
-        const z0 = cz * CHUNK_SIZE;
-        const x1 = Math.min(x0 + CHUNK_SIZE, field.dimX);
-        const z1 = Math.min(z0 + CHUNK_SIZE, field.dimZ);
+        this.pendingTrimeshChunks.push({
+          entityIdx, entity, field, rbHandle: body.handle,
+          cx, cz, chunkSize: CHUNK_SIZE,
+        });
+      }
+    }
+  }
+
+  // Process pending trimesh chunks with a time budget.
+  // Called from syncEntities each tick — builds as many chunks as fit in the budget.
+  private processPendingTrimeshChunks(): void {
+    if (!this.world || this.failed || this.pendingTrimeshChunks.length === 0) return;
+
+    const startTime = performance.now();
+
+    while (this.pendingTrimeshChunks.length > 0) {
+      if (performance.now() - startTime > RapierPhysicsSystem.TRIMESH_TIME_BUDGET_MS) break;
+
+      const chunk = this.pendingTrimeshChunks.shift()!;
+      const body = this.entityBodies.get(chunk.entityIdx);
+      if (!body || !body.chunkColliders) continue;
+
+      try {
+        const rb = this.world.getRigidBody(chunk.rbHandle);
+        if (!rb) continue;
+
+        const { field, entity, cx, cz, chunkSize } = chunk;
+        const r = entity.scale;
+        const x0 = cx * chunkSize;
+        const z0 = cz * chunkSize;
+        const x1 = Math.min(x0 + chunkSize, field.dimX);
+        const z1 = Math.min(z0 + chunkSize, field.dimZ);
 
         const chunkMesh = generateTerrainTrimeshSubRegion(
           field, entity.chunkX, entity.chunkZ,
@@ -875,21 +932,14 @@ export class RapierPhysicsSystem {
         }
         if (!valid) continue;
 
-        try {
-          const cd = RAPIER.ColliderDesc.trimesh(pos, chunkMesh.indices);
-          cd.setCollisionGroups(ISLAND_BOTH_GROUPS);
-          const col = this.world.createCollider(cd, rb);
-          chunkColliders.set(`${cx},${cz}`, col.handle);
-        } catch (colErr) {
-          console.error(`[RAPIER] Deferred createCollider failed for entity ${entityIdx} chunk ${cx},${cz}: ${(colErr as Error).message}`);
-        }
+        const cd = RAPIER.ColliderDesc.trimesh(pos, chunkMesh.indices);
+        cd.setCollisionGroups(ISLAND_BOTH_GROUPS);
+        const col = this.world.createCollider(cd, rb);
+        body.chunkColliders.set(`${cx},${cz}`, col.handle);
+      } catch (colErr) {
+        console.error(`[RAPIER] Deferred createCollider failed for entity ${chunk.entityIdx} chunk ${chunk.cx},${chunk.cz}: ${(colErr as Error).message}`);
       }
     }
-
-    body.chunkColliders = chunkColliders.size > 0 ? chunkColliders : undefined;
-    body.chunkSize = CHUNK_SIZE;
-    body.chunkCountX = chunkCountX;
-    body.chunkCountZ = chunkCountZ;
   }
 
   private syncEntities(entities: SimEntity[], entityCount: number): void {
@@ -907,11 +957,11 @@ export class RapierPhysicsSystem {
       const body = this.entityBodies.get(i);
       if (!body) continue;
 
-      // Build deferred terrain colliders for islands whose physics field is now ready
+      // Queue deferred terrain colliders for islands whose physics field is now ready
       if (body.needsTerrainCollider) {
         const field = this.terrainSystem?.getVoxelField(ent.id);
         if (field) {
-          this.buildIslandTrimeshColliders(ent, body, field);
+          this.queueIslandTrimeshChunks(ent, body, field);
           body.needsTerrainCollider = false;
         }
       }
@@ -947,6 +997,9 @@ export class RapierPhysicsSystem {
         // Body might have been removed — skip silently
       }
     }
+
+    // Process incremental trimesh chunk construction (time-budgeted)
+    this.processPendingTrimeshChunks();
   }
 
   // After world.step(), read back corrected positions and velocities for ships.
@@ -998,6 +1051,7 @@ export class RapierPhysicsSystem {
     this.entityBodies.clear();
     this.bodyHandleToEntityBody.clear();
     this.pendingShipRebuilds.clear();
+    this.pendingTrimeshChunks.length = 0;
     this.playerCharacters.clear();
     this.collisionLog = [];
     this.initialized = false;
