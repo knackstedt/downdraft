@@ -85,6 +85,17 @@ describe("createBackend", () => {
     expect(result).toBeNull();
   });
 
+  it("passes canvas to WebGL2Backend.init when falling back", async () => {
+    (navigator as unknown as { gpu?: unknown }).gpu = undefined;
+    const getContext = vi.fn().mockReturnValue(null);
+    mockCanvas = {
+      getContext,
+    } as unknown as HTMLCanvasElement;
+    await createBackend(mockCanvas, { forceBackend: "webgl2" });
+    // The canvas getContext should have been called with "webgl2"
+    expect(getContext).toHaveBeenCalledWith("webgl2", expect.any(Object));
+  });
+
   it("accepts BackendCreateOptions with all fields", async () => {
     (navigator as unknown as { gpu?: unknown }).gpu = undefined;
     const result = await createBackend(mockCanvas, {
