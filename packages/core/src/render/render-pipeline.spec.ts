@@ -1,12 +1,12 @@
-import { describe, it, expect, vi } from "bun:test";
-import { RenderPipeline, type RenderContext } from "./render-pipeline.ts";
+import { describe, expect, it, vi } from "bun:test";
 import type { RenderBackend } from "./backend/render-backend.ts";
 import type {
-  BackendCommandEncoder,
-  BackendRenderPassEncoder,
-  BackendTextureView,
-  TextureFormat,
+    BackendCommandEncoder,
+    BackendRenderPassEncoder,
+    BackendTextureView,
+    TextureFormat,
 } from "./backend/types.ts";
+import { RenderPipeline, type RenderContext } from "./render-pipeline.ts";
 
 function createMockBackend(): RenderBackend {
   const mockEncoder: BackendCommandEncoder = {
@@ -137,6 +137,67 @@ describe("RenderContext", () => {
   });
 });
 
+describe("RenderContext — WebGPU backend", () => {
+  it("populates native WebGPU fields when device is provided", () => {
+    const mockDevice = { label: "mock-device" } as unknown as GPUDevice;
+    const mockEncoder = { label: "mock-encoder" } as unknown as GPUCommandEncoder;
+    const mockPassEncoder = { label: "mock-pass" } as unknown as GPURenderPassEncoder;
+
+    const backend = createMockBackend();
+    (backend as any).type = "webgpu";
+
+    const ctx: RenderContext = {
+      backend,
+      backendEncoder: backend.createCommandEncoder(),
+      backendPassEncoder: {} as BackendRenderPassEncoder,
+      surfaceView: {} as BackendTextureView,
+      depthView: {} as BackendTextureView,
+      surfaceFormat: "bgra8unorm" as TextureFormat,
+      depthFormat: "depth32float" as TextureFormat,
+      device: mockDevice,
+      encoder: mockEncoder,
+      passEncoder: mockPassEncoder,
+      camera: {
+        position: [0, 0, 0],
+        target: [0, 0, 0],
+        up: [0, 1, 0],
+        fov: 60,
+        near: 0.1,
+        far: 1000,
+        aspect: 1,
+      },
+      viewport: { x: 0, y: 0, w: 800, h: 600 },
+      viewportIdx: 0,
+      viewportCount: 1,
+      dt: 0.016,
+      elapsedTime: 0,
+      isFirstViewport: true,
+      isLastViewport: true,
+    };
+
+    expect(ctx.device).toBe(mockDevice);
+    expect(ctx.encoder).toBe(mockEncoder);
+    expect(ctx.passEncoder).toBe(mockPassEncoder);
+    expect(ctx.backend.type).toBe("webgpu");
+    expect(ctx.surfaceFormat).toBe("bgra8unorm");
+    expect(ctx.depthFormat).toBe("depth32float");
+  });
+
+  it("supports both backend and native fields simultaneously (WebGPU)", () => {
+    const backend = createMockBackend();
+    (backend as any).type = "webgpu";
+    const ctx = createMockContext(backend);
+    // When using WebGPU, both sets of fields should be usable
+    expect(ctx.backend).toBeDefined();
+    expect(ctx.backendEncoder).toBeDefined();
+    expect(ctx.surfaceFormat).toBeDefined();
+    // Native fields can also be populated by GameRenderer
+    ctx.device = { label: "gpu" } as unknown as GPUDevice;
+    expect(ctx.device).not.toBeNull();
+    expect(ctx.backend).not.toBeNull();
+  });
+});
+
 describe("RenderPipeline", () => {
   it("executes registered passes with backend-agnostic context", () => {
     const pipeline = new RenderPipeline();
@@ -214,5 +275,75 @@ describe("RenderPipeline", () => {
     pipeline.render(createMockContext(backend));
 
     expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("getEntries returns sorted entries", () => {
+    const pipeline = new RenderPipeline();
+    pipeline.setSlotOrder(["a", "b", "c"]);
+
+    pipeline.registerPass("c", "pass-c", vi.fn());
+    pipeline.registerPass("a", "pass-a", vi.fn());
+    pipeline.registerPass("b", "pass-b", vi.fn());
+
+    const entries = pipeline.getEntries();
+    expect(entries).toHaveLength(3);
+    expect(entries[0].slot).toBe("a");
+    expect(entries[1].slot).toBe("b");
+    expect(entries[2].slot).toBe("c");
+  });
+
+  it("getEntries caches sorted order until dirty", () => {
+    const pipeline = new RenderPipeline();
+    pipeline.setSlotOrder(["a", "b"]);
+
+    pipeline.registerPass("a", "pass-a", vi.fn());
+    const entries1 = pipeline.getEntries();
+    const entries2 = pipeline.getEntries();
+    expect(entries1).toBe(entries2); // Same reference (cached)
+  });
+
+  it("supports multiple passes in the same slot", () => {
+    const pipeline = new RenderPipeline();
+    pipeline.setSlotOrder(["opaque"]);
+
+    const fn1 = vi.fn();
+    const fn2 = vi.fn();
+    pipeline.registerPass("opaque", "pass1", fn1);
+    pipeline.registerPass("opaque", "pass2", fn2);
+
+    const backend = createMockBackend();
+    pipeline.render(createMockContext(backend));
+
+    expect(fn1).toHaveBeenCalledTimes(1);
+    expect(fn2).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes with unknown slots get order after known slots", () => {
+    const pipeline = new RenderPipeline();
+    pipeline.setSlotOrder(["a", "b"]);
+
+    const order: string[] = [];
+    pipeline.registerPass("b", "pass-b", () => order.push("b"));
+    pipeline.registerPass("unknown", "pass-unknown", () => order.push("unknown"));
+    pipeline.registerPass("a", "pass-a", () => order.push("a"));
+
+    const backend = createMockBackend();
+    pipeline.render(createMockContext(backend));
+
+    expect(order).toEqual(["a", "b", "unknown"]);
+  });
+
+  it("RenderPassEntry has correct structure", () => {
+    const pipeline = new RenderPipeline();
+    pipeline.setSlotOrder(["opaque"]);
+
+    const renderFn = vi.fn();
+    pipeline.registerPass("opaque", "my-pass", renderFn);
+
+    const entries = pipeline.getEntries();
+    expect(entries[0].slot).toBe("opaque");
+    expect(entries[0].name).toBe("my-pass");
+    expect(entries[0].render).toBe(renderFn);
+    expect(typeof entries[0].order).toBe("number");
   });
 });
