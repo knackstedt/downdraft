@@ -38,3 +38,10 @@ export { getShaderSource, getTranspiler, registerShader, transpileShader } from 
 export { ShaderTranspiler } from "./shader-transpiler.ts";
 export type { TranspileResult } from "./shader-transpiler.ts";
 
+export { WebGL2Backend } from "./webgl2/webgl2-backend.ts";
+export type { WebGL2BackendInitOptions } from "./webgl2/webgl2-backend.ts";
+export { WebGL2CommandBuffer, WebGL2CommandEncoder, WebGL2ComputePassEncoder, WebGL2RenderPassEncoder } from "./webgl2/webgl2-encoders.ts";
+export type { Command as WebGL2Command } from "./webgl2/webgl2-encoders.ts";
+export { WebGL2Queue } from "./webgl2/webgl2-queue.ts";
+export { WebGL2BindGroup, WebGL2BindGroupLayout, WebGL2Buffer, WebGL2PipelineLayout, WebGL2RenderPipeline, WebGL2Sampler, WebGL2ShaderModule, WebGL2Texture, WebGL2TextureView } from "./webgl2/webgl2-resources.ts";
+
