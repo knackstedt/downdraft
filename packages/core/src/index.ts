@@ -63,6 +63,7 @@ export { createMultiInputBridge, createMultiInputWriter, MultiInputSABBridge, Mu
 export { MultiInputState } from "./input/multi-state.ts";
 export { InputSABBridge } from "./input/sab-bridge.ts";
 export { InputContext, InputState } from "./input/state.ts";
+export type { XRControllerState } from "./input/state.ts";
 
 // Platform
 export { VirtualFS } from "./platform/fs.ts";
@@ -92,7 +93,7 @@ export type { AABB, CullableItem, FrustumPlane } from "./render/frustum.ts";
 export { G_BUFFER_FORMATS, GBuffer } from "./render/g-buffer.ts";
 export type { GBufferTextures, GBufferViews } from "./render/g-buffer.ts";
 export { GameRenderer } from "./render/game-renderer.ts";
-export type { CameraViewportInfo, FrameCallbacks, GameRendererConfig, OffscreenMode } from "./render/game-renderer.ts";
+export type { CameraViewportInfo, CancelRAF, FrameCallbacks, GameRendererConfig, OffscreenMode, RAFSource, RenderTargetProvider } from "./render/game-renderer.ts";
 export { HDRSupport } from "./render/hdr.ts";
 export type { HDRConfig as RenderHDRConfig } from "./render/hdr.ts";
 export { MaterialHotReloader } from "./render/hot-reload.ts";
