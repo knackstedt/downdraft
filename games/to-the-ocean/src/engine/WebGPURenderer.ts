@@ -5,6 +5,8 @@
 // ============================================================================
 
 import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { createBackend, type RenderBackend } from "@downdraft/core/render/backend/render-backend";
+import type { TextureFormat } from "@downdraft/core/render/backend/types";
 import { TransformGizmo } from "@downdraft/plugin-devtools";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
@@ -62,6 +64,8 @@ export class WebGPURenderer {
   private device: GPUDevice | null = null;
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
+  private backend: RenderBackend | null = null;
+  private _backendFormat: TextureFormat = "bgra8unorm";
   private simReader: SimBufferReader | null = null;
   private waterReader: WaterBufferReader | null = null;
   private inputWriter: InputBufferWriter | null = null;
@@ -213,8 +217,8 @@ export class WebGPURenderer {
 
   async init(): Promise<boolean> {
     if (!navigator.gpu) {
-      console.error("WebGPU not supported — navigator.gpu is undefined");
-      return false;
+      console.warn("[WebGPU] WebGPU not supported — attempting WebGL2 backend fallback");
+      return this.initBackendFallback();
     }
 
     try {
@@ -270,7 +274,7 @@ export class WebGPURenderer {
       this.waterPass = new WaterPass(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat, MSAA_SAMPLE_COUNT);
       this.skyDomePass = new SkyDomePass(this.device, this.format);
       this.terrainPass = new TerrainPass(this.device, this.format);
-      this.entityRenderer = new EntityRenderer(this.device, this.format);
+      this.entityRenderer = new EntityRenderer(this.device, this.format, this.backend);
       this.cameraSystem = new CameraSystem();
       this.lightingSystem = new LightSystem(this.device);
       this.particleSystem = new ParticleSystem(this.device, this.format);
@@ -461,6 +465,44 @@ export class WebGPURenderer {
       console.error("[WebGPU] Init failed:", err);
       return false;
     }
+  }
+
+  private async initBackendFallback(): Promise<boolean> {
+    try {
+      const backend = await createBackend(this.canvas, { forceBackend: "webgl2" });
+      if (!backend) {
+        console.error("[WebGPU] No backend available — WebGL2 also unsupported");
+        return false;
+      }
+      this.backend = backend;
+      this._backendFormat = backend.getSurfaceFormat();
+      this.format = (this._backendFormat as GPUTextureFormat) ?? "bgra8unorm";
+
+      backend.onDeviceLost((info: { reason: string; message: string }) => {
+        this.deviceLost = true;
+        console.error(`[WebGPU] Backend device lost: ${info.reason} — ${info.message}`);
+      });
+
+      // Entity renderer with backend (device=null triggers initBackend path)
+      this.entityRenderer = new EntityRenderer(null, this.format, backend);
+      await this.entityRenderer.init();
+
+      this.cameraSystem = new CameraSystem();
+
+      console.log(`[WebGPU] Renderer initialized with ${backend.type} backend fallback`);
+      return true;
+    } catch (err) {
+      console.error("[WebGPU] Backend fallback init failed:", err);
+      return false;
+    }
+  }
+
+  getBackend(): RenderBackend | null {
+    return this.backend;
+  }
+
+  getBackendType(): "webgpu" | "webgl2" | null {
+    return this.backend?.type ?? null;
   }
 
   private updateAccessorReferences(): void {
