@@ -204,17 +204,29 @@ export class AnimationStateMachine {
     }
   }
 
+  private blendLayerNames: string[] = [];
+
   private updateBlendTrees(dt: number): void {
     if (!this.currentState) return;
     const state = this.states.get(this.currentState);
     if (!state || !state.blendTree || !this.player) return;
 
     const activeClips = this.getActiveBlendClips(state.blendTree);
-    for (const { clip, weight } of activeClips) {
-      if (!this.player.isPlaying(clip)) {
-        this.player.play(state.name, clip, { speed: state.speed, weight, loop: state.loop });
-      }
-      this.player.setWeight(state.name, weight);
+
+    // Stop old blend layers
+    for (const name of this.blendLayerNames) {
+      this.player.stop(name);
+    }
+    // Also stop the initial state layer (played by playState)
+    this.player.stop(this.currentState);
+    this.blendLayerNames = [];
+
+    for (let i = 0; i < activeClips.length; i++) {
+      const { clip, weight } = activeClips[i];
+      const layerName = `${state.name}_blend_${i}`;
+      this.player.play(layerName, clip, { speed: state.speed, weight, loop: state.loop, priority: 1 });
+      this.player.setWeight(layerName, weight);
+      this.blendLayerNames.push(layerName);
     }
   }
 

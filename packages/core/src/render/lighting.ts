@@ -353,3 +353,101 @@ export function createRectAreaLight(
     intensity,
   };
 }
+
+// ─── Cluster Lighting: Storage Buffer Packing ────────────────────────────
+
+export function lightTypeToStorageType(type: LightType): number {
+  switch (type) {
+    case LightType.Point: return 0;
+    case LightType.Spot: return 1;
+    case LightType.RectArea: return 2;
+    case LightType.Hemisphere: return 3;
+    default: return 0;
+  }
+}
+
+export function packLightToStorage(light: Light): Float32Array {
+  const buf = new Float32Array(16);
+  buf[0] = light.position[0];
+  buf[1] = light.position[1];
+  buf[2] = light.position[2];
+
+  switch (light.type) {
+    case LightType.Point:
+      buf[3] = light.range;
+      buf[4] = light.color[0];
+      buf[5] = light.color[1];
+      buf[6] = light.color[2];
+      buf[7] = light.intensity;
+      buf[11] = 0; // type = point
+      break;
+    case LightType.Spot:
+      buf[3] = light.range;
+      buf[4] = light.color[0];
+      buf[5] = light.color[1];
+      buf[6] = light.color[2];
+      buf[7] = light.intensity;
+      buf[8] = light.direction[0];
+      buf[9] = light.direction[1];
+      buf[10] = light.direction[2];
+      buf[11] = 1; // type = spot
+      buf[12] = Math.cos(light.innerConeAngle);
+      buf[13] = Math.cos(light.outerConeAngle);
+      break;
+    case LightType.RectArea:
+      buf[3] = Math.max(light.width, light.height) * 2;
+      buf[4] = light.color[0];
+      buf[5] = light.color[1];
+      buf[6] = light.color[2];
+      buf[7] = light.intensity;
+      buf[8] = light.direction[0];
+      buf[9] = light.direction[1];
+      buf[10] = light.direction[2];
+      buf[11] = 2; // type = rect-area
+      buf[14] = light.width;
+      buf[15] = light.height;
+      break;
+    case LightType.Hemisphere:
+      buf[3] = 1000;
+      buf[4] = light.skyColor[0];
+      buf[5] = light.skyColor[1];
+      buf[6] = light.skyColor[2];
+      buf[7] = light.intensity;
+      buf[8] = light.direction[0];
+      buf[9] = light.direction[1];
+      buf[10] = light.direction[2];
+      buf[11] = 3; // type = hemisphere
+      break;
+  }
+  return buf;
+}
+
+export function packAllLightsToStorage(
+  lights: Light[],
+  maxLights: number,
+): Float32Array {
+  const buf = new Float32Array(maxLights * 16);
+  for (let i = 0; i < Math.min(lights.length, maxLights); i++) {
+    const packed = packLightToStorage(lights[i]);
+    buf.set(packed, i * 16);
+  }
+  return buf;
+}
+
+export function extractPointAndSpotLights(
+  lights: Light[],
+): { pointLights: PointLight[]; spotLights: SpotLight[]; otherLights: Light[] } {
+  const pointLights: PointLight[] = [];
+  const spotLights: SpotLight[] = [];
+  const otherLights: Light[] = [];
+  for (const light of lights) {
+    if (light.type === LightType.Point) {
+      pointLights.push(light);
+    } else if (light.type === LightType.Spot) {
+      spotLights.push(light);
+    } else {
+      otherLights.push(light);
+    }
+  }
+  return { pointLights, spotLights, otherLights };
+}
