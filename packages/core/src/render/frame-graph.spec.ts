@@ -620,6 +620,113 @@ describe("FrameGraph — backend-agnostic", () => {
       };
       expect(() => fg.execute(frameCtx)).not.toThrow();
     });
+
+    it("executeRenderPass with depth attachment uses backend path", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const color = fg.importTexture("color", createMockBackendTexture());
+      const depth = fg.importTexture("depth", createMockBackendTexture());
+      fg.addPass(new MockPass("depth-pass", (builder) => {
+        builder.colorAttachment({ handle: color, loadOp: "clear", storeOp: "store" });
+        builder.depthAttachment({ handle: depth, depthLoadOp: "clear", depthStoreOp: "store" });
+      }));
+      fg.compile(null, 800, 600, backend);
+
+      const frameCtx = {
+        backend,
+        device: null,
+        width: 800, height: 600,
+        viewProj: new Float32Array(16), invViewProj: new Float32Array(16), prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any, lightViewProj: new Float32Array(16),
+        mesh: {} as any, modelMatrix: new Float32Array(16),
+        shadowsEnabled: false, bloomEnabled: false,
+        shadowSampler: null, debugQueue: null,
+        opaqueVertexBuffer: null, opaqueIndexBuffer: null,
+        opaqueIndexCount: 0, opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: vi.fn(), addTriangles: vi.fn(),
+      };
+      expect(() => fg.execute(frameCtx)).not.toThrow();
+      expect(backend.createCommandEncoder).toHaveBeenCalled();
+      expect(backend.queue.submit).toHaveBeenCalled();
+    });
+
+    it("executeRenderPass backend path calls addDrawCalls and addTriangles", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const surface = fg.importTexture("surface", createMockBackendTexture());
+
+      class DrawPass extends MockPass {
+        execute(ctx: GraphRenderContext): void {
+          if (ctx.pass) {
+            ctx.pass.draw(6);
+          }
+        }
+      }
+      fg.addPass(new DrawPass("draw-pass", (builder) => {
+        builder.colorAttachment({ handle: surface, loadOp: "clear", storeOp: "store" });
+      }));
+      fg.compile(null, 800, 600, backend);
+
+      const addDrawCalls = vi.fn();
+      const addTriangles = vi.fn();
+      const frameCtx = {
+        backend,
+        device: null,
+        width: 800, height: 600,
+        viewProj: new Float32Array(16), invViewProj: new Float32Array(16), prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any, lightViewProj: new Float32Array(16),
+        mesh: {} as any, modelMatrix: new Float32Array(16),
+        shadowsEnabled: false, bloomEnabled: false,
+        shadowSampler: null, debugQueue: null,
+        opaqueVertexBuffer: null, opaqueIndexBuffer: null,
+        opaqueIndexCount: 0, opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls, addTriangles,
+      };
+      fg.execute(frameCtx);
+      expect(addDrawCalls).toHaveBeenCalledWith(1);
+      expect(addTriangles).toHaveBeenCalledWith(2);
+    });
+
+    it("executeRenderPass backend path provides ITrackedRenderPass via ctx.pass", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const surface = fg.importTexture("surface", createMockBackendTexture());
+
+      let capturedPass: GraphRenderContext["pass"] = null;
+      class CapturePassPass extends MockPass {
+        execute(ctx: GraphRenderContext): void {
+          capturedPass = ctx.pass;
+        }
+      }
+      fg.addPass(new CapturePassPass("capture-pass", (builder) => {
+        builder.colorAttachment({ handle: surface, loadOp: "clear", storeOp: "store" });
+      }));
+      fg.compile(null, 800, 600, backend);
+
+      const frameCtx = {
+        backend,
+        device: null,
+        width: 800, height: 600,
+        viewProj: new Float32Array(16), invViewProj: new Float32Array(16), prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any, lightViewProj: new Float32Array(16),
+        mesh: {} as any, modelMatrix: new Float32Array(16),
+        shadowsEnabled: false, bloomEnabled: false,
+        shadowSampler: null, debugQueue: null,
+        opaqueVertexBuffer: null, opaqueIndexBuffer: null,
+        opaqueIndexCount: 0, opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: vi.fn(), addTriangles: vi.fn(),
+      };
+      fg.execute(frameCtx);
+      expect(capturedPass).not.toBeNull();
+      expect(capturedPass).toHaveProperty("setPipeline");
+      expect(capturedPass).toHaveProperty("setBindGroup");
+      expect(capturedPass).toHaveProperty("draw");
+      expect(capturedPass).toHaveProperty("drawIndexed");
+      expect(capturedPass).toHaveProperty("end");
+    });
   });
 
   describe("getBackendTextureView / getBackendTexture after compile with backend", () => {
