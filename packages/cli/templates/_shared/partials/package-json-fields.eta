@@ -1,0 +1,9 @@
+  "version": "<%= it.version %>",<% if (it.description) { %>
+  "description": "<%= it.description %>",<% } %><% if (it.author) { %>
+  "author": "<%= it.author %>",<% } %>
+  "type": "module",
+  "scripts": {
+    "dev": "draft dev",
+    "build": "draft build",
+    "export": "draft export"
+  },

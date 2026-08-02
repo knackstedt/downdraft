@@ -1,0 +1,26 @@
+import { Camera, createLogger, MeshBuilder, World } from "@downdraft/core";
+
+const log = createLogger();
+
+export function init(ctx: any) {
+  const world = new World();
+  const camera = new Camera();
+  camera.setAspect(16, 9);
+  camera.distance = 5;
+  camera.orbit(0, 0.3);
+
+  world.setResource("camera", camera);
+
+  const mesh = MeshBuilder.cube(1);
+  world.setResource("cubeMesh", mesh);
+
+  log.info("initialized");
+}
+
+export function tick(ctx: any, dt: number) {
+  // Game logic here
+}
+
+export function dispose(ctx: any) {
+  log.info("disposed");
+}

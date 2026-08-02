@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 import { createLogger } from "@downdraft/core";
+import { assets } from "./assets.ts";
 import { build } from "./build.ts";
 import { debug } from "./debug.ts";
 import { dev } from "./dev.ts";
 import { exportGame } from "./export.ts";
-import { init } from "./init.ts";
+import { newProject } from "./new.ts";
 
 const log = createLogger();
 
@@ -12,8 +13,8 @@ const command = process.argv[2];
 
 async function main() {
   switch (command) {
-    case "init":
-      await init(process.argv[3] ?? ".");
+    case "new":
+      await newProject(process.argv.slice(3));
       break;
     case "dev":
       await dev(process.argv.slice(3));
@@ -36,7 +37,7 @@ async function main() {
 Usage: draft <command> [options]
 
 Commands:
-  init [path]       Scaffold a new game project
+  new [path] [opts] Scaffold a new game project (--template, --ai-companion)
   dev [options]     Start dev server with HMR
   debug [options]   Run engine in debug mode with profiling/visualization
   build [options]   Build for target platform

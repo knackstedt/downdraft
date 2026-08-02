@@ -1,0 +1,133 @@
+# DownDraft Engine — API Reference for AI Companions
+
+## Architecture
+
+DownDraft is a TypeScript-first game engine built on Electron + Bun + WebGPU, with an MCP server enabling AI agents to design, build, debug, and manage games via natural language.
+
+**Four execution contexts:**
+1. **BrowserWindow** — React UI + input capture (transparent overlay)
+2. **Bun main process** — Engine orchestrator, render loop, MCP server, asset manager
+3. **Sim worker** — ECS world, game systems, physics, AI, plugins
+4. **DB worker** — Persistence layer with schema versioning
+
+## ECS (Entity Component System)
+
+- **Entity**: `{ index: u32, generation: u32 }` — generational indices prevent stale-handle corruption
+- **Component**: Plain data class implementing `Component` interface, registered with `ComponentId`
+- **Archetype**: Set of component types, SoA column storage for cache-friendly iteration
+- **Query**: Declares read/write access to component types, returns matching archetypes
+- **System**: Function `(query, resources, commands) => void`
+- **Schedule**: Single-threaded by default, dependency-ordered. Multi-threading via plugin/SAB.
+- **Events**: Double-buffered channels (written this tick, readable next tick)
+- **Commands**: Deferred operations (spawn/despawn, add/remove component) applied at stage boundaries
+
+### Hierarchy
+- Parent/child tree stored in side table (not archetype columns) — avoids archetype moves on reparenting
+- Dirty-flag propagation: parent Transform change marks children dirty (O(depth))
+- Lazy world matrix: computed on read when dirty
+
+### Change Detection
+- Per-component `lastChanged` tick counter — O(1) check for consumers
+- Cross-thread: `Atomics` on SAB headers for frame sync
+
+## Core API
+
+```typescript
+import { World, Camera, MeshBuilder, Component, system, createLogger } from "@downdraft/core";
+
+// Define components
+const Health = Component.register<{ current: number; max: number }>("Health", { current: 100, max: 100 });
+
+// Define a system
+const damageSystem = system(
+  (w: World, dt: number) => {
+    const view = w.view([Health]);
+    for (const ent of view) {
+      const health = w.getComponent(ent, Health);
+      if (health && health.data.current <= 0) {
+        w.despawn(ent);
+      }
+    }
+  }
+);
+
+// Setup
+const world = new World();
+const camera = new Camera();
+camera.setAspect(16, 9);
+world.setResource("camera", camera);
+
+// Spawn entities
+const entity = world.spawn();
+world.addComponent(entity, Health.create({ current: 50, max: 100 }));
+
+// Procedural meshes
+const cube = MeshBuilder.cube(1);
+const sphere = MeshBuilder.sphere(0.5, 16, 16);
+```
+
+## Plugin System
+
+Plugins are loadable packages that register systems, components, resources, and assets.
+
+```typescript
+import { Plugin } from "@downdraft/core";
+
+const myPlugin: Plugin = {
+  name: "my-plugin",
+  install(world: World) {
+    // Register components, systems, resources
+  },
+};
+
+world.registerPlugin(myPlugin);
+```
+
+### First-Party Plugins
+- `@downdraft/plugin-water` — Gerstner waves, refraction, reflection
+- `@downdraft/plugin-physics-rapier` — Rapier physics backend
+- `@downdraft/plugin-marching-cubes` — Volumetric deformable terrain
+- `@downdraft/plugin-models` — GLTF/GLB/PLY/3DS model loading
+- `@downdraft/plugin-devtools` — DevTools panel, scene inspector, GPU debugging
+- `@downdraft/plugin-items` — Item definitions and management
+- `@downdraft/plugin-inventory` — Inventory system
+- `@downdraft/plugin-crafting` — Crafting recipes and system
+- `@downdraft/plugin-weather` — Weather simulation
+- `@downdraft/plugin-fishing` — Fishing mechanics
+- `@downdraft/plugin-economy` — Market/trading system
+- `@downdraft/plugin-survival` — Survival stats (hunger, thirst, oxygen)
+- `@downdraft/plugin-boats` — Boat building and piloting
+- `@downdraft/plugin-wildlife` — Wildlife AI (fish, sharks, eels, etc.)
+- `@downdraft/plugin-buoyancy` — Water buoyancy physics
+- `@downdraft/plugin-collision` — Entity collision detection
+- `@downdraft/plugin-lighting` — Lighting system
+- `@downdraft/plugin-networking` — Multiplayer networking
+
+## Builder Modes
+
+| Mode | Use case |
+|---|---|
+| **dev** | Full DevTools, hot-reload, telemetry. Fastest iteration. |
+| **debug** | Local verification on production WebView engine. |
+| **prod** | Optimized production build. No devtools/debug overhead. |
+
+## CLI Commands
+
+```
+draft new [path] [options]      Scaffold a new game project
+draft dev [options]             Start dev server with HMR
+draft debug [options]           Run engine in debug mode
+draft build [options]           Build for target platform
+draft export [options]          Package for distribution
+draft assets <cmd>              Manage remote asset packs
+```
+
+## MCP Tools (for AI agents)
+
+The MCP server exposes tools for scene management, entity operations, component manipulation, material/shader editing, mesh import, animation, lighting, camera, physics, audio, scripting, asset management, debugging, checkpoints, and build/export.
+
+## Conventions
+
+- **Logging**: No manual `[module]` prefixes — automatic source attribution
+- **Loops**: Prefer indexed `for` loops over `for..of`
+- **Package manager**: Bun (workspace protocol for internal deps)

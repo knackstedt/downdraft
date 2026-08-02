@@ -1,0 +1,45 @@
+# <%= it.name %>
+
+<% if (it.description) { %><%= it.description %><% } else { %>A full-featured game built with the DownDraft Engine.<% } %>
+
+## Getting Started
+
+```bash
+# Install dependencies
+bun install
+
+# Start dev server (includes DevTools panel)
+bun run dev
+
+# Build for production
+bun run build
+
+# Export for distribution
+bun run export
+```
+
+## Project Structure
+
+```
+src/                    Game source code
+  main.ts               Entry point (init, tick, dispose)
+  systems/              Game systems (ECS)
+  entities/             Entity definitions and prefabs
+assets/                 Game assets
+  shaders/              Custom WGSL shaders
+  models/               3D models (GLTF, PLY, 3DS)
+  textures/             Textures (PNG, WebP, KTX2, DDS, HDR)
+downdraft.config.json   Engine configuration
+```
+
+## Plugins
+
+- **@downdraft/plugin-water** — Gerstner wave simulation, refraction, reflection
+- **@downdraft/plugin-physics-rapier** — Rapier physics backend
+- **@downdraft/plugin-marching-cubes** — Volumetric deformable terrain
+- **@downdraft/plugin-models** — Model loading (GLTF/GLB, PLY, 3DS)
+- **@downdraft/plugin-devtools** — DevTools panel with scene inspector, GPU debugging
+
+## Engine
+
+Built with [DownDraft Engine](https://github.com/downdraft-engine) — a TypeScript-first game engine on Electron + WebGPU.
