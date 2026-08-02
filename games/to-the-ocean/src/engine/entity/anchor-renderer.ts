@@ -1,3 +1,4 @@
+import type { BackendBuffer, BackendRenderPassEncoder, BackendRenderPipeline } from "@downdraft/core/render/backend/types";
 import { ANCHOR_BOW_OFFSET, ANCHOR_DEPTH } from "@shared/constants";
 import { ENT, SimBufferReader } from "@shared/sim-buffer";
 import { EntityType } from "@shared/types";
@@ -19,20 +20,21 @@ interface DrawCmd {
 export class AnchorRenderer {
   private ctx: EntityRenderContext;
 
-  private anchorPipeline3D: GPURenderPipeline | null = null;
-  private anchorMeshVerts: GPUBuffer | null = null;
-  private anchorMeshIdx: GPUBuffer | null = null;
+  private anchorPipeline3D: GPURenderPipeline | BackendRenderPipeline | null = null;
+  private anchorMeshVerts: GPUBuffer | BackendBuffer | null = null;
+  private anchorMeshIdx: GPUBuffer | BackendBuffer | null = null;
   private anchorMeshIndexCount = 0;
-  private chainLinkVerts: GPUBuffer | null = null;
-  private chainLinkIdx: GPUBuffer | null = null;
+  private chainLinkVerts: GPUBuffer | BackendBuffer | null = null;
+  private chainLinkIdx: GPUBuffer | BackendBuffer | null = null;
   private chainLinkIndexCount = 0;
 
   constructor(ctx: EntityRenderContext) {
     this.ctx = ctx;
   }
 
-  init(pbrLitPipelineLayout: GPUPipelineLayout): void {
-    const { device, format } = this.ctx;
+  init(pbrLitPipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
+    const device = this.ctx.device!;
+    const format = this.ctx.format;
     const boatShaderModule = device.createShaderModule({ code: BOAT_WGSL });
 
     // Build anchor mesh: cylindrical shank + stock, triangular flukes, crown
@@ -120,12 +122,12 @@ export class AnchorRenderer {
       size: anchorVerts.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.anchorMeshVerts, 0, anchorVerts);
+    device.queue.writeBuffer(this.anchorMeshVerts as any, 0, anchorVerts);
     this.anchorMeshIdx = device.createBuffer({
       size: anchorIdx.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.anchorMeshIdx, 0, anchorIdx);
+    device.queue.writeBuffer(this.anchorMeshIdx as any, 0, anchorIdx);
 
     // Build chain link mesh
     const cv: number[] = [];
@@ -161,15 +163,15 @@ export class AnchorRenderer {
       size: chainVerts.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.chainLinkVerts, 0, chainVerts);
+    device.queue.writeBuffer(this.chainLinkVerts as any, 0, chainVerts);
     this.chainLinkIdx = device.createBuffer({
       size: chainIdx.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.chainLinkIdx, 0, chainIdx);
+    device.queue.writeBuffer(this.chainLinkIdx as any, 0, chainIdx);
 
     this.anchorPipeline3D = device.createRenderPipeline({
-      layout: pbrLitPipelineLayout,
+      layout: pbrLitPipelineLayout as any,
       vertex: {
         module: boatShaderModule,
         entryPoint: "vs_main",
@@ -197,7 +199,7 @@ export class AnchorRenderer {
     });
   }
 
-  render(passEncoder: GPURenderPassEncoder, simReader: SimBufferReader): void {
+  render(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, simReader: SimBufferReader): void {
     const ctx = this.ctx;
     if (!this.anchorPipeline3D || !ctx.bindGroup || !ctx.uniformBuffer || !this.anchorMeshVerts || !this.anchorMeshIdx || !this.chainLinkVerts || !this.chainLinkIdx || !ctx.viewProjCache) return;
     if (!simReader.isValid()) return;
@@ -280,23 +282,23 @@ export class AnchorRenderer {
       this.writeAnchorUniform(d.slot, d.pos, d.scale, d.rot);
     }
 
-    passEncoder.setPipeline(this.anchorPipeline3D!);
+    passEncoder.setPipeline(this.anchorPipeline3D! as any);
     if (ctx.lightBindGroup) {
-      passEncoder.setBindGroup(1, ctx.lightBindGroup);
+      passEncoder.setBindGroup(1, ctx.lightBindGroup as any);
     }
     if (ctx.pbrBindGroup) {
-      passEncoder.setBindGroup(2, ctx.pbrBindGroup);
+      passEncoder.setBindGroup(2, ctx.pbrBindGroup as any);
     }
     for (const d of drawList) {
       if (d.mesh === "anchor") {
-        passEncoder.setVertexBuffer(0, this.anchorMeshVerts!);
-        passEncoder.setIndexBuffer(this.anchorMeshIdx!, "uint16");
-        passEncoder.setBindGroup(0, ctx.bindGroup, [d.slot * 256]);
+        passEncoder.setVertexBuffer(0, this.anchorMeshVerts! as any);
+        passEncoder.setIndexBuffer(this.anchorMeshIdx! as any, "uint16");
+        passEncoder.setBindGroup(0, ctx.bindGroup as any, [d.slot * 256]);
         passEncoder.drawIndexed(this.anchorMeshIndexCount);
       } else {
-        passEncoder.setVertexBuffer(0, this.chainLinkVerts!);
-        passEncoder.setIndexBuffer(this.chainLinkIdx!, "uint16");
-        passEncoder.setBindGroup(0, ctx.bindGroup, [d.slot * 256]);
+        passEncoder.setVertexBuffer(0, this.chainLinkVerts! as any);
+        passEncoder.setIndexBuffer(this.chainLinkIdx! as any, "uint16");
+        passEncoder.setBindGroup(0, ctx.bindGroup as any, [d.slot * 256]);
         passEncoder.drawIndexed(this.chainLinkIndexCount);
       }
     }
@@ -339,6 +341,7 @@ export class AnchorRenderer {
     uniforms[42] = lp.fogColor[2];
     uniforms[43] = 0;
 
-    ctx.device.queue.writeBuffer(ctx.uniformBuffer, idx * 256, uniforms as any);
+    const queue = ctx.device?.queue ?? ctx.backend?.queue;
+    queue?.writeBuffer(ctx.uniformBuffer as any, idx * 256, uniforms as any);
   }
 }

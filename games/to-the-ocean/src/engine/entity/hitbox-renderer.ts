@@ -1,3 +1,4 @@
+import type { BackendBuffer, BackendRenderPassEncoder, BackendRenderPipeline } from "@downdraft/core/render/backend/types";
 import { EntityType } from "@shared/types";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
 import { HITBOX_WGSL, ISLAND_WIREFRAME_WGSL } from "../shaders/entity-shaders";
@@ -6,8 +7,8 @@ import type { EntityRenderContext } from "./render-context";
 const MAX_HITBOX_ENTRIES = 4096;
 
 export interface IslandWireframeRef {
-  vertices: GPUBuffer;
-  lineIndices: GPUBuffer | null;
+  vertices: GPUBuffer | BackendBuffer;
+  lineIndices: GPUBuffer | BackendBuffer | null;
   lineIndexCount: number;
   useUint32: boolean;
 }
@@ -15,13 +16,13 @@ export interface IslandWireframeRef {
 export class HitboxRenderer {
   private ctx: EntityRenderContext;
 
-  private hitboxPipeline: GPURenderPipeline | null = null;
-  private islandWireframePipeline: GPURenderPipeline | null = null;
-  private hitboxQuadVertices: GPUBuffer | null = null;
-  private hitboxQuadIndices: GPUBuffer | null = null;
+  private hitboxPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  private islandWireframePipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  private hitboxQuadVertices: GPUBuffer | BackendBuffer | null = null;
+  private hitboxQuadIndices: GPUBuffer | BackendBuffer | null = null;
   private hitboxQuadIndexCount = 0;
-  private hitboxUniformBuffer: GPUBuffer | null = null;
-  private hitboxBindGroup: GPUBindGroup | null = null;
+  private hitboxUniformBuffer: GPUBuffer | BackendBuffer | null = null;
+  private hitboxBindGroup: GPUBindGroup | import("@downdraft/core/render/backend/types").BackendBindGroup | null = null;
   private hitboxEntryCount = 0;
   private hitboxLineWidth = 3.0;
   private showHitboxes = false;
@@ -30,8 +31,10 @@ export class HitboxRenderer {
     this.ctx = ctx;
   }
 
-  init(pipelineLayout: GPUPipelineLayout): void {
-    const { device, format, bindGroupLayout } = this.ctx;
+  init(pipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
+    const device = this.ctx.device!;
+    const format = this.ctx.format;
+    const bindGroupLayout = this.ctx.bindGroupLayout;
 
     // Hitbox uniform buffer — separate from entity uniform buffer
     this.hitboxUniformBuffer = device.createBuffer({
@@ -113,7 +116,7 @@ export class HitboxRenderer {
       size: quadVerts.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.hitboxQuadVertices, 0, quadVerts);
+    device.queue.writeBuffer(this.hitboxQuadVertices as any, 0, quadVerts);
 
     const quadIndices = new Uint16Array(12 * 6);
     let qi = 0;
@@ -127,12 +130,12 @@ export class HitboxRenderer {
       size: quadIndices.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.hitboxQuadIndices, 0, quadIndices);
+    device.queue.writeBuffer(this.hitboxQuadIndices as any, 0, quadIndices);
 
     // Island wireframe pipeline
     const islandWireframeModule = device.createShaderModule({ code: ISLAND_WIREFRAME_WGSL });
     this.islandWireframePipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
+      layout: pipelineLayout as any,
       vertex: {
         module: islandWireframeModule,
         entryPoint: "vs_main",
@@ -229,7 +232,7 @@ export class HitboxRenderer {
     hbUniforms[36] = color[0];
     hbUniforms[37] = color[1];
     hbUniforms[38] = color[2];
-    ctx.device.queue.writeBuffer(this.hitboxUniformBuffer, this.hitboxEntryCount * 256, hbUniforms as any);
+    ctx.device?.queue?.writeBuffer(this.hitboxUniformBuffer as any, this.hitboxEntryCount * 256, hbUniforms as any);
     this.hitboxEntryCount++;
   }
 
@@ -242,24 +245,24 @@ export class HitboxRenderer {
   }
 
   render(
-    passEncoder: GPURenderPassEncoder,
+    passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder,
     islandMeshes: Map<string, IslandWireframeRef>,
   ): void {
     const ctx = this.ctx;
     if (!this.showHitboxes || !this.hitboxPipeline || !this.hitboxQuadVertices || !this.hitboxQuadIndices || !this.hitboxBindGroup || !this.hitboxUniformBuffer) return;
 
-    passEncoder.setPipeline(this.hitboxPipeline);
-    passEncoder.setVertexBuffer(0, this.hitboxQuadVertices);
-    passEncoder.setIndexBuffer(this.hitboxQuadIndices, "uint16");
+    passEncoder.setPipeline(this.hitboxPipeline as any);
+    passEncoder.setVertexBuffer(0, this.hitboxQuadVertices as any);
+    passEncoder.setIndexBuffer(this.hitboxQuadIndices as any, "uint16");
 
     for (let i = 0; i < this.hitboxEntryCount; i++) {
-      passEncoder.setBindGroup(0, this.hitboxBindGroup, [i * 256]);
+      passEncoder.setBindGroup(0, this.hitboxBindGroup as any, [i * 256]);
       passEncoder.drawIndexed(this.hitboxQuadIndexCount);
     }
 
     // Render island wireframe hitboxes
     if (this.islandWireframePipeline && ctx.bindGroup) {
-      passEncoder.setPipeline(this.islandWireframePipeline);
+      passEncoder.setPipeline(this.islandWireframePipeline as any);
       for (let i = 0; i < ctx.drawEntityCount; i++) {
         if (ctx.drawEntityTypes[i] === EntityType.Island) {
           const chunkX = ctx.drawEntityChunkX[i] ?? 0;
@@ -267,9 +270,9 @@ export class HitboxRenderer {
           const islandKey = `${chunkX},${chunkZ}`;
           const islandMesh = islandMeshes.get(islandKey);
           if (islandMesh && islandMesh.lineIndices && islandMesh.lineIndexCount > 0) {
-            passEncoder.setVertexBuffer(0, islandMesh.vertices);
-            passEncoder.setIndexBuffer(islandMesh.lineIndices, islandMesh.useUint32 ? "uint32" : "uint16");
-            passEncoder.setBindGroup(0, ctx.bindGroup, [i * 256]);
+            passEncoder.setVertexBuffer(0, islandMesh.vertices as any);
+            passEncoder.setIndexBuffer(islandMesh.lineIndices as any, islandMesh.useUint32 ? "uint32" : "uint16");
+            passEncoder.setBindGroup(0, ctx.bindGroup as any, [i * 256]);
             passEncoder.drawIndexed(islandMesh.lineIndexCount);
           }
         }
