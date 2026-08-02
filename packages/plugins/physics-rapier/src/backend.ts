@@ -1,16 +1,20 @@
 import type {
-  PhysicsBackend,
-  PhysicsRealmConfig,
-  BodyDesc,
-  ColliderDesc,
-  RigidBodyHandle,
-  RaycastResult,
-  ShapeCastResult,
-  ContactManifold,
-  BodyType,
-  ColliderShape,
+    BodyDesc,
+    BodyType,
+    CharacterControllerDesc,
+    CharacterControllerHandle,
+    CharacterMoveResult,
+    ColliderDesc,
+    ColliderShape,
+    ContactManifold,
+    Entity,
+    JointDesc,
+    PhysicsBackend,
+    PhysicsRealmConfig,
+    RaycastResult,
+    RigidBodyHandle,
+    ShapeCastResult,
 } from "@downdraft/core";
-import type { Entity } from "@downdraft/core";
 import { loadPhysicsLib, type PhysicsLib } from "./ffi.ts";
 
 interface RealmState {
@@ -19,6 +23,8 @@ interface RealmState {
   bodies: Map<number, BodyState>;
   nextBodyId: number;
   contacts: ContactManifold[];
+  nextControllerId: number;
+  nextJointId: number;
 }
 
 interface BodyState {
@@ -63,7 +69,9 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       bodies: new Map(),
       nextBodyId: 1,
       contacts: [],
-    };
+      nextControllerId: 1,
+      nextJointId: 1,
+ };
     this.realms.set(id, realm);
     this.realmIds.push(id);
 
@@ -393,6 +401,46 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     return realm ? realm.contacts : [];
   }
 
+  createCharacterController(realmId: number, desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle {
+    const realm = this.realms.get(realmId);
+    if (!realm) throw new Error(`Realm ${realmId} not found`);
+    const controllerId = realm.nextControllerId++;
+    const handle: CharacterControllerHandle = { realmId, controllerId, entity };
+    if (this.lib) {
+      this.lib.createCharacterController(realmId, desc, handle);
+    }
+    return handle;
+  }
+
+  destroyCharacterController(handle: CharacterControllerHandle): void {
+    if (this.lib) {
+      this.lib.destroyCharacterController(handle.realmId, handle.controllerId);
+    }
+  }
+
+  characterMove(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult {
+    if (this.lib) {
+      return this.lib.characterMove(handle.realmId, handle.controllerId, desiredMovement, dt);
+    }
+    return this.characterMoveFallback(handle, desiredMovement, dt);
+  }
+
+  createJoint(realmId: number, parentHandle: RigidBodyHandle, childHandle: RigidBodyHandle, desc: JointDesc): number {
+    const realm = this.realms.get(realmId);
+    if (!realm) throw new Error(`Realm ${realmId} not found`);
+    const jointId = realm.nextJointId++;
+    if (this.lib) {
+      this.lib.createJoint(realmId, parentHandle.bodyId, childHandle.bodyId, jointId, desc);
+    }
+    return jointId;
+  }
+
+  destroyJoint(realmId: number, jointId: number): void {
+    if (this.lib) {
+      this.lib.destroyJoint(realmId, jointId);
+    }
+  }
+
   syncTransforms(realmId: number, transformBuffer: Float32Array, entityCount: number): void {
     const realm = this.realms.get(realmId);
     if (!realm) return;
@@ -445,6 +493,64 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   private getBodyState(handle: RigidBodyHandle): BodyState | undefined {
     const realm = this.realms.get(handle.realmId);
     return realm?.bodies.get(handle.bodyId);
+  }
+
+  private characterMoveFallback(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult {
+    const realm = this.realms.get(handle.realmId);
+    if (!realm) {
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+    }
+
+    const body = realm.bodies.get(handle.entity.index);
+    if (!body) {
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+    }
+
+    const desired = [...desiredMovement] as [number, number, number];
+    let effective = [...desired] as [number, number, number];
+    let slid = false;
+    let stepped = false;
+
+    const groundRay = this.raycast(handle.realmId, body.position, [0, -1, 0], 1.2);
+    const grounded = groundRay !== null && groundRay.distance <= 1.0;
+    const groundNormal = groundRay ? groundRay.normal : [0, 1, 0] as [number, number, number];
+    const groundEntity = groundRay ? groundRay.entity : null;
+
+    if (grounded) {
+      const slopeDot = groundNormal[1];
+      const maxSlopeCos = Math.cos(Math.PI / 3);
+      if (slopeDot < maxSlopeCos) {
+        const slideDir: [number, number, number] = [
+          groundNormal[0] * (1 - slopeDot),
+          groundNormal[1] * (1 - slopeDot) - 1,
+          groundNormal[2] * (1 - slopeDot),
+        ];
+        const slideLen = Math.sqrt(slideDir[0] ** 2 + slideDir[1] ** 2 + slideDir[2] ** 2);
+        if (slideLen > 1e-6) {
+          effective[0] = slideDir[0] / slideLen * Math.abs(desired[1]) * 0.5;
+          effective[1] = slideDir[1] / slideLen * Math.abs(desired[1]) * 0.5;
+          effective[2] = slideDir[2] / slideLen * Math.abs(desired[1]) * 0.5;
+          slid = true;
+        }
+      }
+    }
+
+    const wallRay = this.raycast(handle.realmId, body.position, [desired[0], 0, desired[2]], 0.6);
+    if (wallRay && wallRay.distance < 0.5) {
+      const wallNormal = wallRay.normal;
+      const dot = effective[0] * wallNormal[0] + effective[2] * wallNormal[2];
+      if (dot < 0) {
+        effective[0] -= dot * wallNormal[0];
+        effective[2] -= dot * wallNormal[2];
+        slid = true;
+      }
+    }
+
+    body.position[0] += effective[0] * dt;
+    body.position[1] += effective[1] * dt;
+    body.position[2] += effective[2] * dt;
+
+    return { grounded, groundNormal, groundEntity, slid, stepped, effectiveMovement: effective };
   }
 
   private readBackTransforms(realm: RealmState): void {

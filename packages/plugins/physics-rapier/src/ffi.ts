@@ -1,4 +1,4 @@
-import type { BodyDesc, BodyType, ColliderDesc, ColliderShape, Entity, RaycastResult, ShapeCastResult } from "@downdraft/core";
+import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, Entity, JointDesc, RaycastResult, ShapeCastResult } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
 
 const log = createLogger();
@@ -46,6 +46,26 @@ export interface PhysicsLib {
     maxDistance: number,
     filter?: { collisionGroups?: number; excludeEntity?: Entity },
   ): ShapeCastResult | null;
+  createCharacterController(
+    realmId: number,
+    desc: CharacterControllerDesc,
+    handle: CharacterControllerHandle,
+  ): void;
+  destroyCharacterController(realmId: number, controllerId: number): void;
+  characterMove(
+    realmId: number,
+    controllerId: number,
+    desiredMovement: [number, number, number],
+    dt: number,
+  ): CharacterMoveResult;
+  createJoint(
+    realmId: number,
+    parentBodyId: number,
+    childBodyId: number,
+    jointId: number,
+    desc: JointDesc,
+  ): void;
+  destroyJoint(realmId: number, jointId: number): void;
   destroy(): void;
 }
 
@@ -67,7 +87,19 @@ export async function loadPhysicsLib(): Promise<PhysicsLib> {
     log.warn("physics-rapier", `Failed to load native library: ${err}`);
   }
 
-  log.warn("physics-rapier", "Native library not available. Using JS fallback physics.");
+  try {
+    const { loadWasmRapier } = await import("./wasm-fallback.ts");
+    const wasmLib = await loadWasmRapier();
+    if (wasmLib) {
+      log.info("physics-rapier", "Using WASM Rapier fallback.");
+      cachedLib = wasmLib;
+      return wasmLib;
+    }
+  } catch (err) {
+    log.warn("physics-rapier", `Failed to load WASM fallback: ${err}`);
+  }
+
+  log.warn("physics-rapier", "No physics library available. Using JS fallback physics.");
   return null as unknown as PhysicsLib;
 }
 
@@ -131,6 +163,11 @@ async function tryLoadNative(): Promise<PhysicsLib | null> {
       raycast() { return null; },
       raycastMulti() { return []; },
       shapeCast() { return null; },
+      createCharacterController() {},
+      destroyCharacterController() {},
+      characterMove() { return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] }; },
+      createJoint() {},
+      destroyJoint() {},
       destroy() {
         lib.symbols.dd_destroy();
       },
