@@ -9,6 +9,9 @@ const SAMPLE_COUNT = 1024;
 
 const PI = Math.PI;
 
+import type { RenderBackend } from "./backend/render-backend.ts";
+import type { BackendBindGroup, BackendBindGroupLayout, BackendSampler, BackendTexture, BackendTextureView, TextureFormat } from "./backend/types.ts";
+
 function radicalInverseVdC(bits: number): number {
   let v = bits >>> 0;
   v = ((v >>> 16) & 0xffff) | ((v & 0xffff) << 16);
@@ -109,51 +112,77 @@ function floatToHalf(val: number): number {
 }
 
 export class PBRSystem {
-  private device: GPUDevice;
+  private device: GPUDevice | null;
+  private backend: RenderBackend | null;
 
-  brdfLUT: GPUTexture | null = null;
-  brdfLUTView: GPUTextureView | null = null;
-  brdfSampler: GPUSampler | null = null;
-  bindGroupLayout: GPUBindGroupLayout | null = null;
-  bindGroup: GPUBindGroup | null = null;
+  brdfLUT: GPUTexture | BackendTexture | null = null;
+  brdfLUTView: GPUTextureView | BackendTextureView | null = null;
+  brdfSampler: GPUSampler | BackendSampler | null = null;
+  bindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  bindGroup: GPUBindGroup | BackendBindGroup | null = null;
 
   private lutResolve: () => void = () => {};
   readonly lutReady: Promise<void> = new Promise(resolve => { this.lutResolve = resolve; });
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice | null, backend?: RenderBackend | null) {
     this.device = device;
+    this.backend = backend ?? null;
   }
 
   init(): void {
-    this.brdfLUT = this.device.createTexture({
+    if (this.backend && !this.device) {
+      const backend = this.backend;
+      this.brdfLUT = backend.createTexture({
+        size: [BRDF_LUT_SIZE, BRDF_LUT_SIZE],
+        format: "rgba16float" as TextureFormat,
+        usage: 0x08 | 0x04,
+      });
+      this.brdfLUTView = backend.createTextureView(this.brdfLUT);
+      this.brdfSampler = backend.createSampler({
+        magFilter: "linear", minFilter: "linear",
+        addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge",
+      });
+      this.bindGroupLayout = backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: 2, texture: { sampleType: "float" } },
+          { binding: 1, visibility: 2, sampler: { type: "filtering" } },
+        ],
+      });
+      this.bindGroup = backend.createBindGroup({
+        layout: this.bindGroupLayout as any,
+        entries: [
+          { binding: 0, resource: { textureView: this.brdfLUTView } },
+          { binding: 1, resource: { sampler: this.brdfSampler } },
+        ],
+      });
+      this.generateLUTAsync().then(() => this.lutResolve());
+      return;
+    }
+
+    const dev = this.device!;
+    this.brdfLUT = dev.createTexture({
       size: [BRDF_LUT_SIZE, BRDF_LUT_SIZE],
       format: "rgba16float",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    this.brdfLUTView = this.brdfLUT.createView();
-
-    this.brdfSampler = this.device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
+    this.brdfLUTView = (this.brdfLUT as GPUTexture).createView();
+    this.brdfSampler = dev.createSampler({
+      magFilter: "linear", minFilter: "linear",
+      addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge",
     });
-
-    this.bindGroupLayout = this.device.createBindGroupLayout({
+    this.bindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
       ],
     });
-
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
+    this.bindGroup = dev.createBindGroup({
+      layout: this.bindGroupLayout as GPUBindGroupLayout,
       entries: [
-        { binding: 0, resource: this.brdfLUTView },
-        { binding: 1, resource: this.brdfSampler },
+        { binding: 0, resource: this.brdfLUTView as GPUTextureView },
+        { binding: 1, resource: this.brdfSampler as GPUSampler },
       ],
     });
-
     this.generateLUTAsync().then(() => this.lutResolve());
   }
 
@@ -181,19 +210,20 @@ export class PBRSystem {
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
 
-    this.device.queue.writeTexture(
-      { texture: this.brdfLUT! },
-      data,
-      { bytesPerRow: BRDF_LUT_SIZE * 4 * 2, rowsPerImage: BRDF_LUT_SIZE },
-      { width: BRDF_LUT_SIZE, height: BRDF_LUT_SIZE },
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeTexture(
+      { texture: this.brdfLUT } as any,
+      data as any,
+      { bytesPerRow: BRDF_LUT_SIZE * 4 * 2, rowsPerImage: BRDF_LUT_SIZE } as any,
+      { width: BRDF_LUT_SIZE, height: BRDF_LUT_SIZE } as any,
     );
   }
 
-  getBindGroupLayout(): GPUBindGroupLayout | null {
+  getBindGroupLayout(): GPUBindGroupLayout | BackendBindGroupLayout | null {
     return this.bindGroupLayout;
   }
 
-  getBindGroup(): GPUBindGroup | null {
+  getBindGroup(): GPUBindGroup | BackendBindGroup | null {
     return this.bindGroup;
   }
 }

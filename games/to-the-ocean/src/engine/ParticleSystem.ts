@@ -4,6 +4,9 @@
 // Far-zone particles are gravity-only VFX with no collision cost.
 // ============================================================================
 
+import type { ITrackedRenderPass } from "@downdraft/core";
+import type { RenderBackend } from "@downdraft/core/render/backend/render-backend";
+import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, TextureFormat } from "@downdraft/core/render/backend/types";
 import { WeatherType } from "@shared/types";
 import { CameraState } from "./CameraSystem";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
@@ -384,26 +387,28 @@ export interface VoxelCollisionData {
 // ============================================================================
 
 export class ParticleSystem {
-  private device: GPUDevice;
-  private format: GPUTextureFormat;
+  private device: GPUDevice | null;
+  private backend: RenderBackend | null;
+  private format: GPUTextureFormat | TextureFormat;
 
   // Compute pipelines (one for emit, one for update — same bind group, different entry points)
+  // Compute is WebGPU-only — null on backend
   private computePipeline: GPUComputePipeline | null = null;
   private emitPipeline: GPUComputePipeline | null = null;
-  private computeBindGroup: GPUBindGroup | null = null;
-  private computeBindGroupLayout: GPUBindGroupLayout | null = null;
+  private computeBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private computeBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
 
   // Render pipeline
-  private renderPipeline: GPURenderPipeline | null = null;
-  private renderBindGroup: GPUBindGroup | null = null;
-  private renderBindGroupLayout: GPUBindGroupLayout | null = null;
+  private renderPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  private renderBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private renderBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
 
   // Buffers
-  private particleBuffer: GPUBuffer | null = null;
-  private simParamBuffer: GPUBuffer | null = null;
-  private counterBuffer: GPUBuffer | null = null;
-  private voxelBuffer: GPUBuffer | null = null;
-  private renderUniformBuffer: GPUBuffer | null = null;
+  private particleBuffer: GPUBuffer | BackendBuffer | null = null;
+  private simParamBuffer: GPUBuffer | BackendBuffer | null = null;
+  private counterBuffer: GPUBuffer | BackendBuffer | null = null;
+  private voxelBuffer: GPUBuffer | BackendBuffer | null = null;
+  private renderUniformBuffer: GPUBuffer | BackendBuffer | null = null;
 
   // State
   private cursor: number = 0;
@@ -419,8 +424,9 @@ export class ParticleSystem {
   private counterData: Uint32Array;
   private renderUniformData: Float32Array;
 
-  constructor(device: GPUDevice, format: GPUTextureFormat) {
+  constructor(device: GPUDevice | null, format: GPUTextureFormat | TextureFormat, backend?: RenderBackend | null) {
     this.device = device;
+    this.backend = backend ?? null;
     this.format = format;
     // SimParams layout: 32 floats = 128 bytes (padded to 256 for uniform alignment)
     this.simParamData = new Float32Array(64);
@@ -429,41 +435,91 @@ export class ParticleSystem {
   }
 
   async init(): Promise<void> {
-    const computeModule = this.device.createShaderModule({ code: COMPUTE_WGSL });
-    const renderModule = this.device.createShaderModule({ code: RENDER_WGSL });
+    if (this.backend && !this.device) {
+      const backend = this.backend;
+      const renderModule = backend.createShaderModule({ wgsl: RENDER_WGSL }, "wgsl");
+
+      // Buffers (render-only — no compute on backend)
+      this.particleBuffer = backend.createBuffer({ size: MAX_PARTICLES * PARTICLE_BYTES, usage: 0x80 | 0x08 });
+      this.simParamBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
+      this.counterBuffer = backend.createBuffer({ size: 8, usage: 0x80 | 0x08 | 0x04 });
+      this.voxelBuffer = backend.createBuffer({ size: MAX_VOXEL_FLOATS * 4, usage: 0x80 | 0x08 });
+      this.renderUniformBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
+
+      backend.queue.writeBuffer(this.particleBuffer as any, 0, new Float32Array(MAX_PARTICLES * PARTICLE_FLOATS) as any);
+      backend.queue.writeBuffer(this.counterBuffer as any, 0, new Uint32Array([0, 0]) as any);
+
+      // Render bind group + pipeline
+      this.renderBindGroupLayout = backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: 1 | 2, buffer: { type: "uniform" } },
+          { binding: 1, visibility: 1, buffer: { type: "read-only-storage" } },
+        ],
+      });
+      this.renderBindGroup = backend.createBindGroup({
+        layout: this.renderBindGroupLayout as any,
+        entries: [
+          { binding: 0, resource: { buffer: this.renderUniformBuffer as any } },
+          { binding: 1, resource: { buffer: this.particleBuffer as any } },
+        ],
+      });
+      const renderLayout = backend.createPipelineLayout({ bindGroupLayouts: [this.renderBindGroupLayout as any] });
+      this.renderPipeline = backend.createRenderPipeline({
+        layout: renderLayout as any,
+        vertex: { module: renderModule, entryPoint: "vs_main", buffers: [] },
+        fragment: {
+          module: renderModule, entryPoint: "fs_main",
+          targets: [{
+            format: this.format as TextureFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
+      });
+      return;
+    }
+
+    const dev = this.device!;
+    const computeModule = dev.createShaderModule({ code: COMPUTE_WGSL });
+    const renderModule = dev.createShaderModule({ code: RENDER_WGSL });
 
     // --- Buffers ---
-    this.particleBuffer = this.device.createBuffer({
+    this.particleBuffer = dev.createBuffer({
       size: MAX_PARTICLES * PARTICLE_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.simParamBuffer = this.device.createBuffer({
-      size: 256, // padded for uniform alignment
+    this.simParamBuffer = dev.createBuffer({
+      size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.counterBuffer = this.device.createBuffer({
-      size: 8, // 2 × u32
+    this.counterBuffer = dev.createBuffer({
+      size: 8,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
-    this.voxelBuffer = this.device.createBuffer({
+    this.voxelBuffer = dev.createBuffer({
       size: MAX_VOXEL_FLOATS * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.renderUniformBuffer = this.device.createBuffer({
+    this.renderUniformBuffer = dev.createBuffer({
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     // Zero out particle buffer and counter
-    this.device.queue.writeBuffer(this.particleBuffer, 0, new Float32Array(MAX_PARTICLES * PARTICLE_FLOATS));
-    this.device.queue.writeBuffer(this.counterBuffer, 0, new Uint32Array([0, 0]));
+    dev.queue.writeBuffer(this.particleBuffer, 0, new Float32Array(MAX_PARTICLES * PARTICLE_FLOATS));
+    dev.queue.writeBuffer(this.counterBuffer, 0, new Uint32Array([0, 0]));
 
     // --- Compute pipeline ---
-    this.computeBindGroupLayout = this.device.createBindGroupLayout({
+    this.computeBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
@@ -472,50 +528,50 @@ export class ParticleSystem {
       ],
     });
 
-    this.computeBindGroup = this.device.createBindGroup({
-      layout: this.computeBindGroupLayout,
+    this.computeBindGroup = dev.createBindGroup({
+      layout: this.computeBindGroupLayout as GPUBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.particleBuffer } },
-        { binding: 1, resource: { buffer: this.simParamBuffer } },
-        { binding: 2, resource: { buffer: this.counterBuffer } },
-        { binding: 3, resource: { buffer: this.voxelBuffer } },
+        { binding: 0, resource: { buffer: this.particleBuffer as GPUBuffer } },
+        { binding: 1, resource: { buffer: this.simParamBuffer as GPUBuffer } },
+        { binding: 2, resource: { buffer: this.counterBuffer as GPUBuffer } },
+        { binding: 3, resource: { buffer: this.voxelBuffer as GPUBuffer } },
       ],
     });
 
-    this.computePipeline = this.device.createComputePipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.computeBindGroupLayout] }),
+    this.computePipeline = dev.createComputePipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [this.computeBindGroupLayout as GPUBindGroupLayout] }),
       compute: { module: computeModule, entryPoint: "cs_update" },
     });
 
-    this.emitPipeline = this.device.createComputePipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.computeBindGroupLayout] }),
+    this.emitPipeline = dev.createComputePipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [this.computeBindGroupLayout as GPUBindGroupLayout] }),
       compute: { module: computeModule, entryPoint: "cs_emit" },
     });
 
     // --- Render pipeline ---
-    this.renderBindGroupLayout = this.device.createBindGroupLayout({
+    this.renderBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       ],
     });
 
-    this.renderBindGroup = this.device.createBindGroup({
-      layout: this.renderBindGroupLayout,
+    this.renderBindGroup = dev.createBindGroup({
+      layout: this.renderBindGroupLayout as GPUBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.renderUniformBuffer } },
-        { binding: 1, resource: { buffer: this.particleBuffer } },
+        { binding: 0, resource: { buffer: this.renderUniformBuffer as GPUBuffer } },
+        { binding: 1, resource: { buffer: this.particleBuffer as GPUBuffer } },
       ],
     });
 
-    this.renderPipeline = this.device.createRenderPipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.renderBindGroupLayout] }),
+    this.renderPipeline = dev.createRenderPipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [this.renderBindGroupLayout as GPUBindGroupLayout] }),
       vertex: { module: renderModule, entryPoint: "vs_main", buffers: [] },
       fragment: {
         module: renderModule,
         entryPoint: "fs_main",
         targets: [{
-          format: this.format,
+          format: this.format as GPUTextureFormat,
           blend: {
             color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
             alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -606,11 +662,12 @@ export class ParticleSystem {
     }
     sp[33] = this.seed;
 
-    this.device.queue.writeBuffer(this.simParamBuffer!, 0, this.simParamData as Float32Array<ArrayBuffer>);
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeBuffer(this.simParamBuffer as any, 0, this.simParamData as any);
 
     // Upload voxel data if present
     if (voxelData && voxelData.data.length > 0 && voxelData.data.length <= MAX_VOXEL_FLOATS) {
-      this.device.queue.writeBuffer(this.voxelBuffer!, 0, voxelData.data as Float32Array<ArrayBuffer>);
+      queue?.writeBuffer(this.voxelBuffer as any, 0, voxelData.data as any);
       this.currentVoxelCount = voxelData.data.length;
     } else {
       this.currentVoxelCount = 0;
@@ -620,7 +677,7 @@ export class ParticleSystem {
     // (resetting would overwrite the GPU's cursor and cause particles to be written at index 0 every frame)
 
     const pass = encoder.beginComputePass();
-    pass.setBindGroup(0, this.computeBindGroup);
+    pass.setBindGroup(0, this.computeBindGroup as any);
 
     // Emit
     if (spawnCount > 0 && this.emitPipeline) {
@@ -639,7 +696,7 @@ export class ParticleSystem {
 
   // Called during render pass to draw particles
   render(
-    passEncoder: GPURenderPassEncoder,
+    passEncoder: GPURenderPassEncoder | ITrackedRenderPass,
     camera: CameraState,
     weatherType: WeatherType,
     timeOfDay: number,
@@ -660,10 +717,11 @@ export class ParticleSystem {
     u[23] = 1 / Math.tan((camera.fov * Math.PI / 180) / 2);
     u[24] = this.particleCullDistance;
 
-    this.device.queue.writeBuffer(this.renderUniformBuffer!, 0, u as Float32Array<ArrayBuffer>);
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeBuffer(this.renderUniformBuffer as any, 0, u as any);
 
-    passEncoder.setPipeline(this.renderPipeline);
-    passEncoder.setBindGroup(0, this.renderBindGroup);
+    passEncoder.setPipeline(this.renderPipeline as any);
+    passEncoder.setBindGroup(0, this.renderBindGroup as any);
     passEncoder.draw(MAX_PARTICLES * 6);
   }
 

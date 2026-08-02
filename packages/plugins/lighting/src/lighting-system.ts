@@ -4,6 +4,7 @@
 // Uses WeatherBlend from @downdraft/plugin-weather for smooth transitions.
 //
 
+import type { RenderBackend } from "@downdraft/core/render/backend/render-backend";
 import { WeatherBlend, WeatherType } from "@downdraft/plugin-weather";
 
 // Base sun brightness multiplier for PBR radiance — matches core engine default (3.0).
@@ -11,7 +12,8 @@ import { WeatherBlend, WeatherType } from "@downdraft/plugin-weather";
 const SUN_BRIGHTNESS = 3.0;
 
 export class LightingSystem {
-  protected device: GPUDevice;
+  protected device: GPUDevice | null;
+  protected backend: RenderBackend | null;
   protected weatherBlend: WeatherBlend;
 
   // Pooled return object for getLightingParams (avoids per-frame allocation)
@@ -27,8 +29,9 @@ export class LightingSystem {
     fogColor: [0.0, 0.1, 0.2] as [number, number, number],
   };
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice | null, backend?: RenderBackend | null) {
     this.device = device;
+    this.backend = backend ?? null;
     this.weatherBlend = new WeatherBlend(30.0);
   }
 
