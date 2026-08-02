@@ -1,5 +1,9 @@
 import { DEFAULT_MOTION_BLUR_SETTINGS, MotionBlurPass } from "./motion-blur.ts";
 
+const mockUsage = { UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, TEXTURE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10, COPY_SRC: 0x80, STORAGE: 0x80 };
+(globalThis as unknown as { GPUBufferUsage: unknown }).GPUBufferUsage = mockUsage;
+(globalThis as unknown as { GPUTextureUsage: unknown }).GPUTextureUsage = mockUsage;
+
 function makeMockDevice(): unknown {
   return {
     createShaderModule: () => ({}),
@@ -65,6 +69,14 @@ describe("MotionBlurPass", () => {
       const pass = new MotionBlurPass(makeMockDevice() as GPUDevice);
       const ctx = { device: makeMockDevice(), getView: () => ({}) };
       expect(() => pass.execute(ctx as never)).not.toThrow();
+    });
+  });
+
+  describe("prepare with backend param", () => {
+    it("should accept null backend and use device path", () => {
+      const device = makeMockDevice();
+      const pass = new MotionBlurPass(device as GPUDevice);
+      expect(() => pass.prepare(device as GPUDevice, null)).not.toThrow();
     });
   });
 });

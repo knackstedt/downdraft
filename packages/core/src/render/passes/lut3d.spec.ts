@@ -1,5 +1,9 @@
 import { LUT3DPass } from "./lut3d.ts";
 
+const mockUsage = { UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, TEXTURE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10, COPY_SRC: 0x80, STORAGE: 0x80 };
+(globalThis as unknown as { GPUBufferUsage: unknown }).GPUBufferUsage = mockUsage;
+(globalThis as unknown as { GPUTextureUsage: unknown }).GPUTextureUsage = mockUsage;
+
 function makeMockDevice(): unknown {
   return {
     createShaderModule: () => ({}),
@@ -58,6 +62,14 @@ describe("LUT3DPass", () => {
       const pass = new LUT3DPass(makeMockDevice() as GPUDevice);
       expect(() => pass.setEnabled(true)).not.toThrow();
       expect(() => pass.setEnabled(false)).not.toThrow();
+    });
+  });
+
+  describe("prepare with backend param", () => {
+    it("should accept null backend and use device path", () => {
+      const device = makeMockDevice();
+      const pass = new LUT3DPass(device as GPUDevice);
+      expect(() => pass.prepare(device as GPUDevice, null)).not.toThrow();
     });
   });
 });
