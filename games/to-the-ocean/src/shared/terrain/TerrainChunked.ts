@@ -383,13 +383,17 @@ export function materializeChunkForMesh(
   const gy1 = Math.min(gy0 + cs, field.dimY);
   const gz1 = Math.min(gz0 + cs, field.dimZ);
 
-  // Materialized field includes 1-voxel border on each side
-  const mx0 = Math.max(0, gx0 - 1);
-  const my0 = Math.max(0, gy0 - 1);
-  const mz0 = Math.max(0, gz0 - 1);
-  const mx1 = Math.min(field.dimX, gx1 + 1);
-  const my1 = Math.min(field.dimY, gy1 + 1);
-  const mz1 = Math.min(field.dimZ, gz1 + 1);
+  // Materialized field includes 2-voxel border on each side.
+  // The extra border ensures that +1 border vertices (used for seam-closing
+  // quads) have valid corner data — surface nets vertex at cell (x,y,z) samples
+  // corners at (x+1, y+1, z+1), so a 2-voxel border is needed for the +1
+  // border vertex to have all 8 corners in-bounds.
+  const mx0 = Math.max(0, gx0 - 2);
+  const my0 = Math.max(0, gy0 - 2);
+  const mz0 = Math.max(0, gz0 - 2);
+  const mx1 = Math.min(field.dimX, gx1 + 2);
+  const my1 = Math.min(field.dimY, gy1 + 2);
+  const mz1 = Math.min(field.dimZ, gz1 + 2);
 
   const mDimX = mx1 - mx0;
   const mDimY = my1 - my0;
@@ -438,9 +442,9 @@ export function getChunkMeshSubRegion(
   const gx1 = Math.min(gx0 + cs, field.dimX);
   const gy1 = Math.min(gy0 + cs, field.dimY);
   const gz1 = Math.min(gz0 + cs, field.dimZ);
-  const mx0 = Math.max(0, gx0 - 1);
-  const my0 = Math.max(0, gy0 - 1);
-  const mz0 = Math.max(0, gz0 - 1);
+  const mx0 = Math.max(0, gx0 - 2);
+  const my0 = Math.max(0, gy0 - 2);
+  const mz0 = Math.max(0, gz0 - 2);
   return {
     x0: gx0 - mx0,
     y0: gy0 - my0,

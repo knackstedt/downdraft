@@ -61,6 +61,7 @@
         "@downdraft/plugin-marching-cubes": "workspace:*",
         "@downdraft/plugin-models": "workspace:*",
         "@downdraft/plugin-physics-rapier": "workspace:*",
+        "@downdraft/plugin-surface-nets": "workspace:*",
         "@downdraft/plugin-survival": "workspace:*",
         "@downdraft/plugin-water": "workspace:*",
         "@downdraft/plugin-weather": "workspace:*",
@@ -267,6 +268,14 @@
         "@downdraft/core": "workspace:*",
       },
     },
+    "packages/plugins/surface-nets": {
+      "name": "@downdraft/plugin-surface-nets",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/plugin-marching-cubes": "workspace:*",
+      },
+    },
     "packages/plugins/survival": {
       "name": "@downdraft/plugin-survival",
       "version": "0.1.0",
@@ -465,6 +474,8 @@
     "@downdraft/plugin-physics-rapier": ["@downdraft/plugin-physics-rapier@workspace:packages/plugins/physics-rapier"],
 
     "@downdraft/plugin-postfx": ["@downdraft/plugin-postfx@workspace:packages/plugins/postfx"],
+
+    "@downdraft/plugin-surface-nets": ["@downdraft/plugin-surface-nets@workspace:packages/plugins/surface-nets"],
 
     "@downdraft/plugin-survival": ["@downdraft/plugin-survival@workspace:packages/plugins/survival"],
 

@@ -133,5 +133,8 @@ export const TERRAIN_CONFIG = {
   portCaveMinDepth: 0.3,        // caves only deep underwater (well below dock)
 
   // --- Mesh extraction algorithm ---
-  useMarchingTetrahedra: true,  // true = Marching Tetrahedra, false = Marching Cubes
+  useSurfaceNets: true,         // true = Surface Nets (smoother, fewer vertices)
+  useMarchingTetrahedra: false, // true = Marching Tetrahedra, false = Marching Cubes
+                                 // Priority: useSurfaceNets > useMarchingTetrahedra > MC
+  surfaceNetsSmooth: true,      // Surface Nets: true = smooth interpolation, false = snap to voxel grid (blocky)
 } as const;
