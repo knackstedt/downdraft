@@ -511,6 +511,12 @@ export class WebGPURenderer {
       this.waterPass.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.lightingSystem.initDebugGizmos(this.format);
 
+      this.underwaterFogPass = new UnderwaterFogPass(null, this.format, 1, backend);
+      this.underwaterFogPass.prepare(null as any, backend);
+
+      this.cloudSystem = new CloudSystem(null, this.format, new GameCloudMeshProvider(), backend);
+      await this.cloudSystem.init();
+
       console.log(`[WebGPU] Renderer initialized with ${backend.type} backend fallback`);
       return true;
     } catch (err) {
@@ -1017,10 +1023,10 @@ export class WebGPURenderer {
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
     if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.endPass("Entities", passEncoder, viewportIdx, this.frameDrawCalls - _ed, this.entityRenderer!.getLastFrameTriangles()); }
     // Clouds
-    if (this.cloudSystem && !isBackend) {
-      if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Clouds", passEncoder, viewportIdx); }
+    if (this.cloudSystem) {
+      if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.beginPass("Clouds", passEncoder, viewportIdx); }
       this.cloudSystem.render(passEncoder, camera, timeOfDay, weatherType, windSpeed, windDir.x, windDir.z, this.elapsedTime, playerPos, lp.sunDir, lp.sunIntensity, lp.moonDir, lp.moonIntensity, lp.fogColor, 0.0008);
-      if (viewportIdx === 0) { this.gpuProfiler!.endPass("Clouds", passEncoder, viewportIdx); }
+      if (!isBackend && viewportIdx === 0) { this.gpuProfiler!.endPass("Clouds", passEncoder, viewportIdx); }
     }
     // Water
     if (this.waterReader && this.waterReader.isValid()) {
@@ -1077,7 +1083,12 @@ export class WebGPURenderer {
     // Underwater fog
     const cwh = this.sampleWaterHeightAt(camera.position[0], camera.position[2]);
     const cd = cwh - camera.position[1];
-    if (cd > 0 && !isBackend) { this.gpuProfiler!.beginPass("UnderwaterFog", passEncoder, viewportIdx); this.underwaterFogPass!.setDepth(cd, this.elapsedTime); this.underwaterFogPass!.execute({ device: this.device!, pass: passEncoder } as any); this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx); }
+    if (cd > 0) {
+      if (!isBackend) { this.gpuProfiler!.beginPass("UnderwaterFog", passEncoder, viewportIdx); }
+      this.underwaterFogPass!.setDepth(cd, this.elapsedTime);
+      this.underwaterFogPass!.execute({ device: this.device, pass: passEncoder, backend: this.backend } as any);
+      if (!isBackend) { this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx); }
+    }
     passEncoder.end();
     if (isBackend) {
       this.backend!.queue.submit([encoder.finish()]);
