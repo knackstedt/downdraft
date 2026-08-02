@@ -164,6 +164,9 @@ export type { ViewportMode, ViewportRect } from "./render/viewport.ts";
 export { VisionTest, VisionTestSuite } from "./render/vision-test.ts";
 export type { DiffResult, PixelMatchOptions, PixelScanResult, VisionTestResult } from "./render/vision-test.ts";
 
+// Render Backend Abstraction
+export * from "./render/backend/index.ts";
+
 // Mesh
 export { MeshBuilder } from "./mesh/builder.ts";
 export type { MeshData } from "./mesh/builder.ts";
