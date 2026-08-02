@@ -9,6 +9,7 @@ export { DEFAULT_MC_CONFIG, defaultDensityField, extractMeshFromField, generateC
 export type { DensityField, ExtractMeshOptions, MCChunkConfig, MCMesh, MCVertex, MeshColorFn } from "./generator.ts";
 export { DEFAULT_LOD_LEVELS, TerrainLODManager } from "./lod.ts";
 export type { ChunkLODEntry, LODLevel } from "./lod.ts";
+export { extractMeshFromFieldTetra } from "./marching-tetrahedra.ts";
 export { TerrainChannel, TerrainSABChannel } from "./sab.ts";
 
 // Chunked voxel field storage

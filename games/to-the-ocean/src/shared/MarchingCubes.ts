@@ -4,7 +4,7 @@
 // (extractMeshFromField) lives in @downdraft/plugin-marching-cubes.
 // ============================================================================
 
-import { extractMeshFromField, type MeshColorFn } from "@downdraft/plugin-marching-cubes";
+import { extractMeshFromField, extractMeshFromFieldTetra, type MeshColorFn } from "@downdraft/plugin-marching-cubes";
 import { TERRAIN_CONFIG } from "./TerrainConfig";
 import type { ExtractedMesh, VoxelField } from "./TerrainTypes";
 import { TerrainType } from "./TerrainTypes";
@@ -91,9 +91,10 @@ export function extractMesh(
   field: VoxelField,
   cliffNoiseFn?: (x: number, y: number, z: number) => number,
 ): ExtractedMesh {
-  return extractMeshFromField(field, {
-    colorFn: makeTerrainColorFn(cliffNoiseFn),
-  });
+  const opts = { colorFn: makeTerrainColorFn(cliffNoiseFn) };
+  return TERRAIN_CONFIG.useMarchingTetrahedra
+    ? extractMeshFromFieldTetra(field, opts)
+    : extractMeshFromField(field, opts);
 }
 
 // Extract cloud mesh from a voxel field — same MC algorithm as extractMesh
@@ -116,10 +117,10 @@ export function extractCloudMesh(
       ? f.data[gx * dimYDimZ + gy * dimZ + gz] : iso;
     return colorFn ? colorFn(ny, density) : [1, 1, 1];
   };
-  return extractMeshFromField(field, {
-    colorFn: cloudColorFn,
-    flipDownNormals: false,
-  });
+  const opts = { colorFn: cloudColorFn, flipDownNormals: false };
+  return TERRAIN_CONFIG.useMarchingTetrahedra
+    ? extractMeshFromFieldTetra(field, opts)
+    : extractMeshFromField(field, opts);
 }
 
 // Extract mesh from a sub-region of a voxel field (for chunked streaming).
@@ -131,8 +132,8 @@ export function extractMeshSubRegion(
   x1: number, y1: number, z1: number,
   cliffNoiseFn?: (x: number, y: number, z: number) => number,
 ): ExtractedMesh {
-  return extractMeshFromField(field, {
-    x0, y0, z0, x1, y1, z1,
-    colorFn: makeTerrainColorFn(cliffNoiseFn),
-  });
+  const opts = { x0, y0, z0, x1, y1, z1, colorFn: makeTerrainColorFn(cliffNoiseFn) };
+  return TERRAIN_CONFIG.useMarchingTetrahedra
+    ? extractMeshFromFieldTetra(field, opts)
+    : extractMeshFromField(field, opts);
 }

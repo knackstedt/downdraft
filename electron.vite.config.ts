@@ -98,6 +98,8 @@ export default defineConfig({
         { find: /^@downdraft\/plugin-devtools\//, replacement: resolve("packages/plugins/devtools/src") + "/" },
         { find: /^node:fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
         { find: /^fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
+        { find: /^@downdraft\/plugin-marching-cubes$/, replacement: resolve("packages/plugins/marching-cubes/src/index.ts") },
+        { find: /^@downdraft\/plugin-marching-cubes\//, replacement: resolve("packages/plugins/marching-cubes/src") + "/" },
         { find: /^@downdraft\/plugin-navmesh$/, replacement: resolve("packages/plugins/navmesh/src/index.ts") },
         { find: /^@downdraft\/plugin-navmesh\//, replacement: resolve("packages/plugins/navmesh/src") + "/" },
         { find: /^@downdraft\/plugin-water$/, replacement: resolve("packages/plugins/water/src/index.ts") },
