@@ -14,6 +14,8 @@ import { UIRoot } from "../ui/element.ts";
 import { UIInputRouter } from "../ui/input.ts";
 import { LayoutEngine } from "../ui/layout.ts";
 import { UIRenderer } from "../ui/renderer.ts";
+import { type RenderBackend } from "./backend/render-backend.ts";
+import type { TextureFormat } from "./backend/types.ts";
 import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher.ts";
 import { GPUDeviceManager } from "./device.ts";
 import { InputManager } from "./input-manager.ts";
@@ -95,6 +97,11 @@ export class GameRenderer implements CanvasResizeHandler {
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private config: GameRendererConfig;
+
+  // Backend-agnostic rendering (optional — when set, used for backend-agnostic context fields)
+  private backend: RenderBackend | null = null;
+  private _backendFormat: TextureFormat = "bgra8unorm";
+  private _backendDepthFormat: TextureFormat = "depth32float";
 
   private depthFormat: GPUTextureFormat = "depth32float";
   private msaaSampleCount: number = 1;
@@ -277,6 +284,92 @@ export class GameRenderer implements CanvasResizeHandler {
       console.error("[GameRenderer] Init failed:", err);
       return false;
     }
+  }
+
+  // --- Backend-agnostic initialization ---
+
+  async initBackend(options: BackendCreateOptions = {}): Promise<boolean> {
+    try {
+      const backend = await createBackend(this.canvas, options);
+      if (!backend) {
+        console.error("[GameRenderer] No backend available");
+        return false;
+      }
+      this.backend = backend;
+      this._backendFormat = backend.getSurfaceFormat();
+      this._backendDepthFormat = backend.type === "webgl2" ? "depth24plus" : "depth32float";
+
+      // If WebGPU backend, populate native fields for backward compatibility
+      if (backend.type === "webgpu") {
+        this.device = backend.getNativeDevice() as GPUDevice;
+        this.context = this.canvas.getContext("webgpu");
+        this.format = (this._backendFormat as GPUTextureFormat) ?? "bgra8unorm";
+      }
+
+      // Initialize GPU UI system (requires WebGPU for now)
+      if (this.device) {
+        this.uiRenderer = new UIRenderer(this.format);
+        this.uiRenderer.prepare(this.device);
+        this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
+        this.uiRoot = new UIRoot(this.canvas.width, this.canvas.height);
+        this.uiLayoutEngine = new LayoutEngine();
+        this.uiLayoutEngine.setTextCache(this.uiRenderer.getTextCache());
+        this.uiInputRouter = new UIInputRouter();
+        this.uiInputRouter.setRoot(this.uiRoot);
+        this.inputManager.setUIInputRouter(this.uiInputRouter);
+      }
+
+      // Telemetry + profiling overlay
+      this.telemetryCollector = new TelemetryCollector(true);
+      if (this.config.enableProfilingOverlay && this.device) {
+        this.dpr = window.devicePixelRatio || 1;
+        this.profilingOverlay = new ProfilingOverlay(this.telemetryCollector, {
+          position: this.config.profilingOverlayConfig?.position ?? "top-left",
+          updateIntervalMs: this.config.profilingOverlayConfig?.updateIntervalMs ?? 100,
+          fontSize: this.config.profilingOverlayConfig?.fontSize ?? Math.round(16 * this.dpr),
+          showGpuTime: this.config.profilingOverlayConfig?.showGpuTime ?? false,
+          showPercentiles: this.config.profilingOverlayConfig?.showPercentiles ?? false,
+          showMemory: this.config.profilingOverlayConfig?.showMemory ?? false,
+        });
+        this.profilingOverlay.setScreenSize(this.canvas.width, this.canvas.height);
+      }
+
+      // Canvas resize watcher
+      this.resizeWatcher = new CanvasResizeWatcher(this.canvas, this);
+
+      // Input listeners
+      this.inputManager.setupListeners();
+
+      // Initial viewport layout
+      this.updateViewports(1);
+
+      // Device lost handler
+      if (this.device) {
+        this.device.lost.then((info: any) => {
+          this.deviceLost = true;
+          console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+        });
+      }
+
+      backend.onDeviceLost((info) => {
+        this.deviceLost = true;
+        console.error(`[GameRenderer] Backend device lost: ${info.reason} — ${info.message}`);
+      });
+
+      console.log(`[GameRenderer] initialized with ${backend.type} backend`);
+      return true;
+    } catch (err) {
+      console.error("[GameRenderer] initBackend failed:", err);
+      return false;
+    }
+  }
+
+  getBackend(): RenderBackend | null {
+    return this.backend;
+  }
+
+  getBackendType(): "webgpu" | "webgl2" | null {
+    return this.backend?.type ?? null;
   }
 
   // --- CanvasResizeHandler ---
@@ -614,6 +707,13 @@ export class GameRenderer implements CanvasResizeHandler {
 
     // Execute registered pipeline passes
     const ctx: RenderContext = {
+      backend: this.backend!,
+      backendEncoder: this.backend ? this.backend.createCommandEncoder() : null as any,
+      backendPassEncoder: null as any, // Set below if backend is available
+      surfaceView: null as any, // Set below if backend is available
+      depthView: null as any, // Set below if backend is available
+      surfaceFormat: this._backendFormat,
+      depthFormat: this._backendDepthFormat,
       device: this.device,
       encoder,
       passEncoder,
@@ -626,6 +726,41 @@ export class GameRenderer implements CanvasResizeHandler {
       isFirstViewport: isFirst,
       isLastViewport: isLast,
     };
+
+    // Populate backend-agnostic fields when a RenderBackend is available
+    if (this.backend) {
+      const surfTex = this.backend.getCurrentSurfaceTexture();
+      if (surfTex) {
+        ctx.surfaceView = this.backend.createTextureView(surfTex);
+      }
+      // Create backend depth texture
+      const backendDepthTex = this.backend.createTexture({
+        label: "depth",
+        size: [origViewport.w, origViewport.h],
+        format: this._backendDepthFormat,
+        usage: 16, // TEXTURE_USAGE_RENDER_ATTACHMENT
+      });
+      ctx.depthView = this.backend.createTextureView(backendDepthTex);
+
+      // Create backend render pass
+      const backendEncoder = this.backend.createCommandEncoder();
+      ctx.backendEncoder = backendEncoder;
+      ctx.backendPassEncoder = backendEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: ctx.surfaceView,
+          clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 },
+          loadOp,
+          storeOp: "store",
+        }],
+        depthStencilAttachment: {
+          view: ctx.depthView,
+          depthClearValue: 1.0,
+          depthLoadOp: loadOp,
+          depthStoreOp: "store",
+        },
+      });
+    }
+
     this.pipeline.render(ctx);
 
     passEncoder.end();
@@ -636,6 +771,12 @@ export class GameRenderer implements CanvasResizeHandler {
     }
 
     this.device.queue.submit([encoder.finish()]);
+
+    // Submit backend command buffer if backend is available
+    if (this.backend && ctx.backendEncoder) {
+      const backendCmdBuf = ctx.backendEncoder.finish();
+      this.backend.queue.submit([backendCmdBuf]);
+    }
 
     // Read GPU timer results asynchronously (1-frame latency)
     if (isFirst) {

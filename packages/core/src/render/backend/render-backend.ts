@@ -128,7 +128,7 @@ export async function createBackend(
     try {
       const { WebGL2Backend } = await import("./webgl2/webgl2-backend.ts");
       const backend = new WebGL2Backend();
-      const ok = await backend.init({});
+      const ok = await backend.init({ canvas });
       if (ok) {
         backend.configureSurface(canvas, {});
         return backend;
