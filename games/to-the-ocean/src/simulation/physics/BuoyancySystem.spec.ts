@@ -10,7 +10,7 @@ import {
     SHIP_MASS_PER_CELL
 } from "../../shared/constants";
 
-// --- Physics constants (must match BuoyancySystem.ts) ---
+// --- Physics constants (must match plugin-buoyancy buoyancy-system.ts) ---
 const GRAVITY = 9.8;
 const WATER_DENSITY = 1000;
 const MAX_TILT = Math.PI / 6;
@@ -114,7 +114,7 @@ interface BuoyState {
   angVelZ: number;
 }
 
-// --- Inlined buoyancy tick (matches BuoyancySystem.applyCellBuoyancy + integrateBuoyancy) ---
+// --- Inlined buoyancy tick (matches plugin-buoyancy applyCellBuoyancy + integrateBuoyancy) ---
 // Uses flat water at FLAT_WATER_HEIGHT for deterministic testing.
 function buoyancyTick(
   state: BuoyState,

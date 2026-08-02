@@ -1,6 +1,6 @@
 // ============================================================================
 // Buoyancy System — applies water height-based forces to ships/entities
-// Ported from to-the-ocean/src/simulation/physics/BuoyancySystem.ts
+// Originally based on to-the-ocean's buoyancy implementation
 // ============================================================================
 
 import type { WaterPhysics } from "./water-physics.ts";
