@@ -1,0 +1,7 @@
+{
+  "name": "<%= it.name %>",
+<%~ include("_shared/partials/package-json-fields", it) %>
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}

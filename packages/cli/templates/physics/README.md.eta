@@ -1,0 +1,36 @@
+# <%= it.name %>
+
+<% if (it.description) { %><%= it.description %><% } else { %>A physics-based game built with the DownDraft Engine.<% } %>
+
+## Getting Started
+
+```bash
+# Install dependencies
+bun install
+
+# Start dev server
+bun run dev
+
+# Build for production
+bun run build
+
+# Export for distribution
+bun run export
+```
+
+## Project Structure
+
+```
+src/          Game source code
+  main.ts     Entry point (init, tick, dispose)
+assets/       Game assets (models, textures, shaders)
+downdraft.config.json   Engine configuration (physics-rapier plugin enabled)
+```
+
+## Plugins
+
+- **@downdraft/plugin-physics-rapier** — Rapier physics backend for rigid body simulation, colliders, and raycasting.
+
+## Engine
+
+Built with [DownDraft Engine](https://github.com/downdraft-engine) — a TypeScript-first game engine on Electron + WebGPU.

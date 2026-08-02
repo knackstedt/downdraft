@@ -1,0 +1,10 @@
+{
+<%~ include("_shared/partials/config-json-fields", it) %>,
+  "plugins": [
+    "physics-rapier",
+    "water",
+    "marching-cubes",
+    "models",
+    "devtools"
+  ]
+}
