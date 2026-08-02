@@ -285,7 +285,13 @@ fn islandLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>) -> ve
 
 @fragment
 fn fs_main(input: IslandVertexOutput) -> @location(0) vec4<f32> {
-  let N = normalize(input.normal);
+  // Flat shading: compute geometric face normal from screen-space derivatives.
+  // This gives a constant normal per triangle for a faceted low-poly look.
+  let dpx = dpdx(input.worldPos);
+  let dpy = dpdy(input.worldPos);
+  let faceNormal = normalize(cross(dpx, dpy));
+  // Use the interpolated normal to ensure correct orientation (flip if pointing away)
+  let N = normalize(faceNormal * sign(dot(faceNormal, input.normal)));
   var color = islandLighting(N, input.worldPos, input.color);
   return vec4<f32>(color, 1.0);
 }

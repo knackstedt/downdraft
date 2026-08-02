@@ -8,6 +8,7 @@
     "@downdraft/plugin-water": "workspace:*",
     "@downdraft/plugin-physics-rapier": "workspace:*",
     "@downdraft/plugin-marching-cubes": "workspace:*",
+    "@downdraft/plugin-surface-nets": "workspace:*",
     "@downdraft/plugin-items": "workspace:*",
     "@downdraft/plugin-inventory": "workspace:*",
     "@downdraft/plugin-crafting": "workspace:*",

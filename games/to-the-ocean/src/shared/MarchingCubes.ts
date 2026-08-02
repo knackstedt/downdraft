@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { extractMeshFromField, extractMeshFromFieldTetra, type MeshColorFn } from "@downdraft/plugin-marching-cubes";
+import { extractMeshFromField as extractMeshFromFieldSN } from "@downdraft/plugin-surface-nets";
 import { TERRAIN_CONFIG } from "./TerrainConfig";
 import type { ExtractedMesh, VoxelField } from "./TerrainTypes";
 import { TerrainType } from "./TerrainTypes";
@@ -91,7 +92,9 @@ export function extractMesh(
   field: VoxelField,
   cliffNoiseFn?: (x: number, y: number, z: number) => number,
 ): ExtractedMesh {
-  const opts = { colorFn: makeTerrainColorFn(cliffNoiseFn) };
+  const opts = { colorFn: makeTerrainColorFn(cliffNoiseFn), smooth: TERRAIN_CONFIG.surfaceNetsSmooth };
+  if (TERRAIN_CONFIG.useSurfaceNets)
+    return extractMeshFromFieldSN(field, opts);
   return TERRAIN_CONFIG.useMarchingTetrahedra
     ? extractMeshFromFieldTetra(field, opts)
     : extractMeshFromField(field, opts);
@@ -117,7 +120,9 @@ export function extractCloudMesh(
       ? f.data[gx * dimYDimZ + gy * dimZ + gz] : iso;
     return colorFn ? colorFn(ny, density) : [1, 1, 1];
   };
-  const opts = { colorFn: cloudColorFn, flipDownNormals: false };
+  const opts = { colorFn: cloudColorFn, flipDownNormals: false, smooth: TERRAIN_CONFIG.surfaceNetsSmooth };
+  if (TERRAIN_CONFIG.useSurfaceNets)
+    return extractMeshFromFieldSN(field, opts);
   return TERRAIN_CONFIG.useMarchingTetrahedra
     ? extractMeshFromFieldTetra(field, opts)
     : extractMeshFromField(field, opts);
@@ -132,7 +137,9 @@ export function extractMeshSubRegion(
   x1: number, y1: number, z1: number,
   cliffNoiseFn?: (x: number, y: number, z: number) => number,
 ): ExtractedMesh {
-  const opts = { x0, y0, z0, x1, y1, z1, colorFn: makeTerrainColorFn(cliffNoiseFn) };
+  const opts = { x0, y0, z0, x1, y1, z1, colorFn: makeTerrainColorFn(cliffNoiseFn), smooth: TERRAIN_CONFIG.surfaceNetsSmooth };
+  if (TERRAIN_CONFIG.useSurfaceNets)
+    return extractMeshFromFieldSN(field, opts);
   return TERRAIN_CONFIG.useMarchingTetrahedra
     ? extractMeshFromFieldTetra(field, opts)
     : extractMeshFromField(field, opts);
