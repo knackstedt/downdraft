@@ -14,7 +14,7 @@ import { UIRoot } from "../ui/element.ts";
 import { UIInputRouter } from "../ui/input.ts";
 import { LayoutEngine } from "../ui/layout.ts";
 import { UIRenderer } from "../ui/renderer.ts";
-import { type RenderBackend } from "./backend/render-backend.ts";
+import { createBackend, type BackendCreateOptions, type RenderBackend } from "./backend/render-backend.ts";
 import type { TextureFormat } from "./backend/types.ts";
 import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher.ts";
 import { GPUDeviceManager } from "./device.ts";

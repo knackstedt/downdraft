@@ -106,6 +106,45 @@ describe("createBackend", () => {
     // With no navigator.gpu and forceBackend=webgpu, returns null
     expect(result).toBeNull();
   });
+
+  it("returns null when forceBackend is webgpu and navigator.gpu is undefined", async () => {
+    (navigator as unknown as { gpu?: unknown }).gpu = undefined;
+    // Should not try WebGL2 since forceBackend is webgpu
+    const result = await createBackend(mockCanvas, { forceBackend: "webgpu" });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when forceBackend is webgl2 and navigator.gpu is available but not used", async () => {
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter: vi.fn().mockResolvedValue(null),
+    } as unknown as GPU;
+    // forceBackend=webgl2 should skip WebGPU entirely even if navigator.gpu exists
+    mockCanvas = {
+      getContext: vi.fn().mockReturnValue(null),
+    } as unknown as HTMLCanvasElement;
+    const result = await createBackend(mockCanvas, { forceBackend: "webgl2" });
+    expect(result).toBeNull();
+    // Verify WebGPU was NOT attempted (requestAdapter should not have been called)
+    expect((navigator as unknown as { gpu: { requestAdapter: ReturnType<typeof vi.fn> } }).gpu.requestAdapter).not.toHaveBeenCalled();
+  });
+
+  it("passes powerPreference to WebGPU adapter request", async () => {
+    const requestAdapter = vi.fn().mockResolvedValue(null);
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter,
+    } as unknown as GPU;
+    await createBackend(mockCanvas, { forceBackend: "webgpu", powerPreference: "low-power" });
+    expect(requestAdapter).toHaveBeenCalledWith({ powerPreference: "low-power" });
+  });
+
+  it("defaults powerPreference to high-performance", async () => {
+    const requestAdapter = vi.fn().mockResolvedValue(null);
+    (navigator as unknown as { gpu?: unknown }).gpu = {
+      requestAdapter,
+    } as unknown as GPU;
+    await createBackend(mockCanvas, { forceBackend: "webgpu" });
+    expect(requestAdapter).toHaveBeenCalledWith({ powerPreference: "high-performance" });
+  });
 });
 
 describe("RenderBackend interface", () => {
