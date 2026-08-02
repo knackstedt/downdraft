@@ -19,6 +19,8 @@ export interface CameraState {
   near: number;
   far: number;
   aspect: number;
+  projectionMatrix?: Float32Array;
+  viewMatrix?: Float32Array;
 }
 
 export interface CameraConfig {
@@ -53,6 +55,18 @@ const tmpView = new Float32Array(16);
 const tmpResult = new Float32Array(16);
 
 export function calculateViewProj(camera: CameraState): Float32Array {
+  if (camera.projectionMatrix && camera.viewMatrix) {
+    return mat4.multiply(camera.projectionMatrix, camera.viewMatrix, tmpResult);
+  }
+  if (camera.projectionMatrix) {
+    mat4.lookAt(camera.position, camera.target, camera.up, tmpView);
+    return mat4.multiply(camera.projectionMatrix, tmpView, tmpResult);
+  }
+  if (camera.viewMatrix) {
+    const fov = (camera.fov * Math.PI) / 180;
+    mat4.perspective(fov, camera.aspect, camera.near, camera.far, tmpProj);
+    return mat4.multiply(tmpProj, camera.viewMatrix, tmpResult);
+  }
   const fov = (camera.fov * Math.PI) / 180;
   mat4.perspective(fov, camera.aspect, camera.near, camera.far, tmpProj);
   mat4.lookAt(camera.position, camera.target, camera.up, tmpView);

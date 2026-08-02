@@ -47,6 +47,23 @@ describe("InputState", () => {
     state.endFrame();
     expect(state.wheelDelta).toBe(0);
   });
+
+  it("should track XR controller state", () => {
+    const state = new InputState();
+    expect(state.xrControllers).toEqual([]);
+
+    const controller: XRControllerState = {
+      aimPosition: [1, 2, 3],
+      aimQuaternion: [0, 0, 0, 1],
+      gripPosition: [4, 5, 6],
+      gripQuaternion: [0, 0.707, 0, 0.707],
+      handedness: "left",
+    };
+    state.xrControllers = [controller];
+    expect(state.xrControllers.length).toBe(1);
+    expect(state.xrControllers[0].handedness).toBe("left");
+    expect(state.xrControllers[0].aimPosition).toEqual([1, 2, 3]);
+  });
 });
 
 describe("InputContextRouter", () => {

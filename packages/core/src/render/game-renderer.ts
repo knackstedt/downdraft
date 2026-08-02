@@ -60,6 +60,8 @@ export interface CameraViewportInfo {
     near: number;
     far: number;
     aspect: number;
+    projectionMatrix?: Float32Array;
+    viewMatrix?: Float32Array;
   };
   viewport: ViewportRect;
 }
@@ -74,6 +76,18 @@ export interface OffscreenMode {
   getSceneColorView?: () => GPUTextureView;
   getSceneDepthView?: () => GPUTextureView;
 }
+
+export interface RenderTargetProvider {
+  getColorView(viewportIdx: number): GPUTextureView;
+  getDepthView(viewportIdx: number, w: number, h: number): GPUTextureView;
+  getViewportCount(): number;
+  getViewportRect(idx: number, screenW: number, screenH: number): ViewportRect;
+  beginFrame(): void;
+  endFrame(encoder: GPUCommandEncoder): void;
+}
+
+export type RAFSource = (callback: (time: number) => void) => number;
+export type CancelRAF = (id: number) => void;
 
 export class GameRenderer implements CanvasResizeHandler {
   private canvas: HTMLCanvasElement;
@@ -139,6 +153,14 @@ export class GameRenderer implements CanvasResizeHandler {
 
   // Offscreen mode (set by game for postprocessing)
   private offscreenMode: OffscreenMode | null = null;
+
+  // XR render target provider (overrides canvas surface when set)
+  private renderTargetProvider: RenderTargetProvider | null = null;
+
+  // rAF source override (for XR sessions)
+  private rafSource: RAFSource | null = null;
+  private cancelRaf: CancelRAF | null = null;
+  private currentRafId: number = 0;
 
   // Dpr
   private dpr = 1;
@@ -342,11 +364,15 @@ export class GameRenderer implements CanvasResizeHandler {
 
   stop(): void {
     this.running = false;
+    if (this.cancelRaf && this.currentRafId) {
+      this.cancelRaf(this.currentRafId);
+      this.currentRafId = 0;
+    }
   }
 
   private render = (): void => {
     if (!this.running || !this.device || !this.context) {
-      requestAnimationFrame(this.render);
+      this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
       return;
     }
 
@@ -378,18 +404,18 @@ export class GameRenderer implements CanvasResizeHandler {
           console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
         });
       }
-      requestAnimationFrame(this.render);
+      this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
     }
   };
 
   private renderFrame(): void {
     const now = performance.now();
 
-    // Frame rate limiter: phase accumulator
-    if (this.limiterActive && this.targetFrameTime > 0) {
+    // Frame rate limiter: phase accumulator (skip during XR — XR drives its own cadence)
+    if (!this.renderTargetProvider && this.limiterActive && this.targetFrameTime > 0) {
       this.frameAccum += this.rafInterval / this.targetFrameTime;
       if (this.frameAccum < 1) {
-        requestAnimationFrame(this.render);
+        this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
         return;
       }
       this.frameAccum -= 1;
@@ -417,6 +443,11 @@ export class GameRenderer implements CanvasResizeHandler {
 
     // Before viewports callback (game-specific: particle ticks, pre-viewport setup)
     this.callbacks.beforeViewports?.(dt, this.elapsedTime);
+
+    // XR render target provider beginFrame hook
+    if (this.renderTargetProvider) {
+      this.renderTargetProvider.beginFrame();
+    }
 
     // Render each viewport
     const offscreen = this.offscreenMode;
@@ -502,17 +533,26 @@ export class GameRenderer implements CanvasResizeHandler {
       this.frameTriangles = 0;
     }
 
+    // XR render target provider endFrame hook
+    if (this.renderTargetProvider && this.device) {
+      this.renderTargetProvider.endFrame(this.device.createCommandEncoder());
+    }
+
     // After frame callback
     this.callbacks.afterFrame?.(dt, this.elapsedTime);
 
-    requestAnimationFrame(this.render);
+    this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
   }
 
   private renderViewport(viewportIdx: number, dt: number, offscreen: OffscreenMode | null): void {
     if (!this.device || !this.context) return;
 
-    const useOffscreen = offscreen && offscreen.type !== "none";
-    const origViewport = this.viewports[viewportIdx];
+    const xrProvider = this.renderTargetProvider;
+    const useOffscreen = !xrProvider && offscreen && offscreen.type !== "none";
+
+    const origViewport = xrProvider
+      ? xrProvider.getViewportRect(viewportIdx, this.canvas.width, this.canvas.height)
+      : this.viewports[viewportIdx];
     if (!origViewport) return;
 
     const viewport = (useOffscreen && offscreen?.scaleViewport)
@@ -527,8 +567,10 @@ export class GameRenderer implements CanvasResizeHandler {
     const isLast = viewportIdx === this.viewportCount - 1;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
 
-    // Determine color/depth views
-    const colorView = (useOffscreen && offscreen)
+    // Determine color/depth views — XR provider takes precedence, then offscreen, then canvas
+    const colorView = xrProvider
+      ? xrProvider.getColorView(viewportIdx)
+      : (useOffscreen && offscreen)
       ? (offscreen.type === "pixelation"
         ? offscreen.getColorView()
         : offscreen.type === "postprocess"
@@ -536,7 +578,9 @@ export class GameRenderer implements CanvasResizeHandler {
         : this.context!.getCurrentTexture().createView())
       : this.context!.getCurrentTexture().createView();
 
-    const depthView = (useOffscreen && offscreen)
+    const depthView = xrProvider
+      ? xrProvider.getDepthView(viewportIdx, origViewport.w, origViewport.h)
+      : (useOffscreen && offscreen)
       ? (offscreen.type === "pixelation"
         ? offscreen.getDepthView()
         : offscreen.type === "postprocess"
@@ -657,6 +701,28 @@ export class GameRenderer implements CanvasResizeHandler {
 
   getOffscreenMode(): OffscreenMode | null {
     return this.offscreenMode;
+  }
+
+  // --- XR render target provider ---
+
+  setRenderTargetProvider(provider: RenderTargetProvider | null): void {
+    this.renderTargetProvider = provider;
+  }
+
+  getRenderTargetProvider(): RenderTargetProvider | null {
+    return this.renderTargetProvider;
+  }
+
+  // --- rAF source override (for XR sessions) ---
+
+  setRAFSource(request: RAFSource, cancel: CancelRAF): void {
+    this.rafSource = request;
+    this.cancelRaf = cancel;
+  }
+
+  clearRAFSource(): void {
+    this.rafSource = null;
+    this.cancelRaf = null;
   }
 
   // --- Callbacks ---

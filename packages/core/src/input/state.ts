@@ -4,6 +4,14 @@ export enum InputContext {
   UI = 2,
 }
 
+export interface XRControllerState {
+  aimPosition: [number, number, number];
+  aimQuaternion: [number, number, number, number];
+  gripPosition: [number, number, number];
+  gripQuaternion: [number, number, number, number];
+  handedness: "left" | "right" | "none";
+}
+
 export class InputState {
   keys: Set<number> = new Set();
   keysPressed: Set<number> = new Set();
@@ -18,6 +26,7 @@ export class InputState {
   wheelDelta: number = 0;
   gamepadButtons: Set<number> = new Set();
   gamepadAxes: number[] = [0, 0, 0, 0];
+  xrControllers: XRControllerState[] = [];
 
   private context: InputContext = InputContext.Editor;
   private contextLocked: boolean = false;
