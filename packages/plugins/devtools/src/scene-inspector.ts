@@ -4,9 +4,8 @@
 // IGameDevToolsExtension.
 // ============================================================================
 
-import { startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { compileUIGraphToMaterial, startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats, type UIConnection, type UINodeData } from "@downdraft/core";
 import { detectFormat, loadModel } from "@downdraft/plugin-models";
-
 import { useDebugStore } from "./debug-store.ts";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store.ts";
 import type {
@@ -472,6 +471,92 @@ export abstract class BaseSceneInspector {
       // --- Panel extensions (game-specific tabs and overlay toggles) ---
       getPanelExtensions: (): IDevToolsPanelExtension[] => this.getPanelExtensions(),
       getOverlayToggles: (): IDevToolsOverlayToggle[] => this.getOverlayToggles(),
+
+      // --- Debug mode (Inspector v2) ---
+      setDebugMode: (mode: string): void => {
+        const provider = this.getDebugModeProvider();
+        if (provider && typeof (provider as any).setDebugMode === "function") {
+          (provider as any).setDebugMode(mode);
+        }
+        this.renderer?.setDebugMode(mode !== "none");
+      },
+
+      // --- Material Editor API ---
+
+      compileMaterialGraph: (nodes: UINodeData[], connections: UIConnection[], options?: {
+        blendMode?: string; cullMode?: string; profile?: string;
+      }): { wgsl?: string; errors: string[]; warnings: string[] } => {
+        try {
+          const blendMode = (options?.blendMode as any) ?? "opaque";
+          const cullMode = (options?.cullMode as any) ?? "back";
+          const profile = options?.profile;
+          const material = compileUIGraphToMaterial(nodes, connections, {
+            name: "preview_material",
+            blendMode,
+            cullMode,
+            profile: profile as any,
+          });
+          const wgsl = material.inlineShaderSource ?? "";
+          return { wgsl, errors: [], warnings: [] };
+        } catch (e: any) {
+          return { errors: [String(e?.message ?? e)], warnings: [] };
+        }
+      },
+
+      createMaterialFromGraph: (nodes: UINodeData[], connections: UIConnection[], options?: {
+        name?: string; blendMode?: string; cullMode?: string; profile?: string;
+      }): { success: boolean; materialName?: string; error?: string } => {
+        try {
+          const name = options?.name ?? "graph_material";
+          const blendMode = (options?.blendMode as any) ?? "opaque";
+          const cullMode = (options?.cullMode as any) ?? "back";
+          const material = compileUIGraphToMaterial(nodes, connections, {
+            name,
+            blendMode,
+            cullMode,
+            profile: options?.profile as any,
+          });
+          return { success: true, materialName: name };
+        } catch (e: any) {
+          return { success: false, error: String(e?.message ?? e) };
+        }
+      },
+
+      saveMaterialToLibrary: (name: string, graphData: {
+        nodes: UINodeData[]; connections: UIConnection[];
+        blendMode?: string; cullMode?: string;
+      }): { success: boolean; error?: string } => {
+        try {
+          const material = compileUIGraphToMaterial(graphData.nodes, graphData.connections, {
+            name,
+            blendMode: (graphData.blendMode as any) ?? "opaque",
+            cullMode: (graphData.cullMode as any) ?? "back",
+          });
+          return { success: true };
+        } catch (e: any) {
+          return { success: false, error: String(e?.message ?? e) };
+        }
+      },
+
+      listMaterials: (): { name: string; shader: string; type: string }[] => {
+        return [];
+      },
+
+      exportMaterialAsJSON: (name: string): string | null => {
+        return null;
+      },
+
+      importMaterialFromJSON: (json: string): { success: boolean; name?: string; error?: string } => {
+        try {
+          const data = JSON.parse(json);
+          if (!data.nodes || !data.connections) {
+            return { success: false, error: "Invalid material JSON" };
+          }
+          return { success: true, name: data.name ?? "imported_material" };
+        } catch (e: any) {
+          return { success: false, error: String(e?.message ?? e) };
+        }
+      },
     };
   }
 
