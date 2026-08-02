@@ -53,6 +53,9 @@ export interface RaycastResult {
   gridY: number;
   gridZ: number;
   face: number; // 0=front(-Z), 1=right(+X), 2=back(+Z), 3=left(-X), 4=top(+Y), 5=bottom(-Y)
+  hitCellX: number; // grid position of the actual hit cell
+  hitCellY: number;
+  hitCellZ: number;
 }
 
 export class BoatCellSystem {
@@ -689,10 +692,7 @@ export class BoatCellSystem {
       const cellMinZ = cell.gridZ * BOAT_CELL_WORLD_SIZE - BOAT_CELL_WORLD_SIZE / 2;
       const cellMaxZ = cellMinZ + size.sizeZ * BOAT_CELL_WORLD_SIZE;
 
-      const walkable = isWalkableSurface(cell.type);
-      const cellBottomY = walkable
-        ? cell.gridY * BOAT_LAYER_HEIGHT
-        : getCellCollisionBottomY(cell.type, cell.gridY);
+      const cellBottomY = getCellCollisionBottomY(cell.type, cell.gridY);
       const cellTopY = getCellCollisionTopY(cell.type, cell.gridY) +
         (size.sizeY > 1 ? (size.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
 
@@ -875,11 +875,7 @@ export class BoatCellSystem {
         const size = getCellSize(cell.type, cell.rotation);
 
         const walkable = isWalkableSurface(cell.type);
-        // Walkable surfaces (DECK, BRIDGE) sit at the layer base — their y0 is just
-        // visual overhang. Solid cells use getCellCollisionBottomY for true bottom.
-        const cellMinY = walkable
-          ? cell.gridY * BOAT_LAYER_HEIGHT
-          : getCellCollisionBottomY(cell.type, cell.gridY);
+        const cellMinY = getCellCollisionBottomY(cell.type, cell.gridY);
         const cellMaxY = getCellCollisionTopY(cell.type, cell.gridY) +
           (size.sizeY > 1 ? (size.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
 
@@ -913,18 +909,16 @@ export class BoatCellSystem {
         }
         if (!xzOverlaps) continue;
 
-        // Walkable surfaces (BRIDGE, DECK) are thin deck plates at the BOTTOM
-        // of their cell (cellMinY), not solid blocks. The player stands on the
-        // deck plate at cellMinY. The space above (up to cellMaxY) is where the
-        // player's body occupies — it is NOT solid.
+        // Walkable surfaces (BRIDGE, DECK) are thin deck plates. The player
+        // stands on TOP of the plate at cellMaxY. The space above is NOT solid.
         if (walkable) {
-          // Floor detection: deck plate at cellMinY is at or below player's feet
-          if (cellMinY <= feetY + 0.15) {
-            if (cellMinY > floorY) floorY = cellMinY;
+          // Floor detection: deck top at cellMaxY is at or below player's feet
+          if (cellMaxY <= feetY + 0.15) {
+            if (cellMaxY > floorY) floorY = cellMaxY;
           }
           // Track for snap-up when player is below the deck
-          if (cellMinY > feetY + 0.15) {
-            if (cellMinY < lowestFloorAbove) lowestFloorAbove = cellMinY;
+          if (cellMaxY > feetY + 0.15) {
+            if (cellMaxY < lowestFloorAbove) lowestFloorAbove = cellMaxY;
           }
           // No wall collision for walkable surfaces
           continue;
@@ -1089,17 +1083,9 @@ export class BoatCellSystem {
       const size = getCellSize(cell.type, cell.rotation);
       const minX = cell.gridX * BOAT_CELL_WORLD_SIZE - BOAT_CELL_WORLD_SIZE / 2;
       const maxX = (cell.gridX + size.sizeX - 1) * BOAT_CELL_WORLD_SIZE + BOAT_CELL_WORLD_SIZE / 2;
-      // Walkable surfaces (DECK, BRIDGE) have a very thin collision slab (0.1 units)
-      // which is nearly impossible to hit with a ray. Use a thicker slab for raycasting
-      // while keeping the top surface at the layer base for correct placement.
-      const walkable = isWalkableSurface(cell.type);
-      const minY = walkable
-        ? cell.gridY * BOAT_LAYER_HEIGHT - 0.3
-        : getCellCollisionBottomY(cell.type, cell.gridY);
-      const maxY = walkable
-        ? cell.gridY * BOAT_LAYER_HEIGHT
-        : getCellCollisionTopY(cell.type, cell.gridY) +
-          (size.sizeY > 1 ? (size.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
+      const minY = getCellCollisionBottomY(cell.type, cell.gridY);
+      const maxY = getCellCollisionTopY(cell.type, cell.gridY) +
+        (size.sizeY > 1 ? (size.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
       const minZ = cell.gridZ * BOAT_CELL_WORLD_SIZE - BOAT_CELL_WORLD_SIZE / 2;
       const maxZ = (cell.gridZ + size.sizeZ - 1) * BOAT_CELL_WORLD_SIZE + BOAT_CELL_WORLD_SIZE / 2;
 
@@ -1173,6 +1159,9 @@ export class BoatCellSystem {
       gridY: bestCell.gridY + fdy,
       gridZ: bestCell.gridZ + fdz,
       face: bestFace,
+      hitCellX: bestCell.gridX,
+      hitCellY: bestCell.gridY,
+      hitCellZ: bestCell.gridZ,
     };
   }
 

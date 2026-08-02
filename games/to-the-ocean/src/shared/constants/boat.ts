@@ -152,30 +152,30 @@ export interface CellGeometry {
 }
 
 export const CELL_GEOMETRY: Record<number, CellGeometry> = {
-  [BoatCellType.HULL]:          { y0: -0.3, y1: 0.9, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.BOW]:           { y0: -0.3, y1: 0.9, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.BOW_MODERN]:    { y0: -0.3, y1: 0.9, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.HULL_CURVE_L]:  { y0: -0.3, y1: 0.9, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.HULL_CURVE_R]:  { y0: -0.3, y1: 0.9, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.STERN]:         { y0: -0.3, y1: 0.9, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.PONTOON]:       { y0: -0.3, y1: 0.5, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.WALL_STRAIGHT]: { y0: -0.1, y1: 0.6, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.WALL_CORNER]:   { y0: -0.1, y1: 0.6, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.WALL_CURVED]:   { y0: -0.1, y1: 0.6, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.WALL_DIAGONAL]: { y0: -0.1, y1: 0.6, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.CABIN]:         { y0:  0.1, y1: 0.35, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.MAST]:          { y0: -0.1, y1: 2.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.HELM]:          { y0: -0.1, y1: 0.4, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.RAIL]:          { y0: -0.1, y1: 0.35, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.DECK]:          { y0: -0.1, y1: 0.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.BRIDGE]:        { y0: -0.1, y1: 0.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
-  [BoatCellType.LARGE_SAIL]:    { y0: -0.1, y1: 2.9, sizeX: 1, sizeY: 3, sizeZ: 1 },
-  [BoatCellType.BED]:           { y0: -0.1, y1: 0.3, sizeX: 1, sizeY: 1, sizeZ: 2 },
-  [BoatCellType.LANTERN]:       { y0: 0.0, y1: 0.5, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.HULL]:          { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.BOW]:           { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.BOW_MODERN]:    { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.HULL_CURVE_L]:  { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.HULL_CURVE_R]:  { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.STERN]:         { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.PONTOON]:       { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.WALL_STRAIGHT]: { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.WALL_CORNER]:   { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.WALL_CURVED]:   { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.WALL_DIAGONAL]: { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.CABIN]:         { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.MAST]:          { y0: 0, y1: 2.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.HELM]:          { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.RAIL]:          { y0: 0, y1: 0.5, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.DECK]:          { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.BRIDGE]:        { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 },
+  [BoatCellType.LARGE_SAIL]:    { y0: 0, y1: 2.9, sizeX: 1, sizeY: 3, sizeZ: 1 },
+  [BoatCellType.BED]:           { y0: 0, y1: 0.3, sizeX: 1, sizeY: 1, sizeZ: 2 },
+  [BoatCellType.LANTERN]:       { y0: 0, y1: 0.5, sizeX: 1, sizeY: 1, sizeZ: 1 },
 };
 
 // Default geometry for cell types not in the record.
-const DEFAULT_CELL_GEOMETRY: CellGeometry = { y0: -0.3, y1: 0.9, sizeX: 1, sizeY: 1, sizeZ: 1 };
+const DEFAULT_CELL_GEOMETRY: CellGeometry = { y0: 0, y1: 1.0, sizeX: 1, sizeY: 1, sizeZ: 1 };
 
 export function getCellGeometry(cellType: number): CellGeometry {
   return CELL_GEOMETRY[cellType] ?? DEFAULT_CELL_GEOMETRY;

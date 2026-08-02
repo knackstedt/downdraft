@@ -1,7 +1,7 @@
 import type { BackendBuffer, BackendRenderPassEncoder } from "@downdraft/core/render/backend/types";
 import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
-import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, WALL_THICKNESS, getCellGeometry } from "@shared/constants";
+import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, WALL_THICKNESS, getCellGeometry, isWallType } from "@shared/constants";
 import type { EntityRenderContext } from "./render-context";
 
 interface CellInfo {
@@ -165,6 +165,7 @@ export class BoatMeshBuilder {
     const h = getCellGeometry(cell.type);
     const y0 = cy + h.y0;
     const y1 = cy + h.y1 + (cell.sizeY > 1 ? (cell.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
+
     const color = CELL_COLORS[cell.type] ?? [0.5, 0.5, 0.5];
     const shape = this.getCellShape(cell);
     const poly = shape.polygon;
@@ -188,7 +189,13 @@ export class BoatMeshBuilder {
       const nh = getCellGeometry(neighbor.type);
       const ncy = neighbor.gridY * BOAT_LAYER_HEIGHT;
       const ny0 = ncy + nh.y0;
-      const ny1 = ncy + nh.y1;
+      const ny1 = ncy + nh.y1 + (neighbor.sizeY > 1 ? (neighbor.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
+      // Walls have thin XZ footprints — they don't cover the full top/bottom
+      // of a neighboring cell, so don't cull top/bottom faces for wall neighbors.
+      if ((dir === 4 || dir === 5) && isWallType(neighbor.type)) return false;
+      // Hull types have narrowed bottoms (vScale=0.55) — the neighbor above
+      // doesn't cover the full top face of the current cell.
+      if (dir === 4 && isHullType(neighbor.type)) return false;
       if (dir === 4) return ny0 <= y1 + 0.01;
       if (dir === 5) return ny1 >= y0 - 0.01;
       return ny0 <= y0 + 0.01 && ny1 >= y1 - 0.01;

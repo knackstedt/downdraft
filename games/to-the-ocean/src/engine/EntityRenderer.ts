@@ -18,7 +18,7 @@ import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import {
     BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT,
     getCellGeometry, getPortColliderDims, getPortCollisionBoxes,
-    getWallCollisionBoxes, hasSolidCollision, isWalkableSurface, isWallType,
+    getWallCollisionBoxes, hasSolidCollision, isWallType,
     PLAYER_HEIGHT, PLAYER_RADIUS
 } from "@shared/constants";
 import { SimBufferReader } from "@shared/sim-buffer";
@@ -614,10 +614,7 @@ export class EntityRenderer {
         const allMaxX = allMinX + sx * BOAT_CELL_WORLD_SIZE;
         const allMinZ = cell.gridZ * BOAT_CELL_WORLD_SIZE - BOAT_CELL_WORLD_SIZE / 2;
         const allMaxZ = allMinZ + sz * BOAT_CELL_WORLD_SIZE;
-        const walkable = isWalkableSurface(cell.type);
-        const allMinY = walkable
-          ? cell.gridY * BOAT_LAYER_HEIGHT
-          : cell.gridY * BOAT_LAYER_HEIGHT + geo.y0;
+        const allMinY = cell.gridY * BOAT_LAYER_HEIGHT + geo.y0;
         const allMaxY = cell.gridY * BOAT_LAYER_HEIGHT + geo.y1 +
           (cell.sizeY > 1 ? (cell.sizeY - 1) * BOAT_LAYER_HEIGHT : 0);
         if (allMinX < rMinX) rMinX = allMinX;
@@ -633,11 +630,7 @@ export class EntityRenderer {
         const cellCx = cell.gridX * BOAT_CELL_WORLD_SIZE + (sx - 1) * BOAT_CELL_WORLD_SIZE / 2;
         const cellCz = cell.gridZ * BOAT_CELL_WORLD_SIZE + (sz - 1) * BOAT_CELL_WORLD_SIZE / 2;
 
-        if (isWalkableSurface(cell.type)) {
-          const thinHalfY = 0.05;
-          const cy = cell.gridY * BOAT_LAYER_HEIGHT + thinHalfY;
-          this.hitboxRenderer.writeHitboxEntry(cellCx, cy, cellCz, halfX, thinHalfY, halfZ, pos, rotation);
-        } else if (isWallType(cell.type)) {
+        if (isWallType(cell.type)) {
           const boxes = getWallCollisionBoxes(cell.type, cell.rotation);
           const wallHalfY = (geo.y1 - geo.y0) / 2;
           const cy = cell.gridY * BOAT_LAYER_HEIGHT + geo.y0 + wallHalfY;
