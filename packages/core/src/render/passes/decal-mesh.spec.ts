@@ -78,5 +78,89 @@ describe("DecalMesh", () => {
       expect(mat[5]).toBeCloseTo(1, 3);
       expect(mat[10]).toBeCloseTo(-1, 3);
     });
+
+    it("should scale projection by width/height/depth", () => {
+      const projector: DecalProjector = {
+        ...defaultProjector,
+        width: 4,
+        height: 6,
+        depth: 8,
+      };
+      const mat = computeDecalProjectionMatrix(projector);
+      expect(mat[0]).toBeCloseTo(0.5, 3);
+      expect(mat[5]).toBeCloseTo(1 / 3, 3);
+      expect(mat[10]).toBeCloseTo(-0.25, 3);
+    });
+  });
+
+  describe("createDecalMesh edge cases", () => {
+    it("should produce correct UVs for first vertex of each face", () => {
+      const mesh = createDecalMesh(defaultProjector);
+      const stride = mesh.layout.stride / 4;
+      const uv0 = [mesh.vertices[6], mesh.vertices[7]];
+      expect(uv0).toEqual([0, 0]);
+    });
+
+    it("should handle non-orthogonal direction", () => {
+      const projector: DecalProjector = {
+        ...defaultProjector,
+        direction: [1, 1, 0],
+        up: [0, 1, 0],
+      };
+      const mesh = createDecalMesh(projector);
+      expect(mesh.vertexCount).toBe(24);
+      expect(mesh.indexCount).toBe(36);
+    });
+
+    it("should handle non-default size", () => {
+      const projector: DecalProjector = {
+        ...defaultProjector,
+        width: 4,
+        height: 6,
+        depth: 8,
+      };
+      const mesh = createDecalMesh(projector);
+      expect(mesh.vertexCount).toBe(24);
+    });
+
+    it("should produce all unit normals", () => {
+      const projector: DecalProjector = {
+        ...defaultProjector,
+        direction: [1, 0, 0],
+        up: [0, 0, 1],
+      };
+      const mesh = createDecalMesh(projector);
+      const stride = mesh.layout.stride / 4;
+      for (let i = 0; i < mesh.vertexCount; i++) {
+        const nx = mesh.vertices[i * stride + 3];
+        const ny = mesh.vertices[i * stride + 4];
+        const nz = mesh.vertices[i * stride + 5];
+        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        expect(len).toBeCloseTo(1, 4);
+      }
+    });
+  });
+
+  describe("computeDecalViewMatrix edge cases", () => {
+    it("should produce translation for non-origin position", () => {
+      const projector: DecalProjector = {
+        ...defaultProjector,
+        position: [5, 3, -2],
+      };
+      const mat = computeDecalViewMatrix(projector);
+      expect(mat[12]).toBeCloseTo(5, 3);
+      expect(mat[13]).toBeCloseTo(-3, 3);
+      expect(mat[14]).toBeCloseTo(2, 3);
+    });
+
+    it("should handle -Z direction", () => {
+      const projector: DecalProjector = {
+        ...defaultProjector,
+        direction: [0, 0, -1],
+      };
+      const mat = computeDecalViewMatrix(projector);
+      expect(mat[0]).toBeCloseTo(1, 3);
+      expect(mat[10]).toBeCloseTo(1, 3);
+    });
   });
 });
