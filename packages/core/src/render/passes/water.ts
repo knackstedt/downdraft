@@ -1,4 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
+import type { RenderBackend } from "../backend/render-backend.ts";
+import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, BackendSampler, BackendShaderModule, BackendTexture, TextureFormat } from "../backend/types.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -470,27 +472,28 @@ export class WaterPass extends RenderPass {
   name = "water";
   hdrHandle: TextureHandle | null = null;
   depthHandle: TextureHandle | null = null;
-  private device: GPUDevice;
-  private pipeline: GPURenderPipeline | null = null;
-  private shaderModule: GPUShaderModule | null = null;
-  private uniformBuffer: GPUBuffer | null = null;
-  private bindGroup: GPUBindGroup | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | null = null;
-  private lightBindGroupLayout: GPUBindGroupLayout | null = null;
-  private lightBindGroup: GPUBindGroup | null = null;
-  private vertexBuffer: GPUBuffer | null = null;
-  private indexBuffer: GPUBuffer | null = null;
+  private device: GPUDevice | null;
+  private backend: RenderBackend | null;
+  private pipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  private shaderModule: GPUShaderModule | BackendShaderModule | null = null;
+  private uniformBuffer: GPUBuffer | BackendBuffer | null = null;
+  private bindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private bindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private lightBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private lightBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private vertexBuffer: GPUBuffer | BackendBuffer | null = null;
+  private indexBuffer: GPUBuffer | BackendBuffer | null = null;
   private indexCount = 0;
-  private surfaceFormat: GPUTextureFormat;
-  private depthFormat: GPUTextureFormat;
+  private surfaceFormat: GPUTextureFormat | TextureFormat;
+  private depthFormat: GPUTextureFormat | TextureFormat;
   private msaaSampleCount: number;
   private gridSize: number;
-  private heightTexture: GPUTexture | null = null;
-  private normalTexture: GPUTexture | null = null;
-  private flowTexture: GPUTexture | null = null;
-  private sampler: GPUSampler | null = null;
-  private wakeBuffer: GPUBuffer | null = null;
-  private shoreBuffer: GPUBuffer | null = null;
+  private heightTexture: GPUTexture | BackendTexture | null = null;
+  private normalTexture: GPUTexture | BackendTexture | null = null;
+  private flowTexture: GPUTexture | BackendTexture | null = null;
+  private sampler: GPUSampler | BackendSampler | null = null;
+  private wakeBuffer: GPUBuffer | BackendBuffer | null = null;
+  private shoreBuffer: GPUBuffer | BackendBuffer | null = null;
   private wakeData: Float32Array;
   private shoreData: Float32Array;
   private wakeCount = 0;
@@ -501,9 +504,10 @@ export class WaterPass extends RenderPass {
   private uniformData = new Float32Array(40);
   private uniformU32View = new Uint32Array(this.uniformData.buffer);
 
-  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth32float", msaaSampleCount = 1, gridSize = WATER_GRID) {
+  constructor(device: GPUDevice | null, surfaceFormat: GPUTextureFormat | TextureFormat, depthFormat: GPUTextureFormat | TextureFormat = "depth32float", msaaSampleCount = 1, gridSize = WATER_GRID, backend?: RenderBackend | null) {
     super();
     this.device = device;
+    this.backend = backend ?? null;
     this.surfaceFormat = surfaceFormat;
     this.depthFormat = depthFormat;
     this.msaaSampleCount = msaaSampleCount;
@@ -512,15 +516,8 @@ export class WaterPass extends RenderPass {
     this.shoreData = new Float32Array(MAX_SHORES * SHORE_FLOATS);
   }
 
-  prepare(_device: GPUDevice): void {
+  prepare(_device: GPUDevice, _backend?: RenderBackend | null): void {
     if (this.pipeline) return;
-
-    this.shaderModule = this.device.createShaderModule({ code: WATER_SHADER });
-
-    this.uniformBuffer = this.device.createBuffer({
-      size: 256,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
 
     const gridSize = this.gridSize;
     const vertices: number[] = [];
@@ -529,12 +526,6 @@ export class WaterPass extends RenderPass {
         vertices.push(x, z);
       }
     }
-    this.vertexBuffer = this.device.createBuffer({
-      size: vertices.length * 4,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    this.device.queue.writeBuffer(this.vertexBuffer, 0, new Float32Array(vertices));
-
     const indices: number[] = [];
     for (let z = 0; z < gridSize - 1; z++) {
       for (let x = 0; x < gridSize - 1; x++) {
@@ -544,45 +535,122 @@ export class WaterPass extends RenderPass {
       }
     }
     this.indexCount = indices.length;
-    this.indexBuffer = this.device.createBuffer({
-      size: indices.length * 2,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-    });
-    this.device.queue.writeBuffer(this.indexBuffer, 0, new Uint16Array(indices));
-
-    this.heightTexture = this.device.createTexture({
-      size: [gridSize, gridSize],
-      format: "r32float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    this.normalTexture = this.device.createTexture({
-      size: [gridSize, gridSize],
-      format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    this.flowTexture = this.device.createTexture({
-      size: [gridSize, gridSize],
-      format: "rg16float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-
-    this.sampler = this.device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-    });
 
     const wakeBufSize = MAX_WAKES * WAKE_FLOATS * 4;
     const shoreBufSize = MAX_SHORES * SHORE_FLOATS * 4;
-    this.wakeBuffer = this.device.createBuffer({
-      size: wakeBufSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+
+    if (this.backend && !this.device) {
+      const backend = this.backend;
+      this.shaderModule = backend.createShaderModule({ wgsl: WATER_SHADER }, "wgsl");
+      this.uniformBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
+      this.vertexBuffer = backend.createBuffer({ size: vertices.length * 4, usage: 0x20 | 0x08 });
+      backend.queue.writeBuffer(this.vertexBuffer as any, 0, new Float32Array(vertices) as any);
+      this.indexBuffer = backend.createBuffer({ size: indices.length * 2, usage: 0x10 | 0x08 });
+      backend.queue.writeBuffer(this.indexBuffer as any, 0, new Uint16Array(indices) as any);
+
+      this.heightTexture = backend.createTexture({
+        size: [gridSize, gridSize], format: "r32float" as TextureFormat,
+        usage: 0x08 | 0x04,
+      });
+      this.normalTexture = backend.createTexture({
+        size: [gridSize, gridSize], format: "rgba8unorm" as TextureFormat,
+        usage: 0x08 | 0x04,
+      });
+      this.flowTexture = backend.createTexture({
+        size: [gridSize, gridSize], format: "rg16float" as TextureFormat,
+        usage: 0x08 | 0x04,
+      });
+
+      this.sampler = backend.createSampler({ magFilter: "linear", minFilter: "linear" });
+
+      this.wakeBuffer = backend.createBuffer({ size: wakeBufSize, usage: 0x80 | 0x08 });
+      this.shoreBuffer = backend.createBuffer({ size: shoreBufSize, usage: 0x80 | 0x08 });
+
+      this.bindGroupLayout = backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: 1 | 2, buffer: { type: "uniform" } },
+          { binding: 1, visibility: 1, texture: { sampleType: "unfilterable-float" } },
+          { binding: 2, visibility: 2, texture: {} },
+          { binding: 3, visibility: 2, texture: { sampleType: "unfilterable-float" } },
+          { binding: 4, visibility: 2, sampler: {} },
+          { binding: 5, visibility: 1, buffer: { type: "read-only-storage" } },
+          { binding: 6, visibility: 1 | 2, buffer: { type: "read-only-storage" } },
+        ],
+      });
+
+      this.bindGroup = backend.createBindGroup({
+        layout: this.bindGroupLayout as any,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer as any } },
+          { binding: 1, resource: { textureView: (this.heightTexture as BackendTexture).createView() } },
+          { binding: 2, resource: { textureView: (this.normalTexture as BackendTexture).createView() } },
+          { binding: 3, resource: { textureView: (this.flowTexture as BackendTexture).createView() } },
+          { binding: 4, resource: { sampler: this.sampler as any } },
+          { binding: 5, resource: { buffer: this.wakeBuffer as any } },
+          { binding: 6, resource: { buffer: this.shoreBuffer as any } },
+        ],
+      });
+
+      this.lightBindGroupLayout = backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: 2, buffer: { type: "read-only-storage" } },
+        ],
+      });
+
+      const pipelineLayout = backend.createPipelineLayout({
+        bindGroupLayouts: [this.bindGroupLayout as any, this.lightBindGroupLayout as any],
+      });
+
+      this.pipeline = backend.createRenderPipeline({
+        layout: pipelineLayout as any,
+        vertex: {
+          module: this.shaderModule, entryPoint: "vs_main",
+          buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
+        },
+        fragment: {
+          module: this.shaderModule, entryPoint: "fs_main",
+          targets: [{
+            format: this.surfaceFormat as TextureFormat,
+            blend: {
+              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: this.msaaSampleCount },
+        depthStencil: { format: this.depthFormat as any, depthWriteEnabled: true, depthCompare: "less" },
+      });
+      return;
+    }
+
+    const dev = this.device!;
+    this.shaderModule = dev.createShaderModule({ code: WATER_SHADER });
+    this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.vertexBuffer = dev.createBuffer({ size: vertices.length * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    dev.queue.writeBuffer(this.vertexBuffer, 0, new Float32Array(vertices));
+    this.indexBuffer = dev.createBuffer({ size: indices.length * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    dev.queue.writeBuffer(this.indexBuffer, 0, new Uint16Array(indices));
+
+    this.heightTexture = dev.createTexture({
+      size: [gridSize, gridSize], format: "r32float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    this.shoreBuffer = this.device.createBuffer({
-      size: shoreBufSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    this.normalTexture = dev.createTexture({
+      size: [gridSize, gridSize], format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.flowTexture = dev.createTexture({
+      size: [gridSize, gridSize], format: "rg16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
 
-    this.bindGroupLayout = this.device.createBindGroupLayout({
+    this.sampler = dev.createSampler({ magFilter: "linear", minFilter: "linear" });
+
+    this.wakeBuffer = dev.createBuffer({ size: wakeBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.shoreBuffer = dev.createBuffer({ size: shoreBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+
+    this.bindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "unfilterable-float" } },
@@ -594,44 +662,39 @@ export class WaterPass extends RenderPass {
       ],
     });
 
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
+    this.bindGroup = dev.createBindGroup({
+      layout: this.bindGroupLayout as GPUBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: this.heightTexture.createView() },
-        { binding: 2, resource: this.normalTexture.createView() },
-        { binding: 3, resource: this.flowTexture.createView() },
-        { binding: 4, resource: this.sampler },
-        { binding: 5, resource: { buffer: this.wakeBuffer } },
-        { binding: 6, resource: { buffer: this.shoreBuffer } },
+        { binding: 0, resource: { buffer: this.uniformBuffer as GPUBuffer } },
+        { binding: 1, resource: (this.heightTexture as GPUTexture).createView() },
+        { binding: 2, resource: (this.normalTexture as GPUTexture).createView() },
+        { binding: 3, resource: (this.flowTexture as GPUTexture).createView() },
+        { binding: 4, resource: this.sampler as GPUSampler },
+        { binding: 5, resource: { buffer: this.wakeBuffer as GPUBuffer } },
+        { binding: 6, resource: { buffer: this.shoreBuffer as GPUBuffer } },
       ],
     });
 
-    this.lightBindGroupLayout = this.device.createBindGroupLayout({
+    this.lightBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       ],
     });
 
-    const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout, this.lightBindGroupLayout],
+    const pipelineLayout = dev.createPipelineLayout({
+      bindGroupLayouts: [this.bindGroupLayout as GPUBindGroupLayout, this.lightBindGroupLayout as GPUBindGroupLayout],
     });
 
-    this.pipeline = this.device.createRenderPipeline({
+    this.pipeline = dev.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {
-        module: this.shaderModule,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: 8,
-          attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }],
-        }],
+        module: this.shaderModule, entryPoint: "vs_main",
+        buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
       },
       fragment: {
-        module: this.shaderModule,
-        entryPoint: "fs_main",
+        module: this.shaderModule, entryPoint: "fs_main",
         targets: [{
-          format: this.surfaceFormat,
+          format: this.surfaceFormat as GPUTextureFormat,
           blend: {
             color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
             alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -640,19 +703,15 @@ export class WaterPass extends RenderPass {
       },
       primitive: { topology: "triangle-list" },
       multisample: { count: this.msaaSampleCount },
-      depthStencil: {
-        format: this.depthFormat,
-        depthWriteEnabled: true,
-        depthCompare: "less",
-      },
+      depthStencil: { format: this.depthFormat as GPUTextureFormat, depthWriteEnabled: true, depthCompare: "less" },
     });
   }
 
-  getLightBindGroupLayout(): GPUBindGroupLayout | null {
+  getLightBindGroupLayout(): GPUBindGroupLayout | BackendBindGroupLayout | null {
     return this.lightBindGroupLayout;
   }
 
-  setLightBindGroup(bg: GPUBindGroup): void {
+  setLightBindGroup(bg: GPUBindGroup | BackendBindGroup): void {
     this.lightBindGroup = bg;
   }
 
@@ -661,8 +720,9 @@ export class WaterPass extends RenderPass {
     const sc = Math.min(shoreCount, MAX_SHORES);
     this.wakeData.set(wakes.subarray(0, wc * WAKE_FLOATS));
     this.shoreData.set(shores.subarray(0, sc * SHORE_FLOATS));
-    this.device.queue.writeBuffer(this.wakeBuffer!, 0, this.wakeData);
-    this.device.queue.writeBuffer(this.shoreBuffer!, 0, this.shoreData);
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeBuffer(this.wakeBuffer as any, 0, this.wakeData as any);
+    queue?.writeBuffer(this.shoreBuffer as any, 0, this.shoreData as any);
     this.wakeCount = wc;
     this.shoreCount = sc;
   }
@@ -673,9 +733,10 @@ export class WaterPass extends RenderPass {
       this.cachedHeightData = new Float32Array(heights.length);
     }
     this.cachedHeightData.set(heights);
-    this.device.queue.writeTexture(
-      { texture: this.heightTexture },
-      this.cachedHeightData,
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeTexture(
+      { texture: this.heightTexture as any },
+      this.cachedHeightData as any,
       { bytesPerRow: this.gridSize * 4 },
       { width: this.gridSize, height: this.gridSize },
     );
@@ -708,7 +769,8 @@ export class WaterPass extends RenderPass {
     data[35] = u.sunIntensity;
     this.uniformU32View[36] = this.wakeCount;
     this.uniformU32View[37] = this.shoreCount;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeBuffer(this.uniformBuffer as any, 0, data as any);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -729,21 +791,22 @@ export class WaterPass extends RenderPass {
         this.cachedNormalData[i * 4 + 3] = 255;
       }
     }
-    this.device.queue.writeTexture(
-      { texture: this.normalTexture! },
-      this.cachedNormalData,
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeTexture(
+      { texture: this.normalTexture as any },
+      this.cachedNormalData as any,
       { bytesPerRow: this.gridSize * 4 },
       { width: this.gridSize, height: this.gridSize },
     );
 
     const tracked = ctx.pass;
-    tracked.setPipeline(this.pipeline);
-    tracked.setBindGroup(0, this.bindGroup);
+    tracked.setPipeline(this.pipeline as any);
+    tracked.setBindGroup(0, this.bindGroup as any);
     if (this.lightBindGroup) {
-      tracked.setBindGroup(1, this.lightBindGroup);
+      tracked.setBindGroup(1, this.lightBindGroup as any);
     }
-    tracked.setVertexBuffer(0, this.vertexBuffer);
-    tracked.setIndexBuffer(this.indexBuffer, "uint16");
+    tracked.setVertexBuffer(0, this.vertexBuffer as any);
+    tracked.setIndexBuffer(this.indexBuffer as any, "uint16");
     tracked.drawIndexed(this.indexCount);
   }
 

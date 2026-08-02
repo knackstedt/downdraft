@@ -3,6 +3,9 @@
 // Uses a read-only storage buffer shared across all entity pipelines.
 // ============================================================================
 
+import type { ITrackedRenderPass } from "@downdraft/core";
+import type { RenderBackend } from "@downdraft/core/render/backend/render-backend";
+import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, TextureFormat } from "@downdraft/core/render/backend/types";
 import type { CameraState } from "./CameraSystem";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
 import { LightingSystem } from "./LightingSystem";
@@ -30,9 +33,9 @@ interface SpotLightData {
 }
 
 export class LightSystem extends LightingSystem {
-  private lightStorageBuffer: GPUBuffer | null = null;
-  private lightBindGroupLayout: GPUBindGroupLayout | null = null;
-  private lightBindGroup: GPUBindGroup | null = null;
+  private lightStorageBuffer: GPUBuffer | BackendBuffer | null = null;
+  private lightBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private lightBindGroup: GPUBindGroup | BackendBindGroup | null = null;
 
   private pointLights: PointLightData[] = [];
   private spotLights: SpotLightData[] = [];
@@ -58,18 +61,18 @@ export class LightSystem extends LightingSystem {
 
   // Debug gizmo rendering
   showDebugGizmos = false;
-  private debugPipeline: GPURenderPipeline | null = null;
-  private debugBindGroupLayout: GPUBindGroupLayout | null = null;
-  private debugBindGroup: GPUBindGroup | null = null;
-  private debugUniformBuffer: GPUBuffer | null = null;
-  private debugSphereVerts: GPUBuffer | null = null;
+  private debugPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  private debugBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private debugBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private debugUniformBuffer: GPUBuffer | BackendBuffer | null = null;
+  private debugSphereVerts: GPUBuffer | BackendBuffer | null = null;
   private debugSphereIndexCount = 0;
-  private debugSphereIndexBuffer: GPUBuffer | null = null;
-  private debugInstanceBuffer: GPUBuffer | null = null;
+  private debugSphereIndexBuffer: GPUBuffer | BackendBuffer | null = null;
+  private debugInstanceBuffer: GPUBuffer | BackendBuffer | null = null;
   private debugInstanceData: Float32Array<ArrayBuffer> | null = null;
 
-  constructor(device: GPUDevice) {
-    super(device);
+  constructor(device: GPUDevice | null, backend?: RenderBackend | null) {
+    super(device, backend);
     const totalFloats = 4 + MAX_POINT_LIGHTS * 8 + MAX_SPOT_LIGHTS * 16;
     this.lightDataArray = new Float32Array(totalFloats);
     this.lightDataU32 = new Uint32Array(this.lightDataArray.buffer);
@@ -78,12 +81,29 @@ export class LightSystem extends LightingSystem {
   init(): void {
     const totalBytes = this.lightDataArray.byteLength;
 
-    this.lightStorageBuffer = this.device.createBuffer({
+    if (this.backend && !this.device) {
+      const backend = this.backend;
+      this.lightStorageBuffer = backend.createBuffer({ size: totalBytes, usage: 0x80 | 0x08 });
+      this.lightBindGroupLayout = backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: 2, buffer: { type: "read-only-storage", hasDynamicOffset: false } },
+        ],
+      });
+      this.lightBindGroup = backend.createBindGroup({
+        layout: this.lightBindGroupLayout as any,
+        entries: [{ binding: 0, resource: { buffer: this.lightStorageBuffer as any } }],
+      });
+      backend.queue.writeBuffer(this.lightStorageBuffer as any, 0, this.lightDataArray as any);
+      return;
+    }
+
+    const dev = this.device!;
+    this.lightStorageBuffer = dev.createBuffer({
       size: totalBytes,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.lightBindGroupLayout = this.device.createBindGroupLayout({
+    this.lightBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -93,20 +113,20 @@ export class LightSystem extends LightingSystem {
       ],
     });
 
-    this.lightBindGroup = this.device.createBindGroup({
-      layout: this.lightBindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.lightStorageBuffer } }],
+    this.lightBindGroup = dev.createBindGroup({
+      layout: this.lightBindGroupLayout as GPUBindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.lightStorageBuffer as GPUBuffer } }],
     });
 
     // Zero-initialize the buffer so numPointLights/numSpotLights start at 0
-    this.device.queue.writeBuffer(this.lightStorageBuffer, 0, this.lightDataArray);
+    dev.queue.writeBuffer(this.lightStorageBuffer, 0, this.lightDataArray);
   }
 
-  getLightBindGroup(): GPUBindGroup | null {
+  getLightBindGroup(): GPUBindGroup | BackendBindGroup | null {
     return this.lightBindGroup;
   }
 
-  getLightBindGroupLayout(): GPUBindGroupLayout | null {
+  getLightBindGroupLayout(): GPUBindGroupLayout | BackendBindGroupLayout | null {
     return this.lightBindGroupLayout;
   }
 
@@ -274,12 +294,13 @@ export class LightSystem extends LightingSystem {
       // off + 13, +14, +15 = padding (already zeroed)
     }
 
-    this.device.queue.writeBuffer(this.lightStorageBuffer, 0, data);
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeBuffer(this.lightStorageBuffer as any, 0, data as any);
   }
 
   private readonly MAX_DEBUG_INSTANCES = MAX_POINT_LIGHTS + MAX_SPOT_LIGHTS;
 
-  initDebugGizmos(format: GPUTextureFormat): void {
+  initDebugGizmos(format: GPUTextureFormat | TextureFormat): void {
     // Generate unit sphere wireframe (latitude/longitude lines)
     const latSegments = 8;
     const lonSegments = 16;
@@ -310,41 +331,8 @@ export class LightSystem extends LightingSystem {
     }
     this.debugSphereIndexCount = indices.length;
 
-    this.debugSphereVerts = this.device.createBuffer({
-      size: verts.length * 4,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    this.device.queue.writeBuffer(this.debugSphereVerts, 0, new Float32Array(verts));
-
-    this.debugSphereIndexBuffer = this.device.createBuffer({
-      size: indices.length * 2,
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-    });
-    this.device.queue.writeBuffer(this.debugSphereIndexBuffer, 0, new Uint16Array(indices));
-
-    // Instance buffer: 8 floats per instance (pos.xyz, radius, color.rgb, intensity, _pad)
     const instanceFloats = this.MAX_DEBUG_INSTANCES * 8;
     this.debugInstanceData = new Float32Array(instanceFloats);
-    this.debugInstanceBuffer = this.device.createBuffer({
-      size: instanceFloats * 4,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-
-    this.debugUniformBuffer = this.device.createBuffer({
-      size: 64,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    this.debugBindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-      ],
-    });
-
-    this.debugBindGroup = this.device.createBindGroup({
-      layout: this.debugBindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.debugUniformBuffer } }],
-    });
 
     const DEBUG_WGSL = /* wgsl */ `
       struct Uniforms {
@@ -379,9 +367,87 @@ export class LightSystem extends LightingSystem {
       }
     `;
 
-    const shaderModule = this.device.createShaderModule({ code: DEBUG_WGSL });
-    this.debugPipeline = this.device.createRenderPipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.debugBindGroupLayout] }),
+    if (this.backend && !this.device) {
+      const backend = this.backend;
+      this.debugSphereVerts = backend.createBuffer({ size: verts.length * 4, usage: 0x20 | 0x08 });
+      backend.queue.writeBuffer(this.debugSphereVerts as any, 0, new Float32Array(verts) as any);
+      this.debugSphereIndexBuffer = backend.createBuffer({ size: indices.length * 2, usage: 0x10 | 0x08 });
+      backend.queue.writeBuffer(this.debugSphereIndexBuffer as any, 0, new Uint16Array(indices) as any);
+      this.debugInstanceBuffer = backend.createBuffer({ size: instanceFloats * 4, usage: 0x20 | 0x08 });
+      this.debugUniformBuffer = backend.createBuffer({ size: 64, usage: 0x40 | 0x08 });
+      this.debugBindGroupLayout = backend.createBindGroupLayout({
+        entries: [{ binding: 0, visibility: 1, buffer: { type: "uniform" } }],
+      });
+      this.debugBindGroup = backend.createBindGroup({
+        layout: this.debugBindGroupLayout as any,
+        entries: [{ binding: 0, resource: { buffer: this.debugUniformBuffer as any } }],
+      });
+      const shaderModule = backend.createShaderModule({ wgsl: DEBUG_WGSL }, "wgsl");
+      const pipelineLayout = backend.createPipelineLayout({ bindGroupLayouts: [this.debugBindGroupLayout as any] });
+      this.debugPipeline = backend.createRenderPipeline({
+        layout: pipelineLayout as any,
+        vertex: {
+          module: shaderModule, entryPoint: "vs_main",
+          buffers: [
+            { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+            { arrayStride: 32, stepMode: "instance", attributes: [
+              { shaderLocation: 1, offset: 0, format: "float32x3" },
+              { shaderLocation: 2, offset: 12, format: "float32" },
+              { shaderLocation: 3, offset: 16, format: "float32x3" },
+            ] },
+          ],
+        },
+        fragment: {
+          module: shaderModule, entryPoint: "fs_main",
+          targets: [{ format: format as TextureFormat, blend: {
+            color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
+            alpha: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
+          } }],
+        },
+        primitive: { topology: "line-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
+      });
+      return;
+    }
+
+    const dev = this.device!;
+    this.debugSphereVerts = dev.createBuffer({
+      size: verts.length * 4,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    dev.queue.writeBuffer(this.debugSphereVerts, 0, new Float32Array(verts));
+
+    this.debugSphereIndexBuffer = dev.createBuffer({
+      size: indices.length * 2,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    dev.queue.writeBuffer(this.debugSphereIndexBuffer, 0, new Uint16Array(indices));
+
+    this.debugInstanceBuffer = dev.createBuffer({
+      size: instanceFloats * 4,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+
+    this.debugUniformBuffer = dev.createBuffer({
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.debugBindGroupLayout = dev.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+      ],
+    });
+
+    this.debugBindGroup = dev.createBindGroup({
+      layout: this.debugBindGroupLayout as GPUBindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.debugUniformBuffer as GPUBuffer } }],
+    });
+
+    const shaderModule = dev.createShaderModule({ code: DEBUG_WGSL });
+    this.debugPipeline = dev.createRenderPipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [this.debugBindGroupLayout as GPUBindGroupLayout] }),
       vertex: {
         module: shaderModule,
         entryPoint: "vs_main",
@@ -397,7 +463,7 @@ export class LightSystem extends LightingSystem {
       fragment: {
         module: shaderModule,
         entryPoint: "fs_main",
-        targets: [{ format, blend: {
+        targets: [{ format: format as GPUTextureFormat, blend: {
           color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
           alpha: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
         } }],
@@ -412,12 +478,13 @@ export class LightSystem extends LightingSystem {
     });
   }
 
-  renderDebugGizmos(passEncoder: GPURenderPassEncoder, camera: CameraState): void {
+  renderDebugGizmos(passEncoder: GPURenderPassEncoder | ITrackedRenderPass, camera: CameraState): void {
     if (!this.showDebugGizmos || !this.debugPipeline || !this.debugBindGroup || !this.debugUniformBuffer) return;
     if (!this.debugInstanceBuffer || !this.debugInstanceData || !this.debugSphereVerts || !this.debugSphereIndexBuffer) return;
 
     const viewProj = calculateViewProj(camera);
-    this.device.queue.writeBuffer(this.debugUniformBuffer, 0, viewProj as unknown as BufferSource);
+    const queue = this.device?.queue ?? this.backend?.queue;
+    queue?.writeBuffer(this.debugUniformBuffer as any, 0, viewProj as any);
 
     // Collect instances from point lights + spot lights
     const data = this.debugInstanceData;
@@ -440,13 +507,13 @@ export class LightSystem extends LightingSystem {
       count++;
     }
 
-    this.device.queue.writeBuffer(this.debugInstanceBuffer, 0, data);
+    queue?.writeBuffer(this.debugInstanceBuffer as any, 0, data as any);
 
-    passEncoder.setPipeline(this.debugPipeline);
-    passEncoder.setBindGroup(0, this.debugBindGroup);
-    passEncoder.setVertexBuffer(0, this.debugSphereVerts);
-    passEncoder.setVertexBuffer(1, this.debugInstanceBuffer);
-    passEncoder.setIndexBuffer(this.debugSphereIndexBuffer, "uint16");
+    passEncoder.setPipeline(this.debugPipeline as any);
+    passEncoder.setBindGroup(0, this.debugBindGroup as any);
+    passEncoder.setVertexBuffer(0, this.debugSphereVerts as any);
+    passEncoder.setVertexBuffer(1, this.debugInstanceBuffer as any);
+    passEncoder.setIndexBuffer(this.debugSphereIndexBuffer as any, "uint16");
     passEncoder.drawIndexed(this.debugSphereIndexCount, count);
   }
 }

@@ -271,21 +271,21 @@ export class WebGPURenderer {
         alphaMode: "premultiplied",
       });
 
-      this.waterPass = new WaterPass(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat, MSAA_SAMPLE_COUNT);
-      this.skyDomePass = new SkyDomePass(this.device, this.format);
-      this.terrainPass = new TerrainPass(this.device, this.format);
+      this.waterPass = new WaterPass(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat, MSAA_SAMPLE_COUNT, undefined, this.backend);
+      this.skyDomePass = new SkyDomePass(this.device, this.format, 1, this.backend);
+      this.terrainPass = new TerrainPass(this.device, this.format, 1, undefined, this.backend);
       this.entityRenderer = new EntityRenderer(this.device, this.format, this.backend);
       this.cameraSystem = new CameraSystem();
-      this.lightingSystem = new LightSystem(this.device);
-      this.particleSystem = new ParticleSystem(this.device, this.format);
+      this.lightingSystem = new LightSystem(this.device, this.backend);
+      this.particleSystem = new ParticleSystem(this.device, this.format, this.backend);
 
-      this.waterPass.prepare(this.device);
-      this.skyDomePass.prepare(this.device);
-      this.terrainPass.prepare(this.device);
+      this.waterPass.prepare(this.device, this.backend);
+      this.skyDomePass.prepare(this.device, this.backend);
+      this.terrainPass.prepare(this.device, this.backend);
       this.lightingSystem.init();
-      this.pbrSystem = new PBRSystem(this.device);
+      this.pbrSystem = new PBRSystem(this.device, this.backend);
       this.pbrSystem.init();
-      this.iblSystem = new IBLSystem(this.device, { faceSize: 256, recaptureInterval: 120 });
+      this.iblSystem = new IBLSystem(this.device, { faceSize: 256, recaptureInterval: 120 }, this.backend);
       this.iblSystem.setBRDFLUT(this.pbrSystem.brdfLUT!);
       this.iblSystem.init();
       await this.entityRenderer.init(this.lightingSystem.getLightBindGroupLayout() ?? undefined, this.iblSystem.getBindGroupLayout() ?? undefined);
@@ -488,6 +488,27 @@ export class WebGPURenderer {
       await this.entityRenderer.init();
 
       this.cameraSystem = new CameraSystem();
+
+      // Initialize passes with backend (device=null triggers backend path)
+      this.waterPass = new WaterPass(null, this.format, DEPTH_FORMAT as GPUTextureFormat, MSAA_SAMPLE_COUNT, undefined, backend);
+      this.skyDomePass = new SkyDomePass(null, this.format, 1, backend);
+      this.terrainPass = new TerrainPass(null, this.format, 1, undefined, backend);
+      this.lightingSystem = new LightSystem(null, backend);
+      this.particleSystem = new ParticleSystem(null, this.format, backend);
+
+      this.waterPass.prepare(null as any, backend);
+      this.skyDomePass.prepare(null as any, backend);
+      this.terrainPass.prepare(null as any, backend);
+      this.lightingSystem.init();
+      this.pbrSystem = new PBRSystem(null, backend);
+      this.pbrSystem.init();
+      this.iblSystem = new IBLSystem(null, { faceSize: 256, recaptureInterval: 120 }, backend);
+      this.iblSystem.setBRDFLUT(this.pbrSystem.brdfLUT!);
+      this.iblSystem.init();
+      this.entityRenderer.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
+      this.entityRenderer.setPBRBindGroup(this.iblSystem.getBindGroup() ?? this.pbrSystem.getBindGroup()!);
+      this.waterPass.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
+      this.lightingSystem.initDebugGizmos(this.format);
 
       console.log(`[WebGPU] Renderer initialized with ${backend.type} backend fallback`);
       return true;
