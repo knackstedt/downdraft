@@ -12,7 +12,12 @@ struct Uniforms {
   patchSize: f32,
   originX: f32,
   originZ: f32,
-  _pad: f32,
+  _pad0: f32,
+  sunDir: vec3<f32>,
+  sunIntensity: f32,
+  timeOfDay: f32,
+  waterHeight: f32,
+  _pad1: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -25,6 +30,7 @@ struct VertexOutput {
   @builtin(position) clipPos: vec4<f32>,
   @location(0) worldPos: vec3<f32>,
   @location(1) depth: f32,
+  @location(2) normal: vec3<f32>,
 };
 
 fn hash(p: vec2<f32>) -> f32 {
@@ -42,12 +48,36 @@ fn noise(p: vec2<f32>) -> f32 {
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+fn fbm(p: vec2<f32>) -> f32 {
+  var v = 0.0;
+  var a = 0.5;
+  var pp = p;
+  for (var i = 0; i < 5; i++) {
+    v += a * noise(pp);
+    pp = pp * 2.0;
+    a *= 0.5;
+  }
+  return v;
+}
+
+fn ridgedNoise(p: vec2<f32>) -> f32 {
+  var v = 0.0;
+  var a = 0.5;
+  var pp = p;
+  for (var i = 0; i < 4; i++) {
+    let n = noise(pp);
+    v += a * (1.0 - abs(n * 2.0 - 1.0));
+    pp = pp * 2.0;
+    a *= 0.5;
+  }
+  return v;
+}
+
 fn terrainHeight(x: f32, z: f32) -> f32 {
   let p = vec2<f32>(x * 0.01, z * 0.01);
   var h = 0.0;
-  h += noise(p) * 40.0;
-  h += noise(p * 2.0) * 20.0;
-  h += noise(p * 4.0) * 10.0;
+  h += fbm(p) * 40.0;
+  h += ridgedNoise(p * 2.0) * 15.0;
   h += noise(p * 8.0) * 5.0;
   return -h - 10.0;
 }
@@ -61,24 +91,96 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   let worldPos = vec3<f32>(worldX, h, worldZ);
   output.worldPos = worldPos;
   output.depth = -h;
+
+  // Compute normal by sampling neighbor heights
+  let eps = 2.0;
+  let hL = terrainHeight(worldX - eps, worldZ);
+  let hR = terrainHeight(worldX + eps, worldZ);
+  let hD = terrainHeight(worldX, worldZ - eps);
+  let hU = terrainHeight(worldX, worldZ + eps);
+  output.normal = normalize(vec3<f32>(hL - hR, 2.0 * eps, hD - hU));
+
   output.clipPos = uniforms.viewProj * vec4<f32>(worldPos, 1.0);
   return output;
+}
+
+fn sandRipples(worldPos: vec3<f32>, depth: f32) -> f32 {
+  let rippleScale = 1.0 - smoothstep(0.0, 80.0, depth);
+  let rp = vec2<f32>(worldPos.x * 0.15, worldPos.z * 0.15);
+  let ripple = sin(rp.x + noise(rp * 0.5) * 3.0) * 0.5 + 0.5;
+  let ripple2 = sin(worldPos.x * 0.08 + worldPos.z * 0.06 + noise(rp * 0.3) * 2.0) * 0.5 + 0.5;
+  return (ripple * 0.6 + ripple2 * 0.4) * rippleScale;
+}
+
+fn grainNoise(worldPos: vec3<f32>) -> f32 {
+  let gp = vec2<f32>(worldPos.x * 2.5, worldPos.z * 2.5);
+  return noise(gp) * 0.15 + noise(gp * 3.0) * 0.08;
+}
+
+fn caustics(worldPos: vec3<f32>, depth: f32, time: f32) -> f32 {
+  let causticStrength = 1.0 - smoothstep(0.0, 120.0, depth);
+  let cuv = vec2<f32>(worldPos.x * 0.05, worldPos.z * 0.05) + vec2<f32>(time * 0.08, time * 0.06);
+  let n1 = noise(cuv * 3.0);
+  let n2 = noise(cuv * 5.0 + vec2<f32>(10.0, 5.0));
+  let n3 = noise(cuv * 8.0 + vec2<f32>(20.0, 15.0));
+  let c = abs(n1 * 0.5 + n2 * 0.3 + n3 * 0.2 - 0.5);
+  return pow(1.0 - c, 3.0) * causticStrength;
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let depth = input.depth;
+  let N = normalize(input.normal);
+  let sunDir = normalize(uniforms.sunDir);
 
-  let shallowColor = vec3<f32>(0.6, 0.5, 0.3);
-  let midColor = vec3<f32>(0.3, 0.3, 0.2);
-  let deepColor = vec3<f32>(0.1, 0.1, 0.05);
+  // Base color palette — sand to mud to deep sediment
+  let sandColor = vec3<f32>(0.72, 0.62, 0.42);
+  let wetSandColor = vec3<f32>(0.55, 0.45, 0.30);
+  let mudColor = vec3<f32>(0.35, 0.30, 0.20);
+  let rockColor = vec3<f32>(0.25, 0.23, 0.20);
+  let deepColor = vec3<f32>(0.08, 0.09, 0.07);
 
-  var color = mix(shallowColor, midColor, smoothstep(10.0, 50.0, depth));
-  color = mix(color, deepColor, smoothstep(50.0, 200.0, depth));
+  // Depth-based color gradient
+  var color = mix(sandColor, wetSandColor, smoothstep(5.0, 25.0, depth));
+  color = mix(color, mudColor, smoothstep(25.0, 60.0, depth));
+  color = mix(color, rockColor, smoothstep(60.0, 120.0, depth));
+  color = mix(color, deepColor, smoothstep(120.0, 250.0, depth));
 
+  // Procedural texture detail
+  let ripples = sandRipples(input.worldPos, depth);
+  let grain = grainNoise(input.worldPos);
+  color *= 0.75 + ripples * 0.35 + grain;
+
+  // Large-scale variation from terrain noise
+  let varNoise = fbm(vec2<f32>(input.worldPos.x * 0.02, input.worldPos.z * 0.02));
+  color *= 0.85 + varNoise * 0.3;
+
+  // Directional sun lighting (half-Lambert for softer underwater look)
+  let NdotL = dot(N, sunDir);
+  let halfLambert = NdotL * 0.5 + 0.5;
+  let sunLight = halfLambert * halfLambert * uniforms.sunIntensity;
+
+  // Depth-based ambient — bluer in shallow water, darker in deep
+  let shallowAmbient = vec3<f32>(0.15, 0.25, 0.30);
+  let deepAmbient = vec3<f32>(0.02, 0.03, 0.04);
+  let ambient = mix(shallowAmbient, deepAmbient, smoothstep(0.0, 150.0, depth));
+
+  // Apply lighting
+  color = color * (ambient + sunLight * vec3<f32>(1.0, 0.95, 0.8) * 0.6);
+
+  // Caustics — animated light patterns on the seabed
+  let c = caustics(input.worldPos, depth, uniforms.time);
+  color += vec3<f32>(0.3, 0.45, 0.5) * c * uniforms.sunIntensity * 0.5;
+
+  // Night darkening
+  let nightFactor = 1.0 - smoothstep(0.2, 0.5, uniforms.timeOfDay);
+  color *= 1.0 - nightFactor * 0.6;
+
+  // Distance fog — blend to underwater color
   let dist = length(uniforms.cameraPos - input.worldPos);
-  let fogFactor = min(dist / 500.0, 1.0);
-  color = mix(color, vec3<f32>(0.0, 0.1, 0.2), fogFactor);
+  let fogFactor = 1.0 - exp(-dist * 0.004);
+  let fogColor = vec3<f32>(0.02, 0.08, 0.12);
+  color = mix(color, fogColor, clamp(fogFactor, 0.0, 0.95));
 
   return vec4<f32>(color, 1.0);
 }
@@ -91,6 +193,10 @@ export interface TerrainUniforms {
   patchSize: number;
   originX: number;
   originZ: number;
+  sunDir?: [number, number, number];
+  sunIntensity?: number;
+  timeOfDay?: number;
+  waterHeight?: number;
 }
 
 export class TerrainPass extends RenderPass {
@@ -109,7 +215,7 @@ export class TerrainPass extends RenderPass {
   private surfaceFormat: GPUTextureFormat | TextureFormat;
   private msaaSampleCount: number = 1;
   private gridSize: number;
-  private uniformData = new Float32Array(24);
+  private uniformData = new Float32Array(32);
 
   constructor(device: GPUDevice | null, surfaceFormat: GPUTextureFormat | TextureFormat, msaaSampleCount = 1, gridSize = 128, backend?: RenderBackend | null) {
     super();
@@ -202,6 +308,14 @@ export class TerrainPass extends RenderPass {
     data[20] = u.patchSize;
     data[21] = u.originX;
     data[22] = u.originZ;
+    // data[23] = padding (vec3 alignment)
+    const sd = u.sunDir ?? [0, 1, 0];
+    data[24] = sd[0];
+    data[25] = sd[1];
+    data[26] = sd[2];
+    data[27] = u.sunIntensity ?? 1.0;
+    data[28] = u.timeOfDay ?? 0.5;
+    data[29] = u.waterHeight ?? 0.0;
     const queue = this.device?.queue ?? this.backend?.queue;
     queue?.writeBuffer(this.uniformBuffer as any, 0, data as any);
   }
