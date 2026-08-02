@@ -4,6 +4,7 @@
 
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
+import { McpHttpTransport, type McpProxyHandler } from "@downdraft/mcp/http-transport";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -242,6 +243,21 @@ async function createWindow(): Promise<void> {
     }
     if (isDev) {
       mainWindow?.webContents.openDevTools();
+    }
+
+    // Auto-capture screenshot after 5s for verification
+    if (process.env.DOWNDRAFT_GAME === "plugin-tester") {
+      setTimeout(async () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        try {
+          const img = await mainWindow.webContents.capturePage();
+          const outPath = "/tmp/plugin-tester-electron.png";
+          writeFileSync(outPath, img.toPNG());
+          log.info("screenshot", `Saved to ${outPath}`);
+        } catch (e) {
+          log.error("screenshot", `Failed: ${(e as Error).message}`);
+        }
+      }, 5000);
     }
   });
 
@@ -546,6 +562,44 @@ app.whenReady().then(async () => {
   await initDb();
   await createWindow();
   mainWindow?.webContents.send(IPC.SIM_READY, { isDev });
+
+  // Start MCP HTTP transport in proxy mode
+  const mcpPort = parseInt(process.env.MCP_PORT ?? "9876", 10);
+  const proxyHandler: McpProxyHandler = async (request: { method: string; params?: Record<string, unknown> }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      throw new Error("No renderer window available");
+    }
+    const requestId = Date.now() + Math.random();
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        ipcMain.removeAllListeners("mcp-response");
+        reject(new Error("MCP request timed out"));
+      }, 5000);
+
+      ipcMain.once("mcp-response", (_e, result) => {
+        clearTimeout(timeout);
+        if (result.error) {
+          resolve({ error: result.error });
+        } else {
+          resolve(result.result);
+        }
+      });
+
+      mainWindow!.webContents.send(IPC.MCP_REQUEST, {
+        id: requestId,
+        method: request.method,
+        params: request.params,
+      });
+    });
+  };
+
+  try {
+    const transport = new McpHttpTransport({ port: mcpPort, proxyHandler });
+    await transport.start();
+    log.info("MCP", `HTTP transport listening on port ${mcpPort}`);
+  } catch (e) {
+    log.error("MCP", `Failed to start HTTP transport: ${(e as Error).message}`);
+  }
 });
 
 app.on("window-all-closed", () => {

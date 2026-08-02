@@ -20,6 +20,9 @@ export const IPC = {
   VULKAN_VALIDATION_STATUS: "vulkan-validation-status",
   OPEN_CHROME_URL: "open-chrome-url",
 
+  // MCP proxy (Main <-> Renderer)
+  MCP_REQUEST: "mcp-request",
+
   // Main -> Renderer
   SIM_READY: "sim-ready",
   DISPLAY_INFO: "display-info",

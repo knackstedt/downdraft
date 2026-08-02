@@ -3,8 +3,12 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { resolve } from "path";
 import { hotReloadPlugin } from "./packages/core/src/vite/hot-reload-plugin";
 
+import { existsSync } from "node:fs";
+
 const game = process.env.DOWNDRAFT_GAME;
-const rendererRoot = game ? resolve("games", game) : resolve("packages/app");
+const rendererRoot = game
+  ? (existsSync(resolve("games", game)) ? resolve("games", game) : resolve("examples", game))
+  : resolve("packages/app");
 
 export default defineConfig({
   main: {
@@ -27,6 +31,7 @@ export default defineConfig({
         { find: /^@downdraft\/core$/, replacement: resolve("packages/core/src/index.ts") },
         { find: /^@downdraft\/core\//, replacement: resolve("packages/core/src") + "/" },
         { find: /^@downdraft\/mcp\//, replacement: resolve("packages/mcp/src") + "/" },
+        { find: /^@downdraft\/mcp$/, replacement: resolve("packages/mcp/src/index.ts") },
         { find: /^@downdraft\/shader-graph$/, replacement: resolve("packages/shader-graph/src/index.ts") },
         { find: /^@downdraft\/shader-graph\//, replacement: resolve("packages/shader-graph/src") + "/" },
       ],
@@ -93,6 +98,24 @@ export default defineConfig({
         { find: /^@downdraft\/plugin-devtools\//, replacement: resolve("packages/plugins/devtools/src") + "/" },
         { find: /^node:fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
         { find: /^fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
+        { find: /^@downdraft\/plugin-navmesh$/, replacement: resolve("packages/plugins/navmesh/src/index.ts") },
+        { find: /^@downdraft\/plugin-navmesh\//, replacement: resolve("packages/plugins/navmesh/src") + "/" },
+        { find: /^@downdraft\/plugin-water$/, replacement: resolve("packages/plugins/water/src/index.ts") },
+        { find: /^@downdraft\/plugin-water\//, replacement: resolve("packages/plugins/water/src") + "/" },
+        { find: /^@downdraft\/plugin-fishing$/, replacement: resolve("packages/plugins/fishing/src/index.ts") },
+        { find: /^@downdraft\/plugin-fishing\//, replacement: resolve("packages/plugins/fishing/src") + "/" },
+        { find: /^@downdraft\/plugin-survival$/, replacement: resolve("packages/plugins/survival/src/index.ts") },
+        { find: /^@downdraft\/plugin-survival\//, replacement: resolve("packages/plugins/survival/src") + "/" },
+        { find: /^@downdraft\/plugin-economy$/, replacement: resolve("packages/plugins/economy/src/index.ts") },
+        { find: /^@downdraft\/plugin-economy\//, replacement: resolve("packages/plugins/economy/src") + "/" },
+        { find: /^@downdraft\/plugin-inventory$/, replacement: resolve("packages/plugins/inventory/src/index.ts") },
+        { find: /^@downdraft\/plugin-inventory\//, replacement: resolve("packages/plugins/inventory/src") + "/" },
+        { find: /^@downdraft\/plugin-items$/, replacement: resolve("packages/plugins/items/src/index.ts") },
+        { find: /^@downdraft\/plugin-items\//, replacement: resolve("packages/plugins/items/src") + "/" },
+        { find: /^@downdraft\/plugin-crafting$/, replacement: resolve("packages/plugins/crafting/src/index.ts") },
+        { find: /^@downdraft\/plugin-crafting\//, replacement: resolve("packages/plugins/crafting/src") + "/" },
+        { find: /^@downdraft\/mcp$/, replacement: resolve("packages/mcp/src/index.ts") },
+        { find: /^@downdraft\/mcp\//, replacement: resolve("packages/mcp/src") + "/" },
       ],
     },
     build: {

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Downdraft Plugin Tester</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a12; color: #e0e0e0; font-family: monospace; }
+    #app { width: 100%; height: 100%; position: relative; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    #overlay {
+      position: absolute; top: 0; left: 0; right: 0; padding: 8px 12px;
+      background: rgba(0,0,0,0.6); pointer-events: none;
+      font-size: 12px; line-height: 1.5;
+    }
+    #overlay h1 { font-size: 14px; color: #4fc3f7; margin-bottom: 4px; }
+    #overlay .status { color: #81c784; }
+    #overlay .error { color: #ef5350; }
+    #overlay .section { margin-top: 6px; }
+    #overlay .section-title { color: #ffb74d; font-weight: bold; }
+    #fallback {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      text-align: center; font-size: 16px; color: #ef5350;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="canvas"></canvas>
+    <div id="overlay">
+      <h1>Downdraft Plugin Tester</h1>
+      <div id="status-line" class="status">Initializing...</div>
+      <div id="error-line"></div>
+      <div id="info-sections"></div>
+    </div>
+    <div id="fallback" style="display:none">WebGPU not available. This example requires WebGPU support.</div>
+  </div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

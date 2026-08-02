@@ -39,6 +39,13 @@ const api = {
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
 
   log: (level: string, message: string) => ipcRenderer.send(IPC.RENDERER_LOG, { level, message }),
+
+  onMcpRequest: (cb: (request: { id: number; method: string; params?: Record<string, unknown> }) => Promise<{ id: number; result?: unknown; error?: { code: number; message: string } }>) => {
+    ipcRenderer.on(IPC.MCP_REQUEST, async (_e, request) => {
+      const result = await cb(request);
+      ipcRenderer.send("mcp-response", result);
+    });
+  },
 };
 
 contextBridge.exposeInMainWorld("downdraft", api);
