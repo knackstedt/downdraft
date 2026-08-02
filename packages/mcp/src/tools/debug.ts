@@ -1,11 +1,11 @@
-import { execSync } from "child_process";
 import type { EngineContext } from "../engine-context.ts";
 import type { ToolRegistration } from "../types.ts";
 import { errorResult, jsonResult } from "../types.ts";
 import type { UndoRedoManager } from "../undo-redo.ts";
 
-function queryNvidiaSmi(): Record<string, unknown> | null {
+async function queryNvidiaSmi(): Promise<Record<string, unknown> | null> {
   try {
+    const { execSync } = await import("child_process");
     const gpuQuery = "utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.sm,clocks.mem,name,driver_version";
     const output = execSync(
       `nvidia-smi --query-gpu=${gpuQuery} --format=csv,noheader,nounits`,
@@ -29,8 +29,9 @@ function queryNvidiaSmi(): Record<string, unknown> | null {
   }
 }
 
-function queryNvidiaSmiProcesses(): Array<Record<string, unknown>> | null {
+async function queryNvidiaSmiProcesses(): Promise<Array<Record<string, unknown>> | null> {
   try {
+    const { execSync } = await import("child_process");
     const output = execSync(
       "nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits",
       { timeout: 3000, encoding: "utf-8" },
@@ -51,9 +52,9 @@ function queryNvidiaSmiProcesses(): Array<Record<string, unknown>> | null {
   }
 }
 
-function queryElectronGPUInfo(): Record<string, unknown> | null {
+async function queryElectronGPUInfo(): Promise<Record<string, unknown> | null> {
   try {
-    const electron = require("electron");
+    const electron = await import("electron");
     if (electron && electron.app && electron.app.getGPUInfo) {
       const info = electron.app.getGPUInfo("full");
       if (info && typeof info === "object") {
@@ -165,9 +166,9 @@ export function createDebugTools(ctx: EngineContext, undoRedo: UndoRedoManager):
           properties: {},
         },
       },
-      handler: () => {
-        const nvidia = queryNvidiaSmi();
-        const electronGPU = queryElectronGPUInfo();
+      handler: async () => {
+        const nvidia = await queryNvidiaSmi();
+        const electronGPU = await queryElectronGPUInfo();
         return jsonResult({
           meshes: ctx.meshes.size,
           materials: ctx.materialLibrary.list().length,
@@ -192,11 +193,11 @@ export function createDebugTools(ctx: EngineContext, undoRedo: UndoRedoManager):
           },
         },
       },
-      handler: (params) => {
+      handler: async (params) => {
         const includeProcesses = (params.includeProcesses as boolean) ?? true;
-        const nvidia = queryNvidiaSmi();
-        const electronGPU = queryElectronGPUInfo();
-        const processes = includeProcesses ? queryNvidiaSmiProcesses() : null;
+        const nvidia = await queryNvidiaSmi();
+        const electronGPU = await queryElectronGPUInfo();
+        const processes = includeProcesses ? await queryNvidiaSmiProcesses() : null;
 
         if (!nvidia && !electronGPU) {
           return jsonResult({

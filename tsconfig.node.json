@@ -11,7 +11,8 @@
       "@main/*": ["packages/app/src/main/*"],
       "@downdraft/core/*": ["packages/core/src/*"],
       "@downdraft/core": ["packages/core/src/index.ts"],
-      "@downdraft/mcp/*": ["packages/mcp/src/*"]
+      "@downdraft/mcp/*": ["packages/mcp/src/*"],
+      "@downdraft/mcp": ["packages/mcp/src/index.ts"]
     }
   },
   "include": [

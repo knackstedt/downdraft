@@ -1,7 +1,6 @@
 import type { EngineContext } from "../engine-context.ts";
 import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import { promises as fs } from "node:fs";
+import { errorResult, jsonResult } from "../types.ts";
 
 export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -26,6 +25,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
 
         const path = `scripts/${name}.ts`;
         try {
+          const { promises: fs } = await import("node:fs");
           await fs.writeFile(path, code);
           return jsonResult({ created: true, name, path });
         } catch (e) {

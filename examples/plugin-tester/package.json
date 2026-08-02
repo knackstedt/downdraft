@@ -1,0 +1,17 @@
+{
+  "name": "plugin-tester-example",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@downdraft/mcp": "workspace:*",
+    "@downdraft/plugin-navmesh": "workspace:*",
+    "@downdraft/plugin-water": "workspace:*",
+    "@downdraft/plugin-fishing": "workspace:*",
+    "@downdraft/plugin-survival": "workspace:*",
+    "@downdraft/plugin-economy": "workspace:*",
+    "@downdraft/plugin-inventory": "workspace:*",
+    "@downdraft/plugin-items": "workspace:*",
+    "@downdraft/plugin-crafting": "workspace:*"
+  }
+}

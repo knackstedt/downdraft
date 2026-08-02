@@ -1,4 +1,3 @@
-import { execSync } from "child_process";
 import type { EngineContext } from "../engine-context.ts";
 import type { MCPResourceResult, ResourceRegistration } from "../types.ts";
 
@@ -12,8 +11,9 @@ function resourceJSON(uri: string, data: unknown): MCPResourceResult {
   };
 }
 
-function queryNvidiaSmi(): Record<string, unknown> | null {
+async function queryNvidiaSmi(): Promise<Record<string, unknown> | null> {
   try {
+    const { execSync } = await import("child_process");
     const gpuQuery = "utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.sm,clocks.mem,name,driver_version";
     const output = execSync(
       `nvidia-smi --query-gpu=${gpuQuery} --format=csv,noheader,nounits`,
@@ -37,8 +37,9 @@ function queryNvidiaSmi(): Record<string, unknown> | null {
   }
 }
 
-function queryNvidiaSmiProcesses(): Array<Record<string, unknown>> | null {
+async function queryNvidiaSmiProcesses(): Promise<Array<Record<string, unknown>> | null> {
   try {
+    const { execSync } = await import("child_process");
     const output = execSync(
       "nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits",
       { timeout: 3000, encoding: "utf-8" },
@@ -59,9 +60,9 @@ function queryNvidiaSmiProcesses(): Array<Record<string, unknown>> | null {
   }
 }
 
-function queryElectronGPUInfo(): Record<string, unknown> | null {
+async function queryElectronGPUInfo(): Promise<Record<string, unknown> | null> {
   try {
-    const electron = require("electron");
+    const electron = await import("electron");
     if (electron && electron.app && electron.app.getGPUInfo) {
       const info = electron.app.getGPUInfo("full");
       if (info && typeof info === "object") {
@@ -92,10 +93,10 @@ export function createGPUInfoResource(ctx: EngineContext): ResourceRegistration[
         description: "Real-time GPU system metrics: utilization, VRAM, temperature, power, clocks, per-process VRAM, Electron GPU info, and engine resource counts",
         mimeType: "application/json",
       },
-      handler: (uri) => {
-        const nvidia = queryNvidiaSmi();
-        const processes = queryNvidiaSmiProcesses();
-        const electronGPU = queryElectronGPUInfo();
+      handler: async (uri) => {
+        const nvidia = await queryNvidiaSmi();
+        const processes = await queryNvidiaSmiProcesses();
+        const electronGPU = await queryElectronGPUInfo();
 
         return resourceJSON(uri, {
           nvidiaSmi: nvidia,

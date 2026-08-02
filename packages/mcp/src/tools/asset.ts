@@ -1,9 +1,8 @@
+import type { ImportOptions } from "@downdraft/core";
+import { AssetImporter } from "@downdraft/core";
 import type { EngineContext } from "../engine-context.ts";
 import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import { AssetImporter } from "@downdraft/core";
-import type { ImportOptions } from "@downdraft/core";
-import { promises as fs } from "node:fs";
+import { errorResult, jsonResult } from "../types.ts";
 
 export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -66,6 +65,7 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
         };
 
         try {
+          const { promises: fs } = await import("node:fs");
           const buf = await fs.readFile(path);
           const fileData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
           const ext = path.split(".").pop()?.toLowerCase() ?? "";
