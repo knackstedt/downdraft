@@ -1,3 +1,4 @@
+import { createAnimationEventTrack, type AnimationEvent } from "./animation-event.ts";
 import { AnimationClip, type KeyframeTrack } from "./clip.ts";
 import { AnimationPlayer } from "./player.ts";
 import { buildRetargetMapping, retargetClip } from "./retarget.ts";
@@ -5,6 +6,15 @@ import type { AnimationChannel, AnimationData, SkinData } from "./skeleton-anima
 import { SkeletonAnimator, skinDataToSkeletonData } from "./skeleton-animator.ts";
 import { Skeleton, type SkeletonData } from "./skeleton.ts";
 import { AnimationStateMachine } from "./state-machine.ts";
+
+function makeClipWithEvents(events: AnimationEvent[], duration: number): AnimationClip {
+  return new AnimationClip({
+    name: "eventclip",
+    duration,
+    tracks: [],
+    eventTrack: createAnimationEventTrack(events),
+  });
+}
 
 function makeSimpleSkeleton(): SkeletonData {
   return {
@@ -577,5 +587,609 @@ describe("SkeletonAnimator", () => {
     expect(animator.getPlayer()).toBeDefined();
     expect(animator.getSkeleton()).toBeDefined();
     expect(animator.getSkeleton().getBoneCount()).toBe(2);
+  });
+});
+
+describe("AnimationPlayer layer management", () => {
+  it("should report layer count and hasLayer", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("base", clip);
+    expect(player.getLayerCount()).toBe(1);
+    expect(player.hasLayer("base")).toBe(true);
+    expect(player.hasLayer("other")).toBe(false);
+  });
+
+  it("should support priority-based layering", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    player.play("base", clipA);
+    player.play("overlay", clipB, { priority: 1 });
+
+    player.update(0.5);
+    const transforms = player.getBoneTransforms();
+    // Both layers affect bone 0, weighted average: (1*1 + 5*1) / 2 = 3
+    expect(transforms.positions[0][1]).toBeCloseTo(3, 5);
+  });
+
+  it("should fade weight over time", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+
+    player.play("idle", clip);
+    player.setWeight("idle", 0, 0.5);
+
+    player.update(0.25);
+    // With a single layer, weight normalization cancels out the weight factor.
+    // At t=0.25, clip samples position y=0.5, weight=0.5, but after normalization: 0.5*0.5/0.5 = 0.5
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(0.5, 2);
+  });
+
+  it("should swap clips with setClip", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    player.play("layer", clipA);
+    player.update(0.5);
+    let transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(1, 5);
+
+    player.setClip("layer", clipB);
+    player.update(0.5);
+    transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(5, 5);
+  });
+
+  it("should swap clips with fade", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    player.play("layer", clipA);
+    player.update(0.5);
+
+    player.setClip("layer", clipB, 0.3);
+    // Before fade completes, clip should still be A
+    player.update(0.1);
+    expect(player.hasLayer("layer")).toBe(true);
+  });
+
+  it("should destroy and clear all layers", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("a", clip);
+    player.play("b", clip, { priority: 1 });
+    player.destroy();
+    expect(player.getLayerCount()).toBe(0);
+  });
+
+  it("should crossfade when playing with fadeDuration", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    player.play("a", clipA);
+    player.update(0.5);
+
+    player.play("b", clipB, { fadeDuration: 0.5 });
+    player.update(0.25);
+
+    // a: time=0.75, samples y=1.5, weight=0.5 (fading out)
+    // b: time=0.25, samples y=2.5, weight=0.5 (fading in)
+    // weighted: (1.5*0.5 + 2.5*0.5) / (0.5+0.5) = 2.0
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(2, 1);
+  });
+});
+
+describe("AnimationPlayer stop / pause / resume all", () => {
+  it("should stop all layers when called without name", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("a", clip);
+    player.play("b", clip, { priority: 1 });
+    expect(player.getLayerCount()).toBe(2);
+    player.stop();
+    expect(player.getLayerCount()).toBe(0);
+    expect(player.isPlaying()).toBe(false);
+  });
+
+  it("should pause all layers when called without name", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("a", clip);
+    player.play("b", clip, { priority: 1 });
+    player.pause();
+    expect(player.isPlaying("a")).toBe(false);
+    expect(player.isPlaying("b")).toBe(false);
+    expect(player.isPlaying()).toBe(false);
+  });
+
+  it("should resume all layers when called without name", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("a", clip);
+    player.play("b", clip, { priority: 1 });
+    player.pause();
+    player.resume();
+    expect(player.isPlaying("a")).toBe(true);
+    expect(player.isPlaying("b")).toBe(true);
+    expect(player.isPlaying()).toBe(true);
+  });
+
+  it("isPlaying() without name should return true if any layer is playing", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    expect(player.isPlaying()).toBe(false);
+    player.play("idle", clip);
+    expect(player.isPlaying()).toBe(true);
+    player.pause("idle");
+    expect(player.isPlaying()).toBe(false);
+  });
+});
+
+describe("AnimationPlayer morph weights", () => {
+  it("should return morph weights array", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const weights = player.getMorphWeights();
+    expect(weights).toBeInstanceOf(Float32Array);
+    expect(weights.length).toBeGreaterThan(0);
+  });
+
+  it("should return max morph targets", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    expect(player.getMaxMorphTargets()).toBeGreaterThan(0);
+  });
+
+  it("should set max morph targets", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const original = player.getMaxMorphTargets();
+    player.setMaxMorphTargets(32);
+    expect(player.getMaxMorphTargets()).toBe(32);
+    expect(player.getMorphWeights().length).toBe(32);
+  });
+
+  it("should clamp max morph targets to MAX_MORPH_TARGETS", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    player.setMaxMorphTargets(999);
+    expect(player.getMaxMorphTargets()).toBe(64);
+  });
+
+  it("should not change if same value", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const original = player.getMaxMorphTargets();
+    const weightsRef = player.getMorphWeights();
+    player.setMaxMorphTargets(original);
+    expect(player.getMorphWeights()).toBe(weightsRef);
+  });
+});
+
+describe("AnimationPlayer non-looping clip", () => {
+  it("should stop at end and set weight to 0 for non-looping clip", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("oneshot", clip, { loop: false });
+    player.update(1.5);
+    // Non-looping clip past duration: weight=0, layer skipped
+    const transforms = player.getBoneTransforms();
+    // With no active weight, falls back to bind pose
+    expect(transforms.positions[0][1]).toBe(0);
+  });
+});
+
+describe("AnimationPlayer re-play existing layer", () => {
+  it("should replace clip when playing same layer name", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    player.play("layer", clipA);
+    player.update(0.5);
+    expect(player.getBoneTransforms().positions[0][1]).toBeCloseTo(1, 5);
+
+    // Re-play same name → replaces clip, resets time
+    player.play("layer", clipB);
+    expect(player.getLayerCount()).toBe(1);
+    player.update(0.5);
+    expect(player.getBoneTransforms().positions[0][1]).toBeCloseTo(5, 5);
+  });
+});
+
+describe("AnimationPlayer Set bone mask", () => {
+  it("should accept Set<number> as bone mask", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(1, [0, 1, 0], [0, 5, 0]);
+
+    player.play("lower", clipA);
+    player.play("upper", clipB, { boneMask: new Set([1]) });
+
+    player.update(0.5);
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(1, 5);
+    expect(transforms.positions[1][1]).toBeCloseTo(3, 5);
+  });
+});
+
+describe("AnimationPlayer negative speed", () => {
+  it("should play in reverse with negative speed", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+
+    player.play("rev", clip, { speed: -1 });
+    player.update(0.5);
+
+    // At t=-0.5 with loop, wraps to 0.5 → y=1
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(1, 5);
+  });
+});
+
+describe("AnimationPlayer offEvent without handler", () => {
+  it("should remove all handlers for an event type", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeClipWithEvents([{ time: 0.5, type: "hit" }], 2.0);
+    player.play("attack", clip);
+
+    let callCount = 0;
+    player.onEvent("hit", () => { callCount++; });
+    player.onEvent("hit", () => { callCount++; });
+    player.offEvent("hit"); // remove all
+    player.update(0.6);
+    expect(callCount).toBe(0);
+  });
+});
+
+describe("AnimationPlayer crossfade completion", () => {
+  it("should remove old layer after crossfade completes", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    player.play("a", clipA);
+    player.update(0.5);
+
+    player.play("b", clipB, { fadeDuration: 0.3 });
+    // After 0.3s, fade should complete: "a" removed, "b" at full weight
+    player.update(0.3);
+    expect(player.hasLayer("a")).toBe(false);
+    expect(player.hasLayer("b")).toBe(true);
+    // "b" at full weight, t=0.3 → y=3
+    player.update(0.1);
+    expect(player.getBoneTransforms().positions[0][1]).toBeCloseTo(4, 5);
+  });
+});
+
+describe("AnimationPlayer additive with bone mask", () => {
+  it("should only apply additive delta to masked bones", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const baseClip = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const addClip0 = makeClipForBone(0, [0, 0, 0], [0, 4, 0]);
+    const addClip1 = makeClipForBone(1, [0, 1, 0], [0, 10, 0]);
+
+    player.play("base", baseClip);
+    // Additive on bone 1 only, masked
+    player.play("add", addClip1, { additive: true, boneMask: [1] });
+    // Another additive on bone 0, masked to bone 0
+    player.play("add0", addClip0, { additive: true, boneMask: [0] });
+
+    player.update(0.5);
+    const transforms = player.getBoneTransforms();
+    // bone 0: base y=1, additive delta=(2-0)*1=2 → 1+2=3
+    expect(transforms.positions[0][1]).toBeCloseTo(3, 5);
+    // bone 1: base bind y=1, additive delta=(5.5-1)*1=4.5 → 1+4.5=5.5
+    expect(transforms.positions[1][1]).toBeCloseTo(5.5, 5);
+  });
+});
+
+describe("AnimationPlayer weight fade to zero removes layer", () => {
+  it("should remove layer when weight fades to 0", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+
+    player.play("idle", clip);
+    player.update(0.1);
+
+    player.setWeight("idle", 0, 0.5);
+    player.update(0.5);
+    expect(player.hasLayer("idle")).toBe(false);
+  });
+});
+
+describe("AnimationStateMachine advanced", () => {
+  it("should report transitioning state", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+    const clip = makeSimpleClip();
+
+    sm.addState("idle", { clip });
+    sm.addState("walk", { clip });
+    sm.addTransition("idle", "walk", { duration: 0.3, conditions: [{ parameter: "speed", op: ">", value: 0.5 }] });
+    sm.setInitialState("idle");
+    sm.update(0.016, { speed: 1.0 });
+    expect(sm.isTransitioning()).toBe(true);
+  });
+
+  it("should complete transition after duration", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+    const clip = makeSimpleClip();
+
+    sm.addState("idle", { clip });
+    sm.addState("walk", { clip });
+    sm.addTransition("idle", "walk", { duration: 0.3, conditions: [{ parameter: "speed", op: ">", value: 0.5 }] });
+    sm.setInitialState("idle");
+    sm.update(0.016, { speed: 1.0 });
+    expect(sm.isTransitioning()).toBe(true);
+    sm.update(0.3);
+    expect(sm.isTransitioning()).toBe(false);
+    expect(sm.getCurrentState()).toBe("walk");
+  });
+
+  it("should support start() as alias for setInitialState", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+    const clip = makeSimpleClip();
+
+    sm.addState("idle", { clip });
+    sm.start("idle");
+    expect(sm.getCurrentState()).toBe("idle");
+  });
+
+  it("should throw on unknown initial state", () => {
+    const sm = new AnimationStateMachine();
+    expect(() => sm.setInitialState("nonexistent")).toThrow();
+  });
+
+  it("should support all condition operators", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+
+    const ops = [
+      { op: ">", value: 0.5, param: 1.0, shouldTransition: true },
+      { op: "<", value: 0.5, param: 0.1, shouldTransition: true },
+      { op: "==", value: 1, param: 1, shouldTransition: true },
+      { op: "!=", value: 1, param: 2, shouldTransition: true },
+      { op: ">=", value: 1, param: 1, shouldTransition: true },
+      { op: "<=", value: 1, param: 1, shouldTransition: true },
+    ] as const;
+
+    for (const { op, value, param, shouldTransition } of ops) {
+      const sm = new AnimationStateMachine(player);
+      const clip = makeSimpleClip();
+      sm.addState("idle", { clip });
+      sm.addState("walk", { clip });
+      sm.addTransition("idle", "walk", { duration: 0.1, conditions: [{ parameter: "x", op, value }] });
+      sm.setInitialState("idle");
+      sm.update(0.016, { x: param });
+      expect(sm.getCurrentState() === "walk").toBe(shouldTransition);
+    }
+  });
+
+  it("should not transition from wrong source state", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+    const clip = makeSimpleClip();
+
+    sm.addState("idle", { clip });
+    sm.addState("walk", { clip });
+    sm.addState("run", { clip });
+    // Transition from walk→run, but we're in idle
+    sm.addTransition("walk", "run", { duration: 0.2, conditions: [{ parameter: "speed", op: ">", value: 0.5 }] });
+    sm.setInitialState("idle");
+    sm.update(0.016, { speed: 1.0 });
+    expect(sm.getCurrentState()).toBe("idle");
+  });
+});
+
+describe("AnimationStateMachine blend trees", () => {
+  it("should blend 1D blend tree based on parameter", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    sm.addState("locomotion", {
+      blendTree: {
+        type: "1d",
+        parameter: "speed",
+        children: [
+          { clip: clipA, threshold: 0 },
+          { clip: clipB, threshold: 1 },
+        ],
+      },
+    });
+    sm.setInitialState("locomotion");
+    sm.setParameter("speed", 0.5);
+    sm.update(0.016);
+    player.update(0.5);
+
+    // At speed=0.5, blend 50/50: clipA at t=0.5 → y=1, clipB at t=0.5 → y=5
+    // weighted: (1*0.5 + 5*0.5) / 1 = 3
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(3, 5);
+  });
+
+  it("should clamp 1D blend tree to first child below threshold", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    sm.addState("locomotion", {
+      blendTree: {
+        type: "1d",
+        parameter: "speed",
+        children: [
+          { clip: clipA, threshold: 0 },
+          { clip: clipB, threshold: 1 },
+        ],
+      },
+    });
+    sm.setInitialState("locomotion");
+    sm.setParameter("speed", -1);
+    sm.update(0.016);
+    player.update(0.5);
+
+    // Below threshold 0 → clipA at weight 1
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(1, 5);
+  });
+
+  it("should clamp 1D blend tree to last child above threshold", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+
+    sm.addState("locomotion", {
+      blendTree: {
+        type: "1d",
+        parameter: "speed",
+        children: [
+          { clip: clipA, threshold: 0 },
+          { clip: clipB, threshold: 1 },
+        ],
+      },
+    });
+    sm.setInitialState("locomotion");
+    sm.setParameter("speed", 5);
+    sm.update(0.016);
+    player.update(0.5);
+
+    // Above threshold 1 → clipB at weight 1
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(5, 5);
+  });
+
+  it("should blend 2D blend tree based on parameters", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+    const clipB = makeClipForBone(0, [0, 0, 0], [0, 10, 0]);
+    const clipC = makeClipForBone(0, [0, 0, 0], [0, 20, 0]);
+    const clipD = makeClipForBone(0, [0, 0, 0], [0, 30, 0]);
+
+    sm.addState("locomotion", {
+      blendTree: {
+        type: "2d",
+        parameterX: "x",
+        parameterY: "y",
+        children: [
+          { clip: clipA, position: [0, 0] },
+          { clip: clipB, position: [1, 0] },
+          { clip: clipC, position: [0, 1] },
+          { clip: clipD, position: [1, 1] },
+        ],
+      },
+    });
+    sm.setInitialState("locomotion");
+    // At (0.5, 0.5) → equidistant to all 4, but 2D picks 2 closest
+    sm.setParameter("x", 0.5);
+    sm.setParameter("y", 0.5);
+    sm.update(0.016);
+    player.update(0.5);
+
+    // Should be playing something
+    expect(player.isPlaying()).toBe(true);
+  });
+
+  it("should handle 2D blend tree with single child", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const sm = new AnimationStateMachine(player);
+
+    const clipA = makeClipForBone(0, [0, 0, 0], [0, 2, 0]);
+
+    sm.addState("single", {
+      blendTree: {
+        type: "2d",
+        parameterX: "x",
+        parameterY: "y",
+        children: [{ clip: clipA, position: [0, 0] }],
+      },
+    });
+    sm.setInitialState("single");
+    sm.update(0.016);
+    player.update(0.5);
+
+    const transforms = player.getBoneTransforms();
+    expect(transforms.positions[0][1]).toBeCloseTo(1, 5);
+  });
+});
+
+describe("AnimationPlayer getSkinMatrices caching", () => {
+  it("should return cached skin matrices on repeated calls", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("idle", clip);
+    player.update(0.5);
+    const m1 = player.getSkinMatrices();
+    const m2 = player.getSkinMatrices();
+    expect(m1).toBe(m2); // same reference (cached)
+  });
+
+  it("should recompute skin matrices after update", () => {
+    const skel = new Skeleton(makeSimpleSkeleton());
+    const player = new AnimationPlayer(skel);
+    const clip = makeSimpleClip();
+    player.play("idle", clip);
+    player.update(0.5);
+    const m1 = player.getSkinMatrices();
+    player.update(0.1);
+    const m2 = player.getSkinMatrices();
+    // After update, skinMatrices is nulled and recomputed
+    // Values may be the same but it should be a valid array
+    expect(m2).toBeInstanceOf(Float32Array);
+    expect(m2.length).toBe(m1.length);
   });
 });

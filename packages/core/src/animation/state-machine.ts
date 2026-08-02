@@ -1,4 +1,3 @@
-import type { AnimationLayerManager } from "./animation-layers.ts";
 import type { AnimationClip } from "./clip.ts";
 import type { AnimationPlayer } from "./player.ts";
 
@@ -46,18 +45,9 @@ export class AnimationStateMachine {
   private transitioning = false;
   private parameters: Map<string, number> = new Map();
   private player: AnimationPlayer | null = null;
-  private layerManager: AnimationLayerManager | null = null;
 
   constructor(player?: AnimationPlayer) {
     this.player = player ?? null;
-  }
-
-  setLayerManager(manager: AnimationLayerManager | null): void {
-    this.layerManager = manager;
-  }
-
-  getLayerManager(): AnimationLayerManager | null {
-    return this.layerManager;
   }
 
   addState(name: string, opts?: { clip?: AnimationClip; weight?: number; blendTree?: BlendTree; speed?: number; loop?: boolean; boneMask?: number[]; additive?: boolean }): void {
@@ -125,10 +115,6 @@ export class AnimationStateMachine {
     }
 
     this.updateBlendTrees(dt);
-
-    if (this.layerManager) {
-      this.layerManager.update(dt);
-    }
 
     if (!this.transitioning) {
       this.checkTransitions();
