@@ -32,59 +32,10 @@ export class HitboxRenderer {
   }
 
   init(pipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
-    const device = this.ctx.device!;
+    const device = this.ctx.device;
+    const backend = this.ctx.backend;
     const format = this.ctx.format;
     const bindGroupLayout = this.ctx.bindGroupLayout;
-
-    // Hitbox uniform buffer — separate from entity uniform buffer
-    this.hitboxUniformBuffer = device.createBuffer({
-      size: 256 * MAX_HITBOX_ENTRIES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    const hitboxBindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } },
-      ],
-    });
-
-    this.hitboxBindGroup = device.createBindGroup({
-      layout: hitboxBindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer, size: 256 } }],
-    });
-
-    const hitboxLayout = device.createPipelineLayout({
-      bindGroupLayouts: [hitboxBindGroupLayout],
-    });
-
-    const hitboxShaderModule = device.createShaderModule({ code: HITBOX_WGSL });
-    this.hitboxPipeline = device.createRenderPipeline({
-      layout: hitboxLayout,
-      vertex: {
-        module: hitboxShaderModule,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: 32,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-            { shaderLocation: 2, offset: 24, format: "float32x2" },
-          ],
-        }],
-      },
-      fragment: {
-        module: hitboxShaderModule,
-        entryPoint: "fs_main",
-        targets: [{ format }],
-      },
-      primitive: { topology: "triangle-list" },
-      multisample: { count: MSAA_SAMPLE_COUNT },
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: false,
-        depthCompare: "less",
-      },
-    });
 
     // Build quad vertices for 12 cube edges × 4 corners = 48 vertices
     const cubeEdges: number[][] = [
@@ -112,12 +63,6 @@ export class HitboxRenderer {
         quadVerts[qv++] = cornerVecs[ci][0]; quadVerts[qv++] = cornerVecs[ci][1];
       }
     }
-    this.hitboxQuadVertices = device.createBuffer({
-      size: quadVerts.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.hitboxQuadVertices as any, 0, quadVerts);
-
     const quadIndices = new Uint16Array(12 * 6);
     let qi = 0;
     for (let ei = 0; ei < 12; ei++) {
@@ -126,15 +71,121 @@ export class HitboxRenderer {
       quadIndices[qi++] = b + 0; quadIndices[qi++] = b + 2; quadIndices[qi++] = b + 3;
     }
     this.hitboxQuadIndexCount = quadIndices.length;
-    this.hitboxQuadIndices = device.createBuffer({
+
+    if (backend && !device) {
+      this.hitboxUniformBuffer = backend.createBuffer({ size: 256 * MAX_HITBOX_ENTRIES, usage: 0x40 | 0x08 });
+      const hitboxBindGroupLayout = backend.createBindGroupLayout({
+        entries: [{ binding: 0, visibility: 0x3, buffer: { type: "uniform", hasDynamicOffset: true } }],
+      });
+      this.hitboxBindGroup = backend.createBindGroup({
+        layout: hitboxBindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer as any, size: 256 } }],
+      });
+      const hitboxLayout = backend.createPipelineLayout({ bindGroupLayouts: [hitboxBindGroupLayout as any] });
+
+      const hitboxShaderModule = backend.createShaderModule({ wgsl: HITBOX_WGSL }, "wgsl");
+      this.hitboxPipeline = backend.createRenderPipeline({
+        layout: hitboxLayout as any,
+        vertex: {
+          module: hitboxShaderModule, entryPoint: "vs_main",
+          buffers: [{ arrayStride: 32, attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+            { shaderLocation: 2, offset: 24, format: "float32x2" },
+          ]}],
+        },
+        fragment: { module: hitboxShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
+        primitive: { topology: "line-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
+      });
+
+      this.hitboxQuadVertices = backend.createBuffer({ size: quadVerts.byteLength, usage: 0x20 | 0x08 });
+      backend.queue.writeBuffer(this.hitboxQuadVertices as any, 0, quadVerts as any);
+      this.hitboxQuadIndices = backend.createBuffer({ size: quadIndices.byteLength, usage: 0x10 | 0x08 });
+      backend.queue.writeBuffer(this.hitboxQuadIndices as any, 0, quadIndices as any);
+
+      const islandWireframeModule = backend.createShaderModule({ wgsl: ISLAND_WIREFRAME_WGSL }, "wgsl");
+      this.islandWireframePipeline = backend.createRenderPipeline({
+        layout: hitboxLayout as any,
+        vertex: {
+          module: islandWireframeModule, entryPoint: "vs_main",
+          buffers: [{ arrayStride: 36, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }],
+        },
+        fragment: { module: islandWireframeModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
+        primitive: { topology: "line-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
+      });
+      return;
+    }
+
+    const dev = device!;
+
+    // Hitbox uniform buffer — separate from entity uniform buffer
+    this.hitboxUniformBuffer = dev.createBuffer({
+      size: 256 * MAX_HITBOX_ENTRIES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const hitboxBindGroupLayout = dev.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } },
+      ],
+    });
+
+    this.hitboxBindGroup = dev.createBindGroup({
+      layout: hitboxBindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer, size: 256 } }],
+    });
+
+    const hitboxLayout = dev.createPipelineLayout({
+      bindGroupLayouts: [hitboxBindGroupLayout],
+    });
+
+    const hitboxShaderModule = dev.createShaderModule({ code: HITBOX_WGSL });
+    this.hitboxPipeline = dev.createRenderPipeline({
+      layout: hitboxLayout,
+      vertex: {
+        module: hitboxShaderModule,
+        entryPoint: "vs_main",
+        buffers: [{
+          arrayStride: 32,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+            { shaderLocation: 2, offset: 24, format: "float32x2" },
+          ],
+        }],
+      },
+      fragment: {
+        module: hitboxShaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format }],
+      },
+      primitive: { topology: "line-list" },
+      multisample: { count: MSAA_SAMPLE_COUNT },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: false,
+        depthCompare: "less",
+      },
+    });
+
+    this.hitboxQuadVertices = dev.createBuffer({
+      size: quadVerts.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    dev.queue.writeBuffer(this.hitboxQuadVertices as any, 0, quadVerts);
+    this.hitboxQuadIndices = dev.createBuffer({
       size: quadIndices.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(this.hitboxQuadIndices as any, 0, quadIndices);
+    dev.queue.writeBuffer(this.hitboxQuadIndices as any, 0, quadIndices);
 
     // Island wireframe pipeline
-    const islandWireframeModule = device.createShaderModule({ code: ISLAND_WIREFRAME_WGSL });
-    this.islandWireframePipeline = device.createRenderPipeline({
+    const islandWireframeModule = dev.createShaderModule({ code: ISLAND_WIREFRAME_WGSL });
+    this.islandWireframePipeline = dev.createRenderPipeline({
       layout: pipelineLayout as any,
       vertex: {
         module: islandWireframeModule,

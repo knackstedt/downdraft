@@ -108,12 +108,83 @@ export class IslandTerrainRenderer {
   }
 
   init(pbrLitPipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
-    const device = this.ctx.device!;
+    const device = this.ctx.device;
+    const backend = this.ctx.backend;
     const format = this.ctx.format;
-    const islandShaderModule = device.createShaderModule({ code: ISLAND_WGSL });
-    const boatShaderModule = device.createShaderModule({ code: BOAT_WGSL });
 
-    this.islandPipeline = device.createRenderPipeline({
+    if (backend && !device) {
+      const islandShaderModule = backend.createShaderModule({ wgsl: ISLAND_WGSL }, "wgsl");
+      const boatShaderModule = backend.createShaderModule({ wgsl: BOAT_WGSL }, "wgsl");
+
+      this.islandPipeline = backend.createRenderPipeline({
+        layout: pbrLitPipelineLayout as any,
+        vertex: {
+          module: islandShaderModule,
+          entryPoint: "vs_main",
+          buffers: [{ arrayStride: 36, attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+            { shaderLocation: 2, offset: 24, format: "float32x3" },
+          ]}],
+        },
+        fragment: { module: islandShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: true, depthCompare: "less" },
+      });
+
+      this.boatPipeline = backend.createRenderPipeline({
+        layout: pbrLitPipelineLayout as any,
+        vertex: {
+          module: boatShaderModule,
+          entryPoint: "vs_main",
+          buffers: [{ arrayStride: 36, attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+            { shaderLocation: 2, offset: 24, format: "float32x3" },
+          ]}],
+        },
+        fragment: { module: boatShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: true, depthCompare: "less" },
+      });
+
+      // Generate procedural port meshes
+      const portSizes = [PortSize.Small, PortSize.Medium, PortSize.Large];
+      for (let ps = 0; ps < 3; ps++) {
+        const portMesh = generatePortMesh({
+          size: portSizes[ps], theme: PortTheme.Fishing, services: [],
+          seed: 1000 + ps * 100, biome: BiomeType.Ocean,
+        });
+        let maxExtent = 0;
+        for (let vi = 0; vi < portMesh.vertices.length; vi += 9) {
+          maxExtent = Math.max(maxExtent, Math.abs(portMesh.vertices[vi]), Math.abs(portMesh.vertices[vi + 1]), Math.abs(portMesh.vertices[vi + 2]));
+        }
+        const normScale = maxExtent > 0 ? 1 / maxExtent : 1;
+        this.portNormalizationScales[ps] = normScale;
+        const verts = new Float32Array(portMesh.vertices.length);
+        for (let vi = 0; vi < portMesh.vertices.length; vi += 9) {
+          verts[vi] = portMesh.vertices[vi] * normScale;
+          verts[vi + 1] = portMesh.vertices[vi + 1] * normScale;
+          verts[vi + 2] = portMesh.vertices[vi + 2] * normScale;
+          for (let j = 3; j < 9; j++) verts[vi + j] = portMesh.vertices[vi + j];
+        }
+        this.portVertices[ps] = backend.createBuffer({ size: verts.byteLength, usage: 0x20 | 0x08 });
+        backend.queue.writeBuffer(this.portVertices[ps] as any, 0, verts as any);
+        const indices = new Uint16Array(portMesh.indices);
+        this.portIndexCounts[ps] = indices.length;
+        this.portIndices[ps] = backend.createBuffer({ size: indices.byteLength, usage: 0x10 | 0x08 });
+        backend.queue.writeBuffer(this.portIndices[ps] as any, 0, indices as any);
+      }
+      return;
+    }
+
+    const dev = device!;
+    const islandShaderModule = dev.createShaderModule({ code: ISLAND_WGSL });
+    const boatShaderModule = dev.createShaderModule({ code: BOAT_WGSL });
+
+    this.islandPipeline = dev.createRenderPipeline({
       layout: pbrLitPipelineLayout as any,
       vertex: {
         module: islandShaderModule,
@@ -141,7 +212,7 @@ export class IslandTerrainRenderer {
       },
     });
 
-    this.boatPipeline = device.createRenderPipeline({
+    this.boatPipeline = dev.createRenderPipeline({
       layout: pbrLitPipelineLayout as any,
       vertex: {
         module: boatShaderModule,
@@ -192,18 +263,18 @@ export class IslandTerrainRenderer {
         verts[vi + 2] = portMesh.vertices[vi + 2] * normScale;
         for (let j = 3; j < 9; j++) verts[vi + j] = portMesh.vertices[vi + j];
       }
-      this.portVertices[ps] = device.createBuffer({
+      this.portVertices[ps] = dev.createBuffer({
         size: verts.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
-      device.queue.writeBuffer(this.portVertices[ps]! as any, 0, verts);
+      dev.queue.writeBuffer(this.portVertices[ps]! as any, 0, verts);
       const indices = new Uint16Array(portMesh.indices);
       this.portIndexCounts[ps] = indices.length;
-      this.portIndices[ps] = device.createBuffer({
+      this.portIndices[ps] = dev.createBuffer({
         size: indices.byteLength,
         usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       });
-      device.queue.writeBuffer(this.portIndices[ps]! as any, 0, indices);
+      dev.queue.writeBuffer(this.portIndices[ps]! as any, 0, indices);
     }
   }
 

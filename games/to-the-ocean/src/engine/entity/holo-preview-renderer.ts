@@ -54,10 +54,43 @@ export class HoloPreviewRenderer {
   }
 
   init(litPipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
-    const device = this.ctx.device!;
+    const device = this.ctx.device;
+    const backend = this.ctx.backend;
     const format = this.ctx.format;
-    const holoShaderModule = device.createShaderModule({ code: HOLO_WGSL });
-    this.holoPipeline = device.createRenderPipeline({
+
+    if (backend && !device) {
+      const holoShaderModule = backend.createShaderModule({ wgsl: HOLO_WGSL }, "wgsl");
+      this.holoPipeline = backend.createRenderPipeline({
+        layout: litPipelineLayout as any,
+        vertex: {
+          module: holoShaderModule, entryPoint: "vs_main",
+          buffers: [{ arrayStride: 36, attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x3" },
+            { shaderLocation: 2, offset: 24, format: "float32x3" },
+          ]}],
+        },
+        fragment: {
+          module: holoShaderModule, entryPoint: "fs_main",
+          targets: [{ format: format as any, blend: {
+            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+          }}],
+        },
+        primitive: { topology: "triangle-list" },
+        multisample: { count: MSAA_SAMPLE_COUNT },
+        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
+      });
+      this.holoVertices = backend.createBuffer({ size: 128 * 36, usage: 0x20 | 0x08 });
+      this.holoVertCapacity = 128;
+      this.holoIndices = backend.createBuffer({ size: 192 * 2, usage: 0x10 | 0x08 });
+      this.holoIndexCapacity = 192;
+      return;
+    }
+
+    const dev = device!;
+    const holoShaderModule = dev.createShaderModule({ code: HOLO_WGSL });
+    this.holoPipeline = dev.createRenderPipeline({
       layout: litPipelineLayout as any,
       vertex: {
         module: holoShaderModule,
@@ -91,12 +124,12 @@ export class HoloPreviewRenderer {
       },
     });
 
-    this.holoVertices = device.createBuffer({
+    this.holoVertices = dev.createBuffer({
       size: 128 * 36,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
     this.holoVertCapacity = 128;
-    this.holoIndices = device.createBuffer({
+    this.holoIndices = dev.createBuffer({
       size: 192 * 2,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
@@ -106,13 +139,19 @@ export class HoloPreviewRenderer {
   private ensureHoloCapacity(neededVerts: number, neededIndices: number): boolean {
     if (neededVerts <= this.holoVertCapacity && neededIndices <= this.holoIndexCapacity) return true;
     if (!this.holoVertices || !this.holoIndices) return false;
-    const device = this.ctx.device!;
     const newVertCap = Math.max(neededVerts, this.holoVertCapacity * 2);
     const newIndexCap = Math.max(neededIndices, this.holoIndexCapacity * 2);
     this.holoVertices.destroy();
     this.holoIndices.destroy();
-    this.holoVertices = device.createBuffer({ size: newVertCap * 36, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    this.holoIndices = device.createBuffer({ size: newIndexCap * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    const backend = this.ctx.backend;
+    if (backend && !this.ctx.device) {
+      this.holoVertices = backend.createBuffer({ size: newVertCap * 36, usage: 0x20 | 0x08 });
+      this.holoIndices = backend.createBuffer({ size: newIndexCap * 2, usage: 0x10 | 0x08 });
+    } else {
+      const dev = this.ctx.device!;
+      this.holoVertices = dev.createBuffer({ size: newVertCap * 36, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.holoIndices = dev.createBuffer({ size: newIndexCap * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+    }
     this.holoVertCapacity = newVertCap;
     this.holoIndexCapacity = newIndexCap;
     return true;
