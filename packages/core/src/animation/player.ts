@@ -1,9 +1,12 @@
 import type { AnimationEvent } from "./animation-event.ts";
 import { getEventsInRange } from "./animation-event.ts";
+import { BoneMaskPreset, buildBoneMask, buildCustomBoneMask } from "./bone-mask.ts";
 import type { AnimationClip } from "./clip.ts";
-import type { Skeleton } from "./skeleton.ts";
+import type { Skeleton, SkeletonData } from "./skeleton.ts";
 
 export const MAX_MORPH_TARGETS = 64;
+
+export type LayerBlendMode = "override" | "additive";
 
 interface BoneTransform {
   position: [number, number, number];
@@ -11,12 +14,25 @@ interface BoneTransform {
   scale: [number, number, number];
 }
 
-export interface PlayingAnimation {
+export interface PlayOptions {
+  speed?: number;
+  weight?: number;
+  loop?: boolean;
+  fadeDuration?: number;
+  boneMask?: number[] | Set<number> | BoneMaskPreset | string;
+  additive?: boolean;
+  priority?: number;
+  skeletonData?: SkeletonData;
+}
+
+interface AnimationLayer {
   name: string;
   clip: AnimationClip;
   time: number;
   speed: number;
   weight: number;
+  targetWeight: number;
+  fadeSpeed: number;
   loop: boolean;
   blending: boolean;
   blendOutDuration: number;
@@ -27,11 +43,15 @@ export interface PlayingAnimation {
   paused: boolean;
   boneMask: Set<number> | null;
   additive: boolean;
+  priority: number;
+  pendingClip: AnimationClip | null;
+  clipSwapFade: number;
 }
 
 export class AnimationPlayer {
   private skeleton: Skeleton;
-  private playing: Map<string, PlayingAnimation> = new Map();
+  private layers: Map<string, AnimationLayer> = new Map();
+  private layerOrder: string[] = [];
   private boneCount: number;
   private positions: Array<[number, number, number]>;
   private rotations: Array<[number, number, number, number]>;
@@ -84,6 +104,8 @@ export class AnimationPlayer {
     this.resultMorphWeights = new Float32Array(this.maxMorphTargets);
   }
 
+  // ── Events ──
+
   onEvent(type: string, handler: (event: AnimationEvent) => void): void {
     let handlers = this.eventHandlers.get(type);
     if (!handlers) {
@@ -114,43 +136,75 @@ export class AnimationPlayer {
     this.pendingEvents = [];
   }
 
-  play(name: string, clip: AnimationClip, options?: { speed?: number; weight?: number; loop?: boolean; fadeDuration?: number; boneMask?: number[] | Set<number>; additive?: boolean }): void {
-    const fadeDuration = options?.fadeDuration ?? 0;
-    const boneMask = options?.boneMask
-      ? (options.boneMask instanceof Set ? options.boneMask : new Set(options.boneMask))
-      : null;
-    const additive = options?.additive ?? false;
-    const existing = this.playing.get(name);
+  // ── Layer management ──
 
+  play(name: string, clip: AnimationClip, options?: PlayOptions): void {
+    const fadeDuration = options?.fadeDuration ?? 0;
+    const priority = options?.priority ?? 0;
+    const additive = options?.additive ?? false;
+
+    let boneMask: Set<number> | null = null;
+    if (options?.boneMask) {
+      const bm = options.boneMask;
+      if (bm instanceof Set) {
+        boneMask = bm;
+      } else if (Array.isArray(bm)) {
+        boneMask = new Set(bm);
+      } else if (typeof bm === "string") {
+        if (Object.values(BoneMaskPreset).includes(bm as BoneMaskPreset) && options.skeletonData) {
+          boneMask = buildBoneMask(bm as BoneMaskPreset, options.skeletonData);
+        } else if (options.skeletonData) {
+          boneMask = buildCustomBoneMask(bm, options.skeletonData);
+        }
+      }
+    }
+
+    const existing = this.layers.get(name);
     if (existing) {
       existing.clip = clip;
+      existing.time = 0;
       existing.speed = options?.speed ?? 1;
       existing.weight = options?.weight ?? 1;
+      existing.targetWeight = options?.weight ?? 1;
       existing.loop = options?.loop ?? true;
       existing.blending = false;
       existing.paused = false;
       existing.boneMask = boneMask;
       existing.additive = additive;
+      existing.priority = priority;
+      existing.fadeSpeed = 0;
+      this.lastSampleTimes.set(name, 0);
+      this.sortLayers();
       return;
     }
 
-    if (fadeDuration > 0 && this.playing.size > 0) {
-      for (const p of this.playing.values()) {
-        p.blending = true;
-        p.blendOutDuration = fadeDuration;
-        p.blendOutElapsed = 0;
-        p.blendOutStartWeight = p.weight;
-      }
-    } else if (fadeDuration === 0 && !boneMask && !additive) {
-      this.playing.clear();
+    // If no mask, no additive, no priority, and no fade → replace all (simple play)
+    if (fadeDuration === 0 && !boneMask && !additive && priority === 0) {
+      this.layers.clear();
+      this.layerOrder = [];
     }
 
-    this.playing.set(name, {
+    // If fading in, fade out existing non-additive layers
+    if (fadeDuration > 0 && priority === 0 && !additive) {
+      for (const l of this.layers.values()) {
+        if (!l.additive && l.priority === 0) {
+          l.blending = true;
+          l.blendOutDuration = fadeDuration;
+          l.blendOutElapsed = 0;
+          l.blendOutStartWeight = l.weight;
+        }
+      }
+    }
+
+    const initialWeight = fadeDuration > 0 ? 0 : (options?.weight ?? 1);
+    this.layers.set(name, {
       name,
       clip,
       time: 0,
       speed: options?.speed ?? 1,
-      weight: fadeDuration > 0 ? 0 : (options?.weight ?? 1),
+      weight: initialWeight,
+      targetWeight: options?.weight ?? 1,
+      fadeSpeed: 0,
       loop: options?.loop ?? true,
       blending: fadeDuration > 0,
       blendOutDuration: 0,
@@ -161,102 +215,180 @@ export class AnimationPlayer {
       paused: false,
       boneMask,
       additive,
+      priority,
+      pendingClip: null,
+      clipSwapFade: 0,
     });
+    this.layerOrder.push(name);
     this.lastSampleTimes.set(name, 0);
+    this.sortLayers();
   }
 
   stop(name?: string): void {
     if (name) {
-      this.playing.delete(name);
+      this.layers.delete(name);
+      this.layerOrder = this.layerOrder.filter((n) => n !== name);
     } else {
-      this.playing.clear();
+      this.layers.clear();
+      this.layerOrder = [];
     }
   }
 
   pause(name?: string): void {
     if (name) {
-      const p = this.playing.get(name);
-      if (p) p.paused = true;
+      const l = this.layers.get(name);
+      if (l) l.paused = true;
     } else {
-      for (const p of this.playing.values()) p.paused = true;
+      for (const l of this.layers.values()) l.paused = true;
     }
   }
 
   resume(name?: string): void {
     if (name) {
-      const p = this.playing.get(name);
-      if (p) p.paused = false;
+      const l = this.layers.get(name);
+      if (l) l.paused = false;
     } else {
-      for (const p of this.playing.values()) p.paused = false;
+      for (const l of this.layers.values()) l.paused = false;
     }
   }
 
   setSpeed(name: string, speed: number): void {
-    const p = this.playing.get(name);
-    if (p) p.speed = speed;
+    const l = this.layers.get(name);
+    if (l) l.speed = speed;
   }
 
-  setWeight(name: string, weight: number): void {
-    const p = this.playing.get(name);
-    if (p) p.weight = weight;
+  setWeight(name: string, weight: number, fadeDuration?: number): void {
+    const l = this.layers.get(name);
+    if (!l) return;
+    if (fadeDuration && fadeDuration > 0) {
+      l.targetWeight = weight;
+      l.fadeSpeed = Math.abs(weight - l.weight) / fadeDuration;
+    } else {
+      l.targetWeight = weight;
+      l.weight = weight;
+      l.fadeSpeed = 0;
+    }
+  }
+
+  setClip(name: string, clip: AnimationClip, fadeDuration?: number): void {
+    const l = this.layers.get(name);
+    if (!l) return;
+    if (fadeDuration && fadeDuration > 0) {
+      l.pendingClip = clip;
+      l.clipSwapFade = fadeDuration;
+    } else {
+      l.clip = clip;
+      l.time = 0;
+      this.lastSampleTimes.set(name, 0);
+    }
   }
 
   isPlaying(name?: string): boolean {
     if (name) {
-      const p = this.playing.get(name);
-      return p !== undefined && !p.paused;
+      const l = this.layers.get(name);
+      return l !== undefined && !l.paused;
     }
-    for (const p of this.playing.values()) {
-      if (!p.paused) return true;
+    for (const l of this.layers.values()) {
+      if (!l.paused) return true;
     }
     return false;
   }
 
   getPlayingCount(): number {
-    return this.playing.size;
+    return this.layers.size;
   }
+
+  getLayerCount(): number {
+    return this.layers.size;
+  }
+
+  hasLayer(name: string): boolean {
+    return this.layers.has(name);
+  }
+
+  private sortLayers(): void {
+    this.layerOrder.sort((a, b) => {
+      const la = this.layers.get(a)!;
+      const lb = this.layers.get(b)!;
+      return lb.priority - la.priority;
+    });
+  }
+
+  // ── Update ──
 
   update(dt: number): void {
     const bindPose = this.skeleton.getBindPose();
-    const stillPlaying: PlayingAnimation[] = [];
-    const activeNonAdditive: PlayingAnimation[] = [];
-    const activeAdditive: PlayingAnimation[] = [];
+    const stillPlaying: AnimationLayer[] = [];
+    const activeNonAdditive: AnimationLayer[] = [];
+    const activeAdditive: AnimationLayer[] = [];
+    const toRemove: string[] = [];
 
-    // Phase 1: Time update and weight fade for all animations
-    for (const p of this.playing.values()) {
-      if (!p.paused) {
-        p.time += dt * p.speed;
+    // Phase 1: Time update, weight fading, clip swapping
+    for (const l of this.layers.values()) {
+      if (!l.paused) {
+        l.time += dt * l.speed;
 
-        if (p.loop && p.clip.duration > 0) {
-          p.time = p.time % p.clip.duration;
-          if (p.time < 0) p.time += p.clip.duration;
-        } else if (p.time >= p.clip.duration || p.time < 0) {
-          p.time = Math.max(0, Math.min(p.time, p.clip.duration));
-          p.weight = 0;
+        if (l.loop && l.clip.duration > 0) {
+          l.time = l.time % l.clip.duration;
+          if (l.time < 0) l.time += l.clip.duration;
+        } else if (l.time >= l.clip.duration || l.time < 0) {
+          l.time = Math.max(0, Math.min(l.time, l.clip.duration));
+          l.weight = 0;
+          l.targetWeight = 0;
         }
 
         // Fade out
-        if (p.blending && p.blendOutDuration > 0) {
-          p.blendOutElapsed += dt;
-          const alpha = Math.min(1, p.blendOutElapsed / p.blendOutDuration);
-          p.weight = p.blendOutStartWeight * (1 - alpha);
-          if (alpha >= 1) continue;
+        if (l.blending && l.blendOutDuration > 0) {
+          l.blendOutElapsed += dt;
+          const alpha = Math.min(1, l.blendOutElapsed / l.blendOutDuration);
+          l.weight = l.blendOutStartWeight * (1 - alpha);
+          if (alpha >= 1) {
+            toRemove.push(l.name);
+            continue;
+          }
         }
 
         // Fade in
-        if (p.blending && p.fadeInDuration > 0) {
-          p.fadeInElapsed += dt;
-          const alpha = Math.min(1, p.fadeInElapsed / p.fadeInDuration);
-          p.weight = alpha;
-          if (alpha >= 1) p.blending = false;
+        if (l.blending && l.fadeInDuration > 0) {
+          l.fadeInElapsed += dt;
+          const alpha = Math.min(1, l.fadeInElapsed / l.fadeInDuration);
+          l.weight = alpha;
+          if (alpha >= 1) l.blending = false;
+        }
+
+        // Weight fade (from setWeight with fadeDuration)
+        if (l.fadeSpeed > 0) {
+          if (l.weight < l.targetWeight) {
+            l.weight = Math.min(l.targetWeight, l.weight + l.fadeSpeed * dt);
+          } else if (l.weight > l.targetWeight) {
+            l.weight = Math.max(l.targetWeight, l.weight - l.fadeSpeed * dt);
+          }
+          if (l.weight === l.targetWeight) {
+            l.fadeSpeed = 0;
+            if (l.targetWeight === 0) {
+              toRemove.push(l.name);
+              continue;
+            }
+          }
+        }
+
+        // Clip swap with fade
+        if (l.clipSwapFade > 0) {
+          l.clipSwapFade -= dt;
+          if (l.clipSwapFade <= 0 && l.pendingClip) {
+            l.clip = l.pendingClip;
+            l.pendingClip = null;
+            l.time = 0;
+            this.lastSampleTimes.set(l.name, 0);
+          }
         }
       }
 
-      if (p.weight <= 0.001) continue;
+      if (l.weight <= 0.001) continue;
 
-      const prevTime = this.lastSampleTimes.get(p.name) ?? p.time;
-      if (p.clip.eventTrack && !p.paused) {
-        const events = getEventsInRange(p.clip.eventTrack, prevTime, p.time, p.clip.duration);
+      const prevTime = this.lastSampleTimes.get(l.name) ?? l.time;
+      if (l.clip.eventTrack && !l.paused) {
+        const events = getEventsInRange(l.clip.eventTrack, prevTime, l.time, l.clip.duration);
         for (const e of events) {
           this.pendingEvents.push(e);
           const handlers = this.eventHandlers.get(e.type);
@@ -265,11 +397,17 @@ export class AnimationPlayer {
           }
         }
       }
-      this.lastSampleTimes.set(p.name, p.time);
+      this.lastSampleTimes.set(l.name, l.time);
 
-      stillPlaying.push(p);
-      if (p.additive) activeAdditive.push(p);
-      else activeNonAdditive.push(p);
+      stillPlaying.push(l);
+      if (l.additive) activeAdditive.push(l);
+      else activeNonAdditive.push(l);
+    }
+
+    // Remove faded-out layers
+    for (const name of toRemove) {
+      this.layers.delete(name);
+      this.layerOrder = this.layerOrder.filter((n) => n !== name);
     }
 
     // Phase 2: Reset accumulators
@@ -280,17 +418,17 @@ export class AnimationPlayer {
     this.accMorphWeights.fill(0);
     this.accMorphWeight.fill(0);
 
-    // Phase 3: Sample and accumulate non-additive animations (weighted average)
-    for (const p of activeNonAdditive) {
-      p.clip.sample(p.time, this.resultPositions, this.resultRotations, this.resultScales);
-      p.clip.sampleMorphWeights(p.time, this.resultMorphWeights);
-      const w = p.weight;
-      for (const targetIdx of p.clip.morphTrackedTargets) {
+    // Phase 3: Sample and accumulate non-additive layers (weighted average)
+    for (const l of activeNonAdditive) {
+      l.clip.sample(l.time, this.resultPositions, this.resultRotations, this.resultScales);
+      l.clip.sampleMorphWeights(l.time, this.resultMorphWeights);
+      const w = l.weight;
+      for (const targetIdx of l.clip.morphTrackedTargets) {
         this.accMorphWeights[targetIdx] += this.resultMorphWeights[targetIdx] * w;
         this.accMorphWeight[targetIdx] += w;
       }
-      for (const boneIdx of p.clip.trackedBones) {
-        if (p.boneMask && !p.boneMask.has(boneIdx)) continue;
+      for (const boneIdx of l.clip.trackedBones) {
+        if (l.boneMask && !l.boneMask.has(boneIdx)) continue;
         const i3 = boneIdx * 3;
         const i4 = boneIdx * 4;
 
@@ -298,7 +436,6 @@ export class AnimationPlayer {
         this.accPos[i3 + 1] += this.resultPositions[boneIdx][1] * w;
         this.accPos[i3 + 2] += this.resultPositions[boneIdx][2] * w;
 
-        // Quaternion sign consistency for weighted average
         if (this.accWeight[boneIdx] === 0) {
           this.accRot[i4] = this.resultRotations[boneIdx][0] * w;
           this.accRot[i4 + 1] = this.resultRotations[boneIdx][1] * w;
@@ -367,16 +504,16 @@ export class AnimationPlayer {
       }
     }
 
-    // Phase 5: Apply additive animations on top
-    for (const p of activeAdditive) {
-      p.clip.sample(p.time, this.resultPositions, this.resultRotations, this.resultScales);
-      p.clip.sampleMorphWeights(p.time, this.resultMorphWeights);
-      const w = p.weight;
-      for (const targetIdx of p.clip.morphTrackedTargets) {
+    // Phase 5: Apply additive layers on top
+    for (const l of activeAdditive) {
+      l.clip.sample(l.time, this.resultPositions, this.resultRotations, this.resultScales);
+      l.clip.sampleMorphWeights(l.time, this.resultMorphWeights);
+      const w = l.weight;
+      for (const targetIdx of l.clip.morphTrackedTargets) {
         this.morphWeights[targetIdx] += this.resultMorphWeights[targetIdx] * w;
       }
-      for (const boneIdx of p.clip.trackedBones) {
-        if (p.boneMask && !p.boneMask.has(boneIdx)) continue;
+      for (const boneIdx of l.clip.trackedBones) {
+        if (l.boneMask && !l.boneMask.has(boneIdx)) continue;
 
         const rp = this.resultPositions[boneIdx];
         const bp = this.bindPositions[boneIdx];
@@ -396,13 +533,7 @@ export class AnimationPlayer {
       }
     }
 
-    this.playing.clear();
-    for (const p of stillPlaying) this.playing.set(p.name, p);
     this.skinMatrices = null;
-
-    for (const p of stillPlaying) {
-      this.lastSampleTimes.set(p.name, p.time);
-    }
 
     // Root motion
     const rootPos = this.positions[this.rootBoneIndex];
@@ -417,6 +548,8 @@ export class AnimationPlayer {
     }
     this.lastRootPos = [rootPos[0], rootPos[1], rootPos[2]];
   }
+
+  // ── Output ──
 
   getSkinMatrices(): Float32Array {
     if (!this.skinMatrices) {
@@ -466,6 +599,14 @@ export class AnimationPlayer {
   resetRootMotion(): void {
     this.lastRootPos = null;
     this.rootMotionDelta = [0, 0, 0];
+  }
+
+  destroy(): void {
+    this.layers.clear();
+    this.layerOrder = [];
+    this.eventHandlers.clear();
+    this.pendingEvents = [];
+    this.lastSampleTimes.clear();
   }
 }
 
