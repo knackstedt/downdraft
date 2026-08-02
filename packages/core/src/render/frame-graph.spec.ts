@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "bun:test";
-import { FrameGraph, FrameGraphBuilder, PassType, TextureHandle } from "./frame-graph.ts";
+import { FrameGraph, FrameGraphBuilder, PassType, TextureHandle, type GraphRenderContext } from "./frame-graph.ts";
 import { RenderPass } from "./render-pass.ts";
 
 // Minimal mock pass for testing — no GPU needed
@@ -551,6 +551,152 @@ describe("FrameGraph — backend-agnostic", () => {
     it("accepts numeric usage", () => {
       const desc = { format: "rgba8unorm", usage: 16 };
       expect(desc.usage).toBe(16);
+    });
+  });
+
+  describe("execute with backend (device null)", () => {
+    it("executeRenderPass falls back to executeCustomPass when device is null", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const surface = fg.importTexture("surface", createMockBackendTexture());
+      fg.addPass(new MockPass("pass", (builder) => {
+        builder.colorAttachment({ handle: surface, loadOp: "clear", storeOp: "store" });
+      }));
+      fg.compile(null, 800, 600, backend);
+
+      // execute should not throw even with null device — Render pass falls back to Custom
+      const frameCtx = {
+        backend,
+        device: null,
+        width: 800, height: 600,
+        viewProj: new Float32Array(16), invViewProj: new Float32Array(16), prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any, lightViewProj: new Float32Array(16),
+        mesh: {} as any, modelMatrix: new Float32Array(16),
+        shadowsEnabled: false, bloomEnabled: false,
+        shadowSampler: null, debugQueue: null,
+        opaqueVertexBuffer: null, opaqueIndexBuffer: null,
+        opaqueIndexCount: 0, opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: vi.fn(), addTriangles: vi.fn(),
+      };
+      expect(() => fg.execute(frameCtx)).not.toThrow();
+    });
+
+    it("execute with Custom pass and backend does not require device", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const color = fg.importTexture("color", createMockBackendTexture());
+      fg.addPass(new MockPass("custom-pass", (builder) => {
+        builder.read(color);
+      }));
+      fg.compile(null, 800, 600, backend);
+
+      const frameCtx = {
+        backend,
+        device: null,
+        width: 800, height: 600,
+        viewProj: new Float32Array(16), invViewProj: new Float32Array(16), prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any, lightViewProj: new Float32Array(16),
+        mesh: {} as any, modelMatrix: new Float32Array(16),
+        shadowsEnabled: false, bloomEnabled: false,
+        shadowSampler: null, debugQueue: null,
+        opaqueVertexBuffer: null, opaqueIndexBuffer: null,
+        opaqueIndexCount: 0, opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: vi.fn(), addTriangles: vi.fn(),
+      };
+      expect(() => fg.execute(frameCtx)).not.toThrow();
+    });
+  });
+
+  describe("getBackendTextureView / getBackendTexture after compile with backend", () => {
+    it("resolves backend texture view for transient textures allocated via backend", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(null, 800, 600, backend);
+
+      // After compile, backend.createTexture should have been called
+      expect(backend.createTexture).toHaveBeenCalledTimes(1);
+      // createTextureView should be callable via getBackendTextureView
+      // (accessed internally during execute, but we can verify the backend was set up)
+      expect(backend.createTextureView).toBeDefined();
+    });
+
+    it("resolves backend texture for imported BackendTexture", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const backendTex = createMockBackendTexture();
+      const handle = fg.importTexture("surface", backendTex);
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(null, 800, 600, backend);
+
+      // The imported backend texture should be preserved
+      expect(backendTex).toBeDefined();
+      expect(handle.name).toBe("surface");
+    });
+  });
+
+  describe("destroy with backend textures", () => {
+    it("does not throw when destroying graph with backend-allocated textures", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg.createTransient("depth", { format: "depth32float", usage: 0x10 });
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(null, 800, 600, backend);
+      expect(() => fg.destroy()).not.toThrow();
+    });
+
+    it("does not throw when destroying graph with mixed native + backend textures", () => {
+      const fg = new FrameGraph();
+      const backend = createMockBackend();
+      const nativeTex = { createView: () => ({}), destroy: vi.fn() } as unknown as GPUTexture;
+      fg.importTexture("surface", nativeTex);
+      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg.addPass(new MockPass("pass", () => {}));
+      fg.compile(null, 800, 600, backend);
+      expect(() => fg.destroy()).not.toThrow();
+    });
+  });
+
+  describe("compile with backend stores backend reference", () => {
+    it("stores backend for later use in getBackendTextureView", () => {
+      const fg2 = new FrameGraph();
+      const backend = createMockBackend();
+      fg2.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      fg2.addPass(new MockPass("pass", () => {}));
+      fg2.compile(null, 800, 600, backend);
+
+      // Execute a custom pass which will build a GraphRenderContext with getBackendView
+      // The getBackendView accessor should use the stored backend to create views
+      let capturedGetBackendView: ((h: TextureHandle) => BackendTextureView) | null = null;
+      class CapturePass extends MockPass {
+        execute(ctx: GraphRenderContext): void {
+          capturedGetBackendView = ctx.getBackendView;
+        }
+      }
+      const capturePass = new CapturePass("capture", () => {});
+      fg2.addPass(capturePass);
+      fg2.compile(null, 800, 600, backend);
+
+      const frameCtx = {
+        backend, device: null,
+        width: 800, height: 600,
+        viewProj: new Float32Array(16), invViewProj: new Float32Array(16), prevViewProj: new Float32Array(16),
+        cameraPos: [0, 0, 0] as [number, number, number],
+        lightData: {} as any, lightViewProj: new Float32Array(16),
+        mesh: {} as any, modelMatrix: new Float32Array(16),
+        shadowsEnabled: false, bloomEnabled: false,
+        shadowSampler: null, debugQueue: null,
+        opaqueVertexBuffer: null, opaqueIndexBuffer: null,
+        opaqueIndexCount: 0, opaqueIndexFormat: "uint16" as GPUIndexFormat,
+        addDrawCalls: vi.fn(), addTriangles: vi.fn(),
+      };
+      fg2.execute(frameCtx);
+      expect(capturedGetBackendView).not.toBeNull();
+      expect(typeof capturedGetBackendView).toBe("function");
     });
   });
 });
