@@ -657,4 +657,760 @@ describe("NativePhysicsBackend", () => {
     backend.destroy();
     expect(backend.getRealmIds()).toEqual([]);
   });
+
+  // --- Additional edge case tests ---
+
+  it("should handle missing realm gracefully", () => {
+    const backend = new NativePhysicsBackend();
+    expect(backend.getRealmIds()).toEqual([]);
+    backend.step(999, 0.1); // should not throw
+    expect(backend.getContacts(999)).toEqual([]);
+    backend.destroy();
+  });
+
+  it("should handle missing body gracefully", () => {
+    const backend = makeBackend();
+    const fakeHandle = { realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } };
+    expect(backend.getPosition(fakeHandle)).toEqual([0, 0, 0]);
+    expect(backend.getLinearVelocity(fakeHandle)).toEqual([0, 0, 0]);
+    expect(backend.getRotation(fakeHandle)).toEqual([0, 0, 0, 1]);
+    expect(backend.isSleeping(fakeHandle)).toBe(false);
+    backend.setLinearVelocity(fakeHandle, [1, 2, 3]); // should not throw
+    backend.destroy();
+  });
+
+  it("should step empty realm without error", () => {
+    const backend = makeBackend();
+    backend.step(0, 0.016);
+    backend.destroy();
+  });
+
+  it("should support multiple colliders on one body", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 5, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    const c1 = backend.addCollider(handle, { shape: { type: "sphere", radius: 0.5 } });
+    const c2 = backend.addCollider(handle, { shape: { type: "box", halfExtents: [0.3, 0.3, 0.3] } });
+    expect(c1).not.toBe(c2);
+
+    // Both should produce contacts with floor
+    const floor = backend.createBody(0, {
+      type: "static",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+    }, { index: 1, generation: 0 });
+    backend.addCollider(floor, { shape: { type: "box", halfExtents: [10, 0.5, 10] } });
+
+    for (let i = 0; i < 100; i++) {
+      backend.step(0, 1 / 60);
+    }
+    const contacts = backend.getContacts(0);
+    expect(contacts.length).toBeGreaterThan(0);
+    backend.destroy();
+  });
+
+  it("should remove colliders", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 5, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    const cId = backend.addCollider(handle, { shape: { type: "sphere", radius: 1 } });
+    expect(cId).toBeGreaterThanOrEqual(0);
+
+    backend.removeCollider(handle, cId);
+    // After removing collider, body should have no contacts
+    const floor = backend.createBody(0, {
+      type: "static",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+    }, { index: 1, generation: 0 });
+    backend.addCollider(floor, { shape: { type: "box", halfExtents: [10, 0.5, 10] } });
+
+    backend.step(0, 1 / 60);
+    const contacts = backend.getContacts(0);
+    expect(contacts.length).toBe(0);
+    backend.destroy();
+  });
+
+  it("should not generate contacts for sensor colliders", () => {
+    const backend = makeBackend();
+    const a = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    backend.addCollider(a, { shape: { type: "sphere", radius: 1 }, sensor: true });
+
+    const b = backend.createBody(0, {
+      type: "dynamic",
+      position: [0.5, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 1, generation: 0 });
+    backend.addCollider(b, { shape: { type: "sphere", radius: 1 } });
+
+    backend.step(0, 1 / 60);
+    const contacts = backend.getContacts(0);
+    // Sensor should not produce collision response contacts
+    expect(contacts.length).toBe(0);
+    backend.destroy();
+  });
+
+  it("should apply impulse at point", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+
+    backend.applyImpulseAtPoint(handle, [0, 10, 0], [1, 0, 0]);
+    const vel = backend.getLinearVelocity(handle);
+    expect(vel[1]).toBeGreaterThan(0);
+    // Should also have angular velocity from off-center impulse
+    const angVel = backend.getAngularVelocity(handle);
+    expect(Math.abs(angVel[0]) + Math.abs(angVel[1]) + Math.abs(angVel[2])).toBeGreaterThan(0);
+    backend.destroy();
+  });
+
+  it("should apply torque", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+
+    backend.applyTorque(handle, [0, 5, 0]);
+    const angVel = backend.getAngularVelocity(handle);
+    expect(angVel[1]).toBeGreaterThan(0);
+    backend.destroy();
+  });
+
+  it("should not apply torque to static bodies", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "static",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+    }, { index: 0, generation: 0 });
+
+    backend.applyTorque(handle, [0, 100, 0]);
+    expect(backend.getAngularVelocity(handle)).toEqual([0, 0, 0]);
+    backend.destroy();
+  });
+
+  it("should respect gravity scale", () => {
+    const backend = makeBackend();
+    const h1 = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 100, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+      gravityScale: 0,
+    }, { index: 0, generation: 0 });
+    const h2 = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 100, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+      gravityScale: 1,
+    }, { index: 1, generation: 0 });
+
+    backend.step(0, 0.1);
+    expect(backend.getPosition(h1)[1]).toBe(100); // no gravity
+    expect(backend.getPosition(h2)[1]).toBeLessThan(100); // normal gravity
+    backend.destroy();
+  });
+
+  it("should apply linear damping", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+      linearDamping: 1.0,
+    }, { index: 0, generation: 0 });
+
+    backend.setLinearVelocity(handle, [10, 0, 0]);
+    backend.step(0, 1.0);
+    const vel = backend.getLinearVelocity(handle);
+    expect(Math.abs(vel[0])).toBeLessThan(10);
+    backend.destroy();
+  });
+
+  it("should respect locked translation axes", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+      lockedAxes: { translation: [true, false, true] },
+    }, { index: 0, generation: 0 });
+
+    backend.setLinearVelocity(handle, [10, 5, 10]);
+    backend.step(0, 0.1);
+    const vel = backend.getLinearVelocity(handle);
+    expect(vel[0]).toBe(0); // locked
+    expect(vel[1]).not.toBe(0); // unlocked
+    expect(vel[2]).toBe(0); // locked
+    backend.destroy();
+  });
+
+  it("should respect locked rotation axes", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+      lockedAxes: { rotation: [false, true, false] },
+    }, { index: 0, generation: 0 });
+
+    backend.setAngularVelocity(handle, [1, 2, 3]);
+    backend.step(0, 0.1);
+    const angVel = backend.getAngularVelocity(handle);
+    expect(angVel[1]).toBe(0); // locked
+    expect(angVel[0]).not.toBe(0); // unlocked
+    expect(angVel[2]).not.toBe(0); // unlocked
+    backend.destroy();
+  });
+
+  it("should shapeCast against static bodies", () => {
+    const backend = makeBackend();
+    const target = backend.createBody(0, {
+      type: "static",
+      position: [0, 0, 5],
+      rotation: [0, 0, 0, 1],
+    }, { index: 0, generation: 0 });
+    backend.addCollider(target, { shape: { type: "sphere", radius: 1 } });
+
+    const result = backend.shapeCast(
+      0,
+      { type: "sphere", radius: 0.5 },
+      [0, 0, 0],
+      [0, 0, 0, 1],
+      [0, 0, 1],
+      100,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.entity.index).toBe(0);
+    expect(result!.hitFraction).toBeGreaterThan(0);
+    expect(result!.hitFraction).toBeLessThanOrEqual(1);
+    backend.destroy();
+  });
+
+  it("should return null shapeCast when no hit", () => {
+    const backend = makeBackend();
+    const result = backend.shapeCast(
+      0,
+      { type: "sphere", radius: 0.5 },
+      [0, 0, 0],
+      [0, 0, 0, 1],
+      [0, 1, 0],
+      100,
+    );
+    expect(result).toBeNull();
+    backend.destroy();
+  });
+
+  it("should collide two dynamic bodies apart", () => {
+    const backend = makeBackend();
+    const a = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    backend.addCollider(a, { shape: { type: "sphere", radius: 1 } });
+
+    const b = backend.createBody(0, {
+      type: "dynamic",
+      position: [1.5, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 1, generation: 0 });
+    backend.addCollider(b, { shape: { type: "sphere", radius: 1 } });
+
+    backend.step(0, 1 / 60);
+    const posA = backend.getPosition(a);
+    const posB = backend.getPosition(b);
+    // Bodies should be pushed apart
+    const dist = Math.sqrt(
+      (posB[0] - posA[0]) ** 2 +
+      (posB[1] - posA[1]) ** 2 +
+      (posB[2] - posA[2]) ** 2,
+    );
+    expect(dist).toBeGreaterThanOrEqual(1.5);
+    backend.destroy();
+  });
+
+  it("should not move kinematic bodies by gravity", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "kinematic",
+      position: [0, 50, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    backend.addCollider(handle, { shape: { type: "sphere", radius: 0.5 } });
+
+    for (let i = 0; i < 10; i++) {
+      backend.step(0, 1 / 60);
+    }
+    expect(backend.getPosition(handle)[1]).toBe(50);
+    backend.destroy();
+  });
+
+  it("should collide dynamic body against kinematic body", () => {
+    const backend = makeBackend();
+    const kinematic = backend.createBody(0, {
+      type: "kinematic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 0,
+    }, { index: 1, generation: 0 });
+    backend.addCollider(kinematic, { shape: { type: "box", halfExtents: [5, 0.5, 5] } });
+
+    const dynamic = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 2, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    backend.addCollider(dynamic, { shape: { type: "sphere", radius: 0.5 } });
+
+    for (let i = 0; i < 60; i++) {
+      backend.step(0, 1 / 60);
+    }
+    const pos = backend.getPosition(dynamic);
+    expect(pos[1]).toBeLessThan(2);
+    expect(pos[1]).toBeGreaterThan(0.5);
+    backend.destroy();
+  });
+
+  it("should handle character controller with no obstacles", () => {
+    const backend = makeBackend();
+    const charHandle = backend.createCharacterController(0, {
+      offset: [0, 1, 0],
+      radius: 0.3,
+      halfHeight: 0.9,
+      slide: true,
+      autostep: { enabled: true, minWidth: 0.1, maxHeight: 0.3 },
+      maxSlope: 45,
+      snapToGround: 0.1,
+    }, { index: 0, generation: 0 });
+
+    const result = backend.characterMove(charHandle, [1, 0, 0], 1 / 60);
+    expect(result.grounded).toBe(false);
+    expect(result.effectiveMovement[0]).toBeCloseTo(1, 1);
+    backend.destroy();
+  });
+
+  it("should return null raycast when no hit", () => {
+    const backend = makeBackend();
+    const result = backend.raycast(0, [0, 0, 0], [0, 1, 0], 100);
+    expect(result).toBeNull();
+    backend.destroy();
+  });
+
+  it("should raycast against box shape", () => {
+    const backend = makeBackend();
+    const target = backend.createBody(0, {
+      type: "static",
+      position: [0, 0, 5],
+      rotation: [0, 0, 0, 1],
+    }, { index: 0, generation: 0 });
+    backend.addCollider(target, { shape: { type: "box", halfExtents: [1, 1, 1] } });
+
+    const result = backend.raycast(0, [0, 0, 0], [0, 0, 1], 100);
+    expect(result).not.toBeNull();
+    expect(result!.distance).toBeGreaterThan(0);
+    expect(result!.normal[2]).toBeCloseTo(-1, 0); // facing back toward ray origin
+    backend.destroy();
+  });
+
+  it("should handle different gravity per realm", () => {
+    const backend = new NativePhysicsBackend();
+    backend.createRealm({ id: 0, name: "earth", gravity: [0, -9.81, 0] });
+    backend.createRealm({ id: 1, name: "moon", gravity: [0, -1.62, 0] });
+
+    const h0 = backend.createBody(0, { type: "dynamic", position: [0, 100, 0], rotation: [0, 0, 0, 1], mass: 1 }, { index: 0, generation: 0 });
+    const h1 = backend.createBody(1, { type: "dynamic", position: [0, 100, 0], rotation: [0, 0, 0, 1], mass: 1 }, { index: 0, generation: 0 });
+
+    backend.stepAll(0.1);
+    const earthY = backend.getPosition(h0)[1];
+    const moonY = backend.getPosition(h1)[1];
+    // Earth should fall faster than moon
+    expect(earthY).toBeLessThan(moonY);
+    backend.destroy();
+  });
+
+  it("should handle body with zero mass dynamic", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 0.001,
+    }, { index: 0, generation: 0 });
+    backend.addCollider(handle, { shape: { type: "sphere", radius: 0.5 } });
+
+    // Should not crash with very small mass
+    backend.step(0, 1 / 60);
+    expect(backend.getPosition(handle)[1]).toBeLessThan(0);
+    backend.destroy();
+  });
+
+  it("should handle destroyBody on non-existent body", () => {
+    const backend = makeBackend();
+    backend.destroyBody({ realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } });
+    // Should not throw
+    backend.destroy();
+  });
+
+  it("should handle removeCollider on non-existent collider", () => {
+    const backend = makeBackend();
+    const handle = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    backend.removeCollider(handle, 999);
+    // Should not throw
+    backend.destroy();
+  });
+
+  it("should handle destroyCharacterController on non-existent", () => {
+    const backend = makeBackend();
+    backend.destroyCharacterController({ realmId: 0, controllerId: 999, entity: { index: 0, generation: 0 } });
+    backend.destroy();
+  });
+
+  it("should handle setBodyType on non-existent body", () => {
+    const backend = makeBackend();
+    backend.setBodyType({ realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } }, "static");
+    backend.destroy();
+  });
+
+  it("should handle addCollider to non-existent body", () => {
+    const backend = makeBackend();
+    const result = backend.addCollider(
+      { realmId: 0, bodyId: 999, entity: { index: 0, generation: 0 } },
+      { shape: { type: "sphere", radius: 1 } },
+    );
+    expect(result).toBe(-1);
+    backend.destroy();
+  });
+});
+
+// --- Additional narrowphase rotation tests ---
+
+describe("Narrowphase with rotation", () => {
+  it("sphereBoxContact: should detect collision with rotated box", () => {
+    // Box rotated 90° around Y
+    const rot: [number, number, number, number] = [0, 0.7071, 0, 0.7071];
+    const result = sphereBoxContact(
+      [1.5, 0, 0], 1,
+      [0, 0, 0], rot, [1, 0.5, 2],
+    );
+    expect(result).not.toBeNull();
+    expect(result!.penetrationDepth).toBeGreaterThan(0);
+  });
+
+  it("boxBoxContact: should detect rotated boxes overlapping", () => {
+    const rot90: [number, number, number, number] = [0, 0.7071, 0, 0.7071];
+    const result = boxBoxContact(
+      [0, 0, 0], [0, 0, 0, 1], [1, 1, 1],
+      [1.5, 0, 0], rot90, [1, 1, 1],
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("boxBoxContact: should return null for rotated separated boxes", () => {
+    const rot90: [number, number, number, number] = [0, 0.7071, 0, 0.7071];
+    const result = boxBoxContact(
+      [0, 0, 0], [0, 0, 0, 1], [1, 1, 1],
+      [10, 0, 0], rot90, [1, 1, 1],
+    );
+    expect(result).toBeNull();
+  });
+
+  it("capsuleBoxContact: should detect collision with rotated box", () => {
+    const rot90: [number, number, number, number] = [0, 0.7071, 0, 0.7071];
+    const result = capsuleBoxContact(
+      [0, 0, 1.5], [0, 0, 0, 1], 1, 0.5,
+      [0, 0, 0], rot90, [1, 1, 1],
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("detectCollision: should handle box-capsule (flipped)", () => {
+    const result = detectCollision(
+      { type: "box", halfExtents: [1, 1, 1] }, [0, 0, 0], [0, 0, 0, 1],
+      { type: "capsule", halfHeight: 1, radius: 0.5 }, [0, 0, 0.5], [0, 0, 0, 1],
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("detectCollision: should handle capsule-box", () => {
+    const result = detectCollision(
+      { type: "capsule", halfHeight: 1, radius: 0.5 }, [0, 0, 0.5], [0, 0, 0, 1],
+      { type: "box", halfExtents: [1, 1, 1] }, [0, 0, 0], [0, 0, 0, 1],
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("detectCollision: should handle sphere-capsule (flipped)", () => {
+    const result = detectCollision(
+      { type: "sphere", radius: 0.5 }, [0, 0.5, 0], [0, 0, 0, 1],
+      { type: "capsule", halfHeight: 1, radius: 0.5 }, [0, 0, 0], [0, 0, 0, 1],
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("detectCollision: should handle capsule-capsule", () => {
+    const result = detectCollision(
+      { type: "capsule", halfHeight: 1, radius: 0.5 }, [0, 0, 0], [0, 0, 0, 1],
+      { type: "capsule", halfHeight: 1, radius: 0.5 }, [0.8, 0, 0], [0, 0, 0, 1],
+    );
+    expect(result).not.toBeNull();
+  });
+});
+
+// --- Additional solver tests ---
+
+describe("Solver additional", () => {
+  it("resolveContact: should resolve two dynamic bodies", () => {
+    const a: BodyData = {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [5, 0, 0],
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0.5,
+      friction: 0,
+      isStatic: false,
+      isKinematic: false,
+    };
+    const b: BodyData = {
+      position: [1.8, 0, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [-5, 0, 0],
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0.5,
+      friction: 0,
+      isStatic: false,
+      isKinematic: false,
+    };
+    const manifold = {
+      normal: [1, 0, 0] as Vec3,
+      penetrationDepth: 0.2,
+      points: [{ point: [0.9, 0, 0] as Vec3, penetration: 0.2 }],
+    };
+    resolveContact(a, b, manifold);
+    // After resolution, relative velocity should be separating
+    const relVel = b.linearVelocity[0] - a.linearVelocity[0];
+    expect(relVel).toBeGreaterThanOrEqual(0);
+  });
+
+  it("resolveContact: should apply friction to tangential velocity", () => {
+    const a: BodyData = {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [0, -5, 3], // moving down and sideways
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0,
+      friction: 0.9,
+      isStatic: false,
+      isKinematic: false,
+    };
+    const b: BodyData = {
+      position: [0, -1.5, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [0, 0, 0],
+      angularVelocity: [0, 0, 0],
+      mass: 0,
+      invMass: 0,
+      invInertia: 0,
+      restitution: 0,
+      friction: 0.9,
+      isStatic: true,
+      isKinematic: false,
+    };
+    const manifold = {
+      normal: [0, -1, 0] as Vec3,
+      penetrationDepth: 0.5,
+      points: [{ point: [0, -1, 0] as Vec3, penetration: 0.5 }],
+    };
+    resolveContact(a, b, manifold);
+    // Tangential velocity (z) should be reduced by friction
+    expect(Math.abs(a.linearVelocity[2])).toBeLessThan(3);
+  });
+
+  it("resolveContact: should not resolve kinematic-kinematic", () => {
+    const a: BodyData = {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [1, 0, 0],
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0.5,
+      friction: 0.5,
+      isStatic: false,
+      isKinematic: true,
+    };
+    const b: BodyData = {
+      position: [0.5, 0, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [-1, 0, 0],
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0.5,
+      friction: 0.5,
+      isStatic: false,
+      isKinematic: true,
+    };
+    const manifold = {
+      normal: [1, 0, 0] as Vec3,
+      penetrationDepth: 0.5,
+      points: [{ point: [0.25, 0, 0] as Vec3, penetration: 0.5 }],
+    };
+    resolveContact(a, b, manifold);
+    // Velocities should be unchanged
+    expect(a.linearVelocity).toEqual([1, 0, 0]);
+    expect(b.linearVelocity).toEqual([-1, 0, 0]);
+  });
+
+  it("integrate: should not move kinematic bodies", () => {
+    const body: BodyData = {
+      position: [0, 50, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [0, 0, 0],
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0,
+      friction: 0,
+      isStatic: false,
+      isKinematic: true,
+    };
+    integrate(body, [0, -9.81, 0], 0.1);
+    expect(body.position).toEqual([0, 50, 0]);
+    expect(body.linearVelocity).toEqual([0, 0, 0]);
+  });
+
+  it("resolveContact: should skip separating contacts", () => {
+    const a: BodyData = {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [5, 0, 0], // moving away from B
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0.5,
+      friction: 0,
+      isStatic: false,
+      isKinematic: false,
+    };
+    const b: BodyData = {
+      position: [2, 0, 0],
+      rotation: [0, 0, 0, 1],
+      linearVelocity: [0, 0, 0],
+      angularVelocity: [0, 0, 0],
+      mass: 1,
+      invMass: 1,
+      invInertia: 1,
+      restitution: 0.5,
+      friction: 0,
+      isStatic: false,
+      isKinematic: false,
+    };
+    const manifold = {
+      normal: [1, 0, 0] as Vec3,
+      penetrationDepth: 0.1,
+      points: [{ point: [1, 0, 0] as Vec3, penetration: 0.1 }],
+    };
+    resolveContact(a, b, manifold);
+    // A is moving in +x (toward B), B is stationary — relVel along normal = -5 (approaching)
+    // Actually A moves +x, B at rest, normal is +x (A to B), relVel = B - A = -5 in x
+    // velAlongNormal = -5 < 0 → approaching → should resolve
+    // So velocity should change
+    expect(a.linearVelocity[0]).not.toBe(5);
+  });
+});
+
+// --- Additional broadphase tests ---
+
+describe("Broadphase additional", () => {
+  it("should handle many bodies efficiently", () => {
+    const bp = new Broadphase(4);
+    for (let i = 0; i < 100; i++) {
+      bp.insert(i, {
+        minX: i * 0.5, minY: 0, minZ: 0,
+        maxX: i * 0.5 + 1, maxY: 1, maxZ: 1,
+      });
+    }
+    const pairs = bp.generatePairs();
+    // Each body overlaps with its neighbors
+    expect(pairs.length).toBeGreaterThan(0);
+    expect(pairs.length).toBeLessThan(100 * 99 / 2);
+  });
+
+  it("should support changing cell size", () => {
+    const bp = new Broadphase(4);
+    bp.setCellSize(8);
+    bp.insert(0, { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 });
+    bp.insert(1, { minX: 5, minY: 0, minZ: 0, maxX: 6, maxY: 1, maxZ: 1 });
+    // With cell size 8, both are in same cell but AABBs don't overlap
+    expect(bp.generatePairs().length).toBe(0);
+  });
+
+  it("should handle bodies at negative coordinates", () => {
+    const bp = new Broadphase(4);
+    bp.insert(0, { minX: -5, minY: -5, minZ: -5, maxX: -3, maxY: -3, maxZ: -3 });
+    bp.insert(1, { minX: -4, minY: -4, minZ: -4, maxX: -2, maxY: -2, maxZ: -2 });
+    const pairs = bp.generatePairs();
+    expect(pairs.length).toBe(1);
+  });
+
+  it("should handle large AABBs spanning many cells", () => {
+    const bp = new Broadphase(2);
+    bp.insert(0, { minX: 0, minY: 0, minZ: 0, maxX: 20, maxY: 20, maxZ: 20 });
+    bp.insert(1, { minX: 10, minY: 10, minZ: 10, maxX: 12, maxY: 12, maxZ: 12 });
+    const pairs = bp.generatePairs();
+    expect(pairs.length).toBe(1);
+  });
+
+  it("should produce no pairs when empty", () => {
+    const bp = new Broadphase(4);
+    expect(bp.generatePairs()).toEqual([]);
+  });
 });

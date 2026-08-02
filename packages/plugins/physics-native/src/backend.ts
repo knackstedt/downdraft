@@ -7,26 +7,26 @@
 // ============================================================================
 
 import type {
-  PhysicsBackend,
-  PhysicsRealmConfig,
-  BodyDesc,
-  BodyType,
-  ColliderDesc,
-  ColliderShape,
-  RigidBodyHandle,
-  RaycastResult,
-  ShapeCastResult,
-  ContactManifold,
-  CharacterControllerDesc,
-  CharacterControllerHandle,
-  CharacterMoveResult,
-  JointDesc,
-  Entity,
+    BodyDesc,
+    BodyType,
+    CharacterControllerDesc,
+    CharacterControllerHandle,
+    CharacterMoveResult,
+    ColliderDesc,
+    ColliderShape,
+    ContactManifold,
+    Entity,
+    JointDesc,
+    PhysicsBackend,
+    PhysicsRealmConfig,
+    RaycastResult,
+    RigidBodyHandle,
+    ShapeCastResult,
 } from "@downdraft/core/physics/interface.ts";
-import type { Vec3, Quat, NativeBody, NativeCollider, NativeRealm, NativeCharacterController, ColliderShapeData } from "./types.ts";
 import { Broadphase, type AABB } from "./broadphase.ts";
-import { detectCollision, type ContactManifoldLocal } from "./narrowphase.ts";
-import { resolveContact, integrate, type BodyData } from "./solver.ts";
+import { detectCollision } from "./narrowphase.ts";
+import { integrate, resolveContact, type BodyData } from "./solver.ts";
+import type { ColliderShapeData, NativeBody, NativeCharacterController, NativeCollider, NativeRealm, Quat, Vec3 } from "./types.ts";
 
 export class NativePhysicsBackend implements PhysicsBackend {
   readonly name = "native";
@@ -83,7 +83,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
       linearVelocity: [...(desc.linearVelocity ?? [0, 0, 0])] as Vec3,
       angularVelocity: [...(desc.angularVelocity ?? [0, 0, 0])] as Vec3,
       mass,
-      invMass: isStatic ? 0 : 1 / mass,
+      invMass: isStatic || isKinematic ? 0 : 1 / mass,
       restitution: 0.3,
       friction: 0.8,
       gravityScale: desc.gravityScale ?? 1,
@@ -113,7 +113,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
     const body = this.getBody(handle);
     if (!body) return;
     body.type = type;
-    body.invMass = type === "static" ? 0 : 1 / body.mass;
+    body.invMass = type === "static" || type === "kinematic" ? 0 : 1 / body.mass;
   }
 
   // --- Collider management ---
@@ -456,7 +456,9 @@ export class NativePhysicsBackend implements PhysicsBackend {
       if (!bodyA || !bodyB) continue;
 
       for (const colA of bodyA.colliders) {
+        if (colA.sensor) continue;
         for (const colB of bodyB.colliders) {
+          if (colB.sensor) continue;
           const manifold = detectCollision(
             colA.shape, bodyA.position, bodyA.rotation,
             colB.shape, bodyB.position, bodyB.rotation,
