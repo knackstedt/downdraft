@@ -261,6 +261,16 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
     }
   }
 
+  // Sync legacy arrays → ECS components (after legacy systems, so ECS has latest state)
+  sim.ecs?.syncEntities(sim.entities, sim.entityCount);
+  sim.ecs?.syncPlayers(sim.players, sim.playerCount);
+
+  // Step ECS world (flushes commands, runs any ECS-registered systems)
+  sim.ecs?.step(dt);
+  // Write back ECS component changes to legacy arrays
+  sim.ecs?.writeBackEntities(sim.entities, sim.entityCount);
+  sim.ecs?.writeBackPlayers(sim.players, sim.playerCount);
+
   // Write state to SharedArrayBuffer
   writeToBuffer(sim);
   sim.boatCellSystem.writeToBuffer();
@@ -275,16 +285,6 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   if (waterInterval <= 1 || sim.totalTicks % waterInterval === 0) {
     updateWaterBuffer(sim);
   }
-
-  // Sync legacy arrays → ECS components (after legacy systems, so ECS has latest state)
-  sim.ecs?.syncEntities(sim.entities, sim.entityCount);
-  sim.ecs?.syncPlayers(sim.players, sim.playerCount);
-
-  // Step ECS world (flushes commands, runs any ECS-registered systems)
-  sim.ecs?.step(dt);
-  // Write back ECS component changes to legacy arrays
-  sim.ecs?.writeBackEntities(sim.entities, sim.entityCount);
-  sim.ecs?.writeBackPlayers(sim.players, sim.playerCount);
 
   const tickEnd = performance.now();
   if (tickEnd - tickStart > 50) {

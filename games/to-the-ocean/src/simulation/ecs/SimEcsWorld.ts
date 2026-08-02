@@ -76,7 +76,8 @@ export class SimEcsWorld {
     // Query: ships only (type = Ship or SmallCraft)
     // Note: type filtering is done at iteration time since Query doesn't support
     // value-based filtering — systems check ent.type in the loop body.
-    this.ships = new Query([ComponentIds.Transform, ComponentIds.EntityMeta, ComponentIds.EntityData]);
+    // Includes Velocity so buoyancy and anchor systems can read/write ship velocities.
+    this.ships = new Query([ComponentIds.Transform, ComponentIds.Velocity, ComponentIds.EntityMeta, ComponentIds.EntityData]);
     this.wildlife = new Query([ComponentIds.Transform, ComponentIds.EntityMeta, ComponentIds.Health]);
     this.islands = new Query([ComponentIds.Transform, ComponentIds.EntityMeta]);
     this.ports = new Query([ComponentIds.Transform, ComponentIds.EntityMeta]);
@@ -135,7 +136,7 @@ export class SimEcsWorld {
   }
 
   registerStructureIntegritySystem(getBoatCellSystem: () => BoatCellSystem | undefined): void {
-    this.world.schedule.add(createEcsStructureIntegritySystem(this.ships, getBoatCellSystem));
+    this.world.schedule.add(createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem));
   }
 
   registerWildlifeSystem(deps: WildlifeDeps, config: WildlifeConfig): void {

@@ -1,16 +1,16 @@
 // ============================================================================
 // ECS Structure Integrity System — migrated from array-based StructureIntegrity
 //
-// Query: ships (Transform + EntityMeta + Health + EntityData)
+// Query: shipsWithHealth (Transform + EntityMeta + EntityData + Health)
 // Filters by EntityType.Ship in loop body
 // BoatCellSystem passed via closure for stability calculation
 // ============================================================================
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimHealth } from "./components.ts";
-import { EntityType, EntityFlags } from "@shared/types";
+import { EntityFlags, EntityType } from "@shared/types";
 import { SHIP_LEAK_THRESHOLD } from "../../shared/constants";
 import type { BoatCellSystem } from "../boat/BoatCellSystem";
+import { SimEntityMeta, SimHealth } from "./components.ts";
 
 export function createEcsStructureIntegritySystem(
   shipsQuery: Query,
@@ -25,7 +25,7 @@ export function createEcsStructureIntegritySystem(
 
       shipsQuery.iterate(ctx.tick, (_entity, comps) => {
         const meta = comps[1] as ReturnType<typeof SimEntityMeta.create>;
-        const health = comps[2] as ReturnType<typeof SimHealth.create>;
+        const health = comps[3] as ReturnType<typeof SimHealth.create>;
 
         if (meta.type !== EntityType.Ship) return;
 
