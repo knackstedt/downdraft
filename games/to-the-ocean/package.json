@@ -21,6 +21,7 @@
     "@downdraft/plugin-buoyancy": "workspace:*",
     "@downdraft/plugin-collision": "workspace:*",
     "@downdraft/plugin-models": "workspace:*",
+    "@downdraft/plugin-electron-osr": "workspace:*",
     "@fontsource/doto": "^5.1.1",
     "@fontsource/linefont": "^5.1.1",
     "@fontsource/montserrat": "^5.1.1",

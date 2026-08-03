@@ -36,6 +36,24 @@ const api = {
 
   onPerfStats: (cb: (data: any) => void) => ipcRenderer.on(IPC.PERF_STATS, (_e, data) => cb(data)),
 
+  // --- OSR (Offscreen Rendering) ---
+  osr: {
+    createRenderer: (config: any): Promise<void> => ipcRenderer.invoke(IPC.OSR_CREATE_RENDERER, config),
+    destroyRenderer: (id: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_DESTROY_RENDERER, id),
+    addPanel: (config: any): Promise<any> => ipcRenderer.invoke(IPC.OSR_ADD_PANEL, config),
+    removePanel: (rendererId: string, panelId: string): Promise<any> => ipcRenderer.invoke(IPC.OSR_REMOVE_PANEL, rendererId, panelId),
+    updatePanel: (rendererId: string, panelId: string, html: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_UPDATE_PANEL, rendererId, panelId, html),
+    updateData: (rendererId: string, panelId: string, values: Record<string, string | number | boolean>): void =>
+      ipcRenderer.send(IPC.OSR_UPDATE_DATA, rendererId, panelId, values),
+    setContent: (rendererId: string, html: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_SET_CONTENT, rendererId, html),
+    sendInputEvent: (rendererId: string, event: any): void =>
+      ipcRenderer.send(IPC.OSR_INPUT_EVENT, rendererId, event),
+    onPanelLayout: (cb: (rendererId: string, layout: any) => void) =>
+      ipcRenderer.on(IPC.OSR_PANEL_LAYOUT, (_e, rendererId, layout) => cb(rendererId, layout)),
+    onRendererEvent: (cb: (event: any) => void) =>
+      ipcRenderer.on(IPC.OSR_RENDERER_EVENT, (_e, event) => cb(event)),
+  },
+
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
 
   log: (level: string, message: string) => ipcRenderer.send(IPC.RENDERER_LOG, { level, message }),

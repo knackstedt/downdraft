@@ -6,6 +6,7 @@
 
 import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
+import { OSRManager, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/plugin-models";
@@ -91,6 +92,8 @@ export class WebGPURenderer {
   private uiRoot: UIRoot | null = null;
   private uiLayoutEngine: LayoutEngine | null = null;
   private uiInputRouter: UIInputRouter | null = null;
+
+  private osrManager: OSRManager | null = null;
 
   private telemetryCollector: TelemetryCollector | null = null;
   private profilingOverlay: ProfilingOverlay | null = null;
@@ -1036,6 +1039,27 @@ export class WebGPURenderer {
       this.underwaterFogPass!.execute({ device: this.device, pass: passEncoder } as any);
       this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx);
     }
+
+    // World-space UI (Electron OSR)
+    if (this.osrManager) {
+      const viewProj = engineCalculateViewProj(camera);
+      const cx = camera.target[0] - camera.position[0];
+      const cy = camera.target[1] - camera.position[1];
+      const cz = camera.target[2] - camera.position[2];
+      const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+      const fx = cx / cl, fy = cy / cl, fz = cz / cl;
+      const r0 = fy * camera.up[2] - fz * camera.up[1];
+      const r1 = fz * camera.up[0] - fx * camera.up[2];
+      const r2 = fx * camera.up[1] - fy * camera.up[0];
+      const rl = Math.sqrt(r0 * r0 + r1 * r1 + r2 * r2) || 1;
+      const osrCam: OSRCameraState = {
+        viewProj,
+        cameraRight: [r0 / rl, r1 / rl, r2 / rl],
+        cameraUp: [camera.up[0], camera.up[1], camera.up[2]],
+      };
+      this.osrManager.render(osrCam, passEncoder);
+    }
+
     passEncoder.end();
     if (viewportIdx === 0) { this.gpuProfiler!.resolveGpuTimers(encoder); }
     this.device!.queue.submit([encoder.finish()]);
@@ -1138,11 +1162,24 @@ export class WebGPURenderer {
   handleGizmoMouseUp(): void { this.sceneSync.handleGizmoMouseUp(); }
   isGizmoDragging(): boolean { return this.sceneSync.isGizmoDragging(); }
 
+  initOSR(ipc: OSRIPC): OSRManager | null {
+    if (!this.device) return null;
+    this.osrManager = new OSRManager(this.device);
+    this.osrManager.init(ipc);
+    return this.osrManager;
+  }
+
+  getOSRManager(): OSRManager | null {
+    return this.osrManager;
+  }
+
   destroy(): void {
     this.running = false;
     this.resizeWatcher?.destroy();
     this.resizeWatcher = null;
     this.inputHandler.destroy();
+    this.osrManager?.destroy();
+    this.osrManager = null;
     this.pixelationSystem?.destroy();
     this.postProcessStack?.destroy();
     this.modelRenderer?.destroy();

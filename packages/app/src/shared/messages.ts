@@ -23,6 +23,20 @@ export const IPC = {
   // MCP proxy (Main <-> Renderer)
   MCP_REQUEST: "mcp-request",
 
+  // OSR (Offscreen Rendering) — Renderer -> Main
+  OSR_CREATE_RENDERER: "osr-create-renderer",
+  OSR_DESTROY_RENDERER: "osr-destroy-renderer",
+  OSR_ADD_PANEL: "osr-add-panel",
+  OSR_REMOVE_PANEL: "osr-remove-panel",
+  OSR_UPDATE_PANEL: "osr-update-panel",
+  OSR_UPDATE_DATA: "osr-update-data",
+  OSR_SET_CONTENT: "osr-set-content",
+  OSR_INPUT_EVENT: "osr-input-event",
+
+  // OSR — Main -> Renderer
+  OSR_PANEL_LAYOUT: "osr-panel-layout",
+  OSR_RENDERER_EVENT: "osr-renderer-event",
+
   // Main -> Renderer
   SIM_READY: "sim-ready",
   DISPLAY_INFO: "display-info",

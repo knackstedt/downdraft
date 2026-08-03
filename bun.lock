@@ -55,6 +55,7 @@
         "@downdraft/plugin-collision": "workspace:*",
         "@downdraft/plugin-crafting": "workspace:*",
         "@downdraft/plugin-economy": "workspace:*",
+        "@downdraft/plugin-electron-osr": "workspace:*",
         "@downdraft/plugin-fishing": "workspace:*",
         "@downdraft/plugin-inventory": "workspace:*",
         "@downdraft/plugin-items": "workspace:*",
@@ -85,6 +86,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
+        "@downdraft/plugin-electron-osr": "workspace:*",
         "@downdraft/ui": "workspace:*",
       },
     },
@@ -162,6 +164,13 @@
     },
     "packages/plugins/economy": {
       "name": "@downdraft/plugin-economy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/electron-osr": {
+      "name": "@downdraft/plugin-electron-osr",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -446,6 +455,8 @@
     "@downdraft/plugin-devtools": ["@downdraft/plugin-devtools@workspace:packages/plugins/devtools"],
 
     "@downdraft/plugin-economy": ["@downdraft/plugin-economy@workspace:packages/plugins/economy"],
+
+    "@downdraft/plugin-electron-osr": ["@downdraft/plugin-electron-osr@workspace:packages/plugins/electron-osr"],
 
     "@downdraft/plugin-entities": ["@downdraft/plugin-entities@workspace:packages/plugins/entities"],
 
