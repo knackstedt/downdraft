@@ -7,9 +7,8 @@ import type { WorldSpaceUIElement } from "../types.ts";
 const SHADER_CODE = /* wgsl */ `
 struct CameraUniforms {
   viewProj: mat4x4<f32>,
-  cameraRight: vec3<f32>,
-  cameraUp: vec3<f32>,
-  _pad: f32,
+  cameraRight: vec4<f32>,
+  cameraUp: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
@@ -40,11 +39,11 @@ fn vs_main(@location(0) quadUV: vec2<f32>, instance: InstanceInput) -> VertexOut
 
   var worldOffset: vec3<f32>;
   if (instance.billboardMode == 0.0) {
-    worldOffset = camera.cameraRight * (quadUV.x - 0.5) * instance.size.x
-                + camera.cameraUp * (quadUV.y - 0.5) * instance.size.y;
+    worldOffset = camera.cameraRight.xyz * (quadUV.x - 0.5) * instance.size.x
+                + camera.cameraUp.xyz * (quadUV.y - 0.5) * instance.size.y;
   } else if (instance.billboardMode == 1.0) {
     worldOffset = vec3<f32>((quadUV.x - 0.5) * instance.size.x, 0.0, 0.0)
-                + camera.cameraUp * (quadUV.y - 0.5) * instance.size.y;
+                + camera.cameraUp.xyz * (quadUV.y - 0.5) * instance.size.y;
   } else {
     worldOffset = vec3<f32>((quadUV.x - 0.5) * instance.size.x, 0.0, (quadUV.y - 0.5) * instance.size.y);
   }
@@ -58,11 +57,9 @@ fn vs_main(@location(0) quadUV: vec2<f32>, instance: InstanceInput) -> VertexOut
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  if (input.errorFlag > 0.5) {
-    return vec4<f32>(1.0, 0.0, 0.0, 0.85);
-  }
   let texColor = textureSample(uiTexture, uiSampler, input.uv);
-  return texColor;
+  let errorColor = vec4<f32>(1.0, 0.0, 0.0, 0.85);
+  return mix(texColor, errorColor, select(0.0, 1.0, input.errorFlag > 0.5));
 }
 `;
 
@@ -72,23 +69,29 @@ const INSTANCE_FLOATS = 14;
 const INSTANCE_BYTES = INSTANCE_FLOATS * 4;
 
 // Quad vertices: 6 vertices × 2 floats (uv) = 12 floats
+// Flipped horizontally (U: 1→0) to correct mirrored rendering
 const QUAD_VERTICES = new Float32Array([
+  1, 0,
   0, 0,
-  1, 0,
-  0, 1,
-  0, 1,
-  1, 0,
   1, 1,
+  1, 1,
+  0, 0,
+  0, 1,
 ]);
 
 export interface CameraState {
   viewProj: Float32Array;
   cameraRight: [number, number, number];
   cameraUp: [number, number, number];
+  cameraPosition: [number, number, number];
+  canvasWidth: number;
+  canvasHeight: number;
 }
 
 export class WorldSpaceUIPass {
   private device: GPUDevice;
+  private surfaceFormat: GPUTextureFormat;
+  private depthFormat: GPUTextureFormat;
   private shaderModule: GPUShaderModule | null = null;
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
@@ -102,13 +105,21 @@ export class WorldSpaceUIPass {
   private textureBindGroups: Map<number, GPUBindGroup> = new Map();
   private currentTextures: { textureView: GPUTextureView }[] = [];
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat = "bgra8unorm", depthFormat: GPUTextureFormat = "depth24plus") {
     this.device = device;
+    this.surfaceFormat = surfaceFormat;
+    this.depthFormat = depthFormat;
   }
 
   prepare(): void {
     // Shader module
     this.shaderModule = this.device.createShaderModule({ code: SHADER_CODE });
+    this.shaderModule.getCompilationInfo().then((info) => {
+      for (const msg of info.messages) {
+        if (msg.type === "error") console.error("[WorldSpaceUIPass] Shader error:", msg.message);
+        else console.warn("[WorldSpaceUIPass] Shader warning:", msg.message);
+      }
+    }).catch(() => {});
 
     // Sampler
     this.sampler = this.device.createSampler({
@@ -118,7 +129,7 @@ export class WorldSpaceUIPass {
       addressModeV: "clamp-to-edge",
     });
 
-    // Uniform buffer (viewProj 64 + cameraRight 12 + cameraUp 12 + pad 4 = 92 bytes, round to 96)
+    // Uniform buffer: viewProj(64) + cameraRight(16) + cameraUp(16) = 96 bytes
     this.uniformBuffer = this.device.createBuffer({
       size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -198,7 +209,7 @@ export class WorldSpaceUIPass {
         module: this.shaderModule,
         entryPoint: "fs_main",
         targets: [{
-          format: "bgra8unorm" as GPUTextureFormat,
+          format: this.surfaceFormat,
           blend: {
             color: {
               srcFactor: "src-alpha",
@@ -217,7 +228,7 @@ export class WorldSpaceUIPass {
       depthStencil: {
         depthWriteEnabled: false,
         depthCompare: "less",
-        format: "depth24plus" as GPUTextureFormat,
+        format: this.depthFormat as GPUTextureFormat,
       },
     });
   }
@@ -262,11 +273,20 @@ export class WorldSpaceUIPass {
 
   updateCamera(camera: CameraState): void {
     if (!this.uniformBuffer) return;
+    // WGSL uniform struct layout (vec4 = 16 bytes each):
+    //   viewProj: mat4x4 at offset 0  (16 floats = 64 bytes)
+    //   cameraRight: vec4 at offset 64 (floats 16-19)
+    //   cameraUp: vec4 at offset 80   (floats 20-23)
     const data = new Float32Array(24);
     data.set(camera.viewProj, 0);
-    data.set(camera.cameraRight, 16);
-    data.set(camera.cameraUp, 19);
-    // data[22] = 0 (pad), data[23] = 0 (pad)
+    data[16] = camera.cameraRight[0];
+    data[17] = camera.cameraRight[1];
+    data[18] = camera.cameraRight[2];
+    data[19] = 0;
+    data[20] = camera.cameraUp[0];
+    data[21] = camera.cameraUp[1];
+    data[22] = camera.cameraUp[2];
+    data[23] = 0;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 

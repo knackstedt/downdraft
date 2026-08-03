@@ -18,8 +18,8 @@ import "@fontsource/wavefont/400.css";
 
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { useDebugStore } from "@downdraft/plugin-devtools";
-import { PLR } from "@shared/sim-buffer";
-import { SimToMainMessage } from "@shared/types";
+import { ENT, PLR } from "@shared/sim-buffer";
+import { EntityType, SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/SceneInspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/SimWebWorker";
 import { WebGPURenderer } from "./engine/WebGPURenderer";
@@ -239,6 +239,91 @@ async function bootstrap() {
   renderer.setBuffers(simSAB, waterSAB, inputSAB, boatSAB);
   renderer.setupInputListeners();
   renderer.start();
+
+  // --- Debug: Electron OSR billboard at helm position ---
+  // Creates a dedicated OSR renderer loading google.com and places a
+  // world-space billboard at the helm cell of the player's ship.
+  {
+    const downdraft = (window as any).downdraft;
+    if (downdraft?.osr) {
+      try {
+        const osrManager = renderer.initOSR(downdraft.osr);
+        if (osrManager) {
+          const RENDERER_ID = "debug-helm-google";
+          const TEX_W = 1920;
+          const TEX_H = 1080;
+
+          // Create a dedicated OSR renderer (single high-res texture)
+          osrManager.createRenderer({
+            id: RENDERER_ID,
+            mode: "dedicated",
+            width: TEX_W,
+            height: TEX_H,
+            frameRate: 30,
+          });
+
+          // Load google.com as the content
+          downdraft.osr.setContent(RENDERER_ID,
+            '<iframe src="https://www.google.com/webhp?igu=1" ' +
+            'style="width:100%;height:100%;border:none;position:absolute;top:0;left:0;"></iframe>'
+          );
+
+          // Add a world-space UI element — will be positioned each frame
+          osrManager.addElement({
+            id: "helm-google-billboard",
+            position: [0, 0, 0],
+            size: [2, 1.5],
+            billboardMode: 0,
+            textureIndex: 0,
+            uvOffset: [0, 0],
+            uvScale: [1, 1],
+          });
+
+          // Update billboard position to follow the ship's helm each frame
+          const sim = renderer.getSimReader();
+          if (sim) {
+            const updateHelmBillboard = () => {
+              if (!sim.isValid()) { requestAnimationFrame(updateHelmBillboard); return; }
+              const entityCount = sim.getEntityCount();
+              let shipX = 0, shipY = 0, shipZ = 0, shipHeading = 0;
+              let found = false;
+              for (let i = 0; i < entityCount; i++) {
+                const es = sim.getEntitySlot(i);
+                if (!es) continue;
+                if (es.u32[ENT.TYPE] !== EntityType.Ship) continue;
+                shipX = es.f32[ENT.POS_X];
+                shipY = es.f32[ENT.POS_Y];
+                shipZ = es.f32[ENT.POS_Z];
+                shipHeading = es.f32[ENT.DATA + 3]; // SHIP_DATA.HEADING = data slot 3
+                found = true;
+                break;
+              }
+              if (found) {
+                // Helm local offset: (0, 1.5, 1) — rotated by heading
+                const helmX = shipX + Math.sin(shipHeading) * 1;
+                const helmZ = shipZ + Math.cos(shipHeading) * 1;
+                osrManager.updateElements([{
+                  id: "helm-google-billboard",
+                  position: [helmX, shipY + 5.0, helmZ],
+                  size: [10, 5.625],
+                  billboardMode: 0,
+                  textureIndex: 0,
+                  uvOffset: [0, 0],
+                  uvScale: [1, 1],
+                }]);
+              }
+              requestAnimationFrame(updateHelmBillboard);
+            };
+            requestAnimationFrame(updateHelmBillboard);
+          }
+
+          console.log("[OSR Debug] Helm billboard initialized (google.com)");
+        }
+      } catch (e) {
+        console.warn("[OSR Debug] Failed to initialize:", e);
+      }
+    }
+  }
 
   // Expose renderer for debugging (frame drop simulator, etc.)
   (window as any).__renderer = renderer;

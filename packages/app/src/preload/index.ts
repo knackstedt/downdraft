@@ -5,6 +5,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC } from "../shared/messages";
 
+// --- Shared Texture Receiver ---
+// Electron's sharedTexture API is only available in the preload's isolated world.
+// We register the receiver here and forward VideoFrames to the renderer's main
+// world via postMessage (VideoFrame is transferable).
+const electron = require("electron") as any;
+const sharedTextureApi = (globalThis as any).sharedTexture ?? electron?.sharedTexture;
+
 const api = {
   saveGameState: (slotName: string, stateJson: string): Promise<boolean> => ipcRenderer.invoke(IPC.SAVE_GAME_STATE, slotName, stateJson),
   loadGameState: (slotName: string): Promise<string | null> => ipcRenderer.invoke(IPC.LOAD_GAME_STATE, slotName),
@@ -52,6 +59,26 @@ const api = {
       ipcRenderer.on(IPC.OSR_PANEL_LAYOUT, (_e, rendererId, layout) => cb(rendererId, layout)),
     onRendererEvent: (cb: (event: any) => void) =>
       ipcRenderer.on(IPC.OSR_RENDERER_EVENT, (_e, event) => cb(event)),
+    // Register a shared texture receiver — the callback receives a VideoFrame
+    // forwarded from Electron's sharedTexture API via postMessage.
+    registerSharedTextureReceiver: (onFrame: (videoFrame: any) => void): boolean => {
+      if (!sharedTextureApi?.setSharedTextureReceiver) return false;
+      sharedTextureApi.setSharedTextureReceiver(async (receivedData: any) => {
+        const imported = receivedData.importedSharedTexture;
+        try {
+          const videoFrame = imported.subtle.getVideoFrame();
+          onFrame(videoFrame);
+        } catch (err) {
+          console.error("[preload] sharedTexture forward failed:", err);
+        } finally {
+          imported.subtle.release();
+        }
+      });
+      return true;
+    },
+    // Register a NativeImage paint receiver (CPU fallback when shared textures aren't available)
+    onPaintImage: (cb: (rendererId: string, image: any) => void) =>
+      ipcRenderer.on("__osr_paint_image", (_e, rendererId, image) => cb(rendererId, image)),
   },
 
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
@@ -66,4 +93,8 @@ const api = {
   },
 };
 
-contextBridge.exposeInMainWorld("downdraft", api);
+if (process.contextIsolated) {
+  contextBridge.exposeInMainWorld("downdraft", api);
+} else {
+  (globalThis as any).downdraft = api;
+}
