@@ -12,12 +12,11 @@ const rendererRoot = game
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr"] })],
+    plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence", "@bokuweb/zstd-wasm", "xxhash-wasm"] })],
     build: {
       rollupOptions: {
         input: {
           index: resolve("packages/app/src/main/index.ts"),
-          "db-worker": resolve("packages/app/src/main/db-worker.ts"),
         },
         output: {
           entryFileNames: "[name].js",
@@ -37,6 +36,8 @@ export default defineConfig({
         { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve("packages/plugins/electron-osr/src/index.ts") },
         { find: /^@downdraft\/plugin-electron-osr\/main-entry$/, replacement: resolve("packages/plugins/electron-osr/src/main-entry.ts") },
         { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve("packages/plugins/electron-osr/src") + "/" },
+        { find: /^@downdraft\/plugin-persistence$/, replacement: resolve("packages/plugins/persistence/src/index.ts") },
+        { find: /^@downdraft\/plugin-persistence\//, replacement: resolve("packages/plugins/persistence/src") + "/" },
       ],
     },
   },

@@ -569,44 +569,66 @@ export class Simulation implements ISimulation {
       }
     }
 
-    const state = {
-      timeOfDay: this.timeOfDay,
-      totalTicks: this.totalTicks,
-      simTime: this.simTime,
-      gamemode: this.gamemode,
-      rules: this.rules,
-      seed: this.seed,
-      entities: this.entities.slice(0, this.entityCount).map(e => ({
-        id: e.id, type: e.type, flags: e.flags,
-        position: e.position, rotation: e.rotation, scale: e.scale,
-        velocity: e.velocity, health: e.health, maxHealth: e.maxHealth,
-        parentId: e.parentId, data: Array.from(e.data ?? []),
-      })),
-      players: this.players.slice(0, this.playerCount).map(p => ({
-        playerId: p.playerId, entityId: p.entityId, name: p.name,
-        position: p.position, velocity: p.velocity, heading: p.heading,
-        bodyHeading: p.bodyHeading, pitch: p.pitch, health: p.health, maxHealth: p.maxHealth,
-        hunger: p.hunger, thirst: p.thirst, oxygen: p.oxygen,
-        maxOxygen: p.maxOxygen, temperature: p.temperature,
-        cameraMode: p.cameraMode, thirdPersonDistance: p.thirdPersonDistance,
-        activeSlot: p.activeSlot, flags: p.flags, licenses: p.licenses,
-        bedEntityId: p.bedEntityId, gold: p.gold,
-        inventory: serializeGrid(p.inventory),
-      })),
-      boatDesigns: this.boatDesignSystem.getDesigns(),
-      boatPresets: Object.fromEntries(
-        Array.from(this.boatCellSystem.getAllBoats().entries()).map(
-          ([id, info]) => [id, info.presetName],
-        ),
-      ),
-      shipInventories: Array.from(this.shipInventories.entries()).map(([id, grid]) => ({
-        shipId: id,
-        items: serializeGrid(grid),
-      })),
-      freecamData,
+    const components = {
+      world: {
+        v: 1,
+        data: {
+          timeOfDay: this.timeOfDay,
+          totalTicks: this.totalTicks,
+          simTime: this.simTime,
+          gamemode: this.gamemode,
+          rules: this.rules,
+          seed: this.seed,
+        },
+      },
+      entities: {
+        v: 3,
+        data: this.entities.slice(0, this.entityCount).map(e => ({
+          id: e.id, type: e.type, flags: e.flags,
+          position: e.position, rotation: e.rotation, scale: e.scale,
+          velocity: e.velocity, health: e.health, maxHealth: e.maxHealth,
+          parentId: e.parentId, data: Array.from(e.data ?? []),
+        })),
+      },
+      players: {
+        v: 2,
+        data: this.players.slice(0, this.playerCount).map(p => ({
+          playerId: p.playerId, entityId: p.entityId, name: p.name,
+          position: p.position, velocity: p.velocity, heading: p.heading,
+          bodyHeading: p.bodyHeading, pitch: p.pitch, health: p.health, maxHealth: p.maxHealth,
+          hunger: p.hunger, thirst: p.thirst, oxygen: p.oxygen,
+          maxOxygen: p.maxOxygen, temperature: p.temperature,
+          cameraMode: p.cameraMode, thirdPersonDistance: p.thirdPersonDistance,
+          activeSlot: p.activeSlot, flags: p.flags, licenses: p.licenses,
+          bedEntityId: p.bedEntityId, gold: p.gold,
+          inventory: serializeGrid(p.inventory),
+        })),
+      },
+      boats: {
+        v: 1,
+        data: {
+          boatDesigns: this.boatDesignSystem.getDesigns(),
+          boatPresets: Object.fromEntries(
+            Array.from(this.boatCellSystem.getAllBoats().entries()).map(
+              ([id, info]) => [id, info.presetName],
+            ),
+          ),
+        },
+      },
+      inventory: {
+        v: 1,
+        data: Array.from(this.shipInventories.entries()).map(([id, grid]) => ({
+          shipId: id,
+          items: serializeGrid(grid),
+        })),
+      },
+      freecam: {
+        v: 1,
+        data: freecamData,
+      },
     };
 
-    return JSON.stringify(state);
+    return JSON.stringify(components);
   }
 
   async save(slotName: string): Promise<void> {
@@ -625,7 +647,24 @@ export class Simulation implements ISimulation {
   }
 
   restoreState(stateJson: string): void {
-    const state = JSON.parse(stateJson);
+    const parsed = JSON.parse(stateJson);
+
+    // Support both new component-section format and old flat format
+    const isComponentFormat = parsed.world && parsed.world.v !== undefined;
+    const state = isComponentFormat ? {
+      timeOfDay: parsed.world.data.timeOfDay,
+      totalTicks: parsed.world.data.totalTicks,
+      simTime: parsed.world.data.simTime,
+      gamemode: parsed.world.data.gamemode,
+      rules: parsed.world.data.rules,
+      seed: parsed.world.data.seed,
+      entities: parsed.entities?.data ?? [],
+      players: parsed.players?.data ?? [],
+      boatDesigns: parsed.boats?.data?.boatDesigns ?? [],
+      boatPresets: parsed.boats?.data?.boatPresets ?? {},
+      shipInventories: parsed.inventory?.data ?? [],
+      freecamData: parsed.freecam?.data ?? {},
+    } : parsed;
 
     this.timeOfDay = state.timeOfDay ?? 0.3;
     this.totalTicks = state.totalTicks ?? 0;

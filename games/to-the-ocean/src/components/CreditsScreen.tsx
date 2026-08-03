@@ -20,8 +20,8 @@ const FONTS: CreditEntry[] = [
 
 const LIBRARIES: CreditEntry[] = [
   { name: "Rapier Physics", author: "DimForge", license: "Apache-2.0", url: "https://rapier.rs" },
-  { name: "SurrealDB SDK", author: "SurrealDB", license: "Apache-2.0", url: "https://github.com/surrealdb/surrealdb.js" },
-  { name: "SurrealDB Node Engine", author: "SurrealDB", license: "Apache-2.0", url: "https://github.com/surrealdb/surrealdb.js" },
+  { name: "zstd-wasm", author: "bokuweb", license: "MIT", url: "https://github.com/bokuweb/zstd-wasm" },
+  { name: "xxhash-wasm", author: "Jordan Harband", license: "MIT", url: "https://github.com/xxhash/xxhash-wasm" },
   { name: "React", author: "Meta Platforms, Inc.", license: "MIT", url: "https://react.dev" },
   { name: "React DOM", author: "Meta Platforms, Inc.", license: "MIT", url: "https://react.dev" },
   { name: "Framer Motion", author: "Matt Perry", license: "MIT", url: "https://www.framer.com/motion" },

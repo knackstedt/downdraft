@@ -300,11 +300,37 @@ export { TSPluginLoader } from "./plugin/ts-loader.ts";
 export { WASMPluginLoader } from "./plugin/wasm-loader.ts";
 export type { WASMABIExports, WASMABIImports } from "./plugin/wasm-loader.ts";
 
-// Save
+// Save (legacy ECS serializer)
 export { SaveSystem } from "./save/migrate.ts";
 export { CURRENT_SCHEMA_VERSION, SchemaRegistry } from "./save/schema.ts";
 export { Serializer } from "./save/serializer.ts";
 export type { SaveData } from "./save/serializer.ts";
+
+// Save (new persistence system)
+export {
+    decodeHeader,
+    encodeHeader,
+    engineVersionString, HEADER_SIZE, packEngineVersion,
+    readHeaderFromFile, SAVE_FORMAT_VERSION,
+    SAVE_MAGIC, unpackEngineVersion, XXH128_SIZE
+} from "./save/binary-format.ts";
+export type { SaveHeader } from "./save/binary-format.ts";
+export { MigrationRegistryImpl } from "./save/migration-registry.ts";
+export type {
+    ComponentMigration,
+    ComponentSection,
+    IMigrationRegistry,
+    IRendererStateProvider,
+    ISaveStore,
+    LoadResult,
+    SaveMeta,
+    SaveResult,
+    SaveSlotInfo,
+    SaveState,
+    SaveStateBuilder,
+    SaveWarning,
+    SaveWarningKind
+} from "./save/persist-types.ts";
 
 // Assets
 export { GPUResourceCache } from "./assets/cache.ts";

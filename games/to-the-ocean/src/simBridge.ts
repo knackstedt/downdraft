@@ -14,6 +14,10 @@ function getDowndraft(): any {
   return (window as any).downdraft;
 }
 
+function getRenderer(): any {
+  return (window as any).__renderer ?? null;
+}
+
 export const simBridge = {
   // --- Save/Load ---
   async saveGame(slotName: string): Promise<boolean> {
@@ -23,7 +27,13 @@ export const simBridge = {
     if (result?.stateJson) {
       const dd = getDowndraft();
       if (dd?.saveGameState) {
-        return dd.saveGameState(slotName, result.stateJson);
+        // Merge renderer meta into the component-section state
+        let components = JSON.parse(result.stateJson);
+        const renderer = getRenderer();
+        if (renderer?.serializeRendererMeta) {
+          components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
+        }
+        return dd.saveGameState(slotName, JSON.stringify(components));
       }
     }
     return false;
@@ -36,7 +46,22 @@ export const simBridge = {
     if (!stateJson) return false;
     const worker = getSimWorker();
     if (!worker) return false;
-    return worker.load(slotName, stateJson);
+    const ok = await worker.load(slotName, stateJson);
+    // Restore renderer meta if present
+    if (ok) {
+      try {
+        const components = JSON.parse(stateJson);
+        if (components.renderer?.data) {
+          const renderer = getRenderer();
+          if (renderer?.restoreRendererMeta) {
+            renderer.restoreRendererMeta(components.renderer.data);
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+    return ok;
   },
 
   // --- Player ---
