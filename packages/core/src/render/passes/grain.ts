@@ -1,7 +1,3 @@
-import type { RenderBackend } from "../backend/render-backend.ts";
-import { wgslShader } from "../backend/shader-source.ts";
-import type { BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, BackendSampler } from "../backend/types.ts";
-import { SHADER_STAGE_FRAGMENT, SHADER_STAGE_VERTEX } from "../backend/types.ts";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -93,11 +89,6 @@ export class GrainPass extends RenderPass {
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
 
-  private _backend: RenderBackend | null = null;
-  private _bgPipeline: BackendRenderPipeline | null = null;
-  private _bgUniformBuffer: BackendBuffer | null = null;
-  private _bgSampler: BackendSampler | null = null;
-  private _bgLayout: BackendBindGroupLayout | null = null;
 
   constructor(device: GPUDevice, settings: Partial<GrainSettings> = {}) {
     super();
@@ -105,11 +96,7 @@ export class GrainPass extends RenderPass {
     this.settings = { ...DEFAULT_GRAIN_SETTINGS, ...settings };
   }
 
-  prepare(_device: GPUDevice, backend?: RenderBackend | null): void {
-    if (backend) {
-      this.prepareBackend(backend);
-      return;
-    }
+  prepare(_device: GPUDevice): void {
     this.sampler = this.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
@@ -137,34 +124,6 @@ export class GrainPass extends RenderPass {
     });
   }
 
-  private prepareBackend(backend: RenderBackend): void {
-    this._backend = backend;
-    this._bgSampler = backend.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-    this._bgUniformBuffer = backend.createBuffer({ label: "grain-uniforms", size: 16, usage: 0x40 | 0x08 });
-    this._bgLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
-    const vsModule = backend.createShaderModule(wgslShader(FULLSCREEN_VS, "fullscreen-vs"), "wgsl");
-    const fsModule = backend.createShaderModule(wgslShader(GRAIN_FS, "grain-fs"), "wgsl");
-    const layout = backend.createPipelineLayout({ label: "grain-layout", bindGroupLayouts: [this._bgLayout] });
-    this._bgPipeline = backend.createRenderPipeline({
-      label: "grain-pipeline",
-      layout,
-      vertex: { module: vsModule, entryPoint: "vs_main" },
-      fragment: { module: fsModule, entryPoint: "grain_fs", targets: [{ format: "rgba16float" }] },
-      primitive: { topology: "triangle-list" },
-    });
-  }
-
   setSettings(settings: Partial<GrainSettings>): void {
     Object.assign(this.settings, settings);
   }
@@ -179,11 +138,7 @@ export class GrainPass extends RenderPass {
     data[1] = this.settings.size;
     data[2] = this.time;
     data[3] = this.settings.luminanceAware ? 1.0 : 0.0;
-    if (this._backend && this._bgUniformBuffer) {
-      this._backend.queue.writeBuffer(this._bgUniformBuffer, 0, data as unknown as BufferSource);
-    } else {
-      this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
-    }
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
     return data;
   }
 
@@ -196,10 +151,6 @@ export class GrainPass extends RenderPass {
     if (!this.colorHandle || !this.outputHandle) return;
     this.writeUniforms();
 
-    if (ctx.backend && this._bgPipeline) {
-      this.executeBackend(ctx);
-      return;
-    }
     if (!this.pipeline || !ctx.device) return;
 
     const colorView = ctx.getView(this.colorHandle);
@@ -228,36 +179,6 @@ export class GrainPass extends RenderPass {
     pass.draw(6);
     pass.end();
     ctx.device.queue.submit([encoder.finish()]);
-  }
-
-  private executeBackend(ctx: GraphRenderContext): void {
-    const backend = ctx.backend!;
-    const colorView = ctx.getBackendView(this.colorHandle!);
-    const outputView = ctx.getBackendView(this.outputHandle!);
-
-    const bindGroup = backend.createBindGroup({
-      layout: this._bgLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgUniformBuffer! } },
-        { binding: 1, resource: { textureView: colorView } },
-        { binding: 2, resource: { sampler: this._bgSampler! } },
-      ],
-    });
-
-    const encoder = backend.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: outputView,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-    });
-    pass.setPipeline(this._bgPipeline!);
-    pass.setBindGroup(0, bindGroup);
-    pass.draw(6);
-    pass.end();
-    backend.queue.submit([encoder.finish()]);
   }
 
   destroy(): void {

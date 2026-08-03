@@ -25,7 +25,7 @@ export function setupMCP(scene: TestScene): void {
 
   // Listen for MCP requests from main process (via IPC)
   // The main process forwards HTTP requests to the renderer via IPC
-  const downdraft = (window as any).downdraft ?? (window as any).ocean;
+  const downdraft = (window as any).downdraft;
   if (downdraft && downdraft.onMcpRequest) {
     downdraft.onMcpRequest(async (request: { id: number; method: string; params?: Record<string, unknown> }) => {
       try {

@@ -3,12 +3,11 @@
 // Extracted from WebGPURenderer for modularity
 // ============================================================================
 
+import type { TransformGizmo } from "@downdraft/plugin-devtools";
+import { useSceneStore } from "@downdraft/plugin-devtools";
 import { ENT, SimBufferReader } from "@shared/sim-buffer";
 import { CameraMode, EntityType, EntityTypeNames } from "@shared/types";
-import { useSceneStore } from "../stores/sceneStore";
 import type { CameraSystem } from "./CameraSystem";
-import type { TransformGizmo } from "@downdraft/plugin-devtools";
-import type { CameraState } from "@downdraft/core";
 
 export class RendererSceneSync {
   private simReader: SimBufferReader | null = null;

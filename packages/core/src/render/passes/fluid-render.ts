@@ -1,8 +1,6 @@
-import type { RenderBackend } from "../backend/render-backend.ts";
-import { wgslShader } from "../backend/shader-source.ts";
-import { RenderPass } from "../render-pass.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { PassType } from "../frame-graph.ts";
+import { RenderPass } from "../render-pass.ts";
 
 export interface FluidConfig {
   gridResolution: number;

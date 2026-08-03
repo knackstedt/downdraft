@@ -1,7 +1,7 @@
 import type { GCStats } from "@downdraft/core";
+import { useDebugStore, type CollisionLogEntry } from "@downdraft/plugin-devtools";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
-import { useDebugStore, type CollisionLogEntry } from "../stores/debugStore";
 
 function GCStatsRow({ stats }: { stats: GCStats }) {
   const { interval, overall } = stats;

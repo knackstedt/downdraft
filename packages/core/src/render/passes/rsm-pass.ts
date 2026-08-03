@@ -1,11 +1,6 @@
-import { type Mat4 } from "wgpu-matrix";
-import type { RenderBackend } from "../backend/render-backend.ts";
-import { wgslShader } from "../backend/shader-source.ts";
-import type { BackendBuffer, BackendRenderPipeline, BackendShaderModule, BackendTexture, BackendTextureView } from "../backend/types.ts";
-import { SHADER_STAGE_COMPUTE, SHADER_STAGE_FRAGMENT, SHADER_STAGE_VERTEX } from "../backend/types.ts";
-import { RenderPass } from "../render-pass.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { PassType } from "../frame-graph.ts";
+import { RenderPass } from "../render-pass.ts";
 import { DEFAULT_RSM_CONFIG, type RSMConfig, VPL_FLOATS, packVPLsToBuffer } from "./gi-types.ts";
 
 const RSM_INJECT_SHADER = /* wgsl */ `
@@ -145,19 +140,13 @@ export class RSMPass extends RenderPass {
   name = "rsm-inject";
   passType = PassType.Custom;
 
-  private device: GPUDevice | null = null;
-  private backend: RenderBackend | null = null;
+  private device: GPUDevice;
   private config: RSMConfig;
 
   private injectPipeline: GPUComputePipeline | null = null;
   private injectBindGroup: GPUBindGroup | null = null;
   private vplBuffer: GPUBuffer | null = null;
   private rsmUniformBuffer: GPUBuffer | null = null;
-
-  private _bgInjectPipeline: BackendRenderPipeline | null = null;
-  private _bgVplBuffer: BackendBuffer | null = null;
-  private _bgUniformBuffer: BackendBuffer | null = null;
-  private _bgShader: BackendShaderModule | null = null;
 
   rsmDepthHandle: TextureHandle | null = null;
   rsmAlbedoHandle: TextureHandle | null = null;
@@ -167,51 +156,33 @@ export class RSMPass extends RenderPass {
   private lightViewProj: Float32Array = new Float32Array(16);
   private invLightViewProj: Float32Array = new Float32Array(16);
 
-  constructor(config?: Partial<RSMConfig>, device?: GPUDevice | null, backend?: RenderBackend | null) {
+  constructor(config?: Partial<RSMConfig>, device?: GPUDevice | null) {
     super();
     this.config = { ...DEFAULT_RSM_CONFIG, ...config };
     this.device = device ?? null;
-    this.backend = backend ?? null;
   }
 
-  prepare(device: GPUDevice, backend?: RenderBackend | null): void {
+  prepare(device: GPUDevice): void {
     this.device = device;
-    this.backend = backend ?? null;
 
-    if (device) {
-      this.vplBuffer = device.createBuffer({
-        label: "rsm-vpl-buffer",
-        size: this.config.maxVPLs * VPL_FLOATS * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
+    this.vplBuffer = device.createBuffer({
+      label: "rsm-vpl-buffer",
+      size: this.config.maxVPLs * VPL_FLOATS * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
 
-      this.rsmUniformBuffer = device.createBuffer({
-        label: "rsm-uniforms",
-        size: 96, // mat4x4 * 2 + 4 u32/f32
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+    this.rsmUniformBuffer = device.createBuffer({
+      label: "rsm-uniforms",
+      size: 96, // mat4x4 * 2 + 4 u32/f32
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
-      const shader = device.createShaderModule({ code: RSM_INJECT_SHADER });
-      this.injectPipeline = device.createComputePipeline({
-        label: "rsm-inject",
-        layout: "auto",
-        compute: { module: shader, entryPoint: "cs_main" },
-      });
-    } else if (backend) {
-      this._bgVplBuffer = backend.createBuffer({
-        label: "rsm-vpl-buffer",
-        size: this.config.maxVPLs * VPL_FLOATS * 4,
-        usage: 0x80 | 0x08,
-      });
-
-      this._bgUniformBuffer = backend.createBuffer({
-        label: "rsm-uniforms",
-        size: 96,
-        usage: 0x40 | 0x08,
-      });
-
-      this._bgShader = backend.createShaderModule(wgslShader(RSM_INJECT_SHADER, "rsm-inject"), "wgsl");
-    }
+    const shader = device.createShaderModule({ code: RSM_INJECT_SHADER });
+    this.injectPipeline = device.createComputePipeline({
+      label: "rsm-inject",
+      layout: "auto",
+      compute: { module: shader, entryPoint: "cs_main" },
+    });
   }
 
   setLightMatrices(lightViewProj: Float32Array, invLightViewProj: Float32Array): void {
@@ -224,23 +195,19 @@ export class RSMPass extends RenderPass {
     buf.set(this.lightViewProj, 0);
     buf.set(this.invLightViewProj, 16);
 
-    const queue = this.device?.queue ?? this.backend?.queue;
-    const uniformBuf = this.rsmUniformBuffer ?? this._bgUniformBuffer;
-    if (queue && uniformBuf) {
-      queue.writeBuffer(uniformBuf as any, 0, buf as unknown as BufferSource);
+    if (this.device && this.rsmUniformBuffer) {
+      this.device.queue.writeBuffer(this.rsmUniformBuffer, 0, buf as unknown as BufferSource);
     }
   }
 
   updateVPLs(vpls: ReturnType<typeof packVPLsToBuffer>): void {
-    const queue = this.device?.queue ?? this.backend?.queue;
-    const buf = this.vplBuffer ?? this._bgVplBuffer;
-    if (queue && buf) {
-      queue.writeBuffer(buf as any, 0, vpls as unknown as BufferSource);
+    if (this.device && this.vplBuffer) {
+      this.device.queue.writeBuffer(this.vplBuffer, 0, vpls as unknown as BufferSource);
     }
   }
 
-  getVPLBuffer(): GPUBuffer | BackendBuffer | null {
-    return this.vplBuffer ?? this._bgVplBuffer;
+  getVPLBuffer(): GPUBuffer | null {
+    return this.vplBuffer;
   }
 
   getConfig(): RSMConfig {

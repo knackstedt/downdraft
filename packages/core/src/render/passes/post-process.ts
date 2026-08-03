@@ -1,7 +1,3 @@
-import type { RenderBackend } from "../backend/render-backend.ts";
-import { wgslShader } from "../backend/shader-source.ts";
-import type { BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, BackendSampler, BackendTexture, BackendTextureView } from "../backend/types.ts";
-import { SHADER_STAGE_FRAGMENT, SHADER_STAGE_VERTEX } from "../backend/types.ts";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -254,31 +250,6 @@ export class PostProcessPass extends RenderPass {
 
   private sampler: GPUSampler | null = null;
 
-  // Backend-agnostic resources
-  private _backend: RenderBackend | null = null;
-  private _bgTaaPipeline: BackendRenderPipeline | null = null;
-  private _bgBloomPipeline: BackendRenderPipeline | null = null;
-  private _bgTonemapPipeline: BackendRenderPipeline | null = null;
-  private _bgTaaUniformBuffer: BackendBuffer | null = null;
-  private _bgBloomBrightUniformBuffer: BackendBuffer | null = null;
-  private _bgBloomBlurHUniformBuffer: BackendBuffer | null = null;
-  private _bgBloomBlurVUniformBuffer: BackendBuffer | null = null;
-  private _bgTonemapUniformBuffer: BackendBuffer | null = null;
-  private _bgHistoryTexture: BackendTexture | null = null;
-  private _bgHistoryView: BackendTextureView | null = null;
-  private _bgHistoryTexture2: BackendTexture | null = null;
-  private _bgHistoryView2: BackendTextureView | null = null;
-  private _bgTaaOutputTexture: BackendTexture | null = null;
-  private _bgTaaOutputView: BackendTextureView | null = null;
-  private _bgBloomTempTexture: BackendTexture | null = null;
-  private _bgBloomTempView: BackendTextureView | null = null;
-  private _bgBloomHalfTexture: BackendTexture | null = null;
-  private _bgBloomHalfView: BackendTextureView | null = null;
-  private _bgSampler: BackendSampler | null = null;
-  private _bgTaaLayout: BackendBindGroupLayout | null = null;
-  private _bgBloomLayout: BackendBindGroupLayout | null = null;
-  private _bgTonemapLayout: BackendBindGroupLayout | null = null;
-
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, width: number, height: number) {
     super();
     this.device = device;
@@ -287,11 +258,7 @@ export class PostProcessPass extends RenderPass {
     this.height = height;
   }
 
-  prepare(_device: GPUDevice, backend?: RenderBackend | null): void {
-    if (backend) {
-      this.prepareBackend(backend);
-      return;
-    }
+  prepare(_device: GPUDevice): void {
     this.sampler = this.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
@@ -356,82 +323,6 @@ export class PostProcessPass extends RenderPass {
     this.updateUniforms();
   }
 
-  prepareBackend(backend: RenderBackend): void {
-    this._backend = backend;
-    this._bgSampler = backend.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      mipmapFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-
-    this._bgTaaUniformBuffer = backend.createBuffer({ label: "taa-uniforms", size: 16, usage: 0x40 | 0x08 });
-    this._bgBloomBrightUniformBuffer = backend.createBuffer({ label: "bloom-bright-uniforms", size: 16, usage: 0x40 | 0x08 });
-    this._bgBloomBlurHUniformBuffer = backend.createBuffer({ label: "bloom-blur-h-uniforms", size: 16, usage: 0x40 | 0x08 });
-    this._bgBloomBlurVUniformBuffer = backend.createBuffer({ label: "bloom-blur-v-uniforms", size: 16, usage: 0x40 | 0x08 });
-    this._bgTonemapUniformBuffer = backend.createBuffer({ label: "tonemap-uniforms", size: 32, usage: 0x40 | 0x08 });
-
-    this._bgTaaLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 3, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 4, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
-    this._bgBloomLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
-    this._bgTonemapLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 3, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
-
-    const taaModule = backend.createShaderModule(wgslShader(TAA_SHADER, "taa-shader"), "wgsl");
-    const bloomModule = backend.createShaderModule(wgslShader(BLOOM_SHADER, "bloom-shader"), "wgsl");
-    const tonemapModule = backend.createShaderModule(wgslShader(TONEMAP_SHADER, "tonemap-shader"), "wgsl");
-
-    const hdrFormat = "rgba16float";
-    const taaLayout = backend.createPipelineLayout({ label: "taa-layout", bindGroupLayouts: [this._bgTaaLayout] });
-    const bloomLayout = backend.createPipelineLayout({ label: "bloom-layout", bindGroupLayouts: [this._bgBloomLayout] });
-    const tonemapLayout = backend.createPipelineLayout({ label: "tonemap-layout", bindGroupLayouts: [this._bgTonemapLayout] });
-
-    this._bgTaaPipeline = backend.createRenderPipeline({
-      label: "taa-pipeline",
-      layout: taaLayout,
-      vertex: { module: taaModule, entryPoint: "vs_main" },
-      fragment: { module: taaModule, entryPoint: "taa_fs", targets: [{ format: hdrFormat }] },
-      primitive: { topology: "triangle-list" },
-    });
-    this._bgBloomPipeline = backend.createRenderPipeline({
-      label: "bloom-pipeline",
-      layout: bloomLayout,
-      vertex: { module: bloomModule, entryPoint: "vs_main" },
-      fragment: { module: bloomModule, entryPoint: "bloom_fs", targets: [{ format: hdrFormat }] },
-      primitive: { topology: "triangle-list" },
-    });
-    this._bgTonemapPipeline = backend.createRenderPipeline({
-      label: "tonemap-pipeline",
-      layout: tonemapLayout,
-      vertex: { module: tonemapModule, entryPoint: "vs_main" },
-      fragment: { module: tonemapModule, entryPoint: "tonemap_fs", targets: [{ format: this.surfaceFormat }] },
-      primitive: { topology: "triangle-list" },
-    });
-
-    this.createIntermediateTexturesBackend();
-    this.updateUniforms();
-  }
-
   private createIntermediateTextures(): void {
     const hdrFormat = "rgba16float" as GPUTextureFormat;
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST;
@@ -475,30 +366,6 @@ export class PostProcessPass extends RenderPass {
     this.bloomTempView = this.bloomTempTexture.createView();
   }
 
-  private createIntermediateTexturesBackend(): void {
-    const backend = this._backend!;
-    const hdrFormat = "rgba16float";
-    const usage = 0x10 | 0x08 | 0x80 | 0x04; // RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_SRC | COPY_DST
-
-    this._bgHistoryTexture = backend.createTexture({ label: "taa-history", size: [this.width, this.height], format: hdrFormat, usage });
-    this._bgHistoryView = backend.createTextureView(this._bgHistoryTexture);
-
-    this._bgHistoryTexture2 = backend.createTexture({ label: "taa-history2", size: [this.width, this.height], format: hdrFormat, usage });
-    this._bgHistoryView2 = backend.createTextureView(this._bgHistoryTexture2);
-
-    this._bgTaaOutputTexture = backend.createTexture({ label: "taa-output", size: [this.width, this.height], format: hdrFormat, usage });
-    this._bgTaaOutputView = backend.createTextureView(this._bgTaaOutputTexture);
-
-    const halfW = Math.max(1, Math.floor(this.width / 2));
-    const halfH = Math.max(1, Math.floor(this.height / 2));
-
-    this._bgBloomHalfTexture = backend.createTexture({ label: "bloom-half", size: [halfW, halfH], format: hdrFormat, usage });
-    this._bgBloomHalfView = backend.createTextureView(this._bgBloomHalfTexture);
-
-    this._bgBloomTempTexture = backend.createTexture({ label: "bloom-temp", size: [halfW, halfH], format: hdrFormat, usage });
-    this._bgBloomTempView = backend.createTextureView(this._bgBloomTempTexture);
-  }
-
   private updateUniforms(): void {
     const taaData = new Float32Array(4);
     taaData[0] = this.settings.taaBlendFactor;
@@ -509,13 +376,8 @@ export class PostProcessPass extends RenderPass {
     tonemapData[3] = this.settings.contrast;
     tonemapData[4] = this.settings.saturation;
     tonemapData[5] = this.settings.vignette;
-    if (this._backend && this._bgTaaUniformBuffer) {
-      this._backend.queue.writeBuffer(this._bgTaaUniformBuffer, 0, taaData as unknown as BufferSource);
-      this._backend.queue.writeBuffer(this._bgTonemapUniformBuffer!, 0, tonemapData as unknown as BufferSource);
-    } else {
-      this.device.queue.writeBuffer(this.taaUniformBuffer!, 0, taaData as unknown as BufferSource);
-      this.device.queue.writeBuffer(this.tonemapUniformBuffer!, 0, tonemapData as unknown as BufferSource);
-    }
+    this.device.queue.writeBuffer(this.taaUniformBuffer!, 0, taaData as unknown as BufferSource);
+    this.device.queue.writeBuffer(this.tonemapUniformBuffer!, 0, tonemapData as unknown as BufferSource);
   }
 
   setSettings(settings: Partial<PostProcessSettings>): void {
@@ -532,11 +394,7 @@ export class PostProcessPass extends RenderPass {
     this.taaOutputTexture?.destroy();
     this.bloomHalfTexture?.destroy();
     this.bloomTempTexture?.destroy();
-    if (this._backend) {
-      this.createIntermediateTexturesBackend();
-    } else {
-      this.createIntermediateTextures();
-    }
+    this.createIntermediateTextures();
   }
 
   executeTAA(
@@ -731,10 +589,6 @@ export class PostProcessPass extends RenderPass {
 
   execute(ctx: GraphRenderContext): void {
     if (!this.hdrHandle || !this.surfaceHandle) return;
-    if (ctx.backend && this._bgTaaPipeline) {
-      this.executeBackend(ctx);
-      return;
-    }
     if (!ctx.device) return;
 
     const hdrView = ctx.getView(this.hdrHandle);
@@ -752,196 +606,6 @@ export class PostProcessPass extends RenderPass {
 
     // Tonemap stage → output to surface
     this.executeTonemap(ctx, taaOutput, bloomView, surfaceView);
-  }
-
-  private executeBackend(ctx: GraphRenderContext): void {
-    const backend = ctx.backend!;
-    const hdrView = ctx.getBackendView(this.hdrHandle!);
-    const surfaceView = ctx.getBackendView(this.surfaceHandle!);
-    const velocityView = this.velocityHandle ? ctx.getBackendView(this.velocityHandle) : hdrView;
-
-    // TAA stage
-    const taaOutput = this.executeTAABackend(backend, hdrView, velocityView);
-
-    // Bloom stage (if enabled)
-    let bloomView = taaOutput;
-    if (ctx.bloomEnabled) {
-      bloomView = this.executeBloomBackend(backend, taaOutput);
-    }
-
-    // Tonemap stage → output to surface
-    this.executeTonemapBackend(backend, taaOutput, bloomView, surfaceView);
-  }
-
-  private executeTAABackend(backend: RenderBackend, currentView: BackendTextureView, velocityView: BackendTextureView): BackendTextureView {
-    if (!this._bgTaaPipeline || !this._bgSampler) return this._bgTaaOutputView!;
-
-    const bindGroup = backend.createBindGroup({
-      layout: this._bgTaaLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgTaaUniformBuffer! } },
-        { binding: 1, resource: { textureView: currentView } },
-        { binding: 2, resource: { textureView: this._bgHistoryView! } },
-        { binding: 3, resource: { textureView: velocityView } },
-        { binding: 4, resource: { sampler: this._bgSampler } },
-      ],
-    });
-
-    const encoder = backend.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._bgTaaOutputView!,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear" as const,
-        storeOp: "store" as const,
-      }],
-    });
-    pass.setPipeline(this._bgTaaPipeline);
-    pass.setBindGroup(0, bindGroup);
-    pass.draw(6);
-    pass.end();
-
-    encoder.copyTextureToTexture(
-      { texture: this._bgTaaOutputTexture!, mipLevel: 0, origin: [0, 0, 0] },
-      { texture: this._bgHistoryTexture2!, mipLevel: 0, origin: [0, 0, 0] },
-      [this.width, this.height],
-    );
-
-    backend.queue.submit([encoder.finish()]);
-
-    const tmpTex = this._bgHistoryTexture;
-    const tmpView = this._bgHistoryView;
-    this._bgHistoryTexture = this._bgHistoryTexture2;
-    this._bgHistoryView = this._bgHistoryView2;
-    this._bgHistoryTexture2 = tmpTex;
-    this._bgHistoryView2 = tmpView;
-
-    return this._bgTaaOutputView!;
-  }
-
-  private executeBloomBackend(backend: RenderBackend, sourceView: BackendTextureView): BackendTextureView {
-    if (!this._bgBloomPipeline || !this._bgSampler) return sourceView;
-
-    const halfW = Math.max(1, Math.floor(this.width / 2));
-    const halfH = Math.max(1, Math.floor(this.height / 2));
-
-    const brightBindGroup = backend.createBindGroup({
-      layout: this._bgBloomLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgBloomBrightUniformBuffer! } },
-        { binding: 1, resource: { textureView: sourceView } },
-        { binding: 2, resource: { sampler: this._bgSampler } },
-      ],
-    });
-
-    const blurHBindGroup = backend.createBindGroup({
-      layout: this._bgBloomLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgBloomBlurHUniformBuffer! } },
-        { binding: 1, resource: { textureView: this._bgBloomHalfView! } },
-        { binding: 2, resource: { sampler: this._bgSampler } },
-      ],
-    });
-
-    const blurVBindGroup = backend.createBindGroup({
-      layout: this._bgBloomLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgBloomBlurVUniformBuffer! } },
-        { binding: 1, resource: { textureView: this._bgBloomTempView! } },
-        { binding: 2, resource: { sampler: this._bgSampler } },
-      ],
-    });
-
-    const brightData = new Float32Array(4);
-    brightData[0] = this.settings.bloomThreshold;
-    brightData[1] = this.settings.bloomSoftThreshold;
-    brightData[2] = 2.0;
-    brightData[3] = 0.0;
-    backend.queue.writeBuffer(this._bgBloomBrightUniformBuffer!, 0, brightData as unknown as BufferSource);
-
-    const blurHData = new Float32Array(4);
-    blurHData[2] = 1.0 / halfW;
-    blurHData[3] = 0.0;
-    backend.queue.writeBuffer(this._bgBloomBlurHUniformBuffer!, 0, blurHData as unknown as BufferSource);
-
-    const blurVData = new Float32Array(4);
-    blurVData[2] = 0.0;
-    blurVData[3] = 1.0 / halfH;
-    backend.queue.writeBuffer(this._bgBloomBlurVUniformBuffer!, 0, blurVData as unknown as BufferSource);
-
-    const encoder = backend.createCommandEncoder();
-
-    let pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._bgBloomHalfView!,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear" as const,
-        storeOp: "store" as const,
-      }],
-    });
-    pass.setPipeline(this._bgBloomPipeline);
-    pass.setBindGroup(0, brightBindGroup);
-    pass.draw(6);
-    pass.end();
-
-    pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._bgBloomTempView!,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear" as const,
-        storeOp: "store" as const,
-      }],
-    });
-    pass.setPipeline(this._bgBloomPipeline);
-    pass.setBindGroup(0, blurHBindGroup);
-    pass.draw(6);
-    pass.end();
-
-    pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._bgBloomHalfView!,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear" as const,
-        storeOp: "store" as const,
-      }],
-    });
-    pass.setPipeline(this._bgBloomPipeline);
-    pass.setBindGroup(0, blurVBindGroup);
-    pass.draw(6);
-    pass.end();
-
-    backend.queue.submit([encoder.finish()]);
-
-    return this._bgBloomHalfView!;
-  }
-
-  private executeTonemapBackend(backend: RenderBackend, sourceView: BackendTextureView, bloomView: BackendTextureView, outputView: BackendTextureView): void {
-    if (!this._bgTonemapPipeline || !this._bgSampler) return;
-
-    const bindGroup = backend.createBindGroup({
-      layout: this._bgTonemapLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgTonemapUniformBuffer! } },
-        { binding: 1, resource: { textureView: sourceView } },
-        { binding: 2, resource: { textureView: bloomView } },
-        { binding: 3, resource: { sampler: this._bgSampler } },
-      ],
-    });
-
-    const encoder = backend.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: outputView,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear" as const,
-        storeOp: "store" as const,
-      }],
-    });
-    pass.setPipeline(this._bgTonemapPipeline);
-    pass.setBindGroup(0, bindGroup);
-    pass.draw(6);
-    pass.end();
-    backend.queue.submit([encoder.finish()]);
   }
 
   destroy(): void {

@@ -2,6 +2,7 @@
 // App — root React component with canvas + HUD overlay
 // ============================================================================
 
+import { useDebugStore } from "@downdraft/plugin-devtools";
 import { WeatherType } from "@shared/types";
 import { useEffect, useState } from "react";
 import BuilderWheel from "./components/BuilderWheel";
@@ -21,7 +22,6 @@ import PauseMenu from "./components/PauseMenu";
 import SettingsPanel from "./components/SettingsPanel";
 import TradeMenu from "./components/TradeMenu";
 import { simBridge } from "./simBridge";
-import { useDebugStore } from "./stores/debugStore";
 import { useGameStore } from "./stores/gameStore";
 
 export default function App() {

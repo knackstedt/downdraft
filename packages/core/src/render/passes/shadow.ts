@@ -1,9 +1,5 @@
 import { mat4, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder.ts";
-import type { RenderBackend } from "../backend/render-backend.ts";
-import { wgslShader } from "../backend/shader-source.ts";
-import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, BackendShaderModule, BackendTexture, BackendTextureView } from "../backend/types.ts";
-import { SHADER_STAGE_VERTEX } from "../backend/types.ts";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 import { TrackedRenderPass } from "../tracked-render-pass.ts";
@@ -43,29 +39,13 @@ export class ShadowPass extends RenderPass {
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
   private indexBuffers: Map<MeshData, GPUBuffer> = new Map();
 
-  // Backend-agnostic resources
-  private _backend: RenderBackend | null = null;
-  private _bgShaderModule: BackendShaderModule | null = null;
-  private _bgPipelines: Map<number, BackendRenderPipeline> = new Map();
-  private _bgBindGroups: Map<number, BackendBindGroup> = new Map();
-  private _bgShadowTexture: BackendTexture | null = null;
-  private _bgShadowView: BackendTextureView | null = null;
-  private _bgUniformBuffer: BackendBuffer | null = null;
-  private _bgModelBuffer: BackendBuffer | null = null;
-  private _bgLayout: BackendBindGroupLayout | null = null;
-  private _bgVertexBuffers: Map<MeshData, BackendBuffer> = new Map();
-  private _bgIndexBuffers: Map<MeshData, BackendBuffer> = new Map();
 
   constructor(device: GPUDevice) {
     super();
     this.device = device;
   }
 
-  prepare(_device: GPUDevice, backend?: RenderBackend | null): void {
-    if (backend) {
-      this.prepareBackend(backend);
-      return;
-    }
+  prepare(_device: GPUDevice): void {
     if (!this.shaderModule) {
       this.shaderModule = this.device.createShaderModule({ code: SHADOW_SHADER });
     }
@@ -85,29 +65,6 @@ export class ShadowPass extends RenderPass {
     this.modelBuffer = this.device.createBuffer({
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-  }
-
-  prepareBackend(backend: RenderBackend): void {
-    this._backend = backend;
-    this._bgShaderModule = backend.createShaderModule(wgslShader(SHADOW_SHADER, "shadow-shader"), "wgsl");
-
-    this._bgShadowTexture = backend.createTexture({
-      label: "shadow-map",
-      size: [this.shadowMapSize, this.shadowMapSize],
-      format: "depth32float",
-      usage: 0x10 | 0x08, // RENDER_ATTACHMENT | TEXTURE_BINDING
-    });
-    this._bgShadowView = backend.createTextureView(this._bgShadowTexture);
-
-    this._bgUniformBuffer = backend.createBuffer({ label: "shadow-uniforms", size: 64, usage: 0x40 | 0x08 });
-    this._bgModelBuffer = backend.createBuffer({ label: "shadow-model", size: 64, usage: 0x40 | 0x08 });
-
-    this._bgLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_VERTEX, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_VERTEX, buffer: { type: "uniform" } },
-      ],
     });
   }
 
@@ -147,19 +104,11 @@ export class ShadowPass extends RenderPass {
 
   setLightViewProj(viewProj: Mat4): void {
     this.lightViewProj = viewProj;
-    if (this._backend && this._bgUniformBuffer) {
-      this._backend.queue.writeBuffer(this._bgUniformBuffer, 0, viewProj as unknown as BufferSource);
-    } else {
-      this.device.queue.writeBuffer(this.uniformBuffer!, 0, viewProj as unknown as BufferSource);
-    }
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, viewProj as unknown as BufferSource);
   }
 
   setModelMatrix(model: Mat4): void {
-    if (this._backend && this._bgModelBuffer) {
-      this._backend.queue.writeBuffer(this._bgModelBuffer, 0, model as unknown as BufferSource);
-    } else {
-      this.device.queue.writeBuffer(this.modelBuffer!, 0, model as unknown as BufferSource);
-    }
+    this.device.queue.writeBuffer(this.modelBuffer!, 0, model as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -173,14 +122,10 @@ export class ShadowPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
-    if (!this.shaderModule && !this._bgShaderModule) return;
+    if (!this.shaderModule) return;
     if (!ctx.shadowsEnabled) return;
 
-    if (ctx.backend && this._bgShaderModule) {
-      this.executeBackend(ctx);
-      return;
-    }
-    if (!ctx.device || !this.shaderModule) return;
+    if (!ctx.device) return;
 
     this.setLightViewProj(ctx.lightViewProj);
     this.setModelMatrix(ctx.modelMatrix);
@@ -211,104 +156,6 @@ export class ShadowPass extends RenderPass {
     ctx.device.queue.submit([encoder.finish()]);
     ctx.addDrawCalls(1);
     ctx.addTriangles(Math.floor(mesh.indexCount / 3));
-  }
-
-  private executeBackend(ctx: GraphRenderContext): void {
-    const backend = ctx.backend!;
-
-    this.setLightViewProj(ctx.lightViewProj);
-    this.setModelMatrix(ctx.modelMatrix);
-
-    const mesh = ctx.mesh;
-    const pipeline = this.getBackendPipeline(mesh.layout.stride);
-    const bindGroup = this._bgBindGroups.get(mesh.layout.stride)!;
-
-    const encoder = backend.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [],
-      depthStencilAttachment: {
-        view: this._bgShadowView!,
-        depthClearValue: 1.0,
-        depthLoadOp: "clear",
-        depthStoreOp: "store",
-      },
-    });
-
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup);
-    pass.setVertexBuffer(0, this.getBackendVertexBuffer(mesh));
-    pass.setIndexBuffer(this.getBackendIndexBuffer(mesh), mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
-    pass.drawIndexed(mesh.indexCount);
-    pass.end();
-
-    backend.queue.submit([encoder.finish()]);
-    ctx.addDrawCalls(1);
-    ctx.addTriangles(Math.floor(mesh.indexCount / 3));
-  }
-
-  private getBackendPipeline(stride: number): BackendRenderPipeline {
-    let pipeline = this._bgPipelines.get(stride);
-    if (!pipeline) {
-      const backend = this._backend!;
-      const pipelineLayout = backend.createPipelineLayout({ label: "shadow-layout", bindGroupLayouts: [this._bgLayout!] });
-      pipeline = backend.createRenderPipeline({
-        label: "shadow-pipeline",
-        layout: pipelineLayout,
-        vertex: {
-          module: this._bgShaderModule!,
-          entryPoint: "vs_main",
-          buffers: [{
-            arrayStride: stride,
-            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" as const }],
-          }],
-        },
-        primitive: { topology: "triangle-list", cullMode: "back" as const },
-        depthStencil: {
-          format: "depth32float",
-          depthWriteEnabled: true,
-          depthCompare: "less" as const,
-        },
-      });
-      this._bgPipelines.set(stride, pipeline);
-      this._bgBindGroups.set(stride, backend.createBindGroup({
-        layout: this._bgLayout!,
-        entries: [
-          { binding: 0, resource: { buffer: this._bgUniformBuffer! } },
-          { binding: 1, resource: { buffer: this._bgModelBuffer! } },
-        ],
-      }));
-    }
-    return pipeline;
-  }
-
-  private getBackendVertexBuffer(mesh: MeshData): BackendBuffer {
-    let buf = this._bgVertexBuffers.get(mesh);
-    if (!buf) {
-      const backend = this._backend!;
-      buf = backend.createBuffer({
-        label: "shadow-vb",
-        size: mesh.vertices.byteLength,
-        usage: 0x20 | 0x08, // VERTEX | COPY_DST
-      });
-      backend.queue.writeBuffer(buf, 0, mesh.vertices.buffer);
-      this._bgVertexBuffers.set(mesh, buf);
-    }
-    return buf;
-  }
-
-  private getBackendIndexBuffer(mesh: MeshData): BackendBuffer {
-    let buf = this._bgIndexBuffers.get(mesh);
-    if (!buf) {
-      const backend = this._backend!;
-      buf = backend.createBuffer({
-        label: "shadow-ib",
-        size: mesh.indices.byteLength,
-        usage: 0x10 | 0x08, // INDEX | COPY_DST
-      });
-      backend.queue.writeBuffer(buf, 0, mesh.indices.buffer);
-      this._bgIndexBuffers.set(mesh, buf);
-    }
-    return buf;
   }
 
   private getVertexBuffer(mesh: MeshData): GPUBuffer {

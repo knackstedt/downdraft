@@ -6,6 +6,7 @@
 
 import {
     BaseSceneInspector,
+    useDebugStore,
     type IAssetResolver,
     type IDebugModeProvider,
     type IDebugOverlayProvider,
@@ -14,7 +15,6 @@ import {
 import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
 import { simBridge } from "../simBridge";
-import { useDebugStore } from "../stores/debugStore";
 import type { WebGPURenderer } from "./WebGPURenderer";
 
 import {

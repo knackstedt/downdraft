@@ -1,6 +1,4 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { RenderBackend } from "../backend/render-backend.ts";
-import type { BackendBindGroup, BackendBuffer, BackendRenderPipeline, BackendShaderModule, TextureFormat } from "../backend/types.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -203,30 +201,28 @@ export class TerrainPass extends RenderPass {
   name = "terrain";
   hdrHandle: TextureHandle | null = null;
   depthHandle: TextureHandle | null = null;
-  private device: GPUDevice | null;
-  private backend: RenderBackend | null;
-  private pipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  private shaderModule: GPUShaderModule | BackendShaderModule | null = null;
-  private uniformBuffer: GPUBuffer | BackendBuffer | null = null;
-  private bindGroup: GPUBindGroup | BackendBindGroup | null = null;
-  private vertexBuffer: GPUBuffer | BackendBuffer | null = null;
-  private indexBuffer: GPUBuffer | BackendBuffer | null = null;
+  private device: GPUDevice;
+  private pipeline: GPURenderPipeline | null = null;
+  private shaderModule: GPUShaderModule | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private vertexBuffer: GPUBuffer | null = null;
+  private indexBuffer: GPUBuffer | null = null;
   private indexCount = 0;
-  private surfaceFormat: GPUTextureFormat | TextureFormat;
+  private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
   private gridSize: number;
   private uniformData = new Float32Array(32);
 
-  constructor(device: GPUDevice | null, surfaceFormat: GPUTextureFormat | TextureFormat, msaaSampleCount = 1, gridSize = 128, backend?: RenderBackend | null) {
+  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1, gridSize = 128) {
     super();
     this.device = device;
-    this.backend = backend ?? null;
     this.surfaceFormat = surfaceFormat;
     this.msaaSampleCount = msaaSampleCount;
     this.gridSize = gridSize;
   }
 
-  prepare(_device: GPUDevice, _backend?: RenderBackend | null): void {
+  prepare(_device: GPUDevice): void {
     if (this.pipeline) return;
 
     const gridSize = this.gridSize;
@@ -246,34 +242,7 @@ export class TerrainPass extends RenderPass {
     }
     this.indexCount = indices.length;
 
-    if (this.backend && !this.device) {
-      const backend = this.backend;
-      this.shaderModule = backend.createShaderModule({ wgsl: TERRAIN_SHADER }, "wgsl");
-      this.uniformBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
-      this.vertexBuffer = backend.createBuffer({ size: vertices.length * 4, usage: 0x20 | 0x08 });
-      backend.queue.writeBuffer(this.vertexBuffer as any, 0, new Float32Array(vertices) as any);
-      this.indexBuffer = backend.createBuffer({ size: indices.length * 2, usage: 0x10 | 0x08 });
-      backend.queue.writeBuffer(this.indexBuffer as any, 0, new Uint16Array(indices) as any);
-      this.pipeline = backend.createRenderPipeline({
-        layout: "auto",
-        vertex: {
-          module: this.shaderModule, entryPoint: "vs_main",
-          buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
-        },
-        fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat as TextureFormat }] },
-        primitive: { topology: "triangle-list" },
-        multisample: { count: this.msaaSampleCount },
-        depthStencil: { format: "depth32float" as any, depthWriteEnabled: true, depthCompare: "less" },
-      });
-      const bgLayout = (this.pipeline as any).getBindGroupLayout(0);
-      this.bindGroup = backend.createBindGroup({
-        layout: bgLayout,
-        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer as any } }],
-      });
-      return;
-    }
-
-    const dev = this.device!;
+    const dev = this.device;
     this.shaderModule = dev.createShaderModule({ code: TERRAIN_SHADER });
     this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.vertexBuffer = dev.createBuffer({ size: vertices.length * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -286,14 +255,14 @@ export class TerrainPass extends RenderPass {
         module: this.shaderModule, entryPoint: "vs_main",
         buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
       },
-      fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat as GPUTextureFormat }] },
+      fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat }] },
       primitive: { topology: "triangle-list" },
       multisample: { count: this.msaaSampleCount },
       depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "less" },
     });
     this.bindGroup = dev.createBindGroup({
-      layout: (this.pipeline as GPURenderPipeline).getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer as GPUBuffer } }],
+      layout: this.pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
     });
   }
 
@@ -316,8 +285,7 @@ export class TerrainPass extends RenderPass {
     data[27] = u.sunIntensity ?? 1.0;
     data[28] = u.timeOfDay ?? 0.5;
     data[29] = u.waterHeight ?? 0.0;
-    const queue = this.device?.queue ?? this.backend?.queue;
-    queue?.writeBuffer(this.uniformBuffer as any, 0, data as any);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -329,10 +297,10 @@ export class TerrainPass extends RenderPass {
     if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer || !ctx.pass) return;
 
     const tracked = ctx.pass;
-    tracked.setPipeline(this.pipeline as any);
-    tracked.setBindGroup(0, this.bindGroup as any);
-    tracked.setVertexBuffer(0, this.vertexBuffer as any);
-    tracked.setIndexBuffer(this.indexBuffer as any, "uint16");
+    tracked.setPipeline(this.pipeline);
+    tracked.setBindGroup(0, this.bindGroup);
+    tracked.setVertexBuffer(0, this.vertexBuffer);
+    tracked.setIndexBuffer(this.indexBuffer, "uint16");
     tracked.drawIndexed(this.indexCount);
   }
 

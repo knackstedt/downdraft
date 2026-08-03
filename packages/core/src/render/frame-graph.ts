@@ -2,11 +2,9 @@ import type { Mat4 } from "wgpu-matrix";
 import type { DebugDrawQueue } from "../debug-draw/queue.ts";
 import type { MeshData } from "../mesh/builder.ts";
 import { createLogger } from "../util/logger.ts";
-import type { RenderBackend } from "./backend/render-backend.ts";
-import type { BackendTexture, BackendTextureView, TextureFormat } from "./backend/types.ts";
 import type { LightUniformData } from "./lighting.ts";
 import type { RenderPass } from "./render-pass.ts";
-import { BackendTrackedRenderPass, TrackedRenderPass, type ITrackedRenderPass } from "./tracked-render-pass.ts";
+import { TrackedRenderPass } from "./tracked-render-pass.ts";
 
 const log = createLogger();
 
@@ -22,8 +20,8 @@ export class TextureHandle {
 }
 
 export interface TextureDesc {
-  format: GPUTextureFormat | TextureFormat;
-  usage: GPUTextureUsageFlags | number;
+  format: GPUTextureFormat;
+  usage: GPUTextureUsageFlags;
   sampleCount?: number;
   width?: number;  // 0 or undefined = surface width
   height?: number; // 0 or undefined = surface height
@@ -56,10 +54,7 @@ export enum PassType {
 // ─── Frame Context ───────────────────────────────────────────────────────
 
 export interface FrameContext {
-  /** Backend-agnostic render backend (always available when using backend path). */
-  backend: RenderBackend | null;
-  /** Native WebGPU device. Only available when using WebGPU backend. */
-  device: GPUDevice | null;
+  device: GPUDevice;
   width: number;
   height: number;
   viewProj: Mat4;
@@ -83,16 +78,9 @@ export interface FrameContext {
 }
 
 export interface GraphRenderContext extends FrameContext {
-  /** ITrackedRenderPass for Render-type passes. null for Custom passes. */
-  pass: ITrackedRenderPass | null;
-  /** Resolve a texture handle to a GPUTextureView (native WebGPU). */
+  pass: TrackedRenderPass | null;
   getView: (handle: TextureHandle) => GPUTextureView;
-  /** Resolve a texture handle to a GPUTexture (native WebGPU). */
   getTexture: (handle: TextureHandle) => GPUTexture;
-  /** Resolve a texture handle to a backend-agnostic BackendTextureView. */
-  getBackendView: (handle: TextureHandle) => BackendTextureView;
-  /** Resolve a texture handle to a backend-agnostic BackendTexture. */
-  getBackendTexture: (handle: TextureHandle) => BackendTexture;
 }
 
 // ─── Builder (used during setup phase) ───────────────────────────────────
@@ -134,13 +122,11 @@ export class FrameGraphBuilder {
 interface GraphResource {
   name: string;
   texture: GPUTexture | null;
-  backendTexture: BackendTexture | null;
   external: boolean;
   desc?: TextureDesc;
   width?: number;
   height?: number;
   cachedView?: GPUTextureView;
-  cachedBackendView?: BackendTextureView;
 }
 
 interface GraphPassEntry {
@@ -156,15 +142,11 @@ export class FrameGraph {
   private nextHandleId = 0;
   private compiled = false;
   private executionOrder: GraphPassEntry[] = [];
-  private _compileBackend: RenderBackend | null = null;
-
-  importTexture(name: string, texture: GPUTexture | BackendTexture): TextureHandle {
+  importTexture(name: string, texture: GPUTexture): TextureHandle {
     const handle = new TextureHandle(this.nextHandleId++, name);
-    const isBackend = texture && typeof (texture as BackendTexture).getNative === 'function' && !(texture as unknown as GPUTexture).createView;
     this.resources.set(handle.id, {
       name,
-      texture: isBackend ? null : texture as GPUTexture,
-      backendTexture: isBackend ? texture as BackendTexture : null,
+      texture,
       external: true,
     });
     return handle;
@@ -175,7 +157,6 @@ export class FrameGraph {
     this.resources.set(handle.id, {
       name,
       texture: null,
-      backendTexture: null,
       external: false,
       desc,
       width: desc.width,
@@ -190,36 +171,18 @@ export class FrameGraph {
     this.passes.push({ pass, builder });
   }
 
-  /**
-   * Compile the frame graph, allocating transient textures.
-   * @param device Native WebGPU device (used when available)
-   * @param surfaceWidth Surface width for transient sizing
-   * @param surfaceHeight Surface height for transient sizing
-   * @param backend Optional RenderBackend for backend-agnostic texture allocation
-   */
-  compile(device: GPUDevice | null, surfaceWidth: number, surfaceHeight: number, backend?: RenderBackend | null): void {
-    this._compileBackend = backend ?? null;
+  compile(device: GPUDevice, surfaceWidth: number, surfaceHeight: number): void {
     // Allocate transient textures
     for (const resource of this.resources.values()) {
-      if (!resource.external && !resource.texture && !resource.backendTexture && resource.desc) {
+      if (!resource.external && !resource.texture && resource.desc) {
         const w = resource.width || surfaceWidth;
         const h = resource.height || surfaceHeight;
-        if (backend) {
-          resource.backendTexture = backend.createTexture({
-            label: resource.name,
-            size: [w, h],
-            format: resource.desc.format as TextureFormat,
-            usage: resource.desc.usage as number,
-            sampleCount: resource.desc.sampleCount ?? 1,
-          });
-        } else if (device) {
-          resource.texture = device.createTexture({
-            size: [w, h],
-            format: resource.desc.format as GPUTextureFormat,
-            usage: resource.desc.usage as GPUTextureUsageFlags,
-            sampleCount: resource.desc.sampleCount ?? 1,
-          });
-        }
+        resource.texture = device.createTexture({
+          size: [w, h],
+          format: resource.desc.format,
+          usage: resource.desc.usage,
+          sampleCount: resource.desc.sampleCount ?? 1,
+        });
       }
     }
 
@@ -249,17 +212,6 @@ export class FrameGraph {
   private executeRenderPass(frameCtx: FrameContext, entry: GraphPassEntry): void {
     const { pass, builder } = entry;
     const device = frameCtx.device;
-    const backend = frameCtx.backend;
-
-    if (!device && backend) {
-      this.executeRenderPassBackend(frameCtx, entry, backend);
-      return;
-    }
-
-    if (!device) {
-      this.executeCustomPass(frameCtx, entry);
-      return;
-    }
 
     const encoder = device.createCommandEncoder();
 
@@ -294,8 +246,6 @@ export class FrameGraph {
       pass: tracked,
       getView: (h: TextureHandle) => this.getTextureView(h),
       getTexture: (h: TextureHandle) => this.getTexture(h),
-      getBackendView: (h: TextureHandle) => this.getBackendTextureView(h),
-      getBackendTexture: (h: TextureHandle) => this.getBackendTexture(h),
     };
 
     pass.execute(ctx);
@@ -313,60 +263,6 @@ export class FrameGraph {
     device.queue.submit([encoder.finish()]);
   }
 
-  private executeRenderPassBackend(frameCtx: FrameContext, entry: GraphPassEntry, backend: RenderBackend): void {
-    const { pass, builder } = entry;
-    const encoder = backend.createCommandEncoder();
-
-    const colorAttachments = builder.colorAttachments.map(a => ({
-      view: this.getBackendTextureView(a.handle),
-      loadOp: a.loadOp as "clear" | "load",
-      storeOp: a.storeOp as "store" | "discard",
-      clearValue: a.clearValue ?? { r: 0, g: 0, b: 0, a: 1 },
-    }));
-
-    let depthAttachment: import("./backend/types.ts").RenderPassDepthStencilAttachment | undefined;
-    if (builder.depthAttachmentDesc) {
-      const da = builder.depthAttachmentDesc;
-      depthAttachment = {
-        view: this.getBackendTextureView(da.handle),
-        depthLoadOp: da.depthLoadOp as "clear" | "load",
-        depthStoreOp: da.depthStoreOp as "store" | "discard",
-        depthClearValue: da.depthClearValue ?? 1.0,
-        depthReadOnly: da.depthReadOnly ?? false,
-      };
-    }
-
-    const renderPass = encoder.beginRenderPass({
-      colorAttachments,
-      depthStencilAttachment: depthAttachment,
-    });
-
-    const tracked = new BackendTrackedRenderPass(renderPass);
-
-    const ctx: GraphRenderContext = {
-      ...frameCtx,
-      pass: tracked,
-      getView: (h: TextureHandle) => this.getTextureView(h),
-      getTexture: (h: TextureHandle) => this.getTexture(h),
-      getBackendView: (h: TextureHandle) => this.getBackendTextureView(h),
-      getBackendTexture: (h: TextureHandle) => this.getBackendTexture(h),
-    };
-
-    pass.execute(ctx);
-    tracked.end();
-    frameCtx.addDrawCalls(tracked.drawCalls);
-    frameCtx.addTriangles(tracked.triangles);
-    (frameCtx as any).lastPassStats = {
-      name: pass.name,
-      drawCalls: tracked.drawCalls,
-      triangles: tracked.triangles,
-      pipelineSwitches: tracked.pipelineSwitches,
-      bindGroupChanges: tracked.bindGroupChanges,
-      bufferRebinds: tracked.bufferRebinds,
-    };
-    backend.queue.submit([encoder.finish()]);
-  }
-
   private executeCustomPass(frameCtx: FrameContext, entry: GraphPassEntry): void {
     const { pass } = entry;
     const ctx: GraphRenderContext = {
@@ -374,8 +270,6 @@ export class FrameGraph {
       pass: null,
       getView: (h: TextureHandle) => this.getTextureView(h),
       getTexture: (h: TextureHandle) => this.getTexture(h),
-      getBackendView: (h: TextureHandle) => this.getBackendTextureView(h),
-      getBackendTexture: (h: TextureHandle) => this.getBackendTexture(h),
     };
     pass.execute(ctx);
   }
@@ -397,50 +291,6 @@ export class FrameGraph {
       throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
     }
     return resource.texture;
-  }
-
-  private getBackendTextureView(handle: TextureHandle): BackendTextureView {
-    const resource = this.resources.get(handle.id);
-    if (!resource) {
-      throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
-    }
-    if (!resource.cachedBackendView) {
-      if (resource.backendTexture) {
-        // Use the backend to create a view
-        // We need a backend reference — stored on the resource during compile
-        if (this._compileBackend) {
-          resource.cachedBackendView = this._compileBackend.createTextureView(resource.backendTexture);
-        } else {
-          throw new Error(`FrameGraph: no backend available to create view for "${handle.name}"`);
-        }
-      } else if (resource.texture) {
-        // Wrap native GPUTextureView as backend view (for WebGPU path)
-        if (!resource.cachedView) {
-          resource.cachedView = resource.texture.createView();
-        }
-        // Return a wrapper — but we don't have a BackendTextureView wrapper here
-        // This path is used when the graph is compiled with a native device
-        // The backend view is the native view cast
-        resource.cachedBackendView = resource.cachedView as unknown as BackendTextureView;
-      } else {
-        throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
-      }
-    }
-    return resource.cachedBackendView;
-  }
-
-  private getBackendTexture(handle: TextureHandle): BackendTexture {
-    const resource = this.resources.get(handle.id);
-    if (!resource) {
-      throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
-    }
-    if (resource.backendTexture) {
-      return resource.backendTexture;
-    }
-    if (resource.texture) {
-      return resource.texture as unknown as BackendTexture;
-    }
-    throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
   }
 
   private topologicalSort(): GraphPassEntry[] {
@@ -522,12 +372,6 @@ export class FrameGraph {
         resource.texture.destroy();
         resource.texture = null;
         resource.cachedView = undefined;
-      }
-      if (!resource.external && resource.backendTexture && this._compileBackend) {
-        // Backend textures are destroyed via backend.destroy() which handles all tracked resources
-        // Individual texture destruction is backend-specific
-        resource.backendTexture = null;
-        resource.cachedBackendView = undefined;
       }
     }
     this.compiled = false;

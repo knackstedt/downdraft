@@ -17,19 +17,19 @@ import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { useDebugStore } from "@downdraft/plugin-devtools";
 import { PLR } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/SceneInspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/SimWebWorker";
 import { WebGPURenderer } from "./engine/WebGPURenderer";
 import { simBridge } from "./simBridge";
-import { useDebugStore } from "./stores/debugStore";
 import { useGameStore } from "./stores/gameStore";
 import { useHotReloadStore } from "./stores/hotReloadStore";
 import "./styles/globals.css";
 
 async function bootstrap() {
-  const ocean = (window as any).ocean;
+  const downdraft = (window as any).downdraft;
 
   // Render React UI immediately so the loading screen is visible during init
   const root = createRoot(document.getElementById("root")!);
@@ -47,11 +47,11 @@ async function bootstrap() {
 
   // Initialize WebGPU renderer
   const renderer = new WebGPURenderer(canvas);
-  let isDev = !!(ocean?.isDev) || import.meta.env.DEV === true;
+  let isDev = !!(downdraft?.isDev) || import.meta.env.DEV === true;
 
   // Register for sim-ready event from main process (carries isDev flag)
-  if (ocean?.onSimReady) {
-    ocean.onSimReady((data: any) => {
+  if (downdraft?.onSimReady) {
+    downdraft.onSimReady((data: any) => {
       if (data?.isDev) {
         isDev = true;
         useGameStore.getState().setIsDev(true);
@@ -141,8 +141,8 @@ async function bootstrap() {
         break;
       case "saved":
         // Forward save state to main process for DB persistence
-        if (ocean && msg.data?.stateJson) {
-          ocean.saveGameState(msg.data.slotName, msg.data.stateJson);
+        if (downdraft && msg.data?.stateJson) {
+          downdraft.saveGameState(msg.data.slotName, msg.data.stateJson);
         }
         break;
       case "performance":
@@ -183,9 +183,9 @@ async function bootstrap() {
   simWorker.addPlayer(0, "Player 1");
 
   // Auto-load saved state if available
-  if (ocean?.loadGameState) {
+  if (downdraft?.loadGameState) {
     try {
-      const savedState = await ocean.loadGameState("autosave");
+      const savedState = await downdraft.loadGameState("autosave");
       if (savedState) {
         await simWorker.load("autosave", savedState);
         console.log("[Renderer] Auto-loaded saved game state");
@@ -199,12 +199,12 @@ async function bootstrap() {
   if (sessionStorage.getItem("hot-reload-pending")) {
     sessionStorage.removeItem("hot-reload-pending");
     try {
-      if (ocean?.loadGameState) {
-        const hotReloadState = await ocean.loadGameState("hot-reload");
+      if (downdraft?.loadGameState) {
+        const hotReloadState = await downdraft.loadGameState("hot-reload");
         if (hotReloadState) {
           await simWorker.restoreFromState(hotReloadState);
           console.log("[HMR] Restored state after page reload");
-          if (ocean.deleteGameState) ocean.deleteGameState("hot-reload");
+          if (downdraft.deleteGameState) downdraft.deleteGameState("hot-reload");
         }
       }
     } catch (err) {
@@ -216,16 +216,16 @@ async function bootstrap() {
   // Must be registered BEFORE renderer.start() so the initial display info
   // from the main process (sent on did-finish-load) isn't missed.
   try {
-    if (ocean?.onDisplayInfo) {
-      ocean.onDisplayInfo((data: { refreshRate: number }) => {
+    if (downdraft?.onDisplayInfo) {
+      downdraft.onDisplayInfo((data: { refreshRate: number }) => {
         console.log(`[Renderer] Display refresh rate: ${data.refreshRate}Hz`);
         renderer.setFrameRateLimit(data.refreshRate);
       });
     }
     // Query current display info — the did-finish-load push was missed because
     // bootstrap() was still awaiting renderer.init() when it fired.
-    if (ocean?.getDisplayInfo) {
-      const info = await ocean.getDisplayInfo();
+    if (downdraft?.getDisplayInfo) {
+      const info = await downdraft.getDisplayInfo();
       if (info?.refreshRate > 0) {
         console.log(`[Renderer] Display refresh rate (queried): ${info.refreshRate}Hz`);
         renderer.setFrameRateLimit(info.refreshRate);
@@ -287,8 +287,8 @@ async function bootstrap() {
 
   // Listen for display scale factor (DPR) changes
   try {
-    if (ocean?.onDisplayMetricsChanged) {
-      ocean.onDisplayMetricsChanged((data: { scaleFactor: number }) => {
+    if (downdraft?.onDisplayMetricsChanged) {
+      downdraft.onDisplayMetricsChanged((data: { scaleFactor: number }) => {
         console.log(`[Renderer] Display scale factor changed: ${data.scaleFactor}`);
         renderer.handleDprChange(data.scaleFactor);
       });
@@ -299,8 +299,8 @@ async function bootstrap() {
 
   // Listen for main process performance stats
   try {
-    if (ocean?.onPerfStats) {
-      ocean.onPerfStats((data: any) => {
+    if (downdraft?.onPerfStats) {
+      downdraft.onPerfStats((data: any) => {
         (window as any).__perfMetrics = (window as any).__perfMetrics ?? {};
         (window as any).__perfMetrics[data.process] = data;
       });
@@ -425,8 +425,8 @@ async function bootstrap() {
       if (store.preserveState) {
         try {
           const result = await simWorker.save("hot-reload");
-          if (result?.stateJson && ocean?.saveGameState) {
-            ocean.saveGameState("hot-reload", result.stateJson);
+          if (result?.stateJson && downdraft?.saveGameState) {
+            downdraft.saveGameState("hot-reload", result.stateJson);
             sessionStorage.setItem("hot-reload-pending", "1");
             console.log("[HMR] State saved, reloading page...");
           }

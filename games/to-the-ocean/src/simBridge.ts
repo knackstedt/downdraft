@@ -10,8 +10,8 @@ function getSimWorker(): SimWebWorker | null {
   return (window as any).__simWorker ?? null;
 }
 
-function getOcean(): any {
-  return (window as any).ocean;
+function getDowndraft(): any {
+  return (window as any).downdraft;
 }
 
 export const simBridge = {
@@ -21,18 +21,18 @@ export const simBridge = {
     if (!worker) return false;
     const result = await worker.save(slotName);
     if (result?.stateJson) {
-      const ocean = getOcean();
-      if (ocean?.saveGameState) {
-        return ocean.saveGameState(slotName, result.stateJson);
+      const dd = getDowndraft();
+      if (dd?.saveGameState) {
+        return dd.saveGameState(slotName, result.stateJson);
       }
     }
     return false;
   },
 
   async loadGame(slotName: string): Promise<boolean> {
-    const ocean = getOcean();
-    if (!ocean?.loadGameState) return false;
-    const stateJson = await ocean.loadGameState(slotName);
+    const dd = getDowndraft();
+    if (!dd?.loadGameState) return false;
+    const stateJson = await dd.loadGameState(slotName);
     if (!stateJson) return false;
     const worker = getSimWorker();
     if (!worker) return false;
@@ -93,20 +93,20 @@ export const simBridge = {
   // --- Debug ---
   setDebugMode(enabled: boolean): void {
     getSimWorker()?.setDebugMode(enabled);
-    getOcean()?.setDebugMode(enabled);
+    getDowndraft()?.setDebugMode(enabled);
   },
 
   // --- App (still via IPC) ---
   quit(): void {
-    getOcean()?.quit();
+    getDowndraft()?.quit();
   },
 
   toggleDevtools(): void {
-    getOcean()?.toggleDevtools();
+    getDowndraft()?.toggleDevtools();
   },
 
   toggleFullscreen(): void {
-    getOcean()?.toggleFullscreen();
+    getDowndraft()?.toggleFullscreen();
   },
 
   // --- Reset (reload the page to restart sim) ---

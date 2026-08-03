@@ -4,7 +4,6 @@
 // Ported from to-the-ocean's simulation water buffer update logic
 // ============================================================================
 
-import { type GerstnerWaveParams } from "./gerstner.ts";
 import { type ShoreSource, shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping.ts";
 import { WaterBuffer } from "./water-buffer.ts";
 import { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_WORLD_SIZE, MAX_CHUNKS, type WaterChunk } from "./water-chunks.ts";
@@ -16,6 +15,14 @@ interface PrecomputedWave {
   dz: number;
   amplitude: number;
   speedFactor: number;
+}
+
+export interface GerstnerWaveParams {
+  direction: [number, number];
+  amplitude: number;
+  wavelength: number;
+  speed: number;
+  steepness: number;
 }
 
 export interface WaterPhysicsConfig {

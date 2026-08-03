@@ -7,7 +7,7 @@
 import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { createBackend, type RenderBackend } from "@downdraft/core/render/backend/render-backend";
 import type { BackendTexture, BackendTextureView, TextureFormat } from "@downdraft/core/render/backend/types";
-import { TransformGizmo } from "@downdraft/plugin-devtools";
+import { TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/plugin-models";
@@ -21,7 +21,6 @@ import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
 import { generateIslandBlobs } from "@shared/terrain";
 import { CameraMode, EntityFlags, EntityType, PortSize, WeatherType } from "@shared/types";
 import { WATER_GRID, WaterBufferReader } from "@shared/water-buffer";
-import { useSceneStore, type GizmoMode } from "../stores/sceneStore";
 import { CameraSystem, type CameraState } from "./CameraSystem";
 import { CanvasResizeWatcher } from "./CanvasResizeWatcher";
 import { DebugOverlay } from "./DebugOverlay";

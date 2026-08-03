@@ -1,6 +1,5 @@
-import React from "react";
 import { motion } from "framer-motion";
-import { X, Heart } from "lucide-react";
+import { Heart, X } from "lucide-react";
 import { useGameStore } from "../stores/gameStore";
 
 interface CreditEntry {
@@ -45,7 +44,7 @@ function CreditRow({ entry }: { entry: CreditEntry }) {
       </div>
       <a
         href={entry.url}
-        onClick={(e) => { e.preventDefault(); (window as any).ocean?.openExternal?.(entry.url); }}
+        onClick={(e) => { e.preventDefault(); (window as any).downdraft?.openExternal?.(entry.url); }}
         className="text-ocean-500 hover:text-ocean-300 text-xs mt-0.5 transition-colors cursor-pointer"
       >
         {entry.url}
