@@ -80,7 +80,9 @@ function showErrorDialog(title: string, detail: string): void {
   win.on("closed", () => {
     errorDialogOpen = false;
     if (exitOnDialogClose) {
-      process.exit(1);
+      const forceExitTimer = setTimeout(() => process.exit(1), 3000);
+      forceExitTimer.unref();
+      app.quit();
     }
   });
 }
@@ -94,8 +96,8 @@ function isEpipeError(err: unknown): boolean {
 }
 
 process.on("uncaughtException", (err) => {
+  exitOnDialogClose = true;
   if (isEpipeError(err)) {
-    exitOnDialogClose = true;
     showErrorDialog("Uncaught Exception (EPIPE)", err.stack ?? err.message);
     return;
   }
@@ -104,9 +106,9 @@ process.on("uncaughtException", (err) => {
 });
 
 process.on("unhandledRejection", (reason) => {
+  exitOnDialogClose = true;
   const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
   if (isEpipeError(reason)) {
-    exitOnDialogClose = true;
     showErrorDialog("Unhandled Rejection (EPIPE)", detail);
     return;
   }
