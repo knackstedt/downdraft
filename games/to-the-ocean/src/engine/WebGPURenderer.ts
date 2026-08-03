@@ -1057,13 +1057,16 @@ export class WebGPURenderer {
         cameraRight: [r0 / rl, r1 / rl, r2 / rl],
         cameraUp: [camera.up[0], camera.up[1], camera.up[2]],
         cameraPosition: [camera.position[0], camera.position[1], camera.position[2]],
-        canvasWidth: this.canvas.width,
-        canvasHeight: this.canvas.height,
+        canvasWidth: this.canvas.clientWidth,
+        canvasHeight: this.canvas.clientHeight,
       };
       this.osrManager.render(osrCam, passEncoder);
 
-      // Forward mouse/keyboard input to OSR billboards (only when not pointer-locked)
-      if (this.inputHandler && viewportIdx === 0 && !this.inputHandler.pointerLocked) {
+      // Forward mouse/keyboard input to OSR billboards
+      // When forced focus is active, forward even when pointer-locked
+      const osrForward = this.inputHandler && viewportIdx === 0 &&
+        (!this.inputHandler.pointerLocked || this.osrManager.isForcedFocus());
+      if (osrForward) {
         const ms = this.inputHandler.mouseState;
         const buttons = (ms.left ? 1 : 0) | (ms.right ? 2 : 0);
         this.osrManager.handleInput(osrCam, {
@@ -1105,6 +1108,7 @@ export class WebGPURenderer {
   // --- Delegated accessor methods ---
   lockPointer(): void { this.inputHandler.lockPointer(); }
   setupInputListeners(): void { this.inputHandler.setupInputListeners(); }
+  setOSRForcedFocus(active: boolean): void { this.inputHandler.setOSRForcedFocus(active); }
   getFPS(): number { return this.accessors.getFPS(); }
   setDebugMode(e: boolean): void { this.accessors.setDebugMode(e); }
   setShowHitboxes(s: boolean): void { this.accessors.setShowHitboxes(s); }
@@ -1186,6 +1190,11 @@ export class WebGPURenderer {
     this.osrManager.init(ipc);
     this.inputHandler.onOSRKey = (type, keyCode) => {
       this.osrManager?.handleKey(type, String(keyCode));
+    };
+    this.inputHandler.onOSRFocus = () => {
+      const id = this.osrManager?.focusBillboard();
+      if (id) console.log(`[OSR] Manually focused billboard renderer: ${id}`);
+      else console.log(`[OSR] No available billboard to focus`);
     };
     return this.osrManager;
   }

@@ -87,7 +87,7 @@ export const KEY = {
   I: 73, B: 66, C: 67, M: 77, P: 80,
   T: 84, V: 86, Z: 90, X: 88,
   UP: 38, DOWN: 40, LEFT: 37, RIGHT: 39,
-  F5: 116,
+  F5: 116, F8: 119,
   BRACKET_LEFT: 219,
   BRACKET_RIGHT: 221,
 } as const;

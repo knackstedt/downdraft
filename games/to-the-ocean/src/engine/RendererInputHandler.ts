@@ -28,6 +28,14 @@ export class RendererInputHandler {
 
   onInputProcessed: (() => void) | null = null;
   onOSRKey: ((type: "keyDown" | "keyUp", keyCode: number) => void) | null = null;
+  onOSRFocus: (() => void) | null = null;
+  osrForcedFocus = false;
+  setOSRForcedFocus(active: boolean): void {
+    this.osrForcedFocus = active;
+    if (active) {
+      this.keysDown.clear();
+    }
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -48,6 +56,22 @@ export class RendererInputHandler {
 
   processInput(viewportCount: number): void {
     if (!this.inputWriter) return;
+
+    // When OSR forced focus is active, don't forward keyboard/mouse to sim
+    if (this.osrForcedFocus) {
+      for (let p = 0; p < viewportCount; p++) {
+        for (let k = 0; k < 256; k++) {
+          this.inputWriter.setKey(p, k, false);
+        }
+        this.inputWriter.setMouseButton(p, 0, false);
+        this.inputWriter.setMouseButton(p, 2, false);
+        this.inputWriter.setMouseDelta(p, 0, 0);
+        this.inputWriter.setWheel(p, 0);
+      }
+      this.mouseDelta.dx = 0;
+      this.mouseDelta.dy = 0;
+      return;
+    }
 
     // Keyboard
     const keysDown = this.getKeysDown();
@@ -101,6 +125,7 @@ export class RendererInputHandler {
   }
 
   lockPointer(): void {
+    if (this.osrForcedFocus) return;
     if (this.pointerLocked) return;
     this.pointerLockRetryCount = 0;
     this.tryLockPointer();
@@ -184,20 +209,38 @@ export class RendererInputHandler {
 
   setupInputListeners(): void {
     window.addEventListener("keydown", (e) => {
+      // During OSR forced focus, suppress game keyboard input
+      if (this.osrForcedFocus && e.keyCode !== 119 && e.keyCode !== 120) {
+        this.onOSRKey?.("keyDown", e.keyCode);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       this.keysDown.add(e.keyCode);
       this.uiInputRouter?.handleKeyDown(e.keyCode);
       this.onOSRKey?.("keyDown", e.keyCode);
+      // F8: manually focus OSR billboard (bypasses raycast)
+      if (!e.repeat && e.keyCode === KEY.F8) {
+        this.onOSRFocus?.();
+      }
       // Builder rotation: R or ] = rotate CW, [ = rotate CCW (only when builder tool active)
       if (!e.repeat && (e.keyCode === KEY.R || e.keyCode === KEY.BRACKET_LEFT || e.keyCode === KEY.BRACKET_RIGHT)) {
         this.tryBuilderRotate(e.keyCode === KEY.BRACKET_LEFT ? -1 : 1);
       }
     });
     window.addEventListener("keyup", (e) => {
+      if (this.osrForcedFocus && e.keyCode !== 119 && e.keyCode !== 120) {
+        this.onOSRKey?.("keyUp", e.keyCode);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       this.keysDown.delete(e.keyCode);
       this.uiInputRouter?.handleKeyUp(e.keyCode);
       this.onOSRKey?.("keyUp", e.keyCode);
     });
     this.canvas.addEventListener("click", () => {
+      if (this.osrForcedFocus) return; // don't engage pointer lock during OSR forced focus
       if (!this.pointerLocked) {
         this.pointerLockRetryCount = 0;
         this.tryLockPointer();

@@ -4,7 +4,7 @@
 
 import { useDebugStore } from "@downdraft/plugin-devtools";
 import { WeatherType } from "@shared/types";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import BuilderWheel from "./components/BuilderWheel";
 import BuildMenu from "./components/BuildMenu";
 import CharacterCustomization from "./components/CharacterCustomization";
@@ -31,6 +31,8 @@ export default function App() {
   const showDebugPage = useDebugStore((s) => s.showDebugPage);
   const [pointerLocked, setPointerLocked] = useState(document.pointerLockElement !== null);
   const [f1Devtools, setF1Devtools] = useState(false);
+  const [osrForcedFocus, setOsrForcedFocus] = useState(false);
+  const osrForcedFocusRef = useRef(false);
 
   // FPS polling
   useEffect(() => {
@@ -48,6 +50,8 @@ export default function App() {
     let tabRequested = false;
 
     const onKey = (e: KeyboardEvent) => {
+      // During OSR forced focus, suppress all game keyboard shortcuts
+      if (osrForcedFocusRef.current && e.key !== "F8" && e.key !== "F9") return;
       // TAB toggles craft/inventory menu
       if (e.key === "Tab") {
         e.preventDefault();
@@ -286,6 +290,13 @@ export default function App() {
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
+    const onOSRFocusChange = (e: Event) => {
+      const val = (e as CustomEvent).detail;
+      osrForcedFocusRef.current = val;
+      setOsrForcedFocus(val);
+    };
+    window.addEventListener("osr-forced-focus-change", onOSRFocusChange);
+
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keydown", onF3);
@@ -297,6 +308,7 @@ export default function App() {
       window.removeEventListener("keydown", onNumpad);
       document.removeEventListener("pointerlockchange", onPointerLockChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("osr-forced-focus-change", onOSRFocusChange);
     };
   }, [ready, lutReady, simReady, isDev]);
 
@@ -319,7 +331,7 @@ export default function App() {
       )}
 
       {/* Click-to-resume overlay — shown when pointer lock is lost but no menu is open */}
-      {ready && lutReady && simReady && !pointerLocked && !anyOverlayOpen && !playerDied && !f1Devtools && (
+      {ready && lutReady && simReady && !pointerLocked && !anyOverlayOpen && !playerDied && !f1Devtools && !osrForcedFocus && (
         <div
           className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-ocean-950/60 cursor-pointer"
           onClick={() => {

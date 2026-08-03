@@ -2,8 +2,8 @@
 // Input Forwarder — Routes input events from renderer to OSR BrowserWindows
 // ============================================================================
 
-import type { OSRRendererManager } from "./osr-renderer-manager.ts";
 import type { OSRInputEvent } from "../types.ts";
+import type { OSRRendererManager } from "./osr-renderer-manager.ts";
 
 export class InputForwarder {
   private manager: OSRRendererManager;

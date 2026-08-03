@@ -262,10 +262,28 @@ async function bootstrap() {
             frameRate: 30,
           });
 
-          // Load google.com as the content
+          // Load test content with inline handlers (scripts in innerHTML don't execute)
           downdraft.osr.setContent(RENDERER_ID,
-            '<iframe src="https://www.google.com/webhp?igu=1" ' +
-            'style="width:100%;height:100%;border:none;position:absolute;top:0;left:0;"></iframe>'
+            '<style>' +
+            'input.osr-test:focus { caret-color: transparent; }' +
+            'input.osr-test { caret-color: transparent; }' +
+            '.fake-caret { display:inline-block; width:3px; height:1em; background:#0078d4; animation:blink 1s step-end infinite; vertical-align:text-bottom; margin-left:1px; }' +
+            '@keyframes blink { 0%,50% { opacity:1; } 51%,100% { opacity:0; } }' +
+            '.input-wrapper { position:relative; display:inline-block; }' +
+            '.input-display { position:absolute; left:12px; top:50%; transform:translateY(-50%); pointer-events:none; font-size:24px; font-family:sans-serif; color:#333; white-space:pre; }' +
+            '</style>' +
+            '<div style="width:100%;height:100%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;font-family:sans-serif;" onmousemove="document.getElementById(\'mousePos\').innerText=\'Mouse: \'+event.clientX+\', \'+event.clientY">' +
+            '<h1 style="color:#333;font-size:48px;">OSR Input Test</h1>' +
+            '<div class="input-wrapper">' +
+            '<input type="text" id="testInput" class="osr-test" placeholder="Click and type here" style="width:400px;height:60px;font-size:24px;padding:8px 12px;border:2px solid #0078d4;border-radius:4px;color:transparent;" oninput="document.getElementById(\'inputDisplay\').textContent=this.value" onfocus="document.getElementById(\'caret\').style.display=\'inline-block\'" onblur="document.getElementById(\'caret\').style.display=\'none\'" />' +
+            '<span class="input-display" id="inputDisplay"></span>' +
+            '<span class="fake-caret" id="caret" style="display:none;left:12px"></span>' +
+            '</div>' +
+            '<button onclick="this.innerText=\'Clicked!\';setTimeout(()=>this.innerText=\'Click Me\',1000)" style="width:200px;height:60px;font-size:24px;cursor:pointer;background:#0078d4;color:white;border:none;border-radius:4px;">Click Me</button>' +
+            '<div id="mousePos" style="font-size:20px;color:#666;">Mouse: 0, 0</div>' +
+            '<div id="clickPos" style="font-size:20px;color:#666;">No clicks yet</div>' +
+            '<button onclick="document.getElementById(\'clickPos\').innerText=\'Clicked at: \'+event.clientX+\', \'+event.clientY" style="width:200px;height:60px;font-size:24px;cursor:pointer;background:#28a745;color:white;border:none;border-radius:4px;">Track Click</button>' +
+            '</div>'
           );
 
           // Add a world-space UI element — will be positioned each frame
@@ -318,6 +336,29 @@ async function bootstrap() {
           }
 
           console.log("[OSR Debug] Helm billboard initialized (google.com)");
+
+          // F8: manually focus OSR billboard (bypasses raycast for mouse+keyboard)
+          // F9: unfocus, return to raycast-based input
+          window.addEventListener("keydown", (e) => {
+            if (e.repeat) return;
+            if (e.keyCode === 119) { // F8
+              if (document.pointerLockElement) {
+                useGameStore.getState().setSuppressPauseMenu(true);
+                document.exitPointerLock();
+              }
+              const canvas = document.querySelector("canvas");
+              const rect = canvas?.getBoundingClientRect();
+              const id = osrManager.focusBillboard(rect?.width, rect?.height);
+              if (id) {
+                renderer.setOSRForcedFocus(true);
+                window.dispatchEvent(new CustomEvent("osr-forced-focus-change", { detail: true }));
+              }
+            } else if (e.keyCode === 120) { // F9
+              osrManager.unfocusBillboard();
+              renderer.setOSRForcedFocus(false);
+              window.dispatchEvent(new CustomEvent("osr-forced-focus-change", { detail: false }));
+            }
+          });
         }
       } catch (e) {
         console.warn("[OSR Debug] Failed to initialize:", e);

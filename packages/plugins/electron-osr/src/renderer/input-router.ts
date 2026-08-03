@@ -31,6 +31,10 @@ export class OSRInputRouter {
   private sendInputEvent: (rendererId: string, event: Omit<OSRInputEvent, "rendererId">) => void;
   private hoveredElementId: string | null = null;
   private hoveredRendererId: string | null = null;
+  private forcedFocusRendererId: string | null = null;
+  private forcedFocusTextureIndex: number = -1;
+  private forcedFocusCanvasWidth = 0;
+  private forcedFocusCanvasHeight = 0;
   private lastMouseX = -1;
   private lastMouseY = -1;
   private lastButtons = 0;
@@ -52,6 +56,12 @@ export class OSRInputRouter {
    * Uses raycasting to determine which billboard the mouse is hovering over.
    */
   handleMouse(camera: CameraState, mouse: MouseState, elements: WorldSpaceUIElement[]): void {
+    // Forced focus mode: raycast for position, always forward to focused renderer
+    if (this.forcedFocusRendererId) {
+      this.handleMouseForced(camera, mouse, elements);
+      return;
+    }
+
     // Simple raycast: project mouse to world ray and test against billboard planes
     const hit = this.raycastBillboards(camera, mouse, elements);
     const rendererId = hit ? this.config.textureIndexToRendererId.get(hit.element.textureIndex) : null;
@@ -133,6 +143,108 @@ export class OSRInputRouter {
     }
   }
 
+  /**
+   * Forced focus mode: raycasts for accurate mouse position on the billboard,
+   * but always forwards events to the forced-focus renderer (regardless of which
+   * billboard the raycast hits).
+   */
+  private handleMouseForced(camera: CameraState, mouse: MouseState, elements: WorldSpaceUIElement[]): void {
+    const rendererId = this.forcedFocusRendererId!;
+
+    // Raycast to get accurate UV coordinates on the billboard
+    const hit = this.raycastBillboards(camera, mouse, elements);
+    const coords = hit ? this.computeRendererCoords(hit) : null;
+
+    // Mouse move
+    if (mouse.x !== this.lastMouseX || mouse.y !== this.lastMouseY) {
+      if (coords) {
+        this.sendInputEvent(rendererId, { type: "mouseMove", x: coords.x, y: coords.y, button: "left" });
+      }
+      this.lastMouseX = mouse.x;
+      this.lastMouseY = mouse.y;
+    }
+
+    // Mouse button changes
+    const buttonChanged = mouse.buttons !== this.lastButtons;
+    if (buttonChanged) {
+      const prevButtons = this.lastButtons;
+      const currButtons = mouse.buttons;
+      if (coords) {
+        // Left button
+        if ((currButtons & 1) && !(prevButtons & 1)) {
+          this.sendInputEvent(rendererId, { type: "mouseDown", x: coords.x, y: coords.y, button: "left" });
+        } else if (!(currButtons & 1) && (prevButtons & 1)) {
+          this.sendInputEvent(rendererId, { type: "mouseUp", x: coords.x, y: coords.y, button: "left" });
+        }
+
+        // Right button
+        if ((currButtons & 2) && !(prevButtons & 2)) {
+          this.sendInputEvent(rendererId, { type: "mouseDown", x: coords.x, y: coords.y, button: "right" });
+        } else if (!(currButtons & 2) && (prevButtons & 2)) {
+          this.sendInputEvent(rendererId, { type: "mouseUp", x: coords.x, y: coords.y, button: "right" });
+        }
+
+        // Middle button
+        if ((currButtons & 4) && !(prevButtons & 4)) {
+          this.sendInputEvent(rendererId, { type: "mouseDown", x: coords.x, y: coords.y, button: "middle" });
+        } else if (!(currButtons & 4) && (prevButtons & 4)) {
+          this.sendInputEvent(rendererId, { type: "mouseUp", x: coords.x, y: coords.y, button: "middle" });
+        }
+      }
+
+      this.lastButtons = currButtons;
+    }
+
+    // Mouse wheel
+    if (mouse.wheelDeltaY !== 0 || mouse.wheelDeltaX !== 0) {
+      if (coords) {
+        this.sendInputEvent(rendererId, {
+          type: "mouseWheel",
+          x: coords.x,
+          y: coords.y,
+          deltaX: mouse.wheelDeltaX,
+          deltaY: mouse.wheelDeltaY,
+        });
+      }
+    }
+  }
+
+  /**
+   * Manually focus the first available billboard renderer (bypasses raycasting).
+   * Sets forced focus mode so all mouse/keyboard events are forwarded to this renderer.
+   */
+  focusBillboard(): string | null {
+    for (const [texIdx, rendererId] of this.config.textureIndexToRendererId) {
+      const status = this.config.rendererStatuses.get(rendererId);
+      if (status === "crashed" || status === "failed") continue;
+      this.hoveredRendererId = rendererId;
+      this.hoveredElementId = `manual-focus-${texIdx}`;
+      this.forcedFocusRendererId = rendererId;
+      this.forcedFocusTextureIndex = texIdx;
+      return rendererId;
+    }
+    return null;
+  }
+
+  /** Set canvas dimensions for proportional mouse mapping in forced focus mode. */
+  setForcedFocusCanvasSize(w: number, h: number): void {
+    this.forcedFocusCanvasWidth = w;
+    this.forcedFocusCanvasHeight = h;
+  }
+
+  /** Check if forced focus mode is active. */
+  isForcedFocus(): boolean {
+    return this.forcedFocusRendererId !== null;
+  }
+
+  /** Exit forced focus mode, return to raycast-based input. */
+  unfocusBillboard(): void {
+    this.forcedFocusRendererId = null;
+    this.forcedFocusTextureIndex = -1;
+    this.hoveredElementId = null;
+    this.hoveredRendererId = null;
+  }
+
   /** Forwards a keyboard event to the currently focused/hovered renderer. */
   handleKey(type: "keyDown" | "keyUp", keyCode: string): void {
     if (!this.hoveredRendererId) return;
@@ -171,10 +283,11 @@ export class OSRInputRouter {
     }
 
     // For dedicated mode: map UV directly to texture pixel coordinates
+    // Flip Y: UV origin is bottom-left, DOM origin is top-left
     const dims = this.config.rendererDimensions.get(rendererId);
     const w = dims?.width ?? 512;
     const h = dims?.height ?? 384;
-    return { x: hit.uv[0] * w, y: hit.uv[1] * h };
+    return { x: hit.uv[0] * w, y: (1 - hit.uv[1]) * h };
   }
 
   private raycastBillboards(
