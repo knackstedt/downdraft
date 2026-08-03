@@ -14,6 +14,7 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence"] })],
     build: {
+      sourcemap: "hidden",
       rollupOptions: {
         input: {
           index: resolve("packages/app/src/main/index.ts"),
@@ -57,6 +58,7 @@ export default defineConfig({
       },
     ],
     build: {
+      sourcemap: "hidden",
       rollupOptions: {
         input: {
           index: resolve("packages/app/src/preload/index.ts"),
@@ -127,6 +129,7 @@ export default defineConfig({
       ],
     },
     build: {
+      sourcemap: "hidden",
       rollupOptions: {
         input: {
           index: resolve(rendererRoot, "index.html"),
