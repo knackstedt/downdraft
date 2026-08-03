@@ -12,6 +12,10 @@
     "@downdraft/plugin-economy": "workspace:*",
     "@downdraft/plugin-inventory": "workspace:*",
     "@downdraft/plugin-items": "workspace:*",
-    "@downdraft/plugin-crafting": "workspace:*"
+    "@downdraft/plugin-crafting": "workspace:*",
+    "@downdraft/plugin-networking": "workspace:*",
+    "@downdraft/plugin-physics-rapier": "workspace:*",
+    "@downdraft/plugin-audio-kira": "workspace:*",
+    "@downdraft/plugin-mcp": "workspace:*"
   }
 }
