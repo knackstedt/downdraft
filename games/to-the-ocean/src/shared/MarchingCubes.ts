@@ -92,7 +92,7 @@ export function extractMesh(
   field: VoxelField,
   cliffNoiseFn?: (x: number, y: number, z: number) => number,
 ): ExtractedMesh {
-  const opts = { colorFn: makeTerrainColorFn(cliffNoiseFn), smooth: TERRAIN_CONFIG.surfaceNetsSmooth };
+  const opts = { colorFn: makeTerrainColorFn(cliffNoiseFn), flipDownNormals: false, smooth: TERRAIN_CONFIG.surfaceNetsSmooth };
   if (TERRAIN_CONFIG.useSurfaceNets)
     return extractMeshFromFieldSN(field, opts);
   return TERRAIN_CONFIG.useMarchingTetrahedra
@@ -137,7 +137,7 @@ export function extractMeshSubRegion(
   x1: number, y1: number, z1: number,
   cliffNoiseFn?: (x: number, y: number, z: number) => number,
 ): ExtractedMesh {
-  const opts = { x0, y0, z0, x1, y1, z1, colorFn: makeTerrainColorFn(cliffNoiseFn), smooth: TERRAIN_CONFIG.surfaceNetsSmooth };
+  const opts = { x0, y0, z0, x1, y1, z1, colorFn: makeTerrainColorFn(cliffNoiseFn), flipDownNormals: false, smooth: TERRAIN_CONFIG.surfaceNetsSmooth };
   if (TERRAIN_CONFIG.useSurfaceNets)
     return extractMeshFromFieldSN(field, opts);
   return TERRAIN_CONFIG.useMarchingTetrahedra

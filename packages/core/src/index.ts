@@ -479,9 +479,14 @@ export { ConsoleLogger, createLogger } from "./util/logger.ts";
 export type { Logger } from "./util/logger.ts";
 
 // Sim Types (generic interfaces for plugin systems)
-export type { EntityId, IHotReloadable, InputReaderLike, ISimulation, PlayerId, Quat, SimEntityLike, SimPlayerLike, SimulationContext, Transform, Vec2, Vec3, Vec4 } from "./sim/types.ts";
+export type { EntityId, IHotReloadable, InputReaderLike, ISimulation, IWorkerManager, PlayerId, Quat, SimEntityLike, SimPlayerLike, SimulationContext, Transform, Vec2, Vec3, Vec4 } from "./sim/types.ts";
 
 // Sim Worker Loop (reusable setTimeout-based loop for Web Workers)
 export { SimWorkerLoop } from "./sim/worker-loop.ts";
 export type { SimWorkerLoopConfig, SimWorkerLoopStats } from "./sim/worker-loop.ts";
+
+// Hot-Reload Pipeline (framework-owned hot-reload lifecycle)
+export { HotReloadPipeline } from "./sim/hot-reload-pipeline.ts";
+export { SimStateHelper } from "./sim/sim-state-helper.ts";
+export { TransientStateRegistry } from "./sim/transient-state-registry.ts";
 

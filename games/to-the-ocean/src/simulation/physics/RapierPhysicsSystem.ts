@@ -165,6 +165,7 @@ export class RapierPhysicsSystem {
     this.pendingIslandRebuilds.clear();
     this.pendingTrimeshChunks.length = 0;
     this.playerCharacters.clear();
+    this.islandFields.clear();
     this.collisionLog = [];
 
     const gravity = { x: 0, y: -9.8, z: 0 };

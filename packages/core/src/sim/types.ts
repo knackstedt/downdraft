@@ -93,14 +93,21 @@ export interface ISimulation {
   shutdown(): void;
 }
 
-// --- Hot-Reloadable Interface ---
-// Worker managers implement this so the renderer's HMR handlers can interact
-// with any game's worker layer through a common interface.
+// --- Worker Manager Interface ---
+// Primitives for worker lifecycle that any worker manager must implement.
+// HotReloadPipeline depends on this to orchestrate hot-reload.
 
-export interface IHotReloadable {
+export interface IWorkerManager {
   start(config: unknown): Promise<void>;
   stop(): Promise<void>;
   save(slotName: string): Promise<{ slotName: string; stateJson: string } | null>;
   restoreFromState(stateJson: string): Promise<void>;
+}
+
+// --- Hot-Reloadable Interface ---
+// Extends IWorkerManager with hot-reload support. The renderer's HMR handlers
+// interact with any game's worker layer through this common interface.
+
+export interface IHotReloadable extends IWorkerManager {
   hotReload(config: unknown, preserveState: boolean): Promise<void>;
 }

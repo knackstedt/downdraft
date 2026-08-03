@@ -4,17 +4,18 @@
 // Uses the RPC layer (expose/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { SimWorkerLoop, startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { BoatBufferWriter } from "@shared/boat-buffer";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
 import { InputBufferReader } from "@shared/input-buffer";
-import { SimBufferWriter } from "@shared/sim-buffer";
+import { PLR_FLAG, SimBufferWriter } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";
 import { WaterBufferWriter } from "@shared/water-buffer";
 import { Simulation } from "@sim/Simulation";
 
 let simulation: Simulation | null = null;
+let stateHelper: SimStateHelper | null = null;
 let gcHandle: GCProfilerHandle | null = null;
 let debugMode = false;
 let perfTimer: ReturnType<typeof setInterval> | null = null;
@@ -56,6 +57,20 @@ expose({
 
     await simulation.init();
 
+    // Set up SimStateHelper with transient state registry
+    const registry = new TransientStateRegistry();
+    // Player flags that depend on unserialized system internal state (BoatSystem, FishingSystem)
+    // must be stripped during save to prevent frozen movement after hot-reload.
+    registry.registerTransientFlags("players",
+      PLR_FLAG.PILOTING | PLR_FLAG.CLIMBING | PLR_FLAG.ONBOARD | PLR_FLAG.FISHING);
+    // Reset callbacks clear system-internal Maps/Sets that aren't part of serialized state.
+    // Called after restoreState() but before rebuildAfterRestore().
+    registry.registerResetCallback(() => simulation?.boatSystem.resetTransientState());
+    registry.registerResetCallback(() => simulation?.playerManager.resetTransientState());
+    registry.registerResetCallback(() => simulation?.portSystem.resetTransientState());
+    registry.registerResetCallback(() => simulation?.fishingSystem.resetTransientState());
+    stateHelper = new SimStateHelper(simulation, registry);
+
     // Push initial designs after init
     for (const { entityId, design } of simulation.getBoatDesignSystem().getDesigns()) {
       events.emit("boat_design_update", { entityId, designJson: JSON.stringify(design) });
@@ -66,8 +81,8 @@ expose({
   resume() { simLoop?.resume(); },
 
   async save(slotName: string): Promise<{ slotName: string; stateJson: string }> {
-    if (!simulation) throw new Error("Simulation not initialized");
-    const stateJson = simulation.serializeState();
+    if (!simulation || !stateHelper) throw new Error("Simulation not initialized");
+    const stateJson = stateHelper.saveState();
     events.emit("saved", { slotName, stateJson });
     return { slotName, stateJson };
   },
@@ -163,10 +178,9 @@ expose({
   },
 
   async restoreFromState(stateJson: string): Promise<void> {
-    if (!simulation) throw new Error("Simulation not initialized");
+    if (!simulation || !stateHelper) throw new Error("Simulation not initialized");
     simLoop?.pause();
-    simulation.restoreState(stateJson);
-    await simulation.rebuildAfterRestore();
+    await stateHelper.restoreState(stateJson);
     // Re-emit boat designs to renderer
     for (const { entityId, design } of simulation.getBoatDesignSystem().getDesigns()) {
       events.emit("boat_design_update", { entityId, designJson: JSON.stringify(design) });

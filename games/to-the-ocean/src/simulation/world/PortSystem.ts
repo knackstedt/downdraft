@@ -3,16 +3,22 @@
 // mooring, repairs, and market initialization. Runs in the sim worker thread.
 // ============================================================================
 
-import { SimEntity, SimPlayer } from "../Simulation";
-import { EntityType, EntityFlags, PortDef, PortSize, PortService, SecurityLevel, BiomeType } from "../../shared/types";
 import {
-  PORT_INTERACTION_RANGE, PORT_DETECTION_RANGE, PORT_MOORING_SLOWDOWN,
-  PORT_REPAIR_RATE, PORT_DATA, PORT_SERVICE_BITS, PORT_SCALE,
-  SHIP_DATA, CHUNK_SIZE, getPortColliderDims,
+    getPortColliderDims,
+    PORT_DATA,
+    PORT_DETECTION_RANGE,
+    PORT_INTERACTION_RANGE,
+    PORT_MOORING_SLOWDOWN,
+    PORT_REPAIR_RATE,
+    PORT_SCALE,
+    PORT_SERVICE_BITS,
+    SHIP_DATA
 } from "../../shared/constants";
-import { PLR_FLAG } from "../../shared/sim-buffer";
-import { BoatCellSystem } from "../boat/BoatCellSystem";
 import { InputBufferReader, KEY } from "../../shared/input-buffer";
+import { PLR_FLAG } from "../../shared/sim-buffer";
+import { BiomeType, EntityFlags, EntityType, PortDef, PortService, PortSize, SecurityLevel } from "../../shared/types";
+import { BoatCellSystem } from "../boat/BoatCellSystem";
+import { SimEntity, SimPlayer } from "../Simulation";
 
 // Port climb parameters (mirrors boat climb constants)
 const PORT_CLIMB_HEIGHT_THRESHOLD = 3.0;   // max height above player feet to climb (meters)
@@ -53,6 +59,12 @@ export class PortSystem {
 
   setBoatCellSystem(bcs: BoatCellSystem): void {
     this.boatCellSystem = bcs;
+  }
+
+  resetTransientState(): void {
+    this.portClimbStates.clear();
+    this.prevSpace.clear();
+    this.playerNearbyPort.clear();
   }
 
   // --- Chunk-driven port entity management ---

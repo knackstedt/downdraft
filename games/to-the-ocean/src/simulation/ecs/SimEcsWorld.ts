@@ -480,9 +480,7 @@ export class SimEcsWorld {
   }
 
   clearAll(): void {
-    for (const entity of this.slotToEntity.values()) {
-      this.world.despawn(entity);
-    }
+    this.world.clearAllEntities();
     this.slotToEntity.clear();
     this.entityToSlot.clear();
     this.idToEntity.clear();
