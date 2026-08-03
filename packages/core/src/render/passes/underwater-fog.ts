@@ -1,10 +1,3 @@
-import type { RenderBackend } from "../backend/render-backend.ts";
-import type {
-    BackendBindGroup,
-    BackendBuffer,
-    BackendRenderPipeline,
-    TextureFormat,
-} from "../backend/types.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -88,45 +81,34 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 export class UnderwaterFogPass extends RenderPass {
   name = "underwater-fog";
   surfaceHandle: TextureHandle | null = null;
-  private device: GPUDevice | null;
-  private backend: RenderBackend | null;
+  private device: GPUDevice;
   private pipeline: GPURenderPipeline | null = null;
   private shaderModule: GPUShaderModule | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
-  private surfaceFormat: GPUTextureFormat | TextureFormat;
+  private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
   private depth: number = 0;
   private time: number = 0;
 
-  // Backend resources
-  private _bgPipeline: BackendRenderPipeline | null = null;
-  private _bgUniformBuffer: BackendBuffer | null = null;
-  private _bgBindGroup: BackendBindGroup | null = null;
-
-  constructor(device: GPUDevice | null, surfaceFormat: GPUTextureFormat | TextureFormat, msaaSampleCount = 1, backend?: RenderBackend | null) {
+  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1) {
     super();
     this.device = device;
-    this.backend = backend ?? null;
     this.surfaceFormat = surfaceFormat;
     this.msaaSampleCount = msaaSampleCount;
   }
 
-  prepare(_device: GPUDevice, backend?: RenderBackend | null): void {
-    if (backend && !this.device) {
-      this.prepareBackend(backend);
-      return;
-    }
+  prepare(_device: GPUDevice): void {
     if (this.pipeline) return;
 
-    this.shaderModule = this.device!.createShaderModule({ code: UNDERWATER_FOG_SHADER });
+    this.shaderModule = this.device.createShaderModule({ code: UNDERWATER_FOG_SHADER });
 
-    this.uniformBuffer = this.device!.createBuffer({
+    this.uniformBuffer = this.device.createBuffer({
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.pipeline = this.device!.createRenderPipeline({
+    this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
       vertex: {
         module: this.shaderModule,
@@ -136,7 +118,7 @@ export class UnderwaterFogPass extends RenderPass {
         module: this.shaderModule,
         entryPoint: "fs_main",
         targets: [{
-          format: this.surfaceFormat as GPUTextureFormat,
+          format: this.surfaceFormat,
           blend: {
             color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
             alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -152,61 +134,20 @@ export class UnderwaterFogPass extends RenderPass {
       },
     });
 
-    this.bindGroup = this.device!.createBindGroup({
+    this.bindGroup = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
-    });
-  }
-
-  private prepareBackend(backend: RenderBackend): void {
-    if (this._bgPipeline) return;
-
-    const shaderModule = backend.createShaderModule({ wgsl: UNDERWATER_FOG_SHADER }, "wgsl");
-
-    this._bgUniformBuffer = backend.createBuffer({
-      size: 32,
-      usage: 0x40 | 0x08, // UNIFORM | COPY_DST
-    });
-
-    const bindGroupLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: 0x3, buffer: { type: "uniform" } },
-      ],
-    });
-
-    this._bgPipeline = backend.createRenderPipeline({
-      layout: backend.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
-      vertex: { module: shaderModule, entryPoint: "vs_main" },
-      fragment: {
-        module: shaderModule, entryPoint: "fs_main",
-        targets: [{
-          format: this.surfaceFormat as any,
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-          },
-        }],
-      },
-      primitive: { topology: "triangle-list" },
-      depthStencil: { format: "depth32float" as any, depthWriteEnabled: false, depthCompare: "always" },
-    });
-
-    this._bgBindGroup = backend.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this._bgUniformBuffer } }],
     });
   }
 
   setDepth(depth: number, time: number): void {
     this.depth = depth;
     this.time = time;
-    const queue = this.device?.queue ?? this.backend?.queue;
-    const buf = this.uniformBuffer ?? this._bgUniformBuffer;
-    if (!buf || !queue) return;
+    if (!this.uniformBuffer) return;
     const data = new Float32Array(4);
     data[0] = depth;
     data[1] = time;
-    queue.writeBuffer(buf as any, 0, data as any);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -214,14 +155,6 @@ export class UnderwaterFogPass extends RenderPass {
   }
 
   execute(ctx: GraphRenderContext): void {
-    if (ctx.backend && this._bgPipeline) {
-      if (!ctx.pass || !this._bgBindGroup) return;
-      const tracked = ctx.pass;
-      tracked.setPipeline(this._bgPipeline);
-      tracked.setBindGroup(0, this._bgBindGroup);
-      tracked.draw(3);
-      return;
-    }
     if (!this.pipeline || !this.bindGroup || !ctx.pass) return;
 
     const tracked = ctx.pass;

@@ -1,8 +1,5 @@
 import type { Plugin, PluginContext } from "@downdraft/core";
 import { BuoyancySystem } from "./buoyancy.ts";
-import { DEFAULT_WAVE_CONFIG, type GerstnerWaveConfig } from "./gerstner.ts";
-import { WaterRenderPass } from "./render.ts";
-import { WaterSABChannel } from "./sab.ts";
 import { WaterBuffer } from "./water-buffer.ts";
 import { WaterPhysics } from "./water-physics.ts";
 import { DEFAULT_RENDER_CONFIG, WaterRenderer, type WaterRenderConfig } from "./water-renderer.ts";
@@ -19,14 +16,7 @@ import {
     type WakeProvider
 } from "./wave-sources.ts";
 
-// Re-export legacy Gerstner-based system
-export { DEFAULT_WAVE_CONFIG, gerstnerDisplacement, gerstnerHeight, gerstnerNormal, packWaveData, packWaveUniforms } from "./gerstner.ts";
-export type { GerstnerWaveConfig, GerstnerWaveParams } from "./gerstner.ts";
-export { WaterRenderChannel, WaterRenderPass } from "./render.ts";
-export type { WaterRenderResources } from "./render.ts";
-export { WaterSABChannel, WaterSimChannel } from "./sab.ts";
-
-// Re-export new low-poly water physics system
+// Re-export low-poly water physics system
 export { BuoyancySystem } from "./buoyancy.ts";
 export type { BuoyancyEntity } from "./buoyancy.ts";
 export { shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping.ts";
@@ -34,7 +24,7 @@ export { WATER_BUFFER_BYTES, WATER_FLOW_OFFSET, WATER_GRID, WATER_HEIGHT_OFFSET,
 export { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_SIZE, CHUNK_WORLD_SIZE, MAX_CHUNKS } from "./water-chunks.ts";
 export type { WaterChunk } from "./water-chunks.ts";
 export { DEFAULT_PHYSICS_CONFIG, WaterPhysics } from "./water-physics.ts";
-export type { WaterPhysicsConfig } from "./water-physics.ts";
+export type { GerstnerWaveParams, WaterPhysicsConfig } from "./water-physics.ts";
 export { DEFAULT_RENDER_CONFIG, WaterRenderer } from "./water-renderer.ts";
 export type { WaterRenderConfig, WaterRendererOptions } from "./water-renderer.ts";
 export {
@@ -59,17 +49,7 @@ export const WaterPlugin: Plugin = {
   name: "water",
   version: "0.2.0",
   register(ctx: PluginContext) {
-    // Legacy Gerstner system (kept for backward compat)
-    const config: GerstnerWaveConfig = { ...DEFAULT_WAVE_CONFIG };
-    const renderPass = new WaterRenderPass(config);
-    const sabChannel = ctx.allocateSABChannel("water", 1);
-    const waterSAB = new WaterSABChannel(sabChannel, config);
-    renderPass.setSABChannel(sabChannel);
-    ctx.registerResource("waterConfig", config);
-    ctx.registerResource("waterRenderPass", renderPass);
-    ctx.registerResource("waterSAB", waterSAB);
-
-    // New low-poly water physics system
+    // Low-poly water physics system
     const buffer = new WaterBuffer(4); // 4m per cell, renderer subdivides for 10x density
     const physics = new WaterPhysics(buffer);
     const buoyancy = new BuoyancySystem(physics);
@@ -94,11 +74,6 @@ export const WaterPlugin: Plugin = {
 
     ctx.registerSystem(3, function waterUpdate(sysCtx: any) {
       const dt = sysCtx.dt;
-      // Legacy system update
-      renderPass.update(dt);
-      waterSAB.update(dt);
-      waterSAB.write();
-      renderPass.writeSAB();
 
       // Collect wake sources from providers
       const wakeCount = collectWakeSources(wakeProviders, wakeData);
@@ -143,7 +118,6 @@ export const WaterPlugin: Plugin = {
     });
 
     ctx.onDispose(() => {
-      renderPass.destroy();
       renderer.destroy();
     });
   },

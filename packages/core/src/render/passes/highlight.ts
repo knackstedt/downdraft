@@ -1,7 +1,3 @@
-import type { RenderBackend } from "../backend/render-backend.ts";
-import { wgslShader } from "../backend/shader-source.ts";
-import type { BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, BackendSampler, BackendTexture, BackendTextureView } from "../backend/types.ts";
-import { SHADER_STAGE_FRAGMENT, SHADER_STAGE_VERTEX } from "../backend/types.ts";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -106,8 +102,8 @@ export const DEFAULT_HIGHLIGHT_SETTINGS: HighlightSettings = {
 
 export interface HighlightTarget {
   color: [number, number, number, number];
-  vertexBuffer: GPUBuffer | BackendBuffer;
-  indexBuffer: GPUBuffer | BackendBuffer;
+  vertexBuffer: GPUBuffer;
+  indexBuffer: GPUBuffer;
   indexCount: number;
 }
 
@@ -138,23 +134,6 @@ export class HighlightPass extends RenderPass {
   private blurTempTexture2: GPUTexture | null = null;
   private blurTempView2: GPUTextureView | null = null;
 
-  private _backend: RenderBackend | null = null;
-  private _bgBlurPipeline: BackendRenderPipeline | null = null;
-  private _bgCompositePipeline: BackendRenderPipeline | null = null;
-  private _bgMaskPipeline: BackendRenderPipeline | null = null;
-  private _bgBlurUniformBuffer: BackendBuffer | null = null;
-  private _bgCompositeUniformBuffer: BackendBuffer | null = null;
-  private _bgMaskUniformBuffer: BackendBuffer | null = null;
-  private _bgSampler: BackendSampler | null = null;
-  private _bgBlurLayout: BackendBindGroupLayout | null = null;
-  private _bgCompositeLayout: BackendBindGroupLayout | null = null;
-  private _bgMaskLayout: BackendBindGroupLayout | null = null;
-  private _bgMaskTexture: BackendTexture | null = null;
-  private _bgMaskView: BackendTextureView | null = null;
-  private _bgBlurTempTexture: BackendTexture | null = null;
-  private _bgBlurTempView: BackendTextureView | null = null;
-  private _bgBlurTempTexture2: BackendTexture | null = null;
-  private _bgBlurTempView2: BackendTextureView | null = null;
 
   constructor(device: GPUDevice, settings: Partial<HighlightSettings> = {}) {
     super();
@@ -162,11 +141,7 @@ export class HighlightPass extends RenderPass {
     this.settings = { ...DEFAULT_HIGHLIGHT_SETTINGS, ...settings };
   }
 
-  prepare(_device: GPUDevice, backend?: RenderBackend | null): void {
-    if (backend) {
-      this.prepareBackend(backend);
-      return;
-    }
+  prepare(_device: GPUDevice): void {
     this.sampler = this.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
@@ -220,87 +195,6 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     });
   }
 
-  private prepareBackend(backend: RenderBackend): void {
-    this._backend = backend;
-    this._bgSampler = backend.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      addressModeU: "clamp-to-edge",
-      addressModeV: "clamp-to-edge",
-    });
-    this._bgBlurUniformBuffer = backend.createBuffer({ label: "highlight-blur-uniforms", size: 32, usage: 0x40 | 0x08 });
-    this._bgCompositeUniformBuffer = backend.createBuffer({ label: "highlight-composite-uniforms", size: 16, usage: 0x40 | 0x08 });
-    this._bgMaskUniformBuffer = backend.createBuffer({ label: "highlight-mask-uniforms", size: 16, usage: 0x40 | 0x08 });
-
-    this._bgBlurLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
-    this._bgCompositeLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_VERTEX | SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 2, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 3, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 4, visibility: SHADER_STAGE_FRAGMENT, sampler: { type: "filtering" } },
-      ],
-    });
-    this._bgMaskLayout = backend.createBindGroupLayout({
-      entries: [{ binding: 0, visibility: SHADER_STAGE_FRAGMENT, buffer: { type: "uniform" } }],
-    });
-
-    const vsModule = backend.createShaderModule(wgslShader(FULLSCREEN_VS, "fullscreen-vs"), "wgsl");
-    const blurFsModule = backend.createShaderModule(wgslShader(HIGHLIGHT_BLUR_FS, "highlight-blur-fs"), "wgsl");
-    const compositeFsModule = backend.createShaderModule(wgslShader(HIGHLIGHT_COMPOSITE_FS, "highlight-composite-fs"), "wgsl");
-    const maskFsModule = backend.createShaderModule(wgslShader(HIGHLIGHT_MASK_FS, "highlight-mask-fs"), "wgsl");
-    const maskVsModule = backend.createShaderModule(wgslShader(`
-struct MaskVertexOutput {
-  @builtin(position) clipPosition: vec4<f32>,
-};
-@group(0) @binding(0) var<uniform> modelMatrix: mat4x4<f32>;
-@vertex
-fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
-  var output: MaskVertexOutput;
-  output.clipPosition = modelMatrix * vec4<f32>(position, 1.0);
-  return output;
-}
-`, "highlight-mask-vs"), "wgsl");
-
-    const blurLayout = backend.createPipelineLayout({ label: "highlight-blur-layout", bindGroupLayouts: [this._bgBlurLayout] });
-    this._bgBlurPipeline = backend.createRenderPipeline({
-      label: "highlight-blur-pipeline",
-      layout: blurLayout,
-      vertex: { module: vsModule, entryPoint: "vs_main" },
-      fragment: { module: blurFsModule, entryPoint: "highlight_blur_fs", targets: [{ format: "rgba16float" }] },
-      primitive: { topology: "triangle-list" },
-    });
-
-    const compositeLayout = backend.createPipelineLayout({ label: "highlight-composite-layout", bindGroupLayouts: [this._bgCompositeLayout] });
-    this._bgCompositePipeline = backend.createRenderPipeline({
-      label: "highlight-composite-pipeline",
-      layout: compositeLayout,
-      vertex: { module: vsModule, entryPoint: "vs_main" },
-      fragment: { module: compositeFsModule, entryPoint: "highlight_composite_fs", targets: [{ format: "rgba16float" }] },
-      primitive: { topology: "triangle-list" },
-    });
-
-    const maskLayout = backend.createPipelineLayout({ label: "highlight-mask-layout", bindGroupLayouts: [this._bgMaskLayout] });
-    this._bgMaskPipeline = backend.createRenderPipeline({
-      label: "highlight-mask-pipeline",
-      layout: maskLayout,
-      vertex: {
-        module: maskVsModule,
-        entryPoint: "mask_vs",
-        buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }],
-      },
-      fragment: { module: maskFsModule, entryPoint: "highlight_mask_fs", targets: [{ format: "rgba16float" }] },
-      primitive: { topology: "triangle-list" },
-    });
-  }
-
   setSettings(settings: Partial<HighlightSettings>): void {
     Object.assign(this.settings, settings);
   }
@@ -315,28 +209,17 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
   }
 
   private ensureTextures(w: number, h: number): void {
-    if (this._backend) {
-      if (this._bgMaskTexture) return;
-      const usage = 0x10 | 0x02 | 0x04;
-      this._bgMaskTexture = this._backend.createTexture({ label: "highlight-mask", format: "rgba16float", usage, width: w, height: h });
-      this._bgMaskView = this._backend.createTextureView(this._bgMaskTexture);
-      this._bgBlurTempTexture = this._backend.createTexture({ label: "highlight-blur-h", format: "rgba16float", usage, width: w, height: h });
-      this._bgBlurTempView = this._backend.createTextureView(this._bgBlurTempTexture);
-      this._bgBlurTempTexture2 = this._backend.createTexture({ label: "highlight-blur-v", format: "rgba16float", usage, width: w, height: h });
-      this._bgBlurTempView2 = this._backend.createTextureView(this._bgBlurTempTexture2);
-    } else {
-      if (this.maskTexture && this.maskTexture.width === w && this.maskTexture.height === h) return;
-      this.maskTexture?.destroy();
-      this.blurTempTexture?.destroy();
-      this.blurTempTexture2?.destroy();
-      const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC;
-      this.maskTexture = this.device.createTexture({ label: "highlight-mask", size: [w, h], format: "rgba16float", usage });
-      this.maskView = this.maskTexture.createView();
-      this.blurTempTexture = this.device.createTexture({ label: "highlight-blur-h", size: [w, h], format: "rgba16float", usage });
-      this.blurTempView = this.blurTempTexture.createView();
-      this.blurTempTexture2 = this.device.createTexture({ label: "highlight-blur-v", size: [w, h], format: "rgba16float", usage });
-      this.blurTempView2 = this.blurTempTexture2.createView();
-    }
+    if (this.maskTexture && this.maskTexture.width === w && this.maskTexture.height === h) return;
+    this.maskTexture?.destroy();
+    this.blurTempTexture?.destroy();
+    this.blurTempTexture2?.destroy();
+    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC;
+    this.maskTexture = this.device.createTexture({ label: "highlight-mask", size: [w, h], format: "rgba16float", usage });
+    this.maskView = this.maskTexture.createView();
+    this.blurTempTexture = this.device.createTexture({ label: "highlight-blur-h", size: [w, h], format: "rgba16float", usage });
+    this.blurTempView = this.blurTempTexture.createView();
+    this.blurTempTexture2 = this.device.createTexture({ label: "highlight-blur-v", size: [w, h], format: "rgba16float", usage });
+    this.blurTempView2 = this.blurTempTexture2.createView();
   }
 
   private writeBlurUniforms(dirX: number, dirY: number): void {
@@ -347,11 +230,7 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     data[3] = dirY;
     data[4] = this.settings.blurRadius;
     data[5] = 0; data[6] = 0; data[7] = 0;
-    if (this._backend && this._bgBlurUniformBuffer) {
-      this._backend.queue.writeBuffer(this._bgBlurUniformBuffer, 0, data as unknown as BufferSource);
-    } else {
-      this.device.queue.writeBuffer(this.blurUniformBuffer!, 0, data as unknown as BufferSource);
-    }
+    this.device.queue.writeBuffer(this.blurUniformBuffer!, 0, data as unknown as BufferSource);
   }
 
   private writeCompositeUniforms(): void {
@@ -359,11 +238,7 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     data[0] = this.settings.intensity;
     data[1] = this.settings.innerOpacity;
     data[2] = 0; data[3] = 0;
-    if (this._backend && this._bgCompositeUniformBuffer) {
-      this._backend.queue.writeBuffer(this._bgCompositeUniformBuffer, 0, data as unknown as BufferSource);
-    } else {
-      this.device.queue.writeBuffer(this.compositeUniformBuffer!, 0, data as unknown as BufferSource);
-    }
+    this.device.queue.writeBuffer(this.compositeUniformBuffer!, 0, data as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -379,10 +254,6 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     this.ensureTextures(this.width, this.height);
     this.writeCompositeUniforms();
 
-    if (ctx.backend && this._bgBlurPipeline) {
-      this.executeBackend(ctx);
-      return;
-    }
     if (!this.blurPipeline || !this.compositePipeline || !this.maskPipeline || !ctx.device) return;
 
     const maskUniformData = new Float32Array(4);
@@ -409,8 +280,8 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
         entries: [{ binding: 0, resource: { buffer: this.maskUniformBuffer! } }],
       });
       maskPass.setBindGroup(0, bg);
-      maskPass.setVertexBuffer(0, target.vertexBuffer as GPUBuffer);
-      maskPass.setIndexBuffer(target.indexBuffer as GPUBuffer, "uint16");
+      maskPass.setVertexBuffer(0, target.vertexBuffer);
+      maskPass.setIndexBuffer(target.indexBuffer, "uint16");
       maskPass.drawIndexed(target.indexCount);
     }
     maskPass.end();
@@ -488,113 +359,6 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     compositePass.end();
 
     ctx.device.queue.submit([encoder.finish()]);
-  }
-
-  private executeBackend(ctx: GraphRenderContext): void {
-    const backend = ctx.backend!;
-    const maskUniformData = new Float32Array(4);
-    const encoder = backend.createCommandEncoder();
-
-    // Pass 1: Render highlight mask
-    const maskPass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._bgMaskView!,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-    });
-    maskPass.setPipeline(this._bgMaskPipeline!);
-    for (const target of this.targets) {
-      maskUniformData[0] = target.color[0];
-      maskUniformData[1] = target.color[1];
-      maskUniformData[2] = target.color[2];
-      maskUniformData[3] = target.color[3];
-      backend.queue.writeBuffer(this._bgMaskUniformBuffer!, 0, maskUniformData as unknown as BufferSource);
-      const bg = backend.createBindGroup({
-        layout: this._bgMaskLayout!,
-        entries: [{ binding: 0, resource: { buffer: this._bgMaskUniformBuffer! } }],
-      });
-      maskPass.setBindGroup(0, bg);
-      maskPass.setVertexBuffer(0, target.vertexBuffer as BackendBuffer);
-      maskPass.setIndexBuffer(target.indexBuffer as BackendBuffer, "uint16");
-      maskPass.drawIndexed(target.indexCount);
-    }
-    maskPass.end();
-
-    // Pass 2: Horizontal blur
-    this.writeBlurUniforms(1.0, 0.0);
-    const blurHBg = backend.createBindGroup({
-      layout: this._bgBlurLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgBlurUniformBuffer! } },
-        { binding: 1, resource: { textureView: this._bgMaskView! } },
-        { binding: 2, resource: { sampler: this._bgSampler! } },
-      ],
-    });
-    const blurHPass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._bgBlurTempView!,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-    });
-    blurHPass.setPipeline(this._bgBlurPipeline!);
-    blurHPass.setBindGroup(0, blurHBg);
-    blurHPass.draw(6);
-    blurHPass.end();
-
-    // Pass 3: Vertical blur
-    this.writeBlurUniforms(0.0, 1.0);
-    const blurVBg = backend.createBindGroup({
-      layout: this._bgBlurLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgBlurUniformBuffer! } },
-        { binding: 1, resource: { textureView: this._bgBlurTempView! } },
-        { binding: 2, resource: { sampler: this._bgSampler! } },
-      ],
-    });
-    const blurVPass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._bgBlurTempView2!,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-    });
-    blurVPass.setPipeline(this._bgBlurPipeline!);
-    blurVPass.setBindGroup(0, blurVBg);
-    blurVPass.draw(6);
-    blurVPass.end();
-
-    // Pass 4: Composite
-    const colorView = ctx.getBackendView(this.colorHandle!);
-    const outputView = ctx.getBackendView(this.outputHandle!);
-    const compositeBg = backend.createBindGroup({
-      layout: this._bgCompositeLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this._bgCompositeUniformBuffer! } },
-        { binding: 1, resource: { textureView: colorView } },
-        { binding: 2, resource: { textureView: this._bgBlurTempView2! } },
-        { binding: 3, resource: { textureView: this._bgMaskView! } },
-        { binding: 4, resource: { sampler: this._bgSampler! } },
-      ],
-    });
-    const compositePass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: outputView,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-    });
-    compositePass.setPipeline(this._bgCompositePipeline!);
-    compositePass.setBindGroup(0, compositeBg);
-    compositePass.draw(6);
-    compositePass.end();
-
-    backend.queue.submit([encoder.finish()]);
   }
 
   destroy(): void {

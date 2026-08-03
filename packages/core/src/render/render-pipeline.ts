@@ -3,41 +3,14 @@
 // Games register passes into named slots; the pipeline executes them in order.
 // ============================================================================
 
-import type { RenderBackend } from "./backend/render-backend.ts";
-import type {
-    BackendCommandEncoder,
-    BackendRenderPassEncoder,
-    BackendTextureView,
-    TextureFormat,
-} from "./backend/types.ts";
 import type { CameraState } from "./camera.ts";
 
 export type RenderPassSlot = string;
 
 export interface RenderContext {
-  /** The backend-agnostic render backend (always available). */
-  backend: RenderBackend;
-  /** Backend-agnostic command encoder (always available). */
-  backendEncoder: BackendCommandEncoder;
-  /** Backend-agnostic render pass encoder (always available). */
-  backendPassEncoder: BackendRenderPassEncoder;
-  /** Surface texture view for the current frame (always available). */
-  surfaceView: BackendTextureView;
-  /** Depth texture view for the current viewport (always available). */
-  depthView: BackendTextureView;
-  /** Surface texture format (backend-agnostic). */
-  surfaceFormat: TextureFormat;
-  /** Depth texture format (backend-agnostic). */
-  depthFormat: TextureFormat;
-
-  // ─── Native WebGPU access (deprecated — use backend fields for new code) ──
-  /** Native WebGPU device. Only available when using WebGPU backend. */
-  device: GPUDevice | null;
-  /** Native WebGPU command encoder. Only available when using WebGPU backend. */
-  encoder: GPUCommandEncoder | null;
-  /** Native WebGPU render pass encoder. Only available when using WebGPU backend. */
-  passEncoder: GPURenderPassEncoder | null;
-
+  device: GPUDevice;
+  encoder: GPUCommandEncoder;
+  passEncoder: GPURenderPassEncoder;
   camera: CameraState;
   viewport: { x: number; y: number; w: number; h: number };
   viewportIdx: number;

@@ -198,14 +198,11 @@ export type { SkyboxOptions } from "./render/skybox.ts";
 export { SurfaceManager } from "./render/surface.ts";
 export { DEFAULT_TONE_MAPPING_SETTINGS, getToneMappingOperatorIndex, TONE_MAPPING_SHADER_CHUNK, ToneMappingOperator } from "./render/tonemap.ts";
 export type { ToneMappingSettings } from "./render/tonemap.ts";
-export { BackendTrackedRenderPass, TrackedRenderPass, type ITrackedRenderPass } from "./render/tracked-render-pass.ts";
+export { TrackedRenderPass } from "./render/tracked-render-pass.ts";
 export { ViewportLayout, viewportRectToPixels } from "./render/viewport.ts";
 export type { ViewportMode, ViewportRect } from "./render/viewport.ts";
 export { VisionTest, VisionTestSuite } from "./render/vision-test.ts";
 export type { DiffResult, PixelMatchOptions, PixelScanResult, VisionTestResult } from "./render/vision-test.ts";
-
-// Render Backend Abstraction
-export * from "./render/backend/index.ts";
 
 // Mesh
 export { MeshBuilder } from "./mesh/builder.ts";

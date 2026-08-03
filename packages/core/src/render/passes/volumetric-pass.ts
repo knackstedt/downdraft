@@ -1,19 +1,14 @@
-import type { RenderBackend } from "../backend/render-backend.ts";
-import { wgslShader } from "../backend/shader-source.ts";
-import type { BackendBuffer, BackendRenderPipeline, BackendShaderModule, BackendTexture, BackendTextureView } from "../backend/types.ts";
-import { SHADER_STAGE_COMPUTE, SHADER_STAGE_FRAGMENT, SHADER_STAGE_VERTEX } from "../backend/types.ts";
-import { RenderPass } from "../render-pass.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { PassType } from "../frame-graph.ts";
+import { RenderPass } from "../render-pass.ts";
 import {
-  DEFAULT_FROXEL_CONFIG,
-  DEFAULT_VOLUMETRIC_FOG,
-  type FroxelGridConfig,
-  type VolumetricFogConfig,
-  computeFroxelCount,
-  computeFroxelGridBufferSize,
-  computeFroxelLightIndexListSize,
-  packVolumetricUniforms,
+    DEFAULT_FROXEL_CONFIG,
+    DEFAULT_VOLUMETRIC_FOG,
+    type FroxelGridConfig,
+    type VolumetricFogConfig,
+    computeFroxelGridBufferSize,
+    computeFroxelLightIndexListSize,
+    packVolumetricUniforms
 } from "./volumetric-types.ts";
 
 const VOLUMETRIC_SCATTERING_SHADER = /* wgsl */ `
@@ -199,8 +194,7 @@ export class VolumetricLightingPass extends RenderPass {
   name = "volumetric-lighting";
   passType = PassType.Custom;
 
-  private device: GPUDevice | null = null;
-  private backend: RenderBackend | null = null;
+  private device: GPUDevice;
   private froxelConfig: FroxelGridConfig;
   private fogConfig: VolumetricFogConfig;
 
@@ -212,14 +206,6 @@ export class VolumetricLightingPass extends RenderPass {
   private scatteringPipeline: GPUComputePipeline | null = null;
   private scatteringBindGroup: GPUBindGroup | null = null;
 
-  private _bgScatteringTexture: BackendTexture | null = null;
-  private _bgScatteringView: BackendTextureView | null = null;
-  private _bgUniformBuffer: BackendBuffer | null = null;
-  private _bgFroxelGridBuffer: BackendBuffer | null = null;
-  private _bgFroxelLightIndexBuffer: BackendBuffer | null = null;
-  private _bgScatteringPipeline: BackendRenderPipeline | null = null;
-  private _bgShader: BackendShaderModule | null = null;
-
   colorHandle: TextureHandle | null = null;
   depthHandle: TextureHandle | null = null;
   outputHandle: TextureHandle | null = null;
@@ -228,91 +214,67 @@ export class VolumetricLightingPass extends RenderPass {
     froxelConfig?: Partial<FroxelGridConfig>,
     fogConfig?: Partial<VolumetricFogConfig>,
     device?: GPUDevice | null,
-    backend?: RenderBackend | null,
   ) {
     super();
     this.froxelConfig = { ...DEFAULT_FROXEL_CONFIG, ...froxelConfig };
     this.fogConfig = { ...DEFAULT_VOLUMETRIC_FOG, ...fogConfig };
     this.device = device ?? null;
-    this.backend = backend ?? null;
   }
 
-  prepare(device: GPUDevice, backend?: RenderBackend | null): void {
+  prepare(device: GPUDevice): void {
     this.device = device;
-    this.backend = backend ?? null;
 
-    if (device) {
-      this.scatteringTexture = device.createTexture({
-        label: "volumetric-scattering",
-        size: [this.froxelConfig.froxelX, this.froxelConfig.froxelY, this.froxelConfig.froxelZ],
-        format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-      });
-      this.scatteringView = this.scatteringTexture.createView();
+    this.scatteringTexture = device.createTexture({
+      label: "volumetric-scattering",
+      size: [this.froxelConfig.froxelX, this.froxelConfig.froxelY, this.froxelConfig.froxelZ],
+      format: "rgba16float",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    this.scatteringView = this.scatteringTexture.createView();
 
-      this.uniformBuffer = device.createBuffer({
-        label: "volumetric-uniforms",
-        size: 64,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+    this.uniformBuffer = device.createBuffer({
+      label: "volumetric-uniforms",
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
-      this.froxelGridBuffer = device.createBuffer({
-        label: "froxel-grid",
-        size: computeFroxelGridBufferSize(this.froxelConfig),
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
+    this.froxelGridBuffer = device.createBuffer({
+      label: "froxel-grid",
+      size: computeFroxelGridBufferSize(this.froxelConfig),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
 
-      this.froxelLightIndexBuffer = device.createBuffer({
-        label: "froxel-light-index",
-        size: computeFroxelLightIndexListSize(this.froxelConfig) * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
+    this.froxelLightIndexBuffer = device.createBuffer({
+      label: "froxel-light-index",
+      size: computeFroxelLightIndexListSize(this.froxelConfig) * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
 
-      const shader = device.createShaderModule({ code: VOLUMETRIC_SCATTERING_SHADER });
-      this.scatteringPipeline = device.createComputePipeline({
-        label: "volumetric-scattering",
-        layout: "auto",
-        compute: { module: shader, entryPoint: "cs_main" },
-      });
-    } else if (backend) {
-      this._bgUniformBuffer = backend.createBuffer({
-        label: "volumetric-uniforms",
-        size: 64,
-        usage: 0x40 | 0x08,
-      });
-      this._bgFroxelGridBuffer = backend.createBuffer({
-        label: "froxel-grid",
-        size: computeFroxelGridBufferSize(this.froxelConfig),
-        usage: 0x80 | 0x08,
-      });
-      this._bgFroxelLightIndexBuffer = backend.createBuffer({
-        label: "froxel-light-index",
-        size: computeFroxelLightIndexListSize(this.froxelConfig) * 4,
-        usage: 0x80 | 0x08,
-      });
-      this._bgShader = backend.createShaderModule(wgslShader(VOLUMETRIC_SCATTERING_SHADER, "volumetric-scattering"), "wgsl");
-    }
+    const shader = device.createShaderModule({ code: VOLUMETRIC_SCATTERING_SHADER });
+    this.scatteringPipeline = device.createComputePipeline({
+      label: "volumetric-scattering",
+      layout: "auto",
+      compute: { module: shader, entryPoint: "cs_main" },
+    });
   }
 
   updateUniforms(screenWidth: number, screenHeight: number, numLights: number): void {
     const packed = packVolumetricUniforms(this.fogConfig, this.froxelConfig, screenWidth, screenHeight, numLights);
-    const queue = this.device?.queue ?? this.backend?.queue;
-    const buf = this.uniformBuffer ?? this._bgUniformBuffer;
-    if (queue && buf) {
-      queue.writeBuffer(buf as any, 0, packed as unknown as BufferSource);
+    if (this.device && this.uniformBuffer) {
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, packed as unknown as BufferSource);
     }
   }
 
-  getScatteringView(): GPUTextureView | BackendTextureView | null {
-    return this.scatteringView ?? this._bgScatteringView;
+  getScatteringView(): GPUTextureView | null {
+    return this.scatteringView;
   }
 
-  getFroxelGridBuffer(): GPUBuffer | BackendBuffer | null {
-    return this.froxelGridBuffer ?? this._bgFroxelGridBuffer;
+  getFroxelGridBuffer(): GPUBuffer | null {
+    return this.froxelGridBuffer;
   }
 
-  getFroxelLightIndexBuffer(): GPUBuffer | BackendBuffer | null {
-    return this.froxelLightIndexBuffer ?? this._bgFroxelLightIndexBuffer;
+  getFroxelLightIndexBuffer(): GPUBuffer | null {
+    return this.froxelLightIndexBuffer;
   }
 
   getConfig(): VolumetricFogConfig {

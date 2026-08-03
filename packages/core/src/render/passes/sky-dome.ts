@@ -1,6 +1,4 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { RenderBackend } from "../backend/render-backend.ts";
-import type { BackendBindGroup, BackendBuffer, BackendRenderPipeline, BackendShaderModule, TextureFormat } from "../backend/types.ts";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
 import { RenderPass } from "../render-pass.ts";
 
@@ -288,29 +286,27 @@ export class SkyDomePass extends RenderPass {
   name = "sky-dome";
   hdrHandle: TextureHandle | null = null;
   depthHandle: TextureHandle | null = null;
-  private device: GPUDevice | null;
-  private backend: RenderBackend | null;
-  private pipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  private shaderModule: GPUShaderModule | BackendShaderModule | null = null;
-  private uniformBuffer: GPUBuffer | BackendBuffer | null = null;
-  private bindGroup: GPUBindGroup | BackendBindGroup | null = null;
-  private vertexBuffer: GPUBuffer | BackendBuffer | null = null;
-  private indexBuffer: GPUBuffer | BackendBuffer | null = null;
+  private device: GPUDevice;
+  private pipeline: GPURenderPipeline | null = null;
+  private shaderModule: GPUShaderModule | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private vertexBuffer: GPUBuffer | null = null;
+  private indexBuffer: GPUBuffer | null = null;
   private indexCount = 0;
-  private surfaceFormat: GPUTextureFormat | TextureFormat;
+  private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
   private uniformData = new Float32Array(35);
   private uniformU32View = new Uint32Array(this.uniformData.buffer);
 
-  constructor(device: GPUDevice | null, surfaceFormat: GPUTextureFormat | TextureFormat, msaaSampleCount = 1, backend?: RenderBackend | null) {
+  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1) {
     super();
     this.device = device;
-    this.backend = backend ?? null;
     this.surfaceFormat = surfaceFormat;
     this.msaaSampleCount = msaaSampleCount;
   }
 
-  prepare(_device: GPUDevice, _backend?: RenderBackend | null): void {
+  prepare(_device: GPUDevice): void {
     if (this.pipeline) return;
 
     const vertices = new Float32Array([
@@ -326,35 +322,7 @@ export class SkyDomePass extends RenderPass {
       0, 4, 5,  0, 5, 1,
     ]);
 
-    if (this.backend && !this.device) {
-      const backend = this.backend;
-      this.shaderModule = backend.createShaderModule({ wgsl: SKY_DOME_SHADER }, "wgsl");
-      this.uniformBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
-      this.vertexBuffer = backend.createBuffer({ size: vertices.byteLength, usage: 0x20 | 0x08 });
-      backend.queue.writeBuffer(this.vertexBuffer as any, 0, vertices as any);
-      this.indexBuffer = backend.createBuffer({ size: indices.byteLength, usage: 0x10 | 0x08 });
-      backend.queue.writeBuffer(this.indexBuffer as any, 0, indices as any);
-      this.indexCount = indices.length;
-      this.pipeline = backend.createRenderPipeline({
-        layout: "auto",
-        vertex: {
-          module: this.shaderModule, entryPoint: "vs_main",
-          buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }],
-        },
-        fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat as TextureFormat }] },
-        primitive: { topology: "triangle-list" },
-        multisample: { count: this.msaaSampleCount },
-        depthStencil: { format: "depth32float" as any, depthWriteEnabled: false, depthCompare: "less-equal" },
-      });
-      const bgLayout = (this.pipeline as any).getBindGroupLayout(0);
-      this.bindGroup = backend.createBindGroup({
-        layout: bgLayout,
-        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer as any } }],
-      });
-      return;
-    }
-
-    const dev = this.device!;
+    const dev = this.device;
     this.shaderModule = dev.createShaderModule({ code: SKY_DOME_SHADER });
     this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.vertexBuffer = dev.createBuffer({ size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -368,14 +336,14 @@ export class SkyDomePass extends RenderPass {
         module: this.shaderModule, entryPoint: "vs_main",
         buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }],
       },
-      fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat as GPUTextureFormat }] },
+      fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.surfaceFormat }] },
       primitive: { topology: "triangle-list" },
       multisample: { count: this.msaaSampleCount },
       depthStencil: { format: "depth32float", depthWriteEnabled: false, depthCompare: "less-equal" },
     });
     this.bindGroup = dev.createBindGroup({
-      layout: (this.pipeline as GPURenderPipeline).getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer as GPUBuffer } }],
+      layout: this.pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
     });
   }
 
@@ -399,8 +367,7 @@ export class SkyDomePass extends RenderPass {
     data[32] = u.time;
     this.uniformU32View[33] = u.prevWeatherType;
     data[34] = u.weatherBlend;
-    const queue = this.device?.queue ?? this.backend?.queue;
-    queue?.writeBuffer(this.uniformBuffer as any, 0, data as any);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -412,10 +379,10 @@ export class SkyDomePass extends RenderPass {
     if (!this.pipeline || !this.bindGroup || !this.vertexBuffer || !this.indexBuffer || !ctx.pass) return;
 
     const tracked = ctx.pass;
-    tracked.setPipeline(this.pipeline as any);
-    tracked.setBindGroup(0, this.bindGroup as any);
-    tracked.setVertexBuffer(0, this.vertexBuffer as any);
-    tracked.setIndexBuffer(this.indexBuffer as any, "uint16");
+    tracked.setPipeline(this.pipeline);
+    tracked.setBindGroup(0, this.bindGroup);
+    tracked.setVertexBuffer(0, this.vertexBuffer);
+    tracked.setIndexBuffer(this.indexBuffer, "uint16");
     tracked.drawIndexed(this.indexCount);
   }
 

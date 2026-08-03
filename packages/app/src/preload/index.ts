@@ -49,6 +49,3 @@ const api = {
 };
 
 contextBridge.exposeInMainWorld("downdraft", api);
-
-// Backward-compatible alias for game code that still references window.ocean
-contextBridge.exposeInMainWorld("ocean", api);
