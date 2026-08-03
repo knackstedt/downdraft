@@ -2,6 +2,8 @@ import type { Plugin, PluginContext } from "@downdraft/core";
 import { audioBackendRegistry } from "@downdraft/core";
 import { KiraAudioBackend } from "./backend.ts";
 
+export { KiraAudioBackend };
+
 export const AudioKiraPlugin: Plugin = {
   name: "audio-kira",
   version: "0.1.0",
