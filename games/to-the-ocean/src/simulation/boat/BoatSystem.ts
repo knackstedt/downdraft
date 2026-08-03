@@ -93,6 +93,11 @@ export class BoatSystem {
     this.anchorSystem = as;
   }
 
+  resetTransientState(): void {
+    this.playerShipState.clear();
+    this.pilotedShipIds.clear();
+  }
+
   // Hull queries: check both smooth design geometry AND legacy cell grid.
   // A player is "over the ship" if they're over the hull mesh OR any cell
   // (bridge/deck cells may not be in the smooth hull mesh).

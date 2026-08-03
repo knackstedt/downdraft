@@ -1,11 +1,11 @@
 import { createLogger } from "../util/logger.ts";
 import {
-    addEntityToArchetype,
-    type Archetype,
-    createArchetype,
-    findEntityRow,
-    getArchetypeForComponents,
-    removeEntityFromArchetype,
+  addEntityToArchetype,
+  type Archetype,
+  createArchetype,
+  findEntityRow,
+  getArchetypeForComponents,
+  removeEntityFromArchetype,
 } from "./archetype.ts";
 import type { ComponentId } from "./component.ts";
 import type { Entity, EntityMeta } from "./entity.ts";
@@ -206,6 +206,16 @@ export class World {
 
   getResource<T>(name: string): T | undefined {
     return this.resources.get(name) as T | undefined;
+  }
+
+  clearAllEntities(): void {
+    for (let i = 1; i < this.entities.length; i++) {
+      const meta = this.entities[i];
+      if (meta && meta.alive) {
+        this.despawn({ index: i, generation: meta.generation });
+      }
+    }
+    this.flushCommands();
   }
 
   entityCount(): number {

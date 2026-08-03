@@ -44,6 +44,13 @@ export class PlayerManager {
     this.isDev = isDev;
   }
 
+  resetTransientState(): void {
+    this.oxygenTankLevel.clear();
+    this.prevVPressed.clear();
+    this.prevNumberKeys.clear();
+    this.prevF5Pressed.clear();
+  }
+
   // Phase 1: Compute desired movement (runs BEFORE Rapier physics).
   // Collects PlayerMoveRequests that Rapier will resolve against world colliders.
   // For noclip/freecam/climbing, movement is applied directly (skipCollision=true).

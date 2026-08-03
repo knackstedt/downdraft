@@ -3,13 +3,17 @@
 // Reusable plugin: depends on interfaces, not game-specific types
 // ============================================================================
 
-import { FishingMethod } from "./types.ts";
 import type {
-  FishingMinigame, FishingPlayer, FishingInput, WaterProvider,
-  FishingBiomeProvider, FishingWeatherProvider, AddItemFn, FishingEventFn,
-  FishingConfig,
+    AddItemFn,
+    FishingBiomeProvider,
+    FishingConfig,
+    FishingEventFn,
+    FishingInput,
+    FishingMinigame, FishingPlayer,
+    FishingWeatherProvider,
+    WaterProvider,
 } from "./types.ts";
-import { DEFAULT_FISHING_CONFIG, FISHING_KEY } from "./types.ts";
+import { DEFAULT_FISHING_CONFIG, FISHING_KEY, FishingMethod } from "./types.ts";
 
 // Player flags — games can use these or define their own
 const FISHING_FLAG_FISHING = 1 << 5;
@@ -51,6 +55,11 @@ export class FishingSystem {
   constructor(deps: FishingDeps, config?: Partial<FishingConfig>) {
     this.deps = deps;
     this.config = { ...DEFAULT_FISHING_CONFIG, ...config };
+  }
+
+  resetTransientState(): void {
+    this.minigames.clear();
+    this.prevFPressed.clear();
   }
 
   tick(dt: number, input: FishingInput, players: FishingPlayer[], playerCount: number): void {

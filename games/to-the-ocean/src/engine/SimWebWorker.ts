@@ -4,7 +4,7 @@
 // Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
-import type { IHotReloadable } from "@downdraft/core";
+import { HotReloadPipeline, type IHotReloadable } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import { allocateBoatBuffer } from "@shared/boat-buffer";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
@@ -84,7 +84,7 @@ export class SimWebWorker implements IHotReloadable {
   }
 
   async start(config: SimWebWorkerConfig): Promise<void> {
-    await this.startInternal(config);
+    await this.startInternal(config, Date.now());
   }
 
   addPlayer(playerId: number, name: string): void {
@@ -169,36 +169,14 @@ export class SimWebWorker implements IHotReloadable {
     await this.wp.proxy.restoreFromState(stateJson);
   }
 
+  private pipeline: HotReloadPipeline | null = null;
+
   async hotReload(config: SimWebWorkerConfig, preserveState: boolean): Promise<void> {
     if (!import.meta.env.DEV) return;
-
-    let stateJson: string | null = null;
-
-    // 1. Save state if preserving
-    if (preserveState) {
-      try {
-        const result = await this.save("hot-reload");
-        if (result?.stateJson) stateJson = result.stateJson;
-      } catch (err) {
-        console.warn(`[HMR] State save failed, reloading without preservation: ${err}`);
-      }
+    if (!this.pipeline) {
+      this.pipeline = new HotReloadPipeline(this);
     }
-
-    // 2. Stop current worker
-    await this.stop();
-
-    // 3. Spawn new worker (cache-bust via timestamp query param)
-    const cacheBust = Date.now();
-    await this.startInternal(config, cacheBust);
-
-    // 4. Restore state if preserving
-    if (preserveState && stateJson) {
-      try {
-        await this.restoreFromState(stateJson);
-      } catch (err) {
-        console.error(`[HMR] State restore failed: ${err}. Starting fresh.`);
-      }
-    }
+    await this.pipeline.hotReload(config, preserveState);
   }
 
   async stop(): Promise<void> {
