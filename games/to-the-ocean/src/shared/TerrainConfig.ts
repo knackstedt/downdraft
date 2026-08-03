@@ -5,7 +5,7 @@
 
 export const TERRAIN_CONFIG = {
   // --- Voxel grid ---
-  voxelSize: 2.5,            // world units per voxel (the "minimum poly size")
+  voxelSize: .5,            // world units per voxel (the "minimum poly size")
   isoLevel: 0.0,             // density threshold for surface (positive = solid)
   maxVoxelMemory: 160_000_000, // max bytes per island voxel field (safety cap)
 
@@ -84,7 +84,12 @@ export const TERRAIN_CONFIG = {
   chunkSize: 32,                // voxels per chunk edge (must be power of 2)
   chunkBits: 5,                 // log2(chunkSize) — for fast bit-shift division
   chunkMask: 31,                // chunkSize - 1 — for fast modulo
-  physVoxelSizeMultiplier: 2,   // physics voxels are 2× coarser than render voxels (reduces voxel count ~8×)
+  physVoxelSizeMultiplier: 2.5,  // physics voxels are 10× coarser than render voxels (keeps physics ~5.0 world units)
+
+  // --- Sparse surface storage ---
+  sparseEnabled: true,          // classify chunks as FullSolid/FullEmpty/Full to skip non-surface chunks
+  sparseSolidMargin: 0.05,      // density margin: if all samples > isoLevel + this → FullSolid; if all < isoLevel - this → FullEmpty
+  sparseSampleStride: 8,        // voxel stride for pre-allocation density sampling (8 = 4³=64 samples per 32³ chunk)
 
   // --- Distance-based LOD (Phase 3) ---
   // Distant islands use coarser voxels to reduce memory and generation time.
@@ -92,10 +97,12 @@ export const TERRAIN_CONFIG = {
   // 0 means "use base voxelSize" (closest LOD).
   // LOD only goes coarser than base — never finer (finer than base is too expensive).
   terrainLOD: [
-    { maxDistance: 150,  voxelSize: 0,    },  // close: use base voxelSize (2.5m)
-    { maxDistance: 350,  voxelSize: 5.0,  },  // medium: 2× coarser
-    { maxDistance: 700,  voxelSize: 10.0, },  // far: 4× coarser
-    { maxDistance: 1500, voxelSize: 20.0, },  // very far: 8× coarser
+    { maxDistance: 15,  voxelSize: 0,    },  // close: use base voxelSize (2.5m)
+    { maxDistance: 25,  voxelSize: .5,  },  // medium: 2× coarser
+    { maxDistance: 50,  voxelSize: 1.0,  },  // medium: 2× coarser
+    { maxDistance: 150,  voxelSize: 5.0,  },  // medium: 2× coarser
+    { maxDistance: 350,  voxelSize: 10.0,  },  // medium: 2× coarser
+    { maxDistance: 700,  voxelSize: 20.0, },  // far: 4× coarser
   ] as readonly { maxDistance: number; voxelSize: number }[],
 
   // --- On-demand chunk generation (Phase 4) ---
@@ -110,8 +117,8 @@ export const TERRAIN_CONFIG = {
   chunkStreamEnabled: true,     // enable sub-chunk streaming for large islands
   chunkStreamThreshold: 12_000_000, // islands with voxel fields larger than this get chunked
   chunkSubdivisions: 3,         // split each axis into this many sub-chunks (3 = 3x3x3 = 27 chunks)
-  streamTimeBudgetMs: 16,       // max time per frame for streaming chunk mesh generation
-  streamMaxChunksPerFrame: 4,   // max chunks to generate per frame even if time budget remains
+  streamTimeBudgetMs: 32,       // max time per frame for streaming chunk mesh generation
+  streamMaxChunksPerFrame: 16,  // max chunks to generate per frame even if time budget remains
 
   // --- Port terrain (flat plateau with beach transition and optional caves) ---
   portVoxelSize: 3.0,           // coarser voxels for ports (flat terrain, less detail needed)

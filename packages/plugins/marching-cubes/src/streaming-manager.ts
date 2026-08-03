@@ -18,9 +18,11 @@
 
 import type { ChunkedVoxelField } from "./chunked-field.ts";
 import {
+    CHUNK_FULL,
     getChunkedVoxel,
     isChunkEmpty,
     isChunkGenerated,
+    promoteChunk,
     setChunkedVoxel
 } from "./chunked-field.ts";
 import type { TerrainStreamingConfig } from "./streaming-config.ts";
@@ -430,6 +432,11 @@ export class TerrainStreamingManager {
           const chCz = vz >>> cf.chunkBits;
           const chunkKey = chCx * cf.chunkDimY * cf.chunkDimZ + chCy * cf.chunkDimZ + chCz;
           terrain.dirtyChunkKeys.add(chunkKey);
+
+          // Promote FullSolid/FullEmpty chunks to Full before deforming
+          if (cf.chunkClass[chunkKey] !== CHUNK_FULL) {
+            promoteChunk(cf, chunkKey);
+          }
 
           setChunkedVoxel(cf, vx, vy, vz, getChunkedVoxel(cf, vx, vy, vz) + change);
         }

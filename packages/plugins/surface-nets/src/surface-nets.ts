@@ -250,6 +250,7 @@ export function extractMeshFromField(
   // ============================================================
 
   // X-edges at (x, y, z): 4 cells = (x,y,z), (x,y-1,z), (x,y-1,z-1), (x,y,z-1)
+  // Face normal from winding: +X. Flip if vertex normals point -X.
   // x range: [xStart, xEnd) — +X face X-edges handled by neighbor
   // y range: [yStart+1, yLoopEnd) — extended to cover +Y border
   // z range: [zStart+1, zLoopEnd) — extended to cover +Z border
@@ -264,13 +265,16 @@ export function extractMeshFromField(
         if (v2 < 0) continue;
         const v3 = getVertexIdx(x, y, z - 1);
         if (v3 < 0) continue;
-        emitTri(v0, v1, v2);
-        emitTri(v0, v2, v3);
+        // Check winding vs vertex normals (face normal = +X)
+        const avgNx = (verts[v0 * 9 + 3] + verts[v1 * 9 + 3]) * 0.5;
+        if (avgNx < 0) { emitTri(v0, v3, v2); emitTri(v0, v2, v1); }
+        else { emitTri(v0, v1, v2); emitTri(v0, v2, v3); }
       }
     }
   }
 
   // Y-edges at (x, y, z): 4 cells = (x,y,z), (x-1,y,z), (x-1,y,z-1), (x,y,z-1)
+  // Face normal from winding: -Y. Flip if vertex normals point +Y.
   // x range: [xStart+1, xLoopEnd) — extended to cover +X border
   // y range: [yStart, yEnd) — +Y face Y-edges handled by neighbor
   // z range: [zStart+1, zLoopEnd) — extended to cover +Z border
@@ -285,13 +289,16 @@ export function extractMeshFromField(
         if (v2 < 0) continue;
         const v3 = getVertexIdx(x, y, z - 1);
         if (v3 < 0) continue;
-        emitTri(v0, v1, v2);
-        emitTri(v0, v2, v3);
+        // Check winding vs vertex normals (face normal = -Y)
+        const avgNy = (verts[v0 * 9 + 4] + verts[v1 * 9 + 4]) * 0.5;
+        if (avgNy > 0) { emitTri(v0, v3, v2); emitTri(v0, v2, v1); }
+        else { emitTri(v0, v1, v2); emitTri(v0, v2, v3); }
       }
     }
   }
 
   // Z-edges at (x, y, z): 4 cells = (x,y,z), (x-1,y,z), (x-1,y-1,z), (x,y-1,z)
+  // Face normal from winding: +Z. Flip if vertex normals point -Z.
   // x range: [xStart+1, xLoopEnd) — extended to cover +X border
   // y range: [yStart+1, yLoopEnd) — extended to cover +Y border
   // z range: [zStart, zEnd) — +Z face Z-edges handled by neighbor
@@ -306,8 +313,10 @@ export function extractMeshFromField(
         if (v2 < 0) continue;
         const v3 = getVertexIdx(x, y - 1, z);
         if (v3 < 0) continue;
-        emitTri(v0, v1, v2);
-        emitTri(v0, v2, v3);
+        // Check winding vs vertex normals (face normal = +Z)
+        const avgNz = (verts[v0 * 9 + 5] + verts[v1 * 9 + 5]) * 0.5;
+        if (avgNz < 0) { emitTri(v0, v3, v2); emitTri(v0, v2, v1); }
+        else { emitTri(v0, v1, v2); emitTri(v0, v2, v3); }
       }
     }
   }

@@ -6,10 +6,11 @@ import {
     generatePortVoxelField,
     getChunkMeshSubRegion,
     materializeChunkForMesh,
+    promoteChunkWithData,
     type ChunkedFieldContext,
 } from "@shared/terrain";
 import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
-import { ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
+import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
 import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
 import { PerlinNoise } from "@shared/world/PerlinNoise";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
@@ -24,6 +25,13 @@ interface IslandMesh {
   useUint32: boolean;
   lineIndices: GPUBuffer | BackendBuffer | null;
   lineIndexCount: number;
+}
+
+interface ChunkMeshEntry extends IslandMesh {
+  worldCenterX: number;
+  worldCenterY: number;
+  worldCenterZ: number;
+  boundingRadius: number;
 }
 
 interface PortTerrainMesh {
@@ -128,7 +136,7 @@ export class IslandTerrainRenderer {
           ]}],
         },
         fragment: { module: islandShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
-        primitive: { topology: "triangle-list" },
+        primitive: { topology: "triangle-list", cullMode: "back" },
         multisample: { count: MSAA_SAMPLE_COUNT },
         depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: true, depthCompare: "less" },
       });
@@ -203,7 +211,7 @@ export class IslandTerrainRenderer {
         entryPoint: "fs_main",
         targets: [{ format }],
       },
-      primitive: { topology: "triangle-list" },
+      primitive: { topology: "triangle-list", cullMode: "back" },
       multisample: { count: MSAA_SAMPLE_COUNT },
       depthStencil: {
         format: DEPTH_FORMAT,
@@ -494,129 +502,187 @@ export class IslandTerrainRenderer {
 
   processIslandChunkStream(playerX: number, playerZ: number): void {
     if (this.islandChunkPending.size === 0) return;
-    const device = this.ctx.device!;
     const cfg = TERRAIN_CONFIG;
     const startTime = performance.now();
     let chunksProcessed = 0;
 
-    for (const [key, pending] of this.islandChunkPending) {
-      if (pending.length === 0) continue;
+    // Sort islands by distance to player so closest island gets budget priority
+    const islandKeys = Array.from(this.islandChunkPending.keys()).sort((a, b) => {
+      const [ax, az] = a.split(",").map(Number);
+      const [bx, bz] = b.split(",").map(Number);
+      const aDist = (ax - playerX) * (ax - playerX) + (az - playerZ) * (az - playerZ);
+      const bDist = (bx - playerX) * (bx - playerX) + (bz - playerZ) * (bz - playerZ);
+      return aDist - bDist;
+    });
 
-      const cf = this.islandChunkedFields.get(key);
-      const cfCtx = this.islandChunkedCtxs.get(key);
-      const legacyField = this.islandChunkField.get(key);
+    for (const key of islandKeys) {
+      const pending = this.islandChunkPending.get(key);
+      if (!pending || pending.length === 0) continue;
+      if (chunksProcessed >= cfg.streamMaxChunksPerFrame) break;
+      if (performance.now() - startTime > cfg.streamTimeBudgetMs) break;
+      chunksProcessed += this.processOneIslandChunks(key, pending, playerX, playerZ, cfg.streamMaxChunksPerFrame - chunksProcessed, startTime, cfg.streamTimeBudgetMs, chunksProcessed);
+    }
+  }
 
-      const [chunkXStr, chunkZStr] = key.split(",");
-      const islandX = parseFloat(chunkXStr);
-      const islandZ = parseFloat(chunkZStr);
+  preBakeAllChunks(playerX: number, playerZ: number): void {
+    if (this.islandChunkPending.size === 0) return;
 
-      if (cf && cfCtx) {
-        const halfChunk = cf.chunkSize / 2;
-        for (let i = 0; i < pending.length; i++) {
-          const p = pending[i] as any;
-          const gx0 = p.cx * cf.chunkSize;
-          const gz0 = p.cz * cf.chunkSize;
-          const cx = islandX + (gx0 + halfChunk) * cf.voxelSize + cf.originX;
-          const cz = islandZ + (gz0 + halfChunk) * cf.voxelSize + cf.originZ;
-          const dx = cx - playerX;
-          const dz = cz - playerZ;
-          p.distSq = dx * dx + dz * dz;
-        }
-        pending.sort((a, b) => a.distSq - b.distSq);
+    // Sort islands by distance to player
+    const islandKeys = Array.from(this.islandChunkPending.keys()).sort((a, b) => {
+      const [ax, az] = a.split(",").map(Number);
+      const [bx, bz] = b.split(",").map(Number);
+      const aDist = (ax - playerX) * (ax - playerX) + (az - playerZ) * (az - playerZ);
+      const bDist = (bx - playerX) * (bx - playerX) + (bz - playerZ) * (bz - playerZ);
+      return aDist - bDist;
+    });
 
-        while (pending.length > 0 && chunksProcessed < cfg.streamMaxChunksPerFrame) {
-          if (performance.now() - startTime > cfg.streamTimeBudgetMs) break;
-          const chunk = pending.shift()! as any;
-          const chunkMeshes = this.islandChunkMeshes.get(key);
-          if (!chunkMeshes) break;
-          const cliffNoiseFn = this.islandChunkCliffNoise.get(key);
-          if (!cliffNoiseFn) break;
+    for (const key of islandKeys) {
+      const pending = this.islandChunkPending.get(key);
+      if (!pending || pending.length === 0) continue;
+      // Process all chunks for this island with no budget limit
+      this.processOneIslandChunks(key, pending, playerX, playerZ, Infinity, 0, Infinity, 0);
+    }
+  }
 
-          const matField = materializeChunkForMesh(cf, cfCtx, chunk.cx, chunk.cy, chunk.cz);
-          if (!matField) { chunksProcessed++; continue; }
+  private processOneIslandChunks(
+    key: string,
+    pending: any[],
+    playerX: number, playerZ: number,
+    maxChunks: number,
+    startTime: number,
+    timeBudgetMs: number,
+    chunksProcessedOffset: number,
+  ): number {
+    const device = this.ctx.device!;
+    const cfg = TERRAIN_CONFIG;
+    let chunksProcessed = 0;
 
-          const sub = getChunkMeshSubRegion(cf, chunk.cx, chunk.cy, chunk.cz);
-          const extracted = extractMeshSubRegion(matField, sub.x0, sub.y0, sub.z0, sub.x1, sub.y1, sub.z1, cliffNoiseFn);
-          if (extracted.verts.length === 0 || extracted.indices.length === 0) { chunksProcessed++; continue; }
+    const cf = this.islandChunkedFields.get(key);
+    const cfCtx = this.islandChunkedCtxs.get(key);
+    const legacyField = this.islandChunkField.get(key);
 
-          const verts = extracted.verts;
-          const r = cf.radius;
-          for (let i = 0; i < verts.length; i += 9) { verts[i] /= r; verts[i + 1] /= r; verts[i + 2] /= r; }
+    const [chunkXStr, chunkZStr] = key.split(",");
+    const islandX = parseFloat(chunkXStr);
+    const islandZ = parseFloat(chunkZStr);
 
-          const vertices = device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-          device.queue.writeBuffer(vertices, 0, verts as any);
+    if (cf && cfCtx) {
+      const halfChunk = cf.chunkSize / 2;
+      for (let i = 0; i < pending.length; i++) {
+        const p = pending[i];
+        const gx0 = p.cx * cf.chunkSize;
+        const gz0 = p.cz * cf.chunkSize;
+        const cx = islandX + (gx0 + halfChunk) * cf.voxelSize + cf.originX;
+        const cz = islandZ + (gz0 + halfChunk) * cf.voxelSize + cf.originZ;
+        const dx = cx - playerX;
+        const dz = cz - playerZ;
+        p.distSq = dx * dx + dz * dz;
+      }
+      pending.sort((a, b) => a.distSq - b.distSq);
 
-          const indexBuf = extracted.indices;
-          let indexData: Uint16Array | Uint32Array;
-          if (!extracted.useUint32 && indexBuf instanceof Uint16Array && indexBuf.length % 2 !== 0) {
-            indexData = new Uint16Array(indexBuf.length + 1); indexData.set(indexBuf);
-          } else { indexData = indexBuf as Uint16Array | Uint32Array; }
+      while (pending.length > 0 && chunksProcessed < maxChunks) {
+        if (performance.now() - startTime > timeBudgetMs) break;
+        const chunk = pending.shift()!;
+        const chunkMeshes = this.islandChunkMeshes.get(key);
+        if (!chunkMeshes) break;
+        const cliffNoiseFn = this.islandChunkCliffNoise.get(key);
+        if (!cliffNoiseFn) break;
 
-          const indices = device.createBuffer({ size: indexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-          device.queue.writeBuffer(indices, 0, indexData as any);
+        const matField = materializeChunkForMesh(cf, cfCtx, chunk.cx, chunk.cy, chunk.cz);
+        if (!matField) { chunksProcessed++; continue; }
 
-          chunkMeshes.set(chunk.chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0 });
-          chunksProcessed++;
-        }
-      } else if (legacyField) {
-        const halfDimX = legacyField.dimX / cfg.chunkSubdivisions / 2;
-        const halfDimZ = legacyField.dimZ / cfg.chunkSubdivisions / 2;
-        for (let i = 0; i < pending.length; i++) {
-          const p = pending[i] as any;
-          const cx = islandX + (p.x + halfDimX) * legacyField.voxelSize + legacyField.originX;
-          const cz = islandZ + (p.z + halfDimZ) * legacyField.voxelSize + legacyField.originZ;
-          const dx = cx - playerX; const dz = cz - playerZ;
-          p.distSq = dx * dx + dz * dz;
-        }
-        pending.sort((a, b) => a.distSq - b.distSq);
+        const sub = getChunkMeshSubRegion(cf, chunk.cx, chunk.cy, chunk.cz);
+        const extracted = extractMeshSubRegion(matField, sub.x0, sub.y0, sub.z0, sub.x1, sub.y1, sub.z1, cliffNoiseFn);
+        if (extracted.verts.length === 0 || extracted.indices.length === 0) { chunksProcessed++; continue; }
 
-        while (pending.length > 0 && chunksProcessed < cfg.streamMaxChunksPerFrame) {
-          if (performance.now() - startTime > cfg.streamTimeBudgetMs) break;
-          const chunk = pending.shift()!;
-          const chunkMeshes = this.islandChunkMeshes.get(key);
-          if (!chunkMeshes) break;
-          const sub = cfg.chunkSubdivisions;
-          const chunkDimX = Math.ceil(legacyField.dimX / sub);
-          const chunkDimY = Math.ceil(legacyField.dimY / sub);
-          const chunkDimZ = Math.ceil(legacyField.dimZ / sub);
-          const [cxIdx, cyIdx, czIdx] = (chunk as any).chunkKey.split(",").map(Number);
-          const x0 = cxIdx * chunkDimX; const y0 = cyIdx * chunkDimY; const z0 = czIdx * chunkDimZ;
-          const x1 = Math.min(legacyField.dimX, x0 + chunkDimX);
-          const y1 = Math.min(legacyField.dimY, y0 + chunkDimY);
-          const z1 = Math.min(legacyField.dimZ, z0 + chunkDimZ);
+        const verts = extracted.verts;
+        const r = cf.radius;
+        for (let i = 0; i < verts.length; i += 9) { verts[i] /= r; verts[i + 1] /= r; verts[i + 2] /= r; }
 
-          const cliffNoiseFn = this.islandChunkCliffNoise.get(key);
-          if (!cliffNoiseFn) break;
+        const vertices = device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(vertices, 0, verts as any);
 
-          const extracted = extractMeshSubRegion(legacyField, x0, y0, z0, x1, y1, z1, cliffNoiseFn);
-          if (extracted.verts.length === 0 || extracted.indices.length === 0) { chunksProcessed++; continue; }
+        const indexBuf = extracted.indices;
+        let indexData: Uint16Array | Uint32Array;
+        if (!extracted.useUint32 && indexBuf instanceof Uint16Array && indexBuf.length % 2 !== 0) { indexData = new Uint16Array(indexBuf.length + 1); indexData.set(indexBuf); }
+        else { indexData = indexBuf as Uint16Array | Uint32Array; }
 
-          const verts = extracted.verts;
-          const r = legacyField.radius;
-          for (let i = 0; i < verts.length; i += 9) { verts[i] /= r; verts[i + 1] /= r; verts[i + 2] /= r; }
+        const indices = device.createBuffer({ size: indexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(indices, 0, indexData as any);
 
-          const vertices = device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-          device.queue.writeBuffer(vertices, 0, verts as any);
+        const halfChunkC = cf.chunkSize / 2;
+        const wcx = islandX + (chunk.cx * cf.chunkSize + halfChunkC) * cf.voxelSize + cf.originX;
+        const wcy = (chunk.cy * cf.chunkSize + halfChunkC) * cf.voxelSize + cf.originY;
+        const wcz = islandZ + (chunk.cz * cf.chunkSize + halfChunkC) * cf.voxelSize + cf.originZ;
+        const chunkRadius = halfChunkC * cf.voxelSize * 1.5;
+        chunkMeshes.set(chunk.chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0, worldCenterX: wcx, worldCenterY: wcy, worldCenterZ: wcz, boundingRadius: chunkRadius });
+        chunksProcessed++;
+      }
+    } else if (legacyField) {
+      const halfDimX = legacyField.dimX / cfg.chunkSubdivisions / 2;
+      const halfDimZ = legacyField.dimZ / cfg.chunkSubdivisions / 2;
+      for (let i = 0; i < pending.length; i++) {
+        const p = pending[i];
+        const cx = islandX + (p.x + halfDimX) * legacyField.voxelSize + legacyField.originX;
+        const cz = islandZ + (p.z + halfDimZ) * legacyField.voxelSize + legacyField.originZ;
+        const dx = cx - playerX; const dz = cz - playerZ;
+        p.distSq = dx * dx + dz * dz;
+      }
+      pending.sort((a, b) => a.distSq - b.distSq);
 
-          const indexBuf = extracted.indices;
-          let indexData: Uint16Array | Uint32Array;
-          if (!extracted.useUint32 && indexBuf instanceof Uint16Array && indexBuf.length % 2 !== 0) {
-            indexData = new Uint16Array(indexBuf.length + 1); indexData.set(indexBuf);
-          } else { indexData = indexBuf as Uint16Array | Uint32Array; }
+      while (pending.length > 0 && chunksProcessed < maxChunks) {
+        if (performance.now() - startTime > timeBudgetMs) break;
+        const chunk = pending.shift()!;
+        const chunkMeshes = this.islandChunkMeshes.get(key);
+        if (!chunkMeshes) break;
+        const cliffNoiseFn = this.islandChunkCliffNoise.get(key);
+        if (!cliffNoiseFn) break;
 
-          const indices = device.createBuffer({ size: indexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-          device.queue.writeBuffer(indices, 0, indexData as any);
+        const chunkDimX = Math.ceil(legacyField.dimX / cfg.chunkSubdivisions);
+        const chunkDimY = Math.ceil(legacyField.dimY / cfg.chunkSubdivisions);
+        const chunkDimZ = Math.ceil(legacyField.dimZ / cfg.chunkSubdivisions);
+        const cxIdx = Math.floor(chunk.x / chunkDimX);
+        const cyIdx = Math.floor(chunk.y / chunkDimY);
+        const czIdx = Math.floor(chunk.z / chunkDimZ);
+        const x0 = cxIdx * chunkDimX, y0 = cyIdx * chunkDimY, z0 = czIdx * chunkDimZ;
+        const x1 = Math.min(legacyField.dimX, x0 + chunkDimX);
+        const y1 = Math.min(legacyField.dimY, y0 + chunkDimY);
+        const z1 = Math.min(legacyField.dimZ, z0 + chunkDimZ);
+        const extracted = extractMeshSubRegion(legacyField, x0, y0, z0, x1, y1, z1, cliffNoiseFn);
+        if (extracted.verts.length === 0 || extracted.indices.length === 0) { chunksProcessed++; continue; }
 
-          chunkMeshes.set((chunk as any).chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0 });
-          chunksProcessed++;
-        }
-      } else { continue; }
+        const verts = extracted.verts;
+        const r = legacyField.radius;
+        for (let i = 0; i < verts.length; i += 9) { verts[i] /= r; verts[i + 1] /= r; verts[i + 2] /= r; }
 
-      if (pending.length === 0) {
-        this.islandChunkPending.delete(key);
-        this.islandChunkTotalChunks.delete(key);
+        const vertices = device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(vertices, 0, verts as any);
+
+        const indexBuf = extracted.indices;
+        let indexData: Uint16Array | Uint32Array;
+        if (!extracted.useUint32 && indexBuf instanceof Uint16Array && indexBuf.length % 2 !== 0) { indexData = new Uint16Array(indexBuf.length + 1); indexData.set(indexBuf); }
+        else { indexData = indexBuf as Uint16Array | Uint32Array; }
+
+        const indices = device.createBuffer({ size: indexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(indices, 0, indexData as any);
+
+        const halfChunkX = chunkDimX / 2;
+        const halfChunkY = chunkDimY / 2;
+        const halfChunkZ = chunkDimZ / 2;
+        const wcx = islandX + (cxIdx * chunkDimX + halfChunkX) * legacyField.voxelSize + legacyField.originX;
+        const wcy = (cyIdx * chunkDimY + halfChunkY) * legacyField.voxelSize + legacyField.originY;
+        const wcz = islandZ + (czIdx * chunkDimZ + halfChunkZ) * legacyField.voxelSize + legacyField.originZ;
+        const chunkRadius = Math.max(halfChunkX, halfChunkY, halfChunkZ) * legacyField.voxelSize * 1.5;
+        chunkMeshes.set(chunk.chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0, worldCenterX: wcx, worldCenterY: wcy, worldCenterZ: wcz, boundingRadius: chunkRadius });
+        chunksProcessed++;
       }
     }
+
+    if (pending.length === 0) {
+      this.islandChunkPending.delete(key);
+      this.islandChunkTotalChunks.delete(key);
+    }
+
+    return chunksProcessed;
   }
 
   cleanupStaleIslandMeshes(): void {
@@ -802,15 +868,23 @@ export class IslandTerrainRenderer {
       if (chunkMap && chunkMap.size > 0) {
         passEncoder.setPipeline(this.islandPipeline as any);
         passEncoder.setBindGroup(0, ctx.bindGroup as any, [idx * 256]);
+        const camX = ctx.cameraPosCache[0];
+        const camY = ctx.cameraPosCache[1];
+        const camZ = ctx.cameraPosCache[2];
         const chunkEntries = Array.from(chunkMap.values());
         for (let ci = 0; ci < chunkEntries.length; ci++) {
-          const chunk = chunkEntries[ci];
-          if (chunk.indexCount > 0) {
-            passEncoder.setVertexBuffer(0, chunk.vertices as any);
-            passEncoder.setIndexBuffer(chunk.indices as any, chunk.useUint32 ? "uint32" : "uint16");
-            passEncoder.drawIndexed(chunk.indexCount);
-            tris += Math.floor(chunk.indexCount / 3);
-          }
+          const chunk = chunkEntries[ci] as ChunkMeshEntry;
+          if (chunk.indexCount <= 0) continue;
+          // Per-chunk distance culling: skip chunks beyond render distance
+          const dx = chunk.worldCenterX - camX;
+          const dy = chunk.worldCenterY - camY;
+          const dz = chunk.worldCenterZ - camZ;
+          const distSq = dx * dx + dy * dy + dz * dz;
+          if (distSq > (600 + chunk.boundingRadius) * (600 + chunk.boundingRadius)) continue;
+          passEncoder.setVertexBuffer(0, chunk.vertices as any);
+          passEncoder.setIndexBuffer(chunk.indices as any, chunk.useUint32 ? "uint32" : "uint16");
+          passEncoder.drawIndexed(chunk.indexCount);
+          tris += Math.floor(chunk.indexCount / 3);
         }
         const deco = this.decorationMeshes.get(islandKey);
         if (deco && deco.indexCount > 0) {
@@ -900,7 +974,9 @@ export class IslandTerrainRenderer {
           const gz0 = cz * cf.chunkSize;
           const chunkCenterX = islandWorldX + (gx0 + cf.chunkSize / 2) * cf.voxelSize + cf.originX;
           const chunkCenterZ = islandWorldZ + (gz0 + cf.chunkSize / 2) * cf.voxelSize + cf.originZ;
-          const distSq = chunkCenterX * chunkCenterX + chunkCenterZ * chunkCenterZ;
+          const dx = chunkCenterX - islandWorldX;
+          const dz = chunkCenterZ - islandWorldZ;
+          const distSq = dx * dx + dz * dz;
           const chunkKey = `${cx},${cy},${cz}`;
           pending.push({ cx, cy, cz, chunkKey, distSq });
           totalChunks++;
@@ -963,7 +1039,12 @@ export class IslandTerrainRenderer {
             const chCx = vx >>> cf.chunkBits;
             const chCy = vy >>> cf.chunkBits;
             const chCz = vz >>> cf.chunkBits;
+            const chunkIdx = chCx * cf.chunkDimY * cf.chunkDimZ + chCy * cf.chunkDimZ + chCz;
             dirtyChunkKeys.add(`${chCx},${chCy},${chCz}`);
+            // Promote FullSolid/FullEmpty chunks to Full before deforming
+            if (cf.chunkClass[chunkIdx] !== CHUNK_FULL) {
+              promoteChunkWithData(cf, cfCtx!, chunkIdx);
+            }
             const oldVal = getChunkedVoxel(cf, vx, vy, vz);
             setChunkedVoxel(cf, vx, vy, vz, oldVal + change);
           }
@@ -1131,7 +1212,15 @@ export class IslandTerrainRenderer {
           const indices = device.createBuffer({ size: indexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
           device.queue.writeBuffer(indices, 0, indexData as any);
 
-          chunkMap.set(chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0 });
+          // Compute world-space center + bounding radius for culling
+          const halfChunkX = chunkDimX / 2;
+          const halfChunkY = chunkDimY / 2;
+          const halfChunkZ = chunkDimZ / 2;
+          const wcx = chunkX + (cx * chunkDimX + halfChunkX) * field.voxelSize + field.originX;
+          const wcy = (cy * chunkDimY + halfChunkY) * field.voxelSize + field.originY;
+          const wcz = chunkZ + (cz * chunkDimZ + halfChunkZ) * field.voxelSize + field.originZ;
+          const chunkRadius = Math.max(halfChunkX, halfChunkY, halfChunkZ) * field.voxelSize * 1.5;
+          chunkMap.set(chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0, worldCenterX: wcx, worldCenterY: wcy, worldCenterZ: wcz, boundingRadius: chunkRadius });
         }
       }
     }
@@ -1147,6 +1236,9 @@ export class IslandTerrainRenderer {
     const chunkMap = this.islandChunkMeshes.get(key);
     if (!chunkMap) return;
     const r = cf.radius;
+    const [islandXStr, islandZStr] = key.split(",");
+    const islandX = parseFloat(islandXStr);
+    const islandZ = parseFloat(islandZStr);
 
     for (const chunkKey of dirtyChunkKeys) {
       const [cx, cy, cz] = chunkKey.split(",").map(Number);
@@ -1173,7 +1265,13 @@ export class IslandTerrainRenderer {
       const indices = device.createBuffer({ size: indexData.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
       device.queue.writeBuffer(indices, 0, indexData as any);
 
-      chunkMap.set(chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0 });
+      // Compute world-space center + bounding radius for culling
+      const halfChunk = cf.chunkSize / 2;
+      const wcx = islandX + (cx * cf.chunkSize + halfChunk) * cf.voxelSize + cf.originX;
+      const wcy = (cy * cf.chunkSize + halfChunk) * cf.voxelSize + cf.originY;
+      const wcz = islandZ + (cz * cf.chunkSize + halfChunk) * cf.voxelSize + cf.originZ;
+      const chunkRadius = halfChunk * cf.voxelSize * 1.5;
+      chunkMap.set(chunkKey, { vertices, indices, indexCount: indexBuf.length, useUint32: extracted.useUint32, lineIndices: null, lineIndexCount: 0, worldCenterX: wcx, worldCenterY: wcy, worldCenterZ: wcz, boundingRadius: chunkRadius });
     }
   }
 }

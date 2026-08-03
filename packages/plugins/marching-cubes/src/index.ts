@@ -14,9 +14,8 @@ export { TerrainChannel, TerrainSABChannel } from "./sab.ts";
 
 // Chunked voxel field storage
 export {
-    allocateChunk, createChunkedVoxelField,
-    getChunkedVoxel, isChunkEmpty,
-    isChunkGenerated, markChunkGenerated, setChunkedVoxel
+    allocateChunk, CHUNK_EMPTY, CHUNK_FULL, CHUNK_SOLID, createChunkedVoxelField, getChunkedVoxel, isChunkEmpty,
+    isChunkGenerated, markChunkGenerated, promoteChunk, setChunkedVoxel
 } from "./chunked-field.ts";
 export type { ChunkedVoxelField } from "./chunked-field.ts";
 
