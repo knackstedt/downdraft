@@ -151,6 +151,10 @@ export class GPUResourceTracker {
   private resources = new Map<number, TrackedResource>();
   private textureBytes = 0;
   private bufferBytes = 0;
+  private textureCount = 0;
+  private bufferCount = 0;
+  private dirty = false;
+  private cachedSortedResources: TrackedResource[] = [];
 
   wrapDevice(device: GPUDevice): GPUDevice {
     const self = this;
@@ -178,6 +182,8 @@ export class GPUResourceTracker {
         mipLevelCount, sampleCount: descriptor.sampleCount ?? 1, usage: descriptor.usage,
       });
       self.textureBytes += bytes;
+      self.textureCount++;
+      self.dirty = true;
 
       // Wrap destroy to remove from tracking
       const origDestroy = tex.destroy.bind(tex);
@@ -186,6 +192,8 @@ export class GPUResourceTracker {
         if (r) {
           self.textureBytes -= r.size;
           self.resources.delete(id);
+          self.textureCount--;
+          self.dirty = true;
         }
         origDestroy();
       };
@@ -207,6 +215,8 @@ export class GPUResourceTracker {
         usageFlags: descriptor.usage,
       });
       self.bufferBytes += bytes;
+      self.bufferCount++;
+      self.dirty = true;
 
       // Wrap destroy to remove from tracking
       const origDestroy = buf.destroy.bind(buf);
@@ -215,6 +225,8 @@ export class GPUResourceTracker {
         if (r) {
           self.bufferBytes -= r.size;
           self.resources.delete(id);
+          self.bufferCount--;
+          self.dirty = true;
         }
         origDestroy();
       };
@@ -226,14 +238,17 @@ export class GPUResourceTracker {
   }
 
   getStats(): GPUResourceStats {
-    const resources = Array.from(this.resources.values()).sort((a, b) => b.size - a.size);
+    if (this.dirty) {
+      this.cachedSortedResources = Array.from(this.resources.values()).sort((a, b) => b.size - a.size);
+      this.dirty = false;
+    }
     return {
-      textureCount: resources.filter((r) => r.type === "texture").length,
-      bufferCount: resources.filter((r) => r.type === "buffer").length,
+      textureCount: this.textureCount,
+      bufferCount: this.bufferCount,
       totalBytes: this.textureBytes + this.bufferBytes,
       textureBytes: this.textureBytes,
       bufferBytes: this.bufferBytes,
-      resources,
+      resources: this.cachedSortedResources,
     };
   }
 
@@ -245,5 +260,9 @@ export class GPUResourceTracker {
     this.resources.clear();
     this.textureBytes = 0;
     this.bufferBytes = 0;
+    this.textureCount = 0;
+    this.bufferCount = 0;
+    this.dirty = false;
+    this.cachedSortedResources = [];
   }
 }
