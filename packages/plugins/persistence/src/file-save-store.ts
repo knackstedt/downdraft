@@ -54,6 +54,8 @@ export interface FileSaveStoreOptions {
   decompress?: (data: Uint8Array, originalSize: number) => Uint8Array;
   /** Optional hash provider (for testing or custom hashing) */
   hash128?: (data: Uint8Array) => Uint8Array;
+  /** Skip migration step on load — pass through components unchanged (for pure storage layers) */
+  skipMigrations?: boolean;
 }
 
 export class FileSaveStore implements ISaveStore {
@@ -65,6 +67,7 @@ export class FileSaveStore implements ISaveStore {
   private _compress: ((data: Uint8Array) => Uint8Array) | null = null;
   private _decompress: ((data: Uint8Array, originalSize: number) => Uint8Array) | null = null;
   private _hash128: ((data: Uint8Array) => Uint8Array) | null = null;
+  private _skipMigrations: boolean = false;
 
   constructor(opts: FileSaveStoreOptions) {
     this.saveDir = opts.saveDir;
@@ -74,6 +77,7 @@ export class FileSaveStore implements ISaveStore {
     this._compress = opts.compress ?? null;
     this._decompress = opts.decompress ?? null;
     this._hash128 = opts.hash128 ?? null;
+    this._skipMigrations = opts.skipMigrations ?? false;
   }
 
   getMigrationRegistry(): IMigrationRegistry {
@@ -236,11 +240,15 @@ export class FileSaveStore implements ISaveStore {
       const bodyJson = new TextDecoder().decode(decompressed);
       const components = JSON.parse(bodyJson) as Record<string, { v: number; data: unknown }>;
 
-      // Run migrations per component
+      // Run migrations per component (or pass through if skipped)
       const migrated: Record<string, { v: number; data: unknown }> = {};
       const abandoned: Record<string, unknown> = {};
 
       for (const [name, section] of Object.entries(components)) {
+        if (this._skipMigrations) {
+          migrated[name] = { v: section.v, data: section.data };
+          continue;
+        }
         const result = this.migrations.migrate(name, section.data, section.v);
         if (result) {
           migrated[name] = { v: result.version, data: result.data };
