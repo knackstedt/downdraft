@@ -8,10 +8,11 @@ import {
     generatePortVoxelField,
     generateVoxelField,
     getLODVoxelSize, isChunkEmpty,
+    promoteChunkWithData,
     type ChunkedFieldContext,
 } from "../../shared/terrain";
 import { TERRAIN_CONFIG } from "../../shared/TerrainConfig";
-import { ChunkedVoxelField, TerrainDeformation, VoxelField, getChunkedVoxel, setChunkedVoxel } from "../../shared/TerrainTypes";
+import { CHUNK_FULL, ChunkedVoxelField, TerrainDeformation, VoxelField, getChunkedVoxel, setChunkedVoxel } from "../../shared/TerrainTypes";
 import { EntityType, TerrainDeformationBroadcast } from "../../shared/types";
 import { SimEntity } from "../Simulation";
 
@@ -311,6 +312,11 @@ export class TerrainSystem {
                 const chunkKey = chCx * cf.chunkDimY * cf.chunkDimZ + chCy * cf.chunkDimZ + chCz;
                 terrain.dirtyChunkKeys.add(chunkKey);
 
+                // Promote FullSolid/FullEmpty chunks to Full before deforming
+                if (cf.chunkClass[chunkKey] !== CHUNK_FULL) {
+                  promoteChunkWithData(cf, cfCtx, chunkKey);
+                }
+
                 setChunkedVoxel(cf, vx, vy, vz, getChunkedVoxel(cf, vx, vy, vz) + change);
               }
             }
@@ -427,6 +433,11 @@ export class TerrainSystem {
               // Track dirty chunk
               const chunkKey = chCx * cf.chunkDimY * cf.chunkDimZ + chCy * cf.chunkDimZ + chCz;
               terrain.dirtyChunkKeys.add(chunkKey);
+
+              // Promote FullSolid/FullEmpty chunks to Full before deforming
+              if (cf.chunkClass[chunkKey] !== CHUNK_FULL) {
+                promoteChunkWithData(cf, cfCtx, chunkKey);
+              }
 
               setChunkedVoxel(cf, vx, vy, vz, getChunkedVoxel(cf, vx, vy, vz) + change);
             }

@@ -2,7 +2,7 @@
 
 import { PerlinNoise3D } from "../PerlinNoise3D";
 import { TERRAIN_CONFIG } from "../TerrainConfig";
-import { ChunkedVoxelField, getChunkedVoxel, VoxelField } from "../TerrainTypes";
+import { CHUNK_EMPTY, CHUNK_FULL, CHUNK_SOLID, ChunkedVoxelField, getChunkedVoxel, promoteChunk, VoxelField } from "../TerrainTypes";
 import { PerlinNoise } from "../world/PerlinNoise";
 import { BlobCenter, mulberry32, smoothUnion } from "./TerrainVoxelField";
 
@@ -247,11 +247,24 @@ export function createChunkedVoxelField(
   const cyMin = Math.max(0, Math.floor(vyTerrainMin / chunkSize));
   const cyMax = Math.min(chunkDimY, Math.ceil(vyTerrainMax / chunkSize));
 
-  // Determine which chunks are non-empty:
+  // Determine which chunks are non-empty and classify them.
   // A chunk is non-empty if it has any non-skipped column in its XZ extent
   // AND its Y range overlaps the terrain surface bounds.
+  // Classification: FullSolid (all above iso), FullEmpty (all below iso), Full (mixed).
+  // Only Full chunks get buffer space — saves memory on solid interior and empty exterior.
   const chunkOffsets = new Int32Array(totalChunks).fill(-1);
-  let nonEmptyCount = 0;
+  const chunkClass = new Uint8Array(totalChunks); // default 0 = FullEmpty
+  let fullChunkCount = 0;
+
+  // Partial field for density sampling (computeDensityAt only reads dims/origin/voxelSize)
+  const partialField = {
+    dimX, dimY, dimZ, voxelSize: vs, originX, originY, originZ,
+    isoLevel: cfg.isoLevel, radius,
+  } as ChunkedVoxelField;
+
+  const sampleStride = cfg.sparseSampleStride;
+  const solidMargin = cfg.sparseSolidMargin;
+  const sparseEnabled = cfg.sparseEnabled;
 
   for (let cx = 0; cx < chunkDimX; cx++) {
     for (let cz = 0; cz < chunkDimZ; cz++) {
@@ -275,14 +288,47 @@ export function createChunkedVoxelField(
       if (hasNonSkipped) {
         for (let cy = cyMin; cy < cyMax; cy++) {
           const chunkIdx = cx * chunkDimY * chunkDimZ + cy * chunkDimZ + cz;
-          chunkOffsets[chunkIdx] = 0; // mark non-empty (offset assigned below)
-          nonEmptyCount++;
+
+          if (sparseEnabled) {
+            // Sample density at coarse grid to classify chunk
+            const gx0 = cx * chunkSize;
+            const gy0 = cy * chunkSize;
+            const gz0 = cz * chunkSize;
+            let allSolid = true;
+            let allEmpty = true;
+            for (let sx = 0; sx < chunkSize; sx += sampleStride) {
+              for (let sy = 0; sy < chunkSize; sy += sampleStride) {
+                for (let sz = 0; sz < chunkSize; sz += sampleStride) {
+                  const vx = Math.min(gx0 + sx, dimX - 1);
+                  const vy = Math.min(gy0 + sy, dimY - 1);
+                  const vz = Math.min(gz0 + sz, dimZ - 1);
+                  const d = computeDensityAt(partialField, ctx, vx, vy, vz);
+                  if (d < cfg.isoLevel + solidMargin) allSolid = false;
+                  if (d > cfg.isoLevel - solidMargin) allEmpty = false;
+                }
+              }
+            }
+            if (allSolid) {
+              chunkClass[chunkIdx] = CHUNK_SOLID;
+            } else if (allEmpty) {
+              chunkClass[chunkIdx] = CHUNK_EMPTY;
+            } else {
+              chunkClass[chunkIdx] = CHUNK_FULL;
+              chunkOffsets[chunkIdx] = 0; // mark for allocation
+              fullChunkCount++;
+            }
+          } else {
+            // Sparse disabled: allocate all non-empty chunks (original behavior)
+            chunkClass[chunkIdx] = CHUNK_FULL;
+            chunkOffsets[chunkIdx] = 0;
+            fullChunkCount++;
+          }
         }
       }
     }
   }
 
-  // Assign buffer offsets to non-empty chunks
+  // Assign buffer offsets to Full chunks only
   let nextOffset = 0;
   for (let i = 0; i < totalChunks; i++) {
     if (chunkOffsets[i] === 0) {
@@ -291,7 +337,7 @@ export function createChunkedVoxelField(
     }
   }
 
-  const totalFloats = nonEmptyCount * voxelsPerChunk;
+  const totalFloats = fullChunkCount * voxelsPerChunk;
   const buffer = new ArrayBuffer(totalFloats * 4);
   const view = new Float32Array(buffer);
   const chunkGenerated = new Uint8Array(totalChunks);
@@ -305,8 +351,8 @@ export function createChunkedVoxelField(
     chunkSize, chunkBits, chunkMask,
     chunkDimX, chunkDimY, chunkDimZ,
     voxelsPerChunk,
-    buffer, view, chunkOffsets, chunkGenerated,
-    totalChunkSlots: nonEmptyCount,
+    buffer, view, chunkOffsets, chunkGenerated, chunkClass,
+    totalChunkSlots: fullChunkCount,
     nextChunkOffset: totalFloats,
     chunkX, chunkZ,
     isPort: false,
@@ -355,7 +401,7 @@ export function ensureChunkGenerated(
   const chunkIdx = cx * field.chunkDimY * field.chunkDimZ + cy * field.chunkDimZ + cz;
   if (field.chunkGenerated[chunkIdx]) return;
   field.chunkGenerated[chunkIdx] = 1;
-  if (field.chunkOffsets[chunkIdx] < 0) return; // empty chunk
+  if (field.chunkOffsets[chunkIdx] < 0) return; // FullSolid or FullEmpty — no data to generate
   generateChunkData(field, ctx, cx, cy, cz);
 }
 
@@ -408,7 +454,9 @@ export function materializeChunkForMesh(
         const ncy = vy >>> field.chunkBits;
         const ncz = vz >>> field.chunkBits;
         const nChunkIdx = ncx * field.chunkDimY * field.chunkDimZ + ncy * field.chunkDimZ + ncz;
-        if (field.chunkOffsets[nChunkIdx] >= 0 && field.chunkGenerated[nChunkIdx]) {
+        if (field.chunkGenerated[nChunkIdx] && field.chunkClass[nChunkIdx] === CHUNK_FULL) {
+          // Only use buffer data for Full chunks; Solid/Empty sentinels would create
+          // flat density at borders, distorting normals. Recompute density for smooth gradients.
           mData[localIdx] = getChunkedVoxel(field, vx, vy, vz);
         } else {
           mData[localIdx] = computeDensityAt(field, ctx, vx, vy, vz);
@@ -453,6 +501,45 @@ export function getChunkMeshSubRegion(
     y1: gy1 - my0,
     z1: gz1 - mz0,
   };
+}
+
+// Promote a FullSolid or FullEmpty chunk to Full with real density data for deformation.
+// Allocates buffer space and fills with actual density values from computeDensityAt.
+export function promoteChunkWithData(
+  field: ChunkedVoxelField,
+  ctx: ChunkedFieldContext,
+  chunkIdx: number,
+): void {
+  const cls = field.chunkClass[chunkIdx];
+  if (cls === CHUNK_FULL && field.chunkOffsets[chunkIdx] >= 0) return; // already full
+
+  const offset = promoteChunk(field, chunkIdx);
+  if (offset < 0) return;
+
+  // Regenerate real density values for the chunk
+  const cs = field.chunkSize;
+  const cy = chunkIdx % (field.chunkDimY * field.chunkDimZ);
+  const cx = Math.floor(chunkIdx / (field.chunkDimY * field.chunkDimZ));
+  const cz = cy % field.chunkDimZ;
+  const cyy = Math.floor(cy / field.chunkDimZ);
+
+  const gx0 = cx * cs;
+  const gy0 = cyy * cs;
+  const gz0 = cz * cs;
+  const gx1 = Math.min(gx0 + cs, field.dimX);
+  const gy1 = Math.min(gy0 + cs, field.dimY);
+  const gz1 = Math.min(gz0 + cs, field.dimZ);
+
+  for (let vx = gx0; vx < gx1; vx++) {
+    for (let vy = gy0; vy < gy1; vy++) {
+      for (let vz = gz0; vz < gz1; vz++) {
+        const lx = vx - gx0;
+        const ly = vy - gy0;
+        const lz = vz - gz0;
+        field.view[offset + lx * cs * cs + ly * cs + lz] = computeDensityAt(field, ctx, vx, vy, vz);
+      }
+    }
+  }
 }
 
 // Sample terrain surface height using a ChunkedVoxelField (evaluates density directly,

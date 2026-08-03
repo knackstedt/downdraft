@@ -19,7 +19,8 @@ export enum TerrainType {
 
 // Re-export generic chunked voxel field types from the plugin
 export {
-    getChunkedVoxel,
+    CHUNK_EMPTY, CHUNK_FULL, CHUNK_SOLID, getChunkedVoxel,
+    promoteChunk,
     setChunkedVoxel
 } from "@downdraft/plugin-marching-cubes";
 export type { ChunkedVoxelField } from "@downdraft/plugin-marching-cubes";

@@ -918,6 +918,10 @@ export class EntityRenderer {
     this.islandTerrainRenderer.processIslandChunkStream(playerX, playerZ);
   }
 
+  preBakeAllChunks(playerX: number, playerZ: number): void {
+    this.islandTerrainRenderer.preBakeAllChunks(playerX, playerZ);
+  }
+
   // --- Voxel data ---
   getNearbyVoxelData(
     camX: number, camY: number, camZ: number,

@@ -104,6 +104,8 @@ export class WebGPURenderer {
   private gpuProfiler: GPUProfiler | null = null;
   private gpuResourceTracker: GPUResourceTracker | null = null;
 
+  private preBakeDone: boolean = false;
+
   private skyPrevWeatherType: WeatherType = WeatherType.Clear;
   private skyDisplayedWeatherType: WeatherType = WeatherType.Clear;
   private skyWeatherBlend: number = 1.0;
@@ -942,7 +944,15 @@ export class WebGPURenderer {
       }
     }
     if (viewportIdx === 0) { this.waterPass!.updateDynamics(this.wakeArray, wakeCount, this.shoreArray, shoreCount); }
-    if (viewportIdx === 0) { this.entityRenderer!.processPendingDeformations(); this.entityRenderer!.processIslandChunkStream(camera.position[0], camera.position[2]); }
+    if (viewportIdx === 0) {
+      this.entityRenderer!.processPendingDeformations();
+      if (!this.preBakeDone) {
+        this.entityRenderer!.preBakeAllChunks(camera.position[0], camera.position[2]);
+        this.preBakeDone = true;
+      } else {
+        this.entityRenderer!.processIslandChunkStream(camera.position[0], camera.position[2]);
+      }
+    }
     if (viewportIdx === 0 && this.cloudSystem) { this.cloudSystem.update(dt, playerPos, windDir.x, windDir.z, windSpeed, weatherType); }
     this.lightingSystem!.upload([camera.position[0], camera.position[1], camera.position[2]]);
     this.entityRenderer!.uploadInstanceData();

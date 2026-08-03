@@ -4,6 +4,14 @@
 // Stores voxel data in fixed-size chunks for memory-efficient terrain.
 // Only non-empty chunks are allocated in the buffer, indexed via chunkOffsets.
 //
+// Chunk classification (chunkClass) reduces memory by skipping chunks that are
+// entirely solid (FullSolid) or entirely empty (FullEmpty) — only surface chunks
+// (Full) get buffer space allocated.
+//
+
+export const CHUNK_EMPTY = 0;   // FullEmpty: all voxels below isoLevel
+export const CHUNK_SOLID = 1;   // FullSolid: all voxels above isoLevel
+export const CHUNK_FULL = 2;    // Full: contains surface, needs buffer storage
 
 export interface ChunkedVoxelField {
   dimX: number;
@@ -28,6 +36,7 @@ export interface ChunkedVoxelField {
   view: Float32Array;
   chunkOffsets: Int32Array;
   chunkGenerated: Uint8Array;
+  chunkClass: Uint8Array;       // 0=FullEmpty, 1=FullSolid, 2=Full
   totalChunkSlots: number;
   nextChunkOffset: number;
 
@@ -68,6 +77,7 @@ export function createChunkedVoxelField(
   const view = new Float32Array(buffer);
   const chunkOffsets = new Int32Array(totalChunks).fill(-1);
   const chunkGenerated = new Uint8Array(totalChunks);
+  const chunkClass = new Uint8Array(totalChunks); // default 0 = FullEmpty
 
   return {
     dimX, dimY, dimZ,
@@ -79,7 +89,7 @@ export function createChunkedVoxelField(
     chunkDimX, chunkDimY, chunkDimZ,
     voxelsPerChunk,
     buffer, view,
-    chunkOffsets, chunkGenerated,
+    chunkOffsets, chunkGenerated, chunkClass,
     totalChunkSlots,
     nextChunkOffset: 0,
     chunkX, chunkZ,
@@ -93,6 +103,10 @@ export function getChunkedVoxel(field: ChunkedVoxelField, x: number, y: number, 
   const cy = y >>> field.chunkBits;
   const cz = z >>> field.chunkBits;
   const chunkIdx = cx * field.chunkDimY * field.chunkDimZ + cy * field.chunkDimZ + cz;
+  const cls = field.chunkClass[chunkIdx];
+  if (cls === CHUNK_SOLID) return 1.0;   // FullSolid sentinel
+  if (cls === CHUNK_EMPTY) return -1.0;  // FullEmpty sentinel
+  // CHUNK_FULL: look up in buffer
   const offset = field.chunkOffsets[chunkIdx];
   if (offset < 0) return -1.0;
   const lx = x & field.chunkMask;
@@ -108,6 +122,8 @@ export function setChunkedVoxel(field: ChunkedVoxelField, x: number, y: number, 
   const cy = y >>> field.chunkBits;
   const cz = z >>> field.chunkBits;
   const chunkIdx = cx * field.chunkDimY * field.chunkDimZ + cy * field.chunkDimZ + cz;
+  const cls = field.chunkClass[chunkIdx];
+  if (cls !== CHUNK_FULL) return;  // Only write to Full chunks; others need promotion first
   const offset = field.chunkOffsets[chunkIdx];
   if (offset < 0) return;
   const lx = x & field.chunkMask;
@@ -131,9 +147,30 @@ export function allocateChunk(field: ChunkedVoxelField, chunkIdx: number): numbe
   const offset = field.nextChunkOffset;
   field.nextChunkOffset += field.voxelsPerChunk;
   field.chunkOffsets[chunkIdx] = offset;
+  field.chunkClass[chunkIdx] = CHUNK_FULL;
   return offset;
 }
 
 export function markChunkGenerated(field: ChunkedVoxelField, chunkIdx: number): void {
   field.chunkGenerated[chunkIdx] = 1;
+}
+
+// Promote a FullSolid or FullEmpty chunk to Full so it can be deformed.
+// Allocates buffer space and returns the offset, or -1 if no space.
+export function promoteChunk(field: ChunkedVoxelField, chunkIdx: number): number {
+  if (field.chunkClass[chunkIdx] === CHUNK_FULL && field.chunkOffsets[chunkIdx] >= 0) {
+    return field.chunkOffsets[chunkIdx];
+  }
+  const offset = allocateChunk(field, chunkIdx);
+  if (offset < 0) return -1;
+  // Fill with sentinel values based on previous class
+  const vpc = field.voxelsPerChunk;
+  if (field.chunkClass[chunkIdx] === CHUNK_SOLID || field.chunkClass[chunkIdx] === CHUNK_FULL) {
+    field.view.fill(1.0, offset, offset + vpc);
+  } else {
+    field.view.fill(-1.0, offset, offset + vpc);
+  }
+  field.chunkClass[chunkIdx] = CHUNK_FULL;
+  field.chunkGenerated[chunkIdx] = 1; // mark as generated (sentinel data)
+  return offset;
 }
