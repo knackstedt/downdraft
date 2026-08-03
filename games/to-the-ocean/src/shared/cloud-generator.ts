@@ -4,8 +4,8 @@
 // The mesh covers a region around the player and scrolls as the player moves.
 // ============================================================================
 
+import { VoxelField } from "@downdraft/plugin-marching-cubes";
 import { PerlinNoise3D } from "./perlin-noise-3d";
-import { VoxelField } from "./terrain-types";
 import { WeatherType } from "./types";
 
 // --- Cloud layer types ---

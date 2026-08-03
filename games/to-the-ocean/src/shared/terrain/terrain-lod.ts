@@ -1,7 +1,7 @@
 // Extracted from TerrainGenerator.ts — part of terrain decomposition
 
+import { ChunkedVoxelField } from "@downdraft/plugin-marching-cubes";
 import { TERRAIN_CONFIG } from "../terrain-config";
-import { ChunkedVoxelField } from "../terrain-types";
 import { ChunkedFieldContext, computeDensityAt } from "./terrain-chunked";
 
 // Get the appropriate voxel size for a given distance from the player.

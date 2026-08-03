@@ -2,6 +2,7 @@
 // Entity Renderer — facade that delegates to sub-renderers for each entity type
 // ============================================================================
 
+import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/plugin-models";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -14,8 +15,6 @@ import {
 import { SimBufferReader } from "@shared/sim-buffer";
 import { EntityType, PortSize } from "@shared/types";
 import { CameraState } from "./camera-system";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphics-config";
-import { calculateViewProj } from "./math-utils";
 
 import { ENTITY_WGSL } from "./shaders/entity-shaders";
 

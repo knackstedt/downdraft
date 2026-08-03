@@ -1,5 +1,6 @@
 // SharedArrayBuffer writing — extracted from Simulation.ts
 
+import { WeatherSystem } from "@downdraft/plugin-weather";
 import {
     shoreDamping,
     shoreDisplacement,
@@ -17,7 +18,6 @@ import { getGridStateForUI } from "./inventory/inventory-system";
 import { RapierPhysicsSystem } from "./physics/rapier-physics-system";
 import { fastCos, fastSin } from "./sim-trig";
 import type { SimulationEntityManagerAccess } from "./simulation-entity-manager";
-import { WeatherSystem } from "./weather/weather-system";
 import { ChunkManager } from "./world/chunk-manager";
 
 export interface SimulationBufferWriterAccess extends SimulationEntityManagerAccess {

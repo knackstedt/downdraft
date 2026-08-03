@@ -1,5 +1,5 @@
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { EntityType } from "@shared/types";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphics-config";
 import { HITBOX_WGSL, ISLAND_WIREFRAME_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
 

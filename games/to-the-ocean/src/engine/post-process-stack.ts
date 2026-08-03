@@ -1,6 +1,5 @@
 // Re-export PostProcessStack from @downdraft/core with game's depth format
-import { PostProcessStack as CorePostProcessStack } from "@downdraft/core";
-import { DEPTH_FORMAT } from "./graphics-config";
+import { PostProcessStack as CorePostProcessStack, DEPTH_FORMAT } from "@downdraft/core";
 
 export interface ViewportRect { x: number; y: number; w: number; h: number; }
 

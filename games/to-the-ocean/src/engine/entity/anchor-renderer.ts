@@ -1,7 +1,7 @@
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { ANCHOR_BOW_OFFSET, ANCHOR_DEPTH } from "@shared/constants";
 import { ENT, SimBufferReader } from "@shared/sim-buffer";
 import { EntityType } from "@shared/types";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphics-config";
 import { BOAT_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
 

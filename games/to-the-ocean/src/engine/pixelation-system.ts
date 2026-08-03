@@ -13,7 +13,7 @@ export interface ViewportRect {
   h: number;
 }
 
-import { DEPTH_FORMAT } from "./graphics-config";
+import { DEPTH_FORMAT } from "@downdraft/core";
 
 const PIXELATION_WGSL = /* wgsl */ `
 struct PostProcessUniforms {

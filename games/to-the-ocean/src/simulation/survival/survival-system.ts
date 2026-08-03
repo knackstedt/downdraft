@@ -18,9 +18,6 @@ import { BiomeType } from "../../shared/types";
 import { BiomeSystem } from "../world/biome-system";
 import { ChunkManager } from "../world/chunk-manager";
 
-export { SURVIVAL_FLAGS } from "@downdraft/plugin-survival";
-export type { SurvivalBiomeProvider, SurvivalConfig, SurvivalPlayer } from "@downdraft/plugin-survival";
-
 const GAME_SURVIVAL_CONFIG: SurvivalConfig = {
   ...DEFAULT_SURVIVAL_CONFIG,
   oxygenDrainRate: PLAYER_OXYGEN_DRAIN_RATE,

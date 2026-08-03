@@ -1,12 +1,12 @@
 // Extracted from TerrainGenerator.ts — part of terrain decomposition
 
+import { ChunkedVoxelField, VoxelField } from "@downdraft/plugin-marching-cubes";
 import { extractMesh, extractMeshSubRegion } from "../marching-cubes";
 import { PerlinNoise3D } from "../perlin-noise-3d";
 import { TERRAIN_CONFIG } from "../terrain-config";
-import { ChunkedVoxelField, getChunkedVoxel, VoxelField } from "../terrain-types";
 import { PerlinNoise } from "../world/perlin-noise";
-import { BlobCenter, IslandBlob, generateIslandBlobs, smoothUnion, mulberry32 } from "./terrain-voxel-field";
-import { ChunkedFieldContext, computeDensityAt, createChunkedVoxelField, ensureChunkGenerated } from "./terrain-chunked";
+import { ChunkedFieldContext, computeDensityAt } from "./terrain-chunked";
+import { BlobCenter, mulberry32, smoothUnion } from "./terrain-voxel-field";
 
 // no need to generate chunks). Returns Y in unit space.
 export function sampleTerrainHeightChunked(

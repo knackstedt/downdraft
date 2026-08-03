@@ -4,11 +4,9 @@
 // Far-zone particles are gravity-only VFX with no collision cost.
 // ============================================================================
 
-import type { ITrackedRenderPass } from "@downdraft/core";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT, calculateViewProj, type ITrackedRenderPass } from "@downdraft/core";
 import { WeatherType } from "@shared/types";
 import { CameraState } from "./camera-system";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphics-config";
-import { calculateViewProj } from "./math-utils";
 
 // --- Particle layout (12 floats = 48 bytes per particle) ---
 // posX, posY, posZ, velX, velY, velZ, life, size, colorR, colorG, colorB, alive

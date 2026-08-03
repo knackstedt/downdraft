@@ -4,6 +4,7 @@
 // and highlights the hit entity's wireframe. Visible in 3rd-person & freecam.
 // ============================================================================
 
+import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import {
     BOAT_CELL_WORLD_SIZE,
@@ -16,8 +17,6 @@ import {
 import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
 import { CameraMode, EntityType } from "@shared/types";
 import type { CameraState } from "./camera-system";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphics-config";
-import { calculateViewProj } from "./math-utils";
 
 const RAY_MAX_DIST = 60; // matches GUN_RANGE
 const RAY_THICKNESS = 0.06; // world-space half-extent of the ray box cross-section

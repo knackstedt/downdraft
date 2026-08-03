@@ -1,9 +1,8 @@
 // Extracted from TerrainGenerator.ts — part of terrain decomposition
 
-import { extractMesh, extractMeshSubRegion } from "../marching-cubes";
+import { VoxelField } from "@downdraft/plugin-marching-cubes";
 import { PerlinNoise3D } from "../perlin-noise-3d";
 import { TERRAIN_CONFIG } from "../terrain-config";
-import { ChunkedVoxelField, getChunkedVoxel, VoxelField } from "../terrain-types";
 import { PerlinNoise } from "../world/perlin-noise";
 
 export function mulberry32(seed: number): () => number {

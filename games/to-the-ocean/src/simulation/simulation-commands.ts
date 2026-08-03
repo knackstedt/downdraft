@@ -1,5 +1,6 @@
 // Command handling — extracted from Simulation.ts
 
+import { WeatherSystem } from "@downdraft/plugin-weather";
 import {
     BiomeType,
     GameMode,
@@ -21,7 +22,6 @@ import { LicenseSystem } from "./player/license-system";
 import type { SimEntity, SimPlayer } from "./simulation";
 import type { SimulationEntityManagerAccess } from "./simulation-entity-manager";
 import { SurvivalSystem } from "./survival/survival-system";
-import { WeatherSystem } from "./weather/weather-system";
 import { ChunkManager } from "./world/chunk-manager";
 import { IslandManager } from "./world/island-manager";
 import { PortSystem } from "./world/port-system";

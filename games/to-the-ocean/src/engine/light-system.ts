@@ -3,11 +3,9 @@
 // Uses a read-only storage buffer shared across all entity pipelines.
 // ============================================================================
 
-import type { ITrackedRenderPass } from "@downdraft/core";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT, calculateViewProj, type ITrackedRenderPass } from "@downdraft/core";
 import type { CameraState } from "./camera-system";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphics-config";
 import { LightingSystem } from "./lighting-system";
-import { calculateViewProj } from "./math-utils";
 
 export const MAX_POINT_LIGHTS = 32;
 export const MAX_SPOT_LIGHTS = 8;

@@ -4,10 +4,10 @@
 // Generates low-poly mesh geometry in unit space (same format as island mesh).
 // ============================================================================
 
+import type { VoxelField } from "@downdraft/plugin-marching-cubes";
 import { computeFlatNormals } from "./island-noise";
 import { generateVoxelField, sampleTerrainHeight } from "./terrain";
 import { TERRAIN_CONFIG } from "./terrain-config";
-import type { VoxelField } from "./terrain-types";
 import { BiomeType, IslandSize } from "./types";
 import { PerlinNoise } from "./world/perlin-noise";
 

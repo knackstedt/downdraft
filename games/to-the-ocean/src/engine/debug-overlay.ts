@@ -3,11 +3,11 @@
 // Projects 3D world positions to screen space and draws debug visuals
 // ============================================================================
 
+import { calculateViewProj } from "@downdraft/core";
 import { CHUNK_SIZE, CHUNKS_VISIBLE } from "@shared/constants";
 import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
 import type { CameraState } from "./camera-system";
 import { CanvasResizeWatcher } from "./canvas-resize-watcher";
-import { calculateViewProj } from "./math-utils";
 
 export class DebugOverlay {
   private canvas: HTMLCanvasElement;

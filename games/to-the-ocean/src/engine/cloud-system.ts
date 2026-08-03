@@ -4,17 +4,16 @@
 // Layers scroll with the player and drift with wind.
 // ============================================================================
 
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT, calculateViewProj } from "@downdraft/core";
+import { ExtractedMesh } from "@downdraft/plugin-marching-cubes";
 import {
     CLOUD_CONFIG,
     CloudLayerType,
     generateCloudLayerField,
 } from "@shared/cloud-generator";
 import { extractCloudMesh } from "@shared/marching-cubes";
-import { ExtractedMesh } from "@shared/terrain-types";
 import { WeatherType } from "@shared/types";
 import { CameraState } from "./camera-system";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphics-config";
-import { calculateViewProj } from "./math-utils";
 
 // --- WGSL Shader ---
 const CLOUD_WGSL = /* wgsl */ `

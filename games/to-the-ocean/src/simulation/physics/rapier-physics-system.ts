@@ -5,6 +5,7 @@
 // ============================================================================
 
 import RAPIER from "@dimforge/rapier3d-compat";
+import type { VoxelField } from "@downdraft/plugin-marching-cubes";
 import {
     getPortColliderDims,
     getPortCollisionBoxes,
@@ -17,7 +18,6 @@ import {
 } from "../../shared/constants";
 import { PLR_FLAG } from "../../shared/sim-buffer";
 import { generateTerrainTrimeshSubRegion } from "../../shared/terrain";
-import type { VoxelField } from "../../shared/terrain-types";
 import { EntityFlags, EntityType, EntityTypeNames } from "../../shared/types";
 import { BoatCellSystem } from "../boat/boat-cell-system";
 import { BoatDesignSystem } from "../boat/boat-design-system";
