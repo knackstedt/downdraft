@@ -12,7 +12,7 @@ const rendererRoot = game
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence", "@bokuweb/zstd-wasm", "xxhash-wasm"] })],
+    plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence"] })],
     build: {
       rollupOptions: {
         input: {

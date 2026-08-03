@@ -375,6 +375,7 @@ function getSaveStore(): FileSaveStore {
     saveStore = new FileSaveStore({
       saveDir,
       engineVersion: app.getVersion() || "0.1.0",
+      skipMigrations: true,
     });
     saveStore.onWarning((w: { kind: string; slot: string; message: string }) => {
       log.warn("save", `[${w.kind}] slot='${w.slot}': ${w.message}`);
