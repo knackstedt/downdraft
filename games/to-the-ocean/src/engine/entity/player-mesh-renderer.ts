@@ -1,6 +1,6 @@
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/plugin-models";
 import { MAX_BONES } from "@shared/constants";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphics-config";
 import { PLAYER_WGSL, SKINNED_PLAYER_WGSL, SKINNING_COMPUTE_WGSL } from "../shaders/entity-shaders";
 import { SkeletonAnimator } from "../skeleton-animator";
 import type { EntityRenderContext } from "./render-context";

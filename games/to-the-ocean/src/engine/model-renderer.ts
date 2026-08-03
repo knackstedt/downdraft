@@ -2,10 +2,9 @@
 // Model Renderer — renders imported 3D models (FBX/GLTF/OBJ) via WebGPU
 // ============================================================================
 
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT, calculateViewProj } from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/plugin-models";
 import { CameraState } from "./camera-system";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphics-config";
-import { calculateViewProj } from "./math-utils";
 
 const MODEL_WGSL = /* wgsl */ `
 struct Uniforms {

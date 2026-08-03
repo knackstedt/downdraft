@@ -4,10 +4,10 @@
 // (extractMeshFromField) lives in @downdraft/plugin-marching-cubes.
 // ============================================================================
 
+import type { ExtractedMesh, VoxelField } from "@downdraft/plugin-marching-cubes";
 import { extractMeshFromField, extractMeshFromFieldTetra, type MeshColorFn } from "@downdraft/plugin-marching-cubes";
 import { extractMeshFromField as extractMeshFromFieldSN } from "@downdraft/plugin-surface-nets";
 import { TERRAIN_CONFIG } from "./terrain-config";
-import type { ExtractedMesh, VoxelField } from "./terrain-types";
 import { TerrainType } from "./terrain-types";
 
 // Get terrain type at a surface point based on height and gradient

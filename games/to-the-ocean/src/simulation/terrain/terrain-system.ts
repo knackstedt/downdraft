@@ -3,6 +3,7 @@
 // Runs in the sim worker. Handles deformation from all damage sources.
 // ============================================================================
 
+import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@downdraft/plugin-marching-cubes";
 import {
     createChunkedVoxelField, ensureChunkGenerated,
     generatePortVoxelField,
@@ -12,7 +13,7 @@ import {
     type ChunkedFieldContext,
 } from "../../shared/terrain";
 import { TERRAIN_CONFIG } from "../../shared/terrain-config";
-import { CHUNK_FULL, ChunkedVoxelField, TerrainDeformation, VoxelField, getChunkedVoxel, setChunkedVoxel } from "../../shared/terrain-types";
+import { TerrainDeformation } from "../../shared/terrain-types";
 import { EntityType, TerrainDeformationBroadcast } from "../../shared/types";
 import { SimEntity } from "../simulation";
 

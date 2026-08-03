@@ -3,6 +3,7 @@
 // Extracted from WebGPURenderer for modularity
 // ============================================================================
 
+import type { PBRSystem } from "@downdraft/core";
 import { MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
 import type { GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
 import type { ModelRenderer } from "@downdraft/plugin-entities";
@@ -18,7 +19,6 @@ import type { CameraSystem } from "./camera-system";
 import type { DebugOverlay } from "./debug-overlay";
 import type { DebugRaycast } from "./debug-raycast";
 import type { EntityRenderer } from "./entity-renderer";
-import type { PBRSystem } from "./pbr-system";
 import type { PostProcessStack } from "./post-process-stack";
 
 export class RendererAccessors {

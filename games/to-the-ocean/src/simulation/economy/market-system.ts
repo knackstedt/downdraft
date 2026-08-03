@@ -7,8 +7,6 @@
 import { DEFAULT_ECONOMY_CONFIG, MarketSystem as PluginMarketSystem, type EconomyConfig } from "@downdraft/plugin-economy";
 import { BARGE_INVENTORY_MULTIPLIER, PRICE_MAX_MODIFIER, PRICE_MIN_MODIFIER, PRICE_RECOVERY_HOURS, SIM_TICK_RATE } from "../../shared/constants";
 
-export type { MarketListing } from "@downdraft/plugin-economy";
-
 const GAME_ECONOMY_CONFIG: EconomyConfig = {
   ...DEFAULT_ECONOMY_CONFIG,
   priceRecoveryHours: PRICE_RECOVERY_HOURS,

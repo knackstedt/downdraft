@@ -3,10 +3,10 @@
 // Projects 3D world positions to 2D screen space and positions DOM labels
 // ============================================================================
 
-import type { CameraState } from "./camera-system";
-import { calculateViewProj } from "./math-utils";
+import { calculateViewProj } from "@downdraft/core";
+import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
 import { EntityType, EntityTypeNames } from "@shared/types";
-import { SimBufferReader, ENT, PLR } from "@shared/sim-buffer";
+import type { CameraState } from "./camera-system";
 
 interface LabelEntry {
   el: HTMLDivElement;

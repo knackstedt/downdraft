@@ -1,5 +1,6 @@
 // Tick orchestration — extracted from Simulation.ts
 
+import { WeatherSystem } from "@downdraft/plugin-weather";
 import { SIM_TICK_DT } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
 import {
@@ -36,7 +37,6 @@ import {
 import { SurvivalBiomeAdapter, SurvivalSystem } from "./survival/survival-system";
 import { TerrainSystem } from "./terrain/terrain-system";
 import { ToolSystem } from "./tools/tool-system";
-import { WeatherSystem } from "./weather/weather-system";
 import { ChunkManager } from "./world/chunk-manager";
 import { IslandManager } from "./world/island-manager";
 import { PortSystem } from "./world/port-system";

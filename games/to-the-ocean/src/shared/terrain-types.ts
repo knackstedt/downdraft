@@ -1,8 +1,8 @@
 // ============================================================================
 // TerrainTypes — shared types for volumetric island terrain
 // ============================================================================
-// Re-exports generic types from @downdraft/plugin-marching-cubes and adds
-// game-specific terrain types and SAB header layout.
+// Game-specific terrain types and SAB header layout.
+// Generic voxel field types come from @downdraft/plugin-marching-cubes.
 //
 
 // Terrain material type at a surface point (determines vertex color)
@@ -16,17 +16,6 @@ export enum TerrainType {
   Stone = 6,
   Rock = 7,
 }
-
-// Re-export generic chunked voxel field types from the plugin
-export {
-    CHUNK_EMPTY, CHUNK_FULL, CHUNK_SOLID, getChunkedVoxel,
-    promoteChunk,
-    setChunkedVoxel
-} from "@downdraft/plugin-marching-cubes";
-export type { ChunkedVoxelField } from "@downdraft/plugin-marching-cubes";
-
-// Re-export VoxelField and ExtractedMesh from the marching cubes plugin
-export type { ExtractedMesh, VoxelField } from "@downdraft/plugin-marching-cubes";
 
 // A deformation request to modify terrain
 export interface TerrainDeformation {

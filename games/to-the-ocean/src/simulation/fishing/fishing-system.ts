@@ -8,6 +8,7 @@
 //
 
 import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps } from "@downdraft/plugin-fishing";
+import { WeatherSystem } from "@downdraft/plugin-weather";
 import {
     FISHING_CAST_RANGE,
     FISHING_FISH_PULL_MULT,
@@ -30,12 +31,8 @@ import { SimToMainMessage } from "../../shared/types";
 import { WaterBufferWriter } from "../../shared/water-buffer";
 import { addItem } from "../inventory/inventory-system";
 import { SimPlayer } from "../simulation";
-import { WeatherSystem } from "../weather/weather-system";
 import { BiomeSystem } from "../world/biome-system";
 
-
-export { FishingMethod } from "@downdraft/plugin-fishing";
-export type { FishingMinigame } from "@downdraft/plugin-fishing";
 
 const GAME_FISHING_CONFIG: FishingConfig = {
   ...DEFAULT_FISHING_CONFIG,

@@ -1,6 +1,6 @@
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
 import { MAX_ENTITIES } from "@shared/constants";
 import { EntityType } from "@shared/types";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphics-config";
 import { INSTANCED_ENTITY_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
 
