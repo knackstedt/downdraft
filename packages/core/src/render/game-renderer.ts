@@ -134,6 +134,8 @@ export class GameRenderer implements CanvasResizeHandler {
   private fps = 0;
   private frameCount = 0;
   private fpsTimer = 0;
+  private lastResourceStatsTime = 0;
+  private static readonly RESOURCE_STATS_INTERVAL = 1000;
 
   // Frame rate limiter
   private targetFrameTime = 0;
@@ -601,7 +603,8 @@ export class GameRenderer implements CanvasResizeHandler {
         }
       }
 
-      if (this.gpuResourceTracker) {
+      if (this.gpuResourceTracker && now - this.lastResourceStatsTime > GameRenderer.RESOURCE_STATS_INTERVAL) {
+        this.lastResourceStatsTime = now;
         const resStats = this.gpuResourceTracker.getStats();
         this.telemetryCollector.recordResourceStats({
           textureCount: resStats.textureCount,

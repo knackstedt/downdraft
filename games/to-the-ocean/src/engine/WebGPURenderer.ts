@@ -106,11 +106,20 @@ export class WebGPURenderer {
 
   private preBakeDone: boolean = false;
 
+  private cachedVoxelData: VoxelCollisionData | null = null;
+  private cachedVoxelCamX = NaN;
+  private cachedVoxelCamY = NaN;
+  private cachedVoxelCamZ = NaN;
+  private static readonly VOXEL_CACHE_THRESHOLD = 5.0;
+
   private skyPrevWeatherType: WeatherType = WeatherType.Clear;
   private skyDisplayedWeatherType: WeatherType = WeatherType.Clear;
   private skyWeatherBlend: number = 1.0;
   private skyLastTime: number = 0;
   private readonly skyWeatherTransitionDuration: number = 30.0;
+
+  private lastResourceStatsTime = 0;
+  private static readonly RESOURCE_STATS_INTERVAL = 1000;
 
   onInputProcessed: (() => void) | null = null;
 
@@ -749,8 +758,21 @@ export class WebGPURenderer {
         dc.target[0] = cp[0]; dc.target[1] = cp[1]; dc.target[2] = cp[2] - 1; dc.aspect = this.canvas.width / this.canvas.height;
         let vd: VoxelCollisionData | null = null;
         if (this.entityRenderer) {
-          const raw = this.entityRenderer.getNearbyVoxelData(cp[0], cp[1], cp[2], COLLISION_RADIUS, MAX_VOXEL_FLOATS);
-          if (raw) { vd = { data: raw.data, originX: raw.originX, originY: raw.originY, originZ: raw.originZ, voxelSize: raw.voxelSize, dimX: raw.dimX, dimY: raw.dimY, dimZ: raw.dimZ, isoLevel: raw.isoLevel }; }
+          const dx = cp[0] - this.cachedVoxelCamX;
+          const dy = cp[1] - this.cachedVoxelCamY;
+          const dz = cp[2] - this.cachedVoxelCamZ;
+          if (this.cachedVoxelData && (dx * dx + dy * dy + dz * dz) < WebGPURenderer.VOXEL_CACHE_THRESHOLD * WebGPURenderer.VOXEL_CACHE_THRESHOLD) {
+            vd = this.cachedVoxelData;
+          } else {
+            const raw = this.entityRenderer.getNearbyVoxelData(cp[0], cp[1], cp[2], COLLISION_RADIUS, MAX_VOXEL_FLOATS);
+            if (raw) {
+              vd = { data: raw.data, originX: raw.originX, originY: raw.originY, originZ: raw.originZ, voxelSize: raw.voxelSize, dimX: raw.dimX, dimY: raw.dimY, dimZ: raw.dimZ, isoLevel: raw.isoLevel };
+              this.cachedVoxelData = vd;
+              this.cachedVoxelCamX = cp[0]; this.cachedVoxelCamY = cp[1]; this.cachedVoxelCamZ = cp[2];
+            } else {
+              this.cachedVoxelData = null;
+            }
+          }
         }
         if (this.device) {
           const ce = this.device.createCommandEncoder();
@@ -795,7 +817,8 @@ export class WebGPURenderer {
       this.telemetryCollector.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
       this.telemetryCollector.recordGraphSample(dt * 1000);
       if (this.gpuProfiler) { for (const t of this.gpuProfiler.getPassTimings()) { this.telemetryCollector.recordPassTiming(t); } }
-      if (this.gpuResourceTracker) {
+      if (this.gpuResourceTracker && now - this.lastResourceStatsTime > WebGPURenderer.RESOURCE_STATS_INTERVAL) {
+        this.lastResourceStatsTime = now;
         const rs = this.gpuResourceTracker.getStats();
         this.telemetryCollector.recordResourceStats({ textureCount: rs.textureCount, bufferCount: rs.bufferCount, totalBytes: rs.totalBytes, textureBytes: rs.textureBytes, bufferBytes: rs.bufferBytes, resources: rs.resources.map(r => ({ id: r.id, type: r.type, label: r.label, size: r.size, callsite: r.callsite, width: r.width, height: r.height, format: r.format })) });
       }
