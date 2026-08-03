@@ -5,7 +5,7 @@
 
 export const TERRAIN_CONFIG = {
   // --- Voxel grid ---
-  voxelSize: .5,            // world units per voxel (the "minimum poly size")
+  voxelSize: 5.5,            // world units per voxel (the "minimum poly size")
   isoLevel: 0.0,             // density threshold for surface (positive = solid)
   maxVoxelMemory: 160_000_000, // max bytes per island voxel field (safety cap)
 

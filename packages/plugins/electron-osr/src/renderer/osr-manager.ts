@@ -3,14 +3,14 @@
 // ============================================================================
 
 import type {
-    AtlasLayout,
-    OSRIPC,
-    OSRPanelConfig,
-    OSRRendererConfig,
-    OSRRendererEvent,
-    OSRRendererStatus,
-    OSRSharedTexturePixelFormat,
-    WorldSpaceUIElement,
+  AtlasLayout,
+  OSRIPC,
+  OSRPanelConfig,
+  OSRRendererConfig,
+  OSRRendererEvent,
+  OSRRendererStatus,
+  OSRSharedTexturePixelFormat,
+  WorldSpaceUIElement,
 } from "../types.ts";
 import { OSRInputRouter, type MouseState } from "./input-router.ts";
 import { OSRTextureReceiverManager } from "./texture-receiver-manager.ts";
@@ -149,6 +149,22 @@ export class OSRManager {
     this.inputRouter?.handleKey(type, keyCode);
   }
 
+  focusBillboard(canvasWidth?: number, canvasHeight?: number): string | null {
+    const id = this.inputRouter?.focusBillboard() ?? null;
+    if (id && canvasWidth && canvasHeight) {
+      this.inputRouter?.setForcedFocusCanvasSize(canvasWidth, canvasHeight);
+    }
+    return id;
+  }
+
+  unfocusBillboard(): void {
+    this.inputRouter?.unfocusBillboard();
+  }
+
+  isForcedFocus(): boolean {
+    return this.inputRouter?.isForcedFocus() ?? false;
+  }
+
   destroy(): void {
     this.renderPass.destroy();
     this.textureManager.destroy();
@@ -200,7 +216,9 @@ export class OSRManager {
     if (!this.inputRouter && this.ipc) {
       this.inputRouter = new OSRInputRouter(
         config,
-        (rendererId, event) => this.ipc?.sendInputEvent(rendererId, event),
+        (rendererId, event) => {
+          this.ipc?.sendInputEvent(rendererId, event);
+        },
       );
     } else if (this.inputRouter) {
       this.inputRouter.updateConfig(config);
