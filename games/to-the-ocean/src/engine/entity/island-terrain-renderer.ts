@@ -1,5 +1,5 @@
-import { generateDecorationMesh, generateDecorations } from "@shared/IslandDecorations";
-import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
+import { generateDecorationMesh, generateDecorations } from "@shared/island-decorations";
+import { extractMesh, extractMeshSubRegion } from "@shared/marching-cubes";
 import {
     createChunkedVoxelField,
     generatePortVoxelField,
@@ -8,12 +8,12 @@ import {
     promoteChunkWithData,
     type ChunkedFieldContext,
 } from "@shared/terrain";
-import { TERRAIN_CONFIG } from "@shared/TerrainConfig";
-import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/TerrainTypes";
+import { TERRAIN_CONFIG } from "@shared/terrain-config";
+import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@shared/terrain-types";
 import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/types";
-import { PerlinNoise } from "@shared/world/PerlinNoise";
-import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
-import { generatePortMesh } from "../PortMeshGenerator";
+import { PerlinNoise } from "@shared/world/perlin-noise";
+import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphics-config";
+import { generatePortMesh } from "../port-mesh-generator";
 import { BOAT_WGSL, ISLAND_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
 

@@ -6,7 +6,7 @@
 // with shoaling (amplitude increases as waves approach the beach).
 // ============================================================================
 
-import { SimEntity } from "../simulation/Simulation";
+import { SimEntity } from "../simulation/simulation";
 import { generateIslandBlobs } from "./terrain";
 import { EntityType } from "./types";
 
