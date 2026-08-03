@@ -1,5 +1,5 @@
 // Barrel re-export for backward compatibility
-export * from "./TerrainLOD";
-export * from "./TerrainVoxelField";
-export * from "./TerrainChunked";
-export * from "./TerrainMesh";
+export * from "./terrain-lod";
+export * from "./terrain-voxel-field";
+export * from "./terrain-chunked";
+export * from "./terrain-mesh";

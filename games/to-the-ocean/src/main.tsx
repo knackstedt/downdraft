@@ -4,7 +4,7 @@
 
 import React from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import App from "./app";
 
 // Fonts — statically bundled via @fontsource (woff2/woff embedded in build, no CDN requests)
 import "@fontsource/doto/400.css";
@@ -20,12 +20,12 @@ import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft
 import { useDebugStore } from "@downdraft/plugin-devtools";
 import { ENT, PLR } from "@shared/sim-buffer";
 import { EntityType, SimToMainMessage } from "@shared/types";
-import { SceneInspector } from "./engine/SceneInspector";
-import { SimWebWorker, type SimWebWorkerConfig } from "./engine/SimWebWorker";
-import { WebGPURenderer } from "./engine/WebGPURenderer";
-import { simBridge } from "./simBridge";
-import { useGameStore } from "./stores/gameStore";
-import { useHotReloadStore } from "./stores/hotReloadStore";
+import { SceneInspector } from "./engine/scene-inspector";
+import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
+import { WebGPURenderer } from "./engine/webgpu-renderer";
+import { simBridge } from "./sim-bridge";
+import { useGameStore } from "./stores/game-store";
+import { useHotReloadStore } from "./stores/hot-reload-store";
 import "./styles/globals.css";
 
 async function bootstrap() {

@@ -12,7 +12,7 @@ import { InputBufferReader } from "@shared/input-buffer";
 import { PLR_FLAG, SimBufferWriter } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";
 import { WaterBufferWriter } from "@shared/water-buffer";
-import { Simulation } from "@sim/Simulation";
+import { Simulation } from "@sim/simulation";
 
 let simulation: Simulation | null = null;
 let stateHelper: SimStateHelper | null = null;
