@@ -5,6 +5,7 @@
 import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
 import { McpHttpTransport, type McpProxyHandler } from "@downdraft/mcp/http-transport";
+import { InputForwarder, OSRRendererManager } from "@downdraft/plugin-electron-osr/main-entry";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -132,6 +133,8 @@ if (process.platform === "linux") {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let osrManager: OSRRendererManager | null = null;
+let osrInputForwarder: InputForwarder | null = null;
 
 interface WindowState {
   displayId: number;
@@ -304,6 +307,15 @@ async function createWindow(): Promise<void> {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  // Initialize OSR manager
+  osrManager = new OSRRendererManager();
+  osrManager.setTargetWebContents(mainWindow.webContents);
+  osrManager.setEventCallback((event) => {
+    mainWindow?.webContents.send(IPC.OSR_RENDERER_EVENT, event);
+  });
+  osrManager.registerDisplayMetricsListener();
+  osrInputForwarder = new InputForwarder(osrManager);
 
   // Send display refresh rate to renderer
   let lastDisplayId = display.id;
@@ -554,6 +566,68 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.QUIT, () => {
     app.quit();
   });
+
+  // --- OSR (Offscreen Rendering) ---
+
+  ipcMain.handle(IPC.OSR_CREATE_RENDERER, async (_event, config: any) => {
+    if (!osrManager) throw new Error("OSR manager not initialized");
+    osrManager.createRenderer(config);
+  });
+
+  ipcMain.handle(IPC.OSR_DESTROY_RENDERER, async (_event, id: string) => {
+    if (!osrManager) return;
+    osrManager.destroyRenderer(id);
+  });
+
+  ipcMain.handle(IPC.OSR_ADD_PANEL, async (_event, config: any) => {
+    if (!osrManager) return null;
+    const renderer = osrManager.getRenderer(config.rendererId);
+    if (!renderer) return null;
+    const rect = renderer.addPanel(config);
+    if (rect) {
+      const layout = osrManager.getAtlasLayout(config.rendererId);
+      mainWindow?.webContents.send(IPC.OSR_PANEL_LAYOUT, config.rendererId, layout);
+    }
+    return rect;
+  });
+
+  ipcMain.handle(IPC.OSR_REMOVE_PANEL, async (_event, rendererId: string, panelId: string) => {
+    if (!osrManager) return null;
+    const renderer = osrManager.getRenderer(rendererId);
+    if (!renderer) return null;
+    renderer.removePanel(panelId);
+    const layout = osrManager.getAtlasLayout(rendererId);
+    mainWindow?.webContents.send(IPC.OSR_PANEL_LAYOUT, rendererId, layout);
+    return layout;
+  });
+
+  ipcMain.handle(IPC.OSR_UPDATE_PANEL, async (_event, rendererId: string, panelId: string, html: string) => {
+    if (!osrManager) return;
+    const renderer = osrManager.getRenderer(rendererId);
+    if (!renderer) return;
+    renderer.updatePanelContent(panelId, html);
+  });
+
+  ipcMain.on(IPC.OSR_UPDATE_DATA, (_event, rendererId: string, panelId: string, values: Record<string, string | number | boolean>) => {
+    if (!osrManager) return;
+    const renderer = osrManager.getRenderer(rendererId);
+    if (!renderer) return;
+    renderer.applyDataUpdate({ rendererId, panelId, values });
+  });
+
+  ipcMain.handle(IPC.OSR_SET_CONTENT, async (_event, rendererId: string, html: string) => {
+    if (!osrManager) return;
+    const renderer = osrManager.getRenderer(rendererId);
+    if (!renderer) return;
+    if (renderer.mode === "dedicated") {
+      (renderer as any).setContent(html);
+    }
+  });
+
+  ipcMain.on(IPC.OSR_INPUT_EVENT, (_event, rendererId: string, eventData: any) => {
+    if (!osrInputForwarder) return;
+    osrInputForwarder.forward({ rendererId, ...eventData });
+  });
 }
 
 app.whenReady().then(async () => {
@@ -607,6 +681,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", async () => {
+  osrManager?.destroy();
+  osrManager = null;
   await terminateDb();
 });
 

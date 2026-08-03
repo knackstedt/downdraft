@@ -5,6 +5,7 @@
   "main": "src/main/index.ts",
   "dependencies": {
     "@downdraft/core": "workspace:*",
+    "@downdraft/plugin-electron-osr": "workspace:*",
     "@downdraft/ui": "workspace:*"
   }
 }

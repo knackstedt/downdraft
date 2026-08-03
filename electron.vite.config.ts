@@ -12,7 +12,7 @@ const rendererRoot = game
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat"] })],
+    plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr"] })],
     build: {
       rollupOptions: {
         input: {
@@ -34,6 +34,9 @@ export default defineConfig({
         { find: /^@downdraft\/mcp$/, replacement: resolve("packages/mcp/src/index.ts") },
         { find: /^@downdraft\/shader-graph$/, replacement: resolve("packages/shader-graph/src/index.ts") },
         { find: /^@downdraft\/shader-graph\//, replacement: resolve("packages/shader-graph/src") + "/" },
+        { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve("packages/plugins/electron-osr/src/index.ts") },
+        { find: /^@downdraft\/plugin-electron-osr\/main-entry$/, replacement: resolve("packages/plugins/electron-osr/src/main-entry.ts") },
+        { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve("packages/plugins/electron-osr/src") + "/" },
       ],
     },
   },
@@ -118,6 +121,8 @@ export default defineConfig({
         { find: /^@downdraft\/plugin-crafting\//, replacement: resolve("packages/plugins/crafting/src") + "/" },
         { find: /^@downdraft\/mcp$/, replacement: resolve("packages/mcp/src/index.ts") },
         { find: /^@downdraft\/mcp\//, replacement: resolve("packages/mcp/src") + "/" },
+        { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve("packages/plugins/electron-osr/src/index.ts") },
+        { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve("packages/plugins/electron-osr/src") + "/" },
       ],
     },
     build: {
