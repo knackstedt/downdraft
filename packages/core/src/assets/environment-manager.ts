@@ -1,4 +1,3 @@
-import type { BackendTexture } from "../render/backend/types.ts";
 import { EquirectToCubemapConverter } from "./cubemap-converter.ts";
 import { IrradianceGenerator } from "./irradiance-generator.ts";
 import { createEquirectangularGPUTexture, createGPUCubemap, loadCubemapFromFiles } from "./loader-cubemap.ts";
@@ -7,11 +6,11 @@ import type { TextureData } from "./loader-texture.ts";
 import { PrefilteredSpecularGenerator } from "./prefilter-generator.ts";
 
 export interface EnvironmentMap {
-  cubemap: GPUTexture | BackendTexture;
-  irradiance: GPUTexture | BackendTexture;
-  prefilteredSpecular: (GPUTexture | BackendTexture)[];
+  cubemap: GPUTexture;
+  irradiance: GPUTexture;
+  prefilteredSpecular: GPUTexture[];
   prefilteredMaxMip: number;
-  brdfLUT: GPUTexture | BackendTexture | null;
+  brdfLUT: GPUTexture | null;
   faceSize: number;
 }
 

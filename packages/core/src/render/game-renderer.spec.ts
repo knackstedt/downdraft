@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
+import { describe, expect, it, vi } from "bun:test";
 import { GameRenderer } from "./game-renderer.ts";
 
 function createMockCanvas(): HTMLCanvasElement {
@@ -15,84 +15,6 @@ function createMockCanvas(): HTMLCanvasElement {
   } as unknown as HTMLCanvasElement;
   return canvas;
 }
-
-describe("GameRenderer — backend integration", () => {
-  let originalGpu: unknown;
-
-  beforeEach(() => {
-    originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-  });
-
-  afterEach(() => {
-    (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-  });
-
-  describe("getBackend", () => {
-    it("returns null before initBackend is called", () => {
-      const canvas = createMockCanvas();
-      const renderer = new GameRenderer(canvas);
-      expect(renderer.getBackend()).toBeNull();
-    });
-  });
-
-  describe("getBackendType", () => {
-    it("returns null before initBackend is called", () => {
-      const canvas = createMockCanvas();
-      const renderer = new GameRenderer(canvas);
-      expect(renderer.getBackendType()).toBeNull();
-    });
-  });
-
-  describe("initBackend", () => {
-    it("returns false when no backends are available", async () => {
-      (navigator as unknown as { gpu?: unknown }).gpu = undefined;
-      const canvas = createMockCanvas();
-      const renderer = new GameRenderer(canvas);
-      const result = await renderer.initBackend({ forceBackend: "webgpu" });
-      expect(result).toBe(false);
-      expect(renderer.getBackend()).toBeNull();
-      expect(renderer.getBackendType()).toBeNull();
-    });
-
-    it("returns false when WebGL2 is not available and WebGPU is forced", async () => {
-      (navigator as unknown as { gpu?: unknown }).gpu = undefined;
-      const canvas = createMockCanvas();
-      const renderer = new GameRenderer(canvas);
-      const result = await renderer.initBackend({ forceBackend: "webgpu" });
-      expect(result).toBe(false);
-    });
-
-    it("returns false when forceBackend is webgl2 but canvas has no WebGL2 context", async () => {
-      (navigator as unknown as { gpu?: unknown }).gpu = undefined;
-      const canvas = createMockCanvas();
-      const renderer = new GameRenderer(canvas);
-      const result = await renderer.initBackend({ forceBackend: "webgl2" });
-      expect(result).toBe(false);
-      expect(renderer.getBackend()).toBeNull();
-      expect(renderer.getBackendType()).toBeNull();
-    });
-
-    it("accepts BackendCreateOptions with forceBackend", async () => {
-      (navigator as unknown as { gpu?: unknown }).gpu = undefined;
-      const canvas = createMockCanvas();
-      const renderer = new GameRenderer(canvas);
-      // Should not throw, just return false
-      const result = await renderer.initBackend({
-        forceBackend: "webgl2",
-        powerPreference: "low-power",
-      });
-      expect(result).toBe(false);
-    });
-
-    it("accepts empty options object", async () => {
-      (navigator as unknown as { gpu?: unknown }).gpu = undefined;
-      const canvas = createMockCanvas();
-      const renderer = new GameRenderer(canvas);
-      const result = await renderer.initBackend();
-      expect(result).toBe(false);
-    });
-  });
-});
 
 describe("GameRenderer — viewport management", () => {
   it("starts with 1 viewport", () => {

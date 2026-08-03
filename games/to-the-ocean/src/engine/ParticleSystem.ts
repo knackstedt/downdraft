@@ -5,8 +5,6 @@
 // ============================================================================
 
 import type { ITrackedRenderPass } from "@downdraft/core";
-import type { RenderBackend } from "@downdraft/core/render/backend/render-backend";
-import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, TextureFormat } from "@downdraft/core/render/backend/types";
 import { WeatherType } from "@shared/types";
 import { CameraState } from "./CameraSystem";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./graphicsConfig";
@@ -387,28 +385,26 @@ export interface VoxelCollisionData {
 // ============================================================================
 
 export class ParticleSystem {
-  private device: GPUDevice | null;
-  private backend: RenderBackend | null;
-  private format: GPUTextureFormat | TextureFormat;
+  private device: GPUDevice;
+  private format: GPUTextureFormat;
 
   // Compute pipelines (one for emit, one for update — same bind group, different entry points)
-  // Compute is WebGPU-only — null on backend
   private computePipeline: GPUComputePipeline | null = null;
   private emitPipeline: GPUComputePipeline | null = null;
-  private computeBindGroup: GPUBindGroup | BackendBindGroup | null = null;
-  private computeBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private computeBindGroup: GPUBindGroup | null = null;
+  private computeBindGroupLayout: GPUBindGroupLayout | null = null;
 
   // Render pipeline
-  private renderPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  private renderBindGroup: GPUBindGroup | BackendBindGroup | null = null;
-  private renderBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private renderPipeline: GPURenderPipeline | null = null;
+  private renderBindGroup: GPUBindGroup | null = null;
+  private renderBindGroupLayout: GPUBindGroupLayout | null = null;
 
   // Buffers
-  private particleBuffer: GPUBuffer | BackendBuffer | null = null;
-  private simParamBuffer: GPUBuffer | BackendBuffer | null = null;
-  private counterBuffer: GPUBuffer | BackendBuffer | null = null;
-  private voxelBuffer: GPUBuffer | BackendBuffer | null = null;
-  private renderUniformBuffer: GPUBuffer | BackendBuffer | null = null;
+  private particleBuffer: GPUBuffer | null = null;
+  private simParamBuffer: GPUBuffer | null = null;
+  private counterBuffer: GPUBuffer | null = null;
+  private voxelBuffer: GPUBuffer | null = null;
+  private renderUniformBuffer: GPUBuffer | null = null;
 
   // State
   private cursor: number = 0;
@@ -424,9 +420,8 @@ export class ParticleSystem {
   private counterData: Uint32Array;
   private renderUniformData: Float32Array;
 
-  constructor(device: GPUDevice | null, format: GPUTextureFormat | TextureFormat, backend?: RenderBackend | null) {
+  constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
-    this.backend = backend ?? null;
     this.format = format;
     // SimParams layout: 32 floats = 128 bytes (padded to 256 for uniform alignment)
     this.simParamData = new Float32Array(64);
@@ -435,56 +430,7 @@ export class ParticleSystem {
   }
 
   async init(): Promise<void> {
-    if (this.backend && !this.device) {
-      const backend = this.backend;
-      const renderModule = backend.createShaderModule({ wgsl: RENDER_WGSL }, "wgsl");
-
-      // Buffers (render-only — no compute on backend)
-      this.particleBuffer = backend.createBuffer({ size: MAX_PARTICLES * PARTICLE_BYTES, usage: 0x80 | 0x08 });
-      this.simParamBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
-      this.counterBuffer = backend.createBuffer({ size: 8, usage: 0x80 | 0x08 | 0x04 });
-      this.voxelBuffer = backend.createBuffer({ size: MAX_VOXEL_FLOATS * 4, usage: 0x80 | 0x08 });
-      this.renderUniformBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
-
-      backend.queue.writeBuffer(this.particleBuffer as any, 0, new Float32Array(MAX_PARTICLES * PARTICLE_FLOATS) as any);
-      backend.queue.writeBuffer(this.counterBuffer as any, 0, new Uint32Array([0, 0]) as any);
-
-      // Render bind group + pipeline
-      this.renderBindGroupLayout = backend.createBindGroupLayout({
-        entries: [
-          { binding: 0, visibility: 1 | 2, buffer: { type: "uniform" } },
-          { binding: 1, visibility: 1, buffer: { type: "read-only-storage" } },
-        ],
-      });
-      this.renderBindGroup = backend.createBindGroup({
-        layout: this.renderBindGroupLayout as any,
-        entries: [
-          { binding: 0, resource: { buffer: this.renderUniformBuffer as any } },
-          { binding: 1, resource: { buffer: this.particleBuffer as any } },
-        ],
-      });
-      const renderLayout = backend.createPipelineLayout({ bindGroupLayouts: [this.renderBindGroupLayout as any] });
-      this.renderPipeline = backend.createRenderPipeline({
-        layout: renderLayout as any,
-        vertex: { module: renderModule, entryPoint: "vs_main", buffers: [] },
-        fragment: {
-          module: renderModule, entryPoint: "fs_main",
-          targets: [{
-            format: this.format as TextureFormat,
-            blend: {
-              color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-              alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-            },
-          }],
-        },
-        primitive: { topology: "triangle-list" },
-        multisample: { count: MSAA_SAMPLE_COUNT },
-        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
-      });
-      return;
-    }
-
-    const dev = this.device!;
+    const dev = this.device;
     const computeModule = dev.createShaderModule({ code: COMPUTE_WGSL });
     const renderModule = dev.createShaderModule({ code: RENDER_WGSL });
 
@@ -662,12 +608,11 @@ export class ParticleSystem {
     }
     sp[33] = this.seed;
 
-    const queue = this.device?.queue ?? this.backend?.queue;
-    queue?.writeBuffer(this.simParamBuffer as any, 0, this.simParamData as any);
+    this.device.queue.writeBuffer(this.simParamBuffer!, 0, this.simParamData as any);
 
     // Upload voxel data if present
     if (voxelData && voxelData.data.length > 0 && voxelData.data.length <= MAX_VOXEL_FLOATS) {
-      queue?.writeBuffer(this.voxelBuffer as any, 0, voxelData.data as any);
+      this.device.queue.writeBuffer(this.voxelBuffer!, 0, voxelData.data as any);
       this.currentVoxelCount = voxelData.data.length;
     } else {
       this.currentVoxelCount = 0;
@@ -717,11 +662,10 @@ export class ParticleSystem {
     u[23] = 1 / Math.tan((camera.fov * Math.PI / 180) / 2);
     u[24] = this.particleCullDistance;
 
-    const queue = this.device?.queue ?? this.backend?.queue;
-    queue?.writeBuffer(this.renderUniformBuffer as any, 0, u as any);
+    this.device.queue.writeBuffer(this.renderUniformBuffer!, 0, u as any);
 
-    passEncoder.setPipeline(this.renderPipeline as any);
-    passEncoder.setBindGroup(0, this.renderBindGroup as any);
+    passEncoder.setPipeline(this.renderPipeline);
+    passEncoder.setBindGroup(0, this.renderBindGroup);
     passEncoder.draw(MAX_PARTICLES * 6);
   }
 

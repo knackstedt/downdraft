@@ -1,4 +1,3 @@
-import type { BackendBuffer, BackendRenderPassEncoder, BackendRenderPipeline } from "@downdraft/core/render/backend/types";
 import { generateDecorationMesh, generateDecorations } from "@shared/IslandDecorations";
 import { extractMesh, extractMeshSubRegion } from "@shared/MarchingCubes";
 import {
@@ -19,11 +18,11 @@ import { BOAT_WGSL, ISLAND_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";
 
 interface IslandMesh {
-  vertices: GPUBuffer | BackendBuffer;
-  indices: GPUBuffer | BackendBuffer;
+  vertices: GPUBuffer;
+  indices: GPUBuffer;
   indexCount: number;
   useUint32: boolean;
-  lineIndices: GPUBuffer | BackendBuffer | null;
+  lineIndices: GPUBuffer | null;
   lineIndexCount: number;
 }
 
@@ -35,22 +34,22 @@ interface ChunkMeshEntry extends IslandMesh {
 }
 
 interface PortTerrainMesh {
-  vertices: GPUBuffer | BackendBuffer;
-  indices: GPUBuffer | BackendBuffer;
+  vertices: GPUBuffer;
+  indices: GPUBuffer;
   indexCount: number;
   useUint32: boolean;
 }
 
 interface PortStructureMesh {
-  vertices: GPUBuffer | BackendBuffer;
-  indices: GPUBuffer | BackendBuffer;
+  vertices: GPUBuffer;
+  indices: GPUBuffer;
   indexCount: number;
   useUint32: boolean;
 }
 
 interface DecorationMesh {
-  vertices: GPUBuffer | BackendBuffer;
-  indices: GPUBuffer | BackendBuffer;
+  vertices: GPUBuffer;
+  indices: GPUBuffer;
   indexCount: number;
 }
 
@@ -103,97 +102,28 @@ export class IslandTerrainRenderer {
   private pooledNearby: { field: ChunkedVoxelField | VoxelField; isChunked: boolean; worldOriginX: number; worldOriginY: number; worldOriginZ: number; voxelSize: number; isoLevel: number }[] = [];
 
   // Legacy port meshes (fallback, one per size)
-  portVertices: (GPUBuffer | BackendBuffer | null)[] = [null, null, null];
-  portIndices: (GPUBuffer | BackendBuffer | null)[] = [null, null, null];
+  portVertices: (GPUBuffer | null)[] = [null, null, null];
+  portIndices: (GPUBuffer | null)[] = [null, null, null];
   portIndexCounts: number[] = [0, 0, 0];
   portNormalizationScales: number[] = [1, 1, 1];
 
-  islandPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  boatPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
+  islandPipeline: GPURenderPipeline | null = null;
+  boatPipeline: GPURenderPipeline | null = null;
 
   constructor(ctx: EntityRenderContext) {
     this.ctx = ctx;
   }
 
-  init(pbrLitPipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
+  init(pbrLitPipelineLayout: GPUPipelineLayout): void {
     const device = this.ctx.device;
-    const backend = this.ctx.backend;
     const format = this.ctx.format;
 
-    if (backend && !device) {
-      const islandShaderModule = backend.createShaderModule({ wgsl: ISLAND_WGSL }, "wgsl");
-      const boatShaderModule = backend.createShaderModule({ wgsl: BOAT_WGSL }, "wgsl");
-
-      this.islandPipeline = backend.createRenderPipeline({
-        layout: pbrLitPipelineLayout as any,
-        vertex: {
-          module: islandShaderModule,
-          entryPoint: "vs_main",
-          buffers: [{ arrayStride: 36, attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-            { shaderLocation: 2, offset: 24, format: "float32x3" },
-          ]}],
-        },
-        fragment: { module: islandShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
-        primitive: { topology: "triangle-list", cullMode: "back" },
-        multisample: { count: MSAA_SAMPLE_COUNT },
-        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: true, depthCompare: "less" },
-      });
-
-      this.boatPipeline = backend.createRenderPipeline({
-        layout: pbrLitPipelineLayout as any,
-        vertex: {
-          module: boatShaderModule,
-          entryPoint: "vs_main",
-          buffers: [{ arrayStride: 36, attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-            { shaderLocation: 2, offset: 24, format: "float32x3" },
-          ]}],
-        },
-        fragment: { module: boatShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
-        primitive: { topology: "triangle-list" },
-        multisample: { count: MSAA_SAMPLE_COUNT },
-        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: true, depthCompare: "less" },
-      });
-
-      // Generate procedural port meshes
-      const portSizes = [PortSize.Small, PortSize.Medium, PortSize.Large];
-      for (let ps = 0; ps < 3; ps++) {
-        const portMesh = generatePortMesh({
-          size: portSizes[ps], theme: PortTheme.Fishing, services: [],
-          seed: 1000 + ps * 100, biome: BiomeType.Ocean,
-        });
-        let maxExtent = 0;
-        for (let vi = 0; vi < portMesh.vertices.length; vi += 9) {
-          maxExtent = Math.max(maxExtent, Math.abs(portMesh.vertices[vi]), Math.abs(portMesh.vertices[vi + 1]), Math.abs(portMesh.vertices[vi + 2]));
-        }
-        const normScale = maxExtent > 0 ? 1 / maxExtent : 1;
-        this.portNormalizationScales[ps] = normScale;
-        const verts = new Float32Array(portMesh.vertices.length);
-        for (let vi = 0; vi < portMesh.vertices.length; vi += 9) {
-          verts[vi] = portMesh.vertices[vi] * normScale;
-          verts[vi + 1] = portMesh.vertices[vi + 1] * normScale;
-          verts[vi + 2] = portMesh.vertices[vi + 2] * normScale;
-          for (let j = 3; j < 9; j++) verts[vi + j] = portMesh.vertices[vi + j];
-        }
-        this.portVertices[ps] = backend.createBuffer({ size: verts.byteLength, usage: 0x20 | 0x08 });
-        backend.queue.writeBuffer(this.portVertices[ps] as any, 0, verts as any);
-        const indices = new Uint16Array(portMesh.indices);
-        this.portIndexCounts[ps] = indices.length;
-        this.portIndices[ps] = backend.createBuffer({ size: indices.byteLength, usage: 0x10 | 0x08 });
-        backend.queue.writeBuffer(this.portIndices[ps] as any, 0, indices as any);
-      }
-      return;
-    }
-
-    const dev = device!;
+    const dev = device;
     const islandShaderModule = dev.createShaderModule({ code: ISLAND_WGSL });
     const boatShaderModule = dev.createShaderModule({ code: BOAT_WGSL });
 
     this.islandPipeline = dev.createRenderPipeline({
-      layout: pbrLitPipelineLayout as any,
+      layout: pbrLitPipelineLayout,
       vertex: {
         module: islandShaderModule,
         entryPoint: "vs_main",
@@ -221,7 +151,7 @@ export class IslandTerrainRenderer {
     });
 
     this.boatPipeline = dev.createRenderPipeline({
-      layout: pbrLitPipelineLayout as any,
+      layout: pbrLitPipelineLayout,
       vertex: {
         module: boatShaderModule,
         entryPoint: "vs_main",
@@ -275,14 +205,14 @@ export class IslandTerrainRenderer {
         size: verts.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
-      dev.queue.writeBuffer(this.portVertices[ps]! as any, 0, verts);
+      dev.queue.writeBuffer(this.portVertices[ps]!, 0, verts as any);
       const indices = new Uint16Array(portMesh.indices);
       this.portIndexCounts[ps] = indices.length;
       this.portIndices[ps] = dev.createBuffer({
         size: indices.byteLength,
         usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       });
-      dev.queue.writeBuffer(this.portIndices[ps]! as any, 0, indices);
+      dev.queue.writeBuffer(this.portIndices[ps]!, 0, indices as any);
     }
   }
 
@@ -840,7 +770,7 @@ export class IslandTerrainRenderer {
 
   // --- Render helpers ---
 
-  renderIsland(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, idx: number): number {
+  renderIsland(passEncoder: GPURenderPassEncoder, idx: number): number {
     const ctx = this.ctx;
     if (!this.islandPipeline || !ctx.bindGroup) return 0;
     let tris = 0;
@@ -849,25 +779,25 @@ export class IslandTerrainRenderer {
     const islandKey = `${chunkX},${chunkZ}`;
     const islandMesh = this.islandMeshes.get(islandKey);
     if (islandMesh && islandMesh.indexCount > 0) {
-      passEncoder.setPipeline(this.islandPipeline as any);
-      passEncoder.setBindGroup(0, ctx.bindGroup as any, [idx * 256]);
-      passEncoder.setVertexBuffer(0, islandMesh.vertices as any);
-      passEncoder.setIndexBuffer(islandMesh.indices as any, islandMesh.useUint32 ? "uint32" : "uint16");
+      passEncoder.setPipeline(this.islandPipeline);
+      passEncoder.setBindGroup(0, ctx.bindGroup, [idx * 256]);
+      passEncoder.setVertexBuffer(0, islandMesh.vertices);
+      passEncoder.setIndexBuffer(islandMesh.indices, islandMesh.useUint32 ? "uint32" : "uint16");
       passEncoder.drawIndexed(islandMesh.indexCount);
       tris += Math.floor(islandMesh.indexCount / 3);
 
       const deco = this.decorationMeshes.get(islandKey);
       if (deco && deco.indexCount > 0) {
-        passEncoder.setVertexBuffer(0, deco.vertices as any);
-        passEncoder.setIndexBuffer(deco.indices as any, "uint16");
+        passEncoder.setVertexBuffer(0, deco.vertices);
+        passEncoder.setIndexBuffer(deco.indices, "uint16");
         passEncoder.drawIndexed(deco.indexCount);
         tris += Math.floor(deco.indexCount / 3);
       }
     } else {
       const chunkMap = this.islandChunkMeshes.get(islandKey);
       if (chunkMap && chunkMap.size > 0) {
-        passEncoder.setPipeline(this.islandPipeline as any);
-        passEncoder.setBindGroup(0, ctx.bindGroup as any, [idx * 256]);
+        passEncoder.setPipeline(this.islandPipeline);
+        passEncoder.setBindGroup(0, ctx.bindGroup, [idx * 256]);
         const camX = ctx.cameraPosCache[0];
         const camY = ctx.cameraPosCache[1];
         const camZ = ctx.cameraPosCache[2];
@@ -881,15 +811,15 @@ export class IslandTerrainRenderer {
           const dz = chunk.worldCenterZ - camZ;
           const distSq = dx * dx + dy * dy + dz * dz;
           if (distSq > (600 + chunk.boundingRadius) * (600 + chunk.boundingRadius)) continue;
-          passEncoder.setVertexBuffer(0, chunk.vertices as any);
-          passEncoder.setIndexBuffer(chunk.indices as any, chunk.useUint32 ? "uint32" : "uint16");
+          passEncoder.setVertexBuffer(0, chunk.vertices);
+          passEncoder.setIndexBuffer(chunk.indices, chunk.useUint32 ? "uint32" : "uint16");
           passEncoder.drawIndexed(chunk.indexCount);
           tris += Math.floor(chunk.indexCount / 3);
         }
         const deco = this.decorationMeshes.get(islandKey);
         if (deco && deco.indexCount > 0) {
-          passEncoder.setVertexBuffer(0, deco.vertices as any);
-          passEncoder.setIndexBuffer(deco.indices as any, "uint16");
+          passEncoder.setVertexBuffer(0, deco.vertices);
+          passEncoder.setIndexBuffer(deco.indices, "uint16");
           passEncoder.drawIndexed(deco.indexCount);
           tris += Math.floor(deco.indexCount / 3);
         }
@@ -898,7 +828,7 @@ export class IslandTerrainRenderer {
     return tris;
   }
 
-  renderPort(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, idx: number): number {
+  renderPort(passEncoder: GPURenderPassEncoder, idx: number): number {
     const ctx = this.ctx;
     if (!ctx.bindGroup) return 0;
     let tris = 0;
@@ -908,20 +838,20 @@ export class IslandTerrainRenderer {
 
     const portTerrain = this.portTerrainMeshes.get(portKey);
     if (portTerrain && portTerrain.indexCount > 0 && this.islandPipeline) {
-      passEncoder.setPipeline(this.islandPipeline as any);
-      passEncoder.setBindGroup(0, ctx.bindGroup as any, [idx * 256]);
-      passEncoder.setVertexBuffer(0, portTerrain.vertices as any);
-      passEncoder.setIndexBuffer(portTerrain.indices as any, portTerrain.useUint32 ? "uint32" : "uint16");
+      passEncoder.setPipeline(this.islandPipeline);
+      passEncoder.setBindGroup(0, ctx.bindGroup, [idx * 256]);
+      passEncoder.setVertexBuffer(0, portTerrain.vertices);
+      passEncoder.setIndexBuffer(portTerrain.indices, portTerrain.useUint32 ? "uint32" : "uint16");
       passEncoder.drawIndexed(portTerrain.indexCount);
       tris += Math.floor(portTerrain.indexCount / 3);
     }
 
     const portStruct = this.portStructureMeshes.get(portKey);
     if (portStruct && portStruct.indexCount > 0 && this.boatPipeline) {
-      passEncoder.setPipeline(this.boatPipeline as any);
-      passEncoder.setBindGroup(0, ctx.bindGroup as any, [idx * 256]);
-      passEncoder.setVertexBuffer(0, portStruct.vertices as any);
-      passEncoder.setIndexBuffer(portStruct.indices as any, portStruct.useUint32 ? "uint32" : "uint16");
+      passEncoder.setPipeline(this.boatPipeline);
+      passEncoder.setBindGroup(0, ctx.bindGroup, [idx * 256]);
+      passEncoder.setVertexBuffer(0, portStruct.vertices);
+      passEncoder.setIndexBuffer(portStruct.indices, portStruct.useUint32 ? "uint32" : "uint16");
       passEncoder.drawIndexed(portStruct.indexCount);
       tris += Math.floor(portStruct.indexCount / 3);
       return tris;
@@ -935,10 +865,10 @@ export class IslandTerrainRenderer {
       const pi = this.portIndices[ps];
       const pic = this.portIndexCounts[ps];
       if (pv && pi && pic > 0) {
-        passEncoder.setPipeline(this.boatPipeline as any);
-        passEncoder.setBindGroup(0, ctx.bindGroup as any, [idx * 256]);
-        passEncoder.setVertexBuffer(0, pv as any);
-        passEncoder.setIndexBuffer(pi as any, "uint16");
+        passEncoder.setPipeline(this.boatPipeline);
+        passEncoder.setBindGroup(0, ctx.bindGroup, [idx * 256]);
+        passEncoder.setVertexBuffer(0, pv);
+        passEncoder.setIndexBuffer(pi, "uint16");
         passEncoder.drawIndexed(pic);
         tris += Math.floor(pic / 3);
       }
