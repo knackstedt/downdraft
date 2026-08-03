@@ -2,8 +2,8 @@
 // OSR Texture Receiver Manager — Manages multiple OSRTextureReceiver instances
 // ============================================================================
 
-import { OSRTextureReceiver } from "./texture-receiver.ts";
 import type { OSRSharedTexturePixelFormat } from "../types.ts";
+import { OSRTextureReceiver } from "./texture-receiver.ts";
 
 export class OSRTextureReceiverManager {
   private device: GPUDevice;
@@ -54,6 +54,12 @@ export class OSRTextureReceiverManager {
 
   getReceiverCount(): number {
     return this.receivers.size;
+  }
+
+  getReceiverDimensions(rendererId: string): { width: number; height: number } | null {
+    const r = this.receivers.get(rendererId);
+    if (!r) return null;
+    return { width: r.width, height: r.height };
   }
 
   destroy(): void {

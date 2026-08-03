@@ -4,13 +4,13 @@
 
 import { BrowserWindow, type WebContents } from "electron";
 import type {
-  OSRRendererMode,
-  OSRSharedTexturePixelFormat,
-  OSRRendererStatus,
-  OSRInputEvent,
-  AtlasPanelRect,
-  OSRPanelConfig,
-  OSRDataUpdate,
+    AtlasPanelRect,
+    OSRDataUpdate,
+    OSRInputEvent,
+    OSRPanelConfig,
+    OSRRendererMode,
+    OSRRendererStatus,
+    OSRSharedTexturePixelFormat,
 } from "../types.ts";
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;
@@ -79,8 +79,7 @@ export abstract class OSRRenderer {
       transparent: true,
       webPreferences: {
         offscreen: {
-          useSharedTexture: true,
-          sharedTexturePixelFormat: this.pixelFormat,
+          useSharedTexture: false,
         } as any,
         contextIsolation: true,
         nodeIntegration: false,
@@ -91,34 +90,49 @@ export abstract class OSRRenderer {
     win.webContents.setFrameRate(this.frameRate);
 
     // Paint event → import shared texture → send to game renderer
-    win.webContents.on("paint", async (_event, params: any) => {
-      const texture = params?.texture;
-      if (!texture || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
-        if (texture) texture.release();
-        return;
+    // CPU mode signature: (event, dirtyRect, image: NativeImage)
+    // Shared texture mode signature: (event, { texture, dirtyRect })
+    win.webContents.on("paint", async (event: any, ...args: any[]) => {
+      // Detect mode: shared texture passes an object with .texture, CPU passes a NativeImage as 2nd arg
+      const params = args[0];
+      const isSharedTextureMode = params && typeof params === "object" && "texture" in params;
+      
+      if (isSharedTextureMode) {
+        const texture = params.texture;
+        if (!texture || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
+          if (texture) texture.release();
+          return;
+        }
+        try {
+          const imported = this.targetWebContents.sharedTexture.importSharedTexture({
+            textureInfo: texture.textureInfo,
+          });
+          try {
+            await this.targetWebContents.sharedTexture.sendSharedTexture({
+              frame: this.targetWebContents.mainFrame,
+              importedSharedTexture: imported,
+            });
+          } finally {
+            imported.release();
+          }
+        } catch (err) {
+          // Shared texture send failed
+        } finally {
+          texture.release();
+        }
+      } else {
+        // CPU bitmap mode — args[1] is the NativeImage
+        const image = args[1];
+        if (!image || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
+          return;
+        }
+        // Forward the NativeImage to the renderer via IPC
+        this.targetWebContents.send("__osr_paint_image", this.id, image);
       }
 
-      try {
-        const imported = this.targetWebContents.sharedTexture.importSharedTexture({
-          textureInfo: texture.textureInfo,
-        });
-        await this.targetWebContents.sharedTexture.sendSharedTexture({
-          frame: this.targetWebContents.mainFrame,
-          importedSharedTexture: imported,
-        });
-      } catch (err) {
-        // Shared texture send failed — release and continue
-      } finally {
-        texture.release();
-      }
-
-      // Clear dirty flag after a successful paint
-      this.dirty = false;
-      // If no more updates pending, stop painting to save GPU cycles
-      if (!this.dirty && this.painting) {
-        this.window?.webContents.stopPainting();
-        this.painting = false;
-      }
+      // Note: We don't stop painting here — the offscreen page may still be
+      // loading content (e.g. an iframe). Continuous painting ensures we capture
+      // the page as it renders. Painting is explicitly stopped on destroy.
     });
 
     // Crash handling
@@ -162,10 +176,9 @@ export abstract class OSRRenderer {
     this.onEvent?.(this.id, this.status, this.crashCount);
   }
 
-  /** Marks the renderer as dirty and starts painting if stopped. */
   protected markDirty(): void {
     this.dirty = true;
-    if (!this.painting && this.window && !this.window.isDestroyed()) {
+    if (this.window && !this.window.isDestroyed()) {
       this.window.webContents.startPainting();
       this.painting = true;
     }
@@ -223,6 +236,7 @@ export abstract class OSRRenderer {
       this.retryTimer = null;
     }
     if (this.window && !this.window.isDestroyed()) {
+      this.window.webContents.stopPainting();
       this.window.destroy();
     }
     this.window = null;

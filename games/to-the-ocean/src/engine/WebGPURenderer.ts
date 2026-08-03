@@ -6,7 +6,7 @@
 
 import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
 import { TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
-import { OSRManager, type OSRIPC } from "@downdraft/plugin-electron-osr";
+import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/plugin-models";
@@ -1056,8 +1056,26 @@ export class WebGPURenderer {
         viewProj,
         cameraRight: [r0 / rl, r1 / rl, r2 / rl],
         cameraUp: [camera.up[0], camera.up[1], camera.up[2]],
+        cameraPosition: [camera.position[0], camera.position[1], camera.position[2]],
+        canvasWidth: this.canvas.width,
+        canvasHeight: this.canvas.height,
       };
       this.osrManager.render(osrCam, passEncoder);
+
+      // Forward mouse/keyboard input to OSR billboards (only when not pointer-locked)
+      if (this.inputHandler && viewportIdx === 0 && !this.inputHandler.pointerLocked) {
+        const ms = this.inputHandler.mouseState;
+        const buttons = (ms.left ? 1 : 0) | (ms.right ? 2 : 0);
+        this.osrManager.handleInput(osrCam, {
+          x: ms.x,
+          y: ms.y,
+          buttons,
+          deltaX: 0,
+          deltaY: 0,
+          wheelDeltaX: 0,
+          wheelDeltaY: ms.wheel,
+        });
+      }
     }
 
     passEncoder.end();
@@ -1164,8 +1182,11 @@ export class WebGPURenderer {
 
   initOSR(ipc: OSRIPC): OSRManager | null {
     if (!this.device) return null;
-    this.osrManager = new OSRManager(this.device);
+    this.osrManager = new OSRManager(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat);
     this.osrManager.init(ipc);
+    this.inputHandler.onOSRKey = (type, keyCode) => {
+      this.osrManager?.handleKey(type, String(keyCode));
+    };
     return this.osrManager;
   }
 

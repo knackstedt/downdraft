@@ -2,19 +2,19 @@
 // OSR Manager — Renderer-side coordinator for all OSR rendering
 // ============================================================================
 
+import type {
+    AtlasLayout,
+    OSRIPC,
+    OSRPanelConfig,
+    OSRRendererConfig,
+    OSRRendererEvent,
+    OSRRendererStatus,
+    OSRSharedTexturePixelFormat,
+    WorldSpaceUIElement,
+} from "../types.ts";
+import { OSRInputRouter, type MouseState } from "./input-router.ts";
 import { OSRTextureReceiverManager } from "./texture-receiver-manager.ts";
 import { WorldSpaceUIPass, type CameraState } from "./world-space-ui-pass.ts";
-import { OSRInputRouter, type MouseState } from "./input-router.ts";
-import type {
-  OSRRendererConfig,
-  OSRPanelConfig,
-  WorldSpaceUIElement,
-  AtlasLayout,
-  OSRRendererEvent,
-  OSRRendererStatus,
-  OSRIPC,
-  OSRSharedTexturePixelFormat,
-} from "../types.ts";
 
 export class OSRManager {
   private device: GPUDevice;
@@ -28,10 +28,10 @@ export class OSRManager {
   private atlasLayouts = new Map<string, AtlasLayout>();
   private errorTextureIndices = new Set<number>();
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat = "bgra8unorm", depthFormat: GPUTextureFormat = "depth24plus") {
     this.device = device;
     this.textureManager = new OSRTextureReceiverManager(device);
-    this.renderPass = new WorldSpaceUIPass(device);
+    this.renderPass = new WorldSpaceUIPass(device, surfaceFormat, depthFormat);
   }
 
   init(ipc: OSRIPC): void {
@@ -184,21 +184,26 @@ export class OSRManager {
       textureIndexToRendererId.set(i, this.rendererIds[i]);
     }
 
+    const rendererDimensions = new Map<string, { width: number; height: number }>();
+    for (const id of this.rendererIds) {
+      const dims = this.textureManager.getReceiverDimensions(id);
+      if (dims) rendererDimensions.set(id, dims);
+    }
+
+    const config = {
+      textureIndexToRendererId,
+      atlasLayouts: this.atlasLayouts,
+      rendererStatuses: this.rendererStatuses,
+      rendererDimensions,
+    };
+
     if (!this.inputRouter && this.ipc) {
       this.inputRouter = new OSRInputRouter(
-        {
-          textureIndexToRendererId,
-          atlasLayouts: this.atlasLayouts,
-          rendererStatuses: this.rendererStatuses,
-        },
+        config,
         (rendererId, event) => this.ipc?.sendInputEvent(rendererId, event),
       );
     } else if (this.inputRouter) {
-      this.inputRouter.updateConfig({
-        textureIndexToRendererId,
-        atlasLayouts: this.atlasLayouts,
-        rendererStatuses: this.rendererStatuses,
-      });
+      this.inputRouter.updateConfig(config);
     }
   }
 }

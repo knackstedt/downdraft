@@ -27,6 +27,7 @@ export class RendererInputHandler {
   private lastBuilderWheelTime = 0;
 
   onInputProcessed: (() => void) | null = null;
+  onOSRKey: ((type: "keyDown" | "keyUp", keyCode: number) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -185,6 +186,7 @@ export class RendererInputHandler {
     window.addEventListener("keydown", (e) => {
       this.keysDown.add(e.keyCode);
       this.uiInputRouter?.handleKeyDown(e.keyCode);
+      this.onOSRKey?.("keyDown", e.keyCode);
       // Builder rotation: R or ] = rotate CW, [ = rotate CCW (only when builder tool active)
       if (!e.repeat && (e.keyCode === KEY.R || e.keyCode === KEY.BRACKET_LEFT || e.keyCode === KEY.BRACKET_RIGHT)) {
         this.tryBuilderRotate(e.keyCode === KEY.BRACKET_LEFT ? -1 : 1);
@@ -193,6 +195,7 @@ export class RendererInputHandler {
     window.addEventListener("keyup", (e) => {
       this.keysDown.delete(e.keyCode);
       this.uiInputRouter?.handleKeyUp(e.keyCode);
+      this.onOSRKey?.("keyUp", e.keyCode);
     });
     this.canvas.addEventListener("click", () => {
       if (!this.pointerLocked) {
