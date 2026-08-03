@@ -2,5 +2,16 @@
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc-assets/main/schema.json",
   "rules": {
     "no-console": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "packages/plugins/devtools/extension/**/*.js",
+        "docs/site/src/pages/index.astro"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }
