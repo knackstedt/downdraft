@@ -5,8 +5,6 @@
 // ============================================================================
 
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
-import type { RenderBackend } from "@downdraft/core/render/backend/render-backend.ts";
-import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPipeline, TextureFormat } from "@downdraft/core/render/backend/types.ts";
 import { WeatherType } from "@downdraft/plugin-weather";
 import type { CloudExtractedMesh, CloudMeshProvider, CloudVoxelField } from "./cloud-provider.ts";
 import CLOUD_WGSL from "./shaders/cloud.wgsl?raw";
@@ -16,13 +14,13 @@ import CLOUD_WGSL from "./shaders/cloud.wgsl?raw";
 interface CloudLayer {
   layerType: string;
   // GPU buffers
-  vertexBuffer: GPUBuffer | BackendBuffer | null;
-  indexBuffer: GPUBuffer | BackendBuffer | null;
+  vertexBuffer: GPUBuffer | null;
+  indexBuffer: GPUBuffer | null;
   indexCount: number;
   useUint32: boolean;
   // Per-layer uniform buffer
-  perLayerUniform: GPUBuffer | BackendBuffer;
-  bindGroup: GPUBindGroup | BackendBindGroup | null;
+  perLayerUniform: GPUBuffer;
+  bindGroup: GPUBindGroup | null;
   // World position (center of the field)
   centerX: number;
   centerZ: number;
@@ -40,18 +38,12 @@ interface CloudLayer {
 }
 
 export class CloudSystem {
-  private device: GPUDevice | null;
-  private backend: RenderBackend | null;
-  private format: GPUTextureFormat | TextureFormat;
+  private device: GPUDevice;
+  private format: GPUTextureFormat;
   private provider: CloudMeshProvider;
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private uniformBuffer: GPUBuffer | null = null;
-
-  // Backend resources
-  private _bgPipeline: BackendRenderPipeline | null = null;
-  private _bgBindGroupLayout: BackendBindGroupLayout | null = null;
-  private _bgUniformBuffer: BackendBuffer | null = null;
 
   private layers: CloudLayer[] = [];
   private genThisFrame = 0;
@@ -59,37 +51,32 @@ export class CloudSystem {
   private uniformU32View = new Uint32Array(this.uniformData.buffer);
   private perLayerData = new Float32Array(4);
 
-  constructor(device: GPUDevice | null, format: GPUTextureFormat | TextureFormat, provider: CloudMeshProvider, backend?: RenderBackend | null) {
+  constructor(device: GPUDevice, format: GPUTextureFormat, provider: CloudMeshProvider) {
     this.device = device;
-    this.backend = backend ?? null;
     this.format = format;
     this.provider = provider;
   }
 
   async init(): Promise<void> {
-    if (this.backend && !this.device) {
-      this.initBackend(this.backend);
-      return;
-    }
-    this.uniformBuffer = this.device!.createBuffer({
+    this.uniformBuffer = this.device.createBuffer({
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.bindGroupLayout = this.device!.createBindGroupLayout({
+    this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } },
       ],
     });
 
-    const pipelineLayout = this.device!.createPipelineLayout({
+    const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     });
 
-    const shaderModule = this.device!.createShaderModule({ code: CLOUD_WGSL });
+    const shaderModule = this.device.createShaderModule({ code: CLOUD_WGSL });
 
-    this.pipeline = this.device!.createRenderPipeline({
+    this.pipeline = this.device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {
         module: shaderModule,
@@ -107,7 +94,7 @@ export class CloudSystem {
         module: shaderModule,
         entryPoint: "fs_main",
         targets: [{
-          format: this.format as GPUTextureFormat,
+          format: this.format,
           blend: {
             color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
             alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -133,7 +120,7 @@ export class CloudSystem {
         indexBuffer: null,
         indexCount: 0,
         useUint32: false,
-        perLayerUniform: this.device!.createBuffer({
+        perLayerUniform: this.device.createBuffer({
           size: 16,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         }),
@@ -151,83 +138,6 @@ export class CloudSystem {
     }
 
     console.log("[CloudSystem] Initialized with", this.layers.length, "layers");
-  }
-
-  private initBackend(backend: RenderBackend): void {
-    this._bgUniformBuffer = backend.createBuffer({
-      size: 256,
-      usage: 0x40 | 0x08, // UNIFORM | COPY_DST
-    });
-
-    this._bgBindGroupLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: 0x3, buffer: { type: "uniform" } },
-        { binding: 1, visibility: 0x3, buffer: { type: "uniform", hasDynamicOffset: true } },
-      ],
-    });
-
-    const pipelineLayout = backend.createPipelineLayout({
-      bindGroupLayouts: [this._bgBindGroupLayout],
-    });
-
-    const shaderModule = backend.createShaderModule({ wgsl: CLOUD_WGSL }, "wgsl");
-
-    this._bgPipeline = backend.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: 36,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-            { shaderLocation: 2, offset: 24, format: "float32x3" },
-          ],
-        }],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [{
-          format: this.format as any,
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-          },
-        }],
-      },
-      primitive: { topology: "triangle-list" },
-      depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less-equal" },
-    });
-
-    const layerTypes = this.provider.getLayerTypes();
-    for (const layerType of layerTypes) {
-      const cfg = this.provider.getLayerConfig(layerType);
-      this.layers.push({
-        layerType,
-        vertexBuffer: null,
-        indexBuffer: null,
-        indexCount: 0,
-        useUint32: false,
-        perLayerUniform: backend.createBuffer({
-          size: 16,
-          usage: 0x40 | 0x08,
-        }),
-        bindGroup: null,
-        centerX: 0,
-        centerZ: 0,
-        altitude: cfg.altitude,
-        windOffsetX: 0,
-        windOffsetZ: 0,
-        generated: false,
-        genCenterX: 0,
-        genCenterZ: 0,
-        pendingRegen: true,
-      });
-    }
-
-    console.log("[CloudSystem] Initialized with", this.layers.length, "layers (backend)");
   }
 
   update(
@@ -316,19 +226,11 @@ export class CloudSystem {
     if (layer.indexBuffer) { layer.indexBuffer.destroy(); layer.indexBuffer = null; }
 
     // Create vertex buffer
-    if (this.backend && !this.device) {
-      layer.vertexBuffer = this.backend.createBuffer({
-        size: verts.byteLength,
-        usage: 0x20 | 0x08, // VERTEX | COPY_DST
-      });
-      this.backend.queue.writeBuffer(layer.vertexBuffer as any, 0, verts as any);
-    } else {
-      layer.vertexBuffer = this.device!.createBuffer({
-        size: verts.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
-      this.device!.queue.writeBuffer(layer.vertexBuffer, 0, verts as any);
-    }
+    layer.vertexBuffer = this.device.createBuffer({
+      size: verts.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(layer.vertexBuffer, 0, verts as any);
 
     // Create index buffer
     const indexBuf = extracted.indices;
@@ -340,41 +242,23 @@ export class CloudSystem {
       indexData = indexBuf as Uint16Array | Uint32Array;
     }
 
-    if (this.backend && !this.device) {
-      layer.indexBuffer = this.backend.createBuffer({
-        size: indexData.byteLength,
-        usage: 0x10 | 0x08, // INDEX | COPY_DST
-      });
-      this.backend.queue.writeBuffer(layer.indexBuffer as any, 0, indexData as any);
-    } else {
-      layer.indexBuffer = this.device!.createBuffer({
-        size: indexData.byteLength,
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      });
-      this.device!.queue.writeBuffer(layer.indexBuffer, 0, indexData as any);
-    }
+    layer.indexBuffer = this.device.createBuffer({
+      size: indexData.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(layer.indexBuffer, 0, indexData as any);
 
     layer.indexCount = indexBuf.length;
     layer.useUint32 = extracted.useUint32;
 
     // Create bind group
-    if (this.backend && !this.device) {
-      layer.bindGroup = this.backend.createBindGroup({
-        layout: this._bgBindGroupLayout!,
-        entries: [
-          { binding: 0, resource: { buffer: this._bgUniformBuffer! } },
-          { binding: 1, resource: { buffer: layer.perLayerUniform as BackendBuffer, size: 16 } },
-        ],
-      });
-    } else {
-      layer.bindGroup = this.device!.createBindGroup({
-        layout: this.bindGroupLayout!,
-        entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer! } },
-          { binding: 1, resource: { buffer: layer.perLayerUniform as GPUBuffer, size: 16 } },
-        ],
-      });
-    }
+    layer.bindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout!,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer! } },
+        { binding: 1, resource: { buffer: layer.perLayerUniform, size: 16 } },
+      ],
+    });
   }
 
   render(
@@ -394,8 +278,7 @@ export class CloudSystem {
     fogColor: [number, number, number],
     fogDensity: number,
   ): void {
-    const isBackend = !!this._bgPipeline;
-    if (isBackend ? !this._bgPipeline : (!this.pipeline || !this.uniformBuffer)) return;
+    if (!this.pipeline || !this.uniformBuffer) return;
 
     const viewProj = calculateViewProj(camera);
 
@@ -422,13 +305,9 @@ export class CloudSystem {
     uniforms[38] = fogColor[2];
     uniforms[39] = fogDensity;
 
-    const queue = this.device?.queue ?? this.backend?.queue;
-    const uniformBuf = this.uniformBuffer ?? this._bgUniformBuffer;
-    if (queue && uniformBuf) {
-      queue.writeBuffer(uniformBuf as any, 0, uniforms as any);
-    }
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms as any);
 
-    passEncoder.setPipeline(isBackend ? this._bgPipeline : this.pipeline);
+    passEncoder.setPipeline(this.pipeline);
 
     for (const layer of this.layers) {
       if (!layer.generated || !layer.vertexBuffer || !layer.indexBuffer || !layer.bindGroup) continue;
@@ -439,13 +318,11 @@ export class CloudSystem {
       perLayerData[1] = layer.altitude;
       perLayerData[2] = layer.genCenterZ - layer.windOffsetZ;
       perLayerData[3] = 0;
-      if (queue) {
-        queue.writeBuffer(layer.perLayerUniform as any, 0, perLayerData);
-      }
+      this.device.queue.writeBuffer(layer.perLayerUniform, 0, perLayerData);
 
       passEncoder.setBindGroup(0, layer.bindGroup, [0]);
-      passEncoder.setVertexBuffer(0, layer.vertexBuffer as any);
-      passEncoder.setIndexBuffer(layer.indexBuffer as any, layer.useUint32 ? "uint32" : "uint16");
+      passEncoder.setVertexBuffer(0, layer.vertexBuffer);
+      passEncoder.setIndexBuffer(layer.indexBuffer, layer.useUint32 ? "uint32" : "uint16");
       passEncoder.drawIndexed(layer.indexCount);
     }
   }

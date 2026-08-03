@@ -88,11 +88,11 @@ describe("SSAOPass", () => {
     });
   });
 
-  describe("prepare with backend param", () => {
-    it("should accept null backend and use device path", () => {
+  describe("prepare", () => {
+    it("should prepare with device", () => {
       const device = makeMockDevice();
       const pass = new SSAOPass(device as GPUDevice);
-      expect(() => pass.prepare(device as GPUDevice, null)).not.toThrow();
+      expect(() => pass.prepare(device as GPUDevice)).not.toThrow();
     });
   });
 });

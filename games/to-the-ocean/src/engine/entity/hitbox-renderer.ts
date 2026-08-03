@@ -1,4 +1,3 @@
-import type { BackendBuffer, BackendRenderPassEncoder, BackendRenderPipeline } from "@downdraft/core/render/backend/types";
 import { EntityType } from "@shared/types";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
 import { HITBOX_WGSL, ISLAND_WIREFRAME_WGSL } from "../shaders/entity-shaders";
@@ -7,8 +6,8 @@ import type { EntityRenderContext } from "./render-context";
 const MAX_HITBOX_ENTRIES = 4096;
 
 export interface IslandWireframeRef {
-  vertices: GPUBuffer | BackendBuffer;
-  lineIndices: GPUBuffer | BackendBuffer | null;
+  vertices: GPUBuffer;
+  lineIndices: GPUBuffer | null;
   lineIndexCount: number;
   useUint32: boolean;
 }
@@ -16,13 +15,13 @@ export interface IslandWireframeRef {
 export class HitboxRenderer {
   private ctx: EntityRenderContext;
 
-  private hitboxPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  private islandWireframePipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  private hitboxQuadVertices: GPUBuffer | BackendBuffer | null = null;
-  private hitboxQuadIndices: GPUBuffer | BackendBuffer | null = null;
+  private hitboxPipeline: GPURenderPipeline | null = null;
+  private islandWireframePipeline: GPURenderPipeline | null = null;
+  private hitboxQuadVertices: GPUBuffer | null = null;
+  private hitboxQuadIndices: GPUBuffer | null = null;
   private hitboxQuadIndexCount = 0;
-  private hitboxUniformBuffer: GPUBuffer | BackendBuffer | null = null;
-  private hitboxBindGroup: GPUBindGroup | import("@downdraft/core/render/backend/types").BackendBindGroup | null = null;
+  private hitboxUniformBuffer: GPUBuffer | null = null;
+  private hitboxBindGroup: GPUBindGroup | null = null;
   private hitboxEntryCount = 0;
   private hitboxLineWidth = 3.0;
   private showHitboxes = false;
@@ -31,11 +30,9 @@ export class HitboxRenderer {
     this.ctx = ctx;
   }
 
-  init(pipelineLayout: GPUPipelineLayout | import("@downdraft/core/render/backend/types").BackendPipelineLayout): void {
+  init(pipelineLayout: GPUPipelineLayout): void {
     const device = this.ctx.device;
-    const backend = this.ctx.backend;
     const format = this.ctx.format;
-    const bindGroupLayout = this.ctx.bindGroupLayout;
 
     // Build quad vertices for 12 cube edges × 4 corners = 48 vertices
     const cubeEdges: number[][] = [
@@ -72,55 +69,7 @@ export class HitboxRenderer {
     }
     this.hitboxQuadIndexCount = quadIndices.length;
 
-    if (backend && !device) {
-      this.hitboxUniformBuffer = backend.createBuffer({ size: 256 * MAX_HITBOX_ENTRIES, usage: 0x40 | 0x08 });
-      const hitboxBindGroupLayout = backend.createBindGroupLayout({
-        entries: [{ binding: 0, visibility: 0x3, buffer: { type: "uniform", hasDynamicOffset: true } }],
-      });
-      this.hitboxBindGroup = backend.createBindGroup({
-        layout: hitboxBindGroupLayout,
-        entries: [{ binding: 0, resource: { buffer: this.hitboxUniformBuffer as any, size: 256 } }],
-      });
-      const hitboxLayout = backend.createPipelineLayout({ bindGroupLayouts: [hitboxBindGroupLayout as any] });
-
-      const hitboxShaderModule = backend.createShaderModule({ wgsl: HITBOX_WGSL }, "wgsl");
-      this.hitboxPipeline = backend.createRenderPipeline({
-        layout: hitboxLayout as any,
-        vertex: {
-          module: hitboxShaderModule, entryPoint: "vs_main",
-          buffers: [{ arrayStride: 32, attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-            { shaderLocation: 2, offset: 24, format: "float32x2" },
-          ]}],
-        },
-        fragment: { module: hitboxShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
-        primitive: { topology: "triangle-list" },
-        multisample: { count: MSAA_SAMPLE_COUNT },
-        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
-      });
-
-      this.hitboxQuadVertices = backend.createBuffer({ size: quadVerts.byteLength, usage: 0x20 | 0x08 });
-      backend.queue.writeBuffer(this.hitboxQuadVertices as any, 0, quadVerts as any);
-      this.hitboxQuadIndices = backend.createBuffer({ size: quadIndices.byteLength, usage: 0x10 | 0x08 });
-      backend.queue.writeBuffer(this.hitboxQuadIndices as any, 0, quadIndices as any);
-
-      const islandWireframeModule = backend.createShaderModule({ wgsl: ISLAND_WIREFRAME_WGSL }, "wgsl");
-      this.islandWireframePipeline = backend.createRenderPipeline({
-        layout: hitboxLayout as any,
-        vertex: {
-          module: islandWireframeModule, entryPoint: "vs_main",
-          buffers: [{ arrayStride: 36, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }],
-        },
-        fragment: { module: islandWireframeModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
-        primitive: { topology: "line-list" },
-        multisample: { count: MSAA_SAMPLE_COUNT },
-        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: false, depthCompare: "less" },
-      });
-      return;
-    }
-
-    const dev = device!;
+    const dev = device;
 
     // Hitbox uniform buffer — separate from entity uniform buffer
     this.hitboxUniformBuffer = dev.createBuffer({
@@ -186,7 +135,7 @@ export class HitboxRenderer {
     // Island wireframe pipeline
     const islandWireframeModule = dev.createShaderModule({ code: ISLAND_WIREFRAME_WGSL });
     this.islandWireframePipeline = dev.createRenderPipeline({
-      layout: pipelineLayout as any,
+      layout: pipelineLayout,
       vertex: {
         module: islandWireframeModule,
         entryPoint: "vs_main",
@@ -283,8 +232,7 @@ export class HitboxRenderer {
     hbUniforms[36] = color[0];
     hbUniforms[37] = color[1];
     hbUniforms[38] = color[2];
-    const queue = ctx.device?.queue ?? ctx.backend?.queue;
-    queue?.writeBuffer(this.hitboxUniformBuffer as any, this.hitboxEntryCount * 256, hbUniforms as any);
+    this.ctx.device.queue.writeBuffer(this.hitboxUniformBuffer!, this.hitboxEntryCount * 256, hbUniforms as any);
     this.hitboxEntryCount++;
   }
 
@@ -297,24 +245,24 @@ export class HitboxRenderer {
   }
 
   render(
-    passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder,
+    passEncoder: GPURenderPassEncoder,
     islandMeshes: Map<string, IslandWireframeRef>,
   ): void {
     const ctx = this.ctx;
     if (!this.showHitboxes || !this.hitboxPipeline || !this.hitboxQuadVertices || !this.hitboxQuadIndices || !this.hitboxBindGroup || !this.hitboxUniformBuffer) return;
 
-    passEncoder.setPipeline(this.hitboxPipeline as any);
-    passEncoder.setVertexBuffer(0, this.hitboxQuadVertices as any);
-    passEncoder.setIndexBuffer(this.hitboxQuadIndices as any, "uint16");
+    passEncoder.setPipeline(this.hitboxPipeline);
+    passEncoder.setVertexBuffer(0, this.hitboxQuadVertices);
+    passEncoder.setIndexBuffer(this.hitboxQuadIndices, "uint16");
 
     for (let i = 0; i < this.hitboxEntryCount; i++) {
-      passEncoder.setBindGroup(0, this.hitboxBindGroup as any, [i * 256]);
+      passEncoder.setBindGroup(0, this.hitboxBindGroup, [i * 256]);
       passEncoder.drawIndexed(this.hitboxQuadIndexCount);
     }
 
     // Render island wireframe hitboxes
     if (this.islandWireframePipeline && ctx.bindGroup) {
-      passEncoder.setPipeline(this.islandWireframePipeline as any);
+      passEncoder.setPipeline(this.islandWireframePipeline);
       for (let i = 0; i < ctx.drawEntityCount; i++) {
         if (ctx.drawEntityTypes[i] === EntityType.Island) {
           const chunkX = ctx.drawEntityChunkX[i] ?? 0;
@@ -322,9 +270,9 @@ export class HitboxRenderer {
           const islandKey = `${chunkX},${chunkZ}`;
           const islandMesh = islandMeshes.get(islandKey);
           if (islandMesh && islandMesh.lineIndices && islandMesh.lineIndexCount > 0) {
-            passEncoder.setVertexBuffer(0, islandMesh.vertices as any);
-            passEncoder.setIndexBuffer(islandMesh.lineIndices as any, islandMesh.useUint32 ? "uint32" : "uint16");
-            passEncoder.setBindGroup(0, ctx.bindGroup as any, [i * 256]);
+            passEncoder.setVertexBuffer(0, islandMesh.vertices);
+            passEncoder.setIndexBuffer(islandMesh.lineIndices, islandMesh.useUint32 ? "uint32" : "uint16");
+            passEncoder.setBindGroup(0, ctx.bindGroup, [i * 256]);
             passEncoder.drawIndexed(islandMesh.lineIndexCount);
           }
         }

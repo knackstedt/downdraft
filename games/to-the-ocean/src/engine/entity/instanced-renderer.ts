@@ -1,4 +1,3 @@
-import type { BackendBindGroup, BackendBindGroupLayout, BackendBuffer, BackendRenderPassEncoder, BackendRenderPipeline } from "@downdraft/core/render/backend/types";
 import { MAX_ENTITIES } from "@shared/constants";
 import { EntityType } from "@shared/types";
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "../graphicsConfig";
@@ -8,11 +7,11 @@ import type { EntityRenderContext } from "./render-context";
 export class InstancedEntityRenderer {
   private ctx: EntityRenderContext;
 
-  private instancedPipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  private instancedFrameUniformBuffer: GPUBuffer | BackendBuffer | null = null;
-  private instanceStorageBuffer: GPUBuffer | BackendBuffer | null = null;
-  private instancedBindGroup: GPUBindGroup | BackendBindGroup | null = null;
-  private instancedBindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
+  private instancedPipeline: GPURenderPipeline | null = null;
+  private instancedFrameUniformBuffer: GPUBuffer | null = null;
+  private instanceStorageBuffer: GPUBuffer | null = null;
+  private instancedBindGroup: GPUBindGroup | null = null;
+  private instancedBindGroupLayout: GPUBindGroupLayout | null = null;
   private instanceDataAb: ArrayBuffer | null = null;
   private instanceDataF32: Float32Array | null = null;
   private instanceDataU32: Uint32Array | null = null;
@@ -21,8 +20,8 @@ export class InstancedEntityRenderer {
   private frameUniformData = new Float32Array(32);
 
   // Cube geometry shared with fallback entity rendering
-  cubeVertices: GPUBuffer | BackendBuffer | null = null;
-  cubeIndices: GPUBuffer | BackendBuffer | null = null;
+  cubeVertices: GPUBuffer | null = null;
+  cubeIndices: GPUBuffer | null = null;
   cubeIndexCount = 0;
 
   constructor(ctx: EntityRenderContext) {
@@ -30,65 +29,19 @@ export class InstancedEntityRenderer {
   }
 
   init(
-    cubeVertices: GPUBuffer | BackendBuffer,
-    cubeIndices: GPUBuffer | BackendBuffer,
+    cubeVertices: GPUBuffer,
+    cubeIndices: GPUBuffer,
     cubeIndexCount: number,
-    lightBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout,
-    pbrBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout,
+    lightBindGroupLayout?: GPUBindGroupLayout,
+    pbrBindGroupLayout?: GPUBindGroupLayout,
   ): void {
     const device = this.ctx.device;
-    const backend = this.ctx.backend;
     const format = this.ctx.format;
     this.cubeVertices = cubeVertices;
     this.cubeIndices = cubeIndices;
     this.cubeIndexCount = cubeIndexCount;
 
-    if (backend && !device) {
-      const instancedShaderModule = backend.createShaderModule({ wgsl: INSTANCED_ENTITY_WGSL }, "wgsl");
-      this.instancedFrameUniformBuffer = backend.createBuffer({ size: 256, usage: 0x40 | 0x08 });
-      this.instanceStorageBuffer = backend.createBuffer({ size: MAX_ENTITIES * 48, usage: 0x80 | 0x08 });
-      this.instanceDataAb = new ArrayBuffer(MAX_ENTITIES * 48);
-      this.instanceDataF32 = new Float32Array(this.instanceDataAb);
-      this.instanceDataU32 = new Uint32Array(this.instanceDataAb);
-
-      this.instancedBindGroupLayout = backend.createBindGroupLayout({
-        entries: [
-          { binding: 0, visibility: 0x3, buffer: { type: "uniform" } },
-          { binding: 1, visibility: 0x1, buffer: { type: "read-only-storage" } },
-        ],
-      });
-      this.instancedBindGroup = backend.createBindGroup({
-        layout: this.instancedBindGroupLayout as any,
-        entries: [
-          { binding: 0, resource: { buffer: this.instancedFrameUniformBuffer as any, size: 256 } },
-          { binding: 1, resource: { buffer: this.instanceStorageBuffer as any } },
-        ],
-      });
-
-      const instancedLitLayout = (lightBindGroupLayout && pbrBindGroupLayout)
-        ? backend.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any, pbrBindGroupLayout as any] })
-        : lightBindGroupLayout
-          ? backend.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any] })
-          : backend.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any] });
-
-      this.instancedPipeline = backend.createRenderPipeline({
-        layout: instancedLitLayout as any,
-        vertex: {
-          module: instancedShaderModule, entryPoint: "vs_main",
-          buffers: [{ arrayStride: 24, attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-          ]}],
-        },
-        fragment: { module: instancedShaderModule, entryPoint: "fs_main", targets: [{ format: format as any }] },
-        primitive: { topology: "triangle-list" },
-        multisample: { count: MSAA_SAMPLE_COUNT },
-        depthStencil: { format: DEPTH_FORMAT as any, depthWriteEnabled: true, depthCompare: "less" },
-      });
-      return;
-    }
-
-    const dev = device!;
+    const dev = device;
     const instancedShaderModule = dev.createShaderModule({ code: INSTANCED_ENTITY_WGSL });
     this.instancedFrameUniformBuffer = dev.createBuffer({
       size: 256,
@@ -117,10 +70,10 @@ export class InstancedEntityRenderer {
     });
 
     const instancedLitLayout = (lightBindGroupLayout && pbrBindGroupLayout)
-      ? dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any, pbrBindGroupLayout as any] })
+      ? dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout] })
       : lightBindGroupLayout
-        ? dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any, lightBindGroupLayout as any] })
-        : dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout as any] });
+        ? dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout, lightBindGroupLayout] })
+        : dev.createPipelineLayout({ bindGroupLayouts: [this.instancedBindGroupLayout] });
 
     this.instancedPipeline = dev.createRenderPipeline({
       layout: instancedLitLayout,
@@ -182,7 +135,7 @@ export class InstancedEntityRenderer {
     fu[29] = lp.fogColor[1];
     fu[30] = lp.fogColor[2];
     fu[31] = 0;
-    ctx.device?.queue?.writeBuffer(this.instancedFrameUniformBuffer as any, 0, fu);
+    ctx.device.queue.writeBuffer(this.instancedFrameUniformBuffer!, 0, fu as any);
   }
 
   writeInstanceData(
@@ -213,25 +166,25 @@ export class InstancedEntityRenderer {
   uploadInstanceData(): void {
     if (!this.instanceStorageBuffer || !this.instanceDataF32 || this.instanceCount === 0) return;
     const view = new Float32Array(this.instanceDataF32.buffer as ArrayBuffer, 0, this.instanceCount * 12);
-    this.ctx.device?.queue?.writeBuffer(this.instanceStorageBuffer as any, 0, view);
+    this.ctx.device.queue.writeBuffer(this.instanceStorageBuffer!, 0, view as any);
   }
 
-  render(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder): void {
+  render(passEncoder: GPURenderPassEncoder): void {
     const ctx = this.ctx;
     if (!this.instancedPipeline || !this.instancedBindGroup || !this.cubeVertices || !this.cubeIndices || this.instanceCount === 0) {
       this._lastFrameTriangles = 0;
       return;
     }
-    passEncoder.setPipeline(this.instancedPipeline as any);
-    passEncoder.setBindGroup(0, this.instancedBindGroup as any);
+    passEncoder.setPipeline(this.instancedPipeline);
+    passEncoder.setBindGroup(0, this.instancedBindGroup);
     if (ctx.lightBindGroup) {
-      passEncoder.setBindGroup(1, ctx.lightBindGroup as any);
+      passEncoder.setBindGroup(1, ctx.lightBindGroup);
     }
     if (ctx.pbrBindGroup) {
-      passEncoder.setBindGroup(2, ctx.pbrBindGroup as any);
+      passEncoder.setBindGroup(2, ctx.pbrBindGroup);
     }
-    passEncoder.setVertexBuffer(0, this.cubeVertices as any);
-    passEncoder.setIndexBuffer(this.cubeIndices as any, "uint16");
+    passEncoder.setVertexBuffer(0, this.cubeVertices);
+    passEncoder.setIndexBuffer(this.cubeIndices, "uint16");
     passEncoder.drawIndexed(this.cubeIndexCount, this.instanceCount);
     this._lastFrameTriangles = Math.floor(this.cubeIndexCount / 3) * this.instanceCount;
   }

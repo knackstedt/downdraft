@@ -2,16 +2,6 @@
 // Entity Renderer — facade that delegates to sub-renderers for each entity type
 // ============================================================================
 
-import type { RenderBackend } from "@downdraft/core/render/backend/render-backend";
-import type {
-    BackendBindGroup,
-    BackendBindGroupLayout,
-    BackendBuffer,
-    BackendCommandEncoder,
-    BackendRenderPassEncoder,
-    BackendRenderPipeline,
-    TextureFormat,
-} from "@downdraft/core/render/backend/types";
 import type { MeshData, ModelData } from "@downdraft/plugin-models";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -45,15 +35,14 @@ export class EntityRenderer {
   private ctx: EntityRenderContext;
 
   // Shared GPU resources (managed by facade, shared via context)
-  private device: GPUDevice | null;
-  private backend: RenderBackend | null;
-  private format: GPUTextureFormat | TextureFormat;
-  private pipeline: GPURenderPipeline | BackendRenderPipeline | null = null;
-  private bindGroupLayout: GPUBindGroupLayout | BackendBindGroupLayout | null = null;
-  private uniformBuffer: GPUBuffer | BackendBuffer | null = null;
-  private bindGroup: GPUBindGroup | BackendBindGroup | null = null;
-  private cubeVertices: GPUBuffer | BackendBuffer | null = null;
-  private cubeIndices: GPUBuffer | BackendBuffer | null = null;
+  private device: GPUDevice;
+  private format: GPUTextureFormat;
+  private pipeline: GPURenderPipeline | null = null;
+  private bindGroupLayout: GPUBindGroupLayout | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private cubeVertices: GPUBuffer | null = null;
+  private cubeIndices: GPUBuffer | null = null;
   private cubeIndexCount = 0;
 
   // Per-frame state (stored in context for sub-renderers to read)
@@ -81,8 +70,8 @@ export class EntityRenderer {
   private drawEntityCount = 0;
 
   // External bind groups
-  private lightBindGroup: GPUBindGroup | BackendBindGroup | null = null;
-  private pbrBindGroup: GPUBindGroup | BackendBindGroup | null = null;
+  private lightBindGroup: GPUBindGroup | null = null;
+  private pbrBindGroup: GPUBindGroup | null = null;
 
   // Triangle counter (accumulated across render + renderInstanced)
   private _lastFrameTriangles = 0;
@@ -96,15 +85,13 @@ export class EntityRenderer {
   private islandTerrainRenderer: IslandTerrainRenderer;
   private playerMeshRenderer: PlayerMeshRenderer;
 
-  constructor(device: GPUDevice | null, format: GPUTextureFormat | TextureFormat, backend?: RenderBackend | null) {
+  constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
-    this.backend = backend ?? null;
     this.format = format;
 
     // Build shared context
     this.ctx = {
       device,
-      backend: backend ?? null,
       format,
       uniformBuffer: null,
       bindGroup: null,
@@ -166,22 +153,17 @@ export class EntityRenderer {
   }
 
   // --- Lighting / PBR ---
-  setLightBindGroup(bg: GPUBindGroup | BackendBindGroup): void {
+  setLightBindGroup(bg: GPUBindGroup): void {
     this.lightBindGroup = bg;
     this.ctx.lightBindGroup = bg;
   }
-  setPBRBindGroup(bg: GPUBindGroup | BackendBindGroup): void {
+  setPBRBindGroup(bg: GPUBindGroup): void {
     this.pbrBindGroup = bg;
     this.ctx.pbrBindGroup = bg;
   }
 
   // --- Init ---
-  async init(lightBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout, pbrBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout): Promise<void> {
-    if (!this.device) {
-      await this.initBackend(lightBindGroupLayout, pbrBindGroupLayout);
-      return;
-    }
-
+  async init(lightBindGroupLayout?: GPUBindGroupLayout, pbrBindGroupLayout?: GPUBindGroupLayout): Promise<void> {
     const shaderModule = this.device.createShaderModule({ code: ENTITY_WGSL });
 
     this.uniformBuffer = this.device.createBuffer({
@@ -301,148 +283,9 @@ export class EntityRenderer {
     this.hitboxRenderer.init(pipelineLayout);
     this.instancedRenderer.init(
       this.cubeVertices!, this.cubeIndices!, this.cubeIndexCount,
-      lightBindGroupLayout as any, pbrBindGroupLayout as any,
+      lightBindGroupLayout ?? undefined, pbrBindGroupLayout ?? undefined,
     );
-    this.playerMeshRenderer.init(lightBindGroupLayout as any ?? null, pbrBindGroupLayout as any ?? null);
-
-    // Wire holo preview mesh deps from boat mesh builder
-    this.holoPreviewRenderer.setMeshDeps({
-      bedMeshVerts: this.boatMeshBuilder.bedMeshVerts,
-      bedMeshIdx: this.boatMeshBuilder.bedMeshIdx,
-      bedMeshVertCount: this.boatMeshBuilder.bedMeshVertCount,
-      generateCellMesh: (cell, cellMap, verts, idx, baseVi) =>
-        this.boatMeshBuilder.generateCellMesh(cell, cellMap, verts, idx, baseVi),
-      generateFBXCellMesh: (cell, cellMap, srcVerts, srcIdx, verts, idx, baseVi) =>
-        this.boatMeshBuilder.generateFBXCellMesh(cell, cellMap, srcVerts, srcIdx, verts, idx, baseVi),
-      genDeleteXCell: (cx, cy, cz, s, verts, idx, baseVi) =>
-        this.boatMeshBuilder.genDeleteXCell(cx, cy, cz, s, verts, idx, baseVi),
-    } as HoloMeshDeps);
-  }
-
-  private async initBackend(lightBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout, pbrBindGroupLayout?: GPUBindGroupLayout | BackendBindGroupLayout): Promise<void> {
-    if (!this.backend) return;
-    const backend = this.backend;
-
-    this.uniformBuffer = backend.createBuffer({
-      size: 256 * EntityRenderer.MAX_DRAW_ENTITIES,
-      usage: 0x40 | 0x08, // UNIFORM | COPY_DST
-    });
-
-    this.bindGroupLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: 0x3, buffer: { type: "uniform", hasDynamicOffset: true } },
-      ],
-    });
-
-    this.bindGroup = backend.createBindGroup({
-      layout: this.bindGroupLayout as BackendBindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer as BackendBuffer, size: 256 } }],
-    });
-
-    this.ctx.uniformBuffer = this.uniformBuffer;
-    this.ctx.bindGroup = this.bindGroup;
-    this.ctx.bindGroupLayout = this.bindGroupLayout;
-
-    // Unit cube
-    const verts = new Float32Array([
-      -0.5, -0.5, -0.5,  0, 0, -1,
-       0.5, -0.5, -0.5,  0, 0, -1,
-       0.5,  0.5, -0.5,  0, 0, -1,
-      -0.5,  0.5, -0.5,  0, 0, -1,
-      -0.5, -0.5,  0.5,  0, 0, 1,
-       0.5, -0.5,  0.5,  0, 0, 1,
-       0.5,  0.5,  0.5,  0, 0, 1,
-      -0.5,  0.5,  0.5,  0, 0, 1,
-      -0.5, -0.5, -0.5,  0, -1, 0,
-       0.5, -0.5, -0.5,  0, -1, 0,
-       0.5, -0.5,  0.5,  0, -1, 0,
-      -0.5, -0.5,  0.5,  0, -1, 0,
-      -0.5,  0.5, -0.5,  0, 1, 0,
-       0.5,  0.5, -0.5,  0, 1, 0,
-       0.5,  0.5,  0.5,  0, 1, 0,
-      -0.5,  0.5,  0.5,  0, 1, 0,
-      -0.5, -0.5, -0.5, -1, 0, 0,
-      -0.5,  0.5, -0.5, -1, 0, 0,
-      -0.5,  0.5,  0.5, -1, 0, 0,
-      -0.5, -0.5,  0.5, -1, 0, 0,
-       0.5, -0.5, -0.5,  1, 0, 0,
-       0.5,  0.5, -0.5,  1, 0, 0,
-       0.5,  0.5,  0.5,  1, 0, 0,
-       0.5, -0.5,  0.5,  1, 0, 0,
-    ]);
-    const indices = new Uint16Array([
-      0, 1, 2, 0, 2, 3,
-      4, 6, 5, 4, 7, 6,
-      8, 9, 10, 8, 10, 11,
-      12, 14, 13, 12, 15, 14,
-      16, 17, 18, 16, 18, 19,
-      20, 22, 21, 20, 23, 22,
-    ]);
-
-    this.cubeVertices = backend.createBuffer({
-      size: verts.byteLength,
-      usage: 0x20 | 0x08, // VERTEX | COPY_DST
-    });
-    backend.queue.writeBuffer(this.cubeVertices as BackendBuffer, 0, verts as any);
-
-    this.cubeIndexCount = indices.length;
-    this.cubeIndices = backend.createBuffer({
-      size: indices.byteLength,
-      usage: 0x10 | 0x08, // INDEX | COPY_DST
-    });
-    backend.queue.writeBuffer(this.cubeIndices as BackendBuffer, 0, indices as any);
-
-    // Pipeline layouts
-    const pipelineLayout = backend.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout as BackendBindGroupLayout],
-    });
-    const litPipelineLayout = lightBindGroupLayout
-      ? backend.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout as BackendBindGroupLayout, lightBindGroupLayout as BackendBindGroupLayout] })
-      : pipelineLayout;
-    const pbrLitPipelineLayout = (lightBindGroupLayout && pbrBindGroupLayout)
-      ? backend.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout as BackendBindGroupLayout, lightBindGroupLayout as BackendBindGroupLayout, pbrBindGroupLayout as BackendBindGroupLayout] })
-      : litPipelineLayout;
-
-    // Generic entity pipeline (cube fallback)
-    const shaderModule = backend.createShaderModule({ wgsl: ENTITY_WGSL }, "wgsl");
-    this.pipeline = backend.createRenderPipeline({
-      layout: pbrLitPipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: 24,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-          ],
-        }],
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs_main",
-        targets: [{ format: this.format as TextureFormat }],
-      },
-      primitive: { topology: "triangle-list" },
-      multisample: { count: MSAA_SAMPLE_COUNT },
-      depthStencil: {
-        format: DEPTH_FORMAT as TextureFormat,
-        depthWriteEnabled: true,
-        depthCompare: "less",
-      },
-    });
-
-    // Init sub-renderers
-    this.boatMeshBuilder.init();
-    this.islandTerrainRenderer.init(pbrLitPipelineLayout as any);
-    this.anchorRenderer.init(pbrLitPipelineLayout as any);
-    this.holoPreviewRenderer.init(litPipelineLayout as any);
-    this.hitboxRenderer.init(pipelineLayout as any);
-    this.instancedRenderer.init(
-      this.cubeVertices as any, this.cubeIndices as any, this.cubeIndexCount,
-      lightBindGroupLayout as any, pbrBindGroupLayout as any,
-    );
-    this.playerMeshRenderer.init(lightBindGroupLayout as any ?? null, pbrBindGroupLayout as any ?? null);
+    this.playerMeshRenderer.init(lightBindGroupLayout ?? null, pbrBindGroupLayout ?? null);
 
     // Wire holo preview mesh deps from boat mesh builder
     this.holoPreviewRenderer.setMeshDeps({
@@ -576,8 +419,7 @@ export class EntityRenderer {
     uniforms[42] = lp.fogColor[2];
     uniforms[43] = 0;
 
-    const queue = this.device?.queue ?? this.backend?.queue;
-    queue?.writeBuffer(this.uniformBuffer as any, offset, uniforms as any);
+    this.device.queue.writeBuffer(this.uniformBuffer!, offset, uniforms as any);
 
     this.drawEntityCount = idx + 1;
     this.ctx.drawEntityCount = this.drawEntityCount;
@@ -703,20 +545,20 @@ export class EntityRenderer {
     this.instancedRenderer.uploadInstanceData();
   }
 
-  renderInstanced(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder): void {
-    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup as any);
-    if (this.pbrBindGroup) passEncoder.setBindGroup(2, this.pbrBindGroup as any);
+  renderInstanced(passEncoder: GPURenderPassEncoder): void {
+    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup);
+    if (this.pbrBindGroup) passEncoder.setBindGroup(2, this.pbrBindGroup);
     this.instancedRenderer.render(passEncoder as any);
     this._lastFrameTriangles += this.instancedRenderer.getLastFrameTriangles();
   }
 
   // --- Render (dispatches to sub-renderers based on entity type) ---
-  render(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, idx: number): void {
+  render(passEncoder: GPURenderPassEncoder, idx: number): void {
     if (!this.bindGroup || !this.uniformBuffer) return;
 
     // Bind light + PBR groups for lit pipelines
-    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup as any);
-    if (this.pbrBindGroup) passEncoder.setBindGroup(2, this.pbrBindGroup as any);
+    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup);
+    if (this.pbrBindGroup) passEncoder.setBindGroup(2, this.pbrBindGroup);
 
     const type = this.drawEntityTypes[idx] ?? EntityType.Player;
     const isBoat = type === EntityType.Ship || type === EntityType.SmallCraft;
@@ -754,33 +596,33 @@ export class EntityRenderer {
 
     // Generic cube fallback
     if (this.pipeline && this.cubeVertices && this.cubeIndices) {
-      passEncoder.setPipeline(this.pipeline as any);
-      passEncoder.setBindGroup(0, this.bindGroup as any, [idx * 256]);
-      passEncoder.setVertexBuffer(0, this.cubeVertices as any);
-      passEncoder.setIndexBuffer(this.cubeIndices as any, "uint16");
+      passEncoder.setPipeline(this.pipeline);
+      passEncoder.setBindGroup(0, this.bindGroup, [idx * 256]);
+      passEncoder.setVertexBuffer(0, this.cubeVertices);
+      passEncoder.setIndexBuffer(this.cubeIndices, "uint16");
       passEncoder.drawIndexed(this.cubeIndexCount);
       this._lastFrameTriangles += Math.floor(this.cubeIndexCount / 3);
     }
   }
 
   // --- Anchors ---
-  renderAnchors(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder, simReader: SimBufferReader): void {
-    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup as any);
+  renderAnchors(passEncoder: GPURenderPassEncoder, simReader: SimBufferReader): void {
+    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup);
     this.anchorRenderer.render(passEncoder as any, simReader);
   }
 
   // --- Hitboxes ---
-  renderHitboxes(passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder): void {
+  renderHitboxes(passEncoder: GPURenderPassEncoder): void {
     this.hitboxRenderer.render(passEncoder as any, this.islandTerrainRenderer.getIslandMeshes());
   }
 
   // --- Holo preview ---
   renderHoloPreview(
-    passEncoder: GPURenderPassEncoder | BackendRenderPassEncoder,
+    passEncoder: GPURenderPassEncoder,
     shipPos: { x: number; y: number; z: number },
     shipRot: { x: number; y: number; z: number; w: number },
   ): void {
-    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup as any);
+    if (this.lightBindGroup) passEncoder.setBindGroup(1, this.lightBindGroup);
     this.holoPreviewRenderer.render(passEncoder as any, shipPos, shipRot);
   }
 
@@ -809,7 +651,7 @@ export class EntityRenderer {
     this.playerMeshRenderer.updateBoneLocalTransforms();
   }
 
-  dispatchSkinningCompute(encoder: GPUCommandEncoder | BackendCommandEncoder): void {
+  dispatchSkinningCompute(encoder: GPUCommandEncoder): void {
     this.playerMeshRenderer.dispatchSkinningCompute(encoder as any);
   }
 

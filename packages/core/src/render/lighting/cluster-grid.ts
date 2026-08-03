@@ -1,17 +1,10 @@
-import { mat4, vec3, type Mat4, type Vec3 } from "wgpu-matrix";
-import type { RenderBackend } from "../backend/render-backend.ts";
-import type { BackendBuffer, BackendBindGroup, BackendBindGroupLayout, BackendShaderModule, BackendRenderPipeline } from "../backend/types.ts";
-import { SHADER_STAGE_COMPUTE, SHADER_STAGE_FRAGMENT } from "../backend/types.ts";
-import { wgslShader } from "../backend/shader-source.ts";
 import {
-  CLUSTER_GRID_ENTRY_SIZE,
-  computeClusterCount,
-  computeLightDataBufferSize,
-  computeLightIndexListSize,
-  type ClusterGridConfig,
-  type ClusterUniforms,
-  LIGHT_DATA_SIZE,
-  packClusterUniforms,
+    CLUSTER_GRID_ENTRY_SIZE,
+    computeClusterCount,
+    computeLightDataBufferSize,
+    computeLightIndexListSize,
+    packClusterUniforms,
+    type ClusterGridConfig
 } from "./cluster-types.ts";
 
 const CLUSTER_BUILD_SHADER = /* wgsl */ `
@@ -150,33 +143,22 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 export class ClusterGrid {
   private config: ClusterGridConfig;
   private device: GPUDevice | null = null;
-  private backend: RenderBackend | null = null;
 
-  private uniformBuffer: GPUBuffer | BackendBuffer | null = null;
-  private lightDataBuffer: GPUBuffer | BackendBuffer | null = null;
-  private lightGridBuffer: GPUBuffer | BackendBuffer | null = null;
-  private lightIndexListBuffer: GPUBuffer | BackendBuffer | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
+  private lightDataBuffer: GPUBuffer | null = null;
+  private lightGridBuffer: GPUBuffer | null = null;
+  private lightIndexListBuffer: GPUBuffer | null = null;
 
   private computePipeline: GPUComputePipeline | null = null;
   private computeBindGroup: GPUBindGroup | null = null;
-
-  private _bgComputePipeline: BackendRenderPipeline | null = null;
-  private _bgBindGroup: BackendBindGroup | null = null;
-  private _bgBindGroupLayout: BackendBindGroupLayout | null = null;
-  private _bgShader: BackendShaderModule | null = null;
-  private _bgUniformBuffer: BackendBuffer | null = null;
-  private _bgLightDataBuffer: BackendBuffer | null = null;
-  private _bgLightGridBuffer: BackendBuffer | null = null;
-  private _bgLightIndexListBuffer: BackendBuffer | null = null;
 
   private screenWidth = 1920;
   private screenHeight = 1080;
   private currentLightCount = 0;
 
-  constructor(config: ClusterGridConfig, device?: GPUDevice | null, backend?: RenderBackend | null) {
+  constructor(config: ClusterGridConfig, device?: GPUDevice | null) {
     this.config = config;
     this.device = device ?? null;
-    this.backend = backend ?? null;
   }
 
   get clusterCount(): number { return computeClusterCount(this.config); }
@@ -224,65 +206,20 @@ export class ClusterGrid {
     });
   }
 
-  prepareBackend(backend: RenderBackend): void {
-    this.backend = backend;
-    const maxLightsPerCluster = this.config.maxLightsPerCluster;
-    const shaderCode = CLUSTER_BUILD_SHADER.replace(/\$\{128\}u/g, `${maxLightsPerCluster}u`);
-
-    this._bgUniformBuffer = backend.createBuffer({
-      label: "cluster-uniforms",
-      size: 32,
-      usage: 0x40 | 0x08,
-    });
-
-    this._bgLightDataBuffer = backend.createBuffer({
-      label: "cluster-light-data",
-      size: this.lightDataSize,
-      usage: 0x80 | 0x08,
-    });
-
-    this._bgLightGridBuffer = backend.createBuffer({
-      label: "cluster-light-grid",
-      size: this.lightGridSize,
-      usage: 0x80 | 0x08,
-    });
-
-    this._bgLightIndexListBuffer = backend.createBuffer({
-      label: "cluster-light-index-list",
-      size: this.lightIndexListSize,
-      usage: 0x80 | 0x08,
-    });
-
-    this._bgBindGroupLayout = backend.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: SHADER_STAGE_COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: SHADER_STAGE_COMPUTE, buffer: { type: "storage", hasDynamicOffset: false } },
-        { binding: 2, visibility: SHADER_STAGE_COMPUTE, buffer: { type: "storage", hasDynamicOffset: false } },
-        { binding: 3, visibility: SHADER_STAGE_COMPUTE, buffer: { type: "storage", hasDynamicOffset: false } },
-      ],
-    });
-
-    this._bgShader = backend.createShaderModule(wgslShader(shaderCode, "cluster-build"), "wgsl");
-  }
-
   updateUniforms(screenWidth: number, screenHeight: number, numLights: number): void {
     this.screenWidth = screenWidth;
     this.screenHeight = screenHeight;
     this.currentLightCount = numLights;
 
     const packed = packClusterUniforms(this.config, screenWidth, screenHeight, numLights);
-    const queue = this.device?.queue ?? this.backend?.queue;
-    const buf = this.uniformBuffer ?? this._bgUniformBuffer;
-    if (queue && buf) {
-      queue.writeBuffer(buf as any, 0, packed as unknown as BufferSource);
+    if (this.device && this.uniformBuffer) {
+      this.device.queue.writeBuffer(this.uniformBuffer, 0, packed as unknown as BufferSource);
     }
   }
 
   updateLightData(lightData: Float32Array): void {
-    const queue = this.device?.queue ?? this.backend?.queue;
-    const buf = this.lightDataBuffer ?? this._bgLightDataBuffer;
-    if (queue && buf) {
-      queue.writeBuffer(buf as any, 0, lightData as unknown as BufferSource);
+    if (this.device && this.lightDataBuffer) {
+      this.device.queue.writeBuffer(this.lightDataBuffer, 0, lightData as unknown as BufferSource);
     }
   }
 
@@ -311,27 +248,27 @@ export class ClusterGrid {
     }
   }
 
-  getLightGridBuffer(): GPUBuffer | BackendBuffer | null {
-    return this.lightGridBuffer ?? this._bgLightGridBuffer;
+  getLightGridBuffer(): GPUBuffer | null {
+    return this.lightGridBuffer;
   }
 
-  getLightIndexListBuffer(): GPUBuffer | BackendBuffer | null {
-    return this.lightIndexListBuffer ?? this._bgLightIndexListBuffer;
+  getLightIndexListBuffer(): GPUBuffer | null {
+    return this.lightIndexListBuffer;
   }
 
-  getLightDataBuffer(): GPUBuffer | BackendBuffer | null {
-    return this.lightDataBuffer ?? this._bgLightDataBuffer;
+  getLightDataBuffer(): GPUBuffer | null {
+    return this.lightDataBuffer;
   }
 
-  getUniformBuffer(): GPUBuffer | BackendBuffer | null {
-    return this.uniformBuffer ?? this._bgUniformBuffer;
+  getUniformBuffer(): GPUBuffer | null {
+    return this.uniformBuffer;
   }
 
-  getBindGroupLayout(): GPUBindGroupLayout | BackendBindGroupLayout | null {
+  getBindGroupLayout(): GPUBindGroupLayout | null {
     if (this.computePipeline) {
       return this.computePipeline.getBindGroupLayout(0);
     }
-    return this._bgBindGroupLayout;
+    return null;
   }
 
   getConfig(): ClusterGridConfig {
