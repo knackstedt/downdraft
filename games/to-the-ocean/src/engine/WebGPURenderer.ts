@@ -57,7 +57,7 @@ const animGlobs = import.meta.glob(
   { query: "?url", import: "default", eager: true },
 ) as Record<string, string>;
 
-export class WebGPURenderer {
+export class WebGPURenderer implements IRendererStateProvider {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
   private context: GPUCanvasContext | null = null;
@@ -1226,5 +1226,31 @@ export class WebGPURenderer {
     this.device = null;
     for (const tex of this.depthTextures.values()) { tex.destroy(); }
     this.depthTextures.clear();
+  }
+
+  // --- IRendererStateProvider ---
+
+  serializeRendererMeta(): Record<string, unknown> {
+    return {
+      debugMode: this.accessors.debugMode,
+      flashlightOn: this.accessors.flashlightOn,
+      showChunkGrid: this.accessors.isChunkGridVisible(),
+      showVelocityArrows: this.accessors.isVelocityArrowsVisible(),
+      postProcess: this.accessors.getPostProcessInfo(),
+    };
+  }
+
+  restoreRendererMeta(meta: Record<string, unknown>): void {
+    if (meta.debugMode !== undefined) this.accessors.setDebugMode(meta.debugMode as boolean);
+    if (meta.flashlightOn !== undefined && meta.flashlightOn !== this.accessors.flashlightOn) {
+      this.accessors.toggleFlashlight();
+    }
+    if (meta.showChunkGrid !== undefined) this.accessors.setShowChunkGrid(meta.showChunkGrid as boolean);
+    if (meta.showVelocityArrows !== undefined) this.accessors.setShowVelocityArrows(meta.showVelocityArrows as boolean);
+    if (meta.postProcess && typeof meta.postProcess === "object") {
+      const pp = meta.postProcess as { pixelationEnabled?: boolean; pixelSize?: number };
+      if (pp.pixelationEnabled !== undefined) this.accessors.setPixelationEnabled(pp.pixelationEnabled);
+      if (pp.pixelSize !== undefined) this.accessors.setPixelSize(pp.pixelSize);
+    }
   }
 }

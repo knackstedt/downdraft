@@ -188,6 +188,13 @@ async function bootstrap() {
       const savedState = await downdraft.loadGameState("autosave");
       if (savedState) {
         await simWorker.load("autosave", savedState);
+        // Restore renderer meta if present
+        try {
+          const components = JSON.parse(savedState);
+          if (components.renderer?.data && renderer.restoreRendererMeta) {
+            renderer.restoreRendererMeta(components.renderer.data);
+          }
+        } catch { /* ignore */ }
         console.log("[Renderer] Auto-loaded saved game state");
       }
     } catch {
@@ -203,6 +210,13 @@ async function bootstrap() {
         const hotReloadState = await downdraft.loadGameState("hot-reload");
         if (hotReloadState) {
           await simWorker.restoreFromState(hotReloadState);
+          // Restore renderer meta if present
+          try {
+            const components = JSON.parse(hotReloadState);
+            if (components.renderer?.data && renderer.restoreRendererMeta) {
+              renderer.restoreRendererMeta(components.renderer.data);
+            }
+          } catch { /* ignore */ }
           console.log("[HMR] Restored state after page reload");
           if (downdraft.deleteGameState) downdraft.deleteGameState("hot-reload");
         }
@@ -552,7 +566,12 @@ async function bootstrap() {
         try {
           const result = await simWorker.save("hot-reload");
           if (result?.stateJson && downdraft?.saveGameState) {
-            downdraft.saveGameState("hot-reload", result.stateJson);
+            // Merge renderer meta into save state
+            let components = JSON.parse(result.stateJson);
+            if (renderer.serializeRendererMeta) {
+              components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
+            }
+            downdraft.saveGameState("hot-reload", JSON.stringify(components));
             sessionStorage.setItem("hot-reload-pending", "1");
             console.log("[HMR] State saved, reloading page...");
           }

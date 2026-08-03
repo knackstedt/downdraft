@@ -15,6 +15,8 @@ const sharedTextureApi = (globalThis as any).sharedTexture ?? electron?.sharedTe
 const api = {
   saveGameState: (slotName: string, stateJson: string): Promise<boolean> => ipcRenderer.invoke(IPC.SAVE_GAME_STATE, slotName, stateJson),
   loadGameState: (slotName: string): Promise<string | null> => ipcRenderer.invoke(IPC.LOAD_GAME_STATE, slotName),
+  deleteGameState: (slotName: string): Promise<boolean> => ipcRenderer.invoke(IPC.DELETE_GAME_STATE, slotName),
+  listSaveSlots: (): Promise<Array<{ slot: string; timestamp: number; entityCount: number; playerCount: number; engineVersion: string; fileSize: number }>> => ipcRenderer.invoke(IPC.LIST_SAVE_SLOTS),
 
   quit: (): Promise<void> => ipcRenderer.invoke(IPC.QUIT),
 

@@ -8,6 +8,8 @@ export const IPC = {
   // Renderer -> Main
   SAVE_GAME_STATE: "save-game-state",
   LOAD_GAME_STATE: "load-game-state",
+  DELETE_GAME_STATE: "delete-game-state",
+  LIST_SAVE_SLOTS: "list-save-slots",
   RENDERER_LOG: "renderer-log",
   QUIT: "quit",
   DEBUG_MODE: "debug-mode",
@@ -45,29 +47,3 @@ export const IPC = {
   PERF_STATS: "perf-stats",
 } as const;
 
-// --- DB Helper ---
-
-export interface DbRequest {
-  id: number;
-  type: string;
-  [key: string]: unknown;
-}
-
-export interface DbResponse {
-  id: number;
-  type: string;
-  result?: unknown;
-  error?: string;
-}
-
-export function dbRequest(type: DbRequest["type"], payload: Partial<DbRequest> = {}): DbRequest {
-  return {
-    id: 0,
-    type,
-    ...payload,
-  };
-}
-
-export function dbResponse(id: number, type: string, result?: unknown, error?: string): DbResponse {
-  return { id, type, result, error };
-}

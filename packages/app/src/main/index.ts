@@ -6,12 +6,12 @@ import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft
 import { createLogger } from "@downdraft/core/util/logger";
 import { McpHttpTransport, type McpProxyHandler } from "@downdraft/mcp/http-transport";
 import { InputForwarder, OSRRendererManager } from "@downdraft/plugin-electron-osr/main-entry";
+import { FileSaveStore } from "@downdraft/plugin-persistence";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "path";
 import { IPC } from "../shared/messages";
-import { getDb, initDb, terminateDb } from "./db";
 
 const log = createLogger("info");
 const isDev = !app.isPackaged;
@@ -367,31 +367,78 @@ async function createWindow(): Promise<void> {
   }
 }
 
+let saveStore: FileSaveStore | null = null;
+
+function getSaveStore(): FileSaveStore {
+  if (!saveStore) {
+    const saveDir = join(app.getPath("userData"), "saves");
+    saveStore = new FileSaveStore({
+      saveDir,
+      engineVersion: app.getVersion() || "0.1.0",
+    });
+    saveStore.onWarning((w: { kind: string; slot: string; message: string }) => {
+      log.warn("save", `[${w.kind}] slot='${w.slot}': ${w.message}`);
+    });
+  }
+  return saveStore;
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(IPC.SAVE_GAME_STATE, async (_event, slotName: string, stateJson: string) => {
     try {
-      const db = await getDb();
-      await db.query("UPSERT type::record('save_game', $slot) SET state = $state, updated_at = time::now()", { slot: slotName, state: stateJson });
-      log.info("main", `Saved game state to slot '${slotName}'`);
-      return true;
+      const store = getSaveStore();
+      // Parse the state JSON from the renderer, wrap it in a SaveState
+      const components = JSON.parse(stateJson);
+      const result = await store.save(slotName, {
+        components,
+        meta: {
+          engineVersion: app.getVersion() || "0.1.0",
+          timestamp: Date.now() / 1000,
+          entityCount: 0,
+          playerCount: 0,
+        },
+      });
+      log.info("main", `Saved game state to slot '${slotName}' (${result.bytes} bytes)`);
+      return result.success;
     } catch (err) {
-      log.error("main", `DB save failed: ${err}`);
+      log.error("main", `Save failed: ${err}`);
       return false;
     }
   });
 
   ipcMain.handle(IPC.LOAD_GAME_STATE, async (_event, slotName: string) => {
     try {
-      const db = await getDb();
-      const result = await db.query<any[]>("SELECT state FROM type::record('save_game', $slot)", { slot: slotName });
-      if (result && result[0]?.state) {
+      const store = getSaveStore();
+      const result = await store.load(slotName);
+      if (result.state) {
         log.info("main", `Loaded game state from slot '${slotName}'`);
-        return result[0].state as string;
+        return JSON.stringify(result.state.components);
       }
+      log.info("main", `No save found for slot '${slotName}'`);
       return null;
     } catch (err) {
-      log.error("main", `DB load failed: ${err}`);
+      log.error("main", `Load failed: ${err}`);
       return null;
+    }
+  });
+
+  ipcMain.handle(IPC.DELETE_GAME_STATE, async (_event, slotName: string) => {
+    try {
+      const store = getSaveStore();
+      return store.deleteSave(slotName);
+    } catch (err) {
+      log.error("main", `Delete save failed: ${err}`);
+      return false;
+    }
+  });
+
+  ipcMain.handle(IPC.LIST_SAVE_SLOTS, async () => {
+    try {
+      const store = getSaveStore();
+      return store.listSaves();
+    } catch (err) {
+      log.error("main", `List saves failed: ${err}`);
+      return [];
     }
   });
 
@@ -634,7 +681,6 @@ function registerIpcHandlers(): void {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   registerIpcHandlers();
-  await initDb();
   await createWindow();
   mainWindow?.webContents.send(IPC.SIM_READY, { isDev });
 
@@ -684,7 +730,6 @@ app.on("window-all-closed", () => {
 app.on("before-quit", async () => {
   osrManager?.destroy();
   osrManager = null;
-  await terminateDb();
 });
 
 app.on("activate", async () => {

@@ -41,11 +41,11 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
+    "@bokuweb/zstd-wasm": "^0.0.27",
     "@dimforge/rapier3d-compat": "^0.14.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "surrealdb": "^2.0.8",
-    "@surrealdb/node": "^3.0.3",
+    "xxhash-wasm": "^0.4.2",
     "zustand": "^5.0.2"
   },
   "build": {
