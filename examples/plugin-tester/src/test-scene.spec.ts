@@ -2,7 +2,7 @@
 // Test Scene Integration Tests — verify the combined test scene works
 // ============================================================================
 
-import { initTestScene } from "./test-scene.ts";
+import { initTestScene } from "./test-scene";
 
 describe("TestScene Integration", () => {
   it("should initialize without errors", () => {

@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { EngineContext, MCPServer } from "@downdraft/mcp";
-import type { TestScene } from "./test-scene.ts";
+import type { TestScene } from "./test-scene";
 
 export function setupMCP(scene: TestScene): void {
   // Create engine context — use a fresh EngineContext since this is a standalone test
