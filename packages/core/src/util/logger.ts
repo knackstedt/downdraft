@@ -30,6 +30,12 @@ const THEMES = {
         module: "\x1b[38;2;82;148;226m",
         gray: "\x1b[38;2;128;128;128m",
         time: "\x1b[38;2;69;197;139m",
+        thread: {
+            M0: "\x1b[38;2;130;170;255m",
+            M1: "\x1b[38;2;100;180;255m",
+            R0: "\x1b[38;2;255;170;100m",
+            R1: "\x1b[38;2;255;140;180m",
+        } as Record<string, string>,
         jsonKey: "\x1b[38;2;156;220;254m",
         jsonString: "\x1b[38;2;206;145;120m",
         jsonNumber: "\x1b[38;2;181;206;168m",
@@ -47,6 +53,12 @@ const THEMES = {
         module: "\x1b[38;2;2;122;232m",
         gray: "\x1b[38;2;100;100;100m",
         time: "\x1b[38;2;12;157;118m",
+        thread: {
+            M0: "\x1b[38;2;60;100;200m",
+            M1: "\x1b[38;2;40;130;200m",
+            R0: "\x1b[38;2;200;120;40m",
+            R1: "\x1b[38;2;200;80;130m",
+        } as Record<string, string>,
         jsonKey: "\x1b[38;2;1;36;86m",
         jsonString: "\x1b[38;2;163;21;21m",
         jsonNumber: "\x1b[38;2;0;100;0m",
@@ -58,6 +70,14 @@ const THEMES = {
 
 const reset = "\x1b[0m";
 const bold = "\x1b[1m";
+
+export function setThreadTag(tag: string): void {
+    (globalThis as any).__ddThreadTag = tag;
+}
+
+function getThreadTag(): string {
+    return (globalThis as any).__ddThreadTag ?? "";
+}
 
 const OSC8_START = "\x1b]8;;";
 const OSC8_END = "\x1b]8;;";
@@ -122,34 +142,27 @@ function makeTerminalLink(target: string, text: string): string {
     return `${OSC8_START}${target}${BEL}${text}${OSC8_END}${BEL}`;
 }
 
-function getCallerLocation(): string | null {
-    const stack = new Error().stack;
-    if (!stack) return null;
-    const lines = stack.split("\n");
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.includes("logger.ts")) continue;
-        const match = line.match(/\((.+?):(\d+):\d+\)/);
-        if (match) return `${match[1]}:${match[2]}`;
-        const atMatch = line.match(/at\s+(.+?):(\d+):\d+/);
-        if (atMatch) return `${atMatch[1]}:${atMatch[2]}`;
-    }
-    return null;
-}
-
 function linkifyModule(module: string): string {
     if (!isPathLike(module)) return module;
     return makeFileLink(module);
 }
 
-const JSON_COLORS = {
-    key: THEMES.dark.jsonKey,
-    string: THEMES.dark.jsonString,
-    number: THEMES.dark.jsonNumber,
-    boolean: THEMES.dark.jsonBoolean,
-    null: THEMES.dark.jsonNull,
-    brace: THEMES.dark.jsonBrace,
-};
+function getJsonColors(theme: "light" | "dark") {
+    const t = THEMES[theme];
+    return {
+        key: t.jsonKey,
+        string: t.jsonString,
+        number: t.jsonNumber,
+        boolean: t.jsonBoolean,
+        null: t.jsonNull,
+        brace: t.jsonBrace,
+    };
+}
+
+let _jsonColors: ReturnType<typeof getJsonColors> | undefined;
+function jsonColors(): ReturnType<typeof getJsonColors> {
+    return (_jsonColors ??= getJsonColors(getTheme()));
+}
 
 function highlightJson(json: string): string {
     let out = "";
@@ -157,8 +170,13 @@ function highlightJson(json: string): string {
     while (i < json.length) {
         const ch = json[i];
         if (ch === '"') {
-            const end = json.indexOf('"', i + 1);
-            if (end === -1) {
+            let end = i + 1;
+            while (end < json.length) {
+                if (json[end] === '\\') { end += 2; continue; }
+                if (json[end] === '"') break;
+                end++;
+            }
+            if (end >= json.length) {
                 out += ch;
                 i++;
                 continue;
@@ -168,7 +186,7 @@ function highlightJson(json: string): string {
             let j = end + 1;
             while (j < json.length && /\s/.test(json[j])) j++;
             if (json[j] === ':') {
-                out += JSON_COLORS.key + str + reset;
+                out += jsonColors().key + str + reset;
             } else {
                 // String value - also linkify ember:// URLs inside
                 const inner = str.slice(1, -1);
@@ -176,30 +194,77 @@ function highlightJson(json: string): string {
                     const shorthand = extractShorthand(inner);
                     str = '"' + makeTerminalLink(inner, shorthand) + '"';
                 }
-                out += JSON_COLORS.string + str + reset;
+                out += jsonColors().string + str + reset;
             }
             i = end + 1;
         } else if (/[\{\}\[\]]/.test(ch)) {
-            out += JSON_COLORS.brace + ch + reset;
+            out += jsonColors().brace + ch + reset;
             i++;
         } else if (/\d/.test(ch) || (ch === '-' && /\d/.test(json[i + 1]))) {
             let end = i + 1;
             while (end < json.length && /[\d.eE+\-]/.test(json[end])) end++;
-            out += JSON_COLORS.number + json.slice(i, end) + reset;
+            out += jsonColors().number + json.slice(i, end) + reset;
             i = end;
         } else if (json.slice(i, i + 4) === 'true') {
-            out += JSON_COLORS.boolean + 'true' + reset;
+            out += jsonColors().boolean + 'true' + reset;
             i += 4;
         } else if (json.slice(i, i + 5) === 'false') {
-            out += JSON_COLORS.boolean + 'false' + reset;
+            out += jsonColors().boolean + 'false' + reset;
             i += 5;
         } else if (json.slice(i, i + 4) === 'null') {
-            out += JSON_COLORS.null + 'null' + reset;
+            out += jsonColors().null + 'null' + reset;
             i += 4;
         } else {
             out += ch;
             i++;
         }
+    }
+    return out;
+}
+
+function highlightText(text: string): string {
+    const colors = jsonColors();
+    let out = "";
+    let i = 0;
+    while (i < text.length) {
+        const ch = text[i];
+        // Skip JSON placeholders (e.g. __JSON_0__) so their digits aren't highlighted
+        if (text.startsWith("__JSON_", i)) {
+            const end = text.indexOf("__", i + 7);
+            if (end !== -1) {
+                out += text.slice(i, end + 2);
+                i = end + 2;
+                continue;
+            }
+        }
+        // Quoted strings (double and single)
+        if (ch === '"' || ch === "'") {
+            const quote = ch;
+            let end = i + 1;
+            while (end < text.length) {
+                if (text[end] === '\\') { end += 2; continue; }
+                if (text[end] === quote) break;
+                end++;
+            }
+            if (end < text.length) {
+                out += colors.string + text.slice(i, end + 1) + reset;
+                i = end + 1;
+                continue;
+            }
+            // Unterminated — just output the rest
+            out += colors.string + text.slice(i) + reset;
+            break;
+        }
+        // Numbers (integer, decimal, negative)
+        if (/\d/.test(ch) || (ch === '-' && /\d/.test(text[i + 1]))) {
+            let end = i + 1;
+            while (end < text.length && /[\d.]/.test(text[end])) end++;
+            out += colors.number + text.slice(i, end) + reset;
+            i = end;
+            continue;
+        }
+        out += ch;
+        i++;
     }
     return out;
 }
@@ -276,6 +341,9 @@ function linkifyMessage(msg: string): string {
         const shorthand = extractShorthand(path);
         return makeTerminalLink(`file://${path}`, shorthand);
     });
+
+    // Highlight numbers and quoted strings in remaining text
+    msg = highlightText(msg);
 
     // Restore JSON blobs with syntax highlighting
     for (let i = 0; i < placeholderIndex; i++) {
@@ -391,7 +459,12 @@ export class ConsoleLogger implements Logger {
         } else {
             moduleStr = `${this.palette.module}${module}`;
         }
-        const line = `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase().padEnd(5)}${reset} ${this.palette.gray}[${moduleStr}${this.palette.gray}] ${reset}${linkifyMessage(msg)}\n`;
+        const tag = getThreadTag();
+        const tagColor = (this.palette.thread as Record<string, string>)[tag] ?? this.palette.module;
+        const prefix = tag
+            ? `${this.palette.gray}[${tagColor}${tag}${reset}${this.palette.gray}/${moduleStr}${this.palette.gray}] `
+            : `${this.palette.gray}[${moduleStr}${this.palette.gray}] `;
+        const line = `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase()}${reset} ${prefix}${reset}${linkifyMessage(msg)}\n`;
         if (proc?.stdout?.write && proc?.stderr?.write) {
             const stream = proc.env.DOWNDRAFT_MCP === "1" ? proc.stderr : proc.stdout;
             try {
