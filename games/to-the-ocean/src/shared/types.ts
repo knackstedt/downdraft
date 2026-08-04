@@ -648,22 +648,8 @@ export interface DbResponse {
 }
 
 // --- Split-Screen ---
-
-export type SplitscreenLayoutType =
-  | "1p"
-  | "2p-horizontal"
-  | "2p-vertical"
-  | "3p-top-wide"
-  | "3p-bottom-wide"
-  | "4p-corners";
-
-export interface ViewportSlot {
-  index: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+// Re-exported from @downdraft/core for backward compatibility
+export type { SplitscreenLayoutType, ViewportSlot } from "@downdraft/core";
 
 // --- Gamemode Rules ---
 

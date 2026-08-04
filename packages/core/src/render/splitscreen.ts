@@ -2,8 +2,21 @@
 // Split-Screen Layout — viewport computation for 1-4 players
 // ============================================================================
 
-import { SplitscreenLayoutType, ViewportSlot } from "./types";
-import { MAX_PLAYERS } from "./constants";
+export type SplitscreenLayoutType =
+  | "1p"
+  | "2p-horizontal"
+  | "2p-vertical"
+  | "3p-top-wide"
+  | "3p-bottom-wide"
+  | "4p-corners";
+
+export interface ViewportSlot {
+  index: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export function computeViewports(layout: SplitscreenLayoutType, screenW: number, screenH: number): ViewportSlot[] {
   switch (layout) {

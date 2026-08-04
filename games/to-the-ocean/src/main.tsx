@@ -16,7 +16,7 @@ import "@fontsource/urbanist/400.css";
 import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
-import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { useDebugStore } from "@downdraft/plugin-devtools";
 import { ENT, PLR } from "@shared/sim-buffer";
 import { EntityType, SimToMainMessage } from "@shared/types";
@@ -25,7 +25,6 @@ import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
 import { simBridge } from "./sim-bridge";
 import { useGameStore } from "./stores/game-store";
-import { useHotReloadStore } from "./stores/hot-reload-store";
 import "./styles/globals.css";
 
 async function bootstrap() {

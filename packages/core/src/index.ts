@@ -98,10 +98,10 @@ export { HDRSupport } from "./render/hdr";
 export type { HDRConfig as RenderHDRConfig } from "./render/hdr";
 export { MaterialHotReloader } from "./render/hot-reload";
 export type { HotReloadCallback, WatchedMesh, WatchedShader, WatchedTexture } from "./render/hot-reload";
-export { createIBLShaderChunk, IBL_SHADER_CHUNK, IBLBindGroup } from "./render/ibl-bind-group";
-export type { IBLBindGroupOptions } from "./render/ibl-bind-group";
 export { IBLSystem } from "./render/ibl";
 export type { IBLSystemOptions } from "./render/ibl";
+export { createIBLShaderChunk, IBL_SHADER_CHUNK, IBLBindGroup } from "./render/ibl-bind-group";
+export type { IBLBindGroupOptions } from "./render/ibl-bind-group";
 export { InputManager } from "./render/input-manager";
 export type { RenderInputState } from "./render/input-manager";
 export { createDefaultLightUniform, createDirectionalLight, createHemisphereLight, createPointLight, createRectAreaLight, createSpotLight, DEFAULT_SHADOW_SETTINGS, extractPointAndSpotLights, LightType, lightTypeToStorageType, MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packAllLightsToStorage, packLightToStorage, packLightUniform, packPointLights, packSpotLightsExtended } from "./render/lighting";
@@ -148,19 +148,19 @@ export { DEFAULT_OUTLINE_SETTINGS, OutlinePass } from "./render/passes/outline";
 export type { OutlineSettings, OutlineTarget } from "./render/passes/outline";
 export { MAX_POINT_LIGHT_SHADOWS, PointLightShadowPass } from "./render/passes/point-light-shadow";
 export type { PointLightShadowData } from "./render/passes/point-light-shadow";
-export { PostProcessStack } from "./render/passes/post-process-stack";
-export type { PostProcessStackOptions } from "./render/passes/post-process-stack";
 export { DEFAULT_POST_PROCESS_SETTINGS, PostProcessPass } from "./render/passes/post-process";
 export type { PostProcessSettings } from "./render/passes/post-process";
+export { PostProcessStack } from "./render/passes/post-process-stack";
+export type { PostProcessStackOptions } from "./render/passes/post-process-stack";
 export { createProceduralGpuTexture, DEFAULT_PROCEDURAL_CONFIG, generateProceduralTexture } from "./render/passes/procedural-texture";
 export type { ProceduralTextureConfig, ProceduralTextureType } from "./render/passes/procedural-texture";
 export type { ReflectionProbeConfig, ReflectionProbeData } from "./render/passes/reflection-probe";
 export { RSMPass } from "./render/passes/rsm-pass";
 export { layoutSDFText, parseSDFFont, SDF_TEXT_SHADER } from "./render/passes/sdf-text";
 export type { SDFFontData, SDFGlyph } from "./render/passes/sdf-text";
+export { ShadowPass } from "./render/passes/shadow";
 export { ShadowMapSystem } from "./render/passes/shadow-map";
 export type { ShadowMapOptions } from "./render/passes/shadow-map";
-export { ShadowPass } from "./render/passes/shadow";
 export { DEFAULT_SHARPEN_SETTINGS, SharpenPass } from "./render/passes/sharpen";
 export type { SharpenSettings } from "./render/passes/sharpen";
 export { SkyDomePass } from "./render/passes/sky-dome";
@@ -241,9 +241,9 @@ export type { GameLoopConfig, GameLoopStats, RenderCallback } from "./scene/game
 export { RenderLayer } from "./scene/layer";
 export { PrefabFactory, PrefabRegistry } from "./scene/prefab";
 export type { Prefab, PrefabChildEntry, PrefabComponentEntry } from "./scene/prefab";
-export { SceneManager } from "./scene/scene-manager";
 export { Scene } from "./scene/scene";
 export type { SceneSetup, SceneState, SceneTeardown, SerializedScene } from "./scene/scene";
+export { SceneManager } from "./scene/scene-manager";
 export { computeSkyColor, DayNightCycle, DEFAULT_ATMOSPHERE_CONFIG, DEFAULT_DAY_NIGHT_CONFIG, DEFAULT_FOG_CONFIG, FogSystem } from "./scene/sky";
 export type { AtmosphereConfig, DayNightConfig, FogConfig, SunMoonState } from "./scene/sky";
 export { SpatialGrid } from "./scene/spatial-grid";
@@ -267,8 +267,8 @@ export { GPUProfiler } from "./telemetry/gpu-profiler";
 export type { FrameGraphData, FrameGraphEdge, FrameGraphNode, FrameGraphValidation, GPUAdapterInfo, GPUErrors, GPUInfo, PassTrackerStats, PostProcessInfo } from "./telemetry/gpu-profiler";
 export { GPUResourceTracker } from "./telemetry/gpu-resource-tracker";
 export type { GPUResourceStats, TrackedResource } from "./telemetry/gpu-resource-tracker";
-export { GPUTimerPool } from "./telemetry/gpu-timer-pool";
 export { GPUTimer } from "./telemetry/gpu-timer";
+export { GPUTimerPool } from "./telemetry/gpu-timer-pool";
 export { DEFAULT_PROFILER_CONFIG, ProfilerOverlay } from "./telemetry/profiler-overlay";
 export type { ProfilerOverlayConfig } from "./telemetry/profiler-overlay";
 export { TelemetryReporter } from "./telemetry/reporter";
@@ -409,10 +409,10 @@ export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from 
 export type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, JointDesc, JointType, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./physics/interface";
 export { PhysicsLifecycle } from "./physics/lifecycle";
 export type { BootstrapPhase } from "./physics/lifecycle";
-export { humanoidRagdoll } from "./physics/ragdoll-presets";
-export { RagdollSystem } from "./physics/ragdoll-system";
 export { createRagdoll, destroyRagdoll, Ragdoll } from "./physics/ragdoll";
 export type { RagdollBoneConfig, RagdollConfig, RagdollData, RagdollJointConfig } from "./physics/ragdoll";
+export { humanoidRagdoll } from "./physics/ragdoll-presets";
+export { RagdollSystem } from "./physics/ragdoll-system";
 export { RaycastQuery } from "./physics/raycast";
 export { PhysicsRealm } from "./physics/realm";
 export { physicsBackendRegistry } from "./physics/registry";
@@ -431,15 +431,15 @@ export { AnimationPlayer, MAX_MORPH_TARGETS } from "./animation/player";
 export type { LayerBlendMode, PlayOptions } from "./animation/player";
 export { buildRetargetMapping, retargetClip } from "./animation/retarget";
 export type { BoneMapping, RetargetMapping } from "./animation/retarget";
-export { SkeletonAnimator, skinDataToSkeletonData } from "./animation/skeleton-animator";
-export type { AnimationChannel, AnimationData, AnimState, BoneData, SkinData } from "./animation/skeleton-animator";
 export { buildSkeletonFromGLTF, Skeleton } from "./animation/skeleton";
 export type { Bone, GLTFSkin, SkeletonData } from "./animation/skeleton";
+export { SkeletonAnimator, skinDataToSkeletonData } from "./animation/skeleton-animator";
+export type { AnimationChannel, AnimationData, AnimState, BoneData, SkinData } from "./animation/skeleton-animator";
 export { AnimationStateMachine } from "./animation/state-machine";
 export type { AnimationState, AnimationTransition, BlendTree, BlendTree1D, BlendTree2D } from "./animation/state-machine";
+export { packBoneTransformsVec4, VertexSkinningPass } from "./render/passes/skinning";
 export { createSkinningPass, MAX_BONE_INFLUENCES, MAX_BONES_VS, SKINNING_VS_GLSL, SKINNING_VS_WGSL } from "./render/passes/skinning-vs";
 export type { SkinningMode, SkinningPass } from "./render/passes/skinning-vs";
-export { packBoneTransformsVec4, VertexSkinningPass } from "./render/passes/skinning";
 
 // Mesh Skinning
 export { BoneTransforms, buildSkinnedMeshFromGLTF, createSkinMatricesBuffer, MAX_BONES, SkinnedMesh } from "./mesh/skinning";
@@ -501,6 +501,19 @@ export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz";
 // Logging
 export { ConsoleLogger, createLogger } from "./util/logger";
 export type { Logger } from "./util/logger";
+
+// Math
+export { PerlinNoise3D } from "./math/perlin-noise-3d";
+
+// Stores
+export { createBaseGameStoreState } from "./stores/game-store";
+export type { BaseGameStoreState } from "./stores/game-store";
+export { useHotReloadStore } from "./stores/hot-reload-store";
+export type { ReloadEntry } from "./stores/hot-reload-store";
+
+// Split-Screen Layout
+export { computeViewports, getLayoutForPlayerCount, getPlayerCountForLayout } from "./render/splitscreen";
+export type { SplitscreenLayoutType, ViewportSlot } from "./render/splitscreen";
 
 // Sim Types (generic interfaces for plugin systems)
 export type { EntityId, IHotReloadable, InputReaderLike, ISimulation, IWorkerManager, PlayerId, Quat, SimEntityLike, SimPlayerLike, SimulationContext, Transform, Vec2, Vec3, Vec4 } from "./sim/types";
