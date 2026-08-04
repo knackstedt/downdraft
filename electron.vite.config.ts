@@ -5,10 +5,10 @@ import { hotReloadPlugin } from "./packages/core/src/vite/hot-reload-plugin";
 
 import { existsSync } from "node:fs";
 
-const game = process.env.DOWNDRAFT_GAME;
-const rendererRoot = game
-  ? (existsSync(resolve("games", game)) ? resolve("games", game) : resolve("examples", game))
-  : resolve("packages/app");
+const game = process.env.DOWNDRAFT_GAME ?? "to-the-ocean";
+const rendererRoot = existsSync(resolve("games", game))
+  ? resolve("games", game)
+  : resolve("examples", game);
 
 export default defineConfig({
   main: {
@@ -80,7 +80,7 @@ export default defineConfig({
     resolve: {
       alias: [
         { find: "@renderer", replacement: resolve(rendererRoot, "src") },
-        { find: "@shared", replacement: game ? resolve(rendererRoot, "src/shared") : resolve("packages/app/src/shared") },
+        { find: "@shared", replacement: resolve(rendererRoot, "src/shared") },
         { find: "@sim", replacement: resolve(rendererRoot, "src/simulation") },
         { find: /^@downdraft\/core$/, replacement: resolve("packages/core/src/index.ts") },
         { find: /^@downdraft\/core\//, replacement: resolve("packages/core/src") + "/" },
