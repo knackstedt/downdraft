@@ -276,21 +276,8 @@ async function bootstrap() {
             frameRate: 30,
           });
 
-          // Load test content with inline handlers (scripts in innerHTML don't execute)
-          downdraft.osr.setContent(RENDERER_ID,
-            '<style>' +
-            'input.osr-test { cursor: text; }' +
-            'button { cursor: pointer; }' +
-            '</style>' +
-            '<div style="width:100%;height:100%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;font-family:sans-serif;" onmousemove="document.getElementById(\'mousePos\').innerText=\'Mouse: \'+event.clientX+\', \'+event.clientY">' +
-            '<h1 style="color:#333;font-size:48px;">OSR Input Test</h1>' +
-            '<input type="text" id="testInput" class="osr-test" placeholder="Click and type here" style="width:400px;height:60px;font-size:24px;padding:8px 12px;border:2px solid #0078d4;border-radius:4px;color:#333;" />' +
-            '<button onclick="this.innerText=\'Clicked!\';setTimeout(()=>this.innerText=\'Click Me\',1000)" style="width:200px;height:60px;font-size:24px;cursor:pointer;background:#0078d4;color:white;border:none;border-radius:4px;">Click Me</button>' +
-            '<div id="mousePos" style="font-size:20px;color:#666;">Mouse: 0, 0</div>' +
-            '<div id="clickPos" style="font-size:20px;color:#666;">No clicks yet</div>' +
-            '<button onclick="document.getElementById(\'clickPos\').innerText=\'Clicked at: \'+event.clientX+\', \'+event.clientY" style="width:200px;height:60px;font-size:24px;cursor:pointer;background:#28a745;color:white;border:none;border-radius:4px;">Track Click</button>' +
-            '</div>'
-          );
+          // Load YouTube to test audio playback through OSR
+          downdraft.osr.loadURL(RENDERER_ID, "https://www.youtube.com");
 
           // Add a world-space UI element — will be positioned each frame
           osrManager.addElement({
@@ -306,6 +293,7 @@ async function bootstrap() {
           // Update billboard position to follow the ship's helm each frame
           const sim = renderer.getSimReader();
           if (sim) {
+            let helmLogDone = false;
             const updateHelmBillboard = () => {
               if (!sim.isValid()) { requestAnimationFrame(updateHelmBillboard); return; }
               const entityCount = sim.getEntityCount();
@@ -326,6 +314,10 @@ async function bootstrap() {
                 // Helm local offset: (0, 1.5, 1) — rotated by heading
                 const helmX = shipX + Math.sin(shipHeading) * 1;
                 const helmZ = shipZ + Math.cos(shipHeading) * 1;
+                if (!helmLogDone) {
+                  console.log(`[OSR Debug] Ship found at (${shipX}, ${shipY}, ${shipZ}) heading=${shipHeading}, billboard at (${helmX}, ${shipY + 5.0}, ${helmZ})`);
+                  helmLogDone = true;
+                }
                 osrManager.updateElements([{
                   id: "helm-google-billboard",
                   position: [helmX, shipY + 5.0, helmZ],
