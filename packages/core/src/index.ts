@@ -27,11 +27,21 @@ export { hasTask, registerTask, unregisterTask } from "./worker/task-worker";
 // Change Detection
 export { ChangeTracker } from "./change-detection/tracker";
 
+// Engine Types (math, identifiers, enums, message protocols)
+export { EntityFlags } from "./types/engine-types";
+export type { DbRequest, DbResponse, EntityData, MainToSimMessage, PlayerState, RendererToSimMessage, SimToMainMessage, SimToRendererMessage } from "./types/engine-types";
+
 // SAB
 export { CoreInputChannel } from "./sab/core-input-channel";
 export { InputSABChannel } from "./sab/input";
 export { createMultiInputChannel, DEFAULT_KEY_BITFIELD_COUNT, DEFAULT_MAX_PLAYERS, MultiInputChannel } from "./sab/multi-input-channel";
 export type { MultiInputChannelInstance, MultiInputChannelOptions } from "./sab/multi-input-channel";
+
+// Game Input SAB Channel
+export { INP, INP_FLAG, INP_HDR, INPUT_MAGIC, INPUT_VERSION, InputBufferReader, InputBufferWriter, InputChannel, KEY, MAX_INPUT_PLAYERS } from "./sab/game-input";
+
+// Sim SAB Channel
+export { allocateInputBuffer, allocateSimBuffer, ENT, MAX_ENTITIES, MAX_PLAYERS, PLR, PLR_FLAG, SIM_ENTITY_SLOT_SIZE, SIM_HDR, SIM_MAGIC, SIM_PLAYER_SLOT_SIZE, SIM_VERSION, SimBufferReader, SimBufferWriter, SimChannel } from "./sab/sim-channel";
 
 // SAB Framework
 export { defineChannel, defineManifest } from "./sab/define";
