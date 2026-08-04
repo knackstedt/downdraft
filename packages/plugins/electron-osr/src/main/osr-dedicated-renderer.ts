@@ -17,8 +17,9 @@ export class OSRDedicatedRenderer extends OSRRenderer {
     displayRefreshRate: number,
     pixelFormat: OSRSharedTexturePixelFormat,
     maxCrashRetries: number,
+    useSharedTexture?: boolean,
   ) {
-    super(id, "dedicated", width, height, frameRate, displayRefreshRate, pixelFormat, maxCrashRetries);
+    super(id, "dedicated", width, height, frameRate, displayRefreshRate, pixelFormat, maxCrashRetries, useSharedTexture);
   }
 
   loadContent(): void {

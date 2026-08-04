@@ -17,6 +17,8 @@ export interface OSRRendererConfig {
   sharedTexturePixelFormat?: OSRSharedTexturePixelFormat;
   /** Max auto-recreate attempts on crash (dedicated mode). Default 3. */
   maxCrashRetries?: number;
+  /** Enable GPU zero-copy shared texture path. Default true. Set false to force CPU path. */
+  useSharedTexture?: boolean;
 }
 
 export interface OSRPanelConfig {

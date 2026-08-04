@@ -2,9 +2,9 @@
 // OSR Atlas Renderer — Multiple panels in one shared texture (fixed-size slots)
 // ============================================================================
 
+import type { AtlasLayout, AtlasPanelRect, OSRDataUpdate, OSRPanelConfig, OSRSharedTexturePixelFormat } from "../types";
+import { buildAddPanelCall, buildRemovePanelCall, buildUpdateDataCall, buildUpdatePanelCall, generateAtlasHTML } from "./atlas-html";
 import { OSRRenderer } from "./osr-renderer";
-import { generateAtlasHTML, buildAddPanelCall, buildRemovePanelCall, buildUpdatePanelCall, buildUpdateDataCall } from "./atlas-html";
-import type { OSRPanelConfig, OSRDataUpdate, AtlasPanelRect, AtlasLayout, OSRSharedTexturePixelFormat } from "../types";
 
 interface PackedPanel {
   id: string;
@@ -25,8 +25,9 @@ export class OSRAtlasRenderer extends OSRRenderer {
     displayRefreshRate: number,
     pixelFormat: OSRSharedTexturePixelFormat,
     maxCrashRetries: number,
+    useSharedTexture?: boolean,
   ) {
-    super(id, "atlas", width, height, frameRate, displayRefreshRate, pixelFormat, maxCrashRetries);
+    super(id, "atlas", width, height, frameRate, displayRefreshRate, pixelFormat, maxCrashRetries, useSharedTexture);
     this.maxWidth = width;
   }
 

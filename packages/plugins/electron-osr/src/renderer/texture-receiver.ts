@@ -14,6 +14,7 @@ export class OSRTextureReceiver {
   private gpuTextureView: GPUTextureView | null = null;
   private gpuTextureFormat: GPUTextureFormat | null = null;
   private receiverRegistered = false;
+  private pendingVideoFrame: VideoFrame | null = null;
 
   constructor(device: GPUDevice, rendererId: string, width: number, height: number, pixelFormat: OSRSharedTexturePixelFormat) {
     this.device = device;
@@ -49,7 +50,7 @@ export class OSRTextureReceiver {
     this.gpuTexture = this.device.createTexture({
       size: { width: this.width, height: this.height },
       format: texFormat,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
     this.gpuTextureView = this.gpuTexture.createView();
   }
@@ -68,33 +69,58 @@ export class OSRTextureReceiver {
       sharedTextureOk = downdraft.osr.registerSharedTextureReceiver();
       if (sharedTextureOk) {
         let frameCount = 0;
+        let copyFailCount = 0;
+
+        // Watchdog: if no VideoFrame arrives within 5s, log a warning
+        let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+        const startWatchdog = () => {
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          watchdogTimer = setTimeout(() => {
+            if (frameCount === 0) {
+              console.warn(`[OSR] VideoFrame watchdog: no frames received within 5s for '${this.rendererId}' — shared texture path may not be delivering frames`);
+            }
+          }, 5000);
+        };
+        startWatchdog();
+
         // Listen for VideoFrames transferred via postMessage
         window.addEventListener("message", (event: MessageEvent) => {
           if (event.data?.type !== "__osr_video_frame") return;
           const videoFrame = event.data.videoFrame;
           if (!videoFrame) return;
+
+          if (watchdogTimer) {
+            clearTimeout(watchdogTimer);
+            watchdogTimer = null;
+          }
+
+          // Close the previous VideoFrame — the GPU has already executed the copy
+          if (this.pendingVideoFrame) {
+            try { this.pendingVideoFrame.close(); } catch {}
+          }
+
+          const w = videoFrame.displayWidth || videoFrame.codedWidth;
+          const h = videoFrame.displayHeight || videoFrame.codedHeight;
+          if (frameCount === 0) {
+            console.log(`[OSR] First VideoFrame for '${this.rendererId}': ${w}x${h}, format=${videoFrame.format}`);
+          }
+          if (w <= 0 || h <= 0) {
+            this.pendingVideoFrame = videoFrame;
+            return;
+          }
+
+          const texFormat = this.videoFrameFormatToGPUFormat(videoFrame.format || "");
+          if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== texFormat) {
+            this.width = w;
+            this.height = h;
+            this.createGpuTexture(texFormat);
+          }
+          if (!this.gpuTexture) {
+            this.pendingVideoFrame = videoFrame;
+            return;
+          }
+
           try {
-            // Use displayWidth/Height (visible area) — codedWidth/Height may
-            // include padding that would exceed the texture size
-            const w = videoFrame.displayWidth || videoFrame.codedWidth;
-            const h = videoFrame.displayHeight || videoFrame.codedHeight;
-            if (frameCount === 0) {
-              console.log(`[OSR] First VideoFrame for '${this.rendererId}': ${w}x${h}, format=${videoFrame.format}, timestamp=${videoFrame.timestamp}, codedSize=${videoFrame.codedWidth}x${videoFrame.codedHeight}`);
-            }
-            if (w <= 0 || h <= 0) {
-              console.warn(`[OSR] Invalid VideoFrame dimensions ${w}x${h} for '${this.rendererId}'`);
-              return;
-            }
-            const texFormat = this.videoFrameFormatToGPUFormat(videoFrame.format || "");
-            if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== texFormat) {
-              this.width = w;
-              this.height = h;
-              this.createGpuTexture(texFormat);
-            }
-            if (!this.gpuTexture) {
-              console.error(`[OSR] gpuTexture is null after createGpuTexture for '${this.rendererId}'`);
-              return;
-            }
             this.device.queue.copyExternalImageToTexture(
               { source: videoFrame, flipY: false },
               { texture: this.gpuTexture, premultipliedAlpha: false },
@@ -103,15 +129,23 @@ export class OSRTextureReceiver {
             if (frameCount === 0) {
               console.log(`[OSR] Texture copy succeeded for '${this.rendererId}': ${this.width}x${this.height} format=${texFormat}`);
             }
+            this.pendingVideoFrame = videoFrame;
             frameCount++;
           } catch (err) {
-            console.error(`[OSR] Texture copy failed for '${this.rendererId}':`, err);
-          } finally {
-            videoFrame.close();
+            copyFailCount++;
+            if (copyFailCount <= 3) {
+              console.error(`[OSR] Texture copy failed for '${this.rendererId}' (frame #${frameCount}):`, err);
+            }
+            try { videoFrame.close(); } catch {}
+            this.pendingVideoFrame = null;
           }
         });
         registered = true;
+      } else {
+        console.warn(`[OSR] registerSharedTextureReceiver returned false for '${this.rendererId}' — CPU fallback only`);
       }
+    } else {
+      console.log(`[OSR] registerSharedTextureReceiver not available for '${this.rendererId}' — CPU fallback only`);
     }
 
     // Also register NativeImage paint fallback (CPU path)
@@ -123,16 +157,10 @@ export class OSRTextureReceiver {
           const size = image.getSize();
           const w = size.width;
           const h = size.height;
-          if (nativeImageCount === 0) {
-            const rawBitmap = image.toBitmap();
-            // Check first few pixels for non-zero data
-            let nonZero = 0;
-            for (let i = 0; i < Math.min(rawBitmap.length, 400); i++) {
-              if (rawBitmap[i] > 0) nonZero++;
-            }
-            console.log(`[OSR] First NativeImage for '${this.rendererId}': ${w}x${h}, bitmapLen=${rawBitmap.length}, firstPixelsNonZero=${nonZero}/100, [0..3]=[${rawBitmap[0]},${rawBitmap[1]},${rawBitmap[2]},${rawBitmap[3]}]`);
-          }
           if (w === 0 || h === 0) return;
+          if (nativeImageCount === 0) {
+            console.log(`[OSR] First NativeImage for '${this.rendererId}': ${w}x${h}`);
+          }
           nativeImageCount++;
           // NativeImage.toBitmap() returns BGRA on Linux — use bgra8unorm texture
           // and writeTexture directly (no per-pixel swap, no ImageData allocation)
@@ -158,8 +186,6 @@ export class OSRTextureReceiver {
     this.receiverRegistered = registered;
     if (!registered) {
       console.warn(`[OSR] No texture receiver available for '${this.rendererId}'`);
-    } else {
-      console.log(`[OSR] Texture receiver registered for '${this.rendererId}' (sharedTexture: ${sharedTextureOk}, CPU fallback: ${!!downdraft?.osr?.onPaintImage})`);
     }
   }
 
@@ -172,6 +198,10 @@ export class OSRTextureReceiver {
   }
 
   destroy(): void {
+    if (this.pendingVideoFrame) {
+      try { this.pendingVideoFrame.close(); } catch {}
+      this.pendingVideoFrame = null;
+    }
     if (this.gpuTexture) {
       this.gpuTexture.destroy();
       this.gpuTexture = null;
