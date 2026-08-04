@@ -154,8 +154,8 @@ export class OSRManager {
     this.inputRouter.handleMouse(camera, mouseState, elementArray);
   }
 
-  handleKey(type: "keyDown" | "keyUp", keyCode: string): void {
-    this.inputRouter?.handleKey(type, keyCode);
+  handleKey(type: "keyDown" | "keyUp", keyCode: string, modifiers?: string[]): void {
+    this.inputRouter?.handleKey(type, keyCode, modifiers);
   }
 
   focusBillboard(canvasWidth?: number, canvasHeight?: number): string | null {
