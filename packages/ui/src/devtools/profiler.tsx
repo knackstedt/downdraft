@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 export interface ProfilerSample {
   frameTime: number;
@@ -36,26 +36,6 @@ export const ProfilerPanel: React.FC<ProfilerProps> = ({
   useEffect(() => {
     if (propSamples !== undefined) {
       setSamples(propSamples);
-    } else if (window.downdraft?.rpc) {
-      const interval = setInterval(() => {
-        if (paused) return;
-        window.downdraft!.rpc.call("getTelemetry").then((data) => {
-          if (data && typeof data === "object") {
-            const d = data as Record<string, unknown>;
-            const sample: ProfilerSample = {
-              frameTime: (d.frameTime as number) ?? 16.67,
-              cpuTime: (d.cpuTime as number) ?? 10,
-              gpuTime: (d.gpuTime as number) ?? 8,
-              timestamp: performance.now(),
-            };
-            setSamples((prev) => [...prev.slice(-maxSamples + 1), sample]);
-            if (Array.isArray(d.systemTimings)) {
-              setSystemTimings(d.systemTimings as SystemTiming[]);
-            }
-          }
-        }).catch(() => {});
-      }, 100);
-      return () => clearInterval(interval);
     }
   }, [propSamples, paused, maxSamples]);
 
