@@ -2,8 +2,8 @@
 // Migration Registry — per-component schema versioning with chain walking
 // ============================================================================
 
-import { createLogger } from "../util/logger.ts";
-import type { ComponentMigration, IMigrationRegistry } from "./persist-types.ts";
+import { createLogger } from "../util/logger";
+import type { ComponentMigration, IMigrationRegistry } from "./persist-types";
 
 const log = createLogger();
 

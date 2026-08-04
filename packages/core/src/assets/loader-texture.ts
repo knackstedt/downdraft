@@ -225,13 +225,13 @@ export async function loadTexture(
   }
 
   if (fmt === "dds") {
-    const { loadDDSTexture } = await import("./loader-dds.ts");
+    const { loadDDSTexture } = await import("./loader-dds");
     const result = await loadDDSTexture(uri);
     if (result) return result;
   }
 
   if (fmt === "hdr" || fmt === "exr") {
-    const { loadHDRFile } = await import("./loader-hdr.ts");
+    const { loadHDRFile } = await import("./loader-hdr");
     const result = await loadHDRFile(uri);
     if (result) return result;
   }

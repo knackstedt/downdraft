@@ -1,7 +1,7 @@
-import { Serializer, type SaveData } from "./serializer.ts";
-import { SchemaRegistry } from "./schema.ts";
-import { World } from "../ecs/world.ts";
-import { component } from "../ecs/component.ts";
+import { Serializer, type SaveData } from "./serializer";
+import { SchemaRegistry } from "./schema";
+import { World } from "../ecs/world";
+import { component } from "../ecs/component";
 
 const Position = component("Position", { x: 0, y: 0, z: 0 });
 const Health = component("Health", { hp: 100 });

@@ -1,4 +1,4 @@
-import type { TextureData } from "./loader-texture.ts";
+import type { TextureData } from "./loader-texture";
 
 const DDS_MAGIC = 0x20534444; // "DDS "
 

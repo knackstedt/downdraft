@@ -8,7 +8,7 @@
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityFlags, EntityType } from "@shared/types";
-import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components.ts";
+import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components";
 
 enum DockState { Approach, Align, Locking, Docked, Released }
 

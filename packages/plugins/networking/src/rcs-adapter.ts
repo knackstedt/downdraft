@@ -1,4 +1,4 @@
-import type { PlatformAdapter, PlatformConnectionState, PlatformLobbyData, PlatformPlayerInfo, PlatformSessionConfig } from "./platform-adapter.ts";
+import type { PlatformAdapter, PlatformConnectionState, PlatformLobbyData, PlatformPlayerInfo, PlatformSessionConfig } from "./platform-adapter";
 
 export interface RCSConfig {
   apiKey: string;

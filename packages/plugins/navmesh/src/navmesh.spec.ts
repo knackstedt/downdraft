@@ -1,8 +1,8 @@
-import { NavMesh } from "./navmesh.ts";
-import { NavMeshGenerator } from "./navmesh-generator.ts";
-import { Pathfinder } from "./pathfinder.ts";
-import { NavMeshDebugViz } from "./debug-viz.ts";
-import type { HeightFieldSampler, NavMeshGeneratorConfig, Vec3 } from "./types.ts";
+import { NavMesh } from "./navmesh";
+import { NavMeshGenerator } from "./navmesh-generator";
+import { Pathfinder } from "./pathfinder";
+import { NavMeshDebugViz } from "./debug-viz";
+import type { HeightFieldSampler, NavMeshGeneratorConfig, Vec3 } from "./types";
 
 function makeFlatSampler(height: number = 0): HeightFieldSampler {
   return {

@@ -1,5 +1,5 @@
 // Passive AI — whales, dolphins, turtles, crustaceans, coral, moose
-import type { WildlifeEntity, WildlifePlayer, WildlifeConfig } from "../types.ts";
+import type { WildlifeEntity, WildlifePlayer, WildlifeConfig } from "../types";
 
 export function tickPassiveAI(
   ent: WildlifeEntity,

@@ -1,4 +1,4 @@
-import { createLogger } from "../util/logger.ts";
+import { createLogger } from "../util/logger";
 
 const log = createLogger();
 

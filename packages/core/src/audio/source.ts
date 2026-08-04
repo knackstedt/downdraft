@@ -1,5 +1,5 @@
-import { Component } from "../ecs/component.ts";
-import type { AudioChannel } from "./interface.ts";
+import { Component } from "../ecs/component";
+import type { AudioChannel } from "./interface";
 
 export interface AudioSourceData {
   [key: string]: unknown;

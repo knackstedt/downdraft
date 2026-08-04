@@ -1,9 +1,9 @@
-import type { Skeleton } from "../animation/skeleton.ts";
-import type { ComponentDefinition } from "../ecs/component.ts";
-import { Component } from "../ecs/component.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { ColliderShape, JointDesc, RigidBodyHandle } from "./interface.ts";
-import type { PhysicsRealm } from "./realm.ts";
+import type { Skeleton } from "../animation/skeleton";
+import type { ComponentDefinition } from "../ecs/component";
+import { Component } from "../ecs/component";
+import type { Entity } from "../ecs/entity";
+import type { ColliderShape, JointDesc, RigidBodyHandle } from "./interface";
+import type { PhysicsRealm } from "./realm";
 
 // ── Config interfaces ──
 

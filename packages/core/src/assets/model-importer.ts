@@ -1,10 +1,10 @@
-import type { MeshData } from "../mesh/builder.ts";
-import type { GPUMesh } from "./model-to-gpu.ts";
-import { uploadMeshesToGPU, uploadMeshToGPU } from "./model-to-gpu.ts";
-import type { BridgedMaterial } from "./material-bridge.ts";
-import { bridgeMaterials, bridgeMaterial } from "./material-bridge.ts";
-import { convertPluginModel, convertPluginMesh, type PluginModelData, type PluginMaterialData, type TargetLayout } from "./model-to-mesh.ts";
-import type { GPUResourceCache } from "./cache.ts";
+import type { MeshData } from "../mesh/builder";
+import type { GPUMesh } from "./model-to-gpu";
+import { uploadMeshesToGPU, uploadMeshToGPU } from "./model-to-gpu";
+import type { BridgedMaterial } from "./material-bridge";
+import { bridgeMaterials, bridgeMaterial } from "./material-bridge";
+import { convertPluginModel, convertPluginMesh, type PluginModelData, type PluginMaterialData, type TargetLayout } from "./model-to-mesh";
+import type { GPUResourceCache } from "./cache";
 
 export interface ImportedModel {
   meshes: GPUMesh[];

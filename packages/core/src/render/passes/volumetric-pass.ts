@@ -1,6 +1,6 @@
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
-import { PassType } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { PassType } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 import {
     DEFAULT_FROXEL_CONFIG,
     DEFAULT_VOLUMETRIC_FOG,
@@ -9,7 +9,7 @@ import {
     computeFroxelGridBufferSize,
     computeFroxelLightIndexListSize,
     packVolumetricUniforms
-} from "./volumetric-types.ts";
+} from "./volumetric-types";
 
 const VOLUMETRIC_SCATTERING_SHADER = /* wgsl */ `
 struct VolumetricUniforms {
@@ -194,7 +194,7 @@ export class VolumetricLightingPass extends RenderPass {
   name = "volumetric-lighting";
   passType = PassType.Custom;
 
-  private device: GPUDevice;
+  private device: GPUDevice | null;
   private froxelConfig: FroxelGridConfig;
   private fogConfig: VolumetricFogConfig;
 

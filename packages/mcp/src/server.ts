@@ -1,4 +1,4 @@
-import { EngineContext } from "./engine-context.ts";
+import { EngineContext } from "./engine-context";
 import type {
     MCPPromptDef,
     MCPPromptResult,
@@ -9,27 +9,27 @@ import type {
     PromptRegistration,
     ResourceRegistration,
     ToolRegistration,
-} from "./types.ts";
-import { UndoRedoManager } from "./undo-redo.ts";
+} from "./types";
+import { UndoRedoManager } from "./undo-redo";
 
-import { createPrompts } from "./prompts/index.ts";
-import { createResources } from "./resources/index.ts";
-import { createAnimationTools } from "./tools/animation.ts";
-import { createAssetTools } from "./tools/asset.ts";
-import { createAudioTools } from "./tools/audio.ts";
-import { createBuildTools } from "./tools/build.ts";
-import { createCameraTools } from "./tools/camera.ts";
-import { createCheckpointTools } from "./tools/checkpoint.ts";
-import { createComponentTools } from "./tools/component.ts";
-import { createDebugTools } from "./tools/debug.ts";
-import { createEntityTools } from "./tools/entity.ts";
-import { createInspectTools } from "./tools/inspect.ts";
-import { createLightingTools } from "./tools/lighting.ts";
-import { createMaterialTools } from "./tools/material.ts";
-import { createMeshTools } from "./tools/mesh.ts";
-import { createPhysicsTools } from "./tools/physics.ts";
-import { createSceneTools } from "./tools/scene.ts";
-import { createScriptTools } from "./tools/script.ts";
+import { createPrompts } from "./prompts/index";
+import { createResources } from "./resources/index";
+import { createAnimationTools } from "./tools/animation";
+import { createAssetTools } from "./tools/asset";
+import { createAudioTools } from "./tools/audio";
+import { createBuildTools } from "./tools/build";
+import { createCameraTools } from "./tools/camera";
+import { createCheckpointTools } from "./tools/checkpoint";
+import { createComponentTools } from "./tools/component";
+import { createDebugTools } from "./tools/debug";
+import { createEntityTools } from "./tools/entity";
+import { createInspectTools } from "./tools/inspect";
+import { createLightingTools } from "./tools/lighting";
+import { createMaterialTools } from "./tools/material";
+import { createMeshTools } from "./tools/mesh";
+import { createPhysicsTools } from "./tools/physics";
+import { createSceneTools } from "./tools/scene";
+import { createScriptTools } from "./tools/script";
 
 export interface MCPServerOptions {
   enableTelemetry?: boolean;

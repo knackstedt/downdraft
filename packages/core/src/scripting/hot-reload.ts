@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from "fs";
-import { createLogger } from "../util/logger.ts";
-import type { ScriptingSystem } from "./script.ts";
+import { createLogger } from "../util/logger";
+import type { ScriptingSystem } from "./script";
 
 const log = createLogger();
 

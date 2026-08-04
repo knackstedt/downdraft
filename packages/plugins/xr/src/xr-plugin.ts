@@ -1,10 +1,11 @@
-import { type GameRenderer, type FrameCallbacks, type InputState } from "@downdraft/core";
-import { XRSessionManager, DEFAULT_XR_CONFIG, isVRSupported, isXRGPUBindingAvailable } from "./session.ts";
-import { XRLayerManager } from "./layer.ts";
-import { XRCameraRig } from "./camera-rig.ts";
-import { XRInputMapper } from "./input.ts";
-import { XRFrameLoop, type XRFrameLoopOptions } from "./frame-loop.ts";
-import type { XRWorldOrigin, XRSessionConfig } from "./types.ts";
+import { type FrameCallbacks, type GameRenderer, type InputState } from "@downdraft/core";
+import { XRCameraRig } from "./camera-rig";
+import { XRFrameLoop, type XRFrameLoopOptions } from "./frame-loop";
+import { XRInputMapper } from "./input";
+import { XRLayerManager } from "./layer";
+import { XRSessionManager, isVRSupported, isXRGPUBindingAvailable } from "./session";
+import type { XRSessionConfig, XRWorldOrigin } from "./types";
+import { DEFAULT_XR_CONFIG } from "./types";
 
 export interface XRPluginOptions {
   renderer: GameRenderer;

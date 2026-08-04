@@ -2,9 +2,9 @@
 // OSR Atlas Renderer — Multiple panels in one shared texture (fixed-size slots)
 // ============================================================================
 
-import { OSRRenderer } from "./osr-renderer.ts";
-import { generateAtlasHTML, buildAddPanelCall, buildRemovePanelCall, buildUpdatePanelCall, buildUpdateDataCall } from "./atlas-html.ts";
-import type { OSRPanelConfig, OSRDataUpdate, AtlasPanelRect, AtlasLayout, OSRSharedTexturePixelFormat } from "../types.ts";
+import { OSRRenderer } from "./osr-renderer";
+import { generateAtlasHTML, buildAddPanelCall, buildRemovePanelCall, buildUpdatePanelCall, buildUpdateDataCall } from "./atlas-html";
+import type { OSRPanelConfig, OSRDataUpdate, AtlasPanelRect, AtlasLayout, OSRSharedTexturePixelFormat } from "../types";
 
 interface PackedPanel {
   id: string;

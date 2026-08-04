@@ -1,5 +1,5 @@
-import { Hierarchy } from "./hierarchy.ts";
-import { ROOT_ENTITY, type Entity } from "./entity.ts";
+import { Hierarchy } from "./hierarchy";
+import { ROOT_ENTITY, type Entity } from "./entity";
 
 function makeEntity(index: number, generation: number = 0): Entity {
   return { index, generation };

@@ -1,6 +1,6 @@
 import type { Plugin, PluginContext } from "@downdraft/core";
 import { physicsBackendRegistry } from "@downdraft/core";
-import { NativePhysicsBackend } from "./backend.ts";
+import { NativePhysicsBackend } from "./backend";
 
 export const PhysicsNativePlugin: Plugin = {
   name: "physics-native",
@@ -23,11 +23,11 @@ export const PhysicsNativePlugin: Plugin = {
   },
 };
 
-export { NativePhysicsBackend } from "./backend.ts";
-export { Broadphase } from "./broadphase.ts";
-export type { AABB } from "./broadphase.ts";
-export { detectCollision } from "./narrowphase.ts";
-export type { ContactManifoldLocal, ContactPoint } from "./narrowphase.ts";
-export { resolveContact, integrate } from "./solver.ts";
-export type { BodyData } from "./solver.ts";
-export * from "./types.ts";
+export { NativePhysicsBackend } from "./backend";
+export { Broadphase } from "./broadphase";
+export type { AABB } from "./broadphase";
+export { detectCollision } from "./narrowphase";
+export type { ContactManifoldLocal, ContactPoint } from "./narrowphase";
+export { resolveContact, integrate } from "./solver";
+export type { BodyData } from "./solver";
+export * from "./types";

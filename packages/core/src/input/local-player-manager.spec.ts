@@ -1,5 +1,5 @@
-import { LocalPlayerManager } from "./local-player-manager.ts";
-import type { InputDevice } from "./local-player-manager.ts";
+import { LocalPlayerManager } from "./local-player-manager";
+import type { InputDevice } from "./local-player-manager";
 
 describe("LocalPlayerManager", () => {
   it("should initialize with default max players", () => {

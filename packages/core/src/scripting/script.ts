@@ -1,5 +1,5 @@
-import type { World } from "../ecs/world.ts";
-import type { Stage, SystemFn } from "../ecs/system.ts";
+import type { World } from "../ecs/world";
+import type { Stage, SystemFn } from "../ecs/system";
 
 export interface ScriptContext {
   world: World;

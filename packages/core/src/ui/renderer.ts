@@ -1,6 +1,7 @@
-import type { UIDrawable } from "./element.ts";
-import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas.ts";
-import { TextAtlasCache } from "./text-cache.ts";
+import type { GraphRenderContext } from "../render/frame-graph";
+import type { UIDrawable } from "./element";
+import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";
+import { TextAtlasCache } from "./text-cache";
 
 import IMAGE_SHADER from "./shaders/image.wgsl?raw";
 import LINE_SHADER from "./shaders/line.wgsl?raw";

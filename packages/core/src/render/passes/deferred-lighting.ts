@@ -1,9 +1,10 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { GBufferViews } from "../g-buffer.ts";
-import { createIBLShaderChunk } from "../ibl-bind-group.ts";
-import type { LightUniformData } from "../lighting.ts";
-import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights } from "../lighting.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import type { GBufferViews } from "../g-buffer";
+import { createIBLShaderChunk } from "../ibl-bind-group";
+import type { LightUniformData } from "../lighting";
+import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights, packSpotLightsExtended } from "../lighting";
+import { RenderPass } from "../render-pass";
 
 const IBL_CHUNK = createIBLShaderChunk(1, true);
 
@@ -216,6 +217,8 @@ export class DeferredLightingPass extends RenderPass {
   gbufferAlbedoHandle: TextureHandle | null = null;
   gbufferNormalHandle: TextureHandle | null = null;
   gbufferMetallicEmissiveHandle: TextureHandle | null = null;
+  gbufferRoughnessAOHandle: TextureHandle | null = null;
+  gbufferVelocityHandle: TextureHandle | null = null;
   gbufferDepthHandle: TextureHandle | null = null;
   shadowHandle: TextureHandle | null = null;
   hdrHandle: TextureHandle | null = null;
@@ -379,6 +382,8 @@ export class DeferredLightingPass extends RenderPass {
     if (this.gbufferAlbedoHandle) builder.read(this.gbufferAlbedoHandle);
     if (this.gbufferNormalHandle) builder.read(this.gbufferNormalHandle);
     if (this.gbufferMetallicEmissiveHandle) builder.read(this.gbufferMetallicEmissiveHandle);
+    if (this.gbufferRoughnessAOHandle) builder.read(this.gbufferRoughnessAOHandle);
+    if (this.gbufferVelocityHandle) builder.read(this.gbufferVelocityHandle);
     if (this.gbufferDepthHandle) builder.read(this.gbufferDepthHandle);
     // Read shadow map
     if (this.shadowHandle) builder.read(this.shadowHandle);
@@ -394,6 +399,8 @@ export class DeferredLightingPass extends RenderPass {
       albedo: ctx.getView(this.gbufferAlbedoHandle!),
       normal: ctx.getView(this.gbufferNormalHandle!),
       metallicEmissive: ctx.getView(this.gbufferMetallicEmissiveHandle!),
+      roughnessAO: ctx.getView(this.gbufferRoughnessAOHandle!),
+      velocity: ctx.getView(this.gbufferVelocityHandle!),
       depth: ctx.getView(this.gbufferDepthHandle!),
     };
     const shadowView = this.shadowHandle ? ctx.getView(this.shadowHandle) : null;
@@ -403,6 +410,8 @@ export class DeferredLightingPass extends RenderPass {
     this.updateCamera(ctx.viewProj, ctx.prevViewProj, ctx.invViewProj, ctx.cameraPos);
     this.updateLightViewProj(ctx.lightViewProj);
     this.updateLights(ctx.lightData);
+
+    if (!bindGroup) return;
 
     const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);

@@ -6,7 +6,7 @@
 // with transient flag stripping and system reset.
 // ============================================================================
 
-import type { IWorkerManager } from "./types.ts";
+import type { IWorkerManager } from "./types";
 
 export class HotReloadPipeline {
   private workerManager: IWorkerManager;

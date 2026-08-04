@@ -1,5 +1,5 @@
-import type { GLBLoader } from "./loader-mesh.ts";
-import type { GLTFDocument } from "./loader-mesh.ts";
+import type { GLBLoader } from "./loader-mesh";
+import type { GLTFDocument } from "./loader-mesh";
 
 export interface ImportOptions {
   format: "gltf" | "glb";

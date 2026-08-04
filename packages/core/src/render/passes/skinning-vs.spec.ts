@@ -3,14 +3,14 @@ import {
   VertexSkinningPass,
   packBoneTransformsVec4,
   packBoneTransforms,
-} from "./skinning.ts";
+} from "./skinning";
 import {
   SKINNING_VS_GLSL,
   SKINNING_VS_WGSL,
   createSkinningPass,
   MAX_BONES_VS,
   MAX_BONE_INFLUENCES,
-} from "./skinning-vs.ts";
+} from "./skinning-vs";
 
 describe("VertexSkinningPass", () => {
   it("should have correct constants", () => {

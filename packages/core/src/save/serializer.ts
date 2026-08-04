@@ -1,6 +1,6 @@
-import type { Entity } from "../ecs/entity.ts";
-import type { World } from "../ecs/world.ts";
-import { SchemaRegistry } from "./schema.ts";
+import type { Entity } from "../ecs/entity";
+import type { World } from "../ecs/world";
+import { SchemaRegistry } from "./schema";
 
 export interface SaveData {
   schemaVersion: number;

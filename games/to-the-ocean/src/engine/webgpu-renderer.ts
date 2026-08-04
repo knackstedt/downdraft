@@ -4,7 +4,7 @@
 // accessors → RendererAccessors
 // ============================================================================
 
-import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass } from "@downdraft/core";
+import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type IRendererStateProvider } from "@downdraft/core";
 import { TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
@@ -739,7 +739,7 @@ export class WebGPURenderer implements IRendererStateProvider {
         const cv = this.context.getCurrentTexture().createView();
         const ue = this.device.createCommandEncoder();
         const up = ue.beginRenderPass({ colorAttachments: [{ view: cv, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "load" as GPULoadOp, storeOp: "store" as GPUStoreOp }] });
-        this.uiRenderer.render({ device: this.device, pass: up }, ds);
+        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(up) } as any, ds);
         up.end();
         this.device.queue.submit([ue.finish()]);
       }

@@ -1,4 +1,4 @@
-import type { AudioBackend, AudioChannel, AudioEffectDesc, AudioEffectType } from "./interface.ts";
+import type { AudioBackend, AudioChannel, AudioEffectDesc, AudioEffectType } from "./interface";
 
 export interface MixerChannelState {
   name: AudioChannel;
@@ -114,7 +114,7 @@ export class AudioMixer {
     const effect = state.effects.get(effectId);
     if (!effect) return;
     effect.params = { ...effect.params, ...params } as Record<string, number>;
-    this.backend.updateEffect(channel, effectId, effect.params);
+    this.backend.updateEffect?.(channel, effectId, effect.params);
   }
 
   getChannelState(channel: AudioChannel): MixerChannelState | undefined {

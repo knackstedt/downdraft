@@ -1,7 +1,7 @@
-import type { World } from "../ecs/world.ts";
-import type { SaveData, Serializer } from "../save/serializer.ts";
-import type { CheckpointData, CheckpointManager } from "../scene/checkpoint.ts";
-import { createLogger } from "../util/logger.ts";
+import type { World } from "../ecs/world";
+import type { SaveData, Serializer } from "../save/serializer";
+import type { CheckpointData, CheckpointManager } from "../scene/checkpoint";
+import { createLogger } from "../util/logger";
 export interface SimWorkerLike {
   restart(): Promise<void>;
   isAlive(): boolean;
@@ -132,7 +132,7 @@ export class CrashRecoveryManager {
             getCurrentVersion: () => 1,
             hasMigration: () => false,
             registerMigration: () => {},
-          } as unknown as import("../save/schema.ts").SchemaRegistry);
+          } as unknown as import("../save/schema").SchemaRegistry);
         }
       }
 

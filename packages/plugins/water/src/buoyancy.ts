@@ -3,7 +3,7 @@
 // Originally based on to-the-ocean's buoyancy implementation
 // ============================================================================
 
-import type { WaterPhysics } from "./water-physics.ts";
+import type { WaterPhysics } from "./water-physics";
 
 export interface BuoyancyEntity {
   x: number;

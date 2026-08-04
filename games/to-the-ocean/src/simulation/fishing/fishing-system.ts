@@ -7,7 +7,7 @@
 // PLR_FLAG values match the plugin's FISHING_FLAG bit positions.
 //
 
-import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps } from "@downdraft/plugin-fishing";
+import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps, type FishingInput, type FishingPlayer } from "@downdraft/plugin-fishing";
 import { WeatherSystem } from "@downdraft/plugin-weather";
 import {
     FISHING_CAST_RANGE,
@@ -71,6 +71,6 @@ export class FishingSystem extends PluginFishingSystem {
   }
 
   tick(dt: number, input: InputBufferReader, players: SimPlayer[], playerCount: number): void {
-    super.tick(dt, input, players as unknown as Parameters<PluginFishingSystem["tick"]>[1], playerCount);
+    super.tick(dt, input as unknown as FishingInput, players as unknown as FishingPlayer[], playerCount);
   }
 }

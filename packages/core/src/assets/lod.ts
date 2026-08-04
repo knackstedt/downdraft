@@ -1,4 +1,4 @@
-import type { MeshData } from "../mesh/builder.ts";
+import type { MeshData } from "../mesh/builder";
 
 export interface LODLevel {
   mesh: MeshData;

@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   DEFAULT_REFLECTION_PROBE_CONFIG,
   ReflectionProbeManager,
-} from "./reflection-probe.ts";
+} from "./reflection-probe";
 import {
   DEFAULT_ATMOSPHERE_CONFIG,
   computeAtmosphereDensity,
@@ -10,7 +10,7 @@ import {
   computeMieScattering,
   computeSkyColor,
   ATMOSPHERE_SHADER_CHUNK,
-} from "./atmosphere.ts";
+} from "./atmosphere";
 
 describe("reflection-probe", () => {
   describe("DEFAULT_REFLECTION_PROBE_CONFIG", () => {

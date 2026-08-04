@@ -1,8 +1,8 @@
-import type { EngineContext } from "../engine-context.ts";
-import { MeshBuilder } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import type { UndoRedoManager } from "../undo-redo.ts";
+import type { EngineContext } from "../engine-context";
+import { MeshBuilder } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { jsonResult, errorResult } from "../types";
+import type { UndoRedoManager } from "../undo-redo";
 
 export function createMeshTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
   const tools: ToolRegistration[] = [

@@ -1,4 +1,4 @@
-import type { MeshData, ModelData } from "./types.ts";
+import type { MeshData, ModelData } from "./types";
 
 function isBinarySTL(data: ArrayBuffer): boolean {
   // Binary STL: 80-byte header + 4-byte face count + face data

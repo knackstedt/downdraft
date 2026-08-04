@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimPlayerState, SimTransform, SimVelocity } from "./components.ts";
+import { SimEntityData, SimEntityMeta, SimPlayerState, SimTransform, SimVelocity } from "./components";
 import { EntityType, PetType } from "@shared/types";
 
 interface PetData {
@@ -293,7 +293,7 @@ function tickShark(
   allEntitiesQuery.iterate(currentTick, (_entity, comps) => {
     const meta = comps[0] as ReturnType<typeof SimEntityMeta.create>;
     const t = comps[1] as ReturnType<typeof SimTransform.create>;
-    const h = comps[2] as ReturnType<typeof import("./components.ts").SimHealth.create>;
+    const h = comps[2] as ReturnType<typeof import("./components").SimHealth.create>;
 
     if (meta.type !== EntityType.Fish && meta.type !== EntityType.SmallCraft && meta.type !== EntityType.Livestock) return;
     const dx = t.x - transform.x;

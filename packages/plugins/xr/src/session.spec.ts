@@ -1,5 +1,5 @@
-import { DEFAULT_XR_CONFIG } from "./types.ts";
-import { XRSessionManager, isXRAvailable, isXRGPUBindingAvailable } from "./session.ts";
+import { DEFAULT_XR_CONFIG } from "./types";
+import { XRSessionManager, isXRAvailable, isXRGPUBindingAvailable } from "./session";
 
 describe("XRSessionManager", () => {
   it("should start in idle state", () => {

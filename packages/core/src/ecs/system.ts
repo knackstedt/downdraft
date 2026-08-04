@@ -1,4 +1,4 @@
-import type { Query } from "./query.ts";
+import type { Query } from "./query";
 
 export enum Stage {
   Input = 0,
@@ -9,7 +9,7 @@ export enum Stage {
 }
 
 export interface SystemContext {
-  world: import("./world.ts").World;
+  world: import("./world").World;
   dt: number;
   tick: number;
 }

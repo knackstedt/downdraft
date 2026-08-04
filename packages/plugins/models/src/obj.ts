@@ -1,4 +1,4 @@
-import type { MaterialData, MeshData, ModelData } from "./types.ts";
+import type { MaterialData, MeshData, ModelData } from "./types";
 
 interface OBJMaterial {
   name: string;

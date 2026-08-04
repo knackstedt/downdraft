@@ -1,6 +1,6 @@
-import type { SABChannel } from "../plugin/plugin.ts";
-import { defineChannel } from "../sab/define.ts";
-import type { AudioListenerState } from "./interface.ts";
+import type { SABChannel } from "../plugin/plugin";
+import { defineChannel } from "../sab/define";
+import type { AudioListenerState } from "./interface";
 
 export const AudioSABChannelDef = defineChannel({
   name: "audio-position",
@@ -68,7 +68,7 @@ export class AudioSABChannel {
     (w.fields.listenerOrientation as Float32Array)[0] = this.listener.orientation[0];
     (w.fields.listenerOrientation as Float32Array)[1] = this.listener.orientation[1];
     (w.fields.listenerOrientation as Float32Array)[2] = this.listener.orientation[2];
-    (w.fields.listenerOrientation as Float32Array)[3] = this.listener.orientation[3];
+    (w.fields.listenerOrientation as Float32Array)[3] = this.listener.orientation[3] ?? 0;
     w.bumpSequence();
   }
 

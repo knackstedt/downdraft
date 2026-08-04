@@ -1,5 +1,5 @@
 import { GraphCompiler, MaterialGraph, type CompileOptions, type GraphNode, type ShaderGraphProfile } from "@downdraft/shader-graph";
-import { BlendMode, CullMode, Material, type MaterialDefinition } from "./material.ts";
+import { BlendMode, CullMode, Material, type MaterialDefinition } from "./material";
 
 export interface UINodeData {
   id: string;

@@ -3,7 +3,7 @@
 // and posts results back. Works in both Web Workers and Node.js worker_threads.
 // ============================================================================
 
-import { getWorkerHost } from "./rpc.ts";
+import { getWorkerHost } from "./rpc";
 
 // Function registry — workers register functions by string key
 const registry = new Map<string, (...args: unknown[]) => unknown>();

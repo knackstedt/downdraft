@@ -1,4 +1,4 @@
-import { InputState } from "./state.ts";
+import { InputState } from "./state";
 
 export class MultiInputState {
   private states: InputState[];

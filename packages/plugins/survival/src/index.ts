@@ -1,4 +1,4 @@
-export { SurvivalSystem } from "./survival-system.ts";
-export { SURVIVAL_FLAGS } from "./types.ts";
-export type { SurvivalPlayer, SurvivalBiomeProvider, SurvivalConfig } from "./types.ts";
-export { DEFAULT_SURVIVAL_CONFIG } from "./types.ts";
+export { SurvivalSystem } from "./survival-system";
+export { SURVIVAL_FLAGS } from "./types";
+export type { SurvivalPlayer, SurvivalBiomeProvider, SurvivalConfig } from "./types";
+export { DEFAULT_SURVIVAL_CONFIG } from "./types";

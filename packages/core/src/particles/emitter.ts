@@ -1,4 +1,4 @@
-import { Component } from "../ecs/component.ts";
+import { Component } from "../ecs/component";
 
 export type EmitterShape = "point" | "sphere" | "box" | "cone" | "disc";
 

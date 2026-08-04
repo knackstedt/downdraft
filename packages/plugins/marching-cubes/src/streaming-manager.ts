@@ -16,7 +16,7 @@
 // - A ChunkEmptyChecker to skip empty chunks
 //
 
-import type { ChunkedVoxelField } from "./chunked-field.ts";
+import type { ChunkedVoxelField } from "./chunked-field";
 import {
     CHUNK_FULL,
     getChunkedVoxel,
@@ -24,10 +24,10 @@ import {
     isChunkGenerated,
     promoteChunk,
     setChunkedVoxel
-} from "./chunked-field.ts";
-import type { TerrainStreamingConfig } from "./streaming-config.ts";
-import { getLODVoxelSize } from "./streaming-config.ts";
-import type { VoxelField } from "./types.ts";
+} from "./chunked-field";
+import type { TerrainStreamingConfig } from "./streaming-config";
+import { getLODVoxelSize } from "./streaming-config";
+import type { VoxelField } from "./types";
 export interface TerrainEntry {
   id: number;
   chunkX: number;
@@ -664,4 +664,4 @@ export class TerrainStreamingManager {
   }
 }
 
-export { allocateChunk, markChunkGenerated } from "./chunked-field.ts";
+export { allocateChunk, markChunkGenerated } from "./chunked-field";

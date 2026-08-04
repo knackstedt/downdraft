@@ -1,6 +1,6 @@
-import type { GaussianSplatData } from "./parser.ts";
-import { parseGaussianSplatFile, parsePLY, parseSplat } from "./parser.ts";
-import { filterByDistance, sortSplats } from "./sorter.ts";
+import type { GaussianSplatData } from "./parser";
+import { parseGaussianSplatFile, parsePLY, parseSplat } from "./parser";
+import { filterByDistance, sortSplats } from "./sorter";
 
 describe("Gaussian Splats", () => {
   describe("parsePLY (ascii)", () => {

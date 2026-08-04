@@ -9,7 +9,7 @@
 // ============================================================================
 
 import { Stage, system, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimHealth, ComponentIds } from "./components.ts";
+import { SimEntityData, SimEntityMeta, SimHealth, ComponentIds } from "./components";
 import { EntityType } from "@shared/types";
 
 interface LivestockData {

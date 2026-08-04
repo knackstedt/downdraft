@@ -1,6 +1,6 @@
 import { createLogger } from "@downdraft/core";
 import { basename, resolve } from "path";
-import { listTemplates, scaffold, type ScaffoldOptions } from "./scaffold.ts";
+import { listTemplates, scaffold, type ScaffoldOptions } from "./scaffold";
 
 const log = createLogger();
 

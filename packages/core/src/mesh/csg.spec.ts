@@ -1,5 +1,5 @@
-import { MeshBuilder, type MeshData } from "./builder.ts";
-import { BSPNode, csgIntersect, csgSubtract, csgUnion } from "./csg.ts";
+import { MeshBuilder, type MeshData } from "./builder";
+import { BSPNode, csgIntersect, csgSubtract, csgUnion } from "./csg";
 
 function offsetCube(size: number, x: number, y: number, z: number): MeshData {
   const mesh = MeshBuilder.cube(size);

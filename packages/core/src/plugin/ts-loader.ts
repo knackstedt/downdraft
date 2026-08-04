@@ -1,5 +1,5 @@
-import type { Plugin } from "./plugin.ts";
-import { PluginRegistry } from "./registry.ts";
+import type { Plugin } from "./plugin";
+import { PluginRegistry } from "./registry";
 
 export class TSPluginLoader {
   private registry: PluginRegistry;

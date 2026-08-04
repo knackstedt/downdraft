@@ -1,5 +1,5 @@
 // Fish AI — schooling, flocking, biome-specific species, flee from predators
-import type { WildlifeEntity } from "../types.ts";
+import type { WildlifeEntity } from "../types";
 
 export function tickFishAI(
   ent: WildlifeEntity,

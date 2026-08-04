@@ -2,7 +2,7 @@
 // OSR Texture Receiver — Receives shared GPU textures from Electron OSR
 // ============================================================================
 
-import type { OSRSharedTexturePixelFormat } from "../types.ts";
+import type { OSRSharedTexturePixelFormat } from "../types";
 
 export class OSRTextureReceiver {
   readonly rendererId: string;

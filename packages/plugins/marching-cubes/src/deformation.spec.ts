@@ -1,5 +1,5 @@
-import { applyDeformation, applyMultipleDeformations, deformChunk, type DeformationConfig } from "./deformation.ts";
-import { generateChunk, type DensityField, type MCMesh } from "./generator.ts";
+import { applyDeformation, applyMultipleDeformations, deformChunk, type DeformationConfig } from "./deformation";
+import { generateChunk, type DensityField, type MCMesh } from "./generator";
 
 describe("Marching Cubes Deformation", () => {
   const baseField: DensityField = (_x, y, _z) => y - 2;

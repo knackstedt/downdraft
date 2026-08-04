@@ -15,7 +15,7 @@ import type {
     RigidBodyHandle,
     ShapeCastResult,
 } from "@downdraft/core";
-import { loadPhysicsLib, type PhysicsLib } from "./ffi.ts";
+import { loadPhysicsLib, type PhysicsLib } from "./ffi";
 
 interface RealmState {
   id: number;

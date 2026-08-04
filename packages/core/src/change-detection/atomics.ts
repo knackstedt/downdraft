@@ -1,1 +1,1 @@
-export { ChangeTracker } from "./tracker.ts";
+export { ChangeTracker } from "./tracker";

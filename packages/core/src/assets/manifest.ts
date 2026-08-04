@@ -4,7 +4,7 @@
  * required asset packs with versions and storage backends.
  */
 
-import type { BlobStoreConfig } from "./blob-store.ts";
+import type { BlobStoreConfig } from "./blob-store";
 
 export interface AssetPackEntry {
   name: string;

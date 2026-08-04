@@ -10,7 +10,7 @@ const FIXTURES = join(import.meta.dir, "fixtures");
 
 // DDS
 async function testDDS() {
-  const { parseDDS } = await import("../packages/core/src/assets/loader-dds.ts");
+  const { parseDDS } = await import("../packages/core/src/assets/loader-dds");
   const data = readFileSync(join(FIXTURES, "textures", "test_rgba8.dds")).buffer as ArrayBuffer;
   const result = parseDDS(data);
   if (!result) throw new Error("DDS: parseDDS returned null");
@@ -24,7 +24,7 @@ async function testDDS() {
 
 // KTX2
 async function testKTX2() {
-  const { parseKTX2FromBuffer } = await import("../packages/core/src/assets/loader-texture.ts");
+  const { parseKTX2FromBuffer } = await import("../packages/core/src/assets/loader-texture");
   const data = readFileSync(join(FIXTURES, "textures", "test_rgba8.ktx2")).buffer as ArrayBuffer;
   const result = parseKTX2FromBuffer(data);
   if (!result) throw new Error("KTX2: parseKTX2FromBuffer returned null");
@@ -38,7 +38,7 @@ async function testKTX2() {
 
 // HDR
 async function testHDR() {
-  const { parseHDR } = await import("../packages/core/src/assets/loader-hdr.ts");
+  const { parseHDR } = await import("../packages/core/src/assets/loader-hdr");
   const data = readFileSync(join(FIXTURES, "textures", "studio_small_08_1k.hdr")).buffer as ArrayBuffer;
   const result = parseHDR(data);
   if (!result) throw new Error("HDR: parseHDR returned null");
@@ -185,7 +185,7 @@ async function testFormatDetection() {
 // ─── Texture Format Detection ──────────────────────────────────────────────
 
 async function testTextureFormatDetection() {
-  const { detectTextureFormat } = await import("../packages/core/src/assets/loader-texture.ts");
+  const { detectTextureFormat } = await import("../packages/core/src/assets/loader-texture");
   assert(detectTextureFormat("tex.png") === "png", "detectTextureFormat: .png");
   assert(detectTextureFormat("tex.webp") === "webp", "detectTextureFormat: .webp");
   assert(detectTextureFormat("tex.ktx2") === "ktx2", "detectTextureFormat: .ktx2");

@@ -1,4 +1,4 @@
-import { MeshBuilder, type MeshData } from "./builder.ts";
+import { MeshBuilder, type MeshData } from "./builder";
 
 export function cylinder(
   radiusTop: number = 0.5,

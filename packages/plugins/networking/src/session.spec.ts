@@ -1,7 +1,7 @@
-import { MockPlatformAdapter, createMockPlatformAdapter } from "./platform-adapter.ts";
-import { SessionManager } from "./session.ts";
-import { LobbyManager } from "./lobby.ts";
-import { ConnectionManager } from "./connection.ts";
+import { MockPlatformAdapter, createMockPlatformAdapter } from "./platform-adapter";
+import { SessionManager } from "./session";
+import { LobbyManager } from "./lobby";
+import { ConnectionManager } from "./connection";
 
 describe("MockPlatformAdapter", () => {
   it("should init and provide local player", async () => {

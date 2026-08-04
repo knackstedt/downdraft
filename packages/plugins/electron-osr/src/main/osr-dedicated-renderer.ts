@@ -2,9 +2,9 @@
 // OSR Dedicated Renderer — One panel per BrowserWindow (high-res, crash isolation)
 // ============================================================================
 
-import type { AtlasPanelRect, OSRDataUpdate, OSRSharedTexturePixelFormat } from "../types.ts";
-import { buildSetContentCall, buildUpdateDataCall, generateDedicatedHTML } from "./atlas-html.ts";
-import { OSRRenderer } from "./osr-renderer.ts";
+import type { AtlasPanelRect, OSRDataUpdate, OSRSharedTexturePixelFormat } from "../types";
+import { buildSetContentCall, buildUpdateDataCall, generateDedicatedHTML } from "./atlas-html";
+import { OSRRenderer } from "./osr-renderer";
 
 export class OSRDedicatedRenderer extends OSRRenderer {
   private content: string | null = null;

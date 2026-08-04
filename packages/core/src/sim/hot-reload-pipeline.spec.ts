@@ -1,5 +1,5 @@
-import { HotReloadPipeline } from "./hot-reload-pipeline.ts";
-import type { IWorkerManager } from "./types.ts";
+import { HotReloadPipeline } from "./hot-reload-pipeline";
+import type { IWorkerManager } from "./types";
 
 function createMockWorkerManager(): IWorkerManager & {
   saveCalls: number;

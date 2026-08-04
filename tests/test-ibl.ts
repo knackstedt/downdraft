@@ -14,7 +14,7 @@ const GPU_TEXTURE_USAGE = { TEXTURE_BINDING: 0x8, COPY_DST: 0x4, COPY_SRC: 0x1, 
 // ─── Shader Chunk Generation Tests ─────────────────────────────────────────
 
 async function testShaderChunkWithLUT() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group.ts");
+  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
   const chunk = createIBLShaderChunk(2, true);
 
   assert(chunk.includes("@group(2) @binding(0)"), "IBL chunk: should have irradianceMap at group 2 binding 0");
@@ -43,7 +43,7 @@ async function testShaderChunkWithLUT() {
 }
 
 async function testShaderChunkWithoutLUT() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group.ts");
+  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
   const chunk = createIBLShaderChunk(1, false);
 
   assert(chunk.includes("@group(1) @binding(0)"), "IBL chunk (no LUT): should have irradianceMap at group 1 binding 0");
@@ -65,7 +65,7 @@ async function testShaderChunkWithoutLUT() {
 }
 
 async function testShaderChunkDifferentGroups() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group.ts");
+  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
 
   for (const g of [0, 1, 2, 3, 4]) {
     const chunk = createIBLShaderChunk(g, true);
@@ -77,7 +77,7 @@ async function testShaderChunkDifferentGroups() {
 }
 
 async function testIBLShaderChunkConstant() {
-  const { IBL_SHADER_CHUNK, createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group.ts");
+  const { IBL_SHADER_CHUNK, createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
   const expected = createIBLShaderChunk(2, true);
   assert(IBL_SHADER_CHUNK === expected, "IBL_SHADER_CHUNK constant should equal createIBLShaderChunk(2, true)");
   assert(IBL_SHADER_CHUNK.includes("@group(2)"), "IBL_SHADER_CHUNK should use group 2");
@@ -88,7 +88,7 @@ async function testIBLShaderChunkConstant() {
 // ─── Entity Shader Integration Tests ───────────────────────────────────────
 
 async function testEntityShaderPBRBindings() {
-  const { PBR_BINDINGS } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders.ts");
+  const { PBR_BINDINGS } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders");
   assert(PBR_BINDINGS.includes("@group(2) @binding(0)"), "Entity PBR_BINDINGS: should use group 2 binding 0");
   assert(PBR_BINDINGS.includes("irradianceMap"), "Entity PBR_BINDINGS: should declare irradianceMap");
   assert(PBR_BINDINGS.includes("prefilterMap"), "Entity PBR_BINDINGS: should declare prefilterMap");
@@ -100,7 +100,7 @@ async function testEntityShaderPBRBindings() {
 }
 
 async function testEntityShaderIBLUsage() {
-  const { LIGHTING_FN, INSTANCED_ENTITY_WGSL } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders.ts");
+  const { LIGHTING_FN, INSTANCED_ENTITY_WGSL } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders");
 
   assert(LIGHTING_FN.includes("getIBLDiffuse(N)"), "entityLighting: should call getIBLDiffuse(N)");
   assert(LIGHTING_FN.includes("getIBLSpecular(N, R, roughness)"), "entityLighting: should call getIBLSpecular(N, R, roughness)");
@@ -115,7 +115,7 @@ async function testEntityShaderIBLUsage() {
 }
 
 async function testEntityShaderIslandLighting() {
-  const { ISLAND_WGSL } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders.ts");
+  const { ISLAND_WGSL } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders");
 
   assert(ISLAND_WGSL.includes("getIBLDiffuse(perturbedN)"), "islandLighting: should call getIBLDiffuse(perturbedN)");
   assert(ISLAND_WGSL.includes("getIBLSpecular(perturbedN, R, roughness)"), "islandLighting: should call getIBLSpecular(perturbedN, R, roughness)");
@@ -128,7 +128,7 @@ async function testEntityShaderIslandLighting() {
 // ─── Deferred Lighting Integration Tests ───────────────────────────────────
 
 async function testDeferredLightingShader() {
-  const module = await import("../packages/core/src/render/passes/deferred-lighting.ts");
+  const module = await import("../packages/core/src/render/passes/deferred-lighting");
   assert(typeof module.DeferredLightingPass === "function", "DeferredLightingPass: should be a class");
 
   console.log("✓ Deferred lighting: DeferredLightingPass exported correctly");
@@ -137,7 +137,7 @@ async function testDeferredLightingShader() {
 // ─── IBLSystem Options Tests ───────────────────────────────────────────────
 
 async function testIBLSystemOptions() {
-  const { IBLSystem } = await import("../packages/core/src/render/ibl.ts");
+  const { IBLSystem } = await import("../packages/core/src/render/ibl");
   assert(typeof IBLSystem === "function", "IBLSystem: should be a class");
 
   console.log("✓ IBLSystem: exported correctly, is a class");
@@ -146,7 +146,7 @@ async function testIBLSystemOptions() {
 // ─── CubemapCapturePass Tests ──────────────────────────────────────────────
 
 async function testCubemapCapturePass() {
-  const { CubemapCapturePass } = await import("../packages/core/src/render/passes/cubemap-capture.ts");
+  const { CubemapCapturePass } = await import("../packages/core/src/render/passes/cubemap-capture");
   assert(typeof CubemapCapturePass === "function", "CubemapCapturePass: should be a class");
 
   console.log("✓ CubemapCapturePass: exported correctly, is a class");
@@ -155,7 +155,7 @@ async function testCubemapCapturePass() {
 // ─── Core Index Export Tests ───────────────────────────────────────────────
 
 async function testCoreExports() {
-  const coreModule = await import("../packages/core/src/index.ts");
+  const coreModule = await import("../packages/core/src/index");
 
   assert(typeof coreModule.createIBLShaderChunk === "function", "Core index: should export createIBLShaderChunk");
   assert(typeof coreModule.IBL_SHADER_CHUNK === "string", "Core index: should export IBL_SHADER_CHUNK");
@@ -170,7 +170,7 @@ async function testCoreExports() {
 // ─── WGSL Validity Tests ───────────────────────────────────────────────────
 
 async function testWGSLValidity() {
-  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group.ts");
+  const { createIBLShaderChunk } = await import("../packages/core/src/render/ibl-bind-group");
 
   const chunk = createIBLShaderChunk(2, true);
 

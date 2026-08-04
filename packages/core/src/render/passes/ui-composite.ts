@@ -1,8 +1,8 @@
-import type { UIRoot } from "../../ui/element.ts";
-import { LayoutEngine } from "../../ui/layout.ts";
-import type { UIRenderer } from "../../ui/renderer.ts";
-import type { TextureHandle } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { UIRoot } from "../../ui/element";
+import { LayoutEngine } from "../../ui/layout";
+import type { UIRenderer } from "../../ui/renderer";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 export class UICompositePass extends RenderPass {
   name = "ui-composite";

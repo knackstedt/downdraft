@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { build } from "./build.ts";
-import { exportGame } from "./export.ts";
-import { newProject } from "./new.ts";
-import { listTemplates } from "./scaffold.ts";
+import { build } from "./build";
+import { exportGame } from "./export";
+import { newProject } from "./new";
+import { listTemplates } from "./scaffold";
 
 const TEST_DIR = join(tmpdir(), "downdraft-cli-test");
 

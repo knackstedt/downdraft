@@ -1,8 +1,8 @@
-import { CoreInputChannel } from "../sab/core-input-channel.ts";
-import { InputSABChannel } from "../sab/input.ts";
-import { InputContextRouter } from "./context.ts";
-import { InputSABBridge } from "./sab-bridge.ts";
-import { InputContext, InputState } from "./state.ts";
+import { CoreInputChannel } from "../sab/core-input-channel";
+import { InputSABChannel } from "../sab/input";
+import { InputContextRouter } from "./context";
+import { InputSABBridge } from "./sab-bridge";
+import { InputContext, InputState } from "./state";
 
 describe("InputState", () => {
   it("should track key down and up events", () => {

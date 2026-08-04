@@ -1,4 +1,4 @@
-import { isXRGPUBindingAvailable } from "./session.ts";
+import { isXRGPUBindingAvailable } from "./session";
 
 export type XREye = "left" | "right";
 
@@ -66,7 +66,7 @@ export class XRLayerManager {
       format,
       depthFormat,
     });
-    session.updateRenderState({ layers: [this.layer as unknown as XRLayer] });
+    session.updateRenderState({ layers: [this.layer as unknown as XRLayer] } as any);
   }
 
   beginFrame(frame: XRFrame, referenceSpace: XRReferenceSpace): void {

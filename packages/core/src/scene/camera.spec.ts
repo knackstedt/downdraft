@@ -1,4 +1,4 @@
-import { Camera } from "./camera.ts";
+import { Camera } from "./camera";
 
 describe("Camera", () => {
   it("should construct with default values", () => {

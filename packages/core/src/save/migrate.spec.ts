@@ -1,8 +1,8 @@
-import { component } from "../ecs/component.ts";
-import { World } from "../ecs/world.ts";
-import { SaveSystem } from "./migrate.ts";
-import { CURRENT_SCHEMA_VERSION, SchemaRegistry } from "./schema.ts";
-import { Serializer, type SaveData } from "./serializer.ts";
+import { component } from "../ecs/component";
+import { World } from "../ecs/world";
+import { SaveSystem } from "./migrate";
+import { CURRENT_SCHEMA_VERSION, SchemaRegistry } from "./schema";
+import { Serializer, type SaveData } from "./serializer";
 
 const Health = component("Health", { hp: 100 });
 const Name = component("Name", { name: "entity" });

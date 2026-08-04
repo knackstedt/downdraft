@@ -1,5 +1,5 @@
-import type { ComponentId } from "./component.ts";
-import type { Entity, EntityMeta } from "./entity.ts";
+import type { ComponentId } from "./component";
+import type { Entity, EntityMeta } from "./entity";
 
 export interface Archetype {
   id: number;

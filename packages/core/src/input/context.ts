@@ -1,5 +1,5 @@
-import type { UIInputRouter } from "../ui/input.ts";
-import { InputContext, InputState } from "./state.ts";
+import type { UIInputRouter } from "../ui/input";
+import { InputContext, InputState } from "./state";
 
 export class InputContextRouter {
   private state: InputState;

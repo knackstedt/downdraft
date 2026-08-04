@@ -1,7 +1,7 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import type { UndoRedoManager } from "../undo-redo.ts";
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { jsonResult, errorResult } from "../types";
+import type { UndoRedoManager } from "../undo-redo";
 import { physicsBackendRegistry, PhysicsRealm } from "@downdraft/core";
 import type { ColliderShape, BodyType, RigidBodyHandle } from "@downdraft/core";
 

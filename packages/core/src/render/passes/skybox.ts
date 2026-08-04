@@ -1,5 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
-import { RenderPass } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const SKYBOX_SHADER = `
 struct CameraUniforms {

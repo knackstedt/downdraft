@@ -1,6 +1,6 @@
-import { computeCollisionEvents, COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, CONTACT_CHANNEL } from "./events.ts";
-import type { ContactManifold } from "./interface.ts";
-import type { Entity } from "../ecs/entity.ts";
+import { computeCollisionEvents, COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, CONTACT_CHANNEL } from "./events";
+import type { ContactManifold } from "./interface";
+import type { Entity } from "../ecs/entity";
 
 function makeEntity(index: number, generation: number = 0): Entity {
   return { index, generation };

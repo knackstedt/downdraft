@@ -5,7 +5,7 @@ import {
     computeLightIndexListSize,
     packClusterUniforms,
     type ClusterGridConfig
-} from "./cluster-types.ts";
+} from "./cluster-types";
 
 const CLUSTER_BUILD_SHADER = /* wgsl */ `
 struct ClusterUniforms {

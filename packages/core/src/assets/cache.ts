@@ -76,6 +76,38 @@ export class GPUResourceCache {
     }
   }
 
+  private genericResources: Map<string, { resource: unknown; cleanup: (() => Promise<void> | void) | null; refCount: number; lastUsed: number }> = new Map();
+
+  register(key: string, resource: unknown, cleanup?: () => Promise<void> | void): void {
+    this.genericResources.set(key, {
+      resource,
+      cleanup: cleanup ?? null,
+      refCount: 1,
+      lastUsed: Date.now(),
+    });
+  }
+
+  getRegistered<T>(key: string): T | null {
+    const entry = this.genericResources.get(key);
+    if (entry) {
+      entry.refCount++;
+      entry.lastUsed = Date.now();
+      return entry.resource as T;
+    }
+    return null;
+  }
+
+  releaseRegistered(key: string): void {
+    const entry = this.genericResources.get(key);
+    if (entry) {
+      entry.refCount--;
+      if (entry.refCount <= 0) {
+        if (entry.cleanup) entry.cleanup();
+        this.genericResources.delete(key);
+      }
+    }
+  }
+
   startAutoCleanup(intervalMs: number = 30000): void {
     if (this.cleanupInterval !== null) return;
     this.cleanupInterval = setInterval(() => this.cleanup(), intervalMs) as unknown as number;

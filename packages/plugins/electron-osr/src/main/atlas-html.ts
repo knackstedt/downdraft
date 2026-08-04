@@ -2,7 +2,7 @@
 // Atlas HTML Template — generates the HTML page loaded into OSR BrowserWindows
 // ============================================================================
 
-import type { AtlasPanelRect } from "../types.ts";
+import type { AtlasPanelRect } from "../types";
 
 /**
  * Generates the base HTML for an atlas OSR window.

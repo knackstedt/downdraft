@@ -6,10 +6,10 @@ export {
   packCellY, packCellSizes, unpackCellSizeX, unpackCellSizeY, unpackCellSizeZ,
   unpackCellY, unpackCellYSizes, allocateBoatBuffer,
   BoatBufferWriter, BoatBufferReader,
-} from "./boat-buffer.ts";
+} from "./boat-buffer";
 
 // Boat design types and schema
-export type { BoatDesign, BoatDesignId, DesignFingerprint, Vec2, Vec3, Quat } from "./design/types.ts";
-export { BOAT_DESIGN_SCHEMA_VERSION, BoatClass } from "./design/types.ts";
-export { serializeDesign, deserializeDesign, cloneDesign, fingerprintDesign } from "./design/schema.ts";
-export type { DesignMigration } from "./design/schema.ts";
+export type { BoatDesign, BoatDesignId, DesignFingerprint, Vec2, Vec3, Quat } from "./design/types";
+export { BOAT_DESIGN_SCHEMA_VERSION, BoatClass } from "./design/types";
+export { serializeDesign, deserializeDesign, cloneDesign, fingerprintDesign } from "./design/schema";
+export type { DesignMigration } from "./design/schema";

@@ -1,4 +1,4 @@
-import type { Entity } from "../ecs/entity.ts";
+import type { Entity } from "../ecs/entity";
 
 export interface SpatialEntry {
   entity: Entity;

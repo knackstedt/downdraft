@@ -1,4 +1,4 @@
-import type { ReplicatedComponent, ReplicatedField, ReplicationSnapshot } from "./replication.ts";
+import type { ReplicatedComponent, ReplicatedField, ReplicationSnapshot } from "./replication";
 
 export interface DeltaSnapshot {
   tick: number;

@@ -1,6 +1,6 @@
-import { XRCameraRig } from "./camera-rig.ts";
-import { XRLayerManager } from "./layer.ts";
-import type { XRWorldOrigin } from "./types.ts";
+import { XRCameraRig } from "./camera-rig";
+import { XRLayerManager } from "./layer";
+import type { XRWorldOrigin } from "./types";
 
 describe("XRCameraRig", () => {
   const identityOrigin: XRWorldOrigin = {

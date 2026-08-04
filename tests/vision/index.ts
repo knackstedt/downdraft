@@ -1,10 +1,10 @@
-import { createLogger } from "../../packages/core/src/util/logger.ts";
+import { createLogger } from "../../packages/core/src/util/logger";
 
 const log = createLogger();
 
-export { llmVisionBatch, llmVisionVerify, type LLMVisionOptions, type LLMVisionResult } from "./llm-vision.ts";
-export { averageColor, comparePixels, getPixel, scanRegions, type PixelScanOptions, type PixelScanResult, type RegionCheck } from "./pixel-scan.ts";
-export { captureScreenshot, captureScreenshotFromGPUTexture, saveScreenshot, type ScreenshotOptions, type ScreenshotResult } from "./screenshot.ts";
+export { llmVisionBatch, llmVisionVerify, type LLMVisionOptions, type LLMVisionResult } from "./llm-vision";
+export { averageColor, comparePixels, getPixel, scanRegions, type PixelScanOptions, type PixelScanResult, type RegionCheck } from "./pixel-scan";
+export { captureScreenshot, captureScreenshotFromGPUTexture, saveScreenshot, type ScreenshotOptions, type ScreenshotResult } from "./screenshot";
 
 export interface VisionTestOptions {
   referenceImage?: Uint8Array;
@@ -23,9 +23,9 @@ export interface VisionTestOptions {
 export interface VisionTestResult {
   name: string;
   passed: boolean;
-  pixelScan?: import("./pixel-scan.ts").PixelScanResult;
-  llmResult?: import("./llm-vision.ts").LLMVisionResult;
-  screenshot: import("./screenshot.ts").ScreenshotResult;
+  pixelScan?: import("./pixel-scan").PixelScanResult;
+  llmResult?: import("./llm-vision").LLMVisionResult;
+  screenshot: import("./screenshot").ScreenshotResult;
   durationMs: number;
 }
 
@@ -36,17 +36,17 @@ export async function visionTest(
 ): Promise<VisionTestResult> {
   const startTime = performance.now();
 
-  const { captureScreenshot } = await import("./screenshot.ts");
-  const { comparePixels, scanRegions } = await import("./pixel-scan.ts");
-  const { llmVisionVerify } = await import("./llm-vision.ts");
+  const { captureScreenshot } = await import("./screenshot");
+  const { comparePixels, scanRegions } = await import("./pixel-scan");
+  const { llmVisionVerify } = await import("./llm-vision");
 
   const screenshot = await captureScreenshot(canvas, {
     width: options.width,
     height: options.height,
   });
 
-  let pixelScanResult: import("./pixel-scan.ts").PixelScanResult | undefined;
-  let llmResult: import("./llm-vision.ts").LLMVisionResult | undefined;
+  let pixelScanResult: import("./pixel-scan").PixelScanResult | undefined;
+  let llmResult: import("./llm-vision").LLMVisionResult | undefined;
 
   if (options.referenceImage) {
     pixelScanResult = comparePixels(

@@ -1,1 +1,1 @@
-export { ModelRenderer } from "./model-renderer.ts";
+export { ModelRenderer } from "./model-renderer";

@@ -1,4 +1,4 @@
-import type { PromptRegistration } from "../types.ts";
+import type { PromptRegistration } from "../types";
 
 export function createCreateScenePrompt(): PromptRegistration[] {
   return [

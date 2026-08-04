@@ -1,4 +1,4 @@
-import type { AnimationChannel, AnimationData, MaterialData, MeshData, ModelData, ModelNode } from "./types.ts";
+import type { AnimationChannel, AnimationData, MaterialData, MeshData, ModelData, ModelNode } from "./types";
 
 // Minimal DOM-based Collada parser
 // Supports: mesh (positions, normals, UVs), materials, textures, animations, node hierarchy

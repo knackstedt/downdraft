@@ -1,9 +1,8 @@
-import type { Material } from "../material/material.ts";
-import { BlendMode, CullMode } from "../material/material.ts";
-import type { PBRMaterialResources } from "../render/passes/opaque.ts";
-import { createGPUTextureFromData, createSampler, loadTexture } from "./loader-texture.ts";
-import type { TextureData } from "./loader-texture.ts";
-import type { PluginMaterialData } from "./model-to-mesh.ts";
+import { BlendMode, CullMode, Material } from "../material/material";
+import type { PBRMaterialResources } from "../render/passes/opaque";
+import type { TextureData } from "./loader-texture";
+import { createGPUTextureFromData, createSampler, loadTexture } from "./loader-texture";
+import type { PluginMaterialData } from "./model-to-mesh";
 
 export interface BridgedMaterial {
   material: Material;

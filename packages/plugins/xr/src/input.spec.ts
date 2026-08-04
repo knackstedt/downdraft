@@ -1,5 +1,5 @@
 import { InputState } from "@downdraft/core";
-import { XRInputMapper } from "./input.ts";
+import { XRInputMapper } from "./input";
 
 describe("XRInputMapper", () => {
   it("should start with zero controllers", () => {

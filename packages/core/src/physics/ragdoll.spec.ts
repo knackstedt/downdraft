@@ -1,13 +1,13 @@
-import { PhysicsRealm } from "./realm.ts";
-import { createRagdoll, destroyRagdoll, Ragdoll } from "./ragdoll.ts";
-import type { RagdollConfig, RagdollData } from "./ragdoll.ts";
-import { humanoidRagdoll } from "./ragdoll-presets.ts";
-import { RagdollSystem } from "./ragdoll-system.ts";
-import { Skeleton } from "../animation/skeleton.ts";
-import type { SkeletonData, Bone } from "../animation/skeleton.ts";
-import type { PhysicsBackend, PhysicsRealmConfig, RigidBodyHandle, BodyDesc, ColliderDesc, RaycastResult, ShapeCastResult, ContactManifold, Entity, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, JointDesc } from "./interface.ts";
-import { World } from "../ecs/world.ts";
-import { query } from "../ecs/query.ts";
+import { PhysicsRealm } from "./realm";
+import { createRagdoll, destroyRagdoll, Ragdoll } from "./ragdoll";
+import type { RagdollConfig, RagdollData } from "./ragdoll";
+import { humanoidRagdoll } from "./ragdoll-presets";
+import { RagdollSystem } from "./ragdoll-system";
+import { Skeleton } from "../animation/skeleton";
+import type { SkeletonData, Bone } from "../animation/skeleton";
+import type { PhysicsBackend, PhysicsRealmConfig, RigidBodyHandle, BodyDesc, ColliderDesc, RaycastResult, ShapeCastResult, ContactManifold, Entity, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, JointDesc } from "./interface";
+import { World } from "../ecs/world";
+import { query } from "../ecs/query";
 
 function makeMockBackend(): PhysicsBackend {
   const realms = new Map<number, PhysicsRealmConfig>();

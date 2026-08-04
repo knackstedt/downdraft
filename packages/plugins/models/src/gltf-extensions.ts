@@ -1,4 +1,4 @@
-import type { MaterialData, MorphTargetData } from "./types.ts";
+import type { AnimationEvent, MaterialData, MorphTargetData } from "./types";
 
 export interface GLTFExtension {
   [key: string]: unknown;
@@ -153,10 +153,10 @@ export function parseAnimationEvents(
 ): AnimationEvent[] {
   if (!extras?.events || !Array.isArray(extras.events)) return [];
 
-  return extras.events.map((e) => ({
+  return extras.events.map((e): AnimationEvent => ({
     time: e.time,
     type: e.type,
-    payload: e.payload,
+    ...(e.payload !== undefined ? { payload: e.payload } : {}),
   }));
 }
 

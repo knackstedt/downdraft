@@ -1,4 +1,4 @@
-import { AssetManager } from "./manager.ts";
+import { AssetManager } from "./manager";
 
 describe("AssetManager", () => {
   it("should load assets via registered loader", async () => {

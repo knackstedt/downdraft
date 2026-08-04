@@ -1,6 +1,6 @@
-import type { Archetype } from "./archetype.ts";
-import { archetypeMatches, getComponentColumn } from "./archetype.ts";
-import type { ComponentId } from "./component.ts";
+import type { Archetype } from "./archetype";
+import { archetypeMatches, getComponentColumn } from "./archetype";
+import type { ComponentId } from "./component";
 
 export interface QueryDescriptor {
   required: ComponentId[];
@@ -41,7 +41,7 @@ export class Query {
 
   iterate<T extends unknown[]>(
     currentTick: number,
-    fn: (entity: import("./entity.ts").Entity, components: T, row: number) => void,
+    fn: (entity: import("./entity").Entity, components: T, row: number) => void,
   ): void {
     const required = this.descriptor.required;
     const changedFilter = this.descriptor.changedFilter;

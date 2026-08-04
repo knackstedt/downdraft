@@ -1,5 +1,5 @@
-import { loadHDRFile } from "./loader-hdr.ts";
-import type { TextureData } from "./loader-texture.ts";
+import { loadHDRFile } from "./loader-hdr";
+import type { TextureData } from "./loader-texture";
 
 export interface CubemapFaceData {
   width: number;
@@ -23,6 +23,7 @@ export async function loadCubemapFromFiles(
 
   for (let i = 0; i < 6; i++) {
     const texData = await loadHDRFile(faceUris[i]);
+    if (!texData) continue;
     if (texData.data instanceof Float32Array) {
       faces.push({
         width: texData.width,
@@ -86,15 +87,15 @@ export function createGPUCubemap(
         halfData[i] = floatToHalf(faceData.data[i]);
       }
       device.queue.writeTexture(
-        { texture, arrayLayer: face },
-        halfData,
+        { texture, origin: [0, 0, face] },
+        halfData as unknown as GPUAllowSharedBufferSource,
         { bytesPerRow: width * 8 },
         { width, height },
       );
     } else if (format === "rgba32float") {
       device.queue.writeTexture(
-        { texture, arrayLayer: face },
-        faceData.data,
+        { texture, origin: [0, 0, face] },
+        faceData.data as unknown as GPUAllowSharedBufferSource,
         { bytesPerRow: width * 16 },
         { width, height },
       );
@@ -105,8 +106,8 @@ export function createGPUCubemap(
         uint8Data[i] = Math.min(255, Math.max(0, Math.round(faceData.data[i] * 255)));
       }
       device.queue.writeTexture(
-        { texture, arrayLayer: face },
-        uint8Data,
+        { texture, origin: [0, 0, face] },
+        uint8Data as unknown as GPUAllowSharedBufferSource,
         { bytesPerRow: width * 4 },
         { width, height },
       );
@@ -143,7 +144,7 @@ export function createEquirectangularGPUTexture(
     } else {
       device.queue.writeTexture(
         { texture },
-        data,
+        data as unknown as GPUAllowSharedBufferSource,
         { bytesPerRow: width * 16 },
         { width, height },
       );
@@ -151,7 +152,7 @@ export function createEquirectangularGPUTexture(
   } else {
     device.queue.writeTexture(
       { texture },
-      data,
+      data as unknown as GPUAllowSharedBufferSource,
       { bytesPerRow: width * 4 },
       { width, height },
     );

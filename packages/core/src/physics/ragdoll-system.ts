@@ -1,12 +1,12 @@
-import type { SkeletonAnimator } from "../animation/skeleton-animator.ts";
-import type { Skeleton } from "../animation/skeleton.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { Query } from "../ecs/query.ts";
-import { Stage, system } from "../ecs/system.ts";
-import type { World } from "../ecs/world.ts";
-import type { RagdollData } from "./ragdoll.ts";
-import { Ragdoll } from "./ragdoll.ts";
-import type { PhysicsRealm } from "./realm.ts";
+import type { SkeletonAnimator } from "../animation/skeleton-animator";
+import type { Skeleton } from "../animation/skeleton";
+import type { Entity } from "../ecs/entity";
+import type { Query } from "../ecs/query";
+import { Stage, system } from "../ecs/system";
+import type { World } from "../ecs/world";
+import type { RagdollData } from "./ragdoll";
+import { Ragdoll } from "./ragdoll";
+import type { PhysicsRealm } from "./realm";
 
 export class RagdollSystem {
   private realm: PhysicsRealm;

@@ -3,7 +3,8 @@
 // Ported from to-the-ocean's wake/shore source system
 // ============================================================================
 
-import type { ShoreSource } from "./shore-damping.ts";
+import type { ShoreSource } from "./shore-damping";
+export type { ShoreSource };
 
 export interface WakeSource {
   x: number;

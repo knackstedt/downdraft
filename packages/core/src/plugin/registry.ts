@@ -1,4 +1,4 @@
-import type { Plugin } from "./plugin.ts";
+import type { Plugin } from "./plugin";
 
 export class PluginRegistry {
   private plugins: Map<string, Plugin> = new Map();

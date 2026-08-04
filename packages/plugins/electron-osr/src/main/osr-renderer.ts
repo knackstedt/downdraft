@@ -11,7 +11,7 @@ import type {
   OSRRendererMode,
   OSRRendererStatus,
   OSRSharedTexturePixelFormat,
-} from "../types.ts";
+} from "../types";
 const { sharedTexture } = require("electron") as any;
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;

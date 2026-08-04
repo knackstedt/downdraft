@@ -1,4 +1,4 @@
-import { Frustum, computeAABB, transformAABB, cullItems, type AABB } from "./frustum.ts";
+import { Frustum, computeAABB, transformAABB, cullItems, type AABB } from "./frustum";
 import { mat4, vec3 } from "wgpu-matrix";
 
 describe("Frustum", () => {

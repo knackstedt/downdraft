@@ -5,7 +5,7 @@
 
 import type { TransformGizmo } from "@downdraft/plugin-devtools";
 import { useSceneStore } from "@downdraft/plugin-devtools";
-import { ENT, SimBufferReader } from "@shared/sim-buffer";
+import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
 import { CameraMode, EntityType, EntityTypeNames } from "@shared/types";
 import type { CameraSystem } from "./camera-system";
 
@@ -91,9 +91,9 @@ export class RendererSceneSync {
       y: playerSlot.f32[ENT.POS_Y],
       z: playerSlot.f32[ENT.POS_Z],
     };
-    const heading = playerSlot.f32[ENT.HEADING];
-    const pitch = playerSlot.f32[ENT.PITCH] ?? 0;
-    const cameraMode = playerSlot.u32[ENT.CAMERA_MODE] as CameraMode;
+    const heading = playerSlot.f32[PLR.HEADING];
+    const pitch = playerSlot.f32[PLR.PITCH] ?? 0;
+    const cameraMode = playerSlot.u32[PLR.CAMERA_MODE] as CameraMode;
     const aspect = canvasW / canvasH;
     const camera = this.cameraSystem.calculateCamera(
       playerPos, heading, pitch, cameraMode, 0, 0, aspect,
@@ -132,9 +132,9 @@ export class RendererSceneSync {
       y: playerSlot.f32[ENT.POS_Y],
       z: playerSlot.f32[ENT.POS_Z],
     };
-    const heading = playerSlot.f32[ENT.HEADING];
-    const pitch = playerSlot.f32[ENT.PITCH] ?? 0;
-    const cameraMode = playerSlot.u32[ENT.CAMERA_MODE] as CameraMode;
+    const heading = playerSlot.f32[PLR.HEADING];
+    const pitch = playerSlot.f32[PLR.PITCH] ?? 0;
+    const cameraMode = playerSlot.u32[PLR.CAMERA_MODE] as CameraMode;
     const aspect = canvasW / canvasH;
     const camera = this.cameraSystem!.calculateCamera(
       playerPos, heading, pitch, cameraMode, 0, 0, aspect,

@@ -1,5 +1,5 @@
-import { component } from "./component.ts";
-import { World } from "./world.ts";
+import { component } from "./component";
+import { World } from "./world";
 
 const Position = component("Position", { x: 0, y: 0, z: 0 });
 const Health = component("Health", { hp: 100 });

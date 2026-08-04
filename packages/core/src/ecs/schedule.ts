@@ -1,7 +1,8 @@
-import { createLogger } from "../util/logger.ts";
-import type { Archetype } from "./archetype.ts";
-import type { Query } from "./query.ts";
-import { Stage, type System, type SystemContext } from "./system.ts";
+import { createLogger } from "../util/logger";
+import type { Archetype } from "./archetype";
+import type { JobScheduler } from "./job-system";
+import type { Query } from "./query";
+import { Stage, type System, type SystemContext } from "./system";
 export type { SystemContext };
 
 const log = createLogger();
@@ -88,7 +89,7 @@ export class Schedule {
     }
   }
 
-  run(world: import("./world.ts").World, dt: number, tick: number): void {
+  run(world: import("./world").World, dt: number, tick: number): void {
     const ctx: SystemContext = { world, dt, tick };
     for (let s = 0; s <= 4; s++) {
       this.runStage(s as Stage, ctx);

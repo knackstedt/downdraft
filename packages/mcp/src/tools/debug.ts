@@ -1,7 +1,7 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { errorResult, jsonResult } from "../types.ts";
-import type { UndoRedoManager } from "../undo-redo.ts";
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult } from "../types";
+import type { UndoRedoManager } from "../undo-redo";
 
 async function queryNvidiaSmi(): Promise<Record<string, unknown> | null> {
   try {
@@ -56,8 +56,8 @@ async function queryElectronGPUInfo(): Promise<Record<string, unknown> | null> {
   try {
     const electron = await import("electron");
     if (electron && electron.app && electron.app.getGPUInfo) {
-      const info = electron.app.getGPUInfo("full");
-      if (info && typeof info === "object") {
+      const info = await electron.app.getGPUInfo("complete") as Record<string, unknown>;
+      if (info) {
         return {
           gpuDevice: info.gpuDevice,
           gpuDriver: info.gpuDriver,

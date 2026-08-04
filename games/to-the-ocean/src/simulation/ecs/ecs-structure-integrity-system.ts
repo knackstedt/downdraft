@@ -10,7 +10,7 @@ import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityFlags, EntityType } from "@shared/types";
 import { SHIP_LEAK_THRESHOLD } from "../../shared/constants";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
-import { SimEntityMeta, SimHealth } from "./components.ts";
+import { SimEntityMeta, SimHealth } from "./components";
 
 export function createEcsStructureIntegritySystem(
   shipsQuery: Query,

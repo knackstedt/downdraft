@@ -1,8 +1,8 @@
-import { AuthorityManager } from "./authority.ts";
-import { DeltaDecoder, DeltaEncoder, InterestManager, InterpolationManager } from "./enhanced-replication.ts";
-import type { ReplicatedComponent } from "./replication.ts";
-import { ReplicationManager } from "./replication.ts";
-import { MockTransport } from "./transport.ts";
+import { AuthorityManager } from "./authority";
+import { DeltaDecoder, DeltaEncoder, InterestManager, InterpolationManager } from "./enhanced-replication";
+import type { ReplicatedComponent } from "./replication";
+import { ReplicationManager } from "./replication";
+import { MockTransport } from "./transport";
 
 describe("ReplicationManager basic", () => {
   it("should register and track entities", () => {

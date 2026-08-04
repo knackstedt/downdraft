@@ -1,7 +1,7 @@
-import { addEntityToArchetype, createArchetype } from "./archetype.ts";
-import { component } from "./component.ts";
-import type { Entity } from "./entity.ts";
-import { Query, query, queryChanged, queryExcluded } from "./query.ts";
+import { addEntityToArchetype, createArchetype } from "./archetype";
+import { component } from "./component";
+import type { Entity } from "./entity";
+import { Query, query, queryChanged, queryExcluded } from "./query";
 
 const Position = component("Position", { x: 0, y: 0, lastChanged: 0 });
 const Velocity = component("Velocity", { vx: 0, vy: 0, lastChanged: 0 });

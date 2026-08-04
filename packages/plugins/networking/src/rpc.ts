@@ -1,4 +1,4 @@
-import type { NetMessage, NetTransport } from "./transport.ts";
+import type { NetMessage, NetTransport } from "./transport";
 
 export type RPCHandler = (args: Uint8Array) => Uint8Array | null;
 

@@ -1,4 +1,4 @@
-import { MigrationRegistryImpl } from "./migration-registry.ts";
+import { MigrationRegistryImpl } from "./migration-registry";
 
 describe("MigrationRegistryImpl", () => {
   it("returns data unchanged for unknown component at v1", () => {

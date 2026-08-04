@@ -1,4 +1,4 @@
-import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } from "./material.ts";
+import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } from "./material";
 
 export class MaterialLibrary {
   private materials: Map<string, Material> = new Map();

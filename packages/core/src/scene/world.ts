@@ -1,12 +1,12 @@
-import type { Entity } from "../ecs/entity.ts";
-import { Hierarchy } from "../ecs/hierarchy.ts";
-import type { World } from "../ecs/world.ts";
-import { PluginHost } from "../plugin/host.ts";
-import type { Plugin } from "../plugin/plugin.ts";
-import type { Camera } from "./camera.ts";
-import { PrefabFactory, PrefabRegistry } from "./prefab.ts";
-import { SceneManager } from "./scene-manager.ts";
-import type { Scene } from "./scene.ts";
+import type { Entity } from "../ecs/entity";
+import { Hierarchy } from "../ecs/hierarchy";
+import type { World } from "../ecs/world";
+import { PluginHost } from "../plugin/host";
+import type { Plugin } from "../plugin/plugin";
+import type { Camera } from "./camera";
+import { PrefabFactory, PrefabRegistry } from "./prefab";
+import { SceneManager } from "./scene-manager";
+import type { Scene } from "./scene";
 
 export interface WorldResources {
   camera?: Camera;

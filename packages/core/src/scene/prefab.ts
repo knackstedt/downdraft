@@ -1,9 +1,9 @@
-import type { ComponentDefinition, ComponentId } from "../ecs/component.ts";
-import type { Entity } from "../ecs/entity.ts";
-import { ROOT_ENTITY } from "../ecs/entity.ts";
-import { Hierarchy } from "../ecs/hierarchy.ts";
-import type { World } from "../ecs/world.ts";
-import { createLogger } from "../util/logger.ts";
+import type { ComponentDefinition, ComponentId } from "../ecs/component";
+import type { Entity } from "../ecs/entity";
+import { ROOT_ENTITY } from "../ecs/entity";
+import { Hierarchy } from "../ecs/hierarchy";
+import type { World } from "../ecs/world";
+import { createLogger } from "../util/logger";
 
 const log = createLogger();
 

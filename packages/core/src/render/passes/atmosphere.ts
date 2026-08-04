@@ -1,13 +1,11 @@
-import type { Vec3 } from "wgpu-matrix";
-
 export interface AtmosphereConfig {
   planetRadius: number;
   atmosphereRadius: number;
   sunIntensity: number;
-  rayleighCoefficients: Vec3;
+  rayleighCoefficients: number[];
   mieCoefficient: number;
   mieDirectionG: number;
-  sunDirection: Vec3;
+  sunDirection: number[];
   samples: number;
 }
 
@@ -23,10 +21,10 @@ export const DEFAULT_ATMOSPHERE_CONFIG: AtmosphereConfig = {
 };
 
 export function computeRayleighScattering(
-  wavelength: Vec3,
-  coefficients: Vec3,
+  wavelength: number[],
+  coefficients: number[],
   density: number,
-): Vec3 {
+): number[] {
   return [
     coefficients[0] * density,
     coefficients[1] * density,
@@ -59,8 +57,8 @@ export function computeOpticalDepthRayleigh(
   planetRadius: number,
   atmosphereRadius: number,
   samples: number,
-): Vec3 {
-  const depth: Vec3 = [0, 0, 0];
+): number[] {
+  const depth: number[] = [0, 0, 0];
   const stepAltitude = (endAltitude - startAltitude) / samples;
   for (let i = 0; i < samples; i++) {
     const alt = startAltitude + stepAltitude * (i + 0.5);
@@ -73,10 +71,10 @@ export function computeOpticalDepthRayleigh(
 }
 
 export function computeSkyColor(
-  viewDir: Vec3,
-  sunDir: Vec3,
+  viewDir: number[],
+  sunDir: number[],
   config: AtmosphereConfig,
-): Vec3 {
+): number[] {
   const cosTheta = viewDir[0] * sunDir[0] + viewDir[1] * sunDir[1] + viewDir[2] * sunDir[2];
   const rayleigh = computeRayleighScattering(
     config.rayleighCoefficients,

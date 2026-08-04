@@ -1,5 +1,5 @@
 // Devil Shrimp AI — ambush predator, biome/depth gated, attacks mothership
-import type { WildlifeConfig, WildlifeEntity, WildlifePlayer, WildlifeShip } from "../types.ts";
+import type { WildlifeConfig, WildlifeEntity, WildlifePlayer, WildlifeShip } from "../types";
 
 enum DevilShrimpState { Ambush, Hunt, AttackShip, AttackPlayer, Retreat }
 

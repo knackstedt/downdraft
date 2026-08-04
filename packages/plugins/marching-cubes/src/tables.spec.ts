@@ -1,4 +1,4 @@
-import { MC_EDGE_TABLE, MC_TRI_TABLE, EDGE_VERTS, EDGE_DIR, MC_TABLE_SIZE } from "./tables.ts";
+import { MC_EDGE_TABLE, MC_TRI_TABLE, EDGE_VERTS, EDGE_DIR, MC_TABLE_SIZE } from "./tables";
 
 describe("Marching Cubes Tables", () => {
   it("should have correct table sizes", () => {

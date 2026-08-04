@@ -1,5 +1,5 @@
-import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -79,7 +79,7 @@ export class LUT3DPass extends RenderPass {
     this.lutView = this.lutTexture.createView({ dimension: "3d" });
     this.device.queue.writeTexture(
       { texture: this.lutTexture },
-      lutData,
+      lutData as unknown as GPUAllowSharedBufferSource,
       { bytesPerRow: size * 4, rowsPerImage: size },
       { width: size, height: size, depthOrArrayLayers: size },
     );

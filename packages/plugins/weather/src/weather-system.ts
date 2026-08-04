@@ -3,9 +3,9 @@
 // Reusable plugin: depends on BiomeProvider interface, not game-specific types
 // ============================================================================
 
-import { WeatherType } from "./types.ts";
-import type { WeatherState, WeatherConfig, BiomeProvider } from "./types.ts";
-import { DEFAULT_WEATHER_CONFIG } from "./types.ts";
+import { WeatherType } from "./types";
+import type { WeatherState, WeatherConfig, BiomeProvider } from "./types";
+import { DEFAULT_WEATHER_CONFIG } from "./types";
 
 export class WeatherSystem {
   private state: WeatherState;

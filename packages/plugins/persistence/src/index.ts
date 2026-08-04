@@ -2,8 +2,8 @@
 // @downdraft/plugin-persistence — versioned, compressed save system
 // ============================================================================
 
-export { FileSaveStore } from "./file-save-store.ts";
-export type { FileSaveStoreOptions } from "./file-save-store.ts";
+export { FileSaveStore } from "./file-save-store";
+export type { FileSaveStoreOptions } from "./file-save-store";
 
 // Re-export core types for convenience
 export {
@@ -18,7 +18,7 @@ export {
   SAVE_FORMAT_VERSION,
   HEADER_SIZE,
   XXH128_SIZE,
-} from "@downdraft/core/index.ts";
+} from "@downdraft/core/index";
 
 export type {
   ComponentMigration,
@@ -35,4 +35,4 @@ export type {
   SaveStateBuilder,
   SaveWarning,
   SaveWarningKind,
-} from "@downdraft/core/index.ts";
+} from "@downdraft/core/index";

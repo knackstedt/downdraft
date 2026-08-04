@@ -1,6 +1,6 @@
-import { MaterialCompiler } from "./compiler.ts";
-import { MaterialLibrary } from "./library.ts";
-import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } from "./material.ts";
+import { MaterialCompiler } from "./compiler";
+import { MaterialLibrary } from "./library";
+import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } from "./material";
 
 function makeTestMaterialDef(): MaterialDefinition {
   return {

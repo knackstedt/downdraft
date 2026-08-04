@@ -1,5 +1,5 @@
-import { CoreInputChannel } from "../sab/core-input-channel.ts";
-import { InputState } from "./state.ts";
+import { CoreInputChannel } from "../sab/core-input-channel";
+import { InputState } from "./state";
 
 export class InputSABBridge {
   private reader: ReturnType<typeof CoreInputChannel.reader>;

@@ -1,6 +1,6 @@
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
-import { PassType } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { PassType } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 export interface FluidConfig {
   gridResolution: number;
@@ -114,6 +114,8 @@ export class FluidRenderPass extends RenderPass {
   }
 
   getConfig(): FluidConfig { return this.config; }
+
+  prepare(_device: GPUDevice): void {}
 
   setup(builder: FrameGraphBuilder): void {
     if (this.densityHandle) builder.read(this.densityHandle);

@@ -1,11 +1,11 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { GBufferViews } from "../g-buffer.ts";
-import { createIBLShaderChunk } from "../ibl-bind-group.ts";
-import type { LightUniformData } from "../lighting.ts";
-import { packLightUniform } from "../lighting.ts";
-import { RenderPass } from "../render-pass.ts";
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
-import type { ClusterGrid } from "../lighting/cluster-grid.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import type { GBufferViews } from "../g-buffer";
+import { createIBLShaderChunk } from "../ibl-bind-group";
+import type { LightUniformData } from "../lighting";
+import { packLightUniform } from "../lighting";
+import type { ClusterGrid } from "../lighting/cluster-grid";
+import { RenderPass } from "../render-pass";
 
 const IBL_CHUNK = createIBLShaderChunk(1, true);
 
@@ -425,10 +425,13 @@ export class ClusterLightingPass extends RenderPass {
       albedo: ctx.getView(this.gbufferAlbedoHandle!),
       normal: ctx.getView(this.gbufferNormalHandle!),
       metallicEmissive: ctx.getView(this.gbufferMetallicEmissiveHandle!),
+      roughnessAO: ctx.getView(this.gbufferAlbedoHandle!),
+      velocity: ctx.getView(this.gbufferNormalHandle!),
       depth: ctx.getView(this.gbufferDepthHandle!),
     };
     const shadowView = this.shadowHandle ? ctx.getView(this.shadowHandle) : null;
     const bindGroup = this.createBindGroup(gbufferViews, shadowView, ctx.shadowSampler);
+    if (!bindGroup) return;
 
     this.updateCamera(ctx.viewProj, ctx.prevViewProj, ctx.invViewProj, ctx.cameraPos);
     this.updateLightViewProj(ctx.lightViewProj);

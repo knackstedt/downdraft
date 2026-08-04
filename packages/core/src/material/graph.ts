@@ -1,2 +1,2 @@
-export type { Material, MaterialDefinition } from "./material.ts";
-export { BlendMode, CullMode } from "./material.ts";
+export type { Material, MaterialDefinition } from "./material";
+export { BlendMode, CullMode } from "./material";

@@ -11,10 +11,10 @@ import type {
   OSRRendererStatus,
   OSRSharedTexturePixelFormat,
   WorldSpaceUIElement,
-} from "../types.ts";
-import { OSRInputRouter, type MouseState } from "./input-router.ts";
-import { OSRTextureReceiverManager } from "./texture-receiver-manager.ts";
-import { WorldSpaceUIPass, type CameraState } from "./world-space-ui-pass.ts";
+} from "../types";
+import { OSRInputRouter, type MouseState } from "./input-router";
+import { OSRTextureReceiverManager } from "./texture-receiver-manager";
+import { WorldSpaceUIPass, type CameraState } from "./world-space-ui-pass";
 
 export class OSRManager {
   private device: GPUDevice;

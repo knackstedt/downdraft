@@ -1,10 +1,10 @@
-import { DEFAULT_EDGES_SETTINGS, EdgesPass } from "./edges.ts";
-import { DEFAULT_GLOW_SETTINGS, GlowPass } from "./glow.ts";
-import { DEFAULT_GRAIN_SETTINGS, GrainPass } from "./grain.ts";
-import { DEFAULT_HIGHLIGHT_SETTINGS, HighlightPass } from "./highlight.ts";
-import { DEFAULT_LENS_FLARE_SETTINGS, LensFlarePass } from "./lens-flare.ts";
-import { DEFAULT_OUTLINE_SETTINGS, OutlinePass } from "./outline.ts";
-import { DEFAULT_SHARPEN_SETTINGS, SharpenPass } from "./sharpen.ts";
+import { DEFAULT_EDGES_SETTINGS, EdgesPass } from "./edges";
+import { DEFAULT_GLOW_SETTINGS, GlowPass } from "./glow";
+import { DEFAULT_GRAIN_SETTINGS, GrainPass } from "./grain";
+import { DEFAULT_HIGHLIGHT_SETTINGS, HighlightPass } from "./highlight";
+import { DEFAULT_LENS_FLARE_SETTINGS, LensFlarePass } from "./lens-flare";
+import { DEFAULT_OUTLINE_SETTINGS, OutlinePass } from "./outline";
+import { DEFAULT_SHARPEN_SETTINGS, SharpenPass } from "./sharpen";
 
 const mockUsage = { UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, TEXTURE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10, COPY_SRC: 0x80, STORAGE: 0x80 };
 (globalThis as unknown as { GPUBufferUsage: unknown }).GPUBufferUsage = mockUsage;

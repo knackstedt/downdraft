@@ -1,5 +1,5 @@
 // Shark AI — patrol, investigate, attack states
-import type { WildlifeConfig, WildlifeDeps, WildlifeEntity, WildlifePlayer, WildlifeShip } from "../types.ts";
+import type { WildlifeConfig, WildlifeDeps, WildlifeEntity, WildlifePlayer, WildlifeShip } from "../types";
 
 enum SharkState { Patrol, Investigate, Attack, Flee }
 

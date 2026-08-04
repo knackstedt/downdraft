@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 import { createLogger } from "@downdraft/core";
-import { assets } from "./assets.ts";
-import { build } from "./build.ts";
-import { debug } from "./debug.ts";
-import { dev } from "./dev.ts";
-import { exportGame } from "./export.ts";
-import { newProject } from "./new.ts";
+import { assets } from "./assets";
+import { build } from "./build";
+import { debug } from "./debug";
+import { dev } from "./dev";
+import { exportGame } from "./export";
+import { newProject } from "./new";
 
 const log = createLogger();
 

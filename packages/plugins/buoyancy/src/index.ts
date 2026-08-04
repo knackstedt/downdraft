@@ -1,6 +1,6 @@
-export { createBuoyancySystem } from "./buoyancy-system.ts";
+export { createBuoyancySystem } from "./buoyancy-system";
 export type {
   BuoyancyConfig, BuoyancyDeps, BuoyancyTransform, BuoyancyVelocity,
   BuoyancyEntityMeta, BuoyancyEntityData,
   BoatCell, BoatMassProperties, BuoyancySystemDeps,
-} from "./types.ts";
+} from "./types";

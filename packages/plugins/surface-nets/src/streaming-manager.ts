@@ -8,13 +8,8 @@
 // re-exported as-is.
 export { TerrainStreamingManager } from "@downdraft/plugin-marching-cubes";
 export type {
-  ChunkEmptyChecker,
-  ChunkFieldFactory,
-  ChunkGenerator,
-  Deformation as TerrainDeformation,
-  DirtyTerrain,
-  EntityPosition as TerrainEntityPosition,
-  LODChange as TerrainLODChange,
-  PhysicsFieldFactory,
-  TerrainEntry,
+    ChunkEmptyChecker,
+    ChunkFieldFactory,
+    ChunkGenerator, DirtyTerrain, PhysicsFieldFactory, TerrainDeformation, TerrainEntityPosition, TerrainEntry, TerrainLODChange
 } from "@downdraft/plugin-marching-cubes";
+

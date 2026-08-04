@@ -1,4 +1,4 @@
-import type { NetMessage, NetTransport, TransportType } from "./transport.ts";
+import type { NetMessage, NetTransport, TransportType } from "./transport";
 
 export type SignalingMessageType = "offer" | "answer" | "ice-candidate" | "join" | "leave";
 

@@ -1,8 +1,8 @@
 import type { Plugin, PluginContext } from "@downdraft/core";
-import { BuoyancySystem } from "./buoyancy.ts";
-import { WaterBuffer } from "./water-buffer.ts";
-import { WaterPhysics } from "./water-physics.ts";
-import { DEFAULT_RENDER_CONFIG, WaterRenderer, type WaterRenderConfig } from "./water-renderer.ts";
+import { BuoyancySystem } from "./buoyancy";
+import { WaterBuffer } from "./water-buffer";
+import { WaterPhysics } from "./water-physics";
+import { DEFAULT_RENDER_CONFIG, WaterRenderer, type WaterRenderConfig } from "./water-renderer";
 import {
     MAX_SHORES,
     MAX_WAKES,
@@ -14,23 +14,23 @@ import {
     type ShoreProvider,
     type ShoreSource,
     type WakeProvider
-} from "./wave-sources.ts";
+} from "./wave-sources";
 
 // Re-export low-poly water physics system
-export { BuoyancySystem } from "./buoyancy.ts";
-export type { BuoyancyEntity } from "./buoyancy.ts";
-export { shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping.ts";
-export { WATER_BUFFER_BYTES, WATER_FLOW_OFFSET, WATER_GRID, WATER_HEIGHT_OFFSET, WATER_NORMAL_OFFSET, WaterBuffer } from "./water-buffer.ts";
-export { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_SIZE, CHUNK_WORLD_SIZE, MAX_CHUNKS } from "./water-chunks.ts";
-export type { WaterChunk } from "./water-chunks.ts";
-export { DEFAULT_PHYSICS_CONFIG, WaterPhysics } from "./water-physics.ts";
-export type { GerstnerWaveParams, WaterPhysicsConfig } from "./water-physics.ts";
-export { DEFAULT_RENDER_CONFIG, WaterRenderer } from "./water-renderer.ts";
-export type { WaterRenderConfig, WaterRendererOptions } from "./water-renderer.ts";
+export { BuoyancySystem } from "./buoyancy";
+export type { BuoyancyEntity } from "./buoyancy";
+export { shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping";
+export { WATER_BUFFER_BYTES, WATER_FLOW_OFFSET, WATER_GRID, WATER_HEIGHT_OFFSET, WATER_NORMAL_OFFSET, WaterBuffer } from "./water-buffer";
+export { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_SIZE, CHUNK_WORLD_SIZE, MAX_CHUNKS } from "./water-chunks";
+export type { WaterChunk } from "./water-chunks";
+export { DEFAULT_PHYSICS_CONFIG, WaterPhysics } from "./water-physics";
+export type { GerstnerWaveParams, WaterPhysicsConfig } from "./water-physics";
+export { DEFAULT_RENDER_CONFIG, WaterRenderer } from "./water-renderer";
+export type { WaterRenderConfig, WaterRendererOptions } from "./water-renderer";
 export {
     MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS, collectShoreSources, collectWakeSources, packShoreSources
-} from "./wave-sources.ts";
-export type { ShoreProvider, ShoreSource, WakeProvider, WakeSource } from "./wave-sources.ts";
+} from "./wave-sources";
+export type { ShoreProvider, ShoreSource, WakeProvider, WakeSource } from "./wave-sources";
 
 export interface WaterPluginResources {
   buffer: WaterBuffer;

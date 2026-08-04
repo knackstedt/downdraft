@@ -5,9 +5,9 @@ import {
     findEntityRow,
     getComponentColumn,
     removeEntityFromArchetype,
-} from "./archetype.ts";
-import { component } from "./component.ts";
-import type { Entity } from "./entity.ts";
+} from "./archetype";
+import { component } from "./component";
+import type { Entity } from "./entity";
 
 const Position = component("Position", { x: 0, y: 0 });
 const Velocity = component("Velocity", { vx: 0, vy: 0 });

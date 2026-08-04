@@ -1,4 +1,4 @@
-import type { MeshData, ModelData } from "./types.ts";
+import type { MeshData, ModelData } from "./types";
 
 interface PLYProperty {
   name: string;

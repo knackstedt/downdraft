@@ -1,6 +1,6 @@
 import { strFromU8 } from "fflate";
-import { processMaterialExtensions, type ExtensionProcessingContext } from "./gltf-extensions.ts";
-import type { AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData, ModelNode, SkinData } from "./types.ts";
+import { processMaterialExtensions, type ExtensionProcessingContext } from "./gltf-extensions";
+import type { AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData, ModelNode, SkinData } from "./types";
 
 interface GLTFJson {
   asset?: { version: string };
@@ -350,8 +350,8 @@ export function parseGLTF(data: ArrayBuffer, name: string, isGLB: boolean, binDa
           indexCount,
           uvs: uvArray,
           colors: colorArray,
-          joints: jointsArray,
-          weights: weightsArray,
+          joints: jointsArray ?? undefined,
+          weights: weightsArray ?? undefined,
           materialIndex: primitive.material,
         });
         } catch (meshErr) {

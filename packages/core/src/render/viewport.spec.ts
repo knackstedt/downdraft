@@ -1,4 +1,4 @@
-import { ViewportLayout, viewportRectToPixels } from "./viewport.ts";
+import { ViewportLayout, viewportRectToPixels } from "./viewport";
 
 describe("ViewportLayout", () => {
   it("should return empty for 0 players", () => {

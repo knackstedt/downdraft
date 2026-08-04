@@ -1,5 +1,5 @@
-import { RenderPass } from "../render-pass.ts";
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const DOME_360_SHADER = /* wgsl */ `
 struct DomeUniforms {
@@ -65,6 +65,8 @@ export class Dome360Pass extends RenderPass {
       ...config,
     };
   }
+
+  prepare(_device: GPUDevice): void {}
 
   setup(builder: FrameGraphBuilder): void {
     if (this.config.equirectangularHandle) builder.read(this.config.equirectangularHandle);

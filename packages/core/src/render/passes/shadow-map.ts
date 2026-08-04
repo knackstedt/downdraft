@@ -140,7 +140,7 @@ export class ShadowMapSystem {
     this.shadowUniformData[18] = 0.015;
     this.shadowUniformData[19] = 0.85;
 
-    this.device.queue.writeBuffer(this.shadowUniformBuffer, 0, this.shadowUniformData);
+    this.device.queue.writeBuffer(this.shadowUniformBuffer!, 0, this.shadowUniformData as unknown as GPUAllowSharedBufferSource);
   }
 
   destroy(): void {

@@ -1,7 +1,7 @@
-import { Material } from "../material/material.ts";
-import type { MeshData } from "../mesh/builder.ts";
-import { createLogger } from "../util/logger.ts";
-import { PipelineCache } from "./pipeline.ts";
+import { Material } from "../material/material";
+import type { MeshData } from "../mesh/builder";
+import { createLogger } from "../util/logger";
+import { PipelineCache } from "./pipeline";
 
 const log = createLogger();
 
@@ -180,7 +180,7 @@ export class MaterialHotReloader {
 
   private async reloadMesh(path: string, onReload: HotReloadCallback<MeshData>): Promise<void> {
     try {
-      const { GLBLoader } = await import("../assets/loader-mesh.ts");
+      const { GLBLoader } = await import("../assets/loader-mesh");
       const response = await fetch(path);
       const buffer = await response.arrayBuffer();
       const loader = new GLBLoader();
@@ -195,7 +195,7 @@ export class MaterialHotReloader {
 
   private async reloadTexture(path: string, watched: WatchedTexture): Promise<void> {
     try {
-      const { loadTexture } = await import("../assets/loader-texture.ts");
+      const { loadTexture } = await import("../assets/loader-texture");
       const textureData = await loadTexture(path, {
         format: watched.format,
         generateMips: watched.generateMips,

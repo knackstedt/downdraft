@@ -1,6 +1,6 @@
-import { CheckpointManager } from "./checkpoint.ts";
-import { World } from "../ecs/world.ts";
-import { component } from "../ecs/component.ts";
+import { CheckpointManager } from "./checkpoint";
+import { World } from "../ecs/world";
+import { component } from "../ecs/component";
 
 const Position = component("Position", { x: 0, y: 0, z: 0 });
 const Health = component("Health", { hp: 100 });

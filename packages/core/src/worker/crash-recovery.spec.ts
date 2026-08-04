@@ -1,8 +1,8 @@
-import { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./crash-recovery.ts";
-import type { SimWorkerSupervisor } from "./supervisor.ts";
-import type { CheckpointManager, CheckpointData } from "../scene/checkpoint.ts";
-import type { World } from "../ecs/world.ts";
-import type { Serializer, SaveData } from "../save/serializer.ts";
+import { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./crash-recovery";
+import type { SimWorkerSupervisor } from "./supervisor";
+import type { CheckpointManager, CheckpointData } from "../scene/checkpoint";
+import type { World } from "../ecs/world";
+import type { Serializer, SaveData } from "../save/serializer";
 
 function makeMockSupervisor(): SimWorkerSupervisor {
   return {

@@ -1,9 +1,9 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import type { UndoRedoManager } from "../undo-redo.ts";
-function toVec3(arr: [number, number, number]): Float32Array {
-  return new Float32Array(arr);
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult } from "../types";
+import type { UndoRedoManager } from "../undo-redo";
+function toVec3(arr: [number, number, number]): [number, number, number] {
+  return [arr[0], arr[1], arr[2]];
 }
 
 export function createCameraTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {

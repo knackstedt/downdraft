@@ -1,5 +1,5 @@
-import type { AnimationClipData, KeyframeTrack } from "./clip.ts";
-import type { Bone, SkeletonData } from "./skeleton.ts";
+import type { AnimationClipData, KeyframeTrack } from "./clip";
+import type { Bone, SkeletonData } from "./skeleton";
 
 export interface BoneMapping {
   sourceBoneName: string;

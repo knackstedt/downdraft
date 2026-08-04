@@ -1,8 +1,8 @@
 import { type CameraViewportInfo, type FrameCallbacks, type GameRenderer, type InputState, type RenderTargetProvider, type ViewportRect } from "@downdraft/core";
-import type { XRCameraRig } from "./camera-rig.ts";
-import type { XRInputMapper } from "./input.ts";
-import type { XRLayerManager } from "./layer.ts";
-import type { XRSessionManager } from "./session.ts";
+import type { XRCameraRig } from "./camera-rig";
+import type { XRInputMapper } from "./input";
+import type { XRLayerManager } from "./layer";
+import type { XRSessionManager } from "./session";
 
 const DEFAULT_VIEWPORT: ViewportRect = { x: 0, y: 0, w: 1, h: 1 };
 

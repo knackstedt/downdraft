@@ -1,5 +1,5 @@
-import { RPCManager } from "./rpc.ts";
-import { MockTransport } from "./transport.ts";
+import { RPCManager } from "./rpc";
+import { MockTransport } from "./transport";
 
 describe("RPCManager", () => {
   async function makeLinkedPair(): Promise<{ server: MockTransport; client: MockTransport }> {

@@ -1,5 +1,5 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { MCPResourceResult, ResourceRegistration } from "../types.ts";
+import type { EngineContext } from "../engine-context";
+import type { MCPResourceResult, ResourceRegistration } from "../types";
 
 function resourceJSON(uri: string, data: unknown): MCPResourceResult {
   return {
@@ -64,8 +64,8 @@ async function queryElectronGPUInfo(): Promise<Record<string, unknown> | null> {
   try {
     const electron = await import("electron");
     if (electron && electron.app && electron.app.getGPUInfo) {
-      const info = electron.app.getGPUInfo("full");
-      if (info && typeof info === "object") {
+      const info = await electron.app.getGPUInfo("complete") as Record<string, unknown>;
+      if (info) {
         return {
           gpuDevice: info.gpuDevice,
           gpuDriver: info.gpuDriver,

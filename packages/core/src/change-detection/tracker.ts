@@ -1,8 +1,8 @@
-import type { ComponentId } from "../ecs/component.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { World } from "../ecs/world.ts";
-import type { Archetype } from "../ecs/archetype.ts";
-import { findEntityRow } from "../ecs/archetype.ts";
+import type { ComponentId } from "../ecs/component";
+import type { Entity } from "../ecs/entity";
+import type { World } from "../ecs/world";
+import type { Archetype } from "../ecs/archetype";
+import { findEntityRow } from "../ecs/archetype";
 
 export class ChangeTracker {
   private world: World;

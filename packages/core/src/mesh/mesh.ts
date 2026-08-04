@@ -1,4 +1,4 @@
-import { type MeshData } from "./builder.ts";
+import { type MeshData } from "./builder";
 
 export interface Mesh {
   data: MeshData;
@@ -9,9 +9,9 @@ export function createMesh(name: string, data: MeshData): Mesh {
   return { name, data };
 }
 
-export { MeshBuilder, type MeshData } from "./builder.ts";
+export { MeshBuilder, type MeshData } from "./builder";
 export {
     createGreasedLine, createGreasedLineMeshData, type GreasedLineData, type GreasedLineOptions, type GreasedLinePoint
-} from "./greased-line.ts";
-export { cone, cylinder, disc, lathe, ribbon, tessellatedPlane, torus, tube, type TubePathPoint } from "./parametric.ts";
+} from "./greased-line";
+export { cone, cylinder, disc, lathe, ribbon, tessellatedPlane, torus, tube, type TubePathPoint } from "./parametric";
 

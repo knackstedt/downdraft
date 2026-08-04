@@ -1,6 +1,6 @@
-import { Component } from "../ecs/component.ts";
-import type { SkeletonData } from "../animation/skeleton.ts";
-import type { AnimationClipData } from "../animation/clip.ts";
+import { Component } from "../ecs/component";
+import type { SkeletonData } from "../animation/skeleton";
+import type { AnimationClipData } from "../animation/clip";
 
 export interface SkinnedMeshData {
   skeleton: SkeletonData;

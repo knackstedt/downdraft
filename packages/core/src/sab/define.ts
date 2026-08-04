@@ -1,7 +1,7 @@
-import { GridReader, GridWriter } from "./grid-buffer.ts";
-import { computeLayout } from "./layout.ts";
-import { RecordReader, RecordWriter } from "./record-buffer.ts";
-import { SlotReader, SlotWriter } from "./slot-buffer.ts";
+import { GridReader, GridWriter } from "./grid-buffer";
+import { computeLayout } from "./layout";
+import { RecordReader, RecordWriter } from "./record-buffer";
+import { SlotReader, SlotWriter } from "./slot-buffer";
 import type {
     ChannelDef,
     ChannelInstance,
@@ -10,7 +10,7 @@ import type {
     ChannelWriter,
     FieldMap,
     SlotSectionDef,
-} from "./types.ts";
+} from "./types";
 
 // --- Type-level inference helpers ---
 
@@ -54,12 +54,12 @@ export type ChannelOffsets<Def extends ChannelDef> = {
   (Def["mode"] extends "grid" ? { grid: GridLayerOffsets<Def> } : {});
 
 type TypedReader<Def extends ChannelDef> = Omit<ChannelReader, "sections" | "layers" | "fields"> &
-  (Def["mode"] extends "slots" ? { sections: Record<string, import("./types.ts").SlotAccessor> } : {}) &
+  (Def["mode"] extends "slots" ? { sections: Record<string, import("./types").SlotAccessor> } : {}) &
   (Def["mode"] extends "grid" ? { layers: Record<string, Float32Array | Int32Array> } : {}) &
   (Def["mode"] extends "record" ? { fields: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array> } : {});
 
 type TypedWriter<Def extends ChannelDef> = Omit<ChannelWriter, "sections" | "layers" | "fields"> &
-  (Def["mode"] extends "slots" ? { sections: Record<string, import("./types.ts").SlotAccessor> } : {}) &
+  (Def["mode"] extends "slots" ? { sections: Record<string, import("./types").SlotAccessor> } : {}) &
   (Def["mode"] extends "grid" ? { layers: Record<string, Float32Array | Int32Array> } : {}) &
   (Def["mode"] extends "record" ? { fields: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array> } : {});
 
@@ -176,7 +176,7 @@ export function defineChannel<const Def extends ChannelDef>(def: Def): ChannelIn
 
 export function defineManifest<const M extends Record<string, ChannelInstance>>(
   channels: M,
-): import("./types.ts").ManifestInstance {
+): import("./types").ManifestInstance {
   return {
     channels: channels as Record<string, ChannelInstance>,
     allocate(): Record<string, SharedArrayBuffer> {

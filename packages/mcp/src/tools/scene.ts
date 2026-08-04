@@ -1,7 +1,7 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { errorResult, jsonResult, textResult } from "../types.ts";
-import type { UndoRedoManager } from "../undo-redo.ts";
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult, textResult } from "../types";
+import type { UndoRedoManager } from "../undo-redo";
 
 export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
   const tools: ToolRegistration[] = [

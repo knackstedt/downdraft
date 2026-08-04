@@ -1,8 +1,8 @@
 import type { ImportOptions } from "@downdraft/core";
 import { AssetImporter } from "@downdraft/core";
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { errorResult, jsonResult } from "../types.ts";
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult } from "../types";
 
 export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [

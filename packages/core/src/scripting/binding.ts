@@ -1,13 +1,13 @@
-import type { World } from "../ecs/world.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { ComponentId } from "../ecs/component.ts";
-import { getComponentId } from "../ecs/component.ts";
-import type { Stage, SystemFn } from "../ecs/system.ts";
-import type { Query } from "../ecs/query.ts";
-import { query, queryExcluded, queryChanged } from "../ecs/query.ts";
-import type { ScriptContext, ScriptHandle, ScriptModule } from "./script.ts";
+import type { World } from "../ecs/world";
+import type { Entity } from "../ecs/entity";
+import type { ComponentId } from "../ecs/component";
+import { getComponentId } from "../ecs/component";
+import type { Stage, SystemFn } from "../ecs/system";
+import type { Query } from "../ecs/query";
+import { query, queryExcluded, queryChanged } from "../ecs/query";
+import type { ScriptContext, ScriptHandle, ScriptModule } from "./script";
 
-export type { ScriptContext, ScriptHandle, ScriptModule } from "./script.ts";
+export type { ScriptContext, ScriptHandle, ScriptModule } from "./script";
 
 export interface ScriptBinding {
   registerSystem(stage: Stage, fn: SystemFn): void;

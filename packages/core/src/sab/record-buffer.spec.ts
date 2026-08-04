@@ -1,4 +1,4 @@
-import { defineChannel } from "./define.ts";
+import { defineChannel } from "./define";
 
 const TestChannel = defineChannel({
   name: "test-record",

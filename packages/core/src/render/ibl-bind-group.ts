@@ -1,4 +1,4 @@
-import type { EnvironmentMap } from "../assets/environment-manager.ts";
+import type { EnvironmentMap } from "../assets/environment-manager";
 
 export interface IBLBindGroupOptions {
   includeBRDFLUT?: boolean;
@@ -106,7 +106,7 @@ export class IBLBindGroup {
     }
 
     this.bindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
+      layout: this.bindGroupLayout!,
       entries,
     });
 

@@ -1,7 +1,7 @@
-import { Builder, getBuilderConfig } from "./builder.ts";
-import type { BuilderConfig } from "./builder.ts";
+import { Builder, getBuilderConfig } from "./builder";
+import type { BuilderConfig } from "./builder";
 
-export { Builder } from "./builder.ts";
+export { Builder } from "./builder";
 
 export function createDebugBuilder(): Builder {
   return new Builder("debug");

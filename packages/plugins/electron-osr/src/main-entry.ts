@@ -18,11 +18,11 @@ export type {
   OSRInputEvent,
   OSRTextureHandle,
   OSRIPC,
-} from "./types.ts";
+} from "./types";
 
-export { BillboardMode } from "./types.ts";
+export { BillboardMode } from "./types";
 
-export { OSRRendererManager } from "./main/osr-renderer-manager.ts";
-export { OSRAtlasRenderer } from "./main/osr-atlas-renderer.ts";
-export { OSRDedicatedRenderer } from "./main/osr-dedicated-renderer.ts";
-export { InputForwarder } from "./main/input-forwarder.ts";
+export { OSRRendererManager } from "./main/osr-renderer-manager";
+export { OSRAtlasRenderer } from "./main/osr-atlas-renderer";
+export { OSRDedicatedRenderer } from "./main/osr-dedicated-renderer";
+export { InputForwarder } from "./main/input-forwarder";

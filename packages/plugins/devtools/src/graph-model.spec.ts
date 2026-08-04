@@ -1,4 +1,4 @@
-import { GraphModel, GraphHistory, type NodeTypeDef, type SerializedGraph } from "./graph-model.ts";
+import { GraphModel, GraphHistory, type NodeTypeDef, type SerializedGraph } from "./graph-model";
 
 // ─── Test node type definitions ──────────────────────────────────────
 

@@ -2,8 +2,8 @@
 // OSR Input Router — Raycasts against billboards and forwards input to OSR windows
 // ============================================================================
 
-import type { AtlasLayout, OSRInputEvent, OSRRendererStatus, WorldSpaceUIElement } from "../types.ts";
-import type { CameraState } from "./world-space-ui-pass.ts";
+import type { AtlasLayout, OSRInputEvent, OSRRendererStatus, WorldSpaceUIElement } from "../types";
+import type { CameraState } from "./world-space-ui-pass";
 
 export interface MouseState {
   x: number;

@@ -1,4 +1,4 @@
-import type { MaterialGraph, GraphNode } from "./graph.ts";
+import type { MaterialGraph, GraphNode } from "./graph";
 
 export class GraphValidator {
   validate(graph: MaterialGraph): { valid: boolean; errors: string[] } {

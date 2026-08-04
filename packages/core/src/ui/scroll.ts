@@ -1,4 +1,4 @@
-import { UIPanel, type UIColor, type UIDrawable } from "./element.ts";
+import { UIPanel, type UIColor, type UIDrawable } from "./element";
 
 export class UIScrollPanel extends UIPanel {
   scrollX: number = 0;

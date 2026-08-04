@@ -1,4 +1,4 @@
-import type { GameWorld } from "./world.ts";
+import type { GameWorld } from "./world";
 
 export type RenderCallback = (alpha: number) => void;
 

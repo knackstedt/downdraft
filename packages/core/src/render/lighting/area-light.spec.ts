@@ -3,7 +3,7 @@ import {
   generateLTCLUTData,
   LTC_LUT_SIZE,
   type AreaLightShape,
-} from "./area-light.ts";
+} from "./area-light";
 
 describe("area-light", () => {
   describe("generateLTCLUTData", () => {

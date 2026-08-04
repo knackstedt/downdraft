@@ -1,4 +1,4 @@
-import { WebRTCTransport } from "./webrtc.ts";
+import { WebRTCTransport } from "./webrtc";
 
 export type NetMessageType = number;
 

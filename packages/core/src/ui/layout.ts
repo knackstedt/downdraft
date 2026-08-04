@@ -1,5 +1,5 @@
-import type { UIElement } from "./element.ts";
-import type { TextAtlasCache } from "./text-cache.ts";
+import type { UIElement } from "./element";
+import type { TextAtlasCache } from "./text-cache";
 
 export class LayoutEngine {
   private textCache: TextAtlasCache | null = null;

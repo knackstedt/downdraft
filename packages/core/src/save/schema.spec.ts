@@ -1,4 +1,4 @@
-import { SchemaRegistry, CURRENT_SCHEMA_VERSION } from "./schema.ts";
+import { SchemaRegistry, CURRENT_SCHEMA_VERSION } from "./schema";
 
 describe("SchemaRegistry", () => {
   it("should start at current schema version", () => {

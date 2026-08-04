@@ -1,4 +1,4 @@
-import { MultiInputSABWriter } from "./multi-sab-bridge.ts";
+import { MultiInputSABWriter } from "./multi-sab-bridge";
 
 export interface InputDevice {
   type: "keyboard-mouse" | "gamepad";

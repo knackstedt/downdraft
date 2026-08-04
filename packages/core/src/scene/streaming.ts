@@ -1,8 +1,8 @@
-import type { AssetManager, AssetPriority } from "../assets/manager.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { World } from "../ecs/world.ts";
-import { createLogger } from "../util/logger.ts";
-import type { Camera } from "./camera.ts";
+import type { AssetManager, AssetPriority } from "../assets/manager";
+import type { Entity } from "../ecs/entity";
+import type { World } from "../ecs/world";
+import { createLogger } from "../util/logger";
+import type { Camera } from "./camera";
 
 const log = createLogger();
 
@@ -89,7 +89,7 @@ export class WorldStreamer {
   }
 
   async update(): Promise<void> {
-    const camPos = this.config.cameraPos ? this.config.cameraPos() : [this.camera.position[0], this.camera.position[1], this.camera.position[2]];
+    const camPos: [number, number, number] = this.config.cameraPos ? this.config.cameraPos() : [this.camera.position[0], this.camera.position[1], this.camera.position[2]];
     const camChunk = worldToChunk(camPos, this.config.chunkSize);
 
     this.checkUnload(camChunk);

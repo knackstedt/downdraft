@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSaveStore } from "./file-save-store.ts";
+import { FileSaveStore } from "./file-save-store";
 
 // Test compression: prefix byte + copy
 const testCompress = (data: Uint8Array): Uint8Array => {

@@ -1,5 +1,5 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { MCPResourceResult, ResourceRegistration } from "../types.ts";
+import type { EngineContext } from "../engine-context";
+import type { MCPResourceResult, ResourceRegistration } from "../types";
 
 function resourceJSON(uri: string, data: unknown): MCPResourceResult {
   return {

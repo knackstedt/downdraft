@@ -3,9 +3,9 @@
 // Reusable plugin: depends on interfaces, not game-specific types
 // ============================================================================
 
-import { SURVIVAL_FLAGS } from "./types.ts";
-import type { SurvivalPlayer, SurvivalBiomeProvider, SurvivalConfig } from "./types.ts";
-import { DEFAULT_SURVIVAL_CONFIG } from "./types.ts";
+import { SURVIVAL_FLAGS } from "./types";
+import type { SurvivalPlayer, SurvivalBiomeProvider, SurvivalConfig } from "./types";
+import { DEFAULT_SURVIVAL_CONFIG } from "./types";
 
 // Minimal weather interface — only what survival needs
 interface WeatherLike {

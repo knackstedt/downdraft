@@ -6,7 +6,7 @@ import {
   packVPLsToBuffer,
   sampleRSMToVPLs,
   type VPLData,
-} from "./gi-types.ts";
+} from "./gi-types";
 
 describe("gi-types", () => {
   describe("DEFAULT_RSM_CONFIG", () => {

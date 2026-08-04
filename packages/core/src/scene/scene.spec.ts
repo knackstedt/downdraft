@@ -1,7 +1,7 @@
-import { component, type ComponentDefinition } from "../ecs/component.ts";
-import { World } from "../ecs/world.ts";
-import { SceneManager } from "./scene-manager.ts";
-import { Scene } from "./scene.ts";
+import { component, type ComponentDefinition } from "../ecs/component";
+import { World } from "../ecs/world";
+import { SceneManager } from "./scene-manager";
+import { Scene } from "./scene";
 
 interface PositionData { x: number; y: number; z: number }
 const Position: ComponentDefinition<PositionData> = component<PositionData>("Position", { x: 0, y: 0, z: 0 });

@@ -1,4 +1,4 @@
-import { ShadowPass } from "./shadow.ts";
+import { ShadowPass } from "./shadow";
 
 const mockUsage = { UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, TEXTURE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10, COPY_SRC: 0x80, STORAGE: 0x80, DEPTH_STENCIL_ATTACHMENT: 0x20 };
 (globalThis as unknown as { GPUBufferUsage: unknown }).GPUBufferUsage = mockUsage;

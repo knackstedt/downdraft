@@ -1,4 +1,4 @@
-import type { ExtractedMesh, ExtractMeshOptions, VoxelField } from "./types.ts";
+import type { ExtractedMesh, ExtractMeshOptions, VoxelField } from "./types";
 
 // Cube corner offsets (same convention as MC plugin)
 const CORNER_OFFSET = [

@@ -3,7 +3,7 @@
 // and the DevTools extension panels.
 // ============================================================================
 
-import type { GizmoMode } from "./index.ts";
+import type { GizmoMode } from "./index";
 
 /** Minimal renderer interface that BaseSceneInspector requires. */
 export interface IDevToolsRenderer {

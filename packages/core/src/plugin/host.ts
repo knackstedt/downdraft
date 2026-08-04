@@ -1,11 +1,11 @@
-import type { ComponentId } from "../ecs/component.ts";
-import { getComponentId } from "../ecs/component.ts";
-import type { Stage, SystemFn } from "../ecs/system.ts";
-import type { World } from "../ecs/world.ts";
-import { createLogger } from "../util/logger.ts";
-import type { Plugin, PluginContext, SABChannel } from "./plugin.ts";
-import { PluginRegistry } from "./registry.ts";
-import { TSPluginLoader } from "./ts-loader.ts";
+import type { ComponentId } from "../ecs/component";
+import { getComponentId } from "../ecs/component";
+import type { Stage, SystemFn } from "../ecs/system";
+import type { World } from "../ecs/world";
+import { createLogger } from "../util/logger";
+import type { Plugin, PluginContext, SABChannel } from "./plugin";
+import { PluginRegistry } from "./registry";
+import { TSPluginLoader } from "./ts-loader";
 
 const log = createLogger();
 

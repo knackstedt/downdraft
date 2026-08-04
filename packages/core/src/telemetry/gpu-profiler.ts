@@ -3,8 +3,8 @@
 // GPU info/limits snapshot, and tracked render pass wrapping.
 // ============================================================================
 
-import type { PassTiming } from "./collector.ts";
-import { GPUTimerPool } from "./gpu-timer-pool.ts";
+import type { PassTiming } from "./collector";
+import { GPUTimerPool } from "./gpu-timer-pool";
 
 // ─── Frame Graph Visualizer Data ──────────────────────────────────────────
 

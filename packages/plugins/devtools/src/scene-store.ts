@@ -6,9 +6,9 @@
 import type { ModelData } from "@downdraft/plugin-models";
 import { create } from "zustand";
 
-import { type GizmoMode } from "./index.ts";
+import { type GizmoMode } from "./index";
 
-export type { GizmoMode } from "./index.ts";
+export type { GizmoMode } from "./index";
 
 export interface SceneNode {
   id: string;

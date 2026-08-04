@@ -1,8 +1,8 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { GraphRenderContext } from "../render/frame-graph.ts";
-import { RenderPass } from "../render/render-pass.ts";
-import type { ParticleGPUData } from "./particle-data.ts";
-import { packParticleBuffer } from "./particle-data.ts";
+import type { GraphRenderContext } from "../render/frame-graph";
+import { RenderPass } from "../render/render-pass";
+import type { ParticleGPUData } from "./particle-data";
+import { packParticleBuffer } from "./particle-data";
 
 const PARTICLE_VERTEX_SHADER = `
 struct CameraUniforms {

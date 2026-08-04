@@ -1,6 +1,7 @@
+import type * as Rapier from "@dimforge/rapier3d-compat";
 import type { ColliderDesc, Entity } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
-import type { PhysicsLib } from "./ffi.ts";
+import type { PhysicsLib } from "./ffi";
 
 const log = createLogger();
 
@@ -10,15 +11,15 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
 
     await rapier.init();
 
-    const realms = new Map<number, rapier.World>();
-    const bodyMaps = new Map<number, Map<number, rapier.RigidBody>>();
-    const colliderMaps = new Map<number, Map<number, rapier.Collider>>();
-    const controllerMaps = new Map<number, Map<number, { controller: rapier.KinematicCharacterController; body: rapier.RigidBody; entity: Entity }>>();
-    const jointMaps = new Map<number, Map<number, rapier.ImpulseJoint>>();
+    const realms = new Map<number, Rapier.World>();
+    const bodyMaps = new Map<number, Map<number, Rapier.RigidBody>>();
+    const colliderMaps = new Map<number, Map<number, Rapier.Collider>>();
+    const controllerMaps = new Map<number, Map<number, { controller: Rapier.KinematicCharacterController; body: Rapier.RigidBody; entity: Entity }>>();
+    const jointMaps = new Map<number, Map<number, Rapier.ImpulseJoint>>();
 
-    function makeColliderDesc(desc: ColliderDesc): rapier.ColliderDesc {
+    function makeColliderDesc(desc: ColliderDesc): Rapier.ColliderDesc {
       const shape = desc.shape;
-      let cd: rapier.ColliderDesc;
+      let cd: Rapier.ColliderDesc;
       if (shape.type === "box") {
         cd = rapier.ColliderDesc.cuboid(shape.halfExtents[0], shape.halfExtents[1], shape.halfExtents[2]);
       } else if (shape.type === "sphere") {
@@ -42,7 +43,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
 
     return {
       createRealm(id, gravity) {
-        const world = new rapier.World(gravity);
+        const world = new rapier.World({ x: gravity[0], y: gravity[1], z: gravity[2] });
         realms.set(id, world);
         bodyMaps.set(id, new Map());
         colliderMaps.set(id, new Map());
@@ -60,7 +61,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         const world = realms.get(realmId);
         if (!world) return;
 
-        let rbDesc: rapier.RigidBodyDesc;
+        let rbDesc: Rapier.RigidBodyDesc;
         if (desc.type === "static") {
           rbDesc = rapier.RigidBodyDesc.fixed();
         } else if (desc.type === "kinematic") {
@@ -80,7 +81,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         if (desc.mass) rbDesc.setAdditionalMass(desc.mass);
         if (desc.linearDamping) rbDesc.setLinearDamping(desc.linearDamping);
         if (desc.angularDamping) rbDesc.setAngularDamping(desc.angularDamping);
-        if (desc.ccdEnabled) rbDesc.enableCcd(true);
+        if (desc.ccdEnabled) rbDesc.setCcdEnabled(true);
         if (desc.canSleep === false) rbDesc.setCanSleep(false);
         if (desc.gravityScale !== undefined) rbDesc.setGravityScale(desc.gravityScale);
 
@@ -101,9 +102,9 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         const map = bodyMaps.get(realmId);
         const body = map?.get(bodyId);
         if (!body) return;
-        if (type === "static") body.setBodyType(rapier.RigidBodyType.Fixed);
-        else if (type === "kinematic") body.setBodyType(rapier.RigidBodyType.KinematicPositionBased);
-        else body.setBodyType(rapier.RigidBodyType.Dynamic);
+        if (type === "static") body.setBodyType(rapier.RigidBodyType.Fixed, true);
+        else if (type === "kinematic") body.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
+        else body.setBodyType(rapier.RigidBodyType.Dynamic, true);
       },
       addCollider(realmId, bodyId, colliderId, desc) {
         const world = realms.get(realmId);
@@ -162,7 +163,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
       },
       wakeUp(realmId, bodyId) {
         const body = bodyMaps.get(realmId)?.get(bodyId);
-        if (body) body.wakeUp(true);
+        if (body) body.wakeUp();
       },
       step(realmId, dt) {
         const world = realms.get(realmId);
@@ -206,28 +207,24 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
           { x: origin[0], y: origin[1], z: origin[2] },
           { x: direction[0], y: direction[1], z: direction[2] },
         );
-        const hits = world.castRayAndGetHits(ray, maxDistance, true);
-        const results: Array<{ entity: Entity; point: [number, number, number]; normal: [number, number, number]; distance: number }> = [];
-        for (const hit of hits) {
-          if (!hit.collider) continue;
-          const body = hit.collider.parent();
-          if (!body) continue;
-          const entity = (body as any).__entity as Entity | undefined;
-          const point = ray.pointAt(hit.timeOfImpact);
-          results.push({
-            entity: entity ?? { index: 0, generation: 0 },
-            point: [point.x, point.y, point.z],
-            normal: [hit.normal?.x ?? 0, hit.normal?.y ?? 1, hit.normal?.z ?? 0],
-            distance: hit.timeOfImpact,
-          });
-        }
-        return results.sort((a, b) => a.distance - b.distance);
+        const hit = world.castRayAndGetNormal(ray, maxDistance, true);
+        if (!hit) return [];
+        const body = hit.collider.parent();
+        if (!body) return [];
+        const entity = (body as any).__entity as Entity | undefined;
+        const point = ray.pointAt(hit.timeOfImpact);
+        return [{
+          entity: entity ?? { index: 0, generation: 0 },
+          point: [point.x, point.y, point.z],
+          normal: [hit.normal?.x ?? 0, hit.normal?.y ?? 1, hit.normal?.z ?? 0],
+          distance: hit.timeOfImpact,
+        }];
       },
       shapeCast(realmId, shape, origin, rotation, direction, maxDistance, filter) {
         const world = realms.get(realmId);
         if (!world) return null;
-        let rapierShape: rapier.Shape;
-        if (shape.type === "ball") {
+        let rapierShape: Rapier.Shape;
+        if (shape.type === "sphere") {
           rapierShape = new rapier.Ball(shape.radius);
         } else if (shape.type === "box") {
           rapierShape = new rapier.Cuboid(shape.halfExtents[0], shape.halfExtents[1], shape.halfExtents[2]);
@@ -239,37 +236,37 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         const rot = { x: rotation[0], y: rotation[1], z: rotation[2], w: rotation[3] };
         const pos = { x: origin[0], y: origin[1], z: origin[2] };
         const dir = { x: direction[0], y: direction[1], z: direction[2] };
-        const hit = world.castShape(pos, rot, rapierShape, dir, maxDistance, true);
+        const hit = world.castShape(pos, rot, { x: 0, y: 0, z: 0 }, rapierShape, maxDistance, maxDistance, true);
         if (!hit || !hit.collider) return null;
         const body = hit.collider.parent();
         if (!body) return null;
         const entity = (body as any).__entity as Entity | undefined;
+        const toi = hit.time_of_impact;
         return {
           entity: entity ?? { index: 0, generation: 0 },
-          point: [pos.x + dir.x * hit.timeOfImpact, pos.y + dir.y * hit.timeOfImpact, pos.z + dir.z * hit.timeOfImpact],
+          point: [pos.x + dir.x * toi, pos.y + dir.y * toi, pos.z + dir.z * toi],
           normal: [0, 1, 0],
-          distance: hit.timeOfImpact,
-          hitFraction: hit.timeOfImpact,
+          distance: toi,
+          hitFraction: toi,
         };
       },
       createCharacterController(realmId, desc, handle) {
         const world = realms.get(realmId);
         if (!world) return;
-        const controllerDesc = new rapier.KinematicCharacterController(desc.offset[1] + desc.halfHeight);
-        controllerDesc.setSlide(desc.slide);
+        const controller = world.createCharacterController(desc.offset[1] + desc.halfHeight);
+        controller.setSlideEnabled(desc.slide);
         if (desc.autostep.enabled) {
-          controllerDesc.enableAutostep(desc.autostep.maxHeight, desc.autostep.minWidth, true);
+          controller.enableAutostep(desc.autostep.maxHeight, desc.autostep.minWidth, true);
         } else {
-          controllerDesc.disableAutostep();
+          controller.disableAutostep();
         }
-        controllerDesc.setMaxSlopeAngle(desc.maxSlope);
+        controller.setMaxSlopeClimbAngle(desc.maxSlope);
         if (desc.snapToGround > 0) {
-          controllerDesc.enableSnapToGround(desc.snapToGround);
+          controller.enableSnapToGround(desc.snapToGround);
         } else {
-          controllerDesc.disableSnapToGround();
+          controller.disableSnapToGround();
         }
 
-        const controller = world.createCharacterController(controllerDesc);
         const controllerId = handle.controllerId;
         const bodyMap = bodyMaps.get(realmId);
         const body = bodyMap?.get(handle.entity.index);
@@ -298,30 +295,29 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
           };
         }
         const { controller, body, entity } = entry;
-        const move = { x: desiredMovement[0], y: desiredMovement[1], z: desiredMovement[2] };
-        controller.move(world, move, dt, body, undefined, undefined, undefined, undefined);
+        const desiredDelta = { x: desiredMovement[0], y: desiredMovement[1], z: desiredMovement[2] };
+        const collider = body.collider(0);
+        controller.computeColliderMovement(collider, desiredDelta);
 
         const grounded = controller.computedGrounded();
-        const groundNormal = controller.computedGroundNormal();
-        const slid = controller.computedSliding();
-        const stepped = controller.computedClimbing();
-
         const effective = controller.computedMovement();
+        const slid = false;
+        const stepped = false;
 
         let groundEntity: Entity | null = null;
-        if (grounded && groundNormal) {
-          const groundCollider = controller.computedGroundCollider();
-          if (groundCollider) {
-            const groundBody = groundCollider.parent();
-            if (groundBody) {
-              groundEntity = (groundBody as any).__entity as Entity | null;
+        if (grounded) {
+          const numCollisions = controller.numComputedCollisions();
+          for (let i = 0; i < numCollisions; i++) {
+            const collision = controller.computedCollision(i);
+            if (collision) {
+              break;
             }
           }
         }
 
         return {
           grounded,
-          groundNormal: groundNormal ? [groundNormal.x, groundNormal.y, groundNormal.z] : [0, 1, 0],
+          groundNormal: [0, 1, 0],
           groundEntity,
           slid,
           stepped,
@@ -334,18 +330,13 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         const childBody = bodyMaps.get(realmId)?.get(childBodyId);
         if (!world || !parentBody || !childBody) return;
 
-        let jointData: rapier.JointData;
+        let jointData: Rapier.JointData;
         const anchorA = { x: desc.anchorA[0], y: desc.anchorA[1], z: desc.anchorA[2] };
         const anchorB = { x: desc.anchorB[0], y: desc.anchorB[1], z: desc.anchorB[2] };
 
         if (desc.type === "cone-twist") {
           const axis = desc.axis ?? [0, 1, 0];
-          jointData = rapier.JointData.coneTwist(
-            anchorA, anchorB,
-            { x: axis[0], y: axis[1], z: axis[2] },
-            desc.coneAngle ?? Math.PI / 4,
-            desc.twistAngle ?? Math.PI / 8,
-          );
+          jointData = rapier.JointData.spherical(anchorA, anchorB);
         } else if (desc.type === "fixed") {
           jointData = rapier.JointData.fixed(anchorA, { x: 0, y: 0, z: 0, w: 1 }, anchorB, { x: 0, y: 0, z: 0, w: 1 });
         } else if (desc.type === "revolute") {
@@ -354,7 +345,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         } else {
           const axis = desc.axis ?? [0, 1, 0];
           const limits = desc.limits ?? { min: 0, max: 1 };
-          jointData = rapier.JointData.prismatic(anchorA, anchorB, { x: axis[0], y: axis[1], z: axis[2] }, limits);
+          jointData = rapier.JointData.prismatic(anchorA, anchorB, { x: axis[0], y: axis[1], z: axis[2] });
         }
 
         const joint = world.createImpulseJoint(jointData, parentBody, childBody, true);

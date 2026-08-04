@@ -1,11 +1,11 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ResourceRegistration, MCPResourceResult } from "../types.ts";
-import { createSceneTreeResource } from "./scene-tree.ts";
-import { createEntityStateResource } from "./entity-state.ts";
-import { createPerformanceResource } from "./performance.ts";
-import { createGPUInfoResource } from "./gpu-info.ts";
-import { createAssetListResource } from "./asset-list.ts";
-import { createCheckpointListResource } from "./checkpoint-list.ts";
+import type { EngineContext } from "../engine-context";
+import type { ResourceRegistration, MCPResourceResult } from "../types";
+import { createSceneTreeResource } from "./scene-tree";
+import { createEntityStateResource } from "./entity-state";
+import { createPerformanceResource } from "./performance";
+import { createGPUInfoResource } from "./gpu-info";
+import { createAssetListResource } from "./asset-list";
+import { createCheckpointListResource } from "./checkpoint-list";
 
 function resourceJSON(uri: string, data: unknown): MCPResourceResult {
   return {

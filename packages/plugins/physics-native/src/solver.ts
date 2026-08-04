@@ -5,8 +5,8 @@
 // correction (Baumgarte stabilization) to prevent sinking.
 // ============================================================================
 
-import type { Vec3 } from "./types.ts";
-import type { ContactManifoldLocal } from "./narrowphase.ts";
+import type { Vec3 } from "./types";
+import type { ContactManifoldLocal } from "./narrowphase";
 
 export interface BodyData {
   position: Vec3;

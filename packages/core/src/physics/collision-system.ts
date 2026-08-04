@@ -1,14 +1,14 @@
-import type { World } from "../ecs/world.ts";
-import type { PhysicsRealm } from "./realm.ts";
-import type { ContactManifold } from "./interface.ts";
+import type { World } from "../ecs/world";
+import type { PhysicsRealm } from "./realm";
+import type { ContactManifold } from "./interface";
 import {
   computeCollisionEvents,
   COLLISION_STARTED_CHANNEL,
   COLLISION_STOPPED_CHANNEL,
   CONTACT_CHANNEL,
-} from "./events.ts";
-import type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from "./events.ts";
-import { system, Stage } from "../ecs/system.ts";
+} from "./events";
+import type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from "./events";
+import { system, Stage } from "../ecs/system";
 
 export class CollisionEventSystem {
   private realm: PhysicsRealm;

@@ -1,7 +1,7 @@
-import type { PhysicsRealm } from "./realm.ts";
-import type { RaycastResult, ShapeCastResult, ColliderShape } from "./interface.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { DebugDrawQueue } from "../debug-draw/queue.ts";
+import type { PhysicsRealm } from "./realm";
+import type { RaycastResult, ShapeCastResult, ColliderShape } from "./interface";
+import type { Entity } from "../ecs/entity";
+import type { DebugDrawQueue } from "../debug-draw/queue";
 
 const RAY_COLOR: [number, number, number, number] = [0, 1, 1, 0.8];
 const HIT_COLOR: [number, number, number, number] = [1, 0, 0, 1];

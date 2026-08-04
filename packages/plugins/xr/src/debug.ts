@@ -1,5 +1,5 @@
-import { isXRAvailable, isXRGPUBindingAvailable, isVRSupported } from "./session.ts";
-import type { XRPlugin } from "./xr-plugin.ts";
+import { isXRAvailable, isXRGPUBindingAvailable, isVRSupported } from "./session";
+import type { XRPlugin } from "./xr-plugin";
 
 export interface XRDebugInfo {
   xrAvailable: boolean;

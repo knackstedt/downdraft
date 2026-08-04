@@ -3,7 +3,7 @@ import {
   parseIES,
   iesProfileToTextureData,
   type IESProfile,
-} from "./ies-parser.ts";
+} from "./ies-parser";
 
 const SIMPLE_IES = `IESNA:LM-63-2002
 TILT=NONE

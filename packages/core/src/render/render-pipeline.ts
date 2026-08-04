@@ -3,7 +3,7 @@
 // Games register passes into named slots; the pipeline executes them in order.
 // ============================================================================
 
-import type { CameraState } from "./camera.ts";
+import type { CameraState } from "./camera";
 
 export type RenderPassSlot = string;
 

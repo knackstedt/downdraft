@@ -4,9 +4,9 @@ import type {
     AudioBufferDesc,
     AudioListenerState,
     AudioSourceHandle
-} from "./interface.ts";
-import { DEFAULT_AUDIO_CONFIG } from "./interface.ts";
-import { AudioMixer } from "./mixer.ts";
+} from "./interface";
+import { DEFAULT_AUDIO_CONFIG } from "./interface";
+import { AudioMixer } from "./mixer";
 
 export class AudioEngine {
   private backend: AudioBackend;

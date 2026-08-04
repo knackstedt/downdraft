@@ -1,4 +1,4 @@
-import { defineChannel } from "./define.ts";
+import { defineChannel } from "./define";
 
 export const CoreInputChannel = defineChannel({
   name: "core-input",

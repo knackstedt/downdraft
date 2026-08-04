@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { NativePhysicsBackend } from "./backend.ts";
-import type { AABB } from "./broadphase.ts";
-import { Broadphase } from "./broadphase.ts";
+import { NativePhysicsBackend } from "./backend";
+import type { AABB } from "./broadphase";
+import { Broadphase } from "./broadphase";
 import {
     boxBoxContact,
     capsuleBoxContact,
@@ -10,10 +10,10 @@ import {
     rotateVec,
     sphereBoxContact,
     sphereSphereContact,
-} from "./narrowphase-shapes.ts";
-import { detectCollision } from "./narrowphase.ts";
-import { integrate, resolveContact, type BodyData } from "./solver.ts";
-import type { Vec3 } from "./types.ts";
+} from "./narrowphase-shapes";
+import { detectCollision } from "./narrowphase";
+import { integrate, resolveContact, type BodyData } from "./solver";
+import type { Vec3 } from "./types";
 
 // --- Broadphase tests ---
 

@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta } from "./components.ts";
+import { SimEntityData, SimEntityMeta } from "./components";
 import { EntityType } from "@shared/types";
 
 interface PlantData {

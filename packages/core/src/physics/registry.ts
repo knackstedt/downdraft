@@ -1,4 +1,4 @@
-import type { PhysicsBackend } from "./interface.ts";
+import type { PhysicsBackend } from "./interface";
 
 class PhysicsBackendRegistry {
   private backends: Map<string, PhysicsBackend> = new Map();

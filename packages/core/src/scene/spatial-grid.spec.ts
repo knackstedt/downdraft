@@ -1,5 +1,5 @@
-import { SpatialGrid, type SpatialEntry } from "./spatial-grid.ts";
-import type { Entity } from "../ecs/entity.ts";
+import { SpatialGrid, type SpatialEntry } from "./spatial-grid";
+import type { Entity } from "../ecs/entity";
 
 function makeEntity(index: number, generation: number = 0): Entity {
   return { index, generation };

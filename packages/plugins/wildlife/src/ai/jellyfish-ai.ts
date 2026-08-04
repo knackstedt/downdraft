@@ -1,5 +1,5 @@
 // Jellyfish AI — swarm drift, bioluminescent at night, DoT contact damage
-import type { WildlifeEntity, WildlifePlayer, WildlifeConfig } from "../types.ts";
+import type { WildlifeEntity, WildlifePlayer, WildlifeConfig } from "../types";
 
 export function tickJellyfishAI(
   ent: WildlifeEntity,

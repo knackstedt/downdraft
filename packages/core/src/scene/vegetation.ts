@@ -1,4 +1,4 @@
-import { Component } from "../ecs/component.ts";
+import { Component } from "../ecs/component";
 
 export interface VegetationPatchData {
   [key: string]: unknown;

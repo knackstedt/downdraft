@@ -1,6 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const WATER_GRID = 256;
 const MAX_WAKES = 16;
@@ -631,8 +631,8 @@ export class WaterPass extends RenderPass {
     const sc = Math.min(shoreCount, MAX_SHORES);
     this.wakeData.set(wakes.subarray(0, wc * WAKE_FLOATS));
     this.shoreData.set(shores.subarray(0, sc * SHORE_FLOATS));
-    this.device.queue.writeBuffer(this.wakeBuffer, 0, this.wakeData);
-    this.device.queue.writeBuffer(this.shoreBuffer, 0, this.shoreData);
+    this.device.queue.writeBuffer(this.wakeBuffer!, 0, this.wakeData as unknown as GPUAllowSharedBufferSource);
+    this.device.queue.writeBuffer(this.shoreBuffer!, 0, this.shoreData as unknown as GPUAllowSharedBufferSource);
     this.wakeCount = wc;
     this.shoreCount = sc;
   }
@@ -645,7 +645,7 @@ export class WaterPass extends RenderPass {
     this.cachedHeightData.set(heights);
     this.device.queue.writeTexture(
       { texture: this.heightTexture },
-      this.cachedHeightData,
+      this.cachedHeightData as unknown as GPUAllowSharedBufferSource,
       { bytesPerRow: this.gridSize * 4 },
       { width: this.gridSize, height: this.gridSize },
     );
@@ -700,8 +700,8 @@ export class WaterPass extends RenderPass {
       }
     }
     this.device.queue.writeTexture(
-      { texture: this.normalTexture },
-      this.cachedNormalData,
+      { texture: this.normalTexture! },
+      this.cachedNormalData as unknown as GPUAllowSharedBufferSource,
       { bytesPerRow: this.gridSize * 4 },
       { width: this.gridSize, height: this.gridSize },
     );

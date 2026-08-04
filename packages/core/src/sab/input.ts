@@ -1,4 +1,4 @@
-import { CoreInputChannel } from "./core-input-channel.ts";
+import { CoreInputChannel } from "./core-input-channel";
 
 export class InputSABChannel {
   private writer: ReturnType<typeof CoreInputChannel.writer>;

@@ -1,7 +1,7 @@
-import type { AudioFormat, AudioBufferDesc } from "../audio/interface.ts";
-import type { AudioEngine } from "../audio/engine.ts";
-import type { AssetManager } from "./manager.ts";
 import { promises as fs } from "node:fs";
+import type { AudioEngine } from "../audio/engine";
+import type { AudioBufferDesc, AudioFormat } from "../audio/interface";
+import type { AssetManager } from "./manager";
 
 const EXTENSION_FORMAT_MAP: Record<string, AudioFormat> = {
   wav: "wav",
@@ -28,7 +28,17 @@ export async function loadAudioFile(
 
   const buf = await fs.readFile(uri);
   const data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-  return engine.loadBuffer(format, data);
+  const desc: AudioBufferDesc = {
+    id: uri,
+    format,
+    samples: new Float32Array(data.byteLength / 4),
+  };
+  const view = new DataView(data);
+  for (let i = 0; i < desc.samples.length; i++) {
+    desc.samples[i] = view.getFloat32(i * 4, true);
+  }
+  engine.loadBuffer(desc);
+  return desc;
 }
 
 export async function loadAudioFromBuffer(
@@ -36,7 +46,17 @@ export async function loadAudioFromBuffer(
   data: ArrayBuffer,
   engine: AudioEngine,
 ): Promise<AudioBufferDesc> {
-  return engine.loadBuffer(format, data);
+  const desc: AudioBufferDesc = {
+    id: `buffer-${Date.now()}`,
+    format,
+    samples: new Float32Array(data.byteLength / 4),
+  };
+  const view = new DataView(data);
+  for (let i = 0; i < desc.samples.length; i++) {
+    desc.samples[i] = view.getFloat32(i * 4, true);
+  }
+  engine.loadBuffer(desc);
+  return desc;
 }
 
 export function registerAudioLoader(

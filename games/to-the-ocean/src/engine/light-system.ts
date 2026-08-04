@@ -418,7 +418,7 @@ export class LightSystem extends LightingSystem {
     if (!this.debugInstanceBuffer || !this.debugInstanceData || !this.debugSphereVerts || !this.debugSphereIndexBuffer) return;
 
     const viewProj = calculateViewProj(camera);
-    this.device?.queue.writeBuffer(this.debugUniformBuffer, 0, viewProj);
+    this.device?.queue.writeBuffer(this.debugUniformBuffer, 0, viewProj as unknown as GPUAllowSharedBufferSource);
 
     // Collect instances from point lights + spot lights
     const data = this.debugInstanceData;

@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { describe, it, expect } from "bun:test";
-import type { WorldSpaceUIElement } from "../src/types.ts";
+import type { WorldSpaceUIElement } from "../src/types";
 
 // Test the instance sorting and grouping logic without GPU device
 // (GPU-dependent tests would need a real WebGPU device)

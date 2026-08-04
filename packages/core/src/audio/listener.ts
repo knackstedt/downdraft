@@ -1,5 +1,5 @@
-import { Component } from "../ecs/component.ts";
-import type { AudioListenerState } from "./interface.ts";
+import { Component } from "../ecs/component";
+import type { AudioListenerState } from "./interface";
 
 export interface AudioListenerData {
   [key: string]: unknown;

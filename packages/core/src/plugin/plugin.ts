@@ -1,5 +1,5 @@
-import type { ComponentId } from "../ecs/component.ts";
-import type { Stage, SystemFn } from "../ecs/system.ts";
+import type { ComponentId } from "../ecs/component";
+import type { Stage, SystemFn } from "../ecs/system";
 
 export interface SABChannel {
   name: string;

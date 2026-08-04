@@ -2,7 +2,7 @@
 // World Space UI Pass — Renders OSR textures as billboarded quads in 3D space
 // ============================================================================
 
-import type { WorldSpaceUIElement } from "../types.ts";
+import type { WorldSpaceUIElement } from "../types";
 
 const SHADER_CODE = /* wgsl */ `
 struct CameraUniforms {
@@ -342,7 +342,7 @@ export class WorldSpaceUIPass {
   }
 
   destroy(): void {
-    this.shaderModule?.destroy();
+    (this.shaderModule as any)?.destroy();
     this.pipeline = null;
     this.uniformBuffer?.destroy();
     this.vertexBuffer?.destroy();

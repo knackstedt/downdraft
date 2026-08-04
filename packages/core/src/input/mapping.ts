@@ -1,4 +1,4 @@
-import { InputState } from "./state.ts";
+import { InputState } from "./state";
 
 export class InputMapping {
   private bindings: Map<string, number[]> = new Map();

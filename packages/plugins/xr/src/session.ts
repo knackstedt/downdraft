@@ -1,4 +1,4 @@
-import { DEFAULT_XR_CONFIG, type XRSessionConfig, type XRSessionState, type XRReferenceSpaceType } from "./types.ts";
+import { DEFAULT_XR_CONFIG, type XRReferenceSpaceType, type XRSessionConfig, type XRSessionState } from "./types";
 
 type SessionEndCallback = () => void;
 type VisibilityChangeCallback = (visible: boolean) => void;
@@ -14,8 +14,8 @@ export class XRSessionManager {
   private resetCallbacks: ResetCallback[] = [];
 
   private onSessionEndHandler: (() => void) | null = null;
-  private onVisibilityChangeHandler: ((e: XRVisibilityChangeEvent) => void) | null = null;
-  private onReferenceSpaceResetHandler: ((e: XRReferenceSpaceEvent) => void) | null = null;
+  private onVisibilityChangeHandler: EventListener | null = null;
+  private onReferenceSpaceResetHandler: EventListener | null = null;
 
   async requestSession(
     mode: "immersive-vr" = "immersive-vr",
@@ -42,10 +42,10 @@ export class XRSessionManager {
         this.cleanup();
         for (const cb of this.sessionEndCallbacks) cb();
       };
-      this.onVisibilityChangeHandler = (e: XRVisibilityChangeEvent) => {
-        const visible = e.visible;
+      this.onVisibilityChangeHandler = ((e: Event) => {
+        const visible = (e as XRVisibilityChangeEvent).visibilityState === "visible";
         for (const cb of this.visibilityChangeCallbacks) cb(visible);
-      };
+      }) as EventListener;
 
       session.addEventListener("end", this.onSessionEndHandler);
       session.addEventListener("visibilitychange", this.onVisibilityChangeHandler);
@@ -62,10 +62,10 @@ export class XRSessionManager {
 
     this.referenceSpace = await this.session.requestReferenceSpace(type);
 
-    this.onReferenceSpaceResetHandler = (e: XRReferenceSpaceEvent) => {
-      this.referenceSpace = e.referenceSpace;
+    this.onReferenceSpaceResetHandler = ((e: Event) => {
+      this.referenceSpace = (e as XRReferenceSpaceEvent).referenceSpace;
       for (const cb of this.resetCallbacks) cb();
-    };
+    }) as EventListener;
     this.referenceSpace.addEventListener("reset", this.onReferenceSpaceResetHandler);
   }
 

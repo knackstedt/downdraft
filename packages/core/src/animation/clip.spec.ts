@@ -1,5 +1,5 @@
-import { AnimationClip } from "./clip.ts";
-import type { AnimationClipData, KeyframeTrack } from "./clip.ts";
+import { AnimationClip } from "./clip";
+import type { AnimationClipData, KeyframeTrack } from "./clip";
 
 function makeTrack(boneIndex: number, path: "position" | "rotation" | "scale", times: number[], values: number[]): KeyframeTrack {
   return {

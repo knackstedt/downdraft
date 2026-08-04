@@ -1,5 +1,5 @@
-import type { PhysicsBackend, PhysicsRealmConfig } from "./interface.ts";
-import { PhysicsRealm } from "./realm.ts";
+import type { PhysicsBackend, PhysicsRealmConfig } from "./interface";
+import { PhysicsRealm } from "./realm";
 
 export type BootstrapPhase = "app-start" | "scene-start" | "on-demand";
 
