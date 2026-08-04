@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 
 interface AssetEntry {
   name: string;
@@ -7,18 +7,12 @@ interface AssetEntry {
   loaded: boolean;
 }
 
-export const AssetLoader: React.FC = () => {
-  const [assets, setAssets] = useState<AssetEntry[]>([]);
+export interface AssetLoaderProps {
+  assets?: AssetEntry[];
+}
 
-  useEffect(() => {
-    if (window.downdraft?.rpc) {
-      window.downdraft.rpc.call("getAssets").then((data) => {
-        if (Array.isArray(data)) {
-          setAssets(data as AssetEntry[]);
-        }
-      }).catch(() => {});
-    }
-  }, []);
+export const AssetLoader: React.FC<AssetLoaderProps> = ({ assets: propAssets }) => {
+  const [assets] = useState<AssetEntry[]>(propAssets ?? []);
 
   return (
     <div>
