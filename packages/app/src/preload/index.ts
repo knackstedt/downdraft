@@ -57,10 +57,14 @@ const api = {
     setContent: (rendererId: string, html: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_SET_CONTENT, rendererId, html),
     sendInputEvent: (rendererId: string, event: any): void =>
       ipcRenderer.send(IPC.OSR_INPUT_EVENT, rendererId, event),
+    setSoftwareCursor: (rendererId: string, enabled: boolean): void =>
+      ipcRenderer.send(IPC.OSR_SET_SOFTWARE_CURSOR, rendererId, enabled),
     onPanelLayout: (cb: (rendererId: string, layout: any) => void) =>
       ipcRenderer.on(IPC.OSR_PANEL_LAYOUT, (_e, rendererId, layout) => cb(rendererId, layout)),
     onRendererEvent: (cb: (event: any) => void) =>
       ipcRenderer.on(IPC.OSR_RENDERER_EVENT, (_e, event) => cb(event)),
+    onCursorStyle: (cb: (rendererId: string, cursor: string) => void) =>
+      ipcRenderer.on(IPC.OSR_CURSOR_STYLE, (_e, rendererId, cursor) => cb(rendererId, cursor)),
     // Register a shared texture receiver — the callback receives a VideoFrame
     // forwarded from Electron's sharedTexture API via postMessage.
     registerSharedTextureReceiver: (onFrame: (videoFrame: any) => void): boolean => {

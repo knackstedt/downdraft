@@ -93,6 +93,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   private uiInputRouter: UIInputRouter | null = null;
 
   private osrManager: OSRManager | null = null;
+  private _osrCursorResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   private telemetryCollector: TelemetryCollector | null = null;
   private profilingOverlay: ProfilingOverlay | null = null;
@@ -1077,6 +1078,18 @@ export class WebGPURenderer implements IRendererStateProvider {
           wheelDeltaX: 0,
           wheelDeltaY: ms.wheel,
         });
+        // Reset cursor when not hovering any OSR billboard
+        // Use a small timeout to allow async cursor style callback to arrive
+        if (!this.osrManager.isHoveringBillboard() && !this.osrManager.isForcedFocus()) {
+          if (this._osrCursorResetTimer) { clearTimeout(this._osrCursorResetTimer); }
+          this._osrCursorResetTimer = setTimeout(() => {
+            this.canvas.style.cursor = "default";
+            this._osrCursorResetTimer = null;
+          }, 100) as any;
+        } else if (this._osrCursorResetTimer) {
+          clearTimeout(this._osrCursorResetTimer);
+          this._osrCursorResetTimer = null;
+        }
       }
     }
 
@@ -1195,6 +1208,12 @@ export class WebGPURenderer implements IRendererStateProvider {
       if (id) console.log(`[OSR] Manually focused billboard renderer: ${id}`);
       else console.log(`[OSR] No available billboard to focus`);
     };
+    // Apply cursor style changes from OSR billboards to the game canvas
+    const osrMgr = this.osrManager;
+    osrMgr.onCursorStyleChange((cursor: string) => {
+      console.log(`[OSR] Applying cursor style: ${cursor}`);
+      this.canvas.style.cursor = cursor;
+    });
     return this.osrManager;
   }
 

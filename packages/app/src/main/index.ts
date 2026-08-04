@@ -679,6 +679,14 @@ function registerIpcHandlers(): void {
     if (!osrInputForwarder) return;
     osrInputForwarder.forward({ rendererId, ...eventData });
   });
+
+  ipcMain.on(IPC.OSR_SET_SOFTWARE_CURSOR, (_event, rendererId: string, enabled: boolean) => {
+    if (!osrManager) return;
+    const renderer = osrManager.getRenderer(rendererId);
+    if (renderer) {
+      (renderer as any).setSoftwareCursorEnabled(enabled);
+    }
+  });
 }
 
 app.whenReady().then(async () => {

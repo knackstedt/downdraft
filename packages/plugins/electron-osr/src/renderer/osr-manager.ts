@@ -27,6 +27,8 @@ export class OSRManager {
   private rendererStatuses = new Map<string, OSRRendererStatus>();
   private atlasLayouts = new Map<string, AtlasLayout>();
   private errorTextureIndices = new Set<number>();
+  private cursorStyle: string = "default";
+  private onCursorStyleCb: ((cursor: string) => void) | null = null;
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat = "bgra8unorm", depthFormat: GPUTextureFormat = "depth24plus") {
     this.device = device;
@@ -48,6 +50,13 @@ export class OSRManager {
     ipc.onRendererEvent((event: OSRRendererEvent) => {
       this.handleRendererEvent(event);
     });
+
+    // Cursor style callback — optional, may not exist in older preload builds
+    if (typeof ipc.onCursorStyle === "function") {
+      ipc.onCursorStyle((_rendererId, cursor) => {
+        this.handleCursorStyle(cursor);
+      });
+    }
   }
 
   createRenderer(config: OSRRendererConfig): void {
@@ -165,6 +174,25 @@ export class OSRManager {
     return this.inputRouter?.isForcedFocus() ?? false;
   }
 
+  isHoveringBillboard(): boolean {
+    return this.inputRouter?.isHoveringBillboard() ?? false;
+  }
+
+  getCursorStyle(): string {
+    return this.cursorStyle;
+  }
+
+  onCursorStyleChange(cb: ((cursor: string) => void) | null): void {
+    this.onCursorStyleCb = cb;
+  }
+
+  setSoftwareCursorEnabled(enabled: boolean): void {
+    if (!this.ipc || typeof this.ipc.setSoftwareCursor !== "function") return;
+    for (const id of this.rendererIds) {
+      this.ipc.setSoftwareCursor(id, enabled);
+    }
+  }
+
   destroy(): void {
     this.renderPass.destroy();
     this.textureManager.destroy();
@@ -187,6 +215,14 @@ export class OSRManager {
     }
 
     this.updateInputRouterConfig();
+  }
+
+  private handleCursorStyle(cursor: string): void {
+    if (this.cursorStyle !== cursor) {
+      this.cursorStyle = cursor;
+      console.log(`[OSR] Cursor style changed: ${cursor}`);
+      this.onCursorStyleCb?.(cursor);
+    }
   }
 
   private updateTextureBindings(): void {
