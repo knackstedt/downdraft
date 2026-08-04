@@ -3,6 +3,10 @@
 // ============================================================================
 
 import type { OSRSharedTexturePixelFormat } from "../types";
+import { createDecompressWorker } from "./osr-decompress-worker";
+import { OSRSABRingBuffer } from "./osr-sab-buffer";
+
+const SAB_SLOT_COUNT = 4;
 
 export class OSRTextureReceiver {
   readonly rendererId: string;
@@ -15,6 +19,11 @@ export class OSRTextureReceiver {
   private gpuTextureFormat: GPUTextureFormat | null = null;
   private receiverRegistered = false;
   private pendingVideoFrame: VideoFrame | null = null;
+  // Worker + SAB pipeline for off-main-thread decompression
+  private decompressWorker: Worker | null = null;
+  private sabRing: OSRSABRingBuffer | null = null;
+  private sabDrainActive = false;
+  private regionCount = 0;
 
   constructor(device: GPUDevice, rendererId: string, width: number, height: number, pixelFormat: OSRSharedTexturePixelFormat) {
     this.device = device;
@@ -148,8 +157,71 @@ export class OSRTextureReceiver {
       console.log(`[OSR] registerSharedTextureReceiver not available for '${this.rendererId}' — CPU fallback only`);
     }
 
-    // Also register NativeImage paint fallback (CPU path)
-    if (downdraft?.osr?.onPaintImage) {
+    // Region-based CPU path — dirty rect + compressed data via Worker + SAB
+    if (downdraft?.osr?.onPaintRegion) {
+      // Allocate SAB ring buffer — slot size based on actual frame dimensions
+      const slotSize = this.width * this.height * 4;
+      const sab = OSRSABRingBuffer.allocate(slotSize, SAB_SLOT_COUNT);
+      this.sabRing = new OSRSABRingBuffer(sab);
+
+      // Spawn decompression worker (inline blob — no Vite URL resolution needed)
+      try {
+        const worker = createDecompressWorker();
+        this.decompressWorker = worker;
+        worker.postMessage({ type: "init", sab });
+        worker.onerror = (e) => {
+          console.error(`[OSR] Decompress worker error for '${this.rendererId}':`, e.message);
+        };
+      } catch (err) {
+        console.error(`[OSR] Failed to spawn decompress worker for '${this.rendererId}':`, err, err instanceof Error ? err.message : String(err));
+        this.decompressWorker = null;
+        this.sabRing = null;
+      }
+
+      // Start SAB drain loop — polls for decompressed data and uploads to GPU
+      if (this.sabRing && this.decompressWorker) {
+        this.startSabDrain();
+      }
+
+      downdraft.osr.onPaintRegion((rendererId: string, region: {
+        x: number; y: number; width: number; height: number;
+        fullWidth: number; fullHeight: number;
+        data: ArrayBuffer; compressed: boolean;
+      }) => {
+        if (rendererId !== this.rendererId) return;
+        try {
+          const { x, y, width: rw, height: rh, fullWidth, fullHeight, data, compressed } = region;
+          if (rw === 0 || rh === 0) return;
+
+          // Ensure GPU texture matches full frame size
+          if (fullWidth !== this.width || fullHeight !== this.height ||
+              !this.gpuTexture || this.gpuTextureFormat !== "bgra8unorm") {
+            this.width = fullWidth;
+            this.height = fullHeight;
+            this.createGpuTexture("bgra8unorm");
+          }
+
+          if (this.regionCount === 0) {
+            console.log(`[OSR] First region for '${this.rendererId}': ${rw}x${rh} at (${x},${y}), ${data.byteLength}B${compressed ? " (compressed)" : ""}`);
+          }
+          this.regionCount++;
+
+          if (!this.decompressWorker) {
+            console.warn(`[OSR] Worker not running for '${this.rendererId}' — dropping frame (CPU fallback disabled)`);
+            return;
+          }
+          // Send compressed data to worker — transferable ArrayBuffer (zero-copy)
+          this.decompressWorker.postMessage(
+            { type: "decompress", data, x, y, width: rw, height: rh, compressed },
+            [data],
+          );
+        } catch (err) {
+          console.error(`[OSR] Region copy failed for '${this.rendererId}':`, err);
+        }
+      });
+      if (!registered) registered = true;
+    } else if (downdraft?.osr?.onPaintImage) {
+      // Legacy fallback: full-frame NativeImage (no dirty rect optimization)
       let nativeImageCount = 0;
       downdraft.osr.onPaintImage((rendererId: string, image: any) => {
         if (rendererId !== this.rendererId) return;
@@ -162,8 +234,6 @@ export class OSRTextureReceiver {
             console.log(`[OSR] First NativeImage for '${this.rendererId}': ${w}x${h}`);
           }
           nativeImageCount++;
-          // NativeImage.toBitmap() returns BGRA on Linux — use bgra8unorm texture
-          // and writeTexture directly (no per-pixel swap, no ImageData allocation)
           if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== "bgra8unorm") {
             this.width = w;
             this.height = h;
@@ -197,7 +267,67 @@ export class OSRTextureReceiver {
     return { width: this.width, height: this.height };
   }
 
+  private startSabDrain(): void {
+    if (this.sabDrainActive) return;
+    this.sabDrainActive = true;
+
+    const drain = () => {
+      if (!this.sabDrainActive || !this.sabRing) return;
+
+      // Drain all available slots
+      let uploaded = 0;
+      for (;;) {
+        const slot = this.sabRing.nextReadSlot();
+        if (slot === null) break;
+        const region = this.sabRing.readSlot(slot);
+        this.sabRing.consumeSlot();
+        if (!region) continue;
+
+        try {
+          if (!this.gpuTexture) continue;
+          // Clamp to texture bounds — defense against bad dirty rects
+          const maxX = Math.min(region.x + region.width, this.width);
+          const maxY = Math.min(region.y + region.height, this.height);
+          const clampedW = maxX - region.x;
+          const clampedH = maxY - region.y;
+          if (clampedW <= 0 || clampedH <= 0) continue;
+          this.device.queue.writeTexture(
+            { texture: this.gpuTexture, origin: { x: region.x, y: region.y } },
+            region.data as unknown as ArrayBuffer,
+            { bytesPerRow: clampedW * 4, rowsPerImage: clampedH },
+            { width: clampedW, height: clampedH },
+          );
+          uploaded++;
+        } catch (err) {
+          console.error(`[OSR] SAB drain writeTexture failed for '${this.rendererId}':`, err);
+        }
+      }
+
+      if (uploaded > 0 && this.regionCount <= 3) {
+        console.log(`[OSR] SAB drain for '${this.rendererId}': uploaded ${uploaded} regions`);
+      }
+
+      // Continue draining — use microtask for low latency
+      requestAnimationFrame(drain);
+    };
+    requestAnimationFrame(drain);
+  }
+
+
   destroy(): void {
+    // Stop SAB drain loop
+    this.sabDrainActive = false;
+
+    // Shutdown worker + SAB
+    if (this.sabRing) {
+      this.sabRing.shutdown();
+      this.sabRing = null;
+    }
+    if (this.decompressWorker) {
+      this.decompressWorker.terminate();
+      this.decompressWorker = null;
+    }
+
     if (this.pendingVideoFrame) {
       try { this.pendingVideoFrame.close(); } catch {}
       this.pendingVideoFrame = null;
