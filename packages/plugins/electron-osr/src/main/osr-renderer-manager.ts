@@ -3,10 +3,10 @@
 // ============================================================================
 
 import { screen, type WebContents } from "electron";
-import { OSRRenderer, type RendererEventCallback } from "./osr-renderer.ts";
+import type { AtlasLayout, OSRRendererConfig, OSRRendererEvent } from "../types.ts";
 import { OSRAtlasRenderer } from "./osr-atlas-renderer.ts";
 import { OSRDedicatedRenderer } from "./osr-dedicated-renderer.ts";
-import type { OSRRendererConfig, OSRRendererEvent, AtlasLayout } from "../types.ts";
+import { OSRRenderer, type RendererEventCallback } from "./osr-renderer.ts";
 
 export class OSRRendererManager {
   private renderers = new Map<string, OSRRenderer>();
@@ -34,7 +34,8 @@ export class OSRRendererManager {
 
   createRenderer(config: OSRRendererConfig): OSRRenderer {
     if (this.renderers.has(config.id)) {
-      throw new Error(`OSR renderer '${config.id}' already exists`);
+      // Renderer already exists (e.g. after page reload) — destroy and recreate
+      this.destroyRenderer(config.id);
     }
 
     const displayRefreshRate = this.getDisplayRefreshRate();

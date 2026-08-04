@@ -3,6 +3,7 @@ import type { Plugin, ViteDevServer } from "vite";
 export interface HotReloadPluginOptions {
   simPaths: string[];
   rendererPaths: string[];
+  excludePaths?: string[];
   shaderExts: string[];
   assetExts: string[];
 }
@@ -14,7 +15,7 @@ interface HotReloadPayload {
 }
 
 export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
-  const { simPaths, rendererPaths, shaderExts, assetExts } = options;
+  const { simPaths, rendererPaths, excludePaths = [], shaderExts, assetExts } = options;
 
   // Debounce: track last event time per category to coalesce bursts
   const lastEventTime: Record<string, number> = {};
@@ -49,13 +50,14 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
       const filePath = ctx.file;
       const timestamp = Date.now();
 
-      // Sim code → worker swap
-      if (matchesPath(filePath, simPaths)) {
-        sendEvent(ctx.server, "sim:hot-reload", { file: filePath, timestamp });
-        return [];
+      // Excluded paths — let Vite/electron-vite handle natively (e.g. main process rebuilds)
+      if (matchesPath(filePath, excludePaths)) {
+        return undefined;
       }
 
       // Renderer engine code (non-TSX, non-CSS) → state-preserving page reload
+      // Checked BEFORE simPaths so specific renderer paths (e.g. electron-osr/src/renderer/)
+      // take priority over broad simPath matches (e.g. packages/plugins/)
       if (
         matchesPath(filePath, rendererPaths) &&
         !filePath.endsWith(".tsx") &&
@@ -65,6 +67,12 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
           file: filePath,
           timestamp,
         });
+        return [];
+      }
+
+      // Sim code → worker swap
+      if (matchesPath(filePath, simPaths)) {
+        sendEvent(ctx.server, "sim:hot-reload", { file: filePath, timestamp });
         return [];
       }
 

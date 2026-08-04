@@ -126,7 +126,7 @@ export abstract class OSRRenderer {
           // — by now the renderer has finished its WebGPU copy
           if (previousImported) {
             try { previousImported.imported.release(() => {
-              previousImported.texture.release();
+              previousImported?.texture.release();
             }); } catch {}
           }
           const imported = subtle.importSharedTexture(texture.textureInfo);

@@ -70,62 +70,45 @@ const api = {
       ipcRenderer.on(IPC.OSR_RENDERER_EVENT, (_e, event) => cb(event)),
     onCursorStyle: (cb: (rendererId: string, cursor: string) => void) =>
       ipcRenderer.on(IPC.OSR_CURSOR_STYLE, (_e, rendererId, cursor) => cb(rendererId, cursor)),
-    // Register a shared texture receiver — forwards VideoFrames from the
-    // preload's isolated world to the renderer's main world via postMessage.
-    // VideoFrames are transferable objects and cannot be proxied through
-    // contextBridge — they must be transferred via postMessage with a
-    // transfer list.
+    // Register a shared texture receiver using the subtle API.
+    // Main process sends transfer data via IPC; preload reconstructs via
+    // finishTransferSharedTexture, extracts VideoFrame, and forwards to
+    // renderer's main world via postMessage (VideoFrame is transferable).
     registerSharedTextureReceiver: (): boolean => {
-      if (!sharedTextureApi?.setSharedTextureReceiver) return false;
+      const subtle = sharedTextureApi?.subtle;
+      if (!subtle?.finishTransferSharedTexture) {
+        console.error("[preload] sharedTexture.subtle.finishTransferSharedTexture not available");
+        return false;
+      }
+      let logDone = false;
       let previousImported: any = null;
-      let importedLogDone = false;
-      sharedTextureApi.setSharedTextureReceiver(async (receivedData: any) => {
-        if (!importedLogDone) {
-          console.log(`[preload] receivedData keys:`, Object.keys(receivedData ?? {}));
-        }
-        const imported = receivedData.importedSharedTexture;
-        // sendSharedTexture extra args don't appear in receivedData reliably.
-        // Use a global variable set by the renderer to track which rendererId
-        // is expected, or default to passing all frames through.
-        const rendererId = (globalThis as any).__osrActiveRendererId ?? "unknown";
-        if (!importedLogDone) {
-          console.log(`[preload] importedSharedTexture methods:`, Object.keys(imported ?? {}));
-          if (imported?.subtle) console.log(`[preload] imported.subtle methods:`, Object.keys(imported.subtle));
-          importedLogDone = true;
-        }
-        // Release the previous imported texture — its VideoFrame has been
-        // consumed by the main world by now (postMessage transfer is immediate)
-        if (previousImported) {
-          try { previousImported.release?.() ?? previousImported.subtle?.release?.(); } catch {}
-        }
-        previousImported = imported;
-        let vfLogDone = false;
+      ipcRenderer.on("__osr_shared_texture_transfer", (_e: any, rendererId: string, transfer: any) => {
         try {
-          // Try subtle API first — it has proper GPU sync via startTransferSharedTexture
-          const subtle = imported.subtle;
-          let videoFrame: any = null;
-          let usedSubtle = false;
-          if (subtle?.startTransferSharedTexture && subtle?.getVideoFrame) {
-            try {
-              subtle.startTransferSharedTexture();
-              usedSubtle = true;
-            } catch {}
-            videoFrame = subtle.getVideoFrame();
+          // Release the PREVIOUS frame's imported texture — by now the
+          // renderer has finished its WebGPU copy (at least one frame ago)
+          if (previousImported) {
+            try { previousImported.release(() => {}); } catch {}
           }
-          // Fallback to top-level getVideoFrame
-          if (!videoFrame && imported.getVideoFrame) {
-            videoFrame = imported.getVideoFrame();
-            console.log(`[preload] Used top-level getVideoFrame()`);
+          // Reconstruct the imported shared texture in this process
+          const imported = subtle.finishTransferSharedTexture(transfer);
+          previousImported = imported;
+          if (!logDone) {
+            console.log(`[preload] finishTransferSharedTexture succeeded, imported methods:`, Object.keys(imported));
+            logDone = true;
           }
+          // Extract VideoFrame — this is the GPU texture wrapped as a VideoFrame
+          const videoFrame = imported.getVideoFrame();
           if (!videoFrame) {
-            console.error("[preload] getVideoFrame returned null — no method available");
+            console.error("[preload] getVideoFrame returned null");
             return;
           }
-          // Transfer VideoFrame to main world — transfer list detaches it
-          // from this context and makes it available in the main world
+          // Transfer VideoFrame to main world via postMessage
+          // The transfer list detaches the VideoFrame from this context
           window.postMessage({ type: "__osr_video_frame", rendererId, videoFrame }, "*", [videoFrame]);
+          // Don't release imported yet — the renderer needs time to do the
+          // WebGPU copy. It will be released when the next frame arrives.
         } catch (err) {
-          console.error("[preload] sharedTexture forward failed:", err);
+          console.error("[preload] sharedTexture transfer failed:", err);
         }
       });
       return true;

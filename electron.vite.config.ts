@@ -140,7 +140,8 @@ export default defineConfig({
       react(),
       hotReloadPlugin({
         simPaths: ["simulation/", "shared/", "packages/core/", "packages/plugins/"],
-        rendererPaths: ["engine/", "stores/"],
+        rendererPaths: ["engine/", "stores/", "packages/plugins/electron-osr/src/renderer/"],
+        excludePaths: ["packages/plugins/electron-osr/src/main/"],
         shaderExts: [".wgsl"],
         assetExts: [".glb", ".png", ".jpg", ".jpeg", ".webp"],
       }),

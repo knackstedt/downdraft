@@ -2,8 +2,8 @@
 // ElectronOSRPlugin — Engine plugin interface for the Electron OSR plugin
 // ============================================================================
 
-import { OSRManager } from "./osr-manager.ts";
 import type { OSRIPC } from "../types.ts";
+import { OSRManager } from "./osr-manager.ts";
 
 export interface PluginContext {
   device: GPUDevice;
