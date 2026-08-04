@@ -34,7 +34,9 @@ export class OSRDedicatedRenderer extends OSRRenderer {
     this.markDirty();
 
     if (this.window && !this.window.isDestroyed()) {
-      this.window.webContents.executeJavaScript(buildSetContentCall(html));
+      this.window.webContents.executeJavaScript(buildSetContentCall(html)).then(() => {
+        this.injectFakeCaret();
+      }).catch(() => {});
     }
   }
 

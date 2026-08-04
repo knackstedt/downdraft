@@ -82,6 +82,9 @@ export class OSRInputRouter {
           y: coords.y,
           button: "left",
         });
+        this.hoveredRendererId = rendererId;
+      } else {
+        this.hoveredRendererId = null;
       }
       this.lastMouseX = mouse.x;
       this.lastMouseY = mouse.y;
@@ -235,6 +238,11 @@ export class OSRInputRouter {
   /** Check if forced focus mode is active. */
   isForcedFocus(): boolean {
     return this.forcedFocusRendererId !== null;
+  }
+
+  /** Check if the mouse is currently hovering over a billboard. */
+  isHoveringBillboard(): boolean {
+    return this.hoveredRendererId !== null;
   }
 
   /** Exit forced focus mode, return to raycast-based input. */

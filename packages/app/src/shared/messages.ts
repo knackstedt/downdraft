@@ -34,10 +34,12 @@ export const IPC = {
   OSR_UPDATE_DATA: "osr-update-data",
   OSR_SET_CONTENT: "osr-set-content",
   OSR_INPUT_EVENT: "osr-input-event",
+  OSR_SET_SOFTWARE_CURSOR: "osr-set-software-cursor",
 
   // OSR — Main -> Renderer
   OSR_PANEL_LAYOUT: "osr-panel-layout",
   OSR_RENDERER_EVENT: "osr-renderer-event",
+  OSR_CURSOR_STYLE: "osr-cursor-style",
 
   // Main -> Renderer
   SIM_READY: "sim-ready",

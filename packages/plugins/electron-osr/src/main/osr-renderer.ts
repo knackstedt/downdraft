@@ -4,13 +4,13 @@
 
 import { BrowserWindow, type WebContents } from "electron";
 import type {
-    AtlasPanelRect,
-    OSRDataUpdate,
-    OSRInputEvent,
-    OSRPanelConfig,
-    OSRRendererMode,
-    OSRRendererStatus,
-    OSRSharedTexturePixelFormat,
+  AtlasPanelRect,
+  OSRDataUpdate,
+  OSRInputEvent,
+  OSRPanelConfig,
+  OSRRendererMode,
+  OSRRendererStatus,
+  OSRSharedTexturePixelFormat,
 } from "../types.ts";
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;
@@ -204,7 +204,7 @@ export abstract class OSRRenderer {
       const button = event.button === "right" ? 2 : event.button === "middle" ? 1 : 0;
       const js = `(function(){
         var el = document.elementFromPoint(${px}, ${py}) || document;
-        if (!el) { return; }
+        if (!el) { return null; }
         var ev = new MouseEvent('${domType}', {
           bubbles: true, cancelable: true, view: window,
           clientX: ${px}, clientY: ${py},
@@ -224,8 +224,30 @@ export abstract class OSRRenderer {
             target = target.parentElement;
           }
         }
+        // Update software cursor position if enabled
+        var sc = document.getElementById('__osr_sw_cursor');
+        if (sc) { sc.style.left = ${px} + 'px'; sc.style.top = ${py} + 'px'; sc.style.display = 'block'; }
       })()`;
       wc.executeJavaScript(js).catch(() => {});
+      // Separately query the cursor style at the current mouse position
+      const cursorJs = `(function(){
+        var el = document.elementFromPoint(${px}, ${py});
+        if (!el) return null;
+        var ct = el;
+        while (ct && ct !== document) {
+          var cur = getComputedStyle(ct).cursor;
+          if (cur && cur !== 'auto' && cur !== 'default' && cur !== 'none') return cur;
+          ct = ct.parentElement;
+        }
+        return null;
+      })()`;
+      wc.executeJavaScript(cursorJs).then((cursor: string | null) => {
+        if (cursor && this.targetWebContents && !this.targetWebContents.isDestroyed()) {
+          this.targetWebContents.send("osr-cursor-style", this.id, cursor);
+        }
+      }).catch((err: any) => {
+        console.error(`[OSR] cursor style query failed:`, err?.message ?? err);
+      });
       // After mouseup, also dispatch a click event (synthetic events don't auto-generate clicks)
       if (event.type === "mouseUp") {
         const clickJs = `(function(){
@@ -253,7 +275,6 @@ export abstract class OSRRenderer {
     } else if (event.type === "keyDown" || event.type === "keyUp") {
       const keyName = keyCodeToElectronKey(event.keyCode ?? "");
       const domType = event.type === "keyDown" ? "keydown" : "keyup";
-      // For keydown, dispatch the event AND insert text if focused on an input
       const js = `(function(){
         var el = document.activeElement || document.body;
         var ev = new KeyboardEvent('${domType}', {
@@ -263,14 +284,15 @@ export abstract class OSRRenderer {
         el.dispatchEvent(ev);
         if ('${domType}' === 'keydown' && el.tagName) {
           var tag = el.tagName.toLowerCase();
-          if ((tag === 'input' || tag === 'textarea') && '${keyName}'.length === 1) {
+          var isInput = (tag === 'input' || tag === 'textarea');
+          if (isInput && '${keyName}'.length === 1) {
             // Synthetic KeyboardEvents don't insert text — do it manually
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
             el.value = el.value.substring(0, start) + '${keyName}' + el.value.substring(end);
             el.selectionStart = el.selectionEnd = start + 1;
             el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '${keyName}' }));
-          } else if ((tag === 'input' || tag === 'textarea') && '${keyName}' === 'Backspace') {
+          } else if (isInput && '${keyName}' === 'Backspace') {
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
             if (start > 0 && start === end) {
@@ -278,13 +300,141 @@ export abstract class OSRRenderer {
               el.selectionStart = el.selectionEnd = start - 1;
               el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
             }
-          } else if ((tag === 'input' || tag === 'textarea') && '${keyName}' === 'Enter') {
+          } else if (isInput && '${keyName}' === 'Delete') {
+            var start = el.selectionStart || 0;
+            var end = el.selectionEnd || 0;
+            if (start < el.value.length && start === end) {
+              el.value = el.value.substring(0, start) + el.value.substring(end + 1);
+              el.selectionStart = el.selectionEnd = start;
+              el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentForward' }));
+            }
+          } else if (isInput && '${keyName}' === 'Enter') {
             el.dispatchEvent(new Event('change', { bubbles: true }));
+          } else if (isInput && '${keyName}' === 'ArrowLeft') {
+            var start = el.selectionStart || 0;
+            var end = el.selectionEnd || 0;
+            if (start === end) { el.setSelectionRange(Math.max(0, start - 1), Math.max(0, start - 1)); }
+            else { el.setSelectionRange(start, start); }
+          } else if (isInput && '${keyName}' === 'ArrowRight') {
+            var start = el.selectionStart || 0;
+            var end = el.selectionEnd || 0;
+            if (start === end) { el.setSelectionRange(Math.min(el.value.length, start + 1), Math.min(el.value.length, start + 1)); }
+            else { el.setSelectionRange(end, end); }
+          } else if (isInput && '${keyName}' === 'ArrowUp') {
+            if (tag === 'textarea') {
+              var pos = el.selectionStart || 0;
+              var lineStart = el.value.lastIndexOf('\\n', pos - 1) + 1;
+              el.setSelectionRange(lineStart, lineStart);
+            } else { el.setSelectionRange(0, 0); }
+          } else if (isInput && '${keyName}' === 'ArrowDown') {
+            if (tag === 'textarea') {
+              var pos = el.selectionEnd || 0;
+              var nextNL = el.value.indexOf('\\n', pos);
+              var lineEnd = nextNL === -1 ? el.value.length : nextNL;
+              el.setSelectionRange(lineEnd, lineEnd);
+            } else { el.setSelectionRange(el.value.length, el.value.length); }
+          } else if (isInput && '${keyName}' === 'Home') {
+            el.setSelectionRange(0, 0);
+          } else if (isInput && '${keyName}' === 'End') {
+            el.setSelectionRange(el.value.length, el.value.length);
           }
         }
       })()`;
-      wc.executeJavaScript(js).catch(() => {});
+      wc.executeJavaScript(js).then(() => {
+        if (!wc.isDestroyed()) {
+          wc.executeJavaScript("if(window.__osrUpdateCaret) window.__osrUpdateCaret();").catch(() => {});
+        }
+      }).catch(() => {});
     }
+  }
+
+  private softwareCursorEnabled = false;
+
+  protected injectFakeCaret(): void {
+    if (!this.window || this.window.isDestroyed()) return;
+    const js = `(function(){
+      if (window.__osrFakeCaretInit) { window.__osrUpdateCaret(); return; }
+      window.__osrFakeCaretInit = true;
+      var style = document.createElement('style');
+      style.textContent = 'input, textarea { caret-color: transparent !important; } ' +
+        '#__osr_fake_caret { position: fixed; width: 2px; height: 1.2em; background: #0078d4; ' +
+        'pointer-events: none; z-index: 999998; display: none; animation: __osr_blink 1s step-end infinite; } ' +
+        '@keyframes __osr_blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }';
+      document.head.appendChild(style);
+      var caret = document.createElement('div');
+      caret.id = '__osr_fake_caret';
+      document.body.appendChild(caret);
+      var mirror = document.createElement('span');
+      mirror.style.cssText = 'position:absolute; visibility:hidden; white-space:pre; top:0; left:0;';
+      document.body.appendChild(mirror);
+
+      function getCaretRect(el) {
+        var cs = getComputedStyle(el);
+        var pos = el.selectionStart || 0;
+        var text = el.value.substring(0, pos);
+        mirror.style.font = cs.font;
+        mirror.style.fontSize = cs.fontSize;
+        mirror.style.fontFamily = cs.fontFamily;
+        mirror.style.fontWeight = cs.fontWeight;
+        mirror.style.letterSpacing = cs.letterSpacing;
+        mirror.textContent = text;
+        var rect = el.getBoundingClientRect();
+        var paddingLeft = parseFloat(cs.paddingLeft) || 0;
+        var paddingTop = parseFloat(cs.paddingTop) || 0;
+        var borderLeft = parseFloat(cs.borderLeftWidth) || 0;
+        var borderTop = parseFloat(cs.borderTopWidth) || 0;
+        var x = rect.left + paddingLeft + borderLeft + mirror.offsetWidth;
+        var lineHeight = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.4);
+        var y = rect.top + paddingTop + borderTop;
+        return { x: x, y: y, h: lineHeight };
+      }
+
+      window.__osrUpdateCaret = function() {
+        var el = document.activeElement;
+        if (!el || !el.tagName) { caret.style.display = 'none'; return; }
+        var tag = el.tagName.toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea') { caret.style.display = 'none'; return; }
+        var r = getCaretRect(el);
+        caret.style.left = r.x + 'px';
+        caret.style.top = r.y + 'px';
+        caret.style.height = r.h + 'px';
+        caret.style.display = 'block';
+      };
+
+      document.addEventListener('input', window.__osrUpdateCaret, true);
+      document.addEventListener('keydown', function() { setTimeout(window.__osrUpdateCaret, 0); }, true);
+      document.addEventListener('click', window.__osrUpdateCaret, true);
+      document.addEventListener('focusin', window.__osrUpdateCaret, true);
+      document.addEventListener('focusout', function() { caret.style.display = 'none'; }, true);
+      window.__osrUpdateCaret();
+    })()`;
+    this.window.webContents.executeJavaScript(js).catch(() => {});
+  }
+
+  setSoftwareCursorEnabled(enabled: boolean): void {
+    this.softwareCursorEnabled = enabled;
+    if (!this.window || this.window.isDestroyed()) return;
+    if (enabled) {
+      const js = `(function(){
+        if (document.getElementById('__osr_sw_cursor')) return;
+        var c = document.createElement('div');
+        c.id = '__osr_sw_cursor';
+        c.style.cssText = 'position:fixed;left:0;top:0;width:16px;height:16px;pointer-events:none;z-index:999999;display:none;';
+        c.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M1 1 L1 12 L4 9 L6 14 L8 13 L6 8 L11 8 Z" fill="white" stroke="black" stroke-width="1"/></svg>';
+        document.body.appendChild(c);
+      })()`;
+      this.window.webContents.executeJavaScript(js).catch(() => {});
+    } else {
+      const js = `(function(){
+        var c = document.getElementById('__osr_sw_cursor');
+        if (c) c.remove();
+      })()`;
+      this.window.webContents.executeJavaScript(js).catch(() => {});
+    }
+  }
+
+  isSoftwareCursorEnabled(): boolean {
+    return this.softwareCursorEnabled;
   }
 
   getStatus(): OSRRendererStatus {

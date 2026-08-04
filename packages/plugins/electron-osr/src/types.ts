@@ -104,6 +104,8 @@ export interface OSRIPC {
   updateData(rendererId: string, panelId: string, values: Record<string, string | number | boolean>): void;
   setContent(rendererId: string, html: string): Promise<void>;
   sendInputEvent(rendererId: string, event: Omit<OSRInputEvent, "rendererId">): void;
+  setSoftwareCursor(rendererId: string, enabled: boolean): void;
   onPanelLayout(cb: (rendererId: string, layout: AtlasLayout) => void): void;
   onRendererEvent(cb: (event: OSRRendererEvent) => void): void;
+  onCursorStyle(cb: (rendererId: string, cursor: string) => void): void;
 }
