@@ -446,8 +446,15 @@ export class GameRenderer implements CanvasResizeHandler {
     // Before viewports callback (game-specific: particle ticks, pre-viewport setup)
     this.callbacks.beforeViewports?.(dt, this.elapsedTime);
 
+    // If an uncaptured GPU error has fired, skip all GPU work this frame to
+    // avoid the per-frame cascade of native "is invalid due to a previous
+    // error" validation warnings. Game logic callbacks still run so the
+    // simulation stays responsive. The flag is cleared by recovery code that
+    // recreates the invalid resources.
+    const gpuError = this.gpuProfiler?.hasUncapturedError() ?? false;
+
     // XR render target provider beginFrame hook
-    if (this.renderTargetProvider) {
+    if (this.renderTargetProvider && !gpuError) {
       this.renderTargetProvider.beginFrame();
     }
 
@@ -455,27 +462,29 @@ export class GameRenderer implements CanvasResizeHandler {
     const offscreen = this.offscreenMode;
     const useOffscreen = offscreen && offscreen.type !== "none";
 
-    if (offscreen && useOffscreen && offscreen.ensureTargets) {
+    if (offscreen && useOffscreen && offscreen.ensureTargets && !gpuError) {
       offscreen.ensureTargets(this.canvas.width, this.canvas.height);
     }
 
-    for (let v = 0; v < this.viewportCount; v++) {
-      this.renderViewport(v, dt, offscreen);
-    }
+    if (!gpuError) {
+      for (let v = 0; v < this.viewportCount; v++) {
+        this.renderViewport(v, dt, offscreen);
+      }
 
-    // Apply postprocessing
-    if (offscreen && useOffscreen && offscreen.applyPostprocess) {
-      const canvasView = this.context!.getCurrentTexture().createView();
-      const postEncoder = this.device!.createCommandEncoder();
-      offscreen.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
-      this.device!.queue.submit([postEncoder.finish()]);
+      // Apply postprocessing
+      if (offscreen && useOffscreen && offscreen.applyPostprocess) {
+        const canvasView = this.context!.getCurrentTexture().createView();
+        const postEncoder = this.device!.createCommandEncoder();
+        offscreen.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
+        this.device!.queue.submit([postEncoder.finish()]);
+      }
     }
 
     // After viewports callback
     this.callbacks.afterViewports?.(dt, this.elapsedTime);
 
-    // Render GPU UI on top of final image
-    if (this.uiRenderer && this.uiRoot && this.device && this.context) {
+    // Render GPU UI on top of final image (skip on GPU error to avoid cascade)
+    if (!gpuError && this.uiRenderer && this.uiRoot && this.device && this.context) {
       if (this.uiNeedsLayout && this.uiLayoutEngine) {
         this.uiLayoutEngine.layout(this.uiRoot);
         this.uiNeedsLayout = false;
@@ -536,8 +545,8 @@ export class GameRenderer implements CanvasResizeHandler {
       this.frameTriangles = 0;
     }
 
-    // XR render target provider endFrame hook
-    if (this.renderTargetProvider && this.device) {
+    // XR render target provider endFrame hook (skip on GPU error)
+    if (!gpuError && this.renderTargetProvider && this.device) {
       this.renderTargetProvider.endFrame(this.device.createCommandEncoder());
     }
 

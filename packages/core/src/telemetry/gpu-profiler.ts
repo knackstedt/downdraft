@@ -116,6 +116,18 @@ export class GPUProfiler {
 
   private device: GPUDevice | null = null;
 
+  // Error throttling — uncaptured GPU errors fire per-frame when something is
+  // wrong, which floods the console. We log the first occurrence immediately,
+  // suppress duplicates within a throttle window, then emit a summary.
+  private static readonly ERROR_THROTTLE_MS = 1000;
+  private static readonly ERROR_LOG_CAP = 100;
+  private errorThrottle: Map<string, { count: number; firstSeen: number; lastLogged: number; suppressed: number }> = new Map();
+
+  // Once an uncaptured error fires, subsequent GPU operations on the same
+  // invalid resources produce a cascade of native validation warnings every
+  // frame. This flag lets the render loop skip GPU work until recovery.
+  private uncapturedErrorFired = false;
+
   init(device: GPUDevice, adapterInfo: any, canvasFormat: GPUTextureFormat, maxPasses: number = 16): void {
     this.device = device;
     this.adapterInfo = adapterInfo;
@@ -125,14 +137,40 @@ export class GPUProfiler {
     const self = this;
     device.onuncapturederror = function (ev: GPUUncapturedErrorEvent) {
       const label = (ev.error as any)?.label ?? "";
+      const message = ev.error.message;
       const entry: GPUErrors = {
         timestamp: performance.now(),
-        message: ev.error.message,
+        message,
         label: label || undefined,
       };
       self.gpuErrors.push(entry);
-      if (self.gpuErrors.length > 100) self.gpuErrors.shift();
-      console.error(`[GPU] ${label || ""} WebGPU uncaptured error: ${ev.error.message}`);
+      if (self.gpuErrors.length > GPUProfiler.ERROR_LOG_CAP) self.gpuErrors.shift();
+      self.uncapturedErrorFired = true;
+
+      const key = `${label}\u0000${message}`;
+      const now = performance.now();
+      const state = self.errorThrottle.get(key);
+      if (!state) {
+        // First occurrence — log immediately and start a throttle window.
+        self.errorThrottle.set(key, { count: 1, firstSeen: now, lastLogged: now, suppressed: 0 });
+        console.error(`[GPU] ${label || ""} WebGPU uncaptured error: ${message}`);
+        return;
+      }
+      state.count++;
+      const elapsed = now - state.lastLogged;
+      if (elapsed < GPUProfiler.ERROR_THROTTLE_MS) {
+        // Within the throttle window — suppress.
+        state.suppressed++;
+        return;
+      }
+      // Window elapsed — emit a summary of suppressed duplicates and reset.
+      const suppressed = state.suppressed + 1; // +1 for this occurrence
+      console.error(
+        `[GPU] ${label || ""} WebGPU uncaptured error: ${message} ` +
+          `(repeated ${suppressed}× in ${Math.round(elapsed)}ms)`,
+      );
+      state.lastLogged = now;
+      state.suppressed = 0;
     };
 
     device.lost.then((info: any) => {
@@ -147,6 +185,17 @@ export class GPUProfiler {
 
   isGpuTimerSupported(): boolean {
     return this.gpuTimerPool?.isSupported() ?? false;
+  }
+
+  /** True after an uncaptured GPU error — the render loop should skip GPU work
+   *  to avoid per-frame validation warning cascades. Stays true until cleared. */
+  hasUncapturedError(): boolean {
+    return this.uncapturedErrorFired;
+  }
+
+  /** Clear the uncaptured-error flag (e.g. after recreating resources). */
+  clearUncapturedError(): void {
+    this.uncapturedErrorFired = false;
   }
 
   // --- Pass timing ---

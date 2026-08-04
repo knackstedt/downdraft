@@ -12,6 +12,7 @@ import type {
   OSRRendererStatus,
   OSRSharedTexturePixelFormat,
 } from "../types.ts";
+const { sharedTexture } = require("electron") as any;
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;
 
@@ -60,6 +61,10 @@ export abstract class OSRRenderer {
 
   setTargetWebContents(wc: WebContents): void {
     this.targetWebContents = wc;
+    console.log(`[OSR] electron.sharedTexture available: ${!!sharedTexture}`);
+    if (sharedTexture) {
+      console.log(`[OSR] sharedTexture methods:`, Object.keys(sharedTexture));
+    }
   }
 
   setDisplayRefreshRate(refreshRate: number): void {
@@ -76,7 +81,6 @@ export abstract class OSRRenderer {
       height: this.height,
       show: false,
       frame: false,
-      transparent: true,
       webPreferences: {
         offscreen: {
           useSharedTexture: false,
@@ -90,45 +94,71 @@ export abstract class OSRRenderer {
     win.webContents.setFrameRate(this.frameRate);
 
     // Paint event → import shared texture → send to game renderer
-    // CPU mode signature: (event, dirtyRect, image: NativeImage)
-    // Shared texture mode signature: (event, { texture, dirtyRect })
+    // CPU mode: (event, dirtyRect, image: NativeImage)
+    // Shared texture mode: (event, dirtyRect, image) with event.texture set
+    let paintCount = 0;
     win.webContents.on("paint", async (event: any, ...args: any[]) => {
-      // Detect mode: shared texture passes an object with .texture, CPU passes a NativeImage as 2nd arg
-      const params = args[0];
-      const isSharedTextureMode = params && typeof params === "object" && "texture" in params;
+      if (paintCount === 0) {
+        console.log(`[OSR] First paint event for '${this.id}': event.texture=${!!event.texture}, args.length=${args.length}, args[0] type=${typeof args[0]}, args[1] type=${typeof args[1]}`);
+      }
+      // In shared texture mode, the texture is on the event object itself
+      const texture = event.texture;
+      const isSharedTextureMode = !!texture;
       
       if (isSharedTextureMode) {
-        const texture = params.texture;
         if (!texture || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
           if (texture) texture.release();
           return;
         }
+        // Check if sharedTexture API is available
+        const stApi = sharedTexture?.importSharedTexture ? sharedTexture : sharedTexture?.subtle;
+        if (!stApi?.importSharedTexture) {
+          if (paintCount === 0) {
+            console.error(`[OSR] sharedTexture.importSharedTexture not available — cannot use shared texture mode`);
+          }
+          texture.release();
+          return;
+        }
         try {
-          const imported = this.targetWebContents.sharedTexture.importSharedTexture({
+          const imported = stApi.importSharedTexture({
             textureInfo: texture.textureInfo,
           });
           try {
-            await this.targetWebContents.sharedTexture.sendSharedTexture({
+            await stApi.sendSharedTexture({
               frame: this.targetWebContents.mainFrame,
               importedSharedTexture: imported,
-            });
+            }, this.id);
           } finally {
             imported.release();
           }
         } catch (err) {
-          // Shared texture send failed
+          console.error(`[OSR] Shared texture send failed for '${this.id}':`, err);
         } finally {
           texture.release();
         }
       } else {
-        // CPU bitmap mode — args[1] is the NativeImage
+        // CPU bitmap mode — (event, dirtyRect, image: NativeImage)
+        // args = [dirtyRect, image]
         const image = args[1];
         if (!image || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
+          return;
+        }
+        // Guard against 0-size images
+        try {
+          const size = image.getSize();
+          if (size.width === 0 || size.height === 0) {
+            if (paintCount === 0) {
+              console.warn(`[OSR] Paint event produced 0x0 image for '${this.id}' — page may still be loading`);
+            }
+            return;
+          }
+        } catch {
           return;
         }
         // Forward the NativeImage to the renderer via IPC
         this.targetWebContents.send("__osr_paint_image", this.id, image);
       }
+      paintCount++;
 
       // Note: We don't stop painting here — the offscreen page may still be
       // loading content (e.g. an iframe). Continuous painting ensures we capture

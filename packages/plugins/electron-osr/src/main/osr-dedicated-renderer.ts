@@ -40,6 +40,16 @@ export class OSRDedicatedRenderer extends OSRRenderer {
     }
   }
 
+  loadURL(url: string): void {
+    this.content = null;
+    if (this.window && !this.window.isDestroyed()) {
+      this.window.webContents.once("did-finish-load", () => {
+        this.injectFakeCaret();
+      });
+      this.window.loadURL(url);
+    }
+  }
+
   applyDataUpdate(update: OSRDataUpdate): void {
     if (this.window && !this.window.isDestroyed()) {
       this.window.webContents.executeJavaScript(buildUpdateDataCall(update.panelId, update.values));

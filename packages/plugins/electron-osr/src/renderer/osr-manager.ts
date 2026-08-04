@@ -139,9 +139,11 @@ export class OSRManager {
   render(camera: CameraState, passEncoder: GPURenderPassEncoder): void {
     if (this.elements.size === 0) return;
 
+    const texList = this.textureManager.getTextureList();
+
     this.renderPass.updateCamera(camera);
     this.renderPass.setTextures(
-      this.textureManager.getTextureList().map((t) => ({ textureView: t.textureView })),
+      texList.map((t) => ({ textureView: t.textureView })),
     );
 
     const elementArray = Array.from(this.elements.values());

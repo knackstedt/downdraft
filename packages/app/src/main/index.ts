@@ -284,16 +284,67 @@ async function createWindow(): Promise<void> {
     }
   }
 
-  // Forward renderer console to stdout
+  // Forward renderer console to stdout (with throttling for spammy messages)
+  // Native WebGPU validation warnings flood the console when a resource goes
+  // invalid — every frame produces a cascade of "is invalid due to a previous
+  // error" warnings that Chromium emits directly to console.warn. These can't
+  // be intercepted in the renderer, but they all flow through here.
+  const consoleThrottle = new Map<string, { count: number; lastLogged: number; suppressed: number }>();
+  const CONSOLE_THROTTLE_MS = 1000;
+  // Messages matching these patterns are pure cascade noise — throttle hard.
+  const WEBGPU_CASCADE_RE = /is invalid due to a previous error|While (encoding|validating|finishing|calling|creating)/;
+  // Normalize a message for dedup: strip volatile suffixes/addresses so repeated
+  // warnings collapse to the same key.
+  function normalizeConsoleMessage(msg: string): string {
+    return msg
+      .replace(/\b0x[0-9a-fA-F]+\b/g, "0xADDR") // pointer addresses
+      .replace(/\[\d+\]/g, "[N]")               // array indices
+      .trim()
+      .slice(0, 200);                            // cap key length
+  }
   mainWindow.webContents.on("console-message", (event) => {
     const { level, message, lineNumber, sourceId } = event;
     if (message.includes("ResizeObserver loop completed with undelivered notifications")) return;
     if (message.includes("Insecure Content-Security-Policy")) return;
+
     const levelMap: Record<string, "debug" | "info" | "warn" | "error"> = {
       debug: "debug", info: "info", warning: "warn", error: "error",
     };
     const moduleStr = sourceId ? `${sourceId}:${lineNumber}` : `line:${lineNumber}`;
-    (log[levelMap[level] ?? "info"])(moduleStr, message);
+    const logLevel = levelMap[level] ?? "info";
+
+    // Only throttle warn/error — debug/info are typically low-volume.
+    if (logLevel !== "warn" && logLevel !== "error") {
+      (log[logLevel])(moduleStr, message);
+      return;
+    }
+
+    const isCascade = WEBGPU_CASCADE_RE.test(message);
+    const key = isCascade
+      ? `webgpu-cascade:${normalizeConsoleMessage(message).split("\n")[0]}`
+      : `msg:${logLevel}:${normalizeConsoleMessage(message)}`;
+    const now = Date.now();
+    const state = consoleThrottle.get(key);
+
+    if (!state) {
+      consoleThrottle.set(key, { count: 1, lastLogged: now, suppressed: 0 });
+      (log[logLevel])(moduleStr, message);
+      return;
+    }
+    state.count++;
+    const elapsed = now - state.lastLogged;
+    if (elapsed < CONSOLE_THROTTLE_MS) {
+      state.suppressed++;
+      return;
+    }
+    // Window elapsed — emit summary and reset.
+    const suppressed = state.suppressed + 1;
+    const summary = isCascade
+      ? `${message.split("\n")[0]} (repeated ${suppressed}× in ${elapsed}ms, full cascade suppressed)`
+      : `${message} (repeated ${suppressed}× in ${elapsed}ms)`;
+    (log[logLevel])(moduleStr, summary);
+    state.lastLogged = now;
+    state.suppressed = 0;
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
@@ -672,6 +723,15 @@ function registerIpcHandlers(): void {
     if (!renderer) return;
     if (renderer.mode === "dedicated") {
       (renderer as any).setContent(html);
+    }
+  });
+
+  ipcMain.handle(IPC.OSR_LOAD_URL, async (_event, rendererId: string, url: string) => {
+    if (!osrManager) return;
+    const renderer = osrManager.getRenderer(rendererId);
+    if (!renderer) return;
+    if (renderer.mode === "dedicated") {
+      (renderer as any).loadURL(url);
     }
   });
 

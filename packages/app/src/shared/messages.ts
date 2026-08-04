@@ -33,6 +33,7 @@ export const IPC = {
   OSR_UPDATE_PANEL: "osr-update-panel",
   OSR_UPDATE_DATA: "osr-update-data",
   OSR_SET_CONTENT: "osr-set-content",
+  OSR_LOAD_URL: "osr-load-url",
   OSR_INPUT_EVENT: "osr-input-event",
   OSR_SET_SOFTWARE_CURSOR: "osr-set-software-cursor",
 
