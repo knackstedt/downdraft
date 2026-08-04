@@ -9,7 +9,7 @@ export class TSPluginLoader {
   }
 
   async load(pluginPath: string): Promise<Plugin> {
-    const mod = await import(pluginPath);
+    const mod = await import(/* @vite-ignore */ pluginPath);
     const plugin: Plugin = mod.default ?? mod;
     this.registry.register(plugin);
     return plugin;
