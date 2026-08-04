@@ -23,6 +23,8 @@ export class OSRManager {
   private renderPass: WorldSpaceUIPass;
   private inputRouter: OSRInputRouter | null = null;
   private elements = new Map<string, WorldSpaceUIElement>();
+  private _warnedNoTextures = false;
+  private _loggedFirstRender = false;
   private rendererIds: string[] = [];
   private rendererStatuses = new Map<string, OSRRendererStatus>();
   private atlasLayouts = new Map<string, AtlasLayout>();
@@ -140,6 +142,17 @@ export class OSRManager {
     if (this.elements.size === 0) return;
 
     const texList = this.textureManager.getTextureList();
+    if (texList.length === 0) {
+      if (!this._warnedNoTextures) {
+        console.warn(`[OSR] No textures available for rendering — texture receivers may not have received frames yet`);
+        this._warnedNoTextures = true;
+      }
+      return;
+    }
+    if (!this._loggedFirstRender) {
+      console.log(`[OSR] First render with ${texList.length} texture(s), ${this.elements.size} element(s)`);
+      this._loggedFirstRender = true;
+    }
 
     this.renderPass.updateCamera(camera);
     this.renderPass.setTextures(

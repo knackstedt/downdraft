@@ -50,7 +50,7 @@ fn vs_main(@location(0) quadUV: vec2<f32>, instance: InstanceInput) -> VertexOut
 
   let worldPos = vec4<f32>(instance.position + worldOffset, 1.0);
   output.clipPosition = camera.viewProj * worldPos;
-  output.uv = instance.uvOffset + quadUV * instance.uvScale;
+  output.uv = instance.uvOffset + vec2<f32>(quadUV.x, 1.0 - quadUV.y) * instance.uvScale;
 
   return output;
 }
