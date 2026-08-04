@@ -1,26 +1,17 @@
 // ============================================================================
 // Core Type Definitions — shared across all threads (main, sim, renderer)
+// Engine-level types re-exported from @downdraft/core.
+// Game-specific types (biomes, ports, fishing, economy, etc.) remain here.
 // ============================================================================
 
-// --- Math ---
+// --- Engine-level types (re-exported from core) ---
+export { CameraMode, EntityFlags } from "@downdraft/core";
+export type { DbRequest, DbResponse, EntityData, EntityId, MainToSimMessage, PlayerId, PlayerState, Quat, RendererToSimMessage, SimToMainMessage, SimToRendererMessage, Transform, Vec2, Vec3, Vec4 } from "@downdraft/core";
 
-export interface Vec2 { x: number; y: number; }
-export interface Vec3 { x: number; y: number; z: number; }
-export interface Vec4 { x: number; y: number; z: number; w: number; }
-export type Quat = Vec4;
+// Re-export for backward compat — these are now in core
+import type { EntityId, PlayerId, Quat, Vec3 } from "@downdraft/core";
 
-export interface Transform {
-  position: Vec3;
-  rotation: Quat;
-  scale: Vec3;
-}
-
-// --- Identifiers ---
-
-export type EntityId = number;
-export type PlayerId = number;
-
-// --- Enums ---
+// --- Game Modes ---
 
 export enum GameMode {
   Creative = "creative",
@@ -29,11 +20,7 @@ export enum GameMode {
   Custom = "custom",
 }
 
-export enum CameraMode {
-  FirstPerson = 0,
-  ThirdPerson = 1,
-  FreeCam = 2,
-}
+// --- Game-Specific Enums ---
 
 export enum BiomeType {
   Lake = 0,
@@ -158,20 +145,6 @@ export const EntityTypeNames: Record<number, string> = {
   [EntityType.Treasure]: "Treasure",
 };
 
-export enum EntityFlags {
-  None = 0,
-  Static = 1 << 0,
-  NoCollision = 1 << 1,
-  Underwater = 1 << 2,
-  Onboard = 1 << 3,    // entity is on a ship
-  Docked = 1 << 4,
-  Sleeping = 1 << 5,
-  Dead = 1 << 6,
-  Hostile = 1 << 7,
-  Tameable = 1 << 8,
-  Bioluminescent = 1 << 9,
-}
-
 export enum SmallCraftType {
   Rowboat = 0,
   Dinghy = 1,
@@ -232,43 +205,6 @@ export enum PirateRace {
   KrakenCult = "kraken_cult",
   GhostFleet = "ghost_fleet",
   AbyssalOrder = "abyssal_order",
-}
-
-// --- Entity Component Data ---
-
-export interface EntityData {
-  id: EntityId;
-  type: EntityType;
-  flags: number;
-  transform: Transform;
-  velocity: Vec3;
-  angularVelocity: Vec3;
-  health: number;
-  maxHealth: number;
-  parentId: EntityId;     // ship/island this entity is on (0 = none)
-  chunkX: number;
-  chunkZ: number;
-  // Type-specific data stored as a compact blob
-  data: Float32Array;
-}
-
-export interface PlayerState {
-  id: PlayerId;
-  entityId: EntityId;
-  health: number;
-  maxHealth: number;
-  hunger: number;
-  thirst: number;
-  oxygen: number;
-  maxOxygen: number;
-  temperature: number;
-  cameraMode: CameraMode;
-  activeSlot: number;      // hotbar active slot
-  flags: number;           // sleeping, dead, etc.
-  viewportX: number;        // split-screen viewport
-  viewportY: number;
-  viewportW: number;
-  viewportH: number;
 }
 
 // --- Items ---
@@ -548,17 +484,7 @@ export interface EquipmentTier {
   requiredMaterials: { itemId: string; quantity: number }[];
 }
 
-// --- Messages ---
-
-export interface SimToRendererMessage {
-  kind: "entity_spawn" | "entity_despawn" | "ui_event" | "state_snapshot" | "weather_update" | "market_update" | "catch_result" | "trade_result" | "notification" | "player_update";
-  data: any;
-}
-
-export interface RendererToSimMessage {
-  kind: "input_action" | "build_request" | "fish_cast" | "fish_reel" | "trade" | "place_item" | "remove_item" | "sleep" | "respawn" | "customization" | "gamemode" | "save" | "load" | "settings";
-  data: any;
-}
+// --- Game Commands ---
 
 export type SimCommandType =
   | "trade"
@@ -582,11 +508,6 @@ export interface SimCommand {
   type: SimCommandType;
   playerId: number;
   payload: Record<string, unknown>;
-}
-
-export interface MainToSimMessage {
-  kind: "init" | "pause" | "resume" | "save" | "load" | "set_gamemode" | "set_setting" | "add_player" | "remove_player" | "shutdown" | "respawn" | "debug_mode" | "command" | "world_command" | "set_weather" | "set_time_of_day";
-  data: any;
 }
 
 export type WorldCommandType =
@@ -625,26 +546,6 @@ export interface TerrainDeformationBroadcast {
   entityWorldZ: number;
   radius: number;
   strength: number;
-}
-
-export interface SimToMainMessage {
-  kind: "ready" | "saved" | "loaded" | "error" | "performance" | "player_died" | "weather_changed" | "gc_stats" | "perf_stats" | "boat_design_update" | "boat_design_remove" | "collision_log" | "fishing_result" | "terrain_deformed" | "terrain_lod_changed" | "ship_hold_update" | "sim_speed_changed";
-  data: any;
-}
-
-export interface DbRequest {
-  id: number;
-  type: "init" | "query" | "shutdown";
-  dataDir?: string;
-  sql?: string;
-  params?: Record<string, unknown>;
-}
-
-export interface DbResponse {
-  id: number;
-  type: string;
-  result?: unknown;
-  error?: string;
 }
 
 // --- Split-Screen ---

@@ -102,6 +102,8 @@ export default defineConfig({
         { find: /^@downdraft\/plugin-models\//, replacement: resolve("packages/plugins/models/src") + "/" },
         { find: /^@downdraft\/plugin-devtools$/, replacement: resolve("packages/plugins/devtools/src/index.ts") },
         { find: /^@downdraft\/plugin-devtools\//, replacement: resolve("packages/plugins/devtools/src") + "/" },
+        { find: /^@downdraft\/plugin-boats$/, replacement: resolve("packages/plugins/boats/src/index.ts") },
+        { find: /^@downdraft\/plugin-boats\//, replacement: resolve("packages/plugins/boats/src") + "/" },
         { find: /^node:fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
         { find: /^fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
         { find: /^@downdraft\/plugin-marching-cubes$/, replacement: resolve("packages/plugins/marching-cubes/src/index.ts") },

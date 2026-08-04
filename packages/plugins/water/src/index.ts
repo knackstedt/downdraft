@@ -32,6 +32,9 @@ export {
 } from "./wave-sources";
 export type { ShoreProvider, ShoreSource, WakeProvider, WakeSource } from "./wave-sources";
 
+// Water SAB Channel (defineChannel-based SharedArrayBuffer protocol)
+export { WATER_FLOW_OFFSET_SAB, WATER_GRID_SAB, WATER_HDR_SAB, WATER_HEIGHT_OFFSET_SAB, WATER_MAGIC_SAB, WATER_NORMAL_OFFSET_SAB, WATER_VERSION_SAB, WaterBufferReader, WaterBufferWriter, WaterChannel } from "./water-sab";
+
 export interface WaterPluginResources {
   buffer: WaterBuffer;
   physics: WaterPhysics;
