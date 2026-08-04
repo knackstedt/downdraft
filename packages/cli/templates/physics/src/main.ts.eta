@@ -7,7 +7,9 @@ import {
     createSphereCollider,
     MeshBuilder,
     PhysicsTransform,
+    Query,
     RigidBody,
+    Stage,
     system,
     Velocity,
     World
@@ -16,7 +18,6 @@ import {
 const log = createLogger();
 
 interface PhysicsBodyData {
-  [key: string]: unknown;
   bodyType: "dynamic" | "static" | "kinematic";
   mass: number;
   restitution: number;
@@ -31,7 +32,6 @@ const PhysicsBody = Component.register<PhysicsBodyData>("PhysicsBody", {
 });
 
 interface FallingShapeData {
-  [key: string]: unknown;
   shape: "box" | "sphere";
   size: number;
   color: [number, number, number];
@@ -42,6 +42,8 @@ const FallingShape = Component.register<FallingShapeData>("FallingShape", {
   size: 1,
   color: [1, 1, 1],
 });
+
+const gravityQuery = new Query([RigidBody.id, Velocity.id, PhysicsTransform.id]);
 
 let world: World;
 let camera: Camera;
@@ -64,22 +66,61 @@ export function init(ctx: any) {
   const sphereMesh = MeshBuilder.sphere(0.5, 16, 16);
   world.setResource("sphereMesh", sphereMesh);
 
-  const groundEntity = world.spawn();
-  world.addComponent(groundEntity, PhysicsBody.create({
-    bodyType: "static",
-    mass: 0,
-    restitution: 0.3,
-    friction: 0.8,
-  }));
-  world.addComponent(groundEntity, Collider.create(createBoxCollider(20, 1, 20)));
-  world.addComponent(groundEntity, PhysicsTransform.create({
-    position: [0, -1, 0],
-  }));
-  world.addComponent(groundEntity, FallingShape.create({
-    shape: "box",
-    size: 20,
-    color: [0.3, 0.5, 0.3],
-  }));
+  // Spawn ground entity — world.spawn requires a Map<ComponentId, unknown>
+  world.spawn(new Map([
+    [PhysicsBody.id, PhysicsBody.create({
+      bodyType: "static",
+      mass: 0,
+      restitution: 0.3,
+      friction: 0.8,
+    })],
+    [Collider.id, Collider.create(createBoxCollider(20, 1, 20))],
+    [PhysicsTransform.id, PhysicsTransform.create({
+      position: [0, -1, 0],
+    })],
+    [FallingShape.id, FallingShape.create({
+      shape: "box",
+      size: 20,
+      color: [0.3, 0.5, 0.3],
+    })],
+  ]));
+
+  // Register physics systems
+  world.schedule.addSystem(system(
+    "physics-gravity", Stage.Update,
+    (ctx) => {
+      gravityQuery.iterate(ctx.tick, (_ent, comps) => {
+        const body = comps[0] as any;
+        const vel = comps[1] as any;
+        if (body && vel && body.bodyType === "dynamic") {
+          vel.linear[1] -= 9.81 * ctx.dt * (body.gravityScale as number);
+        }
+      });
+    },
+    { queries: [gravityQuery] },
+  ));
+
+  world.schedule.addSystem(system(
+    "physics-integrate", Stage.Update,
+    (ctx) => {
+      gravityQuery.iterate(ctx.tick, (ent, comps) => {
+        const body = comps[0] as any;
+        const vel = comps[1] as any;
+        const transform = comps[2] as any;
+        if (body && vel && transform && body.bodyType === "dynamic") {
+          const [vx, vy, vz] = vel.linear as [number, number, number];
+          const [px, py, pz] = transform.position as [number, number, number];
+          const newPy = py + vy * ctx.dt;
+          transform.position = [px + vx * ctx.dt, newPy, pz + vz * ctx.dt];
+
+          if (newPy < -10) {
+            world.despawn(ent);
+          }
+        }
+      });
+    },
+    { queries: [gravityQuery] },
+  ));
 
   log.info("physics demo initialized — shapes will fall and bounce on the ground");
 }
@@ -91,37 +132,7 @@ export function tick(ctx: any, dt: number) {
     spawnFallingShape();
   }
 
-  system("physics-gravity", (w: World, _dt: number) => {
-    const view = w.view([RigidBody, Velocity, PhysicsTransform]);
-    for (let i = 0; i < view.length; i++) {
-      const ent = view[i];
-      const body = w.getComponent(ent, RigidBody);
-      const vel = w.getComponent(ent, Velocity);
-      if (body && vel && body.data.bodyType === "dynamic") {
-        vel.data.linear[1] -= 9.81 * _dt * (body.data.gravityScale as number);
-      }
-    }
-  })(world, dt);
-
-  system("physics-integrate", (w: World, _dt: number) => {
-    const view = w.view([RigidBody, Velocity, PhysicsTransform]);
-    for (let i = 0; i < view.length; i++) {
-      const ent = view[i];
-      const body = w.getComponent(ent, RigidBody);
-      const vel = w.getComponent(ent, Velocity);
-      const transform = w.getComponent(ent, PhysicsTransform);
-      if (body && vel && transform && body.data.bodyType === "dynamic") {
-        const [vx, vy, vz] = vel.data.linear as [number, number, number];
-        const [px, py, pz] = transform.data.position as [number, number, number];
-        const newPy = py + vy * _dt;
-        transform.data.position = [px + vx * _dt, newPy, pz + vz * _dt];
-
-        if (newPy < -10) {
-          w.despawn(ent);
-        }
-      }
-    }
-  })(world, dt);
+  world.step(dt);
 }
 
 function spawnFallingShape(): void {
@@ -130,44 +141,44 @@ function spawnFallingShape(): void {
   const x = (Math.random() - 0.5) * 10;
   const z = (Math.random() - 0.5) * 10;
 
-  const ent = world.spawn();
-  world.addComponent(ent, PhysicsBody.create({
-    bodyType: "dynamic",
-    mass: size * size * size,
-    restitution: 0.3 + Math.random() * 0.4,
-    friction: 0.3 + Math.random() * 0.4,
-  }));
-
-  world.addComponent(ent, RigidBody.create({
-    bodyType: "dynamic",
-    mass: size * size * size,
-    gravityScale: 1,
-  }));
-
-  world.addComponent(ent, Velocity.create({
-    linear: [(Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2],
-    angular: [0, 0, 0],
-  }));
-
-  world.addComponent(ent, PhysicsTransform.create({
-    position: [x, 15, z],
-  }));
+  const components = new Map<number, unknown>([
+    [PhysicsBody.id, PhysicsBody.create({
+      bodyType: "dynamic",
+      mass: size * size * size,
+      restitution: 0.3 + Math.random() * 0.4,
+      friction: 0.3 + Math.random() * 0.4,
+    })],
+    [RigidBody.id, RigidBody.create({
+      bodyType: "dynamic",
+      mass: size * size * size,
+      gravityScale: 1,
+    })],
+    [Velocity.id, Velocity.create({
+      linear: [(Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2],
+      angular: [0, 0, 0],
+    })],
+    [PhysicsTransform.id, PhysicsTransform.create({
+      position: [x, 15, z],
+    })],
+  ]);
 
   if (isBox) {
-    world.addComponent(ent, Collider.create(createBoxCollider(size, size, size)));
-    world.addComponent(ent, FallingShape.create({
+    components.set(Collider.id, Collider.create(createBoxCollider(size, size, size)));
+    components.set(FallingShape.id, FallingShape.create({
       shape: "box",
       size,
       color: [Math.random(), Math.random(), Math.random()],
     }));
   } else {
-    world.addComponent(ent, Collider.create(createSphereCollider(size * 0.5)));
-    world.addComponent(ent, FallingShape.create({
+    components.set(Collider.id, Collider.create(createSphereCollider(size * 0.5)));
+    components.set(FallingShape.id, FallingShape.create({
       shape: "sphere",
       size: size * 0.5,
       color: [Math.random(), Math.random(), Math.random()],
     }));
   }
+
+  world.spawn(components);
 }
 
 export function dispose(ctx: any) {

@@ -1,16 +1,17 @@
 import { createLogger } from "../util/logger";
 import {
-  addEntityToArchetype,
-  type Archetype,
-  createArchetype,
-  findEntityRow,
-  getArchetypeForComponents,
-  removeEntityFromArchetype,
+    addEntityToArchetype,
+    type Archetype,
+    createArchetype,
+    findEntityRow,
+    getArchetypeForComponents,
+    removeEntityFromArchetype,
 } from "./archetype";
-import type { ComponentId } from "./component";
+import type { ComponentDefinition, ComponentId, IComponent } from "./component";
 import type { Entity, EntityMeta } from "./entity";
 import { ROOT_ENTITY } from "./entity";
 import { EventBus } from "./events";
+import type { ResourceToken } from "./resource";
 import { Schedule, type SystemContext } from "./schedule";
 
 const log = createLogger();
@@ -190,6 +191,7 @@ export class World {
   step(dt: number): void {
     this.tick++;
     this.events.swapAll();
+    this.schedule.updateQueryArchetypes(this.allArchetypes);
 
     const ctx: SystemContext = { world: this, dt, tick: this.tick };
     this.schedule.runStage(0, ctx); // Input
@@ -206,6 +208,36 @@ export class World {
 
   getResource<T>(name: string): T | undefined {
     return this.resources.get(name) as T | undefined;
+  }
+
+  setResourceTyped<T>(token: ResourceToken<T>, value: T): void {
+    this.resources.set(token.key, value);
+  }
+
+  getResourceTyped<T>(token: ResourceToken<T>): T | undefined {
+    return this.resources.get(token.key) as T | undefined;
+  }
+
+  addComponentDef<T extends Record<string, unknown>>(
+    entity: Entity,
+    def: ComponentDefinition<T>,
+    data: T & IComponent,
+  ): void {
+    this.addComponent(entity, def.id, data);
+  }
+
+  getComponentDef<T extends Record<string, unknown>>(
+    entity: Entity,
+    def: ComponentDefinition<T>,
+  ): T | null {
+    return this.getComponent<T>(entity, def.id);
+  }
+
+  hasComponentDef<T extends Record<string, unknown>>(
+    entity: Entity,
+    def: ComponentDefinition<T>,
+  ): boolean {
+    return this.hasComponent(entity, def.id);
   }
 
   clearAllEntities(): void {
