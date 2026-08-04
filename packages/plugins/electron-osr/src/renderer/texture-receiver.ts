@@ -79,7 +79,7 @@ export class OSRTextureReceiver {
             const w = videoFrame.displayWidth || videoFrame.codedWidth;
             const h = videoFrame.displayHeight || videoFrame.codedHeight;
             if (frameCount === 0) {
-              console.log(`[OSR] First VideoFrame for '${this.rendererId}': ${w}x${h}, format=${videoFrame.format}, codedSize=${videoFrame.codedWidth}x${videoFrame.codedHeight}, visibleRect=${JSON.stringify(videoFrame.codedRect)}`);
+              console.log(`[OSR] First VideoFrame for '${this.rendererId}': ${w}x${h}, format=${videoFrame.format}, timestamp=${videoFrame.timestamp}, codedSize=${videoFrame.codedWidth}x${videoFrame.codedHeight}`);
             }
             if (w <= 0 || h <= 0) {
               console.warn(`[OSR] Invalid VideoFrame dimensions ${w}x${h} for '${this.rendererId}'`);
@@ -116,31 +116,36 @@ export class OSRTextureReceiver {
 
     // Also register NativeImage paint fallback (CPU path)
     if (downdraft?.osr?.onPaintImage) {
+      let nativeImageCount = 0;
       downdraft.osr.onPaintImage((rendererId: string, image: any) => {
         if (rendererId !== this.rendererId) return;
         try {
           const size = image.getSize();
           const w = size.width;
           const h = size.height;
+          if (nativeImageCount === 0) {
+            const rawBitmap = image.toBitmap();
+            // Check first few pixels for non-zero data
+            let nonZero = 0;
+            for (let i = 0; i < Math.min(rawBitmap.length, 400); i++) {
+              if (rawBitmap[i] > 0) nonZero++;
+            }
+            console.log(`[OSR] First NativeImage for '${this.rendererId}': ${w}x${h}, bitmapLen=${rawBitmap.length}, firstPixelsNonZero=${nonZero}/100, [0..3]=[${rawBitmap[0]},${rawBitmap[1]},${rawBitmap[2]},${rawBitmap[3]}]`);
+          }
           if (w === 0 || h === 0) return;
-          if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== "rgba8unorm") {
+          nativeImageCount++;
+          // NativeImage.toBitmap() returns BGRA on Linux — use bgra8unorm texture
+          // and writeTexture directly (no per-pixel swap, no ImageData allocation)
+          if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== "bgra8unorm") {
             this.width = w;
             this.height = h;
-            this.createGpuTexture("rgba8unorm");
+            this.createGpuTexture("bgra8unorm");
           }
-          // NativeImage.toBitmap() returns BGRA on Linux — swap R and B for RGBA
           const rawBitmap = image.toBitmap();
-          const rgba = new Uint8ClampedArray(rawBitmap.length);
-          for (let i = 0; i < rawBitmap.length; i += 4) {
-            rgba[i] = rawBitmap[i + 2];     // R = B
-            rgba[i + 1] = rawBitmap[i + 1]; // G = G
-            rgba[i + 2] = rawBitmap[i];     // B = R
-            rgba[i + 3] = rawBitmap[i + 3]; // A = A
-          }
-          const imageData = new ImageData(rgba, w, h);
-          this.device.queue.copyExternalImageToTexture(
-            { source: imageData, flipY: true },
+          this.device.queue.writeTexture(
             { texture: this.gpuTexture! },
+            rawBitmap,
+            { bytesPerRow: w * 4, rowsPerImage: h },
             { width: w, height: h },
           );
         } catch (err) {

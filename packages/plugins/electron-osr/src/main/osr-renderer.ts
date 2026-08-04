@@ -97,7 +97,8 @@ export abstract class OSRRenderer {
     // CPU mode: (event, dirtyRect, image: NativeImage)
     // Shared texture mode: (event, dirtyRect, image) with event.texture set
     let paintCount = 0;
-    win.webContents.on("paint", async (event: any, ...args: any[]) => {
+    let previousImported: { imported: any; texture: any } | null = null;
+    win.webContents.on("paint", (event: any, ...args: any[]) => {
       if (paintCount === 0) {
         console.log(`[OSR] First paint event for '${this.id}': event.texture=${!!event.texture}, args.length=${args.length}, args[0] type=${typeof args[0]}, args[1] type=${typeof args[1]}`);
       }
@@ -110,30 +111,33 @@ export abstract class OSRRenderer {
           if (texture) texture.release();
           return;
         }
-        // Check if sharedTexture API is available
-        const stApi = sharedTexture?.importSharedTexture ? sharedTexture : sharedTexture?.subtle;
-        if (!stApi?.importSharedTexture) {
+        // Use subtle API for proper GPU sync — see Electron spec test:
+        // https://github.com/electron/electron/blob/main/spec/fixtures/api/shared-texture/subtle/
+        const subtle = sharedTexture?.subtle;
+        if (!subtle?.importSharedTexture) {
           if (paintCount === 0) {
-            console.error(`[OSR] sharedTexture.importSharedTexture not available — cannot use shared texture mode`);
+            console.error(`[OSR] sharedTexture.subtle.importSharedTexture not available`);
           }
           texture.release();
           return;
         }
         try {
-          const imported = stApi.importSharedTexture({
-            textureInfo: texture.textureInfo,
-          });
-          try {
-            await stApi.sendSharedTexture({
-              frame: this.targetWebContents.mainFrame,
-              importedSharedTexture: imported,
-            }, this.id);
-          } finally {
-            imported.release();
+          // Release previous frame's imported texture + source texture
+          // — by now the renderer has finished its WebGPU copy
+          if (previousImported) {
+            try { previousImported.imported.release(() => {
+              previousImported.texture.release();
+            }); } catch {}
           }
+          const imported = subtle.importSharedTexture(texture.textureInfo);
+          // startTransferSharedTexture generates transfer data + sync token
+          const transfer = imported.startTransferSharedTexture();
+          // Send transfer data to renderer via IPC — preload will finishTransferSharedTexture
+          this.targetWebContents.send("__osr_shared_texture_transfer", this.id, transfer);
+          // Store for delayed release — will be released when next frame arrives
+          previousImported = { imported, texture };
         } catch (err) {
-          console.error(`[OSR] Shared texture send failed for '${this.id}':`, err);
-        } finally {
+          console.error(`[OSR] Shared texture transfer failed for '${this.id}':`, err);
           texture.release();
         }
       } else {
