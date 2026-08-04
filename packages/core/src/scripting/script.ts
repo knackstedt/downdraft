@@ -1,5 +1,5 @@
-import type { World } from "../ecs/world";
 import type { Stage, SystemFn } from "../ecs/system";
+import type { World } from "../ecs/world";
 
 export interface ScriptContext {
   world: World;
@@ -33,7 +33,7 @@ export class ScriptingSystem {
       existing.handle.dispose();
     }
 
-    const mod = await import(modulePath) as ScriptModule;
+    const mod = await import(/* @vite-ignore */ modulePath) as ScriptModule;
     const systems: Array<{ stage: Stage; fn: SystemFn }> = [];
 
     const ctx: ScriptContext = {

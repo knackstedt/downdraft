@@ -307,9 +307,13 @@ async function createWindow(): Promise<void> {
       .slice(0, 200);                            // cap key length
   }
   mainWindow.webContents.on("console-message", (event) => {
-    const { level, message, lineNumber, sourceId } = event;
+    const { level, message: rawMessage, lineNumber, sourceId } = event;
+    const message = rawMessage.replace(/\n+$/, "");
     if (message.includes("ResizeObserver loop completed with undelivered notifications")) return;
     if (message.includes("Insecure Content-Security-Policy")) return;
+    if (message.includes("[vite]") || message.includes("[@vitejs/")) return;
+    if (message.includes("Download the React DevTools")) return;
+    if (message.includes("enableBlinkFeatures") || message.includes("blinkFeatures")) return;
 
     // Renderer's browser-fallback logger emits "HH:MM:SS LEVEL [tag/module] msg" via console.log/warn/error
     // Extract the tag and original module, then re-log through the main process logger with the correct tag
@@ -540,7 +544,7 @@ function registerIpcHandlers(): void {
   ipcMain.on(IPC.RENDERER_LOG, (_event, data: { level: string; message: string }) => {
     const level = data.level as "trace" | "debug" | "info" | "warn" | "error" | "fatal";
     const fn = (log as any)[level] ?? log.info;
-    fn.call(log, "renderer", data.message);
+    fn.call(log, "renderer", data.message.replace(/\n+$/, ""));
   });
 
   let mainGcHandle: GCProfilerHandle | null = null;

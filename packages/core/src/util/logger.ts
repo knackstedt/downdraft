@@ -450,6 +450,7 @@ export class ConsoleLogger implements Logger {
     }
 
     private write(level: string, module: string, msg: string) {
+        const cleanMsg = msg.replace(/\n+$/, "");
         const color = (this.palette as any)[level];
         const timestamp = new Date().toTimeString().slice(0, 8);
         const linkedModule = linkifyModule(module);
@@ -464,7 +465,7 @@ export class ConsoleLogger implements Logger {
         const prefix = tag
             ? `${this.palette.gray}[${tagColor}${tag}${reset}${this.palette.gray}/${moduleStr}${this.palette.gray}] `
             : `${this.palette.gray}[${moduleStr}${this.palette.gray}] `;
-        const line = `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase()}${reset} ${prefix}${reset}${linkifyMessage(msg)}\n`;
+        const line = `${this.palette.time}${timestamp} ${color}${bold}${level.toUpperCase()}${reset} ${prefix}${reset}${linkifyMessage(cleanMsg)}\n`;
         if (proc?.stdout?.write && proc?.stderr?.write) {
             const stream = proc.env.DOWNDRAFT_MCP === "1" ? proc.stderr : proc.stdout;
             try {
