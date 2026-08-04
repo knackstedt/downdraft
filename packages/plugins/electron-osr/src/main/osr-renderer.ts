@@ -2,7 +2,7 @@
 // OSR Renderer — Abstract base class for offscreen rendering BrowserWindows
 // ============================================================================
 
-import { BrowserWindow, type WebContents } from "electron";
+import { BrowserWindow, clipboard, type WebContents } from "electron";
 import type {
   AtlasPanelRect,
   OSRDataUpdate,
@@ -214,19 +214,84 @@ export abstract class OSRRenderer {
         });
         el.dispatchEvent(ev);
         if ('${domType}' === 'mousedown') {
-          if (el.focus) el.focus();
+          // Find if we clicked on an input/textarea
+          var inputEl = null;
           var target = el;
           while (target && target !== document.body) {
             if (target.tagName && (target.tagName.toLowerCase() === 'input' || target.tagName.toLowerCase() === 'textarea')) {
-              target.focus();
+              inputEl = target;
               break;
             }
             target = target.parentElement;
           }
+          if (inputEl) {
+            inputEl.focus();
+            // Set caret position based on click X offset within the input
+            var cs = getComputedStyle(inputEl);
+            var rect = inputEl.getBoundingClientRect();
+            var clickX = ${px} - rect.left - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.borderLeftWidth) || 0);
+            var mirror = document.createElement('span');
+            mirror.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;';
+            mirror.style.font = cs.font;
+            mirror.style.fontSize = cs.fontSize;
+            mirror.style.fontFamily = cs.fontFamily;
+            mirror.style.fontWeight = cs.fontWeight;
+            mirror.style.letterSpacing = cs.letterSpacing;
+            document.body.appendChild(mirror);
+            var pos = 0;
+            for (var i = 0; i <= inputEl.value.length; i++) {
+              mirror.textContent = inputEl.value.substring(0, i);
+              if (mirror.offsetWidth >= clickX) { pos = i; break; }
+              pos = i;
+            }
+            mirror.remove();
+            inputEl.setSelectionRange(pos, pos);
+            window.__osrDragStart = pos;
+          } else {
+            // Click outside any input — blur the active input
+            var active = document.activeElement;
+            if (active && active.tagName && (active.tagName.toLowerCase() === 'input' || active.tagName.toLowerCase() === 'textarea')) {
+              active.blur();
+            }
+            window.__osrDragStart = null;
+          }
+        }
+        if ('${domType}' === 'mousemove') {
+          // Handle drag selection if mouse button is down and we started on an input
+          if (window.__osrDragStart != null) {
+            var active = document.activeElement;
+            if (active && active.tagName && (active.tagName.toLowerCase() === 'input' || active.tagName.toLowerCase() === 'textarea')) {
+              var cs = getComputedStyle(active);
+              var rect = active.getBoundingClientRect();
+              var dragX = ${px} - rect.left - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.borderLeftWidth) || 0);
+              var mirror = document.createElement('span');
+              mirror.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;';
+              mirror.style.font = cs.font;
+              mirror.style.fontSize = cs.fontSize;
+              mirror.style.fontFamily = cs.fontFamily;
+              mirror.style.fontWeight = cs.fontWeight;
+              mirror.style.letterSpacing = cs.letterSpacing;
+              document.body.appendChild(mirror);
+              var pos = 0;
+              for (var i = 0; i <= active.value.length; i++) {
+                mirror.textContent = active.value.substring(0, i);
+                if (mirror.offsetWidth >= dragX) { pos = i; break; }
+                pos = i;
+              }
+              mirror.remove();
+              var start = window.__osrDragStart;
+              if (pos < start) { active.setSelectionRange(pos, start); }
+              else { active.setSelectionRange(start, pos); }
+            }
+          }
+        }
+        if ('${domType}' === 'mouseup') {
+          window.__osrDragStart = null;
         }
         // Update software cursor position if enabled
         var sc = document.getElementById('__osr_sw_cursor');
         if (sc) { sc.style.left = ${px} + 'px'; sc.style.top = ${py} + 'px'; sc.style.display = 'block'; }
+        if (window.__osrUpdateCaret) window.__osrUpdateCaret();
       })()`;
       wc.executeJavaScript(js).catch(() => {});
       // Separately query the cursor style at the current mouse position
@@ -275,17 +340,71 @@ export abstract class OSRRenderer {
     } else if (event.type === "keyDown" || event.type === "keyUp") {
       const keyName = keyCodeToElectronKey(event.keyCode ?? "");
       const domType = event.type === "keyDown" ? "keydown" : "keyup";
+      const mods = event.modifiers ?? [];
       const js = `(function(){
         var el = document.activeElement || document.body;
+        var ctrl = ${mods.includes('Control')};
+        var shift = ${mods.includes('Shift')};
         var ev = new KeyboardEvent('${domType}', {
           bubbles: true, cancelable: true, view: window,
-          key: '${keyName}', code: '${keyName.length === 1 ? 'Key' + keyName.toUpperCase() : keyName}'
+          key: '${keyName}', code: '${keyName.length === 1 ? 'Key' + keyName.toUpperCase() : keyName}',
+          ctrlKey: ctrl, shiftKey: shift, altKey: ${mods.includes('Alt')}, metaKey: ${mods.includes('Meta')}
         });
         el.dispatchEvent(ev);
         if ('${domType}' === 'keydown' && el.tagName) {
           var tag = el.tagName.toLowerCase();
           var isInput = (tag === 'input' || tag === 'textarea');
-          if (isInput && '${keyName}'.length === 1) {
+          if (isInput && ctrl && '${keyName}' === 'a') {
+            el.setSelectionRange(0, el.value.length);
+          } else if (isInput && ctrl && '${keyName}' === 'c') {
+            var s = el.selectionStart || 0, e = el.selectionEnd || 0;
+            if (s !== e) { window.__osrClipboardText = el.value.substring(s, e); }
+          } else if (isInput && ctrl && '${keyName}' === 'x') {
+            var s = el.selectionStart || 0, e = el.selectionEnd || 0;
+            if (s !== e) {
+              window.__osrClipboardText = el.value.substring(s, e);
+              el.value = el.value.substring(0, s) + el.value.substring(e);
+              el.setSelectionRange(s, s);
+              el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+            }
+          } else if (isInput && ctrl && '${keyName}' === 'v') {
+            var txt = window.__osrClipboardPaste || '';
+            if (txt) {
+              var s = el.selectionStart || 0, e = el.selectionEnd || 0;
+              el.value = el.value.substring(0, s) + txt + el.value.substring(e);
+              el.setSelectionRange(s + txt.length, s + txt.length);
+              el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: txt }));
+            }
+          } else if (isInput && ctrl && '${keyName}' === 'ArrowLeft') {
+            var s = el.selectionStart || 0;
+            var newPos = s;
+            if (shift) { newPos = s; }
+            // Skip non-word chars then skip word chars
+            var v = el.value;
+            newPos = s;
+            while (newPos > 0 && /\\W/.test(v[newPos - 1])) newPos--;
+            while (newPos > 0 && /\\w/.test(v[newPos - 1])) newPos--;
+            if (shift) { el.setSelectionRange(newPos, s); }
+            else { el.setSelectionRange(newPos, newPos); }
+          } else if (isInput && ctrl && '${keyName}' === 'ArrowRight') {
+            var s = el.selectionEnd || 0;
+            var v = el.value;
+            var newPos = s;
+            while (newPos < v.length && /\\W/.test(v[newPos])) newPos++;
+            while (newPos < v.length && /\\w/.test(v[newPos])) newPos++;
+            if (shift) { el.setSelectionRange(el.selectionStart, newPos); }
+            else { el.setSelectionRange(newPos, newPos); }
+          } else if (isInput && shift && '${keyName}' === 'ArrowLeft') {
+            var s = el.selectionStart || 0;
+            if (s > 0) el.setSelectionRange(s - 1, el.selectionEnd);
+          } else if (isInput && shift && '${keyName}' === 'ArrowRight') {
+            var e = el.selectionEnd || 0;
+            if (e < el.value.length) el.setSelectionRange(el.selectionStart, e + 1);
+          } else if (isInput && shift && '${keyName}' === 'Home') {
+            el.setSelectionRange(0, el.selectionEnd);
+          } else if (isInput && shift && '${keyName}' === 'End') {
+            el.setSelectionRange(el.selectionStart, el.value.length);
+          } else if (isInput && '${keyName}'.length === 1 && !ctrl) {
             // Synthetic KeyboardEvents don't insert text — do it manually
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
@@ -295,19 +414,25 @@ export abstract class OSRRenderer {
           } else if (isInput && '${keyName}' === 'Backspace') {
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
-            if (start > 0 && start === end) {
+            if (start !== end) {
+              el.value = el.value.substring(0, start) + el.value.substring(end);
+              el.setSelectionRange(start, start);
+            } else if (start > 0) {
               el.value = el.value.substring(0, start - 1) + el.value.substring(end);
               el.selectionStart = el.selectionEnd = start - 1;
-              el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
             }
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
           } else if (isInput && '${keyName}' === 'Delete') {
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
-            if (start < el.value.length && start === end) {
+            if (start !== end) {
+              el.value = el.value.substring(0, start) + el.value.substring(end);
+              el.setSelectionRange(start, start);
+            } else if (start < el.value.length) {
               el.value = el.value.substring(0, start) + el.value.substring(end + 1);
-              el.selectionStart = el.selectionEnd = start;
-              el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentForward' }));
+              el.setSelectionRange(start, start);
             }
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentForward' }));
           } else if (isInput && '${keyName}' === 'Enter') {
             el.dispatchEvent(new Event('change', { bubbles: true }));
           } else if (isInput && '${keyName}' === 'ArrowLeft') {
@@ -340,11 +465,27 @@ export abstract class OSRRenderer {
           }
         }
       })()`;
-      wc.executeJavaScript(js).then(() => {
-        if (!wc.isDestroyed()) {
-          wc.executeJavaScript("if(window.__osrUpdateCaret) window.__osrUpdateCaret();").catch(() => {});
-        }
-      }).catch(() => {});
+      // For paste: inject clipboard text before running keydown JS
+      const isPaste = mods.includes("Control") && keyName === "v";
+      const isCopyOrCut = mods.includes("Control") && (keyName === "c" || keyName === "x");
+      const runJs = () => {
+        wc.executeJavaScript(js).then(() => {
+          if (!wc.isDestroyed()) {
+            if (isCopyOrCut) {
+              wc.executeJavaScript("window.__osrClipboardText || ''").then((text: string) => {
+                if (text) clipboard.writeText(text);
+              }).catch(() => {});
+            }
+            wc.executeJavaScript("if(window.__osrUpdateCaret) window.__osrUpdateCaret();").catch(() => {});
+          }
+        }).catch(() => {});
+      };
+      if (isPaste) {
+        const pasteText = clipboard.readText().replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        wc.executeJavaScript(`window.__osrClipboardPaste = '${pasteText}';`).then(() => runJs()).catch(() => runJs());
+      } else {
+        runJs();
+      }
     }
   }
 
@@ -359,53 +500,85 @@ export abstract class OSRRenderer {
       style.textContent = 'input, textarea { caret-color: transparent !important; } ' +
         '#__osr_fake_caret { position: fixed; width: 2px; height: 1.2em; background: #0078d4; ' +
         'pointer-events: none; z-index: 999998; display: none; animation: __osr_blink 1s step-end infinite; } ' +
+        '#__osr_sel_highlight { position: fixed; background: rgba(0,120,212,0.25); ' +
+        'pointer-events: none; z-index: 999997; display: none; } ' +
         '@keyframes __osr_blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }';
       document.head.appendChild(style);
       var caret = document.createElement('div');
       caret.id = '__osr_fake_caret';
       document.body.appendChild(caret);
+      var selHighlight = document.createElement('div');
+      selHighlight.id = '__osr_sel_highlight';
+      document.body.appendChild(selHighlight);
       var mirror = document.createElement('span');
       mirror.style.cssText = 'position:absolute; visibility:hidden; white-space:pre; top:0; left:0;';
       document.body.appendChild(mirror);
 
-      function getCaretRect(el) {
+      function measureText(el, text) {
         var cs = getComputedStyle(el);
-        var pos = el.selectionStart || 0;
-        var text = el.value.substring(0, pos);
         mirror.style.font = cs.font;
         mirror.style.fontSize = cs.fontSize;
         mirror.style.fontFamily = cs.fontFamily;
         mirror.style.fontWeight = cs.fontWeight;
         mirror.style.letterSpacing = cs.letterSpacing;
         mirror.textContent = text;
+        return mirror.offsetWidth;
+      }
+
+      function getCaretRect(el) {
+        var cs = getComputedStyle(el);
+        var pos = el.selectionStart || 0;
+        var text = el.value.substring(0, pos);
         var rect = el.getBoundingClientRect();
         var paddingLeft = parseFloat(cs.paddingLeft) || 0;
         var paddingTop = parseFloat(cs.paddingTop) || 0;
         var borderLeft = parseFloat(cs.borderLeftWidth) || 0;
         var borderTop = parseFloat(cs.borderTopWidth) || 0;
-        var x = rect.left + paddingLeft + borderLeft + mirror.offsetWidth;
+        var x = rect.left + paddingLeft + borderLeft + measureText(el, text);
         var lineHeight = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.4);
         var y = rect.top + paddingTop + borderTop;
-        return { x: x, y: y, h: lineHeight };
+        return { x: x, y: y, h: lineHeight, rect: rect, cs: cs };
       }
 
       window.__osrUpdateCaret = function() {
         var el = document.activeElement;
-        if (!el || !el.tagName) { caret.style.display = 'none'; return; }
+        if (!el || !el.tagName) { caret.style.display = 'none'; selHighlight.style.display = 'none'; return; }
         var tag = el.tagName.toLowerCase();
-        if (tag !== 'input' && tag !== 'textarea') { caret.style.display = 'none'; return; }
-        var r = getCaretRect(el);
-        caret.style.left = r.x + 'px';
-        caret.style.top = r.y + 'px';
-        caret.style.height = r.h + 'px';
-        caret.style.display = 'block';
+        if (tag !== 'input' && tag !== 'textarea') { caret.style.display = 'none'; selHighlight.style.display = 'none'; return; }
+        var s = el.selectionStart || 0;
+        var e = el.selectionEnd || 0;
+        if (s !== e) {
+          // Show selection highlight
+          var r = getCaretRect(el);
+          var selStartX = r.rect.left + (parseFloat(r.cs.paddingLeft) || 0) + (parseFloat(r.cs.borderLeftWidth) || 0) + measureText(el, el.value.substring(0, s));
+          var selEndX = r.rect.left + (parseFloat(r.cs.paddingLeft) || 0) + (parseFloat(r.cs.borderLeftWidth) || 0) + measureText(el, el.value.substring(0, e));
+          selHighlight.style.left = Math.min(selStartX, selEndX) + 'px';
+          selHighlight.style.top = r.y + 'px';
+          selHighlight.style.width = Math.abs(selEndX - selStartX) + 'px';
+          selHighlight.style.height = r.h + 'px';
+          selHighlight.style.display = 'block';
+          // Position caret at end of selection
+          var endPos = e;
+          var endX = r.rect.left + (parseFloat(r.cs.paddingLeft) || 0) + (parseFloat(r.cs.borderLeftWidth) || 0) + measureText(el, el.value.substring(0, endPos));
+          caret.style.left = endX + 'px';
+          caret.style.top = r.y + 'px';
+          caret.style.height = r.h + 'px';
+          caret.style.display = 'block';
+        } else {
+          selHighlight.style.display = 'none';
+          var r2 = getCaretRect(el);
+          caret.style.left = r2.x + 'px';
+          caret.style.top = r2.y + 'px';
+          caret.style.height = r2.h + 'px';
+          caret.style.display = 'block';
+        }
       };
 
       document.addEventListener('input', window.__osrUpdateCaret, true);
       document.addEventListener('keydown', function() { setTimeout(window.__osrUpdateCaret, 0); }, true);
       document.addEventListener('click', window.__osrUpdateCaret, true);
       document.addEventListener('focusin', window.__osrUpdateCaret, true);
-      document.addEventListener('focusout', function() { caret.style.display = 'none'; }, true);
+      document.addEventListener('focusout', function() { caret.style.display = 'none'; selHighlight.style.display = 'none'; }, true);
       window.__osrUpdateCaret();
     })()`;
     this.window.webContents.executeJavaScript(js).catch(() => {});

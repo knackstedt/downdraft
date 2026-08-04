@@ -254,12 +254,12 @@ export class OSRInputRouter {
   }
 
   /** Forwards a keyboard event to the currently focused/hovered renderer. */
-  handleKey(type: "keyDown" | "keyUp", keyCode: string): void {
+  handleKey(type: "keyDown" | "keyUp", keyCode: string, modifiers?: string[]): void {
     if (!this.hoveredRendererId) return;
     const status = this.config.rendererStatuses.get(this.hoveredRendererId);
     if (status === "crashed" || status === "failed") return;
 
-    this.sendInputEvent(this.hoveredRendererId, { type, x: 0, y: 0, keyCode });
+    this.sendInputEvent(this.hoveredRendererId, { type, x: 0, y: 0, keyCode, modifiers });
   }
 
   private computeRendererCoords(hit: RaycastHit): { x: number; y: number } {

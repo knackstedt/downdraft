@@ -27,7 +27,7 @@ export class RendererInputHandler {
   private lastBuilderWheelTime = 0;
 
   onInputProcessed: (() => void) | null = null;
-  onOSRKey: ((type: "keyDown" | "keyUp", keyCode: number) => void) | null = null;
+  onOSRKey: ((type: "keyDown" | "keyUp", keyCode: number, modifiers: string[]) => void) | null = null;
   onOSRFocus: (() => void) | null = null;
   osrForcedFocus = false;
   setOSRForcedFocus(active: boolean): void {
@@ -211,14 +211,14 @@ export class RendererInputHandler {
     window.addEventListener("keydown", (e) => {
       // During OSR forced focus, suppress game keyboard input
       if (this.osrForcedFocus && e.keyCode !== 119 && e.keyCode !== 120) {
-        this.onOSRKey?.("keyDown", e.keyCode);
+        this.onOSRKey?.("keyDown", e.keyCode, buildModifiers(e));
         e.preventDefault();
         e.stopImmediatePropagation();
         return;
       }
       this.keysDown.add(e.keyCode);
       this.uiInputRouter?.handleKeyDown(e.keyCode);
-      this.onOSRKey?.("keyDown", e.keyCode);
+      this.onOSRKey?.("keyDown", e.keyCode, buildModifiers(e));
       // F8: manually focus OSR billboard (bypasses raycast)
       if (!e.repeat && e.keyCode === KEY.F8) {
         this.onOSRFocus?.();
@@ -230,14 +230,14 @@ export class RendererInputHandler {
     });
     window.addEventListener("keyup", (e) => {
       if (this.osrForcedFocus && e.keyCode !== 119 && e.keyCode !== 120) {
-        this.onOSRKey?.("keyUp", e.keyCode);
+        this.onOSRKey?.("keyUp", e.keyCode, buildModifiers(e));
         e.preventDefault();
         e.stopImmediatePropagation();
         return;
       }
       this.keysDown.delete(e.keyCode);
       this.uiInputRouter?.handleKeyUp(e.keyCode);
-      this.onOSRKey?.("keyUp", e.keyCode);
+      this.onOSRKey?.("keyUp", e.keyCode, buildModifiers(e));
     });
     this.canvas.addEventListener("click", () => {
       if (this.osrForcedFocus) return; // don't engage pointer lock during OSR forced focus
@@ -316,4 +316,13 @@ export class RendererInputHandler {
       this.pointerLockRetryTimer = null;
     }
   }
+}
+
+function buildModifiers(e: KeyboardEvent): string[] {
+  const mods: string[] = [];
+  if (e.ctrlKey) mods.push("Control");
+  if (e.shiftKey) mods.push("Shift");
+  if (e.altKey) mods.push("Alt");
+  if (e.metaKey) mods.push("Meta");
+  return mods;
 }

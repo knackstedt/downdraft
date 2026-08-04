@@ -279,20 +279,12 @@ async function bootstrap() {
           // Load test content with inline handlers (scripts in innerHTML don't execute)
           downdraft.osr.setContent(RENDERER_ID,
             '<style>' +
-            'input.osr-test:focus { caret-color: transparent; }' +
-            'input.osr-test { caret-color: transparent; }' +
-            '.fake-caret { display:inline-block; width:3px; height:1em; background:#0078d4; animation:blink 1s step-end infinite; vertical-align:text-bottom; margin-left:1px; }' +
-            '@keyframes blink { 0%,50% { opacity:1; } 51%,100% { opacity:0; } }' +
-            '.input-wrapper { position:relative; display:inline-block; }' +
-            '.input-display { position:absolute; left:12px; top:50%; transform:translateY(-50%); pointer-events:none; font-size:24px; font-family:sans-serif; color:#333; white-space:pre; }' +
+            'input.osr-test { cursor: text; }' +
+            'button { cursor: pointer; }' +
             '</style>' +
             '<div style="width:100%;height:100%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;font-family:sans-serif;" onmousemove="document.getElementById(\'mousePos\').innerText=\'Mouse: \'+event.clientX+\', \'+event.clientY">' +
             '<h1 style="color:#333;font-size:48px;">OSR Input Test</h1>' +
-            '<div class="input-wrapper">' +
-            '<input type="text" id="testInput" class="osr-test" placeholder="Click and type here" style="width:400px;height:60px;font-size:24px;padding:8px 12px;border:2px solid #0078d4;border-radius:4px;color:transparent;" oninput="document.getElementById(\'inputDisplay\').textContent=this.value" onfocus="document.getElementById(\'caret\').style.display=\'inline-block\'" onblur="document.getElementById(\'caret\').style.display=\'none\'" />' +
-            '<span class="input-display" id="inputDisplay"></span>' +
-            '<span class="fake-caret" id="caret" style="display:none;left:12px"></span>' +
-            '</div>' +
+            '<input type="text" id="testInput" class="osr-test" placeholder="Click and type here" style="width:400px;height:60px;font-size:24px;padding:8px 12px;border:2px solid #0078d4;border-radius:4px;color:#333;" />' +
             '<button onclick="this.innerText=\'Clicked!\';setTimeout(()=>this.innerText=\'Click Me\',1000)" style="width:200px;height:60px;font-size:24px;cursor:pointer;background:#0078d4;color:white;border:none;border-radius:4px;">Click Me</button>' +
             '<div id="mousePos" style="font-size:20px;color:#666;">Mouse: 0, 0</div>' +
             '<div id="clickPos" style="font-size:20px;color:#666;">No clicks yet</div>' +

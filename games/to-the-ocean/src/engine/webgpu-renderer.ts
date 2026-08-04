@@ -1200,8 +1200,8 @@ export class WebGPURenderer implements IRendererStateProvider {
     if (!this.device) return null;
     this.osrManager = new OSRManager(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat);
     this.osrManager.init(ipc);
-    this.inputHandler.onOSRKey = (type, keyCode) => {
-      this.osrManager?.handleKey(type, String(keyCode));
+    this.inputHandler.onOSRKey = (type, keyCode, modifiers) => {
+      this.osrManager?.handleKey(type, String(keyCode), modifiers);
     };
     this.inputHandler.onOSRFocus = () => {
       const id = this.osrManager?.focusBillboard();
