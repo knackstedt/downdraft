@@ -129,6 +129,9 @@ if (process.platform === "linux") {
   process.env.VK_ICD_FILENAMES = "/usr/share/vulkan/icd.d/nvidia_icd.json";
   app.commandLine.appendSwitch("enable-features", "Vulkan,VaapiVideoDecoder,VaapiVideoEncoder");
   app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+
+  // Disable GPU sandbox — can interfere with GPU shared texture handle passing on some NVIDIA drivers
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
 } else if (process.platform === "win32") {
   // Windows uses D3D12 backend for WebGPU; enable hardware-accelerated decoding
   app.commandLine.appendSwitch("enable-features", "D3D12VideoDecoder");
@@ -791,6 +794,13 @@ app.whenReady().then(async () => {
     log.info("MCP", `HTTP transport listening on port ${mcpPort}`);
   } catch (e) {
     log.error("MCP", `Failed to start HTTP transport: ${(e as Error).message}`);
+  }
+});
+
+// GPU process crash handler
+app.on("child-process-gone", (_event: any, details: any) => {
+  if (details?.type === "GPU") {
+    console.error(`[GPU] Process gone: reason=${details.reason}, exitCode=${details.exitCode}`);
   }
 });
 

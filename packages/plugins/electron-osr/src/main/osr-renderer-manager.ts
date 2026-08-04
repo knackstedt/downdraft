@@ -41,6 +41,7 @@ export class OSRRendererManager {
     const displayRefreshRate = this.getDisplayRefreshRate();
     const pixelFormat = config.sharedTexturePixelFormat ?? "rgba";
     const maxCrashRetries = config.maxCrashRetries ?? 3;
+    const useSharedTexture = config.useSharedTexture;
 
     let renderer: OSRRenderer;
     if (config.mode === "atlas") {
@@ -52,6 +53,7 @@ export class OSRRendererManager {
         displayRefreshRate,
         pixelFormat,
         maxCrashRetries,
+        useSharedTexture,
       );
     } else {
       renderer = new OSRDedicatedRenderer(
@@ -62,6 +64,7 @@ export class OSRRendererManager {
         displayRefreshRate,
         pixelFormat,
         maxCrashRetries,
+        useSharedTexture,
       );
     }
 

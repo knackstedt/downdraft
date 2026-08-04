@@ -12,7 +12,7 @@ import type {
   OSRRendererStatus,
   OSRSharedTexturePixelFormat,
 } from "../types";
-const { sharedTexture } = require("electron") as any;
+const { sharedTexture, ipcMain } = require("electron") as any;
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;
 
@@ -34,6 +34,11 @@ export abstract class OSRRenderer {
   protected retryTimer: NodeJS.Timeout | null = null;
   protected onEvent: RendererEventCallback | null = null;
   protected targetWebContents: WebContents | null = null;
+  protected useSharedTexture: boolean;
+  protected sharedTextureFailed = false;
+  protected paintWatchdogTimer: NodeJS.Timeout | null = null;
+  protected syncTokenHandler: ((_e: any, rId: string, syncToken: any) => void) | null = null;
+  protected static readonly PAINT_WATCHDOG_MS = 5000;
 
   constructor(
     id: string,
@@ -44,6 +49,7 @@ export abstract class OSRRenderer {
     displayRefreshRate: number,
     pixelFormat: OSRSharedTexturePixelFormat,
     maxCrashRetries: number,
+    useSharedTexture?: boolean,
   ) {
     this.id = id;
     this.mode = mode;
@@ -53,6 +59,17 @@ export abstract class OSRRenderer {
     this.displayRefreshRate = displayRefreshRate;
     this.pixelFormat = pixelFormat;
     this.maxCrashRetries = maxCrashRetries;
+
+    // Determine useSharedTexture: explicit param > env override > platform default
+    // Linux/NVIDIA shared textures produce empty VideoFrames (Chromium platform bug),
+    // so default to CPU on Linux. Other platforms default to shared texture.
+    const envDisable = process.env.DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE;
+    if (envDisable === "1" || envDisable === "true") {
+      this.useSharedTexture = false;
+    } else {
+      this.useSharedTexture = useSharedTexture ?? (process.platform !== "linux");
+    }
+    console.log(`[OSR] Renderer '${this.id}': ${width}x${height} @${this.frameRate}fps, useSharedTexture=${this.useSharedTexture}`);
   }
 
   setEventCallback(cb: RendererEventCallback): void {
@@ -61,10 +78,6 @@ export abstract class OSRRenderer {
 
   setTargetWebContents(wc: WebContents): void {
     this.targetWebContents = wc;
-    console.log(`[OSR] electron.sharedTexture available: ${!!sharedTexture}`);
-    if (sharedTexture) {
-      console.log(`[OSR] sharedTexture methods:`, Object.keys(sharedTexture));
-    }
   }
 
   setDisplayRefreshRate(refreshRate: number): void {
@@ -76,6 +89,9 @@ export abstract class OSRRenderer {
   }
 
   protected createWindow(): BrowserWindow {
+    const useShared = this.useSharedTexture && !this.sharedTextureFailed;
+    console.log(`[OSR] createWindow for '${this.id}': useSharedTexture=${useShared} (requested=${this.useSharedTexture}, failed=${this.sharedTextureFailed})`);
+
     const win = new BrowserWindow({
       width: this.width,
       height: this.height,
@@ -83,7 +99,7 @@ export abstract class OSRRenderer {
       frame: false,
       webPreferences: {
         offscreen: {
-          useSharedTexture: false,
+          useSharedTexture: useShared,
         } as any,
         contextIsolation: true,
         nodeIntegration: false,
@@ -97,84 +113,176 @@ export abstract class OSRRenderer {
     // CPU mode: (event, dirtyRect, image: NativeImage)
     // Shared texture mode: (event, dirtyRect, image) with event.texture set
     let paintCount = 0;
-    let previousImported: { imported: any; texture: any } | null = null;
-    win.webContents.on("paint", (event: any, ...args: any[]) => {
-      if (paintCount === 0) {
-        console.log(`[OSR] First paint event for '${this.id}': event.texture=${!!event.texture}, args.length=${args.length}, args[0] type=${typeof args[0]}, args[1] type=${typeof args[1]}`);
+    let sharedTexturePaintCount = 0;
+    let cpuPaintCount = 0;
+    // Queue of imported textures pending release — kept alive until the preload
+    // sends back a sync token confirming the renderer has acquired the texture.
+    const pendingReleases: { imported: any; texture: any }[] = [];
+
+    // Sync token handler — confirms the target process has acquired the shared
+    // texture on the GPU before we release the source.
+    const syncTokenHandler = (_e: any, rId: string, syncToken: any) => {
+      if (rId !== this.id) return;
+      if (pendingReleases.length > 0) {
+        const pending = pendingReleases.shift()!;
+        try {
+          pending.imported.setReleaseSyncToken(syncToken);
+          pending.imported.release(() => {
+            try { pending.texture.release(); } catch {}
+          });
+        } catch {
+          try { pending.texture.release(); } catch {}
+        }
       }
-      // In shared texture mode, the texture is on the event object itself
+    };
+    ipcMain.on("__osr_sync_token", syncTokenHandler);
+    this.syncTokenHandler = syncTokenHandler;
+
+    this.startPaintWatchdog();
+
+    win.webContents.on("paint", (event: any, ...args: any[]) => {
+      // Only reset watchdog before first paint — once we've received a paint,
+      // the GPU process is working. Static pages won't generate continuous paints.
+      if (paintCount === 0) {
+        this.resetPaintWatchdog();
+      } else if (this.paintWatchdogTimer) {
+        this.clearPaintWatchdog();
+      }
+
       const texture = event.texture;
       const isSharedTextureMode = !!texture;
-      
+
+      if (paintCount === 0) {
+        console.log(`[OSR] First paint for '${this.id}': sharedTexture=${isSharedTextureMode}`);
+      }
+
       if (isSharedTextureMode) {
+        sharedTexturePaintCount++;
+
         if (!texture || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
           if (texture) texture.release();
           return;
         }
-        // Use subtle API for proper GPU sync — see Electron spec test:
-        // https://github.com/electron/electron/blob/main/spec/fixtures/api/shared-texture/subtle/
         const subtle = sharedTexture?.subtle;
         if (!subtle?.importSharedTexture) {
-          if (paintCount === 0) {
-            console.error(`[OSR] sharedTexture.subtle.importSharedTexture not available`);
+          if (sharedTexturePaintCount === 1) {
+            console.error(`[OSR] sharedTexture.subtle not available for '${this.id}' — falling back to CPU`);
           }
+          this.fallbackToCpu();
           texture.release();
           return;
         }
         try {
-          // Release previous frame's imported texture + source texture
-          // — by now the renderer has finished its WebGPU copy
-          if (previousImported) {
-            try { previousImported.imported.release(() => {
-              previousImported?.texture.release();
-            }); } catch {}
+          // Try high-level sendSharedTexture API first — handles GPU sync automatically
+          if (sharedTexture?.sendSharedTexture && sharedTexture?.importSharedTexture) {
+            const imported = sharedTexture.importSharedTexture({ textureInfo: texture.textureInfo });
+            if (sharedTexturePaintCount === 1) {
+              console.log(`[OSR] Using sendSharedTexture API for '${this.id}'`);
+            }
+            sharedTexture.sendSharedTexture({ frame: this.targetWebContents.mainFrame, importedSharedTexture: imported }, this.id);
+            pendingReleases.push({ imported, texture });
+            while (pendingReleases.length > 5) {
+              const old = pendingReleases.shift()!;
+              try { old.imported.release(() => { try { old.texture.release(); } catch {} }); } catch {}
+            }
+          } else {
+            // Fallback: subtle API with manual transfer
+            const imported = subtle.importSharedTexture(texture.textureInfo);
+            if (sharedTexturePaintCount === 1) {
+              console.log(`[OSR] Using subtle API transfer for '${this.id}'`);
+            }
+            const transfer = imported.startTransferSharedTexture();
+            this.targetWebContents.send("__osr_shared_texture_transfer", this.id, transfer);
+            pendingReleases.push({ imported, texture });
+            while (pendingReleases.length > 5) {
+              const old = pendingReleases.shift()!;
+              try { old.imported.release(() => { try { old.texture.release(); } catch {} }); } catch {}
+            }
           }
-          const imported = subtle.importSharedTexture(texture.textureInfo);
-          // startTransferSharedTexture generates transfer data + sync token
-          const transfer = imported.startTransferSharedTexture();
-          // Send transfer data to renderer via IPC — preload will finishTransferSharedTexture
-          this.targetWebContents.send("__osr_shared_texture_transfer", this.id, transfer);
-          // Store for delayed release — will be released when next frame arrives
-          previousImported = { imported, texture };
         } catch (err) {
           console.error(`[OSR] Shared texture transfer failed for '${this.id}':`, err);
           texture.release();
+          if (sharedTexturePaintCount <= 2) {
+            this.fallbackToCpu();
+          }
         }
       } else {
+        cpuPaintCount++;
+
+        if (useShared && paintCount === 0) {
+          console.warn(`[OSR] useSharedTexture=true but no texture in paint event — Electron fell back to CPU for '${this.id}'`);
+        }
+
         // CPU bitmap mode — (event, dirtyRect, image: NativeImage)
-        // args = [dirtyRect, image]
         const image = args[1];
         if (!image || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
           return;
         }
-        // Guard against 0-size images
         try {
           const size = image.getSize();
-          if (size.width === 0 || size.height === 0) {
-            if (paintCount === 0) {
-              console.warn(`[OSR] Paint event produced 0x0 image for '${this.id}' — page may still be loading`);
-            }
-            return;
-          }
+          if (size.width === 0 || size.height === 0) return;
         } catch {
           return;
         }
-        // Forward the NativeImage to the renderer via IPC
         this.targetWebContents.send("__osr_paint_image", this.id, image);
       }
       paintCount++;
-
-      // Note: We don't stop painting here — the offscreen page may still be
-      // loading content (e.g. an iframe). Continuous painting ensures we capture
-      // the page as it renders. Painting is explicitly stopped on destroy.
     });
 
     // Crash handling
     win.webContents.on("render-process-gone", (_event, details) => {
+      console.error(`[OSR] render-process-gone for '${this.id}': reason=${details.reason}, exitCode=${details.exitCode}`);
+      if (this.useSharedTexture && !this.sharedTextureFailed) {
+        this.sharedTextureFailed = true;
+      }
       this.handleCrash(details.reason);
     });
 
     return win;
+  }
+
+  protected startPaintWatchdog(): void {
+    this.clearPaintWatchdog();
+    this.paintWatchdogTimer = setTimeout(() => {
+      if (this.useSharedTexture && !this.sharedTextureFailed) {
+        console.warn(`[OSR] Paint watchdog: no paint within ${OSRRenderer.PAINT_WATCHDOG_MS}ms for '${this.id}' — falling back to CPU`);
+        this.fallbackToCpu();
+      }
+    }, OSRRenderer.PAINT_WATCHDOG_MS);
+  }
+
+  protected resetPaintWatchdog(): void {
+    if (this.paintWatchdogTimer) {
+      clearTimeout(this.paintWatchdogTimer);
+    }
+    this.paintWatchdogTimer = setTimeout(() => {
+      if (this.useSharedTexture && !this.sharedTextureFailed) {
+        console.warn(`[OSR] Paint watchdog: no paint within ${OSRRenderer.PAINT_WATCHDOG_MS}ms for '${this.id}' — GPU process may be broken, falling back to CPU`);
+        this.fallbackToCpu();
+      }
+    }, OSRRenderer.PAINT_WATCHDOG_MS);
+  }
+
+  protected clearPaintWatchdog(): void {
+    if (this.paintWatchdogTimer) {
+      clearTimeout(this.paintWatchdogTimer);
+      this.paintWatchdogTimer = null;
+    }
+  }
+
+  protected fallbackToCpu(): void {
+    if (this.sharedTextureFailed) return;
+    this.sharedTextureFailed = true;
+    console.warn(`[OSR] Falling back to CPU path for '${this.id}'`);
+
+    if (this.window && !this.window.isDestroyed()) {
+      this.window.webContents.stopPainting();
+      this.window.destroy();
+    }
+    this.window = this.createWindow();
+    this.dirty = true;
+    this.painting = true;
+    this.loadContent();
   }
 
   protected handleCrash(_reason: string): void {
@@ -197,6 +305,11 @@ export abstract class OSRRenderer {
   }
 
   protected recreate(): void {
+    this.clearPaintWatchdog();
+    if (this.syncTokenHandler) {
+      ipcMain.removeListener("__osr_sync_token", this.syncTokenHandler);
+      this.syncTokenHandler = null;
+    }
     if (this.window && !this.window.isDestroyed()) {
       this.window.destroy();
     }
@@ -649,6 +762,11 @@ export abstract class OSRRenderer {
   }
 
   destroy(): void {
+    this.clearPaintWatchdog();
+    if (this.syncTokenHandler) {
+      ipcMain.removeListener("__osr_sync_token", this.syncTokenHandler);
+      this.syncTokenHandler = null;
+    }
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
