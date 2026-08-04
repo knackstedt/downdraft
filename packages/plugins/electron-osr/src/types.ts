@@ -103,6 +103,7 @@ export interface OSRIPC {
   updatePanel(rendererId: string, panelId: string, html: string): Promise<void>;
   updateData(rendererId: string, panelId: string, values: Record<string, string | number | boolean>): void;
   setContent(rendererId: string, html: string): Promise<void>;
+  loadURL(rendererId: string, url: string): Promise<void>;
   sendInputEvent(rendererId: string, event: Omit<OSRInputEvent, "rendererId">): void;
   setSoftwareCursor(rendererId: string, enabled: boolean): void;
   onPanelLayout(cb: (rendererId: string, layout: AtlasLayout) => void): void;

@@ -12,8 +12,7 @@ export class OSRTextureReceiver {
   private pixelFormat: OSRSharedTexturePixelFormat;
   private gpuTexture: GPUTexture | null = null;
   private gpuTextureView: GPUTextureView | null = null;
-  private previousTexture: GPUTexture | null = null;
-  private previousTextureView: GPUTextureView | null = null;
+  private gpuTextureFormat: GPUTextureFormat | null = null;
   private receiverRegistered = false;
 
   constructor(device: GPUDevice, rendererId: string, width: number, height: number, pixelFormat: OSRSharedTexturePixelFormat) {
@@ -25,7 +24,7 @@ export class OSRTextureReceiver {
   }
 
   init(): void {
-    this.createGpuTexture();
+    // Don't create GPU texture yet — wait for first frame with actual dimensions
     this.registerReceiver();
   }
 
@@ -33,85 +32,129 @@ export class OSRTextureReceiver {
     return this.pixelFormat === "bgra" ? "bgra8unorm" : "rgba8unorm";
   }
 
-  private createGpuTexture(): void {
-    this.previousTexture = this.gpuTexture;
-    this.previousTextureView = this.gpuTextureView;
+  private videoFrameFormatToGPUFormat(vfFormat: string): GPUTextureFormat {
+    if (vfFormat === "BGRA" || vfFormat === "BGRX") return "bgra8unorm";
+    return "rgba8unorm";
+  }
 
+  private createGpuTexture(format?: GPUTextureFormat): void {
+    // Destroy previous texture immediately
+    if (this.gpuTexture) {
+      this.gpuTexture.destroy();
+    }
+    this.gpuTextureView = null;
+
+    const texFormat = format ?? this.gpuFormat;
+    this.gpuTextureFormat = texFormat;
     this.gpuTexture = this.device.createTexture({
       size: { width: this.width, height: this.height },
-      format: this.gpuFormat,
+      format: texFormat,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
     });
     this.gpuTextureView = this.gpuTexture.createView();
-
-    // Destroy previous texture after creating new one (double-buffering)
-    if (this.previousTexture) {
-      // Keep previous alive until next frame to prevent tearing
-      // It will be destroyed on the next createGpuTexture call
-    }
   }
 
   private registerReceiver(): void {
     const downdraft = (window as any).downdraft;
     let registered = false;
+    let sharedTextureOk = false;
 
     // Try shared texture receiver first (GPU zero-copy path)
     if (downdraft?.osr?.registerSharedTextureReceiver) {
-      registered = downdraft.osr.registerSharedTextureReceiver((videoFrame: any) => {
-        console.log(`[OSR] VideoFrame received for '${this.rendererId}': ${videoFrame.codedWidth}x${videoFrame.codedHeight}`);
-        try {
-          const codedWidth = videoFrame.codedWidth;
-          const codedHeight = videoFrame.codedHeight;
-          if (codedWidth !== this.width || codedHeight !== this.height) {
-            this.width = codedWidth;
-            this.height = codedHeight;
-            this.createGpuTexture();
+      // Register the receiver in the preload — this sets up a postMessage
+      // bridge that transfers VideoFrames from the preload's isolated world
+      // to the renderer's main world (VideoFrames can't be proxied through
+      // contextBridge)
+      sharedTextureOk = downdraft.osr.registerSharedTextureReceiver();
+      if (sharedTextureOk) {
+        let frameCount = 0;
+        // Listen for VideoFrames transferred via postMessage
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type !== "__osr_video_frame") return;
+          const videoFrame = event.data.videoFrame;
+          if (!videoFrame) return;
+          try {
+            // Use displayWidth/Height (visible area) — codedWidth/Height may
+            // include padding that would exceed the texture size
+            const w = videoFrame.displayWidth || videoFrame.codedWidth;
+            const h = videoFrame.displayHeight || videoFrame.codedHeight;
+            if (frameCount === 0) {
+              console.log(`[OSR] First VideoFrame for '${this.rendererId}': ${w}x${h}, format=${videoFrame.format}, codedSize=${videoFrame.codedWidth}x${videoFrame.codedHeight}, visibleRect=${JSON.stringify(videoFrame.codedRect)}`);
+            }
+            if (w <= 0 || h <= 0) {
+              console.warn(`[OSR] Invalid VideoFrame dimensions ${w}x${h} for '${this.rendererId}'`);
+              return;
+            }
+            const texFormat = this.videoFrameFormatToGPUFormat(videoFrame.format || "");
+            if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== texFormat) {
+              this.width = w;
+              this.height = h;
+              this.createGpuTexture(texFormat);
+            }
+            if (!this.gpuTexture) {
+              console.error(`[OSR] gpuTexture is null after createGpuTexture for '${this.rendererId}'`);
+              return;
+            }
+            this.device.queue.copyExternalImageToTexture(
+              { source: videoFrame, flipY: false },
+              { texture: this.gpuTexture, premultipliedAlpha: false },
+              { width: this.width, height: this.height },
+            );
+            if (frameCount === 0) {
+              console.log(`[OSR] Texture copy succeeded for '${this.rendererId}': ${this.width}x${this.height} format=${texFormat}`);
+            }
+            frameCount++;
+          } catch (err) {
+            console.error(`[OSR] Texture copy failed for '${this.rendererId}':`, err);
+          } finally {
+            videoFrame.close();
           }
-          this.device.queue.copyExternalImageToTexture(
-            { source: videoFrame },
-            { texture: this.gpuTexture! },
-            { width: this.width, height: this.height },
-          );
-        } catch (err) {
-          console.error(`[OSR] Texture copy failed for '${this.rendererId}':`, err);
-        } finally {
-          videoFrame.close();
-        }
-      });
+        });
+        registered = true;
+      }
     }
 
     // Also register NativeImage paint fallback (CPU path)
     if (downdraft?.osr?.onPaintImage) {
-      downdraft.osr.onPaintImage(async (rendererId: string, image: any) => {
+      downdraft.osr.onPaintImage((rendererId: string, image: any) => {
         if (rendererId !== this.rendererId) return;
         try {
-          // NativeImage from Electron IPC — convert via data URL → Blob → ImageBitmap
-          const dataUrl = image.toDataURL();
-          const blob = await (await fetch(dataUrl)).blob();
-          const bitmap = await createImageBitmap(blob);
-          const w = bitmap.width;
-          const h = bitmap.height;
-          if (w !== this.width || h !== this.height) {
+          const size = image.getSize();
+          const w = size.width;
+          const h = size.height;
+          if (w === 0 || h === 0) return;
+          if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== "rgba8unorm") {
             this.width = w;
             this.height = h;
-            this.createGpuTexture();
+            this.createGpuTexture("rgba8unorm");
           }
+          // NativeImage.toBitmap() returns BGRA on Linux — swap R and B for RGBA
+          const rawBitmap = image.toBitmap();
+          const rgba = new Uint8ClampedArray(rawBitmap.length);
+          for (let i = 0; i < rawBitmap.length; i += 4) {
+            rgba[i] = rawBitmap[i + 2];     // R = B
+            rgba[i + 1] = rawBitmap[i + 1]; // G = G
+            rgba[i + 2] = rawBitmap[i];     // B = R
+            rgba[i + 3] = rawBitmap[i + 3]; // A = A
+          }
+          const imageData = new ImageData(rgba, w, h);
           this.device.queue.copyExternalImageToTexture(
-            { source: bitmap, flipY: true },
+            { source: imageData, flipY: true },
             { texture: this.gpuTexture! },
-            { width: this.width, height: this.height },
+            { width: w, height: h },
           );
-          bitmap.close();
         } catch (err) {
           console.error(`[OSR] NativeImage copy failed for '${this.rendererId}':`, err);
         }
       });
-      registered = true;
+      if (!registered) registered = true;
     }
 
     this.receiverRegistered = registered;
     if (!registered) {
       console.warn(`[OSR] No texture receiver available for '${this.rendererId}'`);
+    } else {
+      console.log(`[OSR] Texture receiver registered for '${this.rendererId}' (sharedTexture: ${sharedTextureOk}, CPU fallback: ${!!downdraft?.osr?.onPaintImage})`);
     }
   }
 
@@ -124,11 +167,6 @@ export class OSRTextureReceiver {
   }
 
   destroy(): void {
-    if (this.previousTexture) {
-      this.previousTexture.destroy();
-      this.previousTexture = null;
-      this.previousTextureView = null;
-    }
     if (this.gpuTexture) {
       this.gpuTexture.destroy();
       this.gpuTexture = null;

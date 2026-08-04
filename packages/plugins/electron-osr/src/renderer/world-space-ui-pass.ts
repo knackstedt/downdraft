@@ -59,7 +59,8 @@ fn vs_main(@location(0) quadUV: vec2<f32>, instance: InstanceInput) -> VertexOut
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let texColor = textureSample(uiTexture, uiSampler, input.uv);
   let errorColor = vec4<f32>(1.0, 0.0, 0.0, 0.85);
-  return mix(texColor, errorColor, select(0.0, 1.0, input.errorFlag > 0.5));
+  let result = mix(texColor, errorColor, select(0.0, 1.0, input.errorFlag > 0.5));
+  return vec4<f32>(result.rgb, 1.0);
 }
 `;
 
