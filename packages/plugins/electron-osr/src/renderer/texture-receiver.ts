@@ -2,10 +2,12 @@
 // OSR Texture Receiver — Receives shared GPU textures from Electron OSR
 // ============================================================================
 
+import { createLogger } from "@downdraft/core";
 import type { OSRSharedTexturePixelFormat } from "../types";
 import { createDecompressWorker } from "./osr-decompress-worker";
 import { OSRSABRingBuffer } from "./osr-sab-buffer";
 
+const log = createLogger();
 const SAB_SLOT_COUNT = 4;
 
 export class OSRTextureReceiver {
@@ -24,6 +26,7 @@ export class OSRTextureReceiver {
   private sabRing: OSRSABRingBuffer | null = null;
   private sabDrainActive = false;
   private regionCount = 0;
+  private portCleanup: (() => void) | null = null;
 
   constructor(device: GPUDevice, rendererId: string, width: number, height: number, pixelFormat: OSRSharedTexturePixelFormat) {
     this.device = device;
@@ -86,7 +89,7 @@ export class OSRTextureReceiver {
           if (watchdogTimer) clearTimeout(watchdogTimer);
           watchdogTimer = setTimeout(() => {
             if (frameCount === 0) {
-              console.warn(`[OSR] VideoFrame watchdog: no frames received within 5s for '${this.rendererId}' — shared texture path may not be delivering frames`);
+              log.warn("OSR", `VideoFrame watchdog: no frames received within 5s for '${this.rendererId}' — shared texture path may not be delivering frames`);
             }
           }, 5000);
         };
@@ -111,7 +114,7 @@ export class OSRTextureReceiver {
           const w = videoFrame.displayWidth || videoFrame.codedWidth;
           const h = videoFrame.displayHeight || videoFrame.codedHeight;
           if (frameCount === 0) {
-            console.log(`[OSR] First VideoFrame for '${this.rendererId}': ${w}x${h}, format=${videoFrame.format}`);
+            log.info("OSR", `First VideoFrame for '${this.rendererId}': ${w}x${h}, format=${videoFrame.format}`);
           }
           if (w <= 0 || h <= 0) {
             this.pendingVideoFrame = videoFrame;
@@ -136,14 +139,14 @@ export class OSRTextureReceiver {
               { width: this.width, height: this.height },
             );
             if (frameCount === 0) {
-              console.log(`[OSR] Texture copy succeeded for '${this.rendererId}': ${this.width}x${this.height} format=${texFormat}`);
+              log.info("OSR", `Texture copy succeeded for '${this.rendererId}': ${this.width}x${this.height} format=${texFormat}`);
             }
             this.pendingVideoFrame = videoFrame;
             frameCount++;
           } catch (err) {
             copyFailCount++;
             if (copyFailCount <= 3) {
-              console.error(`[OSR] Texture copy failed for '${this.rendererId}' (frame #${frameCount}):`, err);
+              log.error("OSR", `Texture copy failed for '${this.rendererId}' (frame #${frameCount}): ${err}`);
             }
             try { videoFrame.close(); } catch {}
             this.pendingVideoFrame = null;
@@ -151,14 +154,14 @@ export class OSRTextureReceiver {
         });
         registered = true;
       } else {
-        console.warn(`[OSR] registerSharedTextureReceiver returned false for '${this.rendererId}' — CPU fallback only`);
+        log.warn("OSR", `registerSharedTextureReceiver returned false for '${this.rendererId}' — CPU fallback only`);
       }
     } else {
-      console.log(`[OSR] registerSharedTextureReceiver not available for '${this.rendererId}' — CPU fallback only`);
+      log.info("OSR", `registerSharedTextureReceiver not available for '${this.rendererId}' — CPU fallback only`);
     }
 
-    // Region-based CPU path — dirty rect + compressed data via Worker + SAB
-    if (downdraft?.osr?.onPaintRegion) {
+    // Region-based CPU path — dirty rect + compressed data via Worker + SAB + MessagePort
+    if (downdraft?.osr?.createPaintPort) {
       // Allocate SAB ring buffer — slot size based on actual frame dimensions
       const slotSize = this.width * this.height * 4;
       const sab = OSRSABRingBuffer.allocate(slotSize, SAB_SLOT_COUNT);
@@ -170,10 +173,10 @@ export class OSRTextureReceiver {
         this.decompressWorker = worker;
         worker.postMessage({ type: "init", sab });
         worker.onerror = (e) => {
-          console.error(`[OSR] Decompress worker error for '${this.rendererId}':`, e.message);
+          log.error("OSR", `Decompress worker error for '${this.rendererId}': ${e.message}`);
         };
       } catch (err) {
-        console.error(`[OSR] Failed to spawn decompress worker for '${this.rendererId}':`, err, err instanceof Error ? err.message : String(err));
+        log.error("OSR", `Failed to spawn decompress worker for '${this.rendererId}': ${err instanceof Error ? err.message : String(err)}`);
         this.decompressWorker = null;
         this.sabRing = null;
       }
@@ -183,44 +186,23 @@ export class OSRTextureReceiver {
         this.startSabDrain();
       }
 
-      downdraft.osr.onPaintRegion((rendererId: string, region: {
-        x: number; y: number; width: number; height: number;
-        fullWidth: number; fullHeight: number;
-        data: ArrayBuffer; compressed: boolean;
-      }) => {
-        if (rendererId !== this.rendererId) return;
-        try {
-          const { x, y, width: rw, height: rh, fullWidth, fullHeight, data, compressed } = region;
-          if (rw === 0 || rh === 0) return;
+      // Listen for port2 from preload (transferred via window.postMessage)
+      // Then forward the port to the worker — main process sends paint data directly to worker
+      const portHandler = (event: MessageEvent) => {
+        if (event.data?.type !== "__osr_paint_port") return;
+        if (event.data.rendererId !== this.rendererId) return;
+        const port: MessagePort = event.data.port;
+        if (!port || !this.decompressWorker) return;
+        this.decompressWorker.postMessage({ type: "port", port }, [port]);
+      };
+      window.addEventListener("message", portHandler);
+      this.portCleanup = () => window.removeEventListener("message", portHandler);
 
-          // Ensure GPU texture matches full frame size
-          if (fullWidth !== this.width || fullHeight !== this.height ||
-              !this.gpuTexture || this.gpuTextureFormat !== "bgra8unorm") {
-            this.width = fullWidth;
-            this.height = fullHeight;
-            this.createGpuTexture("bgra8unorm");
-          }
+      // Trigger port creation in preload — port1 goes to main, port2 comes back via window.postMessage
+      downdraft.osr.createPaintPort(this.rendererId);
 
-          if (this.regionCount === 0) {
-            console.log(`[OSR] First region for '${this.rendererId}': ${rw}x${rh} at (${x},${y}), ${data.byteLength}B${compressed ? " (compressed)" : ""}`);
-          }
-          this.regionCount++;
-
-          if (!this.decompressWorker) {
-            console.warn(`[OSR] Worker not running for '${this.rendererId}' — dropping frame (CPU fallback disabled)`);
-            return;
-          }
-          // Send compressed data to worker — transferable ArrayBuffer (zero-copy)
-          this.decompressWorker.postMessage(
-            { type: "decompress", data, x, y, width: rw, height: rh, compressed },
-            [data],
-          );
-        } catch (err) {
-          console.error(`[OSR] Region copy failed for '${this.rendererId}':`, err);
-        }
-      });
       if (!registered) registered = true;
-    } else if (downdraft?.osr?.onPaintImage) {
+    } else if (downdraft?.osr?.onPaintRegion) {
       // Legacy fallback: full-frame NativeImage (no dirty rect optimization)
       let nativeImageCount = 0;
       downdraft.osr.onPaintImage((rendererId: string, image: any) => {
@@ -231,7 +213,7 @@ export class OSRTextureReceiver {
           const h = size.height;
           if (w === 0 || h === 0) return;
           if (nativeImageCount === 0) {
-            console.log(`[OSR] First NativeImage for '${this.rendererId}': ${w}x${h}`);
+            log.info("OSR", `First NativeImage for '${this.rendererId}': ${w}x${h}`);
           }
           nativeImageCount++;
           if (w !== this.width || h !== this.height || !this.gpuTexture || this.gpuTextureFormat !== "bgra8unorm") {
@@ -247,7 +229,7 @@ export class OSRTextureReceiver {
             { width: w, height: h },
           );
         } catch (err) {
-          console.error(`[OSR] NativeImage copy failed for '${this.rendererId}':`, err);
+          log.error("OSR", `NativeImage copy failed for '${this.rendererId}': ${err}`);
         }
       });
       if (!registered) registered = true;
@@ -255,7 +237,7 @@ export class OSRTextureReceiver {
 
     this.receiverRegistered = registered;
     if (!registered) {
-      console.warn(`[OSR] No texture receiver available for '${this.rendererId}'`);
+      log.warn("OSR", `No texture receiver available for '${this.rendererId}'`);
     }
   }
 
@@ -284,6 +266,14 @@ export class OSRTextureReceiver {
         if (!region) continue;
 
         try {
+          // Ensure GPU texture matches full frame size (from SAB metadata)
+          if (region.fullWidth > 0 && region.fullHeight > 0 &&
+              (region.fullWidth !== this.width || region.fullHeight !== this.height ||
+               !this.gpuTexture || this.gpuTextureFormat !== "bgra8unorm")) {
+            this.width = region.fullWidth;
+            this.height = region.fullHeight;
+            this.createGpuTexture("bgra8unorm");
+          }
           if (!this.gpuTexture) continue;
           // Clamp to texture bounds — defense against bad dirty rects
           const maxX = Math.min(region.x + region.width, this.width);
@@ -298,13 +288,10 @@ export class OSRTextureReceiver {
             { width: clampedW, height: clampedH },
           );
           uploaded++;
+          this.regionCount++;
         } catch (err) {
-          console.error(`[OSR] SAB drain writeTexture failed for '${this.rendererId}':`, err);
+          log.error("OSR", `SAB drain writeTexture failed for '${this.rendererId}': ${err}`);
         }
-      }
-
-      if (uploaded > 0 && this.regionCount <= 3) {
-        console.log(`[OSR] SAB drain for '${this.rendererId}': uploaded ${uploaded} regions`);
       }
 
       // Continue draining — use microtask for low latency
@@ -317,6 +304,12 @@ export class OSRTextureReceiver {
   destroy(): void {
     // Stop SAB drain loop
     this.sabDrainActive = false;
+
+    // Clean up port listener
+    if (this.portCleanup) {
+      this.portCleanup();
+      this.portCleanup = null;
+    }
 
     // Shutdown worker + SAB
     if (this.sabRing) {

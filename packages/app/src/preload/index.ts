@@ -144,6 +144,13 @@ const api = {
     // Register a region-based paint receiver (dirty rect + compressed data)
     onPaintRegion: (cb: (rendererId: string, region: { x: number; y: number; width: number; height: number; fullWidth: number; fullHeight: number; data: ArrayBuffer; compressed: boolean }) => void) =>
       ipcRenderer.on("__osr_paint_region", (_e, rendererId, region) => cb(rendererId, region)),
+    // Create a direct MessagePort from main process → worker (bypasses renderer main thread)
+    // Port1 goes to main process, port2 is transferred to renderer via window.postMessage
+    createPaintPort: (rendererId: string): void => {
+      const { port1, port2 } = new MessageChannel();
+      ipcRenderer.postMessage("__osr_paint_port", { rendererId }, [port1]);
+      window.postMessage({ type: "__osr_paint_port", rendererId, port: port2 }, "*", [port2]);
+    },
   },
 
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),

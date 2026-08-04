@@ -12,22 +12,26 @@
 //   [24..63] reserved
 //   [64..]   SLOT_DATA   — slot_count * slot_size bytes
 //
-// Each slot also has a 16-byte metadata header:
+// Each slot also has a 24-byte metadata header:
 //   [0..3]   regionX (u32)
 //   [4..7]   regionY (u32)
 //   [8..11]  regionW (u32)
 //   [12..15] regionH (u32)
+//   [16..19] fullWidth (u32)
+//   [20..23] fullHeight (u32)
 // Followed by the raw BGRA pixel data.
 // ============================================================================
 
 const HEADER_BYTES = 64;
-const SLOT_META_BYTES = 16;
+const SLOT_META_BYTES = 24;
 
 export interface OSRSABRegion {
   x: number;
   y: number;
   width: number;
   height: number;
+  fullWidth: number;
+  fullHeight: number;
   data: Uint8Array;
   slotIndex: number;
 }
@@ -71,28 +75,32 @@ export class OSRSABRingBuffer {
     return this.dataOffset + slotIndex * (SLOT_META_BYTES + this.slotSize);
   }
 
-  writeSlot(slotIndex: number, x: number, y: number, w: number, h: number, data: Uint8Array): void {
+  writeSlot(slotIndex: number, x: number, y: number, w: number, h: number, fullWidth: number, fullHeight: number, data: Uint8Array): void {
     const offset = this.slotByteOffset(slotIndex);
-    const u32 = new Uint32Array(this.sab, offset, 4);
+    const u32 = new Uint32Array(this.sab, offset, 6);
     u32[0] = x;
     u32[1] = y;
     u32[2] = w;
     u32[3] = h;
+    u32[4] = fullWidth;
+    u32[5] = fullHeight;
     const dataBytes = new Uint8Array(this.sab, offset + SLOT_META_BYTES, this.slotSize);
     dataBytes.set(data.subarray(0, Math.min(data.length, this.slotSize)));
   }
 
   readSlot(slotIndex: number): OSRSABRegion | null {
     const offset = this.slotByteOffset(slotIndex);
-    const u32 = new Uint32Array(this.sab, offset, 4);
+    const u32 = new Uint32Array(this.sab, offset, 6);
     const x = u32[0];
     const y = u32[1];
     const w = u32[2];
     const h = u32[3];
+    const fullWidth = u32[4];
+    const fullHeight = u32[5];
     if (w === 0 || h === 0) return null;
     const byteLen = w * h * 4;
     const data = new Uint8Array(this.sab, offset + SLOT_META_BYTES, byteLen);
-    return { x, y, width: w, height: h, data, slotIndex };
+    return { x, y, width: w, height: h, fullWidth, fullHeight, data, slotIndex };
   }
 
   nextWriteSlot(): number | null {

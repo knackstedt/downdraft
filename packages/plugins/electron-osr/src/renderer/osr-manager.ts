@@ -2,6 +2,7 @@
 // OSR Manager — Renderer-side coordinator for all OSR rendering
 // ============================================================================
 
+import { createLogger } from "@downdraft/core";
 import type {
   AtlasLayout,
   OSRIPC,
@@ -15,6 +16,8 @@ import type {
 import { OSRInputRouter, type MouseState } from "./input-router";
 import { OSRTextureReceiverManager } from "./texture-receiver-manager";
 import { WorldSpaceUIPass, type CameraState } from "./world-space-ui-pass";
+
+const log = createLogger();
 
 export class OSRManager {
   private device: GPUDevice;
@@ -144,13 +147,13 @@ export class OSRManager {
     const texList = this.textureManager.getTextureList();
     if (texList.length === 0) {
       if (!this._warnedNoTextures) {
-        console.warn(`[OSR] No textures available for rendering — texture receivers may not have received frames yet`);
+        log.warn("OSR", `No textures available for rendering — texture receivers may not have received frames yet`);
         this._warnedNoTextures = true;
       }
       return;
     }
     if (!this._loggedFirstRender) {
-      console.log(`[OSR] First render with ${texList.length} texture(s), ${this.elements.size} element(s)`);
+      log.info("OSR", `First render with ${texList.length} texture(s), ${this.elements.size} element(s)`);
       this._loggedFirstRender = true;
     }
 
@@ -235,7 +238,7 @@ export class OSRManager {
   private handleCursorStyle(cursor: string): void {
     if (this.cursorStyle !== cursor) {
       this.cursorStyle = cursor;
-      console.log(`[OSR] Cursor style changed: ${cursor}`);
+      log.info("OSR", `Cursor style changed: ${cursor}`);
       this.onCursorStyleCb?.(cursor);
     }
   }

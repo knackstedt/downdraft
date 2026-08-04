@@ -7,13 +7,14 @@
 
 const WORKER_SOURCE = `
 const HEADER_BYTES = 64;
-const SLOT_META_BYTES = 16;
+const SLOT_META_BYTES = 24;
 
 let sab = null;
 let i32 = null;
 let slotSize = 0;
 let slotCount = 0;
 let dataOffset = HEADER_BYTES;
+let paintPort = null;
 
 function slotByteOffset(slotIndex) {
   return dataOffset + slotIndex * (SLOT_META_BYTES + slotSize);
@@ -27,10 +28,11 @@ function nextWriteSlot() {
   return writeIdx;
 }
 
-function writeSlot(slotIndex, x, y, w, h, data) {
+function writeSlot(slotIndex, x, y, w, h, fullWidth, fullHeight, data) {
   const offset = slotByteOffset(slotIndex);
-  const u32 = new Uint32Array(sab, offset, 4);
+  const u32 = new Uint32Array(sab, offset, 6);
   u32[0] = x; u32[1] = y; u32[2] = w; u32[3] = h;
+  u32[4] = fullWidth; u32[5] = fullHeight;
   const dataBytes = new Uint8Array(sab, offset + SLOT_META_BYTES, slotSize);
   dataBytes.set(data.subarray(0, Math.min(data.length, slotSize)));
 }
@@ -70,7 +72,32 @@ async function decompress(data) {
   return result;
 }
 
-self.onmessage = async (e) => {
+function handlePaintData(msg) {
+  if (!sab || !isAlive()) return;
+  try {
+    let raw;
+    if (msg.compressed) {
+      decompress(msg.data).then((decompressed) => {
+        const slot = nextWriteSlot();
+        if (slot === null) return;
+        writeSlot(slot, msg.x, msg.y, msg.width, msg.height, msg.fullWidth, msg.fullHeight, decompressed);
+        publishSlot(slot);
+      }).catch((err) => {
+        self.postMessage({ type: "error", error: String(err) });
+      });
+      return;
+    }
+    raw = new Uint8Array(msg.data);
+    const slot = nextWriteSlot();
+    if (slot === null) return;
+    writeSlot(slot, msg.x, msg.y, msg.width, msg.height, msg.fullWidth, msg.fullHeight, raw);
+    publishSlot(slot);
+  } catch (err) {
+    self.postMessage({ type: "error", error: String(err) });
+  }
+}
+
+self.onmessage = (e) => {
   const msg = e.data;
   if (!msg) return;
 
@@ -83,22 +110,16 @@ self.onmessage = async (e) => {
     return;
   }
 
+  if (msg.type === "port") {
+    paintPort = msg.port;
+    paintPort.onmessage = (ev) => handlePaintData(ev.data);
+    paintPort.start();
+    return;
+  }
+
   if (msg.type === "decompress") {
-    if (!sab || !isAlive()) return;
-    try {
-      let raw;
-      if (msg.compressed) {
-        raw = await decompress(msg.data);
-      } else {
-        raw = new Uint8Array(msg.data);
-      }
-      const slot = nextWriteSlot();
-      if (slot === null) return;
-      writeSlot(slot, msg.x, msg.y, msg.width, msg.height, raw);
-      publishSlot(slot);
-    } catch (err) {
-      self.postMessage({ type: "error", error: String(err) });
-    }
+    handlePaintData(msg);
+    return;
   }
 };
 `;
