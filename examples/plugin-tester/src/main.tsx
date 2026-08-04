@@ -3,9 +3,9 @@
 // WebGPU init (with Canvas2D fallback), game loop, scene setup, MCP setup
 // ============================================================================
 
-import { SimpleRenderer, type AgentVisual } from "./engine.ts";
-import { setupMCP } from "./mcp-setup.ts";
-import { initTestScene, type TestScene } from "./test-scene.ts";
+import { SimpleRenderer, type AgentVisual } from "./engine";
+import { setupMCP } from "./mcp-setup";
+import { initTestScene, type TestScene } from "./test-scene";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([

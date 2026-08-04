@@ -2,10 +2,10 @@
 // Test Scene — combines navmesh, water, and gameplay tests into one scene
 // ============================================================================
 
-import type { AgentVisual } from "./engine.ts";
-import { initNavMeshTest, getAgentPositions, type NavMeshTestResult } from "./navmesh-test.ts";
-import { initWaterTest, tickWaterTest, getWaterState, type WaterTestResult } from "./water-test.ts";
-import { initGameplayTest, tickGameplayTest, getGameplayStateSnapshot, type GameplayState } from "./gameplay-test.ts";
+import type { AgentVisual } from "./engine";
+import { initNavMeshTest, getAgentPositions, type NavMeshTestResult } from "./navmesh-test";
+import { initWaterTest, tickWaterTest, getWaterState, type WaterTestResult } from "./water-test";
+import { initGameplayTest, tickGameplayTest, getGameplayStateSnapshot, type GameplayState } from "./gameplay-test";
 
 export interface TestScene {
   navmesh: NavMeshTestResult;
