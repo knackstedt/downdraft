@@ -141,6 +141,9 @@ const api = {
     // Register a NativeImage paint receiver (CPU fallback when shared textures aren't available)
     onPaintImage: (cb: (rendererId: string, image: any) => void) =>
       ipcRenderer.on("__osr_paint_image", (_e, rendererId, image) => cb(rendererId, image)),
+    // Register a region-based paint receiver (dirty rect + compressed data)
+    onPaintRegion: (cb: (rendererId: string, region: { x: number; y: number; width: number; height: number; fullWidth: number; fullHeight: number; data: ArrayBuffer; compressed: boolean }) => void) =>
+      ipcRenderer.on("__osr_paint_region", (_e, rendererId, region) => cb(rendererId, region)),
   },
 
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),

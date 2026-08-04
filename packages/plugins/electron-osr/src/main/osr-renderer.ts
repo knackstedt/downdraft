@@ -13,6 +13,7 @@ import type {
   OSRSharedTexturePixelFormat,
 } from "../types";
 const { sharedTexture, ipcMain } = require("electron") as any;
+const { deflateSync } = require("zlib") as typeof import("zlib");
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;
 
@@ -214,17 +215,83 @@ export abstract class OSRRenderer {
         }
 
         // CPU bitmap mode — (event, dirtyRect, image: NativeImage)
+        // Extract dirty rect and crop — only send the changed region
+        const dirtyRect = args[0];
         const image = args[1];
         if (!image || !this.targetWebContents || this.targetWebContents.isDestroyed()) {
           return;
         }
         try {
-          const size = image.getSize();
-          if (size.width === 0 || size.height === 0) return;
+          const fullSize = image.getSize();
+          if (fullSize.width === 0 || fullSize.height === 0) return;
+
+          // Clamp dirty rect to frame bounds — Chromium can report rects that overflow
+          let rx = Math.max(0, Math.min(dirtyRect?.x ?? 0, fullSize.width - 1));
+          let ry = Math.max(0, Math.min(dirtyRect?.y ?? 0, fullSize.height - 1));
+          let rw = Math.max(1, Math.min(dirtyRect?.width ?? fullSize.width, fullSize.width - rx));
+          let rh = Math.max(1, Math.min(dirtyRect?.height ?? fullSize.height, fullSize.height - ry));
+
+          // Crop to dirty rect — only send the changed region
+          let didCrop = false;
+          if (rw > 0 && rh > 0 && (rw < fullSize.width || rh < fullSize.height)) {
+            try {
+              image.crop({ x: rx, y: ry, width: rw, height: rh });
+              const croppedSize = image.getSize();
+              // Verify crop actually worked — if size unchanged, crop() is a no-op
+              if (croppedSize.width === rw && croppedSize.height === rh) {
+                didCrop = true;
+              }
+            } catch {}
+          }
+
+          const croppedSize = image.getSize();
+          const rawBitmap = image.toBitmap();
+
+          // If crop didn't work, send full frame with origin (0,0)
+          let sendX = rx;
+          let sendY = ry;
+          let sendW = croppedSize.width;
+          let sendH = croppedSize.height;
+          if (!didCrop && (sendW > rw || sendH > rh)) {
+            sendX = 0;
+            sendY = 0;
+            sendW = fullSize.width;
+            sendH = fullSize.height;
+          }
+
+          // Compress small regions with zlib (level 3 = fast)
+          // Skip compression for large regions (>1MB) — overhead exceeds benefit
+          let data: Uint8Array = rawBitmap;
+          let compressed = false;
+          if (rawBitmap.length < 1048576) {
+            try {
+              const deflated = deflateSync(rawBitmap, { level: 3 });
+              if (deflated.length < rawBitmap.length) {
+                data = deflated;
+                compressed = true;
+              }
+            } catch {}
+          }
+
+          if (cpuPaintCount <= 3) {
+            const ratio = compressed ? `${(data.length / rawBitmap.length * 100).toFixed(0)}%` : "raw";
+            console.log(`[OSR] CPU paint #${cpuPaintCount} for '${this.id}': region ${sendW}x${sendH} at (${sendX},${sendY}), ${rawBitmap.length}B → ${data.length}B (${ratio})${didCrop ? "" : " (crop failed, full frame)"}`);
+          }
+
+          // Convert to clean ArrayBuffer for zero-copy transfer via postMessage
+          const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+          this.targetWebContents.send("__osr_paint_region", this.id, {
+            x: sendX, y: sendY,
+            width: sendW,
+            height: sendH,
+            fullWidth: fullSize.width,
+            fullHeight: fullSize.height,
+            data: arrayBuffer,
+            compressed,
+          });
         } catch {
           return;
         }
-        this.targetWebContents.send("__osr_paint_image", this.id, image);
       }
       paintCount++;
     });
