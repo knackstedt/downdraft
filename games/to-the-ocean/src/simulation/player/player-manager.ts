@@ -2,21 +2,22 @@
 // Player Manager — health, movement, swimming, oxygen tanks, death/respawn
 // ============================================================================
 
+import { shoreDamping, shoreDisplacement, waterCutout } from "@downdraft/plugin-water";
 import {
-    HOTBAR_SLOTS, HOTBAR_TOOLS,
-    PLAYER_DIVE_FORCE,
-    PLAYER_FLOAT_FORCE,
-    PLAYER_GRAVITY, PLAYER_JUMP_FORCE,
-    PLAYER_MAX_HEALTH,
-    PLAYER_RUN_SPEED,
-    PLAYER_SWIM_SPEED,
-    PLAYER_SWIM_VERTICAL_MAX,
-    PLAYER_WALK_SPEED,
-    PLAYER_WATER_DRAG,
-    PLAYER_WATER_SINK_RATE,
+  HOTBAR_SLOTS, HOTBAR_TOOLS,
+  PLAYER_DIVE_FORCE,
+  PLAYER_FLOAT_FORCE,
+  PLAYER_GRAVITY, PLAYER_JUMP_FORCE,
+  PLAYER_MAX_HEALTH,
+  PLAYER_RUN_SPEED,
+  PLAYER_SWIM_SPEED,
+  PLAYER_SWIM_VERTICAL_MAX,
+  PLAYER_WALK_SPEED,
+  PLAYER_WATER_DRAG,
+  PLAYER_WATER_SINK_RATE,
 } from "../../shared/constants";
 import { InputBufferReader, KEY } from "../../shared/input-buffer";
-import { collectShoreSources, shoreDamping, shoreDisplacement, ShoreSource, waterCutout } from "../../shared/shore-damping";
+import { collectShoreSources, type ShoreSource } from "../../shared/shore-damping";
 import { PLR_FLAG } from "../../shared/sim-buffer";
 import { CameraMode } from "../../shared/types";
 import { WATER_GRID, WaterBufferWriter } from "../../shared/water-buffer";

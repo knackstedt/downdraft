@@ -122,6 +122,103 @@ export interface IDevToolsOverlayToggle {
   script?: string;
 }
 
+// --- Debug Overlay Data Providers ---
+
+/** Provides entity data for the 2D debug overlay (chunk grid + velocity arrows). */
+export interface IDebugOverlayData {
+  getEntityCount(): number;
+  getEntityPosition(i: number): { x: number; y: number; z: number } | null;
+  getEntityVelocity(i: number): { x: number; y: number; z: number } | null;
+  getPlayerPosition(): { x: number; z: number } | null;
+  getChunkGridConfig(): { chunkSize: number; chunksVisible: number };
+}
+
+/** Provides camera state for debug overlays. */
+export interface IDebugCamera {
+  position: [number, number, number];
+  heading: number;
+  pitch: number;
+  fov: number;
+  aspect: number;
+  near: number;
+  far: number;
+}
+
+// --- Debug Raycast Providers ---
+
+/** Result of a raycast against entities. */
+export interface IRaycastResult {
+  entityIndex: number;
+  entityId: number;
+  entityType: number;
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+  distance: number;
+  posX: number;
+  posY: number;
+  posZ: number;
+  scale: number;
+}
+
+/** Provides entity raycast queries for the debug ray visualizer. */
+export interface IRaycastProvider {
+  raycast(
+    ox: number, oy: number, oz: number,
+    dx: number, dy: number, dz: number,
+    maxDist: number,
+  ): IRaycastResult | null;
+}
+
+// --- Label Overlay Providers ---
+
+/** A single label entry for the HTML label overlay. */
+export interface ILabelEntry {
+  key: string;
+  text: string;
+  color: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Provides label data for the HTML label overlay. */
+export interface ILabelProvider {
+  getLabels(): ILabelEntry[];
+}
+
+// --- Scene Sync Providers ---
+
+/** Entity snapshot for scene store sync. */
+export interface ISceneEntitySnapshot {
+  id: number;
+  type: number;
+  typeName: string;
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+  scale: number;
+}
+
+/** Provides entity snapshots and player camera for scene sync + gizmo interaction. */
+export interface ISceneSyncProvider {
+  getEntitySnapshots(): ISceneEntitySnapshot[];
+  getPlayerCamera(): {
+    position: { x: number; y: number; z: number };
+    heading: number;
+    pitch: number;
+    cameraMode: number;
+  } | null;
+}
+
+// --- Asset Utility Providers ---
+
+/** Provides model/texture/bin URL maps for asset resolution. */
+export interface IAssetUrlMaps {
+  textureUrlMap: Map<string, string>;
+  mtlUrlMap: Map<string, string>;
+  binUrlMap: Map<string, string>;
+}
+
 /** Combined provider interface that games implement for game-specific devtools features. */
 export interface IGameDevToolsExtension {
   assetResolver?: IAssetResolver;

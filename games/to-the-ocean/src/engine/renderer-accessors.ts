@@ -3,9 +3,9 @@
 // Extracted from WebGPURenderer for modularity
 // ============================================================================
 
-import type { PBRSystem } from "@downdraft/core";
+import type { PBRSystem, PostProcessStack } from "@downdraft/core";
 import { MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
-import type { GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
+import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
 import type { ModelRenderer } from "@downdraft/plugin-entities";
 import type { LightSystem } from "@downdraft/plugin-lighting";
 import type { MaterialData, MeshData } from "@downdraft/plugin-models";
@@ -16,10 +16,7 @@ import type { SimBufferReader } from "@shared/sim-buffer";
 import { PLR } from "@shared/sim-buffer";
 import type { WaterBufferReader } from "@shared/water-buffer";
 import type { CameraSystem } from "./camera-system";
-import type { DebugOverlay } from "./debug-overlay";
-import type { DebugRaycast } from "./debug-raycast";
 import type { EntityRenderer } from "./entity-renderer";
-import type { PostProcessStack } from "./post-process-stack";
 
 export class RendererAccessors {
   // Public state (read/write by WebGPURenderer)

@@ -1,8 +1,8 @@
 // Extracted from TerrainGenerator.ts — part of terrain decomposition
 
+import { PerlinNoise3D } from "@downdraft/core";
 import { ChunkedVoxelField, VoxelField } from "@downdraft/plugin-marching-cubes";
 import { extractMesh, extractMeshSubRegion } from "../marching-cubes";
-import { PerlinNoise3D } from "../perlin-noise-3d";
 import { TERRAIN_CONFIG } from "../terrain-config";
 import { PerlinNoise } from "../world/perlin-noise";
 import { ChunkedFieldContext, computeDensityAt } from "./terrain-chunked";

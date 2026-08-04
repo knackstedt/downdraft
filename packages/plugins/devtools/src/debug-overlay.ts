@@ -1,13 +1,10 @@
 // ============================================================================
 // DebugOverlay — 2D canvas overlay for chunk grid + velocity arrows
-// Projects 3D world positions to screen space and draws debug visuals
+// Generic rendering logic; game provides data via IDebugOverlayData interface.
 // ============================================================================
 
-import { calculateViewProj } from "@downdraft/core";
-import { CHUNK_SIZE, CHUNKS_VISIBLE } from "@shared/constants";
-import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
-import type { CameraState } from "./camera-system";
-import { CanvasResizeWatcher } from "./canvas-resize-watcher";
+import { calculateViewProj, CanvasResizeWatcher } from "@downdraft/core";
+import type { IDebugOverlayData } from "./types";
 
 export class DebugOverlay {
   private canvas: HTMLCanvasElement;
@@ -94,12 +91,10 @@ export class DebugOverlay {
   }
 
   update(
-    camera: CameraState,
-    simReader: SimBufferReader,
-    viewport: { x: number; y: number; w: number; h: number },
+    camera: Parameters<typeof calculateViewProj>[0],
+    data: IDebugOverlayData,
   ): void {
     if (!this.showChunkGrid && !this.showVelocityArrows) return;
-    if (!simReader.isValid()) return;
 
     const ctx = this.ctx;
     const canvasW = this.overlay.width;
@@ -109,29 +104,28 @@ export class DebugOverlay {
     const viewProj = calculateViewProj(camera);
 
     if (this.showChunkGrid) {
-      this.renderChunkGrid(ctx, camera, viewProj, canvasW, canvasH, simReader);
+      this.renderChunkGrid(ctx, camera, viewProj, canvasW, canvasH, data);
     }
 
     if (this.showVelocityArrows) {
-      this.renderVelocityArrows(ctx, viewProj, canvasW, canvasH, simReader);
+      this.renderVelocityArrows(ctx, viewProj, canvasW, canvasH, data);
     }
   }
 
   private renderChunkGrid(
     ctx: CanvasRenderingContext2D,
-    camera: CameraState,
+    camera: { position: [number, number, number] },
     viewProj: Float32Array,
     canvasW: number, canvasH: number,
-    simReader: SimBufferReader,
+    data: IDebugOverlayData,
   ): void {
-    const playerSlot = simReader.getPlayerSlot(0);
-    if (!playerSlot) return;
-    const px = playerSlot.f32[PLR.POS_X];
-    const pz = playerSlot.f32[PLR.POS_Z];
+    const playerPos = data.getPlayerPosition();
+    if (!playerPos) return;
+    const { chunkSize, chunksVisible } = data.getChunkGridConfig();
 
-    const playerChunkX = Math.floor(px / CHUNK_SIZE);
-    const playerChunkZ = Math.floor(pz / CHUNK_SIZE);
-    const half = Math.ceil(CHUNKS_VISIBLE / 2);
+    const playerChunkX = Math.floor(playerPos.x / chunkSize);
+    const playerChunkZ = Math.floor(playerPos.z / chunkSize);
+    const half = Math.ceil(chunksVisible / 2);
 
     ctx.strokeStyle = "rgba(100, 200, 255, 0.35)";
     ctx.lineWidth = 1;
@@ -140,15 +134,14 @@ export class DebugOverlay {
 
     for (let cx = playerChunkX - half; cx <= playerChunkX + half; cx++) {
       for (let cz = playerChunkZ - half; cz <= playerChunkZ + half; cz++) {
-        const worldX = cx * CHUNK_SIZE;
-        const worldZ = cz * CHUNK_SIZE;
+        const worldX = cx * chunkSize;
+        const worldZ = cz * chunkSize;
 
-        // Draw grid cell border at y=0 (sea level)
         const corners = [
           this.projectToScreen(worldX, 0, worldZ, viewProj, canvasW, canvasH),
-          this.projectToScreen(worldX + CHUNK_SIZE, 0, worldZ, viewProj, canvasW, canvasH),
-          this.projectToScreen(worldX + CHUNK_SIZE, 0, worldZ + CHUNK_SIZE, viewProj, canvasW, canvasH),
-          this.projectToScreen(worldX, 0, worldZ + CHUNK_SIZE, viewProj, canvasW, canvasH),
+          this.projectToScreen(worldX + chunkSize, 0, worldZ, viewProj, canvasW, canvasH),
+          this.projectToScreen(worldX + chunkSize, 0, worldZ + chunkSize, viewProj, canvasW, canvasH),
+          this.projectToScreen(worldX, 0, worldZ + chunkSize, viewProj, canvasW, canvasH),
         ];
 
         if (corners.some(c => c === null || c.behind)) continue;
@@ -161,16 +154,15 @@ export class DebugOverlay {
         ctx.closePath();
         ctx.stroke();
 
-        // Label chunk coords at center
         const centerProj = this.projectToScreen(
-          worldX + CHUNK_SIZE / 2, 0, worldZ + CHUNK_SIZE / 2,
+          worldX + chunkSize / 2, 0, worldZ + chunkSize / 2,
           viewProj, canvasW, canvasH,
         );
         if (centerProj && !centerProj.behind) {
-          const dx = (worldX + CHUNK_SIZE / 2) - camera.position[0];
-          const dz = (worldZ + CHUNK_SIZE / 2) - camera.position[2];
+          const dx = (worldX + chunkSize / 2) - camera.position[0];
+          const dz = (worldZ + chunkSize / 2) - camera.position[2];
           const dist = Math.sqrt(dx * dx + dz * dz);
-          if (dist < CHUNK_SIZE * half) {
+          if (dist < chunkSize * half) {
             ctx.fillText(`${cx},${cz}`, centerProj.x - 15, centerProj.y);
           }
         }
@@ -182,45 +174,37 @@ export class DebugOverlay {
     ctx: CanvasRenderingContext2D,
     viewProj: Float32Array,
     canvasW: number, canvasH: number,
-    simReader: SimBufferReader,
+    data: IDebugOverlayData,
   ): void {
-    const entityCount = simReader.getEntityCount();
+    const entityCount = data.getEntityCount();
 
     ctx.strokeStyle = "rgba(255, 200, 50, 0.8)";
     ctx.fillStyle = "rgba(255, 200, 50, 0.8)";
     ctx.lineWidth = 2;
 
     for (let i = 0; i < entityCount; i++) {
-      const slot = simReader.getEntitySlot(i);
-      if (!slot) continue;
-      const vx = slot.f32[ENT.VEL_X];
-      const vy = slot.f32[ENT.VEL_Y];
-      const vz = slot.f32[ENT.VEL_Z];
-      const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
+      const pos = data.getEntityPosition(i);
+      const vel = data.getEntityVelocity(i);
+      if (!pos || !vel) continue;
+
+      const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
       if (speed < 0.1) continue;
 
-      const ex = slot.f32[ENT.POS_X];
-      const ey = slot.f32[ENT.POS_Y];
-      const ez = slot.f32[ENT.POS_Z];
-
-      // Arrow start = entity position, end = position + velocity * scale
       const scale = 2.0;
-      const endX = ex + vx * scale;
-      const endY = ey + vy * scale;
-      const endZ = ez + vz * scale;
+      const endX = pos.x + vel.x * scale;
+      const endY = pos.y + vel.y * scale;
+      const endZ = pos.z + vel.z * scale;
 
-      const startProj = this.projectToScreen(ex, ey, ez, viewProj, canvasW, canvasH);
+      const startProj = this.projectToScreen(pos.x, pos.y, pos.z, viewProj, canvasW, canvasH);
       const endProj = this.projectToScreen(endX, endY, endZ, viewProj, canvasW, canvasH);
 
       if (!startProj || startProj.behind || !endProj || endProj.behind) continue;
 
-      // Draw line
       ctx.beginPath();
       ctx.moveTo(startProj.x, startProj.y);
       ctx.lineTo(endProj.x, endProj.y);
       ctx.stroke();
 
-      // Draw arrowhead
       const dx = endProj.x - startProj.x;
       const dy = endProj.y - startProj.y;
       const angle = Math.atan2(dy, dx);
@@ -238,7 +222,6 @@ export class DebugOverlay {
       ctx.closePath();
       ctx.fill();
 
-      // Speed label
       ctx.font = "10px monospace";
       ctx.fillText(`${speed.toFixed(1)} m/s`, endProj.x + 4, endProj.y - 4);
     }

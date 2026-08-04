@@ -4,8 +4,8 @@
 // accessors → RendererAccessors
 // ============================================================================
 
-import { DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type IRendererStateProvider } from "@downdraft/core";
-import { TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
+import { CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type IRendererStateProvider } from "@downdraft/core";
+import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import { LightSystem } from "@downdraft/plugin-lighting";
@@ -21,16 +21,11 @@ import { generateIslandBlobs } from "@shared/terrain";
 import { CameraMode, EntityFlags, EntityType, PortSize, WeatherType } from "@shared/types";
 import { WATER_GRID, WaterBufferReader } from "@shared/water-buffer";
 import { CameraSystem, type CameraState } from "./camera-system";
-import { CanvasResizeWatcher } from "./canvas-resize-watcher";
-import { DebugOverlay } from "./debug-overlay";
-import { DebugRaycast } from "./debug-raycast";
+import { GameDebugOverlayData, GameLabelProvider, GameRaycastProvider, GameSceneSyncProvider, getRayDirection, getRayOrigin } from "./debug-providers";
 import { EntityRenderer } from "./entity-renderer";
 import { GameCloudMeshProvider } from "./game-cloud-provider";
-import { LabelOverlay } from "./label-overlay";
-import { PostProcessStack } from "./post-process-stack";
 import { RendererAccessors } from "./renderer-accessors";
 import { RendererInputHandler } from "./renderer-input-handler";
-import { RendererSceneSync } from "./renderer-scene-sync";
 
 // Player model asset — resolved by Vite at build time
 const playerModelGlob = import.meta.glob(
@@ -85,6 +80,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   private transformGizmo: TransformGizmo | null = null;
   private labelOverlay: LabelOverlay | null = null;
   private debugOverlay: DebugOverlay | null = null;
+  private debugOverlayData: GameDebugOverlayData | null = null;
   private debugRaycast: DebugRaycast | null = null;
 
   private uiRenderer: UIRenderer | null = null;
@@ -191,7 +187,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   private resizeWatcher: CanvasResizeWatcher | null = null;
 
   private inputHandler: RendererInputHandler;
-  private sceneSync: RendererSceneSync;
+  private sceneSync: SceneSync;
   private accessors: RendererAccessors;
 
   private deviceLost = false;
@@ -203,7 +199,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.inputHandler = new RendererInputHandler(canvas);
-    this.sceneSync = new RendererSceneSync();
+    this.sceneSync = new SceneSync();
     this.accessors = new RendererAccessors();
     this.updateViewports(1);
     this.resizeWatcher = new CanvasResizeWatcher(canvas, {
@@ -435,7 +431,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.pixelationSystem = new PixelationSystem(this.device, this.format);
       this.pixelationSystem.init();
 
-      this.postProcessStack = new PostProcessStack(this.device, this.format);
+      this.postProcessStack = new PostProcessStack(this.device, this.format, { depthFormat: DEPTH_FORMAT });
       this.postProcessStack.init();
 
       this.underwaterFogPass = new UnderwaterFogPass(this.device, this.format);
@@ -464,7 +460,6 @@ export class WebGPURenderer implements IRendererStateProvider {
       // Update module references
       this.inputHandler.setCameraSystem(this.cameraSystem);
       this.inputHandler.setUIInputRouter(this.uiInputRouter);
-      this.sceneSync.setCameraSystem(this.cameraSystem);
       this.sceneSync.setTransformGizmo(this.transformGizmo);
       this.updateAccessorReferences();
 
@@ -516,7 +511,17 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.entityRenderer?.setBoatBufferReader(this.boatReader);
     }
     this.inputHandler.setBuffers(this.inputWriter, this.simReader);
-    this.sceneSync.setSimReader(this.simReader);
+    this.sceneSync.setProvider(new GameSceneSyncProvider(this.simReader));
+    // Set up debug overlay providers with game-specific data
+    if (this.debugOverlay) {
+      this.debugOverlayData = new GameDebugOverlayData(this.simReader);
+    }
+    if (this.debugRaycast) {
+      this.debugRaycast.setProvider(new GameRaycastProvider(this.simReader, this.boatReader));
+    }
+    if (this.labelOverlay) {
+      this.labelOverlay.setProvider(new GameLabelProvider(this.simReader));
+    }
     this.updateAccessorReferences();
   }
 
@@ -792,7 +797,13 @@ export class WebGPURenderer implements IRendererStateProvider {
     }
     const aspect = viewport.w / viewport.h;
     const camera = this.cameraSystem!.calculateCamera(playerPos, heading, pitch, cameraMode, viewportIdx, dt, aspect);
-    if (this.debugRaycast && cameraMode !== CameraMode.FirstPerson) { this.debugRaycast.update(this.simReader, this.boatReader, camera, this.cameraSystem!.getLookHeading(), this.cameraSystem!.getLookPitch(), cameraMode); }
+    if (this.debugRaycast && cameraMode !== CameraMode.FirstPerson && this.simReader) {
+      const rayOrigin = getRayOrigin(this.simReader);
+      if (rayOrigin) {
+        const rayDir = getRayDirection(this.cameraSystem!.getLookHeading(), this.cameraSystem!.getLookPitch());
+        this.debugRaycast.update(camera, rayOrigin, rayDir);
+      }
+    }
     if (this.accessors.debugMode && performance.now() - (this.lastDebugLog ?? 0) > 1000) {
       console.log(`[Render] tick=${this.simReader.getTick()} ents=${this.simReader.getEntityCount()} players=${this.simReader.getPlayerCount()} pos=(${playerPos.x.toFixed(1)},${playerPos.y.toFixed(1)},${playerPos.z.toFixed(1)}) camMode=${cameraMode}`);
       this.lastDebugLog = performance.now();
@@ -1000,10 +1011,10 @@ export class WebGPURenderer implements IRendererStateProvider {
     if (this.labelOverlay && viewportIdx === 0) {
       const ss = useSceneStore.getState();
       if (ss.showLabels !== this.labelOverlay.isActive()) { this.labelOverlay.setActive(ss.showLabels); }
-      if (ss.showLabels) { this.labelOverlay.update(camera, this.simReader, origViewport); }
+      if (ss.showLabels) { this.labelOverlay.update(camera); }
     }
     // Debug overlay
-    if (this.debugOverlay && viewportIdx === 0) { this.debugOverlay.update(camera, this.simReader, origViewport); }
+    if (this.debugOverlay && viewportIdx === 0 && this.debugOverlayData) { this.debugOverlay.update(camera, this.debugOverlayData); }
     // Models
     if (this.modelRenderer && viewportIdx === 0) {
       this.gpuProfiler!.beginPass("Models", passEncoder, viewportIdx);
@@ -1191,8 +1202,8 @@ export class WebGPURenderer implements IRendererStateProvider {
   setGizmoVisible(v: boolean): void { this.accessors.setGizmoVisible(v); }
   setGizmoPosition(p: [number, number, number]): void { this.accessors.setGizmoPosition(p); }
   getPlayerWorldPos(i: number) { return this.accessors.getPlayerWorldPos(i); }
-  handleGizmoMouseDown(x: number, y: number, w: number, h: number): boolean { return this.sceneSync.handleGizmoMouseDown(x, y, w, h); }
-  handleGizmoMouseMove(x: number, y: number, w: number, h: number): void { this.sceneSync.handleGizmoMouseMove(x, y, w, h); }
+  handleGizmoMouseDown(x: number, y: number, w: number, h: number): boolean { return this.sceneSync.handleGizmoMouseDown(x, y, w, h, (pos, heading, pitch, camMode, _mx, _my, aspect) => this.cameraSystem!.calculateCamera(pos, heading, pitch, camMode, 0, 0, aspect)); }
+  handleGizmoMouseMove(x: number, y: number, w: number, h: number): void { this.sceneSync.handleGizmoMouseMove(x, y, w, h, (pos, heading, pitch, camMode, _mx, _my, aspect) => this.cameraSystem!.calculateCamera(pos, heading, pitch, camMode, 0, 0, aspect)); }
   handleGizmoMouseUp(): void { this.sceneSync.handleGizmoMouseUp(); }
   isGizmoDragging(): boolean { return this.sceneSync.isGizmoDragging(); }
 
