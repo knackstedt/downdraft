@@ -2,6 +2,7 @@
 // OSR Renderer — Abstract base class for offscreen rendering BrowserWindows
 // ============================================================================
 
+import { createLogger } from "@downdraft/core";
 import { BrowserWindow, clipboard, type WebContents } from "electron";
 import type {
   AtlasPanelRect,
@@ -14,6 +15,25 @@ import type {
 } from "../types";
 const { sharedTexture, ipcMain } = require("electron") as any;
 const { deflateSync } = require("zlib") as typeof import("zlib");
+const log = createLogger();
+
+// Static paint port map — MessagePort from renderer preload → main process
+const paintPorts = new Map<string, MessagePort>();
+let portHandlerRegistered = false;
+function ensurePaintPortHandler(): void {
+  if (portHandlerRegistered) return;
+  portHandlerRegistered = true;
+  ipcMain.on("__osr_paint_port", (event: any, data: { rendererId: string }) => {
+    const port = event.ports[0];
+    if (port && data?.rendererId) {
+      paintPorts.set(data.rendererId, port);
+      port.start();
+      port.on("close", () => paintPorts.delete(data.rendererId));
+    }
+  });
+}
+// Register at module load time — before any renderer sends ports
+ensurePaintPortHandler();
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;
 
@@ -70,7 +90,7 @@ export abstract class OSRRenderer {
     } else {
       this.useSharedTexture = useSharedTexture ?? (process.platform !== "linux");
     }
-    console.log(`[OSR] Renderer '${this.id}': ${width}x${height} @${this.frameRate}fps, useSharedTexture=${this.useSharedTexture}`);
+    log.info("OSR", `Renderer '${this.id}': ${width}x${height} @${this.frameRate}fps, useSharedTexture=${this.useSharedTexture}`);
   }
 
   setEventCallback(cb: RendererEventCallback): void {
@@ -91,7 +111,7 @@ export abstract class OSRRenderer {
 
   protected createWindow(): BrowserWindow {
     const useShared = this.useSharedTexture && !this.sharedTextureFailed;
-    console.log(`[OSR] createWindow for '${this.id}': useSharedTexture=${useShared} (requested=${this.useSharedTexture}, failed=${this.sharedTextureFailed})`);
+    log.info("OSR", `createWindow for '${this.id}': useSharedTexture=${useShared} (requested=${this.useSharedTexture}, failed=${this.sharedTextureFailed})`);
 
     const win = new BrowserWindow({
       width: this.width,
@@ -154,7 +174,7 @@ export abstract class OSRRenderer {
       const isSharedTextureMode = !!texture;
 
       if (paintCount === 0) {
-        console.log(`[OSR] First paint for '${this.id}': sharedTexture=${isSharedTextureMode}`);
+        log.info("OSR", `First paint for '${this.id}': sharedTexture=${isSharedTextureMode}`);
       }
 
       if (isSharedTextureMode) {
@@ -167,7 +187,7 @@ export abstract class OSRRenderer {
         const subtle = sharedTexture?.subtle;
         if (!subtle?.importSharedTexture) {
           if (sharedTexturePaintCount === 1) {
-            console.error(`[OSR] sharedTexture.subtle not available for '${this.id}' — falling back to CPU`);
+            log.error("OSR", `sharedTexture.subtle not available for '${this.id}' — falling back to CPU`);
           }
           this.fallbackToCpu();
           texture.release();
@@ -178,7 +198,7 @@ export abstract class OSRRenderer {
           if (sharedTexture?.sendSharedTexture && sharedTexture?.importSharedTexture) {
             const imported = sharedTexture.importSharedTexture({ textureInfo: texture.textureInfo });
             if (sharedTexturePaintCount === 1) {
-              console.log(`[OSR] Using sendSharedTexture API for '${this.id}'`);
+              log.info("OSR", `Using sendSharedTexture API for '${this.id}'`);
             }
             sharedTexture.sendSharedTexture({ frame: this.targetWebContents.mainFrame, importedSharedTexture: imported }, this.id);
             pendingReleases.push({ imported, texture });
@@ -190,7 +210,7 @@ export abstract class OSRRenderer {
             // Fallback: subtle API with manual transfer
             const imported = subtle.importSharedTexture(texture.textureInfo);
             if (sharedTexturePaintCount === 1) {
-              console.log(`[OSR] Using subtle API transfer for '${this.id}'`);
+              log.info("OSR", `Using subtle API transfer for '${this.id}'`);
             }
             const transfer = imported.startTransferSharedTexture();
             this.targetWebContents.send("__osr_shared_texture_transfer", this.id, transfer);
@@ -201,7 +221,7 @@ export abstract class OSRRenderer {
             }
           }
         } catch (err) {
-          console.error(`[OSR] Shared texture transfer failed for '${this.id}':`, err);
+          log.error("OSR", `Shared texture transfer failed for '${this.id}': ${err}`);
           texture.release();
           if (sharedTexturePaintCount <= 2) {
             this.fallbackToCpu();
@@ -211,7 +231,7 @@ export abstract class OSRRenderer {
         cpuPaintCount++;
 
         if (useShared && paintCount === 0) {
-          console.warn(`[OSR] useSharedTexture=true but no texture in paint event — Electron fell back to CPU for '${this.id}'`);
+          log.warn("OSR", `useSharedTexture=true but no texture in paint event — Electron fell back to CPU for '${this.id}'`);
         }
 
         // CPU bitmap mode — (event, dirtyRect, image: NativeImage)
@@ -275,20 +295,29 @@ export abstract class OSRRenderer {
 
           if (cpuPaintCount <= 3) {
             const ratio = compressed ? `${(data.length / rawBitmap.length * 100).toFixed(0)}%` : "raw";
-            console.log(`[OSR] CPU paint #${cpuPaintCount} for '${this.id}': region ${sendW}x${sendH} at (${sendX},${sendY}), ${rawBitmap.length}B → ${data.length}B (${ratio})${didCrop ? "" : " (crop failed, full frame)"}`);
+            log.info("OSR", `CPU paint #${cpuPaintCount} for '${this.id}': region ${sendW}x${sendH} at (${sendX},${sendY}), ${rawBitmap.length}B → ${data.length}B (${ratio})${didCrop ? "" : " (crop failed, full frame)"}`);
           }
 
-          // Convert to clean ArrayBuffer for zero-copy transfer via postMessage
+          // Convert to clean ArrayBuffer for zero-copy transfer
           const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-          this.targetWebContents.send("__osr_paint_region", this.id, {
-            x: sendX, y: sendY,
-            width: sendW,
-            height: sendH,
-            fullWidth: fullSize.width,
-            fullHeight: fullSize.height,
-            data: arrayBuffer,
-            compressed,
-          });
+
+          // Send via MessagePort (direct to worker) if available, else fall back to IPC
+          const port = paintPorts.get(this.id);
+          if (port) {
+            port.postMessage(
+              { data: arrayBuffer, x: sendX, y: sendY, width: sendW, height: sendH, fullWidth: fullSize.width, fullHeight: fullSize.height, compressed },
+            );
+          } else {
+            this.targetWebContents.send("__osr_paint_region", this.id, {
+              x: sendX, y: sendY,
+              width: sendW,
+              height: sendH,
+              fullWidth: fullSize.width,
+              fullHeight: fullSize.height,
+              data: arrayBuffer,
+              compressed,
+            });
+          }
         } catch {
           return;
         }
@@ -298,7 +327,7 @@ export abstract class OSRRenderer {
 
     // Crash handling
     win.webContents.on("render-process-gone", (_event, details) => {
-      console.error(`[OSR] render-process-gone for '${this.id}': reason=${details.reason}, exitCode=${details.exitCode}`);
+      log.error("OSR", `render-process-gone for '${this.id}': reason=${details.reason}, exitCode=${details.exitCode}`);
       if (this.useSharedTexture && !this.sharedTextureFailed) {
         this.sharedTextureFailed = true;
       }
@@ -312,7 +341,7 @@ export abstract class OSRRenderer {
     this.clearPaintWatchdog();
     this.paintWatchdogTimer = setTimeout(() => {
       if (this.useSharedTexture && !this.sharedTextureFailed) {
-        console.warn(`[OSR] Paint watchdog: no paint within ${OSRRenderer.PAINT_WATCHDOG_MS}ms for '${this.id}' — falling back to CPU`);
+        log.warn("OSR", `Paint watchdog: no paint within ${OSRRenderer.PAINT_WATCHDOG_MS}ms for '${this.id}' — falling back to CPU`);
         this.fallbackToCpu();
       }
     }, OSRRenderer.PAINT_WATCHDOG_MS);
@@ -324,7 +353,7 @@ export abstract class OSRRenderer {
     }
     this.paintWatchdogTimer = setTimeout(() => {
       if (this.useSharedTexture && !this.sharedTextureFailed) {
-        console.warn(`[OSR] Paint watchdog: no paint within ${OSRRenderer.PAINT_WATCHDOG_MS}ms for '${this.id}' — GPU process may be broken, falling back to CPU`);
+        log.warn("OSR", `Paint watchdog: no paint within ${OSRRenderer.PAINT_WATCHDOG_MS}ms for '${this.id}' — GPU process may be broken, falling back to CPU`);
         this.fallbackToCpu();
       }
     }, OSRRenderer.PAINT_WATCHDOG_MS);
@@ -340,7 +369,7 @@ export abstract class OSRRenderer {
   protected fallbackToCpu(): void {
     if (this.sharedTextureFailed) return;
     this.sharedTextureFailed = true;
-    console.warn(`[OSR] Falling back to CPU path for '${this.id}'`);
+    log.warn("OSR", `Falling back to CPU path for '${this.id}'`);
 
     if (this.window && !this.window.isDestroyed()) {
       this.window.webContents.stopPainting();
@@ -525,7 +554,7 @@ export abstract class OSRRenderer {
           this.targetWebContents.send("osr-cursor-style", this.id, cursor);
         }
       }).catch((err: any) => {
-        console.error(`[OSR] cursor style query failed:`, err?.message ?? err);
+        log.error("OSR", `cursor style query failed: ${err?.message ?? err}`);
       });
       // After mouseup, also dispatch a click event (synthetic events don't auto-generate clicks)
       if (event.type === "mouseUp") {
