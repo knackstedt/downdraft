@@ -1,6 +1,6 @@
-import { ValidationError } from "./errors.ts";
-import { computeLayout } from "./layout.ts";
-import type { ChannelDef } from "./types.ts";
+import { ValidationError } from "./errors";
+import { computeLayout } from "./layout";
+import type { ChannelDef } from "./types";
 
 describe("computeLayout", () => {
   it("should compute record layout with correct offsets", () => {

@@ -910,7 +910,7 @@ export class BoatSystem {
       // any wall they overlap.
       const PLAYER_RADIUS = 0.5; // slightly wider than capsule radius for wall collision
       const SUB_STEP_MAX = 0.35; // meters per sub-step (< WALL_THICKNESS + PLAYER_RADIUS = 0.8)
-      let collision: { x: number; z: number; floorY: number };
+      let collision: { x: number; z: number; floorY: number } = { x: localX, z: localZ, floorY: localY };
 
       if (state.hasPrevLocal) {
         const totalDx = localX - state.prevLocalX;

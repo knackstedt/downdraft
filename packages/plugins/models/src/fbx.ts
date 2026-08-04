@@ -1,5 +1,5 @@
 import { decompressSync } from "fflate";
-import type { AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData, ModelNode } from "./types.ts";
+import type { AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData, ModelNode } from "./types";
 
 interface FBXNode {
   name: string;

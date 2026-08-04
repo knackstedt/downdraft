@@ -1,6 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const TERRAIN_SHADER = /* wgsl */ `
 struct Uniforms {

@@ -1,4 +1,4 @@
-import type { ChannelLayout, GridLayerLayout, HeaderViews } from "./types.ts";
+import type { ChannelLayout, GridLayerLayout, HeaderViews } from "./types";
 
 function createHeaderViews(sab: SharedArrayBuffer, headerSize: number): HeaderViews {
   const u32Length = headerSize / 4;

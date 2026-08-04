@@ -1,6 +1,6 @@
-import { World } from "../ecs/world.ts";
-import { component } from "../ecs/component.ts";
-import { ChangeTracker } from "./tracker.ts";
+import { World } from "../ecs/world";
+import { component } from "../ecs/component";
+import { ChangeTracker } from "./tracker";
 
 const Position = component("Position", { x: 0, y: 0, lastChanged: 0 });
 

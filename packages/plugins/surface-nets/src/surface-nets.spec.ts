@@ -1,5 +1,5 @@
-import { extractMeshFromField } from "./surface-nets.ts";
-import type { VoxelField } from "./types.ts";
+import { extractMeshFromField } from "./surface-nets";
+import type { VoxelField } from "./types";
 
 function makeSphereField(
   dimX: number, dimY: number, dimZ: number,

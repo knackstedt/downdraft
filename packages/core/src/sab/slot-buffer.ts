@@ -1,5 +1,5 @@
-import { isDebug, warnOnce } from "./errors.ts";
-import type { ChannelLayout, HeaderViews, SlotAccessor, SlotViews } from "./types.ts";
+import { isDebug, warnOnce } from "./errors";
+import type { ChannelLayout, HeaderViews, SlotAccessor, SlotViews } from "./types";
 
 function createHeaderViews(sab: SharedArrayBuffer, headerSize: number): HeaderViews {
   const u32Length = headerSize / 4;

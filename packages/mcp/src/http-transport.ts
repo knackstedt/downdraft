@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { MCPServer } from "./server.ts";
+import type { MCPServer } from "./server";
 
 export type McpProxyHandler = (request: {
   method: string;

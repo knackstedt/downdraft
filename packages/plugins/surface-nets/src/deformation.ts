@@ -1,5 +1,5 @@
-import type { ExtractedMesh } from "./types.ts";
-import type { DensityField } from "./types.ts";
+import type { ExtractedMesh } from "./types";
+import type { DensityField } from "./types";
 
 export interface DeformationConfig {
   radius: number;

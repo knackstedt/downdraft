@@ -1,10 +1,10 @@
-import type { EnvironmentMap } from "../assets/environment-manager.ts";
-import { EnvironmentManager } from "../assets/environment-manager.ts";
-import { IrradianceGenerator } from "../assets/irradiance-generator.ts";
-import { PrefilteredSpecularGenerator } from "../assets/prefilter-generator.ts";
-import { IBLBindGroup } from "./ibl-bind-group.ts";
-import { CubemapCapturePass } from "./passes/cubemap-capture.ts";
-import type { SkyDomeUniforms } from "./passes/sky-dome.ts";
+import type { EnvironmentMap } from "../assets/environment-manager";
+import { EnvironmentManager } from "../assets/environment-manager";
+import { IrradianceGenerator } from "../assets/irradiance-generator";
+import { PrefilteredSpecularGenerator } from "../assets/prefilter-generator";
+import { IBLBindGroup } from "./ibl-bind-group";
+import { CubemapCapturePass } from "./passes/cubemap-capture";
+import type { SkyDomeUniforms } from "./passes/sky-dome";
 
 export interface IBLSystemOptions {
   faceSize?: number;

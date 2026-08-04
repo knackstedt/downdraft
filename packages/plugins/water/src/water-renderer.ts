@@ -4,8 +4,8 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/core";
-import { WATER_GRID, WaterBuffer } from "./water-buffer.ts";
-import { MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS } from "./wave-sources.ts";
+import { WATER_GRID, WaterBuffer } from "./water-buffer";
+import { MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS } from "./wave-sources";
 
 const log = createLogger();
 
@@ -673,8 +673,8 @@ export class WaterRenderer {
     const sc = Math.min(shoreCount, MAX_SHORES);
     this.wakeData.set(wakes.subarray(0, wc * WAKE_FLOATS));
     this.shoreData.set(shores.subarray(0, sc * SHORE_FLOATS));
-    this.device.queue.writeBuffer(this.wakeBuffer, 0, this.wakeData);
-    this.device.queue.writeBuffer(this.shoreBuffer, 0, this.shoreData);
+    this.device.queue.writeBuffer(this.wakeBuffer, 0, this.wakeData as unknown as GPUAllowSharedBufferSource);
+    this.device.queue.writeBuffer(this.shoreBuffer, 0, this.shoreData as unknown as GPUAllowSharedBufferSource);
     this.wakeCount = wc;
     this.shoreCount = sc;
   }
@@ -699,7 +699,7 @@ export class WaterRenderer {
     this.cachedHeightData.set(heights);
     this.device.queue.writeTexture(
       { texture: this.heightTexture! },
-      this.cachedHeightData,
+      this.cachedHeightData as unknown as GPUAllowSharedBufferSource,
       { bytesPerRow: gridSize * 4 },
       { width: gridSize, height: gridSize },
     );
@@ -715,7 +715,7 @@ export class WaterRenderer {
     }
     this.device.queue.writeTexture(
       { texture: this.normalTexture! },
-      this.cachedNormalData,
+      this.cachedNormalData as unknown as GPUAllowSharedBufferSource,
       { bytesPerRow: gridSize * 4 },
       { width: gridSize, height: gridSize },
     );

@@ -1,7 +1,7 @@
-import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, Entity, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface.ts";
-import { PhysicsLifecycle } from "./lifecycle.ts";
-import { RaycastQuery } from "./raycast.ts";
-import { PhysicsRealm } from "./realm.ts";
+import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, Entity, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface";
+import { PhysicsLifecycle } from "./lifecycle";
+import { RaycastQuery } from "./raycast";
+import { PhysicsRealm } from "./realm";
 
 function makeMockBackend(): PhysicsBackend {
   const realms = new Map<number, PhysicsRealmConfig>();

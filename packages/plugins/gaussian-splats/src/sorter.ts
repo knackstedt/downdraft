@@ -1,4 +1,4 @@
-import type { GaussianSplat, GaussianSplatData } from "./parser.ts";
+import type { GaussianSplat, GaussianSplatData } from "./parser";
 
 export interface SortResult {
   indices: Uint32Array;

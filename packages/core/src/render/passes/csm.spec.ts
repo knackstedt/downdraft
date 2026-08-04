@@ -1,4 +1,4 @@
-import { CSMPass, DEFAULT_CSM_SETTINGS } from "./csm.ts";
+import { CSMPass, DEFAULT_CSM_SETTINGS } from "./csm";
 
 function makeMockDevice(): unknown {
   return {

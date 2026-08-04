@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { AssetLoader } from "./asset-loader.tsx";
-import { EntityInspector, type EntityInfo } from "./inspector.tsx";
-import { ProfilerPanel } from "./profiler.tsx";
-import { TelemetryGraphs, type TelemetryData } from "./telemetry.tsx";
-import { DebugToggles, DEFAULT_TOGGLES, type DebugToggleState } from "./toggles.tsx";
+import { AssetLoader } from "./asset-loader";
+import { EntityInspector, type EntityInfo } from "./inspector";
+import { ProfilerPanel } from "./profiler";
+import { TelemetryGraphs, type TelemetryData } from "./telemetry";
+import { DebugToggles, DEFAULT_TOGGLES, type DebugToggleState } from "./toggles";
 
 export interface DevToolsPanelProps {
   telemetry: TelemetryData;

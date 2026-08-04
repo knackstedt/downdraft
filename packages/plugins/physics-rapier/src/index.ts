@@ -1,6 +1,6 @@
 import type { Plugin, PluginContext } from "@downdraft/core";
 import { physicsBackendRegistry } from "@downdraft/core";
-import { RapierPhysicsBackend } from "./backend.ts";
+import { RapierPhysicsBackend } from "./backend";
 
 export { RapierPhysicsBackend };
 

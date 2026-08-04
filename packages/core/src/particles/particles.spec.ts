@@ -1,6 +1,6 @@
-import { createParticleEmitter, createFireEmitter, createSmokeEmitter, createSparkEmitter, createExplosionEmitter, type ParticleEmitterData } from "./emitter.ts";
-import { createParticleGPUData, packParticleBuffer, type ParticleGPUData } from "./particle-data.ts";
-import { ParticleSimulator } from "./simulator.ts";
+import { createParticleEmitter, createFireEmitter, createSmokeEmitter, createSparkEmitter, createExplosionEmitter, type ParticleEmitterData } from "./emitter";
+import { createParticleGPUData, packParticleBuffer, type ParticleGPUData } from "./particle-data";
+import { ParticleSimulator } from "./simulator";
 
 describe("ParticleEmitter", () => {
   it("should create a default emitter", () => {

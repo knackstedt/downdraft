@@ -1,4 +1,4 @@
-import type { TextureData } from "./loader-texture.ts";
+import type { TextureData } from "./loader-texture";
 
 // ============================================================================
 // HDR (Radiance) Loader

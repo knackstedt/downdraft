@@ -1,7 +1,8 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { MeshData } from "../../mesh/builder.ts";
-import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights, packSpotLightsExtended, type LightUniformData } from "../lighting.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { MeshData } from "../../mesh/builder";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights, packSpotLightsExtended, type LightUniformData } from "../lighting";
+import { RenderPass } from "../render-pass";
 
 const TRANSPARENT_SHADER = `
 struct CameraUniforms {

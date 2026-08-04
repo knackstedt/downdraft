@@ -1,9 +1,10 @@
 import type { ShaderGraphProfile } from "@downdraft/shader-graph";
 import { getProfile } from "@downdraft/shader-graph";
 import { mat4, type Mat4 } from "wgpu-matrix";
-import type { Material } from "../../material/material.ts";
-import type { MeshData } from "../../mesh/builder.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { Material } from "../../material/material";
+import type { MeshData } from "../../mesh/builder";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const GBUFFER_SHADER = `
 struct CameraUniforms {

@@ -1,14 +1,14 @@
-import type { ComponentDefinition } from "@downdraft/core/ecs/component.ts";
-import { Component } from "@downdraft/core/ecs/component.ts";
-import type { Entity } from "@downdraft/core/ecs/entity.ts";
-import type { Query } from "@downdraft/core/ecs/query.ts";
-import { Stage, system } from "@downdraft/core/ecs/system.ts";
-import type { World } from "@downdraft/core/ecs/world.ts";
-import { PhysicsTransform } from "@downdraft/core/physics/body.ts";
-import { SpatialGrid } from "@downdraft/core/scene/spatial-grid.ts";
-import type { NavMesh } from "./navmesh.ts";
-import type { Pathfinder } from "./pathfinder.ts";
-import type { CrowdSystemConfig, NavAgentData, Vec3 } from "./types.ts";
+import type { ComponentDefinition } from "@downdraft/core/ecs/component";
+import { Component } from "@downdraft/core/ecs/component";
+import type { Entity } from "@downdraft/core/ecs/entity";
+import type { Query } from "@downdraft/core/ecs/query";
+import { Stage, system } from "@downdraft/core/ecs/system";
+import type { World } from "@downdraft/core/ecs/world";
+import { PhysicsTransform } from "@downdraft/core/physics/body";
+import { SpatialGrid } from "@downdraft/core/scene/spatial-grid";
+import type { NavMesh } from "./navmesh";
+import type { Pathfinder } from "./pathfinder";
+import type { CrowdSystemConfig, NavAgentData, Vec3 } from "./types";
 
 export const NavAgent: ComponentDefinition<NavAgentData> = Component.register<NavAgentData>("NavAgent", {
   radius: 0.4,

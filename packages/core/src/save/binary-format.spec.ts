@@ -9,7 +9,7 @@ import {
     SAVE_MAGIC,
     unpackEngineVersion,
     type SaveHeader,
-} from "./binary-format.ts";
+} from "./binary-format";
 
 describe("packEngineVersion", () => {
   it("packs semver into a 32-bit integer", () => {

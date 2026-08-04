@@ -1,4 +1,4 @@
-import { TelemetryCollector } from "./collector.ts";
+import { TelemetryCollector } from "./collector";
 
 describe("TelemetryCollector", () => {
   it("should be disabled by default", () => {

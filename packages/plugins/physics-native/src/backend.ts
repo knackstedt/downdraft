@@ -22,11 +22,11 @@ import type {
     RaycastResult,
     RigidBodyHandle,
     ShapeCastResult,
-} from "@downdraft/core/physics/interface.ts";
-import { Broadphase, type AABB } from "./broadphase.ts";
-import { detectCollision } from "./narrowphase.ts";
-import { integrate, resolveContact, type BodyData } from "./solver.ts";
-import type { ColliderShapeData, NativeBody, NativeCharacterController, NativeCollider, NativeRealm, Quat, Vec3 } from "./types.ts";
+} from "@downdraft/core/physics/interface";
+import { Broadphase, type AABB } from "./broadphase";
+import { detectCollision } from "./narrowphase";
+import { integrate, resolveContact, type BodyData } from "./solver";
+import type { ColliderShapeData, NativeBody, NativeCharacterController, NativeCollider, NativeRealm, Quat, Vec3 } from "./types";
 
 export class NativePhysicsBackend implements PhysicsBackend {
   readonly name = "native";
@@ -149,7 +149,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
 
   applyForce(handle: RigidBodyHandle, force: [number, number, number]): void {
     const body = this.getBody(handle);
-    if (!body || body.isStatic || body.isKinematic) return;
+    if (!body || body.type === "static" || body.type === "kinematic") return;
     // F = ma → a = F/m
     body.linearVelocity = [
       body.linearVelocity[0] + force[0] * body.invMass,
@@ -164,7 +164,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
 
   applyTorque(handle: RigidBodyHandle, torque: [number, number, number]): void {
     const body = this.getBody(handle);
-    if (!body || body.isStatic || body.isKinematic) return;
+    if (!body || body.type === "static" || body.type === "kinematic") return;
     body.angularVelocity = [
       body.angularVelocity[0] + torque[0] * body.invMass,
       body.angularVelocity[1] + torque[1] * body.invMass,
@@ -178,7 +178,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
 
   applyImpulseAtPoint(handle: RigidBodyHandle, impulse: [number, number, number], point: [number, number, number]): void {
     const body = this.getBody(handle);
-    if (!body || body.isStatic || body.isKinematic) return;
+    if (!body || body.type === "static" || body.type === "kinematic") return;
     body.linearVelocity = [
       body.linearVelocity[0] + impulse[0] * body.invMass,
       body.linearVelocity[1] + impulse[1] * body.invMass,
@@ -880,4 +880,4 @@ function rayCapsule(
 }
 
 // Import rotateVec from narrowphase-shapes
-import { rotateVec } from "./narrowphase-shapes.ts";
+import { rotateVec } from "./narrowphase-shapes";

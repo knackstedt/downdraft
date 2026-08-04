@@ -1,11 +1,11 @@
-import { createAnimationEventTrack, type AnimationEvent } from "./animation-event.ts";
-import { AnimationClip, type KeyframeTrack } from "./clip.ts";
-import { AnimationPlayer } from "./player.ts";
-import { buildRetargetMapping, retargetClip } from "./retarget.ts";
-import type { AnimationChannel, AnimationData, SkinData } from "./skeleton-animator.ts";
-import { SkeletonAnimator, skinDataToSkeletonData } from "./skeleton-animator.ts";
-import { Skeleton, type SkeletonData } from "./skeleton.ts";
-import { AnimationStateMachine } from "./state-machine.ts";
+import { createAnimationEventTrack, type AnimationEvent } from "./animation-event";
+import { AnimationClip, type KeyframeTrack } from "./clip";
+import { AnimationPlayer } from "./player";
+import { buildRetargetMapping, retargetClip } from "./retarget";
+import type { AnimationChannel, AnimationData, SkinData } from "./skeleton-animator";
+import { SkeletonAnimator, skinDataToSkeletonData } from "./skeleton-animator";
+import { Skeleton, type SkeletonData } from "./skeleton";
+import { AnimationStateMachine } from "./state-machine";
 
 function makeClipWithEvents(events: AnimationEvent[], duration: number): AnimationClip {
   return new AnimationClip({

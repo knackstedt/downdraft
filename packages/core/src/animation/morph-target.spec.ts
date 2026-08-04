@@ -6,8 +6,8 @@ import {
   createMorphTargetTrack,
   sampleMorphWeight,
   findMorphKeyframeIndex,
-} from "./morph-target.ts";
-import { AnimationClip, buildAnimationClipFromGLTF } from "./clip.ts";
+} from "./morph-target";
+import { AnimationClip, buildAnimationClipFromGLTF } from "./clip";
 
 describe("MorphTarget", () => {
   it("should build morph target data", () => {

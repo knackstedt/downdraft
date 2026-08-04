@@ -71,7 +71,7 @@ async function tryLoadNative(): Promise<AudioLib | null> {
       },
       loadBuffer(data, format) {
         const buf = new Uint8Array(data);
-        return lib.symbols.dd_audio_load_buffer(ptr(buf), BigInt(buf.length), format) as number;
+        return (lib.symbols.dd_audio_load_buffer as any)(ptr(buf.buffer), BigInt(buf.length), format) as number;
       },
       unloadBuffer(bufferId) {
         return lib.symbols.dd_audio_unload_buffer(bufferId) as number;

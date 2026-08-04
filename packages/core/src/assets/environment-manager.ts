@@ -1,9 +1,9 @@
-import { EquirectToCubemapConverter } from "./cubemap-converter.ts";
-import { IrradianceGenerator } from "./irradiance-generator.ts";
-import { createEquirectangularGPUTexture, createGPUCubemap, loadCubemapFromFiles } from "./loader-cubemap.ts";
-import { loadHDRFile } from "./loader-hdr.ts";
-import type { TextureData } from "./loader-texture.ts";
-import { PrefilteredSpecularGenerator } from "./prefilter-generator.ts";
+import { EquirectToCubemapConverter } from "./cubemap-converter";
+import { IrradianceGenerator } from "./irradiance-generator";
+import { createEquirectangularGPUTexture, createGPUCubemap, loadCubemapFromFiles } from "./loader-cubemap";
+import { loadHDRFile } from "./loader-hdr";
+import type { TextureData } from "./loader-texture";
+import { PrefilteredSpecularGenerator } from "./prefilter-generator";
 
 export interface EnvironmentMap {
   cubemap: GPUTexture;
@@ -43,6 +43,7 @@ export class EnvironmentManager {
 
   async loadFromEquirectangular(uri: string): Promise<EnvironmentMap> {
     const texData = await loadHDRFile(uri);
+    if (!texData) throw new Error(`Failed to load HDR file: ${uri}`);
     const equirectTex = createEquirectangularGPUTexture(this.device, texData, "rgba16float");
 
     const cubemap = this.equirectConverter.convert(equirectTex, {

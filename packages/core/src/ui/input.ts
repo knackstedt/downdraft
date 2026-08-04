@@ -1,5 +1,5 @@
-import type { InputState } from "../input/state.ts";
-import type { UIElement, UIRoot } from "./element.ts";
+import type { InputState } from "../input/state";
+import type { UIElement, UIRoot } from "./element";
 
 export class UIInputRouter {
   private root: UIRoot | null = null;

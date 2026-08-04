@@ -1,5 +1,5 @@
-import type { MeshData } from "../mesh/builder.ts";
-import { PBR_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, type VertexLayout } from "../mesh/vertex-layout.ts";
+import type { MeshData } from "../mesh/builder";
+import { PBR_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, type VertexLayout } from "../mesh/vertex-layout";
 
 export interface GLTFNode {
   name?: string;

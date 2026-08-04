@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
-import { PassType, type FrameGraphBuilder, type GraphRenderContext } from "./frame-graph.ts";
-import { RenderPass, type RenderPassContext } from "./render-pass.ts";
+import { PassType, type FrameGraphBuilder, type GraphRenderContext } from "./frame-graph";
+import { RenderPass, type RenderPassContext } from "./render-pass";
 
 class TestPass extends RenderPass {
   name = "test-pass";

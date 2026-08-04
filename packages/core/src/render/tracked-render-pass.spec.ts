@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "bun:test";
-import { TrackedRenderPass } from "./tracked-render-pass.ts";
+import { TrackedRenderPass } from "./tracked-render-pass";
 
 describe("TrackedRenderPass", () => {
   it("should initialize with zero stats", () => {

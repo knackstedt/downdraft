@@ -1,4 +1,4 @@
-import { cylinder, cone, torus, disc, ribbon, tube, lathe, tessellatedPlane, type TubePathPoint } from "./parametric.ts";
+import { cylinder, cone, torus, disc, ribbon, tube, lathe, tessellatedPlane, type TubePathPoint } from "./parametric";
 
 describe("Parametric Shapes", () => {
   describe("cylinder", () => {

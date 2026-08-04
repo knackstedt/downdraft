@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "bun:test";
-import { createGreasedLine } from "../../mesh/greased-line.ts";
-import type { GraphRenderContext } from "../frame-graph.ts";
-import { GreasedLinePass } from "./greased-line-pass.ts";
+import { createGreasedLine } from "../../mesh/greased-line";
+import type { GraphRenderContext } from "../frame-graph";
+import { GreasedLinePass } from "./greased-line-pass";
 
 const mockGPUBufferUsage = { UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, STORAGE: 0x80 };
 const mockGPUTextureUsage = { RENDER_ATTACHMENT: 0x10, TEXTURE_BINDING: 0x08 };

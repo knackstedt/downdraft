@@ -12,8 +12,8 @@ import type {
     FishingMinigame, FishingPlayer,
     FishingWeatherProvider,
     WaterProvider,
-} from "./types.ts";
-import { DEFAULT_FISHING_CONFIG, FISHING_KEY, FishingMethod } from "./types.ts";
+} from "./types";
+import { DEFAULT_FISHING_CONFIG, FISHING_KEY, FishingMethod } from "./types";
 
 // Player flags — games can use these or define their own
 const FISHING_FLAG_FISHING = 1 << 5;

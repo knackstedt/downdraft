@@ -177,7 +177,7 @@ export function createProceduralGpuTexture(
   });
   device.queue.writeTexture(
     { texture },
-    data,
+    data as unknown as GPUAllowSharedBufferSource,
     { bytesPerRow: config.width * 4, rowsPerImage: config.height },
     [config.width, config.height],
   );

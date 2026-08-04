@@ -1,7 +1,7 @@
-import { GraphCompiler } from "./compiler.ts";
-import { MaterialGraph } from "./graph.ts";
-import { PBR_INSTANCED_PROFILE, PBR_PROFILE, PBR_SKINNED_PROFILE, PBR_TEXTURED_PROFILE } from "./profiles.ts";
-import { GraphValidator } from "./validator.ts";
+import { GraphCompiler } from "./compiler";
+import { MaterialGraph } from "./graph";
+import { PBR_INSTANCED_PROFILE, PBR_PROFILE, PBR_SKINNED_PROFILE, PBR_TEXTURED_PROFILE } from "./profiles";
+import { GraphValidator } from "./validator";
 
 describe("MaterialGraph", () => {
   it("should add nodes", () => {

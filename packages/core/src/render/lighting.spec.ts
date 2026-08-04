@@ -7,7 +7,7 @@ import {
     createPointLight,
     packLightUniform,
     packPointLights,
-} from "./lighting.ts";
+} from "./lighting";
 
 describe("Lighting", () => {
   it("should create a directional light with correct defaults", () => {

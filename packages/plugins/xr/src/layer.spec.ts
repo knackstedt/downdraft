@@ -1,4 +1,4 @@
-import { XRLayerManager } from "./layer.ts";
+import { XRLayerManager } from "./layer";
 
 describe("XRLayerManager", () => {
   it("should start with no layer", () => {

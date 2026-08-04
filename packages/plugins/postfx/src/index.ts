@@ -1,2 +1,2 @@
-export { PixelationSystem } from "./pixelation.ts";
-export type { PixelationViewportRect } from "./pixelation.ts";
+export { PixelationSystem } from "./pixelation";
+export type { PixelationViewportRect } from "./pixelation";

@@ -1,8 +1,8 @@
-import { Builder, getBuilderConfig } from "./builder.ts";
-import type { BuilderConfig } from "./builder.ts";
+import { Builder, getBuilderConfig } from "./builder";
+import type { BuilderConfig } from "./builder";
 
-export { Builder, getBuilderConfig } from "./builder.ts";
-export type { BuilderMode, BuilderConfig } from "./builder.ts";
+export { Builder, getBuilderConfig } from "./builder";
+export type { BuilderMode, BuilderConfig } from "./builder";
 
 export function createDevBuilder(): Builder {
   return new Builder("dev");

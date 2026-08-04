@@ -1,7 +1,7 @@
 import { mat4 } from "wgpu-matrix";
-import { SkyDomePass } from "./sky-dome.ts";
-import type { SkyDomeUniforms } from "./sky-dome.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
+import { SkyDomePass } from "./sky-dome";
+import type { SkyDomeUniforms } from "./sky-dome";
+import { TrackedRenderPass } from "../tracked-render-pass";
 
 const FACE_DIRS: Array<{ target: [number, number, number]; up: [number, number, number] }> = [
   { target: [1, 0, 0], up: [0, -1, 0] },

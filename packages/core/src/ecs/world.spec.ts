@@ -1,10 +1,10 @@
-import { World } from "../ecs/world.ts";
-import { getComponentId, component } from "../ecs/component.ts";
-import { ROOT_ENTITY } from "../ecs/entity.ts";
-import { Hierarchy } from "../ecs/hierarchy.ts";
-import { Stage, system } from "../ecs/system.ts";
-import { query, queryChanged } from "../ecs/query.ts";
-import { EventBus } from "../ecs/events.ts";
+import { World } from "../ecs/world";
+import { getComponentId, component } from "../ecs/component";
+import { ROOT_ENTITY } from "../ecs/entity";
+import { Hierarchy } from "../ecs/hierarchy";
+import { Stage, system } from "../ecs/system";
+import { query, queryChanged } from "../ecs/query";
+import { EventBus } from "../ecs/events";
 
 const Transform = component("Transform", {
   pos: [0, 0, 0] as number[],

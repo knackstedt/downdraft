@@ -1,7 +1,7 @@
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
-import { PassType } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
-import { DEFAULT_RSM_CONFIG, type RSMConfig, VPL_FLOATS, packVPLsToBuffer } from "./gi-types.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { PassType } from "../frame-graph";
+import { RenderPass } from "../render-pass";
+import { DEFAULT_RSM_CONFIG, type RSMConfig, VPL_FLOATS, packVPLsToBuffer } from "./gi-types";
 
 const RSM_INJECT_SHADER = /* wgsl */ `
 struct RSMUniforms {
@@ -140,7 +140,7 @@ export class RSMPass extends RenderPass {
   name = "rsm-inject";
   passType = PassType.Custom;
 
-  private device: GPUDevice;
+  private device: GPUDevice | null;
   private config: RSMConfig;
 
   private injectPipeline: GPUComputePipeline | null = null;

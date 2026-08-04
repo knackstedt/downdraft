@@ -1,4 +1,4 @@
-import { TransientStateRegistry } from "./transient-state-registry.ts";
+import { TransientStateRegistry } from "./transient-state-registry";
 
 describe("TransientStateRegistry", () => {
   it("should strip transient flags from serialized state arrays", () => {

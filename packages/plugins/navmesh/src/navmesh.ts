@@ -1,4 +1,4 @@
-import type { NavPoly, PortalEdge, Vec3, NavMeshData } from "./types.ts";
+import type { NavPoly, PortalEdge, Vec3, NavMeshData } from "./types";
 
 interface SpatialCell {
   polys: number[];

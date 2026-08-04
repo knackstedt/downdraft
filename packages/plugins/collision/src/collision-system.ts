@@ -16,7 +16,7 @@ import type {
   CollisionConfig, CollisionDeps,
   CollisionTransform, CollisionVelocity, CollisionEntityMeta, CollisionEntityData,
   CollisionPlayerState, VoxelFieldLike, PortColliderDims,
-} from "./types.ts";
+} from "./types";
 
 // Pre-allocated arrays for entity collection (avoid GC pressure)
 interface CollisionEntity {

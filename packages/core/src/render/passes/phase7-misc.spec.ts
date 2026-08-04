@@ -1,21 +1,21 @@
 import { describe, expect, it } from "bun:test";
 import {
     Dome360Pass
-} from "./dome-360.ts";
+} from "./dome-360";
 import {
     DEFAULT_FLUID_CONFIG
-} from "./fluid-render.ts";
+} from "./fluid-render";
 import {
     DEFAULT_PROCEDURAL_CONFIG,
     generateProceduralTexture,
     type ProceduralTextureType,
-} from "./procedural-texture.ts";
+} from "./procedural-texture";
 import {
     layoutSDFText,
     parseSDFFont,
     SDF_TEXT_SHADER,
     type SDFFontData,
-} from "./sdf-text.ts";
+} from "./sdf-text";
 
 describe("fluid-render", () => {
   it("DEFAULT_FLUID_CONFIG has expected values", () => {

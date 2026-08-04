@@ -1,4 +1,4 @@
-import { UIPanel, UIText, UIButton, UIElement, type UIDrawable, type UIColor } from "./element.ts";
+import { UIPanel, UIText, UIButton, UIElement, type UIDrawable, type UIColor } from "./element";
 
 export class UIProgressBar extends UIElement {
   value: number = 0;

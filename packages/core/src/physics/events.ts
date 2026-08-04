@@ -1,5 +1,5 @@
-import type { Entity } from "../ecs/entity.ts";
-import type { ContactManifold } from "./interface.ts";
+import type { Entity } from "../ecs/entity";
+import type { ContactManifold } from "./interface";
 
 export interface CollisionStartedEvent {
   entityA: Entity;

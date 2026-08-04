@@ -1,7 +1,7 @@
-import type { World } from "../ecs/world.ts";
-import { createLogger } from "../util/logger.ts";
-import type { Scene, SceneSetup } from "./scene.ts";
-import { Scene as SceneClass } from "./scene.ts";
+import type { World } from "../ecs/world";
+import { createLogger } from "../util/logger";
+import type { Scene, SceneSetup } from "./scene";
+import { Scene as SceneClass } from "./scene";
 
 const log = createLogger();
 

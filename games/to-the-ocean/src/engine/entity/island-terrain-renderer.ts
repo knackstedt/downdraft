@@ -76,7 +76,7 @@ export class IslandTerrainRenderer {
   private portVoxelFields = new Map<string, VoxelField>();
 
   // Chunked island mesh streaming
-  private islandChunkMeshes = new Map<string, Map<string, IslandMesh>>();
+  private islandChunkMeshes = new Map<string, Map<string, ChunkMeshEntry>>();
   private islandChunkPending = new Map<string, { x: number; y: number; z: number; chunkKey: string; distSq: number }[]>();
   private islandChunkField = new Map<string, VoxelField>();
   private islandChunkTotalChunks = new Map<string, number>();

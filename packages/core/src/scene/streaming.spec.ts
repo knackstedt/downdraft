@@ -1,6 +1,6 @@
-import { World } from "../ecs/world.ts";
-import { Camera } from "./camera.ts";
-import { WorldStreamer, type ChunkData } from "./streaming.ts";
+import { World } from "../ecs/world";
+import { Camera } from "./camera";
+import { WorldStreamer, type ChunkData } from "./streaming";
 
 function makeChunkData(name: string): ChunkData {
   return { name, entities: [] };

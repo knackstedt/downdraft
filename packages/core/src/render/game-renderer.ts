@@ -6,19 +6,20 @@
 // logic through callback hooks.
 // ============================================================================
 
-import { TelemetryCollector } from "../telemetry/collector.ts";
-import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay.ts";
-import { GPUProfiler, type FrameGraphData } from "../telemetry/gpu-profiler.ts";
-import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker.ts";
-import { UIRoot } from "../ui/element.ts";
-import { UIInputRouter } from "../ui/input.ts";
-import { LayoutEngine } from "../ui/layout.ts";
-import { UIRenderer } from "../ui/renderer.ts";
-import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher.ts";
-import { GPUDeviceManager } from "./device.ts";
-import { InputManager } from "./input-manager.ts";
-import { RenderPipeline, type RenderContext } from "./render-pipeline.ts";
-import { SurfaceManager } from "./surface.ts";
+import { TelemetryCollector } from "../telemetry/collector";
+import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
+import { GPUProfiler, type FrameGraphData } from "../telemetry/gpu-profiler";
+import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker";
+import { UIRoot } from "../ui/element";
+import { UIInputRouter } from "../ui/input";
+import { LayoutEngine } from "../ui/layout";
+import { UIRenderer } from "../ui/renderer";
+import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher";
+import { GPUDeviceManager } from "./device";
+import { InputManager } from "./input-manager";
+import { RenderPipeline, type RenderContext } from "./render-pipeline";
+import { SurfaceManager } from "./surface";
+import { TrackedRenderPass } from "./tracked-render-pass";
 
 export interface ViewportRect {
   x: number;
@@ -501,7 +502,7 @@ export class GameRenderer implements CanvasResizeHandler {
             storeOp: "store" as GPUStoreOp,
           }],
         });
-        this.uiRenderer.render({ device: this.device, pass: uiPass }, drawables);
+        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as any, drawables);
         uiPass.end();
         this.device.queue.submit([uiEncoder.finish()]);
       }

@@ -1,5 +1,5 @@
-import { deformChunk } from "./deformation.ts";
-import type { ExtractedMesh } from "./types.ts";
+import { deformChunk } from "./deformation";
+import type { ExtractedMesh } from "./types";
 
 function makeSimpleMesh(): ExtractedMesh {
   // 4 vertices: (0,0,0), (1,0,0), (0,0,1), (1,0,1)

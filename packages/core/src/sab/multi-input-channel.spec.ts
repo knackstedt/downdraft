@@ -1,6 +1,6 @@
-import { MultiInputSABBridge, MultiInputSABWriter } from "../input/multi-sab-bridge.ts";
-import { MultiInputState } from "../input/multi-state.ts";
-import { createMultiInputChannel, MultiInputChannel } from "./multi-input-channel.ts";
+import { MultiInputSABBridge, MultiInputSABWriter } from "../input/multi-sab-bridge";
+import { MultiInputState } from "../input/multi-state";
+import { createMultiInputChannel, MultiInputChannel } from "./multi-input-channel";
 
 describe("MultiInputChannel", () => {
   it("should allocate a valid SAB", () => {

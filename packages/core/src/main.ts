@@ -1,7 +1,7 @@
-import { RPC } from "./platform/rpc.ts";
-import { GPUDeviceManager } from "./render/device.ts";
-import { SurfaceManager } from "./render/surface.ts";
-import { createLogger } from "./util/logger.ts";
+import { RPC } from "./platform/rpc";
+import { GPUDeviceManager } from "./render/device";
+import { SurfaceManager } from "./render/surface";
+import { createLogger } from "./util/logger";
 
 const log = createLogger();
 

@@ -1,5 +1,5 @@
-import { UIPanel, UIRoot, UIText, type UIColor } from "../ui/element.ts";
-import type { TelemetryCollector } from "./collector.ts";
+import { UIPanel, UIRoot, UIText, type UIColor } from "../ui/element";
+import type { TelemetryCollector } from "./collector";
 
 export interface DebugOverlayConfig {
   showFPS: boolean;

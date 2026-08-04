@@ -54,9 +54,9 @@ export class WaterBufferWriter {
 
   constructor(sab: SharedArrayBuffer) {
     this.writer = WaterChannel.writer(sab);
-    this.heights = this.writer.layers.heights;
-    this.normals = this.writer.layers.normals;
-    this.flow = this.writer.layers.flow;
+    this.heights = this.writer.layers.heights as Float32Array;
+    this.normals = this.writer.layers.normals as Float32Array;
+    this.flow = this.writer.layers.flow as Float32Array;
   }
 
   init(patchSize: number) {
@@ -121,9 +121,9 @@ export class WaterBufferReader {
 
   constructor(sab: SharedArrayBuffer) {
     this.reader = WaterChannel.reader(sab);
-    this.heights = this.reader.layers.heights;
-    this.normals = this.reader.layers.normals;
-    this.flow = this.reader.layers.flow;
+    this.heights = this.reader.layers.heights as Float32Array;
+    this.normals = this.reader.layers.normals as Float32Array;
+    this.flow = this.reader.layers.flow as Float32Array;
   }
 
   isValid(): boolean {

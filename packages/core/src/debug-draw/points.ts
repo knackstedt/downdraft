@@ -1,4 +1,4 @@
-import { DebugDrawQueue } from "./queue.ts";
+import { DebugDrawQueue } from "./queue";
 
 export class DebugPoints {
   private queue: DebugDrawQueue;

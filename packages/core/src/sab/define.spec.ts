@@ -1,4 +1,4 @@
-import { defineChannel, defineManifest } from "./define.ts";
+import { defineChannel, defineManifest } from "./define";
 
 const ChannelA = defineChannel({
   name: "a",

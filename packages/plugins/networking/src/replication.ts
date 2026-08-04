@@ -1,5 +1,5 @@
-import type { NetMessage, NetTransport } from "./transport.ts";
-import { RPCManager } from "./rpc.ts";
+import type { NetMessage, NetTransport } from "./transport";
+import { RPCManager } from "./rpc";
 
 export type ReplicationMode = "authoritative" | "client-prediction" | "interpolated";
 

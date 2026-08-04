@@ -1,4 +1,4 @@
-import type { HeightFieldSampler, NavMeshData, NavMeshGeneratorConfig, NavPoly, PortalEdge, Vec3 } from "./types.ts";
+import type { HeightFieldSampler, NavMeshData, NavMeshGeneratorConfig, NavPoly, PortalEdge, Vec3 } from "./types";
 
 interface WalkableCell {
   x: number;

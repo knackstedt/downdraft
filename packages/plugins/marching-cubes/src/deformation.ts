@@ -1,4 +1,4 @@
-import type { MCMesh, DensityField, MCChunkConfig } from "./generator.ts";
+import type { MCMesh, DensityField, MCChunkConfig } from "./generator";
 
 export interface DeformationConfig {
   radius: number;

@@ -3,11 +3,11 @@ import {
     type AnimationEvent,
     createAnimationEventTrack,
     getEventsInRange,
-} from "./animation-event.ts";
-import { AnimationClip } from "./clip.ts";
-import { AnimationPlayer } from "./player.ts";
-import type { Bone, SkeletonData } from "./skeleton.ts";
-import { Skeleton } from "./skeleton.ts";
+} from "./animation-event";
+import { AnimationClip } from "./clip";
+import { AnimationPlayer } from "./player";
+import type { Bone, SkeletonData } from "./skeleton";
+import { Skeleton } from "./skeleton";
 
 function makeMockSkeleton(): Skeleton {
   const bones: Bone[] = [

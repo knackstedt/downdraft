@@ -1,5 +1,5 @@
-import { Component } from "../ecs/component.ts";
-import type { ColliderShape } from "./interface.ts";
+import { Component } from "../ecs/component";
+import type { ColliderShape } from "./interface";
 
 export interface ColliderData {
   [key: string]: unknown;

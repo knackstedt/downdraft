@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState, type ITrackedRenderPass } from "@downdraft/core";
-import { LightingSystem } from "./lighting-system.ts";
+import { LightingSystem } from "./lighting-system";
 import DEBUG_WGSL from "./shaders/light-debug.wgsl?raw";
 
 export const MAX_POINT_LIGHTS = 32;
@@ -385,7 +385,7 @@ export class LightSystem extends LightingSystem {
     if (!this.debugInstanceBuffer || !this.debugInstanceData || !this.debugSphereVerts || !this.debugSphereIndexBuffer) return;
 
     const viewProj = calculateViewProj(camera);
-    this.device?.queue.writeBuffer(this.debugUniformBuffer, 0, viewProj);
+    this.device?.queue.writeBuffer(this.debugUniformBuffer, 0, viewProj as unknown as GPUAllowSharedBufferSource);
 
     // Collect instances from point lights + spot lights
     const data = this.debugInstanceData;

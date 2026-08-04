@@ -1,5 +1,5 @@
 // Eel AI — electric shock on proximity, territorial behavior
-import type { WildlifeEntity, WildlifePlayer, WildlifeConfig } from "../types.ts";
+import type { WildlifeEntity, WildlifePlayer, WildlifeConfig } from "../types";
 
 export function tickEelAI(
   ent: WildlifeEntity,

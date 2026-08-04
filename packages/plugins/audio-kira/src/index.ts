@@ -1,6 +1,6 @@
 import type { Plugin, PluginContext } from "@downdraft/core";
 import { audioBackendRegistry } from "@downdraft/core";
-import { KiraAudioBackend } from "./backend.ts";
+import { KiraAudioBackend } from "./backend";
 
 export { KiraAudioBackend };
 

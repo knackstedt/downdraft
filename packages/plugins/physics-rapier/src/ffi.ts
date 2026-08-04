@@ -88,7 +88,7 @@ export async function loadPhysicsLib(): Promise<PhysicsLib> {
   }
 
   try {
-    const { loadWasmRapier } = await import("./wasm-fallback.ts");
+    const { loadWasmRapier } = await import("./wasm-fallback");
     const wasmLib = await loadWasmRapier();
     if (wasmLib) {
       log.info("physics-rapier", "Using WASM Rapier fallback.");
@@ -138,7 +138,7 @@ async function tryLoadNative(): Promise<PhysicsLib | null> {
         buf[0] = desc.position[0]; buf[1] = desc.position[1]; buf[2] = desc.position[2];
         buf[3] = desc.rotation[0]; buf[4] = desc.rotation[1]; buf[5] = desc.rotation[2]; buf[6] = desc.rotation[3];
         buf[7] = desc.mass ?? 1;
-        lib.symbols.dd_create_body(realmId, bodyId, desc.type === "static" ? 0 : desc.type === "kinematic" ? 1 : 2, ptr(buf), buf[7]);
+        (lib.symbols.dd_create_body as any)(realmId, bodyId, desc.type === "static" ? 0 : desc.type === "kinematic" ? 1 : 2, ptr(buf.buffer), buf[7]);
       },
       destroyBody(realmId, bodyId) {
         lib.symbols.dd_destroy_body(realmId, bodyId);

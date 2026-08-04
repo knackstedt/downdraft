@@ -1,5 +1,5 @@
-import type { GaussianSplatData } from "./parser.ts";
-import type { SortResult } from "./sorter.ts";
+import type { GaussianSplatData } from "./parser";
+import type { SortResult } from "./sorter";
 
 const GAUSSIAN_SPLAT_SHADER = `
 struct CameraUniforms {

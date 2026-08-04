@@ -1,5 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
-import { RenderPass } from "../render-pass.ts";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 import AABB_SHADER from "../shaders/debug-viz/aabb.wgsl?raw";
 import DEPTH_SHADER from "../shaders/debug-viz/depth.wgsl?raw";
@@ -229,6 +230,7 @@ export class DebugVizPass extends RenderPass {
     this.device.queue.writeBuffer(this.aabbBuffer, 0, vertices as unknown as BufferSource);
 
     const pass = ctx.pass;
+    if (!pass) return;
     pass.setPipeline(this.aabbPipeline);
     pass.setBindGroup(0, this.aabbBindGroup);
     pass.setVertexBuffer(0, this.aabbBuffer);

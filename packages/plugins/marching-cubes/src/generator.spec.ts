@@ -1,4 +1,4 @@
-import { generateChunk, defaultDensityField, DEFAULT_MC_CONFIG, type DensityField, type MCChunkConfig } from "./generator.ts";
+import { generateChunk, defaultDensityField, DEFAULT_MC_CONFIG, type DensityField, type MCChunkConfig } from "./generator";
 
 describe("Marching Cubes Generator", () => {
   it("should generate an empty mesh for uniform density below iso level", () => {

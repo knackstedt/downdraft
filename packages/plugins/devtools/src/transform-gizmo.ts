@@ -13,7 +13,7 @@ import {
   MSAA_SAMPLE_COUNT,
   type CameraState,
 } from "@downdraft/core";
-import type { GizmoMode } from "./index.ts";
+import type { GizmoMode } from "./index";
 import GIZMO_WGSL from "./shaders/transform-gizmo.wgsl?raw";
 
 

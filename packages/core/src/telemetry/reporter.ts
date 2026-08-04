@@ -1,4 +1,4 @@
-import type { DrawStats, SystemTiming, TelemetryCollector, ThreadMetrics } from "./collector.ts";
+import type { DrawStats, SystemTiming, TelemetryCollector, ThreadMetrics } from "./collector";
 
 export class TelemetryReporter {
   private collector: TelemetryCollector;
@@ -51,7 +51,7 @@ export class TelemetryReporter {
         calls: snap.drawCalls,
         triangles: snap.triangles,
         gpuTimeMs: snap.gpuTimeMs,
-      } as DrawStats & { gpuTimeMs: number },
+      } as unknown as DrawStats & { gpuTimeMs: number },
       memory: snap.memory,
       systems: snap.systemTimings.map((s: SystemTiming) => ({
         name: s.name,

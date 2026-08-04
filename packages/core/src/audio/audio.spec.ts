@@ -1,7 +1,7 @@
-import { AudioEngine } from "./engine.ts";
-import type { AudioBackend, AudioBufferDesc, AudioEffectDesc, AudioSourceHandle } from "./interface.ts";
-import { AudioMixer } from "./mixer.ts";
-import { createAmbientAudioSource, createAudioSource, createSpatialAudioSource } from "./source.ts";
+import { AudioEngine } from "./engine";
+import type { AudioBackend, AudioBufferDesc, AudioEffectDesc, AudioSourceHandle } from "./interface";
+import { AudioMixer } from "./mixer";
+import { createAmbientAudioSource, createAudioSource, createSpatialAudioSource } from "./source";
 
 function makeMockBackend(): AudioBackend {
   const buffers = new Map<string, AudioBufferDesc>();

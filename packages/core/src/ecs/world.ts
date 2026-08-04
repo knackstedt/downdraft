@@ -1,4 +1,4 @@
-import { createLogger } from "../util/logger.ts";
+import { createLogger } from "../util/logger";
 import {
   addEntityToArchetype,
   type Archetype,
@@ -6,12 +6,12 @@ import {
   findEntityRow,
   getArchetypeForComponents,
   removeEntityFromArchetype,
-} from "./archetype.ts";
-import type { ComponentId } from "./component.ts";
-import type { Entity, EntityMeta } from "./entity.ts";
-import { ROOT_ENTITY } from "./entity.ts";
-import { EventBus } from "./events.ts";
-import { Schedule, type SystemContext } from "./schedule.ts";
+} from "./archetype";
+import type { ComponentId } from "./component";
+import type { Entity, EntityMeta } from "./entity";
+import { ROOT_ENTITY } from "./entity";
+import { EventBus } from "./events";
+import { Schedule, type SystemContext } from "./schedule";
 
 const log = createLogger();
 

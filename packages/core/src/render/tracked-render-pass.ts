@@ -1,4 +1,21 @@
-export class TrackedRenderPass {
+export interface ITrackedRenderPass {
+  readonly drawCalls: number;
+  readonly triangles: number;
+  readonly pipelineSwitches: number;
+  readonly bindGroupChanges: number;
+  readonly bufferRebinds: number;
+  resetStats(): void;
+  setPipeline(pipeline: GPURenderPipeline | unknown): void;
+  setBindGroup(index: number, group: GPUBindGroup | unknown, dynamicOffsets?: number[]): void;
+  setVertexBuffer(slot: number, buffer: GPUBuffer | unknown, offset?: number): void;
+  setIndexBuffer(buffer: GPUBuffer | unknown, format: GPUIndexFormat | unknown, offset?: number): void;
+  draw(vertexCount: number, instanceCount?: number, firstVertex?: number, firstInstance?: number): void;
+  drawIndexed(indexCount: number, instanceCount?: number, firstIndex?: number, baseVertex?: number, firstInstance?: number): void;
+  end(): void;
+  getRawPass(): GPURenderPassEncoder | unknown;
+}
+
+export class TrackedRenderPass implements ITrackedRenderPass {
   private state: {
     pipeline: GPURenderPipeline | null;
     bindGroups: Map<number, GPUBindGroup>;

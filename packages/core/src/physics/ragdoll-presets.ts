@@ -1,5 +1,5 @@
-import type { Skeleton } from "../animation/skeleton.ts";
-import type { RagdollConfig, RagdollBoneConfig, RagdollJointConfig } from "./ragdoll.ts";
+import type { Skeleton } from "../animation/skeleton";
+import type { RagdollConfig, RagdollBoneConfig, RagdollJointConfig } from "./ragdoll";
 
 interface BoneMatch {
   names: string[];

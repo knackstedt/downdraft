@@ -1,5 +1,5 @@
-import type { MeshData } from "../mesh/builder.ts";
-import type { GPUResourceCache } from "./cache.ts";
+import type { MeshData } from "../mesh/builder";
+import type { GPUResourceCache } from "./cache";
 
 export interface GPUMesh {
   vertexBuffer: GPUBuffer;

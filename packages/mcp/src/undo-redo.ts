@@ -1,5 +1,5 @@
 import { createLogger } from "@downdraft/core";
-import type { EngineContext } from "./engine-context.ts";
+import type { EngineContext } from "./engine-context";
 
 const log = createLogger();
 

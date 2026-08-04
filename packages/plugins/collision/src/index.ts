@@ -1,6 +1,6 @@
-export { createCollisionSystem } from "./collision-system.ts";
+export { createCollisionSystem } from "./collision-system";
 export type {
   CollisionConfig, CollisionDeps,
   CollisionTransform, CollisionVelocity, CollisionEntityMeta, CollisionEntityData,
   CollisionPlayerState, VoxelFieldLike, PortColliderDims,
-} from "./types.ts";
+} from "./types";

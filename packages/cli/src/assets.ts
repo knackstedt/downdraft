@@ -11,7 +11,7 @@ import {
 } from "@downdraft/core";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, relative, resolve, sep } from "path";
-import { createBlobStore } from "./blob-store-s3.ts";
+import { createBlobStore } from "./blob-store-s3";
 
 const log = createLogger();
 

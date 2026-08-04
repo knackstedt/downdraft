@@ -1,8 +1,8 @@
-import { Stage, system } from "../ecs/system.ts";
-import { World } from "../ecs/world.ts";
-import { GameLoop } from "./game-loop.ts";
-import { Scene } from "./scene.ts";
-import { GameWorld } from "./world.ts";
+import { Stage, system } from "../ecs/system";
+import { World } from "../ecs/world";
+import { GameLoop } from "./game-loop";
+import { Scene } from "./scene";
+import { GameWorld } from "./world";
 
 function makeGameWorld(): GameWorld {
   const world = new World();

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "bun:test";
-import { GameRenderer } from "./game-renderer.ts";
+import { GameRenderer } from "./game-renderer";
 
 function createMockCanvas(): HTMLCanvasElement {
   const canvas = {

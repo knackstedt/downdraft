@@ -1,6 +1,6 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult } from "../types";
 
 export function createAnimationTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -39,7 +39,7 @@ export function createAnimationTools(ctx: EngineContext): ToolRegistration[] {
         }
 
         const playing = player.isPlaying();
-        player.setSpeed(speed);
+        player.setSpeed(clipName, speed);
 
         return jsonResult({
           entity: entityKey,

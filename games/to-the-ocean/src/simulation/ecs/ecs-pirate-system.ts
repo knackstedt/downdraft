@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { Stage, system, type Query, type SystemContext, type World } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimHealth, SimPlayerState, SimTransform, SimVelocity } from "./components.ts";
+import { SimEntityData, SimEntityMeta, SimHealth, SimPlayerState, SimTransform, SimVelocity } from "./components";
 import { EntityType, EntityFlags, SecurityLevel, PirateRace } from "@shared/types";
 import {
   PIRATE_SPAWN_BASE_RATE, PIRATE_SPAWN_SAFE_MULT, PIRATE_SPAWN_EXTREME_MULT,

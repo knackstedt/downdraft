@@ -21,8 +21,8 @@ import {
     SAVE_FORMAT_VERSION,
     SAVE_MAGIC,
     type SaveHeader
-} from "@downdraft/core/save/binary-format.ts";
-import { MigrationRegistryImpl } from "@downdraft/core/save/migration-registry.ts";
+} from "@downdraft/core/save/binary-format";
+import { MigrationRegistryImpl } from "@downdraft/core/save/migration-registry";
 import type {
     IMigrationRegistry,
     ISaveStore,
@@ -31,8 +31,8 @@ import type {
     SaveSlotInfo,
     SaveState,
     SaveWarning,
-} from "@downdraft/core/save/persist-types.ts";
-import { createLogger } from "@downdraft/core/util/logger.ts";
+} from "@downdraft/core/save/persist-types";
+import { createLogger } from "@downdraft/core/util/logger";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 
@@ -130,7 +130,7 @@ export class FileSaveStore implements ISaveStore {
   private async decompressBytes(data: Uint8Array, originalSize: number): Promise<Uint8Array> {
     await this.ensureZstd();
     const { decompress } = await import("@bokuweb/zstd-wasm");
-    return decompress(data, originalSize);
+    return decompress(data);
   }
 
   async save(slot: string, state: SaveState): Promise<SaveResult> {

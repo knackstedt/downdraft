@@ -1,5 +1,5 @@
-import { MeshBuilder } from "../mesh/builder.ts";
-import { LODGenerator } from "./lod.ts";
+import { MeshBuilder } from "../mesh/builder";
+import { LODGenerator } from "./lod";
 
 describe("LODGenerator (QEM)", () => {
   const generator = new LODGenerator();

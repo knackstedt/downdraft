@@ -1,4 +1,4 @@
-import { MeshBuilder, type MeshData } from "../../mesh/builder.ts";
+import { MeshBuilder, type MeshData } from "../../mesh/builder";
 
 export interface DecalProjector {
   position: [number, number, number];

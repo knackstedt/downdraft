@@ -15,7 +15,7 @@ import {
     froxelSliceToNear,
     packVolumetricUniforms,
     screenPosToFroxelXY,
-} from "./volumetric-types.ts";
+} from "./volumetric-types";
 
 describe("volumetric-types", () => {
   describe("DEFAULT_FROXEL_CONFIG", () => {

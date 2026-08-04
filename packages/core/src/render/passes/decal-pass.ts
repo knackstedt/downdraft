@@ -1,7 +1,7 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { MeshData } from "../../mesh/builder.ts";
-import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { MeshData } from "../../mesh/builder";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const DECAL_SHADER = `
 struct CameraUniforms {

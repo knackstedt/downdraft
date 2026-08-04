@@ -1,4 +1,4 @@
-export { MarketSystem } from "./market-system.ts";
-export { PortSize } from "./types.ts";
-export type { MarketListing, TradeOffer, EconomyConfig } from "./types.ts";
-export { DEFAULT_ECONOMY_CONFIG } from "./types.ts";
+export { MarketSystem } from "./market-system";
+export { PortSize } from "./types";
+export type { MarketListing, TradeOffer, EconomyConfig } from "./types";
+export { DEFAULT_ECONOMY_CONFIG } from "./types";

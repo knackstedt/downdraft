@@ -1,4 +1,4 @@
-import { MeshBuilder } from "./builder.ts";
+import { MeshBuilder } from "./builder";
 
 describe("MeshBuilder", () => {
   it("should build a cube with 24 vertices and 36 indices", () => {

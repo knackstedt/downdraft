@@ -6,8 +6,8 @@
 
 import { compileUIGraphToMaterial, startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats, type UIConnection, type UINodeData } from "@downdraft/core";
 import { detectFormat, loadModel } from "@downdraft/plugin-models";
-import { useDebugStore } from "./debug-store.ts";
-import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store.ts";
+import { useDebugStore } from "./debug-store";
+import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store";
 import type {
     IAssetResolver,
     IDebugModeProvider,
@@ -16,7 +16,7 @@ import type {
     IDevToolsPanelExtension,
     IDevToolsRenderer,
     IPerformanceMetricsProvider,
-} from "./types.ts";
+} from "./types";
 
 export abstract class BaseSceneInspector {
   protected renderer: IDevToolsRenderer | null = null;

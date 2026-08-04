@@ -1,7 +1,7 @@
-import type { FrameGraphBuilder, GraphRenderContext } from "./frame-graph.ts";
-import { PassType } from "./frame-graph.ts";
+import type { FrameGraphBuilder, GraphRenderContext } from "./frame-graph";
+import { PassType } from "./frame-graph";
 
-export type { FrameGraphBuilder, GraphRenderContext, PassType } from "./frame-graph.ts";
+export type { FrameGraphBuilder, GraphRenderContext, PassType } from "./frame-graph";
 
 /**
  * @deprecated Use GraphRenderContext instead. Kept for backward compatibility.

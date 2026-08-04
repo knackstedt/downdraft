@@ -1,5 +1,5 @@
-import type { EmitterShapeData, ParticleEmitterData } from "./emitter.ts";
-import type { ParticleGPUData } from "./particle-data.ts";
+import type { EmitterShapeData, ParticleEmitterData } from "./emitter";
+import type { ParticleGPUData } from "./particle-data";
 
 const TWO_PI = Math.PI * 2;
 

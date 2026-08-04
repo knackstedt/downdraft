@@ -3,7 +3,7 @@
 // Extracted from WebGPURenderer's input handling logic.
 // ============================================================================
 
-import { UIInputRouter } from "../ui/input.ts";
+import { UIInputRouter } from "../ui/input";
 
 export interface RenderInputState {
   keysDown: Set<number>;

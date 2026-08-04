@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components.ts";
+import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components";
 import { EntityType } from "@shared/types";
 import {
   SHIP_DATA,

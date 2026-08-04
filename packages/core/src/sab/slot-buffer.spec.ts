@@ -1,5 +1,5 @@
-import { defineChannel } from "./define.ts";
-import { setDebug } from "./errors.ts";
+import { defineChannel } from "./define";
+import { setDebug } from "./errors";
 
 const SlotChannel = defineChannel({
   name: "test-slots",

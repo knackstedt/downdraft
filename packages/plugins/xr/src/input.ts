@@ -1,5 +1,5 @@
 import { type InputState, type XRControllerState } from "@downdraft/core";
-import type { XRPoseData } from "./types.ts";
+import type { XRPoseData } from "./types";
 
 const KEY_ESCAPE = 27;
 const KEY_A = 65;

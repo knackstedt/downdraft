@@ -1,6 +1,7 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { DebugDrawQueue, DebugText } from "../../debug-draw/queue.ts";
-import { RenderPass } from "../render-pass.ts";
+import type { DebugDrawQueue, DebugText } from "../../debug-draw/queue";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 import DEBUG_LINE_SHADER from "../shaders/debug/debug-line.wgsl?raw";
 import DEBUG_POINT_SHADER from "../shaders/debug/debug-point.wgsl?raw";

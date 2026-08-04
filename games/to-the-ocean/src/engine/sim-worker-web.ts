@@ -234,12 +234,12 @@ simLoop = new SimWorkerLoop({
 });
 
 // Error handlers
-self.onerror = (e: ErrorEvent) => {
+self.onerror = ((e: ErrorEvent) => {
   const msg = `Sim worker uncaught error: ${e.message}`;
   console.error(`[SIM WORKER] ${msg}`);
   events.emit("error", { message: msg });
   simLoop?.stop();
-};
+}) as any;
 
 self.onunhandledrejection = (e: PromiseRejectionEvent) => {
   const err = e.reason as Error;

@@ -1,4 +1,4 @@
-import { type MaterialDefinition } from "./material.ts";
+import { type MaterialDefinition } from "./material";
 
 export class MaterialCompiler {
   compile(def: MaterialDefinition): string {

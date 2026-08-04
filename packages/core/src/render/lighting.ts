@@ -368,9 +368,10 @@ export function lightTypeToStorageType(type: LightType): number {
 
 export function packLightToStorage(light: Light): Float32Array {
   const buf = new Float32Array(16);
-  buf[0] = light.position[0];
-  buf[1] = light.position[1];
-  buf[2] = light.position[2];
+  const pos = "position" in light ? light.position : [0, 0, 0];
+  buf[0] = pos[0];
+  buf[1] = pos[1];
+  buf[2] = pos[2];
 
   switch (light.type) {
     case LightType.Point:

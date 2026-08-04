@@ -1,4 +1,4 @@
-import type { MeshData } from "./builder.ts";
+import type { MeshData } from "./builder";
 
 export interface GreasedLinePoint {
   position: [number, number, number];

@@ -1,5 +1,5 @@
-import { Skeleton } from "./skeleton.ts";
-import type { Bone, SkeletonData } from "./skeleton.ts";
+import { Skeleton } from "./skeleton";
+import type { Bone, SkeletonData } from "./skeleton";
 
 function makeBone(name: string, parentIndex: number, bindPos: [number, number, number] = [0, 0, 0]): Bone {
   const bindRot: [number, number, number, number] = [0, 0, 0, 1];

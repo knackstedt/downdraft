@@ -1,5 +1,5 @@
-import { Component } from "../ecs/component.ts";
-import type { BodyType } from "./interface.ts";
+import { Component } from "../ecs/component";
+import type { BodyType } from "./interface";
 
 export interface RigidBodyData {
   [key: string]: unknown;

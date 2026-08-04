@@ -1,4 +1,4 @@
-import type { AudioBackend } from "./interface.ts";
+import type { AudioBackend } from "./interface";
 
 class AudioBackendRegistry {
   private backends: Map<string, AudioBackend> = new Map();

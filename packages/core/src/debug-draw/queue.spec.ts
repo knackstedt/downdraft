@@ -1,5 +1,5 @@
-import { DebugDrawQueue } from "./queue.ts";
-import { DebugLines } from "./lines.ts";
+import { DebugDrawQueue } from "./queue";
+import { DebugLines } from "./lines";
 
 describe("DebugDrawQueue", () => {
   it("should queue lines and points", () => {

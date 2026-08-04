@@ -1,5 +1,5 @@
-import type { MCMesh, MCChunkConfig, DensityField } from "./generator.ts";
-import { generateChunk } from "./generator.ts";
+import type { MCMesh, MCChunkConfig, DensityField } from "./generator";
+import { generateChunk } from "./generator";
 
 export interface LODLevel {
   chunkSize: number;

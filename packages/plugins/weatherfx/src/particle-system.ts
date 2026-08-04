@@ -294,11 +294,11 @@ export class ParticleSystem {
     }
     sp[33] = this.seed;
 
-    this.device.queue.writeBuffer(this.simParamBuffer, 0, this.simParamData);
+    this.device.queue.writeBuffer(this.simParamBuffer!, 0, this.simParamData as unknown as GPUAllowSharedBufferSource);
 
     // Upload voxel data if present
     if (voxelData && voxelData.data.length > 0 && voxelData.data.length <= MAX_VOXEL_FLOATS) {
-      this.device.queue.writeBuffer(this.voxelBuffer, 0, voxelData.data);
+      this.device.queue.writeBuffer(this.voxelBuffer!, 0, voxelData.data as unknown as GPUAllowSharedBufferSource);
       this.currentVoxelCount = voxelData.data.length;
     } else {
       this.currentVoxelCount = 0;
@@ -348,7 +348,7 @@ export class ParticleSystem {
     u[23] = 1 / Math.tan((camera.fov * Math.PI / 180) / 2);
     u[24] = this.particleCullDistance;
 
-    this.device.queue.writeBuffer(this.renderUniformBuffer, 0, u);
+    this.device.queue.writeBuffer(this.renderUniformBuffer, 0, u as unknown as GPUAllowSharedBufferSource);
 
     passEncoder.setPipeline(this.renderPipeline);
     passEncoder.setBindGroup(0, this.renderBindGroup);

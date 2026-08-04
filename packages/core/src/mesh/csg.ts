@@ -1,5 +1,5 @@
-import type { MeshData } from "./builder.ts";
-import type { VertexLayout } from "./vertex-layout.ts";
+import type { MeshData } from "./builder";
+import type { VertexLayout } from "./vertex-layout";
 
 export type Vec3 = [number, number, number];
 

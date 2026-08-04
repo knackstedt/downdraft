@@ -1,5 +1,5 @@
-import type { Entity } from "../ecs/entity.ts";
-import type { BodyDesc, ColliderDesc, ContactManifold, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle } from "./interface.ts";
+import type { Entity } from "../ecs/entity";
+import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, JointDesc, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle } from "./interface";
 
 export class PhysicsRealm {
   readonly id: number;

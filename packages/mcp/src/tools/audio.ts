@@ -1,7 +1,7 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import { createAudioSource, createAudioListener } from "../engine-context.ts";
+import type { EngineContext } from "../engine-context";
+import { createAudioListener, createAudioSource } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult } from "../types";
 
 export function createAudioTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -33,7 +33,7 @@ export function createAudioTools(ctx: EngineContext): ToolRegistration[] {
         const volume = (params.volume as number) ?? 1.0;
         const loop = (params.loop as boolean) ?? false;
 
-        const sourceData = createAudioSource(-1, {
+        const sourceData = createAudioSource("-1", {
           spatial,
           volume,
           loop,

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { JobScheduler, WorkerPool, parallelMap } from "./job-system.ts";
-import { Schedule } from "./schedule.ts";
-import { Stage, system, type SystemContext } from "./system.ts";
+import { JobScheduler, WorkerPool, parallelMap } from "./job-system";
+import { Schedule } from "./schedule";
+import { Stage, system, type SystemContext } from "./system";
 
 // --- WorkerPool tests (inline fallback, no real workers) ---
 

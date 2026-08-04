@@ -1,5 +1,5 @@
-import type { AnimationClip } from "./clip.ts";
-import type { AnimationPlayer } from "./player.ts";
+import type { AnimationClip } from "./clip";
+import type { AnimationPlayer } from "./player";
 
 export interface BlendTree1D {
   type: "1d";

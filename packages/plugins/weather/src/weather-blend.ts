@@ -5,7 +5,7 @@
 // lighting/rendering systems can smoothly transition over time.
 //
 
-import { WeatherType } from "./types.ts";
+import { WeatherType } from "./types";
 
 export interface WeatherLightingParams {
   ambient: number;

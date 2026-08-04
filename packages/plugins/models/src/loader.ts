@@ -3,15 +3,15 @@
 // ============================================================================
 
 import type { AssetManager } from "@downdraft/core";
-import { parseDAE } from "./dae.ts";
-import { parseFBX } from "./fbx.ts";
-import { parseGLTF } from "./gltf.ts";
-import { parseOBJ } from "./obj.ts";
-import { parsePLY } from "./ply.ts";
-import { parseSTL } from "./stl.ts";
-import { parse3DS } from "./threeds.ts";
-import type { ModelData } from "./types.ts";
-import { detectFormat } from "./types.ts";
+import { parseDAE } from "./dae";
+import { parseFBX } from "./fbx";
+import { parseGLTF } from "./gltf";
+import { parseOBJ } from "./obj";
+import { parsePLY } from "./ply";
+import { parseSTL } from "./stl";
+import { parse3DS } from "./threeds";
+import type { ModelData } from "./types";
+import { detectFormat } from "./types";
 
 export interface ModelLoaderOptions {
   fetchFn?: (uri: string) => Promise<Response>;

@@ -1,13 +1,13 @@
 import { createLogger, MultiInputChannel, MultiInputSABBridge, MultiInputSABWriter, MultiInputState, type Plugin, Stage } from "@downdraft/core";
-import { ConnectionManager } from "./connection.ts";
-import { LobbyManager } from "./lobby.ts";
-import type { PlatformAdapter } from "./platform-adapter.ts";
-import { MockPlatformAdapter } from "./platform-adapter.ts";
-import { RemoteInputBridge } from "./remote-input.ts";
-import { ReplicationManager } from "./replication.ts";
-import { SessionManager } from "./session.ts";
-import type { TransportType } from "./transport.ts";
-import { createTransport } from "./transport.ts";
+import { ConnectionManager } from "./connection";
+import { LobbyManager } from "./lobby";
+import type { PlatformAdapter } from "./platform-adapter";
+import { MockPlatformAdapter } from "./platform-adapter";
+import { RemoteInputBridge } from "./remote-input";
+import { ReplicationManager } from "./replication";
+import { SessionManager } from "./session";
+import type { TransportType } from "./transport";
+import { createTransport } from "./transport";
 
 const log = createLogger();
 

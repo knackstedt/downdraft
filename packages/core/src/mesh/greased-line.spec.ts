@@ -1,4 +1,4 @@
-import { createGreasedLine, createGreasedLineMeshData, type GreasedLinePoint } from "./greased-line.ts";
+import { createGreasedLine, createGreasedLineMeshData, type GreasedLinePoint } from "./greased-line";
 
 describe("GreasedLine", () => {
   describe("createGreasedLine", () => {

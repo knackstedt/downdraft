@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimPlayerState } from "./components.ts";
+import { SimPlayerState } from "./components";
 import { CameraMode } from "@shared/types";
 import { InputBufferReader } from "../../shared/input-buffer";
 

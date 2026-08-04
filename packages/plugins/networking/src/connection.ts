@@ -1,5 +1,5 @@
-import type { PlatformAdapter } from "./platform-adapter.ts";
-import type { NetTransport } from "./transport.ts";
+import type { PlatformAdapter } from "./platform-adapter";
+import type { NetTransport } from "./transport";
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting" | "error";
 

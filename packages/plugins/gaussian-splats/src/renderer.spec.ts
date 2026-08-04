@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "bun:test";
-import type { GaussianSplatData } from "./parser.ts";
-import { GaussianSplatRenderer } from "./renderer.ts";
-import type { SortResult } from "./sorter.ts";
+import type { GaussianSplatData } from "./parser";
+import { GaussianSplatRenderer } from "./renderer";
+import type { SortResult } from "./sorter";
 
 const mockGPUBufferUsage = { UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, STORAGE: 0x80 };
 const mockGPUTextureUsage = { RENDER_ATTACHMENT: 0x10, TEXTURE_BINDING: 0x08 };

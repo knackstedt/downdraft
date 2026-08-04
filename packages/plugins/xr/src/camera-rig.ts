@@ -1,8 +1,8 @@
 import type { CameraViewportInfo } from "@downdraft/core";
 import type { ViewportRect } from "@downdraft/core";
-import type { XREye } from "./layer.ts";
-import type { XRLayerManager } from "./layer.ts";
-import type { XRWorldOrigin } from "./types.ts";
+import type { XREye } from "./layer";
+import type { XRLayerManager } from "./layer";
+import type { XRWorldOrigin } from "./types";
 
 const DEFAULT_VIEWPORT: ViewportRect = { x: 0, y: 0, w: 1, h: 1 };
 

@@ -1,7 +1,7 @@
-import { Schedule } from "./schedule.ts";
-import { Stage, system, type SystemFn } from "./system.ts";
-import type { World } from "./world.ts";
-import { component } from "./component.ts";
+import { Schedule } from "./schedule";
+import { Stage, system, type SystemFn } from "./system";
+import type { World } from "./world";
+import { component } from "./component";
 
 const A = component("A", { value: 0 });
 const B = component("B", { value: 0 });

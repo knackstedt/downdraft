@@ -1,9 +1,9 @@
-import type { EngineContext } from "../engine-context.ts";
-import { LightType, createDirectionalLight, createPointLight } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import type { UndoRedoManager } from "../undo-redo.ts";
-import type { Light, DirectionalLight } from "@downdraft/core";
+import type { DirectionalLight, Light } from "@downdraft/core";
+import type { EngineContext } from "../engine-context";
+import { LightType, createDirectionalLight, createPointLight } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult } from "../types";
+import type { UndoRedoManager } from "../undo-redo";
 
 function toVec3(arr: [number, number, number]): Float32Array {
   return new Float32Array(arr);
@@ -196,7 +196,7 @@ export function createLightingTools(ctx: EngineContext, undoRedo: UndoRedoManage
           index: i,
           type: l.type,
           intensity: l.intensity,
-          color: [...l.color],
+          color: [...("color" in l ? l.color : ("skyColor" in l ? l.skyColor : [0, 0, 0]))],
           ...(l.type === LightType.Directional ? { direction: [...l.direction], castShadows: l.castShadows, shadowMapSize: l.shadowMapSize, shadowBias: l.shadowBias } : {}),
           ...(l.type === LightType.Point ? { position: [...l.position], range: l.range } : {}),
           ...(l.type === LightType.Spot ? { position: [...l.position], direction: [...l.direction], range: l.range } : {}),

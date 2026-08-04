@@ -14,7 +14,7 @@ import {
     packLightToStorageBuffer,
     screenPosToClusterXY,
     worldDepthToSlice,
-} from "./cluster-types.ts";
+} from "./cluster-types";
 
 describe("cluster-types", () => {
   describe("DEFAULT_CLUSTER_CONFIG", () => {

@@ -15,13 +15,13 @@ import type {
   WildlifeConfig, WildlifeDeps, WildlifeEntity, WildlifePlayer, WildlifeShip,
   WildlifeTransform, WildlifeVelocity, WildlifeEntityMeta, WildlifeEntityData,
   WildlifeHealth, WildlifePlayerState,
-} from "./types.ts";
-import { tickFishAI } from "./ai/fish-ai.ts";
-import { tickSharkAI } from "./ai/shark-ai.ts";
-import { tickEelAI } from "./ai/eel-ai.ts";
-import { tickJellyfishAI } from "./ai/jellyfish-ai.ts";
-import { tickDevilShrimpAI } from "./ai/devil-shrimp-ai.ts";
-import { tickPassiveAI } from "./ai/passive-ai.ts";
+} from "./types";
+import { tickFishAI } from "./ai/fish-ai";
+import { tickSharkAI } from "./ai/shark-ai";
+import { tickEelAI } from "./ai/eel-ai";
+import { tickJellyfishAI } from "./ai/jellyfish-ai";
+import { tickDevilShrimpAI } from "./ai/devil-shrimp-ai";
+import { tickPassiveAI } from "./ai/passive-ai";
 
 // Module-level state (one wildlife system instance per simulation)
 let spawnedIds = new Set<number>();

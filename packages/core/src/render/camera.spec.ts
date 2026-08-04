@@ -1,4 +1,4 @@
-import { calculateViewProj, type CameraState } from "./camera.ts";
+import { calculateViewProj, type CameraState } from "./camera";
 import { mat4 } from "wgpu-matrix";
 
 describe("calculateViewProj", () => {

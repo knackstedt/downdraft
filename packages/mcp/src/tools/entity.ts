@@ -1,8 +1,8 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
-import type { UndoRedoManager } from "../undo-redo.ts";
 import type { Entity } from "@downdraft/core";
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { errorResult, jsonResult } from "../types";
+import type { UndoRedoManager } from "../undo-redo";
 
 export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -247,7 +247,7 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
         return jsonResult({
           id: entityKey,
           components,
-          parent: ctx.getEntityKey(parent),
+          parent: parent ? ctx.getEntityKey(parent) : null,
           children: children.map((c) => ctx.getEntityKey(c)),
           mesh: mesh ?? null,
           material: material ?? null,
@@ -288,7 +288,7 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
 
           if (parentEntity) {
             const parent = ctx.hierarchy.getParent(e);
-            if (parent.index !== parentEntity.index || parent.generation !== parentEntity.generation) {
+            if (!parent || parent.index !== parentEntity.index || parent.generation !== parentEntity.generation) {
               continue;
             }
           }

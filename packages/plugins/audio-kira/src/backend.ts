@@ -9,7 +9,7 @@ import type {
     AudioSourceHandle,
 } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
-import { loadAudioLib, type AudioLib } from "./ffi.ts";
+import { loadAudioLib, type AudioLib } from "./ffi";
 
 const log = createLogger();
 
@@ -48,7 +48,7 @@ export class KiraAudioBackend implements AudioBackend {
   readonly version = "0.1.0";
 
   private lib: AudioLib | null = null;
-  private buffers: Map<number, AudioBufferDesc> = new Map();
+  private buffers: Map<string, AudioBufferDesc> = new Map();
   private sources: Map<number, InternalSource> = new Map();
   private listener: AudioListenerState = {
     position: [0, 0, 0],
@@ -80,17 +80,15 @@ export class KiraAudioBackend implements AudioBackend {
     return this.initialized;
   }
 
-  async loadBuffer(format: AudioFormat, data: ArrayBuffer): Promise<AudioBufferDesc> {
-    const id = this.nextBufferId++;
-    const samples = new Float32Array(data.byteLength / 4);
-    const view = new DataView(data);
-    for (let i = 0; i < samples.length; i++) {
-      samples[i] = view.getFloat32(i * 4, true);
-    }
+  loadBuffer(desc: AudioBufferDesc): void {
+    const id = String(this.nextBufferId++);
+    const data = desc.samples.buffer;
+    const format = typeof desc.format === "string" ? desc.format : "wav";
+    const samples = desc.samples;
 
     let nativeBufferId = -1;
     if (this.lib) {
-      const result = this.lib.loadBuffer(new Uint8Array(data), FORMAT_MAP[format]);
+      const result = this.lib.loadBuffer(new Uint8Array(data), FORMAT_MAP[format as AudioFormat] ?? 0);
       if (result > 0) {
         nativeBufferId = result;
       }
@@ -99,19 +97,18 @@ export class KiraAudioBackend implements AudioBackend {
     const buffer: AudioBufferDesc = {
       id,
       format,
-      sampleRate: 44100,
-      channels: 2,
+      sampleRate: desc.sampleRate ?? 44100,
+      channels: desc.channels ?? 2,
       samples,
-      duration: samples.length / 44100,
+      duration: samples.length / (desc.sampleRate ?? 44100),
     };
 
     (buffer as unknown as { _nativeId?: number })._nativeId = nativeBufferId;
     this.buffers.set(id, buffer);
-    return buffer;
   }
 
-  unloadBuffer(bufferId: number): void {
-    const buffer = this.buffers.get(bufferId);
+  unloadBuffer(bufferId: string | number): void {
+    const buffer = this.buffers.get(String(bufferId));
     if (!buffer) return;
     if (this.lib) {
       const nativeId = (buffer as unknown as { _nativeId?: number })._nativeId;
@@ -119,15 +116,15 @@ export class KiraAudioBackend implements AudioBackend {
         this.lib.unloadBuffer(nativeId);
       }
     }
-    this.buffers.delete(bufferId);
+    this.buffers.delete(String(bufferId));
   }
 
-  getBuffer(bufferId: number): AudioBufferDesc | undefined {
-    return this.buffers.get(bufferId);
+  getBuffer(bufferId: string | number): AudioBufferDesc | undefined {
+    return this.buffers.get(String(bufferId));
   }
 
-  play(bufferId: number, opts?: Partial<AudioSourceHandle>): AudioSourceHandle {
-    const buffer = this.buffers.get(bufferId);
+  play(bufferId: string | number, opts?: Partial<AudioSourceHandle>): AudioSourceHandle {
+    const buffer = this.buffers.get(String(bufferId));
     if (!buffer) throw new Error(`Audio buffer ${bufferId} not found`);
 
     const sourceId = this.nextSourceId++;
@@ -153,10 +150,10 @@ export class KiraAudioBackend implements AudioBackend {
     if (this.lib) {
       const nativeBufferId = (buffer as unknown as { _nativeId?: number })._nativeId;
       if (nativeBufferId && nativeBufferId > 0) {
-        const channelVol = CHANNEL_VOLUMES[handle.channel] ?? 1.0;
-        const effectiveVol = handle.volume * channelVol;
+        const channelVol = CHANNEL_VOLUMES[handle.channel ?? "master"] ?? 1.0;
+        const effectiveVol = (handle.volume ?? 1.0) * channelVol;
         nativeSoundId = this.lib.play(nativeBufferId, handle.loop ? 1 : 0, effectiveVol);
-        if (nativeSoundId > 0 && handle.volume !== effectiveVol) {
+        if (nativeSoundId > 0 && (handle.volume ?? 1.0) !== effectiveVol) {
           this.lib.setVolume(nativeSoundId, effectiveVol);
         }
       }
@@ -166,18 +163,21 @@ export class KiraAudioBackend implements AudioBackend {
     return handle;
   }
 
-  stop(sourceId: number): void {
-    const source = this.sources.get(sourceId);
+  stop(sourceId: number | AudioSourceHandle): void {
+    const id = typeof sourceId === "number" ? sourceId : sourceId.sourceId ?? -1;
+    const source = this.sources.get(id);
     if (!source) return;
     if (this.lib && source.nativeSoundId > 0) {
       this.lib.stop(source.nativeSoundId);
     }
     source.handle.playing = false;
-    this.sources.delete(sourceId);
+    this.sources.delete(id);
   }
 
-  pause(sourceId: number): void {
-    const source = this.sources.get(sourceId);
+  pause(sourceId?: number | AudioSourceHandle): void {
+    if (sourceId === undefined) return;
+    const id = typeof sourceId === "number" ? sourceId : sourceId.sourceId ?? -1;
+    const source = this.sources.get(id);
     if (!source) return;
     if (this.lib && source.nativeSoundId > 0) {
       this.lib.pause(source.nativeSoundId);
@@ -186,8 +186,10 @@ export class KiraAudioBackend implements AudioBackend {
     source.handle.paused = true;
   }
 
-  resume(sourceId: number): void {
-    const source = this.sources.get(sourceId);
+  resume(sourceId?: number | AudioSourceHandle): void {
+    if (sourceId === undefined) return;
+    const id = typeof sourceId === "number" ? sourceId : sourceId.sourceId ?? -1;
+    const source = this.sources.get(id);
     if (!source) return;
     if (this.lib && source.nativeSoundId > 0) {
       this.lib.resume(source.nativeSoundId);
@@ -206,7 +208,7 @@ export class KiraAudioBackend implements AudioBackend {
     if (!source) return;
     source.handle.volume = volume;
     if (this.lib && source.nativeSoundId > 0) {
-      const channelVol = CHANNEL_VOLUMES[source.handle.channel] ?? 1.0;
+      const channelVol = CHANNEL_VOLUMES[source.handle.channel ?? "master"] ?? 1.0;
       this.lib.setVolume(source.nativeSoundId, volume * channelVol);
     }
   }
@@ -255,7 +257,7 @@ export class KiraAudioBackend implements AudioBackend {
     source.handle.channel = channel;
     if (this.lib && source.nativeSoundId > 0) {
       const channelVol = CHANNEL_VOLUMES[channel] ?? 1.0;
-      this.lib.setVolume(source.nativeSoundId, source.handle.volume * channelVol);
+      this.lib.setVolume(source.nativeSoundId, (source.handle.volume ?? 1.0) * channelVol);
     }
   }
 
@@ -304,7 +306,7 @@ export class KiraAudioBackend implements AudioBackend {
     }
     for (const [, source] of this.sources) {
       if (source.handle.channel === channel && this.lib && source.nativeSoundId > 0) {
-        this.lib.setVolume(source.nativeSoundId, source.handle.volume * volume);
+        this.lib.setVolume(source.nativeSoundId, (source.handle.volume ?? 1.0) * volume);
       }
     }
   }
@@ -313,7 +315,7 @@ export class KiraAudioBackend implements AudioBackend {
     CHANNEL_MUTED[channel] = muted;
     for (const [, source] of this.sources) {
       if (source.handle.channel === channel && this.lib && source.nativeSoundId > 0) {
-        this.lib.setVolume(source.nativeSoundId, muted ? 0 : source.handle.volume * CHANNEL_VOLUMES[channel]);
+        this.lib.setVolume(source.nativeSoundId, muted ? 0 : (source.handle.volume ?? 1.0) * CHANNEL_VOLUMES[channel]);
       }
     }
   }
@@ -358,9 +360,9 @@ export class KiraAudioBackend implements AudioBackend {
       if (!source.handle.spatial) continue;
       const offset = idx * 3;
       if (offset + 2 < positionBuffer.length) {
-        positionBuffer[offset] = source.handle.position[0];
-        positionBuffer[offset + 1] = source.handle.position[1];
-        positionBuffer[offset + 2] = source.handle.position[2];
+        positionBuffer[offset] = source.handle.position?.[0] ?? 0;
+        positionBuffer[offset + 1] = source.handle.position?.[1] ?? 0;
+        positionBuffer[offset + 2] = source.handle.position?.[2] ?? 0;
       }
       idx++;
     }

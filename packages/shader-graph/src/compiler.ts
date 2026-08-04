@@ -1,7 +1,7 @@
-import { getChunk } from "./chunks.ts";
-import type { GraphNode, MaterialGraph } from "./graph.ts";
-import type { BindGroupEntry, ShaderGraphProfile } from "./profiles.ts";
-import { SIMPLE_PROFILE } from "./profiles.ts";
+import { getChunk } from "./chunks";
+import type { GraphNode, MaterialGraph } from "./graph";
+import type { BindGroupEntry, ShaderGraphProfile } from "./profiles";
+import { SIMPLE_PROFILE } from "./profiles";
 
 interface Connection {
   from: string;

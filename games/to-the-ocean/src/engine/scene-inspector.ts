@@ -10,10 +10,13 @@ import {
     type IAssetResolver,
     type IDebugModeProvider,
     type IDebugOverlayProvider,
+    type IDevToolsOverlayToggle,
+    type IDevToolsPanelExtension,
     type IPerformanceMetricsProvider
 } from "@downdraft/plugin-devtools";
 import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
+import { getOverlayToggles, getPanelExtensions } from "../devtools/panel-extensions";
 import { simBridge } from "../sim-bridge";
 import type { WebGPURenderer } from "./webgpu-renderer";
 

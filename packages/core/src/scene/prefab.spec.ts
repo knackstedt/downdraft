@@ -1,8 +1,8 @@
-import { PrefabRegistry, PrefabFactory, createPrefabFromComponentDefs, type Prefab } from "./prefab.ts";
-import { World } from "../ecs/world.ts";
-import { Hierarchy } from "../ecs/hierarchy.ts";
-import { component } from "../ecs/component.ts";
-import { ROOT_ENTITY } from "../ecs/entity.ts";
+import { PrefabRegistry, PrefabFactory, createPrefabFromComponentDefs, type Prefab } from "./prefab";
+import { World } from "../ecs/world";
+import { Hierarchy } from "../ecs/hierarchy";
+import { component } from "../ecs/component";
+import { ROOT_ENTITY } from "../ecs/entity";
 
 const Position = component("Position", { x: 0, y: 0, z: 0 });
 const Health = component("Health", { hp: 100 });

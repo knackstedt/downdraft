@@ -1,8 +1,7 @@
-import type { World } from "../ecs/world.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { ComponentId } from "../ecs/component.ts";
-import type { Hierarchy } from "../ecs/hierarchy.ts";
-import { ROOT_ENTITY } from "../ecs/entity.ts";
+import type { Entity } from "../ecs/entity";
+import { ROOT_ENTITY } from "../ecs/entity";
+import type { Hierarchy } from "../ecs/hierarchy";
+import type { World } from "../ecs/world";
 
 export interface SceneTreeNode {
   entity: Entity;
@@ -69,7 +68,7 @@ export class SceneTreePanel {
       const node: SceneTreeNode = {
         entity,
         name: this.getEntityName(entity),
-        parentId: parent.index,
+        parentId: parent?.index ?? -1,
         children: [],
         componentCount,
         depth: 0,

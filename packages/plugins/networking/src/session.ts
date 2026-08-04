@@ -1,5 +1,5 @@
-import type { PlatformAdapter, PlatformLobbyData, PlatformPlayerInfo } from "./platform-adapter.ts";
-import type { NetTransport } from "./transport.ts";
+import type { PlatformAdapter, PlatformLobbyData, PlatformPlayerInfo } from "./platform-adapter";
+import type { NetTransport } from "./transport";
 
 export type SessionState = "offline" | "hosting" | "connected" | "connecting" | "error";
 

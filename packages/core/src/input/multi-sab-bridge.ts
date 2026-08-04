@@ -1,7 +1,7 @@
-import { MultiInputChannel, type MultiInputChannelInstance, createMultiInputChannel } from "../sab/multi-input-channel.ts";
-import type { FieldLayout, SlotSectionLayout } from "../sab/types.ts";
-import { MultiInputState } from "./multi-state.ts";
-import { InputState } from "./state.ts";
+import { MultiInputChannel, type MultiInputChannelInstance, createMultiInputChannel } from "../sab/multi-input-channel";
+import type { FieldLayout, SlotSectionLayout } from "../sab/types";
+import { MultiInputState } from "./multi-state";
+import { InputState } from "./state";
 
 interface FieldIndices {
   keysIdx: number;

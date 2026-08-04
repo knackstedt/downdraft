@@ -1,10 +1,10 @@
-import { Component } from "../ecs/component.ts";
-import type { Entity } from "../ecs/entity.ts";
-import type { Query } from "../ecs/query.ts";
-import { Stage, system } from "../ecs/system.ts";
-import type { World } from "../ecs/world.ts";
-import type { CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, RaycastResult } from "./interface.ts";
-import type { PhysicsRealm } from "./realm.ts";
+import { Component } from "../ecs/component";
+import type { Entity } from "../ecs/entity";
+import type { Query } from "../ecs/query";
+import { Stage, system } from "../ecs/system";
+import type { World } from "../ecs/world";
+import type { CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, RaycastResult } from "./interface";
+import type { PhysicsRealm } from "./realm";
 
 export interface CharacterControllerData {
   [key: string]: unknown;

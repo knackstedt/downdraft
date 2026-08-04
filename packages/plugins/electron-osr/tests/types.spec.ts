@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { describe, it, expect } from "bun:test";
-import { BillboardMode } from "../src/types.ts";
+import { BillboardMode } from "../src/types";
 
 describe("OSR Types", () => {
   describe("BillboardMode", () => {

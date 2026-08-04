@@ -1,8 +1,8 @@
-import { UIButton, UILine, UIPanel, UIRoot, UIText, type UIColor } from "../ui/element.ts";
-import { UIScrollPanel } from "../ui/scroll.ts";
-import { UITabBar } from "../ui/widgets.ts";
-import type { SnapshotDiff } from "./collector.ts";
-import { TelemetryCollector } from "./collector.ts";
+import { UIButton, UILine, UIPanel, UIRoot, UIText, type UIColor } from "../ui/element";
+import { UIScrollPanel } from "../ui/scroll";
+import { UITabBar } from "../ui/widgets";
+import type { SnapshotDiff } from "./collector";
+import { TelemetryCollector } from "./collector";
 
 export interface ProfilerOverlayConfig {
   position: "top-left" | "top-right" | "bottom-left" | "bottom-right";

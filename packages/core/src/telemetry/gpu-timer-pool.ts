@@ -1,4 +1,4 @@
-import { createLogger } from "../util/logger.ts";
+import { createLogger } from "../util/logger";
 
 const log = createLogger();
 
@@ -71,12 +71,12 @@ export class GPUTimerPool {
 
   begin(pass: GPURenderPassEncoder | GPUComputePassEncoder, passIdx: number): void {
     if (!this.supported || !this.querySet || passIdx >= this.maxPasses) return;
-    pass.writeTimestamp(this.querySet, passIdx * 2);
+    (pass as any).writeTimestamp(this.querySet, passIdx * 2);
   }
 
   end(pass: GPURenderPassEncoder | GPUComputePassEncoder, passIdx: number): void {
     if (!this.supported || !this.querySet || passIdx >= this.maxPasses) return;
-    pass.writeTimestamp(this.querySet, passIdx * 2 + 1);
+    (pass as any).writeTimestamp(this.querySet, passIdx * 2 + 1);
   }
 
   resolve(encoder: GPUCommandEncoder): void {

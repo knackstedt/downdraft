@@ -1,6 +1,6 @@
 import type { Plugin, PluginContext } from "@downdraft/core";
-import { XRSessionManager } from "./session.ts";
-import { XRInputMapper } from "./input.ts";
+import { XRSessionManager } from "./session";
+import { XRInputMapper } from "./input";
 
 export const xrPlugin: Plugin = {
   name: "@downdraft/plugin-xr",

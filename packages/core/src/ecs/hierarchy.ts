@@ -1,5 +1,5 @@
-import type { Entity } from "./entity.ts";
-import { ROOT_ENTITY } from "./entity.ts";
+import type { Entity } from "./entity";
+import { ROOT_ENTITY } from "./entity";
 
 interface HierarchyData {
   parent: Entity | null;

@@ -1,6 +1,6 @@
-import type { EngineContext } from "../engine-context.ts";
-import type { ToolRegistration } from "../types.ts";
-import { jsonResult, errorResult } from "../types.ts";
+import type { EngineContext } from "../engine-context";
+import type { ToolRegistration } from "../types";
+import { jsonResult, errorResult } from "../types";
 
 export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [

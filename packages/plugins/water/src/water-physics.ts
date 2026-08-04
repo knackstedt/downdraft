@@ -4,10 +4,10 @@
 // Ported from to-the-ocean's simulation water buffer update logic
 // ============================================================================
 
-import { type ShoreSource, shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping.ts";
-import { WaterBuffer } from "./water-buffer.ts";
-import { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_WORLD_SIZE, MAX_CHUNKS, type WaterChunk } from "./water-chunks.ts";
-import { MAX_WAKES, type WakeSource } from "./wave-sources.ts";
+import { type ShoreSource, shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping";
+import { WaterBuffer } from "./water-buffer";
+import { CHUNK_GRID, CHUNK_OVERLAP, CHUNK_WORLD_SIZE, MAX_CHUNKS, type WaterChunk } from "./water-chunks";
+import { MAX_WAKES, type WakeSource } from "./wave-sources";
 
 interface PrecomputedWave {
   k: number;

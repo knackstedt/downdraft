@@ -1,4 +1,5 @@
-import type { Entity } from "../ecs/entity.ts";
+import type { Entity } from "../ecs/entity";
+export type { Entity };
 
 export type BodyType = "static" | "dynamic" | "kinematic";
 

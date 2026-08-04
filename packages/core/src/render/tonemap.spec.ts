@@ -3,7 +3,7 @@ import {
   ToneMappingOperator,
   getToneMappingOperatorIndex,
   TONE_MAPPING_SHADER_CHUNK,
-} from "./tonemap.ts";
+} from "./tonemap";
 
 describe("ToneMapping", () => {
   describe("ToneMappingOperator enum", () => {

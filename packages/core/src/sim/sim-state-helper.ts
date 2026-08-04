@@ -8,8 +8,8 @@
 // state via registry.resetAll(), then calls sim.rebuildAfterRestore().
 // ============================================================================
 
-import type { ISimulation } from "./types.ts";
-import { TransientStateRegistry } from "./transient-state-registry.ts";
+import type { ISimulation } from "./types";
+import { TransientStateRegistry } from "./transient-state-registry";
 
 export class SimStateHelper {
   private sim: ISimulation;

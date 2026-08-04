@@ -6,7 +6,7 @@ import {
     packSplatToVertexBuffer,
     sortSplatsByDepth,
     type GaussianSplat,
-} from "./gaussian-splat.ts";
+} from "./gaussian-splat";
 
 describe("gaussian-splat", () => {
   describe("DEFAULT_SPLAT_CONFIG", () => {

@@ -1,4 +1,4 @@
-import { STANDARD_VERTEX_LAYOUT, type VertexLayout } from "./vertex-layout.ts";
+import { STANDARD_VERTEX_LAYOUT, type VertexLayout } from "./vertex-layout";
 
 export interface MeshData {
   vertices: Float32Array;

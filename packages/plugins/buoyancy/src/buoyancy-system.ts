@@ -17,7 +17,7 @@ import type {
     BuoyancyEntityData,
     BuoyancyEntityMeta,
     BuoyancyTransform, BuoyancyVelocity
-} from "./types.ts";
+} from "./types";
 
 export function createBuoyancySystem(
   shipsQuery: Query,

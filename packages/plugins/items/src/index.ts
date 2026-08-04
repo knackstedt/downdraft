@@ -1,2 +1,2 @@
-export { ItemCategory, ITEMS, getItem, getItemsByCategory } from "./items.ts";
-export type { ItemDef } from "./items.ts";
+export { ItemCategory, ITEMS, getItem, getItemsByCategory } from "./items";
+export type { ItemDef } from "./items";

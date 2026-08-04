@@ -1,4 +1,4 @@
-import { EventBus, EventChannel } from "./events.ts";
+import { EventBus, EventChannel } from "./events";
 
 interface TestEvent {
   type: string;

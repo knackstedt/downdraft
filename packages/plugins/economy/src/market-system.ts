@@ -3,9 +3,9 @@
 // Reusable plugin with configurable economy parameters
 // ============================================================================
 
-import { PortSize } from "./types.ts";
-import type { MarketListing, EconomyConfig } from "./types.ts";
-import { DEFAULT_ECONOMY_CONFIG } from "./types.ts";
+import { PortSize } from "./types";
+import type { MarketListing, EconomyConfig } from "./types";
+import { DEFAULT_ECONOMY_CONFIG } from "./types";
 
 interface PortMarket {
   portId: string;

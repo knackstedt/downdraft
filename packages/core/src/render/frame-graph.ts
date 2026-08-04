@@ -1,10 +1,10 @@
 import type { Mat4 } from "wgpu-matrix";
-import type { DebugDrawQueue } from "../debug-draw/queue.ts";
-import type { MeshData } from "../mesh/builder.ts";
-import { createLogger } from "../util/logger.ts";
-import type { LightUniformData } from "./lighting.ts";
-import type { RenderPass } from "./render-pass.ts";
-import { TrackedRenderPass } from "./tracked-render-pass.ts";
+import type { DebugDrawQueue } from "../debug-draw/queue";
+import type { MeshData } from "../mesh/builder";
+import { createLogger } from "../util/logger";
+import type { LightUniformData } from "./lighting";
+import type { RenderPass } from "./render-pass";
+import { TrackedRenderPass } from "./tracked-render-pass";
 
 const log = createLogger();
 

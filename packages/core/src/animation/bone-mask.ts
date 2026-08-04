@@ -1,4 +1,4 @@
-import type { SkeletonData } from "./skeleton.ts";
+import type { SkeletonData } from "./skeleton";
 
 export enum BoneMaskPreset {
   UPPER_BODY = "upper_body",

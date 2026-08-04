@@ -12,8 +12,8 @@ import {
     escapeJSString,
     generateAtlasHTML,
     generateDedicatedHTML,
-} from "../src/main/atlas-html.ts";
-import type { AtlasPanelRect } from "../src/types.ts";
+} from "../src/main/atlas-html";
+import type { AtlasPanelRect } from "../src/types";
 
 describe("atlas-html", () => {
   describe("generateAtlasHTML", () => {

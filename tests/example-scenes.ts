@@ -1,5 +1,5 @@
 import { VisionTestSuite, createLogger, type VisionTestResult } from "@downdraft/core";
-import { visionTestSuite, type VisionTestResult as VTR } from "../../tests/vision/index.ts";
+import { visionTestSuite, type VisionTestResult as VTR } from "../../tests/vision/index";
 
 const log = createLogger();
 

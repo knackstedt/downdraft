@@ -1,5 +1,5 @@
-import { PhysicsTransform, RigidBody, Velocity } from "../physics/body.ts";
-import { Collider, createBoxCollider, createCapsuleCollider, createSphereCollider } from "../physics/collider.ts";
+import { PhysicsTransform, RigidBody, Velocity } from "../physics/body";
+import { Collider, createBoxCollider, createCapsuleCollider, createSphereCollider } from "../physics/collider";
 
 describe("RigidBody Component", () => {
   it("should register with name PhysicsRigidBody", () => {

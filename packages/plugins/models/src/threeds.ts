@@ -1,4 +1,4 @@
-import type { MaterialData, MeshData, ModelData } from "./types.ts";
+import type { MaterialData, MeshData, ModelData } from "./types";
 
 // 3DS chunk IDs
 const CHUNK_MAIN = 0x4d4d;

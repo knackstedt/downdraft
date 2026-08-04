@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
-import { FrameGraph, FrameGraphBuilder, PassType, TextureHandle } from "./frame-graph.ts";
-import { RenderPass } from "./render-pass.ts";
+import { FrameGraph, FrameGraphBuilder, PassType, TextureHandle } from "./frame-graph";
+import { RenderPass } from "./render-pass";
 
 // Minimal mock pass for testing — no GPU needed
 class MockPass extends RenderPass {

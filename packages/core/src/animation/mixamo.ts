@@ -1,6 +1,6 @@
-import type { SkeletonData, Bone } from "./skeleton.ts";
-import type { AnimationClipData, KeyframeTrack } from "./clip.ts";
-import { buildRetargetMapping, retargetClip, type RetargetMapping } from "./retarget.ts";
+import type { SkeletonData, Bone } from "./skeleton";
+import type { AnimationClipData, KeyframeTrack } from "./clip";
+import { buildRetargetMapping, retargetClip, type RetargetMapping } from "./retarget";
 
 const MIXAMO_PREFIX = "mixamorig:";
 

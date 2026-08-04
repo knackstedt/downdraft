@@ -3,10 +3,10 @@
 // ============================================================================
 
 import { screen, type WebContents } from "electron";
-import type { AtlasLayout, OSRRendererConfig, OSRRendererEvent } from "../types.ts";
-import { OSRAtlasRenderer } from "./osr-atlas-renderer.ts";
-import { OSRDedicatedRenderer } from "./osr-dedicated-renderer.ts";
-import { OSRRenderer, type RendererEventCallback } from "./osr-renderer.ts";
+import type { AtlasLayout, OSRRendererConfig, OSRRendererEvent } from "../types";
+import { OSRAtlasRenderer } from "./osr-atlas-renderer";
+import { OSRDedicatedRenderer } from "./osr-dedicated-renderer";
+import { OSRRenderer, type RendererEventCallback } from "./osr-renderer";
 
 export class OSRRendererManager {
   private renderers = new Map<string, OSRRenderer>();

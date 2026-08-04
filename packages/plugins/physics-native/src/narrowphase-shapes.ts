@@ -5,8 +5,8 @@
 // to B. All positions are world-space centers.
 // ============================================================================
 
-import type { Vec3 } from "./types.ts";
-import type { ContactManifoldLocal, ContactPoint } from "./narrowphase.ts";
+import type { Vec3 } from "./types";
+import type { ContactManifoldLocal, ContactPoint } from "./narrowphase";
 
 // --- Math helpers ---
 

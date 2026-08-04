@@ -1,6 +1,6 @@
-import { SchemaRegistry } from "./schema.ts";
-import { Serializer, type SaveData } from "./serializer.ts";
-import type { World } from "../ecs/world.ts";
+import { SchemaRegistry } from "./schema";
+import { Serializer, type SaveData } from "./serializer";
+import type { World } from "../ecs/world";
 import { promises as fs } from "node:fs";
 
 export class SaveSystem {

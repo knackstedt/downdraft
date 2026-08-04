@@ -1,4 +1,4 @@
-import { RenderGraph, type RenderPassDescriptor, type RenderResource } from "./render-graph.ts";
+import { RenderGraph, type RenderPassDescriptor, type RenderResource } from "./render-graph";
 
 describe("RenderGraph", () => {
   it("should add passes", () => {

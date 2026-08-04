@@ -2,8 +2,8 @@
 // OSR Texture Receiver Manager — Manages multiple OSRTextureReceiver instances
 // ============================================================================
 
-import type { OSRSharedTexturePixelFormat } from "../types.ts";
-import { OSRTextureReceiver } from "./texture-receiver.ts";
+import type { OSRSharedTexturePixelFormat } from "../types";
+import { OSRTextureReceiver } from "./texture-receiver";
 
 export class OSRTextureReceiverManager {
   private device: GPUDevice;

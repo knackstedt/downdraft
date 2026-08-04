@@ -1,5 +1,5 @@
-import type { NavMesh } from "./navmesh.ts";
-import type { Vec3 } from "./types.ts";
+import type { NavMesh } from "./navmesh";
+import type { Vec3 } from "./types";
 
 export interface DebugLine {
   start: Vec3;

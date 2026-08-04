@@ -1,7 +1,7 @@
-import type { ComponentId } from "../ecs/component.ts";
-import { entityEqual, isAlive, type Entity } from "../ecs/entity.ts";
-import type { World } from "../ecs/world.ts";
-import { createLogger } from "../util/logger.ts";
+import type { ComponentId } from "../ecs/component";
+import { entityEqual, isAlive, type Entity } from "../ecs/entity";
+import type { World } from "../ecs/world";
+import { createLogger } from "../util/logger";
 
 const log = createLogger();
 

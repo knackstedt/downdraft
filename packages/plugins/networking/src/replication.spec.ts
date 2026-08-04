@@ -1,5 +1,5 @@
-import { ReplicationManager, type ReplicatedField } from "./replication.ts";
-import { MockTransport } from "./transport.ts";
+import { ReplicationManager, type ReplicatedField } from "./replication";
+import { MockTransport } from "./transport";
 
 async function makeLinkedPair(): Promise<{ server: MockTransport; client: MockTransport }> {
   const server = new MockTransport();

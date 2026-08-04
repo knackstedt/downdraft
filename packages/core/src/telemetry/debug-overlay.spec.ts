@@ -1,5 +1,5 @@
-import { TelemetryCollector } from "./collector.ts";
-import { DebugOverlay, DEFAULT_DEBUG_OVERLAY_CONFIG } from "./debug-overlay.ts";
+import { TelemetryCollector } from "./collector";
+import { DebugOverlay, DEFAULT_DEBUG_OVERLAY_CONFIG } from "./debug-overlay";
 
 describe("DebugOverlay", () => {
   it("should be hidden by default", () => {

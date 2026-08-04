@@ -1,5 +1,5 @@
-import type { ExtractMeshOptions } from "./generator.ts";
-import type { ExtractedMesh, VoxelField } from "./types.ts";
+import type { ExtractMeshOptions } from "./generator";
+import type { ExtractedMesh, VoxelField } from "./types";
 
 const CORNER_OFFSET = [
   [0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1],

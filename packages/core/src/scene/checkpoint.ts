@@ -1,5 +1,5 @@
-import type { Entity } from "../ecs/entity.ts";
-import type { World } from "../ecs/world.ts";
+import type { Entity } from "../ecs/entity";
+import type { World } from "../ecs/world";
 
 export interface CheckpointData {
   name: string;

@@ -1,4 +1,4 @@
-import { computeDecalProjectionMatrix, computeDecalViewMatrix, createDecalMesh, type DecalProjector } from "./decal-mesh.ts";
+import { computeDecalProjectionMatrix, computeDecalViewMatrix, createDecalMesh, type DecalProjector } from "./decal-mesh";
 
 describe("DecalMesh", () => {
   const defaultProjector: DecalProjector = {

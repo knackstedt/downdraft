@@ -1,9 +1,9 @@
-import { query } from "../ecs/query.ts";
-import { World } from "../ecs/world.ts";
-import type { CharacterControllerData } from "./character.ts";
-import { CharacterController, CharacterControllerSystem } from "./character.ts";
-import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, JointDesc, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface.ts";
-import { PhysicsRealm } from "./realm.ts";
+import { query } from "../ecs/query";
+import { World } from "../ecs/world";
+import type { CharacterControllerData } from "./character";
+import { CharacterController, CharacterControllerSystem } from "./character";
+import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, JointDesc, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface";
+import { PhysicsRealm } from "./realm";
 
 function makeMockBackend(): PhysicsBackend {
   const realms = new Map<number, PhysicsRealmConfig>();

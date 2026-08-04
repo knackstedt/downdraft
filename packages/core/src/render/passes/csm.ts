@@ -1,8 +1,8 @@
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
-import type { MeshData } from "../../mesh/builder.ts";
-import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
-import { TrackedRenderPass } from "../tracked-render-pass.ts";
+import type { MeshData } from "../../mesh/builder";
+import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
+import { TrackedRenderPass } from "../tracked-render-pass";
 
 export interface CSMSettings {
   cascadeCount: number;

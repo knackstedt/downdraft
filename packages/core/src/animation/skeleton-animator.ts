@@ -4,12 +4,12 @@
 // Uses AnimationPlayer internally for blending (bone masks, additive, root motion).
 // ============================================================================
 
-import type { AnimationEvent } from "./animation-event.ts";
-import type { KeyframeTrack, TrackPath } from "./clip.ts";
-import { AnimationClip } from "./clip.ts";
-import { AnimationPlayer } from "./player.ts";
-import type { Bone, SkeletonData } from "./skeleton.ts";
-import { Skeleton } from "./skeleton.ts";
+import type { AnimationEvent } from "./animation-event";
+import type { KeyframeTrack, TrackPath } from "./clip";
+import { AnimationClip } from "./clip";
+import { AnimationPlayer } from "./player";
+import type { Bone, SkeletonData } from "./skeleton";
+import { Skeleton } from "./skeleton";
 
 export interface AnimationChannel {
   targetNode: string;
@@ -323,7 +323,7 @@ export class SkeletonAnimator {
       if (boneIdx === undefined) continue;
 
       const path: TrackPath = ch.path === "translation" ? "position" : ch.path === "rotation" ? "rotation" : "scale";
-      const interpolation = ch.interpolation === "LINEAR" ? "linear" : ch.interpolation === "STEP" ? "step" : "cubic";
+      const interpolation = ch.interpolation === "LINEAR" ? "linear" : ch.interpolation === "STEP" ? "step" : "cubicspline";
       const times = ch.keyframeTimes;
       const srcValues = ch.keyframeValues;
 

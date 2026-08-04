@@ -1,5 +1,5 @@
-import { MCPServer } from "../src/server.ts";
-import type { MCPToolResult } from "../src/types.ts";
+import { MCPServer } from "../src/server";
+import type { MCPToolResult } from "../src/types";
 
 function parseJSON(result: MCPToolResult): Record<string, unknown> {
   const text = result.content[0]?.type === "text" ? result.content[0].text : "{}";

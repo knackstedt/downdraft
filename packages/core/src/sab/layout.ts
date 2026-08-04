@@ -1,4 +1,4 @@
-import { alignUp, typeSize, ValidationError } from "./errors.ts";
+import { alignUp, typeSize, ValidationError } from "./errors";
 import type {
     ChannelDef,
     ChannelLayout,
@@ -11,7 +11,7 @@ import type {
     HeaderLayout,
     SlotSectionDef,
     SlotSectionLayout
-} from "./types.ts";
+} from "./types";
 
 const HEADER_MAGIC_INDEX = 0;
 const HEADER_VERSION_INDEX = 1;

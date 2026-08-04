@@ -1,5 +1,5 @@
-import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph.ts";
-import { RenderPass } from "../render-pass.ts";
+import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
+import { RenderPass } from "../render-pass";
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {

@@ -1,10 +1,10 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { GraphRenderContext } from "../render/frame-graph.ts";
-import { ParticleComputePass } from "./compute-pass.ts";
-import type { ParticleEmitterData } from "./emitter.ts";
-import type { ParticleGPUData } from "./particle-data.ts";
-import { ParticleRenderPass } from "./render-pass.ts";
-import { ParticleSimulator } from "./simulator.ts";
+import type { GraphRenderContext } from "../render/frame-graph";
+import { ParticleComputePass } from "./compute-pass";
+import type { ParticleEmitterData } from "./emitter";
+import type { ParticleGPUData } from "./particle-data";
+import { ParticleRenderPass } from "./render-pass";
+import { ParticleSimulator } from "./simulator";
 
 export interface ParticleSystemConfig {
   maxParticlesPerEmitter: number;
@@ -38,6 +38,14 @@ export class ParticleSystem {
   constructor(config: Partial<ParticleSystemConfig> = {}) {
     this.config = { ...DEFAULT_PARTICLE_CONFIG, ...config };
     this.simulator = new ParticleSimulator({
+      maxParticles: this.config.maxParticlesPerEmitter,
+      shape: "point",
+      rate: 0,
+      lifetime: 1,
+      speed: 1,
+      size: 1,
+      color: [1, 1, 1, 1],
+    } as any, {
       maxParticlesPerEmitter: this.config.maxParticlesPerEmitter,
     });
   }
@@ -68,7 +76,7 @@ export class ParticleSystem {
       compute.destroy();
       this.computePasses.delete(id);
     }
-    this.simulator.dispose(id);
+    this.simulator.dispose();
   }
 
   updateEmitter(id: number, data: Partial<ParticleEmitterData>): void {

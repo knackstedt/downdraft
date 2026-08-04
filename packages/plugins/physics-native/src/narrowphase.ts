@@ -6,8 +6,8 @@
 // shapes. Returns null for non-colliding pairs.
 // ============================================================================
 
-import type { ColliderShape } from "@downdraft/core/physics/interface.ts";
-import type { Vec3 } from "./types.ts";
+import type { ColliderShape } from "@downdraft/core/physics/interface";
+import type { Vec3 } from "./types";
 import {
   boxBoxContact,
   sphereSphereContact,
@@ -15,7 +15,7 @@ import {
   capsuleBoxContact,
   capsuleSphereContact,
   capsuleCapsuleContact,
-} from "./narrowphase-shapes.ts";
+} from "./narrowphase-shapes";
 
 export interface ContactPoint {
   point: Vec3;

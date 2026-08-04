@@ -1,8 +1,8 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { GreasedLineData } from "../../mesh/greased-line.ts";
-import { RenderPass } from "../render-pass.ts";
-import type { FrameGraphBuilder, GraphRenderContext } from "../frame-graph.ts";
-import type { TextureHandle } from "../frame-graph.ts";
+import type { GreasedLineData } from "../../mesh/greased-line";
+import { RenderPass } from "../render-pass";
+import type { FrameGraphBuilder, GraphRenderContext } from "../frame-graph";
+import type { TextureHandle } from "../frame-graph";
 
 const GREASED_LINE_SHADER = `
 struct CameraUniforms {

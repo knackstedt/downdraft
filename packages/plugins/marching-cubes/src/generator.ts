@@ -1,6 +1,25 @@
-import { EDGE_VERTS, MC_EDGE_TABLE, MC_TRI_TABLE } from "./tables.ts";
+import { EDGE_VERTS, MC_EDGE_TABLE, MC_TRI_TABLE } from "./tables";
 
 export type DensityField = (x: number, y: number, z: number) => number;
+
+export interface VoxelField {
+  data: Float32Array;
+  dimX: number;
+  dimY: number;
+  dimZ: number;
+  voxelSize: number;
+  isoLevel: number;
+  originX: number;
+  originY: number;
+  originZ: number;
+  radius: number;
+}
+
+export interface ExtractedMesh {
+  verts: Float32Array;
+  indices: Uint16Array | Uint32Array;
+  useUint32: boolean;
+}
 
 export interface MCVertex {
   position: [number, number, number];

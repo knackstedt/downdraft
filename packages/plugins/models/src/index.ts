@@ -6,35 +6,35 @@
 //
 
 import type { Plugin, PluginContext } from "@downdraft/core";
-import { parseDAE } from "./dae.ts";
-import { parseFBX } from "./fbx.ts";
-import { parseGLTF } from "./gltf.ts";
-import { parseOBJ } from "./obj.ts";
-import { parsePLY } from "./ply.ts";
-import { parseSTL } from "./stl.ts";
-import { parse3DS } from "./threeds.ts";
-import { detectFormat } from "./types.ts";
+import { parseDAE } from "./dae";
+import { parseFBX } from "./fbx";
+import { parseGLTF } from "./gltf";
+import { parseOBJ } from "./obj";
+import { parsePLY } from "./ply";
+import { parseSTL } from "./stl";
+import { parse3DS } from "./threeds";
+import { detectFormat } from "./types";
 
-export { parseDAE } from "./dae.ts";
-export { parseFBX } from "./fbx.ts";
-export { getSupportedExtensions, isExtensionSupported, parseAnimationEvents, parseMorphTargets, processMaterialExtensions, processMeshPrimitiveExtensions } from "./gltf-extensions.ts";
-export { parseGLTF } from "./gltf.ts";
-export { parseOBJ } from "./obj.ts";
-export { parsePLY } from "./ply.ts";
-export { parseSTL } from "./stl.ts";
-export { parse3DS } from "./threeds.ts";
-export { detectFormat } from "./types.ts";
+export { parseDAE } from "./dae";
+export { parseFBX } from "./fbx";
+export { getSupportedExtensions, isExtensionSupported, parseAnimationEvents, parseMorphTargets, processMaterialExtensions, processMeshPrimitiveExtensions } from "./gltf-extensions";
+export { parseGLTF } from "./gltf";
+export { parseOBJ } from "./obj";
+export { parsePLY } from "./ply";
+export { parseSTL } from "./stl";
+export { parse3DS } from "./threeds";
+export { detectFormat } from "./types";
 export type {
     AnimationChannel, AnimationData, AnimationEvent, BoneData, MaterialData, MeshData, ModelData,
     ModelFormat, ModelNode, MorphTargetData,
     SkinData
-} from "./types.ts";
+} from "./types";
 
-export { loadModel } from "./loader.ts";
+export { loadModel } from "./loader";
 
-export type { ModelLoaderOptions } from "./loader.ts";
+export type { ModelLoaderOptions } from "./loader";
 
-import { createModelAsyncLoader, loadModel, registerModelLoaders } from "./loader.ts";
+import { createModelAsyncLoader, loadModel, registerModelLoaders } from "./loader";
 
 export { createModelAsyncLoader, registerModelLoaders };
 

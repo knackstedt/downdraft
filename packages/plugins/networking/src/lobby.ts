@@ -1,4 +1,4 @@
-import type { PlatformAdapter, PlatformLobbyData, PlatformPlayerInfo } from "./platform-adapter.ts";
+import type { PlatformAdapter, PlatformLobbyData, PlatformPlayerInfo } from "./platform-adapter";
 
 export type LobbyState = "idle" | "creating" | "waiting" | "joining" | "active" | "closed";
 
