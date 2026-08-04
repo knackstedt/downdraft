@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 export interface AssetEntry {
   name: string;
@@ -58,36 +58,20 @@ export const AssetBrowser: React.FC<AssetBrowserProps> = ({
   useEffect(() => {
     if (initialAssets !== undefined) {
       setAssets(initialAssets);
-    } else if (window.downdraft?.rpc) {
-      window.downdraft.rpc.call("getAssets").then((data) => {
-        if (Array.isArray(data)) {
-          setAssets(data as AssetEntry[]);
-        }
-      }).catch(() => {});
     }
   }, [initialAssets]);
 
   const handleRefresh = useCallback(() => {
     if (onRefresh) {
       onRefresh();
-    } else if (window.downdraft?.rpc) {
-      window.downdraft.rpc.call("getAssets").then((data) => {
-        if (Array.isArray(data)) {
-          setAssets(data as AssetEntry[]);
-        }
-      }).catch(() => {});
     }
   }, [onRefresh]);
 
   const handleImport = useCallback(() => {
     if (onImport) {
       onImport("");
-    } else if (window.downdraft?.rpc) {
-      window.downdraft.rpc.call("importAsset").then(() => {
-        handleRefresh();
-      }).catch(() => {});
     }
-  }, [onImport, handleRefresh]);
+  }, [onImport]);
 
   const handleSelect = useCallback((asset: AssetEntry) => {
     setSelected(asset.name);

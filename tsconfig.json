@@ -12,7 +12,6 @@
     "paths": {
       "@shared/*": ["games/to-the-ocean/src/shared/*", "packages/app/src/shared/*"],
       "@main/*": ["packages/app/src/main/*"],
-      "@renderer/*": ["packages/app/src/renderer/*"],
       "@sim/*": ["games/to-the-ocean/src/simulation/*"],
       "@downdraft/core/*": ["packages/core/src/*"],
       "@downdraft/core": ["packages/core/src/index.ts"],
