@@ -3,14 +3,19 @@ import {
   Component,
   createLogger,
   MeshBuilder,
-  system,
+  Query,
+  Stage,
+  systemWithParams,
+  q,
+  resourceToken,
   World,
 } from "@downdraft/core";
 
 const log = createLogger();
 
+// --- Components ---
+
 interface TransformData {
-  [key: string]: unknown;
   position: [number, number, number];
   rotation: [number, number, number];
   scale: number;
@@ -23,7 +28,6 @@ const Transform = Component.register<TransformData>("Transform", {
 });
 
 interface RenderableData {
-  [key: string]: unknown;
   mesh: string;
   color: [number, number, number];
 }
@@ -33,17 +37,24 @@ const Renderable = Component.register<RenderableData>("Renderable", {
   color: [1, 1, 1],
 });
 
+// --- Typed resource tokens ---
+
+const CameraResource = resourceToken<Camera>("camera");
+
+// --- Queries ---
+
+const rotateQuery = new Query([Transform.id, Renderable.id]);
+
 let world: World;
-let camera: Camera;
-let frameCount = 0;
 
 export function init(ctx: any) {
   world = new World();
-  camera = new Camera();
+
+  const camera = new Camera();
   camera.setAspect(16, 9);
   camera.distance = 10;
   camera.orbit(0, 0.4);
-  world.setResource("camera", camera);
+  world.setResourceTyped(CameraResource, camera);
 
   const cubeMesh = MeshBuilder.cube(1);
   world.setResource("cubeMesh", cubeMesh);
@@ -51,47 +62,52 @@ export function init(ctx: any) {
   const sphereMesh = MeshBuilder.sphere(0.5, 16, 16);
   world.setResource("sphereMesh", sphereMesh);
 
-  const ground = world.spawn();
-  world.addComponent(ground, Transform.create({
-    position: [0, -0.5, 0],
-    rotation: [0, 0, 0],
-    scale: 10,
-  }));
-  world.addComponent(ground, Renderable.create({
-    mesh: "cube",
-    color: [0.3, 0.5, 0.3],
-  }));
+  // Spawn ground entity — world.spawn requires a Map<ComponentId, unknown>
+  world.spawn(new Map([
+    [Transform.id, Transform.create({
+      position: [0, -0.5, 0],
+      scale: 10,
+    })],
+    [Renderable.id, Renderable.create({
+      mesh: "cube",
+      color: [0.3, 0.5, 0.3],
+    })],
+  ]));
 
+  // Spawn rotating entities
   for (let i = 0; i < 5; i++) {
-    const ent = world.spawn();
-    world.addComponent(ent, Transform.create({
-      position: [(i - 2) * 2, 0.5, 0],
-      rotation: [0, 0, 0],
-      scale: 1,
-    }));
-    world.addComponent(ent, Renderable.create({
-      mesh: i % 2 === 0 ? "cube" : "sphere",
-      color: [Math.random(), Math.random(), Math.random()],
-    }));
+    world.spawn(new Map([
+      [Transform.id, Transform.create({
+        position: [(i - 2) * 2, 0.5, 0],
+      })],
+      [Renderable.id, Renderable.create({
+        mesh: i % 2 === 0 ? "cube" : "sphere",
+        color: [Math.random(), Math.random(), Math.random()],
+      })],
+    ]));
   }
+
+  // Register system using systemWithParams for typed dependency injection
+  const rotateSystem = systemWithParams(
+    "rotate-entities",
+    Stage.Update,
+    [q(Transform, Renderable)],
+    (ctx, entities) => {
+      entities.iterate(ctx.tick, (_entity, comps) => {
+        const transform = comps[0] as TransformData;
+        const [rx, ry, rz] = transform.rotation;
+        transform.rotation = [rx, ry + ctx.dt * 0.5, rz];
+      });
+    },
+  );
+
+  world.schedule.addSystem(rotateSystem);
 
   log.info("full demo initialized — 5 entities on a ground plane");
 }
 
 export function tick(ctx: any, dt: number) {
-  frameCount++;
-
-  system("rotate-entities", (w: World, _dt: number) => {
-    const view = w.view([Transform, Renderable]);
-    for (let i = 0; i < view.length; i++) {
-      const ent = view[i];
-      const transform = w.getComponent(ent, Transform);
-      if (transform) {
-        const [rx, ry, rz] = transform.data.rotation as [number, number, number];
-        transform.data.rotation = [rx, ry + _dt * 0.5, rz];
-      }
-    }
-  })(world, dt);
+  world.step(dt);
 }
 
 export function dispose(ctx: any) {

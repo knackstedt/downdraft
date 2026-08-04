@@ -3,6 +3,7 @@
 <%~ include("_shared/partials/package-json-fields", it) %>
   "dependencies": {
     "@downdraft/core": "workspace:*",
+    "@downdraft/hmr": "workspace:*",
     "@downdraft/plugin-water": "workspace:*",
     "@downdraft/plugin-physics-rapier": "workspace:*",
     "@downdraft/plugin-marching-cubes": "workspace:*",

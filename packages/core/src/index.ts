@@ -8,11 +8,15 @@ export type { Entity, EntityMeta } from "./ecs/entity";
 export { createEventChannel, EventBus } from "./ecs/events";
 export type { EventChannel } from "./ecs/events";
 export { Hierarchy } from "./ecs/hierarchy";
-export { Query, query, queryChanged, queryExcluded } from "./ecs/query";
+export { Query, query, queryChanged, queryExcluded, queryFromDefs } from "./ecs/query";
 export type { QueryDescriptor } from "./ecs/query";
+export { resourceToken } from "./ecs/resource";
+export type { ResourceToken } from "./ecs/resource";
 export { Schedule } from "./ecs/schedule";
 export { Stage, system } from "./ecs/system";
 export type { System, SystemContext, SystemFn } from "./ecs/system";
+export { q, res, systemWithParams } from "./ecs/system-params";
+export type { ParamSystemFn, QueryParam, Res, ResolvedParam, ResParam, SystemParam } from "./ecs/system-params";
 export { World } from "./ecs/world";
 
 // Job System
@@ -233,13 +237,15 @@ export { BlendMode, CullMode, Material, MaterialType } from "./material/material
 export type { MaterialDefinition, MaterialTexture, MaterialUniform } from "./material/material";
 
 // Scene
+export { batch, builderToPrefab, c, spawn, spawnChild } from "./scene/builder";
+export type { ComponentSpec } from "./scene/builder";
 export { Camera } from "./scene/camera";
 export { CheckpointManager } from "./scene/checkpoint";
 export type { CheckpointData } from "./scene/checkpoint";
 export { GameLoop } from "./scene/game-loop";
 export type { GameLoopConfig, GameLoopStats, RenderCallback } from "./scene/game-loop";
 export { RenderLayer } from "./scene/layer";
-export { PrefabFactory, PrefabRegistry } from "./scene/prefab";
+export { createPrefabFromComponentDefs, PrefabFactory, PrefabRegistry } from "./scene/prefab";
 export type { Prefab, PrefabChildEntry, PrefabComponentEntry } from "./scene/prefab";
 export { Scene } from "./scene/scene";
 export type { SceneSetup, SceneState, SceneTeardown, SerializedScene } from "./scene/scene";

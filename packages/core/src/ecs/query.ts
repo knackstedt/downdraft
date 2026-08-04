@@ -105,3 +105,9 @@ export function queryChanged(
 ): Query {
   return new Query(required, [], changedComponent);
 }
+
+export function queryFromDefs(
+  ...defs: ComponentDefinition<Record<string, unknown>>[]
+): Query {
+  return new Query(defs.map((d) => d.id));
+}
