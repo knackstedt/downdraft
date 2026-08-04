@@ -14,6 +14,8 @@ import { SimToMainMessage } from "@shared/types";
 import { WaterBufferWriter } from "@shared/water-buffer";
 import { Simulation } from "@sim/simulation";
 
+(globalThis as any).__ddThreadTag = "R1";
+
 let simulation: Simulation | null = null;
 let stateHelper: SimStateHelper | null = null;
 let gcHandle: GCProfilerHandle | null = null;

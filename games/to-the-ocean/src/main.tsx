@@ -27,6 +27,8 @@ import { simBridge } from "./sim-bridge";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
+(globalThis as any).__ddThreadTag = "R0";
+
 async function bootstrap() {
   const downdraft = (window as any).downdraft;
 

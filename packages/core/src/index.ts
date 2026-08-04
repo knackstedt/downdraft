@@ -499,7 +499,7 @@ export { DebugVizPass, DEFAULT_DEBUG_VIZ_SETTINGS } from "./render/passes/debug-
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz";
 
 // Logging
-export { ConsoleLogger, createLogger } from "./util/logger";
+export { ConsoleLogger, createLogger, setThreadTag } from "./util/logger";
 export type { Logger } from "./util/logger";
 
 // Math

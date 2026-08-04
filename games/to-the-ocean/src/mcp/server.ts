@@ -9,6 +9,7 @@ import { ENT, SimBufferReader } from "../shared/sim-buffer";
 import { EntityType, PortSize, SecurityLevel } from "../shared/types";
 
 const log = createLogger("info");
+(globalThis as any).__ddThreadTag = "M1";
 
 interface McpRequest {
   id: number;

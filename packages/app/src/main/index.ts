@@ -14,6 +14,7 @@ import { join } from "path";
 import { IPC } from "../shared/messages";
 
 const log = createLogger("info");
+(globalThis as any).__ddThreadTag = "M0";
 const isDev = !app.isPackaged;
 
 // --- Error dialog ---
@@ -310,44 +311,74 @@ async function createWindow(): Promise<void> {
     if (message.includes("ResizeObserver loop completed with undelivered notifications")) return;
     if (message.includes("Insecure Content-Security-Policy")) return;
 
+    // Renderer's browser-fallback logger emits "HH:MM:SS LEVEL [tag/module] msg" via console.log/warn/error
+    // Extract the tag and original module, then re-log through the main process logger with the correct tag
+    const logMatch = message.match(
+      /^\d{2}:\d{2}:\d{2}\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\[([A-Z]\d+)\/([^\]]+)\]\s*(.*)$/s
+    );
+
+    let rendererTag = "R0";
+    let moduleStr: string;
+    let stripped: string;
+
+    if (logMatch) {
+      rendererTag = logMatch[1];
+      moduleStr = logMatch[2];
+      stripped = logMatch[3];
+    } else {
+      // Non-logger console messages (React warnings, etc.) — strip any partial prefix
+      stripped = message.replace(
+        /^\d{2}:\d{2}:\d{2}\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+/,
+        ""
+      );
+      moduleStr = sourceId ? `${sourceId}:${lineNumber}` : `line:${lineNumber}`;
+    }
+
     const levelMap: Record<string, "debug" | "info" | "warn" | "error"> = {
       debug: "debug", info: "info", warning: "warn", error: "error",
     };
-    const moduleStr = sourceId ? `${sourceId}:${lineNumber}` : `line:${lineNumber}`;
     const logLevel = levelMap[level] ?? "info";
+
+    // Temporarily switch thread tag to the renderer's tag
+    const savedTag = (globalThis as any).__ddThreadTag;
+    (globalThis as any).__ddThreadTag = rendererTag;
 
     // Only throttle warn/error — debug/info are typically low-volume.
     if (logLevel !== "warn" && logLevel !== "error") {
-      (log[logLevel])(moduleStr, message);
+      (log[logLevel])(moduleStr, stripped);
+      (globalThis as any).__ddThreadTag = savedTag;
       return;
     }
 
-    const isCascade = WEBGPU_CASCADE_RE.test(message);
+    const isCascade = WEBGPU_CASCADE_RE.test(stripped);
     const key = isCascade
-      ? `webgpu-cascade:${normalizeConsoleMessage(message).split("\n")[0]}`
-      : `msg:${logLevel}:${normalizeConsoleMessage(message)}`;
+      ? `webgpu-cascade:${normalizeConsoleMessage(stripped).split("\n")[0]}`
+      : `msg:${logLevel}:${normalizeConsoleMessage(stripped)}`;
     const now = Date.now();
     const state = consoleThrottle.get(key);
 
     if (!state) {
       consoleThrottle.set(key, { count: 1, lastLogged: now, suppressed: 0 });
-      (log[logLevel])(moduleStr, message);
+      (log[logLevel])(moduleStr, stripped);
+      (globalThis as any).__ddThreadTag = savedTag;
       return;
     }
     state.count++;
     const elapsed = now - state.lastLogged;
     if (elapsed < CONSOLE_THROTTLE_MS) {
       state.suppressed++;
+      (globalThis as any).__ddThreadTag = savedTag;
       return;
     }
     // Window elapsed — emit summary and reset.
     const suppressed = state.suppressed + 1;
     const summary = isCascade
-      ? `${message.split("\n")[0]} (repeated ${suppressed}× in ${elapsed}ms, full cascade suppressed)`
-      : `${message} (repeated ${suppressed}× in ${elapsed}ms)`;
+      ? `${stripped.split("\n")[0]} (repeated ${suppressed}× in ${elapsed}ms, full cascade suppressed)`
+      : `${stripped} (repeated ${suppressed}× in ${elapsed}ms)`;
     (log[logLevel])(moduleStr, summary);
     state.lastLogged = now;
     state.suppressed = 0;
+    (globalThis as any).__ddThreadTag = savedTag;
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
