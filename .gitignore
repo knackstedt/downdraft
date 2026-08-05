@@ -3,7 +3,7 @@ packages/*/node_modules
 build
 
 # Electron build output
-out
+dist
 release
 
 # Devin MCP local overrides (personal API keys)

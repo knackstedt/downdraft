@@ -14,6 +14,7 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence"] })],
     build: {
+      outDir: "dist/main",
       sourcemap: "hidden",
       rollupOptions: {
         input: {
@@ -58,6 +59,7 @@ export default defineConfig({
       },
     ],
     build: {
+      outDir: "dist/preload",
       sourcemap: "hidden",
       rollupOptions: {
         input: {
@@ -131,6 +133,7 @@ export default defineConfig({
       ],
     },
     build: {
+      outDir: "dist/renderer",
       sourcemap: "hidden",
       rollupOptions: {
         input: {

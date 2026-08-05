@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "AI-Driven Game Engine on Electron + WebGPU",
   "type": "module",
-  "main": "./out/main/index.js",
+  "main": "./dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -55,7 +55,7 @@
       "output": "release"
     },
     "files": [
-      "out/**/*",
+      "dist/**/*",
       "resources/**/*"
     ],
     "linux": {

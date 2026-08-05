@@ -41,7 +41,7 @@
     "@downdraft/plugin-boats/*": ["packages/plugins/boats/src/*"]
     }
   },
-  "exclude": ["out", "release", "dist", "node_modules"],
+  "exclude": ["dist", "release", "node_modules"],
   "references": [
     { "path": "./tsconfig.node.json" },
     { "path": "./tsconfig.web.json" }
