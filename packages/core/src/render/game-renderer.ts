@@ -218,7 +218,7 @@ export class GameRenderer implements CanvasResizeHandler {
       this.context = this.canvas.getContext("webgpu")!;
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
-      this.gpuProfiler.init(this.device, adapterInfo, this.format, 16);
+      this.gpuProfiler.init(this.device, adapterInfo, this.format, 32);
       console.log("[GameRenderer] GPU timer pool supported:", this.gpuProfiler.isGpuTimerSupported(),
         "features:", Array.from(this.device.features));
 
@@ -514,7 +514,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
     // Submit all command buffers for this frame in a single queue.submit() call
     if (frameCommandBuffers.length > 0) {
-      this.device.queue.submit(frameCommandBuffers);
+      this.device!.queue.submit(frameCommandBuffers);
     }
 
     // Record telemetry

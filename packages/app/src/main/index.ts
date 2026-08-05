@@ -8,10 +8,13 @@ import { McpHttpTransport, type McpProxyHandler } from "@downdraft/mcp/http-tran
 import { InputForwarder, OSRRendererManager } from "@downdraft/plugin-electron-osr/main-entry";
 import { FileSaveStore } from "@downdraft/plugin-persistence";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { promisify } from "node:util";
 import { join } from "path";
 import { IPC } from "../shared/messages";
+
+const execFileAsync = promisify(execFile);
 
 const log = createLogger("info");
 (globalThis as any).__ddThreadTag = "M0";
@@ -21,6 +24,10 @@ const isDev = !app.isPackaged;
 
 let errorDialogOpen = false;
 let exitOnDialogClose = false;
+
+// --- GPU info cache ---
+let cachedGpuInfo: { data: unknown; ts: number } | null = null;
+const GPU_INFO_CACHE_MS = 1000;
 
 function showErrorDialog(title: string, detail: string): void {
   if (errorDialogOpen) return;
@@ -610,15 +617,20 @@ function registerIpcHandlers(): void {
   // --- GPU System Info (nvidia-smi) ---
 
   ipcMain.handle(IPC.GPU_SYSTEM_INFO, async () => {
+    const now = Date.now();
+    if (cachedGpuInfo && now - cachedGpuInfo.ts < GPU_INFO_CACHE_MS) {
+      return cachedGpuInfo.data;
+    }
+
     try {
       const gpuQuery = "utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.sm,clocks.mem,name,driver_version";
-      const output = execSync(
-        `nvidia-smi --query-gpu=${gpuQuery} --format=csv,noheader,nounits`,
-        { timeout: 3000, encoding: "utf-8" },
-      ).trim();
+      const { stdout: output } = await execFileAsync("nvidia-smi", [
+        "--query-gpu", gpuQuery,
+        "--format", "csv,noheader,nounits",
+      ], { timeout: 3000, encoding: "utf-8" });
 
       const labels = gpuQuery.split(",").map(l => l.replace(/\./g, "_"));
-      const gpus = output.split("\n").map((line: string) => {
+      const gpus = (output as string).trim().split("\n").map((line: string) => {
         const vals = line.trim().split(",").map((v: string) => v.trim());
         const obj: Record<string, unknown> = {};
         for (let i = 0; i < labels.length && i < vals.length; i++) {
@@ -630,12 +642,13 @@ function registerIpcHandlers(): void {
 
       let processes: Array<Record<string, unknown>> = [];
       try {
-        const procOutput = execSync(
-          "nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits",
-          { timeout: 3000, encoding: "utf-8" },
-        ).trim();
-        if (procOutput) {
-          processes = procOutput.split("\n").map((line: string) => {
+        const { stdout: procOutput } = await execFileAsync("nvidia-smi", [
+          "--query-compute-apps", "pid,process_name,used_memory",
+          "--format", "csv,noheader,nounits",
+        ], { timeout: 3000, encoding: "utf-8" });
+        const procStr = (procOutput as string).trim();
+        if (procStr) {
+          processes = procStr.split("\n").map((line: string) => {
             const vals = line.trim().split(",").map((v: string) => v.trim());
             return {
               pid: parseInt(vals[0]) || 0,
@@ -648,7 +661,9 @@ function registerIpcHandlers(): void {
         // nvidia-smi process query not available
       }
 
-      return { gpus, processes, source: "nvidia-smi", timestamp: Date.now() };
+      const data = { gpus, processes, source: "nvidia-smi", timestamp: Date.now() };
+      cachedGpuInfo = { data, ts: Date.now() };
+      return data;
     } catch {
       return null;
     }

@@ -130,6 +130,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   private pooledViewportPlayerPos = { x: 0, y: 0, z: 0 };
   private pooledFreecamPlayerPos = { x: 0, y: 0, z: 0 };
   private pooledEntPos = { x: 0, y: 0, z: 0 };
+  private pooledCullCenter = new Float32Array(3);
   private pooledEntRot = { x: 0, y: 0, z: 0, w: 1 };
   private pooledShipPos = { x: 0, y: 0, z: 0 };
   private pooledShipRot = { x: 0, y: 0, z: 0, w: 1 };
@@ -216,6 +217,10 @@ export class WebGPURenderer implements IRendererStateProvider {
         if (this.canvas.width !== w || this.canvas.height !== h) {
           this.canvas.width = w;
           this.canvas.height = h;
+          // Destroy stale depth textures so the cache doesn't leak VRAM on resize.
+          for (const entry of this.depthTextures.values()) { entry.texture.destroy(); }
+          this.depthTextures.clear();
+          this.cachedSurfaceView = null;
           this.updateViewports(this.viewportCount);
           this.accessors.updateUIScreenSize();
         }
@@ -265,7 +270,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.context = this.canvas.getContext("webgpu")!;
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
-      this.gpuProfiler.init(this.device, adapterInfo, this.format, 16);
+      this.gpuProfiler.init(this.device, adapterInfo, this.format, 32);
       console.log("[WebGPU] GPU timer pool supported:", this.gpuProfiler.isGpuTimerSupported(),
         "features:", Array.from(this.device.features));
 
@@ -690,6 +695,9 @@ export class WebGPURenderer implements IRendererStateProvider {
     }
     this.inputHandler.processInput(this.viewportCount);
     this.onInputProcessed?.();
+
+    const commandEncoder = this.device!.createCommandEncoder();
+
     if (this.particleSystem && this.simReader && this.simReader.isValid()) {
       const wt = this.simReader.getWeatherType() as WeatherType;
       if (wt === WeatherType.Rain || wt === WeatherType.Storm || wt === WeatherType.HellStorm || wt === WeatherType.Snow) {
@@ -719,44 +727,39 @@ export class WebGPURenderer implements IRendererStateProvider {
             }
           }
         }
-        if (this.device) {
-          const ce = this.device.createCommandEncoder();
-          this.particleSystem.tick(ce, dt, dc, wt, wd.x * ws, wd.z * ws, vd);
-          this.device.queue.submit([ce.finish()]);
-        }
+        this.particleSystem.tick(commandEncoder, dt, dc, wt, wd.x * ws, wd.z * ws, vd);
       }
     }
     const usePix = this.pixelationSystem?.isEnabled() ?? false;
     const usePP = this.postProcessStack?.hasEnabledEffects() ?? false;
     if (usePix && this.device) {
       this.pixelationSystem!.ensureTargets(this.canvas.width, this.canvas.height);
-      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "pixelation"); }
+      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "pixelation", commandEncoder); }
       const cv = this.context!.getCurrentTexture().createView();
-      const pe = this.device!.createCommandEncoder();
-      this.pixelationSystem!.applyPostprocess(pe, cv, this.canvas.width, this.canvas.height);
-      this.device!.queue.submit([pe.finish()]);
+      this.pixelationSystem!.applyPostprocess(commandEncoder, cv, this.canvas.width, this.canvas.height);
     } else if (usePP && this.device) {
       this.postProcessStack!.ensureTargets(this.canvas.width, this.canvas.height);
-      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "postprocess"); }
+      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "postprocess", commandEncoder); }
       const cv = this.context!.getCurrentTexture().createView();
-      const pe = this.device!.createCommandEncoder();
-      this.postProcessStack!.applyChain(pe, this.postProcessStack!.getSceneDepthView(), cv, this.canvas.width, this.canvas.height);
-      this.device!.queue.submit([pe.finish()]);
+      this.postProcessStack!.applyChain(commandEncoder, this.postProcessStack!.getSceneDepthView(), cv, this.canvas.width, this.canvas.height);
     } else {
-      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "none"); }
+      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "none", commandEncoder); }
     }
     if (this.uiRenderer && this.uiRoot && this.device && this.context) {
       if (this.accessors.uiNeedsLayout && this.uiLayoutEngine) { this.uiLayoutEngine.layout(this.uiRoot); this.accessors.uiNeedsLayout = false; }
       const ds = this.uiRoot.getDrawable();
       if (ds.length > 0) {
         const cv = this.context.getCurrentTexture().createView();
-        const ue = this.device.createCommandEncoder();
-        const up = ue.beginRenderPass({ colorAttachments: [{ view: cv, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "load" as GPULoadOp, storeOp: "store" as GPUStoreOp }] });
+        const up = commandEncoder.beginRenderPass({ colorAttachments: [{ view: cv, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "load" as GPULoadOp, storeOp: "store" as GPUStoreOp }] });
         this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(up) } as any, ds);
         up.end();
-        this.device.queue.submit([ue.finish()]);
       }
     }
+    if (this.gpuProfiler) {
+      this.gpuProfiler.resolveGpuTimers(commandEncoder);
+    }
+    this.device!.queue.submit([commandEncoder.finish()]);
+    if (this.gpuProfiler) { this.gpuProfiler.readGpuTimers().then(() => {}).catch(() => {}); }
     if (this.telemetryCollector) {
       this.telemetryCollector.recordFrame(dt * 1000);
       this.telemetryCollector.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
@@ -772,7 +775,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     requestAnimationFrame(this.render);
   }
 
-  private renderViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "pixelation" | "postprocess" = "none"): void {
+  private renderViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "pixelation" | "postprocess" = "none", encoder: GPUCommandEncoder): void {
     if (!this.simReader) return;
     if (!this.device) return;
     if (!this.simReader.isValid()) {
@@ -877,7 +880,9 @@ export class WebGPURenderer implements IRendererStateProvider {
       const isTerrain = type === EntityType.Island || type === EntityType.Port;
       if (!isTerrain) {
         const cullRadius = (type === EntityType.Ship || type === EntityType.SmallCraft || type === EntityType.PirateShip) ? 60 : scale;
-        if (!this.frustum.intersectsSphere([ePos.x, ePos.y, ePos.z], cullRadius)) continue;
+        const cc = this.pooledCullCenter;
+        cc[0] = ePos.x; cc[1] = ePos.y; cc[2] = ePos.z;
+        if (!this.frustum.intersectsSphere(cc, cullRadius)) continue;
       }
       const eRot = this.pooledEntRot;
       eRot.x = Number.isFinite(es.f32[ENT.ROT_X]) ? es.f32[ENT.ROT_X] : 0;
@@ -955,7 +960,6 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.lightingSystem!.upload([camera.position[0], camera.position[1], camera.position[2]]);
     this.entityRenderer!.uploadInstanceData();
     // --- GPU render pass ---
-    const encoder = this.device!.createCommandEncoder();
     this.entityRenderer!.dispatchSkinningCompute(encoder);
     const colorView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenColorView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.getSurfaceView();
     const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTexture(origViewport.w, origViewport.h);
@@ -1143,9 +1147,6 @@ export class WebGPURenderer implements IRendererStateProvider {
     }
 
     passEncoder.end();
-    if (viewportIdx === 0) { this.gpuProfiler!.resolveGpuTimers(encoder); }
-    this.device!.queue.submit([encoder.finish()]);
-    if (viewportIdx === 0) { this.gpuProfiler!.readGpuTimers().then(() => {}).catch(() => {}); }
     if (viewportIdx === this.viewportCount - 1) { this.entityRenderer!.cleanupStaleDecorations(); this.entityRenderer!.cleanupStaleIslandMeshes(); }
   }
 

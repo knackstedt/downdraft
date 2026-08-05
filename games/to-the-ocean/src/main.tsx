@@ -136,6 +136,15 @@ async function bootstrap() {
       case "perf_stats":
         (window as any).__perfMetrics = (window as any).__perfMetrics ?? {};
         (window as any).__perfMetrics[msg.data.process] = msg.data;
+        if (msg.data.process === "sim" && Array.isArray(msg.data.systems)) {
+          const telemetry = renderer.getTelemetryCollector();
+          if (telemetry) {
+            for (let i = 0; i < msg.data.systems.length; i++) {
+              const t = msg.data.systems[i];
+              telemetry.recordSystemTiming(t.name, t.ms);
+            }
+          }
+        }
         break;
       case "collision_log":
         useDebugStore.getState().setCollisionLog(msg.data);

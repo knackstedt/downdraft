@@ -69,6 +69,10 @@ export class GPUTimerPool {
     return this.supported;
   }
 
+  getMaxPasses(): number {
+    return this.maxPasses;
+  }
+
   begin(pass: GPURenderPassEncoder | GPUComputePassEncoder, passIdx: number): void {
     if (!this.supported || !this.querySet || passIdx >= this.maxPasses) return;
     (pass as any).writeTimestamp(this.querySet, passIdx * 2);

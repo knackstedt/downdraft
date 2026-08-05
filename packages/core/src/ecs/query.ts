@@ -1,6 +1,6 @@
 import type { Archetype } from "./archetype";
 import { archetypeMatches, getComponentColumn } from "./archetype";
-import type { ComponentId } from "./component";
+import type { ComponentDefinition, ComponentId } from "./component";
 
 export interface QueryDescriptor {
   required: ComponentId[];
@@ -27,7 +27,7 @@ export class Query {
   }
 
   updateArchetypes(allArchetypes: Archetype[]): void {
-    this.archetypes = [];
+    this.archetypes.length = 0;
     this.cachedArchetypes.clear();
     for (let i = 0; i < allArchetypes.length; i++) {
       const arch = allArchetypes[i];

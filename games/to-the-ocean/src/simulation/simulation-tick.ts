@@ -4,8 +4,8 @@ import { WeatherSystem } from "@downdraft/plugin-weather";
 import { SIM_TICK_DT } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
 import {
-  collectShoreSources,
-  type ShoreSource,
+    collectShoreSources,
+    type ShoreSource,
 } from "../shared/shore-damping";
 import { PLR_FLAG } from "../shared/sim-buffer";
 import { SimToMainMessage } from "../shared/types";
@@ -21,18 +21,18 @@ import { PlayerManager } from "./player/player-manager";
 import { ProgressionTree } from "./progression/progression-tree";
 import type { SimEntity, SimPlayer } from "./simulation";
 import {
-  broadcastShipHoldUpdate,
-  updateWaterBuffer,
-  writeToBuffer,
-  type SimulationBufferWriterAccess,
+    broadcastShipHoldUpdate,
+    updateWaterBuffer,
+    writeToBuffer,
+    type SimulationBufferWriterAccess,
 } from "./simulation-buffer-writer";
 import {
-  checkNightSkip,
-  determineCauseOfDeath,
-  getEntitySlot,
-  getPlayerCenterX,
-  getPlayerCenterZ,
-  type SimulationEntityManagerAccess,
+    checkNightSkip,
+    determineCauseOfDeath,
+    getEntitySlot,
+    getPlayerCenterX,
+    getPlayerCenterZ,
+    type SimulationEntityManagerAccess,
 } from "./simulation-entity-manager";
 import { SurvivalBiomeAdapter, SurvivalSystem } from "./survival/survival-system";
 import { TerrainSystem } from "./terrain/terrain-system";
@@ -80,11 +80,16 @@ export interface SimulationTickAccess extends SimulationBufferWriterAccess, Simu
 
 const perfSysTimes: { name: string; ms: number }[] = [];
 const perfPlayerMoveRequests: PlayerMoveRequest[] = [];
+const perfEventSystems: { name: string; ms: number }[] = [];
 
 export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT): Promise<void> {
   const tickStart = performance.now();
   sim.simTime += dt;
   sim.totalTicks++;
+
+  // Cache player center for the whole tick — many systems read it.
+  const playerX = getPlayerCenterX(sim);
+  const playerZ = getPlayerCenterZ(sim);
 
   // Update time of day
   sim.timeOfDay += dt / (sim.gameModeManager.rules.dayDuration as number);
@@ -98,13 +103,13 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   sysTimes.length = 0;
   const t0 = performance.now();
   sim.weatherSystem.tick(dt, sim.timeOfDay);
-  sim.chunkManager.updateChunks(getPlayerCenterX(sim), getPlayerCenterZ(sim));
+  sim.chunkManager.updateChunks(playerX, playerZ);
   const t1 = performance.now();
   sysTimes.push({ name: "weather+chunks", ms: t1 - t0 });
 
   // Update port entities based on newly loaded/unloaded chunks
   const nearbyPorts = sim.chunkManager.getNearbyPorts(
-    getPlayerCenterX(sim), getPlayerCenterZ(sim), 5000,
+    playerX, playerZ, 5000,
   );
   sim.portSystem.updatePorts(nearbyPorts);
 
@@ -112,7 +117,7 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   sim.islandManager.tick(
     (type: any, opts: any) => sim.spawnEntity(type, opts),
     (id: number) => sim.removeEntity(id),
-    getPlayerCenterX(sim), getPlayerCenterZ(sim),
+    playerX, playerZ,
   );
   const t2 = performance.now();
   sysTimes.push({ name: "ports+islands", ms: t2 - t1 });
@@ -206,14 +211,14 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   // Phase 3: Update LOD based on player distance
   sim.terrainSystem.updateLOD(
     sim.entities, sim.entityCount,
-    getPlayerCenterX(sim), getPlayerCenterZ(sim),
+    playerX, playerZ,
   );
   sim.terrainSystem.drainLODChanges();
 
   // Phase 4: Queue nearby chunks for proactive generation and process with time budget
   sim.terrainSystem.queueNearbyChunksForGeneration(
     sim.entities, sim.entityCount,
-    getPlayerCenterX(sim), getPlayerCenterZ(sim),
+    playerX, playerZ,
   );
   sim.terrainSystem.processPendingChunkGen();
 
@@ -311,21 +316,41 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
 
   const tickEnd = performance.now();
   if (tickEnd - tickStart > 50) {
-    const slowSys = sysTimes.filter(s => s.ms > 5).map(s => `${s.name}=${s.ms.toFixed(1)}ms`).join(" ");
+    let slowSys = "";
+    for (let i = 0; i < sysTimes.length; i++) {
+      const s = sysTimes[i];
+      if (s.ms > 5) {
+        if (slowSys) slowSys += " ";
+        slowSys += `${s.name}=${s.ms.toFixed(1)}ms`;
+      }
+    }
     console.error(`[SIM] Slow tick ${sim.totalTicks}: ${(tickEnd - tickStart).toFixed(1)}ms total, entities=${sim.entityCount} | ${slowSys}`);
   }
 
-  // Forward per-system timings to the main thread when profiling is enabled.
+  // Forward per-system timings to the main thread.
   // Throttled to every 30 ticks (~twice per second at 60fps) to avoid flooding.
-  if (sim.profile && sim.totalTicks % 30 === 0) {
+  if (sim.totalTicks % 30 === 0) {
+    perfEventSystems.length = 0;
+    for (let i = 0; i < sysTimes.length; i++) {
+      const s = sysTimes[i];
+      let ps = perfEventSystems[i];
+      if (!ps) {
+        ps = { name: s.name, ms: s.ms };
+        perfEventSystems[i] = ps;
+      } else {
+        ps.name = s.name;
+        ps.ms = s.ms;
+      }
+    }
     sim._onEvent({
       kind: "perf_stats",
       data: {
+        process: "sim",
         tick: sim.totalTicks,
         totalMs: tickEnd - tickStart,
         entityCount: sim.entityCount,
         playerCount: sim.playerCount,
-        systems: sysTimes.map(s => ({ name: s.name, ms: s.ms })),
+        systems: perfEventSystems,
       },
     });
   }

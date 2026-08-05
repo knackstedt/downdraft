@@ -10,7 +10,7 @@
     "preview": "electron-vite preview",
     "dist": "electron-builder",
     "test": "echo 'tests pending migration' && exit 0",
-    "tsc": "tsc --noEmit",
+    "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "oxlint",
     "postinstall": "node node_modules/electron/install.js"
   },
