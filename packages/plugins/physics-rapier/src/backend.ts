@@ -119,7 +119,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     realm.bodies.set(bodyId, state);
 
     if (this.lib) {
-      this.lib.createBody(realmId, bodyId, desc);
+      this.lib.createBody(realmId, bodyId, desc, entity);
     }
 
     return body;
@@ -161,6 +161,19 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     if (this.lib) {
       this.lib.removeCollider(body.realmId, body.id, colliderId);
     }
+  }
+
+  setColliderPosition(realmId: number, colliderId: number, pos: [number, number, number]): void {
+    if (this.lib && this.lib.setColliderPosition) {
+      this.lib.setColliderPosition(realmId, colliderId, pos);
+    }
+  }
+
+  getColliderPosition(realmId: number, colliderId: number): [number, number, number] {
+    if (this.lib && this.lib.getColliderPosition) {
+      return this.lib.getColliderPosition(realmId, colliderId);
+    }
+    return [0, 0, 0];
   }
 
   applyForce(body: PhysicsBody, force: [number, number, number]): void {
@@ -284,6 +297,103 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   isSleeping(body: PhysicsBody): boolean {
     const state = this.getBodyState(body);
     return state ? state.sleeping : false;
+  }
+
+  // --- Raw fast paths ---
+
+  setTranslationRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean): void {
+    const state = this.getBodyState(body);
+    if (state) {
+      state.position[0] = x; state.position[1] = y; state.position[2] = z;
+    }
+    if (this.lib && this.lib.setTranslationRaw) {
+      this.lib.setTranslationRaw(body.realmId, body.id, x, y, z, wakeUp);
+    } else if (this.lib) {
+      this.lib.setPosition(body.realmId, body.id, [x, y, z]);
+    }
+  }
+
+  setRotationRaw(body: PhysicsBody, x: number, y: number, z: number, w: number, wakeUp: boolean): void {
+    const state = this.getBodyState(body);
+    if (state) {
+      state.rotation[0] = x; state.rotation[1] = y; state.rotation[2] = z; state.rotation[3] = w;
+    }
+    if (this.lib && this.lib.setRotationRaw) {
+      this.lib.setRotationRaw(body.realmId, body.id, x, y, z, w, wakeUp);
+    } else if (this.lib) {
+      this.lib.setRotation(body.realmId, body.id, [x, y, z, w]);
+    }
+  }
+
+  getTranslationRaw(body: PhysicsBody, out: [number, number, number]): void {
+    if (this.lib && this.lib.getTranslationRaw) {
+      this.lib.getTranslationRaw(body.realmId, body.id, out);
+    } else {
+      const state = this.getBodyState(body);
+      if (state) { out[0] = state.position[0]; out[1] = state.position[1]; out[2] = state.position[2]; }
+      else { out[0] = 0; out[1] = 0; out[2] = 0; }
+    }
+  }
+
+  getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void {
+    if (this.lib && this.lib.getLinearVelocityRaw) {
+      this.lib.getLinearVelocityRaw(body.realmId, body.id, out);
+    } else {
+      const state = this.getBodyState(body);
+      if (state) { out[0] = state.linearVelocity[0]; out[1] = state.linearVelocity[1]; out[2] = state.linearVelocity[2]; }
+      else { out[0] = 0; out[1] = 0; out[2] = 0; }
+    }
+  }
+
+  setLinearVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean): void {
+    const state = this.getBodyState(body);
+    if (state) {
+      state.linearVelocity[0] = x; state.linearVelocity[1] = y; state.linearVelocity[2] = z;
+    }
+    if (this.lib && this.lib.setLinearVelocityRaw) {
+      this.lib.setLinearVelocityRaw(body.realmId, body.id, x, y, z, wakeUp);
+    } else if (this.lib) {
+      this.lib.setLinearVelocity(body.realmId, body.id, [x, y, z]);
+    }
+  }
+
+  setAngularVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean): void {
+    const state = this.getBodyState(body);
+    if (state) {
+      state.angularVelocity[0] = x; state.angularVelocity[1] = y; state.angularVelocity[2] = z;
+    }
+    if (this.lib && this.lib.setAngularVelocityRaw) {
+      this.lib.setAngularVelocityRaw(body.realmId, body.id, x, y, z, wakeUp);
+    } else if (this.lib) {
+      this.lib.setAngularVelocity(body.realmId, body.id, [x, y, z]);
+    }
+  }
+
+  isSleepingRaw(body: PhysicsBody): boolean {
+    if (this.lib && this.lib.isSleepingRaw) {
+      return this.lib.isSleepingRaw(body.realmId, body.id);
+    }
+    const state = this.getBodyState(body);
+    return state ? state.sleeping : false;
+  }
+
+  swapColliderShapeRaw(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean {
+    if (this.lib && this.lib.swapColliderShapeRaw) {
+      return this.lib.swapColliderShapeRaw(realmId, colliderId, vertices, indices);
+    }
+    return false;
+  }
+
+  reserveMemory(bytes: number): void {
+    if (this.lib && this.lib.reserveMemory) {
+      this.lib.reserveMemory(bytes);
+    }
+  }
+
+  setIntegrationDt(realmId: number, dt: number): void {
+    if (this.lib && this.lib.setIntegrationDt) {
+      this.lib.setIntegrationDt(realmId, dt);
+    }
   }
 
   setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void {
@@ -461,6 +571,12 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     return this.characterMoveFallback(handle, desiredMovement, dt);
   }
 
+  setCharacterColliderPosition(handle: CharacterControllerHandle, pos: [number, number, number]): void {
+    if (this.lib && this.lib.setCharacterColliderPosition) {
+      this.lib.setCharacterColliderPosition(handle.realmId, handle.controllerId, pos);
+    }
+  }
+
   createJoint(realmId: number, parentBody: PhysicsBody, childBody: PhysicsBody, desc: JointDesc): number {
     const realm = this.realms.get(realmId);
     if (!realm) throw new Error(`Realm ${realmId} not found`);
@@ -547,7 +663,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   private characterMoveFallback(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult {
     const realm = this.realms.get(handle.realmId);
     if (!realm) {
-      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0], collisions: [] };
     }
 
     // Find the body associated with this character controller's entity
@@ -556,7 +672,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       if (b.body.entity.index === handle.entity.index) { body = b; break; }
     }
     if (!body) {
-      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0], collisions: [] };
     }
 
     const desired = [...desiredMovement] as [number, number, number];
@@ -603,7 +719,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     body.position[1] += effective[1] * dt;
     body.position[2] += effective[2] * dt;
 
-    return { grounded, groundNormal, groundEntity, slid, stepped, effectiveMovement: effective };
+    return { grounded, groundNormal, groundEntity, slid, stepped, effectiveMovement: effective, collisions: [] };
   }
 
   private readBackTransforms(realm: RealmState): void {

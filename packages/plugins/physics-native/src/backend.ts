@@ -146,6 +146,14 @@ export class NativePhysicsBackend implements PhysicsBackend {
     b.colliders = b.colliders.filter(c => c.id !== colliderId);
   }
 
+  setColliderPosition(realmId: number, colliderId: number, pos: [number, number, number]): void {
+    // Native backend doesn't track parentless colliders separately yet
+  }
+
+  getColliderPosition(realmId: number, colliderId: number): [number, number, number] {
+    return [0, 0, 0];
+  }
+
   // --- Forces ---
 
   applyForce(body: PhysicsBody, force: [number, number, number]): void {
@@ -254,6 +262,44 @@ export class NativePhysicsBackend implements PhysicsBackend {
     const b = this.getBody(body);
     return b ? b.sleeping : false;
   }
+
+  // --- Raw fast paths (delegate to standard methods — native backend has no raw WASM) ---
+
+  setTranslationRaw(body: PhysicsBody, x: number, y: number, z: number, _wakeUp: boolean): void {
+    const b = this.getBody(body);
+    if (b) { b.position[0] = x; b.position[1] = y; b.position[2] = z; }
+  }
+  setRotationRaw(body: PhysicsBody, x: number, y: number, z: number, w: number, _wakeUp: boolean): void {
+    const b = this.getBody(body);
+    if (b) { b.rotation[0] = x; b.rotation[1] = y; b.rotation[2] = z; b.rotation[3] = w; }
+  }
+  getTranslationRaw(body: PhysicsBody, out: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (b) { out[0] = b.position[0]; out[1] = b.position[1]; out[2] = b.position[2]; }
+    else { out[0] = 0; out[1] = 0; out[2] = 0; }
+  }
+  getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (b) { out[0] = b.linearVelocity[0]; out[1] = b.linearVelocity[1]; out[2] = b.linearVelocity[2]; }
+    else { out[0] = 0; out[1] = 0; out[2] = 0; }
+  }
+  setLinearVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, _wakeUp: boolean): void {
+    const b = this.getBody(body);
+    if (b) { b.linearVelocity[0] = x; b.linearVelocity[1] = y; b.linearVelocity[2] = z; }
+  }
+  setAngularVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, _wakeUp: boolean): void {
+    const b = this.getBody(body);
+    if (b) { b.angularVelocity[0] = x; b.angularVelocity[1] = y; b.angularVelocity[2] = z; }
+  }
+  isSleepingRaw(body: PhysicsBody): boolean {
+    const b = this.getBody(body);
+    return b ? b.sleeping : false;
+  }
+  swapColliderShapeRaw(_realmId: number, _colliderId: number, _vertices: Float32Array, _indices: Uint32Array): boolean {
+    return false; // Native backend doesn't support in-place shape swap
+  }
+  reserveMemory(_bytes: number): void { /* no-op */ }
+  setIntegrationDt(_realmId: number, _dt: number): void { /* native backend uses dt passed to step() */ }
 
   setSleepThresholds(_realmId: number, _linearThreshold: number, _angularThreshold: number): void {
     // Native backend doesn't implement sleep thresholds yet
@@ -542,11 +588,15 @@ export class NativePhysicsBackend implements PhysicsBackend {
     this.characters.delete(handle.controllerId);
   }
 
+  setCharacterColliderPosition(handle: CharacterControllerHandle, pos: [number, number, number]): void {
+    // Native backend doesn't support parentless character colliders yet
+  }
+
   characterMove(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult {
     const char = this.characters.get(handle.controllerId);
     const realm = this.realms.get(handle.realmId);
     if (!char || !realm) {
-      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: desiredMovement };
+      return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: desiredMovement, collisions: [] };
     }
 
     const body = realm.bodies.get(char.bodyId);
@@ -627,6 +677,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
       slid,
       stepped,
       effectiveMovement,
+      collisions: [],
     };
   }
 

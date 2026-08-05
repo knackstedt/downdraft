@@ -23,8 +23,8 @@ interface BodyMetadata {
   lastTransferTick: number;
   /** Original body descriptor (for transfer recreation). */
   desc: BodyDesc;
-  /** Collider descriptors added to this body (for transfer recreation). */
-  colliders: ColliderDesc[];
+  /** Collider descriptors added to this body, keyed by the canonical (near-realm) id. */
+  colliders: Array<{ id: number; desc: ColliderDesc }>;
   /** The current `PhysicsBody` reference (refreshed on transfer). */
   body: PhysicsBody;
   /** True if the body is static (duplicated into all realms). */
@@ -221,7 +221,6 @@ export class RealmManager {
   addCollider(body: PhysicsBody, desc: ColliderDesc): number {
     const meta = this.findBodyMeta(body);
     if (!meta) return -1;
-    meta.colliders.push(desc);
 
     let colliderId = -1;
     if (meta.staticCopies) {
@@ -233,7 +232,31 @@ export class RealmManager {
     } else {
       colliderId = this.getRealm(meta.tier).addCollider(meta.body, desc);
     }
+    if (colliderId >= 0) meta.colliders.push({ id: colliderId, desc });
     return colliderId;
+  }
+
+  /**
+   * Remove a collider from a body (and all static copies).
+   * The collider is removed from the `colliders` metadata array too.
+   */
+  removeCollider(body: PhysicsBody, colliderId: number): void {
+    const meta = this.findBodyMeta(body);
+    if (!meta) return;
+
+    if (meta.staticCopies) {
+      // Remove from each copy's own realm. Collider ids may differ per realm;
+      // the backend handles missing ids gracefully (no-op if not found).
+      for (const [tier, copy] of meta.staticCopies) {
+        this.getRealm(tier).removeCollider(copy, colliderId);
+      }
+    } else {
+      this.getRealm(meta.tier).removeCollider(meta.body, colliderId);
+    }
+
+    // Remove from metadata by canonical id
+    const idx = meta.colliders.findIndex((c) => c.id === colliderId);
+    if (idx >= 0) meta.colliders.splice(idx, 1);
   }
 
   setImportance(body: PhysicsBody, importance: number): void {
@@ -442,7 +465,7 @@ export class RealmManager {
     const newBody = toRealm.createBody(newDesc, meta.entity);
 
     // Re-add colliders
-    for (const colliderDesc of meta.colliders) {
+    for (const { desc: colliderDesc } of meta.colliders) {
       toRealm.addCollider(newBody, colliderDesc);
     }
 

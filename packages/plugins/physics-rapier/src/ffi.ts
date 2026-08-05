@@ -6,11 +6,13 @@ const log = createLogger();
 export interface PhysicsLib {
   createRealm(id: number, gravity: [number, number, number]): void;
   destroyRealm(id: number): void;
-  createBody(realmId: number, bodyId: number, desc: BodyDesc): void;
+  createBody(realmId: number, bodyId: number, desc: BodyDesc, entity: Entity): void;
   destroyBody(realmId: number, bodyId: number): void;
   setBodyType(realmId: number, bodyId: number, type: BodyType): void;
   addCollider(realmId: number, bodyId: number, colliderId: number, desc: ColliderDesc): void;
   removeCollider(realmId: number, bodyId: number, colliderId: number): void;
+  setColliderPosition?(realmId: number, colliderId: number, pos: [number, number, number]): void;
+  getColliderPosition?(realmId: number, colliderId: number): [number, number, number];
   applyForce(realmId: number, bodyId: number, force: [number, number, number]): void;
   applyImpulse(realmId: number, bodyId: number, impulse: [number, number, number]): void;
   applyTorque(realmId: number, bodyId: number, torque: [number, number, number]): void;
@@ -21,6 +23,17 @@ export interface PhysicsLib {
   setPosition(realmId: number, bodyId: number, pos: [number, number, number]): void;
   setRotation(realmId: number, bodyId: number, rot: [number, number, number, number]): void;
   wakeUp(realmId: number, bodyId: number): void;
+  // Raw fast paths (optional — wasm-fallback implements, native FFI stubs)
+  setTranslationRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
+  setRotationRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, w: number, wakeUp: boolean): void;
+  getTranslationRaw?(realmId: number, bodyId: number, out: [number, number, number]): void;
+  getLinearVelocityRaw?(realmId: number, bodyId: number, out: [number, number, number]): void;
+  setLinearVelocityRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
+  setAngularVelocityRaw?(realmId: number, bodyId: number, x: number, y: number, z: number, wakeUp: boolean): void;
+  isSleepingRaw?(realmId: number, bodyId: number): boolean;
+  swapColliderShapeRaw?(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean;
+  reserveMemory?(bytes: number): void;
+  setIntegrationDt?(realmId: number, dt: number): void;
   step(realmId: number, dt: number): void;
   getBodyTransform(realmId: number, bodyId: number): { position: [number, number, number]; rotation: [number, number, number, number] } | null;
   raycast(
@@ -58,6 +71,7 @@ export interface PhysicsLib {
     desiredMovement: [number, number, number],
     dt: number,
   ): CharacterMoveResult;
+  setCharacterColliderPosition?(realmId: number, controllerId: number, pos: [number, number, number]): void;
   createJoint(
     realmId: number,
     parentBodyId: number,
@@ -139,7 +153,7 @@ async function tryLoadNative(): Promise<PhysicsLib | null> {
       destroyRealm(id) {
         lib.symbols.dd_destroy_realm(id);
       },
-      createBody(realmId, bodyId, desc) {
+      createBody(realmId, bodyId, desc, _entity) {
         const buf = new Float32Array(8);
         buf[0] = desc.position[0]; buf[1] = desc.position[1]; buf[2] = desc.position[2];
         buf[3] = desc.rotation[0]; buf[4] = desc.rotation[1]; buf[5] = desc.rotation[2]; buf[6] = desc.rotation[3];
@@ -171,7 +185,7 @@ async function tryLoadNative(): Promise<PhysicsLib | null> {
       shapeCast() { return null; },
       createCharacterController() {},
       destroyCharacterController() {},
-      characterMove() { return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] }; },
+      characterMove() { return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0], collisions: [] }; },
       createJoint() {},
       destroyJoint() {},
       setSolverIterations() {},

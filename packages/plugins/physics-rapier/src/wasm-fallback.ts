@@ -1,5 +1,5 @@
 import type * as Rapier from "@dimforge/rapier3d-compat";
-import type { ColliderDesc, Entity, IslandInfo } from "@downdraft/core";
+import type { CharacterCollisionInfo, ColliderDesc, Entity, IslandInfo } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
 import type { PhysicsLib } from "./ffi";
 
@@ -14,8 +14,11 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
     const realms = new Map<number, Rapier.World>();
     const bodyMaps = new Map<number, Map<number, Rapier.RigidBody>>();
     const colliderMaps = new Map<number, Map<number, Rapier.Collider>>();
-    const controllerMaps = new Map<number, Map<number, { controller: Rapier.KinematicCharacterController; body: Rapier.RigidBody; entity: Entity }>>();
+    const controllerMaps = new Map<number, Map<number, { controller: Rapier.KinematicCharacterController; body: Rapier.RigidBody | null; collider: Rapier.Collider | null; entity: Entity }>>();
     const jointMaps = new Map<number, Map<number, Rapier.ImpulseJoint>>();
+    // Reverse map: Rapier rigid-body handle -> Entity, for collision reporting.
+    // Populated in createBody, cleared in destroyBody/destroyRealm.
+    const entityByBodyHandle = new Map<number, Map<number, Entity>>();
 
     function makeColliderDesc(desc: ColliderDesc): Rapier.ColliderDesc {
       const shape = desc.shape;
@@ -29,6 +32,15 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
       } else if (shape.type === "convex") {
         const verts = new Float32Array(shape.vertices);
         cd = rapier.ColliderDesc.convexHull(verts) ?? rapier.ColliderDesc.ball(0.5);
+      } else if (shape.type === "mesh") {
+        const verts = new Float32Array(shape.vertices);
+        const indices = new Uint32Array(shape.indices);
+        cd = rapier.ColliderDesc.trimesh(verts, indices);
+      } else if ((shape as any).type === "heightfield") {
+        const sh = shape as any;
+        const heights = new Float32Array(sh.heights);
+        const scale = { x: sh.scale[0], y: sh.scale[1], z: sh.scale[2] };
+        cd = rapier.ColliderDesc.heightfield(sh.nrows, sh.ncols, heights, scale);
       } else {
         cd = rapier.ColliderDesc.ball(0.5);
       }
@@ -38,6 +50,8 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
       if (desc.sensor) cd.setSensor(true);
       if (desc.collisionGroups !== undefined) cd.setCollisionGroups(desc.collisionGroups);
       if (desc.solverGroups !== undefined) cd.setSolverGroups(desc.solverGroups);
+      if (desc.translation) cd.setTranslation(desc.translation[0], desc.translation[1], desc.translation[2]);
+      if (desc.rotation) cd.setRotation({ x: desc.rotation[0], y: desc.rotation[1], z: desc.rotation[2], w: desc.rotation[3] });
       return cd;
     }
 
@@ -49,6 +63,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         colliderMaps.set(id, new Map());
         controllerMaps.set(id, new Map());
         jointMaps.set(id, new Map());
+        entityByBodyHandle.set(id, new Map());
       },
       destroyRealm(id) {
         realms.delete(id);
@@ -56,8 +71,9 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         colliderMaps.delete(id);
         controllerMaps.delete(id);
         jointMaps.delete(id);
+        entityByBodyHandle.delete(id);
       },
-      createBody(realmId, bodyId, desc) {
+      createBody(realmId, bodyId, desc, entity) {
         const world = realms.get(realmId);
         if (!world) return;
 
@@ -84,9 +100,22 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         if (desc.ccdEnabled) rbDesc.setCcdEnabled(true);
         if (desc.canSleep === false) rbDesc.setCanSleep(false);
         if (desc.gravityScale !== undefined) rbDesc.setGravityScale(desc.gravityScale);
+        if (desc.lockedAxes?.rotation) {
+          const [rx, ry, rz] = desc.lockedAxes.rotation;
+          if (rx && ry && rz) {
+            rbDesc.lockRotations();
+          } else {
+            rbDesc.enabledRotations(!rx, !ry, !rz);
+          }
+        }
+        if (desc.lockedAxes?.translation) {
+          const [tx, ty, tz] = desc.lockedAxes.translation;
+          rbDesc.enabledTranslations(!tx, !ty, !tz);
+        }
 
         const body = world.createRigidBody(rbDesc);
         bodyMaps.get(realmId)?.set(bodyId, body);
+        entityByBodyHandle.get(realmId)?.set(body.handle, entity);
       },
       destroyBody(realmId, bodyId) {
         const world = realms.get(realmId);
@@ -94,6 +123,7 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         if (!world || !map) return;
         const body = map.get(bodyId);
         if (body) {
+          entityByBodyHandle.get(realmId)?.delete(body.handle);
           world.removeRigidBody(body);
           map.delete(bodyId);
         }
@@ -113,6 +143,10 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         const cd = makeColliderDesc(desc);
         const collider = world.createCollider(cd, body);
         colliderMaps.get(realmId)?.set(colliderId, collider);
+        // cd.shape is a SharedShape (no .free() method); world.createCollider
+        // internally calls shape.intoRaw() and frees the resulting RawColliderShape.
+        // This no-op try/catch is kept as a safety net for future shape types.
+        try { (cd as any).shape?.free?.(); } catch {}
       },
       removeCollider(realmId, bodyId, colliderId) {
         const world = realms.get(realmId);
@@ -120,6 +154,19 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         if (!world || !collider) return;
         world.removeCollider(collider, false);
         colliderMaps.get(realmId)?.delete(colliderId);
+      },
+      setColliderPosition(realmId, colliderId, pos) {
+        const collider = colliderMaps.get(realmId)?.get(colliderId);
+        if (collider) collider.setTranslation({ x: pos[0], y: pos[1], z: pos[2] });
+      },
+      getColliderPosition(realmId, colliderId) {
+        const collider = colliderMaps.get(realmId)?.get(colliderId);
+        if (!collider) return [0, 0, 0];
+        const t = collider.translation();
+        const result = [t.x, t.y, t.z] as [number, number, number];
+        // Free the RawVector to prevent WASM borrow aliasing
+        try { (t as any).free?.(); } catch {}
+        return result;
       },
       applyForce(realmId, bodyId, force) {
         const body = bodyMaps.get(realmId)?.get(bodyId);
@@ -174,10 +221,14 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         if (!body) return null;
         const pos = body.translation();
         const rot = body.rotation();
-        return {
-          position: [pos.x, pos.y, pos.z],
-          rotation: [rot.x, rot.y, rot.z, rot.w],
+        const result = {
+          position: [pos.x, pos.y, pos.z] as [number, number, number],
+          rotation: [rot.x, rot.y, rot.z, rot.w] as [number, number, number, number],
         };
+        // Free RawVector/RawRotation to prevent WASM borrow aliasing
+        try { (pos as any).free?.(); } catch {}
+        try { (rot as any).free?.(); } catch {}
+        return result;
       },
       raycast(realmId, origin, direction, maxDistance, filter) {
         const world = realms.get(realmId);
@@ -261,6 +312,8 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
           controller.disableAutostep();
         }
         controller.setMaxSlopeClimbAngle(desc.maxSlope);
+        controller.setMinSlopeSlideAngle(desc.minSlopeSlide);
+        controller.setApplyImpulsesToDynamicBodies(desc.applyImpulsesToDynamicBodies);
         if (desc.snapToGround > 0) {
           controller.enableSnapToGround(desc.snapToGround);
         } else {
@@ -268,18 +321,46 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         }
 
         const controllerId = handle.controllerId;
-        const bodyMap = bodyMaps.get(realmId);
-        const body = bodyMap?.get(handle.entity.index);
-        if (!body) return;
 
-        controllerMaps.get(realmId)?.set(controllerId, { controller, body, entity: handle.entity });
+        if (desc.parentless) {
+          // Create a parentless capsule collider (no rigid body)
+          const capsuleCd = rapier.ColliderDesc.capsule(desc.halfHeight, desc.radius);
+          capsuleCd.setTranslation(
+            desc.parentless.position[0],
+            desc.parentless.position[1],
+            desc.parentless.position[2],
+          );
+          if (desc.parentless.collisionGroups !== undefined) {
+            capsuleCd.setCollisionGroups(desc.parentless.collisionGroups);
+          } else if (desc.collisionGroups !== undefined) {
+            capsuleCd.setCollisionGroups(desc.collisionGroups);
+          }
+          const collider = world.createCollider(capsuleCd);
+          // Free the RawColliderShape (createCollider clones the SharedShape)
+          try { (capsuleCd as any).shape?.free?.(); } catch {}
+          controllerMaps.get(realmId)?.set(controllerId, { controller, body: null, collider, entity: handle.entity });
+        } else {
+          const bodyMap = bodyMaps.get(realmId);
+          const body = bodyMap?.get(handle.entity.index);
+          if (!body) return;
+          controllerMaps.get(realmId)?.set(controllerId, { controller, body, collider: null, entity: handle.entity });
+        }
       },
       destroyCharacterController(realmId, controllerId) {
         const world = realms.get(realmId);
         const entry = controllerMaps.get(realmId)?.get(controllerId);
         if (!world || !entry) return;
+        if (entry.collider) {
+          try { world.removeCollider(entry.collider, true); } catch {}
+        }
         world.removeCharacterController(entry.controller);
         controllerMaps.get(realmId)?.delete(controllerId);
+      },
+      setCharacterColliderPosition(realmId, controllerId, pos) {
+        const entry = controllerMaps.get(realmId)?.get(controllerId);
+        if (entry && entry.collider) {
+          entry.collider.setTranslation({ x: pos[0], y: pos[1], z: pos[2] });
+        }
       },
       characterMove(realmId, controllerId, desiredMovement, dt) {
         const world = realms.get(realmId);
@@ -291,12 +372,23 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
             groundEntity: null,
             slid: false,
             stepped: false,
-            effectiveMovement: [0, 0, 0],
+            effectiveMovement: [0, 0, 0], collisions: [],
           };
         }
-        const { controller, body, entity } = entry;
+        const { controller, body, collider: parentlessCollider, entity } = entry;
         const desiredDelta = { x: desiredMovement[0], y: desiredMovement[1], z: desiredMovement[2] };
-        const collider = body.collider(0);
+        const collider = parentlessCollider ?? (body ? body.collider(0) : null);
+        if (!collider) {
+          return {
+            grounded: false,
+            groundNormal: [0, 1, 0],
+            groundEntity: null,
+            slid: false,
+            stepped: false,
+            effectiveMovement: [0, 0, 0],
+            collisions: [],
+          };
+        }
         controller.computeColliderMovement(collider, desiredDelta);
 
         const grounded = controller.computedGrounded();
@@ -304,25 +396,42 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         const slid = false;
         const stepped = false;
 
+        // Harvest collision details for debug/logging. Resolve each hit
+        // collider's parent rigid body back to its Entity via the reverse
+        // handle map populated in createBody.
+        const collisions: CharacterCollisionInfo[] = [];
         let groundEntity: Entity | null = null;
-        if (grounded) {
-          const numCollisions = controller.numComputedCollisions();
-          for (let i = 0; i < numCollisions; i++) {
-            const collision = controller.computedCollision(i);
-            if (collision) {
-              break;
-            }
+        const handleMap = entityByBodyHandle.get(realmId);
+        const numCollisions = controller.numComputedCollisions();
+        for (let i = 0; i < numCollisions; i++) {
+          const collision = controller.computedCollision(i);
+          if (!collision) continue;
+          const hitCollider = collision.collider;
+          if (!hitCollider) continue;
+          const parentRb = hitCollider.parent();
+          let hitEntity: Entity | null = null;
+          if (parentRb) {
+            hitEntity = handleMap?.get(parentRb.handle) ?? null;
+          }
+          collisions.push({ entity: hitEntity });
+          // First resolved entity becomes the ground entity when grounded
+          if (grounded && !groundEntity && hitEntity) {
+            groundEntity = hitEntity;
           }
         }
 
-        return {
+        const result = {
           grounded,
-          groundNormal: [0, 1, 0],
+          groundNormal: [0, 1, 0] as [number, number, number],
           groundEntity,
           slid,
           stepped,
-          effectiveMovement: [effective.x, effective.y, effective.z],
+          effectiveMovement: [effective.x, effective.y, effective.z] as [number, number, number],
+          collisions,
         };
+        // Free the RawVector from computedMovement to prevent WASM borrow aliasing
+        try { (effective as any).free?.(); } catch {}
+        return result;
       },
       createJoint(realmId, parentBodyId, childBodyId, jointId, desc) {
         const world = realms.get(realmId);
@@ -432,6 +541,107 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
           // Snapshot restore may fail on incompatible versions — skip silently
         }
       },
+
+      // --- Raw fast paths (scalar methods, zero JS object alloc) ---
+      // NOTE: bodyId here is the game's PhysicsBody.id, NOT the Rapier handle.
+      // We must look up the Rapier RigidBody from bodyMaps to get body.handle.
+
+      setTranslationRaw(realmId, bodyId, x, y, z, wakeUp) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (!body) return;
+        const rawBodies = realms.get(realmId)?.bodies.raw;
+        if (rawBodies) {
+          rawBodies.rbSetTranslation(body.handle, x, y, z, wakeUp);
+        } else {
+          body.setTranslation({ x, y, z }, wakeUp);
+        }
+      },
+      setRotationRaw(realmId, bodyId, x, y, z, w, wakeUp) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (!body) return;
+        const rawBodies = realms.get(realmId)?.bodies.raw;
+        if (rawBodies) {
+          rawBodies.rbSetRotation(body.handle, x, y, z, w, wakeUp);
+        } else {
+          body.setRotation({ x, y, z, w }, wakeUp);
+        }
+      },
+      getTranslationRaw(realmId, bodyId, out) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (!body) { out[0] = 0; out[1] = 0; out[2] = 0; return; }
+        const rawBodies = realms.get(realmId)?.bodies.raw;
+        if (rawBodies) {
+          const v = rawBodies.rbTranslation(body.handle);
+          out[0] = v.x; out[1] = v.y; out[2] = v.z;
+          v.free();
+        } else {
+          const t = body.translation();
+          out[0] = t.x; out[1] = t.y; out[2] = t.z;
+          // Free the RawVector to prevent WASM borrow aliasing
+          try { (t as any).free?.(); } catch {}
+        }
+      },
+      getLinearVelocityRaw(realmId, bodyId, out) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (!body) { out[0] = 0; out[1] = 0; out[2] = 0; return; }
+        const rawBodies = realms.get(realmId)?.bodies.raw;
+        if (rawBodies) {
+          const v = rawBodies.rbLinvel(body.handle);
+          out[0] = v.x; out[1] = v.y; out[2] = v.z;
+          v.free();
+        } else {
+          const v = body.linvel();
+          out[0] = v.x; out[1] = v.y; out[2] = v.z;
+          // Free the RawVector to prevent WASM borrow aliasing
+          try { (v as any).free?.(); } catch {}
+        }
+      },
+      setLinearVelocityRaw(realmId, bodyId, x, y, z, wakeUp) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (body) body.setLinvel({ x, y, z }, wakeUp);
+      },
+      setAngularVelocityRaw(realmId, bodyId, x, y, z, wakeUp) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (body) body.setAngvel({ x, y, z }, wakeUp);
+      },
+      isSleepingRaw(realmId, bodyId) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (!body) return false;
+        const rawBodies = realms.get(realmId)?.bodies.raw;
+        if (rawBodies) {
+          return rawBodies.rbIsSleeping(body.handle);
+        }
+        return body.isSleeping();
+      },
+      swapColliderShapeRaw(realmId, colliderId, vertices, indices) {
+        const world = realms.get(realmId);
+        const rawColliders = world?.colliders.raw;
+        if (!world || !rawColliders) return false;
+        // colliderId is the game's sequential id — look up the Rapier collider
+        // to get its handle. Passing colliderId directly to coSetShape causes
+        // out-of-bounds WASM access (corrupts internal state, aliasing panic).
+        const collider = colliderMaps.get(realmId)?.get(colliderId);
+        if (!collider) return false;
+        try {
+          const cd = rapier.ColliderDesc.trimesh(vertices, indices);
+          // cd.shape is a SharedShape (Eg); coSetShape expects a RawShape (OA).
+          // Call intoRaw() to get the RawColliderShape, then free it after.
+          const rawShape = (cd as any).shape.intoRaw();
+          rawColliders.coSetShape(collider.handle, rawShape);
+          rawShape.free();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      reserveMemory(bytes) {
+        try { (rapier as any).reserveMemory(bytes); } catch {}
+      },
+      setIntegrationDt(realmId, dt) {
+        const world = realms.get(realmId);
+        if (world) world.integrationParameters.dt = dt;
+      },
+
       destroy() {
         realms.clear();
         bodyMaps.clear();

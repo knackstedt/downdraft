@@ -59,6 +59,10 @@ export interface ColliderDesc {
   sensor?: boolean;
   collisionGroups?: number;
   solverGroups?: number;
+  /** Local translation of the collider relative to the parent body. */
+  translation?: [number, number, number];
+  /** Local rotation of the collider relative to the parent body (quaternion). */
+  rotation?: [number, number, number, number];
 }
 
 export interface ContactManifold {
@@ -131,13 +135,36 @@ export interface CharacterControllerDesc {
     maxHeight: number;
   };
   maxSlope: number;
+  minSlopeSlide: number;
   snapToGround: number;
+  /** If false, the character controller won't apply impulses to dynamic bodies (default: false). */
+  applyImpulsesToDynamicBodies: boolean;
+  /** Collision groups for the character's collider. */
+  collisionGroups?: number;
+  /**
+   * If set, create a parentless collider (no rigid body) at this position
+   * and use it for the character controller. If unset, the controller uses
+   * the first collider of the entity's body.
+   */
+  parentless?: {
+    position: [number, number, number];
+    collisionGroups?: number;
+  };
 }
 
 export interface CharacterControllerHandle {
   realmId: number;
   controllerId: number;
   entity: Entity;
+}
+
+export interface CharacterCollisionInfo {
+  /** Entity of the body the character collided with (if resolvable). */
+  entity: Entity | null;
+  /** Entity type (for debug labeling). */
+  entityType?: number;
+  /** Entity ID (for debug labeling). */
+  entityId?: number;
 }
 
 export interface CharacterMoveResult {
@@ -147,6 +174,8 @@ export interface CharacterMoveResult {
   slid: boolean;
   stepped: boolean;
   effectiveMovement: [number, number, number];
+  /** Collision details for debug/logging (empty if no collisions). */
+  collisions: CharacterCollisionInfo[];
 }
 
 export type JointType = "cone-twist" | "fixed" | "revolute" | "prismatic";
@@ -278,6 +307,10 @@ export interface PhysicsBackend {
 
   addCollider(body: PhysicsBody, desc: ColliderDesc): number;
   removeCollider(body: PhysicsBody, colliderId: number): void;
+  /** Set the world-space position of a collider (used for parentless character capsules). */
+  setColliderPosition(realmId: number, colliderId: number, pos: [number, number, number]): void;
+  /** Get the world-space position of a collider. */
+  getColliderPosition(realmId: number, colliderId: number): [number, number, number];
 
   applyForce(body: PhysicsBody, force: [number, number, number]): void;
   applyImpulse(body: PhysicsBody, impulse: [number, number, number]): void;
@@ -297,6 +330,40 @@ export interface PhysicsBackend {
 
   wakeUp(body: PhysicsBody): void;
   isSleeping(body: PhysicsBody): boolean;
+
+  // -------------------------------------------------------------------------
+  // Raw fast paths — bypass safety validation, avoid JS object allocation.
+  // Callers MUST validate inputs themselves (finiteness, quaternion normalize).
+  // PhysicsBody-keyed — no raw Rapier handles leak. Use these in hot loops.
+  // -------------------------------------------------------------------------
+
+  /** Scalar setTranslation — avoids Vector3 alloc. */
+  setTranslationRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean): void;
+  /** Scalar setRotation — avoids Quaternion alloc. */
+  setRotationRaw(body: PhysicsBody, x: number, y: number, z: number, w: number, wakeUp: boolean): void;
+  /** Scalar getTranslation — writes into out[0..2], avoids alloc. */
+  getTranslationRaw(body: PhysicsBody, out: [number, number, number]): void;
+  /** Scalar getLinearVelocity — writes into out[0..2]. */
+  getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void;
+  /** Scalar setLinearVelocity. */
+  setLinearVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean): void;
+  /** Scalar setAngularVelocity. */
+  setAngularVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean): void;
+  /** Scalar sleeping check — single boolean, no alloc. */
+  isSleepingRaw(body: PhysicsBody): boolean;
+
+  /**
+   * Swap a trimesh collider's shape in-place (avoids remove/create + broadphase
+   * re-insertion). Returns true if the swap succeeded, false if the backend
+   * doesn't support in-place swap (caller should fall back to remove+create).
+   */
+  swapColliderShapeRaw(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean;
+
+  /** Pre-allocate WASM heap (bytes). No-op if not supported. */
+  reserveMemory(bytes: number): void;
+
+  /** Set integration timestep on a realm. */
+  setIntegrationDt(realmId: number, dt: number): void;
 
   /** Per-realm sleep thresholds for graceful degradation (load shedding first line). */
   setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void;
@@ -342,6 +409,8 @@ export interface PhysicsBackend {
   createCharacterController(realmId: number, desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle;
   destroyCharacterController(handle: CharacterControllerHandle): void;
   characterMove(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult;
+  /** Set the world position of a character controller's parentless collider. */
+  setCharacterColliderPosition(handle: CharacterControllerHandle, pos: [number, number, number]): void;
 
   createJoint(realmId: number, parentBody: PhysicsBody, childBody: PhysicsBody, desc: JointDesc): number;
   destroyJoint(realmId: number, jointId: number): void;
