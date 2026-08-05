@@ -1,5 +1,5 @@
-import type { SkeletonAnimator } from "../animation/skeleton-animator";
 import type { Skeleton } from "../animation/skeleton";
+import type { SkeletonAnimator } from "../animation/skeleton-animator";
 import type { Entity } from "../ecs/entity";
 import type { Query } from "../ecs/query";
 import { Stage, system } from "../ecs/system";
@@ -124,7 +124,7 @@ export class RagdollSystem {
     for (let i = 0; i < ragdoll.boneNames.length; i++) {
       const boneName = ragdoll.boneNames[i];
       const handle = ragdoll.bodyHandles[i];
-      if (handle.bodyId < 0) continue;
+      if (handle.id < 0) continue;
 
       const boneIdx = this.skeleton.getBoneIndex(boneName);
       if (boneIdx < 0) continue;
@@ -150,7 +150,7 @@ export class RagdollSystem {
 
     for (let i = 0; i < ragdoll.bodyHandles.length; i++) {
       const handle = ragdoll.bodyHandles[i];
-      if (handle.bodyId < 0) continue;
+      if (handle.id < 0) continue;
       this.realm.setBodyType(handle, "dynamic");
     }
 
@@ -184,7 +184,7 @@ export class RagdollSystem {
       for (let i = 0; i < ragdoll.boneNames.length; i++) {
         const boneName = ragdoll.boneNames[i];
         const handle = ragdoll.bodyHandles[i];
-        if (handle.bodyId < 0) continue;
+        if (handle.id < 0) continue;
 
         const boneIdx = this.skeleton.getBoneIndex(boneName);
         if (boneIdx < 0) continue;

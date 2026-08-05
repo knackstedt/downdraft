@@ -8,11 +8,12 @@ import type {
     ColliderShape,
     ContactManifold,
     Entity,
+    IslandInfo,
     JointDesc,
     PhysicsBackend,
+    PhysicsBody,
     PhysicsRealmConfig,
     RaycastResult,
-    RigidBodyHandle,
     ShapeCastResult,
 } from "@downdraft/core";
 import { loadPhysicsLib, type PhysicsLib } from "./ffi";
@@ -28,7 +29,7 @@ interface RealmState {
 }
 
 interface BodyState {
-  handle: RigidBodyHandle;
+  body: PhysicsBody;
   desc: BodyDesc;
   colliders: Map<number, ColliderDesc>;
   nextColliderId: number;
@@ -41,7 +42,7 @@ interface BodyState {
 
 export class RapierPhysicsBackend implements PhysicsBackend {
   readonly name = "rapier";
-  readonly version = "0.1.0";
+  readonly version = "0.2.0";
 
   private lib: PhysicsLib | null = null;
   private realms: Map<number, RealmState> = new Map();
@@ -96,15 +97,15 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     return [...this.realmIds];
   }
 
-  createBody(realmId: number, desc: BodyDesc, entity: Entity): RigidBodyHandle {
+  createBody(realmId: number, desc: BodyDesc, entity: Entity): PhysicsBody {
     const realm = this.realms.get(realmId);
     if (!realm) throw new Error(`Realm ${realmId} not found`);
 
     const bodyId = realm.nextBodyId++;
-    const handle: RigidBodyHandle = { realmId, bodyId, entity };
+    const body: PhysicsBody = { id: bodyId, realmId, entity };
 
     const state: BodyState = {
-      handle,
+      body,
       desc,
       colliders: new Map(),
       nextColliderId: 1,
@@ -121,168 +122,186 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       this.lib.createBody(realmId, bodyId, desc);
     }
 
-    return handle;
+    return body;
   }
 
-  destroyBody(handle: RigidBodyHandle): void {
-    const realm = this.realms.get(handle.realmId);
+  destroyBody(body: PhysicsBody): void {
+    const realm = this.realms.get(body.realmId);
     if (!realm) return;
     if (this.lib) {
-      this.lib.destroyBody(handle.realmId, handle.bodyId);
+      this.lib.destroyBody(body.realmId, body.id);
     }
-    realm.bodies.delete(handle.bodyId);
+    realm.bodies.delete(body.id);
   }
 
-  setBodyType(handle: RigidBodyHandle, type: BodyType): void {
-    const state = this.getBodyState(handle);
+  setBodyType(body: PhysicsBody, type: BodyType): void {
+    const state = this.getBodyState(body);
     if (!state) return;
     state.desc.type = type;
     if (this.lib) {
-      this.lib.setBodyType(handle.realmId, handle.bodyId, type);
+      this.lib.setBodyType(body.realmId, body.id, type);
     }
   }
 
-  addCollider(handle: RigidBodyHandle, desc: ColliderDesc): number {
-    const state = this.getBodyState(handle);
+  addCollider(body: PhysicsBody, desc: ColliderDesc): number {
+    const state = this.getBodyState(body);
     if (!state) return -1;
     const id = state.nextColliderId++;
     state.colliders.set(id, desc);
     if (this.lib) {
-      this.lib.addCollider(handle.realmId, handle.bodyId, id, desc);
+      this.lib.addCollider(body.realmId, body.id, id, desc);
     }
     return id;
   }
 
-  removeCollider(handle: RigidBodyHandle, colliderId: number): void {
-    const state = this.getBodyState(handle);
+  removeCollider(body: PhysicsBody, colliderId: number): void {
+    const state = this.getBodyState(body);
     if (!state) return;
     state.colliders.delete(colliderId);
     if (this.lib) {
-      this.lib.removeCollider(handle.realmId, handle.bodyId, colliderId);
+      this.lib.removeCollider(body.realmId, body.id, colliderId);
     }
   }
 
-  applyForce(handle: RigidBodyHandle, force: [number, number, number]): void {
-    const state = this.getBodyState(handle);
+  applyForce(body: PhysicsBody, force: [number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state || state.desc.type !== "dynamic") return;
     if (this.lib) {
-      this.lib.applyForce(handle.realmId, handle.bodyId, force);
+      this.lib.applyForce(body.realmId, body.id, force);
     }
   }
 
-  applyImpulse(handle: RigidBodyHandle, impulse: [number, number, number]): void {
-    const state = this.getBodyState(handle);
+  applyImpulse(body: PhysicsBody, impulse: [number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state || state.desc.type !== "dynamic") return;
     state.linearVelocity[0] += impulse[0] / (state.desc.mass ?? 1);
     state.linearVelocity[1] += impulse[1] / (state.desc.mass ?? 1);
     state.linearVelocity[2] += impulse[2] / (state.desc.mass ?? 1);
     if (this.lib) {
-      this.lib.applyImpulse(handle.realmId, handle.bodyId, impulse);
+      this.lib.applyImpulse(body.realmId, body.id, impulse);
     }
   }
 
-  applyTorque(handle: RigidBodyHandle, torque: [number, number, number]): void {
-    const state = this.getBodyState(handle);
+  applyTorque(body: PhysicsBody, torque: [number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state || state.desc.type !== "dynamic") return;
     if (this.lib) {
-      this.lib.applyTorque(handle.realmId, handle.bodyId, torque);
+      this.lib.applyTorque(body.realmId, body.id, torque);
     }
   }
 
-  applyTorqueImpulse(handle: RigidBodyHandle, impulse: [number, number, number]): void {
-    const state = this.getBodyState(handle);
+  applyTorqueImpulse(body: PhysicsBody, impulse: [number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state || state.desc.type !== "dynamic") return;
     state.angularVelocity[0] += impulse[0];
     state.angularVelocity[1] += impulse[1];
     state.angularVelocity[2] += impulse[2];
     if (this.lib) {
-      this.lib.applyTorqueImpulse(handle.realmId, handle.bodyId, impulse);
+      this.lib.applyTorqueImpulse(body.realmId, body.id, impulse);
     }
   }
 
   applyImpulseAtPoint(
-    handle: RigidBodyHandle,
+    body: PhysicsBody,
     impulse: [number, number, number],
     point: [number, number, number],
   ): void {
-    const state = this.getBodyState(handle);
+    const state = this.getBodyState(body);
     if (!state || state.desc.type !== "dynamic") return;
     state.linearVelocity[0] += impulse[0] / (state.desc.mass ?? 1);
     state.linearVelocity[1] += impulse[1] / (state.desc.mass ?? 1);
     state.linearVelocity[2] += impulse[2] / (state.desc.mass ?? 1);
     if (this.lib) {
-      this.lib.applyImpulseAtPoint(handle.realmId, handle.bodyId, impulse, point);
+      this.lib.applyImpulseAtPoint(body.realmId, body.id, impulse, point);
     }
   }
 
-  setLinearVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void {
-    const state = this.getBodyState(handle);
+  setLinearVelocity(body: PhysicsBody, vel: [number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state) return;
     state.linearVelocity = [...vel] as [number, number, number];
     if (this.lib) {
-      this.lib.setLinearVelocity(handle.realmId, handle.bodyId, vel);
+      this.lib.setLinearVelocity(body.realmId, body.id, vel);
     }
   }
 
-  getLinearVelocity(handle: RigidBodyHandle): [number, number, number] {
-    const state = this.getBodyState(handle);
+  getLinearVelocity(body: PhysicsBody): [number, number, number] {
+    const state = this.getBodyState(body);
     return state ? [...state.linearVelocity] as [number, number, number] : [0, 0, 0];
   }
 
-  setAngularVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void {
-    const state = this.getBodyState(handle);
+  setAngularVelocity(body: PhysicsBody, vel: [number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state) return;
     state.angularVelocity = [...vel] as [number, number, number];
     if (this.lib) {
-      this.lib.setAngularVelocity(handle.realmId, handle.bodyId, vel);
+      this.lib.setAngularVelocity(body.realmId, body.id, vel);
     }
   }
 
-  getAngularVelocity(handle: RigidBodyHandle): [number, number, number] {
-    const state = this.getBodyState(handle);
+  getAngularVelocity(body: PhysicsBody): [number, number, number] {
+    const state = this.getBodyState(body);
     return state ? [...state.angularVelocity] as [number, number, number] : [0, 0, 0];
   }
 
-  setPosition(handle: RigidBodyHandle, pos: [number, number, number]): void {
-    const state = this.getBodyState(handle);
+  setPosition(body: PhysicsBody, pos: [number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state) return;
     state.position = [...pos] as [number, number, number];
     if (this.lib) {
-      this.lib.setPosition(handle.realmId, handle.bodyId, pos);
+      this.lib.setPosition(body.realmId, body.id, pos);
     }
   }
 
-  getPosition(handle: RigidBodyHandle): [number, number, number] {
-    const state = this.getBodyState(handle);
+  getPosition(body: PhysicsBody): [number, number, number] {
+    const state = this.getBodyState(body);
     return state ? [...state.position] as [number, number, number] : [0, 0, 0];
   }
 
-  setRotation(handle: RigidBodyHandle, rot: [number, number, number, number]): void {
-    const state = this.getBodyState(handle);
+  setRotation(body: PhysicsBody, rot: [number, number, number, number]): void {
+    const state = this.getBodyState(body);
     if (!state) return;
     state.rotation = [...rot] as [number, number, number, number];
     if (this.lib) {
-      this.lib.setRotation(handle.realmId, handle.bodyId, rot);
+      this.lib.setRotation(body.realmId, body.id, rot);
     }
   }
 
-  getRotation(handle: RigidBodyHandle): [number, number, number, number] {
-    const state = this.getBodyState(handle);
+  getRotation(body: PhysicsBody): [number, number, number, number] {
+    const state = this.getBodyState(body);
     return state ? [...state.rotation] as [number, number, number, number] : [0, 0, 0, 1];
   }
 
-  wakeUp(handle: RigidBodyHandle): void {
-    const state = this.getBodyState(handle);
+  wakeUp(body: PhysicsBody): void {
+    const state = this.getBodyState(body);
     if (!state) return;
     state.sleeping = false;
     if (this.lib) {
-      this.lib.wakeUp(handle.realmId, handle.bodyId);
+      this.lib.wakeUp(body.realmId, body.id);
     }
   }
 
-  isSleeping(handle: RigidBodyHandle): boolean {
-    const state = this.getBodyState(handle);
+  isSleeping(body: PhysicsBody): boolean {
+    const state = this.getBodyState(body);
     return state ? state.sleeping : false;
+  }
+
+  setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void {
+    if (this.lib) {
+      this.lib.setSleepThresholds(realmId, linearThreshold, angularThreshold);
+    }
+  }
+
+  setSolverIterations(realmId: number, iterations: number): void {
+    if (this.lib) {
+      this.lib.setSolverIterations(realmId, iterations);
+    }
+  }
+
+  setCCDEnabled(body: PhysicsBody, enabled: boolean): void {
+    if (this.lib) {
+      this.lib.setCCDEnabled(body.realmId, body.id, enabled);
+    }
   }
 
   raycast(
@@ -302,21 +321,21 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     let closest: RaycastResult | null = null;
     let closestDist = maxDistance;
 
-    for (const [bodyId, body] of realm.bodies) {
-      if (filter?.excludeEntity && body.handle.entity.index === filter.excludeEntity.index) continue;
+    for (const [, b] of realm.bodies) {
+      if (filter?.excludeEntity && b.body.entity.index === filter.excludeEntity.index) continue;
 
-      for (const collider of body.colliders.values()) {
+      for (const collider of b.colliders.values()) {
         const hit = raycastCollider(
           origin,
           direction,
           maxDistance,
-          body.position,
+          b.position,
           collider.shape,
         );
         if (hit && hit.distance < closestDist) {
           closestDist = hit.distance;
           closest = {
-            entity: body.handle.entity,
+            entity: b.body.entity,
             point: hit.point,
             normal: hit.normal,
             distance: hit.distance,
@@ -343,14 +362,14 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     const realm = this.realms.get(realmId);
     if (!realm) return [];
 
-    for (const [, body] of realm.bodies) {
-      if (filter?.excludeEntity && body.handle.entity.index === filter.excludeEntity.index) continue;
+    for (const [, b] of realm.bodies) {
+      if (filter?.excludeEntity && b.body.entity.index === filter.excludeEntity.index) continue;
 
-      for (const collider of body.colliders.values()) {
-        const hit = raycastCollider(origin, direction, maxDistance, body.position, collider.shape);
+      for (const collider of b.colliders.values()) {
+        const hit = raycastCollider(origin, direction, maxDistance, b.position, collider.shape);
         if (hit) {
           results.push({
-            entity: body.handle.entity,
+            entity: b.body.entity,
             point: hit.point,
             normal: hit.normal,
             distance: hit.distance,
@@ -401,6 +420,23 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     return realm ? realm.contacts : [];
   }
 
+  getIslands(realmId: number): IslandInfo[] {
+    if (this.lib) {
+      return this.lib.getIslands(realmId);
+    }
+    // Fallback: each body is its own island
+    const realm = this.realms.get(realmId);
+    if (!realm) return [];
+    const islands: IslandInfo[] = [];
+    for (const [bodyId, b] of realm.bodies) {
+      const speed = Math.sqrt(
+        b.linearVelocity[0] ** 2 + b.linearVelocity[1] ** 2 + b.linearVelocity[2] ** 2,
+      );
+      islands.push({ bodyIds: [bodyId], maxImportance: 0, avgVelocity: speed });
+    }
+    return islands;
+  }
+
   createCharacterController(realmId: number, desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle {
     const realm = this.realms.get(realmId);
     if (!realm) throw new Error(`Realm ${realmId} not found`);
@@ -425,12 +461,12 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     return this.characterMoveFallback(handle, desiredMovement, dt);
   }
 
-  createJoint(realmId: number, parentHandle: RigidBodyHandle, childHandle: RigidBodyHandle, desc: JointDesc): number {
+  createJoint(realmId: number, parentBody: PhysicsBody, childBody: PhysicsBody, desc: JointDesc): number {
     const realm = this.realms.get(realmId);
     if (!realm) throw new Error(`Realm ${realmId} not found`);
     const jointId = realm.nextJointId++;
     if (this.lib) {
-      this.lib.createJoint(realmId, parentHandle.bodyId, childHandle.bodyId, jointId, desc);
+      this.lib.createJoint(realmId, parentBody.id, childBody.id, jointId, desc);
     }
     return jointId;
   }
@@ -444,17 +480,17 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   syncTransforms(realmId: number, transformBuffer: Float32Array, entityCount: number): void {
     const realm = this.realms.get(realmId);
     if (!realm) return;
-    for (const [, body] of realm.bodies) {
-      const idx = body.handle.entity.index;
+    for (const [, b] of realm.bodies) {
+      const idx = b.body.entity.index;
       if (idx < entityCount) {
         const offset = idx * 8;
-        body.position[0] = transformBuffer[offset];
-        body.position[1] = transformBuffer[offset + 1];
-        body.position[2] = transformBuffer[offset + 2];
-        body.rotation[0] = transformBuffer[offset + 3];
-        body.rotation[1] = transformBuffer[offset + 4];
-        body.rotation[2] = transformBuffer[offset + 5];
-        body.rotation[3] = transformBuffer[offset + 6];
+        b.position[0] = transformBuffer[offset];
+        b.position[1] = transformBuffer[offset + 1];
+        b.position[2] = transformBuffer[offset + 2];
+        b.rotation[0] = transformBuffer[offset + 3];
+        b.rotation[1] = transformBuffer[offset + 4];
+        b.rotation[2] = transformBuffer[offset + 5];
+        b.rotation[3] = transformBuffer[offset + 6];
       }
     }
   }
@@ -462,18 +498,31 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   readTransforms(realmId: number, transformBuffer: Float32Array, entityCount: number): void {
     const realm = this.realms.get(realmId);
     if (!realm) return;
-    for (const [, body] of realm.bodies) {
-      const idx = body.handle.entity.index;
+    for (const [, b] of realm.bodies) {
+      const idx = b.body.entity.index;
       if (idx < entityCount) {
         const offset = idx * 8;
-        transformBuffer[offset] = body.position[0];
-        transformBuffer[offset + 1] = body.position[1];
-        transformBuffer[offset + 2] = body.position[2];
-        transformBuffer[offset + 3] = body.rotation[0];
-        transformBuffer[offset + 4] = body.rotation[1];
-        transformBuffer[offset + 5] = body.rotation[2];
-        transformBuffer[offset + 6] = body.rotation[3];
+        transformBuffer[offset] = b.position[0];
+        transformBuffer[offset + 1] = b.position[1];
+        transformBuffer[offset + 2] = b.position[2];
+        transformBuffer[offset + 3] = b.rotation[0];
+        transformBuffer[offset + 4] = b.rotation[1];
+        transformBuffer[offset + 5] = b.rotation[2];
+        transformBuffer[offset + 6] = b.rotation[3];
       }
+    }
+  }
+
+  serializeRealm(realmId: number): Uint8Array {
+    if (this.lib) {
+      return this.lib.serializeRealm(realmId);
+    }
+    return new Uint8Array(0);
+  }
+
+  deserializeRealm(realmId: number, data: Uint8Array): void {
+    if (this.lib) {
+      this.lib.deserializeRealm(realmId, data);
     }
   }
 
@@ -490,9 +539,9 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     this.realmIds = [];
   }
 
-  private getBodyState(handle: RigidBodyHandle): BodyState | undefined {
-    const realm = this.realms.get(handle.realmId);
-    return realm?.bodies.get(handle.bodyId);
+  private getBodyState(body: PhysicsBody): BodyState | undefined {
+    const realm = this.realms.get(body.realmId);
+    return realm?.bodies.get(body.id);
   }
 
   private characterMoveFallback(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult {
@@ -501,7 +550,11 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
     }
 
-    const body = realm.bodies.get(handle.entity.index);
+    // Find the body associated with this character controller's entity
+    let body: BodyState | null = null;
+    for (const b of realm.bodies.values()) {
+      if (b.body.entity.index === handle.entity.index) { body = b; break; }
+    }
     if (!body) {
       return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] };
     }
@@ -555,11 +608,11 @@ export class RapierPhysicsBackend implements PhysicsBackend {
 
   private readBackTransforms(realm: RealmState): void {
     if (!this.lib) return;
-    for (const [bodyId, body] of realm.bodies) {
+    for (const [bodyId, b] of realm.bodies) {
       const transform = this.lib.getBodyTransform(realm.id, bodyId);
       if (transform) {
-        body.position = transform.position;
-        body.rotation = transform.rotation;
+        b.position = transform.position;
+        b.rotation = transform.rotation;
       }
     }
   }
@@ -567,30 +620,30 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   private stepFallback(realm: RealmState, dt: number): void {
     const gravity = realm.config.gravity;
 
-    for (const [, body] of realm.bodies) {
-      if (body.desc.type !== "dynamic" || body.sleeping) continue;
+    for (const [, b] of realm.bodies) {
+      if (b.desc.type !== "dynamic" || b.sleeping) continue;
 
-      body.linearVelocity[0] += gravity[0] * (body.desc.gravityScale ?? 1) * dt;
-      body.linearVelocity[1] += gravity[1] * (body.desc.gravityScale ?? 1) * dt;
-      body.linearVelocity[2] += gravity[2] * (body.desc.gravityScale ?? 1) * dt;
+      b.linearVelocity[0] += gravity[0] * (b.desc.gravityScale ?? 1) * dt;
+      b.linearVelocity[1] += gravity[1] * (b.desc.gravityScale ?? 1) * dt;
+      b.linearVelocity[2] += gravity[2] * (b.desc.gravityScale ?? 1) * dt;
 
-      const damping = body.desc.linearDamping ?? 0;
+      const damping = b.desc.linearDamping ?? 0;
       const dampFactor = Math.max(0, 1 - damping * dt);
-      body.linearVelocity[0] *= dampFactor;
-      body.linearVelocity[1] *= dampFactor;
-      body.linearVelocity[2] *= dampFactor;
+      b.linearVelocity[0] *= dampFactor;
+      b.linearVelocity[1] *= dampFactor;
+      b.linearVelocity[2] *= dampFactor;
 
-      const angDamping = body.desc.angularDamping ?? 0;
+      const angDamping = b.desc.angularDamping ?? 0;
       const angDampFactor = Math.max(0, 1 - angDamping * dt);
-      body.angularVelocity[0] *= angDampFactor;
-      body.angularVelocity[1] *= angDampFactor;
-      body.angularVelocity[2] *= angDampFactor;
+      b.angularVelocity[0] *= angDampFactor;
+      b.angularVelocity[1] *= angDampFactor;
+      b.angularVelocity[2] *= angDampFactor;
 
-      body.position[0] += body.linearVelocity[0] * dt;
-      body.position[1] += body.linearVelocity[1] * dt;
-      body.position[2] += body.linearVelocity[2] * dt;
+      b.position[0] += b.linearVelocity[0] * dt;
+      b.position[1] += b.linearVelocity[1] * dt;
+      b.position[2] += b.linearVelocity[2] * dt;
 
-      integrateRotation(body.rotation, body.angularVelocity, dt);
+      integrateRotation(b.rotation, b.angularVelocity, dt);
     }
 
     realm.contacts = this.detectContacts(realm);
@@ -615,8 +668,8 @@ export class RapierPhysicsBackend implements PhysicsBackend {
             );
             if (contact) {
               contacts.push({
-                entityA: a.handle.entity,
-                entityB: b.handle.entity,
+                entityA: a.body.entity,
+                entityB: b.body.entity,
                 normal: contact.normal,
                 points: [contact.point],
                 penetrationDepth: contact.penetration,
@@ -855,24 +908,22 @@ function sphereAabb(
   boxPos: [number, number, number],
   halfExtents: [number, number, number],
 ): { normal: [number, number, number]; point: [number, number, number]; penetration: number } | null {
-  const dx = Math.max(boxPos[0] - halfExtents[0] - spherePos[0], 0, spherePos[0] - (boxPos[0] + halfExtents[0]));
-  const dy = Math.max(boxPos[1] - halfExtents[1] - spherePos[1], 0, spherePos[1] - (boxPos[1] + halfExtents[1]));
-  const dz = Math.max(boxPos[2] - halfExtents[2] - spherePos[2], 0, spherePos[2] - (boxPos[2] + halfExtents[2]));
+  const closest: [number, number, number] = [
+    Math.max(boxPos[0] - halfExtents[0], Math.min(spherePos[0], boxPos[0] + halfExtents[0])),
+    Math.max(boxPos[1] - halfExtents[1], Math.min(spherePos[1], boxPos[1] + halfExtents[1])),
+    Math.max(boxPos[2] - halfExtents[2], Math.min(spherePos[2], boxPos[2] + halfExtents[2])),
+  ];
+
+  const dx = spherePos[0] - closest[0];
+  const dy = spherePos[1] - closest[1];
+  const dz = spherePos[2] - closest[2];
   const distSq = dx * dx + dy * dy + dz * dz;
   if (distSq >= radius * radius) return null;
 
   const dist = Math.sqrt(distSq);
   const penetration = radius - dist;
-  let normal: [number, number, number];
-  if (dist > 1e-9) {
-    normal = [-dx / dist, -dy / dist, -dz / dist];
-  } else {
-    normal = [0, 1, 0];
-  }
-  const point: [number, number, number] = [
-    spherePos[0] + normal[0] * radius,
-    spherePos[1] + normal[1] * radius,
-    spherePos[2] + normal[2] * radius,
-  ];
-  return { normal, point, penetration };
+  const normal: [number, number, number] = dist > 1e-9
+    ? [dx / dist, dy / dist, dz / dist]
+    : [0, 1, 0];
+  return { normal, point: closest, penetration };
 }

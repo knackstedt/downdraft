@@ -1,4 +1,4 @@
-import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, Entity, JointDesc, RaycastResult, ShapeCastResult } from "@downdraft/core";
+import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, Entity, IslandInfo, JointDesc, RaycastResult, ShapeCastResult } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
 
 const log = createLogger();
@@ -66,6 +66,12 @@ export interface PhysicsLib {
     desc: JointDesc,
   ): void;
   destroyJoint(realmId: number, jointId: number): void;
+  setSolverIterations(realmId: number, iterations: number): void;
+  setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void;
+  setCCDEnabled(realmId: number, bodyId: number, enabled: boolean): void;
+  getIslands(realmId: number): IslandInfo[];
+  serializeRealm(realmId: number): Uint8Array;
+  deserializeRealm(realmId: number, data: Uint8Array): void;
   destroy(): void;
 }
 
@@ -168,6 +174,12 @@ async function tryLoadNative(): Promise<PhysicsLib | null> {
       characterMove() { return { grounded: false, groundNormal: [0, 1, 0], groundEntity: null, slid: false, stepped: false, effectiveMovement: [0, 0, 0] }; },
       createJoint() {},
       destroyJoint() {},
+      setSolverIterations() {},
+      setSleepThresholds() {},
+      setCCDEnabled() {},
+      getIslands() { return []; },
+      serializeRealm() { return new Uint8Array(0); },
+      deserializeRealm() {},
       destroy() {
         lib.symbols.dd_destroy();
       },

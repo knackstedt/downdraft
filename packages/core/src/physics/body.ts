@@ -4,8 +4,8 @@ import type { BodyType } from "./interface";
 export interface RigidBodyData {
   [key: string]: unknown;
   bodyType: BodyType;
-  handleRealmId: number;
-  handleBodyId: number;
+  bodyId: number;
+  realmId: number;
   mass: number;
   linearDamping: number;
   angularDamping: number;
@@ -19,8 +19,8 @@ export interface RigidBodyData {
 
 export const RigidBody = Component.register<RigidBodyData>("PhysicsRigidBody", {
   bodyType: "dynamic",
-  handleRealmId: -1,
-  handleBodyId: -1,
+  bodyId: -1,
+  realmId: -1,
   mass: 1,
   linearDamping: 0.1,
   angularDamping: 0.1,

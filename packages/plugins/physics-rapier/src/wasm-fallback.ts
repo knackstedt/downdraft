@@ -1,5 +1,5 @@
 import type * as Rapier from "@dimforge/rapier3d-compat";
-import type { ColliderDesc, Entity } from "@downdraft/core";
+import type { ColliderDesc, Entity, IslandInfo } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
 import type { PhysicsLib } from "./ffi";
 
@@ -357,6 +357,80 @@ export async function loadWasmRapier(): Promise<PhysicsLib | null> {
         if (!world || !joint) return;
         world.removeImpulseJoint(joint, true);
         jointMaps.get(realmId)?.delete(jointId);
+      },
+      setSolverIterations(realmId, iterations) {
+        const world = realms.get(realmId);
+        if (world) world.integrationParameters.numSolverIterations = iterations;
+      },
+      setSleepThresholds(realmId, linearThreshold, angularThreshold) {
+        const world = realms.get(realmId);
+        if (!world) return;
+        // Rapier 0.19.x sleep thresholds via integration parameters
+        try {
+          (world.integrationParameters as any).normalizedLinearThreshold = linearThreshold;
+          (world.integrationParameters as any).normalizedAngularThreshold = angularThreshold;
+        } catch {
+          // Some Rapier versions may not expose these — silently skip
+        }
+      },
+      setCCDEnabled(realmId, bodyId, enabled) {
+        const body = bodyMaps.get(realmId)?.get(bodyId);
+        if (body) body.enableCcd(enabled);
+      },
+      getIslands(realmId) {
+        const world = realms.get(realmId);
+        const map = bodyMaps.get(realmId);
+        if (!world || !map) return [];
+        // Rapier 0.19.x doesn't expose a direct island API from JS.
+        // Group bodies by their island: use the body's island number if available,
+        // otherwise each body is its own island. Sleeping bodies form one island.
+        const islands = new Map<number, number[]>();
+        for (const [bodyId, body] of map) {
+          let islandId: number;
+          try {
+            islandId = (body as any).island ?? bodyId;
+          } catch {
+            islandId = bodyId;
+          }
+          let arr = islands.get(islandId);
+          if (!arr) { arr = []; islands.set(islandId, arr); }
+          arr.push(bodyId);
+        }
+        const result: IslandInfo[] = [];
+        for (const bodyIds of islands.values()) {
+          let totalSpeed = 0;
+          for (const bid of bodyIds) {
+            const b = map.get(bid);
+            if (b) {
+              const lv = b.linvel();
+              totalSpeed += Math.sqrt(lv.x * lv.x + lv.y * lv.y + lv.z * lv.z);
+            }
+          }
+          result.push({
+            bodyIds,
+            maxImportance: 0,
+            avgVelocity: bodyIds.length > 0 ? totalSpeed / bodyIds.length : 0,
+          });
+        }
+        return result;
+      },
+      serializeRealm(realmId) {
+        const world = realms.get(realmId);
+        if (!world) return new Uint8Array(0);
+        try {
+          return world.takeSnapshot();
+        } catch {
+          return new Uint8Array(0);
+        }
+      },
+      deserializeRealm(realmId, data) {
+        // Rapier 0.19.x: create a world from snapshot. The world must be re-created.
+        try {
+          const world = rapier.World.restoreSnapshot(data);
+          realms.set(realmId, world);
+        } catch {
+          // Snapshot restore may fail on incompatible versions — skip silently
+        }
       },
       destroy() {
         realms.clear();

@@ -58,7 +58,7 @@ import {
     World as WorldClass
 } from "@downdraft/core";
 
-import type { Entity, RigidBodyHandle } from "@downdraft/core";
+import type { Entity, PhysicsBody } from "@downdraft/core";
 
 export interface EngineContextOptions {
   sceneName?: string;
@@ -92,7 +92,7 @@ export class EngineContext {
   entityMeshes: Map<string, string> = new Map();
   entityMaterials: Map<string, string> = new Map();
   physicsRealms: Map<string, PhysicsRealm> = new Map();
-  bodyHandles: Map<string, RigidBodyHandle> = new Map();
+  bodyHandles: Map<string, PhysicsBody> = new Map();
   raycastQuery: RaycastQuery | null = null;
   debugVisualizeMode: string = "none";
   audioEngine: AudioEngine | null = null;
