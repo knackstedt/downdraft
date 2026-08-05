@@ -7,7 +7,7 @@
     "jsx": "react-jsx",
     "types": ["node", "@webgpu/types", "vite/client"],
     "emitDeclarationOnly": true,
-    "outDir": "out",
+    "outDir": "dist",
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["packages/app/src/shared/*"],
@@ -76,5 +76,5 @@
     "packages/plugins/*/src/**/*.ts",
     "electron.vite.config.ts"
   ],
-  "exclude": ["out", "**/*.spec.ts"]
+  "exclude": ["dist", "**/*.spec.ts"]
 }
