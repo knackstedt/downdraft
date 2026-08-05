@@ -31,6 +31,7 @@ export interface SimulationEntityManagerAccess {
   freeSlots: number[];
   generations: Uint32Array;
   entityIndex: Map<EntityId, { slot: number; gen: number }>;
+  typeIndex: Map<EntityType, number[]>;
   players: SimPlayer[];
   playerCount: number;
   simWriter: SimBufferWriter;
@@ -100,8 +101,19 @@ export function spawnEntity(
   if (slot === sim.entityCount) sim.entityCount++;
   sim.entityIndex.set(id, { slot, gen });
 
+  // Track slot in the per-type index
+  let typeSlots = sim.typeIndex.get(type);
+  if (!typeSlots) {
+    typeSlots = [];
+    sim.typeIndex.set(type, typeSlots);
+  }
+  typeSlots.push(slot);
+
   // Sync to ECS bridge
   sim.ecs?.onSpawn(slot, sim.entities[slot]!);
+
+  // Mark SAB slot dirty so the renderer sees the new entity
+  sim.simWriter.markEntityDirty(slot);
 
   // Register island terrain for volumetric deformation
   if (type === EntityType.Island) {
@@ -142,17 +154,34 @@ export function removeEntity(sim: SimulationEntityManagerAccess, id: EntityId): 
     sim.physics?.remapEntityBody(lastIdx, idx);
     // Increment generation at lastIdx (the now-freed slot)
     sim.generations[lastIdx]++;
+    // Update type index: replace lastIdx with idx in the swapped entity's type array
+    const swappedTypeSlots = sim.typeIndex.get(lastEnt.type);
+    if (swappedTypeSlots) {
+      const swappedPos = swappedTypeSlots.indexOf(lastIdx);
+      if (swappedPos >= 0) swappedTypeSlots[swappedPos] = idx;
+    }
   }
   sim.entities[lastIdx] = undefined as any;
   sim.entityIndex.delete(id);
   sim.entityCount--;
   sim.freeSlots.push(lastIdx);
 
+  // Remove idx from its type's array (swap-remove within the type array)
+  const removedTypeSlots = sim.typeIndex.get(ent.type);
+  if (removedTypeSlots) {
+    const pos = removedTypeSlots.indexOf(idx);
+    if (pos >= 0) removedTypeSlots.splice(pos, 1);
+  }
+
   // Sync to ECS bridge
   sim.ecs?.onRemove(idx, id);
   if (lastIdx !== idx) {
     sim.ecs?.onRemap(lastIdx, idx);
   }
+
+  // Mark SAB slots dirty: the removed slot (now empty or swapped) and the freed slot
+  sim.simWriter.markEntityDirty(idx);
+  if (lastIdx !== idx) sim.simWriter.markEntityDirty(lastIdx);
 }
 
 export function getEntity(sim: SimulationEntityManagerAccess, id: EntityId): SimEntity | undefined {
@@ -166,6 +195,18 @@ export function getEntitySlot(sim: SimulationEntityManagerAccess, id: EntityId):
   if (entry === undefined) return -1;
   if (sim.generations[entry.slot] !== entry.gen) return -1;
   return entry.slot;
+}
+
+// Returns slot indices for all entities of the given type. O(1) lookup.
+// The returned array is the live internal array — do not mutate.
+export function getEntitiesByType(sim: SimulationEntityManagerAccess, type: EntityType): readonly number[] {
+  return sim.typeIndex.get(type) ?? EMPTY_SLOTS;
+}
+const EMPTY_SLOTS: number[] = [];
+
+// Alias for getEntity — reads more naturally at call sites that check existence by id.
+export function getEntityById(sim: SimulationEntityManagerAccess, id: EntityId): SimEntity | undefined {
+  return getEntity(sim, id);
 }
 
 export function addPlayer(sim: SimulationEntityManagerAccess, playerId: number, name: string): void {
@@ -216,6 +257,9 @@ export function addPlayer(sim: SimulationEntityManagerAccess, playerId: number, 
 
   // Sync to ECS bridge
   sim.ecs?.onAddPlayer(idx, sim.players[idx]!);
+
+  // Mark SAB player slot dirty
+  sim.simWriter.markPlayerDirty(idx);
 }
 
 export function removePlayer(sim: SimulationEntityManagerAccess, playerId: number): void {
@@ -237,6 +281,10 @@ export function removePlayer(sim: SimulationEntityManagerAccess, playerId: numbe
       if (lastIdx !== i) {
         sim.ecs?.onRemapPlayer(lastIdx, i);
       }
+
+      // Mark SAB player slots dirty
+      sim.simWriter.markPlayerDirty(i);
+      if (lastIdx !== i) sim.simWriter.markPlayerDirty(lastIdx);
       return;
     }
   }

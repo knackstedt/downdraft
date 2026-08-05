@@ -14,6 +14,9 @@ export class Query {
   private archetypes: Archetype[] = [];
   private cachedArchetypes: Set<number> = new Set();
 
+  private iterComps: unknown[] = [];
+  private iterColumns: unknown[][] = [];
+
   constructor(required: ComponentId[], excluded: ComponentId[] = [], changedFilter?: ComponentId) {
     this.descriptor = {
       required,
@@ -46,16 +49,24 @@ export class Query {
     const required = this.descriptor.required;
     const changedFilter = this.descriptor.changedFilter;
     const ncomps = required.length;
-    const comps = new Array(ncomps);
+    const comps = this.iterComps;
+    if (comps.length !== ncomps) comps.length = ncomps;
 
     for (let a = 0; a < this.archetypes.length; a++) {
       const arch = this.archetypes[a];
       const entities = arch.entities;
       const count = entities.length;
 
-      const columns: unknown[][] = new Array(ncomps);
-      for (let r = 0; r < ncomps; r++) {
-        columns[r] = getComponentColumn(arch, required[r]);
+      const columns = this.iterColumns;
+      if (columns.length !== ncomps) {
+        columns.length = ncomps;
+        for (let r = 0; r < ncomps; r++) {
+          columns[r] = getComponentColumn(arch, required[r]);
+        }
+      } else {
+        for (let r = 0; r < ncomps; r++) {
+          columns[r] = getComponentColumn(arch, required[r]);
+        }
       }
 
       if (changedFilter !== undefined) {

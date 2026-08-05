@@ -1,9 +1,12 @@
 // Fish AI — schooling, flocking, biome-specific species, flee from predators
+import { BroadPhaseGrid } from "@downdraft/core";
 import type { WildlifeEntity } from "../types";
 
 export function tickFishAI(
   ent: WildlifeEntity,
   allFish: WildlifeEntity[],
+  fishGrid: BroadPhaseGrid,
+  neighborOut: number[],
   sharkPositions: { x: number; z: number }[],
 ): void {
   const d = ent.data.data;
@@ -13,11 +16,17 @@ export function tickFishAI(
   if (d[2] === 0) d[2] = speed;
   const baseSpeed = d[2];
 
-  // Find nearby fish for schooling
+  // Find nearby fish for schooling via spatial grid (O(k) instead of O(N))
   let avgX = 0, avgZ = 0, alignX = 0, alignZ = 0, sepX = 0, sepZ = 0;
   let neighborCount = 0;
 
-  for (let i = 0; i < allFish.length; i++) {
+  // Query the 3x3 neighborhood around this fish. neighborOut is caller-owned
+  // and reused across calls; we must clear it before querying.
+  neighborOut.length = 0;
+  fishGrid.queryNeighbors(ent.transform.x, ent.transform.z, neighborOut);
+
+  for (let n = 0; n < neighborOut.length; n++) {
+    const i = neighborOut[n]!;
     const other = allFish[i];
     if (other === ent) continue;
     const dx = other.transform.x - ent.transform.x;

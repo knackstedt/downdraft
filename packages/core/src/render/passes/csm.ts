@@ -72,6 +72,8 @@ export class CSMPass extends RenderPass {
   private shaderModule: GPUShaderModule | null = null;
   private shadowTexture: GPUTexture | null = null;
   private shadowView: GPUTextureView | null = null;
+  // Per-cascade views for rendering to individual layers of the 2d-array texture.
+  private cascadeViews: GPUTextureView[] = [];
   private shadowSampler: GPUSampler | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private modelBuffer: GPUBuffer | null = null;
@@ -115,6 +117,16 @@ export class CSMPass extends RenderPass {
       dimension: "2d-array",
       arrayLayerCount: this.settings.cascadeCount,
     });
+
+    // Create per-cascade views for rendering to individual layers
+    this.cascadeViews = [];
+    for (let i = 0; i < this.settings.cascadeCount; i++) {
+      this.cascadeViews.push(this.shadowTexture.createView({
+        dimension: "2d",
+        baseArrayLayer: i,
+        arrayLayerCount: 1,
+      }));
+    }
 
     this.shadowSampler = this.device.createSampler({
       compare: "less",
@@ -293,11 +305,13 @@ export class CSMPass extends RenderPass {
     meshes: Array<{ mesh: MeshData; model: Mat4 }>,
   ): void {
     if (!this.shadowView || !this.shaderModule) return;
+    // Use the per-cascade view to render to the correct layer of the 2d-array texture
+    const cascadeView = this.cascadeViews[cascadeIndex] ?? this.shadowView;
 
     const pass = encoder.beginRenderPass({
       colorAttachments: [],
       depthStencilAttachment: {
-        view: this.shadowView,
+        view: cascadeView,
         depthClearValue: 1.0,
         depthLoadOp: "clear",
         depthStoreOp: "store",

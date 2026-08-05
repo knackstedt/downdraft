@@ -7,13 +7,15 @@
 // entities through the Simulation's lifecycle (fixes legacy bypass bug)
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext, type World } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimHealth, SimPlayerState, SimTransform, SimVelocity } from "./components";
-import { EntityType, EntityFlags, SecurityLevel, PirateRace } from "@shared/types";
+import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { EntityFlags, EntityType, PirateRace, SecurityLevel } from "@shared/types";
 import {
-  PIRATE_SPAWN_BASE_RATE, PIRATE_SPAWN_SAFE_MULT, PIRATE_SPAWN_EXTREME_MULT,
-  PIRATE_TREASURE_MAP_CHANCE,
+    PIRATE_SPAWN_BASE_RATE,
+    PIRATE_SPAWN_EXTREME_MULT,
+    PIRATE_SPAWN_SAFE_MULT,
+    PIRATE_TREASURE_MAP_CHANCE,
 } from "../../shared/constants";
+import { SimEntityData, SimEntityMeta, SimHealth, SimPlayerState, SimTransform, SimVelocity } from "./components";
 
 enum PirateState { Patrol, Chase, Attack, Board, Flee }
 
@@ -39,6 +41,9 @@ const ALL_PIRATE_RACES: PirateRace[] = [
 const pirates = new Map<number, PirateEntity>();
 let spawnTimer = 0;
 
+// Reusable player list — cleared and refilled each tick to avoid per-tick allocation.
+const playerList: { playerId: number; x: number; y: number; z: number; active: boolean }[] = [];
+
 export function createEcsPirateSystem(
   piratesQuery: Query,
   playersQuery: Query,
@@ -59,19 +64,19 @@ export function createEcsPirateSystem(
     (ctx: SystemContext) => {
       const dt = ctx.dt;
 
-      // --- Spawn check ---
-      spawnTimer += dt;
-      if (spawnTimer > 5) {
-        spawnTimer = 0;
-        trySpawnPirates(playersQuery, ctx.tick, getSecurityLevel, spawnEntity);
-      }
-
-      // --- Collect player data for AI targeting ---
-      const playerList: { playerId: number; x: number; y: number; z: number; active: boolean }[] = [];
+      // --- Collect player data for AI targeting (built once per tick, reused by spawn + AI) ---
+      playerList.length = 0;
       playersQuery.iterate(ctx.tick, (_entity, comps) => {
         const ps = comps[0] as ReturnType<typeof SimPlayerState.create>;
         playerList.push({ playerId: ps.playerId, x: ps.x, y: ps.y, z: ps.z, active: ps.active });
       });
+
+      // --- Spawn check ---
+      spawnTimer += dt;
+      if (spawnTimer > 5) {
+        spawnTimer = 0;
+        trySpawnPirates(playerList, getSecurityLevel, spawnEntity);
+      }
 
       // --- Update pirate AI ---
       piratesQuery.iterate(ctx.tick, (_entity, comps) => {
@@ -103,8 +108,7 @@ export function createEcsPirateSystem(
 }
 
 function trySpawnPirates(
-  playersQuery: Query,
-  currentTick: number,
+  players: { x: number; z: number; active: boolean }[],
   getSecurityLevel: (x: number, z: number) => SecurityLevel,
   spawnEntity: (type: EntityType, opts: {
     position: { x: number; y: number; z: number };
@@ -115,15 +119,9 @@ function trySpawnPirates(
     data?: Float32Array;
   }) => number,
 ): void {
-  const playerList: { x: number; z: number; active: boolean }[] = [];
-  playersQuery.iterate(currentTick, (_entity, comps) => {
-    const ps = comps[0] as ReturnType<typeof SimPlayerState.create>;
-    playerList.push({ x: ps.x, z: ps.z, active: ps.active });
-  });
+  if (players.length === 0) return;
 
-  if (playerList.length === 0) return;
-
-  for (const player of playerList) {
+  for (const player of players) {
     if (!player.active) continue;
 
     const security = getSecurityLevel(player.x, player.z);
@@ -280,3 +278,4 @@ export function shutdownEcsPirates(): void {
 
 export { pirates as ecsPiratesMap };
 export type { PirateEntity };
+

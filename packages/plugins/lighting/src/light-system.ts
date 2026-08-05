@@ -54,6 +54,8 @@ export class LightSystem extends LightingSystem {
   // SpotLight: 16 floats (64 bytes) each × MAX_SPOT_LIGHTS
   private lightDataArray: Float32Array<ArrayBuffer>;
   private lightDataU32: Uint32Array<ArrayBuffer>;
+  private prevNumPoints = 0;
+  private prevNumSpots = 0;
 
   // Debug gizmo rendering
   showDebugGizmos = false;
@@ -231,7 +233,17 @@ export class LightSystem extends LightingSystem {
 
     // Pack into Float32Array matching WGSL LightStorage struct layout
     const data = this.lightDataArray;
-    data.fill(0);
+
+    // Zero only stale slots from the previous frame (not the entire array)
+    const pointStart = 4 + numPoints * 8;
+    const pointEnd = 4 + Math.max(numPoints, this.prevNumPoints) * 8;
+    if (pointEnd > pointStart) data.fill(0, pointStart, pointEnd);
+    const spotBase = 4 + MAX_POINT_LIGHTS * 8;
+    const spotStart = spotBase + numSpots * 16;
+    const spotEnd = spotBase + Math.max(numSpots, this.prevNumSpots) * 16;
+    if (spotEnd > spotStart) data.fill(0, spotStart, spotEnd);
+    this.prevNumPoints = numPoints;
+    this.prevNumSpots = numSpots;
 
     // Header: numPointLights, numSpotLights, pad, pad (u32 values via Uint32Array view)
     this.lightDataU32[0] = numPoints;
@@ -254,7 +266,6 @@ export class LightSystem extends LightingSystem {
     }
 
     // Spot lights: 16 floats each starting at offset 4 + MAX_POINT_LIGHTS * 8
-    const spotBase = 4 + MAX_POINT_LIGHTS * 8;
     for (let i = 0; i < numSpots; i++) {
       const sl = this.spotLights[culledSpotIdx[i]];
       const off = spotBase + i * 16;

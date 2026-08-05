@@ -41,6 +41,7 @@ export interface SimulationCommandsAccess extends SimulationEntityManagerAccess 
   rules: Record<string, number | boolean>;
   gamemode: GameMode;
   timeOfDay: number;
+  profile?: boolean;
   entities: SimEntity[];
   entityCount: number;
   players: SimPlayer[];
@@ -306,6 +307,9 @@ export function setSetting(
       (sim.rules.portGenerationRate as number) ?? 0.015,
       (sim.rules.islandGenerationRate as number) ?? 0.00000025,
     );
+  }
+  if (key === "profile") {
+    sim.profile = !!value;
   }
 }
 

@@ -91,7 +91,17 @@ export class TelemetryCollector {
   private enabled: boolean;
   private threadMetrics: Map<string, ThreadMetrics> = new Map();
   private systemTimings: SystemTiming[] = [];
-  private frameTimes: number[] = [];
+  // Circular buffer for system timings — avoids O(n) array.shift().
+  private sysTimingsBuf: SystemTiming[] = [];
+  private sysTimingsHead: number = 0;
+  private sysTimingsCount: number = 0;
+  private readonly sysTimingsCap: number = 1000;
+  // Circular buffer for frame times — avoids O(n) array.shift() on every frame.
+  private frameTimesBuf: Float64Array;
+  private frameTimesHead: number = 0; // next write position
+  private frameTimesCount: number = 0; // number of valid entries (<= buf.length)
+  // Reusable sorted copy for percentile calculations — avoids per-call allocation.
+  private frameTimesSorted: Float64Array | null = null;
   private graphHistory: number[] = [];
   private maxGraphHistory: number = 120;
   private maxFrameHistory: number = 300;
@@ -105,6 +115,10 @@ export class TelemetryCollector {
 
   constructor(enabled: boolean = false) {
     this.enabled = enabled;
+    this.frameTimesBuf = new Float64Array(this.maxFrameHistory);
+    for (let i = 0; i < this.sysTimingsCap; i++) {
+      this.sysTimingsBuf.push({ name: "", durationMs: 0 });
+    }
   }
 
   setEnabled(enabled: boolean): void {
@@ -117,18 +131,27 @@ export class TelemetryCollector {
 
   recordFrame(frameTimeMs: number): void {
     if (!this.enabled) return;
-    this.frameTimes.push(frameTimeMs);
-    if (this.frameTimes.length > this.maxFrameHistory) {
-      this.frameTimes.shift();
-    }
+    this.frameTimesBuf[this.frameTimesHead] = frameTimeMs;
+    this.frameTimesHead = (this.frameTimesHead + 1) % this.frameTimesBuf.length;
+    if (this.frameTimesCount < this.frameTimesBuf.length) this.frameTimesCount++;
   }
 
   recordSystemTiming(name: string, durationMs: number): void {
     if (!this.enabled) return;
-    this.systemTimings.push({ name, durationMs });
-    if (this.systemTimings.length > 1000) {
-      this.systemTimings.shift();
-    }
+    const slot = this.sysTimingsBuf[this.sysTimingsHead]!;
+    slot.name = name;
+    slot.durationMs = durationMs;
+    this.sysTimingsHead = (this.sysTimingsHead + 1) % this.sysTimingsCap;
+    if (this.sysTimingsCount < this.sysTimingsCap) this.sysTimingsCount++;
+  }
+
+  // Convenience wrapper: times fn() and records the result. Zero overhead when disabled.
+  profile<T>(name: string, fn: () => T): T {
+    if (!this.enabled) return fn();
+    const start = performance.now();
+    const result = fn();
+    this.recordSystemTiming(name, performance.now() - start);
+    return result;
   }
 
   updateThreadMetrics(threadName: string, metrics: Partial<ThreadMetrics>): void {
@@ -157,27 +180,52 @@ export class TelemetryCollector {
   }
 
   getSystemTimings(): SystemTiming[] {
-    return [...this.systemTimings];
+    const result: SystemTiming[] = [];
+    const start = (this.sysTimingsHead - this.sysTimingsCount + this.sysTimingsCap) % this.sysTimingsCap;
+    for (let i = 0; i < this.sysTimingsCount; i++) {
+      const slot = this.sysTimingsBuf[(start + i) % this.sysTimingsCap]!;
+      result.push({ name: slot.name, durationMs: slot.durationMs });
+    }
+    return result;
   }
 
   getFrameTimes(): number[] {
-    return [...this.frameTimes];
+    // Return a contiguous copy of the circular buffer contents
+    const result: number[] = [];
+    result.length = this.frameTimesCount;
+    const start = (this.frameTimesHead - this.frameTimesCount + this.frameTimesBuf.length) % this.frameTimesBuf.length;
+    for (let i = 0; i < this.frameTimesCount; i++) {
+      result[i] = this.frameTimesBuf[(start + i) % this.frameTimesBuf.length];
+    }
+    return result;
   }
 
   getAverageFrameTime(): number {
-    if (this.frameTimes.length === 0) return 0;
+    if (this.frameTimesCount === 0) return 0;
     let sum = 0;
-    for (let i = 0; i < this.frameTimes.length; i++) {
-      sum += this.frameTimes[i];
+    const start = (this.frameTimesHead - this.frameTimesCount + this.frameTimesBuf.length) % this.frameTimesBuf.length;
+    for (let i = 0; i < this.frameTimesCount; i++) {
+      sum += this.frameTimesBuf[(start + i) % this.frameTimesBuf.length];
     }
-    return sum / this.frameTimes.length;
+    return sum / this.frameTimesCount;
   }
 
   getFrameTimePercentile(p: number): number {
-    if (this.frameTimes.length === 0) return 0;
-    const sorted = [...this.frameTimes].sort((a, b) => a - b);
-    const idx = Math.floor(sorted.length * p);
-    return sorted[Math.min(idx, sorted.length - 1)];
+    if (this.frameTimesCount === 0) return 0;
+    // Reuse a sorted copy buffer to avoid per-call allocation
+    const count = this.frameTimesCount;
+    if (!this.frameTimesSorted || this.frameTimesSorted.length < count) {
+      this.frameTimesSorted = new Float64Array(count);
+    }
+    const sorted = this.frameTimesSorted;
+    const start = (this.frameTimesHead - count + this.frameTimesBuf.length) % this.frameTimesBuf.length;
+    for (let i = 0; i < count; i++) {
+      sorted[i] = this.frameTimesBuf[(start + i) % this.frameTimesBuf.length];
+    }
+    // Sort only the valid portion in-place
+    sorted.subarray(0, count).sort();
+    const idx = Math.floor(count * p);
+    return sorted[Math.min(idx, count - 1)];
   }
 
   recordDrawStats(drawCalls: number, triangles: number): void {
@@ -333,9 +381,11 @@ export class TelemetryCollector {
   }
 
   reset(): void {
-    this.frameTimes.length = 0;
+    this.frameTimesHead = 0;
+    this.frameTimesCount = 0;
     this.graphHistory.length = 0;
-    this.systemTimings.length = 0;
+    this.sysTimingsHead = 0;
+    this.sysTimingsCount = 0;
     this.threadMetrics.clear();
     this.drawStats = { drawCalls: 0, triangles: 0 };
     this.lastDrawStats = { drawCalls: 0, triangles: 0 };

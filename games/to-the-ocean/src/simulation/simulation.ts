@@ -69,17 +69,14 @@ import { PlantSystem } from "./farming/plant-system";
 import { FishingSystem } from "./fishing/fishing-system";
 import { GameModeManager } from "./gamemode/game-mode-manager";
 import { InventoryGrid, createGrid, deserializeGrid, serializeGrid } from "./inventory/inventory-system";
-import { CollisionSystem } from "./physics/collision-system";
 import { RapierPhysicsSystem } from "./physics/rapier-physics-system";
 import { StructureIntegrity } from "./physics/structure-integrity";
-import { PirateSystem } from "./pirates/pirate-system";
 import { LicenseSystem } from "./player/license-system";
 import { PlayerManager } from "./player/player-manager";
 import { ProgressionTree } from "./progression/progression-tree";
 import { SurvivalBiomeAdapter, SurvivalSystem } from "./survival/survival-system";
 import { TerrainSystem } from "./terrain/terrain-system";
 import { ToolSystem } from "./tools/tool-system";
-import { WildlifeManager } from "./wildlife/wildlife-manager";
 import { BiomeSystem } from "./world/biome-system";
 import { ChunkManager } from "./world/chunk-manager";
 import { IslandManager } from "./world/island-manager";
@@ -106,6 +103,7 @@ export class Simulation implements ISimulation {
   public freeSlots: number[] = [];
   public generations = new Uint32Array(MAX_ENTITIES);
   public entityIndex = new Map<EntityId, { slot: number; gen: number }>();
+  public typeIndex = new Map<EntityType, number[]>();
 
   // Players
   public players: SimPlayer[] = [];
@@ -122,16 +120,13 @@ export class Simulation implements ISimulation {
   public biomeSystem: BiomeSystem;
   public weatherSystem: WeatherSystem;
   public structureIntegrity: StructureIntegrity;
-  public collisionSystem: CollisionSystem;
   public physics: RapierPhysicsSystem | null = null;
-  public wildlifeManager: WildlifeManager;
   public marketSystem: MarketSystem;
   public animalSystem: AnimalSystem;
   public plantSystem: PlantSystem;
   public petSystem: PetSystem;
   public survivalSystem: SurvivalSystem;
   public survivalBiomeAdapter: SurvivalBiomeAdapter;
-  public pirateSystem: PirateSystem;
   public dockingSystem: DockingSystem;
   public placeableSystem: PlaceableSystem;
   public fishingSystem: FishingSystem;
@@ -163,6 +158,7 @@ export class Simulation implements ISimulation {
   public seed: number;
   public reportedDead = new Set<number>();
   public seaState = 0.5; // smoothed wind-driven wave amplitude factor (0..1)
+  public profile = false; // when true, forwards per-system timings to main thread via perf_stats events
 
   constructor(
     simWriter: SimBufferWriter,
@@ -200,7 +196,6 @@ export class Simulation implements ISimulation {
     this.biomeSystem = new BiomeSystem();
     this.weatherSystem = new WeatherSystem(this.biomeSystem, (config.rules.weatherIntensity as number) ?? 1.0);
     this.structureIntegrity = new StructureIntegrity();
-    this.collisionSystem = new CollisionSystem();
     this.boatCellSystem = new BoatCellSystem();
     this.boatDesignSystem = new BoatDesignSystem();
     this.physics = new RapierPhysicsSystem(this.boatCellSystem);
@@ -209,14 +204,12 @@ export class Simulation implements ISimulation {
     this.boatSystem.setBoatDesignSystem(this.boatDesignSystem);
     this.anchorSystem = new AnchorSystem();
     this.boatSystem.setAnchorSystem(this.anchorSystem);
-    this.wildlifeManager = new WildlifeManager(this.chunkManager, this.biomeSystem, this.boatSystem);
     this.marketSystem = new MarketSystem();
     this.animalSystem = new AnimalSystem();
     this.plantSystem = new PlantSystem();
     this.petSystem = new PetSystem();
     this.survivalBiomeAdapter = new SurvivalBiomeAdapter(this.chunkManager, this.biomeSystem);
     this.survivalSystem = new SurvivalSystem(this.rules);
-    this.pirateSystem = new PirateSystem(this.chunkManager);
     this.dockingSystem = new DockingSystem();
     this.placeableSystem = new PlaceableSystem();
     this.fishingSystem = new FishingSystem(this.biomeSystem, this.weatherSystem, this.waterWriter, onEvent);
@@ -229,7 +222,6 @@ export class Simulation implements ISimulation {
     this.islandManager = new IslandManager(this.chunkManager);
     this.terrainSystem = new TerrainSystem();
     this.physics.setTerrainSystem(this.terrainSystem);
-    this.collisionSystem.setTerrainSystem(this.terrainSystem);
     this.toolSystem = new ToolSystem(this.terrainSystem);
     this.boatWriter.init();
     this.boatCellSystem.setBufferWriter(this.boatWriter);
@@ -429,7 +421,8 @@ export class Simulation implements ISimulation {
       await this.physics.init();
     }
 
-    // Write initial state to SAB
+    // Write initial state to SAB (mark all dirty so every slot is written on first pass)
+    this.simWriter.markAllDirty();
     this.writeToBuffer();
     this.boatCellSystem.markBufferDirty();
     this.boatCellSystem.writeToBuffer();
@@ -856,10 +849,8 @@ export class Simulation implements ISimulation {
   shutdown(): void {
     // Cleanup systems
     this.physics?.shutdown();
-    this.wildlifeManager.shutdown();
     this.ecs?.shutdownWildlife();
     this.ecs?.shutdownPirates();
-    this.pirateSystem.shutdown();
     this.portSystem.shutdown();
   }
 }

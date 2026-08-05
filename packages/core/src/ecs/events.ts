@@ -3,15 +3,18 @@ export interface EventChannel<T> {
   read(): T[];
   swap(): void;
   clear(): void;
+  isDirty(): boolean;
 }
 
 export function createEventChannel<T>(): EventChannel<T> {
   let current: T[] = [];
   let pending: T[] = [];
+  let dirty = false;
 
   return {
     send(event: T): void {
       pending.push(event);
+      dirty = true;
     },
     read(): T[] {
       const result = current;
@@ -23,11 +26,14 @@ export function createEventChannel<T>(): EventChannel<T> {
       current = pending;
       pending = tmp;
       pending.length = 0;
+      dirty = false;
     },
     clear(): void {
       current.length = 0;
       pending.length = 0;
+      dirty = false;
     },
+    isDirty(): boolean { return dirty; },
   };
 }
 
@@ -56,8 +62,9 @@ export class EventBus {
   }
 
   swapAll(): void {
+    // Only swap channels that received events this frame (lazy swap)
     for (const ch of this.channels.values()) {
-      ch.swap();
+      if (ch.isDirty()) ch.swap();
     }
   }
 

@@ -249,11 +249,17 @@ export class SimBufferWriter {
   private writer: ReturnType<typeof SimChannel.writer>;
   private entitySlots: ReturnType<typeof SimChannel.writer>["sections"]["entities"];
   private playerSlots: ReturnType<typeof SimChannel.writer>["sections"]["players"];
+  // Dirty flags: 1 = entity/player slot has changed since last writeToBuffer.
+  // writeToBuffer skips slots where the flag is 0. Cleared after each writeToBuffer.
+  private dirtyEntities: Uint8Array;
+  private dirtyPlayers: Uint8Array;
 
   constructor(sab: SharedArrayBuffer) {
     this.writer = SimChannel.writer(sab);
     this.entitySlots = this.writer.sections.entities;
     this.playerSlots = this.writer.sections.players;
+    this.dirtyEntities = new Uint8Array(MAX_ENTITIES);
+    this.dirtyPlayers = new Uint8Array(MAX_PLAYERS);
   }
 
   init() {
@@ -292,6 +298,33 @@ export class SimBufferWriter {
     const h = SimChannel.offsets.header;
     Atomics.add(this.writer.header.u32, h.tick, 1);
     this.writer.bumpSequence();
+  }
+
+  markEntityDirty(slot: number): void {
+    this.dirtyEntities[slot] = 1;
+  }
+
+  markPlayerDirty(slot: number): void {
+    this.dirtyPlayers[slot] = 1;
+  }
+
+  isEntityDirty(slot: number): boolean {
+    return this.dirtyEntities[slot] !== 0;
+  }
+
+  isPlayerDirty(slot: number): boolean {
+    return this.dirtyPlayers[slot] !== 0;
+  }
+
+  clearDirty(): void {
+    this.dirtyEntities.fill(0);
+    this.dirtyPlayers.fill(0);
+  }
+
+  // Mark all entities and players dirty (used on initial write or full re-sync).
+  markAllDirty(): void {
+    this.dirtyEntities.fill(1);
+    this.dirtyPlayers.fill(1);
   }
 
   getEntityF32(idx: number): Float32Array {

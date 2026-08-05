@@ -4,8 +4,8 @@ import { WeatherSystem } from "@downdraft/plugin-weather";
 import { SIM_TICK_DT } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
 import {
-    collectShoreSources,
-    type ShoreSource,
+  collectShoreSources,
+  type ShoreSource,
 } from "../shared/shore-damping";
 import { PLR_FLAG } from "../shared/sim-buffer";
 import { SimToMainMessage } from "../shared/types";
@@ -21,18 +21,18 @@ import { PlayerManager } from "./player/player-manager";
 import { ProgressionTree } from "./progression/progression-tree";
 import type { SimEntity, SimPlayer } from "./simulation";
 import {
-    broadcastShipHoldUpdate,
-    updateWaterBuffer,
-    writeToBuffer,
-    type SimulationBufferWriterAccess,
+  broadcastShipHoldUpdate,
+  updateWaterBuffer,
+  writeToBuffer,
+  type SimulationBufferWriterAccess,
 } from "./simulation-buffer-writer";
 import {
-    checkNightSkip,
-    determineCauseOfDeath,
-    getEntitySlot,
-    getPlayerCenterX,
-    getPlayerCenterZ,
-    type SimulationEntityManagerAccess,
+  checkNightSkip,
+  determineCauseOfDeath,
+  getEntitySlot,
+  getPlayerCenterX,
+  getPlayerCenterZ,
+  type SimulationEntityManagerAccess,
 } from "./simulation-entity-manager";
 import { SurvivalBiomeAdapter, SurvivalSystem } from "./survival/survival-system";
 import { TerrainSystem } from "./terrain/terrain-system";
@@ -72,10 +72,14 @@ export interface SimulationTickAccess extends SimulationBufferWriterAccess, Simu
   buoyancySimTime: number;
   rules: Record<string, number | boolean>;
   reportedDead: Set<number>;
+  profile?: boolean;
   _onEvent: (msg: SimToMainMessage) => void;
   spawnEntity: (type: any, opts: any) => number;
   removeEntity: (id: number) => void;
 }
+
+const perfSysTimes: { name: string; ms: number }[] = [];
+const perfPlayerMoveRequests: PlayerMoveRequest[] = [];
 
 export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT): Promise<void> {
   const tickStart = performance.now();
@@ -90,7 +94,8 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   checkNightSkip(sim);
 
   // Update systems in order
-  const sysTimes: { name: string; ms: number }[] = [];
+  const sysTimes: { name: string; ms: number }[] = perfSysTimes;
+  sysTimes.length = 0;
   const t0 = performance.now();
   sim.weatherSystem.tick(dt, sim.timeOfDay);
   sim.chunkManager.updateChunks(getPlayerCenterX(sim), getPlayerCenterZ(sim));
@@ -124,7 +129,7 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
 
   // Collect shore sources for water sampling before ECS step
   sim.buoyancySimTime += dt;
-  if (sim.buoyancyShoreSources.length < 128) sim.buoyancyShoreSources = [];
+  if (sim.buoyancyShoreSources.length < 128) sim.buoyancyShoreSources.length = 0;
   while (sim.buoyancyShoreSources.length < 128) sim.buoyancyShoreSources.push({ x: 0, z: 0, radius: 0, cutoutRadius: 0 });
   sim.buoyancyShoreCount = collectShoreSources(sim.entities, sim.entityCount, sim.buoyancyShoreSources);
   const t5 = performance.now();
@@ -134,7 +139,8 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   sysTimes.push({ name: "anchor", ms: t5a - t5 });
 
   // Compute player desired movement (WASD, gravity, swimming) before Rapier
-  let playerMoveRequests: PlayerMoveRequest[] = [];
+  let playerMoveRequests: PlayerMoveRequest[] = perfPlayerMoveRequests;
+  perfPlayerMoveRequests.length = 0;
   if (sim.inputReader) {
     playerMoveRequests = sim.playerManager.computeMovement(dt, sim.inputReader, sim.players, sim.playerCount, sim.entities, sim.entityCount);
   }
@@ -165,6 +171,23 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
 
   // Sync player entity positions after Rapier resolved collisions
   sim.playerManager.syncEntities(sim.players, sim.playerCount, sim.entities, sim.entityCount);
+
+  // Mark all non-static entities and all players dirty — physics moves most
+  // dynamic entities every tick. Static entities (islands/ports) are only marked
+  // dirty on spawn/despawn (in the entity manager), so they're skipped here.
+  // This is the coarse-grained approach; finer-grained per-system dirty marking
+  // can be added later for systems that only touch a subset of entities.
+  const EntityFlags_Static = 1; // EntityFlags.Static = 1 << 0
+  for (let i = 0; i < sim.entityCount; i++) {
+    const ent = sim.entities[i];
+    if (!ent) continue;
+    if ((ent.flags & EntityFlags_Static) !== 0) continue;
+    sim.simWriter.markEntityDirty(i);
+  }
+  for (let i = 0; i < sim.playerCount; i++) {
+    if (sim.players[i]) sim.simWriter.markPlayerDirty(i);
+  }
+
   const t5b = performance.now();
   sysTimes.push({ name: "playerMove+physics+sync", ms: t5b - t5 });
 
@@ -290,5 +313,20 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   if (tickEnd - tickStart > 50) {
     const slowSys = sysTimes.filter(s => s.ms > 5).map(s => `${s.name}=${s.ms.toFixed(1)}ms`).join(" ");
     console.error(`[SIM] Slow tick ${sim.totalTicks}: ${(tickEnd - tickStart).toFixed(1)}ms total, entities=${sim.entityCount} | ${slowSys}`);
+  }
+
+  // Forward per-system timings to the main thread when profiling is enabled.
+  // Throttled to every 30 ticks (~twice per second at 60fps) to avoid flooding.
+  if (sim.profile && sim.totalTicks % 30 === 0) {
+    sim._onEvent({
+      kind: "perf_stats",
+      data: {
+        tick: sim.totalTicks,
+        totalMs: tickEnd - tickStart,
+        entityCount: sim.entityCount,
+        playerCount: sim.playerCount,
+        systems: sysTimes.map(s => ({ name: s.name, ms: s.ms })),
+      },
+    });
   }
 }

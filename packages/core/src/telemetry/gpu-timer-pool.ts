@@ -96,7 +96,9 @@ export class GPUTimerPool {
     try {
       await this.readBuffer.mapAsync(GPUMapMode.READ);
       const data = new BigUint64Array(this.readBuffer.getMappedRange());
-      const results = new Map<number, number>();
+      // Reuse lastResults Map — clear() instead of new Map() to avoid per-read allocation
+      const results = this.lastResults;
+      results.clear();
 
       for (let i = 0; i < this.maxPasses; i++) {
         const begin = Number(data[i * 2]);
@@ -108,7 +110,6 @@ export class GPUTimerPool {
 
       this.readBuffer.unmap();
       this.bufferMapped = false;
-      this.lastResults = results;
       return results;
     } catch {
       this.bufferMapped = false;

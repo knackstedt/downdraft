@@ -42,13 +42,28 @@ export function getArchetypeForComponents(
   archetypes: Map<string, Archetype>,
   componentIds: ComponentId[],
 ): Archetype {
-  const key = [...componentIds].sort((a, b) => a - b).join(",");
+  // Use a numeric hash as the primary key to avoid string allocation.
+  // The string key is kept for debugging/inspection but is only generated on cache miss.
+  const sortedIds = [...componentIds].sort((a, b) => a - b);
+  const numericKey = archetypeNumericHash(sortedIds);
+  const key = numericKey.toString();
   let arch = archetypes.get(key);
   if (!arch) {
     arch = createArchetype(componentIds);
     archetypes.set(key, arch);
   }
   return arch;
+}
+
+// Fast numeric hash for sorted component IDs — avoids string allocation on the hot path.
+// Uses the same mixing constants as the spatial grid for good distribution.
+// The initial seed (1) ensures empty component sets don't collide with [0].
+function archetypeNumericHash(sortedIds: ComponentId[]): number {
+  let hash = 1;
+  for (let i = 0; i < sortedIds.length; i++) {
+    hash = ((hash * 73856093) ^ (sortedIds[i]! * 19349663)) >>> 0;
+  }
+  return hash;
 }
 
 export function addEntityToArchetype(arch: Archetype, entity: Entity, components: Map<ComponentId, unknown>): void {

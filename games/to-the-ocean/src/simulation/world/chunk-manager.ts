@@ -2,9 +2,9 @@
 // Chunk Manager — floating origin, chunked relative coordinates
 // ============================================================================
 
-import { WorldGenerator } from "../../shared/world/world-generator";
-import { ChunkInfo, PortDef, IslandDef, CHUNK_SIZE } from "./shared-constants";
 import { CHUNKS_VISIBLE } from "../../shared/constants";
+import { WorldGenerator } from "../../shared/world/world-generator";
+import { CHUNK_SIZE, ChunkInfo, IslandDef, PortDef } from "./shared-constants";
 
 interface LoadedChunk {
   info: ChunkInfo;
@@ -14,12 +14,20 @@ interface LoadedChunk {
 
 export class ChunkManager {
   private worldGen: WorldGenerator;
-  private loadedChunks = new Map<string, LoadedChunk>();
+  private loadedChunks = new Map<number, LoadedChunk>();
+  // Reusable set for needed chunks — avoids per-update allocation.
+  private neededChunks = new Set<number>();
   private centerX = NaN;
   private centerZ = NaN;
 
   constructor(worldGen: WorldGenerator) {
     this.worldGen = worldGen;
+  }
+
+  // Numeric chunk key — avoids string allocation from template literals.
+  // Chunks coords are typically in [-32768, 32767] range; offset to non-negative.
+  private static chunkKey(cx: number, cz: number): number {
+    return ((cx + 32768) & 0xFFFF) * 65536 + ((cz + 32768) & 0xFFFF);
   }
 
   updateChunks(worldX: number, worldZ: number): void {
@@ -33,13 +41,14 @@ export class ChunkManager {
 
     // Load chunks in radius
     const radius = CHUNKS_VISIBLE;
-    const needed = new Set<string>();
+    const needed = this.neededChunks;
+    needed.clear();
 
     for (let dz = -radius; dz <= radius; dz++) {
       for (let dx = -radius; dx <= radius; dx++) {
         const cx = this.centerX + dx;
         const cz = this.centerZ + dz;
-        const key = `${cx},${cz}`;
+        const key = ChunkManager.chunkKey(cx, cz);
         needed.add(key);
 
         if (!this.loadedChunks.has(key)) {
@@ -63,25 +72,25 @@ export class ChunkManager {
   }
 
   getChunkInfo(chunkX: number, chunkZ: number): ChunkInfo | null {
-    return this.loadedChunks.get(`${chunkX},${chunkZ}`)?.info ?? null;
+    return this.loadedChunks.get(ChunkManager.chunkKey(chunkX, chunkZ))?.info ?? null;
   }
 
   getBiomeAt(worldX: number, worldZ: number): number {
     const cx = Math.floor(worldX / CHUNK_SIZE);
     const cz = Math.floor(worldZ / CHUNK_SIZE);
-    return this.loadedChunks.get(`${cx},${cz}`)?.info.biome ?? 7; // default Ocean
+    return this.loadedChunks.get(ChunkManager.chunkKey(cx, cz))?.info.biome ?? 7; // default Ocean
   }
 
   getSecurityLevelAt(worldX: number, worldZ: number): number {
     const cx = Math.floor(worldX / CHUNK_SIZE);
     const cz = Math.floor(worldZ / CHUNK_SIZE);
-    return this.loadedChunks.get(`${cx},${cz}`)?.info.securityLevel ?? 0;
+    return this.loadedChunks.get(ChunkManager.chunkKey(cx, cz))?.info.securityLevel ?? 0;
   }
 
   getWaterDepthAt(worldX: number, worldZ: number): number {
     const cx = Math.floor(worldX / CHUNK_SIZE);
     const cz = Math.floor(worldZ / CHUNK_SIZE);
-    return this.loadedChunks.get(`${cx},${cz}`)?.info.waterDepth ?? 50;
+    return this.loadedChunks.get(ChunkManager.chunkKey(cx, cz))?.info.waterDepth ?? 50;
   }
 
   getNearbyPorts(worldX: number, worldZ: number, radius: number): PortDef[] {
@@ -92,7 +101,7 @@ export class ChunkManager {
       for (let dx = -chunkRadius; dx <= chunkRadius; dx++) {
         const cx = this.centerX + dx;
         const cz = this.centerZ + dz;
-        const chunk = this.loadedChunks.get(`${cx},${cz}`);
+        const chunk = this.loadedChunks.get(ChunkManager.chunkKey(cx, cz));
         if (chunk?.port) {
           const distSq = Math.pow(chunk.port.position.x - worldX, 2) + Math.pow(chunk.port.position.z - worldZ, 2);
           if (distSq < radius * radius) {
@@ -112,7 +121,7 @@ export class ChunkManager {
       for (let dx = -chunkRadius; dx <= chunkRadius; dx++) {
         const cx = this.centerX + dx;
         const cz = this.centerZ + dz;
-        const chunk = this.loadedChunks.get(`${cx},${cz}`);
+        const chunk = this.loadedChunks.get(ChunkManager.chunkKey(cx, cz));
         if (chunk?.island) {
           const distSq = Math.pow(chunk.island.position.x - worldX, 2) + Math.pow(chunk.island.position.z - worldZ, 2);
           if (distSq < radius * radius) {
@@ -129,7 +138,7 @@ export class ChunkManager {
   }
 
   reloadChunk(chunkX: number, chunkZ: number): void {
-    const key = `${chunkX},${chunkZ}`;
+    const key = ChunkManager.chunkKey(chunkX, chunkZ);
     if (!this.loadedChunks.has(key)) return;
     const info = this.worldGen.getChunkInfo(chunkX, chunkZ);
     const chunk: LoadedChunk = {
@@ -142,8 +151,10 @@ export class ChunkManager {
 
   reloadAll(): void {
     this.loadedChunks.forEach((_, key) => {
-      const parts = key.split(",");
-      this.reloadChunk(parseInt(parts[0], 10), parseInt(parts[1], 10));
+      // Decode numeric chunk key back to cx, cz
+      const cx = ((key >>> 16) & 0xFFFF) - 32768;
+      const cz = (key & 0xFFFF) - 32768;
+      this.reloadChunk(cx, cz);
     });
   }
 }

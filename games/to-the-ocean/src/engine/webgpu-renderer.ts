@@ -4,7 +4,7 @@
 // accessors → RendererAccessors
 // ============================================================================
 
-import { CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProj as engineCalculateViewProj, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type IRendererStateProvider } from "@downdraft/core";
+import { CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, Frustum, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type IRendererStateProvider } from "@downdraft/core";
 import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
@@ -193,8 +193,15 @@ export class WebGPURenderer implements IRendererStateProvider {
   private deviceLost = false;
   private lastInvalidLog = 0;
   private simWasValid = false;
+  private lastSimSequence = 0;
+  private frustum = new Frustum();
 
-  private depthTextures = new Map<string, GPUTexture>();
+  private depthTextures = new Map<string, { texture: GPUTexture; view: GPUTextureView }>();
+  private cachedSurfaceView: GPUTextureView | null = null;
+  private cachedSurfaceFrame = -1;
+  private surfaceFrameCounter = 0;
+  private pooledViewProj = new Float32Array(16);
+  private boatEntityIdToSlot = new Map<number, number>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -657,6 +664,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.lastTime = now;
     this.elapsedTime += dt;
     this.frameCount++;
+    this.surfaceFrameCounter++;
     this.fpsTimer += dt;
     if (this.fpsTimer >= 1) { this.accessors.fps = this.frameCount; this.frameCount = 0; this.fpsTimer = 0; }
     if (this.profilingOverlay) { this.profilingOverlay.update(dt); }
@@ -820,6 +828,18 @@ export class WebGPURenderer implements IRendererStateProvider {
     const lp = this.lightingSystem!.getLightingParams(timeOfDay, weatherType, visibility);
     this.entityRenderer!.beginFrame(camera, viewport.w, viewport.h, { sunDir: lp.sunDir, sunIntensity: lp.sunBrightness, ambient: lp.ambient, fogColor: lp.fogColor, wetness: lp.wetness });
     this.lightingSystem!.beginFrame();
+    // Compute view-projection matrix once per viewport
+    const viewProj = this.pooledViewProj;
+    engineCalculateViewProjInto(camera, viewProj);
+    // Extract frustum planes for entity culling (computed once per viewport)
+    this.frustum.extractFromViewProj(viewProj);
+    // Build boat entityId→slot map once per viewport for O(1) lookups
+    const boatMap = this.boatEntityIdToSlot;
+    boatMap.clear();
+    if (this.boatReader && this.boatReader.isValid()) {
+      const bc = this.boatReader.getBoatCount();
+      for (let bs = 0; bs < bc; bs++) { boatMap.set(this.boatReader.getBoatEntityId(bs), bs); }
+    }
     if (this.accessors.flashlightOn) {
       const ld: [number, number, number] = [camera.target[0] - camera.position[0], camera.target[1] - camera.position[1], camera.target[2] - camera.position[2]];
       const ll = Math.sqrt(ld[0] ** 2 + ld[1] ** 2 + ld[2] ** 2);
@@ -846,6 +866,11 @@ export class WebGPURenderer implements IRendererStateProvider {
       ePos.y = Number.isFinite(es.f32[ENT.POS_Y]) ? es.f32[ENT.POS_Y] : 0;
       ePos.z = Number.isFinite(es.f32[ENT.POS_Z]) ? es.f32[ENT.POS_Z] : 0;
       const scale = Number.isFinite(es.f32[ENT.SCALE]) ? es.f32[ENT.SCALE] : 1;
+      // Frustum cull: skip entities whose bounding sphere is outside the camera frustum.
+      // Uses a sphere centered at the entity position with radius = scale (conservative;
+      // most entities fit within their scale radius). This avoids per-entity draw call
+      // submission for off-screen entities.
+      if (!this.frustum.intersectsSphere([ePos.x, ePos.y, ePos.z], scale)) continue;
       const eRot = this.pooledEntRot;
       eRot.x = Number.isFinite(es.f32[ENT.ROT_X]) ? es.f32[ENT.ROT_X] : 0;
       eRot.y = Number.isFinite(es.f32[ENT.ROT_Y]) ? es.f32[ENT.ROT_Y] : 0;
@@ -853,8 +878,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       eRot.w = Number.isFinite(es.f32[ENT.ROT_W]) ? es.f32[ENT.ROT_W] : 1;
       let boatSlot = -1;
       if ((type === EntityType.Ship || type === EntityType.SmallCraft) && this.boatReader && this.boatReader.isValid()) {
-        const bc = this.boatReader.getBoatCount();
-        for (let bs = 0; bs < bc; bs++) { if (this.boatReader.getBoatEntityId(bs) === eid) { boatSlot = bs; break; } }
+        boatSlot = boatMap.get(eid) ?? -1;
       }
       const lt = performance.now() / 1000; const ef = es.u32[ENT.FLAGS];
       if (boatSlot >= 0 && this.boatReader) {
@@ -925,7 +949,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     // --- GPU render pass ---
     const encoder = this.device!.createCommandEncoder();
     this.entityRenderer!.dispatchSkinningCompute(encoder);
-    const colorView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenColorView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.context!.getCurrentTexture().createView();
+    const colorView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenColorView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.getSurfaceView();
     const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTexture(origViewport.w, origViewport.h);
     const isFirst = viewportIdx === 0;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
@@ -944,7 +968,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     su.sunDir[0] = ca / sl; su.sunDir[1] = sn / sl; su.sunDir[2] = rz / sl;
     su.moonDir[0] = -su.sunDir[0]; su.moonDir[1] = -su.sunDir[1]; su.moonDir[2] = -su.sunDir[2];
     su.sunIntensity = Math.max(0, sn); su.moonIntensity = Math.max(0, -sn);
-    su.viewProj = engineCalculateViewProj(camera);
+    su.viewProj = viewProj;
     su.cameraPos[0] = camera.position[0]; su.cameraPos[1] = camera.position[1]; su.cameraPos[2] = camera.position[2];
     su.timeOfDay = timeOfDay; su.weatherType = this.skyDisplayedWeatherType; su.time = this.elapsedTime; su.prevWeatherType = this.skyPrevWeatherType; su.weatherBlend = eb;
     this.skyDomePass!.setUniforms(su);
@@ -970,7 +994,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     }
     // Terrain
     if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Terrain", passEncoder, viewportIdx); }
-    const tvp = engineCalculateViewProj(camera);
+    const tvp = viewProj;
     const tc = this.pooledTerrainCameraPos; tc[0] = camera.position[0]; tc[1] = camera.position[1]; tc[2] = camera.position[2];
     this.terrainPass!.setUniforms({ viewProj: tvp, cameraPos: tc, time: performance.now() / 1000, patchSize: 512, originX: Math.round((playerPos.x - 256) / 4.0) * 4.0, originZ: Math.round((playerPos.z - 256) / 4.0) * 4.0, sunDir: lp.sunDir, sunIntensity: lp.sunIntensity, timeOfDay });
     this.terrainPass!.execute({ device: this.device, pass: passEncoder } as any);
@@ -992,7 +1016,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     // Water
     if (this.waterReader && this.waterReader.isValid()) {
       if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Water", passEncoder, viewportIdx); }
-      const wvp = engineCalculateViewProj(camera);
+      const wvp = viewProj;
       const ps = this.waterReader.getPatchSize(); const hg = (256 * ps) / 2;
       const ox = Math.round((camera.position[0] - hg) / ps) * ps; const oz = Math.round((camera.position[2] - hg) / ps) * ps;
       this.waterPass!.setHeightData(this.waterReader.heights);
@@ -1005,8 +1029,14 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.entityRenderer!.renderHitboxes(passEncoder); this.debugRaycast?.render(passEncoder);
     this.lightingSystem!.renderDebugGizmos(passEncoder, camera);
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Debug", passEncoder, viewportIdx); }
-    // Scene sync (throttled)
-    if (viewportIdx === 0) { this.sceneSync.maybeSync(500); }
+    // Scene sync (throttled) — skip when sim hasn't ticked since last frame
+    if (viewportIdx === 0) {
+      const seq = this.simReader.getSequence();
+      if (seq !== this.lastSimSequence) {
+        this.lastSimSequence = seq;
+        this.sceneSync.maybeSync(500);
+      }
+    }
     // Label overlay
     if (this.labelOverlay && viewportIdx === 0) {
       const ss = useSceneStore.getState();
@@ -1053,7 +1083,7 @@ export class WebGPURenderer implements IRendererStateProvider {
 
     // World-space UI (Electron OSR)
     if (this.osrManager) {
-      const viewProj = engineCalculateViewProj(camera);
+      const osrViewProj = viewProj;
       const cx = camera.target[0] - camera.position[0];
       const cy = camera.target[1] - camera.position[1];
       const cz = camera.target[2] - camera.position[2];
@@ -1064,7 +1094,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       const r2 = fx * camera.up[1] - fy * camera.up[0];
       const rl = Math.sqrt(r0 * r0 + r1 * r1 + r2 * r2) || 1;
       const osrCam: OSRCameraState = {
-        viewProj,
+        viewProj: osrViewProj,
         cameraRight: [r0 / rl, r1 / rl, r2 / rl],
         cameraUp: [camera.up[0], camera.up[1], camera.up[2]],
         cameraPosition: [camera.position[0], camera.position[1], camera.position[2]],
@@ -1111,12 +1141,26 @@ export class WebGPURenderer implements IRendererStateProvider {
     if (viewportIdx === this.viewportCount - 1) { this.entityRenderer!.cleanupStaleDecorations(); this.entityRenderer!.cleanupStaleIslandMeshes(); }
   }
 
+  private getSurfaceView(): GPUTextureView {
+    const frame = this.surfaceFrameCounter;
+    if (this.cachedSurfaceView && this.cachedSurfaceFrame === frame) {
+      return this.cachedSurfaceView;
+    }
+    this.cachedSurfaceView = this.context!.getCurrentTexture().createView();
+    this.cachedSurfaceFrame = frame;
+    return this.cachedSurfaceView;
+  }
+
   private createDepthTexture(w: number, h: number): GPUTextureView {
     if (!this.device) throw new Error("No device");
     const key = `${w}x${h}`;
-    let tex = this.depthTextures.get(key);
-    if (!tex) { tex = this.device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT }); this.depthTextures.set(key, tex); }
-    return tex.createView();
+    let entry = this.depthTextures.get(key);
+    if (!entry) {
+      const tex = this.device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+      entry = { texture: tex, view: tex.createView() };
+      this.depthTextures.set(key, entry);
+    }
+    return entry.view;
   }
 
   private sampleWaterHeightAt(x: number, z: number): number {
@@ -1253,7 +1297,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.gpuProfiler = null;
     this.telemetryCollector = null;
     this.device = null;
-    for (const tex of this.depthTextures.values()) { tex.destroy(); }
+    for (const entry of this.depthTextures.values()) { entry.texture.destroy(); }
     this.depthTextures.clear();
   }
 

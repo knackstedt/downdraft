@@ -222,4 +222,52 @@ describe("Query", () => {
 
     expect(q.count()).toBe(0);
   });
+
+  it("iterate should not allocate new arrays per call (regression for per-call allocation)", () => {
+    const arch = createArchetype([Position.id, Velocity.id]);
+    addEntityToArchetype(arch, makeEntity(1), new Map([
+      [Position.id, { x: 10, y: 0, lastChanged: 0 }],
+      [Velocity.id, { vx: 1, vy: 0, lastChanged: 0 }],
+    ]));
+
+    const q = query(Position.id, Velocity.id);
+    q.updateArchetypes([arch]);
+
+    let firstComps: unknown[] | null = null;
+    q.iterate(1, (_entity, comps) => {
+      firstComps = comps;
+    });
+
+    let secondComps: unknown[] | null = null;
+    q.iterate(2, (_entity, comps) => {
+      secondComps = comps;
+    });
+
+    expect(firstComps).not.toBeNull();
+    expect(secondComps).not.toBeNull();
+    expect(firstComps).toBe(secondComps);
+  });
+
+  it("iterate should produce correct results across multiple consecutive calls", () => {
+    const arch = createArchetype([Position.id]);
+    addEntityToArchetype(arch, makeEntity(1), new Map([
+      [Position.id, { x: 10, y: 0, lastChanged: 0 }],
+    ]));
+    addEntityToArchetype(arch, makeEntity(2), new Map([
+      [Position.id, { x: 20, y: 0, lastChanged: 0 }],
+    ]));
+
+    const q = query(Position.id);
+    q.updateArchetypes([arch]);
+
+    for (let iter = 0; iter < 5; iter++) {
+      const results: number[] = [];
+      q.iterate(iter + 1, (entity, comps) => {
+        const pos = comps[0] as { x: number; y: number };
+        results.push(pos.x);
+      });
+      expect(results).toEqual([10, 20]);
+      expect(q.descriptor.lastReadTick).toBe(iter + 1);
+    }
+  });
 });

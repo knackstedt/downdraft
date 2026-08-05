@@ -15,6 +15,7 @@ export class InstancedEntityRenderer {
   private instanceDataAb: ArrayBuffer | null = null;
   private instanceDataF32: Float32Array | null = null;
   private instanceDataU32: Uint32Array | null = null;
+  private instanceUploadView: Float32Array | null = null;
   private instanceCount = 0;
   private _lastFrameTriangles = 0;
   private frameUniformData = new Float32Array(32);
@@ -165,8 +166,13 @@ export class InstancedEntityRenderer {
 
   uploadInstanceData(): void {
     if (!this.instanceStorageBuffer || !this.instanceDataF32 || this.instanceCount === 0) return;
-    const view = new Float32Array(this.instanceDataF32.buffer as ArrayBuffer, 0, this.instanceCount * 12);
-    this.ctx.device.queue.writeBuffer(this.instanceStorageBuffer!, 0, view as any);
+    const viewLen = this.instanceCount * 12;
+    if (!this.instanceUploadView || this.instanceUploadView.buffer !== this.instanceDataF32.buffer) {
+      this.instanceUploadView = new Float32Array(this.instanceDataF32.buffer as ArrayBuffer, 0, viewLen);
+    } else if (this.instanceUploadView.length !== viewLen) {
+      this.instanceUploadView = new Float32Array(this.instanceDataF32.buffer as ArrayBuffer, 0, viewLen);
+    }
+    this.ctx.device.queue.writeBuffer(this.instanceStorageBuffer!, 0, this.instanceUploadView as any);
   }
 
   render(passEncoder: GPURenderPassEncoder): void {

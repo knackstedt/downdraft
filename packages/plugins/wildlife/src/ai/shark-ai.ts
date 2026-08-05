@@ -8,6 +8,7 @@ export function tickSharkAI(
   dt: number,
   players: WildlifePlayer[],
   ships: WildlifeShip[],
+  shipMap: Map<number, WildlifeShip>,
   deps: WildlifeDeps,
   config: WildlifeConfig,
 ): void {
@@ -29,7 +30,7 @@ export function tickSharkAI(
     if (!detectable && onBoat) {
       const shipId = deps.getOnboardShipId(player.playerId);
       if (shipId !== 0) {
-        const ship = ships.find(s => s.id === shipId);
+        const ship = shipMap.get(shipId);
         if (ship) {
           const shipSpeed = Math.abs(ship.data[config.shipDataSpeedIndex] ?? 0);
           if (shipSpeed > config.sharkDetectBoatSpeed) {

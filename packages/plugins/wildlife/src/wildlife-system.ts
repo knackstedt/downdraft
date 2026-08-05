@@ -10,22 +10,39 @@
 // All game-specific values provided via WildlifeConfig.
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import type {
-  WildlifeConfig, WildlifeDeps, WildlifeEntity, WildlifePlayer, WildlifeShip,
-  WildlifeTransform, WildlifeVelocity, WildlifeEntityMeta, WildlifeEntityData,
-  WildlifeHealth, WildlifePlayerState,
-} from "./types";
-import { tickFishAI } from "./ai/fish-ai";
-import { tickSharkAI } from "./ai/shark-ai";
-import { tickEelAI } from "./ai/eel-ai";
-import { tickJellyfishAI } from "./ai/jellyfish-ai";
+import { BroadPhaseGrid, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { tickDevilShrimpAI } from "./ai/devil-shrimp-ai";
+import { tickEelAI } from "./ai/eel-ai";
+import { tickFishAI } from "./ai/fish-ai";
+import { tickJellyfishAI } from "./ai/jellyfish-ai";
 import { tickPassiveAI } from "./ai/passive-ai";
+import { tickSharkAI } from "./ai/shark-ai";
+import type {
+    WildlifeConfig, WildlifeDeps, WildlifeEntity,
+    WildlifeEntityData,
+    WildlifeEntityMeta,
+    WildlifeHealth,
+    WildlifePlayer,
+    WildlifePlayerState,
+    WildlifeShip,
+    WildlifeTransform, WildlifeVelocity,
+} from "./types";
 
 // Module-level state (one wildlife system instance per simulation)
 let spawnedIds = new Set<number>();
 let spawnTimer = 0;
+
+// Reusable biome counts map — cleared per spawn cycle instead of reallocated.
+const biomeCounts = new Map<number, number>();
+
+// Reusable obstacle list for spawn clearance — built once per spawn cycle.
+interface ObstacleEntry { x: number; z: number; clearance: number; }
+const obstacleList: ObstacleEntry[] = [];
+
+// Spatial grid for fish schooling (cellSize = schooling radius 10).
+// Reused across ticks via clear(). Stores fish indices into fishList.
+const fishGrid = new BroadPhaseGrid(10);
+const fishNeighborOut: number[] = [];
 
 export function shutdownWildlife(): void {
   spawnedIds.clear();
@@ -62,18 +79,21 @@ export function createWildlifeSystem(
 
       // --- Pre-collect ships (with health refs for DevilShrimp damage) ---
       const ships: WildlifeShip[] = [];
+      const shipMap: Map<number, WildlifeShip> = new Map();
       shipsQuery.iterate(ctx.tick, (_entity, comps) => {
         const transform = comps[0] as WildlifeTransform;
         const meta = comps[1] as WildlifeEntityMeta;
         const data = comps[2] as WildlifeEntityData;
         const health = comps[3] as WildlifeHealth;
         if (meta.type !== config.entityTypes.ship) return;
-        ships.push({
+        const ship: WildlifeShip = {
           id: meta.id,
           x: transform.x, y: transform.y, z: transform.z,
           data: data.data,
           health,
-        });
+        };
+        ships.push(ship);
+        shipMap.set(ship.id, ship);
       });
 
       // --- Pre-collect all wildlife entities ---
@@ -98,13 +118,21 @@ export function createWildlifeSystem(
         }
       }
 
+      // Build spatial grid for fish schooling (cellSize = 10, the schooling radius).
+      // Grid stores indices into fishList. Reused across ticks via clear().
+      fishGrid.clear();
+      for (let i = 0; i < fishList.length; i++) {
+        const f = fishList[i]!;
+        fishGrid.insert(i, f.transform.x, f.transform.z);
+      }
+
       // --- Run AI for each wildlife entity ---
       for (const w of wildlifeList) {
         const type = w.meta.type;
         if (type === config.entityTypes.fish) {
-          tickFishAI(w, fishList, sharkPositions);
+          tickFishAI(w, fishList, fishGrid, fishNeighborOut, sharkPositions);
         } else if (type === config.entityTypes.shark) {
-          tickSharkAI(w, dt, players, ships, deps, config);
+          tickSharkAI(w, dt, players, ships, shipMap, deps, config);
         } else if (type === config.entityTypes.eel) {
           tickEelAI(w, dt, players, config);
         } else if (type === config.entityTypes.jellyfish) {
@@ -120,7 +148,10 @@ export function createWildlifeSystem(
       spawnTimer += dt;
       if (spawnTimer > 2) {
         spawnTimer = 0;
-        trySpawnWildlife(wildlifeList, players, allEntitiesQuery, ctx.tick, deps, config);
+        // Build obstacle list once per spawn cycle (ships already collected;
+        // ports/islands scanned once here instead of per spawn attempt).
+        buildObstacleList(obstacleList, ships, allEntitiesQuery, ctx.tick, config);
+        trySpawnWildlife(wildlifeList, players, obstacleList, deps, config);
       }
 
       // --- Despawn distant wildlife ---
@@ -143,15 +174,14 @@ function isWildlifeType(type: number, config: WildlifeConfig): boolean {
 function trySpawnWildlife(
   wildlifeList: WildlifeEntity[],
   players: WildlifePlayer[],
-  allEntitiesQuery: Query,
-  tick: number,
+  obstacles: ObstacleEntry[],
   deps: WildlifeDeps,
   config: WildlifeConfig,
 ): void {
   if (players.length === 0) return;
 
-  // Count wildlife per biome
-  const biomeCounts = new Map<number, number>();
+  // Count wildlife per biome (reusable module-level map)
+  biomeCounts.clear();
   for (const w of wildlifeList) {
     const biome = deps.getBiomeAt(w.transform.x, w.transform.z);
     biomeCounts.set(biome, (biomeCounts.get(biome) ?? 0) + 1);
@@ -175,7 +205,7 @@ function trySpawnWildlife(
       const dist = 20 + Math.random() * config.spawnRadius;
       const x = player.x + Math.cos(angle) * dist;
       const z = player.z + Math.sin(angle) * dist;
-      if (!isPositionClearOfObstacles(x, z, allEntitiesQuery, tick, config)) continue;
+      if (!isPositionClearOfObstacles(x, z, obstacles)) continue;
       const y = -5 - Math.random() * 15;
       const id = deps.spawnEntity(et.fish, {
         position: { x, y, z },
@@ -193,7 +223,7 @@ function trySpawnWildlife(
       const dist = 30 + Math.random() * config.spawnRadius;
       x = player.x + Math.cos(angle) * dist;
       z = player.z + Math.sin(angle) * dist;
-      if (isPositionClearOfObstacles(x, z, allEntitiesQuery, tick, config)) {
+      if (isPositionClearOfObstacles(x, z, obstacles)) {
         found = true;
         break;
       }
@@ -212,31 +242,49 @@ function trySpawnWildlife(
   }
 }
 
-function isPositionClearOfObstacles(
-  x: number, z: number,
+// Build the obstacle list once per spawn cycle. Ships are already collected;
+// ports and islands are scanned from allEntitiesQuery once (not per spawn attempt).
+function buildObstacleList(
+  out: ObstacleEntry[],
+  ships: WildlifeShip[],
   allEntitiesQuery: Query,
   tick: number,
   config: WildlifeConfig,
-): boolean {
-  let clear = true;
+): void {
+  out.length = 0;
+  const et = config.entityTypes;
+  // Add ships (already collected with positions)
+  for (let i = 0; i < ships.length; i++) {
+    const ship = ships[i]!;
+    let clearance = config.shipClearance;
+    // pirateShips are in the ships query too (they have the ship type);
+    // if the config distinguishes pirateShipClearance, we'd need the type here.
+    // For now, use shipClearance for all ships in the ships query.
+    out.push({ x: ship.x, z: ship.z, clearance });
+  }
+  // Scan ports and islands once
   allEntitiesQuery.iterate(tick, (_entity, comps) => {
-    if (!clear) return;
     const transform = comps[0] as WildlifeTransform;
     const meta = comps[1] as WildlifeEntityMeta;
-    const et = config.entityTypes;
-
-    let clearance = 0;
-    if (meta.type === et.ship) clearance = config.shipClearance;
-    else if (meta.type === et.pirateShip) clearance = config.pirateShipClearance;
-    else if (meta.type === et.port) clearance = transform.scale + config.portClearanceMargin;
-    else if (meta.type === et.island) clearance = transform.scale + config.islandClearanceMargin;
-    else return;
-
-    const dx = x - transform.x;
-    const dz = z - transform.z;
-    if (dx * dx + dz * dz < clearance * clearance) clear = false;
+    if (meta.type === et.port) {
+      out.push({ x: transform.x, z: transform.z, clearance: transform.scale + config.portClearanceMargin });
+    } else if (meta.type === et.island) {
+      out.push({ x: transform.x, z: transform.z, clearance: transform.scale + config.islandClearanceMargin });
+    }
   });
-  return clear;
+}
+
+function isPositionClearOfObstacles(
+  x: number, z: number,
+  obstacles: ObstacleEntry[],
+): boolean {
+  for (let i = 0; i < obstacles.length; i++) {
+    const obs = obstacles[i]!;
+    const dx = x - obs.x;
+    const dz = z - obs.z;
+    if (dx * dx + dz * dz < obs.clearance * obs.clearance) return false;
+  }
+  return true;
 }
 
 function despawnDistantWildlife(

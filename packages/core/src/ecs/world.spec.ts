@@ -1,10 +1,9 @@
-import { World } from "../ecs/world";
-import { getComponentId, component } from "../ecs/component";
-import { ROOT_ENTITY } from "../ecs/entity";
-import { Hierarchy } from "../ecs/hierarchy";
-import { Stage, system } from "../ecs/system";
-import { query, queryChanged } from "../ecs/query";
+import { component } from "../ecs/component";
 import { EventBus } from "../ecs/events";
+import { Hierarchy } from "../ecs/hierarchy";
+import { query, queryChanged } from "../ecs/query";
+import { Stage, system } from "../ecs/system";
+import { World } from "../ecs/world";
 
 const Transform = component("Transform", {
   pos: [0, 0, 0] as number[],
@@ -281,5 +280,56 @@ describe("ECS Queries", () => {
     });
 
     expect(count).toBe(1);
+  });
+
+  it("getArchetypeAndRow should return correct archetype and row for an entity", () => {
+    const world = new World();
+    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    const ar = world.getArchetypeAndRow(e);
+    expect(ar).not.toBeNull();
+    expect(ar!.arch).toBeDefined();
+    expect(ar!.row).toBeGreaterThanOrEqual(0);
+  });
+
+  it("getArchetypeAndRow should return null for a despawned entity", () => {
+    const world = new World();
+    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    world.despawn(e);
+    world.flushCommands();
+    expect(world.getArchetypeAndRow(e)).toBeNull();
+  });
+
+  it("archetypesDirty should be set on spawn and cleared on step", () => {
+    const world = new World();
+    expect(world.archetypesDirty).toBe(false);
+    world.spawn(new Map([[Transform.id, Transform.create()]]));
+    expect(world.archetypesDirty).toBe(true);
+    world.step(0.016);
+    expect(world.archetypesDirty).toBe(false);
+  });
+
+  it("archetypesDirty should be set on addComponent and cleared on flushCommands", () => {
+    const world = new World();
+    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    world.step(0.016);
+    expect(world.archetypesDirty).toBe(false);
+    world.addComponent(e, Velocity.id, Velocity.defaults);
+    world.flushCommands();
+    expect(world.archetypesDirty).toBe(false);
+  });
+
+  it("step should not call updateQueryArchetypes when no structural changes occurred", () => {
+    const world = new World();
+    const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    world.step(0.016);
+    world.archetypesDirty = false;
+
+    const q = query(Transform.id);
+    q.updateArchetypes(world.allArchetypes);
+    const initialCount = q.count();
+
+    world.step(0.016);
+    expect(world.archetypesDirty).toBe(false);
+    expect(q.count()).toBe(initialCount);
   });
 });

@@ -277,13 +277,18 @@ export class SimEcsWorld {
   // --- Sync (called before systems that use queries) ---
 
   syncEntities(entities: SimEntity[], entityCount: number): void {
+    const world = this.world;
     for (let i = 0; i < entityCount; i++) {
       const ent = entities[i];
       if (!ent) continue;
       const entity = this.slotToEntity.get(i);
       if (!entity) continue;
 
-      const transform = this.world.getComponent<TransformData>(entity, ComponentIds.Transform);
+      const ar = world.getArchetypeAndRow(entity);
+      if (!ar) continue;
+      const { arch, row } = ar;
+
+      const transform = arch.columns.get(ComponentIds.Transform)?.[row] as TransformData | undefined;
       if (transform) {
         transform.x = ent.position.x;
         transform.y = ent.position.y;
@@ -295,7 +300,7 @@ export class SimEcsWorld {
         transform.scale = ent.scale;
       }
 
-      const vel = this.world.getComponent<VelocityData>(entity, ComponentIds.Velocity);
+      const vel = arch.columns.get(ComponentIds.Velocity)?.[row] as VelocityData | undefined;
       if (vel) {
         vel.vx = ent.velocity.x;
         vel.vy = ent.velocity.y;
@@ -305,13 +310,13 @@ export class SimEcsWorld {
         vel.angVz = ent.angularVelocity.z;
       }
 
-      const health = this.world.getComponent<HealthData>(entity, ComponentIds.Health);
+      const health = arch.columns.get(ComponentIds.Health)?.[row] as HealthData | undefined;
       if (health) {
         health.health = ent.health;
         health.maxHealth = ent.maxHealth;
       }
 
-      const meta = this.world.getComponent<EntityMetaData>(entity, ComponentIds.EntityMeta);
+      const meta = arch.columns.get(ComponentIds.EntityMeta)?.[row] as EntityMetaData | undefined;
       if (meta) {
         meta.id = ent.id;
         meta.type = ent.type;
@@ -321,7 +326,7 @@ export class SimEcsWorld {
         meta.chunkZ = ent.chunkZ;
       }
 
-      const data = this.world.getComponent<EntityDataData>(entity, ComponentIds.EntityData);
+      const data = arch.columns.get(ComponentIds.EntityData)?.[row] as EntityDataData | undefined;
       if (data) {
         data.data = ent.data as Float32Array<ArrayBuffer>;
       }
@@ -329,13 +334,18 @@ export class SimEcsWorld {
   }
 
   syncPlayers(players: SimPlayer[], playerCount: number): void {
+    const world = this.world;
     for (let i = 0; i < playerCount; i++) {
       const p = players[i];
       if (!p) continue;
       const entity = this.slotToEntity.get(-1 - i);
       if (!entity) continue;
 
-      const state = this.world.getComponent<PlayerStateData>(entity, ComponentIds.PlayerState);
+      const ar = world.getArchetypeAndRow(entity);
+      if (!ar) continue;
+      const { arch, row } = ar;
+
+      const state = arch.columns.get(ComponentIds.PlayerState)?.[row] as PlayerStateData | undefined;
       if (state) {
         state.playerId = p.playerId;
         state.entityId = p.entityId;
@@ -373,7 +383,7 @@ export class SimEcsWorld {
         state.gold = p.gold;
       }
 
-      const inv = this.world.getComponent<PlayerInventoryData>(entity, ComponentIds.PlayerInventory);
+      const inv = arch.columns.get(ComponentIds.PlayerInventory)?.[row] as PlayerInventoryData | undefined;
       if (inv) {
         inv.inventory = p.inventory;
         inv.licenses = p.licenses;
@@ -384,13 +394,18 @@ export class SimEcsWorld {
   // --- Write-back (called after systems that modify ECS components) ---
 
   writeBackEntities(entities: SimEntity[], entityCount: number): void {
+    const world = this.world;
     for (let i = 0; i < entityCount; i++) {
       const ent = entities[i];
       if (!ent) continue;
       const entity = this.slotToEntity.get(i);
       if (!entity) continue;
 
-      const transform = this.world.getComponent<TransformData>(entity, ComponentIds.Transform);
+      const ar = world.getArchetypeAndRow(entity);
+      if (!ar) continue;
+      const { arch, row } = ar;
+
+      const transform = arch.columns.get(ComponentIds.Transform)?.[row] as TransformData | undefined;
       if (transform) {
         ent.position.x = transform.x;
         ent.position.y = transform.y;
@@ -402,7 +417,7 @@ export class SimEcsWorld {
         ent.scale = transform.scale;
       }
 
-      const vel = this.world.getComponent<VelocityData>(entity, ComponentIds.Velocity);
+      const vel = arch.columns.get(ComponentIds.Velocity)?.[row] as VelocityData | undefined;
       if (vel) {
         ent.velocity.x = vel.vx;
         ent.velocity.y = vel.vy;
@@ -412,13 +427,13 @@ export class SimEcsWorld {
         ent.angularVelocity.z = vel.angVz;
       }
 
-      const health = this.world.getComponent<HealthData>(entity, ComponentIds.Health);
+      const health = arch.columns.get(ComponentIds.Health)?.[row] as HealthData | undefined;
       if (health) {
         ent.health = health.health;
         ent.maxHealth = health.maxHealth;
       }
 
-      const meta = this.world.getComponent<EntityMetaData>(entity, ComponentIds.EntityMeta);
+      const meta = arch.columns.get(ComponentIds.EntityMeta)?.[row] as EntityMetaData | undefined;
       if (meta) {
         ent.id = meta.id;
         ent.type = meta.type;
@@ -431,13 +446,18 @@ export class SimEcsWorld {
   }
 
   writeBackPlayers(players: SimPlayer[], playerCount: number): void {
+    const world = this.world;
     for (let i = 0; i < playerCount; i++) {
       const p = players[i];
       if (!p) continue;
       const entity = this.slotToEntity.get(-1 - i);
       if (!entity) continue;
 
-      const state = this.world.getComponent<PlayerStateData>(entity, ComponentIds.PlayerState);
+      const ar = world.getArchetypeAndRow(entity);
+      if (!ar) continue;
+      const { arch, row } = ar;
+
+      const state = arch.columns.get(ComponentIds.PlayerState)?.[row] as PlayerStateData | undefined;
       if (state) {
         p.playerId = state.playerId;
         p.entityId = state.entityId;

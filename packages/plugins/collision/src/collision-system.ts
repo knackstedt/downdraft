@@ -11,11 +11,13 @@
 // Replaces legacy CollisionSystem.tick().
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { BroadPhaseGrid, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import type {
-  CollisionConfig, CollisionDeps,
-  CollisionTransform, CollisionVelocity, CollisionEntityMeta, CollisionEntityData,
-  CollisionPlayerState, VoxelFieldLike, PortColliderDims,
+    CollisionConfig, CollisionDeps,
+    CollisionEntityData,
+    CollisionEntityMeta,
+    CollisionPlayerState,
+    CollisionTransform, CollisionVelocity
 } from "./types";
 
 // Pre-allocated arrays for entity collection (avoid GC pressure)
@@ -57,6 +59,18 @@ export function createCollisionSystem(
     config.entityTypes.ship, config.entityTypes.smallCraft, config.entityTypes.pirateShip,
   ]);
 
+  // Spatial grid for dynamic entities (broad phase). Cell size = 2x max wildlife radius.
+  // Reused across ticks via clear(). Only near-player dynamic entities are inserted.
+  const grid = new BroadPhaseGrid(config.spatialGridCellSize ?? 10);
+  // Reusable neighbor query output array (caller-owned, avoids per-query allocation).
+  const neighborOut: number[] = [];
+
+  // Separate list for static entities (islands/ports). These are too large for the grid
+  // (scale up to ~200, would span hundreds of cells). Each dynamic entity tests against
+  // the full static list — with ~50 islands/ports in range this is O(n·50), acceptable.
+  const staticEntities: CollisionEntity[] = [];
+  let staticCount = 0;
+
   return system(
     "collision-system",
     Stage.Update,
@@ -75,7 +89,11 @@ export function createCollisionSystem(
       });
 
       // --- Phase 2: Collect non-ship, non-player entities ---
+      // Dynamic entities go into the entities[] buffer + spatial grid.
+      // Static entities (islands/ports) go into a separate small list.
       let entityCount = 0;
+      staticCount = 0;
+      grid.clear();
       allEntitiesQuery.iterate(ctx.tick, (_entity, comps) => {
         if (entityCount >= MAX_COLLISION_ENTITIES) return;
         const transform = comps[0] as CollisionTransform;
@@ -86,6 +104,41 @@ export function createCollisionSystem(
         if (shipTypes.has(meta.type)) return;
         if (meta.type === config.entityTypes.player) return;
 
+        const isStatic = (meta.flags & config.entityFlags.static) !== 0;
+
+        // Check if near any player (LOD culling)
+        let nearPlayer = false;
+        for (let p = 0; p < playerPosCount; p++) {
+          const dx = transform.x - playerPositions[p * 2];
+          const dz = transform.z - playerPositions[p * 2 + 1];
+          if (dx * dx + dz * dz <= lodDistSq) { nearPlayer = true; break; }
+        }
+
+        if (isStatic) {
+          // Static entities go into the separate list (not the grid).
+          // Only collect near-player statics to keep the list small.
+          if (!nearPlayer) return;
+          const statEnt = staticEntities[staticCount] ?? (staticEntities[staticCount] = {
+            transform: { x: 0, y: 0, z: 0, rotX: 0, rotY: 0, rotZ: 0, rotW: 1, scale: 1 },
+            velocity: { vx: 0, vy: 0, vz: 0, angVx: 0, angVy: 0, angVz: 0 },
+            meta: { id: 0, type: 0, flags: 0, parentId: 0, chunkX: 0, chunkZ: 0 },
+            data: { data: new Float32Array(0) },
+            isStatic: true,
+            nearPlayer: true,
+          });
+          statEnt.transform.x = transform.x;
+          statEnt.transform.y = transform.y;
+          statEnt.transform.z = transform.z;
+          statEnt.transform.scale = transform.scale;
+          statEnt.meta.id = meta.id;
+          statEnt.meta.type = meta.type;
+          statEnt.meta.flags = meta.flags;
+          statEnt.data.data = data.data;
+          staticCount++;
+          return;
+        }
+
+        // Dynamic entity: collect into entities[] buffer
         const ent = entities[entityCount];
         ent.transform.x = transform.x;
         ent.transform.y = transform.y;
@@ -98,49 +151,45 @@ export function createCollisionSystem(
         ent.meta.type = meta.type;
         ent.meta.flags = meta.flags;
         ent.data.data = data.data;
-        ent.isStatic = (meta.flags & config.entityFlags.static) !== 0;
+        ent.isStatic = false;
+        ent.nearPlayer = nearPlayer;
 
-        // Check if near any player
-        ent.nearPlayer = false;
-        for (let p = 0; p < playerPosCount; p++) {
-          const dx = transform.x - playerPositions[p * 2];
-          const dz = transform.z - playerPositions[p * 2 + 1];
-          if (dx * dx + dz * dz <= lodDistSq) { ent.nearPlayer = true; break; }
+        // Only insert near-player dynamic entities into the grid (shrinks broad phase).
+        if (nearPlayer) {
+          grid.insert(entityCount, transform.x, transform.z);
         }
 
         entityCount++;
       });
 
-      // --- Phase 3: O(n²) pairwise collision detection ---
+      // --- Phase 3: Broad-phase via spatial grid + narrow-phase collision ---
+      // For each near-player dynamic entity, query grid neighbors (3x3 cells) for
+      // other dynamic entities, then test against the full static list.
       for (let i = 0; i < entityCount; i++) {
         const a = entities[i];
+        if (!a.nearPlayer) continue; // skip far entities entirely
 
-        for (let j = i + 1; j < entityCount; j++) {
+        // Dynamic vs dynamic: query grid neighbors (pair dedup via j > i)
+        neighborOut.length = 0;
+        grid.queryNeighbors(a.transform.x, a.transform.z, neighborOut);
+        for (let n = 0; n < neighborOut.length; n++) {
+          const j = neighborOut[n];
+          if (j <= i) continue; // pair dedup: only test each pair once
           const b = entities[j];
-
-          // Skip if both static
-          if (a.isStatic && b.isStatic) continue;
-
-          // LOD culling: skip pairs where neither entity is near any player
-          if (!a.nearPlayer && !b.nearPlayer) continue;
-
-          if (a.isStatic || b.isStatic) {
-            // Dynamic vs static collision
-            const dynEnt = a.isStatic ? b : a;
-            const statEnt = a.isStatic ? a : b;
-
-            if (statEnt.meta.type === config.entityTypes.port) {
-              collidePort(dynEnt, statEnt, config, deps);
-            } else if (statEnt.meta.type === config.entityTypes.island) {
-              collideIsland(dynEnt, statEnt, config, deps);
-            } else {
-              collideGenericStatic(dynEnt, statEnt, config);
-            }
-            continue;
-          }
-
-          // Both dynamic: push both apart
+          if (!b || !b.nearPlayer) continue;
           collideDynamicPair(a, b, config);
+        }
+
+        // Dynamic vs static: test against all near-player static entities
+        for (let s = 0; s < staticCount; s++) {
+          const statEnt = staticEntities[s]!;
+          if (statEnt.meta.type === config.entityTypes.port) {
+            collidePort(a, statEnt, config, deps);
+          } else if (statEnt.meta.type === config.entityTypes.island) {
+            collideIsland(a, statEnt, config, deps);
+          } else {
+            collideGenericStatic(a, statEnt, config);
+          }
         }
       }
     },

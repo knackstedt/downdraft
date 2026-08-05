@@ -55,22 +55,26 @@ const tmpView = new Float32Array(16);
 const tmpResult = new Float32Array(16);
 
 export function calculateViewProj(camera: CameraState): Float32Array {
+  return calculateViewProjInto(camera, tmpResult);
+}
+
+export function calculateViewProjInto(camera: CameraState, target: Float32Array): Float32Array {
   if (camera.projectionMatrix && camera.viewMatrix) {
-    return mat4.multiply(camera.projectionMatrix, camera.viewMatrix, tmpResult);
+    return mat4.multiply(camera.projectionMatrix, camera.viewMatrix, target);
   }
   if (camera.projectionMatrix) {
     mat4.lookAt(camera.position, camera.target, camera.up, tmpView);
-    return mat4.multiply(camera.projectionMatrix, tmpView, tmpResult);
+    return mat4.multiply(camera.projectionMatrix, tmpView, target);
   }
   if (camera.viewMatrix) {
     const fov = (camera.fov * Math.PI) / 180;
     mat4.perspective(fov, camera.aspect, camera.near, camera.far, tmpProj);
-    return mat4.multiply(tmpProj, camera.viewMatrix, tmpResult);
+    return mat4.multiply(tmpProj, camera.viewMatrix, target);
   }
   const fov = (camera.fov * Math.PI) / 180;
   mat4.perspective(fov, camera.aspect, camera.near, camera.far, tmpProj);
   mat4.lookAt(camera.position, camera.target, camera.up, tmpView);
-  return mat4.multiply(tmpProj, tmpView, tmpResult);
+  return mat4.multiply(tmpProj, tmpView, target);
 }
 
 export function invertMat4(m: Float32Array): Float32Array {
