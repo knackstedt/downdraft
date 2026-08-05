@@ -1409,3 +1409,43 @@ input[type="number"]:focus, input[type="text"]:focus {
   flex-shrink: 0;
   font-size: 12px;
 }
+
+/* Physics Profiler */
+.physics-profiler-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: normal;
+  margin-left: 8px;
+  cursor: pointer;
+}
+.physics-profiler-toggle input {
+  margin: 0;
+}
+.physics-timing-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+  padding: 4px 0;
+}
+.physics-timing-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 4px;
+  border-bottom: 1px solid #333;
+  font-size: 11px;
+}
+.physics-timing-label {
+  color: #9cdcfe;
+}
+.physics-timing-value {
+  color: #ce9178;
+  font-family: monospace;
+}
+.physics-timing-bar {
+  height: 3px;
+  background: #007acc;
+  border-radius: 1px;
+  margin-top: 1px;
+}

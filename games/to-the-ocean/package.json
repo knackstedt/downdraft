@@ -28,7 +28,7 @@
     "@fontsource/special-elite": "^5.1.1",
     "@fontsource/urbanist": "^5.1.1",
     "@fontsource/wavefont": "^5.1.1",
-    "@dimforge/rapier3d-compat": "^0.14.0",
+    "@dimforge/rapier3d-compat": "^0.19.3",
     "@floating-ui/react": "^0.27.0",
     "fflate": "^0.8.2",
     "framer-motion": "^11.15.0",

@@ -179,6 +179,10 @@ expose({
     return simLoop?.getSpeed() ?? 1.0;
   },
 
+  setPhysicsProfiler(enabled: boolean) {
+    simulation?.getPhysics()?.setProfilerEnabled(enabled);
+  },
+
   async restoreFromState(stateJson: string): Promise<void> {
     if (!simulation || !stateHelper) throw new Error("Simulation not initialized");
     simLoop?.pause();

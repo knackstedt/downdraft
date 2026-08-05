@@ -39,6 +39,7 @@ type SimApi = {
   setTimeOfDay(time: number): Promise<void>;
   setSimSpeed(speed: number): Promise<void>;
   getSimSpeed(): Promise<number>;
+  setPhysicsProfiler(enabled: boolean): Promise<void>;
   restoreFromState(stateJson: string): Promise<void>;
 };
 
@@ -162,6 +163,10 @@ export class SimWebWorker implements IHotReloadable {
   async getSimSpeed(): Promise<number> {
     if (!this.wp) return 1.0;
     return this.wp.proxy.getSimSpeed().catch(() => 1.0);
+  }
+
+  setPhysicsProfiler(enabled: boolean): void {
+    this.wp?.proxy.setPhysicsProfiler(enabled).catch(() => {});
   }
 
   async restoreFromState(stateJson: string): Promise<void> {

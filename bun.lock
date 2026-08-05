@@ -6,7 +6,7 @@
       "name": "downdraft-engine",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
-        "@dimforge/rapier3d-compat": "^0.14.0",
+        "@dimforge/rapier3d-compat": "^0.19.3",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "xxhash-wasm": "^0.4.2",
@@ -52,7 +52,7 @@
       "name": "to-the-ocean",
       "version": "0.1.0",
       "dependencies": {
-        "@dimforge/rapier3d-compat": "^0.14.0",
+        "@dimforge/rapier3d-compat": "^0.19.3",
         "@downdraft/core": "workspace:*",
         "@downdraft/plugin-boats": "workspace:*",
         "@downdraft/plugin-buoyancy": "workspace:*",
@@ -448,7 +448,7 @@
 
     "@develar/schema-utils": ["@develar/schema-utils@2.6.5", "", { "dependencies": { "ajv": "^6.12.0", "ajv-keywords": "^3.4.1" } }, "sha512-0cp4PsWQ/9avqTVMCtZ+GirikIA36ikvjtHweU4/j8yLtgObI0+JUPhYFScgwlteveGB1rt3Cm8UhN04XayDig=="],
 
-    "@dimforge/rapier3d-compat": ["@dimforge/rapier3d-compat@0.14.0", "", {}, "sha512-/uHrUzS+CRQ+NQrrJCEDUkhwHlNsAAexbNXgbN9sHY+GwR+SFFAFrxRr8Llf5/AJZzqiLANdQIfJ63Cw4gJVqw=="],
+    "@dimforge/rapier3d-compat": ["@dimforge/rapier3d-compat@0.19.3", "", {}, "sha512-mMVdSj1PRTT108s9Swbu2GQOmHbn8kbJANRV5xfczL3s0T4vkgZAuoMRgvBzQcHanpKusbC0ZJj6z3mC3aj3vg=="],
 
     "@downdraft/app": ["@downdraft/app@workspace:packages/app"],
 
