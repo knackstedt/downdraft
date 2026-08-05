@@ -12,6 +12,7 @@
       <button id="btn-view-scene" class="tab active" title="Scene tree view">Scene</button>
       <button id="btn-view-import" class="tab" title="Import models">Import</button>
       <button id="btn-view-perf" class="tab" title="External performance charts">Performance</button>
+      <button id="btn-view-gc" class="tab" title="GC Monitoring & Control">GC</button>
       <button id="btn-view-material" class="tab" title="Node Material Editor">Material</button>
       <button id="btn-view-rendergraph" class="tab" title="Node Render Graph Editor">Render Graph</button>
       <button id="btn-view-particles" class="tab" title="Node Particle Editor">Particles</button>
@@ -122,6 +123,52 @@
               <p class="empty-state">Enable profiler to see timing breakdown</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div id="gc-panel" style="display:none">
+        <div class="panel-header">
+          <h3>GC Monitoring &amp; Control</h3>
+          <span id="gc-status" class="perf-status">Waiting for data...</span>
+        </div>
+
+        <div class="gc-controls">
+          <label class="overlay-toggle-row"><input type="checkbox" id="chk-gc-enabled"> Enable Auto-GC</label>
+          <label class="overlay-toggle-row"><input type="checkbox" id="chk-gc-major-transitions" checked> Major GC on Transitions</label>
+          <label class="gc-slider-row">Minor Interval: <input type="range" id="slider-gc-minor-interval" min="1" max="100" value="16"> <span id="val-gc-minor-interval">16ms</span></label>
+          <label class="gc-slider-row">Headroom Threshold: <input type="range" id="slider-gc-headroom" min="0" max="100" value="30"> <span id="val-gc-headroom">30%</span></label>
+          <label class="gc-slider-row">Slow GC Warning: <input type="range" id="slider-gc-warn" min="1" max="50" value="5"> <span id="val-gc-warn">5ms</span></label>
+          <button id="btn-gc-major-now" class="import-action-btn">Force Major GC Now</button>
+        </div>
+
+        <div id="gc-charts">
+          <div class="perf-chart-group">
+            <h4>Renderer &mdash; Auto-GC Count &amp; Duration</h4>
+            <canvas id="gc-chart-renderer" class="perf-chart" width="600" height="140"></canvas>
+            <div id="gc-legend-renderer" class="perf-legend"></div>
+          </div>
+          <div class="perf-chart-group">
+            <h4>Worker &mdash; Auto-GC Count &amp; Duration</h4>
+            <canvas id="gc-chart-worker" class="perf-chart" width="600" height="140"></canvas>
+            <div id="gc-legend-worker" class="perf-legend"></div>
+          </div>
+          <div class="perf-chart-group">
+            <h4>Headroom (Renderer vs Worker)</h4>
+            <canvas id="gc-chart-headroom" class="perf-chart" width="600" height="120"></canvas>
+            <div id="gc-legend-headroom" class="perf-legend"></div>
+          </div>
+        </div>
+
+        <div class="perf-chart-group">
+          <h4>Slow GC Warnings</h4>
+          <div id="gc-warnings" class="physics-timing-grid">
+            <p class="empty-state">No warnings</p>
+          </div>
+        </div>
+
+        <div class="perf-chart-group">
+          <h4>Auto-GC vs V8 Auto-GC Comparison</h4>
+          <div id="gc-comparison" class="physics-timing-grid"></div>
         </div>
       </div>
 

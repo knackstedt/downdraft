@@ -452,6 +452,33 @@ export abstract class BaseSceneInspector {
         return TelemetryCollector.diffSnapshots(snaps[idxA], snaps[idxB]);
       },
 
+      // --- GC Controller ---
+      getGCStats: (): any => {
+        const r = this.renderer as any;
+        const stats: Record<string, any> = {};
+        if (r?.getGCStats) stats.renderer = r.getGCStats();
+        // Worker stats come from debug store (forwarded via events)
+        const debugStats = useDebugStore.getState().gcControllerStats;
+        if (debugStats["sim-worker"]) stats["sim-worker"] = debugStats["sim-worker"];
+        return stats;
+      },
+
+      setGCConfig: (config: any): void => {
+        const r = this.renderer as any;
+        if (r?.setGCConfig) r.setGCConfig(config);
+        // Forward to worker via debug mode provider
+        const provider = this.getDebugModeProvider() as any;
+        if (provider?.setGCConfig) provider.setGCConfig(config);
+        useDebugStore.getState().setGCConfig(config);
+      },
+
+      forceMajorGC: (): void => {
+        const r = this.renderer as any;
+        if (r?.forceMajorGC) r.forceMajorGC();
+        const provider = this.getDebugModeProvider() as any;
+        if (provider?.forceMajorGC) provider.forceMajorGC();
+      },
+
       getVersion: (): string => {
         return "1.0.0";
       },

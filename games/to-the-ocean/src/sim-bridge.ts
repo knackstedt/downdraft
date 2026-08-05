@@ -113,6 +113,20 @@ export const simBridge = {
     getSimWorker()?.setPhysicsProfiler(enabled);
   },
 
+  setGCConfig(config: any): void {
+    getSimWorker()?.setGCConfig(config);
+  },
+
+  async getWorkerGCStats(): Promise<any> {
+    const worker = getSimWorker();
+    if (!worker) return null;
+    return worker.getGCStats();
+  },
+
+  forceWorkerMajorGC(): void {
+    getSimWorker()?.forceMajorGC();
+  },
+
   async getSimSpeed(): Promise<number> {
     const worker = getSimWorker();
     if (!worker) return 1.0;

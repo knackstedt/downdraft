@@ -133,6 +133,9 @@ async function bootstrap() {
       case "gc_stats":
         useDebugStore.getState().updateGCStats(msg.data);
         break;
+      case "gc_controller_stats":
+        useDebugStore.getState().updateGCControllerStats(msg.data?.label ?? "sim-worker", msg.data);
+        break;
       case "perf_stats":
         (window as any).__perfMetrics = (window as any).__perfMetrics ?? {};
         (window as any).__perfMetrics[msg.data.process] = msg.data;

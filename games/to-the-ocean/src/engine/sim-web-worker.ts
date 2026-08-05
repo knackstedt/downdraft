@@ -4,7 +4,7 @@
 // Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { HotReloadPipeline, type IHotReloadable } from "@downdraft/core";
+import { HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import { allocateBoatBuffer } from "@shared/boat-buffer";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
@@ -41,6 +41,9 @@ type SimApi = {
   getSimSpeed(): Promise<number>;
   setPhysicsProfiler(enabled: boolean): Promise<void>;
   restoreFromState(stateJson: string): Promise<void>;
+  setGCConfig(config: Partial<GCControllerConfig>): Promise<void>;
+  getGCStats(): Promise<GCControllerStats | null>;
+  forceMajorGC(): Promise<void>;
 };
 
 export class SimWebWorker implements IHotReloadable {
@@ -167,6 +170,19 @@ export class SimWebWorker implements IHotReloadable {
 
   setPhysicsProfiler(enabled: boolean): void {
     this.wp?.proxy.setPhysicsProfiler(enabled).catch(() => {});
+  }
+
+  setGCConfig(config: Partial<GCControllerConfig>): void {
+    this.wp?.proxy.setGCConfig(config).catch(() => {});
+  }
+
+  async getGCStats(): Promise<GCControllerStats | null> {
+    if (!this.wp) return null;
+    return this.wp.proxy.getGCStats().catch(() => null);
+  }
+
+  forceMajorGC(): void {
+    this.wp?.proxy.forceMajorGC().catch(() => {});
   }
 
   async restoreFromState(stateJson: string): Promise<void> {

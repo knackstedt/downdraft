@@ -4,7 +4,7 @@
 // accessors → RendererAccessors
 // ============================================================================
 
-import { CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, Frustum, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type IRendererStateProvider } from "@downdraft/core";
+import { CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider } from "@downdraft/core";
 import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
@@ -92,6 +92,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   private _osrCursorResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   private telemetryCollector: TelemetryCollector | null = null;
+  private gcController: GCController | null = null;
   private profilingOverlay: ProfilingOverlay | null = null;
   private frameDrawCalls: number = 0;
   private frameTriangles: number = 0;
@@ -321,6 +322,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.uiInputRouter.setRoot(this.uiRoot);
 
       this.telemetryCollector = new TelemetryCollector(true);
+      this.gcController = new GCController("renderer");
       const dpr = window.devicePixelRatio || 1;
       this.profilingOverlay = new ProfilingOverlay(this.telemetryCollector, {
         position: "top-left",
@@ -662,7 +664,15 @@ export class WebGPURenderer implements IRendererStateProvider {
     const now = performance.now();
     if (this.limiterActive && this.targetFrameTime > 0) {
       this.frameAccum += this.rafInterval / this.targetFrameTime;
-      if (this.frameAccum < 1) { requestAnimationFrame(this.render); return; }
+      if (this.frameAccum < 1) {
+        // Idle frame — offer headroom to GC controller for proactive collection
+        if (this.gcController) {
+          const headroom = this.targetFrameTime - (performance.now() - now);
+          this.gcController.maybeCollect(Math.max(0, headroom), this.targetFrameTime);
+        }
+        requestAnimationFrame(this.render);
+        return;
+      }
       this.frameAccum -= 1;
     }
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
@@ -816,7 +826,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       }
     }
     if (this.accessors.debugMode && performance.now() - (this.lastDebugLog ?? 0) > 1000) {
-      console.log(`[Render] tick=${this.simReader.getTick()} ents=${this.simReader.getEntityCount()} players=${this.simReader.getPlayerCount()} pos=(${playerPos.x.toFixed(1)},${playerPos.y.toFixed(1)},${playerPos.z.toFixed(1)}) camMode=${cameraMode}`);
+      // console.log(`[Render] tick=${this.simReader.getTick()} ents=${this.simReader.getEntityCount()} players=${this.simReader.getPlayerCount()} pos=(${playerPos.x.toFixed(1)},${playerPos.y.toFixed(1)},${playerPos.z.toFixed(1)}) camMode=${cameraMode}`);
       this.lastDebugLog = performance.now();
     }
     const weatherType = this.simReader.getWeatherType() as WeatherType;
@@ -1199,6 +1209,10 @@ export class WebGPURenderer implements IRendererStateProvider {
   toggleProfilingOverlay(): void { this.accessors.toggleProfilingOverlay(); }
   isProfilingOverlayVisible(): boolean { return this.accessors.isProfilingOverlayVisible(); }
   getTelemetryCollector() { return this.accessors.getTelemetryCollector(); }
+  getGCController(): GCController | null { return this.gcController; }
+  getGCStats(): GCControllerStats | null { return this.gcController?.getStats() ?? null; }
+  setGCConfig(config: Partial<GCControllerConfig>): void { this.gcController?.setConfig(config); }
+  forceMajorGC(): void { this.gcController?.forceMajor(); }
   getAdapterInfo() { return this.accessors.getAdapterInfo(); }
   getGPUErrors() { return this.accessors.getGPUErrors(); }
   clearGPUErrors(): void { this.accessors.clearGPUErrors(); }
@@ -1305,6 +1319,8 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.gpuProfiler?.destroy();
     this.gpuProfiler = null;
     this.telemetryCollector = null;
+    this.gcController?.dispose();
+    this.gcController = null;
     this.device = null;
     for (const entry of this.depthTextures.values()) { entry.texture.destroy(); }
     this.depthTextures.clear();

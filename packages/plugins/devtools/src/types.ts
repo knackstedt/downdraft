@@ -58,6 +58,10 @@ export interface IDebugOverlayProvider {
 /** Optional sim/worker debug mode hook — games with a sim worker implement this. */
 export interface IDebugModeProvider {
   setDebugMode(enabled: boolean): void;
+  /** Forward GC controller config to the sim worker. Optional. */
+  setGCConfig?(config: any): void;
+  /** Trigger a major GC on the sim worker. Optional. */
+  forceMajorGC?(): void;
 }
 
 /** Optional performance metrics provider — games with multi-process architectures implement this. */

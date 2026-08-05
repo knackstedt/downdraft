@@ -1449,3 +1449,48 @@ input[type="number"]:focus, input[type="text"]:focus {
   border-radius: 1px;
   margin-top: 1px;
 }
+
+/* --- GC Panel --- */
+
+#gc-panel {
+  padding: 8px 12px;
+  overflow-y: auto;
+  height: calc(100vh - 28px);
+}
+
+.gc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 8px 12px;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.gc-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #ccc;
+}
+
+.gc-slider-row input[type="range"] {
+  width: 120px;
+}
+
+.gc-slider-row span {
+  min-width: 40px;
+  color: #ce9178;
+  font-family: monospace;
+}
+
+#gc-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}

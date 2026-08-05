@@ -10,6 +10,8 @@
 // The loop handles speed control, tick counting, and error recovery.
 // ============================================================================
 
+import type { GCController } from "../telemetry/gc-controller";
+
 export interface SimWorkerLoopConfig {
   /** Fixed simulation timestep in seconds (e.g., 1/60 for 60Hz). */
   fixedDt: number;
@@ -31,6 +33,8 @@ export interface SimWorkerLoopConfig {
   onAfterTicks?: (tickCount: number) => void;
   /** Called when the loop crashes with an unrecoverable error. */
   onError?: (err: Error) => void;
+  /** Optional GC controller for proactive GC during post-tick headroom. */
+  gcController?: GCController;
 }
 
 export interface SimWorkerLoopStats {
@@ -48,6 +52,7 @@ export class SimWorkerLoop {
   private tickCb: (dt: number) => Promise<void>;
   private onAfterTicksCb: ((tickCount: number) => void) | null;
   private onErrorCb: ((err: Error) => void) | null;
+  private gcController: GCController | null;
 
   private running = false;
   private paused = false;
@@ -68,6 +73,7 @@ export class SimWorkerLoop {
     this.tickCb = config.tick;
     this.onAfterTicksCb = config.onAfterTicks ?? null;
     this.onErrorCb = config.onError ?? null;
+    this.gcController = config.gcController ?? null;
     this.tickMs = config.fixedDt * 1000; // ms per tick at 1x (e.g. 1/60 * 1000 = 16.67ms)
   }
 
@@ -84,6 +90,7 @@ export class SimWorkerLoop {
 
   pause(): void {
     this.paused = true;
+    this.gcController?.collectMajor();
   }
 
   resume(): void {
@@ -121,6 +128,11 @@ export class SimWorkerLoop {
 
   resetTickTimeAccum(): void {
     this.tickTimeAccum = 0;
+  }
+
+  /** Attach or detach a GC controller at runtime. */
+  setGCController(ctrl: GCController | null): void {
+    this.gcController = ctrl;
   }
 
   getStats(): SimWorkerLoopStats {
@@ -177,6 +189,16 @@ export class SimWorkerLoop {
           this.running = false;
           return;
         }
+      }
+    }
+
+    // Offer post-tick headroom to the GC controller for proactive collection
+    if (this.gcController) {
+      const tickEnd = performance.now();
+      const tickDuration = tickEnd - now;
+      const headroom = this.tickMs - tickDuration;
+      if (headroom > 0) {
+        this.gcController.maybeCollect(headroom, this.tickMs);
       }
     }
 

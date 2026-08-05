@@ -68,6 +68,16 @@
   var physicsTimingGrid = document.getElementById("physics-timing-grid");
   var physicsProfilerEnabled = false;
 
+  // GC tab elements
+  var btnViewGC = document.getElementById("btn-view-gc");
+  var gcPanel = document.getElementById("gc-panel");
+  var gcStatusEl = document.getElementById("gc-status");
+  var gcTimer = null;
+  var gcHistory = { renderer: [], worker: [] };
+  var gcWarnList = [];
+  var GC_MAX_POINTS = 60;
+  var GC_COLORS = { auto: "#56b6c2", v8: "#e06c75", headroom: "#98c379", slow: "#e5c07b" };
+
   // Editor panel elements
   var btnViewMaterial = document.getElementById("btn-view-material");
   var btnViewRenderGraph = document.getElementById("btn-view-rendergraph");
@@ -1018,6 +1028,7 @@
     btnViewScene.classList.toggle("active", view === "scene");
     btnViewImport.classList.toggle("active", view === "import");
     btnViewPerf.classList.toggle("active", view === "perf");
+    if (btnViewGC) btnViewGC.classList.toggle("active", view === "gc");
 
     // Update extension tab button states
     for (var i = 0; i < panelExtensions.length; i++) {
@@ -1040,6 +1051,7 @@
     mainContentEl.style.display = view === "scene" ? "flex" : "none";
     importPanel.style.display = view === "import" ? "block" : "none";
     perfPanel.style.display = view === "perf" ? "block" : "none";
+    if (gcPanel) gcPanel.style.display = view === "gc" ? "block" : "none";
 
     // Show/hide editor panels
     if (materialPanel) materialPanel.style.display = view === "material" ? "flex" : "none";
@@ -1096,16 +1108,22 @@
     }
 
     // Performance panel timers
-    if (view === "perf") {
+    if (view === "perf" || view === "gc") {
       evalInPage(
         "window.__sceneInspector ? window.__sceneInspector.enablePerformanceMonitoring() : null",
         function () {
-          refreshPerf();
-          if (!perfTimer) perfTimer = setInterval(refreshPerf, 1000);
+          if (view === "perf") {
+            refreshPerf();
+            if (!perfTimer) perfTimer = setInterval(refreshPerf, 1000);
+          } else {
+            refreshGC();
+            if (!gcTimer) gcTimer = setInterval(refreshGC, 1000);
+          }
         },
       );
     } else {
       if (perfTimer) { clearInterval(perfTimer); perfTimer = null; }
+      if (gcTimer) { clearInterval(gcTimer); gcTimer = null; }
       evalInPage(
         "window.__sceneInspector ? window.__sceneInspector.disablePerformanceMonitoring() : null",
         function () {},
@@ -1122,6 +1140,9 @@
   });
   btnViewPerf.addEventListener("click", function () {
     if (currentView === "perf") switchView("scene"); else switchView("perf");
+  });
+  if (btnViewGC) btnViewGC.addEventListener("click", function () {
+    if (currentView === "gc") switchView("scene"); else switchView("gc");
   });
   if (btnViewMaterial) btnViewMaterial.addEventListener("click", function () {
     if (currentView === "material") switchView("scene"); else switchView("material");
@@ -1248,6 +1269,219 @@
     }
     physicsTimingGrid.innerHTML = html;
   }
+
+  // --- GC Tab ---
+
+  function refreshGC() {
+    evalInPage(
+      "window.__sceneInspector ? JSON.stringify(window.__sceneInspector.getGCStats()) : null",
+      function (result, err) {
+        if (err || !result) {
+          if (gcStatusEl) gcStatusEl.textContent = "Not available — is debug mode enabled?";
+          return;
+        }
+        try {
+          var stats = JSON.parse(result);
+          if (!stats) { if (gcStatusEl) gcStatusEl.textContent = "Not available"; return; }
+          var r = stats.renderer;
+          var w = stats["sim-worker"];
+          if (r) { gcHistory.renderer.push(r); if (gcHistory.renderer.length > GC_MAX_POINTS) gcHistory.renderer.shift(); }
+          if (w) { gcHistory.worker.push(w); if (gcHistory.worker.length > GC_MAX_POINTS) gcHistory.worker.shift(); }
+          if (gcStatusEl) {
+            var rAuto = r ? r.interval.autoMinorCount + r.interval.autoMajorCount : 0;
+            var wAuto = w ? w.interval.autoMinorCount + w.interval.autoMajorCount : 0;
+            gcStatusEl.textContent = "Auto-GC: R:" + rAuto + " W:" + wAuto + "  |  V8: R:" + (r ? r.interval.v8AutoGcCount : 0) + " W:" + (w ? w.interval.v8AutoGcCount : 0);
+          }
+          drawGCChart("renderer", "gc-chart-renderer", "gc-legend-renderer");
+          drawGCChart("worker", "gc-chart-worker", "gc-legend-worker");
+          drawHeadroomChart();
+          updateGCWarnings(r, w);
+          updateGCComparison(r, w);
+          // Sync controls with current config
+          syncGCControls(r || w);
+        } catch (e) { if (gcStatusEl) gcStatusEl.textContent = "Error: " + String(e); }
+      },
+    );
+  }
+
+  function drawGCChart(key, canvasId, legendId) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d"), w = canvas.width, h = canvas.height;
+    ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, w, h);
+    var hist = gcHistory[key];
+    if (!hist || hist.length === 0) return;
+    var autoCountData = hist.map(function (s) { return s.interval.autoMinorCount + s.interval.autoMajorCount; });
+    var autoMsData = hist.map(function (s) { return s.interval.autoGcTotalMs; });
+    var v8CountData = hist.map(function (s) { return s.interval.v8AutoGcCount; });
+    drawAxis(ctx, w, h, 100, "");
+    drawLine(ctx, autoCountData.map(function (v) { return Math.min(100, (v / 20) * 100); }), GC_COLORS.auto, 100, w, h);
+    drawLine(ctx, v8CountData.map(function (v) { return Math.min(100, (v / 20) * 100); }), GC_COLORS.v8, 100, w, h);
+    drawLine(ctx, autoMsData.map(function (v) { return Math.min(100, (v / 10) * 100); }), GC_COLORS.slow, 100, w, h);
+    var legendEl = document.getElementById(legendId);
+    if (legendEl) {
+      var last = hist[hist.length - 1];
+      legendEl.innerHTML =
+        '<span class="legend-item" style="color:' + GC_COLORS.auto + '">Auto-GC: ' + (last.interval.autoMinorCount + last.interval.autoMajorCount) + ' (' + fmtVal(last.interval.autoGcTotalMs, 1) + 'ms)</span>' +
+        '<span class="legend-item" style="color:' + GC_COLORS.v8 + '">V8 Auto: ' + last.interval.v8AutoGcCount + ' (' + fmtVal(last.interval.v8AutoGcTotalMs, 1) + 'ms)</span>' +
+        '<span class="legend-item" style="color:' + GC_COLORS.slow + '">Slow: ' + last.interval.slowGcCount + ' Max: ' + fmtVal(last.interval.autoGcMaxMs, 1) + 'ms</span>' +
+        '<span class="legend-item">GC avail: ' + (last.gcAvailable ? "yes" : "no") + '</span>';
+    }
+  }
+
+  function drawHeadroomChart() {
+    var canvas = document.getElementById("gc-chart-headroom");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d"), w = canvas.width, h = canvas.height;
+    ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, w, h);
+    drawAxis(ctx, w, h, 100, "%");
+    var rHist = gcHistory.renderer;
+    var wHist = gcHistory.worker;
+    if (rHist && rHist.length > 0) {
+      var rData = rHist.map(function (s) {
+        if (!s.headroomSamples || s.headroomSamples.length === 0) return 0;
+        var last = s.headroomSamples[s.headroomSamples.length - 1];
+        var interval = s.config.minorIntervalMs || 16;
+        return Math.min(100, (last / interval) * 100);
+      });
+      drawLine(ctx, rData, GC_COLORS.auto, 100, w, h);
+    }
+    if (wHist && wHist.length > 0) {
+      var wData = wHist.map(function (s) {
+        if (!s.headroomSamples || s.headroomSamples.length === 0) return 0;
+        var last = s.headroomSamples[s.headroomSamples.length - 1];
+        var interval = s.config.minorIntervalMs || 16;
+        return Math.min(100, (last / interval) * 100);
+      });
+      drawLine(ctx, wData, GC_COLORS.headroom, 100, w, h);
+    }
+    var legendEl = document.getElementById("gc-legend-headroom");
+    if (legendEl) {
+      legendEl.innerHTML =
+        '<span class="legend-item" style="color:' + GC_COLORS.auto + '">Renderer headroom</span>' +
+        '<span class="legend-item" style="color:' + GC_COLORS.headroom + '">Worker headroom</span>';
+    }
+  }
+
+  function updateGCWarnings(r, w) {
+    var warnEl = document.getElementById("gc-warnings");
+    if (!warnEl) return;
+    var warns = [];
+    if (r && r.recentInvocations) {
+      for (var i = 0; i < r.recentInvocations.length; i++) {
+        if (r.recentInvocations[i].slow) warns.push({ label: "renderer", inv: r.recentInvocations[i] });
+      }
+    }
+    if (w && w.recentInvocations) {
+      for (var j = 0; j < w.recentInvocations.length; j++) {
+        if (w.recentInvocations[j].slow) warns.push({ label: "worker", inv: w.recentInvocations[j] });
+      }
+    }
+    if (warns.length === 0) {
+      warnEl.innerHTML = '<p class="empty-state">No warnings</p>';
+      return;
+    }
+    var html = "";
+    for (var k = 0; k < warns.length; k++) {
+      var inv = warns[k].inv;
+      html += '<div class="physics-timing-row">' +
+        '<span class="physics-timing-label">' + warns[k].label + ' ' + inv.type + '</span>' +
+        '<span class="physics-timing-value">' + fmtVal(inv.durationMs, 2) + 'ms (headroom: ' + fmtVal(inv.headroomMs, 1) + 'ms)</span>' +
+        '</div>';
+    }
+    warnEl.innerHTML = html;
+  }
+
+  function updateGCComparison(r, w) {
+    var el = document.getElementById("gc-comparison");
+    if (!el) return;
+    function row(label, rVal, wVal) {
+      return '<div class="physics-timing-row">' +
+        '<span class="physics-timing-label">' + label + '</span>' +
+        '<span class="physics-timing-value">R: ' + rVal + '  W: ' + wVal + '</span>' +
+        '</div>';
+    }
+    var rAuto = r ? r.interval.autoMinorCount + r.interval.autoMajorCount : 0;
+    var wAuto = w ? w.interval.autoMinorCount + w.interval.autoMajorCount : 0;
+    var rV8 = r ? r.interval.v8AutoGcCount : 0;
+    var wV8 = w ? w.interval.v8AutoGcCount : 0;
+    var rAutoMs = r ? r.interval.autoGcTotalMs : 0;
+    var wAutoMs = w ? w.interval.autoGcTotalMs : 0;
+    var rV8Ms = r ? r.interval.v8AutoGcTotalMs : 0;
+    var wV8Ms = w ? w.interval.v8AutoGcTotalMs : 0;
+    var rSkipH = r ? r.interval.skippedNoHeadroom : 0;
+    var wSkipH = w ? w.interval.skippedNoHeadroom : 0;
+    var rSkipP = r ? r.interval.skippedNoPressure : 0;
+    var wSkipP = w ? w.interval.skippedNoPressure : 0;
+    el.innerHTML =
+      row("Auto-GC count", rAuto, wAuto) +
+      row("Auto-GC time (ms)", fmtVal(rAutoMs, 1), fmtVal(wAutoMs, 1)) +
+      row("V8 auto-GC count", rV8, wV8) +
+      row("V8 auto-GC time (ms)", fmtVal(rV8Ms, 1), fmtVal(wV8Ms, 1)) +
+      row("Skipped (no headroom)", rSkipH, wSkipH) +
+      row("Skipped (no pressure)", rSkipP, wSkipP) +
+      row("Heap used (MB)", r ? fmtVal(r.heapUsedBytes / 1048576, 1) : "0", w ? fmtVal(w.heapUsedBytes / 1048576, 1) : "0");
+  }
+
+  function syncGCControls(stats) {
+    if (!stats || !stats.config) return;
+    var c = stats.config;
+    var chkEnabled = document.getElementById("chk-gc-enabled");
+    var chkMajor = document.getElementById("chk-gc-major-transitions");
+    var sliderInterval = document.getElementById("slider-gc-minor-interval");
+    var valInterval = document.getElementById("val-gc-minor-interval");
+    var sliderHeadroom = document.getElementById("slider-gc-headroom");
+    var valHeadroom = document.getElementById("val-gc-headroom");
+    var sliderWarn = document.getElementById("slider-gc-warn");
+    var valWarn = document.getElementById("val-gc-warn");
+    if (chkEnabled && chkEnabled.checked !== c.enabled) chkEnabled.checked = c.enabled;
+    if (chkMajor && chkMajor.checked !== c.majorOnTransitions) chkMajor.checked = c.majorOnTransitions;
+    if (sliderInterval && sliderInterval.value != c.minorIntervalMs) sliderInterval.value = c.minorIntervalMs;
+    if (valInterval) valInterval.textContent = c.minorIntervalMs + "ms";
+    if (sliderHeadroom && sliderHeadroom.value != Math.round(c.headroomThreshold * 100)) sliderHeadroom.value = Math.round(c.headroomThreshold * 100);
+    if (valHeadroom) valHeadroom.textContent = Math.round(c.headroomThreshold * 100) + "%";
+    if (sliderWarn && sliderWarn.value != c.gcDurationWarnMs) sliderWarn.value = c.gcDurationWarnMs;
+    if (valWarn) valWarn.textContent = c.gcDurationWarnMs + "ms";
+  }
+
+  // Wire GC controls
+  var chkGCEnabled = document.getElementById("chk-gc-enabled");
+  var chkGCMajor = document.getElementById("chk-gc-major-transitions");
+  var sliderGCMinorInterval = document.getElementById("slider-gc-minor-interval");
+  var valGCMinorInterval = document.getElementById("val-gc-minor-interval");
+  var sliderGCHeadroom = document.getElementById("slider-gc-headroom");
+  var valGCHeadroom = document.getElementById("val-gc-headroom");
+  var sliderGCWarn = document.getElementById("slider-gc-warn");
+  var valGCWarn = document.getElementById("val-gc-warn");
+  var btnGCMajorNow = document.getElementById("btn-gc-major-now");
+
+  if (chkGCEnabled) chkGCEnabled.addEventListener("change", function () {
+    callInspector("setGCConfig", [{ enabled: chkGCEnabled.checked }]);
+  });
+  if (chkGCMajor) chkGCMajor.addEventListener("change", function () {
+    callInspector("setGCConfig", [{ majorOnTransitions: chkGCMajor.checked }]);
+  });
+  if (sliderGCMinorInterval) sliderGCMinorInterval.addEventListener("input", function () {
+    if (valGCMinorInterval) valGCMinorInterval.textContent = sliderGCMinorInterval.value + "ms";
+  });
+  if (sliderGCMinorInterval) sliderGCMinorInterval.addEventListener("change", function () {
+    callInspector("setGCConfig", [{ minorIntervalMs: parseInt(sliderGCMinorInterval.value, 10) }]);
+  });
+  if (sliderGCHeadroom) sliderGCHeadroom.addEventListener("input", function () {
+    if (valGCHeadroom) valGCHeadroom.textContent = sliderGCHeadroom.value + "%";
+  });
+  if (sliderGCHeadroom) sliderGCHeadroom.addEventListener("change", function () {
+    callInspector("setGCConfig", [{ headroomThreshold: parseInt(sliderGCHeadroom.value, 10) / 100 }]);
+  });
+  if (sliderGCWarn) sliderGCWarn.addEventListener("input", function () {
+    if (valGCWarn) valGCWarn.textContent = sliderGCWarn.value + "ms";
+  });
+  if (sliderGCWarn) sliderGCWarn.addEventListener("change", function () {
+    callInspector("setGCConfig", [{ gcDurationWarnMs: parseInt(sliderGCWarn.value, 10) }]);
+  });
+  if (btnGCMajorNow) btnGCMajorNow.addEventListener("click", function () {
+    callInspector("forceMajorGC", null);
+  });
 
   function drawLine(ctx, data, color, maxVal, w, h) {
     if (!data || data.length === 0) return;
@@ -1424,6 +1658,7 @@
   window.addEventListener("beforeunload", function () {
     if (refreshTimer) clearInterval(refreshTimer);
     if (perfTimer) clearInterval(perfTimer);
+    if (gcTimer) clearInterval(gcTimer);
     // Clean up editor instances
     if (materialEditor) materialEditor.destroy();
     if (renderGraphEditor) renderGraphEditor.destroy();
