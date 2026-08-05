@@ -16,7 +16,7 @@ import type {
     RaycastResult,
     ShapeCastResult,
 } from "@downdraft/core";
-import { loadPhysicsLib, type PhysicsLib } from "./ffi";
+import { loadPhysicsLib, type PhysicsLib } from "./rapier-backend";
 
 interface RealmState {
   id: number;
