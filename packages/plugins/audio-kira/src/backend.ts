@@ -1,17 +1,46 @@
 import type {
-    AudioBackend,
-    AudioBackendConfig,
-    AudioBufferDesc,
-    AudioChannel,
-    AudioEffectDesc,
-    AudioFormat,
-    AudioListenerState,
-    AudioSourceHandle,
+  AudioBackend,
+  AudioBackendConfig,
+  AudioBufferDesc,
+  AudioChannel,
+  AudioEffectDesc,
+  AudioFormat,
+  AudioListenerState,
+  AudioSourceHandle,
 } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
-import { loadAudioLib, type AudioLib } from "./ffi";
 
 const log = createLogger();
+
+/**
+ * Native audio library interface. When a native backend is available (loaded
+ * via node-rs or Node FFI/napi, never bun:ffi), these methods are implemented
+ * in native code. Currently no native library is built, so `loadAudioLib`
+ * returns null and the backend runs in JS mode.
+ */
+interface AudioLib {
+  init(sampleRate: number, bufferSize: number): number;
+  destroy(): number;
+  loadBuffer(data: Uint8Array, format: number): number;
+  unloadBuffer(bufferId: number): number;
+  play(bufferId: number, loop: number, volume: number): number;
+  stop(soundId: number): number;
+  pause(soundId: number): number;
+  resume(soundId: number): number;
+  setVolume(soundId: number, volume: number): number;
+  setMasterVolume(volume: number): number;
+  update(): number;
+  isPlaying(soundId: number): number;
+}
+
+let audioLoadAttempted = false;
+
+async function loadAudioLib(): Promise<AudioLib | null> {
+  if (audioLoadAttempted) return null;
+  audioLoadAttempted = true;
+  log.info("audio-kira", "Using JS audio backend (no native library available).");
+  return null;
+}
 
 interface InternalSource {
   handle: AudioSourceHandle;
