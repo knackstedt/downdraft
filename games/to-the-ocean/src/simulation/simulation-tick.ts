@@ -151,6 +151,15 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   }
 
   // Rapier physics: entity-vs-entity collision (ships, wildlife, etc.)
+  // If physics panicked and tore down its world, re-init (async) before ticking.
+  if (sim.physics && !sim.physics.isInitialized()) {
+    try {
+      await sim.physics.init();
+      console.error(`[SIM] Physics re-initialized after panic at tick ${sim.totalTicks}`);
+    } catch (err) {
+      console.error(`[SIM] Physics re-init failed: ${err}`);
+    }
+  }
   if (sim.physics?.isInitialized()) {
     const physT0 = performance.now();
     sim.physics.tick(dt, sim.entities, sim.entityCount, sim.players, sim.playerCount);

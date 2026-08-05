@@ -20,8 +20,10 @@ export interface CharacterControllerData {
   airControl: number;
   autostep: { enabled: boolean; minWidth: number; maxHeight: number };
   maxSlope: number;
+  minSlopeSlide: number;
   snapToGround: number;
   slide: boolean;
+  applyImpulsesToDynamicBodies: boolean;
   grounded: boolean;
   groundNormal: [number, number, number];
   groundEntity: number;
@@ -41,8 +43,10 @@ export const CharacterController = Component.register<CharacterControllerData>("
   airControl: 0.5,
   autostep: { enabled: true, minWidth: 0.2, maxHeight: 0.3 },
   maxSlope: Math.PI / 3,
+  minSlopeSlide: Math.PI / 4,
   snapToGround: 0.1,
   slide: true,
+  applyImpulsesToDynamicBodies: false,
   grounded: false,
   groundNormal: [0, 1, 0],
   groundEntity: -1,
@@ -88,7 +92,9 @@ export class CharacterControllerSystem {
       slide: controller.slide,
       autostep: controller.autostep,
       maxSlope: controller.maxSlope,
+      minSlopeSlide: controller.minSlopeSlide,
       snapToGround: controller.snapToGround,
+      applyImpulsesToDynamicBodies: controller.applyImpulsesToDynamicBodies,
     };
     const handle = this.realm.createCharacterController(desc, entity);
     controller.controllerHandle = handle;

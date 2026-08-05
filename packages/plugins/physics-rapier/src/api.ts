@@ -95,6 +95,50 @@ export class UniversalPhysicsAPI {
     return this.realmManager.addCollider(body, desc);
   }
 
+  removeCollider(body: PhysicsBody, colliderId: number): void {
+    this.realmManager.removeCollider(body, colliderId);
+  }
+
+  // --- Character controller ---
+
+  createCharacterController(desc: import("@downdraft/core").CharacterControllerDesc, entity: import("@downdraft/core").Entity): import("@downdraft/core").CharacterControllerHandle {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    return this.backend.createCharacterController(nearRealm.id, desc, entity);
+  }
+
+  destroyCharacterController(handle: import("@downdraft/core").CharacterControllerHandle): void {
+    this.backend.destroyCharacterController(handle);
+  }
+
+  characterMove(handle: import("@downdraft/core").CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): import("@downdraft/core").CharacterMoveResult {
+    this.safety.assertFiniteVec3(desiredMovement, "characterMove.desiredMovement");
+    this.safety.assertFinite(dt, "characterMove.dt");
+    return this.backend.characterMove(handle, desiredMovement, dt);
+  }
+
+  setCharacterColliderPosition(handle: import("@downdraft/core").CharacterControllerHandle, pos: [number, number, number]): void {
+    this.safety.assertFiniteVec3(pos, "setCharacterColliderPosition.pos");
+    this.backend.setCharacterColliderPosition(handle, pos);
+  }
+
+  // --- Joints ---
+
+  createJoint(parentBody: PhysicsBody, childBody: PhysicsBody, desc: import("@downdraft/core").JointDesc): number {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    return this.backend.createJoint(nearRealm.id, parentBody, childBody, desc);
+  }
+
+  destroyJoint(jointId: number): void {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    this.backend.destroyJoint(nearRealm.id, jointId);
+  }
+
+  // --- Body type ---
+
+  setBodyType(body: PhysicsBody, type: import("@downdraft/core").BodyType): void {
+    this.backend.setBodyType(body, type);
+  }
+
   // --- Validated state access (all PhysicsBody-keyed) ---
 
   setLinearVelocity(body: PhysicsBody, vel: [number, number, number]): void {
@@ -149,6 +193,59 @@ export class UniversalPhysicsAPI {
     this.backend.applyImpulseAtPoint(body, impulse, point);
   }
 
+  applyTorque(body: PhysicsBody, torque: [number, number, number]): void {
+    this.safety.assertFiniteVec3(torque, "torque");
+    this.backend.applyTorque(body, torque);
+  }
+
+  applyTorqueImpulse(body: PhysicsBody, impulse: [number, number, number]): void {
+    this.safety.assertFiniteVec3(impulse, "torqueImpulse");
+    this.backend.applyTorqueImpulse(body, impulse);
+  }
+
+  wakeUp(body: PhysicsBody): void {
+    this.backend.wakeUp(body);
+  }
+
+  isSleeping(body: PhysicsBody): boolean {
+    return this.backend.isSleeping(body);
+  }
+
+  // --- Raw fast paths (opt-in, bypass safety validation) ---
+  // Callers MUST validate inputs (finiteness, quaternion normalization).
+  // Use these in hot loops where per-call safety overhead matters.
+
+  setTranslationRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean = true): void {
+    this.backend.setTranslationRaw(body, x, y, z, wakeUp);
+  }
+  setRotationRaw(body: PhysicsBody, x: number, y: number, z: number, w: number, wakeUp: boolean = true): void {
+    this.backend.setRotationRaw(body, x, y, z, w, wakeUp);
+  }
+  getTranslationRaw(body: PhysicsBody, out: [number, number, number]): void {
+    this.backend.getTranslationRaw(body, out);
+  }
+  getLinearVelocityRaw(body: PhysicsBody, out: [number, number, number]): void {
+    this.backend.getLinearVelocityRaw(body, out);
+  }
+  setLinearVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean = true): void {
+    this.backend.setLinearVelocityRaw(body, x, y, z, wakeUp);
+  }
+  setAngularVelocityRaw(body: PhysicsBody, x: number, y: number, z: number, wakeUp: boolean = true): void {
+    this.backend.setAngularVelocityRaw(body, x, y, z, wakeUp);
+  }
+  isSleepingRaw(body: PhysicsBody): boolean {
+    return this.backend.isSleepingRaw(body);
+  }
+  swapColliderShapeRaw(realmId: number, colliderId: number, vertices: Float32Array, indices: Uint32Array): boolean {
+    return this.backend.swapColliderShapeRaw(realmId, colliderId, vertices, indices);
+  }
+  reserveMemory(bytes: number): void {
+    this.backend.reserveMemory(bytes);
+  }
+  setIntegrationDt(realmId: number, dt: number): void {
+    this.backend.setIntegrationDt(realmId, dt);
+  }
+
   // --- Realm ---
 
   getRealmTier(body: PhysicsBody): RealmTier {
@@ -180,6 +277,52 @@ export class UniversalPhysicsAPI {
     this.safety.assertFinite(maxDist, "raycast.maxDist");
     const nearRealm = this.realmManager.getRealm(RealmTier.Near);
     return nearRealm.raycast(origin, dir, maxDist, filter);
+  }
+
+  raycastMulti(
+    origin: [number, number, number],
+    dir: [number, number, number],
+    maxDist: number,
+    filter?: { collisionGroups?: number; excludeEntity?: Entity },
+  ): RaycastResult[] {
+    this.safety.assertFiniteVec3(origin, "raycastMulti.origin");
+    this.safety.assertFiniteVec3(dir, "raycastMulti.dir");
+    this.safety.assertFinite(maxDist, "raycastMulti.maxDist");
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    return nearRealm.raycastMulti(origin, dir, maxDist, filter);
+  }
+
+  // --- Direct stepping (for games that manage their own tick loop) ---
+
+  /**
+   * Step the near realm directly. Games that manage their own tick loop
+   * (e.g. to-the-ocean) can call this instead of using the accumulator +
+   * realm manager step. This bypasses LOD/realm membership updates.
+   */
+  stepNearRealm(dt: number): void {
+    this.safety.assertFinite(dt, "stepNearRealm.dt");
+    this.realmManager.getRealm(RealmTier.Near).step(dt);
+  }
+
+  /**
+   * Sync transforms from ECS into the near realm's transform buffer.
+   * Games that use the bulk transform sync can call this before stepping.
+   */
+  syncTransforms(buffer: Float32Array, entityCount: number): void {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    this.backend.syncTransforms(nearRealm.id, buffer, entityCount);
+  }
+
+  readTransforms(buffer: Float32Array, entityCount: number): void {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    this.backend.readTransforms(nearRealm.id, buffer, entityCount);
+  }
+
+  // --- Contacts ---
+
+  getContacts(): import("@downdraft/core").ContactManifold[] {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    return nearRealm.getContacts();
   }
 
   // --- Snapshots ---
