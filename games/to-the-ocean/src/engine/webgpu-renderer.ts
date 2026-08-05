@@ -867,10 +867,18 @@ export class WebGPURenderer implements IRendererStateProvider {
       ePos.z = Number.isFinite(es.f32[ENT.POS_Z]) ? es.f32[ENT.POS_Z] : 0;
       const scale = Number.isFinite(es.f32[ENT.SCALE]) ? es.f32[ENT.SCALE] : 1;
       // Frustum cull: skip entities whose bounding sphere is outside the camera frustum.
-      // Uses a sphere centered at the entity position with radius = scale (conservative;
-      // most entities fit within their scale radius). This avoids per-entity draw call
-      // submission for off-screen entities.
-      if (!this.frustum.intersectsSphere([ePos.x, ePos.y, ePos.z], scale)) continue;
+      // Ships have scale=1 but their actual mesh (from boat cells) extends much further,
+      // so use a generous radius for ship types. Islands/ports use scale as their actual
+      // radius. Wildlife/decorations use scale as their approximate size.
+      // NOTE: Islands and ports are excluded from frustum culling because they have
+      // side effects (mesh generation, chunk streaming, active-key tracking). Culling
+      // them would cause cleanupStaleIslandMeshes to delete their meshes, triggering
+      // expensive regeneration when they come back into view.
+      const isTerrain = type === EntityType.Island || type === EntityType.Port;
+      if (!isTerrain) {
+        const cullRadius = (type === EntityType.Ship || type === EntityType.SmallCraft || type === EntityType.PirateShip) ? 60 : scale;
+        if (!this.frustum.intersectsSphere([ePos.x, ePos.y, ePos.z], cullRadius)) continue;
+      }
       const eRot = this.pooledEntRot;
       eRot.x = Number.isFinite(es.f32[ENT.ROT_X]) ? es.f32[ENT.ROT_X] : 0;
       eRot.y = Number.isFinite(es.f32[ENT.ROT_Y]) ? es.f32[ENT.ROT_Y] : 0;

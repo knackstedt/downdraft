@@ -467,10 +467,10 @@ export class GameRenderer implements CanvasResizeHandler {
       offscreen.ensureTargets(this.canvas.width, this.canvas.height);
     }
 
+    // Collect command buffers from all phases and submit once at the end
+    // (reduces CPU→GPU sync points from 3+ per frame to 1).
+    const frameCommandBuffers: GPUCommandBuffer[] = [];
     if (!gpuError) {
-      // Collect command buffers from all phases and submit once at the end
-      // (reduces CPU→GPU sync points from 3+ per frame to 1).
-      const frameCommandBuffers: GPUCommandBuffer[] = [];
       for (let v = 0; v < this.viewportCount; v++) {
         const cb = this.renderViewport(v, dt, offscreen);
         if (cb) frameCommandBuffers.push(cb);
