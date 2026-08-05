@@ -2,7 +2,7 @@ import type { Skeleton } from "../animation/skeleton";
 import type { ComponentDefinition } from "../ecs/component";
 import { Component } from "../ecs/component";
 import type { Entity } from "../ecs/entity";
-import type { ColliderShape, JointDesc, RigidBodyHandle } from "./interface";
+import type { ColliderShape, JointDesc, PhysicsBody } from "./interface";
 import type { PhysicsRealm } from "./realm";
 
 // ── Config interfaces ──
@@ -34,7 +34,7 @@ export interface RagdollConfig {
 export interface RagdollData {
   [key: string]: unknown;
   config: RagdollConfig | null;
-  bodyHandles: RigidBodyHandle[];
+  bodyHandles: PhysicsBody[];
   jointIds: number[];
   boneNames: string[];
   blendWeight: number;
@@ -64,14 +64,14 @@ export function createRagdoll(
   config: RagdollConfig,
   entity: Entity,
 ): RagdollData {
-  const bodyHandles: RigidBodyHandle[] = [];
+  const bodyHandles: PhysicsBody[] = [];
   const jointIds: number[] = [];
   const boneNames: string[] = [];
 
   for (const boneCfg of config.bones) {
     const boneIdx = skeleton.getBoneIndex(boneCfg.boneName);
     if (boneIdx < 0) {
-      bodyHandles.push({ realmId: realm.id, bodyId: -1, entity });
+      bodyHandles.push({ realmId: realm.id, id: -1, entity });
       boneNames.push(boneCfg.boneName);
       continue;
     }
@@ -110,7 +110,7 @@ export function createRagdoll(
 
     const parentHandle = bodyHandles[parentIdx];
     const childHandle = bodyHandles[childIdx];
-    if (parentHandle.bodyId < 0 || childHandle.bodyId < 0) {
+    if (parentHandle.id < 0 || childHandle.id < 0) {
       jointIds.push(-1);
       continue;
     }
@@ -148,7 +148,7 @@ export function destroyRagdoll(realm: PhysicsRealm, ragdoll: RagdollData): void 
     }
   }
   for (const handle of ragdoll.bodyHandles) {
-    if (handle.bodyId >= 0) {
+    if (handle.id >= 0) {
       realm.destroyBody(handle);
     }
   }

@@ -1,9 +1,9 @@
+import type { BodyType, ColliderShape, RealmTierConfig } from "@downdraft/core";
+import { physicsBackendRegistry, PhysicsRealm, RealmTier } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
-import { jsonResult, errorResult } from "../types";
+import { errorResult, jsonResult } from "../types";
 import type { UndoRedoManager } from "../undo-redo";
-import { physicsBackendRegistry, PhysicsRealm } from "@downdraft/core";
-import type { ColliderShape, BodyType, RigidBodyHandle } from "@downdraft/core";
 
 export function createPhysicsTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -31,9 +31,18 @@ export function createPhysicsTools(ctx: EngineContext, undoRedo: UndoRedoManager
         if (!backend) return errorResult("No physics backend registered");
 
         const gravity = (params.gravity as [number, number, number]) ?? [0, -9.81, 0];
+        const tierConfig: RealmTierConfig = {
+          tickFrequency: 1,
+          solverIterations: 4,
+          promoteThreshold: 50,
+          demoteThreshold: 60,
+          demoteDwellTime: 1,
+        };
         const realm = new PhysicsRealm(backend, {
           name,
+          tier: RealmTier.Near,
           gravity,
+          tierConfig,
         });
 
         ctx.physicsRealms.set(name, realm);

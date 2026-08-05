@@ -16,8 +16,8 @@ describe("RigidBody Component", () => {
     expect(data.ccdEnabled).toBe(false);
     expect(data.canSleep).toBe(true);
     expect(data.sleeping).toBe(false);
-    expect(data.handleRealmId).toBe(-1);
-    expect(data.handleBodyId).toBe(-1);
+    expect(data.bodyId).toBe(-1);
+    expect(data.realmId).toBe(-1);
   });
 
   it("should allow overriding defaults", () => {

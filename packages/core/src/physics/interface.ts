@@ -10,10 +10,15 @@ export type ColliderShape =
   | { type: "mesh"; vertices: Float32Array; indices: Uint32Array }
   | { type: "convex"; vertices: Float32Array };
 
-export interface RigidBodyHandle {
-  realmId: number;
-  bodyId: number;
-  entity: Entity;
+/**
+ * Opaque public handle for a physics body. Games never see raw backend/Rapier
+ * handles — all state access goes through validated `PhysicsBackend`/API methods
+ * keyed by this handle. `id` is unique within the owning `realmId`.
+ */
+export interface PhysicsBody {
+  readonly id: number;
+  readonly realmId: number;
+  readonly entity: Entity;
 }
 
 export interface RaycastResult {
@@ -64,15 +69,52 @@ export interface ContactManifold {
   penetrationDepth: number;
 }
 
+// ---------------------------------------------------------------------------
+// Realm tiers
+// ---------------------------------------------------------------------------
+
+/**
+ * Realm tier enum. Lower numeric value = higher fidelity (more frequent ticks,
+ * more solver iterations). Realm separation is the only mechanism for differing
+ * per-body update frequencies within Rapier (a single `World` has one tick rate).
+ */
+export enum RealmTier {
+  Near = 0,
+  Mid = 1,
+  Far = 2,
+}
+
+/**
+ * Per-tier quality + LOD transfer configuration. Orthogonal LOD axes:
+ *  - `tickFrequency`: how often the realm steps (1 = every frame).
+ *  - `solverIterations`: Rapier `IntegrationParameters.numSolverIterations`.
+ *  - `promoteThreshold`/`demoteThreshold`: hysteresis band for tier transfers.
+ *    `demoteThreshold` must be >= `promoteThreshold` to prevent boundary thrash.
+ */
+export interface RealmTierConfig {
+  tickFrequency: number;
+  solverIterations: number;
+  /** Distance below which a body promotes to the next-higher tier (immediate). */
+  promoteThreshold: number;
+  /** Distance above which a body is eligible to demote (must be >= promoteThreshold). */
+  demoteThreshold: number;
+  /** Seconds continuously outside the demote threshold before demotion fires. */
+  demoteDwellTime: number;
+}
+
 export interface PhysicsRealmConfig {
   id: number;
   name: string;
+  tier: RealmTier;
   gravity: [number, number, number];
+  /** Per-tier LOD config (tick frequency, solver iterations, transfer thresholds). */
+  tierConfig: RealmTierConfig;
   integrationParams?: {
     dt?: number;
     maxSubSteps?: number;
     erp?: number;
     cfm?: number;
+    numSolverIterations?: number;
   };
   broadphase?: "sap" | "grid";
   broadphaseSize?: [number, number, number];
@@ -119,39 +161,149 @@ export interface JointDesc {
   limits?: { min: number; max: number };
 }
 
+// ---------------------------------------------------------------------------
+// Islands (load shedding)
+// ---------------------------------------------------------------------------
+
+/**
+ * A connected contact island. Rapier sleeps/freezes touching bodies as a group,
+ * so load shedding must freeze whole islands, not individual bodies.
+ */
+export interface IslandInfo {
+  bodyIds: number[];
+  maxImportance: number;
+  avgVelocity: number;
+}
+
+// ---------------------------------------------------------------------------
+// Hooks (multiplayer / snapshots)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-body importance weight used to decide freeze order under load (lower =
+ * frozen first). `flags` is a game-defined bitmask for custom prioritization.
+ */
+export interface ImportanceWeight {
+  weight: number;
+  flags?: number;
+}
+
+/**
+ * Hook for customizing realm-transfer logic. Lets multiplayer/authoritative
+ * games override the default single-machine distance-based tier model.
+ */
+export interface RealmTransferHook {
+  onPromote?(bodyId: number, fromTier: RealmTier, toTier: RealmTier): void;
+  onDemote?(bodyId: number, fromTier: RealmTier, toTier: RealmTier): void;
+  /** Override the default tier decision. Return null to keep the default. */
+  shouldTransfer?(bodyId: number, currentTier: RealmTier, distances: number[]): RealmTier | null;
+}
+
+/**
+ * Snapshot hooks for reconnect/late-join. The plugin provides serialization;
+ * games provide the networking transport and trigger these hooks.
+ */
+export interface SnapshotHooks {
+  onSnapshot?(tier: RealmTier, data: Uint8Array, tick: number): void;
+  onRestore?(tier: RealmTier, tick: number): void;
+  onLateJoin?(playerId: string, snapshots: Map<RealmTier, Uint8Array>, tick: number): void;
+  onReconnect?(playerId: string, lastSeenTick: number, snapshots: Map<RealmTier, Uint8Array>, tick: number): void;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin config
+// ---------------------------------------------------------------------------
+
+export type PredictionMode = "server-authoritative" | "client-prediction";
+
+export interface PhysicsPluginConfig {
+  gravity: [number, number, number];
+  fixedDt: number;
+  maxCatchUpSteps: number;
+  stepBudgetMs: number;
+  realmConfigs: {
+    near: RealmTierConfig;
+    mid: RealmTierConfig;
+    far: RealmTierConfig;
+  };
+  maxEntities: number;
+  /** Ticks between periodic internal finite-check sweeps (§6 backstop). */
+  nanSweepInterval: number;
+  /** Only sweep bodies whose speed exceeds this (skip stationary bulk). */
+  nanSweepVelocityThreshold: number;
+  /** Tunneling risk = speed*dt/colliderSize; enable CCD when above this. */
+  ccdTunnelingRatio: number;
+  /** Ticks between near-realm snapshots. */
+  snapshotInterval: number;
+  predictionMode: PredictionMode;
+  /** 0 = single-threaded (all realms on sim thread); N = worker pool size. */
+  workerCount: number;
+  /** If true, assert/throw on invalid input (dev builds). Shipped builds clamp+log. */
+  devMode: boolean;
+  /**
+   * If true, static bodies are duplicated into all three realms (default).
+   * If false, far-tier dynamic bodies are force-promoted on static contact.
+   */
+  duplicateStatics: boolean;
+}
+
+export interface PhysicsStats {
+  bodyCount: number;
+  realmCounts: { near: number; mid: number; far: number };
+  frozenCount: number;
+  sleepingCount: number;
+  transfersThisFrame: number;
+  slipAmount: number;
+  overBudget: boolean;
+  tickCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Backend interface (PhysicsBody-keyed; no raw handles leak)
+// ---------------------------------------------------------------------------
+
 export interface PhysicsBackend {
   readonly name: string;
   readonly version: string;
+
+  init?(): Promise<void>;
 
   createRealm(config: PhysicsRealmConfig): number;
   destroyRealm(realmId: number): void;
   getRealmIds(): number[];
 
-  createBody(realmId: number, desc: BodyDesc, entity: Entity): RigidBodyHandle;
-  destroyBody(handle: RigidBodyHandle): void;
-  setBodyType(handle: RigidBodyHandle, type: BodyType): void;
+  createBody(realmId: number, desc: BodyDesc, entity: Entity): PhysicsBody;
+  destroyBody(body: PhysicsBody): void;
+  setBodyType(body: PhysicsBody, type: BodyType): void;
 
-  addCollider(handle: RigidBodyHandle, desc: ColliderDesc): number;
-  removeCollider(handle: RigidBodyHandle, colliderId: number): void;
+  addCollider(body: PhysicsBody, desc: ColliderDesc): number;
+  removeCollider(body: PhysicsBody, colliderId: number): void;
 
-  applyForce(handle: RigidBodyHandle, force: [number, number, number]): void;
-  applyImpulse(handle: RigidBodyHandle, impulse: [number, number, number]): void;
-  applyTorque(handle: RigidBodyHandle, torque: [number, number, number]): void;
-  applyTorqueImpulse(handle: RigidBodyHandle, impulse: [number, number, number]): void;
-  applyImpulseAtPoint(handle: RigidBodyHandle, impulse: [number, number, number], point: [number, number, number]): void;
+  applyForce(body: PhysicsBody, force: [number, number, number]): void;
+  applyImpulse(body: PhysicsBody, impulse: [number, number, number]): void;
+  applyTorque(body: PhysicsBody, torque: [number, number, number]): void;
+  applyTorqueImpulse(body: PhysicsBody, impulse: [number, number, number]): void;
+  applyImpulseAtPoint(body: PhysicsBody, impulse: [number, number, number], point: [number, number, number]): void;
 
-  setLinearVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void;
-  getLinearVelocity(handle: RigidBodyHandle): [number, number, number];
-  setAngularVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void;
-  getAngularVelocity(handle: RigidBodyHandle): [number, number, number];
+  setLinearVelocity(body: PhysicsBody, vel: [number, number, number]): void;
+  getLinearVelocity(body: PhysicsBody): [number, number, number];
+  setAngularVelocity(body: PhysicsBody, vel: [number, number, number]): void;
+  getAngularVelocity(body: PhysicsBody): [number, number, number];
 
-  setPosition(handle: RigidBodyHandle, pos: [number, number, number]): void;
-  getPosition(handle: RigidBodyHandle): [number, number, number];
-  setRotation(handle: RigidBodyHandle, rot: [number, number, number, number]): void;
-  getRotation(handle: RigidBodyHandle): [number, number, number, number];
+  setPosition(body: PhysicsBody, pos: [number, number, number]): void;
+  getPosition(body: PhysicsBody): [number, number, number];
+  setRotation(body: PhysicsBody, rot: [number, number, number, number]): void;
+  getRotation(body: PhysicsBody): [number, number, number, number];
 
-  wakeUp(handle: RigidBodyHandle): void;
-  isSleeping(handle: RigidBodyHandle): boolean;
+  wakeUp(body: PhysicsBody): void;
+  isSleeping(body: PhysicsBody): boolean;
+
+  /** Per-realm sleep thresholds for graceful degradation (load shedding first line). */
+  setSleepThresholds(realmId: number, linearThreshold: number, angularThreshold: number): void;
+  /** Per-realm solver iteration count (Rapier `IntegrationParameters.numSolverIterations`). */
+  setSolverIterations(realmId: number, iterations: number): void;
+  /** Per-body CCD (off by default globally; opt in via tunneling heuristic). */
+  setCCDEnabled(body: PhysicsBody, enabled: boolean): void;
 
   raycast(
     realmId: number,
@@ -184,24 +336,30 @@ export interface PhysicsBackend {
 
   getContacts(realmId: number): ContactManifold[];
 
+  /** Enumerate contact islands for island-aware load shedding. */
+  getIslands(realmId: number): IslandInfo[];
+
   createCharacterController(realmId: number, desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle;
   destroyCharacterController(handle: CharacterControllerHandle): void;
   characterMove(handle: CharacterControllerHandle, desiredMovement: [number, number, number], dt: number): CharacterMoveResult;
 
-  createJoint(realmId: number, parentHandle: RigidBodyHandle, childHandle: RigidBodyHandle, desc: JointDesc): number;
+  createJoint(realmId: number, parentBody: PhysicsBody, childBody: PhysicsBody, desc: JointDesc): number;
   destroyJoint(realmId: number, jointId: number): void;
 
-  syncTransforms(
-    realmId: number,
-    transformBuffer: Float32Array,
-    entityCount: number,
-  ): void;
+  /**
+   * Bulk write ECS transforms → physics (kinematic/static bodies). One FFI pass.
+   * Buffer layout: [x,y,z, qx,qy,qz,qw, pad] × entityCount (8 floats per entity).
+   */
+  syncTransforms(realmId: number, transformBuffer: Float32Array, entityCount: number): void;
+  /**
+   * Bulk read physics transforms → buffer (one FFI pass, no per-entity allocation).
+   * Same layout as `syncTransforms`.
+   */
+  readTransforms(realmId: number, transformBuffer: Float32Array, entityCount: number): void;
 
-  readTransforms(
-    realmId: number,
-    transformBuffer: Float32Array,
-    entityCount: number,
-  ): void;
+  /** Rapier `world.takeSnapshot()` — for reconnect/late-join. */
+  serializeRealm(realmId: number): Uint8Array;
+  deserializeRealm(realmId: number, data: Uint8Array): void;
 
   destroy(): void;
 }

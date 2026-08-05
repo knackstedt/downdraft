@@ -1,184 +1,185 @@
 import {
-    Camera,
-    Collider,
-    Component,
-    createBoxCollider,
     createLogger,
-    createSphereCollider,
-    MeshBuilder,
-    PhysicsTransform,
-    RigidBody,
-    system,
-    Velocity,
-    World
+    RealmTier,
+    type Entity,
+    type PhysicsBody,
+    type PhysicsPluginConfig,
 } from "@downdraft/core";
+import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/plugin-physics-rapier";
 
 const log = createLogger();
 
-interface PhysicsBodyData {
-  [key: string]: unknown;
-  bodyType: "dynamic" | "static" | "kinematic";
-  mass: number;
-  restitution: number;
-  friction: number;
-}
+/**
+ * Standalone demo for the Universal Physics Plugin.
+ *
+ * Exercises:
+ * - 3 realm tiers (near/mid/far) with LOD tick frequencies
+ * - A moving "player camera" that triggers promote/demote
+ * - Dynamic bodies crossing promote/demote thresholds
+ * - Interpolation rendering
+ * - NaN injection test (dev mode throws)
+ * - CCD on a fast projectile
+ * - Snapshot/restore round-trip
+ */
 
-const PhysicsBody = Component.register<PhysicsBodyData>("PhysicsBody", {
-  bodyType: "dynamic",
-  mass: 1,
-  restitution: 0.4,
-  friction: 0.5,
-});
+const config: PhysicsPluginConfig = {
+  gravity: [0, -9.81, 0],
+  fixedDt: 1 / 60,
+  maxCatchUpSteps: 5,
+  stepBudgetMs: 12,
+  maxEntities: 1000,
+  realmConfigs: {
+    near: { tickFrequency: 1, solverIterations: 4, promoteThreshold: 50, demoteThreshold: 60, demoteDwellTime: 1 },
+    mid: { tickFrequency: 2, solverIterations: 2, promoteThreshold: 120, demoteThreshold: 150, demoteDwellTime: 2 },
+    far: { tickFrequency: 6, solverIterations: 1, promoteThreshold: Infinity, demoteThreshold: Infinity, demoteDwellTime: 5 },
+  },
+  nanSweepInterval: 10,
+  nanSweepVelocityThreshold: 0.1,
+  ccdTunnelingRatio: 0.5,
+  snapshotInterval: 30,
+  predictionMode: "server-authoritative",
+  workerCount: 0,
+  devMode: true, // Throw on NaN in demo
+  duplicateStatics: true,
+};
 
-interface FallingShapeData {
-  [key: string]: unknown;
-  shape: "box" | "sphere";
-  size: number;
-  color: [number, number, number];
-}
-
-const FallingShape = Component.register<FallingShapeData>("FallingShape", {
-  shape: "box",
-  size: 1,
-  color: [1, 1, 1],
-});
-
-let world: World;
-let camera: Camera;
-let spawnTimer = 0;
+let api: UniversalPhysicsAPI;
+let backend: RapierPhysicsBackend;
+let playerPos: [number, number, number] = [0, 0, 0];
+let bodies: Array<{ body: PhysicsBody; entity: Entity; name: string }> = [];
 let frameCount = 0;
-let fps = 0;
-let fpsAccum = 0;
+let snapshotData: Map<RealmTier, Uint8Array> | null = null;
 
-export function init(ctx: any) {
-  world = new World();
-  camera = new Camera();
-  camera.setAspect(16, 9);
-  camera.distance = 20;
-  camera.orbit(0, 0.5);
-  world.setResource("camera", camera);
+export async function init(_ctx: any) {
+  backend = new RapierPhysicsBackend();
+  await backend.init();
+  api = new UniversalPhysicsAPI(backend, config);
 
-  const groundMesh = MeshBuilder.cube(20);
-  world.setResource("groundMesh", groundMesh);
-
-  const cubeMesh = MeshBuilder.cube(1);
-  world.setResource("cubeMesh", cubeMesh);
-
-  const sphereMesh = MeshBuilder.sphere(0.5, 16, 16);
-  world.setResource("sphereMesh", sphereMesh);
-
-  const groundEntity = world.spawn();
-  world.addComponent(groundEntity, PhysicsBody.create({
-    bodyType: "static",
-    mass: 0,
-    restitution: 0.3,
-    friction: 0.8,
-  }));
-  world.addComponent(groundEntity, Collider.create(createBoxCollider(20, 1, 20)));
-  world.addComponent(groundEntity, PhysicsTransform.create({
+  // Create a static ground plane in all realms
+  const groundEntity: Entity = { index: 0, generation: 0 };
+  const ground = api.createBody(groundEntity, {
+    type: "static",
     position: [0, -1, 0],
-  }));
-  world.addComponent(groundEntity, FallingShape.create({
-    shape: "box",
-    size: 20,
-    color: [0.3, 0.5, 0.3],
-  }));
+    rotation: [0, 0, 0, 1],
+  });
+  api.addCollider(ground, {
+    shape: { type: "box", halfExtents: [50, 1, 50] },
+    friction: 0.8,
+    restitution: 0.3,
+  });
+  bodies.push({ body: ground, entity: groundEntity, name: "ground" });
 
-  log.info("physics-demo", "initialized — shapes will fall and bounce on the ground");
+  // Create dynamic bodies at various distances from the player
+  for (let i = 0; i < 10; i++) {
+    const dist = 20 + i * 30; // 20, 50, 80, ... → starts in mid/far realms
+    const entity: Entity = { index: i + 1, generation: 0 };
+    const body = api.createBody(entity, {
+      type: "dynamic",
+      position: [dist, 5, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    });
+    api.addCollider(body, {
+      shape: { type: "box", halfExtents: [0.5, 0.5, 0.5] },
+      friction: 0.5,
+      restitution: 0.4,
+    });
+    bodies.push({ body, entity, name: `box-${i}` });
+  }
+
+  // Create a fast projectile (CCD test)
+  const projectileEntity: Entity = { index: 100, generation: 0 };
+  const projectile = api.createBody(projectileEntity, {
+    type: "dynamic",
+    position: [-100, 5, 0],
+    rotation: [0, 0, 0, 1],
+    mass: 0.1,
+  });
+  api.addCollider(projectile, {
+    shape: { type: "sphere", radius: 0.2 },
+    friction: 0.3,
+    restitution: 0.5,
+  });
+  api.setLinearVelocity(projectile, [200, 0, 0]); // Fast → CCD should enable
+  bodies.push({ body: projectile, entity: projectileEntity, name: "projectile" });
+
+  log.info("physics-demo", `Initialized with ${bodies.length} bodies across 3 realm tiers`);
 }
 
-export function tick(ctx: any, dt: number) {
+export function tick(_ctx: any, dt: number) {
   frameCount++;
-  fpsAccum += dt;
-  if (fpsAccum >= 1) {
-    fps = frameCount;
-    frameCount = 0;
-    fpsAccum = 0;
+
+  // Move the player camera in a circle
+  const angle = frameCount * 0.01;
+  playerPos = [Math.cos(angle) * 30, 0, Math.sin(angle) * 30];
+
+  // Step the accumulator + realm manager
+  const accumulator = api.getAccumulator();
+  accumulator.accumulate(dt);
+  const steps = accumulator.consumeSteps();
+  for (const fixedDt of steps) {
+    api.getRealmManager().step(fixedDt);
   }
 
-  spawnTimer += dt;
-  if (spawnTimer > 0.5) {
-    spawnTimer = 0;
-    spawnFallingShape();
+  // Update realm membership based on player position
+  api.getRealmManager().updateRealmMembership([playerPos], dt);
+
+  // CCD update
+  const nearBodies = api.getRealmManager().getRealm(RealmTier.Near).listBodies();
+  api.getCCDHeuristic().updateCCD(api.getBackend(), nearBodies, dt, () => 0.5);
+
+  // Safety sweep
+  api.getSafetyLayer().sanitizeSolverOutput(api.getBackend(), nearBodies);
+
+  // Snapshot at interval
+  api.getSnapshotManager().tick();
+
+  // Log stats every 60 frames
+  if (frameCount % 60 === 0) {
+    const stats = api.getStats();
+    log.info("physics-demo",
+      `frame=${frameCount} bodies=${stats.bodyCount} near=${stats.realmCounts.near} ` +
+      `mid=${stats.realmCounts.mid} far=${stats.realmCounts.far} ` +
+      `frozen=${stats.frozenCount} overBudget=${stats.overBudget} tick=${stats.tickCount}`
+    );
+
+    // Log realm tiers of each body
+    for (const { body, name } of bodies) {
+      const tier = api.getRealmTier(body);
+      const tierName = tier === RealmTier.Near ? "near" : tier === RealmTier.Mid ? "mid" : "far";
+      const pos = api.getPosition(body);
+      log.info("physics-demo", `  ${name}: tier=${tierName} pos=[${pos[0].toFixed(1)}, ${pos[1].toFixed(1)}, ${pos[2].toFixed(1)}]`);
+    }
   }
 
-  system("physics-gravity", (w: World, _dt: number) => {
-    const view = w.view([RigidBody, Velocity, PhysicsTransform]);
-    for (const ent of view) {
-      const body = w.getComponent(ent, RigidBody);
-      const vel = w.getComponent(ent, Velocity);
-      if (body && vel && body.data.bodyType === "dynamic") {
-        vel.data.linear[1] -= 9.81 * _dt * (body.data.gravityScale as number);
+  // Snapshot/restore test at frame 300
+  if (frameCount === 300) {
+    log.info("physics-demo", "Taking snapshot...");
+    snapshotData = api.snapshot();
+    log.info("physics-demo", `Snapshot taken: ${snapshotData.size} realms`);
+  }
+
+  if (frameCount === 400 && snapshotData) {
+    log.info("physics-demo", "Restoring snapshot...");
+    api.restore(snapshotData);
+    log.info("physics-demo", "Snapshot restored");
+  }
+
+  // NaN injection test at frame 500 (dev mode should throw)
+  if (frameCount === 500) {
+    log.info("physics-demo", "Testing NaN injection (dev mode should throw)...");
+    try {
+      const box = bodies[1];
+      if (box) {
+        api.setPosition(box.body, [NaN, NaN, NaN]);
       }
+    } catch (err) {
+      log.info("physics-demo", `NaN injection correctly rejected: ${err}`);
     }
-  })(world, dt);
-
-  system("physics-integrate", (w: World, _dt: number) => {
-    const view = w.view([RigidBody, Velocity, PhysicsTransform]);
-    for (const ent of view) {
-      const body = w.getComponent(ent, RigidBody);
-      const vel = w.getComponent(ent, Velocity);
-      const transform = w.getComponent(ent, PhysicsTransform);
-      if (body && vel && transform && body.data.bodyType === "dynamic") {
-        const [vx, vy, vz] = vel.data.linear as [number, number, number];
-        const [px, py, pz] = transform.data.position as [number, number, number];
-        const newPy = py + vy * _dt;
-        transform.data.position = [px + vx * _dt, newPy, pz + vz * _dt];
-
-        if (newPy < -10) {
-          w.despawn(ent);
-        }
-      }
-    }
-  })(world, dt);
-}
-
-function spawnFallingShape(): void {
-  const isBox = Math.random() > 0.5;
-  const size = 0.5 + Math.random() * 1.5;
-  const x = (Math.random() - 0.5) * 10;
-  const z = (Math.random() - 0.5) * 10;
-
-  const ent = world.spawn();
-  world.addComponent(ent, PhysicsBody.create({
-    bodyType: "dynamic",
-    mass: size * size * size,
-    restitution: 0.3 + Math.random() * 0.4,
-    friction: 0.3 + Math.random() * 0.4,
-  }));
-
-  world.addComponent(ent, RigidBody.create({
-    bodyType: "dynamic",
-    mass: size * size * size,
-    gravityScale: 1,
-  }));
-
-  world.addComponent(ent, Velocity.create({
-    linear: [(Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2],
-    angular: [0, 0, 0],
-  }));
-
-  world.addComponent(ent, PhysicsTransform.create({
-    position: [x, 15, z],
-  }));
-
-  if (isBox) {
-    world.addComponent(ent, Collider.create(createBoxCollider(size, size, size)));
-    world.addComponent(ent, FallingShape.create({
-      shape: "box",
-      size,
-      color: [Math.random(), Math.random(), Math.random()],
-    }));
-  } else {
-    world.addComponent(ent, Collider.create(createSphereCollider(size * 0.5)));
-    world.addComponent(ent, FallingShape.create({
-      shape: "sphere",
-      size: size * 0.5,
-      color: [Math.random(), Math.random(), Math.random()],
-    }));
   }
 }
 
-export function dispose(ctx: any) {
+export function dispose(_ctx: any) {
+  api.destroy();
   log.info("physics-demo", "disposed");
 }

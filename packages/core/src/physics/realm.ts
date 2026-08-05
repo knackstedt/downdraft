@@ -1,79 +1,83 @@
 import type { Entity } from "../ecs/entity";
-import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, JointDesc, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle } from "./interface";
+import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, IslandInfo, JointDesc, PhysicsBackend, PhysicsBody, PhysicsRealmConfig, RaycastResult } from "./interface";
 
 export class PhysicsRealm {
   readonly id: number;
   readonly name: string;
+  readonly tier: import("./interface").RealmTier;
   private backend: PhysicsBackend;
-  private bodies: Map<number, RigidBodyHandle> = new Map();
-  private nextBodyKey = 0;
+  private bodies: Map<number, PhysicsBody> = new Map();
+  private nextBodyId = 1;
 
   constructor(backend: PhysicsBackend, config: Omit<PhysicsRealmConfig, "id"> & { id?: number }) {
     this.backend = backend;
     this.id = config.id ?? Math.floor(Math.random() * 0x7fffffff);
     this.name = config.name;
+    this.tier = config.tier;
     this.backend.createRealm({ ...config, id: this.id });
   }
 
-  createBody(desc: BodyDesc, entity: Entity): RigidBodyHandle {
-    const handle = this.backend.createBody(this.id, desc, entity);
-    const key = this.nextBodyKey++;
-    this.bodies.set(key, handle);
-    return handle;
+  createBody(desc: BodyDesc, entity: Entity): PhysicsBody {
+    const body = this.backend.createBody(this.id, desc, entity);
+    this.bodies.set(body.id, body);
+    return body;
   }
 
-  destroyBody(handle: RigidBodyHandle): void {
-    this.backend.destroyBody(handle);
-    for (const [key, h] of this.bodies) {
-      if (h.bodyId === handle.bodyId) {
-        this.bodies.delete(key);
-        break;
-      }
-    }
+  destroyBody(body: PhysicsBody): void {
+    this.backend.destroyBody(body);
+    this.bodies.delete(body.id);
   }
 
-  addCollider(handle: RigidBodyHandle, desc: ColliderDesc): number {
-    return this.backend.addCollider(handle, desc);
+  addCollider(body: PhysicsBody, desc: ColliderDesc): number {
+    return this.backend.addCollider(body, desc);
   }
 
-  removeCollider(handle: RigidBodyHandle, colliderId: number): void {
-    this.backend.removeCollider(handle, colliderId);
+  removeCollider(body: PhysicsBody, colliderId: number): void {
+    this.backend.removeCollider(body, colliderId);
   }
 
-  setBodyType(handle: RigidBodyHandle, type: BodyType): void {
-    this.backend.setBodyType(handle, type);
+  setBodyType(body: PhysicsBody, type: BodyType): void {
+    this.backend.setBodyType(body, type);
   }
 
-  setPosition(handle: RigidBodyHandle, pos: [number, number, number]): void {
-    this.backend.setPosition(handle, pos);
+  setPosition(body: PhysicsBody, pos: [number, number, number]): void {
+    this.backend.setPosition(body, pos);
   }
 
-  getPosition(handle: RigidBodyHandle): [number, number, number] {
-    return this.backend.getPosition(handle);
+  getPosition(body: PhysicsBody): [number, number, number] {
+    return this.backend.getPosition(body);
   }
 
-  setRotation(handle: RigidBodyHandle, rot: [number, number, number, number]): void {
-    this.backend.setRotation(handle, rot);
+  setRotation(body: PhysicsBody, rot: [number, number, number, number]): void {
+    this.backend.setRotation(body, rot);
   }
 
-  getRotation(handle: RigidBodyHandle): [number, number, number, number] {
-    return this.backend.getRotation(handle);
+  getRotation(body: PhysicsBody): [number, number, number, number] {
+    return this.backend.getRotation(body);
   }
 
-  setLinearVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void {
-    this.backend.setLinearVelocity(handle, vel);
+  setLinearVelocity(body: PhysicsBody, vel: [number, number, number]): void {
+    this.backend.setLinearVelocity(body, vel);
   }
 
-  getLinearVelocity(handle: RigidBodyHandle): [number, number, number] {
-    return this.backend.getLinearVelocity(handle);
+  getLinearVelocity(body: PhysicsBody): [number, number, number] {
+    return this.backend.getLinearVelocity(body);
   }
 
-  applyForce(handle: RigidBodyHandle, force: [number, number, number]): void {
-    this.backend.applyForce(handle, force);
+  setAngularVelocity(body: PhysicsBody, vel: [number, number, number]): void {
+    this.backend.setAngularVelocity(body, vel);
   }
 
-  applyImpulse(handle: RigidBodyHandle, impulse: [number, number, number]): void {
-    this.backend.applyImpulse(handle, impulse);
+  getAngularVelocity(body: PhysicsBody): [number, number, number] {
+    return this.backend.getAngularVelocity(body);
+  }
+
+  applyForce(body: PhysicsBody, force: [number, number, number]): void {
+    this.backend.applyForce(body, force);
+  }
+
+  applyImpulse(body: PhysicsBody, impulse: [number, number, number]): void {
+    this.backend.applyImpulse(body, impulse);
   }
 
   raycast(
@@ -98,6 +102,26 @@ export class PhysicsRealm {
     this.backend.step(this.id, dt);
   }
 
+  setSolverIterations(iterations: number): void {
+    this.backend.setSolverIterations(this.id, iterations);
+  }
+
+  setSleepThresholds(linearThreshold: number, angularThreshold: number): void {
+    this.backend.setSleepThresholds(this.id, linearThreshold, angularThreshold);
+  }
+
+  getIslands(): IslandInfo[] {
+    return this.backend.getIslands(this.id);
+  }
+
+  serialize(): Uint8Array {
+    return this.backend.serializeRealm(this.id);
+  }
+
+  deserialize(data: Uint8Array): void {
+    this.backend.deserializeRealm(this.id, data);
+  }
+
   getContacts(): ContactManifold[] {
     return this.backend.getContacts(this.id);
   }
@@ -114,8 +138,8 @@ export class PhysicsRealm {
     return this.backend.characterMove(handle, desiredMovement, dt);
   }
 
-  createJoint(parentHandle: RigidBodyHandle, childHandle: RigidBodyHandle, desc: JointDesc): number {
-    return this.backend.createJoint(this.id, parentHandle, childHandle, desc);
+  createJoint(parentBody: PhysicsBody, childBody: PhysicsBody, desc: JointDesc): number {
+    return this.backend.createJoint(this.id, parentBody, childBody, desc);
   }
 
   destroyJoint(jointId: number): void {
@@ -130,8 +154,24 @@ export class PhysicsRealm {
     this.backend.readTransforms(this.id, transformBuffer, entityCount);
   }
 
+  listBodies(): PhysicsBody[] {
+    return [...this.bodies.values()];
+  }
+
+  getBody(bodyId: number): PhysicsBody | undefined {
+    return this.bodies.get(bodyId);
+  }
+
+  getBodyCount(): number {
+    return this.bodies.size;
+  }
+
   getBackend(): PhysicsBackend {
     return this.backend;
+  }
+
+  getTier(): import("./interface").RealmTier {
+    return this.tier;
   }
 
   destroy(): void {

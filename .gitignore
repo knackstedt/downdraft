@@ -9,5 +9,8 @@ release
 # Devin MCP local overrides (personal API keys)
 .devin/config.local.json
 
+# TypeScript composite project info files
+.tsbuildinfo.*
+
 # Asset cache (downloaded from blob store)
 .downdraft-cache

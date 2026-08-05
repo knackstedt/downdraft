@@ -16,12 +16,13 @@ import type {
     ColliderShape,
     ContactManifold,
     Entity,
+    IslandInfo,
     JointDesc,
     PhysicsBackend,
+    PhysicsBody,
     PhysicsRealmConfig,
     RaycastResult,
-    RigidBodyHandle,
-    ShapeCastResult,
+    ShapeCastResult
 } from "@downdraft/core/physics/interface";
 import { Broadphase, type AABB } from "./broadphase";
 import { detectCollision } from "./narrowphase";
@@ -65,7 +66,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
 
   // --- Body management ---
 
-  createBody(realmId: number, desc: BodyDesc, entity: Entity): RigidBodyHandle {
+  createBody(realmId: number, desc: BodyDesc, entity: Entity): PhysicsBody {
     const realm = this.realms.get(realmId);
     if (!realm) throw new Error(`Realm ${realmId} not found`);
 
@@ -100,28 +101,28 @@ export class NativePhysicsBackend implements PhysicsBackend {
     };
 
     realm.bodies.set(bodyId, body);
-    return { realmId, bodyId, entity };
+    return { id: bodyId, realmId, entity };
   }
 
-  destroyBody(handle: RigidBodyHandle): void {
-    const realm = this.realms.get(handle.realmId);
+  destroyBody(body: PhysicsBody): void {
+    const realm = this.realms.get(body.realmId);
     if (!realm) return;
-    realm.bodies.delete(handle.bodyId);
+    realm.bodies.delete(body.id);
   }
 
-  setBodyType(handle: RigidBodyHandle, type: BodyType): void {
-    const body = this.getBody(handle);
-    if (!body) return;
-    body.type = type;
-    body.invMass = type === "static" || type === "kinematic" ? 0 : 1 / body.mass;
+  setBodyType(body: PhysicsBody, type: BodyType): void {
+    const b = this.getBody(body);
+    if (!b) return;
+    b.type = type;
+    b.invMass = type === "static" || type === "kinematic" ? 0 : 1 / b.mass;
   }
 
   // --- Collider management ---
 
-  addCollider(handle: RigidBodyHandle, desc: ColliderDesc): number {
-    const body = this.getBody(handle);
-    const realm = this.realms.get(handle.realmId);
-    if (!body || !realm) return -1;
+  addCollider(body: PhysicsBody, desc: ColliderDesc): number {
+    const b = this.getBody(body);
+    const realm = this.realms.get(body.realmId);
+    if (!b || !realm) return -1;
 
     const colliderId = realm.nextColliderId++;
     const shape = this.convertShape(desc.shape);
@@ -135,123 +136,159 @@ export class NativePhysicsBackend implements PhysicsBackend {
       collisionGroups: desc.collisionGroups ?? 0xFFFFFFFF,
       solverGroups: desc.solverGroups ?? 0xFFFFFFFF,
     };
-    body.colliders.push(collider);
+    b.colliders.push(collider);
     return colliderId;
   }
 
-  removeCollider(handle: RigidBodyHandle, colliderId: number): void {
-    const body = this.getBody(handle);
-    if (!body) return;
-    body.colliders = body.colliders.filter(c => c.id !== colliderId);
+  removeCollider(body: PhysicsBody, colliderId: number): void {
+    const b = this.getBody(body);
+    if (!b) return;
+    b.colliders = b.colliders.filter(c => c.id !== colliderId);
   }
 
   // --- Forces ---
 
-  applyForce(handle: RigidBodyHandle, force: [number, number, number]): void {
-    const body = this.getBody(handle);
-    if (!body || body.type === "static" || body.type === "kinematic") return;
+  applyForce(body: PhysicsBody, force: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (!b || b.type === "static" || b.type === "kinematic") return;
     // F = ma → a = F/m
-    body.linearVelocity = [
-      body.linearVelocity[0] + force[0] * body.invMass,
-      body.linearVelocity[1] + force[1] * body.invMass,
-      body.linearVelocity[2] + force[2] * body.invMass,
+    b.linearVelocity = [
+      b.linearVelocity[0] + force[0] * b.invMass,
+      b.linearVelocity[1] + force[1] * b.invMass,
+      b.linearVelocity[2] + force[2] * b.invMass,
     ];
   }
 
-  applyImpulse(handle: RigidBodyHandle, impulse: [number, number, number]): void {
-    this.applyForce(handle, impulse);
+  applyImpulse(body: PhysicsBody, impulse: [number, number, number]): void {
+    this.applyForce(body, impulse);
   }
 
-  applyTorque(handle: RigidBodyHandle, torque: [number, number, number]): void {
-    const body = this.getBody(handle);
-    if (!body || body.type === "static" || body.type === "kinematic") return;
-    body.angularVelocity = [
-      body.angularVelocity[0] + torque[0] * body.invMass,
-      body.angularVelocity[1] + torque[1] * body.invMass,
-      body.angularVelocity[2] + torque[2] * body.invMass,
+  applyTorque(body: PhysicsBody, torque: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (!b || b.type === "static" || b.type === "kinematic") return;
+    b.angularVelocity = [
+      b.angularVelocity[0] + torque[0] * b.invMass,
+      b.angularVelocity[1] + torque[1] * b.invMass,
+      b.angularVelocity[2] + torque[2] * b.invMass,
     ];
   }
 
-  applyTorqueImpulse(handle: RigidBodyHandle, impulse: [number, number, number]): void {
-    this.applyTorque(handle, impulse);
+  applyTorqueImpulse(body: PhysicsBody, impulse: [number, number, number]): void {
+    this.applyTorque(body, impulse);
   }
 
-  applyImpulseAtPoint(handle: RigidBodyHandle, impulse: [number, number, number], point: [number, number, number]): void {
-    const body = this.getBody(handle);
-    if (!body || body.type === "static" || body.type === "kinematic") return;
-    body.linearVelocity = [
-      body.linearVelocity[0] + impulse[0] * body.invMass,
-      body.linearVelocity[1] + impulse[1] * body.invMass,
-      body.linearVelocity[2] + impulse[2] * body.invMass,
+  applyImpulseAtPoint(body: PhysicsBody, impulse: [number, number, number], point: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (!b || b.type === "static" || b.type === "kinematic") return;
+    b.linearVelocity = [
+      b.linearVelocity[0] + impulse[0] * b.invMass,
+      b.linearVelocity[1] + impulse[1] * b.invMass,
+      b.linearVelocity[2] + impulse[2] * b.invMass,
     ];
     // Torque = r × impulse (simplified)
-    const r = [point[0] - body.position[0], point[1] - body.position[1], point[2] - body.position[2]];
+    const r = [point[0] - b.position[0], point[1] - b.position[1], point[2] - b.position[2]];
     const torque = [
       r[1] * impulse[2] - r[2] * impulse[1],
       r[2] * impulse[0] - r[0] * impulse[2],
       r[0] * impulse[1] - r[1] * impulse[0],
     ];
-    body.angularVelocity = [
-      body.angularVelocity[0] + torque[0] * body.invMass,
-      body.angularVelocity[1] + torque[1] * body.invMass,
-      body.angularVelocity[2] + torque[2] * body.invMass,
+    b.angularVelocity = [
+      b.angularVelocity[0] + torque[0] * b.invMass,
+      b.angularVelocity[1] + torque[1] * b.invMass,
+      b.angularVelocity[2] + torque[2] * b.invMass,
     ];
   }
 
   // --- Velocity / position getters & setters ---
 
-  setLinearVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void {
-    const body = this.getBody(handle);
-    if (!body) return;
-    body.linearVelocity = [...vel] as Vec3;
+  setLinearVelocity(body: PhysicsBody, vel: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (!b) return;
+    b.linearVelocity = [...vel] as Vec3;
   }
 
-  getLinearVelocity(handle: RigidBodyHandle): [number, number, number] {
-    const body = this.getBody(handle);
-    return body ? [...body.linearVelocity] : [0, 0, 0];
+  getLinearVelocity(body: PhysicsBody): [number, number, number] {
+    const b = this.getBody(body);
+    return b ? [...b.linearVelocity] : [0, 0, 0];
   }
 
-  setAngularVelocity(handle: RigidBodyHandle, vel: [number, number, number]): void {
-    const body = this.getBody(handle);
-    if (!body) return;
-    body.angularVelocity = [...vel] as Vec3;
+  setAngularVelocity(body: PhysicsBody, vel: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (!b) return;
+    b.angularVelocity = [...vel] as Vec3;
   }
 
-  getAngularVelocity(handle: RigidBodyHandle): [number, number, number] {
-    const body = this.getBody(handle);
-    return body ? [...body.angularVelocity] : [0, 0, 0];
+  getAngularVelocity(body: PhysicsBody): [number, number, number] {
+    const b = this.getBody(body);
+    return b ? [...b.angularVelocity] : [0, 0, 0];
   }
 
-  setPosition(handle: RigidBodyHandle, pos: [number, number, number]): void {
-    const body = this.getBody(handle);
-    if (!body) return;
-    body.position = [...pos] as Vec3;
+  setPosition(body: PhysicsBody, pos: [number, number, number]): void {
+    const b = this.getBody(body);
+    if (!b) return;
+    b.position = [...pos] as Vec3;
   }
 
-  getPosition(handle: RigidBodyHandle): [number, number, number] {
-    const body = this.getBody(handle);
-    return body ? [...body.position] : [0, 0, 0];
+  getPosition(body: PhysicsBody): [number, number, number] {
+    const b = this.getBody(body);
+    return b ? [...b.position] : [0, 0, 0];
   }
 
-  setRotation(handle: RigidBodyHandle, rot: [number, number, number, number]): void {
-    const body = this.getBody(handle);
-    if (!body) return;
-    body.rotation = [...rot] as Quat;
+  setRotation(body: PhysicsBody, rot: [number, number, number, number]): void {
+    const b = this.getBody(body);
+    if (!b) return;
+    b.rotation = [...rot] as Quat;
   }
 
-  getRotation(handle: RigidBodyHandle): [number, number, number, number] {
-    const body = this.getBody(handle);
-    return body ? [...body.rotation] : [0, 0, 0, 1];
+  getRotation(body: PhysicsBody): [number, number, number, number] {
+    const b = this.getBody(body);
+    return b ? [...b.rotation] : [0, 0, 0, 1];
   }
 
-  wakeUp(handle: RigidBodyHandle): void {
-    const body = this.getBody(handle);
-    if (body) body.sleeping = false;
+  wakeUp(body: PhysicsBody): void {
+    const b = this.getBody(body);
+    if (b) b.sleeping = false;
   }
 
-  isSleeping(handle: RigidBodyHandle): boolean {
-    const body = this.getBody(handle);
-    return body ? body.sleeping : false;
+  isSleeping(body: PhysicsBody): boolean {
+    const b = this.getBody(body);
+    return b ? b.sleeping : false;
+  }
+
+  setSleepThresholds(_realmId: number, _linearThreshold: number, _angularThreshold: number): void {
+    // Native backend doesn't implement sleep thresholds yet
+  }
+
+  setSolverIterations(_realmId: number, _iterations: number): void {
+    // Native backend uses fixed iterations
+  }
+
+  setCCDEnabled(body: PhysicsBody, enabled: boolean): void {
+    const b = this.getBody(body);
+    if (b) b.ccdEnabled = enabled;
+  }
+
+  getIslands(realmId: number): IslandInfo[] {
+    const realm = this.realms.get(realmId);
+    if (!realm) return [];
+    // Native backend: each body is its own island (no island solver)
+    const islands: IslandInfo[] = [];
+    for (const [bodyId, b] of realm.bodies) {
+      const speed = Math.sqrt(
+        b.linearVelocity[0] ** 2 + b.linearVelocity[1] ** 2 + b.linearVelocity[2] ** 2,
+      );
+      islands.push({ bodyIds: [bodyId], maxImportance: 0, avgVelocity: speed });
+    }
+    return islands;
+  }
+
+  serializeRealm(_realmId: number): Uint8Array {
+    // Native backend doesn't support serialization yet
+    return new Uint8Array(0);
+  }
+
+  deserializeRealm(_realmId: number, _data: Uint8Array): void {
+    // Native backend doesn't support deserialization yet
   }
 
   // --- Raycasting ---
@@ -595,12 +632,12 @@ export class NativePhysicsBackend implements PhysicsBackend {
 
   // --- Joints ---
 
-  createJoint(realmId: number, parentHandle: RigidBodyHandle, childHandle: RigidBodyHandle, desc: JointDesc): number {
+  createJoint(realmId: number, parentBody: PhysicsBody, childBody: PhysicsBody, desc: JointDesc): number {
     const jointId = this.nextJointId++;
     this.joints.set(jointId, {
       realmId,
-      parentBodyId: parentHandle.bodyId,
-      childBodyId: childHandle.bodyId,
+      parentBodyId: parentBody.id,
+      childBodyId: childBody.id,
       desc,
     });
     return jointId;
@@ -654,10 +691,10 @@ export class NativePhysicsBackend implements PhysicsBackend {
 
   // --- Private helpers ---
 
-  private getBody(handle: RigidBodyHandle): NativeBody | null {
-    const realm = this.realms.get(handle.realmId);
+  private getBody(body: PhysicsBody): NativeBody | null {
+    const realm = this.realms.get(body.realmId);
     if (!realm) return null;
-    return realm.bodies.get(handle.bodyId) ?? null;
+    return realm.bodies.get(body.id) ?? null;
   }
 
   private convertShape(shape: ColliderShape): ColliderShapeData {

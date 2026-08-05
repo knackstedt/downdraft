@@ -416,6 +416,7 @@ export type { AssetManifest, AssetPackEntry } from "./assets/manifest";
 // Physics
 export { PhysicsTransform, RigidBody, Velocity } from "./physics/body";
 export type { PhysicsTransformData, RigidBodyData, VelocityData } from "./physics/body";
+export { CCDHeuristic } from "./physics/ccd-heuristic";
 export { CharacterController, CharacterControllerSystem } from "./physics/character";
 export type { CharacterControllerData, CharacterControllerInput } from "./physics/character";
 export { Collider, createBoxCollider, createCapsuleCollider, createConvexCollider, createMeshCollider, createSphereCollider } from "./physics/collider";
@@ -423,16 +424,29 @@ export type { ColliderData } from "./physics/collider";
 export { CollisionEventSystem } from "./physics/collision-system";
 export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, computeCollisionEvents, CONTACT_CHANNEL, manifoldToStartedEvent } from "./physics/events";
 export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from "./physics/events";
-export type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, JointDesc, JointType, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./physics/interface";
+export { RealmTier } from "./physics/interface";
+export type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, ImportanceWeight, IslandInfo, JointDesc, JointType, PhysicsBackend, PhysicsBody, PhysicsPluginConfig, PhysicsRealmConfig, PhysicsStats, PredictionMode, RaycastResult, RealmTierConfig, RealmTransferHook, ShapeCastResult, SnapshotHooks } from "./physics/interface";
+export { InterpolationBuffer } from "./physics/interpolation-buffer";
 export { PhysicsLifecycle } from "./physics/lifecycle";
 export type { BootstrapPhase } from "./physics/lifecycle";
+export { LoadShedder } from "./physics/load-shedder";
+export { PhysicsAccumulator } from "./physics/physics-accumulator";
+export { createPhysicsSystem } from "./physics/physics-system";
+export type { PhysicsSystemResources } from "./physics/physics-system";
 export { createRagdoll, destroyRagdoll, Ragdoll } from "./physics/ragdoll";
 export type { RagdollBoneConfig, RagdollConfig, RagdollData, RagdollJointConfig } from "./physics/ragdoll";
 export { humanoidRagdoll } from "./physics/ragdoll-presets";
 export { RagdollSystem } from "./physics/ragdoll-system";
 export { RaycastQuery } from "./physics/raycast";
 export { PhysicsRealm } from "./physics/realm";
+export { RealmManager } from "./physics/realm-manager";
+export type { RealmManagerConfig } from "./physics/realm-manager";
+export { RealmWorker, supportsNestedWorkers, supportsSharedArrayBuffer } from "./physics/realm-worker";
+export { RealmWorkerPool } from "./physics/realm-worker-pool";
 export { physicsBackendRegistry } from "./physics/registry";
+export { SafetyLayer } from "./physics/safety";
+export { SnapshotManager } from "./physics/snapshot-manager";
+export type { RealmWorkerMessage, RealmWorkerRequest, RealmWorkerResponse } from "./physics/worker-protocol";
 
 // Animation
 export { createAnimationEventTrack, getEventsInRange } from "./animation/animation-event";
