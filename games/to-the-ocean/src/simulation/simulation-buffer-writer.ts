@@ -54,6 +54,10 @@ export function writeToBuffer(sim: SimulationBufferWriterAccess): void {
   sim.simWriter.setPhysicsFailed(physStats?.failed ? 1 : 0);
   sim.simWriter.setPhysicsBodyCount(physStats?.bodyCount ?? 0);
   sim.simWriter.setPhysicsTickCount(physStats?.tickCount ?? 0);
+  sim.simWriter.setPhysicsProfilerEnabled(physStats?.profilerEnabled ? 1 : 0);
+  if (physStats?.timing) {
+    sim.simWriter.setPhysicsTiming(physStats.timing);
+  }
 
   // Chunk stats
   sim.simWriter.setChunkCount(sim.chunkManager.getLoadedChunkCount());

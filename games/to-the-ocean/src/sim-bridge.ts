@@ -109,6 +109,10 @@ export const simBridge = {
     getSimWorker()?.setSimSpeed(speed);
   },
 
+  setPhysicsProfiler(enabled: boolean): void {
+    getSimWorker()?.setPhysicsProfiler(enabled);
+  },
+
   async getSimSpeed(): Promise<number> {
     const worker = getSimWorker();
     if (!worker) return 1.0;

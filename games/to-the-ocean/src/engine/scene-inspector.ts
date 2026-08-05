@@ -153,6 +153,20 @@ export class SceneInspector extends BaseSceneInspector {
       };
     };
 
+    // --- Physics Profiler ---
+    base.setPhysicsProfiler = (enabled: boolean): void => {
+      simBridge.setPhysicsProfiler(enabled);
+    };
+
+    base.getPhysicsTiming = (): any => {
+      const sim = this.gameRenderer?.getSimReader();
+      if (!sim || !sim.isValid()) return null;
+      return {
+        profilerEnabled: sim.getPhysicsProfilerEnabled(),
+        timing: sim.getPhysicsTiming(),
+      };
+    };
+
     // --- Player Stats ---
     base.getPlayerStats = (): any => {
       const sim = this.gameRenderer?.getSimReader();
@@ -369,6 +383,8 @@ export class SceneInspector extends BaseSceneInspector {
     const perfMem = (performance as any).memory;
     const rendererMemMB = perfMem ? perfMem.usedJSHeapSize / 1048576 : 0;
 
+    const sim = this.gameRenderer?.getSimReader();
+
     function gcFor(label: string) {
       const g = gcStats[label];
       if (!g) return { count: 0, totalTime: 0, scavengeCount: 0, majorCount: 0 };
@@ -409,6 +425,12 @@ export class SceneInspector extends BaseSceneInspector {
         diskKBps: 0,
         networkKBps: 0,
         gc: gcFor("sim-worker"),
+      },
+      physics: {
+        profilerEnabled: sim?.getPhysicsProfilerEnabled() ?? false,
+        timing: sim?.getPhysicsTiming(),
+        bodyCount: sim?.getPhysicsBodyCount() ?? 0,
+        tickCount: sim?.getPhysicsTickCount() ?? 0,
       },
       timestamp: performance.now(),
     };

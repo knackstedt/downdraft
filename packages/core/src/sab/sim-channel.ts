@@ -7,6 +7,25 @@ import { defineChannel } from "./define";
 import { InputChannel } from "./game-input";
 
 // SAB protocol constants — buffer layout sizes
+export interface PhysicsTimingData {
+  step: number;
+  collisionDetection: number;
+  broadPhase: number;
+  narrowPhase: number;
+  solver: number;
+  velocityAssembly: number;
+  velocityResolution: number;
+  velocityUpdate: number;
+  velocityWriteback: number;
+  ccd: number;
+  ccdToiComputation: number;
+  ccdBroadPhase: number;
+  ccdNarrowPhase: number;
+  ccdSolver: number;
+  islandConstruction: number;
+  userChanges: number;
+}
+
 export const MAX_ENTITIES = 8192;
 export const MAX_PLAYERS = 8;
 export const SIM_ENTITY_SLOT_SIZE = 128;
@@ -40,6 +59,23 @@ export const SimChannel = defineChannel({
       physicsBodyCount: { type: "u32" },
       physicsTickCount: { type: "u32" },
       chunkCount: { type: "u32" },
+      physicsProfilerEnabled: { type: "u32" },
+      physTimingStep: { type: "f32" },
+      physTimingCollisionDetection: { type: "f32" },
+      physTimingBroadPhase: { type: "f32" },
+      physTimingNarrowPhase: { type: "f32" },
+      physTimingSolver: { type: "f32" },
+      physTimingVelocityAssembly: { type: "f32" },
+      physTimingVelocityResolution: { type: "f32" },
+      physTimingVelocityUpdate: { type: "f32" },
+      physTimingVelocityWriteback: { type: "f32" },
+      physTimingCcd: { type: "f32" },
+      physTimingCcdToiComputation: { type: "f32" },
+      physTimingCcdBroadPhase: { type: "f32" },
+      physTimingCcdNarrowPhase: { type: "f32" },
+      physTimingCcdSolver: { type: "f32" },
+      physTimingIslandConstruction: { type: "f32" },
+      physTimingUserChanges: { type: "f32" },
     },
   },
   sections: [
@@ -123,6 +159,23 @@ export const SIM_HDR = {
   PHYSICS_BODY_COUNT: 20,
   PHYSICS_TICK_COUNT: 21,
   CHUNK_COUNT: 22,
+  PHYSICS_PROFILER_ENABLED: 23,
+  PHYS_TIMING_STEP: 24,
+  PHYS_TIMING_COLLISION_DETECTION: 25,
+  PHYS_TIMING_BROAD_PHASE: 26,
+  PHYS_TIMING_NARROW_PHASE: 27,
+  PHYS_TIMING_SOLVER: 28,
+  PHYS_TIMING_VELOCITY_ASSEMBLY: 29,
+  PHYS_TIMING_VELOCITY_RESOLUTION: 30,
+  PHYS_TIMING_VELOCITY_UPDATE: 31,
+  PHYS_TIMING_VELOCITY_WRITEBACK: 32,
+  PHYS_TIMING_CCD: 33,
+  PHYS_TIMING_CCD_TOI_COMPUTATION: 34,
+  PHYS_TIMING_CCD_BROAD_PHASE: 35,
+  PHYS_TIMING_CCD_NARROW_PHASE: 36,
+  PHYS_TIMING_CCD_SOLVER: 37,
+  PHYS_TIMING_ISLAND_CONSTRUCTION: 38,
+  PHYS_TIMING_USER_CHANGES: 39,
 } as const;
 
 export const ENT = {
@@ -223,6 +276,30 @@ export class SimBufferReader {
   getPhysicsBodyCount(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsBodyCount]; }
   getPhysicsTickCount(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsTickCount]; }
   getChunkCount(): number { return this.reader.header.u32[SimChannel.offsets.header.chunkCount]; }
+  getPhysicsProfilerEnabled(): boolean { return this.reader.header.u32[SimChannel.offsets.header.physicsProfilerEnabled] === 1; }
+  getPhysicsTiming(): PhysicsTimingData | null {
+    if (!this.getPhysicsProfilerEnabled()) return null;
+    const h = this.reader.header.f32;
+    const o = SimChannel.offsets.header;
+    return {
+      step: h[o.physTimingStep],
+      collisionDetection: h[o.physTimingCollisionDetection],
+      broadPhase: h[o.physTimingBroadPhase],
+      narrowPhase: h[o.physTimingNarrowPhase],
+      solver: h[o.physTimingSolver],
+      velocityAssembly: h[o.physTimingVelocityAssembly],
+      velocityResolution: h[o.physTimingVelocityResolution],
+      velocityUpdate: h[o.physTimingVelocityUpdate],
+      velocityWriteback: h[o.physTimingVelocityWriteback],
+      ccd: h[o.physTimingCcd],
+      ccdToiComputation: h[o.physTimingCcdToiComputation],
+      ccdBroadPhase: h[o.physTimingCcdBroadPhase],
+      ccdNarrowPhase: h[o.physTimingCcdNarrowPhase],
+      ccdSolver: h[o.physTimingCcdSolver],
+      islandConstruction: h[o.physTimingIslandConstruction],
+      userChanges: h[o.physTimingUserChanges],
+    };
+  }
 
   getEntitySlot(idx: number): { f32: Float32Array; u32: Uint32Array } {
     const sv = this.entitySlots.slot(idx);
@@ -293,6 +370,27 @@ export class SimBufferWriter {
   setPhysicsBodyCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsBodyCount] = v; }
   setPhysicsTickCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsTickCount] = v; }
   setChunkCount(v: number) { this.writer.header.u32[SimChannel.offsets.header.chunkCount] = v; }
+  setPhysicsProfilerEnabled(v: number) { this.writer.header.u32[SimChannel.offsets.header.physicsProfilerEnabled] = v; }
+  setPhysicsTiming(data: PhysicsTimingData) {
+    const h = this.writer.header.f32;
+    const o = SimChannel.offsets.header;
+    h[o.physTimingStep] = data.step;
+    h[o.physTimingCollisionDetection] = data.collisionDetection;
+    h[o.physTimingBroadPhase] = data.broadPhase;
+    h[o.physTimingNarrowPhase] = data.narrowPhase;
+    h[o.physTimingSolver] = data.solver;
+    h[o.physTimingVelocityAssembly] = data.velocityAssembly;
+    h[o.physTimingVelocityResolution] = data.velocityResolution;
+    h[o.physTimingVelocityUpdate] = data.velocityUpdate;
+    h[o.physTimingVelocityWriteback] = data.velocityWriteback;
+    h[o.physTimingCcd] = data.ccd;
+    h[o.physTimingCcdToiComputation] = data.ccdToiComputation;
+    h[o.physTimingCcdBroadPhase] = data.ccdBroadPhase;
+    h[o.physTimingCcdNarrowPhase] = data.ccdNarrowPhase;
+    h[o.physTimingCcdSolver] = data.ccdSolver;
+    h[o.physTimingIslandConstruction] = data.islandConstruction;
+    h[o.physTimingUserChanges] = data.userChanges;
+  }
 
   incrementTick() {
     const h = SimChannel.offsets.header;

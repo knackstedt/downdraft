@@ -5,6 +5,7 @@
 // ============================================================================
 
 import RAPIER from "@dimforge/rapier3d-compat";
+import type { PhysicsTimingData } from "@downdraft/core";
 import type { VoxelField } from "@downdraft/plugin-marching-cubes";
 import {
     getPortColliderDims,
@@ -63,6 +64,8 @@ interface EntityBody {
   // Islands whose physics voxel field wasn't ready at body creation time.
   // Trimesh colliders are built later once the field is generated.
   needsTerrainCollider?: boolean;
+  // Collider handles for ships — used to remove/swap colliders without recreating the body
+  colliderHandles?: number[];
 }
 
 export interface CollisionLogEntry {
@@ -100,12 +103,22 @@ export interface PlayerMoveRequest {
 export class RapierPhysicsSystem {
   private world: RAPIER.World | null = null;
   private eventQueue: RAPIER.EventQueue | null = null;
+  private rawBodies: RAPIER.RawRigidBodySet | null = null;
+  private rawColliders: RAPIER.RawColliderSet | null = null;
 
   private entityBodies = new Map<number, EntityBody>();
   private bodyHandleToEntityBody = new Map<number, EntityBody>();
   private pendingShipRebuilds = new Map<number, { entity: SimEntity; entityIdx: number }>();
   private playerCharacters = new Map<number, PlayerCharacter>();
   private collisionLog: CollisionLogEntry[] = [];
+
+  private profilerEnabled = false;
+  private _timing: PhysicsTimingData = {
+    step: 0, collisionDetection: 0, broadPhase: 0, narrowPhase: 0, solver: 0,
+    velocityAssembly: 0, velocityResolution: 0, velocityUpdate: 0, velocityWriteback: 0,
+    ccd: 0, ccdToiComputation: 0, ccdBroadPhase: 0, ccdNarrowPhase: 0, ccdSolver: 0,
+    islandConstruction: 0, userChanges: 0,
+  };
 
   // Voxel fields for ALL islands — used for manual terrain Y collision in tickPlayers.
   // Updated with deformed fields when terrain changes.
@@ -144,6 +157,8 @@ export class RapierPhysicsSystem {
 
   async init(): Promise<void> {
     await RAPIER.init();
+    // Pre-allocate WASM memory to avoid growth during simulation
+    try { RAPIER.reserveMemory(64 * 1024 * 1024); } catch {}
     this.recreateWorld();
     this.initialized = true;
     this.failed = false;
@@ -172,19 +187,37 @@ export class RapierPhysicsSystem {
     this.world = new RAPIER.World(gravity);
     this.world.integrationParameters.dt = SIM_TICK_DT;
     this.eventQueue = new RAPIER.EventQueue(true);
+    this.rawBodies = this.world.bodies.raw;
+    this.rawColliders = this.world.colliders.raw;
+    // Persist profiler state across reinit
+    if (this.profilerEnabled) {
+      this.world.profilerEnabled = true;
+    }
   }
 
   isInitialized(): boolean {
     return this.initialized && !this.failed;
   }
 
-  getStats(): { initialized: boolean; failed: boolean; bodyCount: number; tickCount: number } {
+  getStats(): {
+    initialized: boolean; failed: boolean; bodyCount: number; tickCount: number;
+    profilerEnabled: boolean; timing: PhysicsTimingData | null;
+  } {
     return {
       initialized: this.initialized,
       failed: this.failed,
       bodyCount: this.entityBodies.size,
       tickCount: this.tickCount,
+      profilerEnabled: this.profilerEnabled,
+      timing: this.profilerEnabled ? { ...this._timing } : null,
     };
+  }
+
+  setProfilerEnabled(enabled: boolean): void {
+    this.profilerEnabled = enabled;
+    if (this.world) {
+      this.world.profilerEnabled = enabled;
+    }
   }
 
   // --- Self-recovery ---
@@ -367,6 +400,8 @@ export class RapierPhysicsSystem {
         }
       }
 
+      // Track collider handles for ships (used for in-place collider swapping)
+      const colliderHandles: number[] = [];
       for (let ci = 0; ci < colliderDescs.length; ci++) {
         try {
           const cd = colliderDescs[ci];
@@ -376,6 +411,8 @@ export class RapierPhysicsSystem {
             if (chunkKey) {
               chunkColliders.set(chunkKey, col.handle);
             }
+          } else if (isShip) {
+            colliderHandles.push(col.handle);
           }
           createdCount++;
         } catch (colErr) {
@@ -393,6 +430,7 @@ export class RapierPhysicsSystem {
         chunkColliders: chunkColliders.size > 0 ? chunkColliders : undefined,
         chunkSize, chunkCountX, chunkCountZ,
         needsTerrainCollider: needsTerrainCollider || undefined,
+        colliderHandles: isShip ? colliderHandles : undefined,
       };
       this.entityBodies.set(entityIdx, eb);
       this.bodyHandleToEntityBody.set(body.handle, eb);
@@ -501,15 +539,7 @@ export class RapierPhysicsSystem {
         const x1 = Math.min(x0 + CHUNK_SIZE, field.dimX);
         const z1 = Math.min(z0 + CHUNK_SIZE, field.dimZ);
 
-        // Remove old chunk collider
         const oldHandle = body.chunkColliders.get(chunkKey);
-        if (oldHandle !== undefined) {
-          try {
-            const oldCol = this.world.getCollider(oldHandle);
-            if (oldCol) this.world.removeCollider(oldCol, false);
-          } catch {}
-          body.chunkColliders.delete(chunkKey);
-        }
 
         // Generate new chunk trimesh
         const chunkMesh = generateTerrainTrimeshSubRegion(
@@ -532,8 +562,35 @@ export class RapierPhysicsSystem {
 
         const cd = RAPIER.ColliderDesc.trimesh(pos, chunkMesh.indices);
         cd.setCollisionGroups(ISLAND_BOTH_GROUPS);
-        const newCol = this.world.createCollider(cd, rb);
-        body.chunkColliders.set(chunkKey, newCol.handle);
+
+        if (oldHandle !== undefined && this.rawColliders) {
+          // Swap shape in-place — avoids collider remove/create cycle
+          try {
+            const rawShape = (cd.shape as any).intoRaw();
+            this.rawColliders.coSetShape(oldHandle, rawShape);
+            rawShape.free();
+          } catch {
+            // Fallback: remove and recreate if coSetShape fails
+            try {
+              const oldCol = this.world.getCollider(oldHandle);
+              if (oldCol) this.world.removeCollider(oldCol, false);
+            } catch {}
+            body.chunkColliders.delete(chunkKey);
+            const newCol = this.world.createCollider(cd, rb);
+            body.chunkColliders.set(chunkKey, newCol.handle);
+          }
+        } else {
+          // No existing collider or no raw access — create new one
+          if (oldHandle !== undefined) {
+            try {
+              const oldCol = this.world.getCollider(oldHandle);
+              if (oldCol) this.world.removeCollider(oldCol, false);
+            } catch {}
+            body.chunkColliders.delete(chunkKey);
+          }
+          const newCol = this.world.createCollider(cd, rb);
+          body.chunkColliders.set(chunkKey, newCol.handle);
+        }
       }
     }
   }
@@ -581,45 +638,50 @@ export class RapierPhysicsSystem {
       return;
     }
 
-    // Remove old body and create a new one with updated collider
-    try {
-      const rb = this.world.getRigidBody(body.handle);
-      if (rb) this.world.removeRigidBody(rb);
-    } catch {}
-    this.entityBodies.delete(entityIdx);
+    const rb = this.world.getRigidBody(body.handle);
+    if (!rb) {
+      this.entityBodies.delete(entityIdx);
+      this.bodyHandleToEntityBody.delete(body.handle);
+      this.createEntityBody(entity, entityIdx);
+      return;
+    }
 
-    // Recreate with new shape
+    // Remove old colliders from the existing body — keep the rigid body itself
+    if (body.colliderHandles) {
+      for (let ci = 0; ci < body.colliderHandles.length; ci++) {
+        try {
+          const col = this.world.getCollider(body.colliderHandles[ci]);
+          if (col) this.world.removeCollider(col, false);
+        } catch {}
+      }
+      body.colliderHandles.length = 0;
+    }
+
+    // Create new colliders on the existing body
     const colliderDescs = this.buildAllBoatColliders(entity.id);
     if (colliderDescs.length === 0) return;
 
-    // Ships are dynamic with gravity scale 0 — Rapier resolves collisions,
-    // BuoyancySystem handles gravity, BoatSystem handles rotation.
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(entity.position.x, entity.position.y, entity.position.z)
-      .setGravityScale(0)
-      .setLinearDamping(0)
-      .setAngularDamping(0)
-      .lockRotations();
-
-    const rot = entity.rotation;
-    if (Number.isFinite(rot.x) && Number.isFinite(rot.y) && Number.isFinite(rot.z) && Number.isFinite(rot.w)) {
-      bodyDesc.setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w });
-    }
-
-    // Set restitution/friction/collision-groups on all colliders
     for (let ci = 0; ci < colliderDescs.length; ci++) {
       colliderDescs[ci].setRestitution(SHIP_COLLISION_RESTITUTION);
       colliderDescs[ci].setFriction(SHIP_COLLISION_FRICTION);
       colliderDescs[ci].setCollisionGroups(SHIP_COLLISION_GROUPS);
     }
 
-    const newBody = this.world.createRigidBody(bodyDesc);
+    if (!body.colliderHandles) body.colliderHandles = [];
     for (let ci = 0; ci < colliderDescs.length; ci++) {
-      this.world.createCollider(colliderDescs[ci], newBody);
+      try {
+        const col = this.world.createCollider(colliderDescs[ci], rb);
+        body.colliderHandles.push(col.handle);
+      } catch (colErr) {
+        console.error(`[RAPIER] doRebuildShipShape createCollider ${ci} failed: ${(colErr as Error).message}`);
+      }
     }
-    const newEb: EntityBody = { handle: newBody.handle, entityIdx, isStatic: false, isShip: true, entityType: entity.type, entityId: entity.id };
-    this.entityBodies.set(entityIdx, newEb);
-    this.bodyHandleToEntityBody.set(newBody.handle, newEb);
+
+    // Update body position to current entity position (in case it drifted)
+    if (this.rawBodies) {
+      this.rawBodies.rbSetTranslation(body.handle, entity.position.x, entity.position.y, entity.position.z, true);
+    }
+    // Body handle stays the same — no map updates needed
   }
 
   // Build a simplified single-box collider for the ship in Rapier.
@@ -846,6 +908,28 @@ export class RapierPhysicsSystem {
       this.setTimestep(dt);
       this.world.step(this.eventQueue!);
       const t3 = performance.now();
+
+      // Collect Rapier profiler timing data after step
+      if (this.profilerEnabled && this.world) {
+        const t = this._timing;
+        t.step = this.world.timingStep();
+        t.collisionDetection = this.world.timingCollisionDetection();
+        t.broadPhase = this.world.timingBroadPhase();
+        t.narrowPhase = this.world.timingNarrowPhase();
+        t.solver = this.world.timingSolver();
+        t.velocityAssembly = this.world.timingVelocityAssembly();
+        t.velocityResolution = this.world.timingVelocityResolution();
+        t.velocityUpdate = this.world.timingVelocityUpdate();
+        t.velocityWriteback = this.world.timingVelocityWriteback();
+        t.ccd = this.world.timingCcd();
+        t.ccdToiComputation = this.world.timingCcdToiComputation();
+        t.ccdBroadPhase = this.world.timingCcdBroadPhase();
+        t.ccdNarrowPhase = this.world.timingCcdNarrowPhase();
+        t.ccdSolver = this.world.timingCcdSolver();
+        t.islandConstruction = this.world.timingIslandConstruction();
+        t.userChanges = this.world.timingUserChanges();
+      }
+
       this.readBackShipPositions(entities, entityCount);
       const t4 = performance.now();
 
@@ -935,8 +1019,34 @@ export class RapierPhysicsSystem {
 
         const cd = RAPIER.ColliderDesc.trimesh(pos, chunkMesh.indices);
         cd.setCollisionGroups(ISLAND_BOTH_GROUPS);
-        const col = this.world.createCollider(cd, rb);
-        body.chunkColliders.set(`${cx},${cz}`, col.handle);
+        const chunkKey = `${cx},${cz}`;
+        const existingHandle = body.chunkColliders.get(chunkKey);
+        if (existingHandle !== undefined && this.rawColliders) {
+          // Swap shape in-place
+          try {
+            const rawShape = (cd.shape as any).intoRaw();
+            this.rawColliders.coSetShape(existingHandle, rawShape);
+            rawShape.free();
+          } catch {
+            // Fallback: remove and recreate
+            try {
+              const oldCol = this.world.getCollider(existingHandle);
+              if (oldCol) this.world.removeCollider(oldCol, false);
+            } catch {}
+            const newCol = this.world.createCollider(cd, rb);
+            body.chunkColliders.set(chunkKey, newCol.handle);
+          }
+        } else {
+          if (existingHandle !== undefined) {
+            try {
+              const oldCol = this.world.getCollider(existingHandle);
+              if (oldCol) this.world.removeCollider(oldCol, false);
+            } catch {}
+            body.chunkColliders.delete(chunkKey);
+          }
+          const col = this.world.createCollider(cd, rb);
+          body.chunkColliders.set(chunkKey, col.handle);
+        }
       } catch (colErr) {
         console.error(`[RAPIER] Deferred createCollider failed for entity ${chunk.entityIdx} chunk ${chunk.cx},${chunk.cz}: ${(colErr as Error).message}`);
       }
@@ -971,25 +1081,45 @@ export class RapierPhysicsSystem {
       if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
 
       try {
-        const rb = this.world.getRigidBody(body.handle);
-        if (!rb) continue;
+        // Skip sync for sleeping non-ship bodies — they haven't moved
+        if (!body.isShip && this.rawBodies && this.rawBodies.rbIsSleeping(body.handle)) continue;
 
-        if (body.isShip) {
-          // Ships are dynamic: sync position AND velocity so Rapier can resolve
-          // collisions with the correct momentum. BuoyancySystem already integrated
-          // position += velocity * dt, so we sync the post-integration position.
-          rb.setTranslation({ x: px, y: py, z: pz }, true);
-          rb.setLinvel({ x: ent.velocity.x, y: ent.velocity.y, z: ent.velocity.z }, true);
-          // Reset angular velocity — BoatSystem handles rotation
-          rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+        if (this.rawBodies) {
+          // Use raw scalar methods for translation/rotation — zero JS object allocation
+          this.rawBodies.rbSetTranslation(body.handle, px, py, pz, true);
+
+          if (body.isShip) {
+            // Ships: sync velocity too so Rapier resolves collisions with correct momentum
+            // rbSetLinvel/rbSetAngvel need RawVector which isn't available in compat layer,
+            // so use high-level RigidBody API for velocity
+            const rb = this.world.getRigidBody(body.handle);
+            if (rb) {
+              rb.setLinvel({ x: ent.velocity.x, y: ent.velocity.y, z: ent.velocity.z }, true);
+              rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+            }
+          }
+
+          const rx = ent.rotation.x, ry = ent.rotation.y, rz = ent.rotation.z, rw = ent.rotation.w;
+          if (Number.isFinite(rx) && Number.isFinite(ry) && Number.isFinite(rz) && Number.isFinite(rw)) {
+            this.rawBodies.rbSetRotation(body.handle, rx, ry, rz, rw, true);
+          }
         } else {
-          // Non-ship entities: sync position only (kinematic or static)
-          rb.setTranslation({ x: px, y: py, z: pz }, true);
-        }
+          // Fallback: high-level API (should not happen after recreateWorld)
+          const rb = this.world.getRigidBody(body.handle);
+          if (!rb) continue;
 
-        const rx = ent.rotation.x, ry = ent.rotation.y, rz = ent.rotation.z, rw = ent.rotation.w;
-        if (Number.isFinite(rx) && Number.isFinite(ry) && Number.isFinite(rz) && Number.isFinite(rw)) {
-          rb.setRotation({ x: rx, y: ry, z: rz, w: rw }, true);
+          if (body.isShip) {
+            rb.setTranslation({ x: px, y: py, z: pz }, true);
+            rb.setLinvel({ x: ent.velocity.x, y: ent.velocity.y, z: ent.velocity.z }, true);
+            rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+          } else {
+            rb.setTranslation({ x: px, y: py, z: pz }, true);
+          }
+
+          const rx = ent.rotation.x, ry = ent.rotation.y, rz = ent.rotation.z, rw = ent.rotation.w;
+          if (Number.isFinite(rx) && Number.isFinite(ry) && Number.isFinite(rz) && Number.isFinite(rw)) {
+            rb.setRotation({ x: rx, y: ry, z: rz, w: rw }, true);
+          }
         }
       } catch (err) {
         if (this.isWasmTrap(err)) {
@@ -1018,22 +1148,38 @@ export class RapierPhysicsSystem {
       if (!body || !body.isShip) continue;
 
       try {
-        const rb = this.world.getRigidBody(body.handle);
-        if (!rb) continue;
+        if (this.rawBodies) {
+          // Use raw methods — creates only RawVector (immediately freed)
+          const pos = this.rawBodies.rbTranslation(body.handle);
+          const vel = this.rawBodies.rbLinvel(body.handle);
 
-        const pos = rb.translation();
-        const vel = rb.linvel();
+          // Only write back XZ — BuoyancySystem is the authority for ship Y.
+          if (Number.isFinite(pos.x) && Number.isFinite(pos.z)) {
+            ent.position.x = pos.x;
+            ent.position.z = pos.z;
+          }
+          if (Number.isFinite(vel.x) && Number.isFinite(vel.z)) {
+            ent.velocity.x = vel.x;
+            ent.velocity.z = vel.z;
+          }
+          pos.free();
+          vel.free();
+        } else {
+          // Fallback: high-level API
+          const rb = this.world.getRigidBody(body.handle);
+          if (!rb) continue;
 
-        // Only write back XZ — BuoyancySystem is the authority for ship Y.
-        // Writing back Y from Rapier causes friction on sloped terrain to push
-        // ships underwater.
-        if (Number.isFinite(pos.x) && Number.isFinite(pos.z)) {
-          ent.position.x = pos.x;
-          ent.position.z = pos.z;
-        }
-        if (Number.isFinite(vel.x) && Number.isFinite(vel.z)) {
-          ent.velocity.x = vel.x;
-          ent.velocity.z = vel.z;
+          const pos = rb.translation();
+          const vel = rb.linvel();
+
+          if (Number.isFinite(pos.x) && Number.isFinite(pos.z)) {
+            ent.position.x = pos.x;
+            ent.position.z = pos.z;
+          }
+          if (Number.isFinite(vel.x) && Number.isFinite(vel.z)) {
+            ent.velocity.x = vel.x;
+            ent.velocity.z = vel.z;
+          }
         }
       } catch (err) {
         if (this.isWasmTrap(err)) {
@@ -1049,6 +1195,8 @@ export class RapierPhysicsSystem {
       this.world.free();
       this.world = null;
     }
+    this.rawBodies = null;
+    this.rawColliders = null;
     this.entityBodies.clear();
     this.bodyHandleToEntityBody.clear();
     this.pendingShipRebuilds.clear();

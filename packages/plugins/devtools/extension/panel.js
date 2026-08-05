@@ -64,6 +64,9 @@
   var perfTimer = null;
   var perfHistory = { gpu: [], renderer: [], main: [], worker: [] };
   var PERF_MAX_POINTS = 60;
+  var chkPhysicsProfiler = document.getElementById("chk-physics-profiler");
+  var physicsTimingGrid = document.getElementById("physics-timing-grid");
+  var physicsProfilerEnabled = false;
 
   // Editor panel elements
   var btnViewMaterial = document.getElementById("btn-view-material");
@@ -1172,9 +1175,78 @@
           drawProcessChart("renderer", "perf-chart-renderer", "perf-legend-renderer");
           drawProcessChart("main", "perf-chart-main", "perf-legend-main");
           drawProcessChart("worker", "perf-chart-worker", "perf-legend-worker");
+          if (m.physics) updatePhysicsTiming(m.physics);
         } catch (e) { perfStatusEl.textContent = "Error: " + String(e); }
       },
     );
+  }
+
+  // --- Physics Profiler ---
+  if (chkPhysicsProfiler) {
+    chkPhysicsProfiler.addEventListener("change", function () {
+      physicsProfilerEnabled = chkPhysicsProfiler.checked;
+      evalInPage(
+        "window.__sceneInspector ? window.__sceneInspector.setPhysicsProfiler(" + physicsProfilerEnabled + ") : null",
+        function () {},
+      );
+      if (!physicsProfilerEnabled) {
+        physicsTimingGrid.innerHTML = '<p class="empty-state">Enable profiler to see timing breakdown</p>';
+      }
+    });
+  }
+
+  var PHYS_TIMING_LABELS = {
+    step: "Total Step",
+    collisionDetection: "Collision Detection",
+    broadPhase: "Broad Phase",
+    narrowPhase: "Narrow Phase",
+    solver: "Solver",
+    velocityAssembly: "Velocity Assembly",
+    velocityResolution: "Velocity Resolution",
+    velocityUpdate: "Velocity Update",
+    velocityWriteback: "Velocity Writeback",
+    ccd: "CCD",
+    ccdToiComputation: "CCD TOI Computation",
+    ccdBroadPhase: "CCD Broad Phase",
+    ccdNarrowPhase: "CCD Narrow Phase",
+    ccdSolver: "CCD Solver",
+    islandConstruction: "Island Construction",
+    userChanges: "User Changes",
+  };
+
+  function updatePhysicsTiming(physics) {
+    if (!physics) return;
+    if (physics.profilerEnabled !== undefined && chkPhysicsProfiler) {
+      chkPhysicsProfiler.checked = physics.profilerEnabled;
+      physicsProfilerEnabled = physics.profilerEnabled;
+    }
+    if (!physics.timing) {
+      if (physicsProfilerEnabled) {
+        physicsTimingGrid.innerHTML = '<p class="empty-state">Waiting for timing data...</p>';
+      }
+      return;
+    }
+    var t = physics.timing;
+    var maxVal = t.step || 0.001;
+    var html = '';
+    var keys = Object.keys(PHYS_TIMING_LABELS);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var v = t[k] || 0;
+      var pct = Math.min(100, (v / maxVal) * 100);
+      html += '<div class="physics-timing-row">' +
+        '<span class="physics-timing-label">' + PHYS_TIMING_LABELS[k] + '</span>' +
+        '<span class="physics-timing-value">' + fmtVal(v, 3) + 'ms</span>' +
+        '</div>';
+      html += '<div class="physics-timing-bar" style="width:' + pct + '%"></div>';
+    }
+    if (physics.bodyCount !== undefined || physics.tickCount !== undefined) {
+      html += '<div class="physics-timing-row" style="grid-column:1/-1;margin-top:4px">' +
+        '<span class="physics-timing-label">Bodies: ' + (physics.bodyCount || 0) + '</span>' +
+        '<span class="physics-timing-label">Ticks: ' + (physics.tickCount || 0) + '</span>' +
+        '</div>';
+    }
+    physicsTimingGrid.innerHTML = html;
   }
 
   function drawLine(ctx, data, color, maxVal, w, h) {
