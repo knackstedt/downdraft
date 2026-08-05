@@ -1,4 +1,4 @@
-import type { GCStats } from "@downdraft/core";
+import type { GCControllerConfig, GCControllerStats, GCStats } from "@downdraft/core";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 
@@ -29,6 +29,11 @@ interface DebugState {
 
   gcStats: Record<string, GCStats>;
   updateGCStats: (stats: GCStats) => void;
+
+  gcControllerStats: Record<string, GCControllerStats>;
+  updateGCControllerStats: (label: string, stats: GCControllerStats) => void;
+  gcConfig: GCControllerConfig | null;
+  setGCConfig: (config: Partial<GCControllerConfig>) => void;
 
   collisionLog: CollisionLogEntry[];
   setCollisionLog: (log: CollisionLogEntry[]) => void;
@@ -70,6 +75,13 @@ export const useDebugStore = create<DebugState>()(
   gcStats: {},
   updateGCStats: (stats) =>
     set((s) => ({ gcStats: { ...s.gcStats, [stats.label]: stats } })),
+
+  gcControllerStats: {},
+  updateGCControllerStats: (label, stats) =>
+    set((s) => ({ gcControllerStats: { ...s.gcControllerStats, [label]: stats } })),
+  gcConfig: null,
+  setGCConfig: (config) =>
+    set((s) => ({ gcConfig: s.gcConfig ? { ...s.gcConfig, ...config } : { ...config } as GCControllerConfig })),
 
   collisionLog: [],
   setCollisionLog: (log) => set({ collisionLog: log }),

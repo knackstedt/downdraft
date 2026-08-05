@@ -277,6 +277,8 @@ export { TelemetryCollector } from "./telemetry/collector";
 export type { DrawStats, FrameTelemetry, PassTiming, ResourceEntry, ResourceStats, SnapshotDiff, SystemTiming, TelemetrySnapshot, ThreadMetrics } from "./telemetry/collector";
 export { DebugOverlay, DEFAULT_DEBUG_OVERLAY_CONFIG } from "./telemetry/debug-overlay";
 export type { DebugOverlayConfig } from "./telemetry/debug-overlay";
+export { DEFAULT_GC_CONTROLLER_CONFIG, GCController } from "./telemetry/gc-controller";
+export type { GCControllerConfig, GCControllerStats, GCIntervalStats, GCInvocationRecord, GCOverallStats } from "./telemetry/gc-controller";
 export { startGCProfiler } from "./telemetry/gc-profiler";
 export type { GCProfilerHandle, GCStats } from "./telemetry/gc-profiler";
 export { GCTracker } from "./telemetry/gc-tracker";

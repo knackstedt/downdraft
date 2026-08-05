@@ -61,6 +61,8 @@ export class SceneInspector extends BaseSceneInspector {
   protected getDebugModeProvider(): IDebugModeProvider | null {
     return {
       setDebugMode: (enabled: boolean) => simBridge.setDebugMode(enabled),
+      setGCConfig: (config: any) => simBridge.setGCConfig(config),
+      forceMajorGC: () => simBridge.forceWorkerMajorGC(),
     };
   }
 

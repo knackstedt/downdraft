@@ -4,7 +4,7 @@
 // Uses the RPC layer (expose/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { GCController, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { BoatBufferWriter } from "@shared/boat-buffer";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
@@ -19,6 +19,8 @@ import { Simulation } from "@sim/simulation";
 let simulation: Simulation | null = null;
 let stateHelper: SimStateHelper | null = null;
 let gcHandle: GCProfilerHandle | null = null;
+let gcController: GCController | null = null;
+let gcStatsTimer: ReturnType<typeof setInterval> | null = null;
 let debugMode = false;
 let perfTimer: ReturnType<typeof setInterval> | null = null;
 let perfWallStart = 0;
@@ -77,6 +79,10 @@ expose({
     for (const { entityId, design } of simulation.getBoatDesignSystem().getDesigns()) {
       events.emit("boat_design_update", { entityId, designJson: JSON.stringify(design) });
     }
+
+    // Create GC controller and attach to the sim loop
+    gcController = new GCController("sim-worker");
+    simLoop?.setGCController(gcController);
   },
 
   pause() { simLoop?.pause(); },
@@ -107,6 +113,9 @@ expose({
   shutdown() {
     simLoop?.stop();
     gcHandle?.stop();
+    if (gcStatsTimer) { clearInterval(gcStatsTimer); gcStatsTimer = null; }
+    gcController?.dispose();
+    gcController = null;
     simulation?.shutdown();
     setTimeout(() => getWorkerHost().close(), 0);
   },
@@ -145,6 +154,27 @@ expose({
       clearInterval(perfTimer);
       perfTimer = null;
     }
+    // GC controller stats forwarding
+    if (enabled && !gcStatsTimer) {
+      gcStatsTimer = setInterval(() => {
+        if (gcController) events.emit("gc_controller_stats", gcController.getStats());
+      }, 2000);
+    } else if (!enabled && gcStatsTimer) {
+      clearInterval(gcStatsTimer);
+      gcStatsTimer = null;
+    }
+  },
+
+  setGCConfig(config: Partial<GCControllerConfig>) {
+    gcController?.setConfig(config);
+  },
+
+  getGCStats(): GCControllerStats | null {
+    return gcController?.getStats() ?? null;
+  },
+
+  forceMajorGC() {
+    gcController?.forceMajor();
   },
 
   sendCommand(cmd: any) {
@@ -192,6 +222,8 @@ expose({
       events.emit("boat_design_update", { entityId, designJson: JSON.stringify(design) });
     }
     simLoop?.resume();
+    // Transition complete — trigger major GC to clean up restore allocations
+    gcController?.collectMajor();
   },
 });
 

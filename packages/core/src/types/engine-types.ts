@@ -96,7 +96,7 @@ export interface MainToSimMessage {
 }
 
 export interface SimToMainMessage {
-  kind: "ready" | "saved" | "loaded" | "error" | "performance" | "player_died" | "weather_changed" | "gc_stats" | "perf_stats" | "boat_design_update" | "boat_design_remove" | "collision_log" | "fishing_result" | "terrain_deformed" | "terrain_lod_changed" | "ship_hold_update" | "sim_speed_changed";
+  kind: "ready" | "saved" | "loaded" | "error" | "performance" | "player_died" | "weather_changed" | "gc_stats" | "gc_controller_stats" | "perf_stats" | "boat_design_update" | "boat_design_remove" | "collision_log" | "fishing_result" | "terrain_deformed" | "terrain_lod_changed" | "ship_hold_update" | "sim_speed_changed";
   data: any;
 }
 
