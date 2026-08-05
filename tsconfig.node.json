@@ -75,5 +75,5 @@
     "packages/plugins/*/src/**/*.ts",
     "electron.vite.config.ts"
   ],
-  "exclude": ["**/*.spec.ts"]
+  "exclude": ["out", "**/*.spec.ts"]
 }

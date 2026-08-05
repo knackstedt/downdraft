@@ -1,4 +1,3 @@
-import type { JobScheduler } from "../sim/job-system";
 import { createLogger } from "../util/logger";
 import {
     addEntityToArchetype,
@@ -12,6 +11,7 @@ import type { ComponentDefinition, ComponentId, IComponent } from "./component";
 import type { Entity, EntityMeta } from "./entity";
 import { ROOT_ENTITY } from "./entity";
 import { EventBus } from "./events";
+import type { JobScheduler } from "./job-system";
 import type { ResourceToken } from "./resource";
 import { Schedule, type SystemContext } from "./schedule";
 
@@ -24,7 +24,7 @@ interface Command {
 export class World {
   entities: EntityMeta[] = [];
   private entityFreeList: number[] = [];
-  archetypes: Map<string, Archetype> = new Map();
+  archetypes: Map<number, Archetype> = new Map();
   allArchetypes: Archetype[] = [];
   archetypeById: Map<number, Archetype> = new Map();
   schedule: Schedule = new Schedule();
@@ -49,7 +49,7 @@ export class World {
   }
 
   private registerArchetype(arch: Archetype): void {
-    if (!this.allArchetypes.includes(arch)) {
+    if (!this.archetypeById.has(arch.id)) {
       this.allArchetypes.push(arch);
     }
     this.archetypeById.set(arch.id, arch);
@@ -216,10 +216,6 @@ export class World {
   step(dt: number): void {
     this.tick++;
     this.events.swapAll();
-    if (this.archetypesDirty) {
-      this.schedule.updateQueryArchetypes(this.allArchetypes);
-      this.archetypesDirty = false;
-    }
 
     const ctx: SystemContext = { world: this, dt, tick: this.tick };
     this.schedule.runStage(0, ctx); // Input

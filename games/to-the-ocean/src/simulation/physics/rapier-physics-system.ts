@@ -103,8 +103,10 @@ export interface PlayerMoveRequest {
 export class RapierPhysicsSystem {
   private world: RAPIER.World | null = null;
   private eventQueue: RAPIER.EventQueue | null = null;
-  private rawBodies: RAPIER.RawRigidBodySet | null = null;
-  private rawColliders: RAPIER.RawColliderSet | null = null;
+  // The rapier3d-compat package does not export the raw set types in 0.19.x;
+  // the raw bodies/colliders objects are internal-only and accessed by name.
+  private rawBodies: any = null;
+  private rawColliders: any = null;
 
   private entityBodies = new Map<number, EntityBody>();
   private bodyHandleToEntityBody = new Map<number, EntityBody>();

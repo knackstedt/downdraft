@@ -216,8 +216,9 @@ export class GPUProfiler {
     this.passTracker.drawCalls = 0;
     this.passTracker.triangles = 0;
     if (!this.gpuTimerPool || !this.gpuTimerPool.isSupported()) return;
+    const maxPasses = this.gpuTimerPool.getMaxPasses();
     const idx = this.gpuPassCounter++;
-    if (idx >= 16) return;
+    if (idx >= maxPasses) return;
     this.passGpuIndices.set(name, idx);
     this.gpuTimerPool.begin(passEncoder, idx);
   }
@@ -227,7 +228,7 @@ export class GPUProfiler {
     // End GPU timer
     if (this.gpuTimerPool && this.gpuTimerPool.isSupported()) {
       const idx = this.passGpuIndices.get(name);
-      if (idx !== undefined && idx < 16) {
+      if (idx !== undefined && idx < this.gpuTimerPool.getMaxPasses()) {
         this.gpuTimerPool.end(passEncoder, idx);
       }
     }

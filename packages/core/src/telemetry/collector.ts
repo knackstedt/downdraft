@@ -108,7 +108,8 @@ export class TelemetryCollector {
   private drawStats: DrawStats = { drawCalls: 0, triangles: 0 };
   private lastDrawStats: DrawStats = { drawCalls: 0, triangles: 0 };
   private gpuTimeMs: number = 0;
-  private passTimings: PassTiming[] = [];
+  private passTimings: Map<string, PassTiming> = new Map();
+  private maxPassTimings: number = 64;
   private resourceStats: ResourceStats | null = null;
   private snapshots: TelemetrySnapshot[] = [];
   private maxSnapshots: number = 10;
@@ -280,20 +281,28 @@ export class TelemetryCollector {
 
   recordPassTiming(timing: PassTiming): void {
     if (!this.enabled) return;
-    const existing = this.passTimings.find((p) => p.name === timing.name);
+    const existing = this.passTimings.get(timing.name);
     if (existing) {
       Object.assign(existing, timing);
     } else {
-      this.passTimings.push({ ...timing });
+      if (this.passTimings.size >= this.maxPassTimings) {
+        const first = this.passTimings.keys().next().value ?? "";
+        this.passTimings.delete(first);
+      }
+      this.passTimings.set(timing.name, { ...timing });
     }
   }
 
   getPassTimings(): PassTiming[] {
-    return this.passTimings.map((p) => ({ ...p }));
+    const result: PassTiming[] = [];
+    for (const p of this.passTimings.values()) {
+      result.push({ ...p });
+    }
+    return result;
   }
 
   clearPassTimings(): void {
-    this.passTimings.length = 0;
+    this.passTimings.clear();
   }
 
   recordResourceStats(stats: ResourceStats): void {
@@ -321,7 +330,7 @@ export class TelemetryCollector {
     return {
       timestamp: Date.now(),
       label,
-      frameTimes: [...this.frameTimes],
+      frameTimes: this.getFrameTimes(),
       avgFrame: this.getAverageFrameTime(),
       p95: this.getFrameTimePercentile(0.95),
       p99: this.getFrameTimePercentile(0.99),
@@ -331,7 +340,7 @@ export class TelemetryCollector {
       gpuTimeMs: this.gpuTimeMs,
       heapUsed: mem.heapUsed,
       heapTotal: mem.heapTotal,
-      passTimings: this.passTimings.map((p) => ({ ...p })),
+      passTimings: this.getPassTimings(),
       resourceStats: this.resourceStats ? { ...this.resourceStats, resources: this.resourceStats.resources.map((r) => ({ ...r })) } : null,
     };
   }
@@ -390,7 +399,7 @@ export class TelemetryCollector {
     this.drawStats = { drawCalls: 0, triangles: 0 };
     this.lastDrawStats = { drawCalls: 0, triangles: 0 };
     this.gpuTimeMs = 0;
-    this.passTimings.length = 0;
+    this.passTimings.clear();
     this.resourceStats = null;
     this.snapshots.length = 0;
   }

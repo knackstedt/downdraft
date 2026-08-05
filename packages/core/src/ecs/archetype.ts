@@ -39,18 +39,18 @@ export function archetypeMatches(arch: Archetype, required: ComponentId[], exclu
 }
 
 export function getArchetypeForComponents(
-  archetypes: Map<string, Archetype>,
+  archetypes: Map<number, Archetype>,
   componentIds: ComponentId[],
 ): Archetype {
-  // Use a numeric hash as the primary key to avoid string allocation.
-  // The string key is kept for debugging/inspection but is only generated on cache miss.
-  const sortedIds = [...componentIds].sort((a, b) => a - b);
+  // Sort only when needed; empty/single-component sets are already canonical.
+  const sortedIds = componentIds.length > 1
+    ? [...componentIds].sort((a, b) => a - b)
+    : componentIds;
   const numericKey = archetypeNumericHash(sortedIds);
-  const key = numericKey.toString();
-  let arch = archetypes.get(key);
+  let arch = archetypes.get(numericKey);
   if (!arch) {
-    arch = createArchetype(componentIds);
-    archetypes.set(key, arch);
+    arch = createArchetype(sortedIds);
+    archetypes.set(numericKey, arch);
   }
   return arch;
 }

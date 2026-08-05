@@ -15,6 +15,7 @@ interface ScheduledSystem {
 export class Schedule {
   private systems: Map<Stage, ScheduledSystem[]> = new Map();
   private ordered: Map<Stage, System[]> = new Map();
+  private allQueries: Query[] = [];
   private dirty: boolean = true;
 
   add(sys: System): this {
@@ -71,15 +72,7 @@ export class Schedule {
     if (this.dirty) {
       this.resolveOrder();
     }
-    const queries: Query[] = [];
-    for (const systems of this.ordered.values()) {
-      for (let i = 0; i < systems.length; i++) {
-        for (let q = 0; q < systems[i].queries.length; q++) {
-          queries.push(systems[i].queries[q]);
-        }
-      }
-    }
-    return queries;
+    return this.allQueries;
   }
 
   updateQueryArchetypes(archetypes: Archetype[]): void {
@@ -185,6 +178,16 @@ export class Schedule {
     for (const [stage, bucket] of this.systems) {
       const sorted = this.topologicalSort(bucket);
       this.ordered.set(stage, sorted);
+    }
+
+    this.allQueries.length = 0;
+    for (const systems of this.ordered.values()) {
+      for (let i = 0; i < systems.length; i++) {
+        const queries = systems[i].queries;
+        for (let q = 0; q < queries.length; q++) {
+          this.allQueries.push(queries[q]);
+        }
+      }
     }
     this.dirty = false;
   }
