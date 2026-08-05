@@ -137,6 +137,11 @@ export class SSRPass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  // Cached bind group — invalidated when input texture views change (e.g., canvas resize).
+  private cachedBindGroup: GPUBindGroup | null = null;
+  private cachedColorView: GPUTextureView | null = null;
+  private cachedDepthView: GPUTextureView | null = null;
+  private cachedNormalView: GPUTextureView | null = null;
 
 
   constructor(device: GPUDevice, settings: Partial<SSRSettings> = {}) {
@@ -203,16 +208,25 @@ export class SSRPass extends RenderPass {
     const normalView = this.normalHandle ? ctx.getView(this.normalHandle) : depthView;
     const outputView = ctx.getView(this.outputHandle);
 
-    const bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer! } },
-        { binding: 1, resource: colorView },
-        { binding: 2, resource: depthView },
-        { binding: 3, resource: normalView },
-        { binding: 4, resource: this.sampler! },
-      ],
-    });
+    // Reuse cached bind group when input texture views haven't changed (avoids
+    // per-frame createBindGroup allocation — the views are stable across frames
+    // unless the canvas/render targets are resized).
+    if (!this.cachedBindGroup || this.cachedColorView !== colorView || this.cachedDepthView !== depthView || this.cachedNormalView !== normalView) {
+      this.cachedBindGroup = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer! } },
+          { binding: 1, resource: colorView },
+          { binding: 2, resource: depthView },
+          { binding: 3, resource: normalView },
+          { binding: 4, resource: this.sampler! },
+        ],
+      });
+      this.cachedColorView = colorView;
+      this.cachedDepthView = depthView;
+      this.cachedNormalView = normalView;
+    }
+    const bindGroup = this.cachedBindGroup;
 
     const encoder = ctx.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({

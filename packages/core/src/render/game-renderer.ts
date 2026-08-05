@@ -468,8 +468,12 @@ export class GameRenderer implements CanvasResizeHandler {
     }
 
     if (!gpuError) {
+      // Collect command buffers from all phases and submit once at the end
+      // (reduces CPU→GPU sync points from 3+ per frame to 1).
+      const frameCommandBuffers: GPUCommandBuffer[] = [];
       for (let v = 0; v < this.viewportCount; v++) {
-        this.renderViewport(v, dt, offscreen);
+        const cb = this.renderViewport(v, dt, offscreen);
+        if (cb) frameCommandBuffers.push(cb);
       }
 
       // Apply postprocessing
@@ -477,7 +481,7 @@ export class GameRenderer implements CanvasResizeHandler {
         const canvasView = this.context!.getCurrentTexture().createView();
         const postEncoder = this.device!.createCommandEncoder();
         offscreen.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
-        this.device!.queue.submit([postEncoder.finish()]);
+        frameCommandBuffers.push(postEncoder.finish());
       }
     }
 
@@ -504,8 +508,13 @@ export class GameRenderer implements CanvasResizeHandler {
         });
         this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as any, drawables);
         uiPass.end();
-        this.device.queue.submit([uiEncoder.finish()]);
+        frameCommandBuffers.push(uiEncoder.finish());
       }
+    }
+
+    // Submit all command buffers for this frame in a single queue.submit() call
+    if (frameCommandBuffers.length > 0) {
+      this.device.queue.submit(frameCommandBuffers);
     }
 
     // Record telemetry
@@ -557,8 +566,8 @@ export class GameRenderer implements CanvasResizeHandler {
     this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
   }
 
-  private renderViewport(viewportIdx: number, dt: number, offscreen: OffscreenMode | null): void {
-    if (!this.device || !this.context) return;
+  private renderViewport(viewportIdx: number, dt: number, offscreen: OffscreenMode | null): GPUCommandBuffer | null {
+    if (!this.device || !this.context) return null;
 
     const xrProvider = this.renderTargetProvider;
     const useOffscreen = !xrProvider && offscreen && offscreen.type !== "none";
@@ -566,7 +575,7 @@ export class GameRenderer implements CanvasResizeHandler {
     const origViewport = xrProvider
       ? xrProvider.getViewportRect(viewportIdx, this.canvas.width, this.canvas.height)
       : this.viewports[viewportIdx];
-    if (!origViewport) return;
+    if (!origViewport) return null;
 
     const viewport = (useOffscreen && offscreen?.scaleViewport)
       ? offscreen.scaleViewport(origViewport)
@@ -574,7 +583,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
     // Get camera info from game callback
     const camInfo = this.callbacks.onViewport?.(viewportIdx, dt, this.elapsedTime);
-    if (!camInfo) return;
+    if (!camInfo) return null;
 
     const isFirst = viewportIdx === 0;
     const isLast = viewportIdx === this.viewportCount - 1;
@@ -649,14 +658,14 @@ export class GameRenderer implements CanvasResizeHandler {
       this.gpuProfiler!.resolveGpuTimers(encoder);
     }
 
-    this.device.queue.submit([encoder.finish()]);
-
     // Read GPU timer results asynchronously (1-frame latency)
     if (isFirst) {
       this.gpuProfiler!.readGpuTimers().then(() => {
         // Results available for next frame
       }).catch(() => {});
     }
+
+    return encoder.finish();
   }
 
   // --- Depth texture cache ---

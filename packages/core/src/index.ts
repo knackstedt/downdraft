@@ -94,7 +94,7 @@ export type { WindowConfig, WindowState } from "./platform/window";
 // Render
 export { BindGroupCache } from "./render/bind-group";
 export { ArenaBuffer, RingBuffer } from "./render/buffer";
-export { calculateViewProj, CameraMode, CameraSystem, dot3, invertMat4, normalize3, transformVec4 } from "./render/camera";
+export { calculateViewProj, calculateViewProjInto, CameraMode, CameraSystem, dot3, invertMat4, normalize3, transformVec4 } from "./render/camera";
 export type { CameraConfig, CameraState } from "./render/camera";
 export { CanvasResizeWatcher } from "./render/canvas-resize-watcher";
 export type { CanvasResizeHandler } from "./render/canvas-resize-watcher";
@@ -515,6 +515,7 @@ export { DebugVizPass, DEFAULT_DEBUG_VIZ_SETTINGS } from "./render/passes/debug-
 export type { DebugVizMode, DebugVizSettings } from "./render/passes/debug-viz";
 
 // Logging
+export { BroadPhaseGrid } from "./util/broad-phase-grid";
 export { ConsoleLogger, createLogger, setThreadTag } from "./util/logger";
 export type { Logger } from "./util/logger";
 

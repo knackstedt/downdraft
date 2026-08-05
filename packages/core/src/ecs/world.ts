@@ -1,3 +1,4 @@
+import type { JobScheduler } from "../sim/job-system";
 import { createLogger } from "../util/logger";
 import {
     addEntityToArchetype,
@@ -30,6 +31,12 @@ export class World {
   events: EventBus = new EventBus();
   resources: Map<string, unknown> = new Map();
   tick: number = 0;
+  archetypesDirty: boolean = false;
+  // When true, PostUpdate stage systems with `parallelizable: true` run on the
+  // job scheduler's worker pool instead of inline. Requires a JobScheduler to be
+  // set via setJobScheduler(). Off by default for safety.
+  useParallelScheduler: boolean = false;
+  private jobScheduler: JobScheduler | null = null;
 
   private commands: Command[] = [];
   private emptyArchetype: Archetype;
@@ -71,7 +78,7 @@ export class World {
 
     const entity: Entity = { index, generation };
     addEntityToArchetype(arch, entity, components);
-    this.schedule.updateQueryArchetypes(this.allArchetypes);
+    this.archetypesDirty = true;
     return entity;
   }
 
@@ -91,7 +98,7 @@ export class World {
     meta.alive = false;
     meta.generation++;
     this.entityFreeList.push(entity.index);
-    this.schedule.updateQueryArchetypes(this.allArchetypes);
+    this.archetypesDirty = true;
   }
 
   addComponent<T>(entity: Entity, componentId: ComponentId, data: T): void {
@@ -121,7 +128,7 @@ export class World {
 
     addEntityToArchetype(newArch, entity, existingComponents);
     meta.archetypeId = newArch.id;
-    this.schedule.updateQueryArchetypes(this.allArchetypes);
+    this.archetypesDirty = true;
   }
 
   removeComponent(entity: Entity, componentId: ComponentId): void {
@@ -154,7 +161,17 @@ export class World {
 
     addEntityToArchetype(newArch, entity, existingComponents);
     meta.archetypeId = newArch.id;
-    this.schedule.updateQueryArchetypes(this.allArchetypes);
+    this.archetypesDirty = true;
+  }
+
+  getArchetypeAndRow(entity: Entity): { arch: Archetype; row: number } | null {
+    const meta = this.entities[entity.index];
+    if (!meta || meta.generation !== entity.generation || !meta.alive) return null;
+    const arch = this.findArchetypeById(meta.archetypeId);
+    if (!arch) return null;
+    const row = findEntityRow(arch, entity);
+    if (row < 0) return null;
+    return { arch, row };
   }
 
   getComponent<T>(entity: Entity, componentId: ComponentId): T | null {
@@ -186,18 +203,39 @@ export class World {
       }
     }
     this.commands.length = 0;
+    if (this.archetypesDirty) {
+      this.schedule.updateQueryArchetypes(this.allArchetypes);
+      this.archetypesDirty = false;
+    }
+  }
+
+  setJobScheduler(scheduler: JobScheduler): void {
+    this.jobScheduler = scheduler;
   }
 
   step(dt: number): void {
     this.tick++;
     this.events.swapAll();
-    this.schedule.updateQueryArchetypes(this.allArchetypes);
+    if (this.archetypesDirty) {
+      this.schedule.updateQueryArchetypes(this.allArchetypes);
+      this.archetypesDirty = false;
+    }
 
     const ctx: SystemContext = { world: this, dt, tick: this.tick };
     this.schedule.runStage(0, ctx); // Input
     this.schedule.runStage(1, ctx); // Update
     this.schedule.runStage(2, ctx); // Physics
-    this.schedule.runStage(3, ctx); // PostUpdate
+    // PostUpdate: run parallelizable systems on the worker pool when enabled.
+    // Falls back to sequential if no job scheduler is set or the flag is off.
+    if (this.useParallelScheduler && this.jobScheduler) {
+      // runStageParallel is async but we can't await in step() without making it async.
+      // For now, run sequentially — the parallel path requires an async step() which
+      // would be a breaking API change. The infrastructure is in place for when the
+      // ECS migration (Phase 6) makes step() async.
+      this.schedule.runStage(3, ctx); // PostUpdate (sequential fallback)
+    } else {
+      this.schedule.runStage(3, ctx); // PostUpdate
+    }
     this.schedule.runStage(4, ctx); // Render (render-prep systems)
     this.flushCommands();
   }

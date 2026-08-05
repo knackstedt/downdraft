@@ -6,7 +6,6 @@
 // Rapier physics. Player collision is handled by KinematicCharacterController.
 // ============================================================================
 
-import type { Query } from "@downdraft/core";
 
 // --- Component data interfaces ---
 
@@ -86,4 +85,5 @@ export interface CollisionConfig {
   entityMass: Record<number, number>;
   wildlifeDensity: Record<number, number>;
   defaultLodDistance: number;
+  spatialGridCellSize?: number;
 }

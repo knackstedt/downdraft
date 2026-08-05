@@ -85,10 +85,11 @@ export function writeToBuffer(sim: SimulationBufferWriterAccess): void {
     }
   }
 
-  // Write entity data
+  // Write entity data (skip non-dirty slots for performance)
   for (let i = 0; i < sim.entityCount; i++) {
     const ent = sim.entities[i];
     if (!ent) continue;
+    if (!sim.simWriter.isEntityDirty(i)) continue;
     const f32 = sim.simWriter.getEntityF32(i);
     const u32 = sim.simWriter.getEntityU32(i);
 
@@ -120,10 +121,11 @@ export function writeToBuffer(sim: SimulationBufferWriterAccess): void {
     }
   }
 
-  // Write player data
+  // Write player data (skip non-dirty slots for performance)
   for (let i = 0; i < sim.playerCount; i++) {
     const p = sim.players[i];
     if (!p) continue;
+    if (!sim.simWriter.isPlayerDirty(i)) continue;
     const f32 = sim.simWriter.getPlayerF32(i);
     const u32 = sim.simWriter.getPlayerU32(i);
 
@@ -177,6 +179,7 @@ export function writeToBuffer(sim: SimulationBufferWriterAccess): void {
     }
   }
 
+  sim.simWriter.clearDirty();
   sim.simWriter.incrementTick();
 }
 
