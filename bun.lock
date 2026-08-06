@@ -33,6 +33,7 @@
       "name": "plugin-tester-example",
       "version": "0.1.0",
       "dependencies": {
+        "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
         "@downdraft/mcp": "workspace:*",
         "@downdraft/plugin-audio-kira": "workspace:*",
@@ -54,6 +55,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@dimforge/rapier3d-compat": "^0.19.3",
+        "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
         "@downdraft/plugin-boats": "workspace:*",
         "@downdraft/plugin-buoyancy": "workspace:*",
@@ -139,6 +141,13 @@
     },
     "packages/plugins/buoyancy": {
       "name": "@downdraft/plugin-buoyancy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/camera-controls": {
+      "name": "@downdraft/plugin-camera-controls",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -464,6 +473,8 @@
     "@downdraft/plugin-boats": ["@downdraft/plugin-boats@workspace:packages/plugins/boats"],
 
     "@downdraft/plugin-buoyancy": ["@downdraft/plugin-buoyancy@workspace:packages/plugins/buoyancy"],
+
+    "@downdraft/plugin-camera-controls": ["@downdraft/plugin-camera-controls@workspace:packages/plugins/camera-controls"],
 
     "@downdraft/plugin-collision": ["@downdraft/plugin-collision@workspace:packages/plugins/collision"],
 

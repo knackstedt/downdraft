@@ -1,4 +1,6 @@
 export type GizmoMode = "translate" | "rotate" | "scale";
+export { createTransformGizmoPlugin } from "./gizmo-plugin";
+export type { TransformGizmoPluginOptions } from "./gizmo-plugin";
 export { TransformGizmo } from "./transform-gizmo";
 export type { GizmoHitPart } from "./transform-gizmo";
 

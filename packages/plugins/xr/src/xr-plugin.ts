@@ -1,4 +1,15 @@
-import { type FrameCallbacks, type GameRenderer, type InputState } from "@downdraft/core";
+// ============================================================================
+// XRPlugin — Renderer-thread plugin for WebXR VR sessions
+//
+// Implements `RendererPlugin`. The sim-side `xrPlugin` in `./plugin.ts`
+// registers `XRSessionManager`/`XRInputMapper` as sim resources; this
+// renderer plugin owns the XR frame loop, per-eye cameras, and rAF/render
+// target provider swaps. XR spans both threads, so it ships two objects
+// (the sim `Plugin` + this `RendererPlugin`) — see
+// docs/site/src/content/docs/guides/plugins.md.
+// ============================================================================
+
+import type { InputState, RendererPlugin, RendererPluginContext } from "@downdraft/core";
 import { XRCameraRig } from "./camera-rig";
 import { XRFrameLoop, type XRFrameLoopOptions } from "./frame-loop";
 import { XRInputMapper } from "./input";
@@ -8,7 +19,6 @@ import type { XRSessionConfig, XRWorldOrigin } from "./types";
 import { DEFAULT_XR_CONFIG } from "./types";
 
 export interface XRPluginOptions {
-  renderer: GameRenderer;
   device: GPUDevice;
   inputState?: InputState | null;
   worldOrigin?: () => XRWorldOrigin;
@@ -16,24 +26,28 @@ export interface XRPluginOptions {
   depthFormat?: GPUTextureFormat;
 }
 
-export class XRPlugin {
+export class XRPlugin implements RendererPlugin {
+  readonly name = "@downdraft/plugin-xr";
+  readonly version = "0.1.0";
+
   private sessionManager: XRSessionManager;
   private layerManager: XRLayerManager;
   private cameraRig: XRCameraRig;
   private inputMapper: XRInputMapper;
-  private frameLoop: XRFrameLoop;
+  private frameLoop: XRFrameLoop | null = null;
 
-  private renderer: GameRenderer;
   private device: GPUDevice;
   private worldOriginFn: () => XRWorldOrigin;
   private colorFormat: GPUTextureFormat;
   private depthFormat: GPUTextureFormat;
+  private inputState: InputState | null;
 
+  private ctx: RendererPluginContext | null = null;
   private initialized = false;
 
   constructor(options: XRPluginOptions) {
-    this.renderer = options.renderer;
     this.device = options.device;
+    this.inputState = options.inputState ?? null;
     this.worldOriginFn = options.worldOrigin ?? (() => ({ position: [0, 0, 0], quaternion: [0, 0, 0, 1] }));
     this.colorFormat = options.colorFormat ?? "bgra8unorm";
     this.depthFormat = options.depthFormat ?? "depth32float";
@@ -42,19 +56,36 @@ export class XRPlugin {
     this.layerManager = new XRLayerManager();
     this.inputMapper = new XRInputMapper();
     this.cameraRig = new XRCameraRig(this.layerManager, this.worldOriginFn);
+  }
+
+  // ── RendererPlugin implementation ──
+
+  register(ctx: RendererPluginContext): void {
+    this.ctx = ctx;
 
     const frameLoopOptions: XRFrameLoopOptions = {
-      inputState: options.inputState ?? null,
+      inputState: this.inputState,
       inputMapper: this.inputMapper,
+      canvas: ctx.getCanvas(),
     };
     this.frameLoop = new XRFrameLoop(
-      this.renderer,
+      ctx,
       this.sessionManager,
       this.layerManager,
       this.cameraRig,
       frameLoopOptions,
     );
+
+    ctx.onDispose(() => {
+      if (this.frameLoop?.isActive()) {
+        this.frameLoop.stop();
+      }
+      this.layerManager.destroy();
+      this.initialized = false;
+    });
   }
+
+  // ── Public API (called by the game after registration) ──
 
   async isSupported(): Promise<boolean> {
     return await isVRSupported();
@@ -64,12 +95,12 @@ export class XRPlugin {
     return isXRGPUBindingAvailable();
   }
 
-  async enterVR(
-    originalCallbacks?: FrameCallbacks,
-    config?: XRSessionConfig,
-  ): Promise<void> {
+  async enterVR(config?: XRSessionConfig): Promise<void> {
     if (!isXRGPUBindingAvailable()) {
       throw new Error("XRGPUBinding not available — enable chrome://flags/#webxr-incubations");
+    }
+    if (!this.ctx || !this.frameLoop) {
+      throw new Error("XRPlugin not registered — call useRendererPlugin() first");
     }
 
     const sessionConfig = config ?? DEFAULT_XR_CONFIG;
@@ -90,12 +121,13 @@ export class XRPlugin {
 
     this.initialized = true;
 
-    // Start XR frame loop
-    this.frameLoop.start(originalCallbacks);
+    // Start XR frame loop (installs XR rAF, render target provider, viewport
+    // camera provider, and stereo viewport count via the RendererPluginContext)
+    this.frameLoop.start();
 
     // Handle session end
     this.sessionManager.onSessionEnd(() => {
-      this.frameLoop.stop();
+      this.frameLoop?.stop();
       this.layerManager.destroy();
       this.initialized = false;
     });
@@ -103,7 +135,7 @@ export class XRPlugin {
 
   async exitVR(): Promise<void> {
     if (!this.initialized) return;
-    this.frameLoop.stop();
+    this.frameLoop?.stop();
     await this.sessionManager.endSession();
     this.layerManager.destroy();
     this.initialized = false;
@@ -125,12 +157,12 @@ export class XRPlugin {
     return this.inputMapper;
   }
 
-  getFrameLoop(): XRFrameLoop {
+  getFrameLoop(): XRFrameLoop | null {
     return this.frameLoop;
   }
 
   isActive(): boolean {
-    return this.frameLoop.isActive();
+    return this.frameLoop?.isActive() ?? false;
   }
 
   getHeadPose(): { position: [number, number, number]; quaternion: [number, number, number, number] } {

@@ -4,14 +4,14 @@
 // ============================================================================
 
 import {
-  calculateViewProj,
-  dot3,
-  invertMat4,
-  normalize3,
-  transformVec4,
-  DEPTH_FORMAT,
-  MSAA_SAMPLE_COUNT,
-  type CameraState,
+    calculateViewProj,
+    DEPTH_FORMAT,
+    dot3,
+    invertMat4,
+    MSAA_SAMPLE_COUNT,
+    normalize3,
+    transformVec4,
+    type CameraState,
 } from "@downdraft/core";
 import type { GizmoMode } from "./index";
 import GIZMO_WGSL from "./shaders/transform-gizmo.wgsl?raw";
@@ -426,6 +426,10 @@ export class TransformGizmo {
 
   setPosition(pos: [number, number, number]): void {
     this.position = [...pos];
+  }
+
+  getPosition(): [number, number, number] {
+    return [...this.position] as [number, number, number];
   }
 
   setMode(mode: GizmoMode): void {

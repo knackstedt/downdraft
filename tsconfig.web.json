@@ -54,6 +54,8 @@
       "@downdraft/plugin-electron-osr/*": ["packages/plugins/electron-osr/src/*"],
       "@downdraft/plugin-xr": ["packages/plugins/xr/src/index.ts"],
       "@downdraft/plugin-xr/*": ["packages/plugins/xr/src/*"],
+      "@downdraft/plugin-camera-controls": ["packages/plugins/camera-controls/src/index.ts"],
+      "@downdraft/plugin-camera-controls/*": ["packages/plugins/camera-controls/src/*"],
       "@downdraft/ui/*": ["packages/ui/src/*"],
       "@downdraft/ui": ["packages/ui/src/index.ts"],
       "@downdraft/shader-graph/*": ["packages/shader-graph/src/*"],

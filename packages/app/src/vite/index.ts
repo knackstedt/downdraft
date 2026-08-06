@@ -105,6 +105,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/plugin-models\//, replacement: resolve(repoRoot, "packages/plugins/models/src") + "/" },
     { find: /^@downdraft\/plugin-devtools$/, replacement: resolve(repoRoot, "packages/plugins/devtools/src/index.ts") },
     { find: /^@downdraft\/plugin-devtools\//, replacement: resolve(repoRoot, "packages/plugins/devtools/src") + "/" },
+    { find: /^@downdraft\/plugin-camera-controls$/, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src/index.ts") },
+    { find: /^@downdraft\/plugin-camera-controls\//, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src") + "/" },
     { find: /^@downdraft\/plugin-boats$/, replacement: resolve(repoRoot, "packages/plugins/boats/src/index.ts") },
     { find: /^@downdraft\/plugin-boats\//, replacement: resolve(repoRoot, "packages/plugins/boats/src") + "/" },
     { find: /^node:fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },

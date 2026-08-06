@@ -1,0 +1,9 @@
+{
+  "name": "@downdraft/plugin-camera-controls",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}

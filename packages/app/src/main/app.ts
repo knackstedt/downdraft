@@ -7,7 +7,7 @@ import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "elect
 import { join } from "path";
 import { IPC } from "../shared/messages";
 import { installErrorHandlers } from "./error-dialog";
-import { registerDevtoolsHandlers } from "./handlers/devtools";
+import { registerDevtoolsHandlers, resolveDevtoolsConfig } from "./handlers/devtools";
 import { registerGpuInfoHandlers } from "./handlers/gpu-info";
 import { startMcpProxy } from "./handlers/mcp";
 import { registerOsrHandlers } from "./handlers/osr";

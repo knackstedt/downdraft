@@ -14,6 +14,7 @@ export type { BillboardMode as BillboardModeType } from "./types";
 export { OSRInputRouter } from "./renderer/input-router";
 export { OSRManager } from "./renderer/osr-manager";
 export { ElectronOSRPlugin } from "./renderer/osr-plugin";
+export type { ElectronOSRPluginOptions } from "./renderer/osr-plugin";
 export { OSRSABRingBuffer } from "./renderer/osr-sab-buffer";
 export type { OSRSABRegion } from "./renderer/osr-sab-buffer";
 export { OSRTextureReceiver } from "./renderer/texture-receiver";

@@ -98,6 +98,8 @@ export { BindGroupCache } from "./render/bind-group";
 export { ArenaBuffer, RingBuffer } from "./render/buffer";
 export { calculateViewProj, calculateViewProjInto, CameraMode, CameraSystem, dot3, invertMat4, normalize3, transformVec4 } from "./render/camera";
 export type { CameraConfig, CameraState } from "./render/camera";
+export { CameraController } from "./render/camera-controller";
+export type { CameraControllerOptions, OrbitInputOptions } from "./render/camera-controller";
 export { CanvasResizeWatcher } from "./render/canvas-resize-watcher";
 export type { CanvasResizeHandler } from "./render/canvas-resize-watcher";
 export { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./render/constants";
@@ -208,6 +210,9 @@ export { RenderPass } from "./render/render-pass";
 export type { FrameGraphBuilder, GraphRenderContext, PassType, RenderPassContext } from "./render/render-pass";
 export { RenderPipeline } from "./render/render-pipeline";
 export type { RenderContext, RenderPassEntry, RenderPassSlot } from "./render/render-pipeline";
+export { RendererInputBusImpl } from "./render/renderer-input-bus";
+export { RendererPluginHost } from "./render/renderer-plugin-host";
+export type { RendererPluginHostCallbacks } from "./render/renderer-plugin-host";
 export { CSM_SHADER_CHUNK, POINT_SHADOW_SHADER_CHUNK, SPOT_SHADOW_SHADER_CHUNK } from "./render/shaders/shadow-chunks";
 export { SkyboxRenderer } from "./render/skybox";
 export type { SkyboxOptions } from "./render/skybox";
@@ -317,6 +322,19 @@ export type { ABIVTable } from "./plugin/abi";
 export { PluginHost } from "./plugin/host";
 export type { Plugin, PluginContext, SABChannel } from "./plugin/plugin";
 export { PluginRegistry } from "./plugin/registry";
+export type {
+    CameraControllerLike,
+    DragDelta,
+    DragHandler,
+    FrameHook,
+    FramePhase,
+    InputEventControl,
+    KeyHandler,
+    PointerHandler, RendererInputBus,
+    RendererPlugin,
+    RendererPluginContext, RenderPassHook, ResizeHook,
+    WheelHandler
+} from "./plugin/renderer-plugin";
 export { TSPluginLoader } from "./plugin/ts-loader";
 export { WASMPluginLoader } from "./plugin/wasm-loader";
 export type { WASMABIExports, WASMABIImports } from "./plugin/wasm-loader";

@@ -6,6 +6,7 @@
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
+    "@downdraft/plugin-camera-controls": "workspace:*",
     "@downdraft/plugin-models": "workspace:*",
     "@downdraft/plugin-entities": "workspace:*",
     "fflate": "^0.8.2",
