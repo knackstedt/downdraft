@@ -559,5 +559,7 @@ export type { SimWorkerLoopConfig, SimWorkerLoopStats } from "./sim/worker-loop"
 // Hot-Reload Pipeline (framework-owned hot-reload lifecycle)
 export { HotReloadPipeline } from "./sim/hot-reload-pipeline";
 export { SimStateHelper } from "./sim/sim-state-helper";
+export { SystemHotReloader } from "./sim/system-hot-reloader";
+export type { SystemFactory } from "./sim/system-hot-reloader";
 export { TransientStateRegistry } from "./sim/transient-state-registry";
 

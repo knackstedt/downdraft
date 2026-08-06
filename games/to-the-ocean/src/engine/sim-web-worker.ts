@@ -44,6 +44,8 @@ type SimApi = {
   setGCConfig(config: Partial<GCControllerConfig>): Promise<void>;
   getGCStats(): Promise<GCControllerStats | null>;
   forceMajorGC(): Promise<void>;
+  hotSwapModule(modulePath: string): Promise<boolean>;
+  canHotSwapModule(modulePath: string): Promise<boolean>;
 };
 
 export class SimWebWorker implements IHotReloadable {
@@ -188,6 +190,33 @@ export class SimWebWorker implements IHotReloadable {
   async restoreFromState(stateJson: string): Promise<void> {
     if (!this.wp) throw new Error("Worker not started");
     await this.wp.proxy.restoreFromState(stateJson);
+  }
+
+  /**
+   * Try in-worker system hot-swap (approach 2 — RPC fallback).
+   * Returns true if the worker could hot-swap the module.
+   * Returns false if the module isn't tracked → caller should do full worker swap.
+   */
+  async hotSwapModule(modulePath: string): Promise<boolean> {
+    if (!this.wp) return false;
+    try {
+      return await this.wp.proxy.hotSwapModule(modulePath);
+    } catch (err) {
+      console.error("[SimWebWorker] hotSwapModule failed:", err);
+      return false;
+    }
+  }
+
+  /**
+   * Check if the worker can hot-swap a given module path.
+   */
+  async canHotSwapModule(modulePath: string): Promise<boolean> {
+    if (!this.wp) return false;
+    try {
+      return await this.wp.proxy.canHotSwapModule(modulePath);
+    } catch {
+      return false;
+    }
   }
 
   private pipeline: HotReloadPipeline | null = null;

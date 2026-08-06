@@ -225,6 +225,27 @@ expose({
     // Transition complete — trigger major GC to clean up restore allocations
     gcController?.collectMajor();
   },
+
+  /**
+   * Hot-swap a system module inside the worker (approach 2 — RPC fallback).
+   * Called by the main thread when Vite HMR (approach 1) isn't available
+   * or the changed file isn't directly accepted by import.meta.hot.accept.
+   *
+   * The worker dynamic-imports the updated module (with cache-bust) and
+   * asks SimEcsWorld to swap the system. Returns true if the swap succeeded.
+   */
+  async hotSwapModule(modulePath: string): Promise<boolean> {
+    if (!simulation?.ecs) return false;
+    return simulation.ecs.hotSwapByModule(modulePath);
+  },
+
+  /**
+   * Check if the worker can hot-swap a given module path.
+   * Used by the main thread to decide between in-worker swap vs full worker swap.
+   */
+  canHotSwapModule(modulePath: string): boolean {
+    return simulation?.ecs?.hasHotReloadModule(modulePath) ?? false;
+  },
 });
 
 // --- Event forwarding ---
