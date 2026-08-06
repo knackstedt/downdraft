@@ -53,7 +53,7 @@ export function registerDevtoolsHandlers(ctx: MainContext, devtools: ResolvedDev
   // avoiding double-toggle.
   if (devtools.keybind && ctx.window && !ctx.window.isDestroyed()) {
     ctx.window.webContents.on("before-input-event", (event, input) => {
-      if (input.type !== "keyDown" || input.repeat) return;
+      if (input.type !== "keyDown" || (input as any).repeat) return;
       if (input.key === devtools.keybind) {
         event.preventDefault();
         if (ctx.window && !ctx.window.isDestroyed()) {

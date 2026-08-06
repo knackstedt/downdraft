@@ -7,6 +7,7 @@ import type { app as App, BrowserWindow, screen as Screen, session as Session } 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "path";
 import { showErrorDialog } from "./error-dialog";
+import type { ResolvedDevtoolsConfig } from "./handlers/devtools";
 import type { DowndraftWindowConfig, WindowPlacement } from "./types";
 
 const log = createLogger("info");

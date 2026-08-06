@@ -1,4 +1,23 @@
-import { type CameraViewportInfo, type FrameCallbacks, type GameRenderer, type InputState, type RenderTargetProvider, type ViewportRect } from "@downdraft/core";
+// ============================================================================
+// XRFrameLoop — drives the XR render loop through the RendererPluginContext
+//
+// Installs XR-specific overrides on the RendererPluginContext:
+//  - XR rAF source (session.requestAnimationFrame instead of window.rAF)
+//  - XR render target provider (per-eye XRGPULayer textures)
+//  - Viewport camera provider (per-eye stereo cameras)
+//  - Stereo viewport count (2)
+//  - beforeFrame hook (XR input mapping)
+//
+// On stop(), all overrides are cleared and the desktop render loop resumes.
+// ============================================================================
+
+import type {
+    CameraViewportInfo,
+    InputState,
+    RendererPluginContext,
+    RenderTargetProvider,
+    ViewportRect,
+} from "@downdraft/core";
 import type { XRCameraRig } from "./camera-rig";
 import type { XRInputMapper } from "./input";
 import type { XRLayerManager } from "./layer";
@@ -48,92 +67,51 @@ class XRRenderTargetProvider implements RenderTargetProvider {
 export interface XRFrameLoopOptions {
   inputState?: InputState | null;
   inputMapper?: XRInputMapper | null;
+  canvas: HTMLCanvasElement;
 }
 
 export class XRFrameLoop {
-  private renderer: GameRenderer;
+  private ctx: RendererPluginContext;
   private sessionManager: XRSessionManager;
   private layerManager: XRLayerManager;
   private cameraRig: XRCameraRig;
   private inputState: InputState | null;
   private inputMapper: XRInputMapper | null;
+  private canvas: HTMLCanvasElement;
 
   private targetProvider: XRRenderTargetProvider;
-  private originalViewportCount: number = 1;
-  private originalCallbacks: FrameCallbacks = {};
-  private xrCallbacks: FrameCallbacks;
   private active = false;
-
   private currentFrame: XRFrame | null = null;
 
+  // Unsubscribe fns for context hooks installed during start().
+  private unsubBeforeFrame: (() => void) | null = null;
+
   constructor(
-    renderer: GameRenderer,
+    ctx: RendererPluginContext,
     sessionManager: XRSessionManager,
     layerManager: XRLayerManager,
     cameraRig: XRCameraRig,
-    options: XRFrameLoopOptions = {},
+    options: XRFrameLoopOptions,
   ) {
-    this.renderer = renderer;
+    this.ctx = ctx;
     this.sessionManager = sessionManager;
     this.layerManager = layerManager;
     this.cameraRig = cameraRig;
     this.inputState = options.inputState ?? null;
     this.inputMapper = options.inputMapper ?? null;
+    this.canvas = options.canvas;
     this.targetProvider = new XRRenderTargetProvider(layerManager);
-
-    const self = this;
-
-    this.xrCallbacks = {
-      beforeFrame: (dt: number, elapsedTime: number) => {
-        const refSpace = self.sessionManager.getReferenceSpace();
-        if (refSpace && self.currentFrame && self.inputMapper && self.inputState) {
-          self.inputMapper.update(self.currentFrame, refSpace, self.inputState);
-        }
-        self.originalCallbacks.beforeFrame?.(dt, elapsedTime);
-      },
-      beforeViewports: (dt: number, elapsedTime: number) => {
-        self.originalCallbacks.beforeViewports?.(dt, elapsedTime);
-      },
-      onViewport: (viewportIdx: number, dt: number, elapsedTime: number): CameraViewportInfo | null => {
-        // Return the XR eye camera for this viewport
-        const eye = viewportIdx === 0 ? "left" : "right";
-        const [left, right] = self.cameraRig.computeEyeCameras(
-          self.renderer.getCanvasWidth(),
-          self.renderer.getCanvasHeight(),
-        );
-        const cam = eye === "left" ? left : right;
-        if (!cam) return null;
-
-        // Allow game to augment (e.g. update per-eye uniforms) via original onViewport
-        const gameCam = self.originalCallbacks.onViewport?.(viewportIdx, dt, elapsedTime);
-        // Use XR camera — game callback is called for side effects but we override the camera
-        void gameCam;
-        return cam;
-      },
-      afterViewports: (dt: number, elapsedTime: number) => {
-        self.originalCallbacks.afterViewports?.(dt, elapsedTime);
-      },
-      afterFrame: (dt: number, elapsedTime: number) => {
-        self.originalCallbacks.afterFrame?.(dt, elapsedTime);
-      },
-      onResize: self.originalCallbacks.onResize,
-      getPostProcessInfo: self.originalCallbacks.getPostProcessInfo,
-    };
   }
 
-  start(originalCallbacks?: FrameCallbacks): void {
+  start(): void {
     if (this.active) return;
     const session = this.sessionManager.getSession();
     if (!session) throw new Error("No active XR session");
 
     this.active = true;
 
-    // Save original state
-    this.originalViewportCount = 1;
-    this.originalCallbacks = originalCallbacks ?? {};
-
     // Install XR rAF source
-    this.renderer.setRAFSource(
+    this.ctx.setRAFSource(
       (cb: (time: number) => void) => session.requestAnimationFrame((time: number, frame: XRFrame) => {
         this.onXRFrame(time, frame);
         cb(time);
@@ -142,15 +120,31 @@ export class XRFrameLoop {
     );
 
     // Install XR render target provider
-    this.renderer.setRenderTargetProvider(this.targetProvider);
+    this.ctx.setRenderTargetProvider(this.targetProvider);
 
     // Set viewport count to 2 for stereo
-    this.renderer.setViewportCount(2);
+    this.ctx.setViewportCount(2);
 
-    // Install XR callbacks (wrapping original callbacks)
-    this.xrCallbacks.onResize = this.originalCallbacks.onResize;
-    this.xrCallbacks.getPostProcessInfo = this.originalCallbacks.getPostProcessInfo;
-    this.renderer.setCallbacks(this.xrCallbacks);
+    // Install per-eye viewport camera provider (takes priority over the
+    // game's onViewport callback)
+    this.ctx.setViewportCameraProvider((viewportIdx, _dt, _elapsedTime) => {
+      const eye = viewportIdx === 0 ? "left" : "right";
+      const [left, right] = this.cameraRig.computeEyeCameras(
+        this.canvas.width,
+        this.canvas.height,
+      );
+      const cam = eye === "left" ? left : right;
+      if (!cam) return null;
+      return cam as CameraViewportInfo;
+    });
+
+    // Install beforeFrame hook for XR input mapping
+    this.unsubBeforeFrame = this.ctx.onFrame("beforeFrame", (_dt, _elapsedTime) => {
+      const refSpace = this.sessionManager.getReferenceSpace();
+      if (refSpace && this.currentFrame && this.inputMapper && this.inputState) {
+        this.inputMapper.update(this.currentFrame, refSpace, this.inputState);
+      }
+    });
   }
 
   stop(): void {
@@ -158,16 +152,20 @@ export class XRFrameLoop {
     this.active = false;
 
     // Restore desktop rAF
-    this.renderer.clearRAFSource();
+    this.ctx.setRAFSource(null, null);
 
     // Remove XR render target provider
-    this.renderer.setRenderTargetProvider(null);
+    this.ctx.setRenderTargetProvider(null);
 
-    // Restore viewport count
-    this.renderer.setViewportCount(this.originalViewportCount);
+    // Restore viewport count to 1
+    this.ctx.setViewportCount(1);
 
-    // Restore original callbacks
-    this.renderer.setCallbacks(this.originalCallbacks);
+    // Remove viewport camera provider
+    this.ctx.setViewportCameraProvider(null);
+
+    // Remove beforeFrame hook
+    this.unsubBeforeFrame?.();
+    this.unsubBeforeFrame = null;
 
     this.currentFrame = null;
 

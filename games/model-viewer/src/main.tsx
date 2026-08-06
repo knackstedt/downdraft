@@ -3,7 +3,8 @@
 // WebGPU init, render loop, model loading pipeline
 // ============================================================================
 
-import { DEPTH_FORMAT } from "@downdraft/core";
+import { DEPTH_FORMAT, RendererInputBusImpl } from "@downdraft/core";
+import { createCameraController } from "@downdraft/plugin-camera-controls";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import type { MeshData } from "@downdraft/plugin-models";
 import React from "react";
@@ -16,7 +17,6 @@ import {
   type LoadedModel,
   type ModelEntry,
 } from "./model-loader";
-import { OrbitCamera } from "./orbit-camera";
 import "./styles/globals.css";
 
 function computeMeshBounds(meshes: MeshData[]): { min: [number, number, number]; max: [number, number, number] } {
@@ -302,8 +302,20 @@ async function bootstrap() {
   const gridRenderer = new GridRenderer(device, format);
   gridRenderer.init();
 
-  // Init orbit camera
-  const orbitCamera = new OrbitCamera(canvas);
+  // Init camera controller + input bus via the camera-controls plugin helper.
+  // The model-viewer has a bespoke render loop (not GameRenderer-based), so we
+  // use `createCameraController` instead of `createCameraControlsPlugin`.
+  const inputBus = new RendererInputBusImpl(canvas);
+  const cameraController = createCameraController(inputBus, {
+    initialCamera: { fov: 45, near: 0.1, far: 500 },
+    orbit: {
+      rotateSpeed: 0.005,
+      panSpeed: 0.002,
+      zoomSpeed: 0.1,
+      minDistance: 0.1,
+      maxDistance: 500,
+    },
+  });
 
   // Resize handler
   function resize() {
@@ -314,7 +326,7 @@ async function bootstrap() {
       canvas.width = w;
       canvas.height = h;
     }
-    orbitCamera.setAspect(w, h);
+    cameraController.setAspect(w, h);
   }
   resize();
   window.addEventListener("resize", resize);
@@ -349,7 +361,7 @@ async function bootstrap() {
     // Frame new model on load
     const pending = (window as any).__pendingFrame;
     if (pending) {
-      orbitCamera.frameBounds(pending.min, pending.max);
+      cameraController.frameBounds(pending.min, pending.max);
       (window as any).__pendingFrame = null;
     }
 
@@ -365,21 +377,21 @@ async function bootstrap() {
       rotationAngle += 0.002;
     }
 
-    const camera = orbitCamera.getCameraState();
+    const camera = cameraController.getCameraState(0);
 
     // Begin frame
     modelRenderer.beginFrame(camera);
 
-    const encoder = device.createCommandEncoder();
+    const encoder = device!.createCommandEncoder();
     const passEncoder = encoder.beginRenderPass({
       colorAttachments: [{
-        view: context.getCurrentTexture().createView(),
+        view: context!.getCurrentTexture().createView(),
         clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 },
         loadOp: "clear" as GPULoadOp,
         storeOp: "store" as GPUStoreOp,
       }],
       depthStencilAttachment: {
-        view: getDepthTexture(device, W, H).createView(),
+        view: getDepthTexture(device!, W, H).createView(),
         depthClearValue: 1.0,
         depthLoadOp: "clear" as GPULoadOp,
         depthStoreOp: "store" as GPUStoreOp,
@@ -472,7 +484,7 @@ async function bootstrap() {
     }
 
     passEncoder.end();
-    device.queue.submit([encoder.finish()]);
+    device!.queue.submit([encoder.finish()]);
 
     requestAnimationFrame(frame);
   }
