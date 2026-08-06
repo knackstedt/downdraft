@@ -33,6 +33,7 @@ export class ModelRenderer {
   private cameraPosCache: [number, number, number] = [0, 0, 0];
   private nextUniformOffset = 0;
   private reusableUniforms = new Float32Array(64);
+  private textureLoadVersion = new Map<string, number>();
 
   private sampler: GPUSampler | null = null;
   private defaultTexture: GPUTexture | null = null;
@@ -182,11 +183,20 @@ export class ModelRenderer {
 
       const indexFormat: GPUIndexFormat =
         mesh.indices instanceof Uint32Array ? "uint32" : "uint16";
+      // WebGPU requires buffer sizes and writeBuffer data to be multiples of 4 bytes
+      const indexByteLength = mesh.indices.byteLength;
+      const paddedIndexSize = Math.ceil(indexByteLength / 4) * 4;
       const indexBuffer = this.device.createBuffer({
-        size: mesh.indices.byteLength,
+        size: paddedIndexSize,
         usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       });
-      this.device.queue.writeBuffer(indexBuffer, 0, mesh.indices as (Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>));
+      if (paddedIndexSize === indexByteLength) {
+        this.device.queue.writeBuffer(indexBuffer, 0, mesh.indices as (Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>));
+      } else {
+        const padded = new Uint8Array(paddedIndexSize);
+        padded.set(new Uint8Array(mesh.indices.buffer, mesh.indices.byteOffset, indexByteLength));
+        this.device.queue.writeBuffer(indexBuffer, 0, padded);
+      }
 
       resources.push({
         vertexBuffer,
@@ -206,15 +216,23 @@ export class ModelRenderer {
     if (materials) {
       const texMaterial = materials.find((m) => m.textureData && m.textureData.byteLength > 0);
       if (texMaterial && texMaterial.textureData) {
-        this.loadModelTexture(nodeId, texMaterial.textureData);
+        const version = (this.textureLoadVersion.get(nodeId) ?? 0) + 1;
+        this.textureLoadVersion.set(nodeId, version);
+        this.loadModelTexture(nodeId, texMaterial.textureData, version);
       }
     }
   }
 
-  private async loadModelTexture(nodeId: string, textureData: ArrayBuffer): Promise<void> {
+  private async loadModelTexture(nodeId: string, textureData: ArrayBuffer, version: number): Promise<void> {
     try {
       const blob = new Blob([textureData]);
       const imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+
+      // Check if this texture load is still valid (not superseded by reuploadModel)
+      if (this.textureLoadVersion.get(nodeId) !== version) {
+        imageBitmap.close();
+        return;
+      }
 
       const texture = this.device.createTexture({
         size: [imageBitmap.width, imageBitmap.height],
@@ -265,6 +283,124 @@ export class ModelRenderer {
     if (texture) {
       texture.destroy();
       this.modelTextures.delete(nodeId);
+    }
+    this.textureLoadVersion.delete(nodeId);
+  }
+
+  reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void {
+    // Preserve existing texture to avoid flickering on part selection changes
+    const existingTexture = this.modelTextures.get(nodeId);
+
+    // If texture already exists, bump version to cancel any stale in-flight load
+    // If texture doesn't exist yet, keep the current version so the in-flight load
+    // from uploadModel can still complete and update our new resources
+    let version = this.textureLoadVersion.get(nodeId) ?? 0;
+    if (existingTexture) {
+      version = version + 1;
+      this.textureLoadVersion.set(nodeId, version);
+    }
+
+    // Remove mesh resources but keep texture if it exists
+    const oldResources = this.modelResources.get(nodeId);
+    if (oldResources) {
+      for (let i = 0; i < oldResources.length; i++) {
+        oldResources[i].vertexBuffer.destroy();
+        oldResources[i].indexBuffer.destroy();
+      }
+      this.nextUniformOffset = Math.max(0, this.nextUniformOffset - oldResources.length);
+      this.modelResources.delete(nodeId);
+    }
+    // Don't destroy texture — we'll reuse it
+
+    // Re-upload meshes
+    const newResources: ModelGPUResources[] = [];
+    let uniformOffset = this.nextUniformOffset;
+
+    // Create a fresh bind group from the existing texture if available
+    // (don't reuse old bind group — it may be stale if async texture load hasn't completed)
+    let texBindGroup: GPUBindGroup;
+    if (existingTexture) {
+      texBindGroup = this.device.createBindGroup({
+        layout: this.textureBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: this.sampler! },
+          { binding: 1, resource: existingTexture.createView() },
+        ],
+      });
+    } else {
+      texBindGroup = this.device.createBindGroup({
+        layout: this.textureBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: this.sampler! },
+          { binding: 1, resource: this.defaultTextureView! },
+        ],
+      });
+    }
+
+    for (let i = 0; i < meshes.length && uniformOffset < ModelRenderer.MAX_MODELS; i++) {
+      const mesh = meshes[i];
+      const vertexCount = mesh.vertexCount;
+      const stride = 11; // pos3 + normal3 + uv2 + color3
+      const interleaved = new Float32Array(vertexCount * stride);
+
+      for (let v = 0; v < vertexCount; v++) {
+        interleaved[v * stride] = mesh.vertices[v * 6];
+        interleaved[v * stride + 1] = mesh.vertices[v * 6 + 1];
+        interleaved[v * stride + 2] = mesh.vertices[v * 6 + 2];
+        interleaved[v * stride + 3] = mesh.vertices[v * 6 + 3];
+        interleaved[v * stride + 4] = mesh.vertices[v * 6 + 4];
+        interleaved[v * stride + 5] = mesh.vertices[v * 6 + 5];
+        interleaved[v * stride + 6] = mesh.uvs ? mesh.uvs[v * 2] : 0;
+        interleaved[v * stride + 7] = mesh.uvs ? mesh.uvs[v * 2 + 1] : 0;
+        interleaved[v * stride + 8] = mesh.colors ? mesh.colors[v * 3] : 1;
+        interleaved[v * stride + 9] = mesh.colors ? mesh.colors[v * 3 + 1] : 1;
+        interleaved[v * stride + 10] = mesh.colors ? mesh.colors[v * 3 + 2] : 1;
+      }
+
+      const vertexBuffer = this.device.createBuffer({
+        size: interleaved.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(vertexBuffer, 0, interleaved as Float32Array<ArrayBuffer>);
+
+      const indexFormat: GPUIndexFormat =
+        mesh.indices instanceof Uint32Array ? "uint32" : "uint16";
+      const indexByteLength = mesh.indices.byteLength;
+      const paddedIndexSize = Math.ceil(indexByteLength / 4) * 4;
+      const indexBuffer = this.device.createBuffer({
+        size: paddedIndexSize,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      });
+      if (paddedIndexSize === indexByteLength) {
+        this.device.queue.writeBuffer(indexBuffer, 0, mesh.indices as (Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>));
+      } else {
+        const padded = new Uint8Array(paddedIndexSize);
+        padded.set(new Uint8Array(mesh.indices.buffer, mesh.indices.byteOffset, indexByteLength));
+        this.device.queue.writeBuffer(indexBuffer, 0, padded);
+      }
+
+      newResources.push({
+        vertexBuffer,
+        indexBuffer,
+        indexCount: mesh.indexCount,
+        indexFormat,
+        uniformOffset: uniformOffset * ModelRenderer.UNIFORM_SIZE,
+        textureBindGroup: texBindGroup,
+      });
+      uniformOffset++;
+    }
+
+    this.nextUniformOffset = uniformOffset;
+    this.modelResources.set(nodeId, newResources);
+
+    // If no existing texture and no in-flight load, start one
+    if (!existingTexture && version === 0 && materials) {
+      const texMaterial = materials.find((m) => m.textureData && m.textureData.byteLength > 0);
+      if (texMaterial && texMaterial.textureData) {
+        version = 1;
+        this.textureLoadVersion.set(nodeId, version);
+        this.loadModelTexture(nodeId, texMaterial.textureData, version);
+      }
     }
   }
 

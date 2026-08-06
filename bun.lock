@@ -7,6 +7,7 @@
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
         "@dimforge/rapier3d-compat": "^0.19.3",
+        "fflate": "^0.8.2",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "xxhash-wasm": "^0.4.2",

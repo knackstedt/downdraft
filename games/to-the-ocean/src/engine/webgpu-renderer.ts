@@ -26,6 +26,7 @@ import { EntityRenderer } from "./entity-renderer";
 import { GameCloudMeshProvider } from "./game-cloud-provider";
 import { RendererAccessors } from "./renderer-accessors";
 import { RendererInputHandler } from "./renderer-input-handler";
+import { TerrainMeshPool } from "./terrain-mesh-pool";
 
 // Player model asset — resolved by Vite at build time
 const playerModelGlob = import.meta.glob(
@@ -67,6 +68,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   private skyDomePass: SkyDomePass | null = null;
   private terrainPass: TerrainPass | null = null;
   private entityRenderer: EntityRenderer | null = null;
+  private terrainMeshPool: TerrainMeshPool | null = null;
   private cameraSystem: CameraSystem | null = null;
   private lightingSystem: LightSystem | null = null;
   private pbrSystem: PBRSystem | null = null;
@@ -309,6 +311,11 @@ export class WebGPURenderer implements IRendererStateProvider {
       await this.entityRenderer.init(this.lightingSystem.getLightBindGroupLayout() ?? undefined, this.iblSystem.getBindGroupLayout() ?? undefined);
       this.entityRenderer.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.entityRenderer.setPBRBindGroup(this.iblSystem.getBindGroup() ?? this.pbrSystem.getBindGroup()!);
+
+      // Initialize terrain mesh worker pool for offloading CPU-heavy mesh generation
+      this.terrainMeshPool = new TerrainMeshPool();
+      await this.terrainMeshPool.init();
+      this.entityRenderer.setTerrainMeshPool(this.terrainMeshPool);
       this.waterPass.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.lightingSystem.initDebugGizmos(this.format);
 
@@ -1321,6 +1328,8 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.telemetryCollector = null;
     this.gcController?.dispose();
     this.gcController = null;
+    this.terrainMeshPool?.destroy();
+    this.terrainMeshPool = null;
     this.device = null;
     for (const entry of this.depthTextures.values()) { entry.texture.destroy(); }
     this.depthTextures.clear();

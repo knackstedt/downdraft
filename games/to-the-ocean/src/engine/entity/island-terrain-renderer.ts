@@ -15,6 +15,13 @@ import { BiomeType, EntityType, IslandSize, PortSize, PortTheme } from "@shared/
 import { PerlinNoise } from "@shared/world/perlin-noise";
 import { generatePortMesh } from "../port-mesh-generator";
 import { BOAT_WGSL, ISLAND_WGSL } from "../shaders/entity-shaders";
+import type { TerrainMeshPool } from "../terrain-mesh-pool";
+import type {
+    GenerateChunkMeshResult,
+    GenerateDecorationMeshResult,
+    GeneratePortStructureMeshResult,
+    GeneratePortTerrainMeshResult
+} from "../terrain-mesh-types";
 import type { EntityRenderContext } from "./render-context";
 
 interface IslandMesh {
@@ -93,6 +100,14 @@ export class IslandTerrainRenderer {
   private portStructureMeshes = new Map<string, PortStructureMesh>();
   private activePortStructureKeys = new Set<string>();
 
+  // Worker mesh pool (optional — if set, CPU-heavy mesh generation is offloaded)
+  private meshPool: TerrainMeshPool | null = null;
+  private pendingFieldCreation = new Map<string, Promise<void>>();
+  private inFlightChunks = new Set<string>();  // "islandKey:chunkKey"
+  private pendingDecorationRequests = new Set<string>();
+  private pendingPortTerrainRequests = new Set<string>();
+  private pendingPortStructureRequests = new Set<string>();
+
   // Pending terrain deformations
   private pendingDeformations: PendingDeformation[] = [];
 
@@ -112,6 +127,10 @@ export class IslandTerrainRenderer {
 
   constructor(ctx: EntityRenderContext) {
     this.ctx = ctx;
+  }
+
+  setMeshPool(pool: TerrainMeshPool | null): void {
+    this.meshPool = pool;
   }
 
   init(pbrLitPipelineLayout: GPUPipelineLayout): void {
@@ -234,6 +253,19 @@ export class IslandTerrainRenderer {
     this.islandChunkedCtxs.set(key, cfCtx);
     this.setupChunkedIslandFromChunkedField(key, cf, cfCtx, chunkX, chunkZ, radius);
     this.activeIslandKeys.add(key);
+
+    // Dispatch field creation to worker pool (worker creates its own copy for mesh extraction)
+    if (this.meshPool && !this.meshPool.isFallback() && !this.pendingFieldCreation.has(key) && !this.islandEmptyKeys.has(key)) {
+      const p = this.meshPool.createIslandField({ key, chunkX, chunkZ, radius, biome, islandSize })
+        .then(() => {
+          this.pendingFieldCreation.delete(key);
+        })
+        .catch((err: Error) => {
+          console.error(`[Terrain] Worker field creation failed for ${key}:`, err);
+          this.pendingFieldCreation.delete(key);
+        });
+      this.pendingFieldCreation.set(key, p);
+    }
   }
 
   ensureDecorationMesh(chunkX: number, chunkZ: number, biome: number, islandSize: number, islandRadius: number): void {
@@ -242,7 +274,33 @@ export class IslandTerrainRenderer {
       this.activeDecorationKeys.add(key);
       return;
     }
+    if (this.pendingDecorationRequests.has(key)) {
+      this.activeDecorationKeys.add(key);
+      return;
+    }
 
+    // Worker pool path
+    if (this.meshPool && !this.meshPool.isFallback()) {
+      this.pendingDecorationRequests.add(key);
+      this.activeDecorationKeys.add(key);
+      this.meshPool.generateDecorationMesh({ chunkX, chunkZ, biome, islandSize, islandRadius })
+        .then((result: GenerateDecorationMeshResult) => {
+          this.pendingDecorationRequests.delete(key);
+          if (!this.activeDecorationKeys.has(key)) return;  // island became inactive
+          if (!result.hasMesh) {
+            this.decorationEmptyKeys.add(key);
+            return;
+          }
+          this.createDecorationMeshBuffers(key, result.verts, result.indices);
+        })
+        .catch((err: Error) => {
+          this.pendingDecorationRequests.delete(key);
+          console.error(`[Terrain] Worker decoration mesh failed for ${key}:`, err);
+        });
+      return;
+    }
+
+    // Synchronous fallback
     const existingField = this.islandVoxelFields.get(key) ?? this.islandChunkField.get(key) ?? undefined;
     const placements = generateDecorations(chunkX, chunkZ, biome as BiomeType, islandSize as IslandSize, islandRadius, existingField);
     if (placements.length === 0) {
@@ -286,7 +344,33 @@ export class IslandTerrainRenderer {
       this.activePortKeys.add(key);
       return;
     }
+    if (this.pendingPortTerrainRequests.has(key)) {
+      this.activePortKeys.add(key);
+      return;
+    }
 
+    // Worker pool path
+    if (this.meshPool && !this.meshPool.isFallback()) {
+      this.pendingPortTerrainRequests.add(key);
+      this.activePortKeys.add(key);
+      this.meshPool.generatePortTerrainMesh({ chunkX, chunkZ, radius, biome })
+        .then((result: GeneratePortTerrainMeshResult) => {
+          this.pendingPortTerrainRequests.delete(key);
+          if (!this.activePortKeys.has(key)) return;
+          if (!result.hasMesh) {
+            this.portEmptyKeys.add(key);
+            return;
+          }
+          this.createPortTerrainMeshBuffers(key, result.verts, result.indices, result.useUint32);
+        })
+        .catch((err: Error) => {
+          this.pendingPortTerrainRequests.delete(key);
+          console.error(`[Terrain] Worker port terrain mesh failed for ${key}:`, err);
+        });
+      return;
+    }
+
+    // Synchronous fallback
     const device = this.ctx.device!;
     const field = generatePortVoxelField(chunkX, chunkZ, radius, biome);
     this.portVoxelFields.set(key, field);
@@ -333,7 +417,30 @@ export class IslandTerrainRenderer {
       this.activePortStructureKeys.add(key);
       return;
     }
+    if (this.pendingPortStructureRequests.has(key)) {
+      this.activePortStructureKeys.add(key);
+      return;
+    }
 
+    // Worker pool path
+    if (this.meshPool && !this.meshPool.isFallback()) {
+      this.pendingPortStructureRequests.add(key);
+      this.activePortStructureKeys.add(key);
+      this.meshPool.generatePortStructureMesh({ chunkX, chunkZ, radius, biome })
+        .then((result: GeneratePortStructureMeshResult) => {
+          this.pendingPortStructureRequests.delete(key);
+          if (!this.activePortStructureKeys.has(key)) return;
+          if (!result.hasMesh) return;
+          this.createPortStructureMeshBuffers(key, result.verts, result.indices, result.useUint32);
+        })
+        .catch((err: Error) => {
+          this.pendingPortStructureRequests.delete(key);
+          console.error(`[Terrain] Worker port structure mesh failed for ${key}:`, err);
+        });
+      return;
+    }
+
+    // Synchronous fallback
     const device = this.ctx.device!;
     const portSize = radius <= 18 ? PortSize.Small : radius <= 32 ? PortSize.Medium : PortSize.Large;
     const seed = chunkX * 83492791 + chunkZ * 26515163;
@@ -432,6 +539,35 @@ export class IslandTerrainRenderer {
 
   processIslandChunkStream(playerX: number, playerZ: number): void {
     if (this.islandChunkPending.size === 0) return;
+
+    // Worker pool path: dispatch a few chunks per frame
+    if (this.meshPool && !this.meshPool.isFallback()) {
+      const cfg = TERRAIN_CONFIG;
+      let dispatched = 0;
+      const islandKeys = Array.from(this.islandChunkPending.keys()).sort((a, b) => {
+        const [ax, az] = a.split(",").map(Number);
+        const [bx, bz] = b.split(",").map(Number);
+        const aDist = (ax - playerX) * (ax - playerX) + (az - playerZ) * (az - playerZ);
+        const bDist = (bx - playerX) * (bx - playerX) + (bz - playerZ) * (bz - playerZ);
+        return aDist - bDist;
+      });
+      for (const key of islandKeys) {
+        const pending = this.islandChunkPending.get(key);
+        if (!pending || pending.length === 0) continue;
+        const toDispatch = Math.min(cfg.streamMaxChunksPerFrame - dispatched, pending.length);
+        if (toDispatch <= 0) break;
+        this.dispatchChunkMeshJobs(key, pending.slice(0, toDispatch));
+        pending.splice(0, toDispatch);
+        dispatched += toDispatch;
+        if (pending.length === 0) {
+          this.islandChunkPending.delete(key);
+          this.islandChunkTotalChunks.delete(key);
+        }
+      }
+      return;
+    }
+
+    // Synchronous fallback
     const cfg = TERRAIN_CONFIG;
     const startTime = performance.now();
     let chunksProcessed = 0;
@@ -466,6 +602,17 @@ export class IslandTerrainRenderer {
       return aDist - bDist;
     });
 
+    // Worker pool path: dispatch all pending chunks to workers
+    if (this.meshPool && !this.meshPool.isFallback()) {
+      for (const key of islandKeys) {
+        const pending = this.islandChunkPending.get(key);
+        if (!pending || pending.length === 0) continue;
+        this.dispatchChunkMeshJobs(key, pending);
+      }
+      return;
+    }
+
+    // Synchronous fallback
     for (const key of islandKeys) {
       const pending = this.islandChunkPending.get(key);
       if (!pending || pending.length === 0) continue;
@@ -613,6 +760,138 @@ export class IslandTerrainRenderer {
     }
 
     return chunksProcessed;
+  }
+
+  // --- Worker pool helper methods ---
+
+  private dispatchChunkMeshJobs(
+    key: string,
+    chunks: { x: number; y: number; z: number; chunkKey: string; distSq: number }[],
+  ): void {
+    const chunkMeshes = this.islandChunkMeshes.get(key);
+    if (!chunkMeshes || !this.meshPool) return;
+
+    for (const chunk of chunks) {
+      const inflightKey = `${key}:${chunk.chunkKey}`;
+      if (this.inFlightChunks.has(inflightKey)) continue;
+      if (chunkMeshes.has(chunk.chunkKey)) continue;
+
+      this.inFlightChunks.add(inflightKey);
+      this.meshPool.generateChunkMesh({ key, cx: chunk.x, cy: chunk.y, cz: chunk.z })
+        .then((result: GenerateChunkMeshResult) => {
+          this.inFlightChunks.delete(inflightKey);
+          if (!this.activeIslandKeys.has(key)) return;
+          if (!result.hasMesh) return;
+          this.createChunkMeshBuffers(key, chunk.chunkKey, result);
+        })
+        .catch((err: Error) => {
+          this.inFlightChunks.delete(inflightKey);
+          console.error(`[Terrain] Worker chunk mesh failed for ${inflightKey}:`, err);
+        });
+    }
+
+    // Remove dispatched chunks from pending
+    const pending = this.islandChunkPending.get(key);
+    if (pending) {
+      const dispatchedKeys = new Set(chunks.map(c => c.chunkKey));
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (dispatchedKeys.has(pending[i].chunkKey)) pending.splice(i, 1);
+      }
+      if (pending.length === 0) {
+        this.islandChunkPending.delete(key);
+        this.islandChunkTotalChunks.delete(key);
+      }
+    }
+  }
+
+  private createChunkMeshBuffers(key: string, chunkKey: string, result: GenerateChunkMeshResult): void {
+    const device = this.ctx.device!;
+    const chunkMeshes = this.islandChunkMeshes.get(key);
+    if (!chunkMeshes) return;
+
+    const old = chunkMeshes.get(chunkKey);
+    if (old) { old.vertices.destroy(); old.indices.destroy(); if (old.lineIndices) old.lineIndices.destroy(); }
+
+    const vertices = device.createBuffer({
+      size: result.verts.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(vertices, 0, result.verts as any);
+
+    const indices = device.createBuffer({
+      size: result.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(indices, 0, result.indices as any);
+
+    chunkMeshes.set(chunkKey, {
+      vertices,
+      indices,
+      indexCount: result.indices.length,
+      useUint32: result.useUint32,
+      lineIndices: null,
+      lineIndexCount: 0,
+      worldCenterX: result.worldCenterX,
+      worldCenterY: result.worldCenterY,
+      worldCenterZ: result.worldCenterZ,
+      boundingRadius: result.boundingRadius,
+    });
+  }
+
+  private createDecorationMeshBuffers(key: string, verts: Float32Array, indices: Uint16Array): void {
+    const device = this.ctx.device!;
+    const vertices = device.createBuffer({
+      size: verts.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(vertices, 0, verts as any);
+
+    let indexData = indices;
+    if (indices.length % 2 !== 0) {
+      indexData = new Uint16Array(indices.length + 1);
+      indexData.set(indices);
+    }
+    const indexBuffer = device.createBuffer({
+      size: indexData.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(indexBuffer, 0, indexData as any);
+
+    this.decorationMeshes.set(key, { vertices, indices: indexBuffer, indexCount: indices.length });
+  }
+
+  private createPortTerrainMeshBuffers(key: string, verts: Float32Array, indices: Uint16Array | Uint32Array, useUint32: boolean): void {
+    const device = this.ctx.device!;
+    const vertices = device.createBuffer({
+      size: verts.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(vertices, 0, verts as any);
+
+    const indexBuffer = device.createBuffer({
+      size: indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(indexBuffer, 0, indices as any);
+
+    this.portTerrainMeshes.set(key, { vertices, indices: indexBuffer, indexCount: indices.length, useUint32 });
+  }
+
+  private createPortStructureMeshBuffers(key: string, verts: Float32Array, indices: Uint16Array | Uint32Array, useUint32: boolean): void {
+    const device = this.ctx.device!;
+    const vertices = device.createBuffer({
+      size: verts.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(vertices, 0, verts as any);
+
+    const indexBuffer = device.createBuffer({
+      size: indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(indexBuffer, 0, indices as any);
+
+    this.portStructureMeshes.set(key, { vertices, indices: indexBuffer, indexCount: indices.length, useUint32 });
   }
 
   cleanupStaleIslandMeshes(): void {
