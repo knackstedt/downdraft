@@ -22,14 +22,14 @@ import { InputBufferReader } from "../../shared/input-buffer";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
 import type { SimEntity, SimPlayer } from "../simulation";
 import {
-    ComponentIds,
-    SimEntityData,
-    SimEntityMeta,
-    SimHealth,
-    SimPlayerInventory,
-    SimPlayerState,
-    SimTransform,
-    SimVelocity,
+  ComponentIds,
+  SimEntityData,
+  SimEntityMeta,
+  SimHealth,
+  SimPlayerInventory,
+  SimPlayerState,
+  SimTransform,
+  SimVelocity,
 } from "./components";
 import { createEcsAnchorSystem } from "./ecs-anchor-system";
 import { createEcsAnimalSystem } from "./ecs-animal-system";
@@ -189,7 +189,7 @@ export class SimEcsWorld {
     const bust = Date.now();
     try {
       const url = `${modulePath}?t=${bust}`;
-      const mod = await import(url);
+      const mod = await import(url /* @vite-ignore */);
       const factories = recreator(mod as Record<string, unknown>);
       this.hotReloader.swapByModule(modulePath, factories);
       return true;

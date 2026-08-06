@@ -16,6 +16,7 @@ import "@fontsource/urbanist/400.css";
 import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
+import { downdraft } from "@downdraft/app/renderer";
 import { startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { useDebugStore } from "@downdraft/plugin-devtools";
 import { ENT, PLR } from "@shared/sim-buffer";
@@ -51,8 +52,6 @@ function fileToModulePath(filePath: string): string | null {
 }
 
 async function bootstrap() {
-  const downdraft = (window as any).downdraft;
-
   // Render React UI immediately so the loading screen is visible during init
   const root = createRoot(document.getElementById("root")!);
   root.render(
@@ -292,7 +291,6 @@ async function bootstrap() {
   // Creates a dedicated OSR renderer loading google.com and places a
   // world-space billboard at the helm cell of the player's ship.
   {
-    const downdraft = (window as any).downdraft;
     if (downdraft?.osr) {
       try {
         const osrManager = renderer.initOSR(downdraft.osr);

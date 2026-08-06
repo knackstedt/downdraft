@@ -1,5 +1,7 @@
-import { loadModel, type MaterialData, type ModelData } from "@downdraft/plugin-models";
+import { loadModel, type AnimationData, type MaterialData, type ModelData } from "@downdraft/plugin-models";
 import { gunzipSync, strFromU8 } from "fflate";
+
+export type { AnimationData };
 
 export interface ModelEntry {
   id: string;
@@ -16,6 +18,8 @@ export interface PartInfo {
   vertexCount: number;
   triangleCount: number;
   hasMesh: boolean;
+  children?: number[]; // child nodeIndices (for grouping in the parts tree)
+  parent?: number;     // parent nodeIndex (root nodes have undefined parent)
 }
 
 export interface ModelStats {
@@ -30,6 +34,8 @@ export interface ModelStats {
     max: [number, number, number];
   };
   parts: PartInfo[];
+  animations: AnimationData[];
+  rootNodes: number[]; // top-level nodeIndices
 }
 
 export interface LoadedModel {
@@ -153,6 +159,7 @@ export async function loadModelWithTextures(
 
   // Build parts list from node tree
   const parts: PartInfo[] = [];
+  const rootNodes: number[] = [];
   if (modelData.nodes) {
     for (let i = 0; i < modelData.nodes.length; i++) {
       const node = modelData.nodes[i];
@@ -166,7 +173,20 @@ export async function loadModelWithTextures(
         hasMesh,
         vertexCount: mesh?.vertexCount ?? 0,
         triangleCount: mesh ? Math.floor(mesh.indexCount / 3) : 0,
+        children: node.children,
       });
+    }
+    // Resolve parent indices and collect root nodes
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p.children) {
+        for (const c of p.children) {
+          if (parts[c]) parts[c].parent = i;
+        }
+      }
+    }
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].parent === undefined) rootNodes.push(i);
     }
   }
 
@@ -184,6 +204,8 @@ export async function loadModelWithTextures(
         max: [maxX, maxY, maxZ],
       },
       parts,
+      animations: modelData.animations ?? [],
+      rootNodes,
     },
     nodeId: entry.id.replace(/[^a-zA-Z0-9]/g, "_"),
   };

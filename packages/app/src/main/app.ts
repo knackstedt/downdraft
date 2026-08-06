@@ -1,0 +1,165 @@
+// ============================================================================
+// createDowndraftApp() — main process orchestrator
+// ============================================================================
+
+import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
+import { join } from "path";
+import { createLogger } from "@downdraft/core/util/logger";
+import { IPC } from "../shared/messages";
+import { applySwitches } from "./switches";
+import { installErrorHandlers } from "./error-dialog";
+import { createWindow } from "./window";
+import { registerSaveHandlers } from "./handlers/saves";
+import { registerDevtoolsHandlers } from "./handlers/devtools";
+import { registerGpuInfoHandlers } from "./handlers/gpu-info";
+import { registerOsrHandlers } from "./handlers/osr";
+import { startMcpProxy } from "./handlers/mcp";
+import type { DowndraftAppConfig, MainContext } from "./types";
+
+const log = createLogger("info");
+
+/**
+ * Boot the Downdraft host in the Electron main process.
+ *
+ * Call this from your game's `src/main.ts`:
+ *
+ * ```ts
+ * import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
+ * createDowndraftApp({ window: { title: "My Game" }, switches: webGpuSwitches(), features: { ... } });
+ * ```
+ */
+export function createDowndraftApp(config: DowndraftAppConfig): void {
+  (globalThis as any).__ddThreadTag = "M0";
+  const isDev = !app.isPackaged;
+  const features = config.features ?? {};
+
+  // --- Apply chrome switches before app.whenReady ---
+  if (config.switches) {
+    applySwitches(app, config.switches);
+  }
+
+  // --- Error dialog + process handlers ---
+  if (features.errorDialog !== false) {
+    installErrorHandlers(app, BrowserWindow);
+  }
+
+  // --- Preload path: emitted to dist/preload/index.cjs by the vite factory ---
+  const preloadPath = join(__dirname, "../preload/index.cjs");
+
+  let mainWindow: BrowserWindow | null = null;
+  let osrManager: ReturnType<typeof registerOsrHandlers> | null = null;
+
+  const ctx: MainContext = {
+    app,
+    BrowserWindow,
+    ipcMain,
+    session,
+    screen,
+    shell,
+    window: null,
+    isDev,
+    sendToRenderer: (channel: string, ...args: unknown[]) => {
+      mainWindow?.webContents.send(channel, ...args);
+    },
+  };
+
+  async function init(): Promise<void> {
+    Menu.setApplicationMenu(null);
+
+    // --- Create the main window ---
+    mainWindow = await createWindow({
+      config: config.window,
+      isDev,
+      app,
+      BrowserWindow,
+      screen,
+      session,
+      consoleForwarding: features.consoleForwarding !== false,
+      windowStatePersistence: features.windowStatePersistence !== false,
+      preloadPath,
+    });
+    ctx.window = mainWindow;
+
+    // --- Register IPC handlers based on features ---
+    if (features.saves) {
+      registerSaveHandlers(features.saves);
+    }
+
+    if (features.devtools !== false) {
+      registerDevtoolsHandlers(ctx);
+    }
+
+    if (features.gpuInfo !== false) {
+      registerGpuInfoHandlers();
+    }
+
+    if (features.osr) {
+      osrManager = registerOsrHandlers(ctx);
+      ctx.osr = osrManager;
+    }
+
+    // --- Deliberate escape hatch: raw Electron access ---
+    if (config.extend) {
+      config.extend(ctx);
+    }
+
+    // --- Lifecycle: onReady ---
+    if (config.lifecycle?.onReady) {
+      await config.lifecycle.onReady(ctx);
+    } else {
+      // Default: send sim-ready to renderer
+      mainWindow?.webContents.send(IPC.SIM_READY, { isDev });
+    }
+
+    // --- MCP proxy ---
+    if (features.mcp) {
+      await startMcpProxy(ctx, features.mcp);
+    }
+  }
+
+  app.whenReady().then(init).catch((err) => {
+    log.error("main", `Failed to initialize: ${err}`);
+  });
+
+  // GPU process crash handler
+  app.on("child-process-gone", (_event: any, details: any) => {
+    if (details?.type === "GPU") {
+      console.error(`[GPU] Process gone: reason=${details.reason}, exitCode=${details.exitCode}`);
+    }
+  });
+
+  app.on("window-all-closed", () => {
+    if (config.lifecycle?.onWindowAllClosed) {
+      config.lifecycle.onWindowAllClosed(ctx);
+    } else {
+      app.quit();
+    }
+  });
+
+  app.on("before-quit", async () => {
+    if (config.lifecycle?.onBeforeQuit) {
+      await config.lifecycle.onBeforeQuit(ctx);
+    }
+    osrManager?.destroy();
+    osrManager = null;
+  });
+
+  app.on("activate", async () => {
+    if (config.lifecycle?.onActivate) {
+      await config.lifecycle.onActivate(ctx);
+    } else if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = await createWindow({
+        config: config.window,
+        isDev,
+        app,
+        BrowserWindow,
+        screen,
+        session,
+        consoleForwarding: features.consoleForwarding !== false,
+        windowStatePersistence: features.windowStatePersistence !== false,
+        preloadPath,
+      });
+      ctx.window = mainWindow;
+    }
+  });
+}

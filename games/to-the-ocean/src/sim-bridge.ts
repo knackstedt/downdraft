@@ -4,6 +4,7 @@
 // Replaces the old ocean.* IPC API for sim-related calls.
 // ============================================================================
 
+import { downdraft } from "@downdraft/app/renderer";
 import type { SimWebWorker } from "./engine/sim-web-worker";
 
 function getSimWorker(): SimWebWorker | null {
@@ -11,7 +12,7 @@ function getSimWorker(): SimWebWorker | null {
 }
 
 function getDowndraft(): any {
-  return (window as any).downdraft;
+  return downdraft;
 }
 
 function getRenderer(): any {

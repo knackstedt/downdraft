@@ -1,0 +1,98 @@
+// ============================================================================
+// Host SDK — config types for createDowndraftApp()
+// ============================================================================
+
+import type { OSRRendererManager } from "@downdraft/plugin-electron-osr/main-entry";
+import type { BrowserWindow, WebPreferences } from "electron";
+import type { Switch } from "./switches";
+
+// Electron's WebPreferences type doesn't include webgpu/sharedTexture (added in newer versions).
+// Allow extra properties via index signature.
+export type ExtendedWebPreferences = Partial<WebPreferences> & Record<string, any>;
+
+export type WindowPlacement = "center" | "remember" | "cursor" | { x: number; y: number };
+
+export interface DowndraftWindowConfig {
+  title: string;
+  width?: number;
+  height?: number;
+  minWidth?: number;
+  minHeight?: number;
+  backgroundColor?: string;
+  placement?: WindowPlacement;
+  stateFile?: string;
+  /** Merged with safe engine defaults (contextIsolation, sandbox, preload, etc.) */
+  webPreferences?: ExtendedWebPreferences;
+}
+
+export interface DowndraftSavesConfig {
+  engineVersion: string;
+  skipMigrations?: boolean;
+}
+
+export interface DowndraftMcpConfig {
+  port: number;
+}
+
+export interface DowndraftFeatures {
+  /** File-based save/load IPC handlers. `false` disables. */
+  saves?: DowndraftSavesConfig | false;
+  /** Offscreen rendering host + input forwarder. */
+  osr?: boolean;
+  /** MCP HTTP transport in proxy mode. */
+  mcp?: DowndraftMcpConfig | false;
+  /** DevTools extension loading + toggle IPC. */
+  devtools?: boolean;
+  /** nvidia-smi + app.getGPUInfo IPC handlers. */
+  gpuInfo?: boolean;
+  /** Forward renderer console-message events to the main process logger. */
+  consoleForwarding?: boolean;
+  /** Modal error dialog on uncaughtException / unhandledRejection. */
+  errorDialog?: boolean;
+  /** Persist window bounds/maximize state across launches. */
+  windowStatePersistence?: boolean;
+}
+
+/**
+ * Context handed to lifecycle hooks and the `extend` escape hatch.
+ * Carries raw Electron modules for deliberate advanced usage.
+ */
+export interface MainContext {
+  app: typeof import("electron").app;
+  BrowserWindow: typeof import("electron").BrowserWindow;
+  ipcMain: typeof import("electron").ipcMain;
+  session: typeof import("electron").session;
+  screen: typeof import("electron").screen;
+  shell: typeof import("electron").shell;
+  /** The main game window (null before creation / after close). */
+  window: BrowserWindow | null;
+  isDev: boolean;
+  /** Send a message to the main window's webContents. No-op if window is gone. */
+  sendToRenderer: (channel: string, ...args: unknown[]) => void;
+  /** OSR manager, available when `features.osr` is enabled. */
+  osr?: OSRRendererManager;
+}
+
+export interface DowndraftLifecycle {
+  /** Fired after the window is created and IPC handlers registered, before MCP starts. */
+  onReady?: (ctx: MainContext) => void | Promise<void>;
+  /** Fired on `before-quit`. Clean up resources here. */
+  onBeforeQuit?: (ctx: MainContext) => void | Promise<void>;
+  /** Fired on `window-all-closed`. Default behavior quits the app; override to keep alive. */
+  onWindowAllClosed?: (ctx: MainContext) => void;
+  /** Fired on `activate` (macOS re-open). Default re-creates the window. */
+  onActivate?: (ctx: MainContext) => void | Promise<void>;
+}
+
+export interface DowndraftAppConfig {
+  window: DowndraftWindowConfig;
+  /** Switch preset (e.g. `webGpuSwitches()`) or custom array. Applied before `app.whenReady`. */
+  switches?: Switch[];
+  features?: DowndraftFeatures;
+  lifecycle?: DowndraftLifecycle;
+  /**
+   * Deliberate escape hatch: raw Electron access for advanced/game-specific needs.
+   * Called after window creation + handler registration, before `onReady`.
+   */
+  extend?: (ctx: MainContext) => void;
+}

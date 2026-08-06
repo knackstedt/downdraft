@@ -1,161 +1,20 @@
-import react from "@vitejs/plugin-react";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import { resolve } from "path";
-import { hotReloadPlugin } from "./packages/core/src/vite/hot-reload-plugin";
+// ============================================================================
+// Root electron.vite.config.ts — DOWNDRAFT_GAME dispatcher
+// ============================================================================
+//
+// This root config delegates to the selected game's configuration via the
+// createDowndraftViteConfig() factory. Each game also has its own
+// electron.vite.config.ts for standalone builds.
+//
+// Usage: DOWNDRAFT_GAME=<game-name> bun run dev
 
 import { existsSync } from "node:fs";
+import { resolve } from "path";
+import { createDowndraftViteConfig } from "./packages/app/src/vite/index";
 
 const game = process.env.DOWNDRAFT_GAME ?? "to-the-ocean";
-const rendererRoot = existsSync(resolve("games", game))
+const gameRoot = existsSync(resolve("games", game))
   ? resolve("games", game)
   : resolve("examples", game);
 
-export default defineConfig({
-  main: {
-    plugins: [externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence"] })],
-    build: {
-      outDir: "dist/main",
-      sourcemap: "hidden",
-      rollupOptions: {
-        input: {
-          index: resolve("packages/app/src/main/index.ts"),
-        },
-        output: {
-          entryFileNames: "[name].js",
-        },
-      },
-    } as any,
-    resolve: {
-      alias: [
-        { find: "@main", replacement: resolve("packages/app/src/main") },
-        { find: "@shared", replacement: resolve("packages/app/src/shared") },
-        { find: /^@downdraft\/core$/, replacement: resolve("packages/core/src/index.ts") },
-        { find: /^@downdraft\/core\//, replacement: resolve("packages/core/src") + "/" },
-        { find: /^@downdraft\/mcp\//, replacement: resolve("packages/mcp/src") + "/" },
-        { find: /^@downdraft\/mcp$/, replacement: resolve("packages/mcp/src/index.ts") },
-        { find: /^@downdraft\/shader-graph$/, replacement: resolve("packages/shader-graph/src/index.ts") },
-        { find: /^@downdraft\/shader-graph\//, replacement: resolve("packages/shader-graph/src") + "/" },
-        { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve("packages/plugins/electron-osr/src/index.ts") },
-        { find: /^@downdraft\/plugin-electron-osr\/main-entry$/, replacement: resolve("packages/plugins/electron-osr/src/main-entry.ts") },
-        { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve("packages/plugins/electron-osr/src") + "/" },
-        { find: /^@downdraft\/plugin-persistence$/, replacement: resolve("packages/plugins/persistence/src/index.ts") },
-        { find: /^@downdraft\/plugin-persistence\//, replacement: resolve("packages/plugins/persistence/src") + "/" },
-      ],
-    },
-  },
-  preload: {
-    plugins: [
-      externalizeDepsPlugin(),
-      {
-        name: "force-cjs-preload",
-        configResolved(config) {
-          const output = config.build.rollupOptions.output;
-          const out = Array.isArray(output) ? output[0] : output;
-          if (out) {
-            out.format = "cjs";
-            out.entryFileNames = "[name].cjs";
-          }
-        },
-      },
-    ],
-    build: {
-      outDir: "dist/preload",
-      sourcemap: "hidden",
-      rollupOptions: {
-        input: {
-          index: resolve("packages/app/src/preload/index.ts"),
-        },
-        output: {
-          format: "cjs",
-          entryFileNames: "[name].cjs",
-        },
-      },
-    } as any,
-    resolve: {
-      alias: {
-        "@shared": resolve("packages/app/src/shared"),
-      },
-    },
-  },
-  renderer: {
-    root: rendererRoot,
-    resolve: {
-      alias: [
-        { find: "@renderer", replacement: resolve(rendererRoot, "src") },
-        { find: "@shared", replacement: resolve(rendererRoot, "src/shared") },
-        { find: "@sim", replacement: resolve(rendererRoot, "src/simulation") },
-        { find: /^@downdraft\/core$/, replacement: resolve("packages/core/src/index.ts") },
-        { find: /^@downdraft\/core\//, replacement: resolve("packages/core/src") + "/" },
-        { find: /^@downdraft\/ui$/, replacement: resolve("packages/ui/src/index.ts") },
-        { find: /^@downdraft\/ui\//, replacement: resolve("packages/ui/src") + "/" },
-        { find: /^@downdraft\/shader-graph$/, replacement: resolve("packages/shader-graph/src/index.ts") },
-        { find: /^@downdraft\/shader-graph\//, replacement: resolve("packages/shader-graph/src") + "/" },
-        { find: /^@downdraft\/plugin-postfx$/, replacement: resolve("packages/plugins/postfx/src/index.ts") },
-        { find: /^@downdraft\/plugin-postfx\//, replacement: resolve("packages/plugins/postfx/src") + "/" },
-        { find: /^@downdraft\/plugin-lighting$/, replacement: resolve("packages/plugins/lighting/src/index.ts") },
-        { find: /^@downdraft\/plugin-lighting\//, replacement: resolve("packages/plugins/lighting/src") + "/" },
-        { find: /^@downdraft\/plugin-weatherfx$/, replacement: resolve("packages/plugins/weatherfx/src/index.ts") },
-        { find: /^@downdraft\/plugin-weatherfx\//, replacement: resolve("packages/plugins/weatherfx/src") + "/" },
-        { find: /^@downdraft\/plugin-weather$/, replacement: resolve("packages/plugins/weather/src/index.ts") },
-        { find: /^@downdraft\/plugin-weather\//, replacement: resolve("packages/plugins/weather/src") + "/" },
-        { find: /^@downdraft\/plugin-entities$/, replacement: resolve("packages/plugins/entities/src/index.ts") },
-        { find: /^@downdraft\/plugin-entities\//, replacement: resolve("packages/plugins/entities/src") + "/" },
-        { find: /^@downdraft\/plugin-models$/, replacement: resolve("packages/plugins/models/src/index.ts") },
-        { find: /^@downdraft\/plugin-models\//, replacement: resolve("packages/plugins/models/src") + "/" },
-        { find: /^@downdraft\/plugin-devtools$/, replacement: resolve("packages/plugins/devtools/src/index.ts") },
-        { find: /^@downdraft\/plugin-devtools\//, replacement: resolve("packages/plugins/devtools/src") + "/" },
-        { find: /^@downdraft\/plugin-boats$/, replacement: resolve("packages/plugins/boats/src/index.ts") },
-        { find: /^@downdraft\/plugin-boats\//, replacement: resolve("packages/plugins/boats/src") + "/" },
-        { find: /^node:fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
-        { find: /^fs$/, replacement: resolve("packages/app/src/renderer-shims/fs.ts") },
-        { find: /^@downdraft\/plugin-marching-cubes$/, replacement: resolve("packages/plugins/marching-cubes/src/index.ts") },
-        { find: /^@downdraft\/plugin-marching-cubes\//, replacement: resolve("packages/plugins/marching-cubes/src") + "/" },
-        { find: /^@downdraft\/plugin-navmesh$/, replacement: resolve("packages/plugins/navmesh/src/index.ts") },
-        { find: /^@downdraft\/plugin-navmesh\//, replacement: resolve("packages/plugins/navmesh/src") + "/" },
-        { find: /^@downdraft\/plugin-water$/, replacement: resolve("packages/plugins/water/src/index.ts") },
-        { find: /^@downdraft\/plugin-water\//, replacement: resolve("packages/plugins/water/src") + "/" },
-        { find: /^@downdraft\/plugin-fishing$/, replacement: resolve("packages/plugins/fishing/src/index.ts") },
-        { find: /^@downdraft\/plugin-fishing\//, replacement: resolve("packages/plugins/fishing/src") + "/" },
-        { find: /^@downdraft\/plugin-survival$/, replacement: resolve("packages/plugins/survival/src/index.ts") },
-        { find: /^@downdraft\/plugin-survival\//, replacement: resolve("packages/plugins/survival/src") + "/" },
-        { find: /^@downdraft\/plugin-economy$/, replacement: resolve("packages/plugins/economy/src/index.ts") },
-        { find: /^@downdraft\/plugin-economy\//, replacement: resolve("packages/plugins/economy/src") + "/" },
-        { find: /^@downdraft\/plugin-inventory$/, replacement: resolve("packages/plugins/inventory/src/index.ts") },
-        { find: /^@downdraft\/plugin-inventory\//, replacement: resolve("packages/plugins/inventory/src") + "/" },
-        { find: /^@downdraft\/plugin-items$/, replacement: resolve("packages/plugins/items/src/index.ts") },
-        { find: /^@downdraft\/plugin-items\//, replacement: resolve("packages/plugins/items/src") + "/" },
-        { find: /^@downdraft\/plugin-crafting$/, replacement: resolve("packages/plugins/crafting/src/index.ts") },
-        { find: /^@downdraft\/plugin-crafting\//, replacement: resolve("packages/plugins/crafting/src") + "/" },
-        { find: /^@downdraft\/mcp$/, replacement: resolve("packages/mcp/src/index.ts") },
-        { find: /^@downdraft\/mcp\//, replacement: resolve("packages/mcp/src") + "/" },
-        { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve("packages/plugins/electron-osr/src/index.ts") },
-        { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve("packages/plugins/electron-osr/src") + "/" },
-      ],
-    },
-    build: {
-      outDir: "dist/renderer",
-      sourcemap: "hidden",
-      rollupOptions: {
-        input: {
-          index: resolve(rendererRoot, "index.html"),
-        },
-      },
-    } as any,
-    plugins: [
-      react(),
-      hotReloadPlugin({
-        // to-the-ocean has a sim worker — simPaths trigger worker swap (with ack).
-        // Other games have no sim worker — let Vite's native HMR handle everything.
-        simPaths: game === "to-the-ocean"
-          ? ["simulation/", "shared/", "packages/core/", "packages/plugins/"]
-          : [],
-        rendererPaths: game === "to-the-ocean"
-          ? ["engine/", "stores/", "packages/plugins/electron-osr/src/renderer/"]
-          : [],
-        excludePaths: ["packages/plugins/electron-osr/src/main/"],
-        shaderExts: [".wgsl"],
-        assetExts: [".glb", ".png", ".jpg", ".jpeg", ".webp"],
-      }),
-    ],
-  },
-});
+export default createDowndraftViteConfig({ root: gameRoot, game });

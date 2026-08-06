@@ -8,11 +8,9 @@ An AI-Driven Game Engine built on **Electron + electron-vite + WebGPU** (TypeScr
 # Install dependencies
 bun install
 
-# Run the engine shell (default renderer from packages/app)
-bun run dev
-
-# Run a specific game
+# Run a specific game (each game bootstraps itself via the host SDK)
 DOWNDRAFT_GAME=to-the-ocean bun run dev
+DOWNDRAFT_GAME=model-viewer bun run dev
 
 # Build for production
 draft build --mode=prod --out=dist
@@ -21,13 +19,30 @@ draft build --mode=prod --out=dist
 draft export --target=all --out=export
 ```
 
+## Game-Bootstrapped Host Layer
+
+Games bootstrap themselves by calling engine-exported host methods from their own `src/main.ts` and `src/preload.ts`. The engine obscures Electron's main/preload/renderer machinery behind a config-driven surface — devs set config, rarely touch raw Electron APIs.
+
+```ts
+// games/my-game/src/main.ts
+import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
+
+createDowndraftApp({
+  window: { title: "My Game", width: 1920, height: 1080 },
+  switches: webGpuSwitches(),
+  features: { saves: { engineVersion: "0.1.0" }, osr: true, mcp: { port: 9876 } },
+});
+```
+
+See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven features, `extend` escape hatch).
+
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-  Electron Main Process (packages/app/src/main)
-    • Window lifecycle, display info, IPC
-    • SurrealDB worker thread (persistence)
+  Electron Main Process (game-owned src/main.ts)
+    • Calls createDowndraftApp() from @downdraft/app/main
+    • Window lifecycle, display info, IPC (config-driven)
     • GC profiling, performance stats
 ├─────────────────────────────────────────────┤
   Renderer Process (BrowserWindow)
