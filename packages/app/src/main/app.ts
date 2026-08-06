@@ -2,19 +2,19 @@
 // createDowndraftApp() — main process orchestrator
 // ============================================================================
 
+import { createLogger } from "@downdraft/core/util/logger";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { join } from "path";
-import { createLogger } from "@downdraft/core/util/logger";
 import { IPC } from "../shared/messages";
-import { applySwitches } from "./switches";
 import { installErrorHandlers } from "./error-dialog";
-import { createWindow } from "./window";
-import { registerSaveHandlers } from "./handlers/saves";
 import { registerDevtoolsHandlers } from "./handlers/devtools";
 import { registerGpuInfoHandlers } from "./handlers/gpu-info";
-import { registerOsrHandlers } from "./handlers/osr";
 import { startMcpProxy } from "./handlers/mcp";
+import { registerOsrHandlers } from "./handlers/osr";
+import { registerSaveHandlers } from "./handlers/saves";
+import { applySwitches } from "./switches";
 import type { DowndraftAppConfig, MainContext } from "./types";
+import { createWindow } from "./window";
 
 const log = createLogger("info");
 
@@ -32,10 +32,14 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
   (globalThis as any).__ddThreadTag = "M0";
   const isDev = !app.isPackaged;
   const features = config.features ?? {};
+  const devtools = resolveDevtoolsConfig(features.devtools);
 
   // --- Apply chrome switches before app.whenReady ---
   if (config.switches) {
     applySwitches(app, config.switches);
+  }
+  if (devtools.enabled && devtools.debugPort != null) {
+    app.commandLine.appendSwitch("remote-debugging-port", String(devtools.debugPort));
   }
 
   // --- Error dialog + process handlers ---
@@ -76,6 +80,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
       session,
       consoleForwarding: features.consoleForwarding !== false,
       windowStatePersistence: features.windowStatePersistence !== false,
+      devtools,
       preloadPath,
     });
     ctx.window = mainWindow;
@@ -85,8 +90,8 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
       registerSaveHandlers(features.saves);
     }
 
-    if (features.devtools !== false) {
-      registerDevtoolsHandlers(ctx);
+    if (devtools.enabled) {
+      registerDevtoolsHandlers(ctx, devtools);
     }
 
     if (features.gpuInfo !== false) {
@@ -157,6 +162,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
         session,
         consoleForwarding: features.consoleForwarding !== false,
         windowStatePersistence: features.windowStatePersistence !== false,
+        devtools,
         preloadPath,
       });
       ctx.window = mainWindow;

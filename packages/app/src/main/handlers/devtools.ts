@@ -6,7 +6,7 @@ import { startGCProfiler, type GCProfilerHandle, type GCStats } from "@downdraft
 import { createLogger } from "@downdraft/core/util/logger";
 import { ipcMain, screen } from "electron";
 import { IPC } from "../../shared/messages";
-import type { MainContext } from "../types";
+import type { DevtoolsConfig, MainContext } from "../types";
 
 const log = createLogger("info");
 
@@ -15,7 +15,58 @@ let mainPerfTimer: ReturnType<typeof setInterval> | null = null;
 let prevCpuUsage = process.cpuUsage();
 let prevPerfTime = performance.now();
 
-export function registerDevtoolsHandlers(ctx: MainContext): void {
+/**
+ * Resolved DevTools configuration after applying defaults.
+ * `enabled` is false only when the feature is explicitly disabled.
+ */
+export interface ResolvedDevtoolsConfig {
+  enabled: boolean;
+  autoOpen: boolean;
+  keybind: string;
+  debugPort: number | null;
+}
+
+const DISABLED: ResolvedDevtoolsConfig = { enabled: false, autoOpen: false, keybind: "", debugPort: null };
+
+/**
+ * Normalize the `features.devtools` value (boolean | object | undefined) into a
+ * fully-resolved config. Defaults: enabled `true`, autoOpen `true`, keybind `"F12"`.
+ */
+export function resolveDevtoolsConfig(
+  feature: DevtoolsConfig | boolean | undefined,
+): ResolvedDevtoolsConfig {
+  if (feature === false) return DISABLED;
+  const cfg: DevtoolsConfig = feature === true || feature === undefined ? {} : feature;
+  if (cfg.enabled === false) return DISABLED;
+  return {
+    enabled: true,
+    autoOpen: cfg.autoOpen ?? true,
+    keybind: cfg.keybind ?? "F12",
+    debugPort: cfg.debugPort ?? null,
+  };
+}
+
+export function registerDevtoolsHandlers(ctx: MainContext, devtools: ResolvedDevtoolsConfig): void {
+  // --- Global keybind toggle (main-process before-input-event) ---
+  // Handled in the main process so it works regardless of renderer code.
+  // preventDefault() also suppresses the matching keydown in the page,
+  // avoiding double-toggle.
+  if (devtools.keybind && ctx.window && !ctx.window.isDestroyed()) {
+    ctx.window.webContents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown" || input.repeat) return;
+      if (input.key === devtools.keybind) {
+        event.preventDefault();
+        if (ctx.window && !ctx.window.isDestroyed()) {
+          if (ctx.window.webContents.isDevToolsOpened()) {
+            ctx.window.webContents.closeDevTools();
+          } else {
+            ctx.window.webContents.openDevTools();
+          }
+        }
+      }
+    });
+  }
+
   ipcMain.on(IPC.DEBUG_MODE, (_event, enabled: boolean) => {
     if (enabled) {
       if (!mainGcHandle) {
