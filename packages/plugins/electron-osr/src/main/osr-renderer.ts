@@ -3,17 +3,19 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/core";
-import { BrowserWindow, clipboard, type WebContents } from "electron";
+import { BrowserWindow, clipboard, ipcMain, type WebContents } from "electron";
 import type {
-  AtlasPanelRect,
-  OSRDataUpdate,
-  OSRInputEvent,
-  OSRPanelConfig,
-  OSRRendererMode,
-  OSRRendererStatus,
-  OSRSharedTexturePixelFormat,
+    AtlasPanelRect,
+    OSRDataUpdate,
+    OSRInputEvent,
+    OSRPanelConfig,
+    OSRRendererMode,
+    OSRRendererStatus,
+    OSRSharedTexturePixelFormat,
 } from "../types";
-const { sharedTexture, ipcMain } = require("electron") as any;
+// sharedTexture is only available in newer Electron versions; use dynamic
+// require to avoid bundler issues with the ESM import.
+const { sharedTexture } = require("electron") as { sharedTexture?: any };
 const { deflateSync } = require("zlib") as typeof import("zlib");
 const log = createLogger();
 
@@ -22,6 +24,7 @@ const paintPorts = new Map<string, MessagePort>();
 let portHandlerRegistered = false;
 function ensurePaintPortHandler(): void {
   if (portHandlerRegistered) return;
+  if (!ipcMain) return; // Not in electron main process (e.g. model-viewer with osr:false)
   portHandlerRegistered = true;
   ipcMain.on("__osr_paint_port", (event: any, data: { rendererId: string }) => {
     const port = event.ports[0];
@@ -32,7 +35,8 @@ function ensurePaintPortHandler(): void {
     }
   });
 }
-// Register at module load time — before any renderer sends ports
+// Register at module load time — before any renderer sends ports.
+// Safe to call even when electron's ipcMain is not yet available.
 ensurePaintPortHandler();
 
 export type RendererEventCallback = (rendererId: string, status: OSRRendererStatus, crashCount: number) => void;

@@ -1,4 +1,5 @@
 import { BlendMode, CullMode, Material } from "../material/material";
+import type { BindlessTextureRegistry, TextureBucketKey } from "../render/bindless";
 import type { PBRMaterialResources } from "../render/passes/opaque";
 import type { TextureData } from "./loader-texture";
 import { createGPUTextureFromData, createSampler, loadTexture } from "./loader-texture";
@@ -8,6 +9,17 @@ export interface BridgedMaterial {
   material: Material;
   pbrResources: PBRMaterialResources | null;
   textures: GPUTexture[];
+}
+
+/** Build a TextureBucketKey from a GPUTexture's properties. */
+function bucketKeyFromTexture(tex: GPUTexture): TextureBucketKey {
+  return {
+    format: tex.format,
+    width: tex.width,
+    height: tex.height,
+    mipCount: tex.mipLevelCount,
+    sampleCount: tex.sampleCount,
+  };
 }
 
 function createDefaultTextureView(device: GPUDevice, format: GPUTextureFormat = "rgba8unorm"): GPUTextureView {
@@ -46,6 +58,7 @@ export async function bridgeMaterial(
   device: GPUDevice,
   pluginMaterial: PluginMaterialData,
   textureBasePath?: string,
+  registry?: BindlessTextureRegistry | null,
 ): Promise<BridgedMaterial> {
   const textures: GPUTexture[] = [];
   const sampler = createSampler(device, {
@@ -56,6 +69,17 @@ export async function bridgeMaterial(
     addressModeV: "repeat",
   });
 
+  // When a bindless registry is provided, register textures into it and track
+  // sourceIds for the PBRMaterialResources. Otherwise, create standalone GPU
+  // textures + views (legacy path, but the OpaquePass PBR path now requires
+  // bindless, so the legacy views are only used for non-PBR rendering).
+  const useBindless = !!registry;
+  let albedoSourceId: string | undefined;
+  let normalSourceId: string | undefined;
+  let metallicRoughnessSourceId: string | undefined;
+  let aoSourceId: string | undefined;
+  let emissiveSourceId: string | undefined;
+
   // Load albedo texture
   let albedoView: GPUTextureView;
   if (pluginMaterial.textureUri) {
@@ -64,6 +88,10 @@ export async function bridgeMaterial(
     const gpuTex = createGPUTextureFromData(device, texData);
     textures.push(gpuTex);
     albedoView = gpuTex.createView();
+    if (useBindless && registry) {
+      albedoSourceId = `bridge:albedo:${pluginMaterial.name || Math.random().toString(36)}`;
+      registry.registerFromTexture(albedoSourceId, gpuTex, bucketKeyFromTexture(gpuTex));
+    }
   } else if (pluginMaterial.textureData) {
     const texData: TextureData = {
       width: 1,
@@ -76,6 +104,10 @@ export async function bridgeMaterial(
     const gpuTex = createGPUTextureFromData(device, texData);
     textures.push(gpuTex);
     albedoView = gpuTex.createView();
+    if (useBindless && registry) {
+      albedoSourceId = `bridge:albedo:${pluginMaterial.name || Math.random().toString(36)}`;
+      registry.registerFromTexture(albedoSourceId, gpuTex, bucketKeyFromTexture(gpuTex));
+    }
   } else {
     albedoView = createDefaultTextureView(device);
   }
@@ -88,6 +120,10 @@ export async function bridgeMaterial(
     const gpuTex = createGPUTextureFromData(device, texData);
     textures.push(gpuTex);
     normalView = gpuTex.createView();
+    if (useBindless && registry) {
+      normalSourceId = `bridge:normal:${pluginMaterial.name || Math.random().toString(36)}`;
+      registry.registerFromTexture(normalSourceId, gpuTex, bucketKeyFromTexture(gpuTex));
+    }
   } else {
     normalView = createDefaultTextureView(device);
   }
@@ -114,6 +150,10 @@ export async function bridgeMaterial(
     device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: 4 }, { width: 1, height: 1 });
     textures.push(tex);
     emissiveView = tex.createView();
+    if (useBindless && registry) {
+      emissiveSourceId = `bridge:emissive:${pluginMaterial.name || Math.random().toString(36)}`;
+      registry.registerFromTexture(emissiveSourceId, tex, bucketKeyFromTexture(tex));
+    }
   } else {
     emissiveView = createBlackTextureView(device);
   }
@@ -123,17 +163,18 @@ export async function bridgeMaterial(
     : 0;
 
   const pbrResources: PBRMaterialResources = {
-    albedoTexture: albedoView,
-    normalTexture: normalView,
-    metallicRoughnessTexture: metallicRoughnessView,
-    aoTexture: aoView,
-    emissiveTexture: emissiveView,
-    sampler,
+    albedoTextureSourceId: albedoSourceId,
+    normalTextureSourceId: normalSourceId,
+    metallicRoughnessTextureSourceId: metallicRoughnessSourceId,
+    aoTextureSourceId: aoSourceId,
+    emissiveTextureSourceId: emissiveSourceId,
     baseColor: pluginMaterial.baseColor,
     roughness: pluginMaterial.roughness,
     metallic: pluginMaterial.metallic,
     emissiveIntensity,
   };
+  // Keep sampler/views alive for non-PBR consumers; they're referenced by `textures`.
+  void sampler; void albedoView; void normalView; void metallicRoughnessView; void aoView; void emissiveView;
 
   const material = new Material({
     name: pluginMaterial.name || "pbr-material",
@@ -167,8 +208,9 @@ export async function bridgeMaterials(
   device: GPUDevice,
   pluginMaterials: PluginMaterialData[],
   textureBasePath?: string,
+  registry?: BindlessTextureRegistry | null,
 ): Promise<BridgedMaterial[]> {
   return Promise.all(
-    pluginMaterials.map((mat) => bridgeMaterial(device, mat, textureBasePath)),
+    pluginMaterials.map((mat) => bridgeMaterial(device, mat, textureBasePath, registry)),
   );
 }

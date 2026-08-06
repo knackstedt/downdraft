@@ -95,6 +95,23 @@ export type { WindowConfig, WindowState } from "./platform/window";
 
 // Render
 export { BindGroupCache } from "./render/bind-group";
+export {
+    BINDLESS_MATERIAL_CHUNK,
+    BindlessFrameBindings,
+    BindlessMaterialManager,
+    BindlessTextureRegistry, computeBucketKey, DEFAULT_FORMAT_SLOTS,
+    MATERIAL_STRUCT_SIZE, materialIndexAttribute,
+    packHandle16
+} from "./render/bindless";
+export type {
+    BindlessFormatSlot,
+    BindlessFrameBindingsOptions,
+    MaterialManagerOptions,
+    MaterialParams,
+    RegisteredTexture,
+    TextureBucketKey,
+    TextureRegistryOptions
+} from "./render/bindless";
 export { ArenaBuffer, RingBuffer } from "./render/buffer";
 export { calculateViewProj, calculateViewProjInto, CameraMode, CameraSystem, dot3, invertMat4, normalize3, transformVec4 } from "./render/camera";
 export type { CameraConfig, CameraState } from "./render/camera";

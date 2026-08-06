@@ -16,6 +16,29 @@ export class GPUDeviceManager {
   private deviceLost: boolean = false;
   private lostHandlers: Array<(info: GPUDeviceLostInfo) => void> = [];
 
+  /**
+   * Build requiredLimits for the bindless binding model. Values are clamped to
+   * the adapter's reported limits so unsupported caps don't fail device request.
+   */
+  buildRequiredLimits(adapter: GPUAdapter): Record<string, number> {
+    const a = adapter.limits as unknown as Record<string, number>;
+    const clamp = (key: string, want: number): [string, number] | null => {
+      const have = a[key];
+      if (have === undefined) return null;
+      return [key, Math.min(want, have)];
+    };
+    const entries: Array<[string, number]> = [];
+    for (const e of [
+      clamp("maxTextureArrayLayers", 512),
+      clamp("maxStorageBuffersPerShaderStage", 8),
+      clamp("maxStorageBufferBindingSize", 64 * 1024 * 1024),
+      clamp("maxSampledTexturesPerShaderStage", 16),
+    ]) {
+      if (e) entries.push(e);
+    }
+    return Object.fromEntries(entries);
+  }
+
   async requestDevice(): Promise<GPUDevice | null> {
     if (!navigator.gpu) {
       log.error("DownDraft", "WebGPU not available");
@@ -32,7 +55,9 @@ export class GPUDeviceManager {
     }
 
     this.adapterInfo = (this.adapter.info ?? {}) as GPUAdapterInfo;
-    this.device = await this.adapter.requestDevice();
+    this.device = await this.adapter.requestDevice({
+      requiredLimits: this.buildRequiredLimits(this.adapter),
+    });
 
     if (this.device) {
       this.device.lost.then((info: GPUDeviceLostInfo) => {

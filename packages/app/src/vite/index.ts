@@ -162,6 +162,16 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     main: {
       plugins: [
         externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence"] }),
+        {
+          name: "force-cjs-main",
+          configResolved(config) {
+            const output = config.build.rollupOptions.output;
+            const out = Array.isArray(output) ? output[0] : output;
+            if (out) {
+              out.format = "cjs";
+            }
+          },
+        },
         ...(options.mainPlugins ?? []),
       ],
       build: {
@@ -172,7 +182,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
             index: mainEntry,
           },
           output: {
-            entryFileNames: "[name].js",
+            entryFileNames: "[name].cjs",
           },
         },
       } as any,

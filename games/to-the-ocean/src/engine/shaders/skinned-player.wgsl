@@ -13,11 +13,55 @@ struct Uniforms {
   sunDirIntensity: vec4<f32>,
   ambientParams: vec4<f32>,
   fogColor: vec4<f32>,
+  materialIndex: u32,
+  _padMI0: u32,
+  _padMI1: u32,
+  _padMI2: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var playerSampler: sampler;
-@group(0) @binding(2) var playerTexture: texture_2d<f32>;
+
+// Bindless material binding model (@group(3))
+struct BindlessMaterial {
+  baseColor: vec4<f32>,
+  roughness: f32,
+  metallic: f32,
+  emissiveIntensity: f32,
+  _pad0: f32,
+  albedoTex: u32,
+  normalTex: u32,
+  metallicRoughnessTex: u32,
+  aoEmissiveTex: u32,
+};
+
+@group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
+@group(3) @binding(1) var albedoArray0: texture_2d_array<f32>;
+@group(3) @binding(2) var albedoArray1: texture_2d_array<f32>;
+@group(3) @binding(3) var albedoArray2: texture_2d_array<f32>;
+@group(3) @binding(4) var albedoArray3: texture_2d_array<f32>;
+@group(3) @binding(5) var albedoArray4: texture_2d_array<f32>;
+@group(3) @binding(6) var albedoArray5: texture_2d_array<f32>;
+@group(3) @binding(7) var albedoArray6: texture_2d_array<f32>;
+@group(3) @binding(8) var albedoArray7: texture_2d_array<f32>;
+@group(3) @binding(9) var bindlessSamplerRepeat: sampler;
+@group(3) @binding(10) var bindlessSamplerClamp: sampler;
+
+fn unpackArrayIndex(handle: u32) -> u32 { return (handle >> 16u) & 0xFFFFu; }
+fn unpackLayerIndex(handle: u32) -> u32 { return handle & 0xFFFFu; }
+
+fn sampleBindlessArray(arr: u32, uv: vec2<f32>, layer: u32) -> vec4<f32> {
+  switch (arr) {
+    case 0u: { return textureSample(albedoArray0, bindlessSamplerRepeat, uv, layer); }
+    case 1u: { return textureSample(albedoArray1, bindlessSamplerRepeat, uv, layer); }
+    case 2u: { return textureSample(albedoArray2, bindlessSamplerRepeat, uv, layer); }
+    case 3u: { return textureSample(albedoArray3, bindlessSamplerRepeat, uv, layer); }
+    case 4u: { return textureSample(albedoArray4, bindlessSamplerRepeat, uv, layer); }
+    case 5u: { return textureSample(albedoArray5, bindlessSamplerRepeat, uv, layer); }
+    case 6u: { return textureSample(albedoArray6, bindlessSamplerRepeat, uv, layer); }
+    case 7u: { return textureSample(albedoArray7, bindlessSamplerRepeat, uv, layer); }
+    default: { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }
+  }
+}
 
 @group(0) @binding(3) var<storage, read> boneMatrices: array<mat4x4<f32>, 128>;
 
@@ -75,7 +119,11 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let N = normalize(input.normal);
-  let texColor = textureSample(playerTexture, playerSampler, input.uv);
+  // Bindless albedo sample
+  let m = bindlessMaterials[uniforms.materialIndex];
+  let arr = unpackArrayIndex(m.albedoTex);
+  let layer = unpackLayerIndex(m.albedoTex);
+  let texColor = sampleBindlessArray(arr, input.uv, layer);
   var color = entityLighting(N, input.worldPos, texColor.rgb * input.color);
   return vec4<f32>(color, 1.0);
 }

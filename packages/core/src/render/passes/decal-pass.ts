@@ -1,5 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
+import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
@@ -13,14 +14,55 @@ struct DecalUniforms {
   decalViewProj: mat4x4<f32>,
   invViewProj: mat4x4<f32>,
   position: vec3<f32>,
-  _pad0: f32,
+  materialIndex: u32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var<uniform> decal: DecalUniforms;
 @group(0) @binding(2) var depthTexture: texture_depth_2d;
-@group(0) @binding(3) var decalTexture: texture_2d<f32>;
-@group(0) @binding(4) var decalSampler: sampler;
+@group(0) @binding(3) var depthSampler: sampler;
+
+// Bindless material binding model (@group(3))
+struct BindlessMaterial {
+  baseColor: vec4<f32>,
+  roughness: f32,
+  metallic: f32,
+  emissiveIntensity: f32,
+  _pad0: f32,
+  albedoTex: u32,
+  normalTex: u32,
+  metallicRoughnessTex: u32,
+  aoEmissiveTex: u32,
+};
+
+@group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
+@group(3) @binding(1) var albedoArray0: texture_2d_array<f32>;
+@group(3) @binding(2) var albedoArray1: texture_2d_array<f32>;
+@group(3) @binding(3) var albedoArray2: texture_2d_array<f32>;
+@group(3) @binding(4) var albedoArray3: texture_2d_array<f32>;
+@group(3) @binding(5) var albedoArray4: texture_2d_array<f32>;
+@group(3) @binding(6) var albedoArray5: texture_2d_array<f32>;
+@group(3) @binding(7) var albedoArray6: texture_2d_array<f32>;
+@group(3) @binding(8) var albedoArray7: texture_2d_array<f32>;
+@group(3) @binding(9) var bindlessSamplerRepeat: sampler;
+@group(3) @binding(10) var bindlessSamplerClamp: sampler;
+
+fn unpackArrayIndex(handle: u32) -> u32 { return (handle >> 16u) & 0xFFFFu; }
+fn unpackLayerIndex(handle: u32) -> u32 { return handle & 0xFFFFu; }
+
+fn sampleBindlessArray(arr: u32, uv: vec2<f32>, layer: u32) -> vec4<f32> {
+  switch (arr) {
+    case 0u: { return textureSample(albedoArray0, bindlessSamplerRepeat, uv, layer); }
+    case 1u: { return textureSample(albedoArray1, bindlessSamplerRepeat, uv, layer); }
+    case 2u: { return textureSample(albedoArray2, bindlessSamplerRepeat, uv, layer); }
+    case 3u: { return textureSample(albedoArray3, bindlessSamplerRepeat, uv, layer); }
+    case 4u: { return textureSample(albedoArray4, bindlessSamplerRepeat, uv, layer); }
+    case 5u: { return textureSample(albedoArray5, bindlessSamplerRepeat, uv, layer); }
+    case 6u: { return textureSample(albedoArray6, bindlessSamplerRepeat, uv, layer); }
+    case 7u: { return textureSample(albedoArray7, bindlessSamplerRepeat, uv, layer); }
+    default: { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }
+  }
+}
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -49,7 +91,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let ndc = clipPos.xyz / clipPos.w;
   let screenUV = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
 
-  let depth = textureSample(depthTexture, decalSampler, screenUV);
+  let depth = textureSample(depthTexture, depthSampler, screenUV);
   let worldDepth = ndc.z;
 
   if (depth < worldDepth - 0.001) {
@@ -63,7 +105,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   }
 
   let decalUV = decalNDC.xy * vec2<f32>(0.5, 0.5) + vec2<f32>(0.5, 0.5);
-  let decalColor = textureSample(decalTexture, decalSampler, decalUV);
+  // Bindless albedo sample — decals use the albedoTex handle from the material.
+  let m = bindlessMaterials[decal.materialIndex];
+  let arr = unpackArrayIndex(m.albedoTex);
+  let layer = unpackLayerIndex(m.albedoTex);
+  let decalColor = sampleBindlessArray(arr, decalUV, layer);
 
   return vec4<f32>(decalColor.rgb, decalColor.a);
 }
@@ -73,8 +119,11 @@ export interface DecalItem {
   mesh: MeshData;
   modelMatrix: Mat4;
   decalViewProj: Mat4;
-  decalTexture: GPUTextureView;
-  decalSampler: GPUSampler;
+  /** Bindless: sourceId of the decal texture registered in the BindlessTextureRegistry. */
+  decalTextureSourceId?: string;
+  /** Legacy: decal texture view (used when bindless deps are not set). */
+  decalTexture?: GPUTextureView;
+  decalSampler?: GPUSampler;
 }
 
 export class DecalPass extends RenderPass {
@@ -90,14 +139,36 @@ export class DecalPass extends RenderPass {
   private decalBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private depthTextureView: GPUTextureView | null = null;
+  private depthSampler: GPUSampler | null = null;
   private items: DecalItem[] = [];
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
   private indexBuffers: Map<MeshData, GPUBuffer> = new Map();
+  // Bindless deps
+  private bindlessRegistry: BindlessTextureRegistry | null = null;
+  private bindlessMaterialManager: BindlessMaterialManager | null = null;
+  private bindlessBindGroup: GPUBindGroup | null = null;
+  /** Cached materialIndex per decal sourceId. */
+  private decalMaterialIndex = new Map<string, number>();
 
   constructor(device: GPUDevice | null, surfaceFormat: GPUTextureFormat) {
     super();
     this.device = device;
     this.surfaceFormat = surfaceFormat;
+  }
+
+  /** Provide bindless deps. When set, decals use @group(3) for textures. */
+  setBindlessDeps(
+    registry: BindlessTextureRegistry | null,
+    materialManager: BindlessMaterialManager | null,
+    bindGroup: GPUBindGroup | null,
+  ): void {
+    this.bindlessRegistry = registry;
+    this.bindlessMaterialManager = materialManager;
+    this.bindlessBindGroup = bindGroup;
+  }
+
+  setBindlessBindGroup(bg: GPUBindGroup | null): void {
+    this.bindlessBindGroup = bg;
   }
 
   prepare(device: GPUDevice): void {
@@ -117,10 +188,18 @@ export class DecalPass extends RenderPass {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
     }
+    if (!this.depthSampler && this.device) {
+      this.depthSampler = this.device.createSampler({
+        magFilter: "linear",
+        minFilter: "linear",
+        compare: "less",
+      });
+    }
   }
 
   setDepthTextureView(view: GPUTextureView): void {
     this.depthTextureView = view;
+    this.bindGroup = null; // rebuild bind group with new depth view
   }
 
   addItem(item: DecalItem): void {
@@ -152,6 +231,23 @@ export class DecalPass extends RenderPass {
     const tracked = ctx.pass;
     tracked.setPipeline(this.pipeline);
 
+    // Set the bindless bind group once (@group(3)).
+    if (this.bindlessBindGroup) tracked.setBindGroup(3, this.bindlessBindGroup);
+
+    // Create the per-pass bind group once (camera + decal + depth — no texture).
+    if (!this.bindGroup && this.depthSampler) {
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.cameraBuffer! } },
+          { binding: 1, resource: { buffer: this.decalBuffer! } },
+          { binding: 2, resource: this.depthTextureView! },
+          { binding: 3, resource: this.depthSampler! },
+        ],
+      });
+    }
+    tracked.setBindGroup(0, this.bindGroup!);
+
     for (const item of this.items) {
       const decalData = new Float32Array(48);
       decalData.set(item.decalViewProj as Float32Array, 0);
@@ -159,24 +255,39 @@ export class DecalPass extends RenderPass {
       decalData[32] = item.modelMatrix[12];
       decalData[33] = item.modelMatrix[13];
       decalData[34] = item.modelMatrix[14];
+      // materialIndex (u32) at float slot 35 (byte offset 140).
+      const matIdx = this.getOrCreateDecalMaterialIndex(item);
+      const dv = new DataView(decalData.buffer);
+      dv.setUint32(140, matIdx, true);
       this.device.queue.writeBuffer(this.decalBuffer!, 0, decalData as unknown as BufferSource);
 
-      this.bindGroup = this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.cameraBuffer! } },
-          { binding: 1, resource: { buffer: this.decalBuffer! } },
-          { binding: 2, resource: this.depthTextureView! },
-          { binding: 3, resource: item.decalTexture },
-          { binding: 4, resource: item.decalSampler },
-        ],
-      });
-
-      tracked.setBindGroup(0, this.bindGroup);
       tracked.setVertexBuffer(0, this.getVertexBuffer(item.mesh));
       tracked.setIndexBuffer(this.getIndexBuffer(item.mesh), item.mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(item.mesh.indexCount);
     }
+  }
+
+  /** Get or create a bindless material index for a decal item. */
+  private getOrCreateDecalMaterialIndex(item: DecalItem): number {
+    if (!this.bindlessRegistry || !this.bindlessMaterialManager) return 0;
+    const sourceId = item.decalTextureSourceId ?? `decal:${item.modelMatrix[12]},${item.modelMatrix[13]},${item.modelMatrix[14]}`;
+    const cached = this.decalMaterialIndex.get(sourceId);
+    if (cached !== undefined) return cached;
+    const handle = this.bindlessRegistry.getHandle(sourceId) ?? this.bindlessRegistry.defaultWhiteHandle;
+    const params: MaterialParams = {
+      baseColor: [1, 1, 1, 1],
+      roughness: 1,
+      metallic: 0,
+      emissiveIntensity: 0,
+      albedoTexHandle: handle,
+      normalTexHandle: this.bindlessRegistry.defaultWhiteHandle,
+      metallicRoughnessTexHandle: this.bindlessRegistry.defaultWhiteHandle,
+      aoTexHandle: this.bindlessRegistry.defaultWhiteHandle,
+      emissiveTexHandle: this.bindlessRegistry.defaultWhiteHandle,
+    };
+    const idx = this.bindlessMaterialManager.registerMaterial(params);
+    this.decalMaterialIndex.set(sourceId, idx);
+    return idx;
   }
 
   private ensurePipeline(): void {

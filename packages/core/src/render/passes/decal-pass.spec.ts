@@ -16,11 +16,13 @@ function makeMockDevice() {
   const createShaderModule = vi.fn(() => ({}));
   const createRenderPipeline = vi.fn(() => ({ getBindGroupLayout: () => ({}) }));
   const createBindGroup = vi.fn(() => ({}));
+  const createSampler = vi.fn(() => ({}));
   return {
     createBuffer,
     createShaderModule,
     createRenderPipeline,
     createBindGroup,
+    createSampler,
     queue: { writeBuffer: vi.fn() },
   } as unknown as GPUDevice;
 }
