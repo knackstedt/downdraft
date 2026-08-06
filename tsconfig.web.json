@@ -57,16 +57,19 @@
       "@downdraft/ui/*": ["packages/ui/src/*"],
       "@downdraft/ui": ["packages/ui/src/index.ts"],
       "@downdraft/shader-graph/*": ["packages/shader-graph/src/*"],
-      "@downdraft/shader-graph": ["packages/shader-graph/src/index.ts"]
+      "@downdraft/shader-graph": ["packages/shader-graph/src/index.ts"],
+      "@downdraft/app/renderer": ["packages/app/src/renderer/index.ts"],
+      "@downdraft/app/shared": ["packages/app/src/shared/index.ts"]
     }
   },
   "include": [
     "packages/app/src/shared/**/*",
+    "packages/app/src/renderer/**/*",
     "packages/core/src/**/*.ts",
     "packages/ui/src/**/*",
     "packages/shader-graph/src/**/*.ts",
     "packages/plugins/*/src/**/*.ts",
     "games/*/src/**/*"
   ],
-  "exclude": ["dist", "**/*.spec.ts"]
+  "exclude": ["dist", "**/*.spec.ts", "games/*/src/main.ts", "games/*/src/preload.ts", "games/*/electron.vite.config.ts", "examples/*/src/main.ts", "examples/*/src/preload.ts", "examples/*/electron.vite.config.ts"]
 }

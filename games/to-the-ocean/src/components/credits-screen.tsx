@@ -1,3 +1,4 @@
+import { downdraft } from "@downdraft/app/renderer";
 import { motion } from "framer-motion";
 import { Heart, X } from "lucide-react";
 import { useGameStore } from "../stores/game-store";
@@ -44,7 +45,7 @@ function CreditRow({ entry }: { entry: CreditEntry }) {
       </div>
       <a
         href={entry.url}
-        onClick={(e) => { e.preventDefault(); (window as any).downdraft?.openExternal?.(entry.url); }}
+        onClick={(e) => { e.preventDefault(); downdraft.openExternal(entry.url); }}
         className="text-ocean-500 hover:text-ocean-300 text-xs mt-0.5 transition-colors cursor-pointer"
       >
         {entry.url}

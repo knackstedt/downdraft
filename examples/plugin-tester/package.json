@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
+    "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
     "@downdraft/mcp": "workspace:*",
     "@downdraft/plugin-navmesh": "workspace:*",

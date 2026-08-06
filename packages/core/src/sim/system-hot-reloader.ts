@@ -101,7 +101,7 @@ export class SystemHotReloader {
 
     try {
       const url = `${modulePath}?t=${cacheBust}`;
-      const mod = await import(url);
+      const mod = await import(url /* @vite-ignore */);
       if (typeof mod.__hotReloadSystems !== "function") {
         console.warn(`[SystemHotReloader] Module ${modulePath} does not export __hotReloadSystems — falling back`);
         return false;

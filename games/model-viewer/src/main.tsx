@@ -73,6 +73,12 @@ interface ViewerState {
   showGrid: boolean;
   wireframe: boolean;
   selectedPartIndices: Set<number> | null; // null = show all parts
+  // Animation
+  animationIndex: number | null; // null = none
+  animationPlaying: boolean;
+  animationTime: number; // seconds
+  // Parts grouping
+  groupMode: "tree" | "prefix";
 }
 
 const state: ViewerState = {
@@ -84,6 +90,10 @@ const state: ViewerState = {
   showGrid: true,
   wireframe: false,
   selectedPartIndices: null,
+  animationIndex: null,
+  animationPlaying: false,
+  animationTime: 0,
+  groupMode: "tree",
 };
 
 const listeners = new Set<() => void>();
@@ -115,6 +125,67 @@ function selectAllParts() {
 }
 function selectOnlyPart(nodeIndex: number) {
   state.selectedPartIndices = new Set([nodeIndex]);
+  rebuildModel();
+  notify();
+}
+
+// ── Animation controls ──
+
+function selectAnimation(index: number | null) {
+  state.animationIndex = index;
+  state.animationTime = 0;
+  state.animationPlaying = index !== null;
+  notify();
+}
+
+function togglePlay() {
+  if (state.animationIndex === null) return;
+  state.animationPlaying = !state.animationPlaying;
+  notify();
+}
+
+function seekAnimation(time: number) {
+  state.animationTime = time;
+  notify();
+}
+
+// ── Parts grouping controls ──
+
+function setGroupMode(mode: "tree" | "prefix") {
+  state.groupMode = mode;
+  notify();
+}
+
+// Toggle every mesh part in a group: if all are selected, deselect them;
+// otherwise add them to the selection. Mirrors selectPart's collapse-to-null
+// behaviour when the result is all-selected or none-selected.
+function toggleGroupParts(indices: number[]) {
+  if (!state.currentModel) return;
+  const meshIndices = indices.filter((i) => state.currentModel!.stats.parts[i]?.hasMesh);
+  if (meshIndices.length === 0) return;
+
+  const selected = state.selectedPartIndices;
+  if (selected === null) {
+    // Currently showing all → deselect everything except this group's parts
+    const next = new Set<number>();
+    for (const p of state.currentModel.stats.parts) {
+      if (p.hasMesh && !meshIndices.includes(p.nodeIndex)) next.add(p.nodeIndex);
+    }
+    state.selectedPartIndices = next;
+  } else {
+    const allIn = meshIndices.every((i) => selected.has(i));
+    if (allIn) {
+      for (const i of meshIndices) selected.delete(i);
+    } else {
+      for (const i of meshIndices) selected.add(i);
+    }
+  }
+
+  const totalParts = state.currentModel.stats.parts.filter(p => p.hasMesh).length;
+  const after = state.selectedPartIndices;
+  if (after !== null && (after.size === 0 || after.size === totalParts)) {
+    state.selectedPartIndices = null;
+  }
   rebuildModel();
   notify();
 }
@@ -171,6 +242,11 @@ async function bootstrap() {
         onSelectPart={selectPart}
         onSelectOnlyPart={selectOnlyPart}
         onSelectAllParts={selectAllParts}
+        onSelectAnimation={selectAnimation}
+        onTogglePlay={togglePlay}
+        onSeek={seekAnimation}
+        onSetGroupMode={setGroupMode}
+        onToggleGroupParts={toggleGroupParts}
       />
     </React.StrictMode>,
   );
@@ -250,8 +326,25 @@ async function bootstrap() {
 
   // Render loop
   let rotationAngle = 0;
+  let lastFrameTime = performance.now();
   function frame() {
+    const now = performance.now();
+    const dt = (now - lastFrameTime) / 1000;
+    lastFrameTime = now;
+
     resize();
+
+    // Advance animation timeline
+    if (state.animationPlaying && state.animationIndex !== null) {
+      const anim = state.currentModel?.stats.animations[state.animationIndex];
+      if (anim && anim.duration > 0) {
+        state.animationTime += dt;
+        if (state.animationTime >= anim.duration) {
+          state.animationTime = state.animationTime % anim.duration;
+        }
+        notify();
+      }
+    }
 
     // Frame new model on load
     const pending = (window as any).__pendingFrame;
@@ -421,6 +514,9 @@ async function selectModel(entry: ModelEntry) {
   state.loading = true;
   state.error = null;
   state.selectedPartIndices = null;
+  state.animationIndex = null;
+  state.animationPlaying = false;
+  state.animationTime = 0;
   notify();
 
   try {

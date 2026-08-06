@@ -35,6 +35,22 @@
       "problemMatcher": []
     },
     {
+      "label": "Dev: Model Viewer",
+      "type": "shell",
+      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; bun run dev",
+      "runOptions": {
+        "instanceLimit": 2
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DOWNDRAFT_GAME": "model-viewer"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
       "label": "Build",
       "type": "shell",
       "command": "bun run build",

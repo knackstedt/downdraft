@@ -3,6 +3,32 @@
   "version": "0.1.0",
   "type": "module",
   "main": "src/main/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./main": {
+      "types": "./src/main/index.ts",
+      "import": "./src/main/index.ts"
+    },
+    "./preload": {
+      "types": "./src/preload/index.ts",
+      "import": "./src/preload/index.ts"
+    },
+    "./renderer": {
+      "types": "./src/renderer/index.ts",
+      "import": "./src/renderer/index.ts"
+    },
+    "./shared": {
+      "types": "./src/shared/index.ts",
+      "import": "./src/shared/index.ts"
+    },
+    "./vite": {
+      "types": "./src/vite/index.ts",
+      "import": "./src/vite/index.ts"
+    }
+  },
   "dependencies": {
     "@downdraft/core": "workspace:*",
     "@downdraft/plugin-electron-osr": "workspace:*",
