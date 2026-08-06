@@ -9,9 +9,12 @@
       "problemMatcher": []
     },
     {
-      "label": "Dev",
+      "label": "Dev: To The Ocean",
       "type": "shell",
-      "command": "bun run dev",
+      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/to-the-ocean/electron.vite.config.ts",
+      "runOptions": {
+        "instanceLimit": 2
+      },
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -19,33 +22,14 @@
       "problemMatcher": []
     },
     {
-      "label": "Dev: To The Ocean",
-      "type": "shell",
-      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; bun run dev",
-      "runOptions": {
-        "instanceLimit": 2
-      },
-      "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "DOWNDRAFT_GAME": "to-the-ocean"
-        }
-      },
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
       "label": "Dev: Model Viewer",
       "type": "shell",
-      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; bun run dev",
+      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/model-viewer/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "DOWNDRAFT_GAME": "model-viewer"
-        }
+        "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
       "problemMatcher": []
