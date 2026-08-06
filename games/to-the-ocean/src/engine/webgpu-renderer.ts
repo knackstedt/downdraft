@@ -621,7 +621,7 @@ export class WebGPURenderer implements IRendererStateProvider {
 
   private updateLimiterState(): void {
     if (this.targetFrameTime <= 0 || this.rafInterval <= 0) {
-      this.limiterActive = this.targetFrameTime > 0;
+      this.limiterActive = false;
       return;
     }
     this.limiterActive = this.rafInterval < this.targetFrameTime * 0.85;

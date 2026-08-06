@@ -5,9 +5,9 @@
 // Filters by EntityType.Plant in loop body
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta } from "./components";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityType } from "@shared/types";
+import { SimEntityData, SimEntityMeta } from "./components";
 
 interface PlantData {
   species: string;
@@ -69,3 +69,9 @@ export function createEcsPlantSystem(query: Query) {
 
 export { plants as ecsPlantsMap };
 export type { PlantData };
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-plant-system", newMod);
+  });
+}

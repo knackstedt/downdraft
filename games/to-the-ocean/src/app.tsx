@@ -5,8 +5,8 @@
 import { useDebugStore } from "@downdraft/plugin-devtools";
 import { WeatherType } from "@shared/types";
 import { useEffect, useRef, useState } from "react";
-import BuilderWheel from "./components/builder-wheel";
 import BuildMenu from "./components/build-menu";
+import BuilderWheel from "./components/builder-wheel";
 import CharacterCustomization from "./components/character-customization";
 import CraftMenu from "./components/craft-menu";
 import CreditsScreen from "./components/credits-screen";
@@ -197,13 +197,8 @@ export default function App() {
         simBridge.toggleFullscreen();
       }
     };
-    // F12 toggles DevTools
-    const onF12 = (e: KeyboardEvent) => {
-      if (e.key === "F12") {
-        e.preventDefault();
-        simBridge.toggleDevtools();
-      }
-    };
+    // F12 toggles DevTools — handled by the engine (createDowndraftApp devtools
+    // keybind) via main-process before-input-event, so no renderer listener here.
     // Numpad 0-9: force weather modes
     const onNumpad = (e: KeyboardEvent) => {
       if (e.repeat) return;
@@ -242,7 +237,6 @@ export default function App() {
     window.addEventListener("keydown", onF2);
     window.addEventListener("keydown", onF6);
     window.addEventListener("keydown", onF11);
-    window.addEventListener("keydown", onF12);
     window.addEventListener("keydown", onNumpad);
 
     // When pointer lock is active, the browser consumes the first Escape
@@ -304,7 +298,6 @@ export default function App() {
       window.removeEventListener("keydown", onF2);
       window.removeEventListener("keydown", onF6);
       window.removeEventListener("keydown", onF11);
-      window.removeEventListener("keydown", onF12);
       window.removeEventListener("keydown", onNumpad);
       document.removeEventListener("pointerlockchange", onPointerLockChange);
       document.removeEventListener("visibilitychange", onVisibilityChange);

@@ -6,7 +6,7 @@
 // Dock state remains in the shipDocks Map (external state, not per-entity)
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityFlags, EntityType } from "@shared/types";
 import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components";
 
@@ -130,4 +130,10 @@ export function createEcsDockingSystem(shipsQuery: Query, smallCraftQuery: Query
 
 export { shipDocks as ecsShipDocks };
 export type { DockSlot };
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-docking-system", newMod);
+  });
+}
 

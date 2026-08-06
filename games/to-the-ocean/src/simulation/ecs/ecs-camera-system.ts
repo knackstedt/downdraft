@@ -6,10 +6,10 @@
 // Freecam positions/angles remain in Maps (not per-entity ECS data)
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimPlayerState } from "./components";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { CameraMode } from "@shared/types";
 import { InputBufferReader } from "../../shared/input-buffer";
+import { SimPlayerState } from "./components";
 
 const cameraPositions = new Map<number, { x: number; y: number; z: number }>();
 const cameraAngles = new Map<number, { pitch: number; yaw: number }>();
@@ -89,4 +89,10 @@ export function setCameraMode(playerId: number, mode: CameraMode, pos: { x: numb
     cameraAngles.set(playerId, { pitch: 0, yaw: heading });
   }
   prevModes.set(playerId, mode);
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-camera-system", newMod);
+  });
 }

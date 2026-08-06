@@ -7,7 +7,7 @@
 // entities through the Simulation's lifecycle (fixes legacy bypass bug)
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityFlags, EntityType, PirateRace, SecurityLevel } from "@shared/types";
 import {
     PIRATE_SPAWN_BASE_RATE,
@@ -278,4 +278,10 @@ export function shutdownEcsPirates(): void {
 
 export { pirates as ecsPiratesMap };
 export type { PirateEntity };
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-pirate-system", newMod);
+  });
+}
 

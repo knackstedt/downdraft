@@ -30,27 +30,6 @@ import "./styles/globals.css";
 
 (globalThis as any).__ddThreadTag = "R0";
 
-/**
- * Map an absolute file path to the module path used by SimEcsWorld's hot reloader.
- * Returns null if the file isn't a tracked ECS system module.
- */
-function fileToModulePath(filePath: string): string | null {
-  const normalized = filePath.replace(/\\/g, "/");
-
-  // Game-local ECS system modules — registered with relative paths like "./ecs-animal-system"
-  const ecsSystemMatch = normalized.match(/\/simulation\/ecs\/(ecs-[\w-]+)\.ts$/);
-  if (ecsSystemMatch) {
-    return `./${ecsSystemMatch[1]}`;
-  }
-
-  // Plugin modules — registered with package names
-  if (normalized.includes("packages/plugins/wildlife/")) return "@downdraft/plugin-wildlife";
-  if (normalized.includes("packages/plugins/buoyancy/")) return "@downdraft/plugin-buoyancy";
-  if (normalized.includes("packages/plugins/collision/")) return "@downdraft/plugin-collision";
-
-  return null;
-}
-
 async function bootstrap() {
   // Render React UI immediately so the loading screen is visible during init
   const root = createRoot(document.getElementById("root")!);
@@ -560,30 +539,7 @@ async function bootstrap() {
       store.setStatus("reloading");
       const t0 = performance.now();
 
-      // Try in-worker system hot-swap first (approach 2 — RPC fallback).
-      // Vite HMR (approach 1) may have already handled it via import.meta.hot.accept
-      // in the worker, but the RPC fallback covers cases where Vite's worker HMR
-      // doesn't fire (e.g. electron-vite worker module resolution issues).
-      const modulePath = fileToModulePath(data.file);
-      if (modulePath) {
-        try {
-          const canSwap = await simWorker.canHotSwapModule(modulePath);
-          if (canSwap) {
-            const swapped = await simWorker.hotSwapModule(modulePath);
-            if (swapped) {
-              const elapsed = (performance.now() - t0).toFixed(0);
-              console.log(`%c[HMR] In-worker system swap complete (${elapsed}ms) for ${modulePath}`, "color: cyan; font-weight: bold");
-              store.setStatus("ready");
-              store.setLastReload({ file: data.file, elapsed: Number(elapsed), timestamp: data.timestamp });
-              return;
-            }
-          }
-        } catch (err) {
-          console.warn(`[HMR] In-worker swap failed for ${modulePath}: ${err} — falling back to full worker swap`);
-        }
-      }
-
-      // Fall back to full worker swap (preserves state via HotReloadPipeline)
+      // Full worker swap (preserves state via HotReloadPipeline)
       try {
         await simWorker.hotReload(simConfig, store.preserveState);
         const elapsed = (performance.now() - t0).toFixed(0);
