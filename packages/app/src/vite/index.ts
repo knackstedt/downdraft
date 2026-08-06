@@ -148,7 +148,13 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   const rendererPaths = options.rendererPaths ?? (hasSimWorker
     ? ["engine/", "stores/", "packages/plugins/electron-osr/src/renderer/"]
     : []);
-  const excludePaths = options.excludePaths ?? ["packages/plugins/electron-osr/src/main/"];
+  const excludePaths = options.excludePaths ?? [
+    "packages/plugins/electron-osr/src/main/",
+    "simulation/ecs/ecs-",
+    "packages/plugins/wildlife/src/",
+    "packages/plugins/buoyancy/src/",
+    "packages/plugins/collision/src/",
+  ];
 
   return defineConfig({
     main: {

@@ -10,7 +10,7 @@
 // All game-specific values provided via WildlifeConfig.
 // ============================================================================
 
-import { BroadPhaseGrid, Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { BroadPhaseGrid, hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { tickDevilShrimpAI } from "./ai/devil-shrimp-ai";
 import { tickEelAI } from "./ai/eel-ai";
 import { tickFishAI } from "./ai/fish-ai";
@@ -398,4 +398,10 @@ function getYForType(type: number, config: WildlifeConfig): number {
   if (type === et.coral) return -10;
   if (type === et.moose) return -30;
   return -5;
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("wildlife-system", newMod);
+  });
 }

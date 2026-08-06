@@ -10,7 +10,7 @@
 // inside the synchronous ECS step. Inline path is sufficient for correctness.
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import type {
     BoatCell,
     BuoyancyConfig, BuoyancyDeps,
@@ -258,4 +258,10 @@ function applySimpleBuoyancy(
   else if (newRoll < -phy.maxTilt) { newRoll = -phy.maxTilt; vel.angVz = 0; }
   data.data[config.shipData.pitch] = newPitch;
   data.data[config.shipData.roll] = newRoll;
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("buoyancy-system", newMod);
+  });
 }
