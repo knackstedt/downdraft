@@ -160,6 +160,9 @@ export class EntityRenderer {
     this.pbrBindGroup = bg;
     this.ctx.pbrBindGroup = bg;
   }
+  setTerrainMeshPool(pool: import("./terrain-mesh-pool").TerrainMeshPool | null): void {
+    this.islandTerrainRenderer.setMeshPool(pool);
+  }
 
   // --- Init ---
   async init(lightBindGroupLayout?: GPUBindGroupLayout, pbrBindGroupLayout?: GPUBindGroupLayout): Promise<void> {

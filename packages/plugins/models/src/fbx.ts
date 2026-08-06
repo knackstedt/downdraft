@@ -253,15 +253,22 @@ function findGeometryNodes(
   meshes: MeshData[],
   materialColors?: [number, number, number][],
   geometrySkins?: Map<string, { vertexBones: Map<number, { boneIdx: number; weight: number }[]> }>,
+  geoIdToMeshIndex?: Map<string, number>,
 ): void {
   if (node.name === "Geometry") {
     const geoId = node.properties.length > 0 ? String(node.properties[0].value) : "";
     const skin = geoId ? geometrySkins?.get(geoId) : undefined;
     const mesh = extractFBXGeometry(node, materialColors, skin);
-    if (mesh) meshes.push(mesh);
+    if (mesh) {
+      const meshIndex = meshes.length;
+      meshes.push(mesh);
+      if (geoId && geoIdToMeshIndex) {
+        geoIdToMeshIndex.set(geoId, meshIndex);
+      }
+    }
   }
   for (let i = 0; i < node.children.length; i++) {
-    findGeometryNodes(node.children[i], meshes, materialColors, geometrySkins);
+    findGeometryNodes(node.children[i], meshes, materialColors, geometrySkins, geoIdToMeshIndex);
   }
 }
 
@@ -1499,8 +1506,35 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
 
   // Parse geometry (with skin data if available)
   const meshes: MeshData[] = [];
+  const geoIdToMeshIndex = new Map<string, number>();
   for (let i = 0; i < nodes.length; i++) {
-    findGeometryNodes(nodes[i], meshes, materialColors, skinData?.geometrySkins);
+    findGeometryNodes(nodes[i], meshes, materialColors, skinData?.geometrySkins, geoIdToMeshIndex);
+  }
+
+  // Link meshes to model nodes via Geometry→Model connections
+  if (nodesResult) {
+    const connectionsNode = nodes.find(n => n.name === "Connections");
+    if (connectionsNode) {
+      // Build model ID → node index map (same as in parseFBXNodes)
+      const modelIdToNodeIndex = new Map<string, number>();
+      for (let i = 0; i < nodesResult.length; i++) {
+        // The nodeIndex field matches the array index
+        modelIdToNodeIndex.set(String(modelNodesRaw[i].properties[0].value), i);
+      }
+      // Find Geometry→Model connections and set ModelNode.mesh
+      for (let i = 0; i < connectionsNode.children.length; i++) {
+        const c = connectionsNode.children[i];
+        if (c.name === "C" && c.properties.length >= 3) {
+          const childId = String(c.properties[1].value);
+          const parentId = String(c.properties[2].value);
+          const meshIdx = geoIdToMeshIndex.get(childId);
+          const nodeIdx = modelIdToNodeIndex.get(parentId);
+          if (meshIdx !== undefined && nodeIdx !== undefined) {
+            nodesResult[nodeIdx].mesh = meshIdx;
+          }
+        }
+      }
+    }
   }
 
   // Parse animations

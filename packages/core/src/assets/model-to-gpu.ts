@@ -21,11 +21,19 @@ export function uploadMeshToGPU(
   });
   device.queue.writeBuffer(vertexBuffer, 0, mesh.vertices.buffer);
 
+  const indexByteLen = mesh.indices.byteLength;
+  const paddedIndexSize = Math.ceil(indexByteLen / 4) * 4;
   const indexBuffer = device.createBuffer({
-    size: mesh.indices.byteLength,
+    size: paddedIndexSize,
     usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(indexBuffer, 0, mesh.indices.buffer);
+  if (paddedIndexSize === indexByteLen) {
+    device.queue.writeBuffer(indexBuffer, 0, mesh.indices.buffer);
+  } else {
+    const padded = new Uint8Array(paddedIndexSize);
+    padded.set(new Uint8Array(mesh.indices.buffer, mesh.indices.byteOffset, indexByteLen));
+    device.queue.writeBuffer(indexBuffer, 0, padded);
+  }
 
   const indexFormat: GPUIndexFormat = mesh.indices instanceof Uint32Array ? "uint32" : "uint16";
 
