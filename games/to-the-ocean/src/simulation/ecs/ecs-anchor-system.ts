@@ -5,16 +5,16 @@
 // Filters by EntityType.Ship || EntityType.SmallCraft in loop body
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityType } from "@shared/types";
 import {
-  SHIP_DATA,
-  ANCHOR_ROPE_LENGTH,
-  ANCHOR_STIFFNESS,
-  ANCHOR_DAMPING,
-  ANCHOR_DRAG,
+    ANCHOR_DAMPING,
+    ANCHOR_DRAG,
+    ANCHOR_ROPE_LENGTH,
+    ANCHOR_STIFFNESS,
+    SHIP_DATA,
 } from "../../shared/constants";
+import { SimEntityData, SimEntityMeta, SimTransform, SimVelocity } from "./components";
 
 const ropeLength = ANCHOR_ROPE_LENGTH;
 
@@ -73,4 +73,10 @@ export function createEcsAnchorSystem(shipsQuery: Query) {
     },
     { queries: [shipsQuery] },
   );
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-anchor-system", newMod);
+  });
 }

@@ -12,7 +12,7 @@
 //   - Mapping slot indices ↔ ECS entities
 // ============================================================================
 
-import { Query, Stage, system, SystemHotReloader, World, type Entity, type SystemFactory } from "@downdraft/core";
+import { Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
 import { createBuoyancySystem, type BuoyancyConfig, type BuoyancyDeps } from "@downdraft/plugin-buoyancy";
 import { createCollisionSystem, type CollisionConfig, type CollisionDeps } from "@downdraft/plugin-collision";
 import { createWildlifeSystem, shutdownWildlife, type WildlifeConfig, type WildlifeDeps } from "@downdraft/plugin-wildlife";
@@ -48,13 +48,10 @@ type EntityDataData = ReturnType<typeof SimEntityData.create>;
 type PlayerStateData = ReturnType<typeof SimPlayerState.create>;
 type PlayerInventoryData = ReturnType<typeof SimPlayerInventory.create>;
 
-type ModuleRecreator = (newMod: Record<string, unknown>) => SystemFactory[];
+type SystemRecreator = (newMod: Record<string, unknown>) => System;
 
 export class SimEcsWorld {
   readonly world: World;
-  private hotReloader: SystemHotReloader;
-  // module path → function that takes the new module and returns factory functions
-  private hotReloadRecursors: Map<string, ModuleRecreator> = new Map();
 
   // Mapping: legacy slot index → ECS entity
   private slotToEntity: Map<number, Entity> = new Map();
@@ -113,97 +110,45 @@ export class SimEcsWorld {
       { queries: [this.allEntities, this.ships, this.wildlife, this.islands, this.ports, this.players, this.livestock, this.plants, this.pets, this.wildlifeWithHealth, this.pirates, this.smallCraft, this.wildlifeAI, this.shipsWithHealth, this.allEntitiesWithVelocity] },
     ));
 
-    // Hot-reloader for runtime system swapping
-    this.hotReloader = new SystemHotReloader(this.world.schedule);
-
-    // Register migrated ECS systems through the hot reloader
-    this.registerHotReloadable(
-      "./ecs-animal-system",
+    // Register migrated ECS systems (self-accepting HMR via hmrSwap)
+    this.addEcsSystem("ecs-animal-system",
       () => createEcsAnimalSystem(this.livestock),
-      (mod) => [() => (mod as any).createEcsAnimalSystem(this.livestock)],
+      (mod) => (mod as any).createEcsAnimalSystem(this.livestock),
     );
-    this.registerHotReloadable(
-      "./ecs-anchor-system",
+    this.addEcsSystem("ecs-anchor-system",
       () => createEcsAnchorSystem(this.ships),
-      (mod) => [() => (mod as any).createEcsAnchorSystem(this.ships)],
+      (mod) => (mod as any).createEcsAnchorSystem(this.ships),
     );
-    this.registerHotReloadable(
-      "./ecs-plant-system",
+    this.addEcsSystem("ecs-plant-system",
       () => createEcsPlantSystem(this.plants),
-      (mod) => [() => (mod as any).createEcsPlantSystem(this.plants)],
+      (mod) => (mod as any).createEcsPlantSystem(this.plants),
     );
-    this.registerHotReloadable(
-      "./ecs-pet-system",
+    this.addEcsSystem("ecs-pet-system",
       () => createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth),
-      (mod) => [() => (mod as any).createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth)],
+      (mod) => (mod as any).createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth),
     );
-    this.registerHotReloadable(
-      "./ecs-docking-system",
+    this.addEcsSystem("ecs-docking-system",
       () => createEcsDockingSystem(this.ships, this.smallCraft),
-      (mod) => [() => (mod as any).createEcsDockingSystem(this.ships, this.smallCraft)],
+      (mod) => (mod as any).createEcsDockingSystem(this.ships, this.smallCraft),
     );
-
-    // Setup Vite HMR accept callbacks for each registered module
-    if (import.meta.env.DEV && import.meta.hot) {
-      this.setupHmr();
-    }
   }
 
   /**
-   * Register a system through the hot reloader and store a recreator
-   * for re-creating the system from an updated module.
+   * Add a system to the schedule and register an HMR swap callback.
+   * The system module self-accepts via import.meta.hot.accept and calls hmrSwap().
    */
-  private registerHotReloadable(
-    modulePath: string,
-    factory: SystemFactory,
-    recreator: ModuleRecreator,
+  private addEcsSystem(
+    name: string,
+    factory: () => System,
+    recreator: SystemRecreator,
   ): void {
-    this.hotReloader.register(modulePath, factory);
-    this.hotReloadRecursors.set(modulePath, recreator);
-  }
-
-  /**
-   * Set up Vite HMR accept callbacks for all registered system modules.
-   * When a module changes, Vite sends the new module to the callback.
-   * We use the recreator to build new factories and swap the systems.
-   */
-  private setupHmr(): void {
-    for (const [modulePath, recreator] of this.hotReloadRecursors) {
-      import.meta.hot!.accept(modulePath, (newMod: Record<string, unknown> | undefined) => {
-        if (!newMod) return;
-        const factories = recreator(newMod);
-        this.hotReloader.swapByModule(modulePath, factories);
+    this.world.schedule.addSystem(factory());
+    if (import.meta.env.DEV && import.meta.hot) {
+      registerHmrSwap(name, (newMod) => {
+        this.world.schedule.removeSystem(name);
+        this.world.schedule.addSystem(recreator(newMod));
       });
     }
-  }
-
-  /**
-   * RPC fallback (approach 2): hot-swap a system module by dynamic import.
-   * Called by the worker when the main thread forwards a file change event.
-   * Returns true if the swap succeeded, false if the module isn't tracked.
-   */
-  async hotSwapByModule(modulePath: string): Promise<boolean> {
-    const recreator = this.hotReloadRecursors.get(modulePath);
-    if (!recreator) return false;
-
-    const bust = Date.now();
-    try {
-      const url = `${modulePath}?t=${bust}`;
-      const mod = await import(url /* @vite-ignore */);
-      const factories = recreator(mod as Record<string, unknown>);
-      this.hotReloader.swapByModule(modulePath, factories);
-      return true;
-    } catch (err) {
-      console.error(`[SimEcsWorld] hotSwapByModule failed for ${modulePath}:`, err);
-      return false;
-    }
-  }
-
-  /**
-   * Check if a module path is tracked by the hot reloader.
-   */
-  hasHotReloadModule(modulePath: string): boolean {
-    return this.hotReloadRecursors.has(modulePath);
   }
 
   // --- Late registration (needs Simulation callbacks) ---
@@ -220,22 +165,14 @@ export class SimEcsWorld {
     }) => number,
     removeEntity: (id: number) => void,
   ): void {
-    this.registerHotReloadable(
-      "./ecs-pirate-system",
+    this.addEcsSystem("ecs-pirate-system",
       () => createEcsPirateSystem(
         this.pirates, this.players, getSecurityLevel, spawnEntity, removeEntity,
       ),
-      (mod) => [() => (mod as any).createEcsPirateSystem(
+      (mod) => (mod as any).createEcsPirateSystem(
         this.pirates, this.players, getSecurityLevel, spawnEntity, removeEntity,
-      )],
+      ),
     );
-    if (import.meta.env.DEV && import.meta.hot) {
-      import.meta.hot.accept("./ecs-pirate-system", (newMod: any) => {
-        if (!newMod) return;
-        this.hotReloader.swapByModule("./ecs-pirate-system",
-          [() => newMod.createEcsPirateSystem(this.pirates, this.players, getSecurityLevel, spawnEntity, removeEntity)]);
-      });
-    }
   }
 
   shutdownPirates(): void {
@@ -243,52 +180,28 @@ export class SimEcsWorld {
   }
 
   registerCameraSystem(getInput: () => InputBufferReader): void {
-    this.registerHotReloadable(
-      "./ecs-camera-system",
+    this.addEcsSystem("ecs-camera-system",
       () => createEcsCameraSystem(this.players, getInput),
-      (mod) => [() => (mod as any).createEcsCameraSystem(this.players, getInput)],
+      (mod) => (mod as any).createEcsCameraSystem(this.players, getInput),
     );
-    if (import.meta.env.DEV && import.meta.hot) {
-      import.meta.hot.accept("./ecs-camera-system", (newMod: any) => {
-        if (!newMod) return;
-        this.hotReloader.swapByModule("./ecs-camera-system",
-          [() => newMod.createEcsCameraSystem(this.players, getInput)]);
-      });
-    }
   }
 
   registerStructureIntegritySystem(getBoatCellSystem: () => BoatCellSystem | undefined): void {
-    this.registerHotReloadable(
-      "./ecs-structure-integrity-system",
+    this.addEcsSystem("ecs-structure-integrity-system",
       () => createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem),
-      (mod) => [() => (mod as any).createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem)],
+      (mod) => (mod as any).createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem),
     );
-    if (import.meta.env.DEV && import.meta.hot) {
-      import.meta.hot.accept("./ecs-structure-integrity-system", (newMod: any) => {
-        if (!newMod) return;
-        this.hotReloader.swapByModule("./ecs-structure-integrity-system",
-          [() => newMod.createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem)]);
-      });
-    }
   }
 
   registerWildlifeSystem(deps: WildlifeDeps, config: WildlifeConfig): void {
-    this.registerHotReloadable(
-      "@downdraft/plugin-wildlife",
+    this.addEcsSystem("wildlife-system",
       () => createWildlifeSystem(
         this.wildlifeAI, this.players, this.shipsWithHealth, this.allEntities, deps, config,
       ),
-      (mod) => [() => (mod as any).createWildlifeSystem(
+      (mod) => (mod as any).createWildlifeSystem(
         this.wildlifeAI, this.players, this.shipsWithHealth, this.allEntities, deps, config,
-      )],
+      ),
     );
-    if (import.meta.env.DEV && import.meta.hot) {
-      import.meta.hot.accept("@downdraft/plugin-wildlife", (newMod: any) => {
-        if (!newMod) return;
-        this.hotReloader.swapByModule("@downdraft/plugin-wildlife",
-          [() => newMod.createWildlifeSystem(this.wildlifeAI, this.players, this.shipsWithHealth, this.allEntities, deps, config)]);
-      });
-    }
   }
 
   shutdownWildlife(): void {
@@ -296,41 +209,25 @@ export class SimEcsWorld {
   }
 
   registerBuoyancySystem(deps: BuoyancyDeps, config: BuoyancyConfig): void {
-    this.registerHotReloadable(
-      "@downdraft/plugin-buoyancy",
+    this.addEcsSystem("buoyancy-system",
       () => createBuoyancySystem(
         this.ships, this.allEntitiesWithVelocity, deps, config,
       ),
-      (mod) => [() => (mod as any).createBuoyancySystem(
+      (mod) => (mod as any).createBuoyancySystem(
         this.ships, this.allEntitiesWithVelocity, deps, config,
-      )],
+      ),
     );
-    if (import.meta.env.DEV && import.meta.hot) {
-      import.meta.hot.accept("@downdraft/plugin-buoyancy", (newMod: any) => {
-        if (!newMod) return;
-        this.hotReloader.swapByModule("@downdraft/plugin-buoyancy",
-          [() => newMod.createBuoyancySystem(this.ships, this.allEntitiesWithVelocity, deps, config)]);
-      });
-    }
   }
 
   registerCollisionSystem(deps: CollisionDeps, config: CollisionConfig): void {
-    this.registerHotReloadable(
-      "@downdraft/plugin-collision",
+    this.addEcsSystem("collision-system",
       () => createCollisionSystem(
         this.allEntitiesWithVelocity, this.players, deps, config,
       ),
-      (mod) => [() => (mod as any).createCollisionSystem(
+      (mod) => (mod as any).createCollisionSystem(
         this.allEntitiesWithVelocity, this.players, deps, config,
-      )],
+      ),
     );
-    if (import.meta.env.DEV && import.meta.hot) {
-      import.meta.hot.accept("@downdraft/plugin-collision", (newMod: any) => {
-        if (!newMod) return;
-        this.hotReloader.swapByModule("@downdraft/plugin-collision",
-          [() => newMod.createCollisionSystem(this.allEntitiesWithVelocity, this.players, deps, config)]);
-      });
-    }
   }
 
   // --- Entity lifecycle (called by Simulation) ---

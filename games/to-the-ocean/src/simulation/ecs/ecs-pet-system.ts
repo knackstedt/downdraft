@@ -7,9 +7,9 @@
 // Uses allEntities query for shark wildlife targeting
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimPlayerState, SimTransform, SimVelocity } from "./components";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityType, PetType } from "@shared/types";
+import { SimEntityData, SimEntityMeta, SimPlayerState, SimTransform, SimVelocity } from "./components";
 
 interface PetData {
   type: PetType;
@@ -328,3 +328,9 @@ function tickShark(
 
 export { pets as ecsPetsMap };
 export type { PetData };
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-pet-system", newMod);
+  });
+}

@@ -8,9 +8,9 @@
 // 4. Changes are written back to legacy arrays by SimEcsWorld.writeBackEntities
 // ============================================================================
 
-import { Stage, system, type SystemContext } from "@downdraft/core";
-import { SimEntityData, SimEntityMeta, SimHealth, ComponentIds } from "./components";
+import { hmrSwap, Stage, system, type SystemContext } from "@downdraft/core";
 import { EntityType } from "@shared/types";
+import { SimEntityData, SimEntityMeta, SimHealth } from "./components";
 
 interface LivestockData {
   species: string;
@@ -86,3 +86,9 @@ export function createEcsAnimalSystem(query: import("@downdraft/core").Query) {
 
 export { livestock as ecsLivestockMap };
 export type { LivestockData };
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-animal-system", newMod);
+  });
+}

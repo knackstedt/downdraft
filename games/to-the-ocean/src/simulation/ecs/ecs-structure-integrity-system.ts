@@ -6,7 +6,7 @@
 // BoatCellSystem passed via closure for stability calculation
 // ============================================================================
 
-import { Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityFlags, EntityType } from "@shared/types";
 import { SHIP_LEAK_THRESHOLD } from "../../shared/constants";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
@@ -17,7 +17,7 @@ export function createEcsStructureIntegritySystem(
   getBoatCellSystem: () => BoatCellSystem | undefined,
 ) {
   return system(
-    "ecs-structure-integrity",
+    "ecs-structure-integrity-system",
     Stage.Update,
     (ctx: SystemContext) => {
       const dt = ctx.dt;
@@ -68,4 +68,10 @@ function calculateStability(entityId: number, boatCellSystem?: BoatCellSystem): 
     return 1;
   }
   return 1;
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("ecs-structure-integrity-system", newMod);
+  });
 }
