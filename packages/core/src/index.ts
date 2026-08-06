@@ -8,6 +8,7 @@ export type { Entity, EntityMeta } from "./ecs/entity";
 export { createEventChannel, EventBus } from "./ecs/events";
 export type { EventChannel } from "./ecs/events";
 export { Hierarchy } from "./ecs/hierarchy";
+export { clearHmrSwaps, hmrSwap, registerHmrSwap, unregisterHmrSwap } from "./ecs/hmr-swap-registry";
 export { Query, query, queryChanged, queryExcluded, queryFromDefs } from "./ecs/query";
 export type { QueryDescriptor } from "./ecs/query";
 export { resourceToken } from "./ecs/resource";
@@ -559,7 +560,5 @@ export type { SimWorkerLoopConfig, SimWorkerLoopStats } from "./sim/worker-loop"
 // Hot-Reload Pipeline (framework-owned hot-reload lifecycle)
 export { HotReloadPipeline } from "./sim/hot-reload-pipeline";
 export { SimStateHelper } from "./sim/sim-state-helper";
-export { SystemHotReloader } from "./sim/system-hot-reloader";
-export type { SystemFactory } from "./sim/system-hot-reloader";
 export { TransientStateRegistry } from "./sim/transient-state-registry";
 

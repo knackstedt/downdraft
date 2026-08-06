@@ -11,7 +11,7 @@
 // Replaces legacy CollisionSystem.tick().
 // ============================================================================
 
-import { BroadPhaseGrid, Stage, system, type Query, type SystemContext } from "@downdraft/core";
+import { BroadPhaseGrid, hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import type {
     CollisionConfig, CollisionDeps,
     CollisionEntityData,
@@ -362,4 +362,10 @@ function collideDynamicPair(
     a.velocity.vx = avx * 0.8;
     b.velocity.vx = bvx * 0.8;
   }
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept((newMod: any) => {
+    if (newMod) hmrSwap("collision-system", newMod);
+  });
 }
