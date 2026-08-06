@@ -41,6 +41,42 @@ function computeMeshBounds(meshes: MeshData[]): { min: [number, number, number];
   return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
 }
 
+// Transform raw model-space bounds into the world-space bounds the renderer
+// actually draws. MUST mirror the render-section transform in `frame()`
+// (lines ~407-465): uniform scale = 2.0 / full-model maxDim, base rotation
+// of -90deg around X (Z-up -> Y-up, so (x,y,z) -> (x,z,-y)), and centering
+// at world origin (modelPos = -qrotate(baseRot, fullCenter * scale)).
+// If the renderer's base rotation or centering changes, update this too.
+function computeWorldBounds(
+  rawBounds: { min: [number, number, number]; max: [number, number, number] },
+  fullBounds: { min: [number, number, number]; max: [number, number, number] },
+): { min: [number, number, number]; max: [number, number, number] } {
+  const cx = (fullBounds.min[0] + fullBounds.max[0]) / 2;
+  const cy = (fullBounds.min[1] + fullBounds.max[1]) / 2;
+  const cz = (fullBounds.min[2] + fullBounds.max[2]) / 2;
+  const maxDim = Math.max(
+    fullBounds.max[0] - fullBounds.min[0],
+    fullBounds.max[1] - fullBounds.min[1],
+    fullBounds.max[2] - fullBounds.min[2],
+    0.1,
+  );
+  const scale = 2.0 / maxDim;
+
+  // After -90deg X rotation: x' = x, y' = z, z' = -y.
+  // Apply (p - fullCenter) * scale, then axis swap.
+  const wxMin = (rawBounds.min[0] - cx) * scale;
+  const wxMax = (rawBounds.max[0] - cx) * scale;
+  const wyMin = (rawBounds.min[2] - cz) * scale;
+  const wyMax = (rawBounds.max[2] - cz) * scale;
+  const wzMin = -(rawBounds.max[1] - cy) * scale;
+  const wzMax = -(rawBounds.min[1] - cy) * scale;
+
+  return {
+    min: [Math.min(wxMin, wxMax), Math.min(wyMin, wyMax), Math.min(wzMin, wzMax)],
+    max: [Math.max(wxMin, wxMax), Math.max(wyMin, wyMax), Math.max(wzMin, wzMax)],
+  };
+}
+
 function getRenderedMeshes(): MeshData[] | null {
   const m = state.currentModel;
   if (!m) return null;
@@ -518,8 +554,12 @@ function rebuildModel() {
   // Use reuploadModel to preserve existing texture (prevents flickering)
   _modelRenderer.reuploadModel(m.nodeId, meshesToRender, materialsToRender);
 
-  // Re-frame to fit the newly selected parts
-  (window as any).__pendingFrame = computeMeshBounds(meshesToRender);
+  // Re-frame to fit the newly selected parts (in world space, matching the
+  // renderer's transform — see computeWorldBounds).
+  (window as any).__pendingFrame = computeWorldBounds(
+    computeMeshBounds(meshesToRender),
+    m.stats.bounds,
+  );
 }
 
 async function selectModel(entry: ModelEntry) {
@@ -568,11 +608,17 @@ async function selectModel(entry: ModelEntry) {
       }
       _modelRenderer.uploadModel(loaded.nodeId, meshesToRender, materialsToRender);
 
-      // Frame using bounds of ONLY the rendered meshes
-      (window as any).__pendingFrame = computeMeshBounds(meshesToRender);
+      // Frame using world-space bounds of ONLY the rendered meshes
+      (window as any).__pendingFrame = computeWorldBounds(
+        computeMeshBounds(meshesToRender),
+        loaded.stats.bounds,
+      );
     } else {
-      // Frame using full model bounds (stats-only mode)
-      (window as any).__pendingFrame = loaded.stats.bounds;
+      // Frame using full model bounds (stats-only mode), in world space
+      (window as any).__pendingFrame = computeWorldBounds(
+        loaded.stats.bounds,
+        loaded.stats.bounds,
+      );
     }
 
     notify();
