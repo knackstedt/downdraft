@@ -29,6 +29,27 @@ import "./styles/globals.css";
 
 (globalThis as any).__ddThreadTag = "R0";
 
+/**
+ * Map an absolute file path to the module path used by SimEcsWorld's hot reloader.
+ * Returns null if the file isn't a tracked ECS system module.
+ */
+function fileToModulePath(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, "/");
+
+  // Game-local ECS system modules — registered with relative paths like "./ecs-animal-system"
+  const ecsSystemMatch = normalized.match(/\/simulation\/ecs\/(ecs-[\w-]+)\.ts$/);
+  if (ecsSystemMatch) {
+    return `./${ecsSystemMatch[1]}`;
+  }
+
+  // Plugin modules — registered with package names
+  if (normalized.includes("packages/plugins/wildlife/")) return "@downdraft/plugin-wildlife";
+  if (normalized.includes("packages/plugins/buoyancy/")) return "@downdraft/plugin-buoyancy";
+  if (normalized.includes("packages/plugins/collision/")) return "@downdraft/plugin-collision";
+
+  return null;
+}
+
 async function bootstrap() {
   const downdraft = (window as any).downdraft;
 
@@ -534,14 +555,41 @@ async function bootstrap() {
       const store = useHotReloadStore.getState();
       if (!store.enabled) return;
 
+      // Ack so the plugin doesn't trigger a fallback full-reload
+      import.meta.hot!.send("sim:hot-reload:ack", {});
+
       console.log(`%c[HMR] Sim file changed: ${data.file}`, "color: cyan");
       store.setStatus("reloading");
       const t0 = performance.now();
 
+      // Try in-worker system hot-swap first (approach 2 — RPC fallback).
+      // Vite HMR (approach 1) may have already handled it via import.meta.hot.accept
+      // in the worker, but the RPC fallback covers cases where Vite's worker HMR
+      // doesn't fire (e.g. electron-vite worker module resolution issues).
+      const modulePath = fileToModulePath(data.file);
+      if (modulePath) {
+        try {
+          const canSwap = await simWorker.canHotSwapModule(modulePath);
+          if (canSwap) {
+            const swapped = await simWorker.hotSwapModule(modulePath);
+            if (swapped) {
+              const elapsed = (performance.now() - t0).toFixed(0);
+              console.log(`%c[HMR] In-worker system swap complete (${elapsed}ms) for ${modulePath}`, "color: cyan; font-weight: bold");
+              store.setStatus("ready");
+              store.setLastReload({ file: data.file, elapsed: Number(elapsed), timestamp: data.timestamp });
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn(`[HMR] In-worker swap failed for ${modulePath}: ${err} — falling back to full worker swap`);
+        }
+      }
+
+      // Fall back to full worker swap (preserves state via HotReloadPipeline)
       try {
         await simWorker.hotReload(simConfig, store.preserveState);
         const elapsed = (performance.now() - t0).toFixed(0);
-        console.log(`%c[HMR] Sim hot-reload complete (${elapsed}ms)`, "color: cyan; font-weight: bold");
+        console.log(`%c[HMR] Sim worker swap complete (${elapsed}ms)`, "color: cyan; font-weight: bold");
         store.setStatus("ready");
         store.setLastReload({ file: data.file, elapsed: Number(elapsed), timestamp: data.timestamp });
       } catch (err) {
@@ -555,6 +603,9 @@ async function bootstrap() {
     import.meta.hot.on("renderer:hot-reload", async (data: { file: string; timestamp: number }) => {
       const store = useHotReloadStore.getState();
       if (!store.enabled) return;
+
+      // Ack so the plugin doesn't trigger a fallback full-reload
+      import.meta.hot!.send("renderer:hot-reload:ack", {});
 
       console.log(`%c[HMR] Renderer file changed: ${data.file}`, "color: yellow");
       store.setStatus("reloading");

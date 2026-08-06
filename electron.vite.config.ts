@@ -144,8 +144,14 @@ export default defineConfig({
     plugins: [
       react(),
       hotReloadPlugin({
-        simPaths: ["simulation/", "shared/", "packages/core/", "packages/plugins/"],
-        rendererPaths: ["engine/", "stores/", "packages/plugins/electron-osr/src/renderer/"],
+        // to-the-ocean has a sim worker — simPaths trigger worker swap (with ack).
+        // Other games have no sim worker — let Vite's native HMR handle everything.
+        simPaths: game === "to-the-ocean"
+          ? ["simulation/", "shared/", "packages/core/", "packages/plugins/"]
+          : [],
+        rendererPaths: game === "to-the-ocean"
+          ? ["engine/", "stores/", "packages/plugins/electron-osr/src/renderer/"]
+          : [],
         excludePaths: ["packages/plugins/electron-osr/src/main/"],
         shaderExts: [".wgsl"],
         assetExts: [".glb", ".png", ".jpg", ".jpeg", ".webp"],

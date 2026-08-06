@@ -21,6 +21,13 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
   const lastEventTime: Record<string, number> = {};
   const DEBOUNCE_MS = 100;
 
+  // Fallback: if no client acks within this timeout, force a full page reload.
+  // Games that handle sim/renderer hot-reload send an ack via import.meta.hot.send().
+  // Games that don't (e.g. model-viewer) get a full reload automatically.
+  const FALLBACK_MS = 500;
+  let simAcked = false;
+  let rendererAcked = false;
+
   function matchesPath(filePath: string, patterns: string[]): boolean {
     // Normalize to forward slashes
     const normalized = filePath.replace(/\\/g, "/");
@@ -46,6 +53,12 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
     name: "downdraft-hot-reload",
     apply: "serve",
 
+    configureServer(server) {
+      // Listen for acks from clients that handle custom hot-reload events
+      server.hot.on("sim:hot-reload:ack", () => { simAcked = true; });
+      server.hot.on("renderer:hot-reload:ack", () => { rendererAcked = true; });
+    },
+
     handleHotUpdate(ctx) {
       const filePath = ctx.file;
       const timestamp = Date.now();
@@ -63,16 +76,30 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
         !filePath.endsWith(".tsx") &&
         !filePath.endsWith(".css")
       ) {
+        rendererAcked = false;
         sendEvent(ctx.server, "renderer:hot-reload", {
           file: filePath,
           timestamp,
         });
+        // Fallback: if no client acks, force a full page reload
+        setTimeout(() => {
+          if (!rendererAcked) {
+            ctx.server.hot.send({ type: "full-reload" });
+          }
+        }, FALLBACK_MS);
         return [];
       }
 
-      // Sim code → worker swap
+      // Sim code → worker swap (to-the-ocean) or full reload fallback (other games)
       if (matchesPath(filePath, simPaths)) {
+        simAcked = false;
         sendEvent(ctx.server, "sim:hot-reload", { file: filePath, timestamp });
+        // Fallback: if no client acks, force a full page reload
+        setTimeout(() => {
+          if (!simAcked) {
+            ctx.server.hot.send({ type: "full-reload" });
+          }
+        }, FALLBACK_MS);
         return [];
       }
 
