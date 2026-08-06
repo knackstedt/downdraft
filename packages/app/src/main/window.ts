@@ -205,11 +205,12 @@ export interface CreateWindowOptions {
   session: typeof Session;
   consoleForwarding: boolean;
   windowStatePersistence: boolean;
+  devtools: ResolvedDevtoolsConfig;
   preloadPath: string;
 }
 
 export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWindow> {
-  const { config, isDev, app, BrowserWindow, screen, session, consoleForwarding, windowStatePersistence, preloadPath } = opts;
+  const { config, isDev, app, BrowserWindow, screen, session, consoleForwarding, windowStatePersistence, devtools, preloadPath } = opts;
 
   // Enable cross-origin isolation for SharedArrayBuffer
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -267,25 +268,27 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
     if (savedState?.isMaximized) {
       win.maximize();
     }
-    if (isDev) {
+    if (devtools.autoOpen) {
       win.webContents.openDevTools();
     }
   });
 
-  // Load DevTools extension for 3D Scene Inspector
-  const devtoolsExtPath = isDev
-    ? join(__dirname, "../../packages/plugins/devtools/extension")
-    : join(process.resourcesPath, "devtools-extension");
+  // Load DevTools extension for 3D Scene Inspector (only when DevTools is available)
+  if (devtools.enabled) {
+    const devtoolsExtPath = isDev
+      ? join(__dirname, "../../packages/plugins/devtools/extension")
+      : join(process.resourcesPath, "devtools-extension");
 
-  if (existsSync(devtoolsExtPath)) {
-    try {
-      session.defaultSession.loadExtension(devtoolsExtPath).then(() => {
-        log.info("DevTools", "3D Scene Inspector extension loaded");
-      }).catch((err) => {
-        log.error("DevTools", `Failed to load extension: ${err}`);
-      });
-    } catch (err) {
-      log.error("DevTools", `Extension load error: ${err}`);
+    if (existsSync(devtoolsExtPath)) {
+      try {
+        session.defaultSession.loadExtension(devtoolsExtPath).then(() => {
+          log.info("DevTools", "3D Scene Inspector extension loaded");
+        }).catch((err) => {
+          log.error("DevTools", `Failed to load extension: ${err}`);
+        });
+      } catch (err) {
+        log.error("DevTools", `Extension load error: ${err}`);
+      }
     }
   }
 

@@ -34,6 +34,17 @@ export interface DowndraftMcpConfig {
   port: number;
 }
 
+export interface DevtoolsConfig {
+  /** Whether DevTools are enabled at all. `false` fully disables (IPC handlers, extension, keybind, auto-open). Default: `true`. */
+  enabled?: boolean;
+  /** Keybind that toggles DevTools open/close, matched against `KeyboardEvent.key` (e.g. `"F12"`). Default: `"F12"`. Set to `""` to disable the keybind (the `toggleDevtools` IPC remains available). */
+  keybind?: string;
+  /** Whether DevTools open automatically on game start. Default: `true`. */
+  autoOpen?: boolean;
+  /** Remote debugging port (sets Chromium's `--remote-debugging-port` switch before app ready). */
+  debugPort?: number;
+}
+
 export interface DowndraftFeatures {
   /** File-based save/load IPC handlers. `false` disables. */
   saves?: DowndraftSavesConfig | false;
@@ -41,8 +52,11 @@ export interface DowndraftFeatures {
   osr?: boolean;
   /** MCP HTTP transport in proxy mode. */
   mcp?: DowndraftMcpConfig | false;
-  /** DevTools extension loading + toggle IPC. */
-  devtools?: boolean;
+  /**
+   * DevTools extension loading, toggle IPC + keybind, and auto-open on start.
+   * `false` fully disables. `true`/`undefined` uses defaults (see DevtoolsConfig).
+   */
+  devtools?: DevtoolsConfig | boolean;
   /** nvidia-smi + app.getGPUInfo IPC handlers. */
   gpuInfo?: boolean;
   /** Forward renderer console-message events to the main process logger. */
