@@ -26,8 +26,6 @@ export class PlayerMeshRenderer {
   playerPipeline: GPURenderPipeline | null = null;
   playerBindGroup: GPUBindGroup | null = null;
   private playerBindGroupLayout: GPUBindGroupLayout | null = null;
-  private playerTexture: GPUTexture | null = null;
-  private playerSampler: GPUSampler | null = null;
 
   // Skinned player mesh
   private skinnedPlayerVertices: GPUBuffer | null = null;
@@ -55,56 +53,70 @@ export class PlayerMeshRenderer {
   // Clothing pieces
   private clothingPieces: ClothingPiece[] = [];
 
+  // Bindless: player material index + texture source id
+  private playerMaterialIndex = 0;
+  private playerTextureSourceId = "player:texture";
+  private bindlessBindGroupSetThisFrame = false;
+
   constructor(ctx: EntityRenderContext) {
     this.ctx = ctx;
   }
 
-  init(lightBindGroupLayout: GPUBindGroupLayout | null, pbrBindGroupLayout: GPUBindGroupLayout | null): void {
+  init(
+    lightBindGroupLayout: GPUBindGroupLayout | null,
+    pbrBindGroupLayout: GPUBindGroupLayout | null,
+    bindlessBindGroupLayout: GPUBindGroupLayout | null = null,
+  ): void {
     const device = this.ctx.device;
     const format = this.ctx.format;
     const uniformBuffer = this.ctx.uniformBuffer;
 
     const dev = device;
 
-    // Player textured pipeline
+    // Register a default player material (white) in the bindless manager.
+    const registry = this.ctx.bindlessRegistry;
+    const matMgr = this.ctx.bindlessMaterialManager;
+    if (registry && matMgr) {
+      this.playerMaterialIndex = matMgr.registerMaterial({
+        baseColor: [1, 1, 1, 1],
+        roughness: 1,
+        metallic: 0,
+        emissiveIntensity: 0,
+        albedoTexHandle: registry.defaultWhiteHandle,
+        normalTexHandle: registry.defaultWhiteHandle,
+        metallicRoughnessTexHandle: registry.defaultWhiteHandle,
+        aoTexHandle: registry.defaultWhiteHandle,
+        emissiveTexHandle: registry.defaultWhiteHandle,
+      });
+    }
+
+    // Player pipeline — group 0 has only the uniform (bindless textures via @group(3))
     const playerShaderModule = dev.createShaderModule({ code: PLAYER_WGSL });
     const playerBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       ],
     });
     this.playerBindGroupLayout = playerBindGroupLayout;
-    this.playerSampler = dev.createSampler({
-      magFilter: "linear", minFilter: "linear", mipmapFilter: "linear",
-      addressModeU: "repeat", addressModeV: "repeat",
-    });
-    this.playerTexture = dev.createTexture({
-      size: [1, 1], format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    dev.queue.writeTexture(
-      { texture: this.playerTexture },
-      new Uint8Array([255, 255, 255, 255]),
-      { bytesPerRow: 4 },
-      { width: 1, height: 1 },
-    );
     this.playerBindGroup = dev.createBindGroup({
       layout: playerBindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: uniformBuffer!, size: 256 } },
-        { binding: 1, resource: this.playerSampler },
-        { binding: 2, resource: this.playerTexture!.createView() },
       ],
     });
     this.playerPipeline = dev.createRenderPipeline({
       layout: dev.createPipelineLayout({
         bindGroupLayouts: (lightBindGroupLayout && pbrBindGroupLayout)
-          ? [playerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout]
+          ? bindlessBindGroupLayout
+            ? [playerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout, bindlessBindGroupLayout]
+            : [playerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout]
           : lightBindGroupLayout
-            ? [playerBindGroupLayout, lightBindGroupLayout]
-            : [playerBindGroupLayout],
+            ? bindlessBindGroupLayout
+              ? [playerBindGroupLayout, lightBindGroupLayout, dev.createBindGroupLayout({ entries: [] }), bindlessBindGroupLayout]
+              : [playerBindGroupLayout, lightBindGroupLayout]
+            : bindlessBindGroupLayout
+              ? [playerBindGroupLayout, dev.createBindGroupLayout({ entries: [] }), dev.createBindGroupLayout({ entries: [] }), bindlessBindGroupLayout]
+              : [playerBindGroupLayout],
       }),
       vertex: {
         module: playerShaderModule,
@@ -125,13 +137,11 @@ export class PlayerMeshRenderer {
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: "less" },
     });
 
-    // Skinned player pipeline
+    // Skinned player pipeline — group 0 has uniform + bone storage (bindless textures via @group(3))
     const skinnedPlayerShaderModule = dev.createShaderModule({ code: SKINNED_PLAYER_WGSL });
     const skinnedPlayerBindGroupLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       ],
     });
@@ -163,10 +173,16 @@ export class PlayerMeshRenderer {
     this.skinnedPlayerPipeline = dev.createRenderPipeline({
       layout: dev.createPipelineLayout({
         bindGroupLayouts: (lightBindGroupLayout && pbrBindGroupLayout)
-          ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout]
+          ? bindlessBindGroupLayout
+            ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout, bindlessBindGroupLayout]
+            : [skinnedPlayerBindGroupLayout, lightBindGroupLayout, pbrBindGroupLayout]
           : lightBindGroupLayout
-            ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout]
-            : [skinnedPlayerBindGroupLayout],
+            ? bindlessBindGroupLayout
+              ? [skinnedPlayerBindGroupLayout, lightBindGroupLayout, dev.createBindGroupLayout({ entries: [] }), bindlessBindGroupLayout]
+              : [skinnedPlayerBindGroupLayout, lightBindGroupLayout]
+            : bindlessBindGroupLayout
+              ? [skinnedPlayerBindGroupLayout, dev.createBindGroupLayout({ entries: [] }), dev.createBindGroupLayout({ entries: [] }), bindlessBindGroupLayout]
+              : [skinnedPlayerBindGroupLayout],
       }),
       vertex: {
         module: skinnedPlayerShaderModule,
@@ -400,8 +416,6 @@ export class PlayerMeshRenderer {
       layout: this.skinnedPlayerBindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: uniformBuffer!, size: 256 } },
-        { binding: 1, resource: this.playerSampler! },
-        { binding: 2, resource: this.playerTexture!.createView() },
         { binding: 3, resource: { buffer: this.boneMatrixBuffer! } },
       ],
     });
@@ -592,32 +606,73 @@ export class PlayerMeshRenderer {
   }
 
   setPlayerTexture(image: ImageBitmap | HTMLImageElement): void {
-    const device = this.ctx.device;
-    const uniformBuffer = this.ctx.uniformBuffer;
-    if (this.playerTexture) this.playerTexture.destroy();
-    this.playerTexture = device.createTexture({
-      size: [image.width, image.height], format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    device.queue.copyExternalImageToTexture(
-      { source: image as any },
-      { texture: this.playerTexture },
-      [image.width, image.height],
-    );
-    if (this.playerBindGroupLayout && this.playerSampler && uniformBuffer) {
-      this.playerBindGroup = device.createBindGroup({
-        layout: this.playerBindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: uniformBuffer, size: 256 } },
-          { binding: 1, resource: this.playerSampler },
-          { binding: 2, resource: this.playerTexture!.createView() },
-        ],
-      });
+    const registry = this.ctx.bindlessRegistry;
+    const matMgr = this.ctx.bindlessMaterialManager;
+    if (!registry || !matMgr) return;
+
+    // Register/update the player texture in the bindless registry.
+    const sourceId = this.playerTextureSourceId;
+    const existing = registry.getRegistration(sourceId);
+    let handle: number;
+    if (existing) {
+      // Update in place — dimensions must match.
+      if (image instanceof ImageBitmap) {
+        registry.updateFromImageBitmap(sourceId, image);
+      }
+      handle = existing.handle;
+    } else {
+      // Register new — only ImageBitmap is supported for bindless registration.
+      if (image instanceof ImageBitmap) {
+        const reg = registry.registerFromImageBitmap(sourceId, image, "rgba8unorm", 1);
+        handle = reg.handle;
+      } else {
+        // For HTMLImageElement, create a temporary ImageBitmap.
+        // Fallback: use default white texture.
+        handle = registry.defaultWhiteHandle;
+      }
     }
+
+    // Update the player material to point at the real albedo texture.
+    matMgr.updateMaterial(this.playerMaterialIndex, {
+      baseColor: [1, 1, 1, 1],
+      roughness: 1,
+      metallic: 0,
+      emissiveIntensity: 0,
+      albedoTexHandle: handle,
+      normalTexHandle: registry.defaultWhiteHandle,
+      metallicRoughnessTexHandle: registry.defaultWhiteHandle,
+      aoTexHandle: registry.defaultWhiteHandle,
+      emissiveTexHandle: registry.defaultWhiteHandle,
+    });
+  }
+
+  /** Set the bindless bind group for the frame. Called once per frame by the host. */
+  setBindlessBindGroup(bg: GPUBindGroup | null): void {
+    if (bg && !this.bindlessBindGroupSetThisFrame) {
+      // The bind group is set on the pass encoder in the render methods.
+      this.bindlessBindGroupSetThisFrame = false; // will be set in render
+    }
+    this._pendingBindlessBg = bg;
+  }
+  private _pendingBindlessBg: GPUBindGroup | null = null;
+
+  private ensureBindlessBound(passEncoder: GPURenderPassEncoder): void {
+    if (this._pendingBindlessBg && !this.bindlessBindGroupSetThisFrame) {
+      passEncoder.setBindGroup(3, this._pendingBindlessBg);
+      this.bindlessBindGroupSetThisFrame = true;
+    }
+  }
+
+  /** Reset per-frame state. Called by the host at the start of each frame. */
+  beginFrame(): void {
+    this.bindlessBindGroupSetThisFrame = false;
   }
 
   renderSkinnedPlayer(passEncoder: GPURenderPassEncoder, idx: number): number {
     if (!this.skinnedPlayerVertices || !this.skinnedPlayerIndices || !this.skinnedPlayerPipeline || !this.skinnedPlayerBindGroup) return 0;
+    this.ensureBindlessBound(passEncoder);
+    // Write materialIndex into the uniform slot (float 44 = byte offset 176).
+    this.writeMaterialIndex(idx);
     let tris = 0;
     passEncoder.setPipeline(this.skinnedPlayerPipeline);
     passEncoder.setBindGroup(0, this.skinnedPlayerBindGroup, [idx * 256]);
@@ -638,12 +693,26 @@ export class PlayerMeshRenderer {
 
   renderStaticPlayer(passEncoder: GPURenderPassEncoder, idx: number): number {
     if (!this.playerMeshVertices || !this.playerMeshIndices || !this.playerPipeline || !this.playerBindGroup) return 0;
+    this.ensureBindlessBound(passEncoder);
+    this.writeMaterialIndex(idx);
     passEncoder.setPipeline(this.playerPipeline);
     passEncoder.setBindGroup(0, this.playerBindGroup, [idx * 256]);
     passEncoder.setVertexBuffer(0, this.playerMeshVertices);
     passEncoder.setIndexBuffer(this.playerMeshIndices, this.playerMeshIndexFormat);
     passEncoder.drawIndexed(this.playerMeshIndexCount);
     return Math.floor(this.playerMeshIndexCount / 3);
+  }
+
+  /** Write the player materialIndex into the entity uniform slot (float 44). */
+  private writeMaterialIndex(idx: number): void {
+    if (!this.ctx.uniformBuffer) return;
+    const buf = new Float32Array(1);
+    buf[0] = this.playerMaterialIndex;
+    this.ctx.device.queue.writeBuffer(
+      this.ctx.uniformBuffer,
+      idx * 256 + 44 * 4,
+      buf as Float32Array<ArrayBuffer>,
+    );
   }
 
   hasSkinnedMesh(): boolean {

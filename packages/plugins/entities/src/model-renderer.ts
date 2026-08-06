@@ -1,8 +1,23 @@
 // ============================================================================
 // Model Renderer — renders imported 3D models (FBX/GLTF/OBJ) via WebGPU
+//
+// Bindless binding model: per-draw material data lives in a shared material
+// SSBO (@group(3)), indexed by a `materialIndex` written into the per-draw
+// uniform struct (@group(0)). Textures are registered into the
+// BindlessTextureRegistry's texture_2d_array buckets. The bindless bind group
+// (@group(3)) is set once per frame by the caller (via setBindlessBindGroup)
+// — no per-draw bind-group creation or texture bind-group churn.
 // ============================================================================
 
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
+import {
+    calculateViewProj,
+    DEPTH_FORMAT,
+    MSAA_SAMPLE_COUNT,
+    type BindlessMaterialManager,
+    type BindlessTextureRegistry,
+    type CameraState,
+    type MaterialParams,
+} from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/plugin-models";
 import MODEL_WGSL from "./shaders/model.wgsl?raw";
 
@@ -13,7 +28,14 @@ interface ModelGPUResources {
   indexCount: number;
   indexFormat: GPUIndexFormat;
   uniformOffset: number;
-  textureBindGroup: GPUBindGroup;
+  materialIndex: number;
+}
+
+export interface ModelRendererBindlessDeps {
+  registry: BindlessTextureRegistry;
+  materialManager: BindlessMaterialManager;
+  /** Bind group layout for @group(3) bindless resources. */
+  bindGroupLayout: GPUBindGroupLayout;
 }
 
 export class ModelRenderer {
@@ -28,21 +50,52 @@ export class ModelRenderer {
   private static readonly UNIFORM_SIZE = 256; // 64 floats, padded to 256
 
   private modelResources: Map<string, ModelGPUResources[]> = new Map();
-  private modelTextures: Map<string, GPUTexture> = new Map();
   private viewProjCache: Float32Array | null = null;
   private cameraPosCache: [number, number, number] = [0, 0, 0];
   private nextUniformOffset = 0;
   private reusableUniforms = new Float32Array(64);
+  private reusableUniformsU32 = new Uint32Array(this.reusableUniforms.buffer);
   private textureLoadVersion = new Map<string, number>();
 
-  private sampler: GPUSampler | null = null;
-  private defaultTexture: GPUTexture | null = null;
-  private defaultTextureView: GPUTextureView | null = null;
-  private textureBindGroupLayout: GPUBindGroupLayout | null = null;
+  // Bindless deps
+  private bindless: ModelRendererBindlessDeps | null = null;
+  private bindlessLayout: GPUBindGroupLayout | null = null;
+  private bindlessBindGroup: GPUBindGroup | null = null;
+  private bindlessBindGroupSetThisFrame = false;
+  /** materialIndex for the default white material (albedo = default white layer). */
+  private defaultMaterialIndex = 0;
+  /** sourceId → materialIndex, so reupload reuses the same slot. */
+  private modelMaterialIndex = new Map<string, number>();
+  /** sourceId for the texture registered for a model (used for async update). */
+  private modelTextureSourceId = new Map<string, string>();
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
     this.format = format;
+  }
+
+  /** Provide the bindless texture registry + material manager. Required before init. */
+  setBindlessDeps(deps: ModelRendererBindlessDeps): void {
+    this.bindless = deps;
+    this.bindlessLayout = deps.bindGroupLayout;
+    // Register a default white material (all texture slots → default white handle).
+    this.defaultMaterialIndex = deps.materialManager.registerMaterial({
+      baseColor: [1, 1, 1, 1],
+      roughness: 1,
+      metallic: 0,
+      emissiveIntensity: 0,
+      albedoTexHandle: deps.registry.defaultWhiteHandle,
+      normalTexHandle: deps.registry.defaultWhiteHandle,
+      metallicRoughnessTexHandle: deps.registry.defaultWhiteHandle,
+      aoTexHandle: deps.registry.defaultWhiteHandle,
+      emissiveTexHandle: deps.registry.defaultWhiteHandle,
+    });
+  }
+
+  /** Set the shared bindless bind group (@group(3)) for the frame. */
+  setBindlessBindGroup(bg: GPUBindGroup | null): void {
+    this.bindlessBindGroup = bg;
+    this.bindlessBindGroupSetThisFrame = false;
   }
 
   async init(): Promise<void> {
@@ -51,6 +104,8 @@ export class ModelRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    // Explicit bind group layout for group(0) — per-draw uniform with
+    // hasDynamicOffset so we can index into the uniform buffer per instance.
     this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
         {
@@ -68,42 +123,14 @@ export class ModelRenderer {
       ],
     });
 
-    // Texture bind group layout (group 1): sampler + texture
-    this.textureBindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      ],
-    });
-
-    // Shared sampler
-    this.sampler = this.device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      mipmapFilter: "linear",
-      addressModeU: "repeat",
-      addressModeV: "repeat",
-    });
-
-    // Default 1x1 white texture (used when model has no texture)
-    this.defaultTexture = this.device.createTexture({
-      size: [1, 1],
-      format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    this.device.queue.writeTexture(
-      { texture: this.defaultTexture },
-      new Uint8Array([255, 255, 255, 255]),
-      { bytesPerRow: 4 },
-      [1, 1],
-    );
-    this.defaultTextureView = this.defaultTexture.createView();
-
     const shaderModule = this.device.createShaderModule({ code: MODEL_WGSL });
+    // Explicit pipeline layout: group(0) = per-draw uniform (dynamic offset),
+    // group(3) = bindless materials SSBO + texture arrays. Groups 1 and 2
+    // are unused by the model shader but reserved as empty layouts.
+    const emptyLayout = this.device.createBindGroupLayout({ entries: [] });
     const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout, this.textureBindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayout, emptyLayout, emptyLayout, this.bindlessLayout],
     });
-
     this.pipeline = this.device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {
@@ -139,21 +166,34 @@ export class ModelRenderer {
   uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void {
     this.removeModel(nodeId);
 
-    // Brief summary log
     const hasTexture = materials?.some(m => m.textureData && m.textureData.byteLength > 0) ?? false;
     console.log(`[ModelRenderer] uploadModel ${nodeId}: ${meshes.length} meshes, ${materials?.length ?? 0} materials, hasTexture=${hasTexture}`);
 
+    // Allocate (or reuse) a material index for this model. Starts with the
+    // default white material; updated when the async texture load completes.
+    let materialIndex = this.defaultMaterialIndex;
+    if (this.bindless) {
+      const existing = this.modelMaterialIndex.get(nodeId);
+      if (existing !== undefined) {
+        materialIndex = existing;
+      } else {
+        materialIndex = this.bindless.materialManager.registerMaterial({
+          baseColor: [1, 1, 1, 1],
+          roughness: 1,
+          metallic: 0,
+          emissiveIntensity: 0,
+          albedoTexHandle: this.bindless.registry.defaultWhiteHandle,
+          normalTexHandle: this.bindless.registry.defaultWhiteHandle,
+          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
+          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
+          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
+        });
+        this.modelMaterialIndex.set(nodeId, materialIndex);
+      }
+    }
+
     const resources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
-
-    // Create default texture bind group (white 1x1) — will be replaced if texture loads
-    const defaultTexBindGroup = this.device.createBindGroup({
-      layout: this.textureBindGroupLayout!,
-      entries: [
-        { binding: 0, resource: this.sampler! },
-        { binding: 1, resource: this.defaultTextureView! },
-      ],
-    });
 
     for (let i = 0; i < meshes.length && uniformOffset < ModelRenderer.MAX_MODELS; i++) {
       const mesh = meshes[i];
@@ -183,7 +223,6 @@ export class ModelRenderer {
 
       const indexFormat: GPUIndexFormat =
         mesh.indices instanceof Uint32Array ? "uint32" : "uint16";
-      // WebGPU requires buffer sizes and writeBuffer data to be multiples of 4 bytes
       const indexByteLength = mesh.indices.byteLength;
       const paddedIndexSize = Math.ceil(indexByteLength / 4) * 4;
       const indexBuffer = this.device.createBuffer({
@@ -204,7 +243,7 @@ export class ModelRenderer {
         indexCount: mesh.indexCount,
         indexFormat,
         uniformOffset: uniformOffset * ModelRenderer.UNIFORM_SIZE,
-        textureBindGroup: defaultTexBindGroup,
+        materialIndex,
       });
       uniformOffset++;
     }
@@ -213,7 +252,7 @@ export class ModelRenderer {
     this.modelResources.set(nodeId, resources);
 
     // Async load embedded texture data if available
-    if (materials) {
+    if (materials && this.bindless) {
       const texMaterial = materials.find((m) => m.textureData && m.textureData.byteLength > 0);
       if (texMaterial && texMaterial.textureData) {
         const version = (this.textureLoadVersion.get(nodeId) ?? 0) + 1;
@@ -224,44 +263,49 @@ export class ModelRenderer {
   }
 
   private async loadModelTexture(nodeId: string, textureData: ArrayBuffer, version: number): Promise<void> {
+    if (!this.bindless) return;
     try {
       const blob = new Blob([textureData]);
       const imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
 
-      // Check if this texture load is still valid (not superseded by reuploadModel)
       if (this.textureLoadVersion.get(nodeId) !== version) {
         imageBitmap.close();
         return;
       }
 
-      const texture = this.device.createTexture({
-        size: [imageBitmap.width, imageBitmap.height],
-        format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-      });
-      this.device.queue.copyExternalImageToTexture(
-        { source: imageBitmap },
-        { texture },
-        [imageBitmap.width, imageBitmap.height],
-      );
+      // Register the bitmap into the bindless texture registry. The sourceId
+      // is the nodeId so reuploadModel can reuse/update it.
+      const sourceId = `model:${nodeId}`;
+      const existing = this.bindless.registry.getRegistration(sourceId);
+      let handle: number;
+      if (existing) {
+        // Update in place (same dimensions expected).
+        this.bindless.registry.updateFromImageBitmap(sourceId, imageBitmap);
+        handle = existing.handle;
+      } else {
+        const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1);
+        handle = reg.handle;
+      }
+      this.modelTextureSourceId.set(nodeId, sourceId);
 
-      const bindGroup = this.device.createBindGroup({
-        layout: this.textureBindGroupLayout!,
-        entries: [
-          { binding: 0, resource: this.sampler! },
-          { binding: 1, resource: texture.createView() },
-        ],
-      });
-
-      const resources = this.modelResources.get(nodeId);
-      if (resources) {
-        for (let i = 0; i < resources.length; i++) {
-          resources[i].textureBindGroup = bindGroup;
-        }
-        console.log(`[ModelRenderer] Texture ready for ${nodeId}: ${imageBitmap.width}x${imageBitmap.height}`);
+      // Update the material to point at the real albedo texture.
+      const materialIndex = this.modelMaterialIndex.get(nodeId);
+      if (materialIndex !== undefined) {
+        const matParams: MaterialParams = {
+          baseColor: [1, 1, 1, 1],
+          roughness: 1,
+          metallic: 0,
+          emissiveIntensity: 0,
+          albedoTexHandle: handle,
+          normalTexHandle: this.bindless.registry.defaultWhiteHandle,
+          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
+          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
+          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
+        };
+        this.bindless.materialManager.updateMaterial(materialIndex, matParams);
       }
 
-      this.modelTextures.set(nodeId, texture);
+      console.log(`[ModelRenderer] Texture ready for ${nodeId}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
       imageBitmap.close();
     } catch (e) {
       console.error(`[ModelRenderer] Failed to load texture for ${nodeId}:`, e);
@@ -275,32 +319,34 @@ export class ModelRenderer {
         resources[i].vertexBuffer.destroy();
         resources[i].indexBuffer.destroy();
       }
-      // Reclaim uniform slots: subtract the number of sub-meshes this model used
       this.nextUniformOffset = Math.max(0, this.nextUniformOffset - resources.length);
       this.modelResources.delete(nodeId);
     }
-    const texture = this.modelTextures.get(nodeId);
-    if (texture) {
-      texture.destroy();
-      this.modelTextures.delete(nodeId);
+    // Unregister the texture + material from the bindless managers.
+    const sourceId = this.modelTextureSourceId.get(nodeId);
+    if (sourceId && this.bindless) {
+      this.bindless.registry.unregister(sourceId);
+      this.modelTextureSourceId.delete(nodeId);
+    }
+    const matIdx = this.modelMaterialIndex.get(nodeId);
+    if (matIdx !== undefined && this.bindless && matIdx !== this.defaultMaterialIndex) {
+      this.bindless.materialManager.unregisterMaterial(matIdx);
+      this.modelMaterialIndex.delete(nodeId);
     }
     this.textureLoadVersion.delete(nodeId);
   }
 
   reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void {
-    // Preserve existing texture to avoid flickering on part selection changes
-    const existingTexture = this.modelTextures.get(nodeId);
+    // Preserve existing texture registration to avoid flickering on part
+    // selection changes. The material index is reused.
+    const existingSourceId = this.modelTextureSourceId.get(nodeId);
 
-    // If texture already exists, bump version to cancel any stale in-flight load
-    // If texture doesn't exist yet, keep the current version so the in-flight load
-    // from uploadModel can still complete and update our new resources
     let version = this.textureLoadVersion.get(nodeId) ?? 0;
-    if (existingTexture) {
+    if (existingSourceId) {
       version = version + 1;
       this.textureLoadVersion.set(nodeId, version);
     }
 
-    // Remove mesh resources but keep texture if it exists
     const oldResources = this.modelResources.get(nodeId);
     if (oldResources) {
       for (let i = 0; i < oldResources.length; i++) {
@@ -310,37 +356,16 @@ export class ModelRenderer {
       this.nextUniformOffset = Math.max(0, this.nextUniformOffset - oldResources.length);
       this.modelResources.delete(nodeId);
     }
-    // Don't destroy texture — we'll reuse it
 
-    // Re-upload meshes
+    const materialIndex = this.modelMaterialIndex.get(nodeId) ?? this.defaultMaterialIndex;
+
     const newResources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
-
-    // Create a fresh bind group from the existing texture if available
-    // (don't reuse old bind group — it may be stale if async texture load hasn't completed)
-    let texBindGroup: GPUBindGroup;
-    if (existingTexture) {
-      texBindGroup = this.device.createBindGroup({
-        layout: this.textureBindGroupLayout!,
-        entries: [
-          { binding: 0, resource: this.sampler! },
-          { binding: 1, resource: existingTexture.createView() },
-        ],
-      });
-    } else {
-      texBindGroup = this.device.createBindGroup({
-        layout: this.textureBindGroupLayout!,
-        entries: [
-          { binding: 0, resource: this.sampler! },
-          { binding: 1, resource: this.defaultTextureView! },
-        ],
-      });
-    }
 
     for (let i = 0; i < meshes.length && uniformOffset < ModelRenderer.MAX_MODELS; i++) {
       const mesh = meshes[i];
       const vertexCount = mesh.vertexCount;
-      const stride = 11; // pos3 + normal3 + uv2 + color3
+      const stride = 11;
       const interleaved = new Float32Array(vertexCount * stride);
 
       for (let v = 0; v < vertexCount; v++) {
@@ -385,7 +410,7 @@ export class ModelRenderer {
         indexCount: mesh.indexCount,
         indexFormat,
         uniformOffset: uniformOffset * ModelRenderer.UNIFORM_SIZE,
-        textureBindGroup: texBindGroup,
+        materialIndex,
       });
       uniformOffset++;
     }
@@ -394,7 +419,7 @@ export class ModelRenderer {
     this.modelResources.set(nodeId, newResources);
 
     // If no existing texture and no in-flight load, start one
-    if (!existingTexture && version === 0 && materials) {
+    if (!existingSourceId && version === 0 && materials && this.bindless) {
       const texMaterial = materials.find((m) => m.textureData && m.textureData.byteLength > 0);
       if (texMaterial && texMaterial.textureData) {
         version = 1;
@@ -407,6 +432,7 @@ export class ModelRenderer {
   beginFrame(camera: CameraState): void {
     this.viewProjCache = calculateViewProj(camera);
     this.cameraPosCache = [camera.position[0], camera.position[1], camera.position[2]];
+    this.bindlessBindGroupSetThisFrame = false;
   }
 
   render(
@@ -420,6 +446,12 @@ export class ModelRenderer {
 
     const resources = this.modelResources.get(nodeId);
     if (!resources) return;
+
+    // Set the bindless material bind group once per frame (group 3).
+    if (this.bindlessBindGroup && !this.bindlessBindGroupSetThisFrame) {
+      passEncoder.setBindGroup(3, this.bindlessBindGroup);
+      this.bindlessBindGroupSetThisFrame = true;
+    }
 
     for (let r = 0; r < resources.length; r++) {
       const res = resources[r];
@@ -441,6 +473,9 @@ export class ModelRenderer {
       uniforms[29] = rotation[1];
       uniforms[30] = rotation[2];
       uniforms[31] = rotation[3];
+      // materialIndex (u32) at float slot 32 — write via Uint32Array view so
+      // the shader reads the correct u32 bit pattern (not a float reinterpretation).
+      this.reusableUniformsU32[32] = res.materialIndex;
 
       this.device.queue.writeBuffer(
         this.uniformBuffer,
@@ -450,7 +485,6 @@ export class ModelRenderer {
 
       passEncoder.setPipeline(this.pipeline);
       passEncoder.setBindGroup(0, this.bindGroup, [res.uniformOffset]);
-      passEncoder.setBindGroup(1, res.textureBindGroup);
       passEncoder.setVertexBuffer(0, res.vertexBuffer);
       passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
       passEncoder.drawIndexed(res.indexCount);
@@ -466,8 +500,5 @@ export class ModelRenderer {
     for (let i = 0; i < ids.length; i++) {
       this.removeModel(ids[i]);
     }
-    this.defaultTexture?.destroy();
-    this.defaultTexture = null;
-    this.defaultTextureView = null;
   }
 }

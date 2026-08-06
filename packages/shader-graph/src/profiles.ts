@@ -177,8 +177,6 @@ export const PBR_TEXTURED_PROFILE: ShaderGraphProfile = {
       group: 0,
       entries: [
         { binding: 0, visibility: SHADER_STAGE.VERTEX | SHADER_STAGE.FRAGMENT, type: "uniform" },
-        { binding: 1, visibility: SHADER_STAGE.FRAGMENT, type: "sampler", label: "albedoSampler" },
-        { binding: 2, visibility: SHADER_STAGE.FRAGMENT, type: "texture-2d", label: "albedoMap" },
       ],
     },
     {
@@ -192,6 +190,15 @@ export const PBR_TEXTURED_PROFILE: ShaderGraphProfile = {
       entries: [
         { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "texture-2d", label: "brdfLUT" },
         { binding: 1, visibility: SHADER_STAGE.FRAGMENT, type: "sampler", label: "brdfSampler" },
+      ],
+    },
+    // Bindless material binding model (@group(3)): material SSBO + texture arrays.
+    // The host sets this bind group once per frame; per-draw material selection
+    // is via materialIndex in the uniform struct.
+    {
+      group: 3,
+      entries: [
+        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "bindlessMaterials" },
       ],
     },
   ],
@@ -218,8 +225,6 @@ export const PBR_SKINNED_PROFILE: ShaderGraphProfile = {
       group: 0,
       entries: [
         { binding: 0, visibility: SHADER_STAGE.VERTEX | SHADER_STAGE.FRAGMENT, type: "uniform" },
-        { binding: 1, visibility: SHADER_STAGE.FRAGMENT, type: "sampler", label: "albedoSampler" },
-        { binding: 2, visibility: SHADER_STAGE.FRAGMENT, type: "texture-2d", label: "albedoMap" },
         { binding: 3, visibility: SHADER_STAGE.VERTEX, type: "storage-read", label: "boneMatrices" },
       ],
     },
@@ -234,6 +239,12 @@ export const PBR_SKINNED_PROFILE: ShaderGraphProfile = {
       entries: [
         { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "texture-2d", label: "brdfLUT" },
         { binding: 1, visibility: SHADER_STAGE.FRAGMENT, type: "sampler", label: "brdfSampler" },
+      ],
+    },
+    {
+      group: 3,
+      entries: [
+        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "bindlessMaterials" },
       ],
     },
   ],

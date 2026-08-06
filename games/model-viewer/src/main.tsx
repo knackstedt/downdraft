@@ -3,7 +3,13 @@
 // WebGPU init, render loop, model loading pipeline
 // ============================================================================
 
-import { DEPTH_FORMAT, RendererInputBusImpl } from "@downdraft/core";
+import {
+  BindlessFrameBindings,
+  BindlessMaterialManager,
+  BindlessTextureRegistry,
+  DEPTH_FORMAT,
+  RendererInputBusImpl,
+} from "@downdraft/core";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import type { MeshData } from "@downdraft/plugin-models";
@@ -331,7 +337,16 @@ async function bootstrap() {
   }
 
   // Init renderers
+  const bindlessRegistry = new BindlessTextureRegistry(device);
+  const bindlessMaterialManager = new BindlessMaterialManager(device);
+  const bindlessFrameBindings = new BindlessFrameBindings(device, bindlessRegistry, bindlessMaterialManager);
+
   const modelRenderer = new ModelRenderer(device, format);
+  modelRenderer.setBindlessDeps({
+    registry: bindlessRegistry,
+    materialManager: bindlessMaterialManager,
+    bindGroupLayout: bindlessFrameBindings.getBindGroupLayout(),
+  });
   await modelRenderer.init();
   _modelRenderer = modelRenderer;
 
@@ -417,6 +432,8 @@ async function bootstrap() {
 
     // Begin frame
     modelRenderer.beginFrame(camera);
+    // Prepare bindless bind group for the frame and wire it into the model renderer.
+    modelRenderer.setBindlessBindGroup(bindlessFrameBindings.prepareFrame());
 
     const encoder = device!.createCommandEncoder();
     const passEncoder = encoder.beginRenderPass({

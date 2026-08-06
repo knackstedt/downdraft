@@ -181,6 +181,26 @@ export class GameRenderer implements CanvasResizeHandler {
     this.pipeline = new RenderPipeline();
   }
 
+  /** Build requiredLimits for the bindless binding model (clamped to adapter). */
+  private buildRequiredLimits(adapter: GPUAdapter): Record<string, number> {
+    const a = adapter.limits as unknown as Record<string, number>;
+    const clamp = (key: string, want: number): [string, number] | null => {
+      const have = a[key];
+      if (have === undefined) return null;
+      return [key, Math.min(want, have)];
+    };
+    const entries: Array<[string, number]> = [];
+    for (const e of [
+      clamp("maxTextureArrayLayers", 512),
+      clamp("maxStorageBuffersPerShaderStage", 8),
+      clamp("maxStorageBufferBindingSize", 64 * 1024 * 1024),
+      clamp("maxSampledTexturesPerShaderStage", 16),
+    ]) {
+      if (e) entries.push(e);
+    }
+    return Object.fromEntries(entries);
+  }
+
   async init(): Promise<boolean> {
     try {
       // Adapter fallback chain: high-performance → low-power → any
@@ -210,7 +230,10 @@ export class GameRenderer implements CanvasResizeHandler {
       if (adapter.features.has("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName)) {
         requiredFeatures.push("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName);
       }
-      this.device = await adapter.requestDevice({ requiredFeatures });
+      this.device = await adapter.requestDevice({
+        requiredFeatures,
+        requiredLimits: this.buildRequiredLimits(adapter),
+      });
 
       // Wrap device with GPU resource tracker for VRAM visibility
       this.gpuResourceTracker = new GPUResourceTracker();

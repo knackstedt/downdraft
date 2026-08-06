@@ -286,7 +286,10 @@ export class IslandTerrainRenderer {
       this.meshPool.generateDecorationMesh({ chunkX, chunkZ, biome, islandSize, islandRadius })
         .then((result: GenerateDecorationMeshResult) => {
           this.pendingDecorationRequests.delete(key);
-          if (!this.activeDecorationKeys.has(key)) return;  // island became inactive
+          // Check decorationMeshes/decorationEmptyKeys (not activeDecorationKeys,
+          // which is cleared every frame by cleanupStaleDecorations). If the
+          // island was despawned, both maps will be empty for this key.
+          if (!this.islandChunkMeshes.has(key) && !this.decorationEmptyKeys.has(key)) return;
           if (!result.hasMesh) {
             this.decorationEmptyKeys.add(key);
             return;
@@ -780,7 +783,10 @@ export class IslandTerrainRenderer {
       this.meshPool.generateChunkMesh({ key, cx: chunk.x, cy: chunk.y, cz: chunk.z })
         .then((result: GenerateChunkMeshResult) => {
           this.inFlightChunks.delete(inflightKey);
-          if (!this.activeIslandKeys.has(key)) return;
+          // Check islandChunkMeshes (not activeIslandKeys, which is cleared every
+          // frame by cleanupStaleIslandMeshes). If the island's chunk map is gone,
+          // the island was despawned/cleaned up — discard the result.
+          if (!this.islandChunkMeshes.has(key)) return;
           if (!result.hasMesh) return;
           this.createChunkMeshBuffers(key, chunk.chunkKey, result);
         })
@@ -1171,7 +1177,7 @@ export class IslandTerrainRenderer {
 
     const islandWorldX = chunkX;
     const islandWorldZ = chunkZ;
-    const pending: { cx: number; cy: number; cz: number; chunkKey: string; distSq: number }[] = [];
+    const pending: { x: number; y: number; z: number; chunkKey: string; distSq: number }[] = [];
     let totalChunks = 0;
 
     for (let cx = 0; cx < cf.chunkDimX; cx++) {
@@ -1187,7 +1193,7 @@ export class IslandTerrainRenderer {
           const dz = chunkCenterZ - islandWorldZ;
           const distSq = dx * dx + dz * dz;
           const chunkKey = `${cx},${cy},${cz}`;
-          pending.push({ cx, cy, cz, chunkKey, distSq });
+          pending.push({ x: cx, y: cy, z: cz, chunkKey, distSq });
           totalChunks++;
         }
       }
@@ -1201,7 +1207,7 @@ export class IslandTerrainRenderer {
     }
 
     pending.sort((a, b) => a.distSq - b.distSq);
-    this.islandChunkPending.set(key, pending as any);
+    this.islandChunkPending.set(key, pending);
     this.islandChunkTotalChunks.set(key, totalChunks);
   }
 

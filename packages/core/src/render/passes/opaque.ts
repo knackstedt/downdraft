@@ -3,6 +3,7 @@ import { getProfile } from "@downdraft/shader-graph";
 import { mat4, type Mat4 } from "wgpu-matrix";
 import type { Material } from "../../material/material";
 import type { MeshData } from "../../mesh/builder";
+import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
@@ -81,26 +82,49 @@ struct CameraUniforms {
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var modelUniform: mat4x4<f32>;
 @group(0) @binding(2) var prevModelUniform: mat4x4<f32>;
+@group(0) @binding(3) var<uniform> materialIndex: u32;
 
-struct MaterialUniforms {
+// Bindless material binding model (@group(3))
+struct BindlessMaterial {
   baseColor: vec4<f32>,
   roughness: f32,
   metallic: f32,
   emissiveIntensity: f32,
   _pad0: f32,
+  albedoTex: u32,
+  normalTex: u32,
+  metallicRoughnessTex: u32,
+  aoEmissiveTex: u32,
 };
 
-@group(1) @binding(0) var<uniform> material: MaterialUniforms;
-@group(1) @binding(1) var albedoMap: texture_2d<f32>;
-@group(1) @binding(2) var albedoSampler: sampler;
-@group(1) @binding(3) var normalMap: texture_2d<f32>;
-@group(1) @binding(4) var normalSampler: sampler;
-@group(1) @binding(5) var metallicRoughnessMap: texture_2d<f32>;
-@group(1) @binding(6) var mrSampler: sampler;
-@group(1) @binding(7) var aoMap: texture_2d<f32>;
-@group(1) @binding(8) var aoSampler: sampler;
-@group(1) @binding(9) var emissiveMap: texture_2d<f32>;
-@group(1) @binding(10) var emissiveSampler: sampler;
+@group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
+@group(3) @binding(1) var albedoArray0: texture_2d_array<f32>;
+@group(3) @binding(2) var albedoArray1: texture_2d_array<f32>;
+@group(3) @binding(3) var albedoArray2: texture_2d_array<f32>;
+@group(3) @binding(4) var albedoArray3: texture_2d_array<f32>;
+@group(3) @binding(5) var albedoArray4: texture_2d_array<f32>;
+@group(3) @binding(6) var albedoArray5: texture_2d_array<f32>;
+@group(3) @binding(7) var albedoArray6: texture_2d_array<f32>;
+@group(3) @binding(8) var albedoArray7: texture_2d_array<f32>;
+@group(3) @binding(9) var bindlessSamplerRepeat: sampler;
+@group(3) @binding(10) var bindlessSamplerClamp: sampler;
+
+fn unpackArrayIndex(handle: u32) -> u32 { return (handle >> 16u) & 0xFFFFu; }
+fn unpackLayerIndex(handle: u32) -> u32 { return handle & 0xFFFFu; }
+
+fn sampleBindlessArray(arr: u32, uv: vec2<f32>, layer: u32) -> vec4<f32> {
+  switch (arr) {
+    case 0u: { return textureSample(albedoArray0, bindlessSamplerRepeat, uv, layer); }
+    case 1u: { return textureSample(albedoArray1, bindlessSamplerRepeat, uv, layer); }
+    case 2u: { return textureSample(albedoArray2, bindlessSamplerRepeat, uv, layer); }
+    case 3u: { return textureSample(albedoArray3, bindlessSamplerRepeat, uv, layer); }
+    case 4u: { return textureSample(albedoArray4, bindlessSamplerRepeat, uv, layer); }
+    case 5u: { return textureSample(albedoArray5, bindlessSamplerRepeat, uv, layer); }
+    case 6u: { return textureSample(albedoArray6, bindlessSamplerRepeat, uv, layer); }
+    case 7u: { return textureSample(albedoArray7, bindlessSamplerRepeat, uv, layer); }
+    default: { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }
+  }
+}
 
 struct VertexInput {
   @location(0) position: vec3<f32>,
@@ -149,14 +173,30 @@ fn fs_main(input: VertexOutput) -> (
   @location(2) vec4<f32>,
   @location(3) vec2<f32>,
 ) {
-  let albedo = textureSample(albedoMap, albedoSampler, input.uv) * material.baseColor;
-  let mr = textureSample(metallicRoughnessMap, mrSampler, input.uv);
-  let metallic = mr.b * material.metallic;
-  let roughness = mr.g * material.roughness;
-  let ao = textureSample(aoMap, aoSampler, input.uv).r;
-  let emissive = textureSample(emissiveMap, emissiveSampler, input.uv).rgb * material.emissiveIntensity;
+  let m = bindlessMaterials[materialIndex];
+  let albArr = unpackArrayIndex(m.albedoTex);
+  let albLayer = unpackLayerIndex(m.albedoTex);
+  let albedo = sampleBindlessArray(albArr, input.uv, albLayer) * m.baseColor;
 
-  let tangentNormal = textureSample(normalMap, normalSampler, input.uv).xyz * 2.0 - 1.0;
+  let mrArr = unpackArrayIndex(m.metallicRoughnessTex);
+  let mrLayer = unpackLayerIndex(m.metallicRoughnessTex);
+  let mr = sampleBindlessArray(mrArr, input.uv, mrLayer);
+  let metallic = mr.b * m.metallic;
+  let roughness = mr.g * m.roughness;
+
+  let aoHandle = m.aoEmissiveTex & 0xFFFFu;
+  let aoArr = unpackArrayIndex(aoHandle);
+  let aoLayer = unpackLayerIndex(aoHandle);
+  let ao = sampleBindlessArray(aoArr, input.uv, aoLayer).r;
+
+  let emHandle = (m.aoEmissiveTex >> 16u) & 0xFFFFu;
+  let emArr = unpackArrayIndex(emHandle);
+  let emLayer = unpackLayerIndex(emHandle);
+  let emissive = sampleBindlessArray(emArr, input.uv, emLayer).rgb * m.emissiveIntensity;
+
+  let nArr = unpackArrayIndex(m.normalTex);
+  let nLayer = unpackLayerIndex(m.normalTex);
+  let tangentNormal = sampleBindlessArray(nArr, input.uv, nLayer).xyz * 2.0 - 1.0;
   let TBN = mat3x3<f32>(
     input.worldTangent,
     input.worldBitangent,
@@ -222,12 +262,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 export type OpaquePassMode = "gbuffer" | "simple";
 
 export interface PBRMaterialResources {
-  albedoTexture: GPUTextureView;
-  normalTexture: GPUTextureView;
-  metallicRoughnessTexture: GPUTextureView;
-  aoTexture: GPUTextureView;
-  emissiveTexture: GPUTextureView;
-  sampler: GPUSampler;
+  // Bindless path: texture sourceIds registered in the BindlessTextureRegistry.
+  // When set, the OpaquePass PBR path uses @group(3) for materials.
+  albedoTextureSourceId?: string;
+  normalTextureSourceId?: string;
+  metallicRoughnessTextureSourceId?: string;
+  aoTextureSourceId?: string;
+  emissiveTextureSourceId?: string;
   baseColor: [number, number, number, number];
   roughness: number;
   metallic: number;
@@ -263,10 +304,15 @@ export class OpaquePass extends RenderPass {
   private pbrCameraBuffer: GPUBuffer | null = null;
   private pbrModelBuffer: GPUBuffer | null = null;
   private pbrPrevModelBuffer: GPUBuffer | null = null;
-  private pbrMaterialBuffer: GPUBuffer | null = null;
+  private pbrMaterialIndexBuffer: GPUBuffer | null = null;
   private pbrCameraBindGroup: GPUBindGroup | null = null;
-  private pbrMaterialBindGroup: GPUBindGroup | null = null;
   private pbrMaterial: PBRMaterialResources | null = null;
+  private pbrMaterialIndex: number = 0;
+  private pbrMaterialRegistered: boolean = false;
+  // Bindless deps (optional — when set, the PBR path uses @group(3))
+  private bindlessRegistry: BindlessTextureRegistry | null = null;
+  private bindlessMaterialManager: BindlessMaterialManager | null = null;
+  private bindlessBindGroup: GPUBindGroup | null = null;
   private lastViewProj: Mat4 = mat4.identity();
   private graphMaterial: Material | null = null;
   private graphPipeline: GPURenderPipeline | null = null;
@@ -315,10 +361,28 @@ export class OpaquePass extends RenderPass {
     this.prevViewProj = prevViewProj;
   }
 
+  /** Provide bindless deps. When set, the PBR path uses @group(3) for materials. */
+  setBindlessDeps(
+    registry: BindlessTextureRegistry | null,
+    materialManager: BindlessMaterialManager | null,
+    bindGroup: GPUBindGroup | null,
+  ): void {
+    this.bindlessRegistry = registry;
+    this.bindlessMaterialManager = materialManager;
+    this.bindlessBindGroup = bindGroup;
+    this.pbrPipeline = null; // rebuild pipeline with bindless layout
+    this.pbrMaterialRegistered = false;
+  }
+
+  /** Update the bindless bind group for the frame (call before execute). */
+  setBindlessBindGroup(bg: GPUBindGroup | null): void {
+    this.bindlessBindGroup = bg;
+  }
+
   setPBRMaterial(resources: PBRMaterialResources): void {
     this.pbrMaterial = resources;
     this.pbrPipeline = null;
-    this.pbrMaterialBindGroup = null;
+    this.pbrMaterialRegistered = false;
   }
 
   setMaterial(material: Material): void {
@@ -521,8 +585,8 @@ export class OpaquePass extends RenderPass {
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.pbrMaterialBuffer = this.device.createBuffer({
-      size: 32,
+    this.pbrMaterialIndexBuffer = this.device.createBuffer({
+      size: 16, // u32 + padding (uniform buffer min alignment)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -565,41 +629,43 @@ export class OpaquePass extends RenderPass {
         { binding: 0, resource: { buffer: this.pbrCameraBuffer } },
         { binding: 1, resource: { buffer: this.pbrModelBuffer } },
         { binding: 2, resource: { buffer: this.pbrPrevModelBuffer } },
+        { binding: 3, resource: { buffer: this.pbrMaterialIndexBuffer } },
       ],
     });
   }
 
-  private ensurePBRMaterialBindGroup(): void {
-    if (this.pbrMaterialBindGroup || !this.pbrPipeline || !this.pbrMaterial || !this.pbrMaterialBuffer) return;
-
+  /** Register/update the PBR material in the bindless material manager. */
+  private ensurePBRMaterialRegistered(): void {
+    if (this.pbrMaterialRegistered || !this.pbrMaterial || !this.bindlessRegistry || !this.bindlessMaterialManager) return;
     const mat = this.pbrMaterial;
-    const matData = new Float32Array(8);
-    matData[0] = mat.baseColor[0];
-    matData[1] = mat.baseColor[1];
-    matData[2] = mat.baseColor[2];
-    matData[3] = mat.baseColor[3];
-    matData[4] = mat.roughness;
-    matData[5] = mat.metallic;
-    matData[6] = mat.emissiveIntensity;
-    matData[7] = 0;
-    this.device.queue.writeBuffer(this.pbrMaterialBuffer, 0, matData as unknown as BufferSource);
-
-    this.pbrMaterialBindGroup = this.device.createBindGroup({
-      layout: this.pbrPipeline.getBindGroupLayout(1),
-      entries: [
-        { binding: 0, resource: { buffer: this.pbrMaterialBuffer } },
-        { binding: 1, resource: mat.albedoTexture },
-        { binding: 2, resource: mat.sampler },
-        { binding: 3, resource: mat.normalTexture },
-        { binding: 4, resource: mat.sampler },
-        { binding: 5, resource: mat.metallicRoughnessTexture },
-        { binding: 6, resource: mat.sampler },
-        { binding: 7, resource: mat.aoTexture },
-        { binding: 8, resource: mat.sampler },
-        { binding: 9, resource: mat.emissiveTexture },
-        { binding: 10, resource: mat.sampler },
-      ],
-    });
+    const registry = this.bindlessRegistry;
+    const params: MaterialParams = {
+      baseColor: mat.baseColor,
+      roughness: mat.roughness,
+      metallic: mat.metallic,
+      emissiveIntensity: mat.emissiveIntensity,
+      albedoTexHandle: mat.albedoTextureSourceId
+        ? registry.getHandle(mat.albedoTextureSourceId) ?? registry.defaultWhiteHandle
+        : registry.defaultWhiteHandle,
+      normalTexHandle: mat.normalTextureSourceId
+        ? registry.getHandle(mat.normalTextureSourceId) ?? registry.defaultWhiteHandle
+        : registry.defaultWhiteHandle,
+      metallicRoughnessTexHandle: mat.metallicRoughnessTextureSourceId
+        ? registry.getHandle(mat.metallicRoughnessTextureSourceId) ?? registry.defaultWhiteHandle
+        : registry.defaultWhiteHandle,
+      aoTexHandle: mat.aoTextureSourceId
+        ? registry.getHandle(mat.aoTextureSourceId) ?? registry.defaultWhiteHandle
+        : registry.defaultWhiteHandle,
+      emissiveTexHandle: mat.emissiveTextureSourceId
+        ? registry.getHandle(mat.emissiveTextureSourceId) ?? registry.defaultWhiteHandle
+        : registry.defaultWhiteHandle,
+    };
+    this.pbrMaterialIndex = this.bindlessMaterialManager.registerMaterial(params);
+    // Write the material index into the uniform buffer (u32 at offset 0).
+    const idxData = new Uint32Array(1);
+    idxData[0] = this.pbrMaterialIndex;
+    this.device.queue.writeBuffer(this.pbrMaterialIndexBuffer!, 0, idxData as unknown as BufferSource);
+    this.pbrMaterialRegistered = true;
   }
 
   private updatePBRCamera(viewProj: Mat4): void {
@@ -769,12 +835,13 @@ export class OpaquePass extends RenderPass {
 
     if (this.pbrMaterial && this.mode === "gbuffer") {
       this.ensurePBRPipeline();
-      this.ensurePBRMaterialBindGroup();
-      if (!this.pbrPipeline || !this.pbrCameraBindGroup || !this.pbrMaterialBindGroup) return;
+      this.ensurePBRMaterialRegistered();
+      if (!this.pbrPipeline || !this.pbrCameraBindGroup) return;
       this.updatePBRCamera(this.lastViewProj);
       tracked.setPipeline(this.pbrPipeline);
       tracked.setBindGroup(0, this.pbrCameraBindGroup);
-      tracked.setBindGroup(1, this.pbrMaterialBindGroup);
+      // Bindless material bind group (@group(3)) — set once per frame by the host.
+      if (this.bindlessBindGroup) tracked.setBindGroup(3, this.bindlessBindGroup);
       tracked.setVertexBuffer(0, this.vertexBuffer);
       tracked.setIndexBuffer(this.indexBuffer, this.mesh.indices instanceof Uint16Array ? "uint16" : "uint32");
       tracked.drawIndexed(this.mesh.indexCount);
@@ -836,7 +903,7 @@ export class OpaquePass extends RenderPass {
     this.pbrCameraBuffer?.destroy();
     this.pbrModelBuffer?.destroy();
     this.pbrPrevModelBuffer?.destroy();
-    this.pbrMaterialBuffer?.destroy();
+    this.pbrMaterialIndexBuffer?.destroy();
     this.vertexBuffer = null;
     this.indexBuffer = null;
     this.depthTexture = null;
@@ -845,9 +912,9 @@ export class OpaquePass extends RenderPass {
     this.pbrCameraBuffer = null;
     this.pbrModelBuffer = null;
     this.pbrPrevModelBuffer = null;
-    this.pbrMaterialBuffer = null;
-    this.pbrMaterialBindGroup = null;
+    this.pbrMaterialIndexBuffer = null;
     this.pbrMaterial = null;
+    this.pbrMaterialRegistered = false;
     this.graphCameraBuffer?.destroy();
     this.graphPipeline = null;
     this.graphShaderModule = null;

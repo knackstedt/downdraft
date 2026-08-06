@@ -2,7 +2,7 @@
 // Entity Renderer — facade that delegates to sub-renderers for each entity type
 // ============================================================================
 
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
+import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/plugin-models";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -100,6 +100,9 @@ export class EntityRenderer {
       lightingParamsCache: this.lightingParamsCache,
       lightBindGroup: null,
       pbrBindGroup: null,
+      bindlessRegistry: null,
+      bindlessMaterialManager: null,
+      bindlessBindGroup: null,
       reusableUniforms: this.reusableUniforms,
       reusableHbUniforms: new Float32Array(64),
       viewportWidth: 1,
@@ -160,12 +163,31 @@ export class EntityRenderer {
     this.pbrBindGroup = bg;
     this.ctx.pbrBindGroup = bg;
   }
+  setBindlessDeps(
+    registry: BindlessTextureRegistry | null,
+    materialManager: BindlessMaterialManager | null,
+    bindGroup: GPUBindGroup | null,
+  ): void {
+    this.ctx.bindlessRegistry = registry;
+    this.ctx.bindlessMaterialManager = materialManager;
+    this.ctx.bindlessBindGroup = bindGroup;
+  }
+  /** Push the fresh bindless bind group to the player-mesh-renderer mid-frame. */
+  pushBindlessBindGroup(bg: GPUBindGroup | null): void {
+    if (bg) {
+      this.playerMeshRenderer.setBindlessBindGroup(bg);
+    }
+  }
   setTerrainMeshPool(pool: import("./terrain-mesh-pool").TerrainMeshPool | null): void {
     this.islandTerrainRenderer.setMeshPool(pool);
   }
 
   // --- Init ---
-  async init(lightBindGroupLayout?: GPUBindGroupLayout, pbrBindGroupLayout?: GPUBindGroupLayout): Promise<void> {
+  async init(
+    lightBindGroupLayout?: GPUBindGroupLayout,
+    pbrBindGroupLayout?: GPUBindGroupLayout,
+    bindlessBindGroupLayout?: GPUBindGroupLayout,
+  ): Promise<void> {
     const shaderModule = this.device.createShaderModule({ code: ENTITY_WGSL });
 
     this.uniformBuffer = this.device.createBuffer({
@@ -238,15 +260,18 @@ export class EntityRenderer {
     });
     this.device.queue.writeBuffer(this.cubeIndices, 0, indices as any);
 
-    // Pipeline layouts
+    // Pipeline layouts — entity/island/boat shaders don't use @group(3), so the
+    // bindless layout is NOT included here. Only player/skinned-player pipelines
+    // (which declare @group(3) bindless bindings) add it in PlayerMeshRenderer.
+    const bgl = this.bindGroupLayout as GPUBindGroupLayout;
     const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout as GPUBindGroupLayout],
+      bindGroupLayouts: [bgl],
     });
     const litPipelineLayout = lightBindGroupLayout
-      ? this.device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout as GPUBindGroupLayout, lightBindGroupLayout as GPUBindGroupLayout] })
+      ? this.device.createPipelineLayout({ bindGroupLayouts: [bgl, lightBindGroupLayout as GPUBindGroupLayout] })
       : pipelineLayout;
     const pbrLitPipelineLayout = (lightBindGroupLayout && pbrBindGroupLayout)
-      ? this.device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout as GPUBindGroupLayout, lightBindGroupLayout as GPUBindGroupLayout, pbrBindGroupLayout as GPUBindGroupLayout] })
+      ? this.device.createPipelineLayout({ bindGroupLayouts: [bgl, lightBindGroupLayout as GPUBindGroupLayout, pbrBindGroupLayout as GPUBindGroupLayout] })
       : litPipelineLayout;
 
     // Generic entity pipeline (cube fallback)
@@ -287,7 +312,7 @@ export class EntityRenderer {
       this.cubeVertices!, this.cubeIndices!, this.cubeIndexCount,
       lightBindGroupLayout ?? undefined, pbrBindGroupLayout ?? undefined,
     );
-    this.playerMeshRenderer.init(lightBindGroupLayout ?? null, pbrBindGroupLayout ?? null);
+    this.playerMeshRenderer.init(lightBindGroupLayout ?? null, pbrBindGroupLayout ?? null, bindlessBindGroupLayout ?? null);
 
     // Wire holo preview mesh deps from boat mesh builder
     this.holoPreviewRenderer.setMeshDeps({
@@ -327,6 +352,13 @@ export class EntityRenderer {
     this._lastFrameTriangles = 0;
     this.drawEntityCount = 0;
     this.ctx.drawEntityCount = 0;
+
+    // Refresh the bindless bind group for this frame (may have been rebuilt
+    // if the texture registry or material SSBO grew).
+    if (this.ctx.bindlessBindGroup) {
+      this.playerMeshRenderer.setBindlessBindGroup(this.ctx.bindlessBindGroup);
+      this.playerMeshRenderer.beginFrame();
+    }
 
     // Boat mesh rebuild check
     this.boatMeshBuilder.checkSequenceAndRebuild();
@@ -582,6 +614,8 @@ export class EntityRenderer {
     if (type === EntityType.Island && this.islandTerrainRenderer.islandPipeline) {
       this._lastFrameTriangles += this.islandTerrainRenderer.renderIsland(passEncoder as any, idx);
       return;
+    } else if (type === EntityType.Island) {
+      console.log(`[EntityRenderer] Island entity ${idx}: pipeline=${!!this.islandTerrainRenderer.islandPipeline}`);
     }
 
     // Port

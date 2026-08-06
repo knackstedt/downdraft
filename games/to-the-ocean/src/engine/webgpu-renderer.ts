@@ -4,7 +4,7 @@
 // accessors → RendererAccessors
 // ============================================================================
 
-import { CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider } from "@downdraft/core";
+import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider } from "@downdraft/core";
 import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
@@ -79,6 +79,9 @@ export class WebGPURenderer implements IRendererStateProvider {
   private underwaterFogPass: UnderwaterFogPass | null = null;
   private cloudSystem: CloudSystem | null = null;
   private modelRenderer: ModelRenderer | null = null;
+  private bindlessRegistry: BindlessTextureRegistry | null = null;
+  private bindlessMaterialManager: BindlessMaterialManager | null = null;
+  private bindlessFrameBindings: BindlessFrameBindings | null = null;
   private transformGizmo: TransformGizmo | null = null;
   private labelOverlay: LabelOverlay | null = null;
   private debugOverlay: DebugOverlay | null = null;
@@ -308,9 +311,33 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.iblSystem = new IBLSystem(this.device, { faceSize: 256, recaptureInterval: 120 });
       this.iblSystem.setBRDFLUT(this.pbrSystem.brdfLUT!);
       this.iblSystem.init();
-      await this.entityRenderer.init(this.lightingSystem.getLightBindGroupLayout() ?? undefined, this.iblSystem.getBindGroupLayout() ?? undefined);
+
+      // Bindless material binding model — shared texture array registry +
+      // material SSBO + one bind group set once per frame. Must be created
+      // before entityRenderer.init() so the bindless bind group layout can be
+      // included in the entity pipeline layouts (@group(3)).
+      this.bindlessRegistry = new BindlessTextureRegistry(this.device);
+      this.bindlessMaterialManager = new BindlessMaterialManager(this.device);
+      this.bindlessFrameBindings = new BindlessFrameBindings(
+        this.device,
+        this.bindlessRegistry,
+        this.bindlessMaterialManager,
+      );
+
+      await this.entityRenderer.init(
+        this.lightingSystem.getLightBindGroupLayout() ?? undefined,
+        this.iblSystem.getBindGroupLayout() ?? undefined,
+        this.bindlessFrameBindings.getBindGroupLayout(),
+      );
       this.entityRenderer.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
       this.entityRenderer.setPBRBindGroup(this.iblSystem.getBindGroup() ?? this.pbrSystem.getBindGroup()!);
+      // Wire bindless deps into the entity renderer so sub-renderers (e.g.
+      // PlayerMeshRenderer) can register textures/materials and sample via @group(3).
+      this.entityRenderer.setBindlessDeps(
+        this.bindlessRegistry,
+        this.bindlessMaterialManager,
+        this.bindlessFrameBindings?.getBindGroup() ?? null,
+      );
 
       // Initialize terrain mesh worker pool for offloading CPU-heavy mesh generation
       this.terrainMeshPool = new TerrainMeshPool();
@@ -462,6 +489,11 @@ export class WebGPURenderer implements IRendererStateProvider {
       await this.cloudSystem.init();
 
       this.modelRenderer = new ModelRenderer(this.device, this.format);
+      this.modelRenderer.setBindlessDeps({
+        registry: this.bindlessRegistry,
+        materialManager: this.bindlessMaterialManager,
+        bindGroupLayout: this.bindlessFrameBindings.getBindGroupLayout(),
+      });
       await this.modelRenderer.init();
 
       this.transformGizmo = new TransformGizmo(this.device, this.format);
@@ -847,6 +879,19 @@ export class WebGPURenderer implements IRendererStateProvider {
     const playerId = pu32[PLR.ENTITY_ID];
     const lp = this.lightingSystem!.getLightingParams(timeOfDay, weatherType, visibility);
     this.entityRenderer!.beginFrame(camera, viewport.w, viewport.h, { sunDir: lp.sunDir, sunIntensity: lp.sunBrightness, ambient: lp.ambient, fogColor: lp.fogColor, wetness: lp.wetness });
+    // Refresh the bindless bind group for the entity renderer each frame.
+    // This must happen AFTER beginFrame so the player-mesh-renderer gets the
+    // fresh bind group (beginFrame reads ctx.bindlessBindGroup which is updated here).
+    if (this.bindlessFrameBindings) {
+      const bg = this.bindlessFrameBindings.prepareFrame();
+      this.entityRenderer!.setBindlessDeps(
+        this.bindlessRegistry,
+        this.bindlessMaterialManager,
+        bg,
+      );
+      // Re-push the fresh bind group to the player-mesh-renderer.
+      this.entityRenderer!.pushBindlessBindGroup(bg);
+    }
     this.lightingSystem!.beginFrame();
     // Compute view-projection matrix once per viewport
     const viewProj = this.pooledViewProj;
@@ -941,7 +986,9 @@ export class WebGPURenderer implements IRendererStateProvider {
       let portMeta: { chunkX: number; chunkZ: number; biome: number } | undefined;
       if (type === EntityType.Island) {
         const dx = ePos.x - camera.position[0]; const dz = ePos.z - camera.position[2]; const dsq = dx * dx + dz * dz; const rd = scale * 4 + 200;
-        if (dsq > rd * rd) { if (shoreCount < 128) { const si = shoreCount * 4; this.shoreArray[si] = ePos.x; this.shoreArray[si + 1] = ePos.z; this.shoreArray[si + 2] = scale; this.shoreArray[si + 3] = 0.0; shoreCount++; } continue; }
+        if (dsq > rd * rd) {
+          if (shoreCount < 128) { const si = shoreCount * 4; this.shoreArray[si] = ePos.x; this.shoreArray[si + 1] = ePos.z; this.shoreArray[si + 2] = scale; this.shoreArray[si + 3] = 0.0; shoreCount++; } continue;
+        }
         islandMeta = { chunkX: es.u32[ENT.CHUNK_X], chunkZ: es.u32[ENT.CHUNK_Z], biome: es.f32[ENT.DATA + ISLAND_DATA.BIOME], islandSize: es.f32[ENT.DATA + ISLAND_DATA.SIZE] };
       } else if (type === EntityType.Port) {
         const dx = ePos.x - camera.position[0]; const dz = ePos.z - camera.position[2]; const dsq = dx * dx + dz * dz; const rd = scale * 4 + 200;
@@ -1077,6 +1124,10 @@ export class WebGPURenderer implements IRendererStateProvider {
     // Models
     if (this.modelRenderer && viewportIdx === 0) {
       this.gpuProfiler!.beginPass("Models", passEncoder, viewportIdx);
+      // Prepare the bindless bind group once per frame (flushes material SSBO).
+      if (this.bindlessFrameBindings) {
+        this.modelRenderer.setBindlessBindGroup(this.bindlessFrameBindings.prepareFrame());
+      }
       this.modelRenderer.beginFrame(camera);
       const ss = useSceneStore.getState();
       for (const nid of ss.rootIds) { const n = ss.nodes[nid]; if (!n || !n.visible || n.type !== "model") continue; this.modelRenderer.render(passEncoder, n.id, n.position, n.rotation, n.scale); }
@@ -1316,6 +1367,9 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.pixelationSystem?.destroy();
     this.postProcessStack?.destroy();
     this.modelRenderer?.destroy();
+    this.bindlessFrameBindings?.destroy();
+    this.bindlessMaterialManager?.destroy();
+    this.bindlessRegistry?.destroy();
     this.transformGizmo?.destroy();
     this.labelOverlay?.destroy();
     this.debugOverlay?.destroy();
