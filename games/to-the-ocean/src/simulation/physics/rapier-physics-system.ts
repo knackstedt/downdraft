@@ -406,7 +406,7 @@ export class RapierPhysicsSystem {
 
     const chunkMesh = generateTerrainTrimeshSubRegion(
       field, entity.chunkX, entity.chunkZ,
-      x0, 0, z0, x1, field.dimY, z1, false,
+      x0, 0, z0, x1, field.dimY, z1, true,
     );
     if (chunkMesh.positions.length < 9 || chunkMesh.indices.length < 3) return null;
 
