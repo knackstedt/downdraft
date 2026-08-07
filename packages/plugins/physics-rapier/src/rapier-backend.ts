@@ -91,13 +91,27 @@ export interface PhysicsLib {
 }
 
 let cachedLib: PhysicsLib | null = null;
-let loadAttempted = false;
+let loadingPromise: Promise<PhysicsLib> | null = null;
 
-export async function loadPhysicsLib(): Promise<PhysicsLib> {
-  if (cachedLib) return cachedLib;
-  if (loadAttempted) return null as unknown as PhysicsLib;
-  loadAttempted = true;
+export function loadPhysicsLib(): Promise<PhysicsLib> {
+  if (cachedLib) return Promise.resolve(cachedLib);
+  // Coalesce concurrent calls onto the same in-flight load; but do NOT
+  // permanently prevent retries after a failure — a panic + re-init cycle
+  // (common during dev / first tick) must be able to load the WASM lib on
+  // the second attempt.
+  if (loadingPromise) return loadingPromise;
 
+  const p = doLoadPhysicsLib();
+  loadingPromise = p;
+  // Clear the loading promise once settled so a failed load can be retried
+  // on the next call (cachedLib is set on success, so successful loads
+  // short-circuit at the top).
+  p.then(() => { if (loadingPromise === p) loadingPromise = null; })
+   .catch(() => { if (loadingPromise === p) loadingPromise = null; });
+  return p;
+}
+
+async function doLoadPhysicsLib(): Promise<PhysicsLib> {
   try {
     const rapier = await import("@dimforge/rapier3d-compat");
 
@@ -147,7 +161,7 @@ export async function loadPhysicsLib(): Promise<PhysicsLib> {
       return cd;
     }
 
-    return {
+    const lib: PhysicsLib = {
       createRealm(id, gravity) {
         const world = new rapier.World({ x: gravity[0], y: gravity[1], z: gravity[2] });
         realms.set(id, world);
@@ -396,7 +410,12 @@ export async function loadPhysicsLib(): Promise<PhysicsLib> {
       createCharacterController(realmId, desc, handle) {
         const world = realms.get(realmId);
         if (!world) return;
-        const controller = world.createCharacterController(desc.offset[1] + desc.halfHeight);
+        // Rapier's controller offset is the artificial gap (padding) between the
+        // character's collider and its environment — a small value (e.g. 0.01),
+        // NOT the capsule half-height. Adding halfHeight here inflated the
+        // collision shape by ~0.5m, freezing the player against nearby colliders
+        // (e.g. the ship deck the moment they disembarked).
+        const controller = world.createCharacterController(desc.offset[1]);
         controller.setSlideEnabled(desc.slide);
         if (desc.autostep.enabled) {
           controller.enableAutostep(desc.autostep.maxHeight, desc.autostep.minWidth, true);
@@ -742,6 +761,9 @@ export async function loadPhysicsLib(): Promise<PhysicsLib> {
         jointMaps.clear();
       },
     };
+
+    cachedLib = lib;
+    return lib;
   } catch (err) {
     log.warn("physics-rapier", `Failed to load WASM Rapier: ${err}`);
   }

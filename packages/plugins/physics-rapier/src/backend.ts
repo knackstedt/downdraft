@@ -646,10 +646,12 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     if (this.destroyed) return;
     this.destroyed = true;
     if (this.lib) {
+      // Only destroy this backend's realms — do NOT call this.lib.destroy(),
+      // which would clear the shared lib's closure maps for ALL backends
+      // (the lib is a process-wide singleton via cachedLib).
       for (const realmId of this.realmIds) {
         this.lib.destroyRealm(realmId);
       }
-      this.lib.destroy();
     }
     this.realms.clear();
     this.realmIds = [];

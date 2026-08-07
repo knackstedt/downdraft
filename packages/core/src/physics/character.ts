@@ -86,7 +86,11 @@ export class CharacterControllerSystem {
 
   createController(entity: Entity, controller: CharacterControllerData): CharacterControllerHandle | null {
     const desc: CharacterControllerDesc = {
-      offset: [0, controller.radius, 0],
+      // offset[1] is passed to Rapier as the character controller's
+      // artificial gap (a small padding to avoid numerical jitter) — NOT the
+      // capsule radius. A large value inflates the collision shape and freezes
+      // the character against nearby colliders.
+      offset: [0, 0.01, 0],
       radius: controller.radius,
       halfHeight: controller.halfHeight,
       slide: controller.slide,
