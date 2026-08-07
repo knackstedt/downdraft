@@ -84,7 +84,7 @@ export const TERRAIN_CONFIG = {
   chunkSize: 32,                // voxels per chunk edge (must be power of 2)
   chunkBits: 5,                 // log2(chunkSize) — for fast bit-shift division
   chunkMask: 31,                // chunkSize - 1 — for fast modulo
-  physVoxelSizeMultiplier: 2.5,  // physics voxels are 10× coarser than render voxels (keeps physics ~5.0 world units)
+  physVoxelSizeMultiplier: 1.0,  // physics voxels match render voxels for accurate collision
 
   // --- Sparse surface storage ---
   sparseEnabled: true,          // classify chunks as FullSolid/FullEmpty/Full to skip non-surface chunks
