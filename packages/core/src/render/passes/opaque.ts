@@ -1,7 +1,9 @@
 import type { ShaderGraphProfile } from "@downdraft/shader-graph";
 import { getProfile } from "@downdraft/shader-graph";
 import { mat4, type Mat4 } from "wgpu-matrix";
+import { compileVariant } from "../../material/graph-bridge";
 import type { Material } from "../../material/material";
+import { variantKey, type MaterialVariantFlags } from "../../material/variants";
 import type { MeshData } from "../../mesh/builder";
 import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
@@ -341,6 +343,11 @@ export class OpaquePass extends RenderPass {
   private lastViewProj: Mat4 = mat4.identity();
   private graphMaterial: Material | null = null;
   private graphPipeline: GPURenderPipeline | null = null;
+  // Per-variant pipeline cache (keyed by variantKey). Bounded — when exceeding
+  // MAX_VARIANT_PIPELINES, the oldest entry is evicted.
+  private graphVariantPipelines: Map<string, GPURenderPipeline> = new Map();
+  private graphVariantShaderModules: Map<string, GPUShaderModule> = new Map();
+  private static readonly MAX_VARIANT_PIPELINES = 24;
   private graphShaderModule: GPUShaderModule | null = null;
   private graphCameraBuffer: GPUBuffer | null = null;
   private graphBindGroup: GPUBindGroup | null = null;
@@ -416,9 +423,43 @@ export class OpaquePass extends RenderPass {
     this.graphPipeline = null;
     this.graphBindGroup = null;
     this.graphExtraBindGroups.clear();
+    this.graphVariantPipelines.clear();
+    this.graphVariantShaderModules.clear();
     if (material.profile) {
       this.graphProfile = getProfile(material.profile) ?? null;
     }
+  }
+
+  /**
+   * Set the material with a specific variant flag override. The renderer
+   * compiles and caches a pipeline per variantKey. Used for shadow-caster,
+   * skinning, alpha-mode, and morph permutations.
+   */
+  setMaterialVariant(material: Material, variantFlags: MaterialVariantFlags): void {
+    if (!material.inlineShaderSource && !material.graph) return;
+    this.graphMaterial = material;
+    this.graphBindGroup = null;
+    this.graphExtraBindGroups.clear();
+    if (material.profile) {
+      this.graphProfile = getProfile(material.profile) ?? null;
+    }
+    // Compile the variant WGSL if not already cached.
+    const vkey = variantKey(variantFlags);
+    if (!this.graphVariantShaderModules.has(vkey)) {
+      const wgsl = compileVariant(material, variantFlags, this.graphProfile ?? undefined);
+      const module = this.device.createShaderModule({ code: wgsl });
+      this.graphVariantShaderModules.set(vkey, module);
+      // Evict oldest if over cap.
+      if (this.graphVariantPipelines.size >= OpaquePass.MAX_VARIANT_PIPELINES) {
+        const oldestKey = this.graphVariantPipelines.keys().next().value;
+        if (oldestKey) {
+          this.graphVariantPipelines.delete(oldestKey);
+          this.graphVariantShaderModules.delete(oldestKey);
+        }
+      }
+    }
+    // Mark the active pipeline as the variant one (built lazily in ensureGraphPipeline).
+    this.graphPipeline = null;
   }
 
   setGraphProfile(profile: ShaderGraphProfile): void {
@@ -426,6 +467,8 @@ export class OpaquePass extends RenderPass {
     this.graphPipeline = null;
     this.graphBindGroup = null;
     this.graphExtraBindGroups.clear();
+    this.graphVariantPipelines.clear();
+    this.graphVariantShaderModules.clear();
   }
 
   setExtraBindGroup(group: number, bindGroup: GPUBindGroup): void {
@@ -542,6 +585,12 @@ export class OpaquePass extends RenderPass {
   }
 
   private getProfileTargets(profile: ShaderGraphProfile): GPUColorTargetState[] {
+    // Multi-render-target (deferred GBuffer) — one target per output format.
+    if (profile.outputFormats && profile.outputFormats.length > 0) {
+      return profile.outputFormats.map((fmt) => ({
+        format: fmt as GPUTextureFormat,
+      }));
+    }
     if (profile.blend === "transparent") {
       return [{
         format: this.surfaceFormat,
@@ -952,5 +1001,7 @@ export class OpaquePass extends RenderPass {
     this.graphInstanceBuffer = null;
     this.graphInstanceCount = 0;
     this.graphUniformData = null;
+    this.graphVariantPipelines.clear();
+    this.graphVariantShaderModules.clear();
   }
 }

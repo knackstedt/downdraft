@@ -54,8 +54,19 @@ export interface ShaderGraphProfile {
   skinned: boolean;
   // Max bones for skinning
   maxBones?: number;
-  // Fragment output format (GPUTextureFormat as string, e.g. "bgra8unorm")
+  // Fragment output format (GPUTextureFormat as string, e.g. "bgra8unorm").
+  // For single-target profiles. When outputFormats is set, this is ignored
+  // (kept for backward compatibility with existing profiles).
   outputFormat: string;
+  // Multi-render-target output formats (deferred GBuffer). When set, the
+  // compiler emits a fragment main returning a struct with one @location per
+  // target. The graph's output nodes map to surface properties (albedo,
+  // normal, roughness, metallic, emissive) rather than a final color.
+  outputFormats?: string[];
+  // Names of the output targets, parallel to outputFormats. Used by the
+  // compiler to map graph output nodes to @location indices. Standard names:
+  // "albedo", "normal", "metallicEmissive", "velocity".
+  outputNames?: string[];
   // Depth format (GPUTextureFormat as string, e.g. "depth32float")
   depthFormat: string;
   // Whether depth write is enabled
@@ -312,6 +323,54 @@ export const PBR_COLOR_VERTEX_PROFILE: ShaderGraphProfile = {
   },
 };
 
+// ============================================================================
+// GBUFFER_PROFILE — deferred rendering surface shader (multi-render-target)
+// ============================================================================
+// The graph compiles a *surface* shader that writes 4 GBuffer targets:
+//   @location(0) albedo (RGB) + AO (A)        — vec4
+//   @location(1) normal (RGB) + roughness (A) — vec4
+//   @location(2) metallic (R) + emissive (GBA)— vec4
+//   @location(3) velocity (screen-space motion)— vec2
+// The graph's output nodes use names: "albedo", "normal", "metallicEmissive",
+// "velocity". Lighting is applied in a separate deferred-lighting pass.
+export const GBUFFER_PROFILE: ShaderGraphProfile = {
+  name: "gbuffer",
+  chunks: ["pbr_functions", "qrotate"],
+  uniformFields: [
+    { name: "viewProj", type: "mat4x4<f32>" },
+    { name: "prevViewProj", type: "mat4x4<f32>" },
+    { name: "modelMatrix", type: "mat4x4<f32>" },
+    { name: "prevModelMatrix", type: "mat4x4<f32>" },
+    { name: "cameraPos", type: "vec3<f32>" },
+    { name: "time", type: "f32" },
+  ],
+  bindGroups: [
+    {
+      group: 0,
+      entries: [
+        { binding: 0, visibility: SHADER_STAGE.VERTEX | SHADER_STAGE.FRAGMENT, type: "uniform" },
+      ],
+    },
+  ],
+  vertexLayout: {
+    stride: 32,
+    attributes: [
+      { location: 0, name: "position", format: "float32x3", offset: 0 },
+      { location: 1, name: "normal", format: "float32x3", offset: 12 },
+      { location: 2, name: "uv", format: "float32x2", offset: 24 },
+    ],
+  },
+  instanced: false,
+  skinned: false,
+  outputFormat: "bgra8unorm", // ignored when outputFormats is set
+  outputFormats: ["bgra8unorm", "bgra8unorm", "bgra8unorm", "rg16float"],
+  outputNames: ["albedo", "normal", "metallicEmissive", "velocity"],
+  depthFormat: "depth32float",
+  depthWriteEnabled: true,
+  blend: "opaque",
+  topology: "triangle-list",
+};
+
 export const PROFILE_REGISTRY: Record<string, ShaderGraphProfile> = {
   simple: SIMPLE_PROFILE,
   pbr: PBR_PROFILE,
@@ -319,6 +378,7 @@ export const PROFILE_REGISTRY: Record<string, ShaderGraphProfile> = {
   "pbr-skinned": PBR_SKINNED_PROFILE,
   "pbr-instanced": PBR_INSTANCED_PROFILE,
   "pbr-color-vertex": PBR_COLOR_VERTEX_PROFILE,
+  "gbuffer": GBUFFER_PROFILE,
 };
 
 export function getProfile(name: string): ShaderGraphProfile | undefined {

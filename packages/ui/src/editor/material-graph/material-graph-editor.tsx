@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useCallback, useRef, useState } from "react";
 
 export interface GraphNodeData {
   id: string;
@@ -25,6 +25,9 @@ export interface MaterialGraphEditorProps {
   onConnectionsChange?: (connections: GraphConnection[]) => void;
   onCompile?: () => void;
   onValidate?: () => void;
+  /** Live preview — called when the user clicks "Preview" to compile the graph
+   * and set the resulting material on the preview mesh renderer. */
+  onPreview?: () => void;
 }
 
 const NODE_TYPES: Array<{ type: string; label: string; inputs: Array<{ name: string; type: string }>; outputs: Array<{ name: string; type: string }> }> = [
@@ -43,11 +46,41 @@ const NODE_TYPES: Array<{ type: string; label: string; inputs: Array<{ name: str
   { type: "cross", label: "Cross Product", inputs: [{ name: "a", type: "vec3" }, { name: "b", type: "vec3" }], outputs: [{ name: "result", type: "vec3" }] },
   { type: "power", label: "Power", inputs: [{ name: "base", type: "f32" }, { name: "exp", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
   { type: "saturate", label: "Saturate", inputs: [{ name: "v", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "max", label: "Max", inputs: [{ name: "a", type: "f32" }, { name: "b", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "min", label: "Min", inputs: [{ name: "a", type: "f32" }, { name: "b", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "abs", label: "Abs", inputs: [{ name: "v", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "sin", label: "Sin", inputs: [{ name: "v", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "cos", label: "Cos", inputs: [{ name: "v", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "fract", label: "Fract", inputs: [{ name: "v", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "floor", label: "Floor", inputs: [{ name: "v", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "smoothstep", label: "Smoothstep", inputs: [{ name: "edge0", type: "f32" }, { name: "edge1", type: "f32" }, { name: "x", type: "f32" }], outputs: [{ name: "result", type: "f32" }] },
+  { type: "mix3", label: "Mix3", inputs: [{ name: "a", type: "vec3" }, { name: "b", type: "vec3" }, { name: "t", type: "f32" }], outputs: [{ name: "result", type: "vec3" }] },
+  { type: "swizzle_xyz", label: "Swizzle XYZ", inputs: [{ name: "v", type: "vec4" }], outputs: [{ name: "result", type: "vec3" }] },
+  { type: "swizzle_rgb", label: "Swizzle RGB", inputs: [{ name: "v", type: "vec4" }], outputs: [{ name: "result", type: "vec3" }] },
+  { type: "vec3_from_xy", label: "Vec3 from XYZ", inputs: [{ name: "x", type: "f32" }, { name: "y", type: "f32" }, { name: "z", type: "f32" }], outputs: [{ name: "result", type: "vec3" }] },
+  { type: "vec4_from_xyzw", label: "Vec4 from XYZW", inputs: [{ name: "x", type: "f32" }, { name: "y", type: "f32" }, { name: "z", type: "f32" }, { name: "w", type: "f32" }], outputs: [{ name: "result", type: "vec4" }] },
   { type: "time", label: "Time", inputs: [], outputs: [{ name: "value", type: "f32" }] },
   { type: "uv", label: "UV", inputs: [], outputs: [{ name: "value", type: "vec2" }] },
   { type: "normal", label: "Normal", inputs: [], outputs: [{ name: "value", type: "vec3" }] },
   { type: "world_pos", label: "World Position", inputs: [], outputs: [{ name: "value", type: "vec3" }] },
   { type: "camera_pos", label: "Camera Position", inputs: [], outputs: [{ name: "value", type: "vec3" }] },
+  { type: "vertex_color", label: "Vertex Color", inputs: [], outputs: [{ name: "value", type: "vec4" }] },
+  { type: "entity_type", label: "Entity Type", inputs: [], outputs: [{ name: "value", type: "u32" }] },
+  { type: "entity_flags", label: "Entity Flags", inputs: [], outputs: [{ name: "value", type: "u32" }] },
+  // PBR nodes
+  { type: "pbr_lighting", label: "PBR Lighting", inputs: [{ name: "N", type: "vec3" }, { name: "worldPos", type: "vec3" }, { name: "baseColor", type: "vec3" }, { name: "metallic", type: "f32" }, { name: "roughness", type: "f32" }], outputs: [{ name: "value", type: "vec3" }] },
+  { type: "pbr_params", label: "PBR Params", inputs: [], outputs: [{ name: "value", type: "vec4" }] },
+  { type: "metallic_roughness", label: "Metallic/Roughness", inputs: [], outputs: [{ name: "value", type: "vec2" }] },
+  // Dynamic lights
+  { type: "dynamic_lights", label: "Dynamic Lights", inputs: [{ name: "N", type: "vec3" }, { name: "worldPos", type: "vec3" }, { name: "viewDir", type: "vec3" }, { name: "specPower", type: "f32" }, { name: "specIntensity", type: "f32" }], outputs: [{ name: "value", type: "vec3" }] },
+  // Fog
+  { type: "fog", label: "Fog", inputs: [{ name: "color", type: "vec3" }, { name: "dist", type: "f32" }, { name: "source", type: "vec3" }], outputs: [{ name: "value", type: "vec3" }] },
+  // Noise
+  { type: "value_noise", label: "Value Noise", inputs: [{ name: "p", type: "vec3" }], outputs: [{ name: "value", type: "f32" }] },
+  { type: "fbm", label: "FBM", inputs: [{ name: "p", type: "vec3" }, { name: "octaves", type: "u32" }], outputs: [{ name: "value", type: "f32" }] },
+  { type: "fbm_warp", label: "FBM Warp", inputs: [{ name: "p", type: "vec3" }, { name: "octaves", type: "u32" }, { name: "warpScale", type: "f32" }, { name: "warpStrength", type: "f32" }], outputs: [{ name: "value", type: "vec3" }] },
+  // Sand sparkle (island-specific)
+  { type: "sand_sparkle", label: "Sand Sparkle", inputs: [{ name: "worldPos", type: "vec3" }, { name: "N", type: "vec3" }, { name: "V", type: "vec3" }, { name: "L", type: "vec3" }, { name: "sandMask", type: "f32" }], outputs: [{ name: "value", type: "vec3" }] },
 ];
 
 const NODE_W = 160;
@@ -64,6 +97,7 @@ export const MaterialGraphEditor: React.FC<MaterialGraphEditorProps> = ({
   onConnectionsChange,
   onCompile,
   onValidate,
+  onPreview,
 }) => {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -333,6 +367,9 @@ export const MaterialGraphEditor: React.FC<MaterialGraphEditorProps> = ({
         <button onClick={() => setShowPalette(!showPalette)} style={btnStyle}>+ Add Node</button>
         <button onClick={onValidate} style={btnStyle}>Validate</button>
         <button onClick={onCompile} style={{ ...btnStyle, background: "#2a5a3a", borderColor: "#3a7a4a" }}>Compile WGSL</button>
+        {onPreview && (
+          <button onClick={onPreview} style={{ ...btnStyle, background: "#2a3a5a", borderColor: "#3a4a7a" }}>Preview</button>
+        )}
         <div style={{ flex: 1 }} />
         <span style={{ color: "#666", fontSize: 11 }}>{nodes.length} nodes, {connections.length} connections</span>
       </div>

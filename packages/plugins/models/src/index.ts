@@ -53,6 +53,10 @@ export { loadModel } from "./loader";
 
 export type { ModelLoaderOptions } from "./loader";
 
+// Material adapter — bridges serialized MaterialData to the core Material surface.
+export { materialDataArrayToMaterials, materialDataToMaterial } from "./material-adapter";
+export type { MaterialAdapterOptions } from "./material-adapter";
+
 import { createModelAsyncLoader, loadModel, registerModelLoaders } from "./loader";
 
 export { createModelAsyncLoader, registerModelLoaders };

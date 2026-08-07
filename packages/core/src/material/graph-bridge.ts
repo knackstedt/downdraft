@@ -1,5 +1,6 @@
-import { GraphCompiler, MaterialGraph, type CompileOptions, type GraphNode, type ShaderGraphProfile } from "@downdraft/shader-graph";
+import { GraphCompiler, MaterialGraph, getProfile, type CompileOptions, type GraphNode, type ShaderGraphProfile } from "@downdraft/shader-graph";
 import { BlendMode, CullMode, Material, type MaterialDefinition } from "./material";
+import { DEFAULT_VARIANT_FLAGS, variantKey, withVariant, type MaterialVariantFlags } from "./variants";
 
 export interface UINodeData {
   id: string;
@@ -82,4 +83,90 @@ export function compileUIGraphToMaterial(
 ): Material {
   const graph = uiGraphToMaterialGraph(nodes, connections);
   return compileGraphToMaterial(graph, options);
+}
+
+/**
+ * Compile a graph into a Material that retains the source graph (for editor
+ * round-tripping + variant recompilation). The base variant WGSL is compiled
+ * immediately; additional variants are compiled lazily via compileVariant.
+ */
+export function compileGraphToMaterialWithGraph(
+  graph: MaterialGraph,
+  options: GraphToMaterialOptions = {},
+  variantFlags?: MaterialVariantFlags,
+): Material {
+  const compiler = new GraphCompiler();
+  const compileOpts: CompileOptions = options.compileOptions ?? { profile: options.profile };
+  const result = compiler.compileDetailed(graph, compileOpts);
+
+  const def: MaterialDefinition = {
+    name: options.name ?? "graph_material",
+    shader: "inline://graph",
+    inlineShaderSource: result.wgsl,
+    graph,
+    uniforms: {},
+    textures: {
+      albedoMap: { name: "albedoMap", binding: 1, sampler: "linear-repeat" },
+    },
+    blendMode: options.blendMode ?? BlendMode.Opaque,
+    cullMode: options.cullMode ?? CullMode.Back,
+    profile: options.profile?.name,
+    variantFlags: variantFlags ?? { ...DEFAULT_VARIANT_FLAGS },
+  };
+
+  const material = new Material(def);
+  material.compiledVariants.set(variantKey(material.variantFlags), result.wgsl);
+  return material;
+}
+
+/**
+ * Compile (or return cached) WGSL for a specific variant of a graph material.
+ * Used by the renderer to fetch permutation WGSL keyed on variant flags.
+ */
+export function compileVariant(
+  material: Material,
+  flags: MaterialVariantFlags,
+  profile?: ShaderGraphProfile,
+): string {
+  const key = variantKey(flags);
+  const cached = material.compiledVariants.get(key);
+  if (cached) return cached;
+
+  if (!material.graph) {
+    // Non-graph materials reuse their inlineShaderSource for all variants.
+    const wgsl = material.inlineShaderSource ?? "";
+    material.compiledVariants.set(key, wgsl);
+    return wgsl;
+  }
+
+  const compiler = new GraphCompiler();
+  const resolvedProfile = profile ?? (material.profile ? getProfile(material.profile) : undefined);
+  const result = compiler.compileDetailed(material.graph, {
+    profile: resolvedProfile,
+    variantFlags: flags,
+  });
+  material.compiledVariants.set(key, result.wgsl);
+  return result.wgsl;
+}
+
+/**
+ * Enumerate the compile-time permutations for a material's variant flag space.
+ * Returns the list of flag sets to precompile (e.g. for warm-up).
+ */
+export function enumerateVariants(base: MaterialVariantFlags): MaterialVariantFlags[] {
+  const out: MaterialVariantFlags[] = [];
+  for (const sc of [false, true]) {
+    for (const sk of [false, true]) {
+      for (const am of ["opaque", "clip", "blend"] as const) {
+        for (const mo of [false, true]) {
+          for (const in_ of [false, true]) {
+            out.push(withVariant(base, {
+              shadowCaster: sc, skinning: sk, alphaMode: am, morph: mo, instanced: in_,
+            }));
+          }
+        }
+      }
+    }
+  }
+  return out;
 }

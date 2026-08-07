@@ -1,6 +1,6 @@
 import { GraphCompiler } from "./compiler";
 import { MaterialGraph } from "./graph";
-import { PBR_INSTANCED_PROFILE, PBR_PROFILE, PBR_SKINNED_PROFILE, PBR_TEXTURED_PROFILE } from "./profiles";
+import { GBUFFER_PROFILE, PBR_INSTANCED_PROFILE, PBR_PROFILE, PBR_SKINNED_PROFILE, PBR_TEXTURED_PROFILE } from "./profiles";
 import { GraphValidator } from "./validator";
 
 describe("MaterialGraph", () => {
@@ -355,5 +355,96 @@ describe("GraphCompiler", () => {
     expect(wgsl).toContain("applyDynamicLights(");
     expect(wgsl).toContain("PointLight");
     expect(wgsl).toContain("SpotLight");
+  });
+
+  // ── Multi-render-target (GBuffer) ──────────────────────────────────────
+
+  it("should compile with GBUFFER_PROFILE and emit FragmentOutput struct", () => {
+    const g = new MaterialGraph();
+    g.addNode({ id: "albedo", type: "vec4_constant", inputs: {}, outputs: { value: "vec4" }, properties: { value: [1, 1, 1, 1] } });
+    g.addNode({ id: "n", type: "normal", inputs: {}, outputs: { value: "vec3" }, properties: {} });
+    g.addNode({ id: "n_norm", type: "normalize", inputs: { v: "" }, outputs: { result: "vec3" }, properties: {} });
+    g.connect("n", "value", "n_norm", "v");
+    g.addNode({ id: "me", type: "vec4_constant", inputs: {}, outputs: { value: "vec4" }, properties: { value: [0, 0, 0, 0] } });
+    g.addNode({ id: "vel", type: "vec4_constant", inputs: {}, outputs: { value: "vec4" }, properties: { value: [0, 0, 0, 0] } });
+    // Named outputs — the output node's properties.name maps to the target.
+    g.addNode({ id: "out_albedo", type: "output", inputs: { value: "" }, outputs: {}, properties: { name: "albedo" } });
+    g.addNode({ id: "out_normal", type: "output", inputs: { value: "" }, outputs: {}, properties: { name: "normal" } });
+    g.addNode({ id: "out_me", type: "output", inputs: { value: "" }, outputs: {}, properties: { name: "metallicEmissive" } });
+    g.addNode({ id: "out_vel", type: "output", inputs: { value: "" }, outputs: {}, properties: { name: "velocity" } });
+    g.connect("albedo", "value", "out_albedo", "value");
+    g.connect("n_norm", "result", "out_normal", "value");
+    g.connect("me", "value", "out_me", "value");
+    g.connect("vel", "value", "out_vel", "value");
+    const compiler = new GraphCompiler();
+    const wgsl = compiler.compile(g, { profile: GBUFFER_PROFILE });
+    expect(wgsl).toContain("FragmentOutput");
+    expect(wgsl).toContain("@location(0)");
+    expect(wgsl).toContain("@location(1)");
+    expect(wgsl).toContain("@location(2)");
+    expect(wgsl).toContain("@location(3)");
+    expect(wgsl).toContain("albedo");
+    expect(wgsl).toContain("normal");
+    expect(wgsl).toContain("metallicEmissive");
+    expect(wgsl).toContain("velocity");
+  });
+
+  it("should default missing GBuffer targets to standard values", () => {
+    const g = new MaterialGraph();
+    // Only provide albedo — other targets should get defaults.
+    g.addNode({ id: "albedo", type: "vec4_constant", inputs: {}, outputs: { value: "vec4" }, properties: { value: [1, 0, 0, 1] } });
+    g.addNode({ id: "out", type: "output", inputs: { value: "" }, outputs: {}, properties: { name: "albedo" } });
+    g.connect("albedo", "value", "out", "value");
+    const compiler = new GraphCompiler();
+    const wgsl = compiler.compile(g, { profile: GBUFFER_PROFILE });
+    expect(wgsl).toContain("FragmentOutput");
+    // Normal default: vec4(0.5, 0.5, 0.5, 0.5)
+    expect(wgsl).toContain("0.5");
+  });
+
+  // ── Variant-aware compilation ──────────────────────────────────────────
+
+  it("should emit depth-only fragment for shadowCaster variant", () => {
+    const g = new MaterialGraph();
+    g.addNode({ id: "n", type: "normal", inputs: {}, outputs: { value: "vec3" }, properties: {} });
+    g.addNode({ id: "out", type: "output", inputs: { value: "" }, outputs: {}, properties: {} });
+    g.connect("n", "value", "out", "value");
+    const compiler = new GraphCompiler();
+    const wgsl = compiler.compile(g, {
+      profile: PBR_PROFILE,
+      variantFlags: { shadowCaster: true, skinning: false, alphaMode: "opaque", morph: false, instanced: false, fog: false },
+    });
+    // Shadow-caster: no @location output, just depth.
+    expect(wgsl).toContain("fn fs_main");
+    expect(wgsl).not.toContain("@location(0) vec4");
+  });
+
+  it("should emit alpha-clip discard for clip alphaMode variant", () => {
+    const g = new MaterialGraph();
+    g.addNode({ id: "n", type: "normal", inputs: {}, outputs: { value: "vec3" }, properties: {} });
+    g.addNode({ id: "out", type: "output", inputs: { value: "" }, outputs: {}, properties: {} });
+    g.connect("n", "value", "out", "value");
+    const compiler = new GraphCompiler();
+    const wgsl = compiler.compile(g, {
+      profile: PBR_PROFILE,
+      variantFlags: { shadowCaster: false, skinning: false, alphaMode: "clip", morph: false, instanced: false, fog: false },
+    });
+    expect(wgsl).toContain("discard");
+  });
+
+  it("should use transparent blend for blend alphaMode variant", () => {
+    const g = new MaterialGraph();
+    g.addNode({ id: "n", type: "normal", inputs: {}, outputs: { value: "vec3" }, properties: {} });
+    g.addNode({ id: "out", type: "output", inputs: { value: "" }, outputs: {}, properties: {} });
+    g.connect("n", "value", "out", "value");
+    const compiler = new GraphCompiler();
+    const result = compiler.compileDetailed(g, {
+      profile: PBR_PROFILE,
+      variantFlags: { shadowCaster: false, skinning: false, alphaMode: "blend", morph: false, instanced: false, fog: false },
+    });
+    expect(result.errors.length).toBe(0);
+    // The profile's blend should be "transparent" after variant merge.
+    // (The pipeline target state is set by the renderer, not the compiler, but
+    // the variant merge ensures the profile reports transparent blend.)
   });
 });

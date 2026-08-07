@@ -4,7 +4,7 @@
 // IGameDevToolsExtension.
 // ============================================================================
 
-import { compileUIGraphToMaterial, startGCProfiler, TelemetryCollector, type GCProfilerHandle, type GCStats, type UIConnection, type UINodeData } from "@downdraft/core";
+import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, MaterialLibrary, startGCProfiler, TelemetryCollector, uiGraphToMaterialGraph, type GCProfilerHandle, type GCStats, type Material, type UIConnection, type UINodeData } from "@downdraft/core";
 import { detectFormat, loadModel } from "@downdraft/plugin-models";
 import { useDebugStore } from "./debug-store";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store";
@@ -27,6 +27,11 @@ export abstract class BaseSceneInspector {
   protected cachedElectronGpuInfo: any = null;
   protected cachedVulkanValidation: any = null;
   protected ipcFetchInterval: ReturnType<typeof setInterval> | null = null;
+  // Core material library — the single source of truth for materials created
+  // via the graph editor. Graph-compiled materials are registered here.
+  protected materialLibrary: MaterialLibrary = new MaterialLibrary();
+  // Preview mesh renderer for live material graph preview (set by the game).
+  protected previewMeshRenderer: { setMaterial: (m: Material) => void } | null = null;
 
   // --- Abstract methods ---
 
@@ -509,6 +514,9 @@ export abstract class BaseSceneInspector {
       },
 
       // --- Material Editor API ---
+      // These are now functional: graph-compiled materials are registered into
+      // the core MaterialLibrary, the editor can list/export/import them, and
+      // live preview is wired via previewMaterialGraph.
 
       compileMaterialGraph: (nodes: UINodeData[], connections: UIConnection[], options?: {
         blendMode?: string; cullMode?: string; profile?: string;
@@ -537,12 +545,16 @@ export abstract class BaseSceneInspector {
           const name = options?.name ?? "graph_material";
           const blendMode = (options?.blendMode as any) ?? "opaque";
           const cullMode = (options?.cullMode as any) ?? "back";
-          const material = compileUIGraphToMaterial(nodes, connections, {
+          // Use compileGraphToMaterialWithGraph to retain the source graph for
+          // editor round-tripping + variant recompilation.
+          const graph = uiGraphToMaterialGraph(nodes, connections);
+          const material = compileGraphToMaterialWithGraph(graph, {
             name,
             blendMode,
             cullMode,
             profile: options?.profile as any,
           });
+          this.materialLibrary.register(material);
           return { success: true, materialName: name };
         } catch (e: any) {
           return { success: false, error: String(e?.message ?? e) };
@@ -554,11 +566,13 @@ export abstract class BaseSceneInspector {
         blendMode?: string; cullMode?: string;
       }): { success: boolean; error?: string } => {
         try {
-          const material = compileUIGraphToMaterial(graphData.nodes, graphData.connections, {
+          const graph = uiGraphToMaterialGraph(graphData.nodes, graphData.connections);
+          const material = compileGraphToMaterialWithGraph(graph, {
             name,
             blendMode: (graphData.blendMode as any) ?? "opaque",
             cullMode: (graphData.cullMode as any) ?? "back",
           });
+          this.materialLibrary.register(material);
           return { success: true };
         } catch (e: any) {
           return { success: false, error: String(e?.message ?? e) };
@@ -566,11 +580,24 @@ export abstract class BaseSceneInspector {
       },
 
       listMaterials: (): { name: string; shader: string; type: string }[] => {
-        return [];
+        return this.materialLibrary.list().map((m) => ({
+          name: m.name,
+          shader: m.shader,
+          type: m.materialType,
+        }));
       },
 
       exportMaterialAsJSON: (name: string): string | null => {
-        return null;
+        const material = this.materialLibrary.get(name);
+        if (!material || !material.graph) return null;
+        return JSON.stringify({
+          name: material.name,
+          nodes: material.graph.getNodes(),
+          connections: material.graph.getConnections(),
+          blendMode: material.blendMode,
+          cullMode: material.cullMode,
+          profile: material.profile,
+        });
       },
 
       importMaterialFromJSON: (json: string): { success: boolean; name?: string; error?: string } => {
@@ -579,10 +606,49 @@ export abstract class BaseSceneInspector {
           if (!data.nodes || !data.connections) {
             return { success: false, error: "Invalid material JSON" };
           }
-          return { success: true, name: data.name ?? "imported_material" };
+          const graph = uiGraphToMaterialGraph(data.nodes, data.connections);
+          const material = compileGraphToMaterialWithGraph(graph, {
+            name: data.name ?? "imported_material",
+            blendMode: data.blendMode ?? "opaque",
+            cullMode: data.cullMode ?? "back",
+            profile: data.profile,
+          });
+          this.materialLibrary.register(material);
+          return { success: true, name: material.name };
         } catch (e: any) {
           return { success: false, error: String(e?.message ?? e) };
         }
+      },
+
+      /**
+       * Live preview: compile the graph and set the resulting material on the
+       * preview mesh renderer so the editor viewport renders it in real time.
+       */
+      previewMaterialGraph: (nodes: UINodeData[], connections: UIConnection[], options?: {
+        blendMode?: string; cullMode?: string; profile?: string;
+      }): { success: boolean; error?: string } => {
+        try {
+          const material = compileUIGraphToMaterial(nodes, connections, {
+            name: "preview_material",
+            blendMode: (options?.blendMode as any) ?? "opaque",
+            cullMode: (options?.cullMode as any) ?? "back",
+            profile: options?.profile as any,
+          });
+          this.previewMeshRenderer?.setMaterial(material);
+          return { success: true };
+        } catch (e: any) {
+          return { success: false, error: String(e?.message ?? e) };
+        }
+      },
+
+      /** Set the preview mesh renderer for live material graph preview. */
+      setPreviewMeshRenderer: (renderer: { setMaterial: (m: Material) => void } | null): void => {
+        this.previewMeshRenderer = renderer;
+      },
+
+      /** Get the core material library (for game integration). */
+      getMaterialLibrary: (): MaterialLibrary => {
+        return this.materialLibrary;
       },
     };
   }

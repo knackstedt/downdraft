@@ -264,11 +264,13 @@ export { GreasedLinePass } from "./render/passes/greased-line-pass";
 
 // Material
 export { MaterialCompiler } from "./material/compiler";
-export { compileGraphToMaterial, compileUIGraphToMaterial, uiGraphToMaterialGraph } from "./material/graph-bridge";
+export { compileGraphToMaterial, compileGraphToMaterialWithGraph, compileUIGraphToMaterial, compileVariant, enumerateVariants, uiGraphToMaterialGraph } from "./material/graph-bridge";
 export type { GraphToMaterialOptions, UIConnection, UINodeData } from "./material/graph-bridge";
 export { MaterialLibrary } from "./material/library";
 export { BlendMode, CullMode, Material, MaterialType } from "./material/material";
 export type { MaterialDefinition, MaterialTexture, MaterialUniform } from "./material/material";
+export { DEFAULT_VARIANT_FLAGS, permutationCount, variantKey, withVariant } from "./material/variants";
+export type { AlphaMode, MaterialVariantFlags } from "./material/variants";
 
 // Scene
 export { batch, builderToPrefab, c, spawn, spawnChild } from "./scene/builder";
