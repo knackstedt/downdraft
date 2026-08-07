@@ -20,6 +20,15 @@ function isEpipeError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Mark the next (or currently open) error dialog as fatal: when it closes, the
+ * app will quit. Used for unrecoverable conditions like the renderer process
+ * being gone, where leaving the app running would only show a dead window.
+ */
+export function setExitOnDialogClose(value: boolean): void {
+  exitOnDialogClose = value;
+}
+
 export function showErrorDialog(title: string, detail: string): void {
   if (errorDialogOpen || !BrowserWindowRef || !appRef) return;
   errorDialogOpen = true;
