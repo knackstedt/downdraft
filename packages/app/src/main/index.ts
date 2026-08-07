@@ -3,7 +3,7 @@
 // ============================================================================
 
 export { createDowndraftApp } from "./app";
-export { installErrorHandlers, showErrorDialog } from "./error-dialog";
+export { installErrorHandlers, setExitOnDialogClose, showErrorDialog } from "./error-dialog";
 export { registerDevtoolsHandlers, resolveDevtoolsConfig } from "./handlers/devtools";
 export type { ResolvedDevtoolsConfig } from "./handlers/devtools";
 export { registerGpuInfoHandlers } from "./handlers/gpu-info";

@@ -6,7 +6,7 @@ import { createLogger } from "@downdraft/core/util/logger";
 import type { app as App, BrowserWindow, screen as Screen, session as Session } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "path";
-import { showErrorDialog } from "./error-dialog";
+import { setExitOnDialogClose, showErrorDialog } from "./error-dialog";
 import type { ResolvedDevtoolsConfig } from "./handlers/devtools";
 import type { DowndraftWindowConfig, WindowPlacement } from "./types";
 
@@ -299,7 +299,15 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
 
   win.webContents.on("render-process-gone", (_event, details) => {
     log.error("main", `render-process-gone: ${details.reason} (exitCode=${details.exitCode})`);
+    // The renderer is dead — the window is now useless (DevTools disconnected,
+    // no page to interact with). Surface the error, then destroy the window so
+    // it doesn't linger. Mark the dialog fatal so the app quits once the user
+    // dismisses it (covers cases where other windows, e.g. OSR, still exist).
+    setExitOnDialogClose(true);
     showErrorDialog("Renderer Process Gone", `Reason: ${details.reason}\nExit code: ${details.exitCode}`);
+    if (!win.isDestroyed()) {
+      win.destroy();
+    }
   });
 
   if (windowStatePersistence) {
