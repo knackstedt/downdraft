@@ -1,4 +1,16 @@
+import { GBUFFER_PROFILE, MaterialGraph, PBR_PROFILE } from "@downdraft/shader-graph";
 import { BlendMode, CullMode, Material, MaterialType, type MaterialDefinition } from "./material";
+// Fallback WGSL sources — loaded via Vite ?raw so the render path can use
+// inlineShaderSource directly. These are the hand-written fallbacks used when
+// a material has no shader graph; the graph is the primary source of truth.
+import DEPTH_WGSL from "../render/material-types/depth.wgsl?raw";
+import LINE_WGSL from "../render/material-types/line.wgsl?raw";
+import MATCAP_WGSL from "../render/material-types/matcap.wgsl?raw";
+import NORMAL_WGSL from "../render/material-types/normal.wgsl?raw";
+import PHYSICAL_WGSL from "../render/material-types/physical.wgsl?raw";
+import SPRITE_WGSL from "../render/material-types/sprite.wgsl?raw";
+import SSS_WGSL from "../render/material-types/sss.wgsl?raw";
+import TOON_WGSL from "../render/material-types/toon.wgsl?raw";
 
 export class MaterialLibrary {
   private materials: Map<string, Material> = new Map();
@@ -107,7 +119,8 @@ export class MaterialLibrary {
   createPhysical(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/physical.wgsl",
+      shader: "material-types/physical.wgsl",
+      inlineShaderSource: PHYSICAL_WGSL,
       materialType: MaterialType.Physical,
       uniforms: {
         baseColor: { name: "baseColor", type: "vec4", binding: 0 },
@@ -142,7 +155,8 @@ export class MaterialLibrary {
   createToon(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/toon.wgsl",
+      shader: "material-types/toon.wgsl",
+      inlineShaderSource: TOON_WGSL,
       materialType: MaterialType.Toon,
       uniforms: {
         baseColor: { name: "baseColor", type: "vec4", binding: 0 },
@@ -167,7 +181,8 @@ export class MaterialLibrary {
   createMatcap(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/matcap.wgsl",
+      shader: "material-types/matcap.wgsl",
+      inlineShaderSource: MATCAP_WGSL,
       materialType: MaterialType.Matcap,
       uniforms: {
         baseColor: { name: "baseColor", type: "vec4", binding: 0 },
@@ -186,7 +201,8 @@ export class MaterialLibrary {
   createNormal(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/normal.wgsl",
+      shader: "material-types/normal.wgsl",
+      inlineShaderSource: NORMAL_WGSL,
       materialType: MaterialType.Normal,
       uniforms: {},
       textures: {},
@@ -201,7 +217,8 @@ export class MaterialLibrary {
   createDepth(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/depth.wgsl",
+      shader: "material-types/depth.wgsl",
+      inlineShaderSource: DEPTH_WGSL,
       materialType: MaterialType.Depth,
       uniforms: {
         nearPlane: { name: "nearPlane", type: "f32", binding: 0 },
@@ -236,7 +253,8 @@ export class MaterialLibrary {
   createSSS(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/sss.wgsl",
+      shader: "material-types/sss.wgsl",
+      inlineShaderSource: SSS_WGSL,
       materialType: MaterialType.SSS,
       uniforms: {
         baseColor: { name: "baseColor", type: "vec4", binding: 0 },
@@ -258,7 +276,8 @@ export class MaterialLibrary {
   createSprite(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/sprite.wgsl",
+      shader: "material-types/sprite.wgsl",
+      inlineShaderSource: SPRITE_WGSL,
       materialType: MaterialType.Sprite,
       uniforms: {
         color: { name: "color", type: "vec4", binding: 0 },
@@ -277,7 +296,8 @@ export class MaterialLibrary {
   createLine(name: string): Material {
     const def: MaterialDefinition = {
       name,
-      shader: "shaders/line.wgsl",
+      shader: "material-types/line.wgsl",
+      inlineShaderSource: LINE_WGSL,
       materialType: MaterialType.Line,
       uniforms: {
         color: { name: "color", type: "vec4", binding: 0 },
@@ -289,6 +309,125 @@ export class MaterialLibrary {
       textures: {},
       blendMode: BlendMode.AlphaBlend,
       cullMode: CullMode.None,
+    };
+    const mat = new Material(def);
+    this.register(mat);
+    return mat;
+  }
+
+  // ── Graph-based preset materials ──────────────────────────────────────
+  // These build a MaterialGraph equivalent to the hand-written fallback
+  // shaders, giving the editor graph presets to load and modify. The graph
+  // is the primary source of truth; the .wgsl fallbacks above are used when
+  // a material has no graph.
+
+  /**
+   * Create a PBR graph material — a simple graph that samples an albedo texture
+   * and applies PBR lighting via the pbr_lighting node. Uses the PBR profile.
+   */
+  createPBRGraph(name: string): Material {
+    const g = new MaterialGraph();
+    const normalId = g.input("normal", "vec3");
+    const worldPosId = g.input("worldPos", "vec3");
+    const baseColorId = g.input("baseColor", "vec3");
+    const metallicId = g.input("metallic", "f32");
+    const roughnessId = g.input("roughness", "f32");
+
+    g.addNode({
+      id: "pbr",
+      type: "pbr_lighting",
+      inputs: { N: "", worldPos: "", baseColor: "", metallic: "", roughness: "" },
+      outputs: { value: "vec3" },
+      properties: {},
+    });
+    g.connect(normalId, "value", "pbr", "N");
+    g.connect(worldPosId, "value", "pbr", "worldPos");
+    g.connect(baseColorId, "value", "pbr", "baseColor");
+    g.connect(metallicId, "value", "pbr", "metallic");
+    g.connect(roughnessId, "value", "pbr", "roughness");
+    g.output("color", "pbr", "value");
+
+    const def: MaterialDefinition = {
+      name,
+      shader: "graph://pbr",
+      graph: g,
+      uniforms: {},
+      textures: {},
+      blendMode: BlendMode.Opaque,
+      cullMode: CullMode.Back,
+      profile: PBR_PROFILE.name,
+      materialType: MaterialType.PBR,
+    };
+    const mat = new Material(def);
+    this.register(mat);
+    return mat;
+  }
+
+  /**
+   * Create a GBuffer graph material — a surface shader that writes albedo,
+   * normal, metallic/emissive, and velocity to the deferred GBuffer targets.
+   * Uses the GBUFFER_PROFILE (multi-render-target).
+   */
+  createGBufferGraph(name: string): Material {
+    const g = new MaterialGraph();
+    // Albedo output — vertex color (default white).
+    g.addNode({
+      id: "albedo_const",
+      type: "vec4_constant",
+      inputs: {},
+      outputs: { value: "vec4" },
+      properties: { value: [1, 1, 1, 1] },
+    });
+    g.output("albedo", "albedo_const", "value");
+
+    // Normal output — world normal encoded to [0,1].
+    g.addNode({
+      id: "n",
+      type: "normal",
+      inputs: {},
+      outputs: { value: "vec3" },
+      properties: {},
+    });
+    g.addNode({
+      id: "n_enc",
+      type: "normalize",
+      inputs: { v: "" },
+      outputs: { result: "vec3" },
+      properties: {},
+    });
+    g.connect("n", "value", "n_enc", "v");
+    g.output("normal", "n_enc", "result");
+
+    // Metallic/emissive — default zeros.
+    g.addNode({
+      id: "me_const",
+      type: "vec4_constant",
+      inputs: {},
+      outputs: { value: "vec4" },
+      properties: { value: [0, 0, 0, 0] },
+    });
+    g.output("metallicEmissive", "me_const", "value");
+
+    // Velocity — default zero (static geometry).
+    g.addNode({
+      id: "vel_const",
+      type: "vec4_constant",
+      inputs: {},
+      outputs: { value: "vec4" },
+      properties: { value: [0, 0, 0, 0] },
+    });
+    g.output("velocity", "vel_const", "value");
+
+    const def: MaterialDefinition = {
+      name,
+      shader: "graph://gbuffer",
+      graph: g,
+      uniforms: {},
+      textures: {},
+      blendMode: BlendMode.Opaque,
+      cullMode: CullMode.Back,
+      profile: GBUFFER_PROFILE.name,
+      materialType: MaterialType.PBR,
     };
     const mat = new Material(def);
     this.register(mat);

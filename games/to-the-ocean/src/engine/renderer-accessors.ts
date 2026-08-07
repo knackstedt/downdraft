@@ -3,12 +3,11 @@
 // Extracted from WebGPURenderer for modularity
 // ============================================================================
 
-import type { PBRSystem, PostProcessStack } from "@downdraft/core";
-import { MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
+import { MaterialLibrary, MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type PBRSystem, type PostProcessStack, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
 import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
 import type { ModelRenderer } from "@downdraft/plugin-entities";
 import type { LightSystem } from "@downdraft/plugin-lighting";
-import type { MaterialData, MeshData } from "@downdraft/plugin-models";
+import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/plugin-models";
 import type { PixelationSystem } from "@downdraft/plugin-postfx";
 import type { ParticleSystem } from "@downdraft/plugin-weatherfx";
 import type { BoatBufferReader } from "@shared/boat-buffer";
@@ -50,6 +49,10 @@ export class RendererAccessors {
   private pbrSystem: PBRSystem | null = null;
   private uiRenderer: UIRenderer | null = null;
   private uiLayoutEngine: LayoutEngine | null = null;
+  // Core material library — MaterialData from loaded models is bridged into
+  // this library via materialDataArrayToMaterials, making the unified core
+  // material surface the single source of truth for the game's materials.
+  private materialLibrary: MaterialLibrary | null = null;
 
   // Gizmo state (stored but not read by renderer)
   private gizmoEnabled = false;
@@ -215,8 +218,22 @@ export class RendererAccessors {
   isFlashlightOn(): boolean { return this.flashlightOn; }
 
   // --- Model renderer ---
-  uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void { this.modelRenderer?.uploadModel(nodeId, meshes, materials); }
+  uploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void {
+    // Bridge MaterialData into the core MaterialLibrary so the unified material
+    // surface (editor, library, graph pipeline) is the single source of truth.
+    // The bindless ModelRenderer render path continues to use the MaterialData
+    // directly for GPU upload; the library registration makes materials
+    // discoverable/editable via the core surface.
+    if (materials && materials.length > 0 && this.materialLibrary) {
+      materialDataArrayToMaterials(materials, this.materialLibrary);
+    }
+    this.modelRenderer?.uploadModel(nodeId, meshes, materials);
+  }
   removeModel(nodeId: string): void { this.modelRenderer?.removeModel(nodeId); }
+
+  /** Set the core MaterialLibrary that bridged MaterialData is registered into. */
+  setMaterialLibrary(library: MaterialLibrary): void { this.materialLibrary = library; }
+  getMaterialLibrary(): MaterialLibrary | null { return this.materialLibrary; }
 
   // --- Gizmo ---
   setGizmoMode(mode: GizmoMode): void { this.gizmoMode = mode; this.transformGizmo?.setMode(mode); }

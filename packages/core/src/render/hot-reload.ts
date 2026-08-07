@@ -168,7 +168,9 @@ export class MaterialHotReloader {
     try {
       const response = await fetch(path);
       const wgsl = await response.text();
-      material.shader = wgsl;
+      // Write into inlineShaderSource — the render path reads this, not shader.
+      material.inlineShaderSource = wgsl;
+      material.invalidateVariants();
 
       if (this.pipelineCache) {
         this.pipelineCache.invalidate(material.pipelineKey);

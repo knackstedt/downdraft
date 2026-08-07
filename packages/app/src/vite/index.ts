@@ -73,6 +73,10 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src") + "/" },
     { find: /^@downdraft\/plugin-persistence$/, replacement: resolve(repoRoot, "packages/plugins/persistence/src/index.ts") },
     { find: /^@downdraft\/plugin-persistence\//, replacement: resolve(repoRoot, "packages/plugins/persistence/src") + "/" },
+    // plugin-models — dynamically imported by core's loader-mesh.ts; needs to
+    // be resolvable in the main process build.
+    { find: /^@downdraft\/plugin-models$/, replacement: resolve(repoRoot, "packages/plugins/models/src/index.ts") },
+    { find: /^@downdraft\/plugin-models\//, replacement: resolve(repoRoot, "packages/plugins/models/src") + "/" },
     // @downdraft/app subpath exports — resolve to source for dev builds
     { find: /^@downdraft\/app\/main$/, replacement: resolve(repoRoot, "packages/app/src/main/index.ts") },
     { find: /^@downdraft\/app\/preload$/, replacement: resolve(repoRoot, "packages/app/src/preload/index.ts") },

@@ -146,6 +146,15 @@ export interface CompileResult {
 
 export interface CompileOptions {
   profile?: ShaderGraphProfile;
+  /** Variant flags for hybrid shader permutations (Phase 4). */
+  variantFlags?: {
+    shadowCaster?: boolean;
+    skinning?: boolean;
+    alphaMode?: "opaque" | "clip" | "blend";
+    morph?: boolean;
+    instanced?: boolean;
+    fog?: boolean;
+  };
 }
 
 export class GraphCompiler {
@@ -154,7 +163,22 @@ export class GraphCompiler {
   }
 
   compileDetailed(graph: MaterialGraph, options?: CompileOptions): CompileResult {
-    const profile = options?.profile ?? SIMPLE_PROFILE;
+    const baseProfile = options?.profile ?? SIMPLE_PROFILE;
+    const vf = options?.variantFlags;
+    // Merge variant flags into the profile — expensive toggles become
+    // compile-time permutations (skinning/instanced vertex main, shadow-caster
+    // depth-only, alpha-mode blend/discard). Fog stays a dynamic branch.
+    const profile: ShaderGraphProfile = vf ? {
+      ...baseProfile,
+      skinned: vf.skinning ?? baseProfile.skinned,
+      instanced: vf.instanced ?? baseProfile.instanced,
+      blend: vf.alphaMode === "blend" ? "transparent"
+        : vf.alphaMode === "clip" ? "opaque"
+        : baseProfile.blend,
+      // Shadow-caster variant: no color targets, depth-only.
+      outputFormats: vf.shadowCaster ? undefined : baseProfile.outputFormats,
+      outputNames: vf.shadowCaster ? undefined : baseProfile.outputNames,
+    } : baseProfile;
     const errors: string[] = [];
     const nodes = graph.getNodes();
     const connections = graph.getConnections();
@@ -177,6 +201,8 @@ export class GraphCompiler {
     const visited = new Set<string>();
     const visiting = new Set<string>();
     const expressions: string[] = [];
+    // Named outputs for multi-render-target profiles. Maps output name → WGSL expr.
+    const namedOutputs: Map<string, string> = new Map();
     const ctx: NodeContext = { profile, uniformVar: "uniforms" };
 
     const compileNode = (nodeId: string): string => {
@@ -212,6 +238,9 @@ export class GraphCompiler {
         if (node.type === "output") {
           const expr = inputExprs[0] ?? "vec4<f32>(1.0)";
           expressions.push(expr);
+          // Capture named output for multi-target profiles.
+          const outName = node.properties.name as string | undefined;
+          if (outName) namedOutputs.set(outName, expr);
           return expr;
         }
         errors.push(`Unknown node type: ${node.type}`);
@@ -230,7 +259,7 @@ export class GraphCompiler {
     }
 
     const fragmentExpr = expressions[0];
-    const wgsl = this.buildShader(fragmentExpr, profile);
+    const wgsl = this.buildShader(fragmentExpr, profile, namedOutputs, options?.variantFlags);
     return { wgsl, errors };
   }
 
@@ -311,7 +340,12 @@ export class GraphCompiler {
     return defaults[portName] ?? "vec4<f32>(1.0)";
   }
 
-  private buildShader(fragmentExpr: string, profile: ShaderGraphProfile): string {
+  private buildShader(
+    fragmentExpr: string,
+    profile: ShaderGraphProfile,
+    namedOutputs?: Map<string, string>,
+    variantFlags?: CompileOptions["variantFlags"],
+  ): string {
     const chunks = profile.chunks.map((c) => getChunk(c)).filter((c) => c.length > 0).join("\n\n");
     const uniformStruct = this.buildUniformStruct(profile);
     const bindGroupDecls = this.buildBindGroupDecls(profile);
@@ -319,6 +353,7 @@ export class GraphCompiler {
     const vertexOutput = this.buildVertexOutput(profile);
     const vertexMain = this.buildVertexMain(profile);
     const preMain = profile.preMain ?? "";
+    const fragmentMain = this.buildFragmentMain(profile, fragmentExpr, namedOutputs, variantFlags);
 
     return `// Auto-generated WGSL from material graph (profile: ${profile.name})
 ${chunks}
@@ -335,9 +370,81 @@ ${preMain}
 
 ${vertexMain}
 
-@fragment
+${fragmentMain}`;
+  }
+
+  /**
+   * Build the fragment main. For multi-render-target profiles (outputFormats
+   * set), emits a struct return with one @location per target. The graph's
+   * named output nodes map to the profile's outputNames. For single-target
+   * profiles, emits the classic `-> @location(0) vec4<f32>` signature.
+   */
+  private buildFragmentMain(
+    profile: ShaderGraphProfile,
+    fragmentExpr: string,
+    namedOutputs?: Map<string, string>,
+    variantFlags?: CompileOptions["variantFlags"],
+  ): string {
+    // Shadow-caster variant — depth-only, no color targets.
+    if (variantFlags?.shadowCaster) {
+      // Alpha-clip: discard transparent fragments in shadow pass.
+      const clipLogic = variantFlags.alphaMode === "clip"
+        ? `  if (${fragmentExpr}.a < 0.5) { discard; }\n`
+        : "";
+      return `@fragment
+fn fs_main(input: VertexOutput) {
+${clipLogic}`;
+    }
+
+    const outputFormats = profile.outputFormats;
+    if (!outputFormats || outputFormats.length === 0) {
+      // Single-target — classic path. Add alpha-clip discard if needed.
+      const clipLogic = variantFlags?.alphaMode === "clip"
+        ? `  let _result = ${fragmentExpr};\n  if (_result.a < 0.5) { discard; }\n  return _result;`
+        : `  return ${fragmentExpr};`;
+      return `@fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  return ${fragmentExpr};
+  ${clipLogic}
+}`;
+    }
+
+    // Multi-render-target — emit a FragmentOutput struct + return.
+    const outputNames = profile.outputNames ?? [];
+    const structFields: string[] = [];
+    const returnLines: string[] = [];
+
+    for (let i = 0; i < outputFormats.length; i++) {
+      const fmt = outputFormats[i];
+      const name = outputNames[i] ?? `target${i}`;
+      // Determine WGSL type from format (simplified — all targets are vec4 or vec2).
+      const wgslType = fmt === "rg16float" ? "vec2<f32>" : "vec4<f32>";
+      structFields.push(`  @location(${i}) ${name}: ${wgslType},`);
+
+      // Map the named output to the expression from the graph.
+      const expr = namedOutputs?.get(name);
+      if (expr) {
+        returnLines.push(`  output.${name} = ${expr};`);
+      } else {
+        // Default values for standard GBuffer targets.
+        const defaults: Record<string, string> = {
+          albedo: "vec4<f32>(1.0, 1.0, 1.0, 1.0)",
+          normal: "vec4<f32>(0.5, 0.5, 0.5, 0.5)",
+          metallicEmissive: "vec4<f32>(0.0, 0.0, 0.0, 0.0)",
+          velocity: "vec2<f32>(0.0, 0.0)",
+        };
+        returnLines.push(`  output.${name} = ${defaults[name] ?? `${wgslType}(0.0)`};`);
+      }
+    }
+
+    return `struct FragmentOutput {
+${structFields.join("\n")}
+};
+
+@fragment
+fn fs_main(input: VertexOutput) -> FragmentOutput {
+  var output: FragmentOutput;
+${returnLines.join("\n")}
+  return output;
 }`;
   }
 
@@ -570,6 +677,6 @@ ${passThrough.join("\n")}
   }
 
   private fallbackShader(profile: ShaderGraphProfile): string {
-    return this.buildShader("vec4<f32>(1.0, 0.0, 1.0, 1.0)", profile);
+    return this.buildShader("vec4<f32>(1.0, 0.0, 1.0, 1.0)", profile, undefined);
   }
 }

@@ -1,5 +1,16 @@
 import { type MaterialDefinition } from "./material";
 
+/**
+ * Compiles a MaterialDefinition to WGSL.
+ *
+ * Priority:
+ * 1. inlineShaderSource (from graph compilation or ?raw fallback .wgsl) — used directly.
+ * 2. Auto-generated trivial white shader — last-resort fallback only.
+ *
+ * The graph is the primary source of truth; the 8 hand-written material-types/*.wgsl
+ * files are loaded as inlineShaderSource fallbacks by MaterialLibrary. This compiler's
+ * generated shader is only reached when a material has neither a graph nor a fallback.
+ */
 export class MaterialCompiler {
   compile(def: MaterialDefinition): string {
     if (def.inlineShaderSource) {
