@@ -57,6 +57,7 @@ export class AssetManager {
   private assets: Map<string, AssetRef> = new Map();
   private loaders: Map<string, (uri: string) => Promise<unknown>> = new Map();
   private destructors: Map<string, AssetDestructor> = new Map();
+  private codecs: Map<string, unknown> = new Map();
   private loadQueue: LoadQueueEntry[] = [];
   private loading: Set<string> = new Set();
   private pendingResolvers: Map<string, Array<(data: unknown) => void>> = new Map();
@@ -120,6 +121,24 @@ export class AssetManager {
     if (destructor) {
       this.destructors.set(extension.toLowerCase(), destructor);
     }
+  }
+
+  /**
+   * Register a codec keyed by extension URI (e.g. "KHR_draco_mesh_compression",
+   * "EXT_meshopt_compression"). This is the second axis of the asset pipeline:
+   * `registerLoader` keys on file extension, `registerCodec` keys on the
+   * in-band extension URI that selects a decoder for compressed/extended data.
+   */
+  registerCodec(extensionUri: string, codec: unknown): void {
+    this.codecs.set(extensionUri, codec);
+  }
+
+  getCodec(extensionUri: string): unknown | undefined {
+    return this.codecs.get(extensionUri);
+  }
+
+  getRegisteredCodecs(): string[] {
+    return Array.from(this.codecs.keys());
   }
 
   async load(uri: string, priority: AssetPriority = "normal"): Promise<unknown> {

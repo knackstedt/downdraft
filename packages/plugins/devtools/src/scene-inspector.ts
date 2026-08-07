@@ -115,7 +115,7 @@ export abstract class BaseSceneInspector {
       },
 
       // --- Model Import ---
-      importModel: (base64Data: string, filename: string): { success: boolean; nodeId?: string; error?: string } => {
+      importModel: async (base64Data: string, filename: string): Promise<{ success: boolean; nodeId?: string; error?: string }> => {
         try {
           let actualBase64 = base64Data;
           if (base64Data === "__importBuffer") {
@@ -147,7 +147,7 @@ export abstract class BaseSceneInspector {
             binData = resolver.findBinForGLTF(filename, buffer);
           }
 
-          const modelData = loadModel(buffer, filename, mtlData, binData);
+          const modelData = await loadModel(buffer, filename, mtlData, binData);
           if (modelData.meshes.length === 0) {
             return { success: false, error: "No meshes found in model" };
           }
@@ -222,13 +222,13 @@ export abstract class BaseSceneInspector {
         return this.getAssetResolver()?.getAvailableModels() ?? [];
       },
 
-      getModelThumbnail: (path: string): string | null => {
+      getModelThumbnail: async (path: string): Promise<string | null> => {
         const resolver = this.getAssetResolver();
         if (!resolver) return null;
         return this.generateThumbnail(path, resolver);
       },
 
-      importAssetModel: (path: string): { success: boolean; nodeId?: string; error?: string } => {
+      importAssetModel: async (path: string): Promise<{ success: boolean; nodeId?: string; error?: string }> => {
         try {
           const resolver = this.getAssetResolver();
           if (!resolver) return { success: false, error: "No asset resolver" };
@@ -248,7 +248,7 @@ export abstract class BaseSceneInspector {
           if (file.format === "gltf") {
             binData = resolver.findBinForGLTF(file.name, buffer);
           }
-          const modelData = loadModel(buffer, file.name, mtlData, binData);
+          const modelData = await loadModel(buffer, file.name, mtlData, binData);
           if (modelData.meshes.length === 0) {
             return { success: false, error: `No meshes found in ${file.name}` };
           }
@@ -591,7 +591,7 @@ export abstract class BaseSceneInspector {
 
   private thumbnailCache = new Map<string, string | null>();
 
-  protected generateThumbnail(path: string, resolver: IAssetResolver): string | null {
+  protected async generateThumbnail(path: string, resolver: IAssetResolver): Promise<string | null> {
     const cached = this.thumbnailCache.get(path);
     if (cached !== undefined) return cached;
     try {
@@ -600,7 +600,7 @@ export abstract class BaseSceneInspector {
 
       const buffer = resolver.syncFetchArrayBuffer(file.url);
       if (!buffer) { this.evictThumbnailCache(); this.thumbnailCache.set(path, null); return null; }
-      const modelData = loadModel(buffer, file.name);
+      const modelData = await loadModel(buffer, file.name);
       if (modelData.meshes.length === 0) { this.evictThumbnailCache(); this.thumbnailCache.set(path, null); return null; }
 
       let minX = Infinity, minY = Infinity, minZ = Infinity;

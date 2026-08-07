@@ -1,4 +1,4 @@
-import type { AnimationEvent, MaterialData, MorphTargetData } from "./types";
+import type { AnimationEvent, MaterialData, MorphTargetData, TextureTransform } from "./types";
 
 export interface GLTFExtension {
   [key: string]: unknown;
@@ -9,6 +9,25 @@ export interface ExtensionProcessingContext {
   images?: { uri?: string; bufferView?: number; mimeType?: string }[];
   samplers?: { magFilter?: number; minFilter?: number; wrapS?: number; wrapT?: number }[];
   bufferData?: ArrayBuffer[];
+}
+
+export function extractTextureTransform(
+  extensions: { [key: string]: unknown } | undefined,
+): TextureTransform | undefined {
+  if (!extensions) return undefined;
+  const raw = extensions["KHR_texture_transform"] as {
+    offset?: number[];
+    rotation?: number;
+    scale?: number[];
+    texCoord?: number;
+  } | undefined;
+  if (!raw) return undefined;
+  return {
+    offset: raw.offset ? [raw.offset[0] ?? 0, raw.offset[1] ?? 0] : [0, 0],
+    rotation: raw.rotation ?? 0,
+    scale: raw.scale ? [raw.scale[0] ?? 1, raw.scale[1] ?? 1] : [1, 1],
+    texCoord: raw.texCoord,
+  };
 }
 
 export function processMaterialExtensions(
@@ -68,17 +87,13 @@ export function processMaterialExtensions(
     ];
   }
 
-  // KHR_texture_transform — UV transform (stored as metadata, applied in shader)
-  const texTransform = extensions["KHR_texture_transform"] as {
-    offset?: number[];
-    rotation?: number;
-    scale?: number[];
-    texCoord?: number;
-  } | undefined;
-
-  if (texTransform) {
-    // Texture transforms are noted but would need shader-level support
-    // For now, we just acknowledge the extension exists
+  // KHR_texture_transform — extract UV transform for the baseColor texture.
+  // Per-texture transforms (normal/emissive) are extracted separately by the
+  // parser when it resolves those textures, since the extension lives on the
+  // textureInfo object, not the material.
+  const baseTransform = extractTextureTransform(extensions);
+  if (baseTransform) {
+    result.textureTransform = baseTransform;
   }
 
   return result;
@@ -87,13 +102,14 @@ export function processMaterialExtensions(
 export function processMeshPrimitiveExtensions(
   extensions: GLTFExtension | undefined,
   _ctx?: ExtensionProcessingContext,
-): { dracoCompressed: boolean; quantized: boolean } {
-  if (!extensions) return { dracoCompressed: false, quantized: false };
+): { dracoCompressed: boolean; quantized: boolean; meshoptCompressed: boolean } {
+  if (!extensions) return { dracoCompressed: false, quantized: false, meshoptCompressed: false };
 
   const dracoCompressed = !!extensions["KHR_draco_mesh_compression"];
   const quantized = !!extensions["KHR_mesh_quantization"];
+  const meshoptCompressed = !!extensions["EXT_meshopt_compression"];
 
-  return { dracoCompressed, quantized };
+  return { dracoCompressed, quantized, meshoptCompressed };
 }
 
 export interface GLTFMorphTarget {
@@ -167,6 +183,11 @@ export function getSupportedExtensions(): string[] {
     "KHR_materials_emissive_strength",
     "KHR_texture_transform",
     "KHR_mesh_quantization",
+    "KHR_draco_mesh_compression",
+    "EXT_meshopt_compression",
+    "KHR_texture_basisu",
+    "KHR_materials_variants",
+    "KHR_lights_punctual",
   ];
 }
 

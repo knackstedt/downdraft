@@ -1,6 +1,6 @@
+import type { PhysicsPluginConfig } from "@downdraft/core";
 import { UniversalPhysicsAPI } from "./api";
 import { RapierPhysicsBackend } from "./backend";
-import type { PhysicsPluginConfig } from "@downdraft/core";
 
 const config: PhysicsPluginConfig = {
   gravity: [0, -9.81, 0],
@@ -129,6 +129,66 @@ describe("UniversalPhysicsAPI (validated-api)", () => {
     expect(body).toHaveProperty("realmId");
     expect(body).toHaveProperty("entity");
     expect(body).not.toHaveProperty("handle");
+    api.destroy();
+  });
+
+  it("should extract contacts from WASM Rapier after step", async () => {
+    const api = await makeAPI();
+    // Two overlapping dynamic spheres
+    const a = api.createBody({ index: 0, generation: 0 }, { type: "dynamic", position: [0, 0, 0], rotation: [0, 0, 0, 1] });
+    api.addCollider(a, { shape: { type: "sphere", radius: 1 } });
+    const b = api.createBody({ index: 1, generation: 0 }, { type: "dynamic", position: [0.5, 0, 0], rotation: [0, 0, 0, 1] });
+    api.addCollider(b, { shape: { type: "sphere", radius: 1 } });
+
+    api.stepNearRealm(1 / 60);
+    const contacts = api.getContacts();
+    expect(contacts.length).toBeGreaterThan(0);
+    // Contact should reference both entities
+    const contact = contacts[0];
+    const entities = [contact.entityA, contact.entityB];
+    expect(entities).toContainEqual({ index: 0, generation: 0 });
+    expect(entities).toContainEqual({ index: 1, generation: 0 });
+    api.destroy();
+  });
+
+  it("should extract sensor intersections from WASM Rapier after step", async () => {
+    const api = await makeAPI();
+    // Sensor sphere overlapping a non-sensor sphere
+    const a = api.createBody({ index: 0, generation: 0 }, { type: "dynamic", position: [0, 0, 0], rotation: [0, 0, 0, 1] });
+    api.addCollider(a, { shape: { type: "sphere", radius: 1 }, sensor: true });
+    const b = api.createBody({ index: 1, generation: 0 }, { type: "dynamic", position: [0.5, 0, 0], rotation: [0, 0, 0, 1] });
+    api.addCollider(b, { shape: { type: "sphere", radius: 1 } });
+
+    api.stepNearRealm(1 / 60);
+    // Sensor should NOT produce contact manifolds
+    const contacts = api.getContacts();
+    expect(contacts.length).toBe(0);
+    // Sensor SHOULD produce intersection pairs
+    const intersections = api.getIntersections();
+    expect(intersections.length).toBeGreaterThan(0);
+    const pair = intersections[0];
+    const entities = [pair.entityA, pair.entityB];
+    expect(entities).toContainEqual({ index: 0, generation: 0 });
+    expect(entities).toContainEqual({ index: 1, generation: 0 });
+    api.destroy();
+  });
+
+  it("should accept heightfield colliders", async () => {
+    const api = await makeAPI();
+    const nrows = 3;
+    const ncols = 3;
+    const heights = new Float32Array([
+      0, 0, 0,
+      0, 1, 0,
+      0, 0, 0,
+    ]);
+    const body = api.createBody({ index: 0, generation: 0 }, { type: "static", position: [0, 0, 0], rotation: [0, 0, 0, 1] });
+    // Should not throw — heightfield is a typed shape variant now
+    expect(() => {
+      api.addCollider(body, {
+        shape: { type: "heightfield", nrows, ncols, heights, scale: [10, 1, 10] },
+      });
+    }).not.toThrow();
     api.destroy();
   });
 });

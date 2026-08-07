@@ -1,5 +1,5 @@
 import type { Entity } from "../ecs/entity";
-import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, IslandInfo, JointDesc, PhysicsBackend, PhysicsBody, PhysicsRealmConfig, RaycastResult } from "./interface";
+import type { BodyDesc, BodyType, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ContactManifold, IntersectionPair, IslandInfo, JointDesc, PhysicsBackend, PhysicsBody, PhysicsRealmConfig, RaycastResult } from "./interface";
 
 export class PhysicsRealm {
   readonly id: number;
@@ -124,6 +124,10 @@ export class PhysicsRealm {
 
   getContacts(): ContactManifold[] {
     return this.backend.getContacts(this.id);
+  }
+
+  getIntersections(): IntersectionPair[] {
+    return this.backend.getIntersections(this.id);
   }
 
   createCharacterController(desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle {

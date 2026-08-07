@@ -6,8 +6,8 @@ import { MATERIAL_STRUCT_SIZE, packHandle16 } from "./material-manager";
 // verified by the to-the-ocean runtime + render specs.
 
 describe("BindlessMaterialManager constants", () => {
-  it("MATERIAL_STRUCT_SIZE is 48 bytes (3 vec4)", () => {
-    expect(MATERIAL_STRUCT_SIZE).toBe(48);
+  it("MATERIAL_STRUCT_SIZE is 80 bytes (5 vec4)", () => {
+    expect(MATERIAL_STRUCT_SIZE).toBe(80);
   });
 
   it("packHandle16 masks to low 16 bits", () => {

@@ -184,7 +184,7 @@ export class MaterialHotReloader {
       const response = await fetch(path);
       const buffer = await response.arrayBuffer();
       const loader = new GLBLoader();
-      const result = loader.parseGLB(buffer);
+      const result = await loader.parseGLB(buffer);
       if (result.meshes.length > 0) {
         onReload(result.meshes[0]);
       }

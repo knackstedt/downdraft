@@ -47,7 +47,8 @@ export type ColliderShapeData =
   | { type: "sphere"; radius: number }
   | { type: "capsule"; halfHeight: number; radius: number }
   | { type: "mesh"; vertices: Float32Array; indices: Uint32Array }
-  | { type: "convex"; vertices: Float32Array };
+  | { type: "convex"; vertices: Float32Array }
+  | { type: "heightfield"; nrows: number; ncols: number; heights: Float32Array; scale: [number, number, number] };
 
 export interface NativeRealm {
   id: number;

@@ -460,10 +460,10 @@ export type { CharacterControllerData, CharacterControllerInput } from "./physic
 export { Collider, createBoxCollider, createCapsuleCollider, createConvexCollider, createMeshCollider, createSphereCollider } from "./physics/collider";
 export type { ColliderData } from "./physics/collider";
 export { CollisionEventSystem } from "./physics/collision-system";
-export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, computeCollisionEvents, CONTACT_CHANNEL, manifoldToStartedEvent } from "./physics/events";
-export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent } from "./physics/events";
+export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, computeCollisionEvents, computeTriggerEvents, CONTACT_CHANNEL, manifoldToStartedEvent, TRIGGER_ENTER_CHANNEL, TRIGGER_EXIT_CHANNEL } from "./physics/events";
+export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent, TriggerEnterEvent, TriggerExitEvent } from "./physics/events";
 export { RealmTier } from "./physics/interface";
-export type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, ImportanceWeight, IslandInfo, JointDesc, JointType, PhysicsBackend, PhysicsBody, PhysicsPluginConfig, PhysicsRealmConfig, PhysicsStats, PredictionMode, RaycastResult, RealmTierConfig, RealmTransferHook, ShapeCastResult, SnapshotHooks } from "./physics/interface";
+export type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, ImportanceWeight, IntersectionPair, IslandInfo, JointDesc, JointType, PhysicsBackend, PhysicsBody, PhysicsPluginConfig, PhysicsRealmConfig, PhysicsStats, PredictionMode, RaycastResult, RealmTierConfig, RealmTransferHook, ShapeCastResult, SnapshotHooks } from "./physics/interface";
 export { InterpolationBuffer } from "./physics/interpolation-buffer";
 export { PhysicsLifecycle } from "./physics/lifecycle";
 export type { BootstrapPhase } from "./physics/lifecycle";

@@ -172,6 +172,7 @@ export async function bridgeMaterial(
     roughness: pluginMaterial.roughness,
     metallic: pluginMaterial.metallic,
     emissiveIntensity,
+    textureTransform: pluginMaterial.textureTransform,
   };
   // Keep sampler/views alive for non-PBR consumers; they're referenced by `textures`.
   void sampler; void albedoView; void normalView; void metallicRoughnessView; void aoView; void emissiveView;

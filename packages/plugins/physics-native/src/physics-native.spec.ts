@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { NativePhysicsBackend } from "./backend";
 import type { AABB } from "./broadphase";
 import { Broadphase } from "./broadphase";
+import { detectCollision } from "./narrowphase";
 import {
     boxBoxContact,
     capsuleBoxContact,
@@ -11,7 +12,6 @@ import {
     sphereBoxContact,
     sphereSphereContact,
 } from "./narrowphase-shapes";
-import { detectCollision } from "./narrowphase";
 import { integrate, resolveContact, type BodyData } from "./solver";
 import type { Vec3 } from "./types";
 
@@ -761,6 +761,80 @@ describe("NativePhysicsBackend", () => {
     const contacts = backend.getContacts(0);
     // Sensor should not produce collision response contacts
     expect(contacts.length).toBe(0);
+    backend.destroy();
+  });
+
+  it("should report sensor intersections via getIntersections", () => {
+    const backend = makeBackend();
+    const a = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    backend.addCollider(a, { shape: { type: "sphere", radius: 1 }, sensor: true });
+
+    const b = backend.createBody(0, {
+      type: "dynamic",
+      position: [0.5, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 1, generation: 0 });
+    backend.addCollider(b, { shape: { type: "sphere", radius: 1 } });
+
+    backend.step(0, 1 / 60);
+    const intersections = backend.getIntersections(0);
+    expect(intersections.length).toBe(1);
+    expect(intersections[0].entityA).toEqual({ index: 0, generation: 0 });
+    expect(intersections[0].entityB).toEqual({ index: 1, generation: 0 });
+    backend.destroy();
+  });
+
+  it("should not report intersections for non-sensor overlapping colliders", () => {
+    const backend = makeBackend();
+    const a = backend.createBody(0, {
+      type: "dynamic",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 0, generation: 0 });
+    backend.addCollider(a, { shape: { type: "sphere", radius: 1 } });
+
+    const b = backend.createBody(0, {
+      type: "dynamic",
+      position: [0.5, 0, 0],
+      rotation: [0, 0, 0, 1],
+      mass: 1,
+    }, { index: 1, generation: 0 });
+    backend.addCollider(b, { shape: { type: "sphere", radius: 1 } });
+
+    backend.step(0, 1 / 60);
+    const intersections = backend.getIntersections(0);
+    // No sensors involved — no intersections
+    expect(intersections.length).toBe(0);
+    backend.destroy();
+  });
+
+  it("should accept heightfield colliders (converted to trimesh)", () => {
+    const backend = makeBackend();
+    const nrows = 3;
+    const ncols = 3;
+    const heights = new Float32Array([
+      0, 0, 0,
+      0, 1, 0,
+      0, 0, 0,
+    ]);
+    const body = backend.createBody(0, {
+      type: "static",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0, 1],
+    }, { index: 0, generation: 0 });
+    // Should not throw — heightfield is converted to trimesh internally
+    expect(() => {
+      backend.addCollider(body, {
+        shape: { type: "heightfield", nrows, ncols, heights, scale: [1, 1, 1] },
+      });
+    }).not.toThrow();
     backend.destroy();
   });
 

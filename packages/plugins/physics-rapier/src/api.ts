@@ -325,6 +325,11 @@ export class UniversalPhysicsAPI {
     return nearRealm.getContacts();
   }
 
+  getIntersections(): import("@downdraft/core").IntersectionPair[] {
+    const nearRealm = this.realmManager.getRealm(RealmTier.Near);
+    return nearRealm.getIntersections();
+  }
+
   // --- Snapshots ---
 
   snapshot(): Map<RealmTier, Uint8Array> {

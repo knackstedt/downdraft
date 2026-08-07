@@ -391,7 +391,7 @@ export class WebGPURenderer implements IRendererStateProvider {
         try {
           const resp = await fetch(riggedCharacterUrl);
           const buffer = await resp.arrayBuffer();
-          const modelData = loadModel(buffer, "character.fbx") as ModelData;
+          const modelData = await loadModel(buffer, "character.fbx") as ModelData;
           if (modelData.meshes.length > 0 && modelData.skin) {
             this.entityRenderer.setSkinnedPlayerMesh(modelData);
             console.log("[WebGPU] Rigged player model loaded:", modelData.meshes.length, "meshes,", modelData.skin.bones.length, "bones");
@@ -423,7 +423,7 @@ export class WebGPURenderer implements IRendererStateProvider {
             try {
               const resp = await fetch(url);
               const buffer = await resp.arrayBuffer();
-              const animData = loadModel(buffer, filename + ".fbx") as ModelData;
+              const animData = await loadModel(buffer, filename + ".fbx") as ModelData;
               if (animData.animations && animData.animations.length > 0) {
                 animator.registerRetargetedAnimations(animData.animations, stateName);
                 loadedCount++;
@@ -443,7 +443,7 @@ export class WebGPURenderer implements IRendererStateProvider {
         try {
           const resp = await fetch(playerModelUrl);
           const buffer = await resp.arrayBuffer();
-          const modelData = loadModel(buffer, "player.fbx");
+          const modelData = await loadModel(buffer, "player.fbx");
           if (modelData.meshes.length > 0) {
             this.entityRenderer.setPlayerMesh(modelData.meshes);
             console.log("[WebGPU] Static player model loaded:", modelData.meshes.length, "meshes");
@@ -460,7 +460,7 @@ export class WebGPURenderer implements IRendererStateProvider {
         try {
           const resp = await fetch(bedModelUrl);
           const buffer = await resp.arrayBuffer();
-          const modelData = loadModel(buffer, "Bed Single.fbx");
+          const modelData = await loadModel(buffer, "Bed Single.fbx");
           if (modelData.meshes.length > 0) {
             this.entityRenderer.setBedMesh(modelData.meshes);
             console.log("[WebGPU] Bed model loaded:", modelData.meshes.length, "meshes");

@@ -1,8 +1,13 @@
 // ============================================================================
-// Model Loader — synchronous parser dispatch + async loader helpers
+// Model Loader — parser dispatch + async loader helpers
 // ============================================================================
+// glTF/GLB parsing is async (codec dispatch for Draco/meshopt). Other formats
+// remain synchronous but are wrapped in async for uniform call sites.
+//
 
 import type { AssetManager } from "@downdraft/core";
+import type { GLTFCodecRegistry } from "./codecs/registry";
+import { getDefaultCodecRegistry } from "./codecs/registry";
 import { parseDAE } from "./dae";
 import { parseFBX } from "./fbx";
 import { parseGLTF } from "./gltf";
@@ -17,26 +22,30 @@ export interface ModelLoaderOptions {
   fetchFn?: (uri: string) => Promise<Response>;
   mtlResolver?: (uri: string) => Promise<ArrayBuffer | null>;
   binResolver?: (uri: string) => Promise<ArrayBuffer | null>;
+  /** Codec registry for glTF extension decoding (Draco, meshopt, basisu, etc.). */
+  codecRegistry?: GLTFCodecRegistry;
 }
 
-export function loadModel(
+export async function loadModel(
   data: ArrayBuffer,
   filename: string,
   mtlData?: ArrayBuffer | null,
   binData?: ArrayBuffer | null,
-): ModelData {
+  options?: ModelLoaderOptions,
+): Promise<ModelData> {
   const format = detectFormat(filename);
   if (!format) throw new Error(`Unknown model format: ${filename}`);
 
   const baseName = filename.replace(/\.[^.]+$/, "");
+  const registry = options?.codecRegistry ?? getDefaultCodecRegistry();
 
   switch (format) {
     case "obj":
       return parseOBJ(data, baseName, mtlData);
     case "gltf":
-      return parseGLTF(data, baseName, false, binData);
+      return parseGLTF(data, baseName, false, binData, { registry });
     case "glb":
-      return parseGLTF(data, baseName, true);
+      return parseGLTF(data, baseName, true, null, { registry });
     case "fbx":
       return parseFBX(data, baseName);
     case "dae":
@@ -56,6 +65,7 @@ async function defaultFetch(uri: string): Promise<Response> {
 
 export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
   const fetchFn = opts.fetchFn ?? defaultFetch;
+  const registry = opts.codecRegistry ?? getDefaultCodecRegistry();
 
   return async function loadModelAsync(uri: string): Promise<ModelData> {
     const filename = uri.split("/").pop() ?? uri;
@@ -82,10 +92,10 @@ export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
           const binUri = uri.replace(/\.[^.]+$/, ".bin");
           binData = await opts.binResolver(binUri);
         }
-        return parseGLTF(data, baseName, false, binData);
+        return parseGLTF(data, baseName, false, binData, { registry });
       }
       case "glb":
-        return parseGLTF(data, baseName, true);
+        return parseGLTF(data, baseName, true, null, { registry });
       case "fbx":
         return parseFBX(data, baseName);
       case "dae":

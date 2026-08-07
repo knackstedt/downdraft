@@ -69,7 +69,7 @@ async function testOBJ() {
 async function testGLB() {
   const { parseGLTF } = await import("@downdraft/plugin-models");
   const data = readFileSync(join(FIXTURES, "models", "Box.glb")).buffer as ArrayBuffer;
-  const result = parseGLTF(data, "Box", true);
+  const result = await parseGLTF(data, "Box", true);
   assert(result.meshes.length > 0, `GLB: expected meshes>0, got ${result.meshes.length}`);
   const mesh = result.meshes[0];
   assert(mesh.vertexCount > 0, `GLB: expected vertexCount>0, got ${mesh.vertexCount}`);

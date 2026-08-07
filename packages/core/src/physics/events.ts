@@ -1,5 +1,5 @@
 import type { Entity } from "../ecs/entity";
-import type { ContactManifold } from "./interface";
+import type { ContactManifold, IntersectionPair } from "./interface";
 
 export interface CollisionStartedEvent {
   entityA: Entity;
@@ -22,9 +22,21 @@ export interface ContactEvent {
   contactPoints: Array<[number, number, number]>;
 }
 
+export interface TriggerEnterEvent {
+  entityA: Entity;
+  entityB: Entity;
+}
+
+export interface TriggerExitEvent {
+  entityA: Entity;
+  entityB: Entity;
+}
+
 export const COLLISION_STARTED_CHANNEL = "physics:collision_started";
 export const COLLISION_STOPPED_CHANNEL = "physics:collision_stopped";
 export const CONTACT_CHANNEL = "physics:contact";
+export const TRIGGER_ENTER_CHANNEL = "physics:trigger_enter";
+export const TRIGGER_EXIT_CHANNEL = "physics:trigger_exit";
 
 export function manifoldToStartedEvent(manifold: ContactManifold): CollisionStartedEvent {
   return {
@@ -78,6 +90,40 @@ export function computeCollisionEvents(
   }
 
   return { started, stopped, contacts };
+}
+
+export function computeTriggerEvents(
+  currentIntersections: IntersectionPair[],
+  previousIntersections: IntersectionPair[],
+): {
+  entered: TriggerEnterEvent[];
+  exited: TriggerExitEvent[];
+} {
+  const entered: TriggerEnterEvent[] = [];
+  const exited: TriggerExitEvent[] = [];
+
+  const prevPairs = new Set<string>();
+  for (const p of previousIntersections) {
+    prevPairs.add(pairKey(p.entityA, p.entityB));
+  }
+
+  const currPairs = new Set<string>();
+  for (const p of currentIntersections) {
+    const key = pairKey(p.entityA, p.entityB);
+    currPairs.add(key);
+    if (!prevPairs.has(key)) {
+      entered.push({ entityA: p.entityA, entityB: p.entityB });
+    }
+  }
+
+  for (const p of previousIntersections) {
+    const key = pairKey(p.entityA, p.entityB);
+    if (!currPairs.has(key)) {
+      exited.push({ entityA: p.entityA, entityB: p.entityB });
+    }
+  }
+
+  return { entered, exited };
 }
 
 function pairKey(a: Entity, b: Entity): string {

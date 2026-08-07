@@ -58,6 +58,7 @@ function makeMockBackend(): PhysicsBackend {
     step(): void {},
     stepAll(): void {},
     getContacts(): ContactManifold[] { return []; },
+    getIntersections(): IntersectionPair[] { return []; },
     createCharacterController(realmId: number, _desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle {
       return { realmId, controllerId: ++nextControllerId, entity };
     },
