@@ -1,5 +1,5 @@
 import type * as Rapier from "@dimforge/rapier3d-compat";
-import type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, Entity, IslandInfo, JointDesc, RaycastResult, ShapeCastResult } from "@downdraft/core";
+import type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, Entity, IntersectionPair, IslandInfo, JointDesc, RaycastResult, ShapeCastResult } from "@downdraft/core";
 import { createLogger } from "@downdraft/core";
 
 const log = createLogger();
@@ -36,6 +36,8 @@ export interface PhysicsLib {
   reserveMemory?(bytes: number): void;
   setIntegrationDt?(realmId: number, dt: number): void;
   step(realmId: number, dt: number): void;
+  getContacts(realmId: number): ContactManifold[];
+  getIntersections(realmId: number): IntersectionPair[];
   getBodyTransform(realmId: number, bodyId: number): { position: [number, number, number]; rotation: [number, number, number, number] } | null;
   raycast(
     realmId: number,
@@ -142,11 +144,34 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const verts = new Float32Array(shape.vertices);
         const indices = new Uint32Array(shape.indices);
         cd = rapier.ColliderDesc.trimesh(verts, indices);
-      } else if ((shape as any).type === "heightfield") {
-        const sh = shape as any;
-        const heights = new Float32Array(sh.heights);
-        const scale = { x: sh.scale[0], y: sh.scale[1], z: sh.scale[2] };
-        cd = rapier.ColliderDesc.heightfield(sh.nrows, sh.ncols, heights, scale);
+      } else if (shape.type === "heightfield") {
+        // Rapier 0.19.3's WASM heightfield panics with "unreachable" in
+        // rawshape_heightfield for any input. Convert to trimesh as a fallback.
+        // When Rapier is upgraded to a version that fixes this, switch to:
+        //   rapier.ColliderDesc.heightfield(nrows, ncols, heights, scale, 0)
+        const { nrows, ncols, heights, scale } = shape;
+        const verts = new Float32Array(nrows * ncols * 3);
+        for (let r = 0; r < nrows; r++) {
+          for (let c = 0; c < ncols; c++) {
+            const idx = (r * ncols + c) * 3;
+            verts[idx] = (c / (ncols - 1) - 0.5) * scale[0] * 2;
+            verts[idx + 1] = heights[r * ncols + c] * scale[1];
+            verts[idx + 2] = (r / (nrows - 1) - 0.5) * scale[2] * 2;
+          }
+        }
+        const indices = new Uint32Array((nrows - 1) * (ncols - 1) * 6);
+        let ii = 0;
+        for (let r = 0; r < nrows - 1; r++) {
+          for (let c = 0; c < ncols - 1; c++) {
+            const v0 = r * ncols + c;
+            const v1 = r * ncols + c + 1;
+            const v2 = (r + 1) * ncols + c;
+            const v3 = (r + 1) * ncols + c + 1;
+            indices[ii++] = v0; indices[ii++] = v2; indices[ii++] = v1;
+            indices[ii++] = v1; indices[ii++] = v2; indices[ii++] = v3;
+          }
+        }
+        cd = rapier.ColliderDesc.trimesh(verts, indices);
       } else {
         cd = rapier.ColliderDesc.ball(0.5);
       }
@@ -321,6 +346,97 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
       step(realmId, dt) {
         const world = realms.get(realmId);
         if (world) world.step();
+      },
+      getContacts(realmId) {
+        const world = realms.get(realmId);
+        if (!world) return [];
+        const entityMap = entityByBodyHandle.get(realmId);
+        if (!entityMap) return [];
+
+        const contacts: ContactManifold[] = [];
+        const seen = new Set<string>(); // dedup pairs (c1,c2) and (c2,c1)
+
+        world.forEachCollider((c1) => {
+          if (c1.isSensor()) return; // sensors don't produce contact manifolds
+          world.contactPairsWith(c1, (c2) => {
+            if (c2.isSensor()) return;
+            const key = c1.handle < c2.handle
+              ? `${c1.handle}:${c2.handle}`
+              : `${c2.handle}:${c1.handle}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+
+            const bodyA = c1.parent();
+            const bodyB = c2.parent();
+            if (!bodyA || !bodyB) return;
+            const entityA = entityMap.get(bodyA.handle);
+            const entityB = entityMap.get(bodyB.handle);
+            if (!entityA || !entityB) return;
+
+            world.contactPair(c1, c2, (manifold, flipped) => {
+              const normal = manifold.normal();
+              const numContacts = manifold.numContacts();
+              const points: Array<[number, number, number]> = [];
+              for (let i = 0; i < numContacts; i++) {
+                const pt = manifold.localContactPoint1(i);
+                if (pt) {
+                  points.push([pt.x, pt.y, pt.z]);
+                  try { (pt as any).free?.(); } catch {}
+                }
+              }
+              // Contact distance — use first contact's distance as penetration depth
+              let penetration = 0;
+              if (numContacts > 0) {
+                penetration = Math.max(0, -manifold.contactDist(0));
+              }
+              const nx = flipped ? -normal.x : normal.x;
+              const ny = flipped ? -normal.y : normal.y;
+              const nz = flipped ? -normal.z : normal.z;
+              try { (normal as any).free?.(); } catch {}
+              try { (manifold as any).free?.(); } catch {}
+
+              contacts.push({
+                entityA,
+                entityB,
+                normal: [nx, ny, nz],
+                points,
+                penetrationDepth: penetration,
+              });
+            });
+          });
+        });
+
+        return contacts;
+      },
+      getIntersections(realmId) {
+        const world = realms.get(realmId);
+        if (!world) return [];
+        const entityMap = entityByBodyHandle.get(realmId);
+        if (!entityMap) return [];
+
+        const intersections: IntersectionPair[] = [];
+        const seen = new Set<string>();
+
+        world.forEachCollider((c1) => {
+          world.intersectionPairsWith(c1, (c2) => {
+            const key = c1.handle < c2.handle
+              ? `${c1.handle}:${c2.handle}`
+              : `${c2.handle}:${c1.handle}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+
+            const bodyA = c1.parent();
+            const bodyB = c2.parent();
+            if (!bodyA || !bodyB) return;
+            const entityA = entityMap.get(bodyA.handle);
+            const entityB = entityMap.get(bodyB.handle);
+            if (!entityA || !entityB) return;
+
+            intersections.push({ entityA, entityB });
+          });
+        });
+
+        return intersections;
       },
       getBodyTransform(realmId, bodyId) {
         const body = bodyMaps.get(realmId)?.get(bodyId);

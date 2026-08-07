@@ -129,7 +129,7 @@ export async function loadModelWithTextures(
     data = await resp.arrayBuffer();
   }
 
-  const modelData = loadModel(data, entry.filename);
+  const modelData = await loadModel(data, entry.filename);
   await loadExternalTextures(modelData, assetBase);
 
   // Compute stats

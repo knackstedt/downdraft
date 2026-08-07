@@ -67,7 +67,7 @@ function makeMockBackend(): PhysicsBackend {
     setSleepThresholds(): void {}, setSolverIterations(): void {}, setCCDEnabled(): void {},
     getIslands(): IslandInfo[] { return []; },
     raycast(): any { return null; }, raycastMulti(): any[] { return []; }, shapeCast(): any { return null; },
-    step(): void {}, stepAll(): void {}, getContacts(): any[] { return []; },
+    step(): void {}, stepAll(): void {}, getContacts(): any[] { return []; }, getIntersections(): any[] { return []; },
     createCharacterController(): any { return {}; }, destroyCharacterController(): void {},
     characterMove(): any { return {}; }, createJoint(): number { return 0; }, destroyJoint(): void {},
     syncTransforms(): void {}, readTransforms(): void {},

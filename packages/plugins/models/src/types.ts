@@ -16,6 +16,15 @@ export interface MeshData {
   weights?: Float32Array; // 4 bone weights per vertex (normalized)
   morphTargets?: MorphTargetData[];
   morphTargetNames?: string[];
+  /** KHR_materials_variants: per-primitive variant → material mappings. */
+  variantMappings?: { variant: number; material: number }[];
+}
+
+export interface TextureTransform {
+  offset: [number, number];
+  rotation: number;
+  scale: [number, number];
+  texCoord?: number;
 }
 
 export interface MaterialData {
@@ -27,6 +36,12 @@ export interface MaterialData {
   textureData?: ArrayBuffer | null;
   normalTextureUri?: string;
   emissiveColor?: [number, number, number];
+  /** KHR_texture_transform applied to the baseColor texture (UV transform). */
+  textureTransform?: TextureTransform;
+  /** KHR_texture_transform for the normal texture, if present. */
+  normalTextureTransform?: TextureTransform;
+  /** KHR_texture_transform for the emissive texture, if present. */
+  emissiveTextureTransform?: TextureTransform;
 }
 
 export interface AnimationChannel {
@@ -59,6 +74,8 @@ export interface ModelNode {
   rotation?: [number, number, number, number];
   scale?: [number, number, number];
   nodeIndex?: number;
+  /** KHR_lights_punctual: index into ModelData.lights. */
+  lightIndex?: number;
 }
 
 export interface BoneData {
@@ -76,6 +93,17 @@ export interface SkinData {
   boneNameToIndex: Map<string, number>;
 }
 
+export interface PunctualLightData {
+  type: "directional" | "point" | "spot";
+  color?: [number, number, number];
+  intensity?: number;
+  range?: number;
+  spot?: {
+    innerConeAngle: number;
+    outerConeAngle: number;
+  };
+}
+
 export interface ModelData {
   meshes: MeshData[];
   name: string;
@@ -85,6 +113,15 @@ export interface ModelData {
   nodes?: ModelNode[];
   skin?: SkinData;
   morphTargetNames?: string[];
+  /** KHR_materials_variants: variant names indexed by variant id. */
+  materialVariants?: string[];
+  /** KHR_lights_punctual: lights referenced by nodes via lightIndex. */
+  lights?: PunctualLightData[];
+}
+
+export function getMaterialVariant(model: ModelData, name: string): number {
+  if (!model.materialVariants) return -1;
+  return model.materialVariants.indexOf(name);
 }
 
 export type ModelFormat = "obj" | "gltf" | "glb" | "fbx" | "dae" | "stl" | "ply" | "3ds";

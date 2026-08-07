@@ -15,7 +15,13 @@ struct MaterialUniforms {
   roughness: f32,
   metallic: f32,
   emissiveIntensity: f32,
+  hasTexTransform: f32,
+  texOffset: vec2<f32>,
+  texScale: vec2<f32>,
+  texRotation: f32,
   _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 };
 
 @group(1) @binding(0) var<uniform> material: MaterialUniforms;
@@ -53,7 +59,19 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   let worldPos = modelUniform * vec4<f32>(input.position, 1.0);
   output.clipPosition = camera.viewProj * worldPos;
   output.worldPosition = worldPos.xyz;
-  output.uv = input.uv;
+
+  // KHR_texture_transform: scale, rotate, translate UVs.
+  if (material.hasTexTransform > 0.5) {
+    let cosR = cos(material.texRotation);
+    let sinR = sin(material.texRotation);
+    let scaled = input.uv * material.texScale;
+    output.uv = vec2<f32>(
+      cosR * scaled.x - sinR * scaled.y + material.texOffset.x,
+      sinR * scaled.x + cosR * scaled.y + material.texOffset.y,
+    );
+  } else {
+    output.uv = input.uv;
+  }
 
   let normalMatrix = mat3x3<f32>(
     modelUniform[0].xyz,

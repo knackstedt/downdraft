@@ -9,9 +9,9 @@ DownDraft Engine runs across four isolated execution contexts, each with distinc
 
 ```
 ┌─────────────────────────────────────────────┐
-  Electron Main Process (packages/app/src/main)
-    • Window lifecycle, display info, IPC
-    • SurrealDB worker thread (persistence)
+  Electron Main Process (game-owned src/main.ts)
+    • Calls createDowndraftApp() from @downdraft/app/main
+    • Window lifecycle, display info, IPC (config-driven)
     • GC profiling, performance stats
 ├─────────────────────────────────────────────┤
   Renderer Process (BrowserWindow)
@@ -33,9 +33,8 @@ DownDraft Engine runs across four isolated execution contexts, each with distinc
 
 ### 1. Electron Main Process
 
-- Window/lifecycle management
-- SurrealDB worker thread (save/load, game state queries)
-- IPC handlers
+- Game-owned `src/main.ts` calls `createDowndraftApp()` from `@downdraft/app/main`
+- Window/lifecycle management, IPC handlers — all config-driven
 - GC/performance profiling
 - No render loop here
 

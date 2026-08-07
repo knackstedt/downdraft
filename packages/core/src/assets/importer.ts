@@ -1,5 +1,4 @@
-import type { GLBLoader } from "./loader-mesh";
-import type { GLTFDocument } from "./loader-mesh";
+import type { GLBLoader, GLTFDocument } from "./loader-mesh";
 
 export interface ImportOptions {
   format: "gltf" | "glb";
@@ -11,6 +10,8 @@ export interface ImportOptions {
 
 export interface ImportResult {
   document: GLTFDocument;
+  /** Parsed model data (plugin ModelData shape) with meshes, materials, etc. */
+  model?: unknown;
   binaryBuffer: Uint8Array | null;
   warnings: string[];
 }
@@ -22,20 +23,57 @@ export class AssetImporter {
     this.loader = loader;
   }
 
- async importGLB(data: ArrayBuffer, options?: ImportOptions): Promise<ImportResult> {
+  async importGLB(data: ArrayBuffer, options?: ImportOptions): Promise<ImportResult> {
     const warnings: string[] = [];
-    const { meshes, nodes } = this.loader.parseGLB(data);
+    const { meshes, nodes } = await this.loader.parseGLB(data);
 
+    // Apply scale: bake into vertex positions (uniform scale).
+    let processedMeshes = meshes;
     if (options?.scale && options.scale !== 1) {
-      warnings.push(`Scale factor ${options.scale} not applied — use node transform scaling.`);
+      const s = options.scale;
+      for (const mesh of processedMeshes) {
+        const verts = mesh.vertices;
+        // Engine MeshData vertices are interleaved; position is at offset 0
+        // per vertex. The stride depends on the layout. We use the layout
+        // stride to find position offsets.
+        const stride = mesh.layout.stride / 4; // floats per vertex
+        for (let i = 0; i < mesh.vertexCount; i++) {
+          const base = i * stride;
+          verts[base + 0] *= s;
+          verts[base + 1] *= s;
+          verts[base + 2] *= s;
+        }
+      }
     }
 
+    // Apply flipY: when flipY === false, flip UV V coordinate (1 - v).
+    // Default (flipY true/undefined) leaves UVs as-is (glTF convention).
     if (options?.flipY === false) {
-      warnings.push("flipY=false not yet supported — GLB loader assumes Y-up.");
+      // UVs are not stored separately in engine MeshData; they're interleaved
+      // at offset 6-7 per vertex. Flip the V component.
+      for (const mesh of processedMeshes) {
+        const verts = mesh.vertices;
+        const stride = mesh.layout.stride / 4;
+        for (let i = 0; i < mesh.vertexCount; i++) {
+          const base = i * stride;
+          verts[base + 7] = 1 - verts[base + 7];
+        }
+      }
     }
+
+    // Build a GLTFDocument-shaped object that retains mesh/node counts.
+    const document = {
+      asset: { version: "2.0" },
+      meshes: processedMeshes.map((m, i) => ({
+        name: `mesh_${i}`,
+        primitives: [{ attributes: {}, mode: 4 }],
+      })),
+      nodes,
+    } as unknown as GLTFDocument;
 
     return {
-      document: { meshes: [], nodes } as unknown as GLTFDocument,
+      document,
+      model: { meshes: processedMeshes, nodes, name: "imported", format: "glb" },
       binaryBuffer: null,
       warnings,
     };
@@ -53,10 +91,11 @@ export class AssetImporter {
       warnings.push(`GLTF version ${doc.asset.version} — only 2.x is fully supported.`);
     }
 
-    this.loader.parseGLTFJSON(doc);
+    const { meshes, nodes } = await this.loader.parseGLTFJSON(doc);
 
     return {
       document: doc,
+      model: { meshes, nodes, name: "imported", format: "gltf" },
       binaryBuffer: binaryData ? new Uint8Array(binaryData) : null,
       warnings,
     };

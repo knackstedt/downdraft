@@ -8,7 +8,8 @@ export type ColliderShape =
   | { type: "sphere"; radius: number }
   | { type: "capsule"; halfHeight: number; radius: number }
   | { type: "mesh"; vertices: Float32Array; indices: Uint32Array }
-  | { type: "convex"; vertices: Float32Array };
+  | { type: "convex"; vertices: Float32Array }
+  | { type: "heightfield"; nrows: number; ncols: number; heights: Float32Array; scale: [number, number, number] };
 
 /**
  * Opaque public handle for a physics body. Games never see raw backend/Rapier
@@ -71,6 +72,12 @@ export interface ContactManifold {
   normal: [number, number, number];
   points: Array<[number, number, number]>;
   penetrationDepth: number;
+}
+
+/** Sensor intersection pair (no contact manifold — sensors report overlap only). */
+export interface IntersectionPair {
+  entityA: Entity;
+  entityB: Entity;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +409,9 @@ export interface PhysicsBackend {
   stepAll(dt: number): void;
 
   getContacts(realmId: number): ContactManifold[];
+
+  /** Sensor intersection pairs for the given realm (overlap-only, no contact manifold). */
+  getIntersections(realmId: number): IntersectionPair[];
 
   /** Enumerate contact islands for island-aware load shedding. */
   getIslands(realmId: number): IslandInfo[];

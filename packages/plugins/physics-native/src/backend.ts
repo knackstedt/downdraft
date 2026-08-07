@@ -16,6 +16,7 @@ import type {
     ColliderShape,
     ContactManifold,
     Entity,
+    IntersectionPair,
     IslandInfo,
     JointDesc,
     PhysicsBackend,
@@ -562,6 +563,44 @@ export class NativePhysicsBackend implements PhysicsBackend {
     return contacts;
   }
 
+  getIntersections(realmId: number): IntersectionPair[] {
+    const realm = this.realms.get(realmId);
+    if (!realm) return [];
+
+    const intersections: IntersectionPair[] = [];
+    const broadphase = new Broadphase(realm.broadphaseCellSize);
+    const bodies = [...realm.bodies.values()];
+
+    for (const body of bodies) {
+      const aabb = this.computeAABB(body);
+      if (aabb) broadphase.insert(body.id, aabb);
+    }
+    const pairs = broadphase.generatePairs();
+
+    for (const [idA, idB] of pairs) {
+      const bodyA = realm.bodies.get(idA);
+      const bodyB = realm.bodies.get(idB);
+      if (!bodyA || !bodyB) continue;
+
+      for (const colA of bodyA.colliders) {
+        for (const colB of bodyB.colliders) {
+          // Only report pairs where at least one collider is a sensor
+          if (!colA.sensor && !colB.sensor) continue;
+          const manifold = detectCollision(
+            colA.shape, bodyA.position, bodyA.rotation,
+            colB.shape, bodyB.position, bodyB.rotation,
+          );
+          if (!manifold) continue;
+          intersections.push({
+            entityA: { index: bodyA.entityIndex, generation: bodyA.entityGeneration },
+            entityB: { index: bodyB.entityIndex, generation: bodyB.entityGeneration },
+          });
+        }
+      }
+    }
+    return intersections;
+  }
+
   // --- Character controller ---
 
   createCharacterController(realmId: number, desc: CharacterControllerDesc, entity: Entity): CharacterControllerHandle {
@@ -763,6 +802,34 @@ export class NativePhysicsBackend implements PhysicsBackend {
     }
     if (shape.type === "convex") {
       return { type: "convex", vertices: shape.vertices };
+    }
+    if (shape.type === "heightfield") {
+      // Convert heightfield to trimesh: two triangles per grid cell.
+      // The native backend has no native heightfield collider; this approximation
+      // produces reasonable physics for the fallback/testing backend.
+      const { nrows, ncols, heights, scale } = shape;
+      const vertices = new Float32Array(nrows * ncols * 3);
+      for (let r = 0; r < nrows; r++) {
+        for (let c = 0; c < ncols; c++) {
+          const idx = (r * ncols + c) * 3;
+          vertices[idx] = (c / (ncols - 1) - 0.5) * scale[0] * 2;
+          vertices[idx + 1] = heights[r * ncols + c] * scale[1];
+          vertices[idx + 2] = (r / (nrows - 1) - 0.5) * scale[2] * 2;
+        }
+      }
+      const indices = new Uint32Array((nrows - 1) * (ncols - 1) * 6);
+      let ii = 0;
+      for (let r = 0; r < nrows - 1; r++) {
+        for (let c = 0; c < ncols - 1; c++) {
+          const v0 = r * ncols + c;
+          const v1 = r * ncols + c + 1;
+          const v2 = (r + 1) * ncols + c;
+          const v3 = (r + 1) * ncols + c + 1;
+          indices[ii++] = v0; indices[ii++] = v2; indices[ii++] = v1;
+          indices[ii++] = v1; indices[ii++] = v2; indices[ii++] = v3;
+        }
+      }
+      return { type: "mesh", vertices, indices };
     }
     // Fallback: small sphere
     return { type: "sphere", radius: 0.5 };

@@ -18,22 +18,26 @@ const log = createLogger();
 const STORAGE_USAGE = 0x80 | 0x08; // GPUBufferUsage.STORAGE | COPY_DST
 
 /**
- * WGSL `struct Material` layout — must match `MATERIAL_STRUCT_WGSL` in
-// bindless.wgsl.ts. 48 bytes (3 * vec4), std140-friendly.
+ * WGSL `struct Material` layout — must match `BindlessMaterial` in
+// opaque.ts PBR_GBUFFER_SHADER. 80 bytes (20 floats), std140-friendly.
  */
-export const MATERIAL_STRUCT_SIZE = 48; // bytes
+export const MATERIAL_STRUCT_SIZE = 80; // bytes
 
 /**
- * Float view of one material struct (12 floats / 48 bytes).
+ * Float view of one material struct (20 floats / 80 bytes).
  *  [0..3]   baseColor (vec4)
  *  [4]      roughness
  *  [5]      metallic
  *  [6]      emissiveIntensity
- *  [7]      _pad0
+ *  [7]      hasTexTransform (1.0 if texture transform present, 0.0 otherwise)
  *  [8]      albedoTexHandle   (u32 packed: arrayIndex<<16 | layerIndex)
  *  [9]      normalTexHandle   (u32)
  *  [10]     metallicRoughnessTexHandle (u32)
- *  [11]     packedAOEmissive  (aoTexHandle low 16 bits? — actually two u32s packed)
+ *  [11]     packedAOEmissive  (aoTexHandle low 16 bits + emissiveTexHandle high 16)
+ *  [12..13] texOffset (vec2)
+ *  [14..15] texScale (vec2)
+ *  [16]     texRotation
+ *  [17..19] padding
  *
  * For simplicity we expose a typed setter; the SSBO is written as a Float32Array
  * view but the handle fields are reinterpreted as u32 by the shader.
@@ -48,6 +52,12 @@ export interface MaterialParams {
   metallicRoughnessTexHandle: number;
   aoTexHandle: number;
   emissiveTexHandle: number;
+  /** KHR_texture_transform (optional). */
+  textureTransform?: {
+    offset: [number, number];
+    rotation: number;
+    scale: [number, number];
+  };
 }
 
 export interface MaterialManagerOptions {
@@ -69,7 +79,7 @@ export class BindlessMaterialManager {
   private capacity: number;
   private growthFactor: number;
   private maxCapacity: number;
-  /** Float32 view over the SSBO backing store (size = capacity * 12). */
+  /** Float32 view over the SSBO backing store (size = capacity * 20). */
   private backing: Float32Array;
   /** Uint32 view over the same ArrayBuffer as `backing` — for writing u32
    *  texture handles so the shader reads correct u32 bit patterns. */
@@ -85,7 +95,7 @@ export class BindlessMaterialManager {
     this.capacity = options.initialCapacity ?? DEFAULT_INITIAL_CAPACITY;
     this.growthFactor = options.growthFactor ?? DEFAULT_GROWTH_FACTOR;
     this.maxCapacity = options.maxCapacity ?? DEFAULT_MAX_CAPACITY;
-    this.backing = new Float32Array(this.capacity * 12);
+    this.backing = new Float32Array(this.capacity * 20);
     this.backingU32 = new Uint32Array(this.backing.buffer);
     this.buffer = device.createBuffer({
       size: this.capacity * MATERIAL_STRUCT_SIZE,
@@ -142,7 +152,7 @@ export class BindlessMaterialManager {
   unregisterMaterial(index: number): void {
     if (index < 0 || index >= this.nextSlot) return;
     // Zero the slot so stale data isn't sampled.
-    this.backing.fill(0, index * 12, (index + 1) * 12);
+    this.backing.fill(0, index * 20, (index + 1) * 20);
     this.flushRange(index, 1);
     this.freeList.push(index);
   }
@@ -150,7 +160,7 @@ export class BindlessMaterialManager {
   /** Flush all pending writes to the GPU (call once per frame before draw). */
   flush(): void {
     if (this.nextSlot === 0) return;
-    this.device.queue.writeBuffer(this.buffer, 0, this.backing.buffer as unknown as BufferSource, 0, this.nextSlot * 12 * 4);
+    this.device.queue.writeBuffer(this.buffer, 0, this.backing.buffer as unknown as BufferSource, 0, this.nextSlot * 20 * 4);
   }
 
   destroy(): void {
@@ -160,7 +170,7 @@ export class BindlessMaterialManager {
   // ── internal ──────────────────────────────────────────────────────────
 
   private writeMaterial(index: number, p: MaterialParams): void {
-    const o = index * 12;
+    const o = index * 20;
     this.backing[o + 0] = p.baseColor[0];
     this.backing[o + 1] = p.baseColor[1];
     this.backing[o + 2] = p.baseColor[2];
@@ -168,7 +178,7 @@ export class BindlessMaterialManager {
     this.backing[o + 4] = p.roughness;
     this.backing[o + 5] = p.metallic;
     this.backing[o + 6] = p.emissiveIntensity;
-    this.backing[o + 7] = 0; // _pad0
+    this.backing[o + 7] = p.textureTransform ? 1.0 : 0.0; // hasTexTransform
     // Handle fields are u32; write via the Uint32Array view so the shader
     // reads correct u32 bit patterns (not float reinterpretations).
     this.backingU32[o + 8] = p.albedoTexHandle >>> 0;
@@ -177,6 +187,23 @@ export class BindlessMaterialManager {
     // Pack ao (low 16) + emissive (high 16) into one u32.
     this.backingU32[o + 11] =
       ((p.aoTexHandle & 0xffff) | ((p.emissiveTexHandle & 0xffff) << 16)) >>> 0;
+    // Texture transform (KHR_texture_transform)
+    if (p.textureTransform) {
+      this.backing[o + 12] = p.textureTransform.offset[0];
+      this.backing[o + 13] = p.textureTransform.offset[1];
+      this.backing[o + 14] = p.textureTransform.scale[0];
+      this.backing[o + 15] = p.textureTransform.scale[1];
+      this.backing[o + 16] = p.textureTransform.rotation;
+    } else {
+      this.backing[o + 12] = 0;
+      this.backing[o + 13] = 0;
+      this.backing[o + 14] = 1;
+      this.backing[o + 15] = 1;
+      this.backing[o + 16] = 0;
+    }
+    this.backing[o + 17] = 0; // _pad0
+    this.backing[o + 18] = 0; // _pad1
+    this.backing[o + 19] = 0; // _pad2
     this.flushRange(index, 1);
   }
 
@@ -197,7 +224,7 @@ export class BindlessMaterialManager {
       throw new Error(`BindlessMaterialManager: maxCapacity ${this.maxCapacity} reached`);
     }
     const newCapacity = Math.min(Math.floor(this.capacity * this.growthFactor), this.maxCapacity);
-    const newBacking = new Float32Array(newCapacity * 12);
+    const newBacking = new Float32Array(newCapacity * 20);
     newBacking.set(this.backing);
     const newBuffer = this.device.createBuffer({
       size: newCapacity * MATERIAL_STRUCT_SIZE,
@@ -205,7 +232,7 @@ export class BindlessMaterialManager {
       label: "bindless_material_ssbo",
     });
     // Copy old data into the new buffer.
-    this.device.queue.writeBuffer(newBuffer, 0, newBacking.buffer as unknown as BufferSource, 0, this.nextSlot * 12 * 4);
+    this.device.queue.writeBuffer(newBuffer, 0, newBacking.buffer as unknown as BufferSource, 0, this.nextSlot * 20 * 4);
     this.buffer.destroy();
     this.buffer = newBuffer;
     this.backing = newBacking;

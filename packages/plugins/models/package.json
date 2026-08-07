@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@downdraft/core": "workspace:*",
-    "fflate": "^0.8.2"
+    "draco3dgltf": "^1.5.7",
+    "fflate": "^0.8.2",
+    "meshoptimizer": "^1.2.0"
   }
 }

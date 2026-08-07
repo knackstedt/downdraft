@@ -8,6 +8,7 @@ import type {
     ColliderShape,
     ContactManifold,
     Entity,
+    IntersectionPair,
     IslandInfo,
     JointDesc,
     PhysicsBackend,
@@ -24,6 +25,7 @@ interface RealmState {
   bodies: Map<number, BodyState>;
   nextBodyId: number;
   contacts: ContactManifold[];
+  intersections: IntersectionPair[];
   nextControllerId: number;
   nextJointId: number;
 }
@@ -70,6 +72,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
       bodies: new Map(),
       nextBodyId: 1,
       contacts: [],
+      intersections: [],
       nextControllerId: 1,
       nextJointId: 1,
  };
@@ -513,6 +516,8 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     if (this.lib) {
       this.lib.step(realmId, dt);
       this.readBackTransforms(realm);
+      realm.contacts = this.lib.getContacts(realmId);
+      realm.intersections = this.lib.getIntersections(realmId);
       return;
     }
 
@@ -528,6 +533,11 @@ export class RapierPhysicsBackend implements PhysicsBackend {
   getContacts(realmId: number): ContactManifold[] {
     const realm = this.realms.get(realmId);
     return realm ? realm.contacts : [];
+  }
+
+  getIntersections(realmId: number): IntersectionPair[] {
+    const realm = this.realms.get(realmId);
+    return realm ? realm.intersections : [];
   }
 
   getIslands(realmId: number): IslandInfo[] {
@@ -765,6 +775,7 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     }
 
     realm.contacts = this.detectContacts(realm);
+    realm.intersections = this.detectIntersections(realm);
   }
 
   private detectContacts(realm: RealmState): ContactManifold[] {
@@ -777,7 +788,9 @@ export class RapierPhysicsBackend implements PhysicsBackend {
         const b = bodies[j];
 
         for (const colA of a.colliders.values()) {
+          if (colA.sensor) continue;
           for (const colB of b.colliders.values()) {
+            if (colB.sensor) continue;
             const contact = checkColliderCollision(
               a.position,
               colA.shape,
@@ -799,6 +812,39 @@ export class RapierPhysicsBackend implements PhysicsBackend {
     }
 
     return contacts;
+  }
+
+  private detectIntersections(realm: RealmState): IntersectionPair[] {
+    const intersections: IntersectionPair[] = [];
+    const bodies = [...realm.bodies.values()];
+
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        const a = bodies[i];
+        const b = bodies[j];
+
+        for (const colA of a.colliders.values()) {
+          for (const colB of b.colliders.values()) {
+            // Only report pairs where at least one collider is a sensor
+            if (!colA.sensor && !colB.sensor) continue;
+            const contact = checkColliderCollision(
+              a.position,
+              colA.shape,
+              b.position,
+              colB.shape,
+            );
+            if (contact) {
+              intersections.push({
+                entityA: a.body.entity,
+                entityB: b.body.entity,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return intersections;
   }
 }
 

@@ -33,9 +33,15 @@ interface PluginMaterialData {
   textureData?: ArrayBuffer | null;
   normalTextureUri?: string;
   emissiveColor?: [number, number, number];
+  /** KHR_texture_transform UV transform for the baseColor texture. */
+  textureTransform?: {
+    offset: [number, number];
+    rotation: number;
+    scale: [number, number];
+  };
 }
 
-export type { PluginMeshData, PluginModelData, PluginMaterialData };
+export type { PluginMaterialData, PluginMeshData, PluginModelData };
 
 export type TargetLayout = "pbr" | "standard" | "skinned";
 

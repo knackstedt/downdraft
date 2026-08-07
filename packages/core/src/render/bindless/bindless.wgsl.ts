@@ -11,7 +11,7 @@
  * WGSL struct + bind group declarations for bindless materials.
  *
  * Material struct layout MUST match `MaterialParams` in material-manager.ts
- * (48 bytes / 12 floats). Texture handles are u32 packed as
+ * (80 bytes / 20 floats). Texture handles are u32 packed as
  * (arrayIndex << 16) | layerIndex.
  *
  * `MAX_ARRAYS_PER_SLOT` must match `BindlessTextureRegistry.maxArrayBindingsPerFormat`.
@@ -23,7 +23,7 @@ struct BindlessMaterial {
   roughness: f32,
   metallic: f32,
   emissiveIntensity: f32,
-  _pad0: f32,
+  hasTexTransform: f32,
   // Packed u32 texture handles (arrayIndex<<16 | layerIndex). For slots with
   // two textures packed into one u32, low 16 = ao arrayIndex/layer, high 16 =
   // emissive. See material-manager.ts writeMaterial().
@@ -31,6 +31,13 @@ struct BindlessMaterial {
   normalTex: u32,
   metallicRoughnessTex: u32,
   aoEmissiveTex: u32,
+  // KHR_texture_transform UV transform (applied in vertex shader).
+  texOffset: vec2<f32>,
+  texScale: vec2<f32>,
+  texRotation: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 };
 
 @group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
@@ -115,6 +122,21 @@ fn sampleEmissive(materialIndex: u32, uv: vec2<f32>) -> vec4<f32> {
 /// Get the material struct for a draw.
 fn getMaterial(materialIndex: u32) -> BindlessMaterial {
   return bindlessMaterials[materialIndex];
+}
+
+/// Apply KHR_texture_transform to a UV coordinate. Returns the original UV
+/// if the material has no texture transform (hasTexTransform <= 0.5).
+fn applyTexTransform(m: BindlessMaterial, uv: vec2<f32>) -> vec2<f32> {
+  if (m.hasTexTransform <= 0.5) {
+    return uv;
+  }
+  let cosR = cos(m.texRotation);
+  let sinR = sin(m.texRotation);
+  let scaled = uv * m.texScale;
+  return vec2<f32>(
+    cosR * scaled.x - sinR * scaled.y + m.texOffset.x,
+    sinR * scaled.x + cosR * scaled.y + m.texOffset.y,
+  );
 }
 `;
 

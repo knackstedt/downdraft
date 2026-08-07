@@ -5,12 +5,24 @@ import logoSvg from '../assets/logo.svg';
 
 <StarlightPage frontmatter={{ title: 'DownDraft', template: 'splash' }} hasSidebar={false}>
 	<div class="landing-root">
-		<!-- Ambient ember particles -->
-		<div class="particles" aria-hidden="true">
-			{Array.from({ length: 24 }).map((_, i) => (
-				<div class="particle" style={`--i: ${i}; --delay: ${Math.random() * 5}s; --size: ${2 + Math.random() * 4}px; --left: ${Math.random() * 100}%`} />
-			))}
-		</div>
+		<!-- Background grid -->
+		<div class="grid-bg" aria-hidden="true"></div>
+
+		<!-- Vector field -->
+		<svg class="vector-field" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 1000 1000">
+			<path d="M -50 100 Q 250 250, 200 500 T 350 1050" />
+			<path d="M 100 -50 Q 400 150, 320 450 T 500 1050" />
+			<path d="M 300 -50 Q 600 200, 500 500 T 650 1050" />
+			<path d="M 550 -50 Q 800 180, 700 480 T 820 1050" />
+			<path d="M 800 -50 Q 1050 220, 900 520 T 1000 1050" />
+			<path d="M -100 350 Q 150 450, 100 700 T 220 1050" />
+		</svg>
+
+		<!-- Corner crosshairs -->
+		<div class="crosshair tl" aria-hidden="true"></div>
+		<div class="crosshair tr" aria-hidden="true"></div>
+		<div class="crosshair bl" aria-hidden="true"></div>
+		<div class="crosshair br" aria-hidden="true"></div>
 
 		<!-- HERO -->
 		<section class="hero">
@@ -19,14 +31,15 @@ import logoSvg from '../assets/logo.svg';
 					<img src={logoSvg.src} alt="DownDraft" width={80} height={80} class="hero-logo" />
 				</div>
 				<h1 class="headline">
-					<span class="line">AI-Driven.</span>
-					<span class="line">WebGPU.</span>
+					<span class="line">AAA-class engine.</span>
+					<span class="line">WebGPU native.</span>
 					<span class="line accent">TypeScript-first.</span>
 				</h1>
 				<p class="subheadline">
-					A cross-platform game engine built on Electron + Bun + WebGPU, with a built-in MCP
-					server that lets AI agents design, build, debug, and manage game assets via natural
-					language prompts.
+					A loosely AAA-class game engine built on Electron + WebGPU, with excellent
+					performance diagnostics via the Chromium Performance Profiler. TypeScript-first
+					workflow, a modular plugin ecosystem, and a built-in MCP server for AI-assisted
+					asset management.
 				</p>
 				<div class="cta-row">
 					<a href="/getting-started/introduction/" class="btn btn-primary">
@@ -45,8 +58,8 @@ import logoSvg from '../assets/logo.svg';
 		<section class="install-section">
 			<div class="section-inner">
 				<p class="section-eyebrow">Quick Start</p>
-				<h2 class="section-title">One command. Zero fuss.</h2>
-				<p class="install-subtitle">Clone, install, and launch the engine in seconds.</p>
+				<h2 class="section-title">Scaffold a new game in seconds</h2>
+				<p class="install-subtitle">Bootstrap a project with the DownDraft CLI — templates, configs, and dev server all set up for you.</p>
 				<div class="terminal">
 					<div class="terminal-header">
 						<div class="terminal-dots">
@@ -57,8 +70,8 @@ import logoSvg from '../assets/logo.svg';
 						<span class="terminal-title">bash</span>
 					</div>
 					<div class="terminal-body">
-						<code class="terminal-code">git clone https://github.com/knackstedt/downdraft-engine && cd downdraft-engine && bun install && bun run dev</code>
-						<button class="copy-btn" aria-label="Copy to clipboard" data-command="git clone https://github.com/knackstedt/downdraft-engine && cd downdraft-engine && bun install && bun run dev">
+						<code class="terminal-code">npx @downdraft/cli new my-game</code>
+						<button class="copy-btn" aria-label="Copy to clipboard" data-command="npx @downdraft/cli new my-game">
 							<svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 							<svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
 						</button>
@@ -67,8 +80,8 @@ import logoSvg from '../assets/logo.svg';
 				<div class="install-meta">
 					<span class="pill">Electron</span>
 					<span class="pill">WebGPU</span>
-					<span class="pill">Bun</span>
 					<span class="pill">TypeScript</span>
+					<span class="pill">Rapier3D</span>
 				</div>
 			</div>
 		</section>
@@ -84,42 +97,42 @@ import logoSvg from '../assets/logo.svg';
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
 						</div>
 						<h3 class="feature-title">ECS Architecture</h3>
-						<p class="feature-desc">Archetype-based entity component system with change detection, hierarchy, and double-buffered events.</p>
+						<p class="feature-desc">Entity-component-system that scales from a few dozen to thousands of entities. Change detection, hierarchy, and event batching built in — so you focus on gameplay, not plumbing.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
 						</div>
 						<h3 class="feature-title">WebGPU Rendering</h3>
-						<p class="feature-desc">Deferred pipeline with G-Buffer, shadow maps, post-processing, and a Bevy-style render graph with automatic resource aliasing.</p>
+						<p class="feature-desc">Deferred pipeline with shadows, post-processing, and a render graph with automatic resource aliasing. Ships with two Chromium-based DOM/CSS/JS interface stacks — a flat overlay for HUDs and menus, and an in-game texture mode for world-space UI.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
 						</div>
 						<h3 class="feature-title">Plugin System</h3>
-						<p class="feature-desc">Tiered TypeScript and WASM plugins. First-party plugins for water, terrain, physics, audio, networking, and more.</p>
+						<p class="feature-desc">Drop-in TypeScript and WASM plugins for water, terrain, physics, audio, networking, and more. Write your own in TypeScript — no native build tooling required.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
 						</div>
-						<h3 class="feature-title">MCP / AI Agents</h3>
-						<p class="feature-desc">Built-in MCP server lets AI agents design scenes, spawn entities, manage assets, and debug via natural language.</p>
+						<h3 class="feature-title">MCP Server</h3>
+						<p class="feature-desc">Built-in MCP server lets AI assistants design scenes, spawn entities, manage assets, and debug — all through natural language prompts.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
 						</div>
 						<h3 class="feature-title">Physics</h3>
-						<p class="feature-desc">Pluggable physics abstraction with Rapier3D backend, multi-realm support, and character controllers.</p>
+						<p class="feature-desc">Rapier3D-powered physics with character controllers, collision detection, and multi-realm support. Swap backends without touching gameplay code.</p>
 					</article>
 					<article class="feature-card">
 						<div class="feature-icon">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
 						</div>
 						<h3 class="feature-title">Audio</h3>
-						<p class="feature-desc">Spatial audio with Kira backend via Rust FFI, mixer, effects, and listener tracking.</p>
+						<p class="feature-desc">Spatial audio powered by Kira (Rust FFI) with a full mixer, effects chain, and 3D listener tracking.</p>
 					</article>
 				</div>
 			</div>
@@ -131,9 +144,10 @@ import logoSvg from '../assets/logo.svg';
 				<p class="section-eyebrow">Architecture</p>
 				<h2 class="section-title">Built for performance</h2>
 				<p class="section-lead">
-					DownDraft leverages four isolated execution contexts with zero-copy
-					SharedArrayBuffer communication, a deferred WebGPU render pipeline, and a
-					modular plugin ecosystem — all orchestrated through Electron.
+					DownDraft pairs a deferred WebGPU render pipeline with a modular plugin
+					ecosystem, all orchestrated through Electron's multi-process architecture.
+					Zero-copy SharedArrayBuffer keeps data flowing between threads with no
+					serialization overhead.
 				</p>
 				<div class="stack-grid">
 					<div class="stack-item">
@@ -143,10 +157,6 @@ import logoSvg from '../assets/logo.svg';
 					<div class="stack-item">
 						<div class="stack-dot" />
 						<span>WebGPU / WGPU</span>
-					</div>
-					<div class="stack-item">
-						<div class="stack-dot" />
-						<span>Bun runtime</span>
 					</div>
 					<div class="stack-item">
 						<div class="stack-dot" />
@@ -172,11 +182,119 @@ import logoSvg from '../assets/logo.svg';
 			</div>
 		</section>
 
+		<!-- WHY ELECTRON -->
+		<section class="electron-section">
+			<div class="section-inner narrow">
+				<p class="section-eyebrow">Hot Take</p>
+				<h2 class="section-title">Electron isn't an insane choice</h2>
+				<p class="section-lead">
+					We know what you're thinking. But for a game engine, Electron's architecture is
+					genuinely a perfect fit — and here's why.
+				</p>
+				<div class="electron-grid">
+					<div class="electron-point">
+						<div class="electron-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-5"/></svg>
+						</div>
+						<div>
+							<h3>DevTools that actually matter</h3>
+							<p>Chromium's built-in Performance Profiler gives you frame-by-frame flame charts, memory snapshots, and CPU profiling with zero setup. No custom profiler to build, no guessing where your frame time went — just open DevTools and optimize.</p>
+						</div>
+					</div>
+					<div class="electron-point">
+						<div class="electron-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+						</div>
+						<div>
+							<h3>Thread model that maps to games</h3>
+							<p>Electron's multi-process architecture — main process, renderer processes, worker threads — maps naturally to game loops. Your simulation runs on one thread, rendering on another, asset loading on workers. Zero-copy SharedArrayBuffer means no serialization between them.</p>
+						</div>
+					</div>
+					<div class="electron-point">
+						<div class="electron-icon">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
+						</div>
+						<div>
+							<h3>The web is your toolkit</h3>
+							<p>DOM, CSS, Canvas, WebGL2 fallback — it's all there. Build your editor UI with React and Tailwind, your in-game UI with the GPU texture system, and mix freely. No need to reinvent UI frameworks or build a custom editor from scratch.</p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- HOW A FRAME GETS BUILT -->
+		<section class="pipeline-section">
+			<div class="section-inner narrow">
+				<p class="section-eyebrow">Render Pipeline</p>
+				<h2 class="section-title">How a frame gets built</h2>
+				<p class="section-lead">
+					Everything — simulation, rendering, and UI — runs inside the Electron renderer
+					and web workers. No native module boundary to cross, no separate UI process
+					to synchronize.
+				</p>
+				<div class="pipeline">
+					<div class="pipeline-step">
+						<span class="pipeline-tag">01</span>
+						<div>
+							<h3>Simulation</h3>
+							<p>Single-threaded scheduling for the ECS, with multicore work dispatched to web workers via SharedArrayBuffer — no locks, no serialization.</p>
+						</div>
+					</div>
+					<div class="pipeline-step">
+						<span class="pipeline-tag">02</span>
+						<div>
+							<h3>Render graph</h3>
+							<p>WebGPU drives the scene — compute shaders, explicit resource binding, and a Bevy-style render graph with automatic resource aliasing. Translated to Vulkan, Metal, or D3D12 depending on platform.</p>
+						</div>
+					</div>
+					<div class="pipeline-step">
+						<span class="pipeline-tag">03</span>
+						<div>
+							<h3>UI — flat path</h3>
+							<p>Ordinary DOM and CSS, composited above the canvas by Chromium for HUDs, menus, and anything that always sits in screen space.</p>
+						</div>
+					</div>
+					<div class="pipeline-step">
+						<span class="pipeline-tag">04</span>
+						<div>
+							<h3>UI — world-space path</h3>
+							<p>Offscreen-rendered DOM, imported into the render graph as a shared GPU texture and drawn as geometry — for panels that need to exist inside the 3D scene.</p>
+						</div>
+					</div>
+					<div class="pipeline-step">
+						<span class="pipeline-tag">05</span>
+						<div>
+							<h3>Composite</h3>
+							<p>One frame, one process — simulation, scene, and interface presented together. Open Chromium DevTools to profile any of it.</p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- IN ACTIVE DEVELOPMENT -->
+		<section class="status-section">
+			<div class="section-inner narrow">
+				<p class="section-eyebrow">Status</p>
+				<h2 class="section-title">Early, and still moving</h2>
+				<p class="section-lead">
+					DownDraft grew out of the engine work for To The Ocean and is now being built as
+					a standalone engine. Architecture decisions are still being made in the open —
+					feedback shapes what ships.
+				</p>
+				<div class="status-stamp">
+					<span class="status-dot"></span>
+					In active development
+				</div>
+			</div>
+		</section>
+
 		<!-- FOOTER CTA -->
 		<section class="footer-cta">
 			<div class="section-inner">
 				<h2 class="footer-title">Ready to build something great?</h2>
-				<p class="footer-lead">Dive into the docs and start creating games with AI-assisted tooling.</p>
+				<p class="footer-lead">Dive into the docs and start building your game.</p>
 				<div class="cta-row">
 					<a href="/getting-started/introduction/" class="btn btn-primary">
 						<span>Get Started</span>
@@ -218,7 +336,7 @@ import logoSvg from '../assets/logo.svg';
 		});
 	}, { threshold: 0.1 });
 
-	document.querySelectorAll('.feature-card, .stack-item, .section-title, .section-lead').forEach(el => {
+	document.querySelectorAll('.feature-card, .stack-item, .electron-point, .pipeline-step, .status-stamp, .section-title, .section-lead').forEach(el => {
 		el.classList.add('reveal');
 		observer.observe(el);
 	});
@@ -238,33 +356,60 @@ import logoSvg from '../assets/logo.svg';
 		--radius-sm: 10px;
 	}
 
-	/* Particles */
-	.particles {
+	/* Background grid */
+	.grid-bg {
 		position: fixed;
 		inset: 0;
-		pointer-events: none;
+		background-image:
+			linear-gradient(rgba(255,94,26,0.06) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(255,94,26,0.06) 1px, transparent 1px);
+		background-size: 48px 48px;
+		opacity: 0.5;
 		z-index: 0;
-		overflow: hidden;
+		pointer-events: none;
 	}
-	.particle {
+
+	/* Vector field */
+	.vector-field {
+		position: fixed;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+		opacity: 0.4;
+	}
+	.vector-field path {
+		fill: none;
+		stroke: var(--ember-dim);
+		stroke-width: 1;
+		stroke-dasharray: 6 10;
+		animation: draft-flow 14s linear infinite;
+	}
+	.vector-field path:nth-child(odd) { animation-duration: 18s; stroke: rgba(255,140,66,0.25); }
+	.vector-field path:nth-child(3n) { animation-duration: 22s; }
+	@keyframes draft-flow {
+		to { stroke-dashoffset: -320; }
+	}
+
+	/* Corner crosshairs */
+	.crosshair {
+		position: fixed;
+		width: 22px;
+		height: 22px;
+		z-index: 2;
+		opacity: 0.5;
+		pointer-events: none;
+	}
+	.crosshair::before, .crosshair::after {
+		content: "";
 		position: absolute;
-		left: var(--left);
-		bottom: -10px;
-		width: var(--size);
-		height: var(--size);
-		background: radial-gradient(circle, rgba(255,94,26,0.9) 0%, rgba(255,140,66,0.4) 60%, transparent 100%);
-		border-radius: 50%;
-		filter: blur(1px);
-		animation: rise 8s ease-in infinite;
-		animation-delay: var(--delay);
-		opacity: 0;
+		background: var(--ember-dim);
 	}
-	@keyframes rise {
-		0% { transform: translateY(0) scale(1); opacity: 0; }
-		10% { opacity: 0.8; }
-		90% { opacity: 0.4; }
-		100% { transform: translateY(-110vh) scale(0.4); opacity: 0; }
-	}
+	.crosshair::before { width: 100%; height: 1px; top: 50%; }
+	.crosshair::after { height: 100%; width: 1px; left: 50%; }
+	.crosshair.tl { top: 24px; left: 24px; }
+	.crosshair.tr { top: 24px; right: 24px; }
+	.crosshair.bl { bottom: 24px; left: 24px; }
+	.crosshair.br { bottom: 24px; right: 24px; }
 
 	/* Hero */
 	.hero {
@@ -585,6 +730,129 @@ import logoSvg from '../assets/logo.svg';
 		box-shadow: 0 0 8px rgba(255,94,26,0.4);
 	}
 
+	/* Electron section */
+	.electron-section {
+		background: linear-gradient(180deg, transparent 0%, rgba(255,94,26,0.04) 50%, transparent 100%);
+	}
+	.electron-grid {
+		display: grid;
+		gap: 1.5rem;
+		margin-top: 2.5rem;
+	}
+	.electron-point {
+		display: flex;
+		gap: 1.25rem;
+		padding: 1.5rem;
+		border-radius: var(--radius);
+		background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+		border: 1px solid rgba(255,255,255,0.06);
+		transition: transform 0.25s ease, border-color 0.25s ease;
+	}
+	.electron-point:hover {
+		transform: translateY(-2px);
+		border-color: rgba(255,94,26,0.15);
+	}
+	.electron-icon {
+		flex-shrink: 0;
+		width: 44px;
+		height: 44px;
+		display: grid;
+		place-items: center;
+		border-radius: var(--radius-sm);
+		background: linear-gradient(135deg, rgba(255,94,26,0.15), rgba(255,140,66,0.05));
+		color: var(--ember-orange);
+	}
+	.electron-point h3 {
+		font-size: 1.1rem;
+		font-weight: 700;
+		margin: 0 0 0.5rem;
+		color: var(--text-primary);
+	}
+	.electron-point p {
+		font-size: 0.95rem;
+		line-height: 1.55;
+		color: var(--text-secondary);
+		margin: 0;
+	}
+
+	/* Pipeline */
+	.pipeline-section {
+		background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.15) 100%);
+	}
+	.pipeline {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid rgba(255,255,255,0.06);
+		background: rgba(20,10,8,0.6);
+		border-radius: var(--radius);
+		overflow: hidden;
+		margin-top: 2.5rem;
+	}
+	.pipeline-step {
+		display: grid;
+		grid-template-columns: 64px 1fr;
+		gap: 20px;
+		padding: 24px;
+		border-bottom: 1px solid rgba(255,255,255,0.06);
+		transition: background 0.2s ease;
+	}
+	.pipeline-step:last-child { border-bottom: none; }
+	.pipeline-step:hover {
+		background: rgba(255,94,26,0.03);
+	}
+	.pipeline-tag {
+		font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+		font-size: 0.8rem;
+		color: var(--ember-orange);
+		padding-top: 3px;
+		letter-spacing: 0.06em;
+	}
+	.pipeline-step h3 {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		margin: 0 0 0.5rem;
+	}
+	.pipeline-step p {
+		font-size: 0.95rem;
+		line-height: 1.55;
+		color: var(--text-secondary);
+		max-width: 58ch;
+		margin: 0;
+	}
+
+	/* Status */
+	.status-section {
+		text-align: center;
+	}
+	.status-stamp {
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
+		border: 1px solid var(--ember-orange);
+		color: var(--ember-orange);
+		padding: 10px 18px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		border-radius: 9999px;
+		margin-top: 2rem;
+		background: rgba(255,94,26,0.05);
+	}
+	.status-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--ember-orange);
+		box-shadow: 0 0 8px var(--ember-orange);
+		animation: statusPulse 2s ease-in-out infinite;
+	}
+	@keyframes statusPulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.4; }
+	}
+
 	/* Footer CTA */
 	.footer-cta {
 		text-align: center;
@@ -629,5 +897,7 @@ import logoSvg from '../assets/logo.svg';
 		.terminal-code { font-size: 0.8rem; }
 		.section-inner { padding: 3rem 1rem; }
 		.footer-cta { padding: 2rem 0 4rem; }
+		.pipeline-step { grid-template-columns: 1fr; gap: 6px; }
+		.crosshair { display: none; }
 	}
 </style>

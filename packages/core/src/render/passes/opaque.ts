@@ -90,11 +90,17 @@ struct BindlessMaterial {
   roughness: f32,
   metallic: f32,
   emissiveIntensity: f32,
-  _pad0: f32,
+  hasTexTransform: f32,
   albedoTex: u32,
   normalTex: u32,
   metallicRoughnessTex: u32,
   aoEmissiveTex: u32,
+  texOffset: vec2<f32>,
+  texScale: vec2<f32>,
+  texRotation: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 };
 
 @group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
@@ -149,7 +155,20 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   let worldPos = modelUniform * vec4<f32>(input.position, 1.0);
   output.clipPosition = camera.viewProj * worldPos;
   output.worldPosition = worldPos.xyz;
-  output.uv = input.uv;
+
+  // KHR_texture_transform: scale, rotate, translate UVs.
+  let m = bindlessMaterials[materialIndex];
+  if (m.hasTexTransform > 0.5) {
+    let cosR = cos(m.texRotation);
+    let sinR = sin(m.texRotation);
+    let scaled = input.uv * m.texScale;
+    output.uv = vec2<f32>(
+      cosR * scaled.x - sinR * scaled.y + m.texOffset.x,
+      sinR * scaled.x + cosR * scaled.y + m.texOffset.y,
+    );
+  } else {
+    output.uv = input.uv;
+  }
 
   let normalMatrix = mat3x3<f32>(
     modelUniform[0].xyz,
@@ -273,6 +292,12 @@ export interface PBRMaterialResources {
   roughness: number;
   metallic: number;
   emissiveIntensity: number;
+  /** KHR_texture_transform UV transform for the baseColor texture. */
+  textureTransform?: {
+    offset: [number, number];
+    rotation: number;
+    scale: [number, number];
+  };
 }
 
 export class OpaquePass extends RenderPass {
@@ -659,6 +684,7 @@ export class OpaquePass extends RenderPass {
       emissiveTexHandle: mat.emissiveTextureSourceId
         ? registry.getHandle(mat.emissiveTextureSourceId) ?? registry.defaultWhiteHandle
         : registry.defaultWhiteHandle,
+      textureTransform: mat.textureTransform,
     };
     this.pbrMaterialIndex = this.bindlessMaterialManager.registerMaterial(params);
     // Write the material index into the uniform buffer (u32 at offset 0).
