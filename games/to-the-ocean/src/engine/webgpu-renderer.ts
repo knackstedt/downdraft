@@ -4,7 +4,7 @@
 // accessors → RendererAccessors
 // ============================================================================
 
-import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider } from "@downdraft/core";
+import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, FrameGraph, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, RenderPass, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
 import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { ModelRenderer } from "@downdraft/plugin-entities";
@@ -103,6 +103,12 @@ export class WebGPURenderer implements IRendererStateProvider {
   private frameTriangles: number = 0;
   private gpuProfiler: GPUProfiler | null = null;
   private gpuResourceTracker: GPUResourceTracker | null = null;
+
+  // Frame graph — single orchestration path for the per-viewport render passes.
+  private frameGraph: FrameGraph | null = null;
+  private graphColorHandle: any = null;
+  private graphDepthHandle: any = null;
+  private graphCompiled = false;
 
   private preBakeDone: boolean = false;
 
@@ -277,6 +283,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
       this.gpuProfiler.init(this.device, adapterInfo, this.format, 32);
+      this.frameGraph = new FrameGraph();
       console.log("[WebGPU] GPU timer pool supported:", this.gpuProfiler.isGpuTimerSupported(),
         "features:", Array.from(this.device.features));
 
@@ -1029,10 +1036,109 @@ export class WebGPURenderer implements IRendererStateProvider {
     const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTexture(origViewport.w, origViewport.h);
     const isFirst = viewportIdx === 0;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
-    const passEncoder: any = this.gpuProfiler!.wrapTrackedPass(encoder.beginRenderPass({ colorAttachments: [{ view: colorView, clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 }, loadOp, storeOp: "store" as GPUStoreOp }], depthStencilAttachment: { view: depthView, depthClearValue: 1.0, depthLoadOp: loadOp, depthStoreOp: "store" as GPUStoreOp } }));
+
+    // Drive the per-viewport render pass through the FrameGraph.
+    // The graph owns the render pass encoder + attachments; the scene's
+    // sub-draws (sky, terrain, entities, clouds, water, etc.) execute inside
+    // a single graph pass's execute() via drawScene().
+    if (!this.frameGraph) return;
+    if (!this.graphColorHandle) {
+      this.graphColorHandle = this.frameGraph.importTextureView("color", null);
+      this.graphDepthHandle = this.frameGraph.importTextureView("depth", null);
+      this.frameGraph.markDirty();
+    }
+    this.frameGraph.setImportedTextureView(this.graphColorHandle, colorView);
+    this.frameGraph.setImportedTextureView(this.graphDepthHandle, depthView);
+
+    if (viewportIdx === 0) { this.gpuProfiler!.beginFrame(); }
+
+    // Build per-viewport scene state for the graph pass.
+    const sceneState: ScenePassState = {
+      viewportIdx,
+      viewport,
+      origViewport,
+      camera,
+      viewProj,
+      weatherType,
+      timeOfDay,
+      visibility,
+      windSpeed,
+      windDir,
+      weatherIntensity,
+      entityCount,
+      playerId,
+      lp,
+      drawEntityCount,
+      playerPos,
+      useOffscreen,
+      offscreenMode,
+      loadOp,
+      isFirst,
+    };
+
+    // Register/rebuild the scene pass each frame (it depends on per-viewport state).
+    this.frameGraph.markDirty();
+    this.frameGraph.clearPasses();
+    const scenePass = new SceneRenderPass(
+      "Scene",
+      this.graphColorHandle,
+      this.graphDepthHandle,
+      loadOp,
+      sceneState,
+      (passEncoder: GPURenderPassEncoder, state: ScenePassState) => this.drawScene(passEncoder, state, encoder),
+    );
+    this.frameGraph.addPass(scenePass);
+    this.frameGraph.compile(this.device!, this.canvas.width, this.canvas.height);
+    this.graphCompiled = true;
+
+    const ctx: RenderContext = {
+      device: this.device,
+      encoder,
+      pass: null,
+      camera,
+      viewport,
+      viewportIdx,
+      viewportCount: this.viewportCount,
+      dt,
+      elapsedTime: this.elapsedTime,
+      isFirstViewport: isFirst,
+      isLastViewport: viewportIdx === this.viewportCount - 1,
+      width: viewport.w,
+      height: viewport.h,
+      viewProj,
+      invViewProj: undefined as any,
+      prevViewProj: undefined as any,
+      cameraPos: camera.position,
+      lightData: null as any,
+      lightViewProj: undefined as any,
+      mesh: null as any,
+      modelMatrix: undefined as any,
+      shadowsEnabled: false,
+      bloomEnabled: false,
+      shadowSampler: null,
+      debugQueue: null,
+      opaqueVertexBuffer: null,
+      opaqueIndexBuffer: null,
+      opaqueIndexCount: 0,
+      opaqueIndexFormat: "uint32",
+      getView: (h: any) => this.frameGraph!.getTextureView(h),
+      getTexture: (h: any) => this.frameGraph!.getTexture(h),
+      addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
+      addTriangles: (n: number) => { this.frameTriangles += n; },
+    };
+    this.frameGraph.execute(ctx);
+
+    if (viewportIdx === this.viewportCount - 1) { this.entityRenderer!.cleanupStaleDecorations(); this.entityRenderer!.cleanupStaleIslandMeshes(); }
+  }
+
+  /**
+   * Draw the entire scene (sky, terrain, entities, clouds, water, debug, etc.)
+   * into the given render pass encoder. Called by the FrameGraph's SceneRenderPass.
+   */
+  private drawScene(passEncoder: GPURenderPassEncoder, state: ScenePassState, encoder: GPUCommandEncoder): void {
+    const { viewportIdx, viewport, camera, viewProj, weatherType, timeOfDay, visibility, windSpeed, windDir, weatherIntensity, entityCount, playerId, lp, drawEntityCount, playerPos, isFirst } = state;
     passEncoder.setViewport(viewport.x, viewport.y, viewport.w, viewport.h, 0, 1);
     passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
-    if (viewportIdx === 0) { this.gpuProfiler!.beginFrame(); }
     // Sky
     if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Sky", passEncoder, viewportIdx); }
     if (weatherType !== this.skyDisplayedWeatherType) { this.skyPrevWeatherType = this.skyDisplayedWeatherType; this.skyDisplayedWeatherType = weatherType; this.skyWeatherBlend = 0.0; }
@@ -1081,7 +1187,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.entityRenderer!.renderInstanced(passEncoder); this.frameDrawCalls++;
     for (let d = 0; d < drawEntityCount.length; d++) { this.entityRenderer!.render(passEncoder, d); this.frameDrawCalls++; }
     this.frameTriangles += this.entityRenderer!.getLastFrameTriangles();
-    this.entityRenderer!.renderAnchors(passEncoder, this.simReader);
+    this.entityRenderer!.renderAnchors(passEncoder, this.simReader!);
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Entities", passEncoder, viewportIdx, this.frameDrawCalls - _ed, this.entityRenderer!.getLastFrameTriangles()); }
     // Clouds
     if (this.cloudSystem) {
@@ -1107,7 +1213,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Debug", passEncoder, viewportIdx); }
     // Scene sync (throttled) — skip when sim hasn't ticked since last frame
     if (viewportIdx === 0) {
-      const seq = this.simReader.getSequence();
+      const seq = this.simReader!.getSequence();
       if (seq !== this.lastSimSequence) {
         this.lastSimSequence = seq;
         this.sceneSync.maybeSync(500);
@@ -1136,7 +1242,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     // Holo preview
     if (this.boatReader && this.boatReader.isValid()) {
       this.gpuProfiler!.beginPass("Holo", passEncoder, viewportIdx);
-      for (let i = 0; i < entityCount; i++) { const es2 = this.simReader.getEntitySlot(i); if (!es2) continue; if (es2.u32[ENT.TYPE] !== EntityType.Ship) continue; const sp = this.pooledShipPos; sp.x = es2.f32[ENT.POS_X]; sp.y = es2.f32[ENT.POS_Y]; sp.z = es2.f32[ENT.POS_Z]; const sr = this.pooledShipRot; sr.x = es2.f32[ENT.ROT_X]; sr.y = es2.f32[ENT.ROT_Y]; sr.z = es2.f32[ENT.ROT_Z]; sr.w = es2.f32[ENT.ROT_W]; this.entityRenderer!.renderHoloPreview(passEncoder, sp, sr); break; }
+      for (let i = 0; i < entityCount; i++) { const es2 = this.simReader!.getEntitySlot(i); if (!es2) continue; if (es2.u32[ENT.TYPE] !== EntityType.Ship) continue; const sp = this.pooledShipPos; sp.x = es2.f32[ENT.POS_X]; sp.y = es2.f32[ENT.POS_Y]; sp.z = es2.f32[ENT.POS_Z]; const sr = this.pooledShipRot; sr.x = es2.f32[ENT.ROT_X]; sr.y = es2.f32[ENT.ROT_Y]; sr.z = es2.f32[ENT.ROT_Z]; sr.w = es2.f32[ENT.ROT_W]; this.entityRenderer!.renderHoloPreview(passEncoder, sp, sr); break; }
       this.gpuProfiler!.endPass("Holo", passEncoder, viewportIdx);
     }
     // Particles
@@ -1214,8 +1320,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       }
     }
 
-    passEncoder.end();
-    if (viewportIdx === this.viewportCount - 1) { this.entityRenderer!.cleanupStaleDecorations(); this.entityRenderer!.cleanupStaleIslandMeshes(); }
+    // passEncoder.end() is called by the FrameGraph after this method returns.
   }
 
   private getSurfaceView(): GPUTextureView {
@@ -1413,5 +1518,87 @@ export class WebGPURenderer implements IRendererStateProvider {
       if (pp.pixelationEnabled !== undefined) this.accessors.setPixelationEnabled(pp.pixelationEnabled);
       if (pp.pixelSize !== undefined) this.accessors.setPixelSize(pp.pixelSize);
     }
+  }
+}
+
+// ─── FrameGraph integration ────────────────────────────────────────────────
+
+interface ScenePassState {
+  viewportIdx: number;
+  viewport: { x: number; y: number; w: number; h: number };
+  origViewport: { x: number; y: number; w: number; h: number };
+  camera: CameraState;
+  viewProj: Float32Array;
+  weatherType: WeatherType;
+  timeOfDay: number;
+  visibility: number;
+  windSpeed: number;
+  windDir: { x: number; z: number };
+  weatherIntensity: number;
+  entityCount: number;
+  playerId: number;
+  lp: any;
+  drawEntityCount: number[];
+  playerPos: { x: number; y: number; z: number };
+  useOffscreen: boolean;
+  offscreenMode: "none" | "pixelation" | "postprocess";
+  loadOp: GPULoadOp;
+  isFirst: boolean;
+}
+
+/**
+ * SceneRenderPass — a single FrameGraph pass that owns the per-viewport
+ * color+depth attachments and delegates the scene's sub-draws to the
+ * WebGPURenderer.drawScene() callback. This makes the FrameGraph the single
+ * orchestration path: it creates the render pass encoder, manages attachments,
+ * and calls execute() which invokes drawScene().
+ */
+class SceneRenderPass extends RenderPass {
+  name = "Scene";
+  passType = PassType.Render;
+  private colorHandle: any;
+  private depthHandle: any;
+  private loadOp: GPULoadOp;
+  private state: ScenePassState;
+  private drawFn: (passEncoder: GPURenderPassEncoder, state: ScenePassState) => void;
+
+  constructor(
+    name: string,
+    colorHandle: any,
+    depthHandle: any,
+    loadOp: GPULoadOp,
+    state: ScenePassState,
+    drawFn: (passEncoder: GPURenderPassEncoder, state: ScenePassState) => void,
+  ) {
+    super();
+    this.name = name;
+    this.colorHandle = colorHandle;
+    this.depthHandle = depthHandle;
+    this.loadOp = loadOp;
+    this.state = state;
+    this.drawFn = drawFn;
+  }
+
+  setup(builder: FrameGraphBuilder): void {
+    builder.colorAttachment({
+      handle: this.colorHandle,
+      loadOp: this.loadOp,
+      storeOp: "store",
+      clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 },
+    });
+    builder.depthAttachment({
+      handle: this.depthHandle,
+      depthLoadOp: this.loadOp,
+      depthStoreOp: "store",
+      depthClearValue: 1.0,
+    });
+  }
+
+  prepare(): void {}
+
+  execute(ctx: RenderContext): void {
+    if (!ctx.pass) return;
+    const rawEncoder = ctx.pass.getRawPass() as GPURenderPassEncoder;
+    this.drawFn(rawEncoder, this.state);
   }
 }
