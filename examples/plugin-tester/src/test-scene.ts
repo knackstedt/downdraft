@@ -1,16 +1,14 @@
 // ============================================================================
-// Test Scene — combines navmesh, water, and gameplay tests into one scene
+// Test Scene — combines navmesh and water tests into one scene
 // ============================================================================
 
 import type { AgentVisual } from "./engine";
-import { initNavMeshTest, getAgentPositions, type NavMeshTestResult } from "./navmesh-test";
-import { initWaterTest, tickWaterTest, getWaterState, type WaterTestResult } from "./water-test";
-import { initGameplayTest, tickGameplayTest, getGameplayStateSnapshot, type GameplayState } from "./gameplay-test";
+import { getAgentPositions, initNavMeshTest, type NavMeshTestResult } from "./navmesh-test";
+import { getWaterState, initWaterTest, tickWaterTest, type WaterTestResult } from "./water-test";
 
 export interface TestScene {
   navmesh: NavMeshTestResult;
   water: WaterTestResult;
-  gameplay: GameplayState;
   getAgentVisuals(): AgentVisual[];
   tick(dt: number): void;
   getSnapshot(): unknown;
@@ -19,12 +17,10 @@ export interface TestScene {
 export function initTestScene(): TestScene {
   const navmesh = initNavMeshTest();
   const water = initWaterTest();
-  const gameplay = initGameplayTest();
 
   return {
     navmesh,
     water,
-    gameplay,
 
     getAgentVisuals(): AgentVisual[] {
       const positions = getAgentPositions(navmesh);
@@ -41,9 +37,6 @@ export function initTestScene(): TestScene {
 
       // Tick water physics
       tickWaterTest(water, dt);
-
-      // Tick gameplay systems
-      tickGameplayTest(gameplay, dt);
     },
 
     getSnapshot(): unknown {
@@ -53,7 +46,6 @@ export function initTestScene(): TestScene {
           agents: getAgentPositions(navmesh),
         },
         water: getWaterState(water),
-        gameplay: getGameplayStateSnapshot(gameplay),
       };
     },
   };

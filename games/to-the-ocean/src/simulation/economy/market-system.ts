@@ -1,10 +1,10 @@
 // ============================================================================
-// Market System — re-exports from @downdraft/plugin-economy
+// Market System — re-exports from @to-the-ocean/plugin-economy
 // ============================================================================
 // The game's constants are passed as EconomyConfig to the plugin's MarketSystem.
 //
 
-import { DEFAULT_ECONOMY_CONFIG, MarketSystem as PluginMarketSystem, type EconomyConfig } from "@downdraft/plugin-economy";
+import { DEFAULT_ECONOMY_CONFIG, MarketSystem as PluginMarketSystem, type EconomyConfig } from "@to-the-ocean/plugin-economy";
 import { BARGE_INVENTORY_MULTIPLIER, PRICE_MAX_MODIFIER, PRICE_MIN_MODIFIER, PRICE_RECOVERY_HOURS, SIM_TICK_RATE } from "../../shared/constants";
 
 const GAME_ECONOMY_CONFIG: EconomyConfig = {

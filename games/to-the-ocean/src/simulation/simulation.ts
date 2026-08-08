@@ -23,10 +23,10 @@ import { WaterBufferWriter } from "../shared/water-buffer";
 
 import type { ISimulation } from "@downdraft/core";
 import type { JobScheduler } from "@downdraft/core/ecs/job-system";
-import type { BuoyancyConfig, BuoyancyDeps } from "@downdraft/plugin-buoyancy";
-import type { CollisionConfig, CollisionDeps } from "@downdraft/plugin-collision";
+import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/plugin-buoyancy";
+import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/plugin-collision";
 import { WeatherSystem } from "@downdraft/plugin-weather";
-import type { WildlifeConfig, WildlifeDeps } from "@downdraft/plugin-wildlife";
+import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/plugin-wildlife";
 import { BoatBufferWriter } from "../shared/boat-buffer";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import {

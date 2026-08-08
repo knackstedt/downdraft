@@ -1,5 +1,5 @@
 {
-  "name": "@downdraft/plugin-crafting",
+  "name": "@to-the-ocean/plugin-crafting",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "@downdraft/core": "workspace:*",
-    "@downdraft/plugin-inventory": "workspace:*"
+    "@to-the-ocean/plugin-inventory": "workspace:*"
   }
 }

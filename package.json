@@ -23,6 +23,7 @@
     "packages/cli",
     "packages/plugins/*",
     "games/to-the-ocean",
+    "games/to-the-ocean/plugins/*",
     "examples/plugin-tester"
   ],
   "devDependencies": {
