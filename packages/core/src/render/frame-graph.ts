@@ -320,6 +320,16 @@ export class FrameGraph {
     this.dirty = true;
   }
 
+  /**
+   * Remove all registered passes. Imported/transient resources are preserved.
+   * Used by renderers that rebuild the pass list each frame (e.g. when the
+   * pass set is dynamic per-viewport).
+   */
+  clearPasses(): void {
+    this.passes.length = 0;
+    this.dirty = true;
+  }
+
   isDirty(): boolean {
     return this.dirty;
   }
