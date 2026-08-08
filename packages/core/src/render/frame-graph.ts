@@ -1,14 +1,18 @@
-import type { Mat4 } from "wgpu-matrix";
+// ============================================================================
+// FrameGraph — RDG-style render pass orchestration
+// Topologically-sorted passes, transient resource allocation, lifetime-based
+// aliasing, single command encoder per frame.
+// ============================================================================
+
 import type { DebugDrawQueue } from "../debug-draw/queue";
-import type { MeshData } from "../mesh/builder";
 import { createLogger } from "../util/logger";
-import type { LightUniformData } from "./lighting";
+import type { CameraState } from "./camera";
 import type { RenderPass } from "./render-pass";
 import { TrackedRenderPass } from "./tracked-render-pass";
 
 const log = createLogger();
 
-// ─── Handles & Descriptors ──────────────────────────────────────────────
+// ─── Handles & Descriptors ─────────────────────────────────────────────────
 
 export class TextureHandle {
   readonly id: number;
@@ -42,29 +46,50 @@ export interface DepthAttachmentDesc {
   depthReadOnly?: boolean;
 }
 
-// ─── Pass Type ───────────────────────────────────────────────────────────
+// ─── Pass Type ─────────────────────────────────────────────────────────────
 
 export enum PassType {
-  /** Graph creates encoder + render pass with declared attachments. ctx.pass is a TrackedRenderPass. */
+  /** Graph begins/ends the render pass with declared attachments; ctx.pass is a TrackedRenderPass. */
   Render = "render",
-  /** Pass creates its own encoders internally. ctx.pass is null. */
+  /** Pass manages its own encoders; ctx.pass is null. */
   Custom = "custom",
 }
 
-// ─── Frame Context ───────────────────────────────────────────────────────
+// ─── Render Context ────────────────────────────────────────────────────────
 
-export interface FrameContext {
+export interface ViewportRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface RenderContext {
   device: GPUDevice;
+  encoder: GPUCommandEncoder;
+  pass: TrackedRenderPass | null;
+  camera: CameraState;
+  viewport: ViewportRect;
+  viewportIdx: number;
+  viewportCount: number;
+  dt: number;
+  elapsedTime: number;
+  isFirstViewport: boolean;
+  isLastViewport: boolean;
+  getView: (handle: TextureHandle) => GPUTextureView;
+  getTexture: (handle: TextureHandle) => GPUTexture;
+
+  // Back-compat FrameContext fields (optional; populated by FrameGraph-based systems)
   width: number;
   height: number;
-  viewProj: Mat4;
-  invViewProj: Mat4;
-  prevViewProj: Mat4;
+  viewProj: any;
+  invViewProj: any;
+  prevViewProj: any;
   cameraPos: [number, number, number];
-  lightData: LightUniformData;
-  lightViewProj: Mat4;
-  mesh: MeshData;
-  modelMatrix: Mat4;
+  lightData: any;
+  lightViewProj: any;
+  mesh: any;
+  modelMatrix: any;
   shadowsEnabled: boolean;
   bloomEnabled: boolean;
   shadowSampler: GPUSampler | null;
@@ -77,13 +102,12 @@ export interface FrameContext {
   addTriangles: (n: number) => void;
 }
 
-export interface GraphRenderContext extends FrameContext {
-  pass: TrackedRenderPass | null;
-  getView: (handle: TextureHandle) => GPUTextureView;
-  getTexture: (handle: TextureHandle) => GPUTexture;
-}
+// Back-compat re-exports of previous names.
+// TODO: remove after full pass migration.
+export type GraphRenderContext = RenderContext;
+export type FrameContext = RenderContext;
 
-// ─── Builder (used during setup phase) ───────────────────────────────────
+// ─── Builder (used during setup phase) ─────────────────────────────────────
 
 export class FrameGraphBuilder {
   colorAttachments: ColorAttachmentDesc[] = [];
@@ -117,24 +141,88 @@ export class FrameGraphBuilder {
   get writes(): Set<number> { return this._writes; }
 }
 
-// ─── Internal types ──────────────────────────────────────────────────────
+// ─── Internal types ────────────────────────────────────────────────────────
 
 interface GraphResource {
   name: string;
   texture: GPUTexture | null;
+  externalView?: GPUTextureView | null;
   external: boolean;
   desc?: TextureDesc;
   width?: number;
   height?: number;
   cachedView?: GPUTextureView;
+  physicalTexture?: GPUTexture; // aliased physical backing (null if unaliased)
+  lifetime?: { first: number; last: number };
 }
 
 interface GraphPassEntry {
   pass: RenderPass;
   builder: FrameGraphBuilder;
+  slot?: string;
 }
 
-// ─── Frame Graph ─────────────────────────────────────────────────────────
+interface PhysicalTexture {
+  texture: GPUTexture;
+  name: string;
+  width: number;
+  height: number;
+  format: GPUTextureFormat;
+  usage: GPUTextureUsageFlags;
+  sampleCount: number;
+  lastUsed: number; // index in execution order
+}
+
+// ─── Slot Registry ─────────────────────────────────────────────────────────
+
+export type RenderPassSlot = string;
+
+export interface PassSlotEntry {
+  slot: RenderPassSlot;
+  pass: RenderPass;
+  order: number;
+}
+
+export class SlotRegistry {
+  private slotOrder: string[] = [];
+  private slotIndex: Record<string, number> = {};
+  private entries: PassSlotEntry[] = [];
+
+  setSlotOrder(slots: string[]): void {
+    this.slotOrder = [...slots];
+    this.slotIndex = {};
+    this.slotOrder.forEach((s, i) => { this.slotIndex[s] = i; });
+  }
+
+  registerPass(slot: RenderPassSlot, pass: RenderPass): void {
+    this.entries.push({ slot, pass, order: this.slotIndex[slot] ?? this.slotOrder.length });
+  }
+
+  unregisterPass(name: string): void {
+    this.entries = this.entries.filter(e => e.pass.name !== name);
+  }
+
+  clear(): void {
+    this.entries = [];
+  }
+
+  getEntries(): readonly PassSlotEntry[] {
+    return this.entries
+      .filter(e => this.slotOrder.includes(e.slot))
+      .sort((a, b) => {
+        const oa = a.order;
+        const ob = b.order;
+        if (oa !== ob) return oa - ob;
+        return 0;
+      });
+  }
+
+  isEmpty(): boolean {
+    return this.getEntries().length === 0;
+  }
+}
+
+// ─── Frame Graph ───────────────────────────────────────────────────────────
 
 export class FrameGraph {
   private passes: GraphPassEntry[] = [];
@@ -142,14 +230,54 @@ export class FrameGraph {
   private nextHandleId = 0;
   private compiled = false;
   private executionOrder: GraphPassEntry[] = [];
-  importTexture(name: string, texture: GPUTexture): TextureHandle {
+  private dirty = true;
+  private surfaceWidth = 0;
+  private surfaceHeight = 0;
+  private physicalTextures: PhysicalTexture[] = [];
+  private aliasing: Map<string, string> = new Map(); // resource name -> physical texture name
+  private slotRegistry = new SlotRegistry();
+
+  importTexture(name: string, texture?: GPUTexture | null): TextureHandle {
     const handle = new TextureHandle(this.nextHandleId++, name);
     this.resources.set(handle.id, {
       name,
-      texture,
+      texture: texture ?? null,
       external: true,
     });
     return handle;
+  }
+
+  /** Update the GPUTexture backing an imported handle (e.g. swapchain color). */
+  setImportedTexture(handle: TextureHandle, texture: GPUTexture): void {
+    const resource = this.resources.get(handle.id);
+    if (!resource || !resource.external) {
+      throw new Error(`FrameGraph: "${handle.name}" is not an imported texture`);
+    }
+    resource.texture = texture;
+    resource.externalView = undefined;
+    resource.cachedView = undefined;
+  }
+
+  /** Import an externally-created view directly (e.g. XR offscreen color view). */
+  importTextureView(name: string, view: GPUTextureView | null): TextureHandle {
+    const handle = new TextureHandle(this.nextHandleId++, name);
+    this.resources.set(handle.id, {
+      name,
+      texture: null,
+      externalView: view,
+      external: true,
+    });
+    return handle;
+  }
+
+  /** Update the GPUTextureView backing an imported view handle. */
+  setImportedTextureView(handle: TextureHandle, view: GPUTextureView): void {
+    const resource = this.resources.get(handle.id);
+    if (!resource || !resource.external) {
+      throw new Error(`FrameGraph: "${handle.name}" is not an imported view`);
+    }
+    resource.externalView = view;
+    resource.cachedView = undefined;
   }
 
   createTransient(name: string, desc: TextureDesc): TextureHandle {
@@ -165,55 +293,91 @@ export class FrameGraph {
     return handle;
   }
 
+  /** Direct graph registration. Use SlotRegistry for slot-based ordering. */
   addPass(pass: RenderPass): void {
     const builder = new FrameGraphBuilder();
     pass.setup(builder);
     this.passes.push({ pass, builder });
+    this.dirty = true;
+  }
+
+  getSlotRegistry(): SlotRegistry {
+    return this.slotRegistry;
+  }
+
+  /** Re-register all passes from the slot registry. Call after slot/pass changes. */
+  refreshFromSlots(): void {
+    this.passes = [];
+    for (const { slot, pass } of this.slotRegistry.getEntries()) {
+      const builder = new FrameGraphBuilder();
+      pass.setup(builder);
+      this.passes.push({ pass, builder, slot });
+    }
+    this.dirty = true;
+  }
+
+  markDirty(): void {
+    this.dirty = true;
+  }
+
+  isDirty(): boolean {
+    return this.dirty;
   }
 
   compile(device: GPUDevice, surfaceWidth: number, surfaceHeight: number): void {
-    // Allocate transient textures
+    if (this.passes.length === 0) {
+      this.compiled = true;
+      this.dirty = false;
+      return;
+    }
+
+    this.surfaceWidth = surfaceWidth;
+    this.surfaceHeight = surfaceHeight;
+
+    this.destroyPhysicalTextures();
+    this.aliasing.clear();
+
+    // Resolve sizes for all transient resources.
     for (const resource of this.resources.values()) {
-      if (!resource.external && !resource.texture && resource.desc) {
-        const w = resource.width || surfaceWidth;
-        const h = resource.height || surfaceHeight;
-        resource.texture = device.createTexture({
-          size: [w, h],
-          format: resource.desc.format,
-          usage: resource.desc.usage,
-          sampleCount: resource.desc.sampleCount ?? 1,
-        });
+      if (!resource.external && resource.desc) {
+        resource.width = resource.width || surfaceWidth;
+        resource.height = resource.height || surfaceHeight;
       }
     }
 
-    // Topological sort
+    // Topological sort (this also sets execution order).
     this.executionOrder = this.topologicalSort();
+
+    // Compute resource lifetimes over the sorted execution order.
+    this.computeLifetimes();
+
+    // Allocate transient textures with lifetime-based aliasing.
+    this.allocatePhysicalTextures(device);
 
     // Validate
     this.validate();
 
     this.compiled = true;
+    this.dirty = false;
   }
 
-  execute(frameCtx: FrameContext): void {
-    if (!this.compiled) return;
+  execute(ctx: RenderContext): GPUCommandBuffer | undefined {
+    if (!this.compiled) return undefined;
 
+    // Run passes sequentially on the shared encoder.
     for (const entry of this.executionOrder) {
-      const { pass, builder } = entry;
-
-      if (pass.passType === PassType.Render) {
-        this.executeRenderPass(frameCtx, entry);
+      if (entry.pass.passType === PassType.Render) {
+        this.executeRenderPass(ctx, entry);
       } else {
-        this.executeCustomPass(frameCtx, entry);
+        this.executeCustomPass(ctx, entry);
       }
     }
+
+    return undefined; // caller submits the shared encoder
   }
 
-  private executeRenderPass(frameCtx: FrameContext, entry: GraphPassEntry): void {
+  private executeRenderPass(ctx: RenderContext, entry: GraphPassEntry): void {
     const { pass, builder } = entry;
-    const device = frameCtx.device;
-
-    const encoder = device.createCommandEncoder();
 
     const colorAttachments: GPURenderPassColorAttachment[] = builder.colorAttachments.map(a => ({
       view: this.getTextureView(a.handle),
@@ -234,25 +398,18 @@ export class FrameGraph {
       };
     }
 
-    const renderPass = encoder.beginRenderPass({
+    const renderPass = ctx.encoder.beginRenderPass({
       colorAttachments,
       depthStencilAttachment: depthAttachment,
     });
 
     const tracked = new TrackedRenderPass(renderPass);
+    const passCtx: RenderContext = { ...ctx, pass: tracked };
 
-    const ctx: GraphRenderContext = {
-      ...frameCtx,
-      pass: tracked,
-      getView: (h: TextureHandle) => this.getTextureView(h),
-      getTexture: (h: TextureHandle) => this.getTexture(h),
-    };
-
-    pass.execute(ctx);
+    pass.execute(passCtx);
     tracked.end();
-    frameCtx.addDrawCalls(tracked.drawCalls);
-    frameCtx.addTriangles(tracked.triangles);
-    (frameCtx as any).lastPassStats = {
+    // Caller (GameRenderer) aggregates draw call stats from the tracked pass.
+    (ctx as any).lastPassStats = {
       name: pass.name,
       drawCalls: tracked.drawCalls,
       triangles: tracked.triangles,
@@ -260,23 +417,23 @@ export class FrameGraph {
       bindGroupChanges: tracked.bindGroupChanges,
       bufferRebinds: tracked.bufferRebinds,
     };
-    device.queue.submit([encoder.finish()]);
   }
 
-  private executeCustomPass(frameCtx: FrameContext, entry: GraphPassEntry): void {
+  private executeCustomPass(ctx: RenderContext, entry: GraphPassEntry): void {
     const { pass } = entry;
-    const ctx: GraphRenderContext = {
-      ...frameCtx,
-      pass: null,
-      getView: (h: TextureHandle) => this.getTextureView(h),
-      getTexture: (h: TextureHandle) => this.getTexture(h),
-    };
-    pass.execute(ctx);
+    const passCtx: RenderContext = { ...ctx, pass: null };
+    pass.execute(passCtx);
   }
 
-  private getTextureView(handle: TextureHandle): GPUTextureView {
+  getTextureView(handle: TextureHandle): GPUTextureView {
     const resource = this.resources.get(handle.id);
-    if (!resource || !resource.texture) {
+    if (!resource) {
+      throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
+    }
+    if (resource.externalView) {
+      return resource.externalView;
+    }
+    if (!resource.texture) {
       throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
     }
     if (!resource.cachedView) {
@@ -285,7 +442,7 @@ export class FrameGraph {
     return resource.cachedView;
   }
 
-  private getTexture(handle: TextureHandle): GPUTexture {
+  getTexture(handle: TextureHandle): GPUTexture {
     const resource = this.resources.get(handle.id);
     if (!resource || !resource.texture) {
       throw new Error(`FrameGraph: unresolved texture "${handle.name}"`);
@@ -293,16 +450,123 @@ export class FrameGraph {
     return resource.texture;
   }
 
+  getPassOrder(): string[] {
+    return this.executionOrder.map(e => e.pass.name);
+  }
+
+  getAliasing(): Map<string, string> {
+    return new Map(this.aliasing);
+  }
+
+  private computeLifetimes(): void {
+    // Initialize lifetimes with invalid indices.
+    for (const resource of this.resources.values()) {
+      if (resource.external || !resource.desc) continue;
+      resource.lifetime = { first: Infinity, last: -1 };
+    }
+
+    for (let i = 0; i < this.executionOrder.length; i++) {
+      const { builder } = this.executionOrder[i];
+      const all = new Set([...builder.reads, ...builder.writes]);
+      for (const id of all) {
+        const resource = this.resources.get(id);
+        if (!resource || resource.external || !resource.lifetime) continue;
+        resource.lifetime.first = Math.min(resource.lifetime.first, i);
+        resource.lifetime.last = Math.max(resource.lifetime.last, i);
+      }
+    }
+
+    // Unused transients have no lifetime.
+    for (const resource of this.resources.values()) {
+      if (resource.lifetime && resource.lifetime.last === -1) {
+        resource.lifetime = undefined;
+      }
+    }
+  }
+
+  private allocatePhysicalTextures(device: GPUDevice): void {
+    this.physicalTextures = [];
+
+    const transients: GraphResource[] = [];
+    for (const resource of this.resources.values()) {
+      if (!resource.external && resource.lifetime) {
+        transients.push(resource);
+      }
+    }
+
+    // Sort by first-use to allocate alias-compatible resources into physical textures.
+    transients.sort((a, b) => (a.lifetime!.first - b.lifetime!.first));
+
+    for (const resource of transients) {
+      const w = resource.width || this.surfaceWidth;
+      const h = resource.height || this.surfaceHeight;
+      const desc = resource.desc!;
+      const sampleCount = desc.sampleCount ?? 1;
+
+      // Find a compatible physical texture whose lifetime has ended before this resource starts.
+      let reused: PhysicalTexture | null = null;
+      for (const pt of this.physicalTextures) {
+        const compatible =
+          pt.width === w &&
+          pt.height === h &&
+          pt.format === desc.format &&
+          pt.usage === desc.usage &&
+          pt.sampleCount === sampleCount &&
+          pt.lastUsed < resource.lifetime!.first;
+        if (compatible) {
+          reused = pt;
+          break;
+        }
+      }
+
+      if (reused) {
+        resource.physicalTexture = reused.texture;
+        resource.texture = reused.texture;
+        this.aliasing.set(resource.name, reused.name);
+        reused.lastUsed = resource.lifetime!.last;
+      } else {
+        const name = `${resource.name}_phys`;
+        const texture = device.createTexture({
+          size: [w, h],
+          format: desc.format,
+          usage: desc.usage,
+          sampleCount,
+        });
+        this.physicalTextures.push({
+          texture,
+          name,
+          width: w,
+          height: h,
+          format: desc.format,
+          usage: desc.usage,
+          sampleCount,
+          lastUsed: resource.lifetime!.last,
+        });
+        resource.physicalTexture = texture;
+        resource.texture = texture;
+        this.aliasing.set(resource.name, name);
+      }
+    }
+  }
+
+  private destroyPhysicalTextures(): void {
+    for (const pt of this.physicalTextures) {
+      pt.texture.destroy();
+    }
+    this.physicalTextures = [];
+  }
+
   private topologicalSort(): GraphPassEntry[] {
-    // First pass: collect all producers for each resource
+    // First pass: collect all producers for each resource.
     const producers = new Map<number, number>();
     for (let i = 0; i < this.passes.length; i++) {
       for (const writeId of this.passes[i].builder.writes) {
+        // Last writer wins for ordering purposes.
         producers.set(writeId, i);
       }
     }
 
-    // Second pass: build adjacency from reads → producer
+    // Second pass: build adjacency from reads -> producer.
     const adj: number[][] = Array.from({ length: this.passes.length }, () => []);
     const inDegree = new Array(this.passes.length).fill(0);
 
@@ -317,7 +581,7 @@ export class FrameGraph {
       }
     }
 
-    // Kahn's algorithm, preserving registration order for ties
+    // Kahn's algorithm, preserving registration/slot order for ties.
     const queue: number[] = [];
     for (let i = 0; i < this.passes.length; i++) {
       if (inDegree[i] === 0) queue.push(i);
@@ -362,18 +626,20 @@ export class FrameGraph {
     }
   }
 
-  getPassOrder(): string[] {
-    return this.executionOrder.map(e => e.pass.name);
-  }
-
   destroy(): void {
+    this.destroyPhysicalTextures();
     for (const resource of this.resources.values()) {
-      if (!resource.external && resource.texture) {
-        resource.texture.destroy();
+      if (resource.external && resource.texture) {
+        // External textures are owned by the caller; just drop references.
         resource.texture = null;
-        resource.cachedView = undefined;
       }
+      resource.cachedView = undefined;
     }
+    this.resources.clear();
+    this.passes = [];
+    this.executionOrder = [];
     this.compiled = false;
+    this.dirty = true;
+    this.aliasing.clear();
   }
 }

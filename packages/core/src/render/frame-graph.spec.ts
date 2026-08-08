@@ -238,10 +238,13 @@ describe("FrameGraph", () => {
         },
       } as unknown as GPUDevice;
 
-      fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
-      fg.createTransient("depth", { format: "depth32float", usage: 0x10 });
+      const hdr = fg.createTransient("hdr", { format: "rgba16float", usage: 0x10 });
+      const depth = fg.createTransient("depth", { format: "depth32float", usage: 0x10 });
 
-      const pass = new MockPass("pass", () => {});
+      const pass = new MockPass("pass", (builder) => {
+        builder.colorAttachment({ handle: hdr, loadOp: "clear", storeOp: "store" });
+        builder.depthAttachment({ handle: depth, depthLoadOp: "clear", depthStoreOp: "store" });
+      });
       fg.addPass(pass);
       fg.compile(device, 1920, 1080);
 
@@ -259,9 +262,11 @@ describe("FrameGraph", () => {
       } as unknown as GPUDevice;
 
       fg.importTexture("surface", {} as GPUTexture);
-      fg.createTransient("hdr", { format: "rgba16float", usage: 0 });
+      const hdr = fg.createTransient("hdr", { format: "rgba16float", usage: 0 });
 
-      fg.addPass(new MockPass("pass", () => {}));
+      fg.addPass(new MockPass("pass", (builder) => {
+        builder.colorAttachment({ handle: hdr, loadOp: "clear", storeOp: "store" });
+      }));
       fg.compile(device, 800, 600);
 
       expect(createCount).toBe(1);
@@ -276,8 +281,10 @@ describe("FrameGraph", () => {
         createTexture: () => fakeTexture,
       } as unknown as GPUDevice;
 
-      fg.createTransient("hdr", { format: "rgba16float", usage: 0 });
-      fg.addPass(new MockPass("pass", () => {}));
+      const hdr = fg.createTransient("hdr", { format: "rgba16float", usage: 0 });
+      fg.addPass(new MockPass("pass", (builder) => {
+        builder.colorAttachment({ handle: hdr, loadOp: "clear", storeOp: "store" });
+      }));
       fg.compile(device, 800, 600);
       fg.destroy();
 

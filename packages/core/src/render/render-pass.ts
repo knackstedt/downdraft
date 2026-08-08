@@ -1,15 +1,17 @@
-import type { FrameGraphBuilder, GraphRenderContext } from "./frame-graph";
+// ============================================================================
+// RenderPass — base class for all FrameGraph-driven render passes
+// Passes declare resources in setup() and are executed by FrameGraph.
+// ============================================================================
+
+import type { FrameGraphBuilder, RenderContext } from "./frame-graph";
 import { PassType } from "./frame-graph";
 
-export type { FrameGraphBuilder, GraphRenderContext, PassType } from "./frame-graph";
+export type { FrameGraphBuilder, PassType, RenderContext } from "./frame-graph";
 
 /**
- * @deprecated Use GraphRenderContext instead. Kept for backward compatibility.
+ * @deprecated Use RenderContext instead. Kept for backward compatibility.
  */
-export interface RenderPassContext {
-  device: GPUDevice;
-  pass: GPURenderPassEncoder;
-}
+export type { RenderContext as GraphRenderContext } from "./frame-graph";
 
 export abstract class RenderPass {
   abstract name: string;
@@ -22,7 +24,7 @@ export abstract class RenderPass {
   }
 
   /** Execute the pass. ctx.pass is a TrackedRenderPass for Render-type passes, null for Custom. */
-  abstract execute(ctx: GraphRenderContext): void;
+  abstract execute(ctx: RenderContext): void;
 
   destroy(): void {}
 }
