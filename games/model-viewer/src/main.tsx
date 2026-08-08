@@ -9,13 +9,19 @@ import {
     BindlessTextureRegistry,
     DEPTH_FORMAT,
     FrameGraph,
+    GCController,
+    GPUProfiler,
+    GPUResourceTracker,
     PassType,
     RenderPass,
     RendererInputBusImpl,
+    TelemetryCollector,
     type FrameGraphBuilder,
+    type GCControllerConfig,
     type RenderContext,
 } from "@downdraft/core";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
+import { BaseSceneInspector, type IAssetResolver, type IDevToolsRenderer } from "@downdraft/plugin-devtools";
 import { ModelRenderer } from "@downdraft/plugin-entities";
 import type { MeshData } from "@downdraft/plugin-models";
 import React from "react";
@@ -363,6 +369,20 @@ async function bootstrap() {
   const graphColorHandle = frameGraph.importTextureView("color", null);
   const graphDepthHandle = frameGraph.importTextureView("depth", null);
 
+  // Telemetry / profiler / GC — wired into DevTools tabs.
+  const gpuResourceTracker = new GPUResourceTracker();
+  gpuResourceTracker.wrapDevice(device);
+  const gpuProfiler = new GPUProfiler();
+  gpuProfiler.init(device, null, format, 16);
+  const telemetryCollector = new TelemetryCollector(true);
+  const gcController = new GCController("renderer");
+
+  // FPS tracking
+  let fps = 0;
+  let fpsFrameCount = 0;
+  let fpsLastTime = performance.now();
+  let lastResourceStatsTime = 0;
+
   // Init camera controller + input bus via the camera-controls plugin helper.
   // The model-viewer has a bespoke render loop (not GameRenderer-based), so we
   // use `createCameraController` instead of `createCameraControlsPlugin`.
@@ -446,6 +466,7 @@ async function bootstrap() {
     modelRenderer.setBindlessBindGroup(bindlessFrameBindings.prepareFrame());
 
     const encoder = device!.createCommandEncoder();
+    gpuProfiler.beginFrame();
 
     // Drive the render pass through the FrameGraph.
     const colorView = context!.getCurrentTexture().createView();
@@ -457,6 +478,7 @@ async function bootstrap() {
       graphColorHandle,
       graphDepthHandle,
       (passEncoder: GPURenderPassEncoder) => {
+        gpuProfiler.beginPass("ViewerScene", passEncoder, 0);
         // Render grid (after model, so model takes depth priority)
         // Actually render grid first but with depthWrite disabled to avoid z-fighting with model
         if (state.showGrid) {
@@ -541,6 +563,7 @@ async function bootstrap() {
             console.log(`  Camera: pos=[${camera.position.map(v => v.toFixed(4))}], target=[${camera.target.map(v => v.toFixed(4))}], dist=${Math.sqrt(camera.position.reduce((s,v)=>s+v*v,0)).toFixed(4)}, near=${camera.near}, far=${camera.far}`);
           }
         }
+        gpuProfiler.endPass("ViewerScene", passEncoder, 0);
       },
     ));
     frameGraph.compile(device!, W, H);
@@ -580,11 +603,76 @@ async function bootstrap() {
       addTriangles: () => {},
     };
     frameGraph.execute(ctx);
+
+    // Resolve GPU timers + record telemetry
+    gpuProfiler.resolveGpuTimers(encoder);
     device!.queue.submit([encoder.finish()]);
+    gpuProfiler.readGpuTimers().then(() => {}).catch(() => {});
+    telemetryCollector.recordFrame(dt * 1000);
+    telemetryCollector.recordGraphSample(dt * 1000);
+    for (const t of gpuProfiler.getPassTimings()) {
+      telemetryCollector.recordPassTiming(t);
+    }
+    // Record GPU resource stats periodically (every ~1s)
+    if (now - lastResourceStatsTime > 1000) {
+      lastResourceStatsTime = now;
+      const rs = gpuResourceTracker.getStats();
+      telemetryCollector.recordResourceStats({
+        textureCount: rs.textureCount,
+        bufferCount: rs.bufferCount,
+        totalBytes: rs.totalBytes,
+        textureBytes: rs.textureBytes,
+        bufferBytes: rs.bufferBytes,
+        resources: rs.resources.map(r => ({ id: r.id, type: r.type, label: r.label, size: r.size, callsite: r.callsite, width: r.width, height: r.height, format: r.format })),
+      });
+    }
+    // FPS
+    fpsFrameCount++;
+    if (now - fpsLastTime >= 500) {
+      fps = (fpsFrameCount * 1000) / (now - fpsLastTime);
+      fpsFrameCount = 0;
+      fpsLastTime = now;
+    }
 
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // ── DevTools integration ──────────────────────────────────────────────
+  // Create a renderer adapter that implements IDevToolsRenderer and exposes
+  // the telemetry/profiler/GC systems to the DevTools panel.
+  const devtoolsRenderer: IDevToolsRenderer = {
+    setGizmoPosition: () => {},
+    setGizmoMode: () => {},
+    setGizmoVisible: () => {},
+    uploadModel: () => {},
+    removeModel: () => {},
+    getPlayerWorldPos: () => null,
+    setShowHitboxes: () => {},
+    getShowHitboxes: () => false,
+    setHitboxLineWidth: () => {},
+    getHitboxLineWidth: () => 1,
+    setDebugMode: () => {},
+    getGPUInfo: () => gpuProfiler.getGPUInfo(canvas, 1),
+    getGPUErrors: () => gpuProfiler.getGPUErrors(),
+    clearGPUErrors: () => gpuProfiler.clearGPUErrors(),
+    getFrameTelemetry: () => telemetryCollector.getFrameTelemetry(),
+    getGPUResourceTracker: () => gpuResourceTracker,
+    getTelemetryCollector: () => telemetryCollector,
+    getGPUProfiler: () => gpuProfiler,
+    getFrameGraph: () => {
+      const passTimings = gpuProfiler.getPassTimings();
+      const passNames = passTimings.map(t => t.name);
+      return GPUProfiler.buildFrameGraphData(passTimings, { pixelationEnabled: false, pixelSize: 4, postProcessEffects: [] }, passNames, ["ViewerScene"]);
+    },
+    getFPS: () => fps,
+    getGCStats: () => gcController.getStats(),
+    setGCConfig: (config: Partial<GCControllerConfig>) => gcController.setConfig(config),
+  } as any;
+
+  const inspector = new ModelViewerInspector();
+  inspector.init(devtoolsRenderer);
+  (window as any).__renderer = devtoolsRenderer;
 }
 
 // ── Model selection ──
@@ -739,5 +827,18 @@ class ViewerScenePass extends RenderPass {
     if (!ctx.pass) return;
     const rawEncoder = ctx.pass.getRawPass() as GPURenderPassEncoder;
     this.drawFn(rawEncoder);
+  }
+}
+
+// ─── DevTools inspector ────────────────────────────────────────────────────
+
+/**
+ * ModelViewerInspector — minimal BaseSceneInspector subclass for the model
+ * viewer. Exposes the telemetry/profiler/GC systems to the DevTools panel
+ * via window.__sceneInspector.
+ */
+class ModelViewerInspector extends BaseSceneInspector {
+  protected getAssetResolver(): IAssetResolver | null {
+    return null;
   }
 }
