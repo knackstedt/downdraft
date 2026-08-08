@@ -117,6 +117,8 @@ export interface ModelData {
   materialVariants?: string[];
   /** KHR_lights_punctual: lights referenced by nodes via lightIndex. */
   lights?: PunctualLightData[];
+  /** Non-fatal warnings collected during parsing (e.g. skipped primitives). */
+  warnings?: string[];
 }
 
 export function getMaterialVariant(model: ModelData, name: string): number {

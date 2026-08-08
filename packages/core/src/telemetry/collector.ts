@@ -225,8 +225,8 @@ export class TelemetryCollector {
     }
     // Sort only the valid portion in-place
     sorted.subarray(0, count).sort();
-    const idx = Math.floor(count * p);
-    return sorted[Math.min(idx, count - 1)];
+    const idx = Math.max(0, Math.min(Math.floor(count * p), count - 1));
+    return sorted[idx];
   }
 
   recordDrawStats(drawCalls: number, triangles: number): void {

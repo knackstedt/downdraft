@@ -1,7 +1,7 @@
 import { component, type ComponentDefinition } from "../ecs/component";
 import { World } from "../ecs/world";
-import { SceneManager } from "./scene-manager";
 import { Scene } from "./scene";
+import { SceneManager } from "./scene-manager";
 
 interface PositionData { x: number; y: number; z: number }
 const Position: ComponentDefinition<PositionData> = component<PositionData>("Position", { x: 0, y: 0, z: 0 });
@@ -157,6 +157,35 @@ describe("Scene", () => {
     scene.persistent = true;
     expect(scene.persistent).toBe(true);
   });
+
+  it("should throw on deserialize with unregistered component ID", () => {
+    const world = makeWorld();
+    const scene = new Scene("test", world);
+    const data = {
+      name: "test",
+      state: "loaded" as const,
+      persistent: false,
+      entities: [
+        { index: 1, generation: 0, components: [{ id: 99999, data: {} }] },
+      ],
+    };
+    expect(() => scene.deserialize(data)).toThrow(RangeError);
+  });
+
+  it("should deserialize with registered component IDs", () => {
+    const world = makeWorld();
+    const scene = new Scene("test", world);
+    const data = {
+      name: "test",
+      state: "loaded" as const,
+      persistent: false,
+      entities: [
+        { index: 1, generation: 0, components: [{ id: Position.id, data: { x: 1, y: 2, z: 3 } }] },
+      ],
+    };
+    scene.deserialize(data);
+    expect(scene.getEntityCount()).toBe(1);
+  });
 });
 
 describe("SceneManager", () => {
@@ -238,7 +267,7 @@ describe("SceneManager", () => {
     const world = makeWorld();
     const manager = new SceneManager(world);
 
-    const scene1 = manager.create("level1", (s) => {
+    const _scene1 = manager.create("level1", (s) => {
       s.spawn(new Map([[Position.id, { x: 1, y: 2, z: 3 }]]));
     });
     const scene2 = manager.create("level2", (s) => {
@@ -258,7 +287,7 @@ describe("SceneManager", () => {
     const world = makeWorld();
     const manager = new SceneManager(world);
 
-    const scene1 = manager.create("level1", (s) => {
+    const _scene1 = manager.create("level1", (s) => {
       s.spawn(new Map([[Position.id, { x: 1, y: 2, z: 3 }]]));
     });
     const scene2 = manager.create("level2", (s) => {

@@ -1,8 +1,8 @@
+import { NavMeshDebugViz } from "./debug-viz";
 import { NavMesh } from "./navmesh";
 import { NavMeshGenerator } from "./navmesh-generator";
 import { Pathfinder } from "./pathfinder";
-import { NavMeshDebugViz } from "./debug-viz";
-import type { HeightFieldSampler, NavMeshGeneratorConfig, Vec3 } from "./types";
+import type { HeightFieldSampler, NavMeshGeneratorConfig } from "./types";
 
 function makeFlatSampler(height: number = 0): HeightFieldSampler {
   return {
@@ -236,6 +236,43 @@ describe("Pathfinder", () => {
 
     expect(path.length).toBeGreaterThanOrEqual(2);
     expect(path.length).toBeLessThan(20);
+  });
+
+  it("should terminate on disconnected graph without infinite loop", () => {
+    // Build a navmesh with two disconnected polygons
+    const navMesh = new NavMesh();
+    navMesh.build({
+      polygons: [
+        {
+          id: 0,
+          vertexIndices: [0, 1, 2],
+          neighborPolys: [],
+          portalEdges: [],
+          centroid: [0, 0, 0],
+          area: 0.5,
+          region: 0,
+        },
+        {
+          id: 1,
+          vertexIndices: [3, 4, 5],
+          neighborPolys: [],
+          portalEdges: [],
+          centroid: [100, 0, 100],
+          area: 0.5,
+          region: 0,
+        },
+      ],
+      vertices: new Float32Array([
+        0, 0, 0, 1, 0, 0, 0, 0, 1,
+        100, 0, 100, 101, 0, 100, 100, 0, 101,
+      ]),
+      vertexCount: 6,
+    });
+
+    const pathfinder = new Pathfinder(navMesh);
+    // Should return empty path quickly, not infinite loop
+    const path = pathfinder.findPath([0, 0, 0], [100, 0, 100]);
+    expect(path.length).toBe(0);
   });
 });
 

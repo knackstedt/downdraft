@@ -372,7 +372,8 @@ export class CSMPass extends RenderPass {
   destroy(): void {
     this.shadowTexture?.destroy();
     this.shadowView = null;
-    this.shadowSampler?.destroy();
+    // GPUSampler has no destroy() — it's GC'd automatically.
+    this.shadowSampler = null;
     this.uniformBuffer?.destroy();
     this.modelBuffer?.destroy();
     for (const buf of this.vertexBuffers.values()) buf.destroy();

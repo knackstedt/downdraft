@@ -1,5 +1,8 @@
 // Shark AI — patrol, investigate, attack states
+import { createRng } from "@to-the-ocean/util/rng";
 import type { WildlifeConfig, WildlifeDeps, WildlifeEntity, WildlifePlayer, WildlifeShip } from "../types";
+
+const rng = createRng(0x560A8B);
 
 enum SharkState { Patrol, Investigate, Attack, Flee }
 
@@ -53,8 +56,8 @@ export function tickSharkAI(
   switch (state) {
     case SharkState.Patrol:
       if (stateTimer <= 0) {
-        d[0] = Math.random() * Math.PI * 2;
-        d[4] = 5 + Math.random() * 10;
+        d[0] = rng() * Math.PI * 2;
+        d[4] = 5 + rng() * 10;
       }
       if (nearestDist < 30 && nearestIdx >= 0) {
         state = SharkState.Investigate;

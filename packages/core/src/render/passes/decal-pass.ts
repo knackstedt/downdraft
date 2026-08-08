@@ -357,7 +357,8 @@ export class DecalPass extends RenderPass {
     this.decalBuffer?.destroy();
     this.pipeline?.destroy();
     this.shaderModule?.destroy();
-    this.depthSampler?.destroy();
+    // GPUSampler has no destroy() — it's GC'd automatically.
+    this.depthSampler = null;
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();

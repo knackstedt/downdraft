@@ -85,7 +85,7 @@ export function createDefaultBridge(): Record<string, any> {
         let previousImported: any = null;
 
         // Helper: process an imported shared texture — extract VideoFrame, forward to main world
-        const processImported = (imported: any, rendererId: string) => {
+        const processImported = (imported: any, rendererId: string, correlationId?: number) => {
           transferCount++;
           if (previousImported) {
             try { previousImported.release(() => {}); } catch {}
@@ -110,7 +110,7 @@ export function createDefaultBridge(): Record<string, any> {
           try {
             const syncToken = imported.getFrameCreationSyncToken?.();
             if (syncToken) {
-              ipcRenderer.send("__osr_sync_token", rendererId, syncToken);
+              ipcRenderer.send("__osr_sync_token", rendererId, correlationId, syncToken);
             }
           } catch {}
         };
@@ -121,8 +121,9 @@ export function createDefaultBridge(): Record<string, any> {
           sharedTextureApi.setSharedTextureReceiver((received: any, ...args: any[]) => {
             try {
               const rendererId = args[0] || "unknown";
+              const correlationId = args[1];
               const imported = received.importedSharedTexture || received;
-              processImported(imported, rendererId);
+              processImported(imported, rendererId, correlationId);
             } catch (err) {
               console.error(`[preload] setSharedTextureReceiver callback failed:`, err);
             }
@@ -130,10 +131,10 @@ export function createDefaultBridge(): Record<string, any> {
         }
 
         // Low-level API: subtle.finishTransferSharedTexture (fallback)
-        ipcRenderer.on("__osr_shared_texture_transfer", (_e: any, rendererId: string, transfer: any) => {
+        ipcRenderer.on("__osr_shared_texture_transfer", (_e: any, rendererId: string, correlationId: number, transfer: any) => {
           try {
             const imported = subtle.finishTransferSharedTexture(transfer);
-            processImported(imported, rendererId);
+            processImported(imported, rendererId, correlationId);
           } catch (err) {
             if (transferCount === 0) {
               console.error(`[preload] sharedTexture transfer failed for '${rendererId}':`, err);

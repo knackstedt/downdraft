@@ -128,6 +128,7 @@ export const AssetBrowser: React.FC<AssetBrowserProps> = ({
           type="text"
           placeholder="Search assets..."
           value={filter}
+          maxLength={256}
           onChange={(e) => setFilter(e.target.value)}
           style={{
             flex: 1,

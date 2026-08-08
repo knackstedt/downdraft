@@ -3,6 +3,9 @@ export class HiDPIManager {
   private handlers: Array<(scale: number) => void> = [];
 
   detectScaleFactor(): number {
+    if (typeof window !== "undefined" && typeof window.devicePixelRatio === "number") {
+      return window.devicePixelRatio;
+    }
     if (typeof process !== "undefined" && process.platform) {
       if (process.platform === "darwin") {
         return 2;

@@ -6,6 +6,14 @@ import { errorResult, jsonResult } from "../types";
 /** Base directory used for path confinement. Falls back to cwd. */
 const GAME_ROOT = process.cwd();
 
+/** Strip absolute filesystem paths from error messages to avoid leaking implementation details. */
+function sanitizeErrorMessage(msg: string): string {
+  return msg.replace(GAME_ROOT, "<game-root>").replace(/\/[^\s"']+/g, (match) => {
+    if (match.startsWith("/<game-root>")) return match;
+    return "<path>";
+  });
+}
+
 export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
 
@@ -35,7 +43,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
           await fs.writeFile(safePath, code);
           return jsonResult({ created: true, name, path });
         } catch (e) {
-          return errorResult(`Failed to write script: ${(e as Error).message}`);
+          return errorResult(`Failed to write script: ${sanitizeErrorMessage((e as Error).message)}`);
         }
       },
     },
@@ -62,7 +70,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
           await ctx.scriptingSystem.load(name, safePath);
           return jsonResult({ attached: true, name, path: safePath });
         } catch (e) {
-          return errorResult(`Failed to attach script: ${(e as Error).message}`);
+          return errorResult(`Failed to attach script: ${sanitizeErrorMessage((e as Error).message)}`);
         }
       },
     },
@@ -89,7 +97,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
           await ctx.scriptingSystem.hotReload(name, safePath);
           return jsonResult({ hotReloaded: true, name, path: safePath });
         } catch (e) {
-          return errorResult(`Failed to hot-reload script: ${(e as Error).message}`);
+          return errorResult(`Failed to hot-reload script: ${sanitizeErrorMessage((e as Error).message)}`);
         }
       },
     },

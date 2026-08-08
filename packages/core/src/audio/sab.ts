@@ -42,6 +42,9 @@ export class AudioSABChannel {
   }
 
   setSourcePositions(positions: Array<[number, number, number]>): void {
+    if (positions.length > 32) {
+      throw new RangeError(`setSourcePositions: positions.length ${positions.length} exceeds max 32`);
+    }
     for (let i = 0; i < 32; i++) {
       const offset = i * 3;
       if (i < positions.length) {

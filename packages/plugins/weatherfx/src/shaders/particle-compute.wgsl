@@ -155,32 +155,12 @@ fn cs_update(@builtin(global_invocation_id) gid: vec3<u32>) {
   // Compute new position
   var newPos = vec3<f32>(p.posX, p.posY, p.posZ) + vec3<f32>(p.velX, p.velY, p.velZ) * params.deltaTime;
 
-  // LOD collision: only check voxel density if within collision radius of camera
-  // TEMPORARILY DISABLED — voxel collision causing premature particle death
-  let distToCam = length(newPos - params.cameraPos);
-  if (false && distToCam < params.collisionRadius && u32(params.voxelCount) > 0u) {
-    let density = voxelDensityAt(newPos);
-    if (density >= params.isoLevel) {
-      // Compute surface normal from density gradient (6-tap)
-      let normal = sampleVoxelGrad(newPos);
-
-      if (u32(params.isSnow) == 1u) {
-        // Snow: stick to surface — zero out velocity, clamp to just above surface
-        let surfacePoint = newPos - normal * (density - params.isoLevel) * params.voxelSize * 0.5;
-        newPos = surfacePoint + normal * 0.05;
-        p.velX = 0.0;
-        p.velY = 0.0;
-        p.velZ = 0.0;
-        // Snow stays longer once settled
-        p.life = min(p.life, 2.0);
-      } else {
-        // Rain: splash and die
-        p.alive = 0.0;
-        particles[idx] = p;
-        return;
-      }
-    }
-  }
+  // Voxel collision is disabled: the 6-tap gradient sampling caused premature
+  // particle death due to inaccurate surface normal estimation at the voxel
+  // resolution used for weather LOD. Particles now fall through terrain and are
+  // killed by the life/distance checks below. Re-enable by restoring the
+  // density check + sampleVoxelGrad response when a higher-resolution collision
+  // field is available.
 
   // Kill below water level or if dead
   p.life -= params.deltaTime;

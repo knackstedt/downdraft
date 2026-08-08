@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { JobScheduler, WorkerPool, parallelMap } from "./job-system";
 import { Schedule } from "./schedule";
 import { Stage, system, type SystemContext } from "./system";
@@ -126,6 +126,18 @@ describe("JobScheduler", () => {
   it("should dispose cleanly", () => {
     scheduler.dispose();
     expect(scheduler.getStats().pending).toBe(0);
+  });
+
+  it("should clear jobs map on terminate()", () => {
+    const pool = new WorkerPool({
+      functions: { square: (x: number) => x * x },
+    });
+    const sched = new JobScheduler({ pool });
+    sched.submit({ fn: "square", args: [5], deps: [], priority: 0 });
+    sched.terminate();
+    expect(sched.getStats().pending).toBe(0);
+    expect(sched.getStats().ready).toBe(0);
+    expect(sched.getStats().done).toBe(0);
   });
 });
 

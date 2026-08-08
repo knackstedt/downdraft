@@ -257,6 +257,11 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     if (!this.blurPipeline || !this.compositePipeline || !this.maskPipeline || !ctx.device) return;
 
     const maskUniformData = new Float32Array(4);
+    // DEVIATION: This pass creates its own command encoder and submits directly
+    // instead of using the frame graph's shared encoder. Highlight uses multiple
+    // internal render passes (mask → blur H → blur V → composite) with
+    // privately-owned intermediate textures; refactoring to the frame graph is
+    // tracked as a future task.
     const encoder = ctx.device.createCommandEncoder();
 
     // Pass 1: Render highlight mask

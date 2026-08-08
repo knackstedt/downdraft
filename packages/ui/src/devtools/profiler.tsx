@@ -146,9 +146,13 @@ export const ProfilerPanel: React.FC<ProfilerProps> = ({
   }, [samples, maxSamples]);
 
   useEffect(() => {
-    if (viewMode === "graph") {
+    if (viewMode !== "graph") return;
+    let rafId = requestAnimationFrame(() => {
       drawGraph();
-    }
+    });
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
   }, [drawGraph, viewMode]);
 
   // Stats

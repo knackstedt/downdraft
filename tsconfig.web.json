@@ -190,6 +190,9 @@
       ],
       "@to-the-ocean/plugin-wildlife/*": [
         "./games/to-the-ocean/plugins/wildlife/src/*"
+      ],
+      "@to-the-ocean/util/*": [
+        "./games/to-the-ocean/src/util/*"
       ]
     }
   },

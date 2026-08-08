@@ -778,7 +778,7 @@ export class WaterRenderer {
       this.heightTexture,
       this.normalTexture,
       this.flowTexture,
-      this.sampler,
+      // GPUSampler has no destroy() — it's GC'd. Excluded from destroyAll.
       this.wakeBuffer,
       this.shoreBuffer,
     ]);

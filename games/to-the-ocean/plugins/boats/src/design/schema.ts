@@ -2,9 +2,24 @@
 // Boat Design Schema — version, migrations, (de)serialization, and cloning
 // ============================================================================
 
-import { BoatDesign, BoatDesignId, BOAT_DESIGN_SCHEMA_VERSION, DesignFingerprint } from "./types";
+import { BOAT_DESIGN_SCHEMA_VERSION, BoatDesign, BoatDesignCommand, BoatDesignId, DesignFingerprint } from "./types";
 
 export type DesignMigration = (input: unknown) => unknown;
+
+const VALID_COMMAND_TYPES = new Set<string>([
+  "rename", "addHullBody", "updateHullBody", "removeHullBody",
+  "addDeck", "updateDeck", "removeDeck",
+  "addHardpoint", "moveHardpoint", "removeHardpoint",
+  "placeModule", "removeModule",
+  "setSymmetry", "setTuning",
+]);
+
+function isValidCommand(command: unknown): command is BoatDesignCommand {
+  if (command === null || typeof command !== "object") return false;
+  const cmd = command as Record<string, unknown>;
+  if (typeof cmd.type !== "string" || !VALID_COMMAND_TYPES.has(cmd.type)) return false;
+  return true;
+}
 
 const MIGRATIONS: Record<string, DesignMigration> = {
   // Current version is canonical; no older migrations yet.
@@ -130,10 +145,13 @@ export function cloneDesign(design: BoatDesign, newName?: string): BoatDesign {
 }
 
 /** Apply an immutable edit command to a design and return a new design instance. */
-export function applyEditCommand(design: BoatDesign, command: any): BoatDesign {
+export function applyEditCommand(design: BoatDesign, command: unknown): BoatDesign {
+  if (!isValidCommand(command)) {
+    return deepClone(design);
+  }
   const next = deepClone(design);
   next.metadata.updatedAt = Date.now();
-  switch (command?.type) {
+  switch (command.type) {
     case "rename":
       if (command.name !== undefined) next.metadata.name = String(command.name);
       if (command.description !== undefined) next.metadata.description = String(command.description);

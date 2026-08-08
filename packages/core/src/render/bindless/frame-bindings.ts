@@ -66,6 +66,8 @@ export class BindlessFrameBindings {
   private cachedBufferVersion = -1;
   private samplerRepeat: GPUSampler;
   private samplerClamp: GPUSampler;
+  private fallbackTexture: GPUTexture | null = null;
+  private fallbackView: GPUTextureView | null = null;
 
   constructor(
     device: GPUDevice,
@@ -128,20 +130,13 @@ export class BindlessFrameBindings {
     const entries: GPUBindGroupEntry[] = [
       { binding: 0, resource: { buffer: this.materialManager.getBuffer() } },
     ];
-    // Bind texture views at bindings 1..maxArrays (null views are allowed —
-    // the shader's switch default returns white for unbound indices).
+    // Bind texture views at bindings 1..maxArrays. Every layout entry must have
+    // a bound resource — if a slot has no registered view, bind a 1x1 fallback
+    // texture_2d_array so the bind group always has all maxArrays entries.
+    const fallback = this.getFallbackView();
     for (let i = 0; i < maxArrays; i++) {
-      const view = flatViews[i];
-      if (view) {
-        entries.push({ binding: 1 + i, resource: view });
-      } else {
-        // Bind the first available view as a placeholder for unused slots.
-        // WebGPU requires all layout entries to have a bound resource.
-        const fallback = flatViews.find((v) => v !== null);
-        if (fallback) {
-          entries.push({ binding: 1 + i, resource: fallback });
-        }
-      }
+      const view = flatViews[i] ?? fallback;
+      entries.push({ binding: 1 + i, resource: view });
     }
     entries.push({ binding: maxArrays + 1, resource: this.samplerRepeat });
     entries.push({ binding: maxArrays + 2, resource: this.samplerClamp });
@@ -158,8 +153,24 @@ export class BindlessFrameBindings {
     return this.getBindGroup();
   }
 
+  private getFallbackView(): GPUTextureView {
+    if (!this.fallbackTexture) {
+      this.fallbackTexture = this.device.createTexture({
+        size: [1, 1, 1],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING,
+        label: "bindless-fallback",
+      });
+      this.fallbackView = this.fallbackTexture.createView({ dimension: "2d-array" });
+    }
+    return this.fallbackView!;
+  }
+
   destroy(): void {
     this.bindGroup = null;
     this.bindGroupLayout = null;
+    this.fallbackTexture?.destroy();
+    this.fallbackTexture = null;
+    this.fallbackView = null;
   }
 }

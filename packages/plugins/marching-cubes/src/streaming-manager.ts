@@ -16,6 +16,7 @@
 // - A ChunkEmptyChecker to skip empty chunks
 //
 
+import { createLogger } from "@downdraft/core";
 import type { ChunkedVoxelField } from "./chunked-field";
 import {
     CHUNK_FULL,
@@ -28,6 +29,8 @@ import {
 import type { TerrainStreamingConfig } from "./streaming-config";
 import { getLODVoxelSize } from "./streaming-config";
 import type { VoxelField } from "./types";
+
+const log = createLogger();
 export interface TerrainEntry {
   id: number;
   chunkX: number;
@@ -175,6 +178,18 @@ export class TerrainStreamingManager {
     islandSize: number = 0,
   ): void {
     if (radius <= 0) return;
+    if (!Number.isFinite(worldX) || !Number.isFinite(worldY) || !Number.isFinite(worldZ)) {
+      log.warn("Streaming", `registerIsland(${id}) rejected: non-finite world coords (${worldX}, ${worldY}, ${worldZ})`);
+      return;
+    }
+    if (!Number.isFinite(biome) || biome < 0) {
+      log.warn("Streaming", `registerIsland(${id}) rejected: invalid biome ${biome}`);
+      return;
+    }
+    if (!Number.isFinite(islandSize) || islandSize < 0) {
+      log.warn("Streaming", `registerIsland(${id}) rejected: invalid islandSize ${islandSize}`);
+      return;
+    }
 
     const { field: chunkedField, ctx: chunkedCtx } = this.chunkFieldFactory(
       chunkX, chunkZ, radius, this.config.baseVoxelSize,
@@ -318,76 +333,80 @@ export class TerrainStreamingManager {
 
     for (let i = 0; i < this.pendingDeformations.length; i++) {
       const def = this.pendingDeformations[i];
-      const terrain = this.terrains.get(def.id);
-      if (!terrain) continue;
+      try {
+        const terrain = this.terrains.get(def.id);
+        if (!terrain) continue;
 
-      const field = terrain.field;
-      if (!field) {
+        const field = terrain.field;
+        if (!field) {
+          const cf = terrain.chunkedField;
+          if (cf) {
+            this.applyDeformationToChunked(cf, terrain, def);
+          }
+          terrain.dirty = true;
+          terrain.deformCount++;
+          continue;
+        }
+
+        const vs = field.voxelSize;
+        const localX = def.worldX - terrain.worldX;
+        const localY = def.worldY - terrain.worldY;
+        const localZ = def.worldZ - terrain.worldZ;
+        const defRadiusVoxels = Math.ceil(def.radius / vs);
+        const defRadiusSq = def.radius * def.radius;
+        const cx = Math.floor((localX - field.originX) / vs);
+        const cy = Math.floor((localY - field.originY) / vs);
+        const cz = Math.floor((localZ - field.originZ) / vs);
+
+        const minVX = Math.max(0, cx - defRadiusVoxels - 1);
+        const maxVX = Math.min(field.dimX - 1, cx + defRadiusVoxels + 1);
+        const minVZ = Math.max(0, cz - defRadiusVoxels - 1);
+        const maxVZ = Math.min(field.dimZ - 1, cz + defRadiusVoxels + 1);
+        if (terrain.hasDirtyRegion) {
+          terrain.dirtyMinX = Math.min(terrain.dirtyMinX, minVX);
+          terrain.dirtyMaxX = Math.max(terrain.dirtyMaxX, maxVX);
+          terrain.dirtyMinZ = Math.min(terrain.dirtyMinZ, minVZ);
+          terrain.dirtyMaxZ = Math.max(terrain.dirtyMaxZ, maxVZ);
+        } else {
+          terrain.dirtyMinX = minVX;
+          terrain.dirtyMaxX = maxVX;
+          terrain.dirtyMinZ = minVZ;
+          terrain.dirtyMaxZ = maxVZ;
+          terrain.hasDirtyRegion = true;
+        }
+
+        for (let vx = cx - defRadiusVoxels; vx <= cx + defRadiusVoxels; vx++) {
+          if (vx < 0 || vx >= field.dimX) continue;
+          for (let vy = cy - defRadiusVoxels; vy <= cy + defRadiusVoxels; vy++) {
+            if (vy < 0 || vy >= field.dimY) continue;
+            for (let vz = cz - defRadiusVoxels; vz <= cz + defRadiusVoxels; vz++) {
+              if (vz < 0 || vz >= field.dimZ) continue;
+              const wx = vx * vs + field.originX;
+              const wy = vy * vs + field.originY;
+              const wz = vz * vs + field.originZ;
+              const ddx = wx - localX;
+              const ddy = wy - localY;
+              const ddz = wz - localZ;
+              const distSq = ddx * ddx + ddy * ddy + ddz * ddz;
+              if (distSq > defRadiusSq) continue;
+              const falloff = 1 - Math.sqrt(distSq) / def.radius;
+              const change = def.strength * falloff * falloff;
+              const idx = vx * field.dimY * field.dimZ + vy * field.dimZ + vz;
+              field.data[idx] += change;
+            }
+          }
+        }
+
         const cf = terrain.chunkedField;
         if (cf) {
           this.applyDeformationToChunked(cf, terrain, def);
         }
+
         terrain.dirty = true;
         terrain.deformCount++;
-        continue;
+      } catch (err) {
+        log.error("Streaming", `Deformation ${i} (id=${def.id}) failed: ${err}`);
       }
-
-      const vs = field.voxelSize;
-      const localX = def.worldX - terrain.worldX;
-      const localY = def.worldY - terrain.worldY;
-      const localZ = def.worldZ - terrain.worldZ;
-      const defRadiusVoxels = Math.ceil(def.radius / vs);
-      const defRadiusSq = def.radius * def.radius;
-      const cx = Math.floor((localX - field.originX) / vs);
-      const cy = Math.floor((localY - field.originY) / vs);
-      const cz = Math.floor((localZ - field.originZ) / vs);
-
-      const minVX = Math.max(0, cx - defRadiusVoxels - 1);
-      const maxVX = Math.min(field.dimX - 1, cx + defRadiusVoxels + 1);
-      const minVZ = Math.max(0, cz - defRadiusVoxels - 1);
-      const maxVZ = Math.min(field.dimZ - 1, cz + defRadiusVoxels + 1);
-      if (terrain.hasDirtyRegion) {
-        terrain.dirtyMinX = Math.min(terrain.dirtyMinX, minVX);
-        terrain.dirtyMaxX = Math.max(terrain.dirtyMaxX, maxVX);
-        terrain.dirtyMinZ = Math.min(terrain.dirtyMinZ, minVZ);
-        terrain.dirtyMaxZ = Math.max(terrain.dirtyMaxZ, maxVZ);
-      } else {
-        terrain.dirtyMinX = minVX;
-        terrain.dirtyMaxX = maxVX;
-        terrain.dirtyMinZ = minVZ;
-        terrain.dirtyMaxZ = maxVZ;
-        terrain.hasDirtyRegion = true;
-      }
-
-      for (let vx = cx - defRadiusVoxels; vx <= cx + defRadiusVoxels; vx++) {
-        if (vx < 0 || vx >= field.dimX) continue;
-        for (let vy = cy - defRadiusVoxels; vy <= cy + defRadiusVoxels; vy++) {
-          if (vy < 0 || vy >= field.dimY) continue;
-          for (let vz = cz - defRadiusVoxels; vz <= cz + defRadiusVoxels; vz++) {
-            if (vz < 0 || vz >= field.dimZ) continue;
-            const wx = vx * vs + field.originX;
-            const wy = vy * vs + field.originY;
-            const wz = vz * vs + field.originZ;
-            const ddx = wx - localX;
-            const ddy = wy - localY;
-            const ddz = wz - localZ;
-            const distSq = ddx * ddx + ddy * ddy + ddz * ddz;
-            if (distSq > defRadiusSq) continue;
-            const falloff = 1 - Math.sqrt(distSq) / def.radius;
-            const change = def.strength * falloff * falloff;
-            const idx = vx * field.dimY * field.dimZ + vy * field.dimZ + vz;
-            field.data[idx] += change;
-          }
-        }
-      }
-
-      const cf = terrain.chunkedField;
-      if (cf) {
-        this.applyDeformationToChunked(cf, terrain, def);
-      }
-
-      terrain.dirty = true;
-      terrain.deformCount++;
     }
 
     this.pendingDeformations.length = 0;
@@ -435,7 +454,7 @@ export class TerrainStreamingManager {
 
           // Promote FullSolid/FullEmpty chunks to Full before deforming
           if (cf.chunkClass[chunkKey] !== CHUNK_FULL) {
-            promoteChunk(cf, chunkKey);
+            if (promoteChunk(cf, chunkKey) < 0) continue;
           }
 
           setChunkedVoxel(cf, vx, vy, vz, getChunkedVoxel(cf, vx, vy, vz) + change);

@@ -1,6 +1,7 @@
-import { createParticleEmitter, createFireEmitter, createSmokeEmitter, createSparkEmitter, createExplosionEmitter, type ParticleEmitterData } from "./emitter";
-import { createParticleGPUData, packParticleBuffer, type ParticleGPUData } from "./particle-data";
+import { createExplosionEmitter, createFireEmitter, createParticleEmitter, createSmokeEmitter, createSparkEmitter } from "./emitter";
+import { createParticleGPUData, packParticleBuffer } from "./particle-data";
 import { ParticleSimulator } from "./simulator";
+import { ParticleSystem } from "./system";
 
 describe("ParticleEmitter", () => {
   it("should create a default emitter", () => {
@@ -151,5 +152,43 @@ describe("ParticleSimulator", () => {
     expect(data).toBeDefined();
     expect(data.position).toBeDefined();
     expect(data.velocity).toBeDefined();
+  });
+
+  it("should not divide by zero when maxLifetime is zero", () => {
+    const emitter = createParticleEmitter();
+    emitter.maxParticles = 1;
+    emitter.lifetime = 0;
+    emitter.lifetimeVariance = 0;
+    const sim = new ParticleSimulator(emitter);
+    // Emit a particle with zero lifetime
+    sim.update(0.016);
+    const data = sim.getParticleData();
+    // Force maxLifetime to 0 and lifetime to a positive value to test the guard
+    data.maxLifetime[0] = 0;
+    data.lifetime[0] = 1;
+    data.active[0] = 1;
+    // This should not produce NaN or throw
+    expect(() => sim.update(0.016)).not.toThrow();
+    // Check no NaN in color channels
+    for (let i = 0; i < 4; i++) {
+      expect(Number.isNaN(data.color[i])).toBe(false);
+    }
+  });
+});
+
+describe("ParticleSystem emitter IDs", () => {
+  it("should assign unique sequential emitter IDs", () => {
+    const sys = new ParticleSystem({ maxParticlesPerEmitter: 10, useGPUCompute: false, surfaceFormat: "rgba8unorm" });
+    const id1 = sys.registerEmitter(createParticleEmitter());
+    const id2 = sys.registerEmitter(createParticleEmitter());
+    expect(id1).toBeGreaterThanOrEqual(0);
+    expect(id2).toBe(id1 + 1);
+  });
+
+  it("should keep emitter IDs within safe integer range", () => {
+    const sys = new ParticleSystem({ maxParticlesPerEmitter: 10, useGPUCompute: false, surfaceFormat: "rgba8unorm" });
+    const id = sys.registerEmitter(createParticleEmitter());
+    expect(id).toBeGreaterThanOrEqual(0);
+    expect(id).toBeLessThan(0x7fffffff);
   });
 });

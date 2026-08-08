@@ -39,8 +39,13 @@ export class XRSessionManager {
       this.state = "active";
 
       this.onSessionEndHandler = () => {
-        this.cleanup();
-        for (const cb of this.sessionEndCallbacks) cb();
+        try {
+          this.cleanup();
+        } finally {
+          for (const cb of this.sessionEndCallbacks) {
+            try { cb(); } catch {}
+          }
+        }
       };
       this.onVisibilityChangeHandler = ((e: Event) => {
         const visible = (e as XRVisibilityChangeEvent).visibilityState === "visible";

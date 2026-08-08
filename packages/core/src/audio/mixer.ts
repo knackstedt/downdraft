@@ -97,8 +97,12 @@ export class AudioMixer {
       };
     }
     const id = this.backend.addEffect(channel, effect);
-    state.effects.set(id, effect);
-    return id;
+    const safeId = id >= 0 ? id : this.nextEffectId;
+    if (safeId === this.nextEffectId) {
+      this.nextEffectId = (this.nextEffectId + 1) % 0x7fffffff;
+    }
+    state.effects.set(safeId, effect);
+    return safeId;
   }
 
   removeEffect(channel: AudioChannel, effectId: number): void {

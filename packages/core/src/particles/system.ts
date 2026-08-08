@@ -26,6 +26,7 @@ interface EmitterEntry {
 }
 
 let nextEmitterId = 0;
+const MAX_EMITTER_ID = 0x7fffffff;
 
 export class ParticleSystem {
   private simulator: ParticleSimulator;
@@ -57,7 +58,8 @@ export class ParticleSystem {
   }
 
   registerEmitter(emitterData: ParticleEmitterData): number {
-    const id = nextEmitterId++;
+    const id = nextEmitterId;
+    nextEmitterId = (nextEmitterId + 1) % MAX_EMITTER_ID;
     this.emitters.set(id, { id, data: emitterData });
 
     if (this.config.useGPUCompute && this.device) {

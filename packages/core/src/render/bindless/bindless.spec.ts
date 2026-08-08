@@ -25,4 +25,22 @@ describe("BindlessTextureRegistry handle packing", () => {
     expect((handle >> 16) & 0xffff).toBe(page);
     expect(handle & 0xffff).toBe(layer);
   });
+
+  it("layer overflow past 16 bits corrupts the array index field", () => {
+    // If layer exceeds 0xFFFF, it bleeds into the high 16 bits (array index).
+    // This demonstrates why the 16-bit validation in allocSlot is necessary.
+    const arrayIndex = 2;
+    const overflowLayer = 0x10000; // 65536 — one past the 16-bit max
+    const corruptedHandle = (arrayIndex << 16) | overflowLayer;
+    // The array index field is now corrupted by the overflow
+    expect((corruptedHandle >> 16) & 0xffff).not.toBe(arrayIndex);
+  });
+
+  it("layer and arrayIndex within 16-bit range produce correct handles", () => {
+    const maxLayer = 0xFFFF;
+    const maxArrayIndex = 0xFFFF;
+    const handle = (maxArrayIndex << 16) | maxLayer;
+    expect((handle >> 16) & 0xffff).toBe(maxArrayIndex);
+    expect(handle & 0xffff).toBe(maxLayer);
+  });
 });

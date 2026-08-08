@@ -265,6 +265,19 @@ export class AssetManager {
           if (!this.evictLRU()) break;
         }
 
+        if (this.memoryBudget > 0 && this.currentMemoryUsage + size > this.memoryBudget) {
+          const budgetError = new Error(`Memory budget exceeded: cannot load ${uri} (size ${size}, budget ${this.memoryBudget}, usage ${this.currentMemoryUsage})`);
+          entry.reject(budgetError);
+          const rejectors = this.pendingRejectors.get(uri);
+          if (rejectors) {
+            for (const r of rejectors) r(budgetError);
+            this.pendingRejectors.delete(uri);
+            this.pendingResolvers.delete(uri);
+          }
+          log.warn("AssetManager", budgetError.message);
+          return;
+        }
+
         const ref: AssetRef = {
           uri,
           refCount: 1,

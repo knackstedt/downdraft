@@ -815,6 +815,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.gpuProfiler.resolveGpuTimers(commandEncoder);
     }
     this.device!.queue.submit([commandEncoder.finish()]);
+    this.iblSystem?.endFrame();
     if (this.gpuProfiler) { this.gpuProfiler.readGpuTimers().then(() => {}).catch(() => {}); }
     if (this.telemetryCollector) {
       this.telemetryCollector.recordFrame(dt * 1000);

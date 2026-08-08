@@ -81,14 +81,20 @@ export function decodeHeader(buf: ArrayBuffer): SaveHeader | null {
   const formatVersion = view.getUint16(4, true);
   if (formatVersion !== SAVE_FORMAT_VERSION) return null;
 
+  if (6 + 4 > buf.byteLength) return null;
   const engineVersionPacked = view.getUint32(6, true);
+  if (10 + 8 > buf.byteLength) return null;
   const timestamp = view.getFloat64(10, true);
+  if (18 + 4 > buf.byteLength) return null;
   const entityCount = view.getUint32(18, true);
+  if (22 + 4 > buf.byteLength) return null;
   const playerCount = view.getUint32(22, true);
 
   const u8 = new Uint8Array(buf);
+  if (26 + XXH128_SIZE > buf.byteLength) return null;
   const bodyHash = u8.slice(26, 26 + XXH128_SIZE);
 
+  if (42 + 4 > buf.byteLength) return null;
   const uncompressedBodyLength = view.getUint32(42, true);
 
   return {

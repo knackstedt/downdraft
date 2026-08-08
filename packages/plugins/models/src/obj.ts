@@ -112,6 +112,15 @@ export function parseOBJ(
         const posIdx = parseInt(indices[0]) - 1;
         const uvIdx = indices[1] ? parseInt(indices[1]) - 1 : -1;
         const normIdx = indices[2] ? parseInt(indices[2]) - 1 : -1;
+        if (posIdx < 0 || posIdx >= positions.length) {
+          throw new RangeError(`OBJ face vertex index out of bounds: ${posIdx + 1} (positions: ${positions.length})`);
+        }
+        if (uvIdx >= 0 && uvIdx >= uvs.length) {
+          throw new RangeError(`OBJ face uv index out of bounds: ${uvIdx + 1} (uvs: ${uvs.length})`);
+        }
+        if (normIdx >= 0 && normIdx >= normals.length) {
+          throw new RangeError(`OBJ face normal index out of bounds: ${normIdx + 1} (normals: ${normals.length})`);
+        }
         face.push({ posIdx, normIdx, uvIdx, matIdx: currentMatIdx });
       }
       for (let j = 1; j < face.length - 1; j++) {

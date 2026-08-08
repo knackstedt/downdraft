@@ -87,7 +87,10 @@ const craftingSystemFn = system("crafting-queue", Stage.Update, (ctx) => {
       entry.progress += dt / recipe.craftingTime;
 
       if (entry.progress >= 1) {
-        executeCraft(recipe, grid);
+        if (!executeCraft(recipe, grid)) {
+          craft.queue.shift();
+          continue;
+        }
         craft.queue.shift();
       }
     }

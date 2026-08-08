@@ -1,7 +1,7 @@
 // ECS
 export { archetypeMatches, createArchetype, getArchetypeForComponents } from "./ecs/archetype";
 export type { Archetype } from "./ecs/archetype";
-export { Component, component, getComponentId, getComponentName } from "./ecs/component";
+export { Component, component, getComponentId, getComponentName, isRegisteredComponentId } from "./ecs/component";
 export type { ComponentDefinition, ComponentId, IComponent } from "./ecs/component";
 export { entityEqual, entityToString, isAlive, ROOT_ENTITY } from "./ecs/entity";
 export type { Entity, EntityMeta } from "./ecs/entity";

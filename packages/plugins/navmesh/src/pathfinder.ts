@@ -8,6 +8,58 @@ interface AStarNode {
   parent: AStarNode | null;
 }
 
+class MinHeap<T> {
+  private data: T[] = [];
+  private compare: (a: T, b: T) => number;
+
+  constructor(compare: (a: T, b: T) => number) {
+    this.compare = compare;
+  }
+
+  get size(): number {
+    return this.data.length;
+  }
+
+  push(item: T): void {
+    this.data.push(item);
+    this.siftUp(this.data.length - 1);
+  }
+
+  pop(): T | undefined {
+    if (this.data.length === 0) return undefined;
+    const top = this.data[0];
+    const last = this.data.pop()!;
+    if (this.data.length > 0) {
+      this.data[0] = last;
+      this.siftDown(0);
+    }
+    return top;
+  }
+
+  private siftUp(idx: number): void {
+    while (idx > 0) {
+      const parent = (idx - 1) >> 1;
+      if (this.compare(this.data[idx], this.data[parent]) >= 0) break;
+      [this.data[idx], this.data[parent]] = [this.data[parent], this.data[idx]];
+      idx = parent;
+    }
+  }
+
+  private siftDown(idx: number): void {
+    const n = this.data.length;
+    while (true) {
+      let smallest = idx;
+      const left = idx * 2 + 1;
+      const right = idx * 2 + 2;
+      if (left < n && this.compare(this.data[left], this.data[smallest]) < 0) smallest = left;
+      if (right < n && this.compare(this.data[right], this.data[smallest]) < 0) smallest = right;
+      if (smallest === idx) break;
+      [this.data[idx], this.data[smallest]] = [this.data[smallest], this.data[idx]];
+      idx = smallest;
+    }
+  }
+}
+
 export class Pathfinder {
   private navMesh: NavMesh;
 
@@ -29,9 +81,10 @@ export class Pathfinder {
   }
 
   private aStar(startPoly: number, endPoly: number): number[] {
-    const open: AStarNode[] = [];
+    const open = new MinHeap<AStarNode>((a, b) => a.f - b.f);
     const closed = new Set<number>();
     const allNodes = new Map<number, AStarNode>();
+    const MAX_ITERATIONS = 10000;
 
     const startNode: AStarNode = {
       polyId: startPoly,
@@ -44,9 +97,16 @@ export class Pathfinder {
     open.push(startNode);
     allNodes.set(startPoly, startNode);
 
-    while (open.length > 0) {
-      open.sort((a, b) => a.f - b.f);
-      const current = open.shift()!;
+    let iterations = 0;
+    while (open.size > 0) {
+      if (iterations++ >= MAX_ITERATIONS) {
+        return [];
+      }
+      const current = open.pop()!;
+
+      if (closed.has(current.polyId)) continue;
+      const best = allNodes.get(current.polyId);
+      if (best && current.f > best.f) continue;
 
       if (current.polyId === endPoly) {
         return this.reconstructPath(current);
@@ -75,13 +135,7 @@ export class Pathfinder {
           parent: current,
         };
         allNodes.set(neighborId, node);
-
-        const openIdx = open.findIndex((n) => n.polyId === neighborId);
-        if (openIdx >= 0) {
-          open[openIdx] = node;
-        } else {
-          open.push(node);
-        }
+        open.push(node);
       }
     }
 

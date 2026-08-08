@@ -78,28 +78,40 @@ export class WebSocketTransport implements NetTransport {
   private rtt = 0;
   private packetLoss = 0;
   private lastPing = 0;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private connectingPromise: Promise<void> | null = null;
 
   async connect(url: string): Promise<void> {
-    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+    if (this.connected) {
       throw new Error("connect() already in progress or connected");
     }
-    return new Promise((resolve, reject) => {
+    if (this.connectingPromise) {
+      return this.connectingPromise;
+    }
+
+    this.connectingPromise = new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(url);
       this.ws.binaryType = "arraybuffer";
 
       this.ws.onopen = () => {
         this.connected = true;
+        this.connectingPromise = null;
         this.connectHandlers.forEach((h) => h());
         this.startPing();
         resolve();
       };
 
       this.ws.onerror = (e) => {
-        if (!this.connected) reject(e);
+        if (!this.connected) {
+          this.connectingPromise = null;
+          reject(e);
+        }
       };
 
       this.ws.onclose = () => {
         this.connected = false;
+        this.connectingPromise = null;
+        this.stopPing();
         this.disconnectHandlers.forEach((h) => h());
       };
 
@@ -131,9 +143,11 @@ export class WebSocketTransport implements NetTransport {
   }
 
   async disconnect(): Promise<void> {
+    this.stopPing();
     this.ws?.close();
     this.ws = null;
     this.connected = false;
+    this.connectingPromise = null;
     this.disconnectHandlers.forEach((h) => h());
   }
 
@@ -159,13 +173,21 @@ export class WebSocketTransport implements NetTransport {
   getPacketLoss(): number { return this.packetLoss; }
 
   private startPing(): void {
-    setInterval(() => {
+    this.stopPing();
+    this.pingInterval = setInterval(() => {
       if (!this.connected) return;
       this.lastPing = performance.now();
       const ping = new Uint8Array(4);
       ping[0] = 0xFF; ping[1] = 0xFF;
       this.ws?.send(ping);
     }, 1000);
+  }
+
+  private stopPing(): void {
+    if (this.pingInterval !== null) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 }
 

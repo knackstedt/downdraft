@@ -108,8 +108,8 @@ export class RecordWriter {
   }
 
   endWrite(): void {
-    const seq = Atomics.load(this.seqArr, 0);
-    Atomics.store(this.seqArr, 0, seq + 1);
+    // Sequence is incremented in beginWrite() — endWrite() is a no-op
+    // to avoid double incrementing.
   }
 
   bumpSequence(): void {

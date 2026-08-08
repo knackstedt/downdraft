@@ -89,7 +89,7 @@ export class XRLayerManager {
 
   getColorTextureView(eye: XREye): GPUTextureView {
     const view = this.currentViews.get(eye);
-    if (!view) throw new Error(`No layer view for eye: ${eye}`);
+    if (!view || !view.subImage.colorTexture) throw new Error(`No color texture for eye: ${eye}`);
     return view.subImage.colorTexture.createView();
   }
 

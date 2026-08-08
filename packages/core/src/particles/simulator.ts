@@ -218,7 +218,9 @@ export class ParticleSimulator {
       }
 
       // Interpolate color and size
-      const t = 1 - data.lifetime[i] / data.maxLifetime[i]; // 0=birth, 1=death
+      const maxLife = data.maxLifetime[i];
+      if (maxLife <= 0) continue;
+      const t = 1 - data.lifetime[i] / maxLife; // 0=birth, 1=death
       data.color[i * 4 + 0] = emitter.startColor[0] + (emitter.endColor[0] - emitter.startColor[0]) * t;
       data.color[i * 4 + 1] = emitter.startColor[1] + (emitter.endColor[1] - emitter.startColor[1]) * t;
       data.color[i * 4 + 2] = emitter.startColor[2] + (emitter.endColor[2] - emitter.startColor[2]) * t;

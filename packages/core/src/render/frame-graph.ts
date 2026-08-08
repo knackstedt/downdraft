@@ -514,13 +514,16 @@ export class FrameGraph {
       const sampleCount = desc.sampleCount ?? 1;
 
       // Find a compatible physical texture whose lifetime has ended before this resource starts.
+      // Usage compatibility: the physical texture's usage must be a superset of the
+      // resource's required usage (i.e. it must support all flags the resource needs).
       let reused: PhysicalTexture | null = null;
       for (const pt of this.physicalTextures) {
+        const usageCompatible = (pt.usage & desc.usage) === desc.usage;
         const compatible =
           pt.width === w &&
           pt.height === h &&
           pt.format === desc.format &&
-          pt.usage === desc.usage &&
+          usageCompatible &&
           pt.sampleCount === sampleCount &&
           pt.lastUsed < resource.lifetime!.first;
         if (compatible) {

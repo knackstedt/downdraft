@@ -1,7 +1,7 @@
 import { mat4 } from "wgpu-matrix";
-import { SkyDomePass } from "./sky-dome";
-import type { SkyDomeUniforms } from "./sky-dome";
 import { TrackedRenderPass } from "../tracked-render-pass";
+import type { SkyDomeUniforms } from "./sky-dome";
+import { SkyDomePass } from "./sky-dome";
 
 const FACE_DIRS: Array<{ target: [number, number, number]; up: [number, number, number] }> = [
   { target: [1, 0, 0], up: [0, -1, 0] },
@@ -53,6 +53,10 @@ export class CubemapCapturePass {
 
     const proj = mat4.perspective(Math.PI / 2, 1.0, 0.1, 10000.0);
 
+    // DEVIATION: This pass creates its own command encoder and submits per face
+    // (6 submissions) instead of using the frame graph's shared encoder. This is
+    // intentional — cubemap capture is a one-shot offline render that happens
+    // outside the per-frame render loop, so it cannot share the frame encoder.
     for (let face = 0; face < 6; face++) {
       const faceView = this.cubemapTexture!.createView({
         dimension: "2d",

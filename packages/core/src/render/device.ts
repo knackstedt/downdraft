@@ -62,8 +62,13 @@ export class GPUDeviceManager {
     if (this.device) {
       this.device.lost.then((info: GPUDeviceLostInfo) => {
         this.deviceLost = true;
+        log.error("DownDraft", `GPU device lost: ${info?.message ?? "unknown reason"}. Application should attempt recovery or notify the user.`);
         for (let i = 0; i < this.lostHandlers.length; i++) {
-          this.lostHandlers[i](info);
+          try {
+            this.lostHandlers[i](info);
+          } catch (err) {
+            log.error("DownDraft", `Device lost handler threw: ${err}`);
+          }
         }
       });
     }
@@ -88,6 +93,7 @@ export class GPUDeviceManager {
   }
 
   async reinit(): Promise<GPUDevice | null> {
+    log.warn("DownDraft", "Device lost — reinitializing GPU device. Pass-specific resources (pipelines, bind groups, textures) are NOT recreated and must be rebuilt by the application.");
     this.deviceLost = false;
     this.device = null;
     this.adapter = null;

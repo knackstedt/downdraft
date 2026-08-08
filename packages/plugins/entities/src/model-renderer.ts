@@ -11,6 +11,7 @@
 
 import {
     calculateViewProj,
+    createLogger,
     DEPTH_FORMAT,
     MSAA_SAMPLE_COUNT,
     type BindlessMaterialManager,
@@ -20,6 +21,8 @@ import {
 } from "@downdraft/core";
 import type { MaterialData, MeshData } from "@downdraft/plugin-models";
 import MODEL_WGSL from "./shaders/model.wgsl?raw";
+
+const log = createLogger();
 
 
 interface ModelGPUResources {
@@ -167,7 +170,7 @@ export class ModelRenderer {
     this.removeModel(nodeId);
 
     const hasTexture = materials?.some(m => m.textureData && m.textureData.byteLength > 0) ?? false;
-    console.log(`[ModelRenderer] uploadModel ${nodeId}: ${meshes.length} meshes, ${materials?.length ?? 0} materials, hasTexture=${hasTexture}`);
+    log.info("ModelRenderer", `uploadModel ${nodeId}: ${meshes.length} meshes, ${materials?.length ?? 0} materials, hasTexture=${hasTexture}`);
 
     // Allocate (or reuse) a material index for this model. Starts with the
     // default white material; updated when the async texture load completes.
@@ -305,7 +308,7 @@ export class ModelRenderer {
         this.bindless.materialManager.updateMaterial(materialIndex, matParams);
       }
 
-      console.log(`[ModelRenderer] Texture ready for ${nodeId}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
+      log.info("ModelRenderer", `Texture ready for ${nodeId}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
       imageBitmap.close();
     } catch (e) {
       console.error(`[ModelRenderer] Failed to load texture for ${nodeId}:`, e);

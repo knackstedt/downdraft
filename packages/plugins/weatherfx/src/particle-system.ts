@@ -298,8 +298,19 @@ export class ParticleSystem {
 
     // Upload voxel data if present
     if (voxelData && voxelData.data.length > 0 && voxelData.data.length <= MAX_VOXEL_FLOATS) {
-      this.device.queue.writeBuffer(this.voxelBuffer!, 0, voxelData.data as unknown as GPUAllowSharedBufferSource);
-      this.currentVoxelCount = voxelData.data.length;
+      let hasInvalid = false;
+      for (let i = 0; i < voxelData.data.length; i++) {
+        if (!Number.isFinite(voxelData.data[i])) {
+          hasInvalid = true;
+          break;
+        }
+      }
+      if (!hasInvalid) {
+        this.device.queue.writeBuffer(this.voxelBuffer!, 0, voxelData.data as unknown as GPUAllowSharedBufferSource);
+        this.currentVoxelCount = voxelData.data.length;
+      } else {
+        this.currentVoxelCount = 0;
+      }
     } else {
       this.currentVoxelCount = 0;
     }

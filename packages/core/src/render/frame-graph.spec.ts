@@ -291,4 +291,65 @@ describe("FrameGraph", () => {
       expect(fakeTexture.destroy).toHaveBeenCalled();
     });
   });
+
+  describe("Texture aliasing usage compatibility", () => {
+    it("should alias resources with superset usage flags", () => {
+      const fg = new FrameGraph();
+      let createCount = 0;
+      const device = {
+        createTexture: () => {
+          createCount++;
+          return { createView: () => ({}), destroy: () => {}, width: 800, height: 600 };
+        },
+      } as unknown as GPUDevice;
+
+      // Resource A needs RENDER_ATTACHMENT | TEXTURE_BINDING (0x14)
+      // Resource B needs only RENDER_ATTACHMENT (0x10) — subset of A's usage
+      const a = fg.createTransient("a", { format: "rgba16float", usage: 0x14 });
+      const b = fg.createTransient("b", { format: "rgba16float", usage: 0x10 });
+
+      // pass1 writes A, pass2 writes B — non-overlapping lifetimes allow aliasing
+      fg.addPass(new MockPass("pass1", (builder) => {
+        builder.colorAttachment({ handle: a, loadOp: "clear", storeOp: "store" });
+      }));
+      fg.addPass(new MockPass("pass2", (builder) => {
+        builder.colorAttachment({ handle: b, loadOp: "clear", storeOp: "store" });
+      }));
+      fg.compile(device, 800, 600);
+
+      // B's usage (0x10) is a subset of A's physical texture usage (0x14),
+      // so they should alias — only 1 physical texture created.
+      expect(createCount).toBe(1);
+      const aliasing = fg.getAliasing();
+      expect(aliasing.get("b")).toBe(aliasing.get("a"));
+    });
+
+    it("should not alias resources with incompatible usage flags", () => {
+      const fg = new FrameGraph();
+      let createCount = 0;
+      const device = {
+        createTexture: () => {
+          createCount++;
+          return { createView: () => ({}), destroy: () => {}, width: 800, height: 600 };
+        },
+      } as unknown as GPUDevice;
+
+      // Resource A needs RENDER_ATTACHMENT (0x10)
+      // Resource B needs TEXTURE_BINDING (0x04) — not a subset of A's usage
+      const a = fg.createTransient("a", { format: "rgba16float", usage: 0x10 });
+      const b = fg.createTransient("b", { format: "rgba16float", usage: 0x04 });
+
+      fg.addPass(new MockPass("pass1", (builder) => {
+        builder.colorAttachment({ handle: a, loadOp: "clear", storeOp: "store" });
+      }));
+      fg.addPass(new MockPass("pass2", (builder) => {
+        builder.colorAttachment({ handle: b, loadOp: "clear", storeOp: "store" });
+      }));
+      fg.compile(device, 800, 600);
+
+      // B's usage (0x04) is not a subset of A's physical texture usage (0x10),
+      // so they cannot alias — 2 physical textures created.
+      expect(createCount).toBe(2);
+    });
+  });
 });

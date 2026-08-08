@@ -137,6 +137,10 @@ export class MCPServer {
     if (!tool) {
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
     }
+    const validationError = this.validateToolParams(tool, params);
+    if (validationError) {
+      return { content: [{ type: "text", text: validationError }], isError: true };
+    }
     try {
       return await tool.handler(params);
     } catch (e) {
@@ -145,6 +149,26 @@ export class MCPServer {
         isError: true,
       };
     }
+  }
+
+  private validateToolParams(tool: ToolRegistration, params: Record<string, unknown>): string | null {
+    const schema = tool.def.inputSchema;
+    if (!schema || schema.type !== "object") return null;
+    const required = schema.required ?? [];
+    const properties = schema.properties ?? {};
+    for (const req of required) {
+      if (!(req in params)) {
+        return `Missing required parameter: ${req}`;
+      }
+      const propSchema = properties[req] as { type?: string } | undefined;
+      if (propSchema?.type) {
+        const actualType = Array.isArray(params[req]) ? "array" : typeof params[req];
+        if (actualType !== propSchema.type) {
+          return `Parameter "${req}" must be of type ${propSchema.type}, got ${actualType}`;
+        }
+      }
+    }
+    return null;
   }
 
   async readResource(uri: string): Promise<MCPResourceResult> {

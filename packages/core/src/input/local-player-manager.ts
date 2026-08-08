@@ -158,7 +158,7 @@ export class LocalPlayerManager {
         if (!gp) continue;
 
         const gpButtons: number[] = [];
-        for (let i = 0; i < gp.buttons.length && i < 4; i++) {
+        for (let i = 0; i < gp.buttons.length && i < 16; i++) {
           gpButtons.push(gp.buttons[i].pressed ? 1 : 0);
         }
         const gpAxes: number[] = [];
