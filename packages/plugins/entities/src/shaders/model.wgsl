@@ -23,11 +23,17 @@ struct BindlessMaterial {
   roughness: f32,
   metallic: f32,
   emissiveIntensity: f32,
-  _pad0: f32,
+  hasTexTransform: f32,
   albedoTex: u32,
   normalTex: u32,
   metallicRoughnessTex: u32,
   aoEmissiveTex: u32,
+  texOffset: vec2<f32>,
+  texScale: vec2<f32>,
+  texRotation: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 };
 
 @group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;

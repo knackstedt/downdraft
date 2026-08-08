@@ -112,6 +112,32 @@ describe("TrackedRenderPass", () => {
 
     expect(pass.getRawPass()).toBe(mockGpuPass);
   });
+
+  it("drawIndirect and drawIndexedIndirect should delegate and count draw calls", () => {
+    const indirectBuffer = {} as GPUBuffer;
+    const mockGpuPass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      setVertexBuffer: vi.fn(),
+      setIndexBuffer: vi.fn(),
+      draw: vi.fn(),
+      drawIndexed: vi.fn(),
+      drawIndirect: vi.fn(),
+      drawIndexedIndirect: vi.fn(),
+      end: vi.fn(),
+    } as unknown as GPURenderPassEncoder;
+    const pass = new TrackedRenderPass(mockGpuPass);
+
+    pass.drawIndirect(indirectBuffer, 0);
+    expect(pass.drawCalls).toBe(1);
+    expect(pass.triangles).toBe(0);
+    expect(mockGpuPass.drawIndirect).toHaveBeenCalledWith(indirectBuffer, 0);
+
+    pass.drawIndexedIndirect(indirectBuffer, 20);
+    expect(pass.drawCalls).toBe(2);
+    expect(pass.triangles).toBe(0);
+    expect(mockGpuPass.drawIndexedIndirect).toHaveBeenCalledWith(indirectBuffer, 20);
+  });
 });
 
 describe("TrackedRenderPass — setIndexBuffer with different buffer", () => {
