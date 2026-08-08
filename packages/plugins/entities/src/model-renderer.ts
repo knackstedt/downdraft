@@ -67,10 +67,10 @@ export class ModelRenderer {
   private bindlessBindGroupSetThisFrame = false;
   /** materialIndex for the default white material (albedo = default white layer). */
   private defaultMaterialIndex = 0;
-  /** sourceId → materialIndex, so reupload reuses the same slot. */
-  private modelMaterialIndex = new Map<string, number>();
-  /** sourceId for the texture registered for a model (used for async update). */
-  private modelTextureSourceId = new Map<string, string>();
+  /** Composite key `${nodeId}:${matIdx}` → bindless materialIndex, so reupload reuses the same slot. */
+  private meshMaterialIndex = new Map<string, number>();
+  /** Composite key `${nodeId}:${matIdx}` → texture sourceId (used for async update + cleanup). */
+  private meshTextureSourceId = new Map<string, string>();
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -172,29 +172,6 @@ export class ModelRenderer {
     const hasTexture = materials?.some(m => m.textureData && m.textureData.byteLength > 0) ?? false;
     log.info("ModelRenderer", `uploadModel ${nodeId}: ${meshes.length} meshes, ${materials?.length ?? 0} materials, hasTexture=${hasTexture}`);
 
-    // Allocate (or reuse) a material index for this model. Starts with the
-    // default white material; updated when the async texture load completes.
-    let materialIndex = this.defaultMaterialIndex;
-    if (this.bindless) {
-      const existing = this.modelMaterialIndex.get(nodeId);
-      if (existing !== undefined) {
-        materialIndex = existing;
-      } else {
-        materialIndex = this.bindless.materialManager.registerMaterial({
-          baseColor: [1, 1, 1, 1],
-          roughness: 1,
-          metallic: 0,
-          emissiveIntensity: 0,
-          albedoTexHandle: this.bindless.registry.defaultWhiteHandle,
-          normalTexHandle: this.bindless.registry.defaultWhiteHandle,
-          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
-          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
-          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
-        });
-        this.modelMaterialIndex.set(nodeId, materialIndex);
-      }
-    }
-
     const resources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
 
@@ -240,45 +217,72 @@ export class ModelRenderer {
         this.device.queue.writeBuffer(indexBuffer, 0, padded);
       }
 
+      // Determine the bindless material index for this mesh based on its
+      // materialIndex field (index into ModelData.materials). Each unique
+      // (nodeId, matIdx) gets its own bindless material slot so multi-material
+      // models render each sub-mesh with its own texture.
+      const matIdx = mesh.materialIndex ?? 0;
+      const materialKey = `${nodeId}:${matIdx}`;
+      let bindlessMatIndex = this.defaultMaterialIndex;
+      if (this.bindless) {
+        const existing = this.meshMaterialIndex.get(materialKey);
+        if (existing !== undefined) {
+          bindlessMatIndex = existing;
+        } else {
+          const mat = materials?.[matIdx];
+          const texLen = mat?.textureData?.byteLength ?? 0;
+          log.info("ModelRenderer", `  mesh[${i}] matIdx=${matIdx} key=${materialKey} baseColor=[${mat?.baseColor?.join(',')}] texData=${texLen}`);
+          bindlessMatIndex = this.bindless.materialManager.registerMaterial({
+            baseColor: mat?.baseColor ?? [1, 1, 1, 1],
+            roughness: mat?.roughness ?? 1,
+            metallic: mat?.metallic ?? 0,
+            emissiveIntensity: 0,
+            albedoTexHandle: this.bindless.registry.defaultWhiteHandle,
+            normalTexHandle: this.bindless.registry.defaultWhiteHandle,
+            metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
+            aoTexHandle: this.bindless.registry.defaultWhiteHandle,
+            emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
+          });
+          this.meshMaterialIndex.set(materialKey, bindlessMatIndex);
+
+          // Async load this material's texture
+          if (mat?.textureData && mat.textureData.byteLength > 0) {
+            const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
+            this.textureLoadVersion.set(materialKey, version);
+            this.loadMeshTexture(materialKey, mat.textureData, version);
+          }
+        }
+      }
+
       resources.push({
         vertexBuffer,
         indexBuffer,
         indexCount: mesh.indexCount,
         indexFormat,
         uniformOffset: uniformOffset * ModelRenderer.UNIFORM_SIZE,
-        materialIndex,
+        materialIndex: bindlessMatIndex,
       });
       uniformOffset++;
     }
 
     this.nextUniformOffset = uniformOffset;
     this.modelResources.set(nodeId, resources);
-
-    // Async load embedded texture data if available
-    if (materials && this.bindless) {
-      const texMaterial = materials.find((m) => m.textureData && m.textureData.byteLength > 0);
-      if (texMaterial && texMaterial.textureData) {
-        const version = (this.textureLoadVersion.get(nodeId) ?? 0) + 1;
-        this.textureLoadVersion.set(nodeId, version);
-        this.loadModelTexture(nodeId, texMaterial.textureData, version);
-      }
-    }
   }
 
-  private async loadModelTexture(nodeId: string, textureData: ArrayBuffer, version: number): Promise<void> {
+  private async loadMeshTexture(materialKey: string, textureData: ArrayBuffer, version: number): Promise<void> {
     if (!this.bindless) return;
     try {
       const blob = new Blob([textureData]);
       const imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
 
-      if (this.textureLoadVersion.get(nodeId) !== version) {
+      if (this.textureLoadVersion.get(materialKey) !== version) {
         imageBitmap.close();
         return;
       }
 
       // Register the bitmap into the bindless texture registry. The sourceId
-      // is the nodeId so reuploadModel can reuse/update it.
-      const sourceId = `model:${nodeId}`;
+      // is the materialKey so reuploadModel can reuse/update it.
+      const sourceId = `model:${materialKey}`;
       const existing = this.bindless.registry.getRegistration(sourceId);
       let handle: number;
       if (existing) {
@@ -289,10 +293,10 @@ export class ModelRenderer {
         const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1);
         handle = reg.handle;
       }
-      this.modelTextureSourceId.set(nodeId, sourceId);
+      this.meshTextureSourceId.set(materialKey, sourceId);
 
       // Update the material to point at the real albedo texture.
-      const materialIndex = this.modelMaterialIndex.get(nodeId);
+      const materialIndex = this.meshMaterialIndex.get(materialKey);
       if (materialIndex !== undefined) {
         const matParams: MaterialParams = {
           baseColor: [1, 1, 1, 1],
@@ -308,10 +312,10 @@ export class ModelRenderer {
         this.bindless.materialManager.updateMaterial(materialIndex, matParams);
       }
 
-      log.info("ModelRenderer", `Texture ready for ${nodeId}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
+      log.info("ModelRenderer", `Texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
       imageBitmap.close();
     } catch (e) {
-      console.error(`[ModelRenderer] Failed to load texture for ${nodeId}:`, e);
+      console.error(`[ModelRenderer] Failed to load texture for ${materialKey}:`, e);
     }
   }
 
@@ -325,31 +329,28 @@ export class ModelRenderer {
       this.nextUniformOffset = Math.max(0, this.nextUniformOffset - resources.length);
       this.modelResources.delete(nodeId);
     }
-    // Unregister the texture + material from the bindless managers.
-    const sourceId = this.modelTextureSourceId.get(nodeId);
-    if (sourceId && this.bindless) {
-      this.bindless.registry.unregister(sourceId);
-      this.modelTextureSourceId.delete(nodeId);
+    // Unregister all per-mesh textures + materials from the bindless managers.
+    // Clean up any materialKey that starts with `${nodeId}:`.
+    const prefix = `${nodeId}:`;
+    for (const [materialKey, matIdx] of this.meshMaterialIndex) {
+      if (materialKey.startsWith(prefix)) {
+        const sourceId = this.meshTextureSourceId.get(materialKey);
+        if (sourceId && this.bindless) {
+          this.bindless.registry.unregister(sourceId);
+          this.meshTextureSourceId.delete(materialKey);
+        }
+        if (this.bindless && matIdx !== this.defaultMaterialIndex) {
+          this.bindless.materialManager.unregisterMaterial(matIdx);
+        }
+        this.meshMaterialIndex.delete(materialKey);
+        this.textureLoadVersion.delete(materialKey);
+      }
     }
-    const matIdx = this.modelMaterialIndex.get(nodeId);
-    if (matIdx !== undefined && this.bindless && matIdx !== this.defaultMaterialIndex) {
-      this.bindless.materialManager.unregisterMaterial(matIdx);
-      this.modelMaterialIndex.delete(nodeId);
-    }
-    this.textureLoadVersion.delete(nodeId);
   }
 
   reuploadModel(nodeId: string, meshes: MeshData[], materials?: MaterialData[]): void {
-    // Preserve existing texture registration to avoid flickering on part
-    // selection changes. The material index is reused.
-    const existingSourceId = this.modelTextureSourceId.get(nodeId);
-
-    let version = this.textureLoadVersion.get(nodeId) ?? 0;
-    if (existingSourceId) {
-      version = version + 1;
-      this.textureLoadVersion.set(nodeId, version);
-    }
-
+    // Preserve existing per-mesh texture registrations to avoid flickering on
+    // part selection changes. Per-mesh material indices are reused.
     const oldResources = this.modelResources.get(nodeId);
     if (oldResources) {
       for (let i = 0; i < oldResources.length; i++) {
@@ -359,8 +360,6 @@ export class ModelRenderer {
       this.nextUniformOffset = Math.max(0, this.nextUniformOffset - oldResources.length);
       this.modelResources.delete(nodeId);
     }
-
-    const materialIndex = this.modelMaterialIndex.get(nodeId) ?? this.defaultMaterialIndex;
 
     const newResources: ModelGPUResources[] = [];
     let uniformOffset = this.nextUniformOffset;
@@ -407,29 +406,53 @@ export class ModelRenderer {
         this.device.queue.writeBuffer(indexBuffer, 0, padded);
       }
 
+      // Per-mesh material: reuse existing bindless material if already registered,
+      // otherwise register a new one and start async texture load.
+      const matIdx = mesh.materialIndex ?? 0;
+      const materialKey = `${nodeId}:${matIdx}`;
+      let bindlessMatIndex = this.defaultMaterialIndex;
+      if (this.bindless) {
+        const existing = this.meshMaterialIndex.get(materialKey);
+        if (existing !== undefined) {
+          bindlessMatIndex = existing;
+        } else {
+          const mat = materials?.[matIdx];
+          bindlessMatIndex = this.bindless.materialManager.registerMaterial({
+            baseColor: mat?.baseColor ?? [1, 1, 1, 1],
+            roughness: mat?.roughness ?? 1,
+            metallic: mat?.metallic ?? 0,
+            emissiveIntensity: 0,
+            albedoTexHandle: this.bindless.registry.defaultWhiteHandle,
+            normalTexHandle: this.bindless.registry.defaultWhiteHandle,
+            metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
+            aoTexHandle: this.bindless.registry.defaultWhiteHandle,
+            emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
+          });
+          this.meshMaterialIndex.set(materialKey, bindlessMatIndex);
+
+          // Start async texture load if this material has texture data and no
+          // existing registration (first time seeing this material).
+          if (mat?.textureData && mat.textureData.byteLength > 0 && !this.meshTextureSourceId.has(materialKey)) {
+            const version = (this.textureLoadVersion.get(materialKey) ?? 0) + 1;
+            this.textureLoadVersion.set(materialKey, version);
+            this.loadMeshTexture(materialKey, mat.textureData, version);
+          }
+        }
+      }
+
       newResources.push({
         vertexBuffer,
         indexBuffer,
         indexCount: mesh.indexCount,
         indexFormat,
         uniformOffset: uniformOffset * ModelRenderer.UNIFORM_SIZE,
-        materialIndex,
+        materialIndex: bindlessMatIndex,
       });
       uniformOffset++;
     }
 
     this.nextUniformOffset = uniformOffset;
     this.modelResources.set(nodeId, newResources);
-
-    // If no existing texture and no in-flight load, start one
-    if (!existingSourceId && version === 0 && materials && this.bindless) {
-      const texMaterial = materials.find((m) => m.textureData && m.textureData.byteLength > 0);
-      if (texMaterial && texMaterial.textureData) {
-        version = 1;
-        this.textureLoadVersion.set(nodeId, version);
-        this.loadModelTexture(nodeId, texMaterial.textureData, version);
-      }
-    }
   }
 
   beginFrame(camera: CameraState): void {

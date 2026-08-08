@@ -119,6 +119,9 @@ export interface ModelData {
   lights?: PunctualLightData[];
   /** Non-fatal warnings collected during parsing (e.g. skipped primitives). */
   warnings?: string[];
+  /** FBX UpAxis property: 0/1 = Y-up, 2 = Z-up. Used by renderers to apply
+   * the correct base rotation. Defaults to 1 (Y-up) for non-FBX formats. */
+  upAxis?: number;
 }
 
 export function getMaterialVariant(model: ModelData, name: string): number {

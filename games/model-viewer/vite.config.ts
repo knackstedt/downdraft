@@ -15,6 +15,8 @@ export default defineConfig({
       { find: /^@downdraft\/plugin-entities\//, replacement: resolve(__dirname, "../../packages/plugins/entities/src") + "/" },
       { find: /^@downdraft\/plugin-camera-controls$/, replacement: resolve(__dirname, "../../packages/plugins/camera-controls/src/index.ts") },
       { find: /^@downdraft\/plugin-camera-controls\//, replacement: resolve(__dirname, "../../packages/plugins/camera-controls/src") + "/" },
+      { find: /^@downdraft\/plugin-devtools$/, replacement: resolve(__dirname, "../../packages/plugins/devtools/src/index.ts") },
+      { find: /^@downdraft\/plugin-devtools\//, replacement: resolve(__dirname, "../../packages/plugins/devtools/src") + "/" },
       { find: /^node:fs$/, replacement: resolve(__dirname, "../../packages/app/src/renderer-shims/fs.ts") },
       { find: /^fs$/, replacement: resolve(__dirname, "../../packages/app/src/renderer-shims/fs.ts") },
     ],
