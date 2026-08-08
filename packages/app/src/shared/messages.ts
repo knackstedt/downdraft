@@ -42,6 +42,11 @@ export const IPC = {
   OSR_RENDERER_EVENT: "osr-renderer-event",
   OSR_CURSOR_STYLE: "osr-cursor-style",
 
+  // Import cache (Main <-> Renderer) — caches resolved model import settings
+  IMPORT_CACHE_GET: "import-cache-get",
+  IMPORT_CACHE_SET: "import-cache-set",
+  IMPORT_CACHE_INVALIDATE: "import-cache-invalidate",
+
   // Main -> Renderer
   SIM_READY: "sim-ready",
   DISPLAY_INFO: "display-info",

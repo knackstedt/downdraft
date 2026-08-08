@@ -65,6 +65,8 @@ export interface DowndraftFeatures {
   errorDialog?: boolean;
   /** Persist window bounds/maximize state across launches. */
   windowStatePersistence?: boolean;
+  /** SQLite-backed import cache for resolved model import settings. Default: true. */
+  importCache?: boolean;
 }
 
 /**

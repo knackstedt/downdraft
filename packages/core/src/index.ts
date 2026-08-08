@@ -430,6 +430,17 @@ export { destroyGPUMesh, uploadMeshesToGPU, uploadMeshToGPU } from "./assets/mod
 export type { GPUMesh } from "./assets/model-to-gpu";
 export { convertPluginMesh, convertPluginModel } from "./assets/model-to-mesh";
 export type { PluginMaterialData, PluginMeshData, PluginModelData, TargetLayout } from "./assets/model-to-mesh";
+// Model normalization — transform math for import-time correction
+export {
+    applyRootRotation, applyRootScale, applyUnitScale, applyUpAxisConversion, autoFit, centerToOrigin, computeBounds, isExtremeScale, maxDimension
+} from "./assets/model-normalizer";
+export type { Bounds } from "./assets/model-normalizer";
+// Import settings — per-model normalization configuration
+export { createDefaultImportSettings, mergeImportSettings } from "./assets/import-settings";
+export type { ImportSettings, SettingsSource, UnitSystem, UpAxis } from "./assets/import-settings";
+// Import cache — caches resolved ImportSettings keyed by model path
+export { isCacheEntryValid, MemoryImportCache } from "./assets/import-cache";
+export type { CacheEntry, ImportCache } from "./assets/import-cache";
 export { PrefilteredSpecularGenerator } from "./assets/prefilter-generator";
 export type { PrefilterOptions } from "./assets/prefilter-generator";
 

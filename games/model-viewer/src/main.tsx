@@ -66,7 +66,7 @@ function computeMeshBounds(meshes: MeshData[]): { min: [number, number, number];
 function computeWorldBounds(
   rawBounds: { min: [number, number, number]; max: [number, number, number] },
   fullBounds: { min: [number, number, number]; max: [number, number, number] },
-  upAxis?: number,
+  _upAxis?: unknown,
 ): { min: [number, number, number]; max: [number, number, number] } {
   const cx = (fullBounds.min[0] + fullBounds.max[0]) / 2;
   const cy = (fullBounds.min[1] + fullBounds.max[1]) / 2;
@@ -79,32 +79,19 @@ function computeWorldBounds(
   );
   const scale = 2.0 / maxDim;
 
-  const isZUp = upAxis === 2;
-  if (isZUp) {
-    // After -90deg X rotation: x' = x, y' = z, z' = -y.
-    const wxMin = (rawBounds.min[0] - cx) * scale;
-    const wxMax = (rawBounds.max[0] - cx) * scale;
-    const wyMin = (rawBounds.min[2] - cz) * scale;
-    const wyMax = (rawBounds.max[2] - cz) * scale;
-    const wzMin = -(rawBounds.max[1] - cy) * scale;
-    const wzMax = -(rawBounds.min[1] - cy) * scale;
-    return {
-      min: [Math.min(wxMin, wxMax), Math.min(wyMin, wyMax), Math.min(wzMin, wzMax)],
-      max: [Math.max(wxMin, wxMax), Math.max(wyMin, wyMax), Math.max(wzMin, wzMax)],
-    };
-  } else {
-    // No base rotation — identity transform (just scale + center).
-    const wxMin = (rawBounds.min[0] - cx) * scale;
-    const wxMax = (rawBounds.max[0] - cx) * scale;
-    const wyMin = (rawBounds.min[1] - cy) * scale;
-    const wyMax = (rawBounds.max[1] - cy) * scale;
-    const wzMin = (rawBounds.min[2] - cz) * scale;
-    const wzMax = (rawBounds.max[2] - cz) * scale;
-    return {
-      min: [Math.min(wxMin, wxMax), Math.min(wyMin, wyMax), Math.min(wzMin, wzMax)],
-      max: [Math.max(wxMin, wxMax), Math.max(wyMin, wyMax), Math.max(wzMin, wzMax)],
-    };
-  }
+  // The engine's normalization pipeline now handles up-axis conversion,
+  // so the model is already Y-up by the time it reaches the renderer.
+  // No base rotation needed — just scale + center.
+  const wxMin = (rawBounds.min[0] - cx) * scale;
+  const wxMax = (rawBounds.max[0] - cx) * scale;
+  const wyMin = (rawBounds.min[1] - cy) * scale;
+  const wyMax = (rawBounds.max[1] - cy) * scale;
+  const wzMin = (rawBounds.min[2] - cz) * scale;
+  const wzMax = (rawBounds.max[2] - cz) * scale;
+  return {
+    min: [Math.min(wxMin, wxMax), Math.min(wyMin, wyMax), Math.min(wzMin, wzMax)],
+    max: [Math.max(wxMin, wxMax), Math.max(wyMin, wyMax), Math.max(wzMin, wzMax)],
+  };
 }
 
 function getRenderedMeshes(): MeshData[] | null {
@@ -512,12 +499,10 @@ async function bootstrap() {
           );
           const scaleFactor = 2.0 / maxDim;
 
-          // Base rotation: -90° around X to convert Z-up FBX models to Y-up.
-          // Only applied when the model's UpAxis is 2 (Z-up). Y-up models
-          // (UpAxis 0/1) use identity base rotation.
-          const isZUp = m.data.upAxis === 2;
-          const halfAngle = isZUp ? -Math.PI / 4 : 0; // half of -90deg, or 0
-          const baseRot: [number, number, number, number] = [Math.sin(halfAngle), 0, 0, Math.cos(halfAngle)];
+          // The engine's normalization pipeline now handles up-axis conversion
+          // (Z-up → Y-up) and node-transform baking, so no base rotation is
+          // needed here. The model is already in Y-up model space.
+          const baseRot: [number, number, number, number] = [0, 0, 0, 1];
           const spinRot: [number, number, number, number] = state.autoRotate
             ? [0, Math.sin(rotationAngle / 2), 0, Math.cos(rotationAngle / 2)]
             : [0, 0, 0, 1];
@@ -723,7 +708,6 @@ function rebuildModel() {
   (window as any).__pendingFrame = computeWorldBounds(
     computeMeshBounds(meshesToRender),
     m.stats.bounds,
-    m.data.upAxis,
   );
 }
 
@@ -777,14 +761,12 @@ async function selectModel(entry: ModelEntry) {
       (window as any).__pendingFrame = computeWorldBounds(
         computeMeshBounds(meshesToRender),
         loaded.stats.bounds,
-        loaded.data.upAxis,
       );
     } else {
       // Frame using full model bounds (stats-only mode), in world space
       (window as any).__pendingFrame = computeWorldBounds(
         loaded.stats.bounds,
         loaded.stats.bounds,
-        loaded.data.upAxis,
       );
     }
 

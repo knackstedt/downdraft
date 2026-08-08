@@ -676,6 +676,32 @@ export function parseDAE(data: ArrayBuffer, name: string): ModelData {
   const nodes = parseNodes(doc);
   const animations = parseAnimations(doc);
 
+  // Parse <asset> element for up-axis and unit metadata.
+  // Collada defaults: Y-up, 1 meter.
+  let sourceUpAxis: "y" | "z" = "y";
+  let sourceUnits: "meters" | "centimeters" | "inches" | "millimeters" | "units" = "meters";
+  const assetElements = doc.getElementsByTagName("asset");
+  if (assetElements.length > 0) {
+    const asset = assetElements[0];
+    const upAxisEl = asset.getElementsByTagName("up_axis");
+    if (upAxisEl.length > 0) {
+      const val = upAxisEl[0].textContent?.trim().toUpperCase() ?? "";
+      if (val === "Z_UP") sourceUpAxis = "z";
+    }
+    const unitEl = asset.getElementsByTagName("unit");
+    if (unitEl.length > 0) {
+      const meterAttr = unitEl[0].getAttribute("meter");
+      if (meterAttr) {
+        const metersPerUnit = parseFloat(meterAttr);
+        if (metersPerUnit === 1) sourceUnits = "meters";
+        else if (metersPerUnit === 0.01) sourceUnits = "centimeters";
+        else if (metersPerUnit === 0.0254) sourceUnits = "inches";
+        else if (metersPerUnit === 0.001) sourceUnits = "millimeters";
+        else sourceUnits = "units";
+      }
+    }
+  }
+
   // Convert geometries to meshes
   const meshes: MeshData[] = [];
   const materialList: MaterialData[] = [];
@@ -706,5 +732,7 @@ export function parseDAE(data: ArrayBuffer, name: string): ModelData {
     materials: materialList.length > 0 ? materialList : undefined,
     animations: animations.length > 0 ? animations : undefined,
     nodes: nodes.length > 0 ? nodes : undefined,
+    sourceUpAxis,
+    sourceUnits,
   };
 }

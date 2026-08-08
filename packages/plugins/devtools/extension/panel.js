@@ -530,7 +530,49 @@
     if (res.err) {
       importStatus.innerHTML = '<p class="error">Error: ' + escapeHtml(String(res.err)) + "</p>";
     } else if (res.result && res.result.success) {
-      importStatus.innerHTML = '<p class="success">Imported: ' + escapeHtml(filename) + " (id: " + res.result.nodeId + ")</p>";
+      var nodeId = res.result.nodeId;
+      var html = '<p class="success">Imported: ' + escapeHtml(filename) + " (id: " + nodeId + ")</p>";
+
+      // Show normalization warnings if present
+      if (res.result.warnings && res.result.warnings.length > 0) {
+        html += '<div class="import-warnings">';
+        res.result.warnings.forEach(function (w) {
+          html += '<p class="warning">' + escapeHtml(w) + "</p>";
+        });
+        html += "</div>";
+      }
+
+      // Auto-fit prompt for extreme-scale models
+      if (res.result.needsAutoFit) {
+        var maxDim = res.result.maxDim ? res.result.maxDim.toFixed(4) : "?";
+        html += '<div class="autofit-prompt">';
+        html += '<p class="warning">Model has extreme scale (max dim: ' + maxDim + 'm). Auto-fit?</p>';
+        html += '<button class="ge-toolbar-btn" id="autofit-yes">Auto-fit to 2m</button>';
+        html += '<button class="ge-toolbar-btn" id="autofit-no">Dismiss</button>';
+        html += "</div>";
+        importStatus.innerHTML = html;
+        refreshSceneTree();
+
+        document.getElementById("autofit-yes").addEventListener("click", function () {
+          callInspector("autoFitModel", [nodeId, 2.0]).then(function (fitRes) {
+            if (fitRes.err || (fitRes.result && !fitRes.result.success)) {
+              importStatus.innerHTML += '<p class="error">Auto-fit failed: ' + escapeHtml(fitRes.err || fitRes.result.error) + "</p>";
+            } else {
+              var sidecarLink = fitRes.result.sidecar
+                ? '<p class="info">Sidecar generated. Save as <code>' + escapeHtml(filename.replace(/\.[^.]+$/, ".ddmeta.json")) + '</code> alongside the model.</p>'
+                : "";
+              importStatus.innerHTML = '<p class="success">Auto-fit applied.</p>' + sidecarLink;
+              refreshSceneTree();
+            }
+          });
+        });
+        document.getElementById("autofit-no").addEventListener("click", function () {
+          importStatus.innerHTML = '<p class="success">Imported: ' + escapeHtml(filename) + " (id: " + nodeId + ")</p>";
+        });
+        return;
+      }
+
+      importStatus.innerHTML = html;
       refreshSceneTree();
     } else if (res.result && res.result.error) {
       importStatus.innerHTML = '<p class="error">Error: ' + escapeHtml(res.result.error) + "</p>";

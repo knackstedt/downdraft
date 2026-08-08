@@ -47,6 +47,10 @@ export interface DowndraftBridge {
   getElectronGPUInfo(): Promise<any>;
   getVulkanValidationStatus(): Promise<any>;
   openChromeUrl(url: string): void;
+  // Import cache — caches resolved model import settings (SQLite-backed in main process)
+  importCacheGet(modelPath: string): Promise<{ settings: unknown; sourceMtime: number; sidecarMtime: number; updatedAt: number } | null>;
+  importCacheSet(modelPath: string, entry: { settings: unknown; sourceMtime: number; sidecarMtime: number; updatedAt: number }): Promise<void>;
+  importCacheInvalidate(modelPath: string): Promise<void>;
   onSimReady(cb: (data: any) => void): void;
   onDisplayInfo(cb: (data: { refreshRate: number }) => void): void;
   onDisplayMetricsChanged(cb: (data: { scaleFactor: number }) => void): void;
@@ -79,6 +83,9 @@ const stubBridge: DowndraftBridge = {
   getElectronGPUInfo: noopAsync,
   getVulkanValidationStatus: noopAsync,
   openChromeUrl: noop,
+  importCacheGet: noopAsync as any,
+  importCacheSet: noopAsync as any,
+  importCacheInvalidate: noopAsync as any,
   onSimReady: noop,
   onDisplayInfo: noop,
   onDisplayMetricsChanged: noop,
@@ -102,3 +109,6 @@ export const downdraft: DowndraftBridge = (() => {
   }
   return stubBridge;
 })();
+
+// Import cache adapter — Electron IPC-backed with memory fallback
+export { createElectronImportCache } from "./import-cache";

@@ -4,8 +4,8 @@
 // IGameDevToolsExtension.
 // ============================================================================
 
-import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, MaterialLibrary, startGCProfiler, TelemetryCollector, uiGraphToMaterialGraph, type GCProfilerHandle, type GCStats, type Material, type UIConnection, type UINodeData } from "@downdraft/core";
-import { detectFormat, loadModel } from "@downdraft/plugin-models";
+import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, isExtremeScale, MaterialLibrary, maxDimension, startGCProfiler, TelemetryCollector, uiGraphToMaterialGraph, type GCProfilerHandle, type GCStats, type Material, type UIConnection, type UINodeData } from "@downdraft/core";
+import { createDefaultDdmeta, createDefaultImportSettings, detectFormat, loadModel, normalizeModel, writeDdmeta } from "@downdraft/plugin-models";
 import { useDebugStore } from "./debug-store";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store";
 import type {
@@ -120,7 +120,7 @@ export abstract class BaseSceneInspector {
       },
 
       // --- Model Import ---
-      importModel: async (base64Data: string, filename: string): Promise<{ success: boolean; nodeId?: string; error?: string }> => {
+      importModel: async (base64Data: string, filename: string): Promise<{ success: boolean; nodeId?: string; error?: string; warnings?: string[]; needsAutoFit?: boolean; maxDim?: number }> => {
         try {
           let actualBase64 = base64Data;
           if (base64Data === "__importBuffer") {
@@ -177,7 +177,12 @@ export abstract class BaseSceneInspector {
           const nodeId = useSceneStore.getState().addModel(modelData, filename, pos);
           this.renderer?.uploadModel(nodeId, modelData.meshes, modelData.materials);
 
-          return { success: true, nodeId };
+          // Check for extreme scale and return warnings for the UI to prompt auto-fit
+          const warnings = modelData.normalizationWarnings ?? [];
+          const needsAutoFit = modelData.bounds ? isExtremeScale(modelData.bounds) : false;
+          const maxDim = modelData.bounds ? maxDimension(modelData.bounds) : 0;
+
+          return { success: true, nodeId, warnings, needsAutoFit, maxDim };
         } catch (e) {
           return { success: false, error: String(e) };
         }
@@ -186,6 +191,55 @@ export abstract class BaseSceneInspector {
       removeNode: (id: string): void => {
         this.renderer?.removeModel(id);
         useSceneStore.getState().removeNode(id);
+      },
+
+      // --- Model Auto-Fit ---
+      // Detects models with extreme scale and re-normalizes with auto-fit enabled.
+      // Writes a .ddmeta.json sidecar so the fix persists across reloads.
+      autoFitModel: (nodeId: string, targetMaxDim: number = 2.0): { success: boolean; error?: string; sidecar?: string } => {
+        try {
+          const node = useSceneStore.getState().getNode(nodeId);
+          if (!node || !node.modelData) {
+            return { success: false, error: "Node not found or not a model" };
+          }
+
+          // Re-normalize with auto-fit enabled
+          const settings = createDefaultImportSettings(
+            node.modelData.sourceUpAxis,
+            node.modelData.sourceUnits,
+          );
+          settings.autoFit = targetMaxDim;
+          settings.centerToOrigin = true;
+          normalizeModel(node.modelData, settings);
+
+          // Re-upload the normalized meshes to the GPU
+          this.renderer?.uploadModel(nodeId, node.modelData.meshes, node.modelData.materials);
+
+          // Generate a .ddmeta.json sidecar for persistence
+          const sidecar = writeDdmeta(settings);
+
+          return { success: true, sidecar };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+
+      // Generate a starter .ddmeta.json sidecar for a model node
+      generateSidecar: (nodeId: string): { success: boolean; error?: string; sidecar?: string } => {
+        try {
+          const node = useSceneStore.getState().getNode(nodeId);
+          if (!node || !node.modelData) {
+            return { success: false, error: "Node not found or not a model" };
+          }
+          const defaults = createDefaultImportSettings(
+            node.modelData.sourceUpAxis,
+            node.modelData.sourceUnits,
+          );
+          const sidecar = createDefaultDdmeta(node.name, defaults);
+          return { success: true, sidecar };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
       },
 
       duplicateNode: (id: string): { success: boolean; nodeId?: string; error?: string } => {

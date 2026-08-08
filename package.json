@@ -44,9 +44,10 @@
   "dependencies": {
     "@bokuweb/zstd-wasm": "^0.0.27",
     "@dimforge/rapier3d-compat": "^0.19.3",
+    "comment-json": "^5.0.0",
+    "fflate": "^0.8.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "fflate": "^0.8.2",
     "xxhash-wasm": "^0.4.2",
     "zustand": "^5.0.2"
   },
