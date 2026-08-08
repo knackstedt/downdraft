@@ -2,7 +2,7 @@
 // GameRenderer — generic WebGPU render loop infrastructure
 // Extracted from WebGPURenderer: device init, surface config, rAF loop,
 // frame rate limiter, viewport management, telemetry, GPU UI pass, depth cache.
-// Games register render passes via RenderPipeline and provide game-specific
+// Games register render passes via FrameGraph slots and provide game-specific
 // logic through callback hooks.
 // ============================================================================
 
@@ -17,8 +17,9 @@ import { LayoutEngine } from "../ui/layout";
 import { UIRenderer } from "../ui/renderer";
 import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher";
 import { GPUDeviceManager } from "./device";
+import type { RenderContext } from "./frame-graph";
+import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
 import { InputManager } from "./input-manager";
-import { RenderPipeline, type RenderContext } from "./render-pipeline";
 import { RendererPluginHost } from "./renderer-plugin-host";
 import { SurfaceManager } from "./surface";
 import { TrackedRenderPass } from "./tracked-render-pass";
@@ -107,7 +108,7 @@ export class GameRenderer implements CanvasResizeHandler {
   private surface: SurfaceManager | null = null;
   private resizeWatcher: CanvasResizeWatcher | null = null;
   private inputManager: InputManager;
-  private pipeline: RenderPipeline;
+  private frameGraph: FrameGraph;
   private rendererPluginHost: RendererPluginHost | null = null;
 
   // Telemetry & profiling
@@ -147,7 +148,12 @@ export class GameRenderer implements CanvasResizeHandler {
   private viewportCount = 1;
   private viewports: ViewportRect[] = [];
 
-  // Depth texture cache
+  // Transient surface/depth handles (imported into the frame graph each frame)
+  private colorHandle: TextureHandle | null = null;
+  private depthHandle: TextureHandle | null = null;
+  private graphCompiled = false;
+
+  // Depth texture cache (used when the graph does not own depth)
   private depthTextures = new Map<string, GPUTexture>();
 
   // Frame stats
@@ -178,7 +184,7 @@ export class GameRenderer implements CanvasResizeHandler {
     this.msaaSampleCount = config.msaaSampleCount ?? 1;
     this.deviceManager = new GPUDeviceManager();
     this.inputManager = new InputManager(canvas);
-    this.pipeline = new RenderPipeline();
+    this.frameGraph = new FrameGraph();
   }
 
   /** Build requiredLimits for the bindless binding model (clamped to adapter). */
@@ -304,7 +310,8 @@ export class GameRenderer implements CanvasResizeHandler {
         getCanvas: () => this.canvas,
         getDevice: () => this.device!,
         getFormat: () => this.format,
-        getPipeline: () => this.pipeline,
+        getGraph: () => this.frameGraph,
+        getSlotRegistry: () => this.frameGraph.getSlotRegistry(),
         setOffscreenMode: (mode) => this.setOffscreenMode(mode),
         setRenderTargetProvider: (provider) => this.setRenderTargetProvider(provider),
         setRAFSource: (src, cancel) => {
@@ -646,7 +653,6 @@ export class GameRenderer implements CanvasResizeHandler {
 
     const isFirst = viewportIdx === 0;
     const isLast = viewportIdx === this.viewportCount - 1;
-    const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
 
     // Determine color/depth views — XR provider takes precedence, then offscreen, then canvas
     const colorView = xrProvider
@@ -669,35 +675,33 @@ export class GameRenderer implements CanvasResizeHandler {
         : this.createDepthTexture(origViewport.w, origViewport.h))
       : this.createDepthTexture(origViewport.w, origViewport.h);
 
-    const encoder = this.device.createCommandEncoder();
-
-    const passEncoder = this.gpuProfiler!.wrapTrackedPass(encoder.beginRenderPass({
-      colorAttachments: [{
-        view: colorView,
-        clearValue: { r: 0, g: 0.1, b: 0.2, a: 1 },
-        loadOp,
-        storeOp: "store" as GPUStoreOp,
-      }],
-      depthStencilAttachment: {
-        view: depthView,
-        depthClearValue: 1.0,
-        depthLoadOp: loadOp,
-        depthStoreOp: "store" as GPUStoreOp,
-      },
-    }));
-
-    passEncoder.setViewport(viewport.x, viewport.y, viewport.w, viewport.h, 0, 1);
-    passEncoder.setScissorRect(viewport.x, viewport.y, viewport.w, viewport.h);
+    // Ensure graph handles exist for the imported color/depth views.
+    if (!this.colorHandle) {
+      this.colorHandle = this.frameGraph.importTextureView("color", null);
+      this.frameGraph.markDirty();
+    }
+    if (!this.depthHandle) {
+      this.depthHandle = this.frameGraph.importTextureView("depth", null);
+      this.frameGraph.markDirty();
+    }
+    this.frameGraph.setImportedTextureView(this.colorHandle, colorView);
+    this.frameGraph.setImportedTextureView(this.depthHandle, depthView);
 
     if (isFirst) {
       this.gpuProfiler!.beginFrame();
     }
 
-    // Execute registered pipeline passes
+    if (this.frameGraph.isDirty() || !this.graphCompiled) {
+      this.frameGraph.compile(this.device, this.canvas.width, this.canvas.height);
+      this.graphCompiled = true;
+    }
+
+    const encoder = this.device.createCommandEncoder();
+
     const ctx: RenderContext = {
       device: this.device,
       encoder,
-      passEncoder,
+      pass: null,
       camera: camInfo.camera,
       viewport,
       viewportIdx,
@@ -706,16 +710,31 @@ export class GameRenderer implements CanvasResizeHandler {
       elapsedTime: this.elapsedTime,
       isFirstViewport: isFirst,
       isLastViewport: isLast,
+      width: viewport.w,
+      height: viewport.h,
+      viewProj: undefined as any,
+      invViewProj: undefined as any,
+      prevViewProj: undefined as any,
+      cameraPos: camInfo.camera.position,
+      lightData: null as any,
+      lightViewProj: undefined as any,
+      mesh: null as any,
+      modelMatrix: undefined as any,
+      shadowsEnabled: false,
+      bloomEnabled: false,
+      shadowSampler: null,
+      debugQueue: null,
+      opaqueVertexBuffer: null,
+      opaqueIndexBuffer: null,
+      opaqueIndexCount: 0,
+      opaqueIndexFormat: "uint32",
+      getView: (h: TextureHandle) => this.frameGraph.getTextureView(h),
+      getTexture: (h: TextureHandle) => this.frameGraph.getTexture(h),
+      addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
+      addTriangles: (n: number) => { this.frameTriangles += n; },
     };
 
-    this.pipeline.render(ctx);
-
-    // Renderer-plugin render-pass hooks (e.g. transform gizmo overlays geometry
-    // on top of the scene pass). Dispatched after pipeline passes so plugin
-    // geometry draws on top.
-    this.rendererPluginHost?.dispatchRenderPass(passEncoder, camInfo.camera, viewportIdx);
-
-    passEncoder.end();
+    this.frameGraph.execute(ctx);
 
     // Resolve GPU timestamp queries on first viewport
     if (isFirst) {
@@ -877,8 +896,12 @@ export class GameRenderer implements CanvasResizeHandler {
     return this.inputManager;
   }
 
-  getPipeline(): RenderPipeline {
-    return this.pipeline;
+  getGraph(): FrameGraph {
+    return this.frameGraph;
+  }
+
+  getSlotRegistry(): SlotRegistry {
+    return this.frameGraph.getSlotRegistry();
   }
 
   getUIRenderer(): UIRenderer | null {
@@ -911,7 +934,7 @@ export class GameRenderer implements CanvasResizeHandler {
     const ppInfo = this.callbacks.getPostProcessInfo?.() ?? {
       pixelationEnabled: false, pixelSize: 4, postProcessEffects: [],
     };
-    const passNames = this.pipeline.getEntries().map(e => e.name);
+    const passNames = this.frameGraph.getPassOrder();
     return GPUProfiler.buildFrameGraphData(passTimings, ppInfo, passNames);
   }
 

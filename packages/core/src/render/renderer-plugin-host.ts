@@ -24,6 +24,7 @@ import type {
 } from "../plugin/renderer-plugin";
 import { createLogger } from "../util/logger";
 import type { CameraState } from "./camera";
+import type { FrameGraph, SlotRegistry } from "./frame-graph";
 import type {
     CameraViewportInfo,
     CancelRAF,
@@ -31,7 +32,6 @@ import type {
     RAFSource,
     RenderTargetProvider
 } from "./game-renderer";
-import type { RenderPipeline } from "./render-pipeline";
 import { RendererInputBusImpl } from "./renderer-input-bus";
 
 const log = createLogger();
@@ -41,7 +41,8 @@ export interface RendererPluginHostCallbacks {
   getCanvas: () => HTMLCanvasElement;
   getDevice: () => GPUDevice;
   getFormat: () => GPUTextureFormat;
-  getPipeline: () => RenderPipeline;
+  getGraph: () => FrameGraph;
+  getSlotRegistry: () => SlotRegistry;
   setOffscreenMode: (mode: OffscreenMode | null) => void;
   setRenderTargetProvider: (provider: RenderTargetProvider | null) => void;
   setRAFSource: (src: RAFSource | null, cancel: CancelRAF | null) => void;
@@ -258,7 +259,8 @@ export class RendererPluginHost {
       getCanvas: () => this.callbacks.getCanvas(),
       getDevice: () => this.callbacks.getDevice(),
       getFormat: () => this.callbacks.getFormat(),
-      getPipeline: () => this.callbacks.getPipeline(),
+      getGraph: () => this.callbacks.getGraph(),
+      getSlotRegistry: () => this.callbacks.getSlotRegistry(),
 
       getInputBus: () => this.inputBus,
 

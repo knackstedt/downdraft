@@ -12,6 +12,7 @@
 // ============================================================================
 
 import type { CameraState } from "../render/camera";
+import type { FrameGraph, SlotRegistry } from "../render/frame-graph";
 import type {
     CameraViewportInfo,
     CancelRAF,
@@ -19,7 +20,6 @@ import type {
     RAFSource,
     RenderTargetProvider
 } from "../render/game-renderer";
-import type { RenderPipeline } from "../render/render-pipeline";
 
 // ── Input bus ──
 
@@ -127,7 +127,8 @@ export interface RendererPluginContext {
   getCanvas(): HTMLCanvasElement;
   getDevice(): GPUDevice;
   getFormat(): GPUTextureFormat;
-  getPipeline(): RenderPipeline;
+  getGraph(): FrameGraph;
+  getSlotRegistry(): SlotRegistry;
 
   // ── Input ──
   getInputBus(): RendererInputBus;
