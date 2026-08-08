@@ -129,6 +129,8 @@ export { G_BUFFER_FORMATS, GBuffer } from "./render/g-buffer";
 export type { GBufferTextures, GBufferViews } from "./render/g-buffer";
 export { GameRenderer } from "./render/game-renderer";
 export type { CameraViewportInfo, CancelRAF, FrameCallbacks, GameRendererConfig, OffscreenMode, RAFSource, RenderTargetProvider } from "./render/game-renderer";
+export { computeHzbSize, GpuCullPass, GpuMeshTable, HzbBuilder, HzbBuildPass, IndirectDrawPass, INSTANCE_RECORD_BYTES, INSTANCE_RECORD_FLOATS, InstanceBuffer, nextPowerOf2 } from "./render/gpu-driven";
+export type { CullBatchRecord, HzbSize, InstanceRecord, MeshBatch, MeshTableGroup } from "./render/gpu-driven";
 export { HDRSupport } from "./render/hdr";
 export type { HDRConfig as RenderHDRConfig } from "./render/hdr";
 export { MaterialHotReloader } from "./render/hot-reload";

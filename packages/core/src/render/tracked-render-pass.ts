@@ -11,6 +11,8 @@ export interface ITrackedRenderPass {
   setIndexBuffer(buffer: GPUBuffer | unknown, format: GPUIndexFormat | unknown, offset?: number): void;
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number, firstInstance?: number): void;
   drawIndexed(indexCount: number, instanceCount?: number, firstIndex?: number, baseVertex?: number, firstInstance?: number): void;
+  drawIndirect(indirectBuffer: GPUBuffer | unknown, indirectOffset?: number): void;
+  drawIndexedIndirect(indirectBuffer: GPUBuffer | unknown, indirectOffset?: number): void;
   end(): void;
   getRawPass(): GPURenderPassEncoder | unknown;
 }
@@ -113,6 +115,18 @@ export class TrackedRenderPass implements ITrackedRenderPass {
     this.pass.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
     this._drawCalls++;
     this._triangles += Math.floor(indexCount / 3) * instanceCount;
+  }
+
+  drawIndirect(indirectBuffer: GPUBuffer, indirectOffset: number = 0): void {
+    this.pass.drawIndirect(indirectBuffer, indirectOffset);
+    this._drawCalls++;
+    // Indirect arg counts are on the GPU; triangle count is not available synchronously.
+  }
+
+  drawIndexedIndirect(indirectBuffer: GPUBuffer, indirectOffset: number = 0): void {
+    this.pass.drawIndexedIndirect(indirectBuffer, indirectOffset);
+    this._drawCalls++;
+    // Indirect arg counts are on the GPU; triangle count is not available synchronously.
   }
 
   end(): void {
