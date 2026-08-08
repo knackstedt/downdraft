@@ -119,9 +119,16 @@ export interface ModelData {
   lights?: PunctualLightData[];
   /** Non-fatal warnings collected during parsing (e.g. skipped primitives). */
   warnings?: string[];
-  /** FBX UpAxis property: 0/1 = Y-up, 2 = Z-up. Used by renderers to apply
-   * the correct base rotation. Defaults to 1 (Y-up) for non-FBX formats. */
-  upAxis?: number;
+  /** Source asset's up-axis as detected by the parser. "y" or "z". Engine is Y-up. */
+  sourceUpAxis?: "y" | "z";
+  /** Source asset's unit system as detected by the parser. Engine uses meters. */
+  sourceUnits?: "meters" | "centimeters" | "inches" | "millimeters" | "units";
+  /** FBX raw UnitScaleFactor (units per centimeter). Used for precise unit conversion. */
+  sourceUnitScaleFactor?: number;
+  /** Computed axis-aligned bounding box of all meshes (min/max corners). */
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
+  /** Normalization warnings (e.g. auto-fit triggered, extreme scale detected). */
+  normalizationWarnings?: string[];
 }
 
 export function getMaterialVariant(model: ModelData, name: string): number {

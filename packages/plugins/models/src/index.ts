@@ -53,6 +53,20 @@ export { loadModel } from "./loader";
 
 export type { ModelLoaderOptions } from "./loader";
 
+// Model normalization — import-time correction (up-axis, units, node transforms, bounds)
+export { bakeNodeTransforms } from "./bake-node-transforms";
+export { normalizeModel, normalizeModelWithResolution, resolveImportSettings, resolveImportSettingsSync } from "./normalize";
+export type { ResolveOptions } from "./sidecar/resolver";
+
+// Sidecar system — per-model import settings
+export { parseBlenderExtras } from "./sidecar/blender-extras";
+export { createDefaultDdmeta, parseDdmeta, writeDdmeta } from "./sidecar/ddmeta";
+export { parseGodotImport } from "./sidecar/godot-import";
+export { ddmetaPath, godotImportPath, unityMetaPath } from "./sidecar/resolver";
+export { createDefaultImportSettings, mergeImportSettings } from "./sidecar/types";
+export type { ImportSettings, SettingsSource, UnitSystem, UpAxis } from "./sidecar/types";
+export { parseUnityMeta } from "./sidecar/unity-meta";
+
 // Material adapter — bridges serialized MaterialData to the core Material surface.
 export { materialDataArrayToMaterials, materialDataToMaterial } from "./material-adapter";
 export type { MaterialAdapterOptions } from "./material-adapter";

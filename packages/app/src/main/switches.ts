@@ -18,7 +18,7 @@ export function webGpuSwitches(): Switch[] {
     ["enable-gpu-rasterization"],
     ["enable-zero-copy"],
     ["enable-accelerated-video-decode"],
-    ["js-flags", "--expose-gc"],
+    ["js-flags", "--expose-gc --experimental-sqlite"],
   ];
 
   if (process.platform === "linux") {

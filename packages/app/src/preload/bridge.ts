@@ -40,6 +40,14 @@ export function createDefaultBridge(): Record<string, any> {
     getVulkanValidationStatus: (): Promise<any> => ipcRenderer.invoke(IPC.VULKAN_VALIDATION_STATUS),
     openChromeUrl: (url: string): void => { ipcRenderer.send(IPC.OPEN_CHROME_URL, url); },
 
+    // Import cache — caches resolved model import settings (SQLite-backed in main process)
+    importCacheGet: (modelPath: string): Promise<{ settings: unknown; sourceMtime: number; sidecarMtime: number; updatedAt: number } | null> =>
+      ipcRenderer.invoke(IPC.IMPORT_CACHE_GET, modelPath),
+    importCacheSet: (modelPath: string, entry: { settings: unknown; sourceMtime: number; sidecarMtime: number; updatedAt: number }): Promise<void> =>
+      ipcRenderer.invoke(IPC.IMPORT_CACHE_SET, modelPath, entry),
+    importCacheInvalidate: (modelPath: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.IMPORT_CACHE_INVALIDATE, modelPath),
+
     onSimReady: (cb: (data: any) => void) => ipcRenderer.on(IPC.SIM_READY, (_e, data) => cb(data)),
 
     onDisplayInfo: (cb: (data: { refreshRate: number }) => void) => ipcRenderer.on(IPC.DISPLAY_INFO, (_e, data) => cb(data)),

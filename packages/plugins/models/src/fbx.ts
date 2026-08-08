@@ -1456,15 +1456,13 @@ function findFBXTextures(nodes: FBXNode[]): Map<number, FBXTextureInfo> {
  *   1 = Y-up (3ds Max, X-forward, Z-right) — still Y-up
  *   2 = Z-up (Blender / Maya Z-up, X-right, Y-forward)
  *
- * Stored on ModelData.upAxis so renderers can apply the correct base rotation.
- * The conversion is NOT done here because some renderers (e.g. the model viewer)
- * already apply a -90° X rotation as a base rotation — doing it here would
- * double-convert.
+ * Returns "y" or "z". The normalization layer (not the parser) applies the
+ * coordinate-system conversion to avoid double-converting.
  */
-function parseFBXUpAxis(nodes: FBXNode[]): number {
+function parseFBXUpAxis(nodes: FBXNode[]): "y" | "z" {
   // GlobalSettings is a top-level node, not under Objects.
   const globalSettings = nodes.find(n => n.name === "GlobalSettings");
-  if (!globalSettings) return 1; // default Y-up
+  if (!globalSettings) return "y"; // default Y-up
 
   for (const child of globalSettings.children) {
     if (child.name === "Properties70") {
@@ -1474,13 +1472,61 @@ function parseFBXUpAxis(nodes: FBXNode[]): number {
           if (propName === "UpAxis") {
             const val = p.properties[4].value as number;
             console.log(`[FBX] UpAxis = ${val}`);
+            return val === 2 ? "z" : "y";
+          }
+        }
+      }
+    }
+  }
+  return "y"; // default Y-up
+}
+
+/**
+ * Parse the UnitScaleFactor from the FBX GlobalSettings.
+ *
+ * FBX stores UnitScaleFactor as units-per-centimeter.
+ * Common values:
+ *   1.0   → centimeters (Maya default)
+ *   0.1   → millimeters
+ *   2.54  → inches
+ *   100   → meters
+ *
+ * Returns the raw factor (units per cm). The normalization layer converts
+ * this to a meters multiplier: metersPerUnit = factor * 0.01.
+ */
+function parseFBXUnitScale(nodes: FBXNode[]): number | undefined {
+  const globalSettings = nodes.find(n => n.name === "GlobalSettings");
+  if (!globalSettings) return undefined;
+
+  for (const child of globalSettings.children) {
+    if (child.name === "Properties70") {
+      for (const p of child.children) {
+        if (p.name === "P" && p.properties.length >= 5) {
+          const propName = String(p.properties[0].value);
+          if (propName === "UnitScaleFactor") {
+            const val = p.properties[4].value as number;
+            console.log(`[FBX] UnitScaleFactor = ${val}`);
             return val;
           }
         }
       }
     }
   }
-  return 1; // default Y-up
+  return undefined;
+}
+
+/**
+ * Classify a raw FBX UnitScaleFactor (units per cm) into our UnitSystem enum.
+ * Falls back to "units" if the value doesn't match a known unit.
+ */
+function classifyFBXUnits(unitScaleFactor: number | undefined): "meters" | "centimeters" | "inches" | "millimeters" | "units" {
+  if (unitScaleFactor === undefined) return "centimeters"; // FBX default is cm
+  // Allow small floating-point tolerance
+  if (Math.abs(unitScaleFactor - 1) < 0.001) return "centimeters";
+  if (Math.abs(unitScaleFactor - 0.1) < 0.001) return "millimeters";
+  if (Math.abs(unitScaleFactor - 2.54) < 0.01) return "inches";
+  if (Math.abs(unitScaleFactor - 100) < 0.1) return "meters";
+  return "units";
 }
 
 export function parseFBX(data: ArrayBuffer, name: string): ModelData {
@@ -1594,11 +1640,13 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     }
   }
 
-  // Parse UpAxis from GlobalSettings. Stored on ModelData so renderers can
-  // apply the correct base rotation. The vertex conversion is NOT done here
-  // to avoid double-converting models whose renderer already applies a
-  // -90° X base rotation.
-  const upAxis = parseFBXUpAxis(nodes);
+  // Parse UpAxis and UnitScaleFactor from GlobalSettings. Stored on ModelData
+  // as sourceUpAxis / sourceUnits / sourceUnitScaleFactor for the normalization
+  // layer to apply. The parser does NOT convert vertices — that's the
+  // normalizer's job, which respects sidecar overrides.
+  const sourceUpAxis = parseFBXUpAxis(nodes);
+  const rawUnitScale = parseFBXUnitScale(nodes);
+  const sourceUnits = classifyFBXUnits(rawUnitScale);
 
   // Parse animations
   const animations = parseFBXAnimations(nodes);
@@ -1611,7 +1659,9 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     materials,
     animations: animResult,
     nodes: nodesResult,
-    upAxis,
+    sourceUpAxis,
+    sourceUnits,
+    sourceUnitScaleFactor: rawUnitScale,
   };
   if (skinData) {
     result.skin = { bones: skinData.bones, boneNameToIndex: skinData.boneNameToIndex };
@@ -1630,6 +1680,8 @@ function parseFBXASCII(data: ArrayBuffer, name: string): ModelData {
   const positions: number[][] = [];
   const faces: number[][] = [];
   let normals: number[] | null = null;
+  let asciiUpAxis: "y" | "z" = "y";
+  let asciiUnitScale: number | undefined;
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
@@ -1646,6 +1698,11 @@ function parseFBXASCII(data: ArrayBuffer, name: string): ModelData {
     } else if (trimmed.startsWith("Normals:")) {
       const arrayStr = trimmed.substring(trimmed.indexOf("{") + 1, trimmed.lastIndexOf("}"));
       normals = arrayStr.split(",").map((s) => parseFloat(s.trim()));
+    } else if (trimmed.startsWith("UpAxis:")) {
+      const val = parseInt(trimmed.substring(trimmed.indexOf(":") + 1).trim());
+      if (val === 2) asciiUpAxis = "z";
+    } else if (trimmed.startsWith("UnitScaleFactor:")) {
+      asciiUnitScale = parseFloat(trimmed.substring(trimmed.indexOf(":") + 1).trim());
     }
   }
 
@@ -1717,5 +1774,8 @@ function parseFBXASCII(data: ArrayBuffer, name: string): ModelData {
     }],
     name,
     format: "fbx",
+    sourceUpAxis: asciiUpAxis,
+    sourceUnits: classifyFBXUnits(asciiUnitScale),
+    sourceUnitScaleFactor: asciiUnitScale,
   };
 }

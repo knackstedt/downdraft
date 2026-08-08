@@ -9,6 +9,7 @@ import { IPC } from "../shared/messages";
 import { installErrorHandlers } from "./error-dialog";
 import { registerDevtoolsHandlers, resolveDevtoolsConfig } from "./handlers/devtools";
 import { registerGpuInfoHandlers } from "./handlers/gpu-info";
+import { closeImportCache, registerImportCacheHandlers } from "./handlers/import-cache";
 import { startMcpProxy } from "./handlers/mcp";
 import { registerOsrHandlers } from "./handlers/osr";
 import { registerSaveHandlers } from "./handlers/saves";
@@ -103,6 +104,10 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
       ctx.osr = osrManager;
     }
 
+    if (features.importCache !== false) {
+      registerImportCacheHandlers();
+    }
+
     // --- Deliberate escape hatch: raw Electron access ---
     if (config.extend) {
       config.extend(ctx);
@@ -147,6 +152,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     }
     osrManager?.destroy();
     osrManager = null;
+    closeImportCache();
   });
 
   app.on("activate", async () => {

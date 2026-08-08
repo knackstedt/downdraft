@@ -108,7 +108,7 @@ interface GLTFAnimation {
 }
 
 interface GLTFJson {
-  asset?: { version: string };
+  asset?: { version: string; extras?: Record<string, unknown> };
   extensions?: Record<string, unknown>;
   extensionsUsed?: string[];
   extensionsRequired?: string[];
@@ -707,6 +707,17 @@ export async function parseGLTF(
     }
   }
 
+  // glTF 2.0 spec is always Y-up and meters. Blender exports may store
+  // glTF2ExportSettings in asset.extras with a YUP flag — if YUP is false,
+  // the source is Z-up.
+  let sourceUpAxis: "y" | "z" = "y";
+  if (json.asset?.extras) {
+    const exportSettings = (json.asset.extras as Record<string, unknown>)["glTF2ExportSettings"] as Record<string, unknown> | undefined;
+    if (exportSettings && exportSettings["YUP"] === false) {
+      sourceUpAxis = "z";
+    }
+  }
+
   return {
     meshes,
     name,
@@ -718,6 +729,8 @@ export async function parseGLTF(
     materialVariants,
     lights,
     warnings: parseWarnings.length > 0 ? parseWarnings : undefined,
+    sourceUpAxis,
+    sourceUnits: "meters", // glTF 2.0 spec mandates meters
   };
 }
 
