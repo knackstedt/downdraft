@@ -3,6 +3,7 @@ import type { MeshData } from "../../mesh/builder";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS, packLightUniform, packPointLights, packSpotLightsExtended, type LightUniformData } from "../lighting";
 import { RenderPass } from "../render-pass";
+import { destroyMapValues } from "../resource-tracker";
 
 const TRANSPARENT_SHADER = `
 struct CameraUniforms {
@@ -345,7 +346,7 @@ export class TransparentPass extends RenderPass {
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
-    this.pipelines.clear();
-    this.bindGroups.clear();
+    destroyMapValues(this.pipelines);
+    destroyMapValues(this.bindGroups);
   }
 }

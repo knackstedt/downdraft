@@ -40,6 +40,8 @@ export class TextAtlasCache {
   private cursorY: number = 0;
   private atlasRowHeight: number = 0;
   private entries: Map<string, TextCacheEntry> = new Map();
+  private lastUsed: Map<string, number> = new Map();
+  private accessCounter: number = 0;
   private dirty: boolean = true;
 
   constructor(device: GPUDevice) {
@@ -71,7 +73,10 @@ export class TextAtlasCache {
   getText(text: string, opts: TextRenderOptions): TextCacheEntry | null {
     const key = this.makeKey(text, opts);
     const existing = this.entries.get(key);
-    if (existing) return existing;
+    if (existing) {
+      this.lastUsed.set(key, ++this.accessCounter);
+      return existing;
+    }
 
     const ctx = this.atlasCtx;
     ctx.font = `${opts.fontWeight} ${opts.fontSize}px ${opts.fontFamily}`;
@@ -91,13 +96,24 @@ export class TextAtlasCache {
     }
 
     if (this.cursorY + textHeight > ATLAS_HEIGHT) {
-      // Atlas full — clear and start fresh
-      this.entries.clear();
+      // Atlas full — evict the 25% least recently used entries instead of
+      // clearing everything, so frequently-used text survives.
+      const evictCount = Math.max(1, Math.floor(this.entries.size * 0.25));
+      const sortedKeys = [...this.entries.keys()].sort(
+        (a, b) => (this.lastUsed.get(a) ?? 0) - (this.lastUsed.get(b) ?? 0),
+      );
+      for (let e = 0; e < evictCount && e < sortedKeys.length; e++) {
+        const k = sortedKeys[e];
+        this.entries.delete(k);
+        this.lastUsed.delete(k);
+      }
+      // Reset cursor to rebuild from the top of the atlas.
       this.cursorX = 0;
       this.cursorY = 0;
       this.atlasRowHeight = 0;
-      // Clear the canvas so stale pixels don't bleed into new entries
+      // Clear the canvas so stale pixels don't bleed into new entries.
       this.atlasCtx.clearRect(0, 0, MAX_ATLAS_WIDTH, ATLAS_HEIGHT);
+      this.dirty = true;
     }
 
     if (textHeight > this.atlasRowHeight) {
@@ -124,6 +140,7 @@ export class TextAtlasCache {
       ],
     };
     this.entries.set(key, entry);
+    this.lastUsed.set(key, ++this.accessCounter);
     return entry;
   }
 
@@ -198,5 +215,6 @@ export class TextAtlasCache {
     this.atlasTexture = null;
     this.atlasView = null;
     this.entries.clear();
+    this.lastUsed.clear();
   }
 }

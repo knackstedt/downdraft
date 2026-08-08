@@ -1,3 +1,4 @@
+import { assertFinite, assertPositive, MAX_DECOMPRESS_SIZE, MAX_NODE_DEPTH } from "@downdraft/core";
 import { decompressSync } from "fflate";
 import type { AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData, ModelNode } from "./types";
 
@@ -154,9 +155,18 @@ function parseFBXProperty(
       const compLength = view.getUint32(offset + 9, true);
       const dataStart = offset + 13;
 
+      // Validate arrayLength is finite and positive before use
+      assertFinite("fbx arrayLength", arrayLength);
+      assertPositive("fbx arrayLength", arrayLength);
+
       let values: number[];
 
       if (encoding === 1) {
+        if (arrayLength > MAX_DECOMPRESS_SIZE) {
+          throw new RangeError(
+            `fbx: decompressed array length ${arrayLength} exceeds max ${MAX_DECOMPRESS_SIZE}`,
+          );
+        }
         const compressed = new Uint8Array(view.buffer, dataStart, compLength);
         const decompressed = decompressSync(compressed);
         values = readFBXArray(decompressed, typeCode, arrayLength);
@@ -205,15 +215,17 @@ function readFBXArray(data: Uint8Array, typeCode: string, count: number): number
   return result;
 }
 
-function findNodesByName(node: FBXNode, name: string, results: FBXNode[] = []): FBXNode[] {
+function findNodesByName(node: FBXNode, name: string, results: FBXNode[] = [], depth = 0): FBXNode[] {
+  if (depth > MAX_NODE_DEPTH) return results;
   if (node.name === name) results.push(node);
   for (let i = 0; i < node.children.length; i++) {
-    findNodesByName(node.children[i], name, results);
+    findNodesByName(node.children[i], name, results, depth + 1);
   }
   return results;
 }
 
-function findMaterials(node: FBXNode, materialColors: [number, number, number][], materialNames: string[]): void {
+function findMaterials(node: FBXNode, materialColors: [number, number, number][], materialNames: string[], depth = 0): void {
+  if (depth > MAX_NODE_DEPTH) return;
   if (node.name === "Material") {
     let color: [number, number, number] = [1, 1, 1];
     let matName = "material";
@@ -244,7 +256,7 @@ function findMaterials(node: FBXNode, materialColors: [number, number, number][]
     materialNames.push(matName);
   }
   for (let i = 0; i < node.children.length; i++) {
-    findMaterials(node.children[i], materialColors, materialNames);
+    findMaterials(node.children[i], materialColors, materialNames, depth + 1);
   }
 }
 
@@ -254,7 +266,9 @@ function findGeometryNodes(
   materialColors?: [number, number, number][],
   geometrySkins?: Map<string, { vertexBones: Map<number, { boneIdx: number; weight: number }[]> }>,
   geoIdToMeshIndex?: Map<string, number>,
+  depth = 0,
 ): void {
+  if (depth > MAX_NODE_DEPTH) return;
   if (node.name === "Geometry") {
     const geoId = node.properties.length > 0 ? String(node.properties[0].value) : "";
     const skin = geoId ? geometrySkins?.get(geoId) : undefined;
@@ -268,7 +282,7 @@ function findGeometryNodes(
     }
   }
   for (let i = 0; i < node.children.length; i++) {
-    findGeometryNodes(node.children[i], meshes, materialColors, geometrySkins, geoIdToMeshIndex);
+    findGeometryNodes(node.children[i], meshes, materialColors, geometrySkins, geoIdToMeshIndex, depth + 1);
   }
 }
 

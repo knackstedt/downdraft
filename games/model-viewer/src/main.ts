@@ -23,10 +23,12 @@ createDowndraftApp({
     devtools: true,
     consoleForwarding: true,
     errorDialog: true,
-    // No OSR, MCP, saves, or gpuInfo needed for the model viewer
+    // No OSR, MCP, or saves needed for the model viewer.
+    // gpuInfo stays enabled: the devtools BaseSceneInspector polls
+    // gpu-system-info / electron-gpu-info / vulkan-validation-status every
+    // 2s — disabling it makes Electron log "No handler registered" errors.
     osr: false,
     mcp: false,
     saves: false,
-    gpuInfo: false,
   },
 });

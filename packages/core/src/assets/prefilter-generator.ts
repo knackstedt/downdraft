@@ -141,6 +141,7 @@ export class PrefilteredSpecularGenerator {
   private pipeline: GPUComputePipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private sampler: GPUSampler | null = null;
 
   constructor(device: GPUDevice) {
     this.device = device;
@@ -194,7 +195,7 @@ export class PrefilteredSpecularGenerator {
     uniformData[3] = srcCubemap.width;
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, uniformData);
 
-    const sampler = this.device.createSampler({
+    const sampler = this.sampler ??= this.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
     });
@@ -217,6 +218,8 @@ export class PrefilteredSpecularGenerator {
     pass.end();
     this.device.queue.submit([encoder.finish()]);
 
+    // GPUSampler has no destroy() — it's lightweight and GC'd. Cached on the
+    // instance via ??= above to avoid per-call allocation.
     return dstTexture;
   }
 

@@ -1,4 +1,4 @@
-import type { Entity } from "@downdraft/core";
+import { sanitizeObject, type Entity } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
@@ -30,10 +30,12 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
       },
       handler: (params) => {
         const componentsMap = new Map<number, unknown>();
-        const components = (params.components ?? {}) as Record<string, Record<string, unknown>>;
+        const components = sanitizeObject(
+          (params.components ?? {}) as Record<string, Record<string, unknown>>,
+        );
         for (const [name, data] of Object.entries(components)) {
           const id = ctx.getComponentIdByName(name);
-          componentsMap.set(id, { ...data });
+          componentsMap.set(id, sanitizeObject({ ...data }));
         }
 
         const entity = ctx.ecsWorld.spawn(componentsMap);
@@ -65,7 +67,7 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
             const reComponents = new Map<number, unknown>();
             for (const [name, data] of Object.entries(components)) {
               const id = ctx.getComponentIdByName(name);
-              reComponents.set(id, { ...data });
+              reComponents.set(id, sanitizeObject({ ...data }));
             }
             const reEntity = ctx.ecsWorld.spawn(reComponents);
             ctx.ecsWorld.flushCommands();
@@ -107,15 +109,17 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
 
         const componentName = params.component as string;
         const componentId = ctx.getComponentIdByName(componentName);
-        const changes = params.changes as Record<string, unknown>;
+        const changes = sanitizeObject(
+          params.changes as Record<string, unknown>,
+        );
 
         const oldData = ctx.ecsWorld.getComponent<Record<string, unknown>>(entity, componentId);
         if (!oldData) {
           return errorResult(`Entity ${entityKey} has no component "${componentName}"`);
         }
 
-        const oldCopy = { ...oldData };
-        const newData = { ...oldData, ...changes };
+        const oldCopy = sanitizeObject({ ...oldData });
+        const newData = sanitizeObject({ ...oldData, ...changes });
         ctx.ecsWorld.addComponent(entity, componentId, newData);
         ctx.ecsWorld.flushCommands();
 

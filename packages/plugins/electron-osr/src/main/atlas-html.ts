@@ -42,6 +42,29 @@ export function generateAtlasHTML(atlasWidth: number, atlasHeight: number): stri
 (function() {
   const container = document.getElementById('atlas-container');
 
+  // SECURITY: sanitize HTML before injecting via innerHTML to prevent XSS
+  function sanitizeHtml(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    // Remove all <script> tags
+    doc.querySelectorAll('script').forEach(function(el) { el.remove(); });
+    // Remove all event handler attributes (on*) and javascript: URIs
+    doc.querySelectorAll('*').forEach(function(el) {
+      // Remove event handler attributes
+      for (var i = el.attributes.length - 1; i >= 0; i--) {
+        var attr = el.attributes[i];
+        if (attr.name.startsWith('on')) {
+          el.removeAttribute(attr.name);
+        }
+        // Remove javascript: URIs from href/src attributes
+        if ((attr.name === 'href' || attr.name === 'src') &&
+            attr.value.trim().toLowerCase().startsWith('javascript:')) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    });
+    return doc.body.innerHTML;
+  }
+
   window.__osrAddPanel = function(panelId, x, y, w, h, html) {
     let panel = document.getElementById('osr-panel-' + panelId);
     if (!panel) {
@@ -54,7 +77,7 @@ export function generateAtlasHTML(atlasWidth: number, atlasHeight: number): stri
     panel.style.top = y + 'px';
     panel.style.width = w + 'px';
     panel.style.height = h + 'px';
-    panel.innerHTML = html;
+    panel.innerHTML = sanitizeHtml(html);
   };
 
   window.__osrRemovePanel = function(panelId) {
@@ -64,7 +87,7 @@ export function generateAtlasHTML(atlasWidth: number, atlasHeight: number): stri
 
   window.__osrUpdatePanel = function(panelId, html) {
     const panel = document.getElementById('osr-panel-' + panelId);
-    if (panel) panel.innerHTML = html;
+    if (panel) panel.innerHTML = sanitizeHtml(html);
   };
 
   window.__osrUpdateData = function(panelId, values) {
@@ -118,8 +141,29 @@ export function generateDedicatedHTML(width: number, height: number): string {
 <div id="osr-content"></div>
 <script>
 (function() {
+  // SECURITY: sanitize HTML before injecting via innerHTML to prevent XSS
+  function sanitizeHtml(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    // Remove all <script> tags
+    doc.querySelectorAll('script').forEach(function(el) { el.remove(); });
+    // Remove all event handler attributes (on*) and javascript: URIs
+    doc.querySelectorAll('*').forEach(function(el) {
+      for (var i = el.attributes.length - 1; i >= 0; i--) {
+        var attr = el.attributes[i];
+        if (attr.name.startsWith('on')) {
+          el.removeAttribute(attr.name);
+        }
+        if ((attr.name === 'href' || attr.name === 'src') &&
+            attr.value.trim().toLowerCase().startsWith('javascript:')) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    });
+    return doc.body.innerHTML;
+  }
+
   window.__osrSetContent = function(html) {
-    document.getElementById('osr-content').innerHTML = html;
+    document.getElementById('osr-content').innerHTML = sanitizeHtml(html);
   };
 
   window.__osrUpdateData = function(panelId, values) {

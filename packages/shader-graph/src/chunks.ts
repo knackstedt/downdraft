@@ -343,5 +343,7 @@ export const CHUNKS: Record<string, string> = {
 };
 
 export function getChunk(name: string): string {
-  return CHUNKS[name] ?? "";
+  const chunk = CHUNKS[name];
+  if (!chunk) throw new Error(`Unknown shader chunk: ${name}`);
+  return chunk;
 }

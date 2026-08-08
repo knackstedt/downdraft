@@ -201,6 +201,9 @@ function integrateBuoyancy(
   vel.angVx *= Math.max(0, 1 - phy.angularDamping * dt);
   vel.angVz *= Math.max(0, 1 - phy.angularDamping * dt);
 
+  if (!Number.isFinite(vel.vx)) vel.vx = 0;
+  if (!Number.isFinite(vel.vy)) vel.vy = 0;
+  if (!Number.isFinite(vel.vz)) vel.vz = 0;
   if (!Number.isFinite(vel.angVx)) vel.angVx = 0;
   if (!Number.isFinite(vel.angVz)) vel.angVz = 0;
 
@@ -235,6 +238,15 @@ function applySimpleBuoyancy(
   const wh1 = deps.sampleWaterAt(transform.x - halfLength, transform.z);
   const wh2 = deps.sampleWaterAt(transform.x, transform.z + halfWidth);
   const wh3 = deps.sampleWaterAt(transform.x, transform.z - halfWidth);
+
+  // Skip force application this frame if any water sample is NaN/Inf
+  if (!Number.isFinite(wh0) || !Number.isFinite(wh1) || !Number.isFinite(wh2) || !Number.isFinite(wh3)) {
+    return;
+  }
+
+  if (!Number.isFinite(vel.vx)) vel.vx = 0;
+  if (!Number.isFinite(vel.vy)) vel.vy = 0;
+  if (!Number.isFinite(vel.vz)) vel.vz = 0;
 
   const avgWaterHeight = (wh0 + wh1 + wh2 + wh3) / 4;
   const dy = avgWaterHeight - transform.y;

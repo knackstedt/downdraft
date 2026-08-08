@@ -25,6 +25,9 @@ export class DebugDrawQueue {
   private points: DebugPoint[] = [];
   private texts: DebugText[] = [];
   private frameCount: number = 0;
+  private static readonly MAX_LINES = 10000;
+  private static readonly MAX_POINTS = 10000;
+  private static readonly MAX_TEXTS = 1000;
 
   line(
     from: [number, number, number],
@@ -32,6 +35,7 @@ export class DebugDrawQueue {
     color: [number, number, number, number] = [1, 0, 0, 1],
     duration: number = 0,
   ): void {
+    if (this.lines.length >= DebugDrawQueue.MAX_LINES) this.lines.shift();
     this.lines.push({ from, to, color, duration });
   }
 
@@ -41,6 +45,7 @@ export class DebugDrawQueue {
     size: number = 4,
     duration: number = 0,
   ): void {
+    if (this.points.length >= DebugDrawQueue.MAX_POINTS) this.points.shift();
     this.points.push({ pos, color, size, duration });
   }
 
@@ -51,6 +56,7 @@ export class DebugDrawQueue {
     screenSpace: boolean = false,
     duration: number = 0,
   ): void {
+    if (this.texts.length >= DebugDrawQueue.MAX_TEXTS) this.texts.shift();
     this.texts.push({ pos, text, color, screenSpace, duration });
   }
 

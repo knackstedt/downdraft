@@ -1,6 +1,12 @@
+import { getComponentName } from "../ecs/component";
 import type { Entity } from "../ecs/entity";
 import type { World } from "../ecs/world";
 import { SchemaRegistry } from "./schema";
+
+/** Maximum number of entities allowed in a deserialized scene. */
+const MAX_ENTITY_COUNT = 1_000_000;
+/** Maximum number of components per entity in a deserialized scene. */
+const MAX_COMPONENTS_PER_ENTITY = 256;
 
 export interface SaveData {
   schemaVersion: number;
@@ -69,6 +75,14 @@ export class Serializer {
     const migrated = schemaRegistry.migrate(data, data.schemaVersion) as SaveData;
     const blobs = migrated.binaryBlobs ?? {};
 
+    // Bounds validation — prevent OOM / integer overflow from malformed saves.
+    const entityCount = migrated.scene.entities.length;
+    if (entityCount > MAX_ENTITY_COUNT) {
+      throw new RangeError(
+        `deserialize: entity count ${entityCount} exceeds maximum ${MAX_ENTITY_COUNT}`,
+      );
+    }
+
     for (let i = 0; i < world.entities.length; i++) {
       const meta = world.entities[i];
       if (meta.alive) {
@@ -79,9 +93,26 @@ export class Serializer {
 
     for (let i = 0; i < migrated.scene.entities.length; i++) {
       const entry = migrated.scene.entities[i];
+
+      // Validate component count per entity.
+      if (entry.components.length > MAX_COMPONENTS_PER_ENTITY) {
+        throw new RangeError(
+          `deserialize: entity ${i} has ${entry.components.length} components, exceeds maximum ${MAX_COMPONENTS_PER_ENTITY}`,
+        );
+      }
+
       const components = new Map<number, unknown>();
       for (let j = 0; j < entry.components.length; j++) {
         const comp = entry.components[j];
+
+        // Validate component ID exists in the component registry.
+        const compName = getComponentName(comp.id);
+        if (compName.startsWith("Unknown(")) {
+          throw new Error(
+            `deserialize: entity ${i} references unregistered component ID ${comp.id}`,
+          );
+        }
+
         if (comp.data && typeof comp.data === "object" && "__blobRef" in (comp.data as Record<string, unknown>)) {
           const ref = (comp.data as Record<string, string>).__blobRef;
           components.set(comp.id, blobs[ref] ?? new ArrayBuffer(0));

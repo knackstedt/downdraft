@@ -199,6 +199,8 @@ function ensureCapacity(arr: Float32Array, needed: number): Float32Array {
   if (arr.length >= needed) return arr;
   let newLen = arr.length * 2;
   while (newLen < needed) newLen *= 2;
+  const MAX_FIELD_SIZE = 100_000_000;
+  if (newLen > MAX_FIELD_SIZE) throw new Error(`Field capacity exceeded: ${newLen}`);
   const newArr = new Float32Array(newLen);
   newArr.set(arr);
   return newArr;
@@ -208,6 +210,8 @@ function ensureCapacityU32(arr: Uint32Array, needed: number): Uint32Array {
   if (arr.length >= needed) return arr;
   let newLen = arr.length * 2;
   while (newLen < needed) newLen *= 2;
+  const MAX_FIELD_SIZE = 100_000_000;
+  if (newLen > MAX_FIELD_SIZE) throw new Error(`Field capacity exceeded: ${newLen}`);
   const newArr = new Uint32Array(newLen);
   newArr.set(arr);
   return newArr;
@@ -217,6 +221,8 @@ function ensureCapacityU16(arr: Uint16Array, needed: number): Uint16Array {
   if (arr.length >= needed) return arr;
   let newLen = arr.length * 2;
   while (newLen < needed) newLen *= 2;
+  const MAX_FIELD_SIZE = 100_000_000;
+  if (newLen > MAX_FIELD_SIZE) throw new Error(`Field capacity exceeded: ${newLen}`);
   const newArr = new Uint16Array(newLen);
   newArr.set(arr);
   return newArr;

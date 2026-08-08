@@ -6,7 +6,7 @@ import { screen, type WebContents } from "electron";
 import type { AtlasLayout, OSRRendererConfig, OSRRendererEvent } from "../types";
 import { OSRAtlasRenderer } from "./osr-atlas-renderer";
 import { OSRDedicatedRenderer } from "./osr-dedicated-renderer";
-import { OSRRenderer, type RendererEventCallback } from "./osr-renderer";
+import { OSRRenderer, addAllowedSender, type RendererEventCallback } from "./osr-renderer";
 
 export class OSRRendererManager {
   private renderers = new Map<string, OSRRenderer>();
@@ -16,6 +16,9 @@ export class OSRRendererManager {
 
   setTargetWebContents(wc: WebContents): void {
     this.targetWebContents = wc;
+    // Allowlist the target webContents immediately so __osr_paint_port
+    // messages arriving before any renderer is created are not rejected.
+    addAllowedSender(wc.id);
     for (const renderer of this.renderers.values()) {
       renderer.setTargetWebContents(wc);
     }

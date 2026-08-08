@@ -59,6 +59,12 @@ function getCallsite(): string {
 
 let nextResourceId = 1;
 
+function nextId(): number {
+  const id = nextResourceId;
+  nextResourceId = (nextResourceId + 1) % 0xFFFFFFFF;
+  return id;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
@@ -157,43 +163,43 @@ export class GPUResourceTracker {
   private cachedSortedResources: TrackedResource[] = [];
 
   wrapDevice(device: GPUDevice): GPUDevice {
-    const self = this;
+    const tracker = this;
     const origCreateTexture = device.createTexture.bind(device);
     const origCreateBuffer = device.createBuffer.bind(device);
 
     (device as any).createTexture = function (descriptor: GPUTextureDescriptor): GPUTexture {
       const tex = origCreateTexture(descriptor);
-      const id = nextResourceId++;
+      const id = nextId();
       const hasLabel = !!descriptor.label;
       const label = descriptor.label || `texture_${id}`;
       const callsite = hasLabel ? undefined : getCallsite();
       const size = descriptor.size;
-      const width = typeof size === "object" && "width" in size ? (size.width ?? 1) : (typeof size === "number" ? size : 1);
-      const height = typeof size === "object" && "height" in size ? (size.height ?? 1) : 1;
+      const width = Math.max(0, typeof size === "object" && "width" in size ? (size.width ?? 1) : (typeof size === "number" ? size : 1));
+      const height = Math.max(0, typeof size === "object" && "height" in size ? (size.height ?? 1) : 1);
       const depthOrArrayLayers = typeof size === "object" && "depthOrArrayLayers" in size ? (size.depthOrArrayLayers ?? 1) : 1;
       const mipLevelCount = descriptor.mipLevelCount ?? 1;
       const format = descriptor.format;
       const bytes = textureByteSize(format, width, height, depthOrArrayLayers, mipLevelCount);
 
-      self.resources.set(id, {
+      tracker.resources.set(id, {
         id, type: "texture", label, size: bytes,
         callsite,
         width, height, depthOrArrayLayers, format,
         mipLevelCount, sampleCount: descriptor.sampleCount ?? 1, usage: descriptor.usage,
       });
-      self.textureBytes += bytes;
-      self.textureCount++;
-      self.dirty = true;
+      tracker.textureBytes += bytes;
+      tracker.textureCount++;
+      tracker.dirty = true;
 
       // Wrap destroy to remove from tracking
       const origDestroy = tex.destroy.bind(tex);
       tex.destroy = function () {
-        const r = self.resources.get(id);
+        const r = tracker.resources.get(id);
         if (r) {
-          self.textureBytes -= r.size;
-          self.resources.delete(id);
-          self.textureCount--;
-          self.dirty = true;
+          tracker.textureBytes -= r.size;
+          tracker.resources.delete(id);
+          tracker.textureCount--;
+          tracker.dirty = true;
         }
         origDestroy();
       };
@@ -203,30 +209,30 @@ export class GPUResourceTracker {
 
     (device as any).createBuffer = function (descriptor: GPUBufferDescriptor): GPUBuffer {
       const buf = origCreateBuffer(descriptor);
-      const id = nextResourceId++;
+      const id = nextId();
       const hasLabel = !!descriptor.label;
       const label = descriptor.label || `buffer_${id}`;
       const callsite = hasLabel ? undefined : getCallsite();
       const bytes = descriptor.size;
 
-      self.resources.set(id, {
+      tracker.resources.set(id, {
         id, type: "buffer", label, size: bytes,
         callsite,
         usageFlags: descriptor.usage,
       });
-      self.bufferBytes += bytes;
-      self.bufferCount++;
-      self.dirty = true;
+      tracker.bufferBytes += bytes;
+      tracker.bufferCount++;
+      tracker.dirty = true;
 
       // Wrap destroy to remove from tracking
       const origDestroy = buf.destroy.bind(buf);
       buf.destroy = function () {
-        const r = self.resources.get(id);
+        const r = tracker.resources.get(id);
         if (r) {
-          self.bufferBytes -= r.size;
-          self.resources.delete(id);
-          self.bufferCount--;
-          self.dirty = true;
+          tracker.bufferBytes -= r.size;
+          tracker.resources.delete(id);
+          tracker.bufferCount--;
+          tracker.dirty = true;
         }
         origDestroy();
       };

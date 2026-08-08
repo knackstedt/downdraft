@@ -78,11 +78,16 @@ export class Hierarchy {
   }
 
   markDirty(entity: Entity): void {
-    const d = this.ensureData(entity);
-    if (d.dirty) return;
-    d.dirty = true;
-    for (let i = 0; i < d.children.length; i++) {
-      this.markDirty(d.children[i]);
+    // Iterative (stack-based) to prevent stack overflow on deep hierarchies
+    const stack: Entity[] = [entity];
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      const d = this.ensureData(current);
+      if (d.dirty) continue;
+      d.dirty = true;
+      for (let i = 0; i < d.children.length; i++) {
+        stack.push(d.children[i]);
+      }
     }
   }
 
@@ -98,14 +103,17 @@ export class Hierarchy {
   }
 
   traverse(root: Entity, fn: (entity: Entity, depth: number) => void): void {
-    const visit = (entity: Entity, depth: number) => {
+    // Iterative (stack-based) to prevent stack overflow on deep hierarchies
+    const stack: Array<{ entity: Entity; depth: number }> = [{ entity: root, depth: 0 }];
+    while (stack.length > 0) {
+      const { entity, depth } = stack.pop()!;
       fn(entity, depth);
       const children = this.getChildren(entity);
-      for (let i = 0; i < children.length; i++) {
-        visit(children[i], depth + 1);
+      // Push in reverse order so children are visited left-to-right
+      for (let i = children.length - 1; i >= 0; i--) {
+        stack.push({ entity: children[i], depth: depth + 1 });
       }
-    };
-    visit(root, 0);
+    }
   }
 
   getDescendants(entity: Entity): Entity[] {

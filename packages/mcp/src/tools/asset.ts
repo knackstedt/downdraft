@@ -1,8 +1,11 @@
 import type { ImportOptions } from "@downdraft/core";
-import { AssetImporter } from "@downdraft/core";
+import { AssetImporter, confinePath } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
+
+/** Base directory used for path confinement. Falls back to cwd. */
+const GAME_ROOT = process.cwd();
 
 export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -23,8 +26,9 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
       handler: async (params) => {
         const path = params.path as string;
         try {
-          const data = await ctx.assetManager.load(path);
-          return jsonResult({ imported: true, path, type: typeof data });
+          const safePath = confinePath(GAME_ROOT, path);
+          const data = await ctx.assetManager.load(safePath);
+          return jsonResult({ imported: true, path: safePath, type: typeof data });
         } catch (e) {
           return errorResult(`Failed to import texture: ${(e as Error).message}`);
         }
@@ -65,10 +69,11 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
         };
 
         try {
+          const safePath = confinePath(GAME_ROOT, path);
           const { promises: fs } = await import("node:fs");
-          const buf = await fs.readFile(path);
+          const buf = await fs.readFile(safePath);
           const fileData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-          const ext = path.split(".").pop()?.toLowerCase() ?? "";
+          const ext = safePath.split(".").pop()?.toLowerCase() ?? "";
 
           const loader = new (await import("@downdraft/core")).GLBLoader();
           const importer = new AssetImporter(loader);
@@ -85,7 +90,7 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
 
           return jsonResult({
             converted: true,
-            path,
+            path: safePath,
             format,
             warnings: result.warnings,
             nodeCount: result.document.nodes?.length ?? 0,

@@ -161,7 +161,7 @@ export class JobScheduler {
   private readyQueue: TrackedJob[] = [];
   private nextJobId = 0;
   private maxQueueSize: number;
-  private running = false;
+  private runningPromise: Promise<void> | null = null;
 
   constructor(opts: JobSchedulerOptions = {}) {
     this.pool = opts.pool ?? new WorkerPool();
@@ -225,38 +225,42 @@ export class JobScheduler {
   }
 
   private async pump(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
+    // Reentrant-safe: if pump is already running, await the existing promise
+    if (this.runningPromise) return this.runningPromise;
 
-    try {
-      while (this.readyQueue.length > 0) {
-        const tracked = this.readyQueue.shift()!;
-        tracked.state = "running";
+    this.runningPromise = (async () => {
+      try {
+        while (this.readyQueue.length > 0) {
+          const tracked = this.readyQueue.shift()!;
+          tracked.state = "running";
 
-        try {
-          const result = await this.pool.dispatch(
-            tracked.job.fn,
-            tracked.job.args,
-            tracked.job.transfer,
-          );
-          tracked.result = result;
-          tracked.state = "done";
-          tracked.resolve(result);
-        } catch (err) {
-          tracked.state = "failed";
-          tracked.reject(err as Error);
-        }
+          try {
+            const result = await this.pool.dispatch(
+              tracked.job.fn,
+              tracked.job.args,
+              tracked.job.transfer,
+            );
+            tracked.result = result;
+            tracked.state = "done";
+            tracked.resolve(result);
+          } catch (err) {
+            tracked.state = "failed";
+            tracked.reject(err as Error);
+          }
 
-        // Check if any pending jobs are now ready
-        for (const [, j] of this.jobs) {
-          if (j.state === "pending") {
-            this.checkReady(j);
+          // Check if any pending jobs are now ready
+          for (const [, j] of this.jobs) {
+            if (j.state === "pending") {
+              this.checkReady(j);
+            }
           }
         }
+      } finally {
+        this.runningPromise = null;
       }
-    } finally {
-      this.running = false;
-    }
+    })();
+
+    return this.runningPromise;
   }
 
   // Work stealing: steal a ready job from the queue for inline execution

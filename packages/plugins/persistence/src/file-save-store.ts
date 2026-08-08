@@ -12,6 +12,7 @@
 // Forward incompatibility: saves from a newer engine version are refused.
 // Consumers should implement version backups for unstable releases.
 
+import { safeJsonParse } from "@downdraft/core";
 import {
     encodeHeader,
     engineVersionString,
@@ -238,7 +239,7 @@ export class FileSaveStore implements ISaveStore {
       }
 
       const bodyJson = new TextDecoder().decode(decompressed);
-      const components = JSON.parse(bodyJson) as Record<string, { v: number; data: unknown }>;
+      const components = safeJsonParse<Record<string, { v: number; data: unknown }>>(bodyJson);
 
       // Run migrations per component (or pass through if skipped)
       const migrated: Record<string, { v: number; data: unknown }> = {};

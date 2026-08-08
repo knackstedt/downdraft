@@ -1,3 +1,4 @@
+import { assertPositive, MAX_DECOMPRESS_SIZE } from "../safety/bounds";
 import type { TextureData } from "./loader-texture";
 
 // ============================================================================
@@ -82,6 +83,11 @@ function decodeRGBE(data: Uint8Array, offset: number, width: number, height: num
       // RLE scanline encoding
       const scanlineWidth = (data[pos + 2] << 8) | data[pos + 3];
       pos += 4;
+
+      // Validate scanlineWidth is positive and <= width before allocating arrays
+      if (scanlineWidth <= 0 || scanlineWidth > width) {
+        break;
+      }
 
       if (scanlineWidth !== width || pixelIdx + scanlineWidth > numPixels) {
         // Fallback to flat decoding
@@ -308,6 +314,12 @@ function decodeHalf16(halfBits: number): number {
 }
 
 function rleDecompress(data: Uint8Array, expectedSize: number): Uint8Array {
+  assertPositive("exr rleDecompress expectedSize", expectedSize);
+  if (expectedSize > MAX_DECOMPRESS_SIZE) {
+    throw new RangeError(
+      `exr: decompressed size ${expectedSize} exceeds max ${MAX_DECOMPRESS_SIZE}`,
+    );
+  }
   const output = new Uint8Array(expectedSize);
   let inPos = 0;
   let outPos = 0;

@@ -174,6 +174,8 @@ export class OSRTextureReceiver {
         worker.postMessage({ type: "init", sab });
         worker.onerror = (e) => {
           log.error("OSR", `Decompress worker error for '${this.rendererId}': ${e.message}`);
+          // Terminate the worker on any crash so it doesn't leak.
+          this.cleanup();
         };
       } catch (err) {
         log.error("OSR", `Failed to spawn decompress worker for '${this.rendererId}': ${err instanceof Error ? err.message : String(err)}`);
@@ -301,7 +303,12 @@ export class OSRTextureReceiver {
   }
 
 
-  destroy(): void {
+  /**
+   * Terminates the decompression worker and shuts down the SAB ring.
+   * Called from destroy() and from any error/crash handler so the worker
+   * is always cleaned up regardless of the exit path.
+   */
+  cleanup(): void {
     // Stop SAB drain loop
     this.sabDrainActive = false;
 
@@ -320,6 +327,11 @@ export class OSRTextureReceiver {
       this.decompressWorker.terminate();
       this.decompressWorker = null;
     }
+  }
+
+  destroy(): void {
+    // Terminate worker + SAB on every cleanup path (crash, navigation, destroy).
+    this.cleanup();
 
     if (this.pendingVideoFrame) {
       try { this.pendingVideoFrame.close(); } catch {}

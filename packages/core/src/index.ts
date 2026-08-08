@@ -597,3 +597,19 @@ export { HotReloadPipeline } from "./sim/hot-reload-pipeline";
 export { SimStateHelper } from "./sim/sim-state-helper";
 export { TransientStateRegistry } from "./sim/transient-state-registry";
 
+// Safety utilities (path validation, safe JSON parse, bounds checking)
+export {
+    assertBounds,
+    assertCount,
+    assertFinite,
+    assertPositive,
+    clamp,
+    clampSafeInt, MAX_ARRAY_LENGTH, MAX_DECOMPRESS_SIZE, MAX_FACE_COUNT, MAX_FETCH_SIZE, MAX_MIP_LEVELS, MAX_NODE_DEPTH, MAX_TEXTURE_DIM, MAX_VERTEX_COUNT
+} from "./safety/bounds";
+export { safeJsonParse, safeJsonParseWithSchema, sanitizeObject } from "./safety/json";
+export { confinePath, isPathSafe, sanitizeUri } from "./safety/path";
+
+// GPU Resource Tracker (destroy helpers)
+export { destroyAll, destroyAndNull, destroyMapValues } from "./render/resource-tracker";
+export type { Destroyable } from "./render/resource-tracker";
+

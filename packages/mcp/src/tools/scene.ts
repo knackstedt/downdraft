@@ -1,7 +1,11 @@
+import { confinePath } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult, textResult } from "../types";
 import type { UndoRedoManager } from "../undo-redo";
+
+/** Base directory used for path confinement. Falls back to cwd. */
+const GAME_ROOT = process.cwd();
 
 export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -71,8 +75,9 @@ export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager):
         if (!path) return errorResult("path is required");
 
         try {
-          await ctx.saveSystem.loadFromFile(path, ctx.ecsWorld);
-          return jsonResult({ loaded: true, path, entityCount: ctx.ecsWorld.entityCount() });
+          const safePath = confinePath(GAME_ROOT, path);
+          await ctx.saveSystem.loadFromFile(safePath, ctx.ecsWorld);
+          return jsonResult({ loaded: true, path: safePath, entityCount: ctx.ecsWorld.entityCount() });
         } catch (e) {
           return errorResult(`Failed to load scene: ${(e as Error).message}`);
         }
@@ -96,8 +101,9 @@ export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager):
         if (!path) return errorResult("path is required");
 
         try {
-          await ctx.saveSystem.saveToFile(ctx.ecsWorld, ctx.scene.name, path);
-          return jsonResult({ saved: true, path, scene: ctx.scene.name });
+          const safePath = confinePath(GAME_ROOT, path);
+          await ctx.saveSystem.saveToFile(ctx.ecsWorld, ctx.scene.name, safePath);
+          return jsonResult({ saved: true, path: safePath, scene: ctx.scene.name });
         } catch (e) {
           return errorResult(`Failed to save scene: ${(e as Error).message}`);
         }

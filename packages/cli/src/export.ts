@@ -1,4 +1,4 @@
-import { createLogger } from "@downdraft/core";
+import { confinePath, createLogger } from "@downdraft/core";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { join, relative, resolve } from "path";
 
@@ -22,7 +22,8 @@ export async function exportGame(args: string[]): Promise<void> {
   log.info("export", `  Output:   ${outDir}`);
   log.info("export", `  Compress: ${compress}`);
 
-  const outPath = resolve(projectPath, outDir);
+  // Validate the output directory to prevent path traversal outside the project.
+  const outPath = confinePath(projectPath, outDir);
   if (!existsSync(outPath)) {
     mkdirSync(outPath, { recursive: true });
   }

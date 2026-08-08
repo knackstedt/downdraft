@@ -1,4 +1,4 @@
-import type { IslandInfo, PhysicsBackend, PhysicsBody, RealmTier } from "./interface";
+import type { PhysicsBackend, PhysicsBody, RealmTier } from "./interface";
 import type { PhysicsAccumulator } from "./physics-accumulator";
 
 /**
@@ -60,7 +60,7 @@ export class LoadShedder {
    *
    * Returns the number of bodies frozen.
    */
-  shed(realmId: number, backend: PhysicsBackend, tier: RealmTier): number {
+  shed(realmId: number, backend: PhysicsBackend, tier: RealmTier, bodyMap?: Map<number, PhysicsBody>): number {
     const islands = backend.getIslands(realmId);
     if (islands.length === 0) return 0;
 
@@ -85,9 +85,14 @@ export class LoadShedder {
       // Freeze this entire island
       for (const bodyId of island.bodyIds) {
         if (this.frozenBodies.has(bodyId)) continue;
-        // We don't have the PhysicsBody ref here; the caller should
-        // provide it via freezeBody/unfreezeBody. For now, track the id.
-        this.frozenBodies.add(bodyId);
+        const body = bodyMap?.get(bodyId);
+        if (body) {
+          // Actually freeze the body (set kinematic + zero velocity)
+          this.freezeBody(body, backend, tier);
+        } else {
+          // No body ref available — just track the id
+          this.frozenBodies.add(bodyId);
+        }
         frozenCount++;
       }
       // In a real implementation, we'd check the accumulator after each

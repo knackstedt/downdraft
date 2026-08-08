@@ -3,7 +3,7 @@
 // Ported from to-the-ocean/src/renderer/src/engine/WaterSystem.ts
 // ============================================================================
 
-import { createLogger } from "@downdraft/core";
+import { createLogger, destroyAll } from "@downdraft/core";
 import { WATER_GRID, WaterBuffer } from "./water-buffer";
 import { MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS } from "./wave-sources";
 
@@ -768,6 +768,20 @@ export class WaterRenderer {
   isInitialized(): boolean { return this.initialized; }
 
   destroy(): void {
+    // Destroy GPU resources that have a .destroy() method.
+    // GPUBindGroup, GPUBindGroupLayout have no destroy() — just null them.
+    destroyAll([
+      this.pipeline,
+      this.uniformBuffer,
+      this.vertexBuffer,
+      this.indexBuffer,
+      this.heightTexture,
+      this.normalTexture,
+      this.flowTexture,
+      this.sampler,
+      this.wakeBuffer,
+      this.shoreBuffer,
+    ]);
     this.pipeline = null;
     this.bindGroup = null;
     this.bindGroupLayout = null;

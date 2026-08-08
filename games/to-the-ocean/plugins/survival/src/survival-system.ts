@@ -3,9 +3,8 @@
 // Reusable plugin: depends on interfaces, not game-specific types
 // ============================================================================
 
-import { SURVIVAL_FLAGS } from "./types";
-import type { SurvivalPlayer, SurvivalBiomeProvider, SurvivalConfig } from "./types";
-import { DEFAULT_SURVIVAL_CONFIG } from "./types";
+import type { SurvivalBiomeProvider, SurvivalConfig, SurvivalPlayer } from "./types";
+import { DEFAULT_SURVIVAL_CONFIG, SURVIVAL_FLAGS } from "./types";
 
 // Minimal weather interface — only what survival needs
 interface WeatherLike {
@@ -104,11 +103,13 @@ export class SurvivalSystem {
   }
 
   eat(player: SurvivalPlayer, amount: number): void {
-    player.hunger = Math.min(100, player.hunger + amount);
+    amount = Math.max(0, amount);
+    player.hunger = Math.max(0, Math.min(100, player.hunger + amount));
   }
 
   drink(player: SurvivalPlayer, amount: number): void {
-    player.thirst = Math.min(100, player.thirst + amount);
+    amount = Math.max(0, amount);
+    player.thirst = Math.max(0, Math.min(100, player.thirst + amount));
   }
 
   sleep(player: SurvivalPlayer): void {

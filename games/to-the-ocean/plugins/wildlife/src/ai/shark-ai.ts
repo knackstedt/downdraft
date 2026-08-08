@@ -16,7 +16,7 @@ export function tickSharkAI(
   let state = d[2] as SharkState;
   let stateTimer = d[4];
 
-  stateTimer -= dt;
+  stateTimer = Math.max(0, stateTimer - dt);
 
   // Find nearest detectable player
   let nearestDist = Infinity;
@@ -93,7 +93,7 @@ export function tickSharkAI(
         d[1] = 8;
 
         if (dist < 3 && (player.flags & config.playerFlags.swimming) !== 0) {
-          player.health -= config.sharkAttackDamage * dt;
+          player.health = Math.max(0, player.health - config.sharkAttackDamage * dt);
         }
 
         if (stateTimer <= 0 || nearestDist > 60) {

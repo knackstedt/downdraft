@@ -15,6 +15,8 @@ interface BodySafetyState {
   lastKnownGoodRot: [number, number, number, number];
   /** Recurrence count over the sliding window. */
   recurrenceCount: number;
+  /** Consecutive valid ticks (used to recover hard-locked bodies). */
+  validTickCount: number;
 }
 
 export class SafetyLayer {
@@ -26,6 +28,8 @@ export class SafetyLayer {
   private readonly recurrenceThreshold: number = 3;
   /** Bodies that have been hard-locked due to persistent NaN. */
   private hardLocked: Set<number> = new Set();
+  /** Consecutive valid ticks required before a hard-locked body is restored. */
+  private readonly hardLockRecoveryTicks: number = 60;
   private sweepTickCounter: number = 0;
 
   constructor(opts: { devMode?: boolean } = {}) {
@@ -127,18 +131,34 @@ export class SafetyLayer {
       const angOk = this.isFiniteFast(angVel[0]) && this.isFiniteFast(angVel[1]) && this.isFiniteFast(angVel[2]);
 
       if (posOk && rotOk && velOk && angOk) {
-        // Update lastKnownGood
+        // Update lastKnownGood and reset recurrence counter
         let state = this.states.get(body.id);
         if (!state) {
           state = {
             lastKnownGoodPos: [...pos] as [number, number, number],
             lastKnownGoodRot: [...rot] as [number, number, number, number],
             recurrenceCount: 0,
+            validTickCount: 0,
           };
           this.states.set(body.id, state);
         } else {
           state.lastKnownGoodPos = [...pos] as [number, number, number];
           state.lastKnownGoodRot = [...rot] as [number, number, number, number];
+          state.recurrenceCount = 0;
+        }
+
+        // Recovery path for hard-locked bodies: after enough consecutive
+        // valid ticks, restore the body to dynamic and remove from hardLocked.
+        if (this.hardLocked.has(body.id)) {
+          state.validTickCount++;
+          if (state.validTickCount >= this.hardLockRecoveryTicks) {
+            this.reportViolation(`Body ${body.id} recovered after ${state.validTickCount} valid ticks — restoring to dynamic`);
+            backend.setBodyType(body, "dynamic");
+            this.hardLocked.delete(body.id);
+            state.validTickCount = 0;
+          }
+        } else if (state.validTickCount > 0) {
+          state.validTickCount = 0;
         }
         continue;
       }
@@ -152,6 +172,7 @@ export class SafetyLayer {
           lastKnownGoodPos: [0, 0, 0],
           lastKnownGoodRot: [0, 0, 0, 1],
           recurrenceCount: 0,
+          validTickCount: 0,
         };
         this.states.set(body.id, state);
       }

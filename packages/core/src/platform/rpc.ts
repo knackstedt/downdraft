@@ -15,6 +15,7 @@ export class RPC {
   private eventListeners: Map<string, Set<(payload: unknown) => void>> = new Map();
   private messageIdCounter: number = 0;
   private sendFn: ((msg: RPCMessage) => void) | null = null;
+  private static readonly MAX_PENDING = 1024;
 
   setSendFn(fn: (msg: RPCMessage) => void): void {
     this.sendFn = fn;
@@ -28,7 +29,10 @@ export class RPC {
     if (!this.sendFn) {
       return Promise.reject(new Error(`[RPC] No send function set for channel "${channel}"`));
     }
-    const id = ++this.messageIdCounter;
+    if (this.pending.size >= RPC.MAX_PENDING) {
+      return Promise.reject(new Error(`[RPC] Pending map full (${RPC.MAX_PENDING}), cannot call "${channel}"`));
+    }
+    const id = this.messageIdCounter = (this.messageIdCounter + 1) % 0xFFFFFFFF;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.has(id)) {

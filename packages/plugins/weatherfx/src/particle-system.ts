@@ -366,9 +366,14 @@ export class ParticleSystem {
     this.counterBuffer = null;
     this.voxelBuffer = null;
     this.renderUniformBuffer = null;
+    // Pipelines have .destroy() — call it before nulling.
+    this.computePipeline?.destroy();
+    this.emitPipeline?.destroy();
+    this.renderPipeline?.destroy();
     this.computePipeline = null;
     this.emitPipeline = null;
     this.renderPipeline = null;
+    // GPUBindGroup and GPUBindGroupLayout have no destroy() — just null them.
     this.computeBindGroup = null;
     this.renderBindGroup = null;
     this.computeBindGroupLayout = null;

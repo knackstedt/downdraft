@@ -71,7 +71,9 @@ export function addEntityToArchetype(arch: Archetype, entity: Entity, components
   arch.entities.push(entity);
   arch.entityRowMap.set(entity.index, row);
   for (const cid of arch.componentIds) {
-    arch.columns.get(cid)!.push(components.get(cid));
+    const col = arch.columns.get(cid);
+    if (!col) throw new Error(`Missing column for component ${cid}`);
+    col.push(components.get(cid));
   }
 }
 

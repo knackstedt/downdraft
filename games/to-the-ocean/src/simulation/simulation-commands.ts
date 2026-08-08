@@ -1,5 +1,6 @@
 // Command handling — extracted from Simulation.ts
 
+import { clampSafeInt } from "@downdraft/core";
 import { WeatherSystem } from "@downdraft/plugin-weather";
 import {
     BiomeType,
@@ -84,6 +85,7 @@ export function handleCommand(
       const portId = String(cmd.payload.portId);
       const itemId = cmd.payload.itemId as string;
       const quantity = (cmd.payload.quantity as number) ?? 1;
+      if (quantity <= 0 || !Number.isFinite(quantity)) return { success: false, message: "Invalid quantity" };
       const isBuying = (cmd.payload.isBuying as boolean) ?? true;
       const baseValue = (cmd.payload.baseValue as number) ?? 0;
       if (baseValue <= 0) return { success: false, message: "Invalid base value" };
@@ -93,9 +95,11 @@ export function handleCommand(
         const totalPrice = sim.marketSystem.buyFromPort(portId, itemId, baseValue, quantity);
         if (player.gold < totalPrice) return { success: false, message: "Not enough gold" };
         player.gold -= totalPrice;
+        player.gold = clampSafeInt(player.gold);
       } else {
         const totalPrice = sim.marketSystem.sellToPort(portId, itemId, baseValue, quantity, false);
         player.gold += totalPrice;
+        player.gold = clampSafeInt(player.gold);
       }
       return { success: true, data: { gold: player.gold } };
     }
@@ -125,6 +129,7 @@ export function handleCommand(
     case "pickup_item": {
       const itemId = cmd.payload.itemId as string;
       const quantity = (cmd.payload.quantity as number) ?? 1;
+      if (quantity <= 0 || !Number.isFinite(quantity)) return { success: false, message: "Invalid quantity" };
       const remaining = addItem(player.inventory, itemId, quantity);
       if (remaining > 0) {
         return { success: false, message: `Inventory full, ${remaining} items not picked up` };
@@ -139,6 +144,7 @@ export function handleCommand(
       const x = cmd.payload.x as number;
       const y = cmd.payload.y as number;
       const quantity = (cmd.payload.quantity as number) ?? 1;
+      if (quantity <= 0 || !Number.isFinite(quantity)) return { success: false, message: "Invalid quantity" };
       const removed = removeItem(player.inventory, x, y, quantity);
       if (!removed) return { success: false, message: "No item at that slot" };
       return { success: true, data: removed };
@@ -172,9 +178,13 @@ export function handleCommand(
       const fromX = cmd.payload.fromX as number;
       const fromY = cmd.payload.fromY as number;
       const quantity = (cmd.payload.quantity as number) ?? 1;
+      if (quantity <= 0 || !Number.isFinite(quantity)) return { success: false, message: "Invalid quantity" };
       const holdGrid = sim.shipInventories.get(shipId);
       if (!holdGrid) return { success: false, message: "Ship hold not found" };
-      const removed = removeItem(player.inventory, fromX, fromY, quantity);
+      const sourceStack = player.inventory.slots[fromY]?.[fromX];
+      if (!sourceStack) return { success: false, message: "No item at that slot" };
+      const effectiveQty = Math.min(quantity, sourceStack.quantity);
+      const removed = removeItem(player.inventory, fromX, fromY, effectiveQty);
       if (!removed) return { success: false, message: "No item at that slot" };
       const remaining = addItem(holdGrid, removed.itemId, removed.quantity);
       if (remaining > 0) {
@@ -188,9 +198,13 @@ export function handleCommand(
       const fromX = cmd.payload.fromX as number;
       const fromY = cmd.payload.fromY as number;
       const quantity = (cmd.payload.quantity as number) ?? 1;
+      if (quantity <= 0 || !Number.isFinite(quantity)) return { success: false, message: "Invalid quantity" };
       const holdGrid = sim.shipInventories.get(shipId);
       if (!holdGrid) return { success: false, message: "Ship hold not found" };
-      const removed = removeItem(holdGrid, fromX, fromY, quantity);
+      const sourceStack = holdGrid.slots[fromY]?.[fromX];
+      if (!sourceStack) return { success: false, message: "No item at that slot" };
+      const effectiveQty = Math.min(quantity, sourceStack.quantity);
+      const removed = removeItem(holdGrid, fromX, fromY, effectiveQty);
       if (!removed) return { success: false, message: "No item at that slot" };
       const remaining = addItem(player.inventory, removed.itemId, removed.quantity);
       if (remaining > 0) {

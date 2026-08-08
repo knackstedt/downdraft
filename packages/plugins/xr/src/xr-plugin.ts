@@ -136,9 +136,13 @@ export class XRPlugin implements RendererPlugin {
   async exitVR(): Promise<void> {
     if (!this.initialized) return;
     this.frameLoop?.stop();
-    await this.sessionManager.endSession();
-    this.layerManager.destroy();
-    this.initialized = false;
+    // Ensure all session GPU resources are destroyed even if session.end() fails.
+    try {
+      await this.sessionManager.endSession();
+    } finally {
+      this.layerManager.destroy();
+      this.initialized = false;
+    }
   }
 
   getSessionManager(): XRSessionManager {

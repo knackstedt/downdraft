@@ -393,7 +393,9 @@ ${fragmentMain}`;
         : "";
       return `@fragment
 fn fs_main(input: VertexOutput) {
-${clipLogic}`;
+${clipLogic}
+}
+`;
     }
 
     const outputFormats = profile.outputFormats;
@@ -432,7 +434,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
           metallicEmissive: "vec4<f32>(0.0, 0.0, 0.0, 0.0)",
           velocity: "vec2<f32>(0.0, 0.0)",
         };
-        returnLines.push(`  output.${name} = ${defaults[name] ?? `${wgslType}(0.0)`};`);
+        const defaultVal = defaults[name] ?? `${wgslType}(0.0)`;
+        // Validate that the default value type matches the target format.
+        const expectedPrefix = wgslType === "vec2<f32>" ? "vec2<f32>" : "vec4<f32>";
+        if (!defaultVal.startsWith(expectedPrefix)) {
+          throw new Error(
+            `GBuffer default for target "${name}" (${defaultVal}) does not match format "${fmt}" (expected ${expectedPrefix})`,
+          );
+        }
+        returnLines.push(`  output.${name} = ${defaultVal};`);
       }
     }
 

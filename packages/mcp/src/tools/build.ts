@@ -1,6 +1,10 @@
+import { confinePath } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
-import { jsonResult, errorResult } from "../types";
+import { errorResult, jsonResult } from "../types";
+
+/** Base directory used for path confinement. Falls back to cwd. */
+const GAME_ROOT = process.cwd();
 
 export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -117,8 +121,9 @@ export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
       handler: async (params) => {
         const path = params.path as string;
         try {
-          await ctx.saveSystem.saveToFile(ctx.ecsWorld, ctx.scene.name, path);
-          return jsonResult({ exported: true, path, scene: ctx.scene.name });
+          const safePath = confinePath(GAME_ROOT, path);
+          await ctx.saveSystem.saveToFile(ctx.ecsWorld, ctx.scene.name, safePath);
+          return jsonResult({ exported: true, path: safePath, scene: ctx.scene.name });
         } catch (e) {
           return errorResult(`Failed to export: ${(e as Error).message}`);
         }

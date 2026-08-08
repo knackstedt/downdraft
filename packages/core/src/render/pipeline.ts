@@ -25,8 +25,23 @@ export class PipelineCache {
 
   invalidate(key?: string): void {
     if (key) {
+      const pipeline = this.cache.get(key);
+      if (pipeline) {
+        try {
+          pipeline.destroy();
+        } catch {
+          // Pipeline may already be destroyed or invalid
+        }
+      }
       this.cache.delete(key);
     } else {
+      for (const pipeline of this.cache.values()) {
+        try {
+          pipeline.destroy();
+        } catch {
+          // Pipeline may already be destroyed or invalid
+        }
+      }
       this.cache.clear();
     }
   }

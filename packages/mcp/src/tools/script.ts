@@ -1,6 +1,10 @@
+import { confinePath } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
+
+/** Base directory used for path confinement. Falls back to cwd. */
+const GAME_ROOT = process.cwd();
 
 export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -22,11 +26,13 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
         const name = params.name as string;
         const code = params.code as string;
         if (!name || !code) return errorResult("name and code are required");
+        if (name.includes("..")) return errorResult("Script name must not contain '..'");
 
         const path = `scripts/${name}.ts`;
         try {
+          const safePath = confinePath(GAME_ROOT, path);
           const { promises: fs } = await import("node:fs");
-          await fs.writeFile(path, code);
+          await fs.writeFile(safePath, code);
           return jsonResult({ created: true, name, path });
         } catch (e) {
           return errorResult(`Failed to write script: ${(e as Error).message}`);
@@ -52,8 +58,9 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
         const path = (params.path as string) ?? `scripts/${name}.ts`;
 
         try {
-          await ctx.scriptingSystem.load(name, path);
-          return jsonResult({ attached: true, name, path });
+          const safePath = confinePath(GAME_ROOT, path);
+          await ctx.scriptingSystem.load(name, safePath);
+          return jsonResult({ attached: true, name, path: safePath });
         } catch (e) {
           return errorResult(`Failed to attach script: ${(e as Error).message}`);
         }
@@ -78,8 +85,9 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
         const path = (params.path as string) ?? `scripts/${name}.ts`;
 
         try {
-          await ctx.scriptingSystem.hotReload(name, path);
-          return jsonResult({ hotReloaded: true, name, path });
+          const safePath = confinePath(GAME_ROOT, path);
+          await ctx.scriptingSystem.hotReload(name, safePath);
+          return jsonResult({ hotReloaded: true, name, path: safePath });
         } catch (e) {
           return errorResult(`Failed to hot-reload script: ${(e as Error).message}`);
         }

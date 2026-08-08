@@ -256,6 +256,7 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
+      // SECURITY: sandbox disabled for WebGPU + SharedArrayBuffer support — required for renderer functionality
       sandbox: false,
       webgpu: true,
       enableBlinkFeatures: "SharedArrayBuffer",

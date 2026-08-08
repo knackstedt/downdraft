@@ -1,5 +1,5 @@
 // Eel AI — electric shock on proximity, territorial behavior
-import type { WildlifeEntity, WildlifePlayer, WildlifeConfig } from "../types";
+import type { WildlifeConfig, WildlifeEntity, WildlifePlayer } from "../types";
 
 export function tickEelAI(
   ent: WildlifeEntity,
@@ -29,7 +29,7 @@ export function tickEelAI(
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (dist < 5 && shockCooldown <= 0) {
-      players[p].health -= config.eelShockDamage;
+      players[p].health = Math.max(0, players[p].health - config.eelShockDamage);
       shockCooldown = 3;
     }
   }

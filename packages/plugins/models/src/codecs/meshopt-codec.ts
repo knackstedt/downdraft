@@ -12,6 +12,7 @@
 // the bufferView reuse one decode.
 //
 
+import { assertFinite, assertPositive, MAX_DECOMPRESS_SIZE } from "@downdraft/core";
 import type { BufferViewCodec, BufferViewCodecInput } from "./registry";
 
 // Minimal type for the meshoptimizer decoder module (see meshopt_decoder.d.ts).
@@ -68,7 +69,21 @@ export function createMeshoptBufferViewCodec(): BufferViewCodec {
       if (!mode) throw new Error("EXT_meshopt_compression: missing mode");
       if (!byteStride) throw new Error("EXT_meshopt_compression: missing byteStride");
 
-      const target = new Uint8Array(count * byteStride);
+      // Validate count and byteStride are positive finite numbers
+      assertFinite("meshopt count", count);
+      assertPositive("meshopt count", count);
+      assertFinite("meshopt byteStride", byteStride);
+      assertPositive("meshopt byteStride", byteStride);
+
+      // Validate count * byteStride doesn't overflow and is within decompress limit
+      const totalSize = count * byteStride;
+      if (!Number.isFinite(totalSize) || totalSize > MAX_DECOMPRESS_SIZE) {
+        throw new RangeError(
+          `EXT_meshopt_compression: decoded size ${totalSize} exceeds max ${MAX_DECOMPRESS_SIZE}`,
+        );
+      }
+
+      const target = new Uint8Array(totalSize);
       decoder.decodeGltfBuffer(target, count, byteStride, input.compressedData, mode, filter);
       return target;
     },

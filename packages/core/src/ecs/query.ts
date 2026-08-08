@@ -71,6 +71,7 @@ export class Query {
 
       if (changedFilter !== undefined) {
         const changedCol = getComponentColumn<{ lastChanged: number }>(arch, changedFilter);
+        if (!changedCol) continue;
         for (let row = 0; row < count; row++) {
           if (changedCol[row].lastChanged >= this.descriptor.lastReadTick) {
             for (let c = 0; c < ncomps; c++) comps[c] = columns[c][row];

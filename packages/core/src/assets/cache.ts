@@ -134,6 +134,27 @@ export class GPUResourceCache {
         this.buffers.delete(key);
       }
     }
+    // Evict stale generic resources (refCount <= 0 and past maxAge), then
+    // enforce an LRU cap of 64 entries by evicting least-recently-used items.
+    const GENERIC_LRU_MAX = 64;
+    for (const [key, entry] of this.genericResources) {
+      if (entry.refCount <= 0 && now - entry.lastUsed > this.maxAge) {
+        if (entry.cleanup) entry.cleanup();
+        this.genericResources.delete(key);
+      }
+    }
+    if (this.genericResources.size > GENERIC_LRU_MAX) {
+      // Map iterates in insertion order; sort by lastUsed ascending to evict LRU.
+      const sorted = [...this.genericResources.entries()].sort(
+        (a, b) => a[1].lastUsed - b[1].lastUsed,
+      );
+      const toEvict = sorted.length - GENERIC_LRU_MAX;
+      for (let i = 0; i < toEvict; i++) {
+        const [key, entry] = sorted[i];
+        if (entry.cleanup) entry.cleanup();
+        this.genericResources.delete(key);
+      }
+    }
   }
 
   getStats(): { textureCount: number; bufferCount: number; totalRefs: number } {
@@ -155,7 +176,11 @@ export class GPUResourceCache {
     for (const entry of this.buffers.values()) {
       (entry.resource as GPUBuffer).destroy();
     }
+    for (const entry of this.genericResources.values()) {
+      if (entry.cleanup) entry.cleanup();
+    }
     this.textures.clear();
     this.buffers.clear();
+    this.genericResources.clear();
   }
 }

@@ -13,20 +13,20 @@ function createHeaderViews(sab: SharedArrayBuffer, headerSize: number): HeaderVi
 function createLayerView(
   sab: SharedArrayBuffer,
   layer: GridLayerLayout,
-): Float32Array | Int32Array {
+): Float32Array | Int32Array | Uint32Array | Float64Array {
   switch (layer.type) {
     case "f32": return new Float32Array(sab, layer.byteOffset, layer.length);
     case "i32": return new Int32Array(sab, layer.byteOffset, layer.length);
-    case "u32": return new Int32Array(sab, layer.byteOffset, layer.length);
-    case "bool": return new Int32Array(sab, layer.byteOffset, layer.length);
-    case "f64": return new Float32Array(sab, layer.byteOffset, layer.length);
+    case "u32": return new Uint32Array(sab, layer.byteOffset, layer.length);
+    case "bool": return new Uint32Array(sab, layer.byteOffset, layer.length);
+    case "f64": return new Float64Array(sab, layer.byteOffset, layer.length);
     default: return new Float32Array(sab, layer.byteOffset, layer.length);
   }
 }
 
 export class GridReader {
   header: HeaderViews;
-  layers: Record<string, Float32Array | Int32Array>;
+  layers: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
   private seqArr: Int32Array;
   private layout: ChannelLayout;
 
@@ -74,7 +74,7 @@ export class GridReader {
 
 export class GridWriter {
   header: HeaderViews;
-  layers: Record<string, Float32Array | Int32Array>;
+  layers: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
   private seqArr: Int32Array;
   private layout: ChannelLayout;
 

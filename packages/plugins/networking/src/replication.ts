@@ -1,5 +1,5 @@
-import type { NetMessage, NetTransport } from "./transport";
 import { RPCManager } from "./rpc";
+import type { NetMessage, NetTransport } from "./transport";
 
 export type ReplicationMode = "authoritative" | "client-prediction" | "interpolated";
 
@@ -37,6 +37,7 @@ export class ReplicationManager {
   private transport: NetTransport;
   private config: ReplicationConfig;
   private snapshots: Map<number, ReplicationSnapshot> = new Map();
+  private static readonly MAX_SNAPSHOTS = 1024;
   private lastTick = 0;
   private tickAccumulator = 0;
   private isServer: boolean;
@@ -133,6 +134,11 @@ export class ReplicationManager {
       // SNAPSHOT
       if (this.isServer) return;
       const snapshot = this.deserializeSnapshot(msg.data);
+      // LRU eviction — delete oldest entry (first key) when at capacity.
+      if (this.snapshots.size >= ReplicationManager.MAX_SNAPSHOTS) {
+        const oldestKey = this.snapshots.keys().next().value;
+        if (oldestKey !== undefined) this.snapshots.delete(oldestKey);
+      }
       this.snapshots.set(snapshot.tick, snapshot);
       this.applySnapshot(snapshot);
     }

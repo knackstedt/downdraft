@@ -2,6 +2,7 @@ import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { destroyMapValues } from "../resource-tracker";
 import { TrackedRenderPass } from "../tracked-render-pass";
 import type { GpuMeshTable, MeshTableGroup } from "./mesh-table";
 
@@ -39,7 +40,7 @@ export class IndirectDrawPass extends RenderPass {
 
   setMeshTable(table: GpuMeshTable): void {
     this.meshTable = table;
-    this.pipelines.clear();
+    destroyMapValues(this.pipelines);
   }
 
   setDrawArgsBuffer(buffer: GPUBuffer): void {
@@ -129,7 +130,7 @@ export class IndirectDrawPass extends RenderPass {
 
   destroy(): void {
     this.cameraBuffer?.destroy();
-    this.pipelines.clear();
+    destroyMapValues(this.pipelines);
     this.cameraBuffer = null;
     this.bindGroupLayout = null;
     this.pipelineLayout = null;

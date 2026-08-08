@@ -165,6 +165,9 @@ async function handleRequest(req: RealmWorkerRequest): Promise<RealmWorkerRespon
         buf[offset + 4] = rot.y;
         buf[offset + 5] = rot.z;
         buf[offset + 6] = rot.w;
+        // Free WASM borrows to avoid aliasing panics during world.step()
+        try { (pos as any).free?.(); } catch {}
+        try { (rot as any).free?.(); } catch {}
       }
       return { type: "READ_TRANSFORMS_RESULT", realmId: req.realmId, buffer: buf };
     }

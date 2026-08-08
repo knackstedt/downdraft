@@ -2,6 +2,7 @@ import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { destroyMapValues } from "../resource-tracker";
 import { TrackedRenderPass } from "../tracked-render-pass";
 
 export interface CSMSettings {
@@ -107,6 +108,12 @@ export class CSMPass extends RenderPass {
     if (!this.shaderModule) {
       this.shaderModule = this.device.createShaderModule({ code: CSM_SHADER });
     }
+
+    // Destroy old shadow resources before creating new ones.
+    this.shadowTexture?.destroy();
+    this.shadowView = null;
+    // GPUTextureView does not have .destroy() — just drop the references.
+    this.cascadeViews = [];
 
     this.shadowTexture = this.device.createTexture({
       size: [this.settings.shadowMapSize, this.settings.shadowMapSize, this.settings.cascadeCount],
@@ -364,13 +371,15 @@ export class CSMPass extends RenderPass {
 
   destroy(): void {
     this.shadowTexture?.destroy();
+    this.shadowView = null;
+    this.shadowSampler?.destroy();
     this.uniformBuffer?.destroy();
     this.modelBuffer?.destroy();
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
-    this.pipelines.clear();
-    this.bindGroups.clear();
+    destroyMapValues(this.pipelines);
+    destroyMapValues(this.bindGroups);
   }
 }

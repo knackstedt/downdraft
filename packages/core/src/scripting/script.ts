@@ -1,5 +1,6 @@
 import type { Stage, SystemFn } from "../ecs/system";
 import type { World } from "../ecs/world";
+import { confinePath } from "../safety/path";
 
 export interface ScriptContext {
   world: World;
@@ -22,18 +23,29 @@ export interface ScriptModule {
 export class ScriptingSystem {
   private scripts: Map<string, { module: ScriptModule; handle: ScriptHandle; ctx: ScriptContext }> = new Map();
   private world: World;
+  private scriptsDir: string;
 
-  constructor(world: World) {
+  constructor(world: World, scriptsDir?: string) {
     this.world = world;
+    // Default to `<cwd>/scripts` — use a simple string join to avoid pulling
+    // in `node:path` which breaks browser/renderer bundling.
+    this.scriptsDir = scriptsDir ?? (
+      typeof process !== "undefined" && process.cwd
+        ? process.cwd().replace(/\/$/, "") + "/scripts"
+        : "scripts"
+    );
   }
 
   async load(name: string, modulePath: string): Promise<ScriptHandle> {
+    // Validate modulePath is confined within the game's scripts directory.
+    const safePath = confinePath(this.scriptsDir, modulePath);
+
     const existing = this.scripts.get(name);
     if (existing) {
       existing.handle.dispose();
     }
 
-    const mod = await import(/* @vite-ignore */ modulePath) as ScriptModule;
+    const mod = await import(/* @vite-ignore */ safePath) as ScriptModule;
     const systems: Array<{ stage: Stage; fn: SystemFn }> = [];
 
     const ctx: ScriptContext = {

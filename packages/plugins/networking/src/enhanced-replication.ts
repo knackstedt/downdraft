@@ -228,6 +228,7 @@ export class DeltaDecoder {
 export class InterestManager {
   private areas: Map<string, InterestArea> = new Map();
   private entityPositions: Map<number, EntityPosition> = new Map();
+  private static readonly MAX_ENTITY_POSITIONS = 10000;
 
   setArea(peerId: string, area: InterestArea): void {
     this.areas.set(peerId, area);
@@ -238,6 +239,11 @@ export class InterestManager {
   }
 
   updateEntityPosition(entityId: number, x: number, y: number, z: number): void {
+    // LRU eviction — delete oldest entry (first key) when at capacity.
+    if (!this.entityPositions.has(entityId) && this.entityPositions.size >= InterestManager.MAX_ENTITY_POSITIONS) {
+      const oldestKey = this.entityPositions.keys().next().value;
+      if (oldestKey !== undefined) this.entityPositions.delete(oldestKey);
+    }
     this.entityPositions.set(entityId, { entityId, x, y, z });
   }
 

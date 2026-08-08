@@ -30,4 +30,9 @@ export class BindGroupCache {
       this.cache.clear();
     }
   }
+
+  /** Clear all cached bind groups. GPUBindGroup does not have .destroy(). */
+  destroy(): void {
+    this.cache.clear();
+  }
 }

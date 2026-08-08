@@ -8,6 +8,7 @@ import type { MeshData } from "../../mesh/builder";
 import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { destroyMapValues } from "../resource-tracker";
 
 const GBUFFER_SHADER = `
 struct CameraUniforms {
@@ -453,6 +454,8 @@ export class OpaquePass extends RenderPass {
       if (this.graphVariantPipelines.size >= OpaquePass.MAX_VARIANT_PIPELINES) {
         const oldestKey = this.graphVariantPipelines.keys().next().value;
         if (oldestKey) {
+          this.graphVariantPipelines.get(oldestKey)?.destroy();
+          this.graphVariantShaderModules.get(oldestKey)?.destroy();
           this.graphVariantPipelines.delete(oldestKey);
           this.graphVariantShaderModules.delete(oldestKey);
         }
@@ -991,17 +994,17 @@ export class OpaquePass extends RenderPass {
     this.pbrMaterial = null;
     this.pbrMaterialRegistered = false;
     this.graphCameraBuffer?.destroy();
-    this.graphPipeline = null;
-    this.graphShaderModule = null;
+    this.graphPipeline?.destroy();
+    this.graphShaderModule?.destroy();
     this.graphCameraBuffer = null;
     this.graphBindGroup = null;
     this.graphMaterial = null;
     this.graphProfile = null;
-    this.graphExtraBindGroups.clear();
+    destroyMapValues(this.graphExtraBindGroups);
     this.graphInstanceBuffer = null;
     this.graphInstanceCount = 0;
     this.graphUniformData = null;
-    this.graphVariantPipelines.clear();
-    this.graphVariantShaderModules.clear();
+    destroyMapValues(this.graphVariantPipelines);
+    destroyMapValues(this.graphVariantShaderModules);
   }
 }

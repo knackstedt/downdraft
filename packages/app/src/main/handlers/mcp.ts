@@ -15,13 +15,14 @@ export async function startMcpProxy(ctx: MainContext, config: DowndraftMcpConfig
       throw new Error("No renderer window available");
     }
     const requestId = Date.now() + Math.random();
+    const responseChannel = `mcp-response-${requestId}`;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        ipcMain.removeAllListeners("mcp-response");
+        ipcMain.removeAllListeners(responseChannel);
         reject(new Error("MCP request timed out"));
       }, 5000);
 
-      ipcMain.once("mcp-response", (_e, result) => {
+      ipcMain.once(responseChannel, (_e, result) => {
         clearTimeout(timeout);
         if (result.error) {
           resolve({ error: result.error });

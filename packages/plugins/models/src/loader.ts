@@ -6,6 +6,7 @@
 //
 
 import type { AssetManager } from "@downdraft/core";
+import { MAX_FETCH_SIZE } from "@downdraft/core";
 import type { GLTFCodecRegistry } from "./codecs/registry";
 import { getDefaultCodecRegistry } from "./codecs/registry";
 import { parseDAE } from "./dae";
@@ -74,6 +75,13 @@ export function createModelAsyncLoader(opts: ModelLoaderOptions = {}) {
 
     const resp = await fetchFn(uri);
     if (!resp.ok) throw new Error(`Failed to fetch ${uri}: ${resp.status}`);
+    // Abort if Content-Length exceeds the maximum fetch size
+    const contentLength = parseInt(resp.headers.get("Content-Length") ?? "", 10);
+    if (Number.isFinite(contentLength) && contentLength > MAX_FETCH_SIZE) {
+      throw new RangeError(
+        `Model fetch ${uri}: Content-Length ${contentLength} exceeds max ${MAX_FETCH_SIZE}`,
+      );
+    }
     const data = await resp.arrayBuffer();
     const baseName = filename.replace(/\.[^.]+$/, "");
 

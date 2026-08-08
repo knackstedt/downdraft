@@ -1,3 +1,4 @@
+import { assertCount, MAX_MIP_LEVELS, MAX_TEXTURE_DIM } from "../safety/bounds";
 import type { TextureData } from "./loader-texture";
 
 const DDS_MAGIC = 0x20534444; // "DDS "
@@ -50,6 +51,10 @@ function readDDSHeader(view: DataView): DDSHeader | null {
   const width = view.getUint32(16, true);
   const pitchOrLinearSize = view.getUint32(20, true);
   const mipMapCount = view.getUint32(28, true);
+
+  // Validate texture dimensions and mip level count
+  assertCount("dds-dim", Math.max(width, height), MAX_TEXTURE_DIM);
+  assertCount("mipLevels", mipMapCount, MAX_MIP_LEVELS);
 
   const pixelFlags = view.getUint32(76, true);
   const fourCC = view.getUint32(84, true);

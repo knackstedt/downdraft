@@ -2,6 +2,7 @@ import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { destroyMapValues } from "../resource-tracker";
 import { TrackedRenderPass } from "../tracked-render-pass";
 
 export const MAX_SPOT_LIGHT_SHADOWS = 4;
@@ -246,6 +247,8 @@ export class SpotLightShadowPass extends RenderPass {
 
   destroy(): void {
     for (const tex of this.shadowTextures) tex.destroy();
+    // GPUSampler has no destroy() — it's GC'd automatically.
+    this.shadowSamplers.length = 0;
     this.uniformBuffer?.destroy();
     this.modelBuffer?.destroy();
     this.viewProjBuffer?.destroy();
@@ -253,7 +256,7 @@ export class SpotLightShadowPass extends RenderPass {
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
-    this.pipelines.clear();
-    this.bindGroups.clear();
+    destroyMapValues(this.pipelines);
+    destroyMapValues(this.bindGroups);
   }
 }

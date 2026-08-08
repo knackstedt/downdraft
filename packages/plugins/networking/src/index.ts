@@ -10,7 +10,7 @@ const log = createLogger();
 export { ReplicationManager } from "./replication";
 export { RPCManager } from "./rpc";
 export { createTransport, MockTransport, WebSocketTransport } from "./transport";
-export { createWebRTCTransport, WebRTCTransport, WebSocketSignalingClient } from "./webrtc";
+export { createWebRTCTransport, isValidIceCandidate, WebRTCTransport, WebSocketSignalingClient } from "./webrtc";
 export type { SignalingClient, SignalingMessage, SignalingMessageType } from "./webrtc";
 export type { NetMessage, NetTransport, ReplicatedComponent, ReplicatedField, ReplicationConfig, ReplicationMode, ReplicationSnapshot, RPCDefinition, RPCHandler, TransportType };
 
