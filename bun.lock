@@ -37,16 +37,10 @@
         "@downdraft/core": "workspace:*",
         "@downdraft/mcp": "workspace:*",
         "@downdraft/plugin-audio-kira": "workspace:*",
-        "@downdraft/plugin-crafting": "workspace:*",
-        "@downdraft/plugin-economy": "workspace:*",
-        "@downdraft/plugin-fishing": "workspace:*",
-        "@downdraft/plugin-inventory": "workspace:*",
-        "@downdraft/plugin-items": "workspace:*",
         "@downdraft/plugin-mcp": "workspace:*",
         "@downdraft/plugin-navmesh": "workspace:*",
         "@downdraft/plugin-networking": "workspace:*",
         "@downdraft/plugin-physics-rapier": "workspace:*",
-        "@downdraft/plugin-survival": "workspace:*",
         "@downdraft/plugin-water": "workspace:*",
       },
     },
@@ -57,23 +51,13 @@
         "@dimforge/rapier3d-compat": "^0.19.3",
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-boats": "workspace:*",
-        "@downdraft/plugin-buoyancy": "workspace:*",
-        "@downdraft/plugin-collision": "workspace:*",
-        "@downdraft/plugin-crafting": "workspace:*",
-        "@downdraft/plugin-economy": "workspace:*",
         "@downdraft/plugin-electron-osr": "workspace:*",
-        "@downdraft/plugin-fishing": "workspace:*",
-        "@downdraft/plugin-inventory": "workspace:*",
-        "@downdraft/plugin-items": "workspace:*",
         "@downdraft/plugin-marching-cubes": "workspace:*",
         "@downdraft/plugin-models": "workspace:*",
         "@downdraft/plugin-physics-rapier": "workspace:*",
         "@downdraft/plugin-surface-nets": "workspace:*",
-        "@downdraft/plugin-survival": "workspace:*",
         "@downdraft/plugin-water": "workspace:*",
         "@downdraft/plugin-weather": "workspace:*",
-        "@downdraft/plugin-wildlife": "workspace:*",
         "@floating-ui/react": "^0.27.0",
         "@fontsource/doto": "^5.1.1",
         "@fontsource/linefont": "^5.1.1",
@@ -81,11 +65,92 @@
         "@fontsource/special-elite": "^5.1.1",
         "@fontsource/urbanist": "^5.1.1",
         "@fontsource/wavefont": "^5.1.1",
+        "@to-the-ocean/plugin-boats": "workspace:*",
+        "@to-the-ocean/plugin-buoyancy": "workspace:*",
+        "@to-the-ocean/plugin-collision": "workspace:*",
+        "@to-the-ocean/plugin-crafting": "workspace:*",
+        "@to-the-ocean/plugin-economy": "workspace:*",
+        "@to-the-ocean/plugin-fishing": "workspace:*",
+        "@to-the-ocean/plugin-inventory": "workspace:*",
+        "@to-the-ocean/plugin-items": "workspace:*",
+        "@to-the-ocean/plugin-survival": "workspace:*",
+        "@to-the-ocean/plugin-wildlife": "workspace:*",
         "fflate": "^0.8.2",
         "framer-motion": "^11.15.0",
         "lucide-react": "^0.468.0",
         "wgpu-matrix": "^3.4.2",
         "zustand": "^5.0.2",
+      },
+    },
+    "games/to-the-ocean/plugins/boats": {
+      "name": "@to-the-ocean/plugin-boats",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/buoyancy": {
+      "name": "@to-the-ocean/plugin-buoyancy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/collision": {
+      "name": "@to-the-ocean/plugin-collision",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/crafting": {
+      "name": "@to-the-ocean/plugin-crafting",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@to-the-ocean/plugin-inventory": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/economy": {
+      "name": "@to-the-ocean/plugin-economy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/fishing": {
+      "name": "@to-the-ocean/plugin-fishing",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/plugin-weather": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/inventory": {
+      "name": "@to-the-ocean/plugin-inventory",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@to-the-ocean/plugin-items": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/items": {
+      "name": "@to-the-ocean/plugin-items",
+      "version": "0.1.0",
+    },
+    "games/to-the-ocean/plugins/survival": {
+      "name": "@to-the-ocean/plugin-survival",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/plugin-weather": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/plugins/wildlife": {
+      "name": "@to-the-ocean/plugin-wildlife",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
       },
     },
     "packages/app": {
@@ -132,40 +197,11 @@
         "@downdraft/core": "workspace:*",
       },
     },
-    "packages/plugins/boats": {
-      "name": "@downdraft/plugin-boats",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/buoyancy": {
-      "name": "@downdraft/plugin-buoyancy",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
     "packages/plugins/camera-controls": {
       "name": "@downdraft/plugin-camera-controls",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/collision": {
-      "name": "@downdraft/plugin-collision",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/crafting": {
-      "name": "@downdraft/plugin-crafting",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-inventory": "workspace:*",
       },
     },
     "packages/plugins/devtools": {
@@ -175,13 +211,6 @@
         "@downdraft/core": "workspace:*",
         "@downdraft/plugin-models": "workspace:*",
         "zustand": "^5.0.2",
-      },
-    },
-    "packages/plugins/economy": {
-      "name": "@downdraft/plugin-economy",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
       },
     },
     "packages/plugins/electron-osr": {
@@ -199,32 +228,12 @@
         "@downdraft/plugin-models": "workspace:*",
       },
     },
-    "packages/plugins/fishing": {
-      "name": "@downdraft/plugin-fishing",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-weather": "workspace:*",
-      },
-    },
     "packages/plugins/gaussian-splats": {
       "name": "@downdraft/plugin-gaussian-splats",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
-    },
-    "packages/plugins/inventory": {
-      "name": "@downdraft/plugin-inventory",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-items": "workspace:*",
-      },
-    },
-    "packages/plugins/items": {
-      "name": "@downdraft/plugin-items",
-      "version": "0.1.0",
     },
     "packages/plugins/lighting": {
       "name": "@downdraft/plugin-lighting",
@@ -311,14 +320,6 @@
         "@downdraft/plugin-marching-cubes": "workspace:*",
       },
     },
-    "packages/plugins/survival": {
-      "name": "@downdraft/plugin-survival",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-weather": "workspace:*",
-      },
-    },
     "packages/plugins/water": {
       "name": "@downdraft/plugin-water",
       "version": "0.1.0",
@@ -340,13 +341,6 @@
         "@downdraft/core": "workspace:*",
         "@downdraft/plugin-marching-cubes": "workspace:*",
         "@downdraft/plugin-weather": "workspace:*",
-      },
-    },
-    "packages/plugins/wildlife": {
-      "name": "@downdraft/plugin-wildlife",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
       },
     },
     "packages/plugins/xr": {
@@ -472,31 +466,15 @@
 
     "@downdraft/plugin-audio-kira": ["@downdraft/plugin-audio-kira@workspace:packages/plugins/audio-kira"],
 
-    "@downdraft/plugin-boats": ["@downdraft/plugin-boats@workspace:packages/plugins/boats"],
-
-    "@downdraft/plugin-buoyancy": ["@downdraft/plugin-buoyancy@workspace:packages/plugins/buoyancy"],
-
     "@downdraft/plugin-camera-controls": ["@downdraft/plugin-camera-controls@workspace:packages/plugins/camera-controls"],
 
-    "@downdraft/plugin-collision": ["@downdraft/plugin-collision@workspace:packages/plugins/collision"],
-
-    "@downdraft/plugin-crafting": ["@downdraft/plugin-crafting@workspace:packages/plugins/crafting"],
-
     "@downdraft/plugin-devtools": ["@downdraft/plugin-devtools@workspace:packages/plugins/devtools"],
-
-    "@downdraft/plugin-economy": ["@downdraft/plugin-economy@workspace:packages/plugins/economy"],
 
     "@downdraft/plugin-electron-osr": ["@downdraft/plugin-electron-osr@workspace:packages/plugins/electron-osr"],
 
     "@downdraft/plugin-entities": ["@downdraft/plugin-entities@workspace:packages/plugins/entities"],
 
-    "@downdraft/plugin-fishing": ["@downdraft/plugin-fishing@workspace:packages/plugins/fishing"],
-
     "@downdraft/plugin-gaussian-splats": ["@downdraft/plugin-gaussian-splats@workspace:packages/plugins/gaussian-splats"],
-
-    "@downdraft/plugin-inventory": ["@downdraft/plugin-inventory@workspace:packages/plugins/inventory"],
-
-    "@downdraft/plugin-items": ["@downdraft/plugin-items@workspace:packages/plugins/items"],
 
     "@downdraft/plugin-lighting": ["@downdraft/plugin-lighting@workspace:packages/plugins/lighting"],
 
@@ -520,15 +498,11 @@
 
     "@downdraft/plugin-surface-nets": ["@downdraft/plugin-surface-nets@workspace:packages/plugins/surface-nets"],
 
-    "@downdraft/plugin-survival": ["@downdraft/plugin-survival@workspace:packages/plugins/survival"],
-
     "@downdraft/plugin-water": ["@downdraft/plugin-water@workspace:packages/plugins/water"],
 
     "@downdraft/plugin-weather": ["@downdraft/plugin-weather@workspace:packages/plugins/weather"],
 
     "@downdraft/plugin-weatherfx": ["@downdraft/plugin-weatherfx@workspace:packages/plugins/weatherfx"],
-
-    "@downdraft/plugin-wildlife": ["@downdraft/plugin-wildlife@workspace:packages/plugins/wildlife"],
 
     "@downdraft/plugin-xr": ["@downdraft/plugin-xr@workspace:packages/plugins/xr"],
 
@@ -759,6 +733,26 @@
     "@smithy/types": ["@smithy/types@4.16.1", "", { "dependencies": { "tslib": "^2.6.2" } }, "sha512-0JFs3V2y2M9tKW5na/qxe69Zv+uxLMO7QBbhxF/FHu/Gp2NFZAAL9tWl9PU02xxo07pb3G9FTyjNc6D5uZrJIg=="],
 
     "@szmarczak/http-timer": ["@szmarczak/http-timer@4.0.6", "", { "dependencies": { "defer-to-connect": "^2.0.0" } }, "sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w=="],
+
+    "@to-the-ocean/plugin-boats": ["@to-the-ocean/plugin-boats@workspace:games/to-the-ocean/plugins/boats"],
+
+    "@to-the-ocean/plugin-buoyancy": ["@to-the-ocean/plugin-buoyancy@workspace:games/to-the-ocean/plugins/buoyancy"],
+
+    "@to-the-ocean/plugin-collision": ["@to-the-ocean/plugin-collision@workspace:games/to-the-ocean/plugins/collision"],
+
+    "@to-the-ocean/plugin-crafting": ["@to-the-ocean/plugin-crafting@workspace:games/to-the-ocean/plugins/crafting"],
+
+    "@to-the-ocean/plugin-economy": ["@to-the-ocean/plugin-economy@workspace:games/to-the-ocean/plugins/economy"],
+
+    "@to-the-ocean/plugin-fishing": ["@to-the-ocean/plugin-fishing@workspace:games/to-the-ocean/plugins/fishing"],
+
+    "@to-the-ocean/plugin-inventory": ["@to-the-ocean/plugin-inventory@workspace:games/to-the-ocean/plugins/inventory"],
+
+    "@to-the-ocean/plugin-items": ["@to-the-ocean/plugin-items@workspace:games/to-the-ocean/plugins/items"],
+
+    "@to-the-ocean/plugin-survival": ["@to-the-ocean/plugin-survival@workspace:games/to-the-ocean/plugins/survival"],
+
+    "@to-the-ocean/plugin-wildlife": ["@to-the-ocean/plugin-wildlife@workspace:games/to-the-ocean/plugins/wildlife"],
 
     "@tootallnate/once": ["@tootallnate/once@2.0.1", "", {}, "sha512-HqmEUIGRJ5fSXchkVgR5F7qn48bDBzv0kWj/Kfu5e6uci4UlEeng4331LnBkWffb++Ei3FOVLxo8JJWMFBDMeQ=="],
 

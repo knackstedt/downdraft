@@ -139,7 +139,6 @@ async function main(): Promise<void> {
       const snapshot = scene.getSnapshot() as any;
       const navData = snapshot.navmesh;
       const waterData = snapshot.water;
-      const gameData = snapshot.gameplay;
 
       infoSections.innerHTML = `
         <div class="section">
@@ -151,19 +150,6 @@ async function main(): Promise<void> {
         </div>
         <div class="section">
           <span class="section-title">Water:</span> wind=${waterData.windSpeed}, waves=${waterData.waveCount}, h=[${waterData.sampleHeights.map((h: number) => h.toFixed(3)).join(", ")}]
-        </div>
-        <div class="section">
-          <span class="section-title">Inventory:</span> ${gameData.inventory.totalItems} items
-        </div>
-        <div class="section">
-          <span class="section-title">Survival:</span> HP=${gameData.survival.health.toFixed(0)} hunger=${gameData.survival.hunger.toFixed(0)} thirst=${gameData.survival.thirst.toFixed(0)} O2=${gameData.survival.oxygen.toFixed(0)}
-        </div>
-        <div class="section">
-          <span class="section-title">Fishing:</span> ${gameData.fishing.isFishing ? "active" : "idle"}
-          ${gameData.fishing.minigame ? `tension=${gameData.fishing.minigame.tension.toFixed(0)} progress=${gameData.fishing.minigame.progress.toFixed(2)}` : ""}
-        </div>
-        <div class="section">
-          <span class="section-title">Market:</span> port_a listings=${gameData.market.portA?.listingCount ?? 0} mackerel_buy=${gameData.market.mackerelBuyPrice}
         </div>
         <div class="section">
           <span class="section-title">FPS:</span> ${frameCount > 0 ? Math.round(frameCount / ((now - startTime) / 1000)) : 0} | Frame: ${frameCount} | Render: ${useWebGPU ? "WebGPU" : "Canvas2D"}

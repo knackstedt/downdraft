@@ -13,9 +13,9 @@
 // ============================================================================
 
 import { Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
-import { createBuoyancySystem, type BuoyancyConfig, type BuoyancyDeps } from "@downdraft/plugin-buoyancy";
-import { createCollisionSystem, type CollisionConfig, type CollisionDeps } from "@downdraft/plugin-collision";
-import { createWildlifeSystem, shutdownWildlife, type WildlifeConfig, type WildlifeDeps } from "@downdraft/plugin-wildlife";
+import { createBuoyancySystem, type BuoyancyConfig, type BuoyancyDeps } from "@to-the-ocean/plugin-buoyancy";
+import { createCollisionSystem, type CollisionConfig, type CollisionDeps } from "@to-the-ocean/plugin-collision";
+import { createWildlifeSystem, shutdownWildlife, type WildlifeConfig, type WildlifeDeps } from "@to-the-ocean/plugin-wildlife";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
 import { InputBufferReader } from "../../shared/input-buffer";

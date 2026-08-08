@@ -1,5 +1,5 @@
 {
-  "name": "@downdraft/plugin-items",
+  "name": "@to-the-ocean/plugin-items",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",

@@ -10,7 +10,6 @@ describe("TestScene Integration", () => {
     expect(scene).toBeDefined();
     expect(scene.navmesh).toBeDefined();
     expect(scene.water).toBeDefined();
-    expect(scene.gameplay).toBeDefined();
   });
 
   it("should report navmesh polygon count", () => {
@@ -35,16 +34,6 @@ describe("TestScene Integration", () => {
     expect(snapshot.water.windSpeed).toBeGreaterThan(0);
     expect(snapshot.water.waveCount).toBeGreaterThan(0);
     expect(snapshot.water.sampleHeights.length).toBe(4);
-  });
-
-  it("should report gameplay state", () => {
-    const scene = initTestScene();
-    const snapshot = scene.getSnapshot() as any;
-    expect(snapshot.gameplay.inventory.totalItems).toBeGreaterThan(0);
-    expect(snapshot.gameplay.survival.health).toBeGreaterThan(0);
-    expect(snapshot.gameplay.market).toBeDefined();
-    expect(snapshot.gameplay.fishing).toBeDefined();
-    expect(snapshot.gameplay.crafting).toBeDefined();
   });
 
   it("should produce agent visuals for rendering", () => {
@@ -95,46 +84,6 @@ describe("TestScene Integration", () => {
 
     const changed = h1.some((h, i) => h !== h2[i]);
     expect(changed).toBe(true);
-  });
-
-  it("should decrease survival stats over time", () => {
-    const scene = initTestScene();
-    const snap1 = scene.getSnapshot() as any;
-    const hunger1 = snap1.gameplay.survival.hunger;
-
-    for (let i = 0; i < 300; i++) {
-      scene.tick(1 / 60);
-    }
-
-    const snap2 = scene.getSnapshot() as any;
-    const hunger2 = snap2.gameplay.survival.hunger;
-
-    expect(hunger2).toBeLessThan(hunger1);
-  });
-
-  it("should maintain market listings after tick", () => {
-    const scene = initTestScene();
-    const snap1 = scene.getSnapshot() as any;
-    const listings1 = snap1.gameplay.market.portA?.listingCount ?? 0;
-
-    for (let i = 0; i < 60; i++) {
-      scene.tick(1 / 60);
-    }
-
-    const snap2 = scene.getSnapshot() as any;
-    const listings2 = snap2.gameplay.market.portA?.listingCount ?? 0;
-
-    expect(listings2).toBe(listings1);
-  });
-
-  it("should have crafting results from init", () => {
-    const scene = initTestScene();
-    const snap = scene.getSnapshot() as any;
-    expect(snap.gameplay.crafting.length).toBeGreaterThan(0);
-    for (const result of snap.gameplay.crafting) {
-      expect(typeof result.recipeId).toBe("string");
-      expect(typeof result.success).toBe("boolean");
-    }
   });
 
   it("should handle many ticks without crashing", () => {

@@ -13,6 +13,8 @@ export default defineConfig({
       { find: /^@downdraft\/plugin-models\//, replacement: resolve(__dirname, "../../packages/plugins/models/src") + "/" },
       { find: /^@downdraft\/plugin-entities$/, replacement: resolve(__dirname, "../../packages/plugins/entities/src/index.ts") },
       { find: /^@downdraft\/plugin-entities\//, replacement: resolve(__dirname, "../../packages/plugins/entities/src") + "/" },
+      { find: /^@downdraft\/plugin-camera-controls$/, replacement: resolve(__dirname, "../../packages/plugins/camera-controls/src/index.ts") },
+      { find: /^@downdraft\/plugin-camera-controls\//, replacement: resolve(__dirname, "../../packages/plugins/camera-controls/src") + "/" },
       { find: /^node:fs$/, replacement: resolve(__dirname, "../../packages/app/src/renderer-shims/fs.ts") },
       { find: /^fs$/, replacement: resolve(__dirname, "../../packages/app/src/renderer-shims/fs.ts") },
     ],

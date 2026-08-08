@@ -1,5 +1,5 @@
 import { Component, getComponentId, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
-import { addItem, countItem, GridInventory, removeItemById, type InventoryGrid } from "@downdraft/plugin-inventory";
+import { addItem, countItem, GridInventory, removeItemById, type InventoryGrid } from "@to-the-ocean/plugin-inventory";
 import { CRAFTING_TIER_RECIPES, RECIPES, type Recipe } from "./recipes";
 
 export interface CraftQueueEntry {

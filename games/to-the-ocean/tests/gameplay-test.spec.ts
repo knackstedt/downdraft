@@ -2,9 +2,9 @@ import {
     RECIPES,
     canCraft, executeCraft,
     getRecipe, getRecipesByTier, getRecipesForTierUpTo,
-} from "@downdraft/plugin-crafting";
-import { DEFAULT_ECONOMY_CONFIG, MarketSystem, PortSize } from "@downdraft/plugin-economy";
-import { FISHING_KEY, FishingSystem, type FishingDeps, type FishingInput, type FishingPlayer } from "@downdraft/plugin-fishing";
+} from "@to-the-ocean/plugin-crafting";
+import { DEFAULT_ECONOMY_CONFIG, MarketSystem, PortSize } from "@to-the-ocean/plugin-economy";
+import { FISHING_KEY, FishingSystem, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/plugin-fishing";
 import {
     addItem,
     cloneGrid,
@@ -14,9 +14,9 @@ import {
     removeItemById,
     serializeGrid,
     type InventoryGrid,
-} from "@downdraft/plugin-inventory";
-import { ITEMS, ItemCategory, getItem, getItemsByCategory } from "@downdraft/plugin-items";
-import { DEFAULT_SURVIVAL_CONFIG, SURVIVAL_FLAGS, SurvivalSystem, type SurvivalBiomeProvider, type SurvivalPlayer } from "@downdraft/plugin-survival";
+} from "@to-the-ocean/plugin-inventory";
+import { ITEMS, ItemCategory, getItem, getItemsByCategory } from "@to-the-ocean/plugin-items";
+import { DEFAULT_SURVIVAL_CONFIG, SURVIVAL_FLAGS, SurvivalSystem, type SurvivalBiomeProvider, type SurvivalPlayer } from "@to-the-ocean/plugin-survival";
 
 // ============================================================================
 // Items Plugin Tests
