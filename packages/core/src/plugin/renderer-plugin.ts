@@ -91,7 +91,7 @@ export interface CameraControllerLike {
 
 /**
  * Called inside each viewport's active `GPURenderPassEncoder` between the
- * RenderPipeline entries and pass end. Used by renderer plugins that need to
+ * FrameGraph passes and pass end. Used by renderer plugins that need to
  * draw into the scene pass (e.g. the transform gizmo overlays geometry on top
  * of the scene).
  */
