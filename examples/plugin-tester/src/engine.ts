@@ -3,6 +3,7 @@
 // Renders ground grid, water plane, colored agent cubes, and lighting
 // ============================================================================
 
+
 const GROUND_VS = /* wgsl */ `
 struct Uniforms {
   viewProj: mat4x4<f32>,
@@ -174,11 +175,17 @@ export class SimpleRenderer {
   private maxInstances = 64;
   private instanceStride = 256; // WebGPU minimum uniform buffer offset alignment
   private depthTexture: GPUTexture | null = null;
+  private frameGraph: FrameGraph;
+  private graphColorHandle: any;
+  private graphDepthHandle: any;
 
   constructor(device: GPUDevice, context: GPUCanvasContext, format: GPUTextureFormat) {
     this.device = device;
     this.context = context;
     this.format = format;
+    this.frameGraph = new FrameGraph();
+    this.graphColorHandle = this.frameGraph.importTextureView("color", null);
+    this.graphDepthHandle = this.frameGraph.importTextureView("depth", null);
   }
 
   async init(): Promise<void> {
@@ -399,49 +406,80 @@ export class SimpleRenderer {
     }
     this.device.queue.writeBuffer(this.instanceBuffer!, 0, instanceData);
 
-    // Render
+    // Render — drive through FrameGraph
     const encoder = this.device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
-        clearValue: { r: 0.04, g: 0.04, b: 0.07, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-      depthStencilAttachment: {
-        view: this.depthTexture!.createView(),
-        depthClearValue: 1.0,
-        depthLoadOp: "clear",
-        depthStoreOp: "store",
+    const colorView = this.context.getCurrentTexture().createView();
+    const depthView = this.depthTexture!.createView();
+    this.frameGraph.setImportedTextureView(this.graphColorHandle, colorView);
+    this.frameGraph.setImportedTextureView(this.graphDepthHandle, depthView);
+    this.frameGraph.clearPasses();
+    this.frameGraph.addPass(new TesterScenePass(
+      this.graphColorHandle,
+      this.graphDepthHandle,
+      (pass: GPURenderPassEncoder) => {
+        // Draw ground
+        pass.setPipeline(this.pipeline!);
+        pass.setBindGroup(0, this.device.createBindGroup({
+          layout: this.pipeline!.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: this.uniformBuffer! } }],
+        }));
+        pass.setVertexBuffer(0, this.groundVertexBuffer!);
+        pass.draw(this.groundVertexCount);
+
+        // Draw agent cubes
+        pass.setPipeline(this.cubePipeline!);
+        for (let i = 0; i < instanceCount; i++) {
+          const dynamicOffset = i * this.instanceStride;
+          pass.setBindGroup(0, this.device.createBindGroup({
+            layout: this.cubePipeline!.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: this.uniformBuffer! } },
+              { binding: 1, resource: { buffer: this.instanceBuffer!, offset: dynamicOffset, size: 80 } },
+            ],
+          }));
+          pass.setVertexBuffer(0, this.cubeVertexBuffer!);
+          pass.setIndexBuffer(this.cubeIndexBuffer!, "uint16");
+          pass.drawIndexed(this.cubeIndexCount);
+        }
       },
-    });
-
-    // Draw ground
-    pass.setPipeline(this.pipeline);
-    pass.setBindGroup(0, this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer! } }],
-    }));
-    pass.setVertexBuffer(0, this.groundVertexBuffer!);
-    pass.draw(this.groundVertexCount);
-
-    // Draw agent cubes
-    pass.setPipeline(this.cubePipeline);
-    for (let i = 0; i < instanceCount; i++) {
-      const dynamicOffset = i * this.instanceStride;
-      pass.setBindGroup(0, this.device.createBindGroup({
-        layout: this.cubePipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer! } },
-          { binding: 1, resource: { buffer: this.instanceBuffer!, offset: dynamicOffset, size: 80 } },
-        ],
-      }));
-      pass.setVertexBuffer(0, this.cubeVertexBuffer!);
-      pass.setIndexBuffer(this.cubeIndexBuffer!, "uint16");
-      pass.drawIndexed(this.cubeIndexCount);
-    }
-
-    pass.end();
+    ));
+    this.frameGraph.compile(this.device, canvasWidth, canvasHeight);
+    const ctx: RenderContext = {
+      device: this.device,
+      encoder,
+      pass: null,
+      camera: { position: [0,0,0], target: [0,0,-1], up: [0,1,0], fov: 60, near: 0.1, far: 1000, aspect: 1 },
+      viewport: { x: 0, y: 0, w: canvasWidth, h: canvasHeight },
+      viewportIdx: 0,
+      viewportCount: 1,
+      dt: 0,
+      elapsedTime: 0,
+      isFirstViewport: true,
+      isLastViewport: true,
+      width: canvasWidth,
+      height: canvasHeight,
+      viewProj: undefined as any,
+      invViewProj: undefined as any,
+      prevViewProj: undefined as any,
+      cameraPos: [0, 0, 0],
+      lightData: null as any,
+      lightViewProj: undefined as any,
+      mesh: null as any,
+      modelMatrix: undefined as any,
+      shadowsEnabled: false,
+      bloomEnabled: false,
+      shadowSampler: null,
+      debugQueue: null,
+      opaqueVertexBuffer: null,
+      opaqueIndexBuffer: null,
+      opaqueIndexCount: 0,
+      opaqueIndexFormat: "uint32",
+      getView: (h: any) => this.frameGraph.getTextureView(h),
+      getTexture: (h: any) => this.frameGraph.getTexture(h),
+      addDrawCalls: () => {},
+      addTriangles: () => {},
+    };
+    this.frameGraph.execute(ctx);
     this.device.queue.submit([encoder.finish()]);
   }
 
@@ -452,5 +490,54 @@ export class SimpleRenderer {
     this.cubeIndexBuffer?.destroy();
     this.instanceBuffer?.destroy();
     this.uniformBuffer?.destroy();
+  }
+}
+
+// ─── FrameGraph integration ────────────────────────────────────────────────
+
+/**
+ * TesterScenePass — a single FrameGraph pass that owns the color+depth
+ * attachments for the plugin-tester render loop and delegates ground + cube
+ * sub-draws to a callback.
+ */
+class TesterScenePass extends RenderPass {
+  name = "TesterScene";
+  passType = PassType.Render;
+  private colorHandle: any;
+  private depthHandle: any;
+  private drawFn: (pass: GPURenderPassEncoder) => void;
+
+  constructor(
+    colorHandle: any,
+    depthHandle: any,
+    drawFn: (pass: GPURenderPassEncoder) => void,
+  ) {
+    super();
+    this.colorHandle = colorHandle;
+    this.depthHandle = depthHandle;
+    this.drawFn = drawFn;
+  }
+
+  setup(builder: FrameGraphBuilder): void {
+    builder.colorAttachment({
+      handle: this.colorHandle,
+      loadOp: "clear",
+      storeOp: "store",
+      clearValue: { r: 0.04, g: 0.04, b: 0.07, a: 1 },
+    });
+    builder.depthAttachment({
+      handle: this.depthHandle,
+      depthLoadOp: "clear",
+      depthStoreOp: "store",
+      depthClearValue: 1.0,
+    });
+  }
+
+  prepare(): void {}
+
+  execute(ctx: RenderContext): void {
+    if (!ctx.pass) return;
+    const rawEncoder = ctx.pass.getRawPass() as GPURenderPassEncoder;
+    this.drawFn(rawEncoder);
   }
 }

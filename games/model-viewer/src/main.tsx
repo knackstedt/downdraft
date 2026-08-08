@@ -4,11 +4,16 @@
 // ============================================================================
 
 import {
-  BindlessFrameBindings,
-  BindlessMaterialManager,
-  BindlessTextureRegistry,
-  DEPTH_FORMAT,
-  RendererInputBusImpl,
+    BindlessFrameBindings,
+    BindlessMaterialManager,
+    BindlessTextureRegistry,
+    DEPTH_FORMAT,
+    FrameGraph,
+    PassType,
+    RenderPass,
+    RendererInputBusImpl,
+    type FrameGraphBuilder,
+    type RenderContext,
 } from "@downdraft/core";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
 import { ModelRenderer } from "@downdraft/plugin-entities";
@@ -18,10 +23,10 @@ import { createRoot } from "react-dom/client";
 import App from "./app";
 import { GridRenderer } from "./grid-renderer";
 import {
-  discoverModels,
-  loadModelWithTextures,
-  type LoadedModel,
-  type ModelEntry,
+    discoverModels,
+    loadModelWithTextures,
+    type LoadedModel,
+    type ModelEntry,
 } from "./model-loader";
 import "./styles/globals.css";
 
@@ -353,6 +358,11 @@ async function bootstrap() {
   const gridRenderer = new GridRenderer(device, format);
   gridRenderer.init();
 
+  // FrameGraph — single orchestration path for the render pass.
+  const frameGraph = new FrameGraph();
+  const graphColorHandle = frameGraph.importTextureView("color", null);
+  const graphDepthHandle = frameGraph.importTextureView("depth", null);
+
   // Init camera controller + input bus via the camera-controls plugin helper.
   // The model-viewer has a bespoke render loop (not GameRenderer-based), so we
   // use `createCameraController` instead of `createCameraControlsPlugin`.
@@ -436,107 +446,140 @@ async function bootstrap() {
     modelRenderer.setBindlessBindGroup(bindlessFrameBindings.prepareFrame());
 
     const encoder = device!.createCommandEncoder();
-    const passEncoder = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: context!.getCurrentTexture().createView(),
-        clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 },
-        loadOp: "clear" as GPULoadOp,
-        storeOp: "store" as GPUStoreOp,
-      }],
-      depthStencilAttachment: {
-        view: getDepthTexture(device!, W, H).createView(),
-        depthClearValue: 1.0,
-        depthLoadOp: "clear" as GPULoadOp,
-        depthStoreOp: "store" as GPUStoreOp,
+
+    // Drive the render pass through the FrameGraph.
+    const colorView = context!.getCurrentTexture().createView();
+    const depthView = getDepthTexture(device!, W, H).createView();
+    frameGraph.setImportedTextureView(graphColorHandle, colorView);
+    frameGraph.setImportedTextureView(graphDepthHandle, depthView);
+    frameGraph.clearPasses();
+    frameGraph.addPass(new ViewerScenePass(
+      graphColorHandle,
+      graphDepthHandle,
+      (passEncoder: GPURenderPassEncoder) => {
+        // Render grid (after model, so model takes depth priority)
+        // Actually render grid first but with depthWrite disabled to avoid z-fighting with model
+        if (state.showGrid) {
+          gridRenderer.render(passEncoder, camera);
+        }
+
+        // Render model
+        if (state.currentModel) {
+          const m = state.currentModel;
+          const cx = (m.stats.bounds.min[0] + m.stats.bounds.max[0]) / 2;
+          const cy = (m.stats.bounds.min[1] + m.stats.bounds.max[1]) / 2;
+          const cz = (m.stats.bounds.min[2] + m.stats.bounds.max[2]) / 2;
+          const maxDim = Math.max(
+            m.stats.bounds.max[0] - m.stats.bounds.min[0],
+            m.stats.bounds.max[1] - m.stats.bounds.min[1],
+            m.stats.bounds.max[2] - m.stats.bounds.min[2],
+            0.1,
+          );
+          const scaleFactor = 2.0 / maxDim;
+
+          // Base rotation: rotate X by -90deg (flip vertically + convert Z-up to Y-up)
+          const halfAngle = -Math.PI / 4; // half of -90deg
+          const baseRot: [number, number, number, number] = [Math.sin(halfAngle), 0, 0, Math.cos(halfAngle)];
+          const spinRot: [number, number, number, number] = state.autoRotate
+            ? [0, Math.sin(rotationAngle / 2), 0, Math.cos(rotationAngle / 2)]
+            : [0, 0, 0, 1];
+
+          // Combine: spinRot * baseRot — spin is applied in world space (after base rotation)
+          // so the model spins around world Y axis
+          const rot: [number, number, number, number] = [
+            spinRot[0] * baseRot[3] + spinRot[3] * baseRot[0] + spinRot[1] * baseRot[2] - spinRot[2] * baseRot[1],
+            spinRot[1] * baseRot[3] + spinRot[3] * baseRot[1] + spinRot[2] * baseRot[0] - spinRot[0] * baseRot[2],
+            spinRot[2] * baseRot[3] + spinRot[3] * baseRot[2] + spinRot[0] * baseRot[1] - spinRot[1] * baseRot[0],
+            spinRot[3] * baseRot[3] - spinRot[0] * baseRot[0] - spinRot[1] * baseRot[1] - spinRot[2] * baseRot[2],
+          ];
+
+          // Center model at origin: modelPos = -qrotate(rot, center * scale)
+          // because shader does: worldPos = qrotate(rot, vertex * scale) + modelPos
+          const centered: [number, number, number] = [cx * scaleFactor, cy * scaleFactor, cz * scaleFactor];
+          // qrotate: v + 2*cross(q.xyz, cross(q.xyz, v) + q.w * v)
+          const qxyz = [rot[0], rot[1], rot[2]];
+          const qw = rot[3];
+          const cross1: [number, number, number] = [
+            qxyz[1] * centered[2] - qxyz[2] * centered[1] + qw * centered[0],
+            qxyz[2] * centered[0] - qxyz[0] * centered[2] + qw * centered[1],
+            qxyz[0] * centered[1] - qxyz[1] * centered[0] + qw * centered[2],
+          ];
+          const cross2: [number, number, number] = [
+            qxyz[1] * cross1[2] - qxyz[2] * cross1[1],
+            qxyz[2] * cross1[0] - qxyz[0] * cross1[2],
+            qxyz[0] * cross1[1] - qxyz[1] * cross1[0],
+          ];
+          const pos: [number, number, number] = [
+            -(centered[0] + 2 * cross2[0]),
+            -(centered[1] + 2 * cross2[1]),
+            -(centered[2] + 2 * cross2[2]),
+          ];
+
+          modelRenderer.render(
+            passEncoder,
+            m.nodeId,
+            pos,
+            rot,
+            [scaleFactor, scaleFactor, scaleFactor],
+          );
+
+          // One-time debug log per model load
+          if (!(m as any)._loggedBounds) {
+            (m as any)._loggedBounds = true;
+            const bounds = m.stats.bounds;
+            // After -90° X rotation: x'=x, y'=z, z'=-y
+            const rotMin: [number, number, number] = [bounds.min[0] * scaleFactor, bounds.min[2] * scaleFactor, -bounds.max[1] * scaleFactor];
+            const rotMax: [number, number, number] = [bounds.max[0] * scaleFactor, bounds.max[2] * scaleFactor, -bounds.min[1] * scaleFactor];
+            const worldMin: [number, number, number] = [rotMin[0] + pos[0], rotMin[1] + pos[1], rotMin[2] + pos[2]];
+            const worldMax: [number, number, number] = [rotMax[0] + pos[0], rotMax[1] + pos[1], rotMax[2] + pos[2]];
+            console.log(`[Render] Model world-space (after rotation + centering):`);
+            console.log(`  raw bounds min=[${bounds.min.map(v => v.toFixed(4))}] max=[${bounds.max.map(v => v.toFixed(4))}]`);
+            console.log(`  scaleFactor=${scaleFactor.toFixed(6)}, maxDim=${maxDim.toFixed(4)}`);
+            console.log(`  modelPos=[${pos.map(v => v.toFixed(4))}]`);
+            console.log(`  world bounds: min=[${worldMin.map(v => v.toFixed(4))}] max=[${worldMax.map(v => v.toFixed(4))}]`);
+            console.log(`  world size: [${(worldMax[0]-worldMin[0]).toFixed(4)}, ${(worldMax[1]-worldMin[1]).toFixed(4)}, ${(worldMax[2]-worldMin[2]).toFixed(4)}]`);
+            console.log(`  Camera: pos=[${camera.position.map(v => v.toFixed(4))}], target=[${camera.target.map(v => v.toFixed(4))}], dist=${Math.sqrt(camera.position.reduce((s,v)=>s+v*v,0)).toFixed(4)}, near=${camera.near}, far=${camera.far}`);
+          }
+        }
       },
-    });
-
-    // Render grid (after model, so model takes depth priority)
-    // Actually render grid first but with depthWrite disabled to avoid z-fighting with model
-    if (state.showGrid) {
-      gridRenderer.render(passEncoder, camera);
-    }
-
-    // Render model
-    if (state.currentModel) {
-      const m = state.currentModel;
-      const cx = (m.stats.bounds.min[0] + m.stats.bounds.max[0]) / 2;
-      const cy = (m.stats.bounds.min[1] + m.stats.bounds.max[1]) / 2;
-      const cz = (m.stats.bounds.min[2] + m.stats.bounds.max[2]) / 2;
-      const maxDim = Math.max(
-        m.stats.bounds.max[0] - m.stats.bounds.min[0],
-        m.stats.bounds.max[1] - m.stats.bounds.min[1],
-        m.stats.bounds.max[2] - m.stats.bounds.min[2],
-        0.1,
-      );
-      const scaleFactor = 2.0 / maxDim;
-
-      // Base rotation: rotate X by -90deg (flip vertically + convert Z-up to Y-up)
-      const halfAngle = -Math.PI / 4; // half of -90deg
-      const baseRot: [number, number, number, number] = [Math.sin(halfAngle), 0, 0, Math.cos(halfAngle)];
-      const spinRot: [number, number, number, number] = state.autoRotate
-        ? [0, Math.sin(rotationAngle / 2), 0, Math.cos(rotationAngle / 2)]
-        : [0, 0, 0, 1];
-
-      // Combine: spinRot * baseRot — spin is applied in world space (after base rotation)
-      // so the model spins around world Y axis
-      const rot: [number, number, number, number] = [
-        spinRot[0] * baseRot[3] + spinRot[3] * baseRot[0] + spinRot[1] * baseRot[2] - spinRot[2] * baseRot[1],
-        spinRot[1] * baseRot[3] + spinRot[3] * baseRot[1] + spinRot[2] * baseRot[0] - spinRot[0] * baseRot[2],
-        spinRot[2] * baseRot[3] + spinRot[3] * baseRot[2] + spinRot[0] * baseRot[1] - spinRot[1] * baseRot[0],
-        spinRot[3] * baseRot[3] - spinRot[0] * baseRot[0] - spinRot[1] * baseRot[1] - spinRot[2] * baseRot[2],
-      ];
-
-      // Center model at origin: modelPos = -qrotate(rot, center * scale)
-      // because shader does: worldPos = qrotate(rot, vertex * scale) + modelPos
-      const centered: [number, number, number] = [cx * scaleFactor, cy * scaleFactor, cz * scaleFactor];
-      // qrotate: v + 2*cross(q.xyz, cross(q.xyz, v) + q.w * v)
-      const qxyz = [rot[0], rot[1], rot[2]];
-      const qw = rot[3];
-      const cross1: [number, number, number] = [
-        qxyz[1] * centered[2] - qxyz[2] * centered[1] + qw * centered[0],
-        qxyz[2] * centered[0] - qxyz[0] * centered[2] + qw * centered[1],
-        qxyz[0] * centered[1] - qxyz[1] * centered[0] + qw * centered[2],
-      ];
-      const cross2: [number, number, number] = [
-        qxyz[1] * cross1[2] - qxyz[2] * cross1[1],
-        qxyz[2] * cross1[0] - qxyz[0] * cross1[2],
-        qxyz[0] * cross1[1] - qxyz[1] * cross1[0],
-      ];
-      const pos: [number, number, number] = [
-        -(centered[0] + 2 * cross2[0]),
-        -(centered[1] + 2 * cross2[1]),
-        -(centered[2] + 2 * cross2[2]),
-      ];
-
-      modelRenderer.render(
-        passEncoder,
-        m.nodeId,
-        pos,
-        rot,
-        [scaleFactor, scaleFactor, scaleFactor],
-      );
-
-      // One-time debug log per model load
-      if (!(m as any)._loggedBounds) {
-        (m as any)._loggedBounds = true;
-        const bounds = m.stats.bounds;
-        // After -90° X rotation: x'=x, y'=z, z'=-y
-        const rotMin: [number, number, number] = [bounds.min[0] * scaleFactor, bounds.min[2] * scaleFactor, -bounds.max[1] * scaleFactor];
-        const rotMax: [number, number, number] = [bounds.max[0] * scaleFactor, bounds.max[2] * scaleFactor, -bounds.min[1] * scaleFactor];
-        const worldMin: [number, number, number] = [rotMin[0] + pos[0], rotMin[1] + pos[1], rotMin[2] + pos[2]];
-        const worldMax: [number, number, number] = [rotMax[0] + pos[0], rotMax[1] + pos[1], rotMax[2] + pos[2]];
-        console.log(`[Render] Model world-space (after rotation + centering):`);
-        console.log(`  raw bounds min=[${bounds.min.map(v => v.toFixed(4))}] max=[${bounds.max.map(v => v.toFixed(4))}]`);
-        console.log(`  scaleFactor=${scaleFactor.toFixed(6)}, maxDim=${maxDim.toFixed(4)}`);
-        console.log(`  modelPos=[${pos.map(v => v.toFixed(4))}]`);
-        console.log(`  world bounds: min=[${worldMin.map(v => v.toFixed(4))}] max=[${worldMax.map(v => v.toFixed(4))}]`);
-        console.log(`  world size: [${(worldMax[0]-worldMin[0]).toFixed(4)}, ${(worldMax[1]-worldMin[1]).toFixed(4)}, ${(worldMax[2]-worldMin[2]).toFixed(4)}]`);
-        console.log(`  Camera: pos=[${camera.position.map(v => v.toFixed(4))}], target=[${camera.target.map(v => v.toFixed(4))}], dist=${Math.sqrt(camera.position.reduce((s,v)=>s+v*v,0)).toFixed(4)}, near=${camera.near}, far=${camera.far}`);
-      }
-    }
-
-    passEncoder.end();
+    ));
+    frameGraph.compile(device!, W, H);
+    const ctx: RenderContext = {
+      device: device!,
+      encoder,
+      pass: null,
+      camera,
+      viewport: { x: 0, y: 0, w: W, h: H },
+      viewportIdx: 0,
+      viewportCount: 1,
+      dt: 0,
+      elapsedTime: 0,
+      isFirstViewport: true,
+      isLastViewport: true,
+      width: W,
+      height: H,
+      viewProj: undefined as any,
+      invViewProj: undefined as any,
+      prevViewProj: undefined as any,
+      cameraPos: camera.position,
+      lightData: null as any,
+      lightViewProj: undefined as any,
+      mesh: null as any,
+      modelMatrix: undefined as any,
+      shadowsEnabled: false,
+      bloomEnabled: false,
+      shadowSampler: null,
+      debugQueue: null,
+      opaqueVertexBuffer: null,
+      opaqueIndexBuffer: null,
+      opaqueIndexCount: 0,
+      opaqueIndexFormat: "uint32",
+      getView: (h: any) => frameGraph.getTextureView(h),
+      getTexture: (h: any) => frameGraph.getTexture(h),
+      addDrawCalls: () => {},
+      addTriangles: () => {},
+    };
+    frameGraph.execute(ctx);
     device!.queue.submit([encoder.finish()]);
 
     requestAnimationFrame(frame);
@@ -647,3 +690,54 @@ async function selectModel(entry: ModelEntry) {
 }
 
 bootstrap().catch(console.error);
+
+// ─── FrameGraph integration ────────────────────────────────────────────────
+
+/**
+ * ViewerScenePass — a single FrameGraph pass that owns the color+depth
+ * attachments for the model-viewer render loop and delegates the grid + model
+ * sub-draws to a callback. This makes the FrameGraph the single orchestration
+ * path: it creates the render pass encoder, manages attachments, and calls
+ * execute() which invokes the draw callback.
+ */
+class ViewerScenePass extends RenderPass {
+  name = "ViewerScene";
+  passType = PassType.Render;
+  private colorHandle: any;
+  private depthHandle: any;
+  private drawFn: (passEncoder: GPURenderPassEncoder) => void;
+
+  constructor(
+    colorHandle: any,
+    depthHandle: any,
+    drawFn: (passEncoder: GPURenderPassEncoder) => void,
+  ) {
+    super();
+    this.colorHandle = colorHandle;
+    this.depthHandle = depthHandle;
+    this.drawFn = drawFn;
+  }
+
+  setup(builder: FrameGraphBuilder): void {
+    builder.colorAttachment({
+      handle: this.colorHandle,
+      loadOp: "clear",
+      storeOp: "store",
+      clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 },
+    });
+    builder.depthAttachment({
+      handle: this.depthHandle,
+      depthLoadOp: "clear",
+      depthStoreOp: "store",
+      depthClearValue: 1.0,
+    });
+  }
+
+  prepare(): void {}
+
+  execute(ctx: RenderContext): void {
+    if (!ctx.pass) return;
+    const rawEncoder = ctx.pass.getRawPass() as GPURenderPassEncoder;
+    this.drawFn(rawEncoder);
+  }
+}
