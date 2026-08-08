@@ -90,6 +90,9 @@
       ],
       "@downdraft/plugin-devtools/*": [
         "./packages/plugins/devtools/src/*"
+      ],
+      "@to-the-ocean/util/*": [
+        "./games/to-the-ocean/src/util/*"
       ]
     }
   },

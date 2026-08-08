@@ -555,6 +555,7 @@ export async function parseGLTF(
 
   // Parse meshes
   const meshes: MeshData[] = [];
+  const parseWarnings: string[] = [];
   if (json.meshes) {
     for (let i = 0; i < json.meshes.length; i++) {
       const mesh = json.meshes[i];
@@ -579,7 +580,9 @@ export async function parseGLTF(
             meshes.push(meshData);
           }
         } catch (meshErr) {
-          console.error(`[gltf] Error parsing mesh "${mesh.name}" (index ${i}, primitive ${p}):`, meshErr);
+          const msg = `Error parsing mesh "${mesh.name}" (index ${i}, primitive ${p}): ${meshErr instanceof Error ? meshErr.message : String(meshErr)}`;
+          console.error(`[gltf] ${msg}`);
+          parseWarnings.push(msg);
           continue;
         }
       }
@@ -714,6 +717,7 @@ export async function parseGLTF(
     skin,
     materialVariants,
     lights,
+    warnings: parseWarnings.length > 0 ? parseWarnings : undefined,
   };
 }
 

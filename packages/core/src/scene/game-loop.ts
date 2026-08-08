@@ -143,6 +143,7 @@ export class GameLoop {
    * Can be called directly for testing or external loop driving (no RAF).
    */
   runFrame(frameDt: number): number {
+    if (!Number.isFinite(frameDt) || frameDt < 0) return 0;
     // Cap frame delta at 250ms to avoid huge jumps after tab switches.
     const dt = Math.min(frameDt, 0.25);
 

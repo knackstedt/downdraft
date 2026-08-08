@@ -159,6 +159,45 @@ describe("GameLoop", () => {
 
     loop.stop();
   });
+
+  it("should reject NaN frameDt", () => {
+    const gw = makeGameWorld();
+    let stepCount = 0;
+    gw.world.schedule.addSystem(system("counter", Stage.Update, () => { stepCount++; }));
+    const loop = new GameLoop(gw, { fixedDt: 0.016, maxStepsPerFrame: 5 });
+    loop.start();
+
+    const steps = loop.runFrame(NaN);
+    expect(steps).toBe(0);
+    expect(stepCount).toBe(0);
+    loop.stop();
+  });
+
+  it("should reject Infinity frameDt", () => {
+    const gw = makeGameWorld();
+    let stepCount = 0;
+    gw.world.schedule.addSystem(system("counter", Stage.Update, () => { stepCount++; }));
+    const loop = new GameLoop(gw, { fixedDt: 0.016, maxStepsPerFrame: 5 });
+    loop.start();
+
+    const steps = loop.runFrame(Infinity);
+    expect(steps).toBe(0);
+    expect(stepCount).toBe(0);
+    loop.stop();
+  });
+
+  it("should reject negative frameDt", () => {
+    const gw = makeGameWorld();
+    let stepCount = 0;
+    gw.world.schedule.addSystem(system("counter", Stage.Update, () => { stepCount++; }));
+    const loop = new GameLoop(gw, { fixedDt: 0.016, maxStepsPerFrame: 5 });
+    loop.start();
+
+    const steps = loop.runFrame(-1);
+    expect(steps).toBe(0);
+    expect(stepCount).toBe(0);
+    loop.stop();
+  });
 });
 
 describe("GameWorld SceneManager integration", () => {

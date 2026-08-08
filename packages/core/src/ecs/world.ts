@@ -24,6 +24,7 @@ interface Command {
 export class World {
   entities: EntityMeta[] = [];
   private entityFreeList: number[] = [];
+  private static readonly MAX_FREE_LIST_SIZE = 1024;
   archetypes: Map<number, Archetype> = new Map();
   allArchetypes: Archetype[] = [];
   archetypeById: Map<number, Archetype> = new Map();
@@ -97,7 +98,9 @@ export class World {
 
     meta.alive = false;
     meta.generation++;
-    this.entityFreeList.push(entity.index);
+    if (this.entityFreeList.length < World.MAX_FREE_LIST_SIZE) {
+      this.entityFreeList.push(entity.index);
+    }
     this.archetypesDirty = true;
   }
 

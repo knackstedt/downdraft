@@ -21,6 +21,7 @@ export class AudioEngine {
     gain: 1.0,
   };
   private initialized = false;
+  private nextSourceId = 1;
 
   constructor(backend: AudioBackend, config?: Partial<AudioBackendConfig>) {
     this.backend = backend;
@@ -63,7 +64,7 @@ export class AudioEngine {
 
   play(bufferId: string): AudioSourceHandle {
     const handle = this.backend.play(bufferId);
-    const id = handle.id ?? handle.sourceId ?? 0;
+    const id = handle.id ?? handle.sourceId ?? this.nextSourceId++;
     this.sources.set(id, handle);
     return handle;
   }
@@ -154,11 +155,12 @@ export class AudioEngine {
     if (!this.initialized) return;
     this.backend.update(dt ?? 0);
     const active = this.backend.getActiveSources?.() ?? [];
-    this.sources.clear();
+    const rebuilt = new Map<number, AudioSourceHandle>();
     for (const source of active) {
-      const id = source.id ?? source.sourceId ?? 0;
-      this.sources.set(id, source);
+      const id = source.id ?? source.sourceId ?? this.nextSourceId++;
+      rebuilt.set(id, source);
     }
+    this.sources = rebuilt;
   }
 
   syncPositions(positionBuffer: Float32Array, sourceCount: number): void {

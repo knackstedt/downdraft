@@ -3,6 +3,7 @@
 // Reusable plugin: depends on interfaces, not game-specific types
 // ============================================================================
 
+import { createRng } from "@to-the-ocean/util/rng";
 import type {
     AddItemFn,
     FishingBiomeProvider,
@@ -51,15 +52,21 @@ export class FishingSystem {
   private prevFPressed = new Map<number, boolean>();
   private deps: FishingDeps;
   private config: FishingConfig;
+  private rng: () => number;
 
   constructor(deps: FishingDeps, config?: Partial<FishingConfig>) {
     this.deps = deps;
     this.config = { ...DEFAULT_FISHING_CONFIG, ...config };
+    this.rng = createRng(0xF151A1);
   }
 
   resetTransientState(): void {
     this.minigames.clear();
     this.prevFPressed.clear();
+  }
+
+  setRngSeed(seed: number): void {
+    this.rng = createRng(seed);
   }
 
   tick(dt: number, input: FishingInput, players: FishingPlayer[], playerCount: number): void {
@@ -146,7 +153,7 @@ export class FishingSystem {
       mg.reelTimer -= dt;
       if (mg.reelTimer <= 0) {
         mg.reelDir = -mg.reelDir;
-        mg.reelTimer = this.config.reelDirMinTime + Math.random() * (this.config.reelDirMaxTime - this.config.reelDirMinTime);
+        mg.reelTimer = this.config.reelDirMinTime + this.rng() * (this.config.reelDirMaxTime - this.config.reelDirMinTime);
       }
     }
   }
@@ -156,8 +163,8 @@ export class FishingSystem {
       ? this.deps.getCatchPool(biome, method, equipmentTier)
       : this.getDefaultCatchPool(biome, method, equipmentTier);
 
-    const fishRarity = Math.min(5, Math.floor(Math.random() * (equipmentTier + 1) + Math.random() * 2));
-    const fishSize = 0.3 + Math.random() * (1 + equipmentTier * 0.5);
+    const fishRarity = Math.min(5, Math.floor(this.rng() * (equipmentTier + 1) + this.rng() * 2));
+    const fishSize = 0.3 + this.rng() * (1 + equipmentTier * 0.5);
     const fishStrength = 0.5 + fishRarity * 0.2 + fishSize * 0.3;
 
     this.minigames.set(playerIdx, {
@@ -174,7 +181,12 @@ export class FishingSystem {
 
     let catchId: string | null = null;
     if (success) {
-      catchId = mg.catchPool[Math.floor(Math.random() * mg.catchPool.length)];
+      if (mg.catchPool.length === 0) {
+        this.emitFishingResult(playerIdx, true, "Caught nothing! (empty pool)", null);
+        this.minigames.delete(playerIdx);
+        return;
+      }
+      catchId = mg.catchPool[Math.floor(this.rng() * mg.catchPool.length)];
       const remaining = this.deps.addItem(player.inventory, catchId, 1);
       if (remaining > 0) {
         this.emitFishingResult(playerIdx, true, `Caught ${catchId}! (inventory full)`, catchId);
@@ -231,13 +243,13 @@ export class FishingSystem {
         pool.push("common_fish", "small_fish");
     }
 
-    if (Math.random() < 0.15) {
+    if (this.rng() < 0.15) {
       pool.push("discarded_net", "broken_rod", "old_boot", "bait_scraps");
     }
 
-    if (Math.random() < 0.02) {
+    if (this.rng() < 0.02) {
       const rareJunk = ["dvd", "rubber_duck", "vhs_tape", "vinyl_record", "old_radio"];
-      pool.push(rareJunk[Math.floor(Math.random() * rareJunk.length)]);
+      pool.push(rareJunk[Math.floor(this.rng() * rareJunk.length)]);
     }
 
     return pool;

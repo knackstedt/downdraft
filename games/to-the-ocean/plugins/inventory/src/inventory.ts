@@ -1,5 +1,5 @@
 import { Component, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
-import { getItem, type ItemDef } from "@to-the-ocean/plugin-items";
+import { getItem } from "@to-the-ocean/plugin-items";
 
 export interface ItemStack {
   itemId: string;
@@ -64,6 +64,7 @@ function clearAt(grid: InventoryGrid, x: number, y: number, w: number, h: number
 }
 
 function findStackRoot(grid: InventoryGrid, x: number, y: number): { x: number; y: number; w: number; h: number } | null {
+  if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return null;
   const stack = grid.slots[y][x];
   if (!stack) return null;
   const def = getItem(stack.itemId);
@@ -177,6 +178,29 @@ export function removeItemById(grid: InventoryGrid, itemId: string, quantity: nu
   return remaining === 0;
 }
 
+function canSwapItems(
+  grid: InventoryGrid,
+  srcX: number, srcY: number, srcW: number, srcH: number,
+  dstX: number, dstY: number, dstW: number, dstH: number,
+  srcStack: ItemStack, dstStack: ItemStack,
+): boolean {
+  if (srcX < 0 || srcY < 0 || srcX + srcW > grid.width || srcY + srcH > grid.height) return false;
+  if (dstX < 0 || dstY < 0 || dstX + dstW > grid.width || dstY + dstH > grid.height) return false;
+  for (let dy = 0; dy < srcH; dy++) {
+    for (let dx = 0; dx < srcW; dx++) {
+      const slot = grid.slots[dstY + dy][dstX + dx];
+      if (slot !== null && slot !== dstStack) return false;
+    }
+  }
+  for (let dy = 0; dy < dstH; dy++) {
+    for (let dx = 0; dx < dstW; dx++) {
+      const slot = grid.slots[srcY + dy][srcX + dx];
+      if (slot !== null && slot !== srcStack) return false;
+    }
+  }
+  return true;
+}
+
 export function moveItem(grid: InventoryGrid, fromX: number, fromY: number, toX: number, toY: number): boolean {
   const root = findStackRoot(grid, fromX, fromY);
   if (!root) return false;
@@ -185,10 +209,14 @@ export function moveItem(grid: InventoryGrid, fromX: number, fromY: number, toX:
   const def = getItem(stack.itemId);
   if (!def) return false;
 
-  clearAt(grid, root.x, root.y, def.width, def.height);
-
   if (canPlaceAt(grid, toX, toY, def.width, def.height)) {
-    placeAt(grid, toX, toY, stack, def.width, def.height);
+    try {
+      clearAt(grid, root.x, root.y, def.width, def.height);
+      placeAt(grid, toX, toY, stack, def.width, def.height);
+    } catch (e) {
+      placeAt(grid, root.x, root.y, stack, def.width, def.height);
+      throw e;
+    }
     return true;
   }
 
@@ -197,19 +225,27 @@ export function moveItem(grid: InventoryGrid, fromX: number, fromY: number, toX:
     const targetStack = grid.slots[targetRoot.y][targetRoot.x];
     if (targetStack) {
       const targetDef = getItem(targetStack.itemId);
-      if (targetDef) {
-        clearAt(grid, targetRoot.x, targetRoot.y, targetDef.width, targetDef.height);
-        if (canPlaceAt(grid, root.x, root.y, targetDef.width, targetDef.height)) {
+      if (targetDef && canSwapItems(
+        grid,
+        root.x, root.y, def.width, def.height,
+        targetRoot.x, targetRoot.y, targetDef.width, targetDef.height,
+        stack, targetStack,
+      )) {
+        try {
+          clearAt(grid, root.x, root.y, def.width, def.height);
+          clearAt(grid, targetRoot.x, targetRoot.y, targetDef.width, targetDef.height);
           placeAt(grid, root.x, root.y, targetStack, targetDef.width, targetDef.height);
           placeAt(grid, toX, toY, stack, def.width, def.height);
-          return true;
+        } catch (e) {
+          placeAt(grid, root.x, root.y, stack, def.width, def.height);
+          placeAt(grid, targetRoot.x, targetRoot.y, targetStack, targetDef.width, targetDef.height);
+          throw e;
         }
-        placeAt(grid, targetRoot.x, targetRoot.y, targetStack, targetDef.width, targetDef.height);
+        return true;
       }
     }
   }
 
-  placeAt(grid, root.x, root.y, stack, def.width, def.height);
   return false;
 }
 
@@ -264,7 +300,7 @@ export function processSpoilage(grid: InventoryGrid, dt: number, gameHoursPerSec
       const def = getItem(stack.itemId);
       if (!def || !def.spoilRate) continue;
       if (stack.spoilProgress === undefined) stack.spoilProgress = 0;
-      stack.spoilProgress += def.spoilRate * gameHoursPerSecond * dt;
+      stack.spoilProgress = Math.max(0, Math.min(1, stack.spoilProgress + def.spoilRate * gameHoursPerSecond * dt));
       if (stack.spoilProgress >= 1) {
         const root = findStackRoot(grid, x, y);
         if (root) {

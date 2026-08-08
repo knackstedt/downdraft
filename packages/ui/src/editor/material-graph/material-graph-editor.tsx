@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 export interface GraphNodeData {
   id: string;
@@ -195,6 +195,21 @@ export const MaterialGraphEditor: React.FC<MaterialGraphEditorProps> = ({
   const deleteConnection = useCallback((id: string) => {
     onConnectionsChange?.(connections.filter((c) => c.id !== id));
   }, [connections, onConnectionsChange]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedNode) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+        e.preventDefault();
+        deleteNode(selectedNode);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedNode, deleteNode]);
 
   const getNodePortPos = (node: GraphNodeData, portId: string, isInput: boolean): { x: number; y: number } => {
     const ports = isInput ? node.inputs : node.outputs;

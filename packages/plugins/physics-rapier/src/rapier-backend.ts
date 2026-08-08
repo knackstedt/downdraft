@@ -885,9 +885,8 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
     cachedLib = lib;
     return lib;
   } catch (err) {
-    log.warn("physics-rapier", `Failed to load WASM Rapier: ${err}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error("physics-rapier", `Failed to load WASM Rapier: ${msg}`);
+    throw new Error(`Rapier WASM initialization failed: ${msg}`);
   }
-
-  log.warn("physics-rapier", "No physics library available. Using JS fallback physics.");
-  return null as unknown as PhysicsLib;
 }

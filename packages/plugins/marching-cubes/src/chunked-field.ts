@@ -142,6 +142,7 @@ export function isChunkGenerated(field: ChunkedVoxelField, chunkIdx: number): bo
 }
 
 export function allocateChunk(field: ChunkedVoxelField, chunkIdx: number): number {
+  if (chunkIdx < 0 || chunkIdx >= field.chunkOffsets.length) return -1;
   if (field.chunkOffsets[chunkIdx] >= 0) return field.chunkOffsets[chunkIdx];
   if (field.nextChunkOffset + field.voxelsPerChunk > field.view.length) return -1;
   const offset = field.nextChunkOffset;

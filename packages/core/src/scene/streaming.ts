@@ -74,11 +74,15 @@ const CHUNK_PRIORITY_VALUES: Record<AssetPriority, number> = {
   background: 4,
 };
 
+const MAX_CHUNK_RETRIES = 5;
+const INITIAL_RETRY_DELAY_MS = 1000;
+
 export class WorldStreamer {
   private config: StreamConfig;
   private chunks: Map<string, ChunkData> = new Map();
   private loadQueue: ChunkLoadEntry[] = [];
   private loading: Set<string> = new Set();
+  private retryCounts: Map<string, number> = new Map();
   private world: World;
   private camera: Camera;
 
@@ -190,8 +194,24 @@ export class WorldStreamer {
           lastAccessed: Date.now(),
         };
         this.chunks.set(key, chunk);
+        this.retryCounts.delete(key);
       } catch (err) {
-        log.error("WorldStreamer", `Failed to load chunk ${key}: ${err}`);
+        const retries = this.retryCounts.get(key) ?? 0;
+        if (retries >= MAX_CHUNK_RETRIES) {
+          log.error("WorldStreamer", `Chunk ${key} failed after ${MAX_CHUNK_RETRIES} retries: ${err}`);
+          this.retryCounts.delete(key);
+        } else {
+          const delay = INITIAL_RETRY_DELAY_MS * (1 << retries);
+          this.retryCounts.set(key, retries + 1);
+          log.warn("WorldStreamer", `Chunk ${key} load failed (retry ${retries + 1}/${MAX_CHUNK_RETRIES}), retrying in ${delay}ms: ${err}`);
+          setTimeout(() => {
+            this.loadQueue.push({
+              coord,
+              priority: entry.priority,
+              priorityValue: entry.priorityValue,
+            });
+          }, delay);
+        }
       } finally {
         this.loading.delete(key);
       }
@@ -271,6 +291,7 @@ export class WorldStreamer {
     this.chunks.clear();
     this.loadQueue = [];
     this.loading.clear();
+    this.retryCounts.clear();
   }
 
   getStats(): { loaded: number; pending: number; loading: number } {

@@ -79,7 +79,7 @@ export abstract class OSRRenderer {
   protected useSharedTexture: boolean;
   protected sharedTextureFailed = false;
   protected paintWatchdogTimer: NodeJS.Timeout | null = null;
-  protected syncTokenHandler: ((_e: any, rId: string, syncToken: any) => void) | null = null;
+  protected syncTokenHandler: ((_e: any, rId: string, correlationId: number, syncToken: any) => void) | null = null;
   protected static readonly PAINT_WATCHDOG_MS = 5000;
 
   constructor(
@@ -159,24 +159,25 @@ export abstract class OSRRenderer {
     let paintCount = 0;
     let sharedTexturePaintCount = 0;
     let cpuPaintCount = 0;
+    let syncCorrelationId = 0;
     // Queue of imported textures pending release — kept alive until the preload
     // sends back a sync token confirming the renderer has acquired the texture.
-    const pendingReleases: { imported: any; texture: any }[] = [];
+    const pendingReleases: { imported: any; texture: any; correlationId: number }[] = [];
 
     // Sync token handler — confirms the target process has acquired the shared
     // texture on the GPU before we release the source.
-    const syncTokenHandler = (_e: any, rId: string, syncToken: any) => {
+    const syncTokenHandler = (_e: any, rId: string, correlationId: number, syncToken: any) => {
       if (rId !== this.id) return;
-      if (pendingReleases.length > 0) {
-        const pending = pendingReleases.shift()!;
-        try {
-          pending.imported.setReleaseSyncToken(syncToken);
-          pending.imported.release(() => {
-            try { pending.texture.release(); } catch {}
-          });
-        } catch {
+      const idx = pendingReleases.findIndex((p) => p.correlationId === correlationId);
+      if (idx < 0) return;
+      const pending = pendingReleases.splice(idx, 1)[0];
+      try {
+        pending.imported.setReleaseSyncToken(syncToken);
+        pending.imported.release(() => {
           try { pending.texture.release(); } catch {}
-        }
+        });
+      } catch {
+        try { pending.texture.release(); } catch {}
       }
     };
     ipcMain.on("__osr_sync_token", syncTokenHandler);
@@ -223,8 +224,9 @@ export abstract class OSRRenderer {
             if (sharedTexturePaintCount === 1) {
               log.info("OSR", `Using sendSharedTexture API for '${this.id}'`);
             }
-            sharedTexture.sendSharedTexture({ frame: this.targetWebContents.mainFrame, importedSharedTexture: imported }, this.id);
-            pendingReleases.push({ imported, texture });
+            const correlationId = ++syncCorrelationId;
+            sharedTexture.sendSharedTexture({ frame: this.targetWebContents.mainFrame, importedSharedTexture: imported }, this.id, correlationId);
+            pendingReleases.push({ imported, texture, correlationId });
             while (pendingReleases.length > 5) {
               const old = pendingReleases.shift()!;
               try { old.imported.release(() => { try { old.texture.release(); } catch {} }); } catch {}
@@ -235,9 +237,10 @@ export abstract class OSRRenderer {
             if (sharedTexturePaintCount === 1) {
               log.info("OSR", `Using subtle API transfer for '${this.id}'`);
             }
+            const correlationId = ++syncCorrelationId;
             const transfer = imported.startTransferSharedTexture();
-            this.targetWebContents.send("__osr_shared_texture_transfer", this.id, transfer);
-            pendingReleases.push({ imported, texture });
+            this.targetWebContents.send("__osr_shared_texture_transfer", this.id, correlationId, transfer);
+            pendingReleases.push({ imported, texture, correlationId });
             while (pendingReleases.length > 5) {
               const old = pendingReleases.shift()!;
               try { old.imported.release(() => { try { old.texture.release(); } catch {} }); } catch {}
@@ -284,7 +287,9 @@ export abstract class OSRRenderer {
               if (croppedSize.width === rw && croppedSize.height === rh) {
                 didCrop = true;
               }
-            } catch {}
+            } catch (e) {
+              log.warn("OSR", `Crop failed for dirty rect: ${e}`);
+            }
           }
 
           const croppedSize = image.getSize();
@@ -313,7 +318,9 @@ export abstract class OSRRenderer {
                 data = deflated;
                 compressed = true;
               }
-            } catch {}
+            } catch (e) {
+              log.warn("OSR", `Compression failed, sending uncompressed: ${e}`);
+            }
           }
 
           if (cpuPaintCount <= 3) {

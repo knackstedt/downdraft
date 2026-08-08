@@ -46,6 +46,15 @@ describe("TelemetryCollector", () => {
     expect(t.getFrameTimePercentile(0.95)).toBe(95);
   });
 
+  it("should clamp percentile index for out-of-range p values", () => {
+    const t = new TelemetryCollector(true);
+    for (let i = 0; i < 10; i++) {
+      t.recordFrame(i);
+    }
+    expect(t.getFrameTimePercentile(-0.5)).toBe(0);
+    expect(t.getFrameTimePercentile(1.5)).toBe(9);
+  });
+
   it("should return 0 for empty frame times", () => {
     const t = new TelemetryCollector(true);
     expect(t.getAverageFrameTime()).toBe(0);

@@ -228,6 +228,10 @@ export class SSRPass extends RenderPass {
     }
     const bindGroup = this.cachedBindGroup;
 
+    // DEVIATION: This pass creates its own command encoder and submits directly
+    // instead of using the frame graph's shared encoder. SSR needs a dedicated
+    // render pass with its own output texture that is not declared as a graph
+    // attachment; refactoring to the frame graph is tracked as a future task.
     const encoder = ctx.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{

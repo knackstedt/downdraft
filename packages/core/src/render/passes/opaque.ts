@@ -319,6 +319,7 @@ export class OpaquePass extends RenderPass {
   private indexBuffer: GPUBuffer | null = null;
   private mesh: MeshData | null = null;
   private depthTexture: GPUTexture | null = null;
+  private deferredDepthTextures: GPUTexture[] = [];
   private shaderModule: GPUShaderModule | null = null;
   private surfaceFormat: GPUTextureFormat;
   private mode: OpaquePassMode;
@@ -943,7 +944,9 @@ export class OpaquePass extends RenderPass {
       if (this.depthTexture.width === width && this.depthTexture.height === height) {
         return this.depthTexture;
       }
-      this.depthTexture.destroy();
+      // Defer destruction — the old depth texture may still be referenced by
+      // in-flight command buffers. It will be destroyed on the next endFrame().
+      this.deferredDepthTextures.push(this.depthTexture);
     }
     this.depthTexture = this.device.createTexture({
       size: [width, height],
@@ -951,6 +954,11 @@ export class OpaquePass extends RenderPass {
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
     return this.depthTexture;
+  }
+
+  endFrame(): void {
+    for (const t of this.deferredDepthTextures) t.destroy();
+    this.deferredDepthTextures = [];
   }
 
   getDepthTextureView(): GPUTextureView | null {
@@ -977,16 +985,25 @@ export class OpaquePass extends RenderPass {
     this.vertexBuffer?.destroy();
     this.indexBuffer?.destroy();
     this.depthTexture?.destroy();
+    for (const t of this.deferredDepthTextures) t.destroy();
+    this.deferredDepthTextures = [];
     this.cameraBuffer?.destroy();
     this.pbrCameraBuffer?.destroy();
     this.pbrModelBuffer?.destroy();
     this.pbrPrevModelBuffer?.destroy();
     this.pbrMaterialIndexBuffer?.destroy();
+    this.pipeline?.destroy();
+    this.pbrPipeline?.destroy();
+    this.shaderModule?.destroy();
+    this.pbrShaderModule?.destroy();
     this.vertexBuffer = null;
     this.indexBuffer = null;
     this.depthTexture = null;
     this.cameraBuffer = null;
+    this.pipeline = null;
     this.pbrPipeline = null;
+    this.pbrShaderModule = null;
+    this.shaderModule = null;
     this.pbrCameraBuffer = null;
     this.pbrModelBuffer = null;
     this.pbrPrevModelBuffer = null;

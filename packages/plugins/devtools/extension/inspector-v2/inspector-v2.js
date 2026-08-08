@@ -609,7 +609,10 @@
     info.style.color = "#aaaacc";
     info.style.padding = "4px 0";
     if (node.modelFormat) {
-      info.innerHTML = "Format: " + node.modelFormat + "<br>Meshes: (load to view)";
+      info.textContent = "Format: " + node.modelFormat;
+      var br = document.createElement("br");
+      info.appendChild(br);
+      info.appendChild(document.createTextNode("Meshes: (load to view)"));
     } else {
       info.textContent = "No mesh data available";
     }

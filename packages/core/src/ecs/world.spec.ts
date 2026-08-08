@@ -71,6 +71,28 @@ describe("ECS World", () => {
     expect(entity2.generation).toBe(entity.generation + 1);
   });
 
+  it("should stop recycling after free list exceeds max size", () => {
+    const world = new World();
+    const spawned: Array<{ index: number; generation: number }> = [];
+    for (let i = 0; i < 1100; i++) {
+      const e = world.spawn(new Map([[Transform.id, Transform.create()]]));
+      spawned.push(e);
+    }
+    for (const e of spawned) {
+      world.despawn(e);
+    }
+    world.flushCommands();
+
+    // After despawning 1100 entities, the free list is capped at 1024.
+    // Spawning 1025 entities should reuse 1024 slots, then allocate a new one.
+    for (let i = 0; i < 1024; i++) {
+      world.spawn(new Map([[Transform.id, Transform.create()]]));
+    }
+    const fresh = world.spawn(new Map([[Transform.id, Transform.create()]]));
+    // The 1025th spawn should NOT recycle — it gets a new index beyond the original range
+    expect(fresh.index).toBeGreaterThan(spawned[spawned.length - 1].index);
+  });
+
   it("should add and remove components", () => {
     const world = new World();
     const entity = world.spawn(new Map([

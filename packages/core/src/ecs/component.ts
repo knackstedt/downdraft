@@ -19,6 +19,10 @@ export function getComponentName(id: ComponentId): string {
   return componentNameRegistry.get(id) ?? `Unknown(${id})`;
 }
 
+export function isRegisteredComponentId(id: ComponentId): boolean {
+  return componentNameRegistry.has(id);
+}
+
 export interface IComponent {
   readonly __componentId?: ComponentId;
 }

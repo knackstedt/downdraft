@@ -364,24 +364,44 @@ export class BindlessTextureRegistry {
   }
 
   private allocSlot(b: Bucket): { page: number; layer: number; globalArrayIndex: number } {
+    let slot!: { page: number; layer: number; globalArrayIndex: number };
     if (b.freeList.length > 0) {
-      const slot = b.freeList.pop()!;
-      return { ...slot, globalArrayIndex: b.globalArrayIndices[slot.page] };
-    }
-    // Find a page with a free layer.
-    for (let p = 0; p < b.layerCursor.length; p++) {
-      if (b.layerCursor[p] < this.layersPerPage) {
-        const layer = b.layerCursor[p];
-        b.layerCursor[p] = layer + 1;
-        return { page: p, layer, globalArrayIndex: b.globalArrayIndices[p] };
+      const free = b.freeList.pop()!;
+      slot = { ...free, globalArrayIndex: b.globalArrayIndices[free.page] };
+    } else {
+      // Find a page with a free layer.
+      let allocated = false;
+      for (let p = 0; p < b.layerCursor.length; p++) {
+        if (b.layerCursor[p] < this.layersPerPage) {
+          const layer = b.layerCursor[p];
+          b.layerCursor[p] = layer + 1;
+          slot = { page: p, layer, globalArrayIndex: b.globalArrayIndices[p] };
+          allocated = true;
+          break;
+        }
+      }
+      if (!allocated) {
+        // All pages full — append a new one and allocate from it.
+        this.appendPage(b);
+        const page = b.layerCursor.length - 1;
+        b.layerCursor[page] = 1;
+        slot = { page, layer: 0, globalArrayIndex: b.globalArrayIndices[page] };
       }
     }
-    // All pages full — append a new one and allocate from it.
-    this.appendPage(b);
-    const page = b.layerCursor.length - 1;
-    const layer = 0;
-    b.layerCursor[page] = 1;
-    return { page, layer, globalArrayIndex: b.globalArrayIndices[page] };
+    // Validate that layer and globalArrayIndex fit in the 16-bit handle fields.
+    // The handle packs (globalArrayIndex << 16) | layer; overflow corrupts sampling.
+    const { layer, globalArrayIndex } = slot;
+    if (layer < 0 || layer > 0xFFFF) {
+      throw new Error(
+        `BindlessTextureRegistry: layer index ${layer} exceeds 16-bit handle field (max 65535) for bucket ${b.keyStr}`,
+      );
+    }
+    if (globalArrayIndex < 0 || globalArrayIndex > 0xFFFF) {
+      throw new Error(
+        `BindlessTextureRegistry: global array index ${globalArrayIndex} exceeds 16-bit handle field (max 65535) for bucket ${b.keyStr}`,
+      );
+    }
+    return slot;
   }
 
   private copyTextureIntoLayer(

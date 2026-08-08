@@ -37,7 +37,8 @@ export function collectWakeSources(
   providers: WakeProvider[],
   out: Float32Array,
 ): number {
-  const n = Math.min(providers.length, MAX_WAKES);
+  const maxByBuffer = Math.floor(out.length / WAKE_FLOATS);
+  const n = Math.min(providers.length, MAX_WAKES, maxByBuffer);
   for (let i = 0; i < n; i++) {
     const p = providers[i];
     const off = i * WAKE_FLOATS;
@@ -55,7 +56,7 @@ export function collectShoreSources(
   providers: ShoreProvider[],
   out: ShoreSource[],
 ): number {
-  const n = Math.min(providers.length, MAX_SHORES);
+  const n = Math.min(providers.length, MAX_SHORES, out.length);
   for (let i = 0; i < n; i++) {
     const p = providers[i];
     out[i].x = p.x;
@@ -71,7 +72,8 @@ export function packShoreSources(
   count: number,
   out: Float32Array,
 ): void {
-  for (let i = 0; i < count; i++) {
+  const maxCount = Math.min(count, MAX_SHORES, Math.floor(out.length / SHORE_FLOATS));
+  for (let i = 0; i < maxCount; i++) {
     const s = sources[i];
     const off = i * SHORE_FLOATS;
     out[off] = s.x;

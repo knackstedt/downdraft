@@ -190,11 +190,16 @@ export class MultiInputSABWriter {
     const f32 = slot.f32;
     const idx = this.indices;
 
-    i32.fill(0, idx.keysIdx, idx.keysIdx + idx.keysCount);
+    const fillEnd = idx.keysIdx + idx.keysCount;
+    if (idx.keysIdx < 0 || fillEnd > i32.length) {
+      throw new RangeError(`MultiInputSABWriter: keys range [${idx.keysIdx}, ${fillEnd}) exceeds i32 buffer length ${i32.length}`);
+    }
+    i32.fill(0, idx.keysIdx, fillEnd);
     for (const key of keys) {
+      if (key < 0 || !Number.isInteger(key)) continue;
       const wordIdx = Math.floor(key / 32);
       const bitIdx = key % 32;
-      if (wordIdx < idx.keysCount) {
+      if (wordIdx >= 0 && wordIdx < idx.keysCount) {
         i32[idx.keysIdx + wordIdx] |= (1 << bitIdx);
       }
     }

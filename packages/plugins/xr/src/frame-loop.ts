@@ -150,6 +150,7 @@ export class XRFrameLoop {
   stop(): void {
     if (!this.active) return;
     this.active = false;
+    this.currentFrame = null;
 
     // Restore desktop rAF
     this.ctx.setRAFSource(null, null);
@@ -166,8 +167,6 @@ export class XRFrameLoop {
     // Remove beforeFrame hook
     this.unsubBeforeFrame?.();
     this.unsubBeforeFrame = null;
-
-    this.currentFrame = null;
 
     // Clear XR controller state from input
     if (this.inputState) {

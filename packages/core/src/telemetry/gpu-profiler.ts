@@ -121,6 +121,7 @@ export class GPUProfiler {
   // suppress duplicates within a throttle window, then emit a summary.
   private static readonly ERROR_THROTTLE_MS = 1000;
   private static readonly ERROR_LOG_CAP = 100;
+  private static readonly MAX_PASS_TIMINGS = 256;
   private errorThrottle: Map<string, { count: number; firstSeen: number; lastLogged: number; suppressed: number }> = new Map();
 
   // Once an uncaptured error fires, subsequent GPU operations on the same
@@ -239,6 +240,10 @@ export class GPUProfiler {
     const existing = this.passTimings.get(name);
     const gpuIdx = this.passGpuIndices.get(name);
     const gpuMs = (gpuIdx !== undefined && this.gpuTimerPool) ? this.gpuTimerPool.getPassGpuMs(gpuIdx) : 0;
+    if (!this.passTimings.has(name) && this.passTimings.size >= GPUProfiler.MAX_PASS_TIMINGS) {
+      const oldest = this.passTimings.keys().next().value;
+      if (oldest !== undefined) this.passTimings.delete(oldest);
+    }
     this.passTimings.set(name, {
       cpuMs,
       gpuMs,

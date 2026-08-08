@@ -64,7 +64,9 @@ export class SpatialGrid {
       (e) => e.entity.index === entity.index && e.entity.generation === entity.generation,
     );
     if (idx >= 0) {
-      cell.entries.splice(idx, 1);
+      const last = cell.entries.length - 1;
+      cell.entries[idx] = cell.entries[last];
+      cell.entries.pop();
       this.entryCount--;
       if (cell.entries.length === 0) {
         this.cells.delete(key);

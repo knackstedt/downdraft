@@ -4,10 +4,12 @@
 // Layers scroll with the player and drift with wind.
 // ============================================================================
 
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
+import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { WeatherType } from "@downdraft/plugin-weather";
 import type { CloudExtractedMesh, CloudMeshProvider, CloudVoxelField } from "./cloud-provider";
 import CLOUD_WGSL from "./shaders/cloud.wgsl?raw";
+
+const log = createLogger();
 
 
 // --- Per-layer state ---
@@ -137,7 +139,7 @@ export class CloudSystem {
       });
     }
 
-    console.log("[CloudSystem] Initialized with", this.layers.length, "layers");
+    log.info("CloudSystem", `Initialized with ${this.layers.length} layers`);
   }
 
   update(
@@ -216,7 +218,7 @@ export class CloudSystem {
       return;
     }
 
-    console.log(`[CloudSystem] Generated layer ${layer.layerType}: ${extracted.verts.length / 9} verts, ${extracted.indices.length} indices`);
+    log.info("CloudSystem", `Generated layer ${layer.layerType}: ${extracted.verts.length / 9} verts, ${extracted.indices.length} indices`);
 
     // Vertices are in world space relative to field origin (centered at 0,0,0)
     const verts = extracted.verts;

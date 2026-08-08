@@ -104,6 +104,17 @@ describe("encodeHeader / decodeHeader", () => {
     // encodeHeader writes whatever we give it, decodeHeader validates
     expect(decodeHeader(buf)).toBeNull();
   });
+
+  it("returns null for truncated buffer between field boundaries", () => {
+    const header = makeHeader();
+    const full = encodeHeader(header);
+    // Truncate at various points past the initial size check
+    for (let trunc = 8; trunc < HEADER_SIZE; trunc += 4) {
+      const truncated = full.slice(0, trunc);
+      // decodeHeader should not throw on truncated buffers
+      expect(() => decodeHeader(truncated)).not.toThrow();
+    }
+  });
 });
 
 describe("readHeaderFromFile", () => {

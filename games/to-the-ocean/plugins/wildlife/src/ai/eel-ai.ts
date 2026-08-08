@@ -1,5 +1,8 @@
 // Eel AI — electric shock on proximity, territorial behavior
+import { createRng } from "@to-the-ocean/util/rng";
 import type { WildlifeConfig, WildlifeEntity, WildlifePlayer } from "../types";
+
+const rng = createRng(0xE15001);
 
 export function tickEelAI(
   ent: WildlifeEntity,
@@ -15,8 +18,8 @@ export function tickEelAI(
 
   // Wander slowly
   if (d[4] <= 0) {
-    d[0] = Math.random() * Math.PI * 2;
-    d[4] = 3 + Math.random() * 5;
+    d[0] = rng() * Math.PI * 2;
+    d[4] = 3 + rng() * 5;
   }
   d[4] -= dt;
 

@@ -96,6 +96,18 @@ describe("RecordBuffer", () => {
     expect(reader.fields.flags[0]).toBe(5);
   });
 
+  it("should increment sequence by exactly 1 per write() call", () => {
+    const sab = TestChannel.allocate();
+    const writer = TestChannel.writer(sab) as any;
+    const reader = TestChannel.reader(sab);
+
+    const seqBefore = reader.getSequence();
+    writer.write({ x: 1 });
+    const seqAfter = reader.getSequence();
+
+    expect(seqAfter).toBe(seqBefore + 1);
+  });
+
   it("should expose typed offsets", () => {
     const offsets = TestChannel.offsets;
     expect(offsets.header.magic).toBe(0);

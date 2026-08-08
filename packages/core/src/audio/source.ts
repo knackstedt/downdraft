@@ -1,3 +1,4 @@
+import type { IComponent } from "../ecs/component";
 import { Component } from "../ecs/component";
 import type { AudioChannel } from "./interface";
 
@@ -43,6 +44,22 @@ export const AudioSource = Component.register<AudioSourceData>("AudioSource", {
   sourceId: -1,
   autoPlay: false,
 });
+
+const _originalCreate = AudioSource.create;
+AudioSource.create = (overrides?: Partial<AudioSourceData>): AudioSourceData & IComponent => {
+  const { looping, ...rest } = overrides ?? {};
+  if (looping !== undefined && rest.loop === undefined) {
+    rest.loop = looping;
+  }
+  const instance = _originalCreate(rest);
+  Object.defineProperty(instance, "looping", {
+    get(this: AudioSourceData) { return this.loop; },
+    set(this: AudioSourceData, v: boolean) { this.loop = v; },
+    enumerable: true,
+    configurable: true,
+  });
+  return instance as AudioSourceData & IComponent;
+};
 
 export function createAudioSource(bufferId: string, opts?: Partial<AudioSourceData>): AudioSourceData {
   return AudioSource.create({ bufferId, spatialized: false, spatial: false, looping: opts?.loop ?? false, ...opts });

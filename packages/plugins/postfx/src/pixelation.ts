@@ -202,7 +202,7 @@ export class PixelationSystem {
     this.offscreenDepth = null;
     this.uniformBuffer?.destroy();
     this.uniformBuffer = null;
-    this.sampler?.destroy();
+    // GPUSampler has no destroy() — it's GC'd automatically.
     this.sampler = null;
     this.pipeline?.destroy();
     this.pipeline = null;

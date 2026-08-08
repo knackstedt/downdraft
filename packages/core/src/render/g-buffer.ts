@@ -32,6 +32,8 @@ export class GBuffer {
   private views: GBufferViews | null = null;
   private device: GPUDevice;
   private sampleCount: number = 1;
+  private frameInFlight = false;
+  private deferredTextures: GBufferTextures | null = null;
 
   constructor(device: GPUDevice, width: number, height: number, sampleCount: number = 1) {
     this.device = device;
@@ -74,10 +76,33 @@ export class GBuffer {
 
   resize(width: number, height: number): void {
     if (this._width === width && this._height === height) return;
-    this.destroy();
+    if (this.frameInFlight && this.textures) {
+      // Defer destruction of in-use textures until the frame completes —
+      // destroying mid-frame can corrupt sampling from in-flight command buffers.
+      this.deferredTextures = this.textures;
+    } else {
+      this.destroy();
+    }
     this._width = width;
     this._height = height;
     this.create();
+  }
+
+  beginFrame(): void {
+    this.frameInFlight = true;
+  }
+
+  endFrame(): void {
+    this.frameInFlight = false;
+    if (this.deferredTextures) {
+      this.deferredTextures.albedo.destroy();
+      this.deferredTextures.normal.destroy();
+      this.deferredTextures.metallicEmissive.destroy();
+      this.deferredTextures.roughnessAO.destroy();
+      this.deferredTextures.velocity.destroy();
+      this.deferredTextures.depth.destroy();
+      this.deferredTextures = null;
+    }
   }
 
   getViews(): GBufferViews | null {
@@ -135,6 +160,15 @@ export class GBuffer {
   }
 
   destroy(): void {
+    if (this.deferredTextures) {
+      this.deferredTextures.albedo.destroy();
+      this.deferredTextures.normal.destroy();
+      this.deferredTextures.metallicEmissive.destroy();
+      this.deferredTextures.roughnessAO.destroy();
+      this.deferredTextures.velocity.destroy();
+      this.deferredTextures.depth.destroy();
+      this.deferredTextures = null;
+    }
     if (this.textures) {
       this.textures.albedo.destroy();
       this.textures.normal.destroy();

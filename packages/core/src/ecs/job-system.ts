@@ -342,10 +342,15 @@ export class JobScheduler {
     return { pending, ready, running, done, failed };
   }
 
-  dispose(): void {
+  terminate(): void {
     this.pool.terminate();
     this.jobs.clear();
     this.readyQueue = [];
+    this.runningPromise = null;
+  }
+
+  dispose(): void {
+    this.terminate();
   }
 }
 

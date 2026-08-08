@@ -33,6 +33,7 @@ export class IBLSystem {
   private frameCounter: number = 0;
   private lastTimeOfDay: number = -1;
   private initialized: boolean = false;
+  private pendingDestroy: GPUTexture[] = [];
 
   constructor(device: GPUDevice, options: IBLSystemOptions = {}) {
     this.device = device;
@@ -73,16 +74,13 @@ export class IBLSystem {
     );
 
     if (this.currentEnv) {
-      this.currentEnv.irradiance.destroy();
+      // Defer destruction — the old env textures may still be referenced by
+      // in-flight command buffers from the current frame's render passes.
+      // They will be destroyed after the frame completes via endFrame().
+      this.pendingDestroy.push(this.currentEnv.irradiance);
       for (const tex of this.currentEnv.prefilteredSpecular) {
-        tex.destroy();
+        this.pendingDestroy.push(tex);
       }
-      // Destroy the previous source cubemap — it is no longer referenced once
-      // irradiance/prefiltered have been generated from it.
-      // NOTE: there is an inherent race here — if a capture pass is still
-      // in-flight on the GPU queue when we destroy the old cubemap, the
-      // driver may error. The caller is expected to ensure no passes are
-      // pending before triggering a recapture.
       this.currentEnv.cubemap?.destroy();
     }
 
@@ -154,10 +152,22 @@ export class IBLSystem {
     return this.currentEnv !== null && (this.iblBindGroup?.getBindGroup() ?? null) !== null;
   }
 
+  /** Destroy textures deferred from a mid-frame recapture. Call after the frame's command buffers have been submitted. */
+  endFrame(): void {
+    for (const tex of this.pendingDestroy) {
+      try { tex.destroy(); } catch {}
+    }
+    this.pendingDestroy = [];
+  }
+
   destroy(): void {
     this.cubemapCapture?.destroy();
     this.iblBindGroup?.destroy();
     this.envManager?.destroy();
+    for (const tex of this.pendingDestroy) {
+      try { tex.destroy(); } catch {}
+    }
+    this.pendingDestroy = [];
     this.currentEnv = null;
     this.initialized = false;
   }

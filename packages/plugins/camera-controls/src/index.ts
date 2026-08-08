@@ -64,15 +64,37 @@ export function createCameraController(
   const camId = opts.initialCamera?.id ?? "main";
   const cam = new Camera();
   if (opts.initialCamera) {
-    if (opts.initialCamera.position) {
-      cam.setPosition(...opts.initialCamera.position);
+    const ic = opts.initialCamera;
+    if (ic.position) {
+      if (ic.position.length !== 3) {
+        throw new RangeError(`initialCamera.position must have length 3, got ${ic.position.length}`);
+      }
+      cam.setPosition(...ic.position);
     }
-    if (opts.initialCamera.target) {
-      cam.setTarget(...opts.initialCamera.target);
+    if (ic.target) {
+      if (ic.target.length !== 3) {
+        throw new RangeError(`initialCamera.target must have length 3, got ${ic.target.length}`);
+      }
+      cam.setTarget(...ic.target);
     }
-    if (opts.initialCamera.fov !== undefined) cam.setFov(opts.initialCamera.fov);
-    if (opts.initialCamera.near !== undefined) cam.near = opts.initialCamera.near;
-    if (opts.initialCamera.far !== undefined) cam.far = opts.initialCamera.far;
+    if (ic.fov !== undefined) {
+      if (!(ic.fov > 0)) {
+        throw new RangeError(`initialCamera.fov must be > 0, got ${ic.fov}`);
+      }
+      cam.setFov(ic.fov);
+    }
+    if (ic.near !== undefined) {
+      if (!(ic.near > 0)) {
+        throw new RangeError(`initialCamera.near must be > 0, got ${ic.near}`);
+      }
+      cam.near = ic.near;
+    }
+    if (ic.far !== undefined) {
+      if (ic.near !== undefined && !(ic.far > ic.near)) {
+        throw new RangeError(`initialCamera.far (${ic.far}) must be > near (${ic.near})`);
+      }
+      cam.far = ic.far;
+    }
   }
 
   const controller = new CameraController({

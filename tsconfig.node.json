@@ -211,6 +211,9 @@
       ],
       "@to-the-ocean/plugin-wildlife/*": [
         "./games/to-the-ocean/plugins/wildlife/src/*"
+      ],
+      "@to-the-ocean/util/*": [
+        "./games/to-the-ocean/src/util/*"
       ]
     }
   },
@@ -227,6 +230,7 @@
     "packages/shader-graph/src/**/*.ts",
     "packages/plugins/*/src/**/*.ts",
     "games/*/plugins/*/src/**/*.ts",
+    "games/*/src/util/**/*.ts",
     "electron.vite.config.ts",
     "games/*/electron.vite.config.ts",
     "games/*/src/main.ts",

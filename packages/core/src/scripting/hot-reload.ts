@@ -83,8 +83,8 @@ export class HotReloader {
     }
   }
 
-  triggerReload(name: string, path: string): void {
-    this.reloadScript(name, path);
+  async triggerReload(name: string, path: string): Promise<void> {
+    await this.reloadScript(name, path);
   }
 
   async reloadAll(): Promise<void> {

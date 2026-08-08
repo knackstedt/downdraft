@@ -269,8 +269,11 @@ export class ParticleComputePass extends RenderPass {
   emit(params: Partial<ParticleComputeParams>): void {
     if (!this.device || !this.emitPipeline || !this.emitBindGroup) return;
 
+    const dt = params.deltaTime ?? 0.016;
+    if (!(dt > 0) || !Number.isFinite(dt)) return;
+
     const emitCount = Math.min(
-      Math.ceil((params.emissionRate ?? 50) * (params.deltaTime ?? 0.016)),
+      Math.ceil((params.emissionRate ?? 50) * dt),
       this.maxParticles,
     );
 
@@ -309,6 +312,7 @@ export class ParticleComputePass extends RenderPass {
 
   update(params: ParticleComputeParams): void {
     if (!this.device || !this.updatePipeline || !this.bindGroup) return;
+    if (!(params.deltaTime > 0) || !Number.isFinite(params.deltaTime)) return;
 
     const paramData = new Float32Array(32);
     paramData[0] = params.deltaTime;

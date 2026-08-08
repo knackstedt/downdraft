@@ -158,6 +158,11 @@ export class GpuCullPass extends RenderPass {
     argsU[1] = batchCount;
     this.device.queue.writeBuffer(this.argsUniformBuffer!, 0, argsU as unknown as BufferSource);
 
+    // DEVIATION: This pass creates its own command encoder and submits directly
+    // instead of using the frame graph's shared encoder. The cull pass is a
+    // compute-only pass whose output (indirect draw args buffer) is consumed by
+    // a later draw pass via drawIndexedIndirect — it does not produce graph
+    // textures. Refactoring to the frame graph is tracked as a future task.
     const encoder = this.device.createCommandEncoder({ label: "gpu-cull" });
     const pass = encoder.beginComputePass({ label: "gpu-cull" });
 

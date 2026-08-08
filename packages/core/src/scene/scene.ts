@@ -1,4 +1,4 @@
-import type { ComponentId } from "../ecs/component";
+import { isRegisteredComponentId, type ComponentId } from "../ecs/component";
 import { entityEqual, isAlive, type Entity } from "../ecs/entity";
 import type { World } from "../ecs/world";
 import { createLogger } from "../util/logger";
@@ -177,6 +177,9 @@ export class Scene {
     for (const entry of data.entities) {
       const components = new Map<ComponentId, unknown>();
       for (const comp of entry.components) {
+        if (!isRegisteredComponentId(comp.id)) {
+          throw new RangeError(`Scene deserialize: unregistered component ID ${comp.id}`);
+        }
         components.set(comp.id, comp.data);
       }
       const entity = this.world.spawn(components);

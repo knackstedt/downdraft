@@ -140,6 +140,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@to-the-ocean\/plugin-survival\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/survival/src") + "/" },
     { find: /^@to-the-ocean\/plugin-wildlife$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/wildlife/src/index.ts") },
     { find: /^@to-the-ocean\/plugin-wildlife\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/wildlife/src") + "/" },
+    { find: /^@to-the-ocean\/util\//, replacement: resolve(repoRoot, "games/to-the-ocean/src/util") + "/" },
     { find: /^@downdraft\/mcp$/, replacement: resolve(repoRoot, "packages/mcp/src/index.ts") },
     { find: /^@downdraft\/mcp\//, replacement: resolve(repoRoot, "packages/mcp/src") + "/" },
     { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src/index.ts") },
