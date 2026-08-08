@@ -20,7 +20,9 @@ export class PhysicsAccumulator {
   private lastStepWallMs: number = 0;
 
   constructor(opts: { fixedDt?: number; maxCatchUpSteps?: number; stepBudgetMs?: number } = {}) {
-    this.fixedDt = opts.fixedDt ?? 1 / 60;
+    const fixedDt = opts.fixedDt ?? 1 / 60;
+    if (fixedDt <= 0 || !Number.isFinite(fixedDt)) throw new Error(`Invalid fixedDt: ${fixedDt}`);
+    this.fixedDt = fixedDt;
     this.maxCatchUpSteps = opts.maxCatchUpSteps ?? 5;
     this.stepBudgetMs = opts.stepBudgetMs ?? 12;
   }

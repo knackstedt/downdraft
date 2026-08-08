@@ -103,6 +103,8 @@ export class EnvironmentManager {
 
   setBRDFLUT(lut: GPUTexture): void {
     if (this.currentEnv) {
+      // Destroy the previous BRDF LUT texture before overwriting to avoid a leak.
+      this.currentEnv.brdfLUT?.destroy();
       this.currentEnv.brdfLUT = lut;
     }
   }

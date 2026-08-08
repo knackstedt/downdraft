@@ -355,6 +355,9 @@ export class DecalPass extends RenderPass {
   destroy(): void {
     this.cameraBuffer?.destroy();
     this.decalBuffer?.destroy();
+    this.pipeline?.destroy();
+    this.shaderModule?.destroy();
+    this.depthSampler?.destroy();
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();

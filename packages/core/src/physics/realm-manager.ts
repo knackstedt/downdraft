@@ -310,7 +310,8 @@ export class RealmManager {
           // Allow hook to override
           let targetTier: RealmTier | null = higherTier;
           if (this.transferHook?.shouldTransfer) {
-            const override = this.transferHook.shouldTransfer(meta.bodyId, meta.tier, [minDist]);
+            let override = this.transferHook.shouldTransfer(meta.bodyId, meta.tier, [minDist]);
+            if (override !== null && ![0, 1, 2].includes(override)) override = null;
             if (override !== null) targetTier = override;
           }
           if (targetTier !== null && targetTier !== meta.tier) {
@@ -330,7 +331,8 @@ export class RealmManager {
           if (lowerTier !== null) {
             let targetTier: RealmTier | null = lowerTier;
             if (this.transferHook?.shouldTransfer) {
-              const override = this.transferHook.shouldTransfer(meta.bodyId, meta.tier, [minDist]);
+              let override = this.transferHook.shouldTransfer(meta.bodyId, meta.tier, [minDist]);
+              if (override !== null && ![0, 1, 2].includes(override)) override = null;
               if (override !== null) targetTier = override;
             }
             if (targetTier !== null && targetTier !== meta.tier) {
@@ -450,9 +452,11 @@ export class RealmManager {
     const angVel = fromRealm.getAngularVelocity(meta.body);
 
     // Destroy from old realm
+    const oldBody = meta.body;
     fromRealm.destroyBody(meta.body);
-    // Note: keep old backend id in reverse lookup so callers with the
-    // original PhysicsBody ref can still find the metadata.
+    // Delete the old backend id from the reverse lookup so stale refs
+    // don't accidentally resolve to this metadata via the old id.
+    this.bodyIdByBackendId.delete(oldBody.id);
 
     // Recreate in new realm with current state
     const newDesc: BodyDesc = {
@@ -469,7 +473,7 @@ export class RealmManager {
       toRealm.addCollider(newBody, colliderDesc);
     }
 
-    // Update metadata + reverse lookup (add new backend id, keep old)
+    // Update metadata + reverse lookup (add new backend id)
     const fromTier = meta.tier;
     meta.body = newBody;
     meta.tier = toTier;

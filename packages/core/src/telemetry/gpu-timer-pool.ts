@@ -26,6 +26,7 @@ export class GPUTimerPool {
   private supported: boolean = false;
   private pending: boolean = false;
   private bufferMapped: boolean = false;
+  private pendingResolve: boolean = false;
   private maxPasses: number;
   private lastResults: Map<number, number> = new Map();
 
@@ -85,7 +86,11 @@ export class GPUTimerPool {
 
   resolve(encoder: GPUCommandEncoder): void {
     if (!this.supported || !this.querySet || !this.resolveBuffer || !this.readBuffer) return;
-    if (this.bufferMapped) return; // skip if readBuffer is still mapped from previous readAll
+    if (this.bufferMapped) {
+      // Queue the resolve for the next frame — readBuffer is still mapped.
+      this.pendingResolve = true;
+      return;
+    }
     const queryCount = this.maxPasses * 2;
     encoder.resolveQuerySet(this.querySet, 0, queryCount, this.resolveBuffer, 0);
     encoder.copyBufferToBuffer(this.resolveBuffer, 0, this.readBuffer, 0, queryCount * 8);
@@ -114,9 +119,19 @@ export class GPUTimerPool {
 
       this.readBuffer.unmap();
       this.bufferMapped = false;
+      // If a resolve was queued while the buffer was mapped, mark pending so
+      // the next resolve() call will actually execute.
+      if (this.pendingResolve) {
+        this.pendingResolve = false;
+        this.pending = true;
+      }
       return results;
     } catch {
       this.bufferMapped = false;
+      if (this.pendingResolve) {
+        this.pendingResolve = false;
+        this.pending = true;
+      }
       return this.lastResults;
     }
   }

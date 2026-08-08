@@ -1,6 +1,6 @@
+import type { IslandInfo, PhysicsBackend, PhysicsBody } from "./interface";
 import { LoadShedder } from "./load-shedder";
 import { PhysicsAccumulator } from "./physics-accumulator";
-import type { IslandInfo, PhysicsBackend, PhysicsBody } from "./interface";
 
 function makeBody(id: number): PhysicsBody {
   return { id, realmId: 0, entity: { index: id, generation: 0 } };
@@ -119,7 +119,10 @@ describe("LoadShedder", () => {
       { id: 1, bodyIds: [2], avgVelocity: 0.1, sleeping: false },
     ];
     const backend = makeBackend({ getIslands: () => islands });
-    const frozen = shedder.shed(0, backend, 0);
+    const bodyMap = new Map<number, PhysicsBody>();
+    bodyMap.set(1, makeBody(1));
+    bodyMap.set(2, makeBody(2));
+    const frozen = shedder.shed(0, backend, 0, bodyMap);
     expect(frozen).toBe(2); // both islands frozen (no accumulator check in shed)
     expect(shedder.isFrozen(1)).toBe(true);
     expect(shedder.isFrozen(2)).toBe(true);

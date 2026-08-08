@@ -202,5 +202,13 @@ export class GaussianSplatRenderer {
   destroy(): void {
     this.cameraBuffer?.destroy();
     this.splatBuffer?.destroy();
+    this.pipeline?.destroy();
+    this.shaderModule?.destroy();
+    // GPUBindGroup has no destroy() — just null it.
+    this.cameraBuffer = null;
+    this.splatBuffer = null;
+    this.pipeline = null;
+    this.shaderModule = null;
+    this.bindGroup = null;
   }
 }

@@ -1,3 +1,4 @@
+import { assertBounds, assertCount, MAX_FACE_COUNT, MAX_VERTEX_COUNT } from "@downdraft/core";
 import type { MaterialData, MeshData, ModelData } from "./types";
 
 // 3DS chunk IDs
@@ -62,8 +63,16 @@ function parseTriMesh(view: DataView, chunkStart: number, chunkEnd: number, name
     const [id, size] = readChunkHeader(view, offset);
     const childEnd = offset + size;
 
+    // Validate chunk size doesn't exceed remaining file bounds
+    if (childEnd > chunkEnd || childEnd > view.byteLength) {
+      break;
+    }
+
     if (id === CHUNK_VERTICES) {
       const count = view.getUint16(offset + 6, true);
+      assertCount("3ds vertices", count, MAX_VERTEX_COUNT);
+      // Validate count × stride fits within chunk data
+      assertBounds("3ds vertex data", offset + 8, count * 12, childEnd);
       positions = [];
       let pos = offset + 8;
       for (let i = 0; i < count; i++) {
@@ -76,6 +85,9 @@ function parseTriMesh(view: DataView, chunkStart: number, chunkEnd: number, name
       }
     } else if (id === CHUNK_FACES) {
       const count = view.getUint16(offset + 6, true);
+      assertCount("3ds faces", count, MAX_FACE_COUNT);
+      // Validate count × stride fits within chunk data
+      assertBounds("3ds face data", offset + 8, count * 8, childEnd);
       indices = [];
       let pos = offset + 8;
       for (let i = 0; i < count; i++) {

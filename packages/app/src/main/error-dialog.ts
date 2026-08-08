@@ -80,7 +80,7 @@ export function showErrorDialog(title: string, detail: string): void {
     backgroundColor: "#111111",
     autoHideMenuBar: true,
     show: false,
-    webPreferences: { contextIsolation: false, nodeIntegration: false, devTools: false },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, devTools: false },
   });
 
   win.loadURL(`data:text/html,${encodeURIComponent(html)}`);

@@ -11,6 +11,7 @@
 // attribute typed arrays.
 //
 
+import { assertCount, MAX_DECOMPRESS_SIZE, MAX_FACE_COUNT, MAX_VERTEX_COUNT } from "@downdraft/core";
 import type {
     AccessorLike,
     DecodedPrimitive,
@@ -245,6 +246,8 @@ export function createDracoMeshCodec(): MeshCodec {
           if (!ok) throw new Error("Draco: DecodeBufferToMesh failed");
           vertexCount = mesh.num_points();
           indexCount = mesh.num_faces() * 3;
+          assertCount("draco vertices", vertexCount, MAX_VERTEX_COUNT);
+          assertCount("draco indices", indexCount, MAX_FACE_COUNT * 3);
 
           // Decode each attribute by glTF semantic → Draco unique id.
           for (const [semantic, uniqueId] of Object.entries(input.attributes)) {
@@ -257,6 +260,11 @@ export function createDracoMeshCodec(): MeshCodec {
             const components = accessor ? TYPE_COMPONENTS[accessor.type] ?? 1 : attr.num_components();
             const totalComponents = vertexCount * components;
             const bytesPer = COMPONENT_TYPE_BYTES[componentType] ?? 4;
+            if (totalComponents * bytesPer > MAX_DECOMPRESS_SIZE) {
+              throw new RangeError(
+                `Draco: attribute ${semantic} decoded size ${totalComponents * bytesPer} exceeds max ${MAX_DECOMPRESS_SIZE}`,
+              );
+            }
             const ptr = mod._malloc(totalComponents * bytesPer);
             try {
               const dataType = componentTypeToDracoDataType(componentType);

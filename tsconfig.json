@@ -8,40 +8,102 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["games/to-the-ocean/src/shared/*", "packages/app/src/shared/*"],
-      "@main/*": ["packages/app/src/main/*"],
-      "@sim/*": ["games/to-the-ocean/src/simulation/*"],
-      "@downdraft/core/*": ["packages/core/src/*"],
-      "@downdraft/core": ["packages/core/src/index.ts"],
-      "@downdraft/ui/*": ["packages/ui/src/*"],
-      "@downdraft/mcp/*": ["packages/mcp/src/*"],
-      "@downdraft/shader-graph/*": ["packages/shader-graph/src/*"],
-      "@downdraft/cli/*": ["packages/cli/src/*"],
-      "@downdraft/plugin-water": ["packages/plugins/water/src/index.ts"],
-      "@downdraft/plugin-water/*": ["packages/plugins/water/src/*"],
-      "@downdraft/plugin-physics-rapier": ["packages/plugins/physics-rapier/src/index.ts"],
-      "@downdraft/plugin-audio-kira": ["packages/plugins/audio-kira/src/index.ts"],
-    "@downdraft/plugin-postfx": ["packages/plugins/postfx/src/index.ts"],
-    "@downdraft/plugin-postfx/*": ["packages/plugins/postfx/src/*"],
-    "@downdraft/plugin-lighting": ["packages/plugins/lighting/src/index.ts"],
-    "@downdraft/plugin-lighting/*": ["packages/plugins/lighting/src/*"],
-    "@downdraft/plugin-weatherfx": ["packages/plugins/weatherfx/src/index.ts"],
-    "@downdraft/plugin-weatherfx/*": ["packages/plugins/weatherfx/src/*"],
-    "@downdraft/plugin-weather": ["packages/plugins/weather/src/index.ts"],
-    "@downdraft/plugin-weather/*": ["packages/plugins/weather/src/*"],
-    "@downdraft/plugin-entities": ["packages/plugins/entities/src/index.ts"],
-    "@downdraft/plugin-entities/*": ["packages/plugins/entities/src/*"],
-    "@downdraft/plugin-models": ["packages/plugins/models/src/index.ts"],
-    "@downdraft/plugin-models/*": ["packages/plugins/models/src/*"],
-    "@downdraft/plugin-devtools": ["packages/plugins/devtools/src/index.ts"],
-    "@downdraft/plugin-devtools/*": ["packages/plugins/devtools/src/*"]
+      "@shared/*": [
+        "./games/to-the-ocean/src/shared/*",
+        "./packages/app/src/shared/*"
+      ],
+      "@main/*": [
+        "./packages/app/src/main/*"
+      ],
+      "@sim/*": [
+        "./games/to-the-ocean/src/simulation/*"
+      ],
+      "@downdraft/core/*": [
+        "./packages/core/src/*"
+      ],
+      "@downdraft/core": [
+        "./packages/core/src/index.ts"
+      ],
+      "@downdraft/ui/*": [
+        "./packages/ui/src/*"
+      ],
+      "@downdraft/mcp/*": [
+        "./packages/mcp/src/*"
+      ],
+      "@downdraft/shader-graph/*": [
+        "./packages/shader-graph/src/*"
+      ],
+      "@downdraft/cli/*": [
+        "./packages/cli/src/*"
+      ],
+      "@downdraft/plugin-water": [
+        "./packages/plugins/water/src/index.ts"
+      ],
+      "@downdraft/plugin-water/*": [
+        "./packages/plugins/water/src/*"
+      ],
+      "@downdraft/plugin-physics-rapier": [
+        "./packages/plugins/physics-rapier/src/index.ts"
+      ],
+      "@downdraft/plugin-audio-kira": [
+        "./packages/plugins/audio-kira/src/index.ts"
+      ],
+      "@downdraft/plugin-postfx": [
+        "./packages/plugins/postfx/src/index.ts"
+      ],
+      "@downdraft/plugin-postfx/*": [
+        "./packages/plugins/postfx/src/*"
+      ],
+      "@downdraft/plugin-lighting": [
+        "./packages/plugins/lighting/src/index.ts"
+      ],
+      "@downdraft/plugin-lighting/*": [
+        "./packages/plugins/lighting/src/*"
+      ],
+      "@downdraft/plugin-weatherfx": [
+        "./packages/plugins/weatherfx/src/index.ts"
+      ],
+      "@downdraft/plugin-weatherfx/*": [
+        "./packages/plugins/weatherfx/src/*"
+      ],
+      "@downdraft/plugin-weather": [
+        "./packages/plugins/weather/src/index.ts"
+      ],
+      "@downdraft/plugin-weather/*": [
+        "./packages/plugins/weather/src/*"
+      ],
+      "@downdraft/plugin-entities": [
+        "./packages/plugins/entities/src/index.ts"
+      ],
+      "@downdraft/plugin-entities/*": [
+        "./packages/plugins/entities/src/*"
+      ],
+      "@downdraft/plugin-models": [
+        "./packages/plugins/models/src/index.ts"
+      ],
+      "@downdraft/plugin-models/*": [
+        "./packages/plugins/models/src/*"
+      ],
+      "@downdraft/plugin-devtools": [
+        "./packages/plugins/devtools/src/index.ts"
+      ],
+      "@downdraft/plugin-devtools/*": [
+        "./packages/plugins/devtools/src/*"
+      ]
     }
   },
-  "exclude": ["dist", "release", "node_modules"],
+  "exclude": [
+    "dist",
+    "release",
+    "node_modules"
+  ],
   "references": [
-    { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.web.json" }
+    {
+      "path": "./tsconfig.node.json"
+    },
+    {
+      "path": "./tsconfig.web.json"
+    }
   ]
 }

@@ -1,3 +1,4 @@
+import { safeJsonParse } from "@downdraft/core";
 import type { NetMessage, NetTransport, TransportType } from "./transport";
 
 export type SignalingMessageType = "offer" | "answer" | "ice-candidate" | "join" | "leave";
@@ -7,6 +8,22 @@ export interface SignalingMessage {
   fromPeerId: string;
   toPeerId?: string;
   data?: string;
+}
+
+interface IceCandidateInit {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+}
+
+export function isValidIceCandidate(obj: unknown): obj is IceCandidateInit {
+  if (typeof obj !== "object" || obj === null) return false;
+  const c = obj as Record<string, unknown>;
+  return (
+    typeof c.candidate === "string" &&
+    (c.sdpMid === null || typeof c.sdpMid === "string") &&
+    (c.sdpMLineIndex === null || typeof c.sdpMLineIndex === "number")
+  );
 }
 
 export interface SignalingClient {
@@ -44,7 +61,7 @@ export class WebSocketSignalingClient implements SignalingClient {
       };
       this.ws.onmessage = (e) => {
         try {
-          const msg = JSON.parse(e.data as string) as SignalingMessage;
+          const msg = safeJsonParse<SignalingMessage>(e.data as string);
           if (msg.type === "join" && !this.peerId) {
             this.peerId = msg.fromPeerId;
           }
@@ -129,7 +146,10 @@ export class WebRTCTransport implements NetTransport {
       if (msg.type === "answer" && this.pc) {
         this.pc.setRemoteDescription({ type: "answer", sdp: msg.data });
       } else if (msg.type === "ice-candidate" && this.pc && msg.data) {
-        this.pc.addIceCandidate(JSON.parse(msg.data));
+        const candidate = safeJsonParse<unknown>(msg.data);
+        if (isValidIceCandidate(candidate)) {
+          this.pc.addIceCandidate(candidate);
+        }
       }
     });
 
@@ -184,7 +204,10 @@ export class WebRTCTransport implements NetTransport {
           });
         });
       } else if (msg.type === "ice-candidate" && this.pc && msg.data) {
-        this.pc.addIceCandidate(JSON.parse(msg.data));
+        const candidate = safeJsonParse<unknown>(msg.data);
+        if (isValidIceCandidate(candidate)) {
+          this.pc.addIceCandidate(candidate);
+        }
       }
     });
   }
@@ -206,6 +229,11 @@ export class WebRTCTransport implements NetTransport {
 
     this.dc.onmessage = (event) => {
       const data = new Uint8Array(event.data as ArrayBuffer);
+      const MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
+      if (data.length > MAX_MESSAGE_SIZE) {
+        this.dc?.close();
+        return;
+      }
       if (data.length < 4) return;
       const type = (data[0] << 8) | data[1];
       const channel = data[2];
@@ -235,6 +263,8 @@ export class WebRTCTransport implements NetTransport {
 
   send(msg: NetMessage): void {
     if (!this.dc || this.dc.readyState !== "open") return;
+    const MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
+    if (4 + msg.data.length > MAX_MESSAGE_SIZE) return;
     const header = new Uint8Array(4);
     header[0] = (msg.type >> 8) & 0xFF;
     header[1] = msg.type & 0xFF;

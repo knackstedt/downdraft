@@ -110,7 +110,9 @@ export function createPhysicsSystem(resources: PhysicsSystemResources): System {
         const nearBodies = nearRealm.listBodies();
         loadShedder.aggressiveSleep(nearRealm.id, backend, nearBodies);
         if (accumulator.isOverBudget()) {
-          loadShedder.shed(nearRealm.id, backend, RealmTier.Near);
+          const bodyMap = new Map<number, PhysicsBody>();
+          for (const b of nearBodies) bodyMap.set(b.id, b);
+          loadShedder.shed(nearRealm.id, backend, RealmTier.Near, bodyMap);
         }
       }
       loadShedder.tick(accumulator, backend);

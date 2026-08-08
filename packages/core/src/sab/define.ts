@@ -55,12 +55,12 @@ export type ChannelOffsets<Def extends ChannelDef> = {
 
 type TypedReader<Def extends ChannelDef> = Omit<ChannelReader, "sections" | "layers" | "fields"> &
   (Def["mode"] extends "slots" ? { sections: Record<string, import("./types").SlotAccessor> } : {}) &
-  (Def["mode"] extends "grid" ? { layers: Record<string, Float32Array | Int32Array> } : {}) &
+  (Def["mode"] extends "grid" ? { layers: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array> } : {}) &
   (Def["mode"] extends "record" ? { fields: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array> } : {});
 
 type TypedWriter<Def extends ChannelDef> = Omit<ChannelWriter, "sections" | "layers" | "fields"> &
   (Def["mode"] extends "slots" ? { sections: Record<string, import("./types").SlotAccessor> } : {}) &
-  (Def["mode"] extends "grid" ? { layers: Record<string, Float32Array | Int32Array> } : {}) &
+  (Def["mode"] extends "grid" ? { layers: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array> } : {}) &
   (Def["mode"] extends "record" ? { fields: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array> } : {});
 
 export interface ChannelInstanceTyped<Def extends ChannelDef> extends ChannelInstance {

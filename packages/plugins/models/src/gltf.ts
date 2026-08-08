@@ -1,3 +1,4 @@
+import { assertBounds, assertCount, MAX_VERTEX_COUNT, sanitizeUri } from "@downdraft/core";
 import { strFromU8 } from "fflate";
 import type { GLTFCodecRegistry } from "./codecs/registry";
 import { getDefaultCodecRegistry } from "./codecs/registry";
@@ -171,11 +172,34 @@ async function readAccessorData(
 ): Promise<{ data: number[]; components: number; count: number }> {
   const { json, bd, registry, meshoptCache } = ctx;
   const accessor = json.accessors![accessorIdx];
+  if (
+    !Number.isInteger(accessor.bufferView) ||
+    accessor.bufferView < 0 ||
+    accessor.bufferView >= bd.bufferViews.length
+  ) {
+    throw new RangeError(
+      `gltf: accessor ${accessorIdx} references invalid bufferView index ${accessor.bufferView}`,
+    );
+  }
   const bufferView = bd.bufferViews[accessor.bufferView];
   const componentSize = GLTF_COMPONENT_SIZES[accessor.componentType] ?? 4;
   const numComponents = GLTF_TYPE_COMPONENTS[accessor.type] ?? 1;
   const byteStride = bufferView.byteStride ?? (numComponents * componentSize);
   const offset = (bufferView.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+
+  // Validate bufferView bounds against its source buffer (non-meshopt path).
+  const meshoptExt2 = bufferView.extensions?.["EXT_meshopt_compression"];
+  if (!meshoptExt2 || !registry.hasBufferViewCodec("EXT_meshopt_compression")) {
+    const srcBuffer = bd.buffers[bufferView.buffer];
+    if (srcBuffer) {
+      assertBounds(
+        `gltf bufferView ${accessor.bufferView}`,
+        bufferView.byteOffset ?? 0,
+        bufferView.byteLength,
+        srcBuffer.byteLength,
+      );
+    }
+  }
 
   // Resolve the source buffer: either the raw buffer, or a meshopt-decoded
   // bufferView (decoded once and cached).
@@ -204,6 +228,11 @@ async function readAccessorData(
         byteStride,
       });
       decoded = result as unknown as Uint8Array;
+      // Bound the meshopt cache to prevent unbounded memory growth on large files.
+      if (meshoptCache.size >= 64) {
+        const firstKey = meshoptCache.keys().next().value;
+        if (firstKey !== undefined) meshoptCache.delete(firstKey);
+      }
       meshoptCache.set(accessor.bufferView, decoded);
     }
     // The decoded buffer is a flat byte array; accessor.byteOffset applies
@@ -214,8 +243,10 @@ async function readAccessorData(
   }
 
   const result: number[] = [];
-  const view = new DataView(buffer, offset);
   const count = accessor.count;
+  assertCount("gltf accessor", count, MAX_VERTEX_COUNT);
+  assertBounds("gltf accessor", offset, count * byteStride, buffer.byteLength);
+  const view = new DataView(buffer, offset);
   const divisor = accessor.normalized ? NORMALIZED_DIVISORS[accessor.componentType] : undefined;
 
   for (let i = 0; i < count; i++) {
@@ -458,6 +489,10 @@ export async function parseGLTF(
             const img = json.images[tex.source];
             if (img) {
               textureUri = img.uri ?? undefined;
+              if (textureUri) {
+                // Reject file://, .., and absolute paths from untrusted glTF
+                textureUri = sanitizeUri(textureUri);
+              }
               // Handle embedded images via bufferView
               if (img.bufferView !== undefined && bd.buffers[0]) {
                 const bv = bd.bufferViews[img.bufferView];
@@ -481,6 +516,9 @@ export async function parseGLTF(
           const img = json.images[tex.source];
           if (img) {
             normalTextureUri = img.uri ?? undefined;
+            if (normalTextureUri) {
+              normalTextureUri = sanitizeUri(normalTextureUri);
+            }
           }
         }
         normalTextureTransform = extractTextureTransform(mat.normalTexture.extensions);

@@ -10,9 +10,21 @@ export function createEventChannel<T>(): EventChannel<T> {
   let current: T[] = [];
   let pending: T[] = [];
   let dirty = false;
+  const MAX_QUEUE_SIZE = 10000;
+  let droppedCount = 0;
 
   return {
     send(event: T): void {
+      if (pending.length >= MAX_QUEUE_SIZE) {
+        // Drop the oldest event to make room for the newest.
+        pending.shift();
+        droppedCount++;
+        if (droppedCount === 1 || droppedCount % 1000 === 0) {
+          console.warn(
+            `EventChannel: queue full (${MAX_QUEUE_SIZE}), dropped ${droppedCount} oldest event(s) total`,
+          );
+        }
+      }
       pending.push(event);
       dirty = true;
     },

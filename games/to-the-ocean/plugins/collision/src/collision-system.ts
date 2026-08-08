@@ -93,9 +93,16 @@ export function createCollisionSystem(
       // Static entities (islands/ports) go into a separate small list.
       let entityCount = 0;
       staticCount = 0;
+      let maxEntitiesWarned = false;
       grid.clear();
       allEntitiesQuery.iterate(ctx.tick, (_entity, comps) => {
-        if (entityCount >= MAX_COLLISION_ENTITIES) return;
+        if (entityCount >= MAX_COLLISION_ENTITIES) {
+          if (!maxEntitiesWarned) {
+            maxEntitiesWarned = true;
+            console.warn(`[collision-system] MAX_COLLISION_ENTITIES (${MAX_COLLISION_ENTITIES}) exceeded, skipping further entities`);
+          }
+          return;
+        }
         const transform = comps[0] as CollisionTransform;
         const vel = comps[1] as CollisionVelocity;
         const meta = comps[2] as CollisionEntityMeta;
@@ -312,7 +319,7 @@ function collideGenericStatic(
   const radius = dyn.transform.scale + stat.transform.scale;
 
   if (distSq < radius * radius) {
-    const dist = Math.sqrt(distSq) || 0.001;
+    const dist = Number.isNaN(distSq) || distSq < 0 ? 0.001 : Math.sqrt(distSq) || 0.001;
     const overlap = (radius - dist) / dist;
     dyn.transform.x += dx * overlap;
     dyn.transform.y += dy * overlap;
@@ -343,7 +350,7 @@ function collideDynamicPair(
 
   const radius = a.transform.scale + b.transform.scale;
   if (distSq < radius * radius) {
-    const dist = Math.sqrt(distSq) || 0.001;
+    const dist = Number.isNaN(distSq) || distSq < 0 ? 0.001 : Math.sqrt(distSq) || 0.001;
     const overlap = (radius - dist) / dist * 0.5;
 
     a.transform.x += dx * overlap;

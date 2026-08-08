@@ -76,6 +76,9 @@ export class NativePhysicsBackend implements PhysicsBackend {
     const isStatic = desc.type === "static";
     const isKinematic = desc.type === "kinematic";
 
+    // Validate mass: if invalid (non-positive or non-finite), treat as static
+    const validMass = mass > 0 && Number.isFinite(mass);
+
     const body: NativeBody = {
       id: bodyId,
       realmId,
@@ -85,7 +88,7 @@ export class NativePhysicsBackend implements PhysicsBackend {
       linearVelocity: [...(desc.linearVelocity ?? [0, 0, 0])] as Vec3,
       angularVelocity: [...(desc.angularVelocity ?? [0, 0, 0])] as Vec3,
       mass,
-      invMass: isStatic || isKinematic ? 0 : 1 / mass,
+      invMass: isStatic || isKinematic || !validMass ? 0 : 1 / mass,
       restitution: 0.3,
       friction: 0.8,
       gravityScale: desc.gravityScale ?? 1,

@@ -24,6 +24,8 @@ export interface WatchedTexture {
   device: GPUDevice;
   format?: GPUTextureFormat;
   generateMips: boolean;
+  /** The most recently created GPUTexture — destroyed before creating a replacement. */
+  texture?: GPUTexture;
 }
 
 export type HotReloadCallback<T> = (resource: T) => void;
@@ -35,6 +37,7 @@ export class MaterialHotReloader {
   private pipelineCache: PipelineCache | null = null;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private checkInterval: number = 1000;
+  private static readonly MAX_WATCH_ENTRIES = 256;
 
   constructor(pipelineCache?: PipelineCache) {
     this.pipelineCache = pipelineCache ?? null;
@@ -44,7 +47,20 @@ export class MaterialHotReloader {
     this.pipelineCache = cache;
   }
 
+  /** Remove the oldest entry from a Map if it exceeds the max watch limit. */
+  private enforceWatchLimit<K, V>(map: Map<K, V>): void {
+    if (map.size >= MaterialHotReloader.MAX_WATCH_ENTRIES) {
+      const oldestKey = map.keys().next().value;
+      if (oldestKey !== undefined) {
+        map.delete(oldestKey);
+      }
+    }
+  }
+
   watch(material: Material, shaderPath: string): void {
+    if (!this.watchedShaders.has(shaderPath)) {
+      this.enforceWatchLimit(this.watchedShaders);
+    }
     this.watchedShaders.set(shaderPath, {
       path: shaderPath,
       material,
@@ -57,6 +73,9 @@ export class MaterialHotReloader {
   }
 
   watchMesh(path: string, onReload: HotReloadCallback<MeshData>): void {
+    if (!this.watchedMeshes.has(path)) {
+      this.enforceWatchLimit(this.watchedMeshes);
+    }
     this.watchedMeshes.set(path, {
       path,
       lastModified: 0,
@@ -74,6 +93,9 @@ export class MaterialHotReloader {
     onReload: HotReloadCallback<GPUTexture>,
     options?: { format?: GPUTextureFormat; generateMips?: boolean },
   ): void {
+    if (!this.watchedTextures.has(path)) {
+      this.enforceWatchLimit(this.watchedTextures);
+    }
     this.watchedTextures.set(path, {
       path,
       lastModified: 0,
@@ -202,11 +224,14 @@ export class MaterialHotReloader {
         format: watched.format,
         generateMips: watched.generateMips,
       });
+      // Destroy the old texture before creating a new one to avoid GPU leaks.
+      watched.texture?.destroy();
       const gpuTexture = watched.device.createTexture({
         size: [textureData.width, textureData.height],
         format: watched.format ?? "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       });
+      watched.texture = gpuTexture;
       watched.device.queue.writeTexture(
         { texture: gpuTexture },
         textureData.data as unknown as BufferSource,

@@ -332,10 +332,16 @@ export class CloudSystem {
       if (layer.vertexBuffer) { layer.vertexBuffer.destroy(); layer.vertexBuffer = null; }
       if (layer.indexBuffer) { layer.indexBuffer.destroy(); layer.indexBuffer = null; }
       layer.perLayerUniform.destroy();
+      // GPUBindGroup has no destroy() — just null it.
+      layer.bindGroup = null;
     }
     if (this.uniformBuffer) {
       this.uniformBuffer.destroy();
       this.uniformBuffer = null;
     }
+    this.pipeline?.destroy();
+    this.pipeline = null;
+    // GPUBindGroupLayout has no destroy() — just null it.
+    this.bindGroupLayout = null;
   }
 }

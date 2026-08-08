@@ -1,6 +1,7 @@
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { destroyMapValues } from "../resource-tracker";
 
 import AABB_SHADER from "../shaders/debug-viz/aabb.wgsl?raw";
 import DEPTH_SHADER from "../shaders/debug-viz/depth.wgsl?raw";
@@ -269,7 +270,8 @@ export class DebugVizPass extends RenderPass {
     this.lodBuffer = null;
     this.aabbBuffer?.destroy();
     this.aabbBuffer = null;
-    this.pipelines.clear();
+    destroyMapValues(this.pipelines);
+    this.aabbPipeline?.destroy();
     this.aabbPipeline = null;
   }
 }

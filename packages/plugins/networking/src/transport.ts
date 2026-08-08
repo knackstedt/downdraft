@@ -80,6 +80,9 @@ export class WebSocketTransport implements NetTransport {
   private lastPing = 0;
 
   async connect(url: string): Promise<void> {
+    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+      throw new Error("connect() already in progress or connected");
+    }
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(url);
       this.ws.binaryType = "arraybuffer";
@@ -102,6 +105,11 @@ export class WebSocketTransport implements NetTransport {
 
       this.ws.onmessage = (e) => {
         const data = new Uint8Array(e.data as ArrayBuffer);
+        const MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
+        if (data.length > MAX_MESSAGE_SIZE) {
+          this.ws?.close(1009, "message too large");
+          return;
+        }
         if (data.length < 4) return;
         const type = (data[0] << 8) | data[1];
         const channel = data[2];

@@ -2,6 +2,7 @@ import { type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+import { destroyMapValues } from "../resource-tracker";
 
 const DEPTH_PREPASS_SHADER = `
 struct CameraUniforms {
@@ -150,11 +151,12 @@ export class DepthPrepass extends RenderPass {
   destroy(): void {
     this.cameraBuffer?.destroy();
     this.modelBuffer?.destroy();
+    this.shaderModule?.destroy();
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
-    this.pipelines.clear();
-    this.bindGroups.clear();
+    destroyMapValues(this.pipelines);
+    destroyMapValues(this.bindGroups);
   }
 }

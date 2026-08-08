@@ -20,6 +20,8 @@ export class InterpolationBuffer {
   /** Reverse map: slot → entity index. */
   private slotToEntity: Map<number, number> = new Map();
   private nextSlot = 0;
+  /** Whether writeTick has been called at least once. */
+  private initialized: boolean = false;
 
   constructor(maxEntities: number) {
     this.maxEntities = maxEntities;
@@ -59,8 +61,16 @@ export class InterpolationBuffer {
    * `PhysicsBackend.readTransforms`.
    */
   writeTick(realmId: number, readFn: (realmId: number, buffer: Float32Array, count: number) => void, entityCount: number): void {
-    // Read into prev (reused as scratch), then swap so curr = new data
     const count = Math.min(entityCount, this.maxEntities);
+    // On the first tick, copy data to both prev and curr so interpolation
+    // produces correct values instead of interpolating from zeros.
+    if (!this.initialized) {
+      readFn(realmId, this.curr, count);
+      this.prev.set(this.curr);
+      this.initialized = true;
+      return;
+    }
+    // Read into prev (reused as scratch), then swap so curr = new data
     readFn(realmId, this.prev, count);
     // Swap: the new data is in prev; we want curr = new, prev = old curr
     const tmp = this.curr;

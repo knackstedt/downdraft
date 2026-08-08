@@ -466,12 +466,14 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         if (!body) return null;
         const entity = (body as any).__entity as Entity | undefined;
         const point = ray.pointAt(hit.timeOfImpact);
-        return {
+        const result = {
           entity: entity ?? { index: 0, generation: 0 },
-          point: [point.x, point.y, point.z],
-          normal: [0, 1, 0],
+          point: [point.x, point.y, point.z] as [number, number, number],
+          normal: [0, 1, 0] as [number, number, number],
           distance: hit.timeOfImpact,
         };
+        try { (point as any).free?.(); } catch {}
+        return result;
       },
       raycastMulti(realmId, origin, direction, maxDistance, filter) {
         const world = realms.get(realmId);
@@ -486,12 +488,14 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         if (!body) return [];
         const entity = (body as any).__entity as Entity | undefined;
         const point = ray.pointAt(hit.timeOfImpact);
-        return [{
+        const result = [{
           entity: entity ?? { index: 0, generation: 0 },
-          point: [point.x, point.y, point.z],
-          normal: [hit.normal?.x ?? 0, hit.normal?.y ?? 1, hit.normal?.z ?? 0],
+          point: [point.x, point.y, point.z] as [number, number, number],
+          normal: [hit.normal?.x ?? 0, hit.normal?.y ?? 1, hit.normal?.z ?? 0] as [number, number, number],
           distance: hit.timeOfImpact,
         }];
+        try { (point as any).free?.(); } catch {}
+        return result;
       },
       shapeCast(realmId, shape, origin, rotation, direction, maxDistance, filter) {
         const world = realms.get(realmId);

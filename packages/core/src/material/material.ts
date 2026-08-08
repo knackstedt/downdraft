@@ -78,6 +78,8 @@ export class Material {
   compiledVariants: Map<string, string> = new Map();
   /** Per-variant render pipelines, keyed by variantKey(). Populated by the renderer. */
   variantCache: Map<string, unknown> = new Map();
+  /** Maximum number of cached variant pipelines (LRU eviction). */
+  private static readonly MAX_VARIANT_CACHE = 48;
 
   constructor(def: MaterialDefinition) {
     this.name = def.name;
@@ -107,8 +109,39 @@ export class Material {
     return this.uniformValues.get(name);
   }
 
+  /**
+   * Evict the oldest cached variant pipeline if the cache exceeds the max size.
+   * Destroys the evicted pipeline if it has a .destroy() method.
+   */
+  enforceVariantCacheLimit(): void {
+    if (this.variantCache.size >= Material.MAX_VARIANT_CACHE) {
+      const oldestKey = this.variantCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        const entry = this.variantCache.get(oldestKey);
+        if (entry && typeof (entry as { destroy?: () => void }).destroy === "function") {
+          try {
+            (entry as { destroy: () => void }).destroy();
+          } catch {
+            // Resource may already be destroyed
+          }
+        }
+        this.variantCache.delete(oldestKey);
+      }
+    }
+  }
+
   /** Clear cached variant pipelines/WGSL (e.g. after hot-reload recompile). */
   invalidateVariants(): void {
+    // Destroy any cached GPU pipelines before clearing.
+    for (const entry of this.variantCache.values()) {
+      if (entry && typeof (entry as { destroy?: () => void }).destroy === "function") {
+        try {
+          (entry as { destroy: () => void }).destroy();
+        } catch {
+          // Resource may already be destroyed
+        }
+      }
+    }
     this.variantCache.clear();
     this.compiledVariants.clear();
     this.updatePipelineKey();

@@ -3,9 +3,9 @@
 // Reusable plugin with configurable economy parameters
 // ============================================================================
 
-import { PortSize } from "./types";
-import type { MarketListing, EconomyConfig } from "./types";
-import { DEFAULT_ECONOMY_CONFIG } from "./types";
+import { clamp, clampSafeInt } from "@downdraft/core";
+import type { EconomyConfig, MarketListing } from "./types";
+import { DEFAULT_ECONOMY_CONFIG, PortSize } from "./types";
 
 interface PortMarket {
   portId: string;
@@ -59,6 +59,7 @@ export class MarketSystem {
   sellToPort(portId: string, itemId: string, baseValue: number, quantity: number, isBarge: boolean): number {
     const market = this.markets.get(portId);
     if (!market) return 0;
+    quantity = Math.max(0, quantity);
 
     let listing = market.listings.get(itemId);
     if (!listing) {
@@ -72,16 +73,18 @@ export class MarketSystem {
     const price = this.getSellPrice(portId, itemId, baseValue, quantity, isBarge);
     listing.supply += quantity;
     const impactMultiplier = isBarge ? 1 : 1 / this.config.bargeInventoryMultiplier;
-    const supplyImpact = (quantity * impactMultiplier) / Math.max(1, listing.supply);
+    let supplyImpact = (quantity * impactMultiplier) / Math.max(1, listing.supply);
+    supplyImpact = clamp(supplyImpact, -this.config.priceMaxModifier, this.config.priceMaxModifier);
     listing.priceModifier = Math.max(this.config.priceMinModifier, listing.priceModifier - supplyImpact * 0.05);
     listing.lastTradeTime = this.tickCount;
 
-    return price * quantity;
+    return clampSafeInt(price * quantity);
   }
 
   buyFromPort(portId: string, itemId: string, baseValue: number, quantity: number): number {
     const market = this.markets.get(portId);
     if (!market) return 0;
+    quantity = Math.max(0, quantity);
 
     let listing = market.listings.get(itemId);
     if (!listing) {
@@ -94,10 +97,12 @@ export class MarketSystem {
 
     const price = this.getBuyPrice(portId, itemId, baseValue);
     listing.supply = Math.max(0, listing.supply - quantity);
-    listing.priceModifier = Math.min(this.config.priceMaxModifier, listing.priceModifier + (quantity / Math.max(1, listing.supply)) * 0.03);
+    let supplyImpact = (quantity / Math.max(1, listing.supply)) * 0.03;
+    supplyImpact = clamp(supplyImpact, -this.config.priceMaxModifier, this.config.priceMaxModifier);
+    listing.priceModifier = Math.min(this.config.priceMaxModifier, listing.priceModifier + supplyImpact);
     listing.lastTradeTime = this.tickCount;
 
-    return price * quantity;
+    return clampSafeInt(price * quantity);
   }
 
   tick(dt: number): void {

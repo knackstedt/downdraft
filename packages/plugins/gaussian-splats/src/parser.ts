@@ -1,3 +1,6 @@
+
+import { assertBounds, assertCount, MAX_VERTEX_COUNT } from "@downdraft/core";
+
 export interface GaussianSplat {
   position: [number, number, number];
   scale: [number, number, number];
@@ -50,6 +53,7 @@ function readPLYHeader(data: Uint8Array): PLYHeader {
 export function parsePLY(data: Uint8Array): GaussianSplatData {
   const header = readPLYHeader(data);
   const splats: GaussianSplat[] = [];
+  assertCount("splats", header.vertexCount, MAX_VERTEX_COUNT);
 
   if (header.format === "ascii") {
     const text = new TextDecoder().decode(data);
@@ -83,6 +87,8 @@ export function parsePLY(data: Uint8Array): GaussianSplatData {
 
     const view = new DataView(data.buffer, data.byteOffset + offset);
     const stride = header.properties.length * 4;
+    // Validate data size vs vertexCount × stride
+    assertBounds("splats binary data", offset, header.vertexCount * stride, data.byteLength);
     for (let i = 0; i < header.vertexCount; i++) {
       const base = i * stride;
       splats.push({

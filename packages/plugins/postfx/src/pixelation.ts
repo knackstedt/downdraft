@@ -201,5 +201,13 @@ export class PixelationSystem {
     this.offscreenColor = null;
     this.offscreenDepth = null;
     this.uniformBuffer?.destroy();
+    this.uniformBuffer = null;
+    this.sampler?.destroy();
+    this.sampler = null;
+    this.pipeline?.destroy();
+    this.pipeline = null;
+    // GPUBindGroup and GPUBindGroupLayout have no destroy() — just null them.
+    this.bindGroup = null;
+    this.bindGroupLayout = null;
   }
 }

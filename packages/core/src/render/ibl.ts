@@ -77,6 +77,13 @@ export class IBLSystem {
       for (const tex of this.currentEnv.prefilteredSpecular) {
         tex.destroy();
       }
+      // Destroy the previous source cubemap — it is no longer referenced once
+      // irradiance/prefiltered have been generated from it.
+      // NOTE: there is an inherent race here — if a capture pass is still
+      // in-flight on the GPU queue when we destroy the old cubemap, the
+      // driver may error. The caller is expected to ensure no passes are
+      // pending before triggering a recapture.
+      this.currentEnv.cubemap?.destroy();
     }
 
     this.currentEnv = {

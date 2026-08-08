@@ -138,24 +138,23 @@ describe("RealmManager", () => {
     });
     // Body starts in near (default), move it far away to get it demoted
     const body = rm.registerBody(makeEntity(1), { type: "dynamic", position: [200, 0, 0], rotation: [0, 0, 0, 1] });
+    // Get metadata ref before transfer — meta.body is mutated in-place by transferBody
+    const meta = rm.getBodyMetadata(body);
     // Demote: body is at 200, near demote threshold is 60, dwell 1 → demote to mid
     rm.updateRealmMembership([[0, 0, 0]], 2.0);
-    // After transfer, body ref changes — get updated ref from metadata
-    const meta = rm.getBodyMetadata(body);
+    // After transfer, use meta.body (the updated ref) instead of the stale body ref
     const currentBody = meta?.body ?? body;
     expect(rm.getRealmForBody(currentBody)).toBe(RealmTier.Mid);
 
     // Demote again: mid → far (still at 200, mid demote threshold 60)
     rm.updateRealmMembership([[0, 0, 0]], 2.0);
-    const meta2 = rm.getBodyMetadata(currentBody);
-    const currentBody2 = meta2?.body ?? currentBody;
+    const currentBody2 = meta?.body ?? currentBody;
     expect(rm.getRealmForBody(currentBody2)).toBe(RealmTier.Far);
 
     // Now move it close to promote back
     rm.getRealm(RealmTier.Far).setPosition(currentBody2, [10, 0, 0]);
     rm.updateRealmMembership([[0, 0, 0]], 0.016);
-    const meta3 = rm.getBodyMetadata(currentBody2);
-    const currentBody3 = meta3?.body ?? currentBody2;
+    const currentBody3 = meta?.body ?? currentBody2;
     expect(rm.getRealmForBody(currentBody3)).toBe(RealmTier.Mid); // 10 < mid promoteThreshold(50) → promote to mid
 
     rm.destroy();
@@ -170,6 +169,8 @@ describe("RealmManager", () => {
       farConfig: { name: "far", gravity: [0, -9.81, 0], tierConfig: TIER_CONFIG },
     });
     const body = rm.registerBody(makeEntity(1), { type: "dynamic", position: [0, 0, 0], rotation: [0, 0, 0, 1] });
+    // Get metadata ref before transfer — meta.body is mutated in-place by transferBody
+    const meta = rm.getBodyMetadata(body);
     // Move body beyond demote threshold
     rm.getRealm(RealmTier.Near).setPosition(body, [100, 0, 0]);
 
@@ -179,7 +180,8 @@ describe("RealmManager", () => {
 
     // Second update: dwell time exceeded → demote
     rm.updateRealmMembership([[0, 0, 0]], 1.0);
-    expect(rm.getRealmForBody(body)).toBe(RealmTier.Mid);
+    // After transfer, use meta.body (the updated ref) since old backend id is deleted
+    expect(rm.getRealmForBody(meta!.body)).toBe(RealmTier.Mid);
 
     rm.destroy();
   });
@@ -259,12 +261,13 @@ describe("RealmManager", () => {
       onDemote: () => { demoted++; },
     });
     const body = rm.registerBody(makeEntity(1), { type: "dynamic", position: [0, 0, 0], rotation: [0, 0, 0, 1] });
+    // Get metadata ref before transfer — meta.body is mutated in-place by transferBody
+    const meta = rm.getBodyMetadata(body);
     // Demote near → mid
     rm.getRealm(RealmTier.Near).setPosition(body, [100, 0, 0]);
     rm.updateRealmMembership([[0, 0, 0]], 2.0);
     expect(demoted).toBe(1);
-    // After transfer, get updated body ref
-    const meta = rm.getBodyMetadata(body);
+    // After transfer, use meta.body (the updated ref) since old backend id is deleted
     const currentBody = meta?.body ?? body;
     // Promote mid → near
     rm.getRealm(RealmTier.Mid).setPosition(currentBody, [10, 0, 0]);

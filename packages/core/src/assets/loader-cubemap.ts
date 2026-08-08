@@ -1,3 +1,4 @@
+import { sanitizeUri } from "../safety/path";
 import { loadHDRFile } from "./loader-hdr";
 import type { TextureData } from "./loader-texture";
 
@@ -22,7 +23,9 @@ export async function loadCubemapFromFiles(
   const faces: CubemapFaceData[] = [];
 
   for (let i = 0; i < 6; i++) {
-    const texData = await loadHDRFile(faceUris[i]);
+    // Validate face URI: reject file://, .., absolute paths
+    const safeUri = sanitizeUri(faceUris[i]);
+    const texData = await loadHDRFile(safeUri);
     if (!texData) continue;
     if (texData.data instanceof Float32Array) {
       faces.push({
@@ -60,6 +63,10 @@ export async function loadCubemapFromDirectory(
   const faceUris = FACE_NAMES.map((name) => `${basePath}/${prefix}${name}${extension}`) as [
     string, string, string, string, string, string,
   ];
+  // Validate each constructed face URI for path safety
+  for (const uri of faceUris) {
+    sanitizeUri(uri);
+  }
   return loadCubemapFromFiles(faceUris);
 }
 

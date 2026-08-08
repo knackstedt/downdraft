@@ -1,4 +1,4 @@
-import { createLogger } from "@downdraft/core";
+import { confinePath, createLogger } from "@downdraft/core";
 import { Eta } from "eta";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { basename, dirname, join, relative, resolve } from "path";
@@ -48,6 +48,10 @@ function createEtaInstance(templateDir: string): Eta {
 }
 
 export async function scaffold(targetPath: string, opts: ScaffoldOptions): Promise<void> {
+  // Validate template name to prevent path traversal via the template parameter.
+  // Template names must be relative, non-traversing identifiers confined to the templates dir.
+  confinePath(TEMPLATES_DIR, opts.template);
+
   const templateDir = join(TEMPLATES_DIR, opts.template);
   if (!existsSync(templateDir)) {
     log.error("scaffold", `Template "${opts.template}" not found at ${templateDir}`);
@@ -55,7 +59,8 @@ export async function scaffold(targetPath: string, opts: ScaffoldOptions): Promi
     process.exit(1);
   }
 
-  const absTarget = resolve(targetPath);
+  // Validate the target path to prevent path traversal outside the current working directory.
+  const absTarget = confinePath(process.cwd(), targetPath);
 
   if (existsSync(absTarget)) {
     const entries = readdirSync(absTarget);

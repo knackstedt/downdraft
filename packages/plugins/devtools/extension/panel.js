@@ -109,6 +109,15 @@
     });
   }
 
+  // --- Sandboxed script execution ---
+  // Uses new Function() to prevent access to closure variables while still
+  // allowing DOM manipulation via a controlled API object. This is less secure
+  // than iframe sandboxing but prevents accidental access to panel internals.
+  function sandboxEval(code, api) {
+    var fn = new Function("api", "with (api) { return (" + code + "\n); }");
+    return fn(api);
+  }
+
   function getSceneInspector() {
     return new Promise(function (resolve) {
       evalInPage("window.__sceneInspector", function (result, err) {
@@ -122,6 +131,11 @@
   }
 
   function callInspector(method, args) {
+    // SECURITY: validate method name to prevent code injection via string concatenation
+    if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(method)) {
+      console.error("[3D Scene] callInspector rejected invalid method name:", method);
+      return Promise.resolve({ result: null, err: "Invalid method name" });
+    }
     var code = "(function(){ var r = window.__sceneInspector && window.__sceneInspector." + method + "(";
     if (args !== undefined && args !== null) {
       if (Array.isArray(args)) {
@@ -990,10 +1004,10 @@
       document.head.appendChild(style);
     }
 
-    // Eval script
+    // Eval script (sandboxed — no access to panel closure variables)
     if (ext.script) {
       try {
-        var lifecycle = eval(ext.script);
+        var lifecycle = sandboxEval(ext.script, { document: document, console: console, panel: panel });
         if (lifecycle && typeof lifecycle === "object") {
           extensionLifecycle[ext.id] = lifecycle;
         }
@@ -1013,7 +1027,7 @@
 
     if (toggle.script) {
       try {
-        eval(toggle.script);
+        sandboxEval(toggle.script, { document: document, console: console });
       } catch (e) {
         console.error("[DevTools] Overlay toggle script error (" + toggle.id + "):", e);
       }

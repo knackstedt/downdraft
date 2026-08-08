@@ -21,12 +21,29 @@ const log = createLogger();
 
 // Static paint port map — MessagePort from renderer preload → main process
 const paintPorts = new Map<string, MessagePort>();
+// SECURITY: track allowed sender webContents IDs for IPC sender validation
+const allowedSenderIds = new Set<number>();
+
+/**
+ * Register a webContents ID as an allowed IPC sender for __osr_paint_port.
+ * Called by OSRRendererManager.setTargetWebContents() so the sender is
+ * allowlisted immediately — before any OSR renderer instances exist.
+ */
+export function addAllowedSender(id: number): void {
+  allowedSenderIds.add(id);
+}
+
 let portHandlerRegistered = false;
 function ensurePaintPortHandler(): void {
   if (portHandlerRegistered) return;
   if (!ipcMain) return; // Not in electron main process (e.g. model-viewer with osr:false)
   portHandlerRegistered = true;
   ipcMain.on("__osr_paint_port", (event: any, data: { rendererId: string }) => {
+    // SECURITY: validate that the sender is an expected renderer webContents
+    if (!allowedSenderIds.has(event.sender?.id)) {
+      log.warn("OSR", `Rejected __osr_paint_port from unauthorized sender (id=${event.sender?.id})`);
+      return;
+    }
     const port = event.ports[0];
     if (port && data?.rendererId) {
       paintPorts.set(data.rendererId, port);
@@ -103,6 +120,8 @@ export abstract class OSRRenderer {
 
   setTargetWebContents(wc: WebContents): void {
     this.targetWebContents = wc;
+    // SECURITY: register this webContents as an allowed IPC sender
+    allowedSenderIds.add(wc.id);
   }
 
   setDisplayRefreshRate(refreshRate: number): void {
@@ -588,25 +607,29 @@ export abstract class OSRRenderer {
       const keyName = keyCodeToElectronKey(event.keyCode ?? "");
       const domType = event.type === "keyDown" ? "keydown" : "keyup";
       const mods = event.modifiers ?? [];
+      // SECURITY: escape keyName for safe embedding in JS string literals
+      const safeKeyName = JSON.stringify(keyName);
+      const keyCodeStr = keyName.length === 1 ? "Key" + keyName.toUpperCase() : keyName;
+      const safeKeyCode = JSON.stringify(keyCodeStr);
       const js = `(function(){
         var el = document.activeElement || document.body;
         var ctrl = ${mods.includes('Control')};
         var shift = ${mods.includes('Shift')};
         var ev = new KeyboardEvent('${domType}', {
           bubbles: true, cancelable: true, view: window,
-          key: '${keyName}', code: '${keyName.length === 1 ? 'Key' + keyName.toUpperCase() : keyName}',
+          key: ${safeKeyName}, code: ${safeKeyCode},
           ctrlKey: ctrl, shiftKey: shift, altKey: ${mods.includes('Alt')}, metaKey: ${mods.includes('Meta')}
         });
         el.dispatchEvent(ev);
         if ('${domType}' === 'keydown' && el.tagName) {
           var tag = el.tagName.toLowerCase();
           var isInput = (tag === 'input' || tag === 'textarea');
-          if (isInput && ctrl && '${keyName}' === 'a') {
+          if (isInput && ctrl && ${safeKeyName} === 'a') {
             el.setSelectionRange(0, el.value.length);
-          } else if (isInput && ctrl && '${keyName}' === 'c') {
+          } else if (isInput && ctrl && ${safeKeyName} === 'c') {
             var s = el.selectionStart || 0, e = el.selectionEnd || 0;
             if (s !== e) { window.__osrClipboardText = el.value.substring(s, e); }
-          } else if (isInput && ctrl && '${keyName}' === 'x') {
+          } else if (isInput && ctrl && ${safeKeyName} === 'x') {
             var s = el.selectionStart || 0, e = el.selectionEnd || 0;
             if (s !== e) {
               window.__osrClipboardText = el.value.substring(s, e);
@@ -614,7 +637,7 @@ export abstract class OSRRenderer {
               el.setSelectionRange(s, s);
               el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
             }
-          } else if (isInput && ctrl && '${keyName}' === 'v') {
+          } else if (isInput && ctrl && ${safeKeyName} === 'v') {
             var txt = window.__osrClipboardPaste || '';
             if (txt) {
               var s = el.selectionStart || 0, e = el.selectionEnd || 0;
@@ -622,7 +645,7 @@ export abstract class OSRRenderer {
               el.setSelectionRange(s + txt.length, s + txt.length);
               el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: txt }));
             }
-          } else if (isInput && ctrl && '${keyName}' === 'ArrowLeft') {
+          } else if (isInput && ctrl && ${safeKeyName} === 'ArrowLeft') {
             var s = el.selectionStart || 0;
             var newPos = s;
             if (shift) { newPos = s; }
@@ -633,7 +656,7 @@ export abstract class OSRRenderer {
             while (newPos > 0 && /\\w/.test(v[newPos - 1])) newPos--;
             if (shift) { el.setSelectionRange(newPos, s); }
             else { el.setSelectionRange(newPos, newPos); }
-          } else if (isInput && ctrl && '${keyName}' === 'ArrowRight') {
+          } else if (isInput && ctrl && ${safeKeyName} === 'ArrowRight') {
             var s = el.selectionEnd || 0;
             var v = el.value;
             var newPos = s;
@@ -641,24 +664,24 @@ export abstract class OSRRenderer {
             while (newPos < v.length && /\\w/.test(v[newPos])) newPos++;
             if (shift) { el.setSelectionRange(el.selectionStart, newPos); }
             else { el.setSelectionRange(newPos, newPos); }
-          } else if (isInput && shift && '${keyName}' === 'ArrowLeft') {
+          } else if (isInput && shift && ${safeKeyName} === 'ArrowLeft') {
             var s = el.selectionStart || 0;
             if (s > 0) el.setSelectionRange(s - 1, el.selectionEnd);
-          } else if (isInput && shift && '${keyName}' === 'ArrowRight') {
+          } else if (isInput && shift && ${safeKeyName} === 'ArrowRight') {
             var e = el.selectionEnd || 0;
             if (e < el.value.length) el.setSelectionRange(el.selectionStart, e + 1);
-          } else if (isInput && shift && '${keyName}' === 'Home') {
+          } else if (isInput && shift && ${safeKeyName} === 'Home') {
             el.setSelectionRange(0, el.selectionEnd);
-          } else if (isInput && shift && '${keyName}' === 'End') {
+          } else if (isInput && shift && ${safeKeyName} === 'End') {
             el.setSelectionRange(el.selectionStart, el.value.length);
-          } else if (isInput && '${keyName}'.length === 1 && !ctrl) {
+          } else if (isInput && ${safeKeyName}.length === 1 && !ctrl) {
             // Synthetic KeyboardEvents don't insert text — do it manually
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
-            el.value = el.value.substring(0, start) + '${keyName}' + el.value.substring(end);
+            el.value = el.value.substring(0, start) + ${safeKeyName} + el.value.substring(end);
             el.selectionStart = el.selectionEnd = start + 1;
-            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '${keyName}' }));
-          } else if (isInput && '${keyName}' === 'Backspace') {
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${safeKeyName} }));
+          } else if (isInput && ${safeKeyName} === 'Backspace') {
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
             if (start !== end) {
@@ -669,7 +692,7 @@ export abstract class OSRRenderer {
               el.selectionStart = el.selectionEnd = start - 1;
             }
             el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
-          } else if (isInput && '${keyName}' === 'Delete') {
+          } else if (isInput && ${safeKeyName} === 'Delete') {
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
             if (start !== end) {
@@ -680,34 +703,34 @@ export abstract class OSRRenderer {
               el.setSelectionRange(start, start);
             }
             el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentForward' }));
-          } else if (isInput && '${keyName}' === 'Enter') {
+          } else if (isInput && ${safeKeyName} === 'Enter') {
             el.dispatchEvent(new Event('change', { bubbles: true }));
-          } else if (isInput && '${keyName}' === 'ArrowLeft') {
+          } else if (isInput && ${safeKeyName} === 'ArrowLeft') {
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
             if (start === end) { el.setSelectionRange(Math.max(0, start - 1), Math.max(0, start - 1)); }
             else { el.setSelectionRange(start, start); }
-          } else if (isInput && '${keyName}' === 'ArrowRight') {
+          } else if (isInput && ${safeKeyName} === 'ArrowRight') {
             var start = el.selectionStart || 0;
             var end = el.selectionEnd || 0;
             if (start === end) { el.setSelectionRange(Math.min(el.value.length, start + 1), Math.min(el.value.length, start + 1)); }
             else { el.setSelectionRange(end, end); }
-          } else if (isInput && '${keyName}' === 'ArrowUp') {
+          } else if (isInput && ${safeKeyName} === 'ArrowUp') {
             if (tag === 'textarea') {
               var pos = el.selectionStart || 0;
               var lineStart = el.value.lastIndexOf('\\n', pos - 1) + 1;
               el.setSelectionRange(lineStart, lineStart);
             } else { el.setSelectionRange(0, 0); }
-          } else if (isInput && '${keyName}' === 'ArrowDown') {
+          } else if (isInput && ${safeKeyName} === 'ArrowDown') {
             if (tag === 'textarea') {
               var pos = el.selectionEnd || 0;
               var nextNL = el.value.indexOf('\\n', pos);
               var lineEnd = nextNL === -1 ? el.value.length : nextNL;
               el.setSelectionRange(lineEnd, lineEnd);
             } else { el.setSelectionRange(el.value.length, el.value.length); }
-          } else if (isInput && '${keyName}' === 'Home') {
+          } else if (isInput && ${safeKeyName} === 'Home') {
             el.setSelectionRange(0, 0);
-          } else if (isInput && '${keyName}' === 'End') {
+          } else if (isInput && ${safeKeyName} === 'End') {
             el.setSelectionRange(el.value.length, el.value.length);
           }
         }

@@ -6,7 +6,7 @@
 // The game's renderer delegates material upload to the core surface via this
 // adapter, retiring the parallel material rendering path.
 
-import { BlendMode, CullMode, Material, MaterialLibrary, MaterialType, type MaterialDefinition } from "@downdraft/core";
+import { BlendMode, CullMode, DEFAULT_VARIANT_FLAGS, Material, MaterialLibrary, MaterialType, type AlphaMode, type MaterialDefinition } from "@downdraft/core";
 import PHYSICAL_WGSL from "../../../core/src/render/material-types/physical.wgsl?raw";
 import type { MaterialData } from "./types";
 
@@ -55,6 +55,9 @@ export function materialDataToMaterial(
     return graphMat;
   }
 
+  // Determine alpha mode from baseColor alpha and material data.
+  const alphaMode: AlphaMode = md.baseColor[3] < 1.0 ? "blend" : "opaque";
+
   // Default: create a Physical fallback material with MaterialData mapped to uniforms.
   const def: MaterialDefinition = {
     name,
@@ -66,12 +69,13 @@ export function materialDataToMaterial(
       roughness: { name: "roughness", type: "f32", binding: 1 },
       metallic: { name: "metallic", type: "f32", binding: 2 },
     },
-    textures: {
-      albedoMap: { name: "albedoMap", binding: 20, sampler: "linear-repeat" },
-      normalMap: { name: "normalMap", binding: 21, sampler: "linear-repeat" },
-    },
-    blendMode: md.baseColor[3] < 1.0 ? BlendMode.AlphaBlend : BlendMode.Opaque,
+    // Bindless convention: textures are registered into the global
+    // texture_2d_array buckets (@group(3)) and sampled via handles in the
+    // material SSBO — no per-material texture bindings.
+    textures: {},
+    blendMode: alphaMode === "blend" ? BlendMode.AlphaBlend : BlendMode.Opaque,
     cullMode: CullMode.Back,
+    variantFlags: { ...DEFAULT_VARIANT_FLAGS, alphaMode },
   };
 
   const material = new Material(def);

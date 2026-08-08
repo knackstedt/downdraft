@@ -126,7 +126,7 @@ export interface ChannelReader {
   hasChanged(lastSeen: number): boolean;
   header: HeaderViews;
   sections?: Record<string, SlotAccessor>;
-  layers?: Record<string, Float32Array | Int32Array>;
+  layers?: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
   fields?: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
   snapshot(): Record<string, unknown>;
 }
@@ -137,7 +137,7 @@ export interface ChannelWriter {
   getSequence(): number;
   header: HeaderViews;
   sections?: Record<string, SlotAccessor>;
-  layers?: Record<string, Float32Array | Int32Array>;
+  layers?: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
   fields?: Record<string, Float32Array | Int32Array | Uint32Array | Float64Array>;
 }
 

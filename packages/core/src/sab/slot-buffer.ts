@@ -50,7 +50,7 @@ class SlotAccessorImpl implements SlotAccessor {
           `Slot index ${index} out of range [0, ${this._maxSlots}) for section "${this.sectionName}"`,
         );
       }
-      index = Math.max(0, Math.min(index, this._maxSlots - 1));
+      throw new RangeError(`Slot index ${index} out of range [0, ${this._maxSlots}) for section "${this.sectionName}"`);
     }
 
     let views = this.cache[index];

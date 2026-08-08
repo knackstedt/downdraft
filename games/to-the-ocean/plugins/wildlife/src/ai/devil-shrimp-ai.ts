@@ -79,7 +79,7 @@ export function tickDevilShrimpAI(
 
     case DevilShrimpState.AttackShip:
       if (nearestShip) {
-        nearestShip.health.health -= config.devilShrimpAttackDamage * dt;
+        nearestShip.health.health = Math.max(0, nearestShip.health.health - config.devilShrimpAttackDamage * dt);
         if (stateTimer <= 0 || nearestShip.health.health <= 0) {
           state = DevilShrimpState.Retreat;
           stateTimer = 5;
@@ -91,7 +91,7 @@ export function tickDevilShrimpAI(
 
     case DevilShrimpState.AttackPlayer:
       if (nearestPlayerIdx >= 0) {
-        players[nearestPlayerIdx].health -= config.devilShrimpAttackDamage * 0.5 * dt;
+        players[nearestPlayerIdx].health = Math.max(0, players[nearestPlayerIdx].health - config.devilShrimpAttackDamage * 0.5 * dt);
         if (stateTimer <= 0) {
           state = DevilShrimpState.Retreat;
           stateTimer = 5;

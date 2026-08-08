@@ -19,6 +19,7 @@ struct PhysicalUniforms {
   envMapIntensity: f32,
   _pad: f32,
   _pad2: f32,
+  emissive: vec3<f32>,
 };
 
 struct CameraUniforms {

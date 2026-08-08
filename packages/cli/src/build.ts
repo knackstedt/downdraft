@@ -1,4 +1,4 @@
-import { Builder, createLogger } from "@downdraft/core";
+import { Builder, confinePath, createLogger } from "@downdraft/core";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { basename, extname, join, relative, resolve } from "path";
 
@@ -29,7 +29,8 @@ export async function build(args: string[]): Promise<void> {
   const builder = new Builder(mode as "dev" | "debug" | "prod");
   const config = builder.getConfig();
 
-  const outPath = resolve(projectPath, outDir);
+  // Validate the output directory to prevent path traversal outside the project.
+  const outPath = confinePath(projectPath, outDir);
   if (!existsSync(outPath)) {
     mkdirSync(outPath, { recursive: true });
   }

@@ -119,16 +119,15 @@ describe("SlotBuffer", () => {
     expect(reader.header.u32[hdrOffsets.playerCount]).toBe(1);
   });
 
-  it("should clamp out-of-bounds slot access in debug mode", () => {
+  it("should throw on out-of-bounds slot access", () => {
     setDebug(true);
     const sab = SlotChannel.allocate();
     const reader = SlotChannel.reader(sab);
 
-    // Should not throw, just clamp + warn
-    const slot = reader.sections.entities.slot(999);
-    expect(slot).toBeDefined();
+    // Should throw RangeError on OOB access (both debug and production)
+    expect(() => reader.sections.entities.slot(999)).toThrow(RangeError);
 
-    // Access slot 0 (clamped to maxSlots-1 = 3)
+    // Access slot 0 (valid, maxSlots-1 = 3)
     const validSlot = reader.sections.entities.slot(3);
     expect(validSlot).toBeDefined();
     setDebug(false);

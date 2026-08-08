@@ -1,3 +1,6 @@
+
+import { assertCount, MAX_MIP_LEVELS, MAX_TEXTURE_DIM } from "../safety/bounds";
+
 export interface TextureData {
   width: number;
   height: number;
@@ -111,15 +114,23 @@ function readKTX2Header(data: Uint8Array): KTX2Header | null {
     if (data[i] !== KTX2_MAGIC[i]) return null;
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const pixelWidth = view.getUint32(20, true);
+  const pixelHeight = view.getUint32(24, true);
+  const levelCount = view.getUint32(40, true);
+
+  // Validate texture dimensions and mip level count
+  assertCount("ktx2-dim", Math.max(pixelWidth, pixelHeight), MAX_TEXTURE_DIM);
+  assertCount("ktx2-levels", levelCount, MAX_MIP_LEVELS);
+
   return {
     vkFormat: view.getUint32(12, true),
     typeSize: view.getUint32(16, true),
-    pixelWidth: view.getUint32(20, true),
-    pixelHeight: view.getUint32(24, true),
+    pixelWidth,
+    pixelHeight,
     pixelDepth: view.getUint32(28, true),
     layerCount: view.getUint32(32, true),
     faceCount: view.getUint32(36, true),
-    levelCount: view.getUint32(40, true),
+    levelCount,
   };
 }
 

@@ -1,3 +1,4 @@
+import { assertBounds, assertCount, MAX_FACE_COUNT, MAX_VERTEX_COUNT } from "@downdraft/core";
 import type { MeshData, ModelData } from "./types";
 
 interface PLYProperty {
@@ -117,6 +118,10 @@ function parseASCIIPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numbe
   const faceElement = header.elements.find((e) => e.name === "face");
 
   if (!vertexElement) throw new Error("PLY: no vertex element found");
+  assertCount("ply vertices", vertexElement.count, MAX_VERTEX_COUNT);
+  if (faceElement) {
+    assertCount("ply faces", faceElement.count, MAX_FACE_COUNT);
+  }
 
   const positions: number[] = [];
   const normals: number[] = [];
@@ -210,6 +215,22 @@ function parseBinaryPLY(data: ArrayBuffer, header: PLYHeader, headerLength: numb
   const faceElement = header.elements.find((e) => e.name === "face");
 
   if (!vertexElement) throw new Error("PLY: no vertex element found");
+  assertCount("ply vertices", vertexElement.count, MAX_VERTEX_COUNT);
+  if (faceElement) {
+    assertCount("ply faces", faceElement.count, MAX_FACE_COUNT);
+  }
+
+  // Validate that the binary data is large enough for the declared vertex count
+  const vertexStride = vertexElement.properties.reduce(
+    (sum, prop) => sum + plyTypeSize(prop.type),
+    0,
+  );
+  assertBounds(
+    "ply vertex data",
+    headerLength,
+    vertexElement.count * vertexStride,
+    data.byteLength,
+  );
 
   const positions: number[] = [];
   const normals: number[] = [];

@@ -3,71 +3,194 @@
   "compilerOptions": {
     "composite": true,
     "tsBuildInfoFile": ".tsbuildinfo.web",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "jsx": "react-jsx",
-    "types": ["vite/client", "@webgpu/types"],
+    "types": [
+      "vite/client",
+      "@webgpu/types"
+    ],
     "emitDeclarationOnly": true,
     "outDir": "dist",
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["games/to-the-ocean/src/shared/*", "packages/app/src/shared/*"],
-      "@sim/*": ["games/to-the-ocean/src/simulation/*"],
-      "@downdraft/core/*": ["packages/core/src/*"],
-      "@downdraft/core": ["packages/core/src/index.ts"],
-      "@downdraft/plugin-postfx": ["packages/plugins/postfx/src/index.ts"],
-      "@downdraft/plugin-postfx/*": ["packages/plugins/postfx/src/*"],
-      "@downdraft/plugin-lighting": ["packages/plugins/lighting/src/index.ts"],
-      "@downdraft/plugin-lighting/*": ["packages/plugins/lighting/src/*"],
-      "@downdraft/plugin-weatherfx": ["packages/plugins/weatherfx/src/index.ts"],
-      "@downdraft/plugin-weatherfx/*": ["packages/plugins/weatherfx/src/*"],
-      "@downdraft/plugin-weather": ["packages/plugins/weather/src/index.ts"],
-      "@downdraft/plugin-weather/*": ["packages/plugins/weather/src/*"],
-      "@downdraft/plugin-entities": ["packages/plugins/entities/src/index.ts"],
-      "@downdraft/plugin-entities/*": ["packages/plugins/entities/src/*"],
-      "@downdraft/plugin-models": ["packages/plugins/models/src/index.ts"],
-      "@downdraft/plugin-models/*": ["packages/plugins/models/src/*"],
-      "@downdraft/plugin-devtools": ["packages/plugins/devtools/src/index.ts"],
-      "@downdraft/plugin-devtools/*": ["packages/plugins/devtools/src/*"],
-      "@downdraft/plugin-water": ["packages/plugins/water/src/index.ts"],
-      "@downdraft/plugin-water/*": ["packages/plugins/water/src/*"],
-      "@downdraft/plugin-marching-cubes": ["packages/plugins/marching-cubes/src/index.ts"],
-      "@downdraft/plugin-marching-cubes/*": ["packages/plugins/marching-cubes/src/*"],
-      "@downdraft/plugin-surface-nets": ["packages/plugins/surface-nets/src/index.ts"],
-      "@downdraft/plugin-surface-nets/*": ["packages/plugins/surface-nets/src/*"],
-      "@downdraft/plugin-persistence": ["packages/plugins/persistence/src/index.ts"],
-      "@downdraft/plugin-persistence/*": ["packages/plugins/persistence/src/*"],
-      "@downdraft/plugin-electron-osr": ["packages/plugins/electron-osr/src/index.ts"],
-      "@downdraft/plugin-electron-osr/*": ["packages/plugins/electron-osr/src/*"],
-      "@downdraft/plugin-xr": ["packages/plugins/xr/src/index.ts"],
-      "@downdraft/plugin-xr/*": ["packages/plugins/xr/src/*"],
-      "@downdraft/plugin-camera-controls": ["packages/plugins/camera-controls/src/index.ts"],
-      "@downdraft/plugin-camera-controls/*": ["packages/plugins/camera-controls/src/*"],
-      "@downdraft/ui/*": ["packages/ui/src/*"],
-      "@downdraft/ui": ["packages/ui/src/index.ts"],
-      "@downdraft/shader-graph/*": ["packages/shader-graph/src/*"],
-      "@downdraft/shader-graph": ["packages/shader-graph/src/index.ts"],
-      "@downdraft/app/renderer": ["packages/app/src/renderer/index.ts"],
-      "@downdraft/app/shared": ["packages/app/src/shared/index.ts"],
-      "@to-the-ocean/plugin-boats": ["games/to-the-ocean/plugins/boats/src/index.ts"],
-      "@to-the-ocean/plugin-boats/*": ["games/to-the-ocean/plugins/boats/src/*"],
-      "@to-the-ocean/plugin-buoyancy": ["games/to-the-ocean/plugins/buoyancy/src/index.ts"],
-      "@to-the-ocean/plugin-buoyancy/*": ["games/to-the-ocean/plugins/buoyancy/src/*"],
-      "@to-the-ocean/plugin-collision": ["games/to-the-ocean/plugins/collision/src/index.ts"],
-      "@to-the-ocean/plugin-collision/*": ["games/to-the-ocean/plugins/collision/src/*"],
-      "@to-the-ocean/plugin-crafting": ["games/to-the-ocean/plugins/crafting/src/index.ts"],
-      "@to-the-ocean/plugin-crafting/*": ["games/to-the-ocean/plugins/crafting/src/*"],
-      "@to-the-ocean/plugin-economy": ["games/to-the-ocean/plugins/economy/src/index.ts"],
-      "@to-the-ocean/plugin-economy/*": ["games/to-the-ocean/plugins/economy/src/*"],
-      "@to-the-ocean/plugin-fishing": ["games/to-the-ocean/plugins/fishing/src/index.ts"],
-      "@to-the-ocean/plugin-fishing/*": ["games/to-the-ocean/plugins/fishing/src/*"],
-      "@to-the-ocean/plugin-inventory": ["games/to-the-ocean/plugins/inventory/src/index.ts"],
-      "@to-the-ocean/plugin-inventory/*": ["games/to-the-ocean/plugins/inventory/src/*"],
-      "@to-the-ocean/plugin-items": ["games/to-the-ocean/plugins/items/src/index.ts"],
-      "@to-the-ocean/plugin-items/*": ["games/to-the-ocean/plugins/items/src/*"],
-      "@to-the-ocean/plugin-survival": ["games/to-the-ocean/plugins/survival/src/index.ts"],
-      "@to-the-ocean/plugin-survival/*": ["games/to-the-ocean/plugins/survival/src/*"],
-      "@to-the-ocean/plugin-wildlife": ["games/to-the-ocean/plugins/wildlife/src/index.ts"],
-      "@to-the-ocean/plugin-wildlife/*": ["games/to-the-ocean/plugins/wildlife/src/*"]
+      "@shared/*": [
+        "./games/to-the-ocean/src/shared/*",
+        "./packages/app/src/shared/*"
+      ],
+      "@sim/*": [
+        "./games/to-the-ocean/src/simulation/*"
+      ],
+      "@downdraft/core/*": [
+        "./packages/core/src/*"
+      ],
+      "@downdraft/core": [
+        "./packages/core/src/index.ts"
+      ],
+      "@downdraft/plugin-postfx": [
+        "./packages/plugins/postfx/src/index.ts"
+      ],
+      "@downdraft/plugin-postfx/*": [
+        "./packages/plugins/postfx/src/*"
+      ],
+      "@downdraft/plugin-lighting": [
+        "./packages/plugins/lighting/src/index.ts"
+      ],
+      "@downdraft/plugin-lighting/*": [
+        "./packages/plugins/lighting/src/*"
+      ],
+      "@downdraft/plugin-weatherfx": [
+        "./packages/plugins/weatherfx/src/index.ts"
+      ],
+      "@downdraft/plugin-weatherfx/*": [
+        "./packages/plugins/weatherfx/src/*"
+      ],
+      "@downdraft/plugin-weather": [
+        "./packages/plugins/weather/src/index.ts"
+      ],
+      "@downdraft/plugin-weather/*": [
+        "./packages/plugins/weather/src/*"
+      ],
+      "@downdraft/plugin-entities": [
+        "./packages/plugins/entities/src/index.ts"
+      ],
+      "@downdraft/plugin-entities/*": [
+        "./packages/plugins/entities/src/*"
+      ],
+      "@downdraft/plugin-models": [
+        "./packages/plugins/models/src/index.ts"
+      ],
+      "@downdraft/plugin-models/*": [
+        "./packages/plugins/models/src/*"
+      ],
+      "@downdraft/plugin-devtools": [
+        "./packages/plugins/devtools/src/index.ts"
+      ],
+      "@downdraft/plugin-devtools/*": [
+        "./packages/plugins/devtools/src/*"
+      ],
+      "@downdraft/plugin-water": [
+        "./packages/plugins/water/src/index.ts"
+      ],
+      "@downdraft/plugin-water/*": [
+        "./packages/plugins/water/src/*"
+      ],
+      "@downdraft/plugin-marching-cubes": [
+        "./packages/plugins/marching-cubes/src/index.ts"
+      ],
+      "@downdraft/plugin-marching-cubes/*": [
+        "./packages/plugins/marching-cubes/src/*"
+      ],
+      "@downdraft/plugin-surface-nets": [
+        "./packages/plugins/surface-nets/src/index.ts"
+      ],
+      "@downdraft/plugin-surface-nets/*": [
+        "./packages/plugins/surface-nets/src/*"
+      ],
+      "@downdraft/plugin-persistence": [
+        "./packages/plugins/persistence/src/index.ts"
+      ],
+      "@downdraft/plugin-persistence/*": [
+        "./packages/plugins/persistence/src/*"
+      ],
+      "@downdraft/plugin-electron-osr": [
+        "./packages/plugins/electron-osr/src/index.ts"
+      ],
+      "@downdraft/plugin-electron-osr/*": [
+        "./packages/plugins/electron-osr/src/*"
+      ],
+      "@downdraft/plugin-xr": [
+        "./packages/plugins/xr/src/index.ts"
+      ],
+      "@downdraft/plugin-xr/*": [
+        "./packages/plugins/xr/src/*"
+      ],
+      "@downdraft/plugin-camera-controls": [
+        "./packages/plugins/camera-controls/src/index.ts"
+      ],
+      "@downdraft/plugin-camera-controls/*": [
+        "./packages/plugins/camera-controls/src/*"
+      ],
+      "@downdraft/ui/*": [
+        "./packages/ui/src/*"
+      ],
+      "@downdraft/ui": [
+        "./packages/ui/src/index.ts"
+      ],
+      "@downdraft/shader-graph/*": [
+        "./packages/shader-graph/src/*"
+      ],
+      "@downdraft/shader-graph": [
+        "./packages/shader-graph/src/index.ts"
+      ],
+      "@downdraft/app/renderer": [
+        "./packages/app/src/renderer/index.ts"
+      ],
+      "@downdraft/app/shared": [
+        "./packages/app/src/shared/index.ts"
+      ],
+      "@to-the-ocean/plugin-boats": [
+        "./games/to-the-ocean/plugins/boats/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-boats/*": [
+        "./games/to-the-ocean/plugins/boats/src/*"
+      ],
+      "@to-the-ocean/plugin-buoyancy": [
+        "./games/to-the-ocean/plugins/buoyancy/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-buoyancy/*": [
+        "./games/to-the-ocean/plugins/buoyancy/src/*"
+      ],
+      "@to-the-ocean/plugin-collision": [
+        "./games/to-the-ocean/plugins/collision/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-collision/*": [
+        "./games/to-the-ocean/plugins/collision/src/*"
+      ],
+      "@to-the-ocean/plugin-crafting": [
+        "./games/to-the-ocean/plugins/crafting/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-crafting/*": [
+        "./games/to-the-ocean/plugins/crafting/src/*"
+      ],
+      "@to-the-ocean/plugin-economy": [
+        "./games/to-the-ocean/plugins/economy/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-economy/*": [
+        "./games/to-the-ocean/plugins/economy/src/*"
+      ],
+      "@to-the-ocean/plugin-fishing": [
+        "./games/to-the-ocean/plugins/fishing/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-fishing/*": [
+        "./games/to-the-ocean/plugins/fishing/src/*"
+      ],
+      "@to-the-ocean/plugin-inventory": [
+        "./games/to-the-ocean/plugins/inventory/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-inventory/*": [
+        "./games/to-the-ocean/plugins/inventory/src/*"
+      ],
+      "@to-the-ocean/plugin-items": [
+        "./games/to-the-ocean/plugins/items/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-items/*": [
+        "./games/to-the-ocean/plugins/items/src/*"
+      ],
+      "@to-the-ocean/plugin-survival": [
+        "./games/to-the-ocean/plugins/survival/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-survival/*": [
+        "./games/to-the-ocean/plugins/survival/src/*"
+      ],
+      "@to-the-ocean/plugin-wildlife": [
+        "./games/to-the-ocean/plugins/wildlife/src/index.ts"
+      ],
+      "@to-the-ocean/plugin-wildlife/*": [
+        "./games/to-the-ocean/plugins/wildlife/src/*"
+      ]
     }
   },
   "include": [
@@ -80,5 +203,14 @@
     "games/*/src/**/*",
     "games/*/plugins/*/src/**/*.ts"
   ],
-  "exclude": ["dist", "**/*.spec.ts", "games/*/src/main.ts", "games/*/src/preload.ts", "games/*/electron.vite.config.ts", "examples/*/src/main.ts", "examples/*/src/preload.ts", "examples/*/electron.vite.config.ts"]
+  "exclude": [
+    "dist",
+    "**/*.spec.ts",
+    "games/*/src/main.ts",
+    "games/*/src/preload.ts",
+    "games/*/electron.vite.config.ts",
+    "examples/*/src/main.ts",
+    "examples/*/src/preload.ts",
+    "examples/*/electron.vite.config.ts"
+  ]
 }

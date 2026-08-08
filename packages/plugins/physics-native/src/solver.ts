@@ -5,8 +5,8 @@
 // correction (Baumgarte stabilization) to prevent sinking.
 // ============================================================================
 
-import type { Vec3 } from "./types";
 import type { ContactManifoldLocal } from "./narrowphase";
+import type { Vec3 } from "./types";
 
 export interface BodyData {
   position: Vec3;
@@ -102,6 +102,14 @@ export function resolveContact(
  */
 export function integrate(body: BodyData, gravity: Vec3, dt: number): void {
   if (body.isStatic || body.isKinematic) return;
+
+  // Validate finiteness of inputs to prevent NaN/Inf propagation
+  if (!Number.isFinite(dt) ||
+      !Number.isFinite(gravity[0]) || !Number.isFinite(gravity[1]) || !Number.isFinite(gravity[2]) ||
+      !Number.isFinite(body.linearVelocity[0]) || !Number.isFinite(body.linearVelocity[1]) || !Number.isFinite(body.linearVelocity[2]) ||
+      !Number.isFinite(body.position[0]) || !Number.isFinite(body.position[1]) || !Number.isFinite(body.position[2])) {
+    return;
+  }
 
   // Apply gravity
   body.linearVelocity = add(body.linearVelocity, scale(gravity, dt));
