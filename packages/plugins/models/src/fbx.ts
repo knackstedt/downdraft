@@ -572,6 +572,13 @@ function extractFBXGeometry(
     }
   }
 
+  // Determine the primary material index for this geometry.
+  // If all polygons use the same material, use it. Otherwise use the first.
+  let meshMaterialIndex: number | undefined = undefined;
+  if (hasMaterials && materialIndices && materialIndices.length > 0) {
+    meshMaterialIndex = materialIndices[0];
+  }
+
   return {
     vertices: finalVertArray,
     indices: idxArray,
@@ -581,6 +588,7 @@ function extractFBXGeometry(
     colors: finalColorArray,
     joints,
     weights,
+    materialIndex: meshMaterialIndex,
   };
 }
 
@@ -1440,6 +1448,41 @@ function findFBXTextures(nodes: FBXNode[]): Map<number, FBXTextureInfo> {
   return result;
 }
 
+/**
+ * Parse the UpAxis from the FBX GlobalSettings.
+ *
+ * FBX UpAxis values:
+ *   0 = Y-up (Maya default, X-right, Z-forward)
+ *   1 = Y-up (3ds Max, X-forward, Z-right) — still Y-up
+ *   2 = Z-up (Blender / Maya Z-up, X-right, Y-forward)
+ *
+ * Stored on ModelData.upAxis so renderers can apply the correct base rotation.
+ * The conversion is NOT done here because some renderers (e.g. the model viewer)
+ * already apply a -90° X rotation as a base rotation — doing it here would
+ * double-convert.
+ */
+function parseFBXUpAxis(nodes: FBXNode[]): number {
+  // GlobalSettings is a top-level node, not under Objects.
+  const globalSettings = nodes.find(n => n.name === "GlobalSettings");
+  if (!globalSettings) return 1; // default Y-up
+
+  for (const child of globalSettings.children) {
+    if (child.name === "Properties70") {
+      for (const p of child.children) {
+        if (p.name === "P" && p.properties.length >= 5) {
+          const propName = String(p.properties[0].value);
+          if (propName === "UpAxis") {
+            const val = p.properties[4].value as number;
+            console.log(`[FBX] UpAxis = ${val}`);
+            return val;
+          }
+        }
+      }
+    }
+  }
+  return 1; // default Y-up
+}
+
 export function parseFBX(data: ArrayBuffer, name: string): ModelData {
   const view = new DataView(data);
   const headerStr = new TextDecoder().decode(new Uint8Array(data, 0, 21));
@@ -1551,6 +1594,12 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     }
   }
 
+  // Parse UpAxis from GlobalSettings. Stored on ModelData so renderers can
+  // apply the correct base rotation. The vertex conversion is NOT done here
+  // to avoid double-converting models whose renderer already applies a
+  // -90° X base rotation.
+  const upAxis = parseFBXUpAxis(nodes);
+
   // Parse animations
   const animations = parseFBXAnimations(nodes);
   const animResult = animations.length > 0 ? animations : undefined;
@@ -1562,6 +1611,7 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     materials,
     animations: animResult,
     nodes: nodesResult,
+    upAxis,
   };
   if (skinData) {
     result.skin = { bones: skinData.bones, boneNameToIndex: skinData.boneNameToIndex };
