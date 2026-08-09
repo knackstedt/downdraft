@@ -10,6 +10,8 @@ export { AnimationStateMachineEditor } from "./editor/animation/animation-state-
 export type { AnimationStateMachineEditorProps, AnimStateData, AnimTransitionData, BlendTree1DData, BlendTree2DData } from "./editor/animation/animation-state-machine-editor";
 export { AssetBrowser } from "./editor/asset-browser/asset-browser";
 export type { AssetBrowserProps, AssetEntry } from "./editor/asset-browser/asset-browser";
+export { ComputeGraphEditor } from "./editor/compute-graph/compute-graph-editor";
+export type { ComputeGraphConnection, ComputeGraphEditorProps, ComputeGraphNodeData } from "./editor/compute-graph/compute-graph-editor";
 export { MaterialGraphEditor } from "./editor/material-graph/material-graph-editor";
 export type { GraphConnection, GraphNodeData, MaterialGraphEditorProps } from "./editor/material-graph/material-graph-editor";
 
