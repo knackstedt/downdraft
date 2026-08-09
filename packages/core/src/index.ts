@@ -529,6 +529,12 @@ export type { BoneTransformData, SkinnedMeshData } from "./mesh/skinning";
 export { packBoneTransforms, SkinningComputePass } from "./render/passes/skinning";
 export type { SkinningComputePassResources } from "./render/passes/skinning";
 
+// Compute Graph Pass + Kernel Helper
+export { runComputeKernel } from "./render/compute-kernel";
+export type { ComputeKernelInput, ComputeKernelResult } from "./render/compute-kernel";
+export { GraphComputePass } from "./render/passes/graph-compute";
+export type { GraphComputeBuffer } from "./render/passes/graph-compute";
+
 // Audio
 export { AudioEngine } from "./audio/engine";
 export { DEFAULT_AUDIO_CONFIG } from "./audio/interface";

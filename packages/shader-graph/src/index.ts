@@ -12,3 +12,24 @@ export type {
 } from "./profiles";
 export { GraphValidator } from "./validator";
 
+// Compute graph
+export { ComputeGraphCompiler } from "./compute-compiler";
+export type { ComputeCompileOptions, ComputeCompileResult } from "./compute-compiler";
+export { ComputeGraph } from "./compute-graph";
+export type {
+    ComputeDispatchConfig,
+    ComputeGraphConnection,
+    StorageBufferDecl,
+    StructField,
+    UniformBufferDecl
+} from "./compute-graph";
+export {
+    COMPUTE_PROFILE_REGISTRY,
+    getComputeProfile,
+    PARTICLE_COMPUTE_PROFILE,
+    SIMPLE_COMPUTE_PROFILE,
+    TEXTURE_COMPUTE_PROFILE,
+    VOLUMETRIC_COMPUTE_PROFILE
+} from "./compute-profiles";
+export type { ComputeProfile } from "./compute-profiles";
+
