@@ -7,6 +7,10 @@
 // ============================================================================
 
 import type { Query } from "@downdraft/core";
+import type { BiomeProvider, EntityProvider, SpawnOpts } from "@to-the-ocean/shared/plugin-interfaces";
+
+// Re-export SpawnOpts from the shared module for backward compatibility
+export type { SpawnOpts };
 
 // --- Component data interfaces (structurally compatible with ECS components) ---
 
@@ -93,20 +97,8 @@ export interface WildlifeShip {
 
 // --- Dependencies (provided by the game) ---
 
-export interface SpawnOpts {
-  position: { x: number; y: number; z: number };
-  scale?: number;
-  flags?: number;
-  health?: number;
-  maxHealth?: number;
-  data?: Float32Array;
-}
-
-export interface WildlifeDeps {
-  getBiomeAt(x: number, z: number): number;
+export interface WildlifeDeps extends BiomeProvider, EntityProvider {
   getOnboardShipId(playerId: number): number;
-  spawnEntity(type: number, opts: SpawnOpts): number;
-  removeEntity(id: number): void;
 }
 
 // --- Configuration (game-specific values) ---

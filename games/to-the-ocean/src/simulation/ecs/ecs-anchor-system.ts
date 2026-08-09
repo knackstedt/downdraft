@@ -76,7 +76,7 @@ export function createEcsAnchorSystem(shipsQuery: Query) {
 }
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-anchor-system", newMod);
   });
 }

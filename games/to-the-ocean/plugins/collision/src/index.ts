@@ -1,6 +1,7 @@
+export { createCollisionPlugin } from "./collision-plugin";
+export type { CollisionPluginOptions } from "./collision-plugin";
 export { createCollisionSystem } from "./collision-system";
 export type {
-  CollisionConfig, CollisionDeps,
-  CollisionTransform, CollisionVelocity, CollisionEntityMeta, CollisionEntityData,
-  CollisionPlayerState, VoxelFieldLike, PortColliderDims,
+    CollisionConfig, CollisionDeps, CollisionEntityData, CollisionEntityMeta, CollisionPlayerState, CollisionTransform, CollisionVelocity, PortColliderDims, VoxelFieldLike
 } from "./types";
+

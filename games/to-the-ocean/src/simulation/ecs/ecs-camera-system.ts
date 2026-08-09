@@ -92,7 +92,7 @@ export function setCameraMode(playerId: number, mode: CameraMode, pos: { x: numb
 }
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-camera-system", newMod);
   });
 }

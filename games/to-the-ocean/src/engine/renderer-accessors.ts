@@ -5,10 +5,10 @@
 
 import { MaterialLibrary, MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type PBRSystem, type PostProcessStack, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
 import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
-import type { ModelRenderer } from "@downdraft/plugin-entities";
-import type { LightSystem } from "@downdraft/plugin-lighting";
+import type { ModelRenderer } from "@downdraft/library-entities";
+import type { LightSystem } from "@downdraft/library-lighting";
 import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/plugin-models";
-import type { PixelationSystem } from "@downdraft/plugin-postfx";
+import type { PixelationSystem } from "@downdraft/library-postfx";
 import type { ParticleSystem } from "@downdraft/plugin-weatherfx";
 import type { BoatBufferReader } from "@shared/boat-buffer";
 import type { SimBufferReader } from "@shared/sim-buffer";

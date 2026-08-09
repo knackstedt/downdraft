@@ -12,24 +12,24 @@
 //   - Mapping slot indices ↔ ECS entities
 // ============================================================================
 
-import { Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
-import { createBuoyancySystem, type BuoyancyConfig, type BuoyancyDeps } from "@to-the-ocean/plugin-buoyancy";
-import { createCollisionSystem, type CollisionConfig, type CollisionDeps } from "@to-the-ocean/plugin-collision";
-import { createWildlifeSystem, shutdownWildlife, type WildlifeConfig, type WildlifeDeps } from "@to-the-ocean/plugin-wildlife";
+import { PluginHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
+import { createBuoyancyPlugin, type BuoyancyConfig, type BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
+import { createCollisionPlugin, type CollisionConfig, type CollisionDeps } from "@to-the-ocean/library-collision";
+import { createWildlifePlugin, type WildlifeConfig, type WildlifeDeps } from "@to-the-ocean/library-wildlife";
 import { InputBufferReader } from "../../shared/input-buffer";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
 import type { SimEntity, SimPlayer } from "../simulation";
 import {
-  ComponentIds,
-  SimEntityData,
-  SimEntityMeta,
-  SimHealth,
-  SimPlayerInventory,
-  SimPlayerState,
-  SimTransform,
-  SimVelocity,
+    ComponentIds,
+    SimEntityData,
+    SimEntityMeta,
+    SimHealth,
+    SimPlayerInventory,
+    SimPlayerState,
+    SimTransform,
+    SimVelocity,
 } from "./components";
 import { createEcsAnchorSystem } from "./ecs-anchor-system";
 import { createEcsAnimalSystem } from "./ecs-animal-system";
@@ -52,6 +52,8 @@ type SystemRecreator = (newMod: Record<string, unknown>) => System;
 
 export class SimEcsWorld {
   readonly world: World;
+  /** Plugin host for systems migrated to the plugin system. */
+  readonly pluginHost: PluginHost;
 
   // Mapping: legacy slot index → ECS entity
   private slotToEntity: Map<number, Entity> = new Map();
@@ -79,6 +81,7 @@ export class SimEcsWorld {
 
   constructor() {
     this.world = new World();
+    this.pluginHost = new PluginHost(this.world);
 
     // Query: all entities with Transform + EntityMeta (every SimEntity)
     this.allEntities = new Query([ComponentIds.Transform, ComponentIds.EntityMeta]);
@@ -113,23 +116,23 @@ export class SimEcsWorld {
     // Register migrated ECS systems (self-accepting HMR via hmrSwap)
     this.addEcsSystem("ecs-animal-system",
       () => createEcsAnimalSystem(this.livestock),
-      (mod) => (mod as any).createEcsAnimalSystem(this.livestock),
+      (mod) => (mod as { createEcsAnimalSystem: typeof createEcsAnimalSystem }).createEcsAnimalSystem(this.livestock),
     );
     this.addEcsSystem("ecs-anchor-system",
       () => createEcsAnchorSystem(this.ships),
-      (mod) => (mod as any).createEcsAnchorSystem(this.ships),
+      (mod) => (mod as { createEcsAnchorSystem: typeof createEcsAnchorSystem }).createEcsAnchorSystem(this.ships),
     );
     this.addEcsSystem("ecs-plant-system",
       () => createEcsPlantSystem(this.plants),
-      (mod) => (mod as any).createEcsPlantSystem(this.plants),
+      (mod) => (mod as { createEcsPlantSystem: typeof createEcsPlantSystem }).createEcsPlantSystem(this.plants),
     );
     this.addEcsSystem("ecs-pet-system",
       () => createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth),
-      (mod) => (mod as any).createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth),
+      (mod) => (mod as { createEcsPetSystem: typeof createEcsPetSystem }).createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth),
     );
     this.addEcsSystem("ecs-docking-system",
       () => createEcsDockingSystem(this.ships, this.smallCraft),
-      (mod) => (mod as any).createEcsDockingSystem(this.ships, this.smallCraft),
+      (mod) => (mod as { createEcsDockingSystem: typeof createEcsDockingSystem }).createEcsDockingSystem(this.ships, this.smallCraft),
     );
   }
 
@@ -169,7 +172,7 @@ export class SimEcsWorld {
       () => createEcsPirateSystem(
         this.pirates, this.players, getSecurityLevel, spawnEntity, removeEntity,
       ),
-      (mod) => (mod as any).createEcsPirateSystem(
+      (mod) => (mod as { createEcsPirateSystem: typeof createEcsPirateSystem }).createEcsPirateSystem(
         this.pirates, this.players, getSecurityLevel, spawnEntity, removeEntity,
       ),
     );
@@ -182,52 +185,80 @@ export class SimEcsWorld {
   registerCameraSystem(getInput: () => InputBufferReader): void {
     this.addEcsSystem("ecs-camera-system",
       () => createEcsCameraSystem(this.players, getInput),
-      (mod) => (mod as any).createEcsCameraSystem(this.players, getInput),
+      (mod) => (mod as { createEcsCameraSystem: typeof createEcsCameraSystem }).createEcsCameraSystem(this.players, getInput),
     );
   }
 
   registerStructureIntegritySystem(getBoatCellSystem: () => BoatCellSystem | undefined): void {
     this.addEcsSystem("ecs-structure-integrity-system",
       () => createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem),
-      (mod) => (mod as any).createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem),
+      (mod) => (mod as { createEcsStructureIntegritySystem: typeof createEcsStructureIntegritySystem }).createEcsStructureIntegritySystem(this.shipsWithHealth, getBoatCellSystem),
     );
   }
 
   registerWildlifeSystem(deps: WildlifeDeps, config: WildlifeConfig): void {
-    this.addEcsSystem("wildlife-system",
-      () => createWildlifeSystem(
-        this.wildlifeAI, this.players, this.shipsWithHealth, this.allEntities, deps, config,
-      ),
-      (mod) => (mod as any).createWildlifeSystem(
-        this.wildlifeAI, this.players, this.shipsWithHealth, this.allEntities, deps, config,
-      ),
-    );
+    const plugin = createWildlifePlugin({
+      wildlifeQuery: this.wildlifeAI,
+      playersQuery: this.players,
+      shipsQuery: this.shipsWithHealth,
+      allEntitiesQuery: this.allEntities,
+      deps, config,
+    });
+    this.pluginHost.registerPlugin(plugin);
+    if (import.meta.env.DEV && import.meta.hot) {
+      registerHmrSwap("wildlife-system", () => {
+        this.pluginHost.unloadPlugin("wildlife");
+        this.pluginHost.registerPlugin(createWildlifePlugin({
+          wildlifeQuery: this.wildlifeAI,
+          playersQuery: this.players,
+          shipsQuery: this.shipsWithHealth,
+          allEntitiesQuery: this.allEntities,
+          deps, config,
+        }));
+      });
+    }
   }
 
   shutdownWildlife(): void {
-    shutdownWildlife();
+    this.pluginHost.unloadPlugin("wildlife");
   }
 
   registerBuoyancySystem(deps: BuoyancyDeps, config: BuoyancyConfig): void {
-    this.addEcsSystem("buoyancy-system",
-      () => createBuoyancySystem(
-        this.ships, this.allEntitiesWithVelocity, deps, config,
-      ),
-      (mod) => (mod as any).createBuoyancySystem(
-        this.ships, this.allEntitiesWithVelocity, deps, config,
-      ),
-    );
+    const plugin = createBuoyancyPlugin({
+      shipsQuery: this.ships,
+      allEntitiesQuery: this.allEntitiesWithVelocity,
+      deps, config,
+    });
+    this.pluginHost.registerPlugin(plugin);
+    if (import.meta.env.DEV && import.meta.hot) {
+      registerHmrSwap("buoyancy-system", () => {
+        this.pluginHost.unloadPlugin("buoyancy");
+        this.pluginHost.registerPlugin(createBuoyancyPlugin({
+          shipsQuery: this.ships,
+          allEntitiesQuery: this.allEntitiesWithVelocity,
+          deps, config,
+        }));
+      });
+    }
   }
 
   registerCollisionSystem(deps: CollisionDeps, config: CollisionConfig): void {
-    this.addEcsSystem("collision-system",
-      () => createCollisionSystem(
-        this.allEntitiesWithVelocity, this.players, deps, config,
-      ),
-      (mod) => (mod as any).createCollisionSystem(
-        this.allEntitiesWithVelocity, this.players, deps, config,
-      ),
-    );
+    const plugin = createCollisionPlugin({
+      allEntitiesQuery: this.allEntitiesWithVelocity,
+      playersQuery: this.players,
+      deps, config,
+    });
+    this.pluginHost.registerPlugin(plugin);
+    if (import.meta.env.DEV && import.meta.hot) {
+      registerHmrSwap("collision-system", () => {
+        this.pluginHost.unloadPlugin("collision");
+        this.pluginHost.registerPlugin(createCollisionPlugin({
+          allEntitiesQuery: this.allEntitiesWithVelocity,
+          playersQuery: this.players,
+          deps, config,
+        }));
+      });
+    }
   }
 
   // --- Entity lifecycle (called by Simulation) ---

@@ -28,25 +28,16 @@ import type {
     WildlifeTransform, WildlifeVelocity,
 } from "./types";
 
-// Module-level state (one wildlife system instance per simulation)
-let spawnedIds = new Set<number>();
-let spawnTimer = 0;
-
-// Reusable biome counts map — cleared per spawn cycle instead of reallocated.
-const biomeCounts = new Map<number, number>();
-
-// Reusable obstacle list for spawn clearance — built once per spawn cycle.
+// Reusable obstacle list interface for spawn clearance.
 interface ObstacleEntry { x: number; z: number; clearance: number; }
-const obstacleList: ObstacleEntry[] = [];
 
-// Spatial grid for fish schooling (cellSize = schooling radius 10).
-// Reused across ticks via clear(). Stores fish indices into fishList.
-const fishGrid = new BroadPhaseGrid(10);
-const fishNeighborOut: number[] = [];
-
+/**
+ * No-op shutdown function for backward compatibility.
+ * State is now instance-scoped (inside createWildlifeSystem closure)
+ * and will be garbage collected when the system is discarded.
+ */
 export function shutdownWildlife(): void {
-  spawnedIds.clear();
-  spawnTimer = 0;
+  // State is instance-scoped — no module-level state to clear.
 }
 
 export function createWildlifeSystem(
@@ -57,6 +48,21 @@ export function createWildlifeSystem(
   deps: WildlifeDeps,
   config: WildlifeConfig,
 ) {
+  // Instance-scoped state (moved from module level to support multiple instances)
+  const spawnedIds = new Set<number>();
+  let spawnTimer = 0;
+
+  // Reusable biome counts map — cleared per spawn cycle instead of reallocated.
+  const biomeCounts = new Map<number, number>();
+
+  // Reusable obstacle list for spawn clearance — built once per spawn cycle.
+  const obstacleList: ObstacleEntry[] = [];
+
+  // Spatial grid for fish schooling (cellSize = schooling radius 10).
+  // Reused across ticks via clear(). Stores fish indices into fishList.
+  const fishGrid = new BroadPhaseGrid(10);
+  const fishNeighborOut: number[] = [];
+
   return system(
     "wildlife-system",
     Stage.Update,
@@ -151,11 +157,11 @@ export function createWildlifeSystem(
         // Build obstacle list once per spawn cycle (ships already collected;
         // ports/islands scanned once here instead of per spawn attempt).
         buildObstacleList(obstacleList, ships, allEntitiesQuery, ctx.tick, config);
-        trySpawnWildlife(wildlifeList, players, obstacleList, deps, config);
+        trySpawnWildlife(wildlifeList, players, obstacleList, deps, config, biomeCounts, spawnedIds);
       }
 
       // --- Despawn distant wildlife ---
-      despawnDistantWildlife(wildlifeList, players, deps, config);
+      despawnDistantWildlife(wildlifeList, players, deps, config, spawnedIds);
     },
     { queries: [wildlifeQuery, playersQuery, shipsQuery, allEntitiesQuery] },
   );
@@ -177,10 +183,12 @@ function trySpawnWildlife(
   obstacles: ObstacleEntry[],
   deps: WildlifeDeps,
   config: WildlifeConfig,
+  biomeCounts: Map<number, number>,
+  spawnedIds: Set<number>,
 ): void {
   if (players.length === 0) return;
 
-  // Count wildlife per biome (reusable module-level map)
+  // Count wildlife per biome (reusable instance-scoped map)
   biomeCounts.clear();
   for (const w of wildlifeList) {
     const biome = deps.getBiomeAt(w.transform.x, w.transform.z);
@@ -292,6 +300,7 @@ function despawnDistantWildlife(
   players: WildlifePlayer[],
   deps: WildlifeDeps,
   config: WildlifeConfig,
+  spawnedIds: Set<number>,
 ): void {
   for (const w of wildlifeList) {
     if (!spawnedIds.has(w.meta.id)) continue;

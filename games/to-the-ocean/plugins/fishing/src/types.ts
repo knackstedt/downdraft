@@ -2,6 +2,11 @@
 // Fishing Plugin — Types and Interfaces
 // ============================================================================
 
+import type { BiomeProvider, PlayerState, WaterProvider } from "@to-the-ocean/shared/plugin-interfaces";
+
+// Re-export shared interfaces for backward compatibility
+export type { WaterProvider };
+
 export enum FishingMethod {
   LineFishing = 0,
   NetHauling = 1,
@@ -23,10 +28,7 @@ export interface FishingMinigame {
 }
 
 // Player interface for fishing
-export interface FishingPlayer {
-  active: boolean;
-  position: { x: number; y: number; z: number };
-  flags: number;
+export interface FishingPlayer extends PlayerState {
   inventory: { slots: unknown[]; width: number; height: number };
 }
 
@@ -36,17 +38,10 @@ export interface FishingInput {
   isMouseDown(playerSlot: number, button: number): boolean;
 }
 
-// Water provider — games provide this for water proximity checks
-export interface WaterProvider {
-  getPatchSize(): number;
-  getOrigin(): { x: number; z: number };
-  sampleHeight(gx: number, gz: number): number;
-}
+// Water provider — re-exported from shared module (see import above)
 
 // Biome provider — games provide this
-export interface FishingBiomeProvider {
-  getBiomeAt(worldX: number, worldZ: number): number;
-}
+export interface FishingBiomeProvider extends BiomeProvider {}
 
 // Weather provider — only needs state
 export interface FishingWeatherProvider {

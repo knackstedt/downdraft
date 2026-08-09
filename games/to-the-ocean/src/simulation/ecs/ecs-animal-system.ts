@@ -88,7 +88,7 @@ export { livestock as ecsLivestockMap };
 export type { LivestockData };
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-animal-system", newMod);
   });
 }

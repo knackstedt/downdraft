@@ -1,5 +1,5 @@
 {
-  "name": "@to-the-ocean/plugin-buoyancy",
+  "name": "@to-the-ocean/library-buoyancy",
   "version": "0.1.0",
   "private": true,
   "type": "module",
