@@ -92,7 +92,7 @@ world.registerPlugin(myPlugin);
 - `@downdraft/plugin-items` — Item definitions and management
 - `@downdraft/plugin-inventory` — Inventory system
 - `@downdraft/plugin-crafting` — Crafting recipes and system
-- `@downdraft/plugin-weather` — Weather simulation
+- `@downdraft/library-weather` — Weather simulation
 - `@downdraft/plugin-fishing` — Fishing mechanics
 - `@downdraft/plugin-economy` — Market/trading system
 - `@downdraft/plugin-survival` — Survival stats (hunger, thirst, oxygen)
@@ -100,7 +100,7 @@ world.registerPlugin(myPlugin);
 - `@downdraft/plugin-wildlife` — Wildlife AI (fish, sharks, eels, etc.)
 - `@downdraft/plugin-buoyancy` — Water buoyancy physics
 - `@downdraft/plugin-collision` — Entity collision detection
-- `@downdraft/plugin-lighting` — Lighting system
+- `@downdraft/library-lighting` — Lighting system
 - `@downdraft/plugin-networking` — Multiplayer networking
 
 ## Builder Modes

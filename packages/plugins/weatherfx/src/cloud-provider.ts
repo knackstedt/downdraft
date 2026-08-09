@@ -4,7 +4,7 @@
 // ============================================================================
 
 import type { ExtractedMesh, VoxelField } from "@downdraft/plugin-marching-cubes";
-import type { WeatherType } from "@downdraft/plugin-weather";
+import type { WeatherType } from "@downdraft/library-weather";
 
 export type CloudVoxelField = VoxelField;
 export type CloudExtractedMesh = ExtractedMesh;

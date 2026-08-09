@@ -104,8 +104,6 @@ export async function runTest(args: string[]): Promise<void> {
     // Show the window instead of running headless.
     env.DOWNDRAFT_HEADED = "1";
   }
-    env.DOWNDRAFT_DETERMINISTIC = "1";
-  }
 
   // Critical: Electron must NOT run as Node.js.
   delete env.ELECTRON_RUN_AS_NODE;

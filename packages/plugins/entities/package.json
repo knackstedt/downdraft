@@ -1,5 +1,6 @@
 {
-  "name": "@downdraft/plugin-entities",
+  "name": "@downdraft/library-entities",
+  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",

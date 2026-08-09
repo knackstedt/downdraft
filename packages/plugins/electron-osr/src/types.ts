@@ -100,7 +100,7 @@ export interface OSRTextureHandle {
 export interface OSRIPC {
   createRenderer(config: OSRRendererConfig): Promise<void>;
   destroyRenderer(id: string): Promise<void>;
-  addPanel(config: OSRPanelConfig): Promise<AtlasLayout | null>;
+  addPanel(config: OSRPanelConfig): Promise<AtlasPanelRect | null>;
   removePanel(rendererId: string, panelId: string): Promise<AtlasLayout | null>;
   updatePanel(rendererId: string, panelId: string, html: string): Promise<void>;
   updateData(rendererId: string, panelId: string, values: Record<string, string | number | boolean>): void;

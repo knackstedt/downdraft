@@ -5,8 +5,8 @@ import { PluginHost } from "../plugin/host";
 import type { Plugin } from "../plugin/plugin";
 import type { Camera } from "./camera";
 import { PrefabFactory, PrefabRegistry } from "./prefab";
-import { SceneManager } from "./scene-manager";
 import type { Scene } from "./scene";
+import { SceneManager } from "./scene-manager";
 
 export interface WorldResources {
   camera?: Camera;
@@ -39,6 +39,18 @@ export class GameWorld {
 
   usePlugin(plugin: Plugin): void {
     this.pluginHost.registerPlugin(plugin);
+  }
+
+  /**
+   * Register multiple plugins and activate them in dependency-resolved order.
+   * Preferred over `usePlugin()` when registering multiple plugins with
+   * interdependencies, as it activates them in topological order.
+   */
+  usePlugins(plugins: Plugin[]): void {
+    for (let i = 0; i < plugins.length; i++) {
+      this.pluginHost.registerPluginDeferred(plugins[i]);
+    }
+    this.pluginHost.activateAll();
   }
 
   async loadPlugin(pluginPath: string): Promise<void> {

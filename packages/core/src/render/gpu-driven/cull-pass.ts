@@ -2,6 +2,7 @@ import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import type { FrustumPlane } from "../frustum";
+import { createStorageBuffer, createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
 import type { GpuMeshTable } from "./mesh-table";
 
@@ -117,20 +118,11 @@ export class GpuCullPass extends RenderPass {
       });
     }
 
-    this.uniformBuffer = device.createBuffer({
-      size: 256,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.uniformBuffer = createUniformBuffer(device, 256);
 
-    this.argsUniformBuffer = device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.argsUniformBuffer = createUniformBuffer(device, 16);
 
-    this.perBatchCountBuffer = device.createBuffer({
-      size: this.maxBatches * 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
+    this.perBatchCountBuffer = createStorageBuffer(device, this.maxBatches * 4, false);
 
     this.drawArgsBuffer = device.createBuffer({
       size: this.maxBatches * DRAW_INDEXED_INDIRECT_ARGS_SIZE,

@@ -2,7 +2,8 @@
 // OSR (Offscreen Rendering) host — manager + IPC handlers
 // ============================================================================
 
-import { InputForwarder, OSRRendererManager } from "@downdraft/plugin-electron-osr/main-entry";
+import type { OSRInputEvent, OSRPanelConfig, OSRRendererConfig } from "@downdraft/plugin-electron-osr/main-entry";
+import { InputForwarder, OSRDedicatedRenderer, OSRRendererManager } from "@downdraft/plugin-electron-osr/main-entry";
 import { ipcMain } from "electron";
 import { IPC } from "../../shared/messages";
 import type { MainContext } from "../types";
@@ -16,7 +17,7 @@ export function registerOsrHandlers(ctx: MainContext): OSRRendererManager {
   osrManager.registerDisplayMetricsListener();
   const osrInputForwarder = new InputForwarder(osrManager);
 
-  ipcMain.handle(IPC.OSR_CREATE_RENDERER, async (_event, config: any) => {
+  ipcMain.handle(IPC.OSR_CREATE_RENDERER, async (_event, config: OSRRendererConfig) => {
     osrManager.createRenderer(config);
   });
 
@@ -24,7 +25,7 @@ export function registerOsrHandlers(ctx: MainContext): OSRRendererManager {
     osrManager.destroyRenderer(id);
   });
 
-  ipcMain.handle(IPC.OSR_ADD_PANEL, async (_event, config: any) => {
+  ipcMain.handle(IPC.OSR_ADD_PANEL, async (_event, config: OSRPanelConfig) => {
     const renderer = osrManager.getRenderer(config.rendererId);
     if (!renderer) return null;
     const rect = renderer.addPanel(config);
@@ -59,27 +60,27 @@ export function registerOsrHandlers(ctx: MainContext): OSRRendererManager {
   ipcMain.handle(IPC.OSR_SET_CONTENT, async (_event, rendererId: string, html: string) => {
     const renderer = osrManager.getRenderer(rendererId);
     if (!renderer) return;
-    if (renderer.mode === "dedicated") {
-      (renderer as any).setContent(html);
+    if (renderer instanceof OSRDedicatedRenderer) {
+      renderer.setContent(html);
     }
   });
 
   ipcMain.handle(IPC.OSR_LOAD_URL, async (_event, rendererId: string, url: string) => {
     const renderer = osrManager.getRenderer(rendererId);
     if (!renderer) return;
-    if (renderer.mode === "dedicated") {
-      (renderer as any).loadURL(url);
+    if (renderer instanceof OSRDedicatedRenderer) {
+      renderer.loadURL(url);
     }
   });
 
-  ipcMain.on(IPC.OSR_INPUT_EVENT, (_event, rendererId: string, eventData: any) => {
+  ipcMain.on(IPC.OSR_INPUT_EVENT, (_event, rendererId: string, eventData: Omit<OSRInputEvent, "rendererId">) => {
     osrInputForwarder.forward({ rendererId, ...eventData });
   });
 
   ipcMain.on(IPC.OSR_SET_SOFTWARE_CURSOR, (_event, rendererId: string, enabled: boolean) => {
     const renderer = osrManager.getRenderer(rendererId);
     if (renderer) {
-      (renderer as any).setSoftwareCursorEnabled(enabled);
+      renderer.setSoftwareCursorEnabled(enabled);
     }
   });
 

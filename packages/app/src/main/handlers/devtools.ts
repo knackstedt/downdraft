@@ -53,7 +53,7 @@ export function registerDevtoolsHandlers(ctx: MainContext, devtools: ResolvedDev
   // avoiding double-toggle.
   if (devtools.keybind && ctx.window && !ctx.window.isDestroyed()) {
     ctx.window.webContents.on("before-input-event", (event, input) => {
-      if (input.type !== "keyDown" || (input as any).repeat) return;
+      if (input.type !== "keyDown" || (input as { repeat?: boolean }).repeat) return;
       if (input.key === devtools.keybind) {
         event.preventDefault();
         if (ctx.window && !ctx.window.isDestroyed()) {
@@ -132,7 +132,7 @@ export function registerDevtoolsHandlers(ctx: MainContext, devtools: ResolvedDev
 
   ipcMain.on(IPC.RENDERER_LOG, (_event, data: { level: string; message: string }) => {
     const level = data.level as "trace" | "debug" | "info" | "warn" | "error" | "fatal";
-    const fn = (log as any)[level] ?? log.info;
+    const fn = (log as Record<typeof level, (module: string, msg: string) => void>)[level] ?? log.info;
     fn.call(log, "renderer", data.message.replace(/\n+$/, ""));
   });
 

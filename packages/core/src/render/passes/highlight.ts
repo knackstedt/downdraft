@@ -1,4 +1,5 @@
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
+import { createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
 
 const FULLSCREEN_VS = /* wgsl */ `
@@ -149,9 +150,9 @@ export class HighlightPass extends RenderPass {
       addressModeV: "clamp-to-edge",
     });
 
-    this.blurUniformBuffer = this.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.compositeUniformBuffer = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.maskUniformBuffer = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.blurUniformBuffer = createUniformBuffer(this.device, 32);
+    this.compositeUniformBuffer = createUniformBuffer(this.device, 16);
+    this.maskUniformBuffer = createUniformBuffer(this.device, 16);
 
     const vsModule = this.device.createShaderModule({ code: FULLSCREEN_VS });
     const blurFsModule = this.device.createShaderModule({ code: HIGHLIGHT_BLUR_FS });

@@ -56,12 +56,12 @@ export class GPUTimer {
    */
   begin(pass: GPURenderPassEncoder | GPUComputePassEncoder): void {
     if (!this.supported || !this.querySet) return;
-    (pass as any).writeTimestamp(this.querySet, 0);
+    (pass as (GPURenderPassEncoder | GPUComputePassEncoder) & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, 0);
   }
 
   end(pass: GPURenderPassEncoder | GPUComputePassEncoder): void {
     if (!this.supported || !this.querySet) return;
-    (pass as any).writeTimestamp(this.querySet, 1);
+    (pass as (GPURenderPassEncoder | GPUComputePassEncoder) & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, 1);
   }
 
   /**

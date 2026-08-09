@@ -1,5 +1,5 @@
 // ============================================================================
-// @downdraft/plugin-persistence — versioned, compressed save system
+// @downdraft/library-persistence — versioned, compressed save system
 // ============================================================================
 
 export { FileSaveStore } from "./file-save-store";

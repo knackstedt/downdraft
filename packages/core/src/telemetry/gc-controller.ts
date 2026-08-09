@@ -100,20 +100,21 @@ export interface GCControllerStats {
 type GcFn = (() => void) & {
   (opts: { type: "minor" | "major" }): void;
   (execution: "major" | "minor"): void;
+  (legacy: boolean): void;
 };
 
 function getGcFn(): GcFn | null {
-  const g = (globalThis as any).gc;
+  const g = (globalThis as { gc?: unknown }).gc;
   return typeof g === "function" ? (g as GcFn) : null;
 }
 
 function getHeapUsed(): number {
-  const mem = (performance as any).memory;
+  const mem = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
   return mem ? mem.usedJSHeapSize : 0;
 }
 
 function getHeapTotal(): number {
-  const mem = (performance as any).memory;
+  const mem = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
   return mem ? mem.totalJSHeapSize : 0;
 }
 
@@ -147,7 +148,7 @@ export class GCController {
   private invocationCount: number = 0;
 
   // V8 auto-GC tracking via PerformanceObserver
-  private perfObserver: any = null;
+  private perfObserver: PerformanceObserver | null = null;
   private v8AutoGcCount: number = 0;
   private v8AutoGcTotalMs: number = 0;
 
@@ -169,7 +170,7 @@ export class GCController {
     const PO = globalThis.PerformanceObserver;
     if (!PO) return;
     try {
-      this.perfObserver = new PO((list: any) => {
+      this.perfObserver = new PO((list: PerformanceObserverEntryList) => {
         for (const entry of list.getEntries()) {
           this.v8AutoGcCount++;
           this.v8AutoGcTotalMs += entry.duration;
@@ -326,15 +327,15 @@ export class GCController {
     if (!this.gcFn) return;
     // Try modern object form first: gc({type:"minor"})
     try {
-      (this.gcFn as any)({ type });
+      this.gcFn({ type });
       return;
     } catch {
       // Fall through to legacy forms
     }
     // Try legacy string form: gc("major") or gc(true) for minor
     try {
-      if (type === "major") (this.gcFn as any)("major");
-      else (this.gcFn as any)(true);
+      if (type === "major") this.gcFn("major");
+      else this.gcFn(true);
       return;
     } catch {
       // Fall through to plain gc()

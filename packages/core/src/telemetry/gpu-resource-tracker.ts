@@ -167,7 +167,7 @@ export class GPUResourceTracker {
     const origCreateTexture = device.createTexture.bind(device);
     const origCreateBuffer = device.createBuffer.bind(device);
 
-    (device as any).createTexture = function (descriptor: GPUTextureDescriptor): GPUTexture {
+    device.createTexture = function (descriptor: GPUTextureDescriptor): GPUTexture {
       const tex = origCreateTexture(descriptor);
       const id = nextId();
       const hasLabel = !!descriptor.label;
@@ -207,7 +207,7 @@ export class GPUResourceTracker {
       return tex;
     };
 
-    (device as any).createBuffer = function (descriptor: GPUBufferDescriptor): GPUBuffer {
+    device.createBuffer = function (descriptor: GPUBufferDescriptor): GPUBuffer {
       const buf = origCreateBuffer(descriptor);
       const id = nextId();
       const hasLabel = !!descriptor.label;

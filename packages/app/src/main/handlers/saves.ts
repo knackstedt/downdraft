@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/core/util/logger";
-import { FileSaveStore } from "@downdraft/plugin-persistence";
+import { FileSaveStore } from "@downdraft/library-persistence";
 import { app, ipcMain } from "electron";
 import { join } from "path";
 import { IPC } from "../../shared/messages";

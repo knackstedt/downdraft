@@ -1,6 +1,6 @@
 import type { ComponentId } from "../ecs/component";
 import { getComponentId } from "../ecs/component";
-import type { Stage, SystemFn } from "../ecs/system";
+import type { Stage, System, SystemFn } from "../ecs/system";
 import type { World } from "../ecs/world";
 import { createLogger } from "../util/logger";
 import type { Plugin, PluginContext, SABChannel } from "./plugin";
@@ -20,6 +20,7 @@ export class PluginHost implements PluginContext {
   private registry: PluginRegistry;
   private tsLoader: TSPluginLoader;
   private active: Map<string, ActivePlugin> = new Map();
+  private pending: Map<string, Plugin> = new Map();
   private migrations: Map<number, (data: unknown) => unknown> = new Map();
 
   constructor(world: World, registry?: PluginRegistry) {
@@ -38,9 +39,41 @@ export class PluginHost implements PluginContext {
     return plugin;
   }
 
+  /**
+   * Register and immediately activate a plugin.
+   * For batch registration with dependency-ordered activation,
+   * use `registerPluginDeferred()` + `activateAll()` instead.
+   */
   registerPlugin(plugin: Plugin): void {
     this.registry.register(plugin);
     this.activatePlugin(plugin);
+  }
+
+  /**
+   * Register a plugin without activating it.
+   * Call `activateAll()` after all plugins are registered
+   * to activate them in dependency-resolved order.
+   */
+  registerPluginDeferred(plugin: Plugin): void {
+    this.registry.register(plugin);
+    this.pending.set(plugin.name, plugin);
+  }
+
+  /**
+   * Activate all plugins registered via `registerPluginDeferred()`
+   * in dependency-resolved order (topological sort).
+   * Plugins with no dependencies are activated first.
+   */
+  activateAll(): void {
+    const order = this.registry.resolveOrder();
+    for (let i = 0; i < order.length; i++) {
+      const name = order[i];
+      if (this.pending.has(name) && !this.active.has(name)) {
+        const plugin = this.pending.get(name)!;
+        this.pending.delete(name);
+        this.activatePlugin(plugin);
+      }
+    }
   }
 
   private activatePlugin(plugin: Plugin): void {
@@ -65,6 +98,7 @@ export class PluginHost implements PluginContext {
       }
     }
     this.active.delete(name);
+    this.pending.delete(name);
     this.registry.unregister(name);
   }
 
@@ -77,8 +111,9 @@ export class PluginHost implements PluginContext {
   }
 
   disposeAll(): void {
-    for (const name of this.active.keys()) {
-      this.unloadPlugin(name);
+    const order = this.registry.resolveOrder();
+    for (let i = order.length - 1; i >= 0; i--) {
+      this.unloadPlugin(order[i]);
     }
   }
 
@@ -94,6 +129,10 @@ export class PluginHost implements PluginContext {
       fn: system,
       queries: [],
     });
+  }
+
+  registerSystemObject(system: System): void {
+    this.world.schedule.add(system);
   }
 
   allocateSABChannel(name: string, size: number): SABChannel {

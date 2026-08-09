@@ -49,16 +49,16 @@
       "@downdraft/plugin-audio-kira": [
         "./packages/plugins/audio-kira/src/index.ts"
       ],
-      "@downdraft/plugin-postfx": [
+      "@downdraft/library-postfx": [
         "./packages/plugins/postfx/src/index.ts"
       ],
-      "@downdraft/plugin-postfx/*": [
+      "@downdraft/library-postfx/*": [
         "./packages/plugins/postfx/src/*"
       ],
-      "@downdraft/plugin-lighting": [
+      "@downdraft/library-lighting": [
         "./packages/plugins/lighting/src/index.ts"
       ],
-      "@downdraft/plugin-lighting/*": [
+      "@downdraft/library-lighting/*": [
         "./packages/plugins/lighting/src/*"
       ],
       "@downdraft/plugin-weatherfx": [
@@ -67,16 +67,16 @@
       "@downdraft/plugin-weatherfx/*": [
         "./packages/plugins/weatherfx/src/*"
       ],
-      "@downdraft/plugin-weather": [
+      "@downdraft/library-weather": [
         "./packages/plugins/weather/src/index.ts"
       ],
-      "@downdraft/plugin-weather/*": [
+      "@downdraft/library-weather/*": [
         "./packages/plugins/weather/src/*"
       ],
-      "@downdraft/plugin-entities": [
+      "@downdraft/library-entities": [
         "./packages/plugins/entities/src/index.ts"
       ],
-      "@downdraft/plugin-entities/*": [
+      "@downdraft/library-entities/*": [
         "./packages/plugins/entities/src/*"
       ],
       "@downdraft/plugin-models": [

@@ -9,7 +9,8 @@
 import type { RendererPlugin } from "../plugin/renderer-plugin";
 import { TelemetryCollector } from "../telemetry/collector";
 import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
-import { GPUProfiler, type FrameGraphData } from "../telemetry/gpu-profiler";
+import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
+import { GPUProfiler, type FrameGraphData, type GPUInfo } from "../telemetry/gpu-profiler";
 import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker";
 import { UIRoot } from "../ui/element";
 import { UIInputRouter } from "../ui/input";
@@ -246,7 +247,7 @@ export class GameRenderer implements CanvasResizeHandler {
       this.gpuResourceTracker.wrapDevice(this.device);
 
       // GPU profiler
-      const adapterInfo = (adapter as any).info ?? null;
+      const adapterInfo = adapter.info ?? null;
       this.context = this.canvas.getContext("webgpu")!;
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
@@ -255,7 +256,7 @@ export class GameRenderer implements CanvasResizeHandler {
         "features:", Array.from(this.device.features));
 
       // Device lost handler
-      this.device.lost.then((info: any) => {
+      this.device.lost.then((info: GPUDeviceLostInfo) => {
         this.deviceLost = true;
         console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
         setTimeout(() => {
@@ -453,7 +454,7 @@ export class GameRenderer implements CanvasResizeHandler {
     } catch (err) {
       console.error(`[GameRenderer] Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
       if (this.device?.lost) {
-        this.device.lost.then((info: any) => {
+        this.device.lost.then((info: GPUDeviceLostInfo) => {
           this.deviceLost = true;
           console.error(`[GameRenderer] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
         });
@@ -560,7 +561,7 @@ export class GameRenderer implements CanvasResizeHandler {
             storeOp: "store" as GPUStoreOp,
           }],
         });
-        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as any, drawables);
+        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(uiPass) } as unknown as RenderContext, drawables);
         uiPass.end();
         frameCommandBuffers.push(uiEncoder.finish());
       }
@@ -712,14 +713,14 @@ export class GameRenderer implements CanvasResizeHandler {
       isLastViewport: isLast,
       width: viewport.w,
       height: viewport.h,
-      viewProj: undefined as any,
-      invViewProj: undefined as any,
-      prevViewProj: undefined as any,
+      viewProj: undefined,
+      invViewProj: undefined,
+      prevViewProj: undefined,
       cameraPos: camInfo.camera.position,
-      lightData: null as any,
-      lightViewProj: undefined as any,
-      mesh: null as any,
-      modelMatrix: undefined as any,
+      lightData: null,
+      lightViewProj: undefined,
+      mesh: null,
+      modelMatrix: undefined,
       shadowsEnabled: false,
       bloomEnabled: false,
       shadowSampler: null,
@@ -942,12 +943,12 @@ export class GameRenderer implements CanvasResizeHandler {
     return this.gpuResourceTracker;
   }
 
-  getGPUInfo(): any {
+  getGPUInfo(): GPUInfo | null {
     if (!this.gpuProfiler) return null;
     return this.gpuProfiler.getGPUInfo(this.canvas, this.msaaSampleCount);
   }
 
-  getAdapterInfo(): any {
+  getAdapterInfo(): GPUAdapterInfoData | null {
     return this.gpuProfiler?.getAdapterInfo() ?? null;
   }
 

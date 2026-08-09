@@ -1,5 +1,5 @@
 import type { ComponentId } from "../ecs/component";
-import type { Stage, SystemFn } from "../ecs/system";
+import type { Stage, System, SystemFn } from "../ecs/system";
 
 export interface SABChannel {
   name: string;
@@ -9,6 +9,8 @@ export interface SABChannel {
 export interface PluginContext {
   registerComponent<T>(name: string, schema: T): ComponentId;
   registerSystem(stage: Stage, system: SystemFn): void;
+  /** Register a pre-built System object (with queries) to the world schedule. */
+  registerSystemObject(system: System): void;
   allocateSABChannel(name: string, size: number): SABChannel;
   registerResource<T>(name: string, value: T): void;
   registerMigration(fromVersion: number, fn: (data: unknown) => unknown): void;

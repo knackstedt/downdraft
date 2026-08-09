@@ -5,7 +5,7 @@
 // ============================================================================
 
 import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
-import { WeatherType } from "@downdraft/plugin-weather";
+import { WeatherType } from "@downdraft/library-weather";
 import type { CloudExtractedMesh, CloudMeshProvider, CloudVoxelField } from "./cloud-provider";
 import CLOUD_WGSL from "./shaders/cloud.wgsl?raw";
 

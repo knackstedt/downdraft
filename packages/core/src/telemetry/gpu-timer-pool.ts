@@ -76,12 +76,12 @@ export class GPUTimerPool {
 
   begin(pass: GPURenderPassEncoder | GPUComputePassEncoder, passIdx: number): void {
     if (!this.supported || !this.querySet || passIdx >= this.maxPasses) return;
-    (pass as any).writeTimestamp(this.querySet, passIdx * 2);
+    (pass as (GPURenderPassEncoder | GPUComputePassEncoder) & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, passIdx * 2);
   }
 
   end(pass: GPURenderPassEncoder | GPUComputePassEncoder, passIdx: number): void {
     if (!this.supported || !this.querySet || passIdx >= this.maxPasses) return;
-    (pass as any).writeTimestamp(this.querySet, passIdx * 2 + 1);
+    (pass as (GPURenderPassEncoder | GPUComputePassEncoder) & { writeTimestamp(querySet: GPUQuerySet, queryIndex: number): void }).writeTimestamp(this.querySet, passIdx * 2 + 1);
   }
 
   resolve(encoder: GPUCommandEncoder): void {

@@ -4,24 +4,65 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC } from "../shared/messages";
+import type {
+    AtlasPanelRect,
+    DisplayInfoData,
+    DisplayMetricsChangedData,
+    DowndraftBridgeAPI,
+    ElectronGPUInfo,
+    GCStatsData,
+    GPUSystemInfo,
+    ImportCacheEntry,
+    ImportedSharedTexture,
+    McpRequest,
+    McpResponse,
+    OSRInputEvent,
+    OSRPanelConfig,
+    OSRPanelLayout,
+    OSRRendererConfig,
+    OSRRendererEvent,
+    PaintRegionData,
+    PerfStatsData,
+    SaveSlotInfo,
+    SharedTextureApi,
+    SimReadyData,
+    VulkanValidationStatus
+} from "../shared/types";
 
 // --- Shared Texture Receiver ---
 // Electron's sharedTexture API is only available in the preload's isolated world.
 // We register the receiver here and forward VideoFrames to the renderer's main
 // world via postMessage (VideoFrame is transferable).
-const electron = require("electron") as any;
-const sharedTextureApi = (globalThis as any).sharedTexture ?? electron?.sharedTexture;
+const electron = require("electron") as { sharedTexture?: SharedTextureApi };
+const sharedTextureApi: SharedTextureApi | undefined =
+  (globalThis as unknown as { sharedTexture?: SharedTextureApi }).sharedTexture ?? electron?.sharedTexture;
+
+/** Type guard: checks whether a value is an imported shared texture. */
+function isImportedSharedTexture(obj: unknown): obj is ImportedSharedTexture {
+  return typeof obj === "object" && obj !== null &&
+    typeof (obj as ImportedSharedTexture).getVideoFrame === "function";
+}
+
+/** Extracts the imported shared texture from a received callback payload. */
+function extractImported(received: unknown): ImportedSharedTexture | null {
+  if (isImportedSharedTexture(received)) return received;
+  if (received && typeof received === "object" && "importedSharedTexture" in received) {
+    const inner = (received as Record<string, unknown>).importedSharedTexture;
+    if (isImportedSharedTexture(inner)) return inner;
+  }
+  return null;
+}
 
 /**
  * The default `window.downdraft` API surface. Games get this for free;
  * use the `extend` hook to add game-specific channels.
  */
-export function createDefaultBridge(): Record<string, any> {
+export function createDefaultBridge(): DowndraftBridgeAPI {
   return {
     saveGameState: (slotName: string, stateJson: string): Promise<boolean> => ipcRenderer.invoke(IPC.SAVE_GAME_STATE, slotName, stateJson),
     loadGameState: (slotName: string): Promise<string | null> => ipcRenderer.invoke(IPC.LOAD_GAME_STATE, slotName),
     deleteGameState: (slotName: string): Promise<boolean> => ipcRenderer.invoke(IPC.DELETE_GAME_STATE, slotName),
-    listSaveSlots: (): Promise<Array<{ slot: string; timestamp: number; entityCount: number; playerCount: number; engineVersion: string; fileSize: number }>> => ipcRenderer.invoke(IPC.LIST_SAVE_SLOTS),
+    listSaveSlots: (): Promise<SaveSlotInfo[]> => ipcRenderer.invoke(IPC.LIST_SAVE_SLOTS),
 
     quit: (): Promise<void> => ipcRenderer.invoke(IPC.QUIT),
 
@@ -31,54 +72,54 @@ export function createDefaultBridge(): Record<string, any> {
 
     toggleFullscreen: (): void => ipcRenderer.send(IPC.TOGGLE_FULLSCREEN),
 
-    getDisplayInfo: (): Promise<{ refreshRate: number }> => ipcRenderer.invoke(IPC.GET_DISPLAY_INFO),
+    getDisplayInfo: (): Promise<DisplayInfoData> => ipcRenderer.invoke(IPC.GET_DISPLAY_INFO),
 
     openExternal: (url: string): void => { ipcRenderer.send(IPC.OPEN_EXTERNAL, url); },
 
-    getGPUSystemInfo: (): Promise<any> => ipcRenderer.invoke(IPC.GPU_SYSTEM_INFO),
-    getElectronGPUInfo: (): Promise<any> => ipcRenderer.invoke(IPC.ELECTRON_GPU_INFO),
-    getVulkanValidationStatus: (): Promise<any> => ipcRenderer.invoke(IPC.VULKAN_VALIDATION_STATUS),
+    getGPUSystemInfo: (): Promise<GPUSystemInfo | null> => ipcRenderer.invoke(IPC.GPU_SYSTEM_INFO),
+    getElectronGPUInfo: (): Promise<ElectronGPUInfo | null> => ipcRenderer.invoke(IPC.ELECTRON_GPU_INFO),
+    getVulkanValidationStatus: (): Promise<VulkanValidationStatus> => ipcRenderer.invoke(IPC.VULKAN_VALIDATION_STATUS),
     openChromeUrl: (url: string): void => { ipcRenderer.send(IPC.OPEN_CHROME_URL, url); },
 
     // Import cache — caches resolved model import settings (SQLite-backed in main process)
-    importCacheGet: (modelPath: string): Promise<{ settings: unknown; sourceMtime: number; sidecarMtime: number; updatedAt: number } | null> =>
+    importCacheGet: (modelPath: string): Promise<ImportCacheEntry | null> =>
       ipcRenderer.invoke(IPC.IMPORT_CACHE_GET, modelPath),
-    importCacheSet: (modelPath: string, entry: { settings: unknown; sourceMtime: number; sidecarMtime: number; updatedAt: number }): Promise<void> =>
+    importCacheSet: (modelPath: string, entry: ImportCacheEntry): Promise<void> =>
       ipcRenderer.invoke(IPC.IMPORT_CACHE_SET, modelPath, entry),
     importCacheInvalidate: (modelPath: string): Promise<void> =>
       ipcRenderer.invoke(IPC.IMPORT_CACHE_INVALIDATE, modelPath),
 
-    onSimReady: (cb: (data: any) => void) => ipcRenderer.on(IPC.SIM_READY, (_e, data) => cb(data)),
+    onSimReady: (cb: (data: SimReadyData) => void) => ipcRenderer.on(IPC.SIM_READY, (_e, data: SimReadyData) => cb(data)),
 
-    onDisplayInfo: (cb: (data: { refreshRate: number }) => void) => ipcRenderer.on(IPC.DISPLAY_INFO, (_e, data) => cb(data)),
+    onDisplayInfo: (cb: (data: DisplayInfoData) => void) => ipcRenderer.on(IPC.DISPLAY_INFO, (_e, data: DisplayInfoData) => cb(data)),
 
-    onDisplayMetricsChanged: (cb: (data: { scaleFactor: number }) => void) => ipcRenderer.on(IPC.DISPLAY_METRICS_CHANGED, (_e, data) => cb(data)),
+    onDisplayMetricsChanged: (cb: (data: DisplayMetricsChangedData) => void) => ipcRenderer.on(IPC.DISPLAY_METRICS_CHANGED, (_e, data: DisplayMetricsChangedData) => cb(data)),
 
-    onGCStats: (cb: (data: any) => void) => ipcRenderer.on(IPC.GC_STATS, (_e, data) => cb(data)),
+    onGCStats: (cb: (data: GCStatsData) => void) => ipcRenderer.on(IPC.GC_STATS, (_e, data: GCStatsData) => cb(data)),
 
-    onPerfStats: (cb: (data: any) => void) => ipcRenderer.on(IPC.PERF_STATS, (_e, data) => cb(data)),
+    onPerfStats: (cb: (data: PerfStatsData) => void) => ipcRenderer.on(IPC.PERF_STATS, (_e, data: PerfStatsData) => cb(data)),
 
     // --- OSR (Offscreen Rendering) ---
     osr: {
-      createRenderer: (config: any): Promise<void> => ipcRenderer.invoke(IPC.OSR_CREATE_RENDERER, config),
+      createRenderer: (config: OSRRendererConfig): Promise<void> => ipcRenderer.invoke(IPC.OSR_CREATE_RENDERER, config),
       destroyRenderer: (id: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_DESTROY_RENDERER, id),
-      addPanel: (config: any): Promise<any> => ipcRenderer.invoke(IPC.OSR_ADD_PANEL, config),
-      removePanel: (rendererId: string, panelId: string): Promise<any> => ipcRenderer.invoke(IPC.OSR_REMOVE_PANEL, rendererId, panelId),
+      addPanel: (config: OSRPanelConfig): Promise<AtlasPanelRect | null> => ipcRenderer.invoke(IPC.OSR_ADD_PANEL, config),
+      removePanel: (rendererId: string, panelId: string): Promise<OSRPanelLayout | null> => ipcRenderer.invoke(IPC.OSR_REMOVE_PANEL, rendererId, panelId),
       updatePanel: (rendererId: string, panelId: string, html: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_UPDATE_PANEL, rendererId, panelId, html),
       updateData: (rendererId: string, panelId: string, values: Record<string, string | number | boolean>): void =>
         ipcRenderer.send(IPC.OSR_UPDATE_DATA, rendererId, panelId, values),
       setContent: (rendererId: string, html: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_SET_CONTENT, rendererId, html),
       loadURL: (rendererId: string, url: string): Promise<void> => ipcRenderer.invoke(IPC.OSR_LOAD_URL, rendererId, url),
-      sendInputEvent: (rendererId: string, event: any): void =>
+      sendInputEvent: (rendererId: string, event: Omit<OSRInputEvent, "rendererId">): void =>
         ipcRenderer.send(IPC.OSR_INPUT_EVENT, rendererId, event),
       setSoftwareCursor: (rendererId: string, enabled: boolean): void =>
         ipcRenderer.send(IPC.OSR_SET_SOFTWARE_CURSOR, rendererId, enabled),
-      onPanelLayout: (cb: (rendererId: string, layout: any) => void) =>
-        ipcRenderer.on(IPC.OSR_PANEL_LAYOUT, (_e, rendererId, layout) => cb(rendererId, layout)),
-      onRendererEvent: (cb: (event: any) => void) =>
-        ipcRenderer.on(IPC.OSR_RENDERER_EVENT, (_e, event) => cb(event)),
+      onPanelLayout: (cb: (rendererId: string, layout: OSRPanelLayout) => void) =>
+        ipcRenderer.on(IPC.OSR_PANEL_LAYOUT, (_e, rendererId: string, layout: OSRPanelLayout) => cb(rendererId, layout)),
+      onRendererEvent: (cb: (event: OSRRendererEvent) => void) =>
+        ipcRenderer.on(IPC.OSR_RENDERER_EVENT, (_e, event: OSRRendererEvent) => cb(event)),
       onCursorStyle: (cb: (rendererId: string, cursor: string) => void) =>
-        ipcRenderer.on(IPC.OSR_CURSOR_STYLE, (_e, rendererId, cursor) => cb(rendererId, cursor)),
+        ipcRenderer.on(IPC.OSR_CURSOR_STYLE, (_e, rendererId: string, cursor: string) => cb(rendererId, cursor)),
       // Register a shared texture receiver using the subtle API.
       // Main process sends transfer data via IPC; preload reconstructs via
       // finishTransferSharedTexture, extracts VideoFrame, and forwards to
@@ -90,10 +131,10 @@ export function createDefaultBridge(): Record<string, any> {
           return false;
         }
         let transferCount = 0;
-        let previousImported: any = null;
+        let previousImported: ImportedSharedTexture | null = null;
 
         // Helper: process an imported shared texture — extract VideoFrame, forward to main world
-        const processImported = (imported: any, rendererId: string, correlationId?: number) => {
+        const processImported = (imported: ImportedSharedTexture, rendererId: string, correlationId?: number) => {
           transferCount++;
           if (previousImported) {
             try { previousImported.release(() => {}); } catch {}
@@ -112,7 +153,7 @@ export function createDefaultBridge(): Record<string, any> {
           }
 
           // Transfer VideoFrame to main world via postMessage
-          window.postMessage({ type: "__osr_video_frame", rendererId, videoFrame }, "*", [videoFrame]);
+          window.postMessage({ type: "__osr_video_frame", rendererId, videoFrame }, "*", [videoFrame as unknown as Transferable]);
 
           // Send sync token back to main process for proper GPU synchronization
           try {
@@ -126,12 +167,14 @@ export function createDefaultBridge(): Record<string, any> {
         // High-level API: setSharedTextureReceiver (handles GPU sync automatically)
         if (sharedTextureApi?.setSharedTextureReceiver) {
           console.log(`[preload] Registering setSharedTextureReceiver`);
-          sharedTextureApi.setSharedTextureReceiver((received: any, ...args: any[]) => {
+          sharedTextureApi.setSharedTextureReceiver((received: unknown, ...args: unknown[]) => {
             try {
-              const rendererId = args[0] || "unknown";
-              const correlationId = args[1];
-              const imported = received.importedSharedTexture || received;
-              processImported(imported, rendererId, correlationId);
+              const rendererId = typeof args[0] === "string" ? args[0] : "unknown";
+              const correlationId = typeof args[1] === "number" ? args[1] : undefined;
+              const imported = extractImported(received);
+              if (imported) {
+                processImported(imported, rendererId, correlationId);
+              }
             } catch (err) {
               console.error(`[preload] setSharedTextureReceiver callback failed:`, err);
             }
@@ -139,7 +182,7 @@ export function createDefaultBridge(): Record<string, any> {
         }
 
         // Low-level API: subtle.finishTransferSharedTexture (fallback)
-        ipcRenderer.on("__osr_shared_texture_transfer", (_e: any, rendererId: string, correlationId: number, transfer: any) => {
+        ipcRenderer.on("__osr_shared_texture_transfer", (_e, rendererId: string, correlationId: number, transfer: unknown) => {
           try {
             const imported = subtle.finishTransferSharedTexture(transfer);
             processImported(imported, rendererId, correlationId);
@@ -153,11 +196,11 @@ export function createDefaultBridge(): Record<string, any> {
         return true;
       },
       // Register a NativeImage paint receiver (CPU fallback when shared textures aren't available)
-      onPaintImage: (cb: (rendererId: string, image: any) => void) =>
-        ipcRenderer.on("__osr_paint_image", (_e, rendererId, image) => cb(rendererId, image)),
+      onPaintImage: (cb: (rendererId: string, image: unknown) => void) =>
+        ipcRenderer.on("__osr_paint_image", (_e, rendererId: string, image: unknown) => cb(rendererId, image)),
       // Register a region-based paint receiver (dirty rect + compressed data)
-      onPaintRegion: (cb: (rendererId: string, region: { x: number; y: number; width: number; height: number; fullWidth: number; fullHeight: number; data: ArrayBuffer; compressed: boolean }) => void) =>
-        ipcRenderer.on("__osr_paint_region", (_e, rendererId, region) => cb(rendererId, region)),
+      onPaintRegion: (cb: (rendererId: string, region: PaintRegionData) => void) =>
+        ipcRenderer.on("__osr_paint_region", (_e, rendererId: string, region: PaintRegionData) => cb(rendererId, region)),
       // Create a direct MessagePort from main process → worker (bypasses renderer main thread)
       // Port1 goes to main process, port2 is transferred to renderer via window.postMessage
       createPaintPort: (rendererId: string): void => {
@@ -174,8 +217,8 @@ export function createDefaultBridge(): Record<string, any> {
     // Exposed from main process env so the renderer can detect test/deterministic mode
     deterministic: process.env.DOWNDRAFT_DETERMINISTIC === "1",
 
-    onMcpRequest: (cb: (request: { id: number; method: string; params?: Record<string, unknown> }) => Promise<{ id: number; result?: unknown; error?: { code: number; message: string } }>) => {
-      ipcRenderer.on(IPC.MCP_REQUEST, async (_e, request) => {
+    onMcpRequest: (cb: (request: McpRequest) => Promise<McpResponse>) => {
+      ipcRenderer.on(IPC.MCP_REQUEST, async (_e, request: McpRequest) => {
         try {
           const result = await cb(request);
           ipcRenderer.send(`mcp-response-${result.id}`, result);
@@ -197,7 +240,7 @@ export interface DowndraftBridgeConfig {
    * preload modules.
    */
   extend?: (
-    api: Record<string, any>,
+    api: DowndraftBridgeAPI,
     electron: { ipcRenderer: typeof ipcRenderer; contextBridge: typeof contextBridge },
   ) => void;
 }
@@ -222,6 +265,6 @@ export function createDowndraftBridge(config: DowndraftBridgeConfig = {}): void 
   if (process.contextIsolated) {
     contextBridge.exposeInMainWorld("downdraft", api);
   } else {
-    (globalThis as any).downdraft = api;
+    (globalThis as unknown as { downdraft: DowndraftBridgeAPI }).downdraft = api;
   }
 }

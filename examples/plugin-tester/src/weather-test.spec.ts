@@ -1,5 +1,5 @@
-import { WeatherSystem, WeatherType, DEFAULT_WEATHER_CONFIG } from "@downdraft/plugin-weather";
-import type { BiomeProvider, WeatherState, WeatherConfig } from "@downdraft/plugin-weather";
+import { WeatherSystem, WeatherType, DEFAULT_WEATHER_CONFIG } from "@downdraft/library-weather";
+import type { BiomeProvider, WeatherState, WeatherConfig } from "@downdraft/library-weather";
 import { describe, expect, it, vi, beforeEach } from "bun:test";
 
 // ============================================================================

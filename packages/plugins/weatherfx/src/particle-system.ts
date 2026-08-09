@@ -6,7 +6,7 @@
 
 import type { ITrackedRenderPass } from "@downdraft/core";
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
-import { WeatherType } from "@downdraft/plugin-weather";
+import { WeatherType } from "@downdraft/library-weather";
 import COMPUTE_WGSL from "./shaders/particle-compute.wgsl?raw";
 import RENDER_WGSL from "./shaders/particle-render.wgsl?raw";
 
