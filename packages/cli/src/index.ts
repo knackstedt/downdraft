@@ -6,6 +6,7 @@ import { debug } from "./debug";
 import { dev } from "./dev";
 import { exportGame } from "./export";
 import { newProject } from "./new";
+import { runTest } from "./test";
 
 const log = createLogger();
 
@@ -31,6 +32,9 @@ async function main() {
     case "assets":
       await assets(process.argv.slice(3));
       break;
+    case "test":
+      await runTest(process.argv.slice(3));
+      break;
     default:
       log.info("CLI", `DownDraft Engine CLI
 
@@ -43,11 +47,20 @@ Commands:
   build [options]   Build for target platform
   export [options]  Package for distribution
   assets <cmd>      Manage remote asset packs (pull, push, list, init, add)
+  test [options]    Run e2e tests via MCP automation (SwiftShader + deterministic by default)
 
 Options:
   --verbose, -v     Enable verbose logging
   --no-devtools     Disable devtools overlay
   --inspector       Enable Node inspector
+
+Test options:
+  --game <name>       Game to test (default: to-the-ocean)
+  --spec <path>       Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)
+  --port <n>          MCP port (default: 9976)
+  --renderer <gpu|cpu>  WebGPU backend: cpu=SwiftShader (default), gpu=hardware
+  --headed            Show the window instead of running headless
+  --no-deterministic  Disable fixed seed / render loop pause
 `);
       process.exit(1);
   }

@@ -118,7 +118,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
       await config.lifecycle.onReady(ctx);
     } else {
       // Default: send sim-ready to renderer
-      mainWindow?.webContents.send(IPC.SIM_READY, { isDev });
+      mainWindow?.webContents.send(IPC.SIM_READY, { isDev, deterministic: process.env.DOWNDRAFT_DETERMINISTIC === "1" });
     }
 
     // --- MCP proxy ---

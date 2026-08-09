@@ -169,10 +169,15 @@ async function bootstrap() {
 
   // Start renderer init and sim worker in parallel — avoids 2.2s LUT generation
   // blocking sim worker setup (island spawning, physics field generation, etc.)
+  // When DOWNDRAFT_DETERMINISTIC=1 is set (e.g. by the e2e test harness), use a
+  // fixed seed and skip autosave so test runs are reproducible.
+  const deterministic = !!(downdraft as any)?.deterministic;
+  const seed = deterministic ? 99999 : 12345;
+
   const [rendererSuccess] = await Promise.all([
     renderer.init(),
     simWorker.start({
-      seed: 12345,
+      seed,
       gamemode: 0,
       rules: {},
       isDev,
@@ -194,8 +199,13 @@ async function bootstrap() {
   // Add default player
   simWorker.addPlayer(0, "Player 1");
 
-  // Auto-load saved state if available
-  if (downdraft?.loadGameState) {
+  // Register MCP automation harness (input injection, screenshots, state reads)
+  // so Playwright / MCP clients can drive the game through the existing HTTP proxy.
+  const { setupTtolMcp } = await import("./mcp/setup");
+  setupTtolMcp(renderer, simWorker);
+
+  // Auto-load saved state if available (skip in deterministic/test mode)
+  if (!deterministic && downdraft?.loadGameState) {
     try {
       const savedState = await downdraft.loadGameState("autosave");
       if (savedState) {
@@ -264,7 +274,16 @@ async function bootstrap() {
   // Set buffers on renderer — same SABs the sim worker writes to (zero-copy)
   renderer.setBuffers(simSAB, waterSAB, inputSAB, boatSAB);
   renderer.setupInputListeners();
+
+  // In deterministic/test mode, start the renderer but immediately pause the
+  // render loop. The simulation still ticks; frames are only rendered on
+  // demand via captureScreenshot / renderOneFrame. This saves ~90% CPU when
+  // running under SwiftShader software WebGPU.
   renderer.start();
+  if (deterministic) {
+    renderer.stop();
+    console.log("[Renderer] Deterministic mode: render loop paused (on-demand rendering only)");
+  }
 
   // --- Debug: Electron OSR billboard at helm position ---
   // Creates a dedicated OSR renderer loading google.com and places a

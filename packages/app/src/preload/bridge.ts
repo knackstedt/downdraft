@@ -171,10 +171,20 @@ export function createDefaultBridge(): Record<string, any> {
 
     log: (level: string, message: string) => ipcRenderer.send(IPC.RENDERER_LOG, { level, message }),
 
+    // Exposed from main process env so the renderer can detect test/deterministic mode
+    deterministic: process.env.DOWNDRAFT_DETERMINISTIC === "1",
+
     onMcpRequest: (cb: (request: { id: number; method: string; params?: Record<string, unknown> }) => Promise<{ id: number; result?: unknown; error?: { code: number; message: string } }>) => {
       ipcRenderer.on(IPC.MCP_REQUEST, async (_e, request) => {
-        const result = await cb(request);
-        ipcRenderer.send(`mcp-response-${result.id}`, result);
+        try {
+          const result = await cb(request);
+          ipcRenderer.send(`mcp-response-${result.id}`, result);
+        } catch (err) {
+          ipcRenderer.send(`mcp-response-${request.id}`, {
+            id: request.id,
+            error: { code: -32603, message: `Renderer callback error: ${(err as Error).message}` },
+          });
+        }
       });
     },
   };

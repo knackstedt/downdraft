@@ -10,6 +10,23 @@ import { CameraMode } from "@shared/types";
 import { useGameStore } from "../stores/game-store";
 import type { CameraSystem } from "./camera-system";
 
+export interface InjectedInputFrame {
+  /** Key keyCodes to hold during this frame. */
+  keys: Set<number>;
+  /** Hold left mouse button. */
+  leftMouse: boolean;
+  /** Hold right mouse button. */
+  rightMouse: boolean;
+  /** Mouse movement delta in pixels. */
+  mouseDx: number;
+  /** Mouse movement delta in pixels. */
+  mouseDy: number;
+  /** Scroll wheel delta. */
+  wheel: number;
+  /** How many frames this frame should remain active. */
+  framesRemaining: number;
+}
+
 export class RendererInputHandler {
   private canvas: HTMLCanvasElement;
   private inputWriter: InputBufferWriter | null = null;
@@ -25,6 +42,9 @@ export class RendererInputHandler {
   private pointerLockRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private pointerLockRetryCount = 0;
   private lastBuilderWheelTime = 0;
+
+  /** Queue of externally-injected input frames (automation / tests). */
+  private injectedQueue: InjectedInputFrame[] = [];
 
   onInputProcessed: (() => void) | null = null;
   onOSRKey: ((type: "keyDown" | "keyUp", keyCode: number, modifiers: string[]) => void) | null = null;
@@ -54,6 +74,34 @@ export class RendererInputHandler {
     this.uiInputRouter = uiInputRouter;
   }
 
+  /** Inject one or more frames of input for automation / tests. */
+  injectInput(frames: InjectedInputFrame | InjectedInputFrame[]): void {
+    const arr = Array.isArray(frames) ? frames : [frames];
+    for (const f of arr) {
+      this.injectedQueue.push(f);
+    }
+  }
+
+  /** Clear all pending injected input. */
+  clearInjectedInput(): void {
+    this.injectedQueue.length = 0;
+  }
+
+  /** Returns true if there are injected inputs still pending. */
+  hasInjectedInput(): boolean {
+    return this.injectedQueue.length > 0;
+  }
+
+  private consumeInjectedFrame(): InjectedInputFrame | null {
+    const head = this.injectedQueue[0];
+    if (!head) return null;
+    head.framesRemaining--;
+    if (head.framesRemaining <= 0) {
+      this.injectedQueue.shift();
+    }
+    return head;
+  }
+
   processInput(viewportCount: number): void {
     if (!this.inputWriter) return;
 
@@ -73,16 +121,26 @@ export class RendererInputHandler {
       return;
     }
 
-    // Keyboard
-    const keysDown = this.getKeysDown();
+    // Merge real DOM input with any injected automation input
+    const injected = this.consumeInjectedFrame();
+    const domKeysDown = this.getKeysDown();
+    const keysDown = injected
+      ? new Set([...domKeysDown, ...injected.keys])
+      : domKeysDown;
+    if (injected) {
+      this.mouseDelta.dx += injected.mouseDx;
+      this.mouseDelta.dy += injected.mouseDy;
+      this.mouseState.wheel += injected.wheel;
+    }
+
     for (let p = 0; p < viewportCount; p++) {
       // Reset all keys for this player
       for (let k = 0; k < 256; k++) {
         this.inputWriter.setKey(p, k, false);
       }
-      // Set pressed keys
-      for (let j = 0; j < keysDown.length; j++) {
-        this.inputWriter.setKey(p, keysDown[j], true);
+      // Set pressed keys (DOM + injected)
+      for (const keyCode of keysDown) {
+        this.inputWriter.setKey(p, keyCode, true);
       }
     }
 
@@ -91,8 +149,8 @@ export class RendererInputHandler {
     const md = this.mouseDelta;
     for (let p = 0; p < viewportCount; p++) {
       this.inputWriter.setMousePos(p, mouse.x, mouse.y);
-      this.inputWriter.setMouseButton(p, 0, mouse.left);
-      this.inputWriter.setMouseButton(p, 2, mouse.right);
+      this.inputWriter.setMouseButton(p, 0, mouse.left || (injected?.leftMouse ?? false));
+      this.inputWriter.setMouseButton(p, 2, mouse.right || (injected?.rightMouse ?? false));
       this.inputWriter.setWheel(p, mouse._wheel);
       this.inputWriter.setMouseDelta(p, md.dx, md.dy);
     }

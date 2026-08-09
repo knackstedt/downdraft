@@ -266,12 +266,16 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
   });
 
   win.once("ready-to-show", () => {
-    win.show();
-    if (savedState?.isMaximized) {
-      win.maximize();
-    }
-    if (devtools.autoOpen) {
-      win.webContents.openDevTools();
+    // In deterministic/test mode, keep the window hidden — unless DOWNDRAFT_HEADED=1.
+    const hideWindow = process.env.DOWNDRAFT_DETERMINISTIC === "1" && process.env.DOWNDRAFT_HEADED !== "1";
+    if (!hideWindow) {
+      win.show();
+      if (savedState?.isMaximized) {
+        win.maximize();
+      }
+      if (devtools.autoOpen) {
+        win.webContents.openDevTools();
+      }
     }
   });
 

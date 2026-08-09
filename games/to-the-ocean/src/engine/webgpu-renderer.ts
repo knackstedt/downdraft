@@ -130,6 +130,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   onInputProcessed: (() => void) | null = null;
 
   private running = false;
+  private rafHandle = 0;
   private lastTime = 0;
   private frameCount = 0;
   private fpsTimer = 0;
@@ -641,11 +642,35 @@ export class WebGPURenderer implements IRendererStateProvider {
   start(): void {
     this.running = true;
     this.lastTime = performance.now();
-    this.render();
+    this.scheduleRaf();
   }
 
   stop(): void {
     this.running = false;
+    this.cancelRaf();
+  }
+
+  private scheduleRaf(): void {
+    if (this.rafHandle) return;
+    this.rafHandle = requestAnimationFrame(this.render);
+  }
+
+  private cancelRaf(): void {
+    if (this.rafHandle) {
+      cancelAnimationFrame(this.rafHandle);
+      this.rafHandle = 0;
+    }
+  }
+
+  /** Render a single frame on demand. Used in test/headless mode where the
+   *  continuous render loop is paused to save CPU. */
+  renderOneFrame(): void {
+    if (!this.device) return;
+    try {
+      this.renderFrame();
+    } catch (err) {
+      console.error(`[RENDERER] renderOneFrame error: ${(err as Error).message}`);
+    }
   }
 
   setFrameRateLimit(refreshRate: number): void {
@@ -668,12 +693,10 @@ export class WebGPURenderer implements IRendererStateProvider {
   }
 
   private render = (): void => {
-    if (!this.running) {
-      requestAnimationFrame(this.render);
-      return;
-    }
+    this.rafHandle = 0;
+    if (!this.running) return;
     if (!this.device) {
-      requestAnimationFrame(this.render);
+      this.scheduleRaf();
       return;
     }
 
@@ -702,7 +725,7 @@ export class WebGPURenderer implements IRendererStateProvider {
           console.error(`[RENDERER] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
         });
       }
-      requestAnimationFrame(this.render);
+      this.scheduleRaf();
     }
   };
 
@@ -716,7 +739,7 @@ export class WebGPURenderer implements IRendererStateProvider {
           const headroom = this.targetFrameTime - (performance.now() - now);
           this.gcController.maybeCollect(Math.max(0, headroom), this.targetFrameTime);
         }
-        requestAnimationFrame(this.render);
+        this.scheduleRaf();
         return;
       }
       this.frameAccum -= 1;
@@ -829,7 +852,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       }
       this.frameDrawCalls = 0; this.frameTriangles = 0;
     }
-    requestAnimationFrame(this.render);
+    this.scheduleRaf();
   }
 
   private renderViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "pixelation" | "postprocess" = "none", encoder: GPUCommandEncoder): void {
@@ -1359,6 +1382,20 @@ export class WebGPURenderer implements IRendererStateProvider {
   lockPointer(): void { this.inputHandler.lockPointer(); }
   setupInputListeners(): void { this.inputHandler.setupInputListeners(); }
   setOSRForcedFocus(active: boolean): void { this.inputHandler.setOSRForcedFocus(active); }
+  getInputHandler(): RendererInputHandler { return this.inputHandler; }
+  getCanvas(): HTMLCanvasElement { return this.canvas; }
+
+  /** Capture the current canvas contents as a PNG blob. If the render loop
+   *  is paused (test/headless mode), render a single frame first so the
+   *  screenshot reflects current simulation state. */
+  async captureScreenshot(): Promise<Blob | null> {
+    if (!this.running) {
+      this.renderOneFrame();
+    }
+    return new Promise((resolve) => {
+      this.canvas.toBlob((blob) => resolve(blob), "image/png");
+    });
+  }
   getFPS(): number { return this.accessors.getFPS(); }
   setDebugMode(e: boolean): void { this.accessors.setDebugMode(e); }
   setShowHitboxes(s: boolean): void { this.accessors.setShowHitboxes(s); }
