@@ -1,0 +1,24 @@
+// Scene sub-barrel — re-exports all scene-related items.
+export { batch, builderToPrefab, c, spawn, spawnChild } from "./builder";
+export type { ComponentSpec } from "./builder";
+export { Camera } from "./camera";
+export { CheckpointManager } from "./checkpoint";
+export type { CheckpointData } from "./checkpoint";
+export { GameLoop } from "./game-loop";
+export type { GameLoopConfig, GameLoopStats, RenderCallback } from "./game-loop";
+export { RenderLayer } from "./layer";
+export { createPrefabFromComponentDefs, PrefabFactory, PrefabRegistry } from "./prefab";
+export type { Prefab, PrefabChildEntry, PrefabComponentEntry } from "./prefab";
+export { Scene } from "./scene";
+export type { SceneSetup, SceneState, SceneTeardown, SerializedScene } from "./scene";
+export { SceneManager } from "./scene-manager";
+export { computeSkyColor, DayNightCycle, DEFAULT_ATMOSPHERE_CONFIG, DEFAULT_DAY_NIGHT_CONFIG, DEFAULT_FOG_CONFIG, FogSystem } from "./sky";
+export type { AtmosphereConfig, DayNightConfig, FogConfig, SunMoonState } from "./sky";
+export { SpatialGrid } from "./spatial-grid";
+export type { GridCell, SpatialEntry, SpatialQueryResult } from "./spatial-grid";
+export { chunkKey, WorldStreamer, worldToChunk } from "./streaming";
+export type { ChunkCoord, ChunkData, ChunkLoader, ChunkUnloader, StreamConfig } from "./streaming";
+export { generateInstances, packInstanceData, VegetationPatch, VegetationWindSystem } from "./vegetation";
+export type { VegetationInstance, VegetationPatchData, WindState } from "./vegetation";
+export { GameWorld } from "./world";
+export type { WorldResources } from "./world";

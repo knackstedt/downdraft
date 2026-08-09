@@ -29,16 +29,16 @@
       "@downdraft/core": [
         "./packages/core/src/index.ts"
       ],
-      "@downdraft/plugin-postfx": [
+      "@downdraft/library-postfx": [
         "./packages/plugins/postfx/src/index.ts"
       ],
-      "@downdraft/plugin-postfx/*": [
+      "@downdraft/library-postfx/*": [
         "./packages/plugins/postfx/src/*"
       ],
-      "@downdraft/plugin-lighting": [
+      "@downdraft/library-lighting": [
         "./packages/plugins/lighting/src/index.ts"
       ],
-      "@downdraft/plugin-lighting/*": [
+      "@downdraft/library-lighting/*": [
         "./packages/plugins/lighting/src/*"
       ],
       "@downdraft/plugin-weatherfx": [
@@ -47,16 +47,16 @@
       "@downdraft/plugin-weatherfx/*": [
         "./packages/plugins/weatherfx/src/*"
       ],
-      "@downdraft/plugin-weather": [
+      "@downdraft/library-weather": [
         "./packages/plugins/weather/src/index.ts"
       ],
-      "@downdraft/plugin-weather/*": [
+      "@downdraft/library-weather/*": [
         "./packages/plugins/weather/src/*"
       ],
-      "@downdraft/plugin-entities": [
+      "@downdraft/library-entities": [
         "./packages/plugins/entities/src/index.ts"
       ],
-      "@downdraft/plugin-entities/*": [
+      "@downdraft/library-entities/*": [
         "./packages/plugins/entities/src/*"
       ],
       "@downdraft/plugin-models": [
@@ -89,10 +89,10 @@
       "@downdraft/plugin-surface-nets/*": [
         "./packages/plugins/surface-nets/src/*"
       ],
-      "@downdraft/plugin-persistence": [
+      "@downdraft/library-persistence": [
         "./packages/plugins/persistence/src/index.ts"
       ],
-      "@downdraft/plugin-persistence/*": [
+      "@downdraft/library-persistence/*": [
         "./packages/plugins/persistence/src/*"
       ],
       "@downdraft/plugin-electron-osr": [
@@ -113,6 +113,36 @@
       "@downdraft/plugin-camera-controls/*": [
         "./packages/plugins/camera-controls/src/*"
       ],
+      "@downdraft/library-gaussian-splats": [
+        "./packages/plugins/gaussian-splats/src/index.ts"
+      ],
+      "@downdraft/library-gaussian-splats/*": [
+        "./packages/plugins/gaussian-splats/src/*"
+      ],
+      "@downdraft/plugin-mcp": [
+        "./packages/plugins/mcp/src/index.ts"
+      ],
+      "@downdraft/plugin-mcp/*": [
+        "./packages/plugins/mcp/src/*"
+      ],
+      "@downdraft/plugin-physics-native": [
+        "./packages/plugins/physics-native/src/index.ts"
+      ],
+      "@downdraft/plugin-physics-native/*": [
+        "./packages/plugins/physics-native/src/*"
+      ],
+      "@downdraft/plugin-networking": [
+        "./packages/plugins/networking/src/index.ts"
+      ],
+      "@downdraft/plugin-networking/*": [
+        "./packages/plugins/networking/src/*"
+      ],
+      "@downdraft/library-navmesh": [
+        "./packages/plugins/navmesh/src/index.ts"
+      ],
+      "@downdraft/library-navmesh/*": [
+        "./packages/plugins/navmesh/src/*"
+      ],
       "@downdraft/ui/*": [
         "./packages/ui/src/*"
       ],
@@ -131,22 +161,22 @@
       "@downdraft/app/shared": [
         "./packages/app/src/shared/index.ts"
       ],
-      "@to-the-ocean/plugin-boats": [
+      "@to-the-ocean/library-boats": [
         "./games/to-the-ocean/plugins/boats/src/index.ts"
       ],
-      "@to-the-ocean/plugin-boats/*": [
+      "@to-the-ocean/library-boats/*": [
         "./games/to-the-ocean/plugins/boats/src/*"
       ],
-      "@to-the-ocean/plugin-buoyancy": [
+      "@to-the-ocean/library-buoyancy": [
         "./games/to-the-ocean/plugins/buoyancy/src/index.ts"
       ],
-      "@to-the-ocean/plugin-buoyancy/*": [
+      "@to-the-ocean/library-buoyancy/*": [
         "./games/to-the-ocean/plugins/buoyancy/src/*"
       ],
-      "@to-the-ocean/plugin-collision": [
+      "@to-the-ocean/library-collision": [
         "./games/to-the-ocean/plugins/collision/src/index.ts"
       ],
-      "@to-the-ocean/plugin-collision/*": [
+      "@to-the-ocean/library-collision/*": [
         "./games/to-the-ocean/plugins/collision/src/*"
       ],
       "@to-the-ocean/plugin-crafting": [
@@ -155,16 +185,16 @@
       "@to-the-ocean/plugin-crafting/*": [
         "./games/to-the-ocean/plugins/crafting/src/*"
       ],
-      "@to-the-ocean/plugin-economy": [
+      "@to-the-ocean/library-economy": [
         "./games/to-the-ocean/plugins/economy/src/index.ts"
       ],
-      "@to-the-ocean/plugin-economy/*": [
+      "@to-the-ocean/library-economy/*": [
         "./games/to-the-ocean/plugins/economy/src/*"
       ],
-      "@to-the-ocean/plugin-fishing": [
+      "@to-the-ocean/library-fishing": [
         "./games/to-the-ocean/plugins/fishing/src/index.ts"
       ],
-      "@to-the-ocean/plugin-fishing/*": [
+      "@to-the-ocean/library-fishing/*": [
         "./games/to-the-ocean/plugins/fishing/src/*"
       ],
       "@to-the-ocean/plugin-inventory": [
@@ -173,26 +203,29 @@
       "@to-the-ocean/plugin-inventory/*": [
         "./games/to-the-ocean/plugins/inventory/src/*"
       ],
-      "@to-the-ocean/plugin-items": [
+      "@to-the-ocean/library-items": [
         "./games/to-the-ocean/plugins/items/src/index.ts"
       ],
-      "@to-the-ocean/plugin-items/*": [
+      "@to-the-ocean/library-items/*": [
         "./games/to-the-ocean/plugins/items/src/*"
       ],
-      "@to-the-ocean/plugin-survival": [
+      "@to-the-ocean/library-survival": [
         "./games/to-the-ocean/plugins/survival/src/index.ts"
       ],
-      "@to-the-ocean/plugin-survival/*": [
+      "@to-the-ocean/library-survival/*": [
         "./games/to-the-ocean/plugins/survival/src/*"
       ],
-      "@to-the-ocean/plugin-wildlife": [
+      "@to-the-ocean/library-wildlife": [
         "./games/to-the-ocean/plugins/wildlife/src/index.ts"
       ],
-      "@to-the-ocean/plugin-wildlife/*": [
+      "@to-the-ocean/library-wildlife/*": [
         "./games/to-the-ocean/plugins/wildlife/src/*"
       ],
       "@to-the-ocean/util/*": [
         "./games/to-the-ocean/src/util/*"
+      ],
+      "@to-the-ocean/shared/*": [
+        "./games/to-the-ocean/src/shared/*"
       ]
     }
   },

@@ -1,5 +1,5 @@
 {
-  "name": "@downdraft/plugin-weather",
+  "name": "@downdraft/library-weather",
   "version": "0.1.0",
   "private": true,
   "type": "module",

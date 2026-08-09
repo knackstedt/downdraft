@@ -23,7 +23,14 @@ interface CacheRow {
   updated_at: number;
 }
 
-let db: any = null;
+/** Minimal shape of `node:sqlite`'s `DatabaseSync` used by this handler. */
+interface DatabaseSyncLike {
+  exec(sql: string): void;
+  prepare(sql: string): { get(...params: unknown[]): unknown; run(...params: unknown[]): void };
+  close(): void;
+}
+
+let db: DatabaseSyncLike | null = null;
 let memoryFallback: Map<string, CacheRow> | null = null;
 let useMemoryFallback = false;
 
@@ -34,8 +41,9 @@ function openDatabase(): void {
     // node:sqlite is experimental — use dynamic require to avoid bundler issues
     const { DatabaseSync } = require("node:sqlite");
     const dbPath = join(app.getPath("userData"), "downdraft-import-cache.db");
-    db = new DatabaseSync(dbPath);
-    db.exec(`
+    const database: DatabaseSyncLike = new DatabaseSync(dbPath);
+    db = database;
+    database.exec(`
       CREATE TABLE IF NOT EXISTS import_cache (
         path TEXT PRIMARY KEY,
         source_mtime INTEGER NOT NULL,

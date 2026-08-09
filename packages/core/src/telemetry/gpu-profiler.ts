@@ -74,7 +74,7 @@ export interface GPUInfo {
   canvasFormat: GPUTextureFormat | null;
   msaaSampleCount: number;
   canvasSize: { width: number; height: number };
-  deviceLimits: Record<string, number> | null;
+  deviceLimits: Record<string, number | undefined> | null;
 }
 
 export interface PassTrackerStats {
@@ -109,7 +109,7 @@ export class GPUProfiler {
     triangles: 0,
   };
 
-  private adapterInfo: any = null;
+  private adapterInfo: GPUAdapterInfo | null = null;
   private gpuErrors: GPUErrors[] = [];
   private deviceLost: boolean = false;
   private canvasFormat: GPUTextureFormat | null = null;
@@ -129,7 +129,7 @@ export class GPUProfiler {
   // frame. This flag lets the render loop skip GPU work until recovery.
   private uncapturedErrorFired = false;
 
-  init(device: GPUDevice, adapterInfo: any, canvasFormat: GPUTextureFormat, maxPasses: number = 16): void {
+  init(device: GPUDevice, adapterInfo: GPUAdapterInfo | null, canvasFormat: GPUTextureFormat, maxPasses: number = 16): void {
     this.device = device;
     this.adapterInfo = adapterInfo;
     this.canvasFormat = canvasFormat;
@@ -137,7 +137,7 @@ export class GPUProfiler {
 
     const self = this;
     device.onuncapturederror = function (ev: GPUUncapturedErrorEvent) {
-      const label = (ev.error as any)?.label ?? "";
+      const label = (ev.error as GPUError & { label?: string })?.label ?? "";
       const message = ev.error.message;
       const entry: GPUErrors = {
         timestamp: performance.now(),
@@ -174,7 +174,7 @@ export class GPUProfiler {
       state.suppressed = 0;
     };
 
-    device.lost.then((info: any) => {
+    device.lost.then((info: GPUDeviceLostInfo) => {
       self.deviceLost = true;
       console.error(`[GPU] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
     });
@@ -368,8 +368,8 @@ export class GPUProfiler {
       maxTextureDimension3D: limits.maxTextureDimension3D,
       maxTextureArrayLayers: limits.maxTextureArrayLayers,
       maxBindGroups: limits.maxBindGroups,
-      maxBindGroupsPerShaderStage: (limits as any).maxBindGroupsPerShaderStage,
-      maxBindingsPerBindGroup: (limits as any).maxBindingsPerBindGroup,
+      maxBindGroupsPerShaderStage: (limits as GPUSupportedLimits & { maxBindGroupsPerShaderStage?: number }).maxBindGroupsPerShaderStage,
+      maxBindingsPerBindGroup: limits.maxBindingsPerBindGroup,
       maxBufferSize: limits.maxBufferSize,
       maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
       maxUniformBufferBindingSize: limits.maxUniformBufferBindingSize,
@@ -405,7 +405,7 @@ export class GPUProfiler {
     };
   }
 
-  getAdapterInfo(): any {
+  getAdapterInfo(): GPUAdapterInfo | null {
     return this.adapterInfo;
   }
 

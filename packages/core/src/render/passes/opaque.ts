@@ -7,6 +7,7 @@ import { variantKey, type MaterialVariantFlags } from "../../material/variants";
 import type { MeshData } from "../../mesh/builder";
 import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
+import { createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
 
@@ -498,10 +499,7 @@ export class OpaquePass extends RenderPass {
       ? this.calcUniformSize(profile)
       : 192;
 
-    this.graphCameraBuffer = this.device.createBuffer({
-      size: Math.max(uniformSize, 16),
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.graphCameraBuffer = createUniformBuffer(this.device, Math.max(uniformSize, 16));
 
     const vertexAttrs = profile
       ? profile.vertexLayout.attributes.map((a) => ({
@@ -651,22 +649,10 @@ export class OpaquePass extends RenderPass {
       this.pbrShaderModule = this.device.createShaderModule({ code: PBR_GBUFFER_SHADER });
     }
 
-    this.pbrCameraBuffer = this.device.createBuffer({
-      size: 128,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    this.pbrModelBuffer = this.device.createBuffer({
-      size: 64,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    this.pbrPrevModelBuffer = this.device.createBuffer({
-      size: 64,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    this.pbrMaterialIndexBuffer = this.device.createBuffer({
-      size: 16, // u32 + padding (uniform buffer min alignment)
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.pbrCameraBuffer = createUniformBuffer(this.device, 128);
+    this.pbrModelBuffer = createUniformBuffer(this.device, 64);
+    this.pbrPrevModelBuffer = createUniformBuffer(this.device, 64);
+    this.pbrMaterialIndexBuffer = createUniformBuffer(this.device, 16); // u32 + padding (uniform buffer min alignment)
 
     this.pbrPipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -767,15 +753,9 @@ export class OpaquePass extends RenderPass {
     }
 
     if (this.mode === "gbuffer") {
-      this.cameraBuffer = this.device.createBuffer({
-        size: 256,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+      this.cameraBuffer = createUniformBuffer(this.device, 256);
     } else {
-      this.cameraBuffer = this.device.createBuffer({
-        size: 128,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+      this.cameraBuffer = createUniformBuffer(this.device, 128);
     }
 
     if (this.mode === "gbuffer") {

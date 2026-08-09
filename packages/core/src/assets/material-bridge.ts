@@ -1,5 +1,6 @@
 import { BlendMode, CullMode, Material } from "../material/material";
 import type { BindlessTextureRegistry, TextureBucketKey } from "../render/bindless";
+import { createBlackTextureView, createDefaultTextureView } from "../render/gpu-utils";
 import type { PBRMaterialResources } from "../render/passes/opaque";
 import type { TextureData } from "./loader-texture";
 import { createGPUTextureFromData, createSampler, loadTexture } from "./loader-texture";
@@ -20,38 +21,6 @@ function bucketKeyFromTexture(tex: GPUTexture): TextureBucketKey {
     mipCount: tex.mipLevelCount,
     sampleCount: tex.sampleCount,
   };
-}
-
-function createDefaultTextureView(device: GPUDevice, format: GPUTextureFormat = "rgba8unorm"): GPUTextureView {
-  const tex = device.createTexture({
-    size: [1, 1],
-    format,
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
-  const data = new Uint8Array([255, 255, 255, 255]);
-  device.queue.writeTexture(
-    { texture: tex },
-    data,
-    { bytesPerRow: 4 },
-    { width: 1, height: 1 },
-  );
-  return tex.createView();
-}
-
-function createBlackTextureView(device: GPUDevice): GPUTextureView {
-  const tex = device.createTexture({
-    size: [1, 1],
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
-  const data = new Uint8Array([0, 0, 0, 255]);
-  device.queue.writeTexture(
-    { texture: tex },
-    data,
-    { bytesPerRow: 4 },
-    { width: 1, height: 1 },
-  );
-  return tex.createView();
 }
 
 export async function bridgeMaterial(

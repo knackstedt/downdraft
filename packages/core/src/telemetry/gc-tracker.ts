@@ -55,7 +55,7 @@ export class GCTracker {
       };
     }
     // Browser fallback — performance.memory is non-standard but available in Chromium
-    const perfMem = (performance as any).memory;
+    const perfMem = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
     if (perfMem) {
       return {
         heapUsed: perfMem.usedJSHeapSize,

@@ -14,4 +14,22 @@ export { ComputeGraphEditor } from "./editor/compute-graph/compute-graph-editor"
 export type { ComputeGraphConnection, ComputeGraphEditorProps, ComputeGraphNodeData } from "./editor/compute-graph/compute-graph-editor";
 export { MaterialGraphEditor } from "./editor/material-graph/material-graph-editor";
 export type { GraphConnection, GraphNodeData, MaterialGraphEditorProps } from "./editor/material-graph/material-graph-editor";
+export { GraphCanvas } from "./editor/shared/graph-canvas";
+export type { GraphCanvasProps } from "./editor/shared/graph-canvas";
+export { GraphConnectionView, TempConnectionView } from "./editor/shared/graph-connection";
+export type { GraphConnectionViewProps, TempConnectionViewProps } from "./editor/shared/graph-connection";
+export { GraphNode } from "./editor/shared/graph-node";
+export type { GraphNodeProps } from "./editor/shared/graph-node";
+export { useGraphEditor } from "./editor/shared/use-graph-editor";
+export type {
+    ConnectingState,
+    DraggingState,
+    GraphEditorApi,
+    GraphPortData,
+    NodeTypeDefinition,
+    PanZoom,
+    SharedGraphConnection,
+    SharedGraphNodeData,
+    UseGraphEditorOptions
+} from "./editor/shared/use-graph-editor";
 

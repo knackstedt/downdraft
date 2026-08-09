@@ -7,8 +7,8 @@ import type {
     PipelineLayoutDescriptor, RenderPassDescriptor, RenderPipelineDescriptor,
     SamplerDescriptor, TextureDescriptor, TextureViewDescriptor,
 } from "@downdraft/core/render/backend/types";
-import { LightingSystem, LightSystem, MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS } from "@downdraft/plugin-lighting";
-import { WeatherBlend, WeatherType } from "@downdraft/plugin-weather";
+import { LightingSystem, LightSystem, MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS } from "@downdraft/library-lighting";
+import { WeatherBlend, WeatherType } from "@downdraft/library-weather";
 import { describe, expect, it, vi } from "bun:test";
 
 // ============================================================================

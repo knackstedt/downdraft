@@ -32,7 +32,7 @@
   "dependencies": {
     "@downdraft/core": "workspace:*",
     "@downdraft/plugin-electron-osr": "workspace:*",
-    "@downdraft/plugin-persistence": "workspace:*",
+    "@downdraft/library-persistence": "workspace:*",
     "@downdraft/ui": "workspace:*"
   }
 }

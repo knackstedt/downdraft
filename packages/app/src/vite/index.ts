@@ -101,8 +101,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/plugin-lighting\//, replacement: resolve(repoRoot, "packages/plugins/lighting/src") + "/" },
     { find: /^@downdraft\/plugin-weatherfx$/, replacement: resolve(repoRoot, "packages/plugins/weatherfx/src/index.ts") },
     { find: /^@downdraft\/plugin-weatherfx\//, replacement: resolve(repoRoot, "packages/plugins/weatherfx/src") + "/" },
-    { find: /^@downdraft\/plugin-weather$/, replacement: resolve(repoRoot, "packages/plugins/weather/src/index.ts") },
-    { find: /^@downdraft\/plugin-weather\//, replacement: resolve(repoRoot, "packages/plugins/weather/src") + "/" },
+    { find: /^@downdraft\/library-weather$/, replacement: resolve(repoRoot, "packages/plugins/weather/src/index.ts") },
+    { find: /^@downdraft\/library-weather\//, replacement: resolve(repoRoot, "packages/plugins/weather/src") + "/" },
     { find: /^@downdraft\/plugin-entities$/, replacement: resolve(repoRoot, "packages/plugins/entities/src/index.ts") },
     { find: /^@downdraft\/plugin-entities\//, replacement: resolve(repoRoot, "packages/plugins/entities/src") + "/" },
     { find: /^@downdraft\/plugin-models$/, replacement: resolve(repoRoot, "packages/plugins/models/src/index.ts") },
@@ -173,7 +173,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   return defineConfig({
     main: {
       plugins: [
-        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/plugin-persistence"] }),
+        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/library-persistence"] }),
         {
           name: "force-cjs-main",
           configResolved(config) {

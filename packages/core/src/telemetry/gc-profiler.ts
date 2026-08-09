@@ -59,7 +59,7 @@ export function startGCProfiler(
   let totalGCTime = 0;
   const startTime = performance.now();
 
-  const obs = new PO((list: any) => {
+  const obs = new PO((list: PerformanceObserverEntryList) => {
     for (const entry of list.getEntries()) {
       const dur = entry.duration;
       cur.count++;
@@ -67,7 +67,7 @@ export function startGCProfiler(
       totalGC++;
       totalGCTime += dur;
 
-      const kind = entry.kind;
+      const kind = (entry as PerformanceEntry & { kind?: number }).kind;
       if (kind === 1) {
         cur.scavengeCount++;
         cur.scavengeTime += dur;

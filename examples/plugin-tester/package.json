@@ -6,7 +6,7 @@
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
     "@downdraft/mcp": "workspace:*",
-    "@downdraft/plugin-navmesh": "workspace:*",
+    "@downdraft/library-navmesh": "workspace:*",
     "@downdraft/plugin-water": "workspace:*",
     "@downdraft/plugin-networking": "workspace:*",
     "@downdraft/plugin-physics-rapier": "workspace:*",

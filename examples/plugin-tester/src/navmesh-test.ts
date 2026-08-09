@@ -9,7 +9,7 @@ import {
     type HeightFieldSampler,
     type NavAgentData, type NavMeshGeneratorConfig,
     type Vec3,
-} from "@downdraft/plugin-navmesh";
+} from "@downdraft/library-navmesh";
 
 const NAVMESH_CONFIG: NavMeshGeneratorConfig = {
   cellSize: 1,

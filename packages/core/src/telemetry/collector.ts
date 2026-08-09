@@ -253,9 +253,11 @@ export class TelemetryCollector {
     if (main) {
       return { heapUsed: main.heapUsed, heapTotal: main.heapTotal, rss: main.rss };
     }
-    if (typeof performance !== "undefined" && (performance as any).memory) {
-      const mem = (performance as any).memory;
-      return { heapUsed: mem.usedJSHeapSize, heapTotal: mem.totalJSHeapSize, rss: 0 };
+    if (typeof performance !== "undefined") {
+      const mem = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
+      if (mem) {
+        return { heapUsed: mem.usedJSHeapSize, heapTotal: mem.totalJSHeapSize, rss: 0 };
+      }
     }
     return { heapUsed: 0, heapTotal: 0, rss: 0 };
   }
