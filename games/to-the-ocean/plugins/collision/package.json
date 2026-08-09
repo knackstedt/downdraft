@@ -1,5 +1,5 @@
 {
-  "name": "@to-the-ocean/plugin-collision",
+  "name": "@to-the-ocean/library-collision",
   "version": "0.1.0",
   "private": true,
   "type": "module",

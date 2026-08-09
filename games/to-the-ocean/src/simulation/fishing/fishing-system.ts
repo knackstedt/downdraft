@@ -1,5 +1,5 @@
 // ============================================================================
-// Fishing System — re-exports from @to-the-ocean/plugin-fishing
+// Fishing System — re-exports from @to-the-ocean/library-fishing
 // ============================================================================
 // The game's BiomeSystem, WeatherSystem, WaterBufferWriter, InputBufferReader,
 // addItem, and onEvent are adapted to the plugin's interface-based deps.
@@ -7,8 +7,8 @@
 // PLR_FLAG values match the plugin's FISHING_FLAG bit positions.
 //
 
-import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/plugin-fishing";
-import { WeatherSystem } from "@downdraft/plugin-weather";
+import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/library-fishing";
+import { WeatherSystem } from "@downdraft/library-weather";
 import {
     FISHING_CAST_RANGE,
     FISHING_FISH_PULL_MULT,

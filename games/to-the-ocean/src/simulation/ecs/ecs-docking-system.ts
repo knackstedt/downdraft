@@ -132,7 +132,7 @@ export { shipDocks as ecsShipDocks };
 export type { DockSlot };
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-docking-system", newMod);
   });
 }

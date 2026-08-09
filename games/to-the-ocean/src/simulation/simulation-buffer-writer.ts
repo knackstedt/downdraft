@@ -1,7 +1,7 @@
 // SharedArrayBuffer writing — extracted from Simulation.ts
 
 import { shoreDamping, shoreDisplacement, waterCutout, type ShoreSource } from "@downdraft/plugin-water";
-import { WeatherSystem } from "@downdraft/plugin-weather";
+import { WeatherSystem } from "@downdraft/library-weather";
 import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
 import { GameMode, SimToMainMessage } from "../shared/types";
 import { WATER_GRID, WaterBufferWriter } from "../shared/water-buffer";

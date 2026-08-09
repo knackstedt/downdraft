@@ -4,13 +4,14 @@
 // accessors → RendererAccessors
 // ============================================================================
 
+import type { TextureHandle } from "@downdraft/core";
 import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, FrameGraph, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, RenderPass, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
+import { ModelRenderer } from "@downdraft/library-entities";
+import { LightSystem } from "@downdraft/library-lighting";
+import { PixelationSystem } from "@downdraft/library-postfx";
 import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
-import { ModelRenderer } from "@downdraft/plugin-entities";
-import { LightSystem } from "@downdraft/plugin-lighting";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/plugin-models";
-import { PixelationSystem } from "@downdraft/plugin-postfx";
 import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/plugin-weatherfx";
 import { BoatBufferReader } from "@shared/boat-buffer";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
@@ -51,6 +52,19 @@ const animGlobs = import.meta.glob(
   "../../assets/animations/human/mixamo/*.fbx",
   { query: "?url", import: "default", eager: true },
 ) as Record<string, string>;
+
+/** Lighting parameters returned by `LightingSystem.getLightingParams()`. */
+interface LightingParams {
+  sunDir: [number, number, number];
+  sunIntensity: number;
+  sunBrightness: number;
+  moonDir: [number, number, number];
+  moonIntensity: number;
+  ambient: number;
+  fogDensity: number;
+  wetness: number;
+  fogColor: [number, number, number];
+}
 
 export class WebGPURenderer implements IRendererStateProvider {
   private canvas: HTMLCanvasElement;
@@ -106,8 +120,8 @@ export class WebGPURenderer implements IRendererStateProvider {
 
   // Frame graph — single orchestration path for the per-viewport render passes.
   private frameGraph: FrameGraph | null = null;
-  private graphColorHandle: any = null;
-  private graphDepthHandle: any = null;
+  private graphColorHandle: TextureHandle | null = null;
+  private graphDepthHandle: TextureHandle | null = null;
   private graphCompiled = false;
 
   private preBakeDone: boolean = false;
@@ -279,7 +293,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.gpuResourceTracker = new GPUResourceTracker();
       this.gpuResourceTracker.wrapDevice(this.device);
 
-      const adapterInfo = (adapter as any).info ?? null;
+      const adapterInfo = adapter.info ?? null;
       this.context = this.canvas.getContext("webgpu")!;
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.gpuProfiler = new GPUProfiler();
@@ -288,7 +302,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       console.log("[WebGPU] GPU timer pool supported:", this.gpuProfiler.isGpuTimerSupported(),
         "features:", Array.from(this.device.features));
 
-      this.device.lost.then((info: any) => {
+      this.device.lost.then((info: GPUDeviceLostInfo) => {
         this.deviceLost = true;
         console.error(`[RENDERER] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
         setTimeout(() => {
@@ -720,7 +734,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     } catch (err) {
       console.error(`[RENDERER] Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
       if (this.device?.lost) {
-        this.device.lost.then((info: any) => {
+        this.device.lost.then((info: GPUDeviceLostInfo) => {
           this.deviceLost = true;
           console.error(`[RENDERER] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
         });
@@ -830,7 +844,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       if (ds.length > 0) {
         const cv = this.context.getCurrentTexture().createView();
         const up = commandEncoder.beginRenderPass({ colorAttachments: [{ view: cv, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "load" as GPULoadOp, storeOp: "store" as GPUStoreOp }] });
-        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(up) } as any, ds);
+        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(up) } as unknown as RenderContext, ds);
         up.end();
       }
     }
@@ -1071,8 +1085,8 @@ export class WebGPURenderer implements IRendererStateProvider {
       this.graphDepthHandle = this.frameGraph.importTextureView("depth", null);
       this.frameGraph.markDirty();
     }
-    this.frameGraph.setImportedTextureView(this.graphColorHandle, colorView);
-    this.frameGraph.setImportedTextureView(this.graphDepthHandle, depthView);
+    this.frameGraph.setImportedTextureView(this.graphColorHandle!, colorView);
+    this.frameGraph.setImportedTextureView(this.graphDepthHandle!, depthView);
 
     if (viewportIdx === 0) { this.gpuProfiler!.beginFrame(); }
 
@@ -1105,8 +1119,8 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.frameGraph.clearPasses();
     const scenePass = new SceneRenderPass(
       "Scene",
-      this.graphColorHandle,
-      this.graphDepthHandle,
+      this.graphColorHandle!,
+      this.graphDepthHandle!,
       loadOp,
       sceneState,
       (passEncoder: GPURenderPassEncoder, state: ScenePassState) => this.drawScene(passEncoder, state, encoder),
@@ -1130,13 +1144,13 @@ export class WebGPURenderer implements IRendererStateProvider {
       width: viewport.w,
       height: viewport.h,
       viewProj,
-      invViewProj: undefined as any,
-      prevViewProj: undefined as any,
+      invViewProj: undefined,
+      prevViewProj: undefined,
       cameraPos: camera.position,
-      lightData: null as any,
-      lightViewProj: undefined as any,
-      mesh: null as any,
-      modelMatrix: undefined as any,
+      lightData: null,
+      lightViewProj: undefined,
+      mesh: null,
+      modelMatrix: undefined,
       shadowsEnabled: false,
       bloomEnabled: false,
       shadowSampler: null,
@@ -1145,8 +1159,8 @@ export class WebGPURenderer implements IRendererStateProvider {
       opaqueIndexBuffer: null,
       opaqueIndexCount: 0,
       opaqueIndexFormat: "uint32",
-      getView: (h: any) => this.frameGraph!.getTextureView(h),
-      getTexture: (h: any) => this.frameGraph!.getTexture(h),
+      getView: (h: TextureHandle) => this.frameGraph!.getTextureView(h),
+      getTexture: (h: TextureHandle) => this.frameGraph!.getTexture(h),
       addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
       addTriangles: (n: number) => { this.frameTriangles += n; },
     };
@@ -1178,7 +1192,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     su.cameraPos[0] = camera.position[0]; su.cameraPos[1] = camera.position[1]; su.cameraPos[2] = camera.position[2];
     su.timeOfDay = timeOfDay; su.weatherType = this.skyDisplayedWeatherType; su.time = this.elapsedTime; su.prevWeatherType = this.skyPrevWeatherType; su.weatherBlend = eb;
     this.skyDomePass!.setUniforms(su);
-    this.skyDomePass!.execute({ device: this.device, pass: passEncoder } as any);
+    this.skyDomePass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Sky", passEncoder, viewportIdx); }
     // IBL — recapture environment from sky dome (throttled by IBLSystem)
     if (viewportIdx === 0 && this.iblSystem) {
@@ -1203,7 +1217,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     const tvp = viewProj;
     const tc = this.pooledTerrainCameraPos; tc[0] = camera.position[0]; tc[1] = camera.position[1]; tc[2] = camera.position[2];
     this.terrainPass!.setUniforms({ viewProj: tvp, cameraPos: tc, time: performance.now() / 1000, patchSize: 512, originX: Math.round((playerPos.x - 256) / 4.0) * 4.0, originZ: Math.round((playerPos.z - 256) / 4.0) * 4.0, sunDir: lp.sunDir, sunIntensity: lp.sunIntensity, timeOfDay });
-    this.terrainPass!.execute({ device: this.device, pass: passEncoder } as any);
+    this.terrainPass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Terrain", passEncoder, viewportIdx); }
     // Entities
     if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Entities", passEncoder, viewportIdx); }
@@ -1227,7 +1241,7 @@ export class WebGPURenderer implements IRendererStateProvider {
       const ox = Math.round((camera.position[0] - hg) / ps) * ps; const oz = Math.round((camera.position[2] - hg) / ps) * ps;
       this.waterPass!.setHeightData(this.waterReader.heights);
       this.waterPass!.setUniforms({ viewProj: wvp, cameraPos: camera.position, time: this.elapsedTime, gridSize: 256, patchSize: ps, originX: ox, originZ: oz, visibility, weatherType, timeOfDay, waveHeight: 2.0, windSpeed, windDirX: windDir.x, windDirZ: windDir.z, weatherIntensity, sunDir: lp.sunDir, sunIntensity: lp.sunIntensity, wakeCount: 0, shoreCount: 0 });
-      this.waterPass!.execute({ device: this.device, pass: passEncoder } as any);
+      this.waterPass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
       if (viewportIdx === 0) { this.gpuProfiler!.endPass("Water", passEncoder, viewportIdx); }
     }
     // Debug
@@ -1287,7 +1301,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     if (cd > 0) {
       this.gpuProfiler!.beginPass("UnderwaterFog", passEncoder, viewportIdx);
       this.underwaterFogPass!.setDepth(cd, this.elapsedTime);
-      this.underwaterFogPass!.execute({ device: this.device, pass: passEncoder } as any);
+      this.underwaterFogPass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
       this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx);
     }
 
@@ -1336,7 +1350,7 @@ export class WebGPURenderer implements IRendererStateProvider {
           this._osrCursorResetTimer = setTimeout(() => {
             this.canvas.style.cursor = "default";
             this._osrCursorResetTimer = null;
-          }, 100) as any;
+          }, 100);
         } else if (this._osrCursorResetTimer) {
           clearTimeout(this._osrCursorResetTimer);
           this._osrCursorResetTimer = null;
@@ -1434,7 +1448,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   setPixelationEnabled(e: boolean): void { this.accessors.setPixelationEnabled(e); }
   setPixelSize(s: number): void { this.accessors.setPixelSize(s); }
   setDepthEdgeStrength(s: number): void { this.accessors.setDepthEdgeStrength(s); }
-  setPostProcessEnabled(id: any, e: boolean): void { this.accessors.setPostProcessEnabled(id, e); }
+  setPostProcessEnabled(id: "fxaa" | "dof" | "sobel" | "afterimage" | "bloom" | "ascii", e: boolean): void { this.accessors.setPostProcessEnabled(id, e); }
   setDOFFocusDist(v: number): void { this.accessors.setDOFFocusDist(v); }
   setDOFFocusRange(v: number): void { this.accessors.setDOFFocusRange(v); }
   setDOFMaxBlur(v: number): void { this.accessors.setDOFMaxBlur(v); }
@@ -1575,7 +1589,7 @@ interface ScenePassState {
   weatherIntensity: number;
   entityCount: number;
   playerId: number;
-  lp: any;
+  lp: LightingParams;
   drawEntityCount: number[];
   playerPos: { x: number; y: number; z: number };
   useOffscreen: boolean;
@@ -1594,16 +1608,16 @@ interface ScenePassState {
 class SceneRenderPass extends RenderPass {
   name = "Scene";
   passType = PassType.Render;
-  private colorHandle: any;
-  private depthHandle: any;
+  private colorHandle: TextureHandle;
+  private depthHandle: TextureHandle;
   private loadOp: GPULoadOp;
   private state: ScenePassState;
   private drawFn: (passEncoder: GPURenderPassEncoder, state: ScenePassState) => void;
 
   constructor(
     name: string,
-    colorHandle: any,
-    depthHandle: any,
+    colorHandle: TextureHandle,
+    depthHandle: TextureHandle,
     loadOp: GPULoadOp,
     state: ScenePassState,
     drawFn: (passEncoder: GPURenderPassEncoder, state: ScenePassState) => void,

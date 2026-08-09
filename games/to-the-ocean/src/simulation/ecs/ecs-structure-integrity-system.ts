@@ -71,7 +71,7 @@ function calculateStability(entityId: number, boatCellSystem?: BoatCellSystem): 
 }
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-structure-integrity-system", newMod);
   });
 }

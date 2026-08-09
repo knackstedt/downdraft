@@ -1,5 +1,5 @@
 {
-  "name": "@to-the-ocean/plugin-economy",
+  "name": "@to-the-ocean/library-economy",
   "version": "0.1.0",
   "private": true,
   "type": "module",

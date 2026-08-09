@@ -1,12 +1,12 @@
 // ============================================================================
-// Survival System — re-exports from @to-the-ocean/plugin-survival
+// Survival System — re-exports from @to-the-ocean/library-survival
 // ============================================================================
 // The game's BiomeSystem + ChunkManager are combined into a SurvivalBiomeProvider.
 // SimPlayer is structurally compatible with the plugin's SurvivalPlayer interface.
 // PLR_FLAG values match SURVIVAL_FLAGS bit positions.
 //
 
-import { DEFAULT_SURVIVAL_CONFIG, SurvivalSystem as PluginSurvivalSystem, type SurvivalBiomeProvider, type SurvivalConfig } from "@to-the-ocean/plugin-survival";
+import { DEFAULT_SURVIVAL_CONFIG, SurvivalSystem as PluginSurvivalSystem, type SurvivalBiomeProvider, type SurvivalConfig } from "@to-the-ocean/library-survival";
 import {
     NIGHT_END_FRAC,
     NIGHT_START_FRAC,

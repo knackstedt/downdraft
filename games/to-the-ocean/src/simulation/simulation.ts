@@ -23,10 +23,10 @@ import { WaterBufferWriter } from "../shared/water-buffer";
 
 import type { ISimulation } from "@downdraft/core";
 import type { JobScheduler } from "@downdraft/core/ecs/job-system";
-import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/plugin-buoyancy";
-import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/plugin-collision";
-import { WeatherSystem } from "@downdraft/plugin-weather";
-import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/plugin-wildlife";
+import { WeatherSystem } from "@downdraft/library-weather";
+import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
+import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/library-collision";
+import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/library-wildlife";
 import { BoatBufferWriter } from "../shared/boat-buffer";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import {
@@ -361,9 +361,9 @@ export class Simulation implements ISimulation {
       defaultLodDistance: (this.rules.collisionLodDistance as number) ?? 250,
     };
     const collisionDeps: CollisionDeps = {
-      getVoxelField: (entityId: number) => this.terrainSystem.getVoxelField(entityId) as any,
-      sampleTerrainHeight: (field, ux, uz) => sampleTerrainHeight(field as any, ux, uz),
-      getPortColliderDims: (size: number, scale: number) => getPortColliderDims(size, scale) as any,
+      getVoxelField: (entityId: number) => this.terrainSystem.getVoxelField(entityId),
+      sampleTerrainHeight: (field, ux, uz) => sampleTerrainHeight(field as unknown as Parameters<typeof sampleTerrainHeight>[0], ux, uz),
+      getPortColliderDims: (size: number, scale: number) => getPortColliderDims(size, scale),
     };
     this.ecs.registerCollisionSystem(collisionDeps, collisionConfig);
   }
@@ -513,11 +513,11 @@ export class Simulation implements ISimulation {
 
   // --- Commands (delegated to SimulationCommands.ts) ---
 
-  handleCommand(cmd: SimCommand): { success: boolean; message?: string; data?: any } {
+  handleCommand(cmd: SimCommand): { success: boolean; message?: string; data?: unknown } {
     return handleCommand(this, cmd);
   }
 
-  handleWorldCommand(cmd: WorldCommand): { success: boolean; message?: string; data?: any } {
+  handleWorldCommand(cmd: WorldCommand): { success: boolean; message?: string; data?: unknown } {
     return handleWorldCommand(this, cmd);
   }
 

@@ -1,5 +1,6 @@
 {
   "name": "@to-the-ocean/plugin-inventory",
+  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -9,6 +10,6 @@
   },
   "dependencies": {
     "@downdraft/core": "workspace:*",
-    "@to-the-ocean/plugin-items": "workspace:*"
+    "@to-the-ocean/library-items": "workspace:*"
   }
 }

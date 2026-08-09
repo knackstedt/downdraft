@@ -6,15 +6,15 @@ import {
     RECIPES,
     canCraft, executeCraft
 } from "@to-the-ocean/plugin-crafting";
-import { DEFAULT_ECONOMY_CONFIG, MarketSystem, PortSize } from "@to-the-ocean/plugin-economy";
-import { FishingSystem, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/plugin-fishing";
+import { DEFAULT_ECONOMY_CONFIG, MarketSystem, PortSize } from "@to-the-ocean/library-economy";
+import { FishingSystem, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/library-fishing";
 import {
     addItem,
     createGrid,
     type InventoryGrid
 } from "@to-the-ocean/plugin-inventory";
-import { getItem } from "@to-the-ocean/plugin-items";
-import { DEFAULT_SURVIVAL_CONFIG, SurvivalSystem, type SurvivalBiomeProvider, type SurvivalPlayer } from "@to-the-ocean/plugin-survival";
+import { getItem } from "@to-the-ocean/library-items";
+import { DEFAULT_SURVIVAL_CONFIG, SurvivalSystem, type SurvivalBiomeProvider, type SurvivalPlayer } from "@to-the-ocean/library-survival";
 
 export interface GameplayState {
   inventory: InventoryGrid;

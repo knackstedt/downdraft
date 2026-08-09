@@ -2,6 +2,8 @@
 // Survival Plugin — Types and Interfaces
 // ============================================================================
 
+import type { BiomeProvider, PlayerState } from "@to-the-ocean/shared/plugin-interfaces";
+
 // Player flags — games can use these or define their own
 export const SURVIVAL_FLAGS = {
   SLEEPING: 1 << 0,
@@ -11,10 +13,7 @@ export const SURVIVAL_FLAGS = {
 } as const;
 
 // Player interface for survival system — games implement this or use a structurally compatible type
-export interface SurvivalPlayer {
-  active: boolean;
-  position: { x: number; y: number; z: number };
-  flags: number;
+export interface SurvivalPlayer extends PlayerState {
   health: number;
   maxHealth: number;
   hunger: number;
@@ -24,9 +23,8 @@ export interface SurvivalPlayer {
   temperature: number;
 }
 
-// Biome provider interface for survival — extends weather's BiomeProvider
-export interface SurvivalBiomeProvider {
-  getBiomeAt(worldX: number, worldZ: number): number;
+// Biome provider interface for survival — extends BiomeProvider with temperature queries
+export interface SurvivalBiomeProvider extends BiomeProvider {
   isColdBiome(biome: number): boolean;
   isHotBiome(biome: number): boolean;
   getAmbientTemperature(biome: number, timeOfDay: number): number;

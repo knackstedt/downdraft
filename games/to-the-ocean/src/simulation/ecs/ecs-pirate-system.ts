@@ -280,7 +280,7 @@ export { pirates as ecsPiratesMap };
 export type { PirateEntity };
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-pirate-system", newMod);
   });
 }

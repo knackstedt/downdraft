@@ -330,7 +330,7 @@ export { pets as ecsPetsMap };
 export type { PetData };
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-pet-system", newMod);
   });
 }

@@ -1,13 +1,14 @@
 // Command handling — extracted from Simulation.ts
 
 import { clampSafeInt } from "@downdraft/core";
-import { WeatherSystem } from "@downdraft/plugin-weather";
+import { WeatherSystem } from "@downdraft/library-weather";
 import {
     BiomeType,
+    EntityType,
     GameMode,
     SimCommand,
     WeatherType,
-    WorldCommand,
+    WorldCommand
 } from "../shared/types";
 import { WorldGenerator } from "../shared/world/world-generator";
 import { DockingSystem } from "./building/docking-system";
@@ -47,7 +48,16 @@ export interface SimulationCommandsAccess extends SimulationEntityManagerAccess 
   entityCount: number;
   players: SimPlayer[];
   playerCount: number;
-  spawnEntity: (type: any, opts: any) => number;
+  spawnEntity: (type: EntityType, opts: {
+    position: { x: number; y: number; z: number };
+    rotation?: { x: number; y: number; z: number; w: number };
+    scale?: number;
+    health?: number;
+    maxHealth?: number;
+    parentId?: number;
+    flags?: number;
+    data?: Float32Array;
+  }) => number;
   removeEntity: (id: number) => void;
   getPlayerCenterX: () => number;
   getPlayerCenterZ: () => number;
@@ -56,7 +66,7 @@ export interface SimulationCommandsAccess extends SimulationEntityManagerAccess 
 export function handleCommand(
   sim: SimulationCommandsAccess,
   cmd: SimCommand,
-): { success: boolean; message?: string; data?: any } {
+): { success: boolean; message?: string; data?: unknown } {
   const player = sim.players.find(p => p?.playerId === cmd.playerId);
   if (!player || !player.active) {
     return { success: false, message: "Player not found or inactive" };
@@ -221,7 +231,7 @@ export function handleCommand(
 export function handleWorldCommand(
   sim: SimulationCommandsAccess,
   cmd: WorldCommand,
-): { success: boolean; message?: string; data?: any } {
+): { success: boolean; message?: string; data?: unknown } {
   const { type, payload } = cmd;
   const cx = payload.chunkX ?? 0;
   const cz = payload.chunkZ ?? 0;

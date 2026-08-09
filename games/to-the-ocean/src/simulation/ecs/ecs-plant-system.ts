@@ -71,7 +71,7 @@ export { plants as ecsPlantsMap };
 export type { PlantData };
 
 if (import.meta.hot) {
-  import.meta.hot.accept((newMod: any) => {
+  import.meta.hot.accept((newMod) => {
     if (newMod) hmrSwap("ecs-plant-system", newMod);
   });
 }

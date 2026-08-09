@@ -1,6 +1,6 @@
 // Tick orchestration — extracted from Simulation.ts
 
-import { WeatherSystem } from "@downdraft/plugin-weather";
+import { WeatherSystem } from "@downdraft/library-weather";
 import { SIM_TICK_DT } from "../shared/constants";
 import { InputBufferReader } from "../shared/input-buffer";
 import {

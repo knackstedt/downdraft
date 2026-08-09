@@ -1,4 +1,4 @@
-import { ITEMS, getItem } from "@to-the-ocean/plugin-items";
+import { ITEMS, getItem } from "@to-the-ocean/library-items";
 import { describe, expect, it } from "bun:test";
 import { addItem, createGrid, moveItem, processSpoilage } from "./inventory";
 

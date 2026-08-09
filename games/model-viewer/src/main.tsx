@@ -22,7 +22,7 @@ import {
 } from "@downdraft/core";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
 import { BaseSceneInspector, type IAssetResolver, type IDevToolsRenderer } from "@downdraft/plugin-devtools";
-import { ModelRenderer } from "@downdraft/plugin-entities";
+import { ModelRenderer } from "@downdraft/library-entities";
 import type { MeshData } from "@downdraft/plugin-models";
 import React from "react";
 import { createRoot } from "react-dom/client";

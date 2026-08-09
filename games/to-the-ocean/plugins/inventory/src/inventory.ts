@@ -1,5 +1,5 @@
 import { Component, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
-import { getItem } from "@to-the-ocean/plugin-items";
+import { getItem } from "@to-the-ocean/library-items";
 
 export interface ItemStack {
   itemId: string;

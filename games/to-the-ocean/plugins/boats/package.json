@@ -1,5 +1,5 @@
 {
-  "name": "@to-the-ocean/plugin-boats",
+  "name": "@to-the-ocean/library-boats",
   "version": "0.1.0",
   "private": true,
   "type": "module",

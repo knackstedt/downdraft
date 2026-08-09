@@ -1,5 +1,6 @@
 {
-  "name": "@to-the-ocean/plugin-items",
+  "name": "@to-the-ocean/library-items",
+  "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
