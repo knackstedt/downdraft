@@ -9,6 +9,8 @@ import type { DowndraftMcpConfig, MainContext } from "../types";
 
 const log = createLogger("info");
 
+const MCP_TIMEOUT_MS = parseInt(process.env.MCP_TIMEOUT_MS ?? "60000", 10);
+
 export async function startMcpProxy(ctx: MainContext, config: DowndraftMcpConfig): Promise<void> {
   const proxyHandler: McpProxyHandler = async (request: { method: string; params?: Record<string, unknown> }) => {
     if (!ctx.window || ctx.window.isDestroyed()) {
@@ -19,8 +21,8 @@ export async function startMcpProxy(ctx: MainContext, config: DowndraftMcpConfig
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         ipcMain.removeAllListeners(responseChannel);
-        reject(new Error("MCP request timed out"));
-      }, 5000);
+        reject(new Error(`MCP request timed out after ${MCP_TIMEOUT_MS}ms`));
+      }, MCP_TIMEOUT_MS);
 
       ipcMain.once(responseChannel, (_e, result) => {
         clearTimeout(timeout);
@@ -42,7 +44,7 @@ export async function startMcpProxy(ctx: MainContext, config: DowndraftMcpConfig
   try {
     const transport = new McpHttpTransport({ port: config.port, proxyHandler });
     await transport.start();
-    log.info("MCP", `HTTP transport listening on port ${config.port}`);
+    log.info("MCP", `HTTP transport listening on port ${config.port} (timeout: ${MCP_TIMEOUT_MS}ms)`);
   } catch (e) {
     log.error("MCP", `Failed to start HTTP transport: ${(e as Error).message}`);
   }

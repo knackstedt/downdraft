@@ -35,6 +35,8 @@ export interface MCPServerOptions {
   enableTelemetry?: boolean;
   sceneName?: string;
   engineContext?: EngineContext;
+  /** Additional tools to register alongside the standard engine toolset. */
+  extraTools?: ToolRegistration[];
 }
 
 interface JSONRPCRequest {
@@ -56,6 +58,7 @@ const SERVER_NAME = "downdraft-mcp";
 const SERVER_VERSION = "0.1.0";
 
 export class MCPServer {
+  private opts: MCPServerOptions;
   private ctx: EngineContext;
   private undoRedo: UndoRedoManager;
   private tools: Map<string, ToolRegistration> = new Map();
@@ -66,6 +69,7 @@ export class MCPServer {
   private inputBuffer: string = "";
 
   constructor(opts: MCPServerOptions = {}) {
+    this.opts = opts;
     this.ctx = opts.engineContext ?? new EngineContext(opts);
     this.undoRedo = new UndoRedoManager(this.ctx);
     this.registerAllTools();
@@ -91,6 +95,7 @@ export class MCPServer {
       ...createAudioTools(this.ctx),
       ...createAnimationTools(this.ctx),
       ...createBuildTools(this.ctx),
+      ...(this.opts?.extraTools ?? []),
     ];
 
     for (const tool of allTools) {

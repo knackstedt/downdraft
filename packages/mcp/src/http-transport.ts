@@ -18,6 +18,8 @@ export class McpHttpTransport {
   private mcpServer: MCPServer | null;
   private proxyHandler: McpProxyHandler | null;
   private initialized = false;
+  private sessionId: string | null = null;
+  private sseResponse: ServerResponse | null = null;
 
   constructor(opts: {
     port?: number;
@@ -108,19 +110,69 @@ export class McpHttpTransport {
       return;
     }
 
-    // POST /mcp
-    if (req.method === "POST" && req.url === "/mcp") {
+    // GET /mcp or / — SSE stream (MCP HTTP+SSE transport)
+    // The client opens an SSE connection; we send an `endpoint` event
+    // telling it to POST JSON-RPC messages back to /mcp.
+    if (req.method === "GET" && (req.url === "/mcp" || req.url === "/" || req.url === "/mcp/")) {
+      if (!this.sessionId) this.sessionId = `mcp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Mcp-Session-Id": this.sessionId,
+      });
+      // Tell the client where to POST requests
+      res.write(`event: endpoint\ndata: /mcp\n\n`);
+      // Keep the connection open — the client will POST requests separately
+      // and we'll stream responses back on this connection.
+      // Store the response so we can write to it later.
+      this.sseResponse = res;
+      req.on("close", () => {
+        if (this.sseResponse === res) this.sseResponse = null;
+      });
+      return;
+    }
+
+    // POST /mcp or POST / (root) — MCP Streamable HTTP transport
+    // The MCP client POSTs JSON-RPC messages to the configured URL.
+    // We accept both /mcp and / so the URL can be either
+    // "http://localhost:PORT" or "http://localhost:PORT/mcp".
+    if (req.method === "POST" && (req.url === "/mcp" || req.url === "/" || req.url === "/mcp/")) {
+      // MCP Streamable HTTP: return session ID header on initialize
+      if (!this.sessionId) this.sessionId = `mcp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      res.setHeader("Mcp-Session-Id", this.sessionId);
+
       let body = "";
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", async () => {
         try {
           const msg = JSON.parse(body);
           const result = await this.handleJsonRpc(msg.method, msg.params ?? {});
-          this.sendJSON(res, 200, {
-            jsonrpc: "2.0",
-            id: msg.id ?? 0,
-            result,
-          });
+          const response = { jsonrpc: "2.0" as const, id: msg.id ?? 0, result };
+
+          // If there's an open SSE stream (HTTP+SSE transport), write the
+          // response to it and respond to the POST with 202 Accepted.
+          // Check writableEnded to avoid writing to a closed stream.
+          if (this.sseResponse && !this.sseResponse.writableEnded && !this.sseResponse.destroyed) {
+            this.sseResponse.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+            res.writeHead(202);
+            res.end();
+            return;
+          }
+
+          // Streamable HTTP: check Accept header for SSE format
+          const accept = req.headers.accept ?? "";
+          if (accept.includes("text/event-stream")) {
+            res.writeHead(200, {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              "Connection": "keep-alive",
+            });
+            res.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+            res.end();
+          } else {
+            this.sendJSON(res, 200, response);
+          }
         } catch (e) {
           this.sendJSON(res, 400, {
             jsonrpc: "2.0",
@@ -129,6 +181,15 @@ export class McpHttpTransport {
           });
         }
       });
+      return;
+    }
+
+    // DELETE /mcp or / — end session (MCP Streamable HTTP)
+    if (req.method === "DELETE" && (req.url === "/mcp" || req.url === "/" || req.url === "/mcp/")) {
+      this.initialized = false;
+      this.sessionId = null;
+      res.writeHead(204);
+      res.end();
       return;
     }
 

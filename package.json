@@ -9,8 +9,14 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist": "electron-builder",
-    "test": "echo 'tests pending migration' && exit 0",
+    "test": "echo 'run bun test <path>.spec.ts for unit tests, or bun run draft:test / draft:test-cpu for e2e' && exit 0",
+    "draft:test": "draft test --renderer=gpu",
+    "draft:test-cpu": "draft test --renderer=cpu",
+    "test:e2e": "bun test tests/e2e/to-the-ocean-smoke.spec.ts",
+    "test:e2e:headless": "DOWNDRAFT_GPU=swiftshader bun test tests/e2e/to-the-ocean-smoke.spec.ts",
+    "test:e2e:local": "bun test tests/e2e/to-the-ocean-smoke.spec.ts",
     "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "tsc:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "lint": "oxlint",
     "postinstall": "node node_modules/electron/install.js"
   },
@@ -27,6 +33,7 @@
     "examples/plugin-tester"
   ],
   "devDependencies": {
+    "@downdraft/cli": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
