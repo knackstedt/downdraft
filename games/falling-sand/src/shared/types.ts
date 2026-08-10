@@ -15,7 +15,6 @@ export interface InputState {
   hasLastMouse: boolean;
   selectedMaterial: number;
   brushRadius: number;
-  magnet: boolean;
 }
 
 export interface Camera2DState {

@@ -161,11 +161,35 @@ export class FallingSandRenderer {
     this.workerHost.writeMousePos(gx, gy);
     this.workerHost.writeSelectedMaterial(this.input.selectedMaterial);
     this.workerHost.writeBrushRadius(this.input.brushRadius);
-    this.workerHost.writeMagnet(this.input.magnet);
 
-    // Write settings
-    const settings = useGameStore.getState().settings;
-    this.workerHost.writeImpulseChance(settings.horizontalImpulseChance);
-    this.workerHost.writeImpulseStrength(settings.horizontalImpulseStrength);
+    // Write brush mode and field state from store
+    const s = useGameStore.getState();
+    this.workerHost.writeImpulseChance(s.settings.horizontalImpulseChance);
+    this.workerHost.writeImpulseStrength(s.settings.horizontalImpulseStrength);
+    this.workerHost.writeBrushMode(s.brushMode === "field" ? 1 : 0);
+    this.workerHost.writeShowFields(s.showFieldOverlay);
+
+    // Map field type to byte index and value
+    const FIELD_GRAVITY = 0, FIELD_TEMP = 1, FIELD_WIND_X = 2, FIELD_WIND_Y = 3;
+    if (s.brushMode === "field") {
+      switch (s.fieldType) {
+        case "gravity":
+          this.workerHost.writeFieldType(FIELD_GRAVITY);
+          this.workerHost.writeFieldValue(s.fieldGravity);
+          break;
+        case "temperature":
+          this.workerHost.writeFieldType(FIELD_TEMP);
+          this.workerHost.writeFieldValue(s.fieldTemperature);
+          break;
+        case "windX":
+          this.workerHost.writeFieldType(FIELD_WIND_X);
+          this.workerHost.writeFieldValue(s.fieldWindX & 0xff);
+          break;
+        case "windY":
+          this.workerHost.writeFieldType(FIELD_WIND_Y);
+          this.workerHost.writeFieldValue(s.fieldWindY & 0xff);
+          break;
+      }
+    }
   }
 }

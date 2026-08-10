@@ -1,9 +1,10 @@
 import { create } from "zustand";
 
+export type BrushMode = "material" | "field";
+export type FieldType = "gravity" | "temperature" | "windX" | "windY";
+
 export interface GameSettings {
-  /** Probability per tick that a falling particle gets a horizontal nudge. 0 = off, 1 = always. */
   horizontalImpulseChance: number;
-  /** Magnitude of horizontal impulse (cells per nudge). */
   horizontalImpulseStrength: number;
 }
 
@@ -20,6 +21,14 @@ export interface GameState {
   fpsHistory: number[];
   settings: GameSettings;
   showSettings: boolean;
+  brushMode: BrushMode;
+  fieldType: FieldType;
+  // Field paint values: 0-255 for gravity/temp (128=default), -128 to 127 for wind
+  fieldGravity: number;   // 0-255, 128 = 1×
+  fieldTemperature: number; // 0-255, 128 = normal
+  fieldWindX: number;     // -128 to 127
+  fieldWindY: number;     // -128 to 127
+  showFieldOverlay: boolean;
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -27,6 +36,13 @@ export interface GameState {
   setPaused: (p: boolean) => void;
   setSettings: (s: Partial<GameSettings>) => void;
   setShowSettings: (show: boolean) => void;
+  setBrushMode: (m: BrushMode) => void;
+  setFieldType: (f: FieldType) => void;
+  setFieldGravity: (v: number) => void;
+  setFieldTemperature: (v: number) => void;
+  setFieldWindX: (v: number) => void;
+  setFieldWindY: (v: number) => void;
+  setShowFieldOverlay: (show: boolean) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -37,16 +53,29 @@ export const useGameStore = create<GameState>((set) => ({
   fpsHistory: [],
   settings: { ...DEFAULT_SETTINGS },
   showSettings: false,
+  brushMode: "material",
+  fieldType: "gravity",
+  fieldGravity: 128,
+  fieldTemperature: 128,
+  fieldWindX: 0,
+  fieldWindY: 0,
+  showFieldOverlay: false,
 
   setFPS: (fps) => set((s) => {
     const history = [...s.fpsHistory, fps].slice(-30);
     const avg = history.reduce((a, b) => a + b, 0) / history.length;
     return { fps: Math.round(avg), fpsHistory: history };
   }),
-
   setHealth: (health) => set({ health }),
   setSelectedMaterial: (selectedMaterial) => set({ selectedMaterial }),
   setPaused: (paused) => set({ paused }),
   setSettings: (partial) => set((s) => ({ settings: { ...s.settings, ...partial } })),
   setShowSettings: (showSettings) => set({ showSettings }),
+  setBrushMode: (brushMode) => set({ brushMode }),
+  setFieldType: (fieldType) => set({ fieldType }),
+  setFieldGravity: (fieldGravity) => set({ fieldGravity }),
+  setFieldTemperature: (fieldTemperature) => set({ fieldTemperature }),
+  setFieldWindX: (fieldWindX) => set({ fieldWindX }),
+  setFieldWindY: (fieldWindY) => set({ fieldWindY }),
+  setShowFieldOverlay: (showFieldOverlay) => set({ showFieldOverlay }),
 }));

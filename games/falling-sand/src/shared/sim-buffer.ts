@@ -1,4 +1,4 @@
-import { MAX_GRID_H, MAX_GRID_W, MAX_MAGNETS } from "./constants";
+import { MAX_GRID_H, MAX_GRID_W } from "./constants";
 
 // ============================================================================
 // SharedArrayBuffer layout for the falling-sand sim ↔ renderer bridge
@@ -6,19 +6,39 @@ import { MAX_GRID_H, MAX_GRID_W, MAX_MAGNETS } from "./constants";
 // The grid area is MAX_GRID_W * MAX_GRID_H cells × 4 bytes, but only the
 // first gridW * gridH cells are used. The actual grid dimensions are
 // dynamic and passed separately.
+//
+// Layout:
+//   [0 .. MAX_GRID_BYTES)         — material grid (Uint32 per cell)
+//   [MAX_GRID_BYTES .. +FIELD_BYTES) — physics field grid (4 bytes per cell:
+//       gravity:u8, temp:u8, windX:i8, windY:i8)
+//   [.. +INPUT_BYTES)             — input state
+//   [.. +STATS_BYTES)             — stats
 // ============================================================================
 
 export const MAX_GRID_BYTES = MAX_GRID_W * MAX_GRID_H * 4;
-export const INPUT_BYTES = 64;
-export const MAGNET_BYTES = MAX_MAGNETS * 8;
+export const MAX_FIELD_BYTES = MAX_GRID_W * MAX_GRID_H * 4; // 4 bytes per cell
+export const INPUT_BYTES = 96;
 export const STATS_BYTES = 16;
 
-export const TOTAL_BYTES = MAX_GRID_BYTES + INPUT_BYTES + MAGNET_BYTES + STATS_BYTES;
+export const TOTAL_BYTES = MAX_GRID_BYTES + MAX_FIELD_BYTES + INPUT_BYTES + STATS_BYTES;
 
 export const GRID_OFFSET = 0;
-export const INPUT_OFFSET = MAX_GRID_BYTES;
-export const MAGNET_OFFSET = MAX_GRID_BYTES + INPUT_BYTES;
-export const STATS_OFFSET = MAX_GRID_BYTES + INPUT_BYTES + MAGNET_BYTES;
+export const FIELD_OFFSET = MAX_GRID_BYTES;
+export const INPUT_OFFSET = MAX_GRID_BYTES + MAX_FIELD_BYTES;
+export const STATS_OFFSET = MAX_GRID_BYTES + MAX_FIELD_BYTES + INPUT_BYTES;
+
+// Field byte offsets within each 4-byte field cell
+export const FIELD = {
+  GRAVITY: 0,  // u8: 0-255, 128 = 1× gravity
+  TEMP: 1,     // u8: 0-255, 128 = normal temp (1.0)
+  WIND_X: 2,   // i8: -128 to 127, 0 = no wind
+  WIND_Y: 3,   // i8: -128 to 127, 0 = no wind
+} as const;
+
+// Default field values (encoded)
+export const DEFAULT_GRAVITY = 128; // 1.0×
+export const DEFAULT_TEMP = 128;    // 1.0
+export const DEFAULT_WIND = 0;      // no wind
 
 export const INPUT = {
   LEFT: 0,
@@ -28,24 +48,30 @@ export const INPUT = {
   JUMP: 16,
   MOUSE_DOWN: 20,
   MOUSE_RIGHT: 24,
-  MAGNET: 28,
+  // offset 28 reserved
   MOUSE_X: 32,
   MOUSE_Y: 36,
   SELECTED_MAT: 40,
   BRUSH_RADIUS: 44,
   LAST_MOUSE_X: 48,
   LAST_MOUSE_Y: 52,
-  // Settings (floats stored as i32 × 1000 for SAB simplicity)
-  IMPULSE_CHANCE: 56,   // i32: chance × 1000 (e.g. 20 = 0.02)
-  IMPULSE_STRENGTH: 60, // i32: strength × 1000 (e.g. 1000 = 1.0)
+  // Brush mode: 0 = material, 1 = field
+  BRUSH_MODE: 56,
+  // When brush mode = field: which field to paint (0=gravity, 1=temp, 2=windX, 3=windY)
+  FIELD_TYPE: 60,
+  // Field value to paint (i32 × 1000)
+  FIELD_VALUE: 64,
+  // Impulse settings
+  IMPULSE_CHANCE: 68,
+  IMPULSE_STRENGTH: 72,
+  // Toggle: show field overlay
+  SHOW_FIELDS: 76,
 } as const;
 
 export const STATS = {
   FRAME: 0,
   TICK: 4,
   FPS: 8,
-  GRID_W: 12,
-  GRID_H: 16,
 } as const;
 
 export function allocateSimBuffer(): SharedArrayBuffer {
@@ -55,12 +81,14 @@ export function allocateSimBuffer(): SharedArrayBuffer {
 export class SimBufferReader {
   private u32: Uint32Array;
   private buf: Int32Array;
+  private u8: Uint8Array;
   gridW: number;
   gridH: number;
 
   constructor(sab: SharedArrayBuffer, gridW: number, gridH: number) {
     this.u32 = new Uint32Array(sab);
     this.buf = new Int32Array(sab);
+    this.u8 = new Uint8Array(sab);
     this.gridW = gridW;
     this.gridH = gridH;
   }
@@ -72,6 +100,10 @@ export class SimBufferReader {
 
   getGrid(): Uint32Array {
     return this.u32.subarray(GRID_OFFSET / 4, GRID_OFFSET / 4 + this.gridW * this.gridH);
+  }
+
+  getFieldGrid(): Uint8Array {
+    return this.u8.subarray(FIELD_OFFSET, FIELD_OFFSET + this.gridW * this.gridH * 4);
   }
 
   getInput(field: number): number {
@@ -86,12 +118,14 @@ export class SimBufferReader {
 export class SimBufferWriter {
   private buf: Int32Array;
   private u32: Uint32Array;
+  private u8: Uint8Array;
   gridW: number;
   gridH: number;
 
   constructor(sab: SharedArrayBuffer, gridW: number, gridH: number) {
     this.u32 = new Uint32Array(sab);
     this.buf = new Int32Array(sab);
+    this.u8 = new Uint8Array(sab);
     this.gridW = gridW;
     this.gridH = gridH;
   }
@@ -105,14 +139,12 @@ export class SimBufferWriter {
     this.u32.set(grid.subarray(0, this.gridW * this.gridH), GRID_OFFSET / 4);
   }
 
-  writeInput(field: number, value: number): void {
-    this.buf[INPUT_OFFSET / 4 + field / 4] = value;
+  writeFieldGrid(fields: Uint8Array): void {
+    this.u8.set(fields.subarray(0, this.gridW * this.gridH * 4), FIELD_OFFSET);
   }
 
-  clearMagnets(): void {
-    for (let i = 0; i < MAX_MAGNETS; i++) {
-      this.buf[MAGNET_OFFSET / 4 + i * 2] = -1;
-    }
+  writeInput(field: number, value: number): void {
+    this.buf[INPUT_OFFSET / 4 + field / 4] = value;
   }
 
   writeStat(field: number, value: number): void {
@@ -120,6 +152,15 @@ export class SimBufferWriter {
   }
 
   init(): void {
-    this.clearMagnets();
+    // Zero input region
+    this.buf.fill(0, INPUT_OFFSET / 4, (INPUT_OFFSET + INPUT_BYTES) / 4);
+    // Initialize field grid to defaults
+    const fieldBytes = this.gridW * this.gridH * 4;
+    for (let i = 0; i < fieldBytes; i += 4) {
+      this.u8[FIELD_OFFSET + i + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+      this.u8[FIELD_OFFSET + i + FIELD.TEMP] = DEFAULT_TEMP;
+      this.u8[FIELD_OFFSET + i + FIELD.WIND_X] = DEFAULT_WIND;
+      this.u8[FIELD_OFFSET + i + FIELD.WIND_Y] = DEFAULT_WIND;
+    }
   }
 }

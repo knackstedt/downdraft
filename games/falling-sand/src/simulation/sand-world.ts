@@ -1,4 +1,4 @@
-import { MAX_MAGNETS } from "../shared/constants";
+import { DEFAULT_GRAVITY, DEFAULT_TEMP, FIELD } from "../shared/sim-buffer";
 import { Material, MATERIALS } from "./materials";
 
 export interface Cell {
@@ -39,9 +39,10 @@ export class SandWorld {
   W: number;
   H: number;
   grid: Uint32Array;
+  // Per-cell physics fields: 4 bytes per cell [gravity:u8, temp:u8, windX:i8, windY:i8]
+  fields: Uint8Array;
   frame = 0;
-  magnets: { x: number; y: number }[] = [];
-  wind = { x: 0, y: 0 };
+  // Global impulse settings (not spatial)
   horizontalImpulseChance = 0.02;
   horizontalImpulseStrength = 1;
 
@@ -49,11 +50,68 @@ export class SandWorld {
     this.W = w;
     this.H = h;
     this.grid = new Uint32Array(w * h);
+    this.fields = new Uint8Array(w * h * 4);
+    // Initialize fields to defaults
+    for (let i = 0; i < w * h * 4; i += 4) {
+      this.fields[i + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+      this.fields[i + FIELD.TEMP] = DEFAULT_TEMP;
+    }
     // Stone floor
     for (let x = 0; x < w; x++) {
       for (let y = h - 4; y < h; y++) {
         this.grid[y * w + x] = pack({ mat: Material.Stone, lifetime: 0, flags: 0 });
       }
+    }
+  }
+
+  // --- Field accessors ---
+  // gravity: u8 0-255, 128 = 1.0×. Returns multiplier 0-2.
+  getGravity(x: number, y: number): number {
+    if (x < 0 || x >= this.W || y < 0 || y >= this.H) return 1.0;
+    return this.fields[(y * this.W + x) * 4 + FIELD.GRAVITY] / 128;
+  }
+
+  // temp: u8 0-255, 128 = 1.0. Returns 0-2.
+  getTemperature(x: number, y: number): number {
+    if (x < 0 || x >= this.W || y < 0 || y >= this.H) return 1.0;
+    return this.fields[(y * this.W + x) * 4 + FIELD.TEMP] / 128;
+  }
+
+  // wind: i8 -128 to 127. Returns -5 to ~5.
+  getWindX(x: number, y: number): number {
+    if (x < 0 || x >= this.W || y < 0 || y >= this.H) return 0;
+    return (this.fields[(y * this.W + x) * 4 + FIELD.WIND_X] << 24) >> 24; // sign-extend i8
+  }
+
+  getWindY(x: number, y: number): number {
+    if (x < 0 || x >= this.W || y < 0 || y >= this.H) return 0;
+    return (this.fields[(y * this.W + x) * 4 + FIELD.WIND_Y] << 24) >> 24;
+  }
+
+  // --- Field painting ---
+  paintField(cx: number, cy: number, fieldType: number, value: number, radius: number): void {
+    for (let y = cy - radius; y <= cy + radius; y++) {
+      for (let x = cx - radius; x <= cx + radius; x++) {
+        if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > radius * radius) continue;
+        if (x < 0 || x >= this.W || y < 0 || y >= this.H) continue;
+        this.fields[(y * this.W + x) * 4 + fieldType] = value & 0xff;
+      }
+    }
+  }
+
+  paintFieldLine(x0: number, y0: number, x1: number, y1: number, fieldType: number, value: number, radius: number): void {
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    let x = x0, y = y0;
+    while (true) {
+      this.paintField(x, y, fieldType, value, radius);
+      if (x === x1 && y === y1) break;
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 < dx) { err += dx; y += sy; }
     }
   }
 
@@ -123,14 +181,6 @@ export class SandWorld {
     }
   }
 
-  setMagnet(x: number, y: number, active: boolean): void {
-    if (active) {
-      if (this.magnets.length < MAX_MAGNETS) this.magnets.push({ x, y });
-    } else {
-      this.magnets = [];
-    }
-  }
-
   // ===========================================================================
   // Main step
   // ===========================================================================
@@ -175,20 +225,27 @@ export class SandWorld {
 
     if (def.gravityDir === 0) return;
 
+    // Read per-cell physics fields
+    const gravity = this.getGravity(x, y);
+    const temp = this.getTemperature(x, y);
+    const windX = this.getWindX(x, y);
+    const windY = this.getWindY(x, y);
+
+    // Apply gravity multiplier — at 0 gravity, nothing falls
+    if (gravity <= 0) return;
+
     const dy = def.gravityDir;
     const isLiquid = def.liquid;
     const isGas = def.gas;
 
-    let magDx = 0, magDy = 0;
-    if (mat === Material.Iron && this.magnets.length > 0) {
-      const target = this.nearestMagnet(x, y);
-      magDx = Math.sign(target.x - x);
-      magDy = Math.sign(target.y - y);
-    }
-
-    if (mat === Material.Iron && magDy !== 0) {
-      if (this.trySwap(x, y, x, y + magDy)) return;
-      if (magDx !== 0 && this.trySwap(x, y, x + magDx, y + magDy)) return;
+    // --- Wind: apply horizontal/vertical force from per-cell wind field ---
+    if (windX !== 0 || windY !== 0) {
+      const wdx = windX > 0 ? 1 : windX < 0 ? -1 : 0;
+      const wdy = windY > 0 ? 1 : windY < 0 ? -1 : 0;
+      const windChance = Math.min(1, (Math.abs(windX) + Math.abs(windY)) / 20) * 0.15;
+      if (Math.random() < windChance) {
+        if (this.trySwap(x, y, x + wdx, y + wdy)) return;
+      }
     }
 
     // --- Edge friction ---
@@ -311,16 +368,6 @@ export class SandWorld {
     return false;
   }
 
-  private nearestMagnet(x: number, y: number): { x: number; y: number } {
-    let best = this.magnets[0];
-    let bestD = Infinity;
-    for (const m of this.magnets) {
-      const d = (m.x - x) ** 2 + (m.y - y) ** 2;
-      if (d < bestD) { bestD = d; best = m; }
-    }
-    return best;
-  }
-
   private applyReactions(): void {
     const W = this.W, H = this.H;
     for (let y = 0; y < H; y++) {
@@ -329,6 +376,8 @@ export class SandWorld {
         const cell = unpack(this.grid[idx]);
         if (cell.mat === Material.Empty) continue;
 
+        const temp = this.getTemperature(x, y);
+
         if (cell.mat === Material.Water) {
           const lavaN = this.findNeighbor(x, y, Material.Lava);
           if (lavaN) {
@@ -336,8 +385,21 @@ export class SandWorld {
             this.grid[lavaN.y * W + lavaN.x] = pack({ mat: Material.Stone, lifetime: 0, flags: randomShade() });
             continue;
           }
+          // High temperature: water evaporates into steam
+          if (temp > 1.5 && Math.random() < (temp - 1.5) * 0.02) {
+            this.grid[idx] = pack({ mat: Material.Steam, lifetime: 120, flags: randomShade() });
+            continue;
+          }
           if (this.findNeighbor(x, y, Material.Plant) && Math.random() < 0.02) {
             this.grid[idx] = pack({ mat: Material.Plant, lifetime: 0, flags: randomShade() });
+            continue;
+          }
+        }
+
+        // Low temperature: fire dies faster
+        if (cell.mat === Material.Fire && temp < 0.5) {
+          if (Math.random() < (0.5 - temp) * 0.1) {
+            this.grid[idx] = pack({ mat: Material.Smoke, lifetime: 60, flags: randomShade() });
             continue;
           }
         }
@@ -377,7 +439,9 @@ export class SandWorld {
               this.setCell(nx, ny, { mat: Material.Fire, lifetime: 15, flags: randomShade() });
               continue;
             }
-            const chance = c.mat === Material.Lava ? 0.1 : 0.08;
+            const baseChance = c.mat === Material.Lava ? 0.1 : 0.08;
+            // Per-cell temperature scales fire spread rate
+            const chance = baseChance * this.getTemperature(nx, ny);
             if (Math.random() < chance) {
               this.setCell(nx, ny, { mat: Material.Fire, lifetime: def.burnTime, flags: randomShade() });
             }
