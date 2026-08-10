@@ -1,9 +1,9 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { bakeNodeTransforms } from "./bake-node-transforms";
 import type { ModelData } from "./types";
 
 function makeModelData(
-  meshes: { vertices: number[]; vertexCount: number; indices?: number[] }[],
+  meshes: { vertices: number[]; vertexCount: number; indices?: number[]; joints?: number[]; weights?: number[] }[],
   nodes: { name: string; mesh?: number; translation?: [number, number, number]; rotation?: [number, number, number, number]; scale?: [number, number, number]; children?: number[] }[],
 ): ModelData {
   return {
@@ -14,6 +14,8 @@ function makeModelData(
       indexCount: m.indices?.length ?? 3,
       uvs: null,
       colors: null,
+      joints: m.joints ? new Uint8Array(m.joints) : undefined,
+      weights: m.weights ? new Float32Array(m.weights) : undefined,
     })),
     name: "test",
     format: "gltf",
@@ -134,5 +136,26 @@ describe("bakeNodeTransforms", () => {
     expect(model.meshes[0].vertices[0]).toBe(102);
     expect(model.meshes[0].vertices[1]).toBe(102);
     expect(model.meshes[0].vertices[2]).toBe(103);
+  });
+
+  it("skips skinned meshes (skin matrices handle the bone hierarchy)", () => {
+    // Skinned meshes are NOT baked — their node hierarchy transforms are
+    // encoded in the bone rest poses and applied via skin matrices at render
+    // time. Baking would double-transform the vertices once an animation
+    // moves the bones away from bind pose.
+    const model = makeModelData(
+      [{
+        vertices: [1, 2, 3, 0, 1, 0],
+        vertexCount: 1,
+        joints: [0, 0, 0, 0],
+        weights: [1, 0, 0, 0],
+      }],
+      [{ name: "root", mesh: 0, translation: [10, 20, 30] }],
+    );
+    bakeNodeTransforms(model);
+    // Vertices unchanged — skin matrices handle the transform.
+    expect(model.meshes[0].vertices[0]).toBe(1);
+    expect(model.meshes[0].vertices[1]).toBe(2);
+    expect(model.meshes[0].vertices[2]).toBe(3);
   });
 });

@@ -13,6 +13,11 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 
+// Skin matrices for skinned meshes (@group(1)). A dynamic storage buffer of
+// mat4x4<f32>, one per bone. Updated per-frame by the renderer via
+// updateSkinMatrices(). Only bound when drawing skinned meshes.
+@group(1) @binding(0) var<storage, read> skinMatrices: array<mat4x4<f32>>;
+
 // Bindless material binding model (@group(3)):
 //   binding 0: material SSBO (read-only storage)
 //   bindings 1..8: texture_2d_array pages (rgba8unorm color textures)
@@ -72,6 +77,18 @@ struct VertexInput {
   @location(3) color: vec3<f32>,
 };
 
+// Skinned vertex input — extends VertexInput with joints (4 bone indices,
+// packed as vec4<u32>) and weights (4 normalized bone weights). Lives in a
+// second vertex buffer slot (buffer index 1).
+struct SkinnedVertexInput {
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(3) color: vec3<f32>,
+  @location(4) joints: vec4<u32>,
+  @location(5) weights: vec4<f32>,
+};
+
 struct VertexOutput {
   @builtin(position) clipPos: vec4<f32>,
   @location(0) worldPos: vec3<f32>,
@@ -84,6 +101,26 @@ fn qrotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
 
+// Accumulate the 4-bone skinning matrix: sum(weights[i] * skinMatrices[joint[i]]).
+// If all weights are zero (vertex has no bone assignment), return identity so
+// the vertex renders at its baked position instead of collapsing to the origin.
+fn skinMatrix(j: vec4<u32>, w: vec4<f32>) -> mat4x4<f32> {
+  let m = skinMatrices[j.x] * w.x
+        + skinMatrices[j.y] * w.y
+        + skinMatrices[j.z] * w.z
+        + skinMatrices[j.w] * w.w;
+  let wsum = w.x + w.y + w.z + w.w;
+  if (wsum < 0.001) {
+    return mat4x4<f32>(
+      vec4(1.0, 0.0, 0.0, 0.0),
+      vec4(0.0, 1.0, 0.0, 0.0),
+      vec4(0.0, 0.0, 1.0, 0.0),
+      vec4(0.0, 0.0, 0.0, 1.0),
+    );
+  }
+  return m;
+}
+
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
@@ -93,6 +130,27 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   output.worldPos = worldPos;
   output.clipPos = uniforms.viewProj * vec4<f32>(worldPos, 1.0);
   output.normal = normalize(qrotate(uniforms.modelRot, input.normal));
+  output.uv = input.uv;
+  output.color = input.color;
+  return output;
+}
+
+// Skinned vertex entry point. Applies linear blend skinning in model space
+// (skinMatrices already encode bone-world * inverseBind), then the same
+// model transform (scale/rot/pos) as vs_main.
+@vertex
+fn vs_skinned(input: SkinnedVertexInput) -> VertexOutput {
+  var output: VertexOutput;
+  let sm = skinMatrix(input.joints, input.weights);
+  let skinnedPos = (sm * vec4<f32>(input.position, 1.0)).xyz;
+  let skinnedNormal = (sm * vec4<f32>(input.normal, 0.0)).xyz;
+
+  let scaled = skinnedPos * uniforms.modelScale;
+  let rotated = qrotate(uniforms.modelRot, scaled);
+  let worldPos = rotated + uniforms.modelPos;
+  output.worldPos = worldPos;
+  output.clipPos = uniforms.viewProj * vec4<f32>(worldPos, 1.0);
+  output.normal = normalize(qrotate(uniforms.modelRot, normalize(skinnedNormal)));
   output.uv = input.uv;
   output.color = input.color;
   return output;

@@ -106,7 +106,8 @@ export function installErrorHandlers(app: typeof AppType, BrowserWindow: typeof 
   process.on("uncaughtException", (err) => {
     exitOnDialogClose = true;
     if (isEpipeError(err)) {
-      showErrorDialog("Uncaught Exception (EPIPE)", err.stack ?? err.message);
+      // Parent stdout/stderr pipe closed (common when launched from a test
+      // harness or MCP client that tears down the process). Not a real crash.
       return;
     }
     log.error("main", `uncaughtException: ${err.stack ?? err.message}`);
@@ -117,7 +118,7 @@ export function installErrorHandlers(app: typeof AppType, BrowserWindow: typeof 
     exitOnDialogClose = true;
     const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
     if (isEpipeError(reason)) {
-      showErrorDialog("Unhandled Rejection (EPIPE)", detail);
+      // Parent stdout/stderr pipe closed — ignore; not a real crash.
       return;
     }
     log.error("main", `unhandledRejection: ${detail}`);

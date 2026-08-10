@@ -32,6 +32,10 @@ interface ModelGPUResources {
   indexFormat: GPUIndexFormat;
   uniformOffset: number;
   materialIndex: number;
+  // Skinning (optional): second vertex buffer with joints+weights, and a flag
+  // to select the skinned pipeline + skin-matrix bind group.
+  skinVertexBuffer?: GPUBuffer;
+  skinned: boolean;
 }
 
 export interface ModelRendererBindlessDeps {
@@ -51,6 +55,7 @@ export class ModelRenderer {
 
   private static readonly MAX_MODELS = 256;
   private static readonly UNIFORM_SIZE = 256; // 64 floats, padded to 256
+  private static readonly MAX_BONES = 256; // matches joints Uint8 range
 
   private modelResources: Map<string, ModelGPUResources[]> = new Map();
   private viewProjCache: Float32Array | null = null;
@@ -59,6 +64,15 @@ export class ModelRenderer {
   private reusableUniforms = new Float32Array(64);
   private reusableUniformsU32 = new Uint32Array(this.reusableUniforms.buffer);
   private textureLoadVersion = new Map<string, number>();
+
+  // Skinning: a shared storage buffer of bone matrices (MAX_BONES * mat4),
+  // updated per-frame via updateSkinMatrices. Bound at @group(1) for skinned
+  // draws only.
+  private skinMatrixBuffer: GPUBuffer | null = null;
+  private skinBindGroupLayout: GPUBindGroupLayout | null = null;
+  private skinBindGroup: GPUBindGroup | null = null;
+  private skinnedPipeline: GPURenderPipeline | null = null;
+  private skinBindGroupSetThisFrame = false;
 
   // Bindless deps
   private bindless: ModelRendererBindlessDeps | null = null;
@@ -147,6 +161,74 @@ export class ModelRenderer {
               { shaderLocation: 1, offset: 12, format: "float32x3" },
               { shaderLocation: 2, offset: 24, format: "float32x2" },
               { shaderLocation: 3, offset: 32, format: "float32x3" },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format: this.format }],
+      },
+      primitive: { topology: "triangle-list" },
+      multisample: { count: MSAA_SAMPLE_COUNT },
+      depthStencil: {
+        format: DEPTH_FORMAT,
+        depthWriteEnabled: true,
+        depthCompare: "less",
+      },
+    });
+
+    // ── Skinning resources ──
+    // Shared storage buffer for bone matrices (MAX_BONES * 16 floats).
+    this.skinMatrixBuffer = this.device.createBuffer({
+      size: ModelRenderer.MAX_BONES * 64, // mat4x4 = 64 bytes
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    // Bind group layout for @group(1): a single read-only storage buffer.
+    this.skinBindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: "read-only-storage" },
+        },
+      ],
+    });
+
+    this.skinBindGroup = this.device.createBindGroup({
+      layout: this.skinBindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.skinMatrixBuffer } }],
+    });
+
+    // Skinned pipeline: same pipeline layout (group 1 is now the skin layout
+    // instead of an empty layout), with a second vertex buffer for joints +
+    // weights and the vs_skinned entry point.
+    const skinnedPipelineLayout = this.device.createPipelineLayout({
+      bindGroupLayouts: [this.bindGroupLayout, this.skinBindGroupLayout, emptyLayout, this.bindlessLayout],
+    });
+    this.skinnedPipeline = this.device.createRenderPipeline({
+      layout: skinnedPipelineLayout,
+      vertex: {
+        module: shaderModule,
+        entryPoint: "vs_skinned",
+        buffers: [
+          {
+            arrayStride: 44, // pos3 + normal3 + uv2 + color3 = 11 floats
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x3" },
+              { shaderLocation: 2, offset: 24, format: "float32x2" },
+              { shaderLocation: 3, offset: 32, format: "float32x3" },
+            ],
+          },
+          {
+            // joints (4 x uint8 packed as uint32x4 = 16 bytes) + weights (4 x float32 = 16 bytes) = 32 bytes
+            arrayStride: 32,
+            attributes: [
+              { shaderLocation: 4, offset: 0, format: "uint32x4" },
+              { shaderLocation: 5, offset: 16, format: "float32x4" },
             ],
           },
         ],
@@ -254,6 +336,9 @@ export class ModelRenderer {
         }
       }
 
+      // Build the skin vertex buffer (joints + weights) if this mesh is skinned.
+      const skinVertexBuffer = this.buildSkinVertexBuffer(mesh);
+
       resources.push({
         vertexBuffer,
         indexBuffer,
@@ -261,12 +346,45 @@ export class ModelRenderer {
         indexFormat,
         uniformOffset: uniformOffset * ModelRenderer.UNIFORM_SIZE,
         materialIndex: bindlessMatIndex,
+        skinVertexBuffer,
+        skinned: skinVertexBuffer !== undefined,
       });
       uniformOffset++;
     }
 
     this.nextUniformOffset = uniformOffset;
     this.modelResources.set(nodeId, resources);
+  }
+
+  /**
+   * Build the per-mesh skin vertex buffer: joints as uint32x4 (4 bone indices
+   * packed from uint8) followed by weights as float32x4. 32 bytes/vertex.
+   * Returns undefined when the mesh has no skinning data.
+   */
+  private buildSkinVertexBuffer(mesh: MeshData): GPUBuffer | undefined {
+    if (!mesh.joints || !mesh.weights || mesh.joints.length < mesh.vertexCount * 4) return undefined;
+    const vertexCount = mesh.vertexCount;
+    // 8 slots of 4 bytes per vertex: [j0,j1,j2,j3, w0,w1,w2,w3] = 32 bytes.
+    const data = new Float32Array(vertexCount * 8);
+    const dataU32 = new Uint32Array(data.buffer);
+    for (let v = 0; v < vertexCount; v++) {
+      const src = v * 4;
+      const dst = v * 8;
+      dataU32[dst] = mesh.joints[src];
+      dataU32[dst + 1] = mesh.joints[src + 1];
+      dataU32[dst + 2] = mesh.joints[src + 2];
+      dataU32[dst + 3] = mesh.joints[src + 3];
+      data[dst + 4] = mesh.weights[src];
+      data[dst + 5] = mesh.weights[src + 1];
+      data[dst + 6] = mesh.weights[src + 2];
+      data[dst + 7] = mesh.weights[src + 3];
+    }
+    const buffer = this.device.createBuffer({
+      size: data.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(buffer, 0, data as Float32Array<ArrayBuffer>);
+    return buffer;
   }
 
   private async loadMeshTexture(materialKey: string, textureData: ArrayBuffer, version: number): Promise<void> {
@@ -325,6 +443,7 @@ export class ModelRenderer {
       for (let i = 0; i < resources.length; i++) {
         resources[i].vertexBuffer.destroy();
         resources[i].indexBuffer.destroy();
+        resources[i].skinVertexBuffer?.destroy();
       }
       this.nextUniformOffset = Math.max(0, this.nextUniformOffset - resources.length);
       this.modelResources.delete(nodeId);
@@ -356,6 +475,7 @@ export class ModelRenderer {
       for (let i = 0; i < oldResources.length; i++) {
         oldResources[i].vertexBuffer.destroy();
         oldResources[i].indexBuffer.destroy();
+        oldResources[i].skinVertexBuffer?.destroy();
       }
       this.nextUniformOffset = Math.max(0, this.nextUniformOffset - oldResources.length);
       this.modelResources.delete(nodeId);
@@ -440,6 +560,8 @@ export class ModelRenderer {
         }
       }
 
+      const skinVertexBuffer = this.buildSkinVertexBuffer(mesh);
+
       newResources.push({
         vertexBuffer,
         indexBuffer,
@@ -447,6 +569,8 @@ export class ModelRenderer {
         indexFormat,
         uniformOffset: uniformOffset * ModelRenderer.UNIFORM_SIZE,
         materialIndex: bindlessMatIndex,
+        skinVertexBuffer,
+        skinned: skinVertexBuffer !== undefined,
       });
       uniformOffset++;
     }
@@ -459,6 +583,24 @@ export class ModelRenderer {
     this.viewProjCache = calculateViewProj(camera);
     this.cameraPosCache = [camera.position[0], camera.position[1], camera.position[2]];
     this.bindlessBindGroupSetThisFrame = false;
+    this.skinBindGroupSetThisFrame = false;
+  }
+
+  /**
+   * Upload bone skin matrices for the current frame. The `matrices` buffer is
+   * a flat Float32Array of boneCount * 16 floats (column-major mat4s). It is
+   * copied into the shared skin matrix storage buffer (up to MAX_BONES bones).
+   * Call once per frame before render() for skinned models.
+   */
+  updateSkinMatrices(matrices: Float32Array): void {
+    if (!this.skinMatrixBuffer) return;
+    // boneCount is always <= 255 < MAX_BONES, so the full array fits in the
+    // shared skin matrix buffer. Write the whole thing.
+    this.device.queue.writeBuffer(
+      this.skinMatrixBuffer,
+      0,
+      matrices as Float32Array<ArrayBuffer>,
+    );
   }
 
   render(
@@ -477,6 +619,14 @@ export class ModelRenderer {
     if (this.bindlessBindGroup && !this.bindlessBindGroupSetThisFrame) {
       passEncoder.setBindGroup(3, this.bindlessBindGroup);
       this.bindlessBindGroupSetThisFrame = true;
+    }
+    // Set the skin-matrix bind group once per frame (group 1) when any skinned
+    // mesh is drawn. The skin matrix buffer is updated per-frame by the caller
+    // via updateSkinMatrices().
+    const hasSkinned = resources.some((r) => r.skinned);
+    if (hasSkinned && this.skinBindGroup && !this.skinBindGroupSetThisFrame) {
+      passEncoder.setBindGroup(1, this.skinBindGroup);
+      this.skinBindGroupSetThisFrame = true;
     }
 
     for (let r = 0; r < resources.length; r++) {
@@ -509,11 +659,22 @@ export class ModelRenderer {
         uniforms as Float32Array<ArrayBuffer>,
       );
 
-      passEncoder.setPipeline(this.pipeline);
-      passEncoder.setBindGroup(0, this.bindGroup, [res.uniformOffset]);
-      passEncoder.setVertexBuffer(0, res.vertexBuffer);
-      passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
-      passEncoder.drawIndexed(res.indexCount);
+      // Select the skinned pipeline + skin vertex buffer for skinned meshes,
+      // otherwise the standard non-skinned pipeline.
+      if (res.skinned && this.skinnedPipeline && res.skinVertexBuffer) {
+        passEncoder.setPipeline(this.skinnedPipeline);
+        passEncoder.setBindGroup(0, this.bindGroup, [res.uniformOffset]);
+        passEncoder.setVertexBuffer(0, res.vertexBuffer);
+        passEncoder.setVertexBuffer(1, res.skinVertexBuffer);
+        passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
+        passEncoder.drawIndexed(res.indexCount);
+      } else {
+        passEncoder.setPipeline(this.pipeline);
+        passEncoder.setBindGroup(0, this.bindGroup, [res.uniformOffset]);
+        passEncoder.setVertexBuffer(0, res.vertexBuffer);
+        passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
+        passEncoder.drawIndexed(res.indexCount);
+      }
     }
   }
 
@@ -526,5 +687,6 @@ export class ModelRenderer {
     for (let i = 0; i < ids.length; i++) {
       this.removeModel(ids[i]);
     }
+    this.skinMatrixBuffer?.destroy();
   }
 }

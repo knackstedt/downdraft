@@ -1,0 +1,79 @@
+/* ============================================================================
+ * downdraft-base.css — framework-provided canvas/DOM stacking rules
+ *
+ * Games import this from "@downdraft/app/renderer/downdraft-base.css" to get
+ * correct z-index ordering between WebGPU canvases and React DOM overlays.
+ * Games can override colors and fonts in their own CSS; the stacking rules
+ * here should not be overridden.
+ * ========================================================================== */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Canvas layers — stacked bottom-to-top by data-dd-layer index.
+ * The framework generates <canvas data-dd-layer="0">, <canvas data-dd-layer="1">, etc.
+ * Lower layer indices render behind higher ones. */
+canvas[data-dd-layer] {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: auto;
+}
+
+/* DOM overlay layers — stacked above all canvases.
+ * The framework generates <div data-dd-overlay="0">, <div data-dd-overlay="1">, etc.
+ * Overlays are above canvases by default; pointer-events: none lets clicks
+ * pass through to the canvas. Individual HUD elements re-enable pointer-events. */
+div[data-dd-overlay] {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  background: transparent;
+  z-index: 100;
+}
+
+/* The legacy #root and .game-canvas selectors are kept for backward
+ * compatibility with games that haven't migrated to data-dd-layer yet. */
+.game-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  image-rendering: pixelated;
+  z-index: 0;
+}
+
+#root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: transparent;
+  z-index: 100;
+}

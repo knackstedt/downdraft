@@ -10,6 +10,23 @@ function tryExecSync(cmd: string, opts?: { shell?: string; stdio?: any[] }): str
 
 const proc: any = (globalThis as any).process ?? { env: {} as Record<string, string>, platform: "", stdout: undefined, stderr: undefined };
 
+const BROKEN_PIPE_CODES = new Set(["EPIPE", "ECONNRESET", "EBADF", "EIO"]);
+
+function isBrokenPipeError(err: unknown): boolean {
+    if (!err || typeof err !== "object") return false;
+    if ("code" in err && BROKEN_PIPE_CODES.has((err as { code: string }).code)) return true;
+    if (err instanceof Error && err.message.includes("write EPIPE")) return true;
+    return false;
+}
+
+function swallowStreamError(err: unknown): void {
+    if (isBrokenPipeError(err)) return;
+    throw err;
+}
+
+if (proc?.stdout?.on) proc.stdout.on("error", swallowStreamError);
+if (proc?.stderr?.on) proc.stderr.on("error", swallowStreamError);
+
 export interface Logger {
     trace(module: string, msg: string): void;
     debug(module: string, msg: string): void;
@@ -471,7 +488,7 @@ export class ConsoleLogger implements Logger {
             try {
                 stream.write(line);
             } catch (e: any) {
-                if (e?.code === "EPIPE") return;
+                if (isBrokenPipeError(e)) return;
                 throw e;
             }
         } else {

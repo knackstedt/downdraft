@@ -23,7 +23,7 @@ type Quat = [number, number, number, number];
 const VERTEX_STRIDE = 6; // pos(3) + normal(3)
 
 /** Unit conversion factors: source unit → meters. */
-const UNIT_TO_METERS: Record<string, number> = {
+export const UNIT_TO_METERS: Record<string, number> = {
   meters: 1.0,
   centimeters: 0.01,
   inches: 0.0254,
