@@ -78,7 +78,7 @@ export const MATERIALS: Record<Material, MaterialDef> = {
   [Material.Iron]: {
     id: 9, name: "Iron", gravity: 1, gravityDir: 1,
     flammable: false, burnTime: 0, solid: true, liquid: false, gas: false,
-    magnetic: true, color: [0.65, 0.65, 0.70, 1.0],
+    magnetic: false, color: [0.65, 0.65, 0.70, 1.0],
   },
   [Material.Lava]: {
     id: 10, name: "Lava", gravity: 3, gravityDir: 1,

@@ -4,7 +4,7 @@ import {
     INPUT_BYTES,
     INPUT_OFFSET,
     STATS,
-    SimBufferWriter,
+    SimBufferWriter
 } from "../shared/sim-buffer";
 import { SandWorld } from "./sand-world";
 
@@ -84,6 +84,7 @@ async function loop(): Promise<void> {
         readInput();
         world.step();
         writer.writeGrid(world.grid);
+        writer.writeFieldGrid(world.fields);
         writer.writeStat(STATS.FRAME, world.frame);
         writer.writeStat(STATS.TICK, tickCount);
         tickCount++;
@@ -119,35 +120,34 @@ function readInput(): void {
   const mouseY = inputBuf[INPUT.MOUSE_Y / 4];
   const selectedMat = inputBuf[INPUT.SELECTED_MAT / 4];
   const brushRadius = inputBuf[INPUT.BRUSH_RADIUS / 4];
-  const magnetActive = inputBuf[INPUT.MAGNET / 4] !== 0;
+  const brushMode = inputBuf[INPUT.BRUSH_MODE / 4]; // 0=material, 1=field
+  const fieldType = inputBuf[INPUT.FIELD_TYPE / 4]; // 0=gravity, 1=temp, 2=windX, 3=windY
+  const fieldValue = inputBuf[INPUT.FIELD_VALUE / 4]; // raw byte value 0-255
   const impulseChance = inputBuf[INPUT.IMPULSE_CHANCE / 4] / 1000;
   const impulseStrength = inputBuf[INPUT.IMPULSE_STRENGTH / 4] / 1000;
 
-  // Apply settings to the world
+  // Apply impulse settings
   world.horizontalImpulseChance = impulseChance;
   world.horizontalImpulseStrength = impulseStrength;
 
   if (mouseDown) {
-    // On mousedown transition, snap prev to current so we don't draw
-    // a line from a stale position
     if (!wasMouseDown) {
       prevMouseX = mouseX;
       prevMouseY = mouseY;
     }
-    world.paintLine(prevMouseX, prevMouseY, mouseX, mouseY, selectedMat, brushRadius);
+    if (brushMode === 1) {
+      // Field painting mode
+      world.paintFieldLine(prevMouseX, prevMouseY, mouseX, mouseY, fieldType, fieldValue, brushRadius);
+    } else {
+      // Material painting mode
+      world.paintLine(prevMouseX, prevMouseY, mouseX, mouseY, selectedMat, brushRadius);
+    }
   }
   if (mouseRight) {
     world.igniteLine(prevMouseX, prevMouseY, mouseX, mouseY, 3);
   }
 
-  // Always update prev so the next tick's line starts from here
   prevMouseX = mouseX;
   prevMouseY = mouseY;
   wasMouseDown = mouseDown;
-
-  if (magnetActive) {
-    world.setMagnet(mouseX, mouseY, true);
-  } else {
-    world.setMagnet(0, 0, false);
-  }
 }

@@ -4,7 +4,6 @@
 export const MAX_GRID_W = 512;
 export const MAX_GRID_H = 512;
 export const CELL_BYTES = 4;
-export const MAX_MAGNETS = 8;
 
 // Target canvas buffer pixels per grid cell. Higher = larger grains.
 //   1080p (DPR 1): cellPx = 2 → cells are 2×2 buffer pixels

@@ -16,7 +16,6 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
     hasLastMouse: false,
     selectedMaterial: 1,
     brushRadius: 3,
-    magnet: false,
   };
 
   function onKey(e: KeyboardEvent, down: boolean) {
@@ -25,9 +24,6 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
     if (e.key === "w" || e.key === "W" || e.key === "ArrowUp") state.up = down;
     if (e.key === "s" || e.key === "S" || e.key === "ArrowDown") state.down = down;
     if (e.key === " " || e.key === "Spacebar") state.jump = down;
-    if (e.key === "e" || e.key === "E") {
-      if (down) state.magnet = !state.magnet;
-    }
   }
 
   window.addEventListener("keydown", (e) => onKey(e, true));

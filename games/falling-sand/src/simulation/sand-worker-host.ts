@@ -81,7 +81,7 @@ export class SandWorkerHost {
   writeLastMousePos(x: number, y: number): void { this.writer.writeInput(INPUT.LAST_MOUSE_X, x); this.writer.writeInput(INPUT.LAST_MOUSE_Y, y); }
   writeSelectedMaterial(mat: number): void { this.writer.writeInput(INPUT.SELECTED_MAT, mat); }
   writeBrushRadius(r: number): void { this.writer.writeInput(INPUT.BRUSH_RADIUS, r); }
-  writeMagnet(active: boolean): void { this.writer.writeInput(INPUT.MAGNET, active ? 1 : 0); }
+  writeMagnet(_active: boolean): void { /* deprecated */ }
 
   writeImpulseChance(chance: number): void {
     this.writer.writeInput(INPUT.IMPULSE_CHANCE, Math.round(chance * 1000));
@@ -89,5 +89,21 @@ export class SandWorkerHost {
 
   writeImpulseStrength(strength: number): void {
     this.writer.writeInput(INPUT.IMPULSE_STRENGTH, Math.round(strength * 1000));
+  }
+
+  writeBrushMode(mode: number): void {
+    this.writer.writeInput(INPUT.BRUSH_MODE, mode);
+  }
+
+  writeFieldType(type: number): void {
+    this.writer.writeInput(INPUT.FIELD_TYPE, type);
+  }
+
+  writeFieldValue(value: number): void {
+    this.writer.writeInput(INPUT.FIELD_VALUE, value);
+  }
+
+  writeShowFields(show: boolean): void {
+    this.writer.writeInput(INPUT.SHOW_FIELDS, show ? 1 : 0);
   }
 }
