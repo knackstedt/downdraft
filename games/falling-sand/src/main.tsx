@@ -25,6 +25,8 @@ async function bootstrap() {
     return;
   }
 
+  useGameStore.getState().setRenderer(renderer);
+
   setInterval(() => {
     useGameStore.getState().setFPS(renderer.getFPS());
   }, 500);

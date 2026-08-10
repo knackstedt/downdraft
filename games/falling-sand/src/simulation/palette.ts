@@ -56,3 +56,16 @@ export function buildPalette(): Uint8Array {
   }
   return colors;
 }
+
+/** Build material properties palette: 16×1 rgba8 = (albedo, reflectivity, brightness, 0). */
+export function buildMaterialProps(): Uint8Array {
+  const props = new Uint8Array(16 * 4);
+  for (let mat = 0; mat < 16; mat++) {
+    const def = MATERIALS[mat as Material];
+    props[mat * 4 + 0] = clamp8((def?.albedo ?? 0) * 255);
+    props[mat * 4 + 1] = clamp8((def?.reflectivity ?? 0) * 255);
+    props[mat * 4 + 2] = clamp8((def?.brightness ?? 1) * 255);
+    props[mat * 4 + 3] = 0;
+  }
+  return props;
+}

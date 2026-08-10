@@ -1,5 +1,5 @@
 import { computeGridDims } from "../shared/constants";
-import { SimBufferReader } from "../shared/sim-buffer";
+import { NUM_LAYERS, SimBufferReader } from "../shared/sim-buffer";
 import { SandWorkerHost } from "../simulation/sand-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler } from "./input-handler";
@@ -31,6 +31,37 @@ export class FallingSandRenderer {
 
   getFPS(): number { return this.fps; }
 
+  getCanvas(): HTMLCanvasElement { return this.canvas; }
+  getGridW(): number { return this.gridW; }
+  getGridH(): number { return this.gridH; }
+
+  /** Snapshot all layer grids + fields from the SAB for saving. */
+  snapshotGrids(): { grids: Uint32Array[]; fields: Uint8Array[]; gridW: number; gridH: number } {
+    if (!this.gridReader) return { grids: [], fields: [], gridW: 0, gridH: 0 };
+    const grids: Uint32Array[] = [];
+    const fields: Uint8Array[] = [];
+    for (let i = 0; i < NUM_LAYERS; i++) {
+      grids.push(new Uint32Array(this.gridReader.getGrid(i)));
+      fields.push(new Uint8Array(this.gridReader.getFieldGrid(i)));
+    }
+    return { grids, fields, gridW: this.gridW, gridH: this.gridH };
+  }
+
+  clearAll(): void {
+    this.workerHost?.clear();
+  }
+
+  async loadSave(grids: Uint32Array[], fields: Uint8Array[], gridW: number, gridH: number): Promise<void> {
+    if (!this.workerHost || !this.gridPass) return;
+    // If grid dimensions changed, resize the renderer too
+    if (gridW !== this.gridW || gridH !== this.gridH) {
+      this.gridW = gridW;
+      this.gridH = gridH;
+      this.gridPass.resize(gridW, gridH, this.canvas.width, this.canvas.height);
+    }
+    await this.workerHost.loadGrids(grids, fields, gridW, gridH);
+  }
+
   async init(): Promise<boolean> {
     if (!navigator.gpu) {
       console.error("WebGPU not supported");
@@ -50,8 +81,6 @@ export class FallingSandRenderer {
 
     this.input = createInputHandler(this.canvas);
 
-    // Compute initial grid dimensions from canvas buffer dimensions
-    // (must match the canvas's actual width/height for 1:1 cells)
     this.resizeCanvas();
     const dims = computeGridDims(this.canvas.width, this.canvas.height);
     this.gridW = dims.w;
@@ -60,16 +89,14 @@ export class FallingSandRenderer {
     this.resizeHandler = () => this.handleResize();
     window.addEventListener("resize", this.resizeHandler);
 
-    // Sync material selection and settings from the React store
     this.input.selectedMaterial = useGameStore.getState().selectedMaterial;
     this.storeUnsub = useGameStore.subscribe((s) => {
       if (this.input) this.input.selectedMaterial = s.selectedMaterial;
     });
 
-    this.gridPass = new SandGridPass(this.device, this.format, this.gridW, this.gridH);
-    this.gridPass.init();
+    this.gridPass = new SandGridPass(this.device, this.format, this.gridW, this.gridH, NUM_LAYERS);
+    this.gridPass.init(this.canvas.width, this.canvas.height);
 
-    // Start the sim worker with initial grid dimensions
     this.workerHost = new SandWorkerHost(this.gridW, this.gridH);
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
@@ -91,13 +118,16 @@ export class FallingSandRenderer {
     if (!this.device || !this.gridPass || !this.workerHost) return;
     this.resizeCanvas();
 
-    // Compute grid dims from the actual canvas buffer dimensions
     const dims = computeGridDims(this.canvas.width, this.canvas.height);
-    if (dims.w === this.gridW && dims.h === this.gridH) return;
+    if (dims.w === this.gridW && dims.h === this.gridH) {
+      // Canvas size changed but grid dims didn't — still need to recreate layer targets
+      this.gridPass.resize(this.gridW, this.gridH, this.canvas.width, this.canvas.height);
+      return;
+    }
 
     this.gridW = dims.w;
     this.gridH = dims.h;
-    this.gridPass.resize(this.gridW, this.gridH);
+    this.gridPass.resize(this.gridW, this.gridH, this.canvas.width, this.canvas.height);
     this.workerHost.resize(this.gridW, this.gridH);
   }
 
@@ -130,21 +160,48 @@ export class FallingSandRenderer {
 
     this.writeInputToWorker();
 
-    const grid = this.gridReader.getGrid();
+    // Update all layer grids
+    for (let i = 0; i < NUM_LAYERS; i++) {
+      this.gridPass.updateGrid(i, this.gridReader.getGrid(i));
+    }
+    this.gridPass.updateUniforms();
 
     const commandEncoder = this.device.createCommandEncoder();
+
+    // Phase 1: Render each layer (except the frontmost) to its offscreen target.
+    // These offscreen targets are sampled by the next layer for reflections.
+    for (let layer = 0; layer < NUM_LAYERS - 1; layer++) {
+      const offscreenView = this.gridPass.getOffscreenView(layer)!;
+      const offscreenPass = commandEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: offscreenView,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: "clear",
+          storeOp: "store",
+        }],
+      });
+      this.gridPass.render(offscreenPass, layer);
+      offscreenPass.end();
+    }
+
+    // Phase 2: Render all layers to the canvas (back to front).
+    // Layer 0 clears the canvas; subsequent layers load and alpha-blend on top.
+    // Each layer samples the previous layer's offscreen target for reflections.
     const cv = this.context.getCurrentTexture().createView();
-    const pass = commandEncoder.beginRenderPass({
-      colorAttachments: [{
-        view: cv,
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
-    });
-    this.gridPass.updateGrid(grid);
-    this.gridPass.render(pass);
-    pass.end();
+    for (let layer = 0; layer < NUM_LAYERS; layer++) {
+      const isFirst = layer === 0;
+      const canvasPass = commandEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: cv,
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: isFirst ? "clear" : "load",
+          storeOp: "store",
+        }],
+      });
+      this.gridPass.render(canvasPass, layer);
+      canvasPass.end();
+    }
+
     this.device.queue.submit([commandEncoder.finish()]);
 
     this.raf = requestAnimationFrame((t) => this.frame(t));
@@ -162,14 +219,13 @@ export class FallingSandRenderer {
     this.workerHost.writeSelectedMaterial(this.input.selectedMaterial);
     this.workerHost.writeBrushRadius(this.input.brushRadius);
 
-    // Write brush mode and field state from store
     const s = useGameStore.getState();
     this.workerHost.writeImpulseChance(s.settings.horizontalImpulseChance);
     this.workerHost.writeImpulseStrength(s.settings.horizontalImpulseStrength);
     this.workerHost.writeBrushMode(s.brushMode === "field" ? 1 : 0);
     this.workerHost.writeShowFields(s.showFieldOverlay);
+    this.workerHost.writeActiveLayer(s.activeLayer);
 
-    // Map field type to byte index and value
     const FIELD_GRAVITY = 0, FIELD_TEMP = 1, FIELD_WIND_X = 2, FIELD_WIND_Y = 3;
     if (s.brushMode === "field") {
       switch (s.fieldType) {

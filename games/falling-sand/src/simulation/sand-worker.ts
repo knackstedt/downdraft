@@ -3,6 +3,7 @@ import {
     INPUT,
     INPUT_BYTES,
     INPUT_OFFSET,
+    NUM_LAYERS,
     STATS,
     SimBufferWriter
 } from "../shared/sim-buffer";
@@ -12,7 +13,7 @@ import { SandWorld } from "./sand-world";
 
 const events = exposeEvents();
 
-let world: SandWorld | null = null;
+let worlds: SandWorld[] = [];
 let writer: SimBufferWriter | null = null;
 let sabRef: SharedArrayBuffer | null = null;
 let running = false;
@@ -23,9 +24,6 @@ let frameCount = 0;
 let fpsTimer = 0;
 let fps = 0;
 
-// Worker-side previous mouse tracking — more reliable than renderer-side
-// because the worker reads the SAB every tick and always knows the
-// previous position at tick granularity.
 let prevMouseX = 0;
 let prevMouseY = 0;
 let wasMouseDown = false;
@@ -39,7 +37,10 @@ expose({
     sabRef = sab;
     writer = new SimBufferWriter(sab, gridW, gridH);
     writer.init();
-    world = new SandWorld(gridW, gridH);
+    worlds = [];
+    for (let i = 0; i < NUM_LAYERS; i++) {
+      worlds.push(new SandWorld(gridW, gridH));
+    }
     running = true;
     paused = false;
     lastTick = performance.now();
@@ -53,15 +54,40 @@ expose({
   resize(gridW: number, gridH: number): void {
     if (!writer || !sabRef) return;
     writer.setDims(gridW, gridH);
-    world = new SandWorld(gridW, gridH);
-    prevMouseX = 0;
-    prevMouseY = 0;
-    wasMouseDown = false;
+    worlds = [];
+    for (let i = 0; i < NUM_LAYERS; i++) {
+      worlds.push(new SandWorld(gridW, gridH));
+    }
   },
 
   pause(): void { paused = true; },
   resume(): void { paused = false; lastTick = performance.now(); },
   shutdown(): void { running = false; },
+
+  clear(): void {
+    for (let i = 0; i < worlds.length; i++) {
+      worlds[i] = new SandWorld(worlds[i].W, worlds[i].H);
+    }
+  },
+
+  loadGrids(grids: Uint32Array[], fields: Uint8Array[], gridW: number, gridH: number): void {
+    if (!writer) return;
+    // Recreate worlds at the new dimensions
+    if (worlds.length === 0 || worlds[0].W !== gridW || worlds[0].H !== gridH) {
+      writer.setDims(gridW, gridH);
+      worlds = [];
+      for (let i = 0; i < NUM_LAYERS; i++) {
+        worlds.push(new SandWorld(gridW, gridH));
+      }
+    }
+    // Copy saved grid + field data into each world
+    for (let i = 0; i < worlds.length && i < grids.length; i++) {
+      worlds[i].grid.set(grids[i].subarray(0, gridW * gridH));
+      if (fields[i]) {
+        worlds[i].fields.set(fields[i].subarray(0, gridW * gridH * 4));
+      }
+    }
+  },
 
   getStats(): { fps: number; tick: number; frame: number } {
     return { fps, tick: tickCount, frame: frameCount };
@@ -69,7 +95,7 @@ expose({
 });
 
 async function loop(): Promise<void> {
-  if (!running || !world || !writer || !sabRef) return;
+  if (!running || worlds.length === 0 || !writer || !sabRef) return;
 
   const now = performance.now();
   const elapsed = now - lastTick;
@@ -82,10 +108,12 @@ async function loop(): Promise<void> {
       let steps = 0;
       while (tickAccumulator >= 1 && steps < MAX_STEPS_PER_FRAME) {
         readInput();
-        world.step();
-        writer.writeGrid(world.grid);
-        writer.writeFieldGrid(world.fields);
-        writer.writeStat(STATS.FRAME, world.frame);
+        for (let i = 0; i < worlds.length; i++) {
+          worlds[i].step();
+          writer.writeGrid(i, worlds[i].grid);
+          writer.writeFieldGrid(i, worlds[i].fields);
+        }
+        writer.writeStat(STATS.FRAME, worlds[0].frame);
         writer.writeStat(STATS.TICK, tickCount);
         tickCount++;
         tickAccumulator--;
@@ -110,7 +138,7 @@ async function loop(): Promise<void> {
 }
 
 function readInput(): void {
-  if (!world || !sabRef) return;
+  if (worlds.length === 0 || !sabRef) return;
 
   const inputBuf = new Int32Array(sabRef, INPUT_OFFSET, INPUT_BYTES / 4);
 
@@ -120,31 +148,36 @@ function readInput(): void {
   const mouseY = inputBuf[INPUT.MOUSE_Y / 4];
   const selectedMat = inputBuf[INPUT.SELECTED_MAT / 4];
   const brushRadius = inputBuf[INPUT.BRUSH_RADIUS / 4];
-  const brushMode = inputBuf[INPUT.BRUSH_MODE / 4]; // 0=material, 1=field
-  const fieldType = inputBuf[INPUT.FIELD_TYPE / 4]; // 0=gravity, 1=temp, 2=windX, 3=windY
-  const fieldValue = inputBuf[INPUT.FIELD_VALUE / 4]; // raw byte value 0-255
+  const brushMode = inputBuf[INPUT.BRUSH_MODE / 4];
+  const fieldType = inputBuf[INPUT.FIELD_TYPE / 4];
+  const fieldValue = inputBuf[INPUT.FIELD_VALUE / 4];
   const impulseChance = inputBuf[INPUT.IMPULSE_CHANCE / 4] / 1000;
   const impulseStrength = inputBuf[INPUT.IMPULSE_STRENGTH / 4] / 1000;
+  const activeLayer = Math.min(inputBuf[INPUT.ACTIVE_LAYER / 4], worlds.length - 1);
 
-  // Apply impulse settings
-  world.horizontalImpulseChance = impulseChance;
-  world.horizontalImpulseStrength = impulseStrength;
+  // Apply impulse settings to all worlds
+  for (const w of worlds) {
+    w.horizontalImpulseChance = impulseChance;
+    w.horizontalImpulseStrength = impulseStrength;
+  }
 
   if (mouseDown) {
     if (!wasMouseDown) {
       prevMouseX = mouseX;
       prevMouseY = mouseY;
     }
+    const world = worlds[activeLayer];
     if (brushMode === 1) {
-      // Field painting mode
       world.paintFieldLine(prevMouseX, prevMouseY, mouseX, mouseY, fieldType, fieldValue, brushRadius);
     } else {
-      // Material painting mode
       world.paintLine(prevMouseX, prevMouseY, mouseX, mouseY, selectedMat, brushRadius);
     }
   }
   if (mouseRight) {
-    world.igniteLine(prevMouseX, prevMouseY, mouseX, mouseY, 3);
+    // Ignite on all layers
+    for (const w of worlds) {
+      w.igniteLine(prevMouseX, prevMouseY, mouseX, mouseY, 3);
+    }
   }
 
   prevMouseX = mouseX;
