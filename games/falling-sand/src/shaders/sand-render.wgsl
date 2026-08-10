@@ -11,13 +11,15 @@ struct Uniforms {
 
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  // Grid fills the entire canvas — UVs map 1:1, no letterboxing.
   let coords = vec2<i32>(i32(uv.x * u.gridW), i32(uv.y * u.gridH));
   let packed = textureLoad(gridTex, coords, 0).r;
   let matId = packed & 0xffu;
   let lifetime = f32((packed >> 8u) & 0xffu) / 255.0;
+  let shade = (packed >> 16u) & 0x03u;  // 2 bits = 4 shade variants
 
-  let color = textureLoad(paletteTex, vec2<i32>(i32(matId), 0), 0);
+  // Palette is 16 materials × 4 shades, laid out as 64×1
+  let palIdx = i32(matId) * 4 + i32(shade);
+  let color = textureLoad(paletteTex, vec2<i32>(palIdx, 0), 0);
 
   var alpha = color.a;
   if (matId == 5u || matId == 6u || matId == 11u) {

@@ -82,4 +82,12 @@ export class SandWorkerHost {
   writeSelectedMaterial(mat: number): void { this.writer.writeInput(INPUT.SELECTED_MAT, mat); }
   writeBrushRadius(r: number): void { this.writer.writeInput(INPUT.BRUSH_RADIUS, r); }
   writeMagnet(active: boolean): void { this.writer.writeInput(INPUT.MAGNET, active ? 1 : 0); }
+
+  writeImpulseChance(chance: number): void {
+    this.writer.writeInput(INPUT.IMPULSE_CHANCE, Math.round(chance * 1000));
+  }
+
+  writeImpulseStrength(strength: number): void {
+    this.writer.writeInput(INPUT.IMPULSE_STRENGTH, Math.round(strength * 1000));
+  }
 }

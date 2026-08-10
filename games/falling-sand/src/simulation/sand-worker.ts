@@ -120,6 +120,12 @@ function readInput(): void {
   const selectedMat = inputBuf[INPUT.SELECTED_MAT / 4];
   const brushRadius = inputBuf[INPUT.BRUSH_RADIUS / 4];
   const magnetActive = inputBuf[INPUT.MAGNET / 4] !== 0;
+  const impulseChance = inputBuf[INPUT.IMPULSE_CHANCE / 4] / 1000;
+  const impulseStrength = inputBuf[INPUT.IMPULSE_STRENGTH / 4] / 1000;
+
+  // Apply settings to the world
+  world.horizontalImpulseChance = impulseChance;
+  world.horizontalImpulseStrength = impulseStrength;
 
   if (mouseDown) {
     // On mousedown transition, snap prev to current so we don't draw
