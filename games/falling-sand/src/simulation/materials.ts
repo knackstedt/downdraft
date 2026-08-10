@@ -97,7 +97,7 @@ export const MATERIALS: Record<Material, MaterialDef> = {
   },
   [Material.Flesh]: {
     id: 13, name: "Flesh", gravity: 1, gravityDir: 1,
-    flammable: false, burnTime: 0, solid: true, liquid: false, gas: false,
+    flammable: true, burnTime: 180, solid: true, liquid: false, gas: false,
     magnetic: false, color: [0.85, 0.55, 0.55, 1.0],
   },
 };

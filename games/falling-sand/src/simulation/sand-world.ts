@@ -19,7 +19,12 @@ function unpack(v: number): Cell {
   };
 }
 
-const FLAG_UPDATED = 0x01;
+const FLAG_UPDATED = 0x04; // bit 2 — cell was updated this frame
+const SHADE_MASK = 0x03;   // bits 0-1 — shade index (0-3)
+
+function randomShade(): number {
+  return Math.floor(Math.random() * 4);
+}
 
 function initialLifetime(mat: number): number {
   const def = MATERIALS[mat as Material];
@@ -37,6 +42,8 @@ export class SandWorld {
   frame = 0;
   magnets: { x: number; y: number }[] = [];
   wind = { x: 0, y: 0 };
+  horizontalImpulseChance = 0.02;
+  horizontalImpulseStrength = 1;
 
   constructor(w: number, h: number) {
     this.W = w;
@@ -66,7 +73,7 @@ export class SandWorld {
         if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > radius * radius) continue;
         const c = this.getCell(x, y);
         if (c.mat === Material.Stone) continue;
-        this.setCell(x, y, { mat, lifetime: initialLifetime(mat), flags: 0 });
+        this.setCell(x, y, { mat, lifetime: initialLifetime(mat), flags: randomShade() });
       }
     }
   }
@@ -110,7 +117,7 @@ export class SandWorld {
         const c = this.getCell(x, y);
         const def = MATERIALS[c.mat as Material];
         if (def?.flammable) {
-          this.setCell(x, y, { mat: Material.Fire, lifetime: def.burnTime, flags: 0 });
+          this.setCell(x, y, { mat: Material.Fire, lifetime: def.burnTime, flags: randomShade() });
         }
       }
     }
@@ -132,9 +139,9 @@ export class SandWorld {
     this.frame++;
     const W = this.W, H = this.H;
 
-    // Clear update flags
+    // Clear update flags but preserve shade bits (0-1)
     for (let i = 0; i < W * H; i++) {
-      this.grid[i] &= ~(0xff << 16);
+      this.grid[i] &= ~((0xff & ~SHADE_MASK) << 16);
     }
 
     this.applyReactions();
@@ -184,6 +191,44 @@ export class SandWorld {
       if (magDx !== 0 && this.trySwap(x, y, x + magDx, y + magDy)) return;
     }
 
+    // --- Edge friction ---
+    // Particles on the outside of a mass (missing horizontal neighbors) have
+    // a chance to "stick" and not fall this tick. Interior particles (both
+    // sides occupied) always fall. This creates fluid pouring behavior where
+    // the core flows through while edges lag behind.
+    const hasLeft = x > 0 && this.grid[y * W + (x - 1)] !== 0;
+    const hasRight = x < W - 1 && this.grid[y * W + (x + 1)] !== 0;
+    const isExterior = !hasLeft || !hasRight;
+
+    // Exterior particles have a chance to skip falling (friction).
+    // Denser materials (higher gravity) have less friction — they push through.
+    if (isExterior && !isGas) {
+      const frictionChance = 0.3 / Math.max(1, def.gravity);
+      if (Math.random() < frictionChance) return;
+    }
+
+    // --- Gas flicker: random chance to not move at all ---
+    // Prevents gasses from rising in uniform horizontal lines. Each particle
+    // has a chance to "flicker" in place, creating organic, non-uniform spread.
+    if (isGas) {
+      const flickerChance = mat === Material.Fire ? 0.35 : 0.25;
+      if (Math.random() < flickerChance) return;
+    }
+
+    // --- Density-scaled horizontal impulse ---
+    // Lighter materials (low gravity) get more impulse; denser materials get less.
+    // Sand (gravity 1) → full impulse, Water (gravity 2) → half, Lava (gravity 3) → third
+    // Gasses (fire/smoke/steam) also get impulse so they drift sideways while rising.
+    if (this.horizontalImpulseChance > 0) {
+      const scaledChance = this.horizontalImpulseChance / Math.max(1, def.gravity);
+      if (Math.random() < scaledChance) {
+        const nudgeDir = Math.random() < 0.5 ? -1 : 1;
+        const nudge = nudgeDir * Math.max(1, Math.round(this.horizontalImpulseStrength));
+        if (this.trySwap(x, y, x + nudge, y + dy)) return;
+      }
+    }
+
+    // 1. Try gravity direction
     if (this.trySwap(x, y, x, y + dy)) return;
 
     const dir = Math.random() < 0.5 ? -1 : 1;
@@ -196,21 +241,25 @@ export class SandWorld {
       if (this.tryFlow(x, y, -flowDir, 5)) return;
     }
 
+    // Gas: wider horizontal drift (up to 3 cells) for organic spread
     if (isGas) {
-      if (this.trySwap(x, y, x + dir, y)) return;
-      if (this.trySwap(x, y, x - dir, y)) return;
+      const driftDir = Math.random() < 0.5 ? -1 : 1;
+      if (this.tryFlow(x, y, driftDir, 3)) return;
+      if (this.tryFlow(x, y, -driftDir, 3)) return;
     }
 
+    // 5. Liquids: sink through gas below (heavy liquid displaces light gas upward)
     if (isLiquid && dy > 0) {
-      const above = y - 1;
-      if (above >= 0) {
-        const abovePacked = this.grid[above * W + x];
-        if (abovePacked !== 0) {
-          const aboveCell = unpack(abovePacked);
-          const aboveDef = MATERIALS[aboveCell.mat as Material];
-          if (aboveDef?.gas && !(aboveCell.flags & FLAG_UPDATED)) {
-            this.grid[above * W + x] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
-            this.grid[idx] = pack({ ...aboveCell, flags: aboveCell.flags | FLAG_UPDATED });
+      const below = y + 1;
+      if (below < H) {
+        const belowPacked = this.grid[below * W + x];
+        if (belowPacked !== 0) {
+          const belowCell = unpack(belowPacked);
+          const belowDef = MATERIALS[belowCell.mat as Material];
+          if (belowDef?.gas && !(belowCell.flags & FLAG_UPDATED)) {
+            // Liquid sinks down, gas rises up
+            this.grid[below * W + x] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
+            this.grid[idx] = pack({ ...belowCell, flags: belowCell.flags | FLAG_UPDATED });
             return;
           }
         }
@@ -283,12 +332,12 @@ export class SandWorld {
         if (cell.mat === Material.Water) {
           const lavaN = this.findNeighbor(x, y, Material.Lava);
           if (lavaN) {
-            this.grid[idx] = pack({ mat: Material.Steam, lifetime: 120, flags: 0 });
-            this.grid[lavaN.y * W + lavaN.x] = pack({ mat: Material.Stone, lifetime: 0, flags: 0 });
+            this.grid[idx] = pack({ mat: Material.Steam, lifetime: 120, flags: randomShade() });
+            this.grid[lavaN.y * W + lavaN.x] = pack({ mat: Material.Stone, lifetime: 0, flags: randomShade() });
             continue;
           }
           if (this.findNeighbor(x, y, Material.Plant) && Math.random() < 0.02) {
-            this.grid[idx] = pack({ mat: Material.Plant, lifetime: 0, flags: 0 });
+            this.grid[idx] = pack({ mat: Material.Plant, lifetime: 0, flags: randomShade() });
             continue;
           }
         }
@@ -325,12 +374,12 @@ export class SandWorld {
             const def = MATERIALS[n.mat as Material];
             if (!def?.flammable) continue;
             if (n.mat === Material.Gunpowder) {
-              this.setCell(nx, ny, { mat: Material.Fire, lifetime: 15, flags: 0 });
+              this.setCell(nx, ny, { mat: Material.Fire, lifetime: 15, flags: randomShade() });
               continue;
             }
             const chance = c.mat === Material.Lava ? 0.1 : 0.08;
             if (Math.random() < chance) {
-              this.setCell(nx, ny, { mat: Material.Fire, lifetime: def.burnTime, flags: 0 });
+              this.setCell(nx, ny, { mat: Material.Fire, lifetime: def.burnTime, flags: randomShade() });
             }
           }
         }
@@ -345,23 +394,35 @@ export class SandWorld {
       if (packed === 0) continue;
       const c = unpack(packed);
       if (c.lifetime > 0) {
-        c.lifetime--;
+        // Randomized decay: fire/smoke/steam sometimes skip a tick so
+        // individual particles last variable amounts of time.
+        if (c.mat === Material.Fire) {
+          if (Math.random() < 0.7) c.lifetime--;
+        } else if (c.mat === Material.Smoke) {
+          if (Math.random() < 0.8) c.lifetime--;
+        } else if (c.mat === Material.Steam) {
+          if (Math.random() < 0.75) c.lifetime--;
+        } else {
+          c.lifetime--;
+        }
         if (c.lifetime === 0) {
           if (c.mat === Material.Fire) {
             c.mat = Material.Smoke;
             c.lifetime = 120;
           } else if (c.mat === Material.Smoke) {
-            c.mat = Material.Empty;
-            c.lifetime = 0;
+            // Expired smoke → truly empty (clear all flags so packed value is 0)
+            this.grid[i] = 0;
+            continue;
           } else if (c.mat === Material.Steam) {
             if (Math.random() < 0.7) {
               c.mat = Material.Water;
               c.lifetime = 0;
             } else {
-              c.mat = Material.Empty;
-              c.lifetime = 0;
+              // Expired steam → truly empty
+              this.grid[i] = 0;
+              continue;
             }
-          } else if (c.mat === Material.Wood || c.mat === Material.Plant || c.mat === Material.Oil) {
+          } else if (c.mat === Material.Wood || c.mat === Material.Plant || c.mat === Material.Oil || c.mat === Material.Flesh) {
             c.mat = Material.Smoke;
             c.lifetime = 60;
           }

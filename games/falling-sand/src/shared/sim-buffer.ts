@@ -35,6 +35,9 @@ export const INPUT = {
   BRUSH_RADIUS: 44,
   LAST_MOUSE_X: 48,
   LAST_MOUSE_Y: 52,
+  // Settings (floats stored as i32 × 1000 for SAB simplicity)
+  IMPULSE_CHANCE: 56,   // i32: chance × 1000 (e.g. 20 = 0.02)
+  IMPULSE_STRENGTH: 60, // i32: strength × 1000 (e.g. 1000 = 1.0)
 } as const;
 
 export const STATS = {

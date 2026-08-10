@@ -50,16 +50,17 @@ export class FallingSandRenderer {
 
     this.input = createInputHandler(this.canvas);
 
-    // Compute initial grid dimensions from viewport
-    const dims = computeGridDims(window.innerWidth, window.innerHeight);
+    // Compute initial grid dimensions from canvas buffer dimensions
+    // (must match the canvas's actual width/height for 1:1 cells)
+    this.resizeCanvas();
+    const dims = computeGridDims(this.canvas.width, this.canvas.height);
     this.gridW = dims.w;
     this.gridH = dims.h;
 
-    this.resizeCanvas();
     this.resizeHandler = () => this.handleResize();
     window.addEventListener("resize", this.resizeHandler);
 
-    // Sync material selection from the React store
+    // Sync material selection and settings from the React store
     this.input.selectedMaterial = useGameStore.getState().selectedMaterial;
     this.storeUnsub = useGameStore.subscribe((s) => {
       if (this.input) this.input.selectedMaterial = s.selectedMaterial;
@@ -90,7 +91,8 @@ export class FallingSandRenderer {
     if (!this.device || !this.gridPass || !this.workerHost) return;
     this.resizeCanvas();
 
-    const dims = computeGridDims(window.innerWidth, window.innerHeight);
+    // Compute grid dims from the actual canvas buffer dimensions
+    const dims = computeGridDims(this.canvas.width, this.canvas.height);
     if (dims.w === this.gridW && dims.h === this.gridH) return;
 
     this.gridW = dims.w;
@@ -160,5 +162,10 @@ export class FallingSandRenderer {
     this.workerHost.writeSelectedMaterial(this.input.selectedMaterial);
     this.workerHost.writeBrushRadius(this.input.brushRadius);
     this.workerHost.writeMagnet(this.input.magnet);
+
+    // Write settings
+    const settings = useGameStore.getState().settings;
+    this.workerHost.writeImpulseChance(settings.horizontalImpulseChance);
+    this.workerHost.writeImpulseStrength(settings.horizontalImpulseStrength);
   }
 }
