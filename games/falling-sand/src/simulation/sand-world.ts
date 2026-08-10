@@ -20,6 +20,7 @@ function unpack(v: number): Cell {
 }
 
 const FLAG_UPDATED = 0x04; // bit 2 — cell was updated this frame
+const FLAG_SPARK = 0x08;   // bit 3 — this fire is a spark (expires to empty, not smoke)
 const SHADE_MASK = 0x03;   // bits 0-1 — shade index (0-3)
 
 function randomShade(): number {
@@ -30,6 +31,7 @@ function initialLifetime(mat: number): number {
   const def = MATERIALS[mat];
   if (!def) return 0;
   if (mat === Material.Fire) return def.burnTime;
+  if (mat === Material.FuseFire) return def.burnTime;
   if (mat === Material.Smoke) return 120;
   if (mat === Material.Steam) return 120;
   if (mat === Material.GasVapor) return 200;
@@ -37,6 +39,7 @@ function initialLifetime(mat: number): number {
   if (mat === Material.Fireflies) return 255;
   if (mat === Material.Nanobots) return 255;
   if (mat === Material.Hydrogen) return 200;
+  if (mat === Material.MagicPowder) return 60; // decays like fire
   if (def.burnTime > 0 && def.flammable) return 0; // burnTime used when ignited, not on placement
   return 0;
 }
@@ -181,7 +184,12 @@ export class SandWorld {
         const c = this.getCell(x, y);
         const def = MATERIALS[c.mat as Material];
         if (def?.flammable) {
-          this.setCell(x, y, { mat: Material.Fire, lifetime: def.burnTime, flags: randomShade() });
+          // Fuse gets FuseFire (yellow, stays put, deterministic spread)
+          if (c.mat === Material.Fuse) {
+            this.setCell(x, y, { mat: Material.FuseFire, lifetime: 15, flags: randomShade() });
+          } else {
+            this.setCell(x, y, { mat: Material.Fire, lifetime: 30, flags: randomShade() });
+          }
         }
       }
     }
@@ -195,9 +203,9 @@ export class SandWorld {
     this.frame++;
     const W = this.W, H = this.H;
 
-    // Clear update flags but preserve shade bits (0-1)
+    // Clear FLAG_UPDATED but preserve shade bits (0-1) and FLAG_SPARK (bit 3)
     for (let i = 0; i < W * H; i++) {
-      this.grid[i] &= ~((0xff & ~SHADE_MASK) << 16);
+      this.grid[i] &= ~((0xff & ~(SHADE_MASK | FLAG_SPARK)) << 16);
     }
 
     this.applyReactions();
@@ -232,6 +240,10 @@ export class SandWorld {
     const mat = cell.mat;
 
     if (def.gravityDir === 0) return;
+
+    // FuseFire stays put so it can deterministically spread to adjacent fuse
+    // cells. Without this, the fire gas floats away before it can propagate.
+    if (mat === Material.FuseFire) return;
 
     // Read per-cell physics fields
     const gravity = this.getGravity(x, y);
@@ -282,7 +294,7 @@ export class SandWorld {
     // Prevents gasses from rising in uniform horizontal lines. Each particle
     // has a chance to "flicker" in place, creating organic, non-uniform spread.
     if (isGas) {
-      const flickerChance = mat === Material.Fire ? 0.35 : 0.25;
+      const flickerChance = (mat === Material.Fire || mat === Material.FuseFire) ? 0.35 : 0.25;
       if (Math.random() < flickerChance) return;
     }
 
@@ -374,13 +386,34 @@ export class SandWorld {
     const W = this.W, H = this.H;
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
     const destIdx = ny * W + nx;
-    if (this.grid[destIdx] !== 0) return false;
-
     const srcIdx = y * W + x;
-    const packed = this.grid[srcIdx];
-    this.grid[destIdx] = pack({ ...unpack(packed), flags: unpack(packed).flags | FLAG_UPDATED });
-    this.grid[srcIdx] = 0;
-    return true;
+    const srcPacked = this.grid[srcIdx];
+    const srcCell = unpack(srcPacked);
+    const srcDef = MATERIALS[srcCell.mat as Material];
+
+    const destPacked = this.grid[destIdx];
+    if (destPacked === 0) {
+      // Empty: simple move
+      this.grid[destIdx] = pack({ ...srcCell, flags: srcCell.flags | FLAG_UPDATED });
+      this.grid[srcIdx] = 0;
+      return true;
+    }
+
+    // Gas-to-gas displacement: a lighter gas (higher gravity for upward, i.e.
+    // rises faster) can push through a slower gas. This lets fire (gravity 4)
+    // rise through smoke (gravity 2) so they separate instead of mixing.
+    if (srcDef?.gas) {
+      const destCell = unpack(destPacked);
+      const destDef = MATERIALS[destCell.mat as Material];
+      if (destDef?.gas && srcDef.gravity > destDef.gravity) {
+        // Swap: source moves to dest, dest moves to source
+        this.grid[destIdx] = pack({ ...srcCell, flags: srcCell.flags | FLAG_UPDATED });
+        this.grid[srcIdx] = pack({ ...destCell, flags: destCell.flags | FLAG_UPDATED });
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -474,8 +507,8 @@ export class SandWorld {
           }
         }
 
-        // Low temperature: fire dies faster
-        if (cell.mat === Material.Fire && temp < 0.5) {
+        // Low temperature: fire/fusefire dies faster
+        if ((cell.mat === Material.Fire || cell.mat === Material.FuseFire) && temp < 0.5) {
           if (Math.random() < (0.5 - temp) * 0.1) {
             this.grid[idx] = pack({ mat: Material.Smoke, lifetime: 60, flags: randomShade() });
             continue;
@@ -639,6 +672,19 @@ export class SandWorld {
             }
             continue;
           }
+          // Ignite flammable neighbors on contact (molten salt is very hot)
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+              const n = unpack(this.grid[ny * W + nx]);
+              const ndef = MATERIALS[n.mat as Material];
+              if (ndef?.flammable && Math.random() < 0.15) {
+                this.grid[ny * W + nx] = pack({ mat: Material.Fire, lifetime: 30, flags: randomShade() });
+              }
+            }
+          }
           continue;
         }
 
@@ -674,7 +720,7 @@ export class SandWorld {
               const nx = x + dx, ny = y + dy;
               if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
               const n = unpack(this.grid[ny * W + nx]);
-              if (n.mat === Material.Fire || n.mat === Material.Lava || n.mat === Material.Plasma) {
+              if (n.mat === Material.Fire || n.mat === Material.FuseFire || n.mat === Material.Lava || n.mat === Material.Plasma) {
                 this.grid[ny * W + nx] = n.mat === Material.Lava
                   ? pack({ mat: Material.Stone, lifetime: 0, flags: randomShade() })
                   : 0;
@@ -718,59 +764,77 @@ export class SandWorld {
           continue;
         }
 
-        // --- Nanobots: convert neighbors into nanobots ---
+        // --- Nanobots: randomly move around and slowly eat through materials ---
         if (mat === Material.Nanobots) {
+          // Pick a random direction to move/eat
           const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
           const [dx, dy] = dirs[Math.floor(Math.random() * 8)];
           const nx = x + dx, ny = y + dy;
           if (nx >= 0 && nx < W && ny >= 0 && ny < H) {
-            const n = unpack(this.grid[ny * W + nx]);
-            if (n.mat !== Material.Empty && n.mat !== Material.Nanobots &&
-                n.mat !== Material.Wall && n.mat !== Material.Antimatter) {
-              if (Math.random() < 0.02) {
-                this.grid[ny * W + nx] = pack({ mat: Material.Nanobots, lifetime: 255, flags: randomShade() });
+            const target = this.grid[ny * W + nx];
+            const n = unpack(target);
+            if (n.mat === Material.Empty) {
+              // Move into empty space
+              this.grid[ny * W + nx] = pack({ mat, lifetime: cell.lifetime, flags: cell.flags | FLAG_UPDATED });
+              this.grid[idx] = 0;
+            } else if (n.mat !== Material.Nanobots && n.mat !== Material.Wall &&
+                       n.mat !== Material.Antimatter) {
+              // Eat through the material — slowly destroy it (5% chance per frame)
+              if (Math.random() < 0.05) {
+                this.grid[ny * W + nx] = 0;
               }
             }
           }
           continue;
         }
 
-        // --- Magic Powder: rainbow effect, explodes on contact with flesh ---
+        // --- Magic Powder: random color flicker, explodes on flesh, decays like fire ---
         if (mat === Material.MagicPowder) {
+          // Random shade flicker each frame (independent per particle, no spatial pattern)
+          if (Math.random() < 0.5) {
+            const newShade = Math.floor(Math.random() * 4);
+            this.grid[idx] = pack({ mat, lifetime: cell.lifetime, flags: (cell.flags & ~SHADE_MASK) | newShade | FLAG_UPDATED });
+          }
+          // Explodes on contact with flesh
           const fleshN = this.findNeighbor(x, y, Material.Flesh);
           if (fleshN && Math.random() < 0.3) {
             this.explode(x, y, 4);
             continue;
           }
-          // Emit colorful fireflies occasionally
-          if (Math.random() < 0.01) {
-            const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
-            if (above === 0) {
-              this.grid[(y - 1) * W + x] = pack({ mat: Material.Fireflies, lifetime: 100, flags: randomShade() });
+          // Emit fireflies in a random direction (not always upward)
+          if (Math.random() < 0.02) {
+            const dx = Math.floor(Math.random() * 3) - 1;
+            const dy = Math.floor(Math.random() * 3) - 1;
+            const nx = x + dx, ny = y + dy;
+            if (nx >= 0 && nx < W && ny >= 0 && ny < H && this.grid[ny * W + nx] === 0) {
+              this.grid[ny * W + nx] = pack({ mat: Material.Fireflies, lifetime: 255, flags: randomShade() });
             }
           }
           continue;
         }
 
-        // --- Popcorn: pops near fire or high heat into low-density particles ---
+        // --- Popcorn: pops like fireworks near fire/lava/molten salt or high heat ---
         if (mat === Material.Popcorn) {
-          const fireN = this.findNeighbor(x, y, Material.Fire);
+          const fireN = this.findNeighbor(x, y, Material.Fire) || this.findNeighbor(x, y, Material.FuseFire);
+          const lavaN = this.findNeighbor(x, y, Material.Lava);
+          const moltenSaltN = this.findNeighbor(x, y, Material.MoltenSalt);
           const hot = temp > 1.3;
-          if ((fireN || hot) && Math.random() < 0.3) {
-            // Pop: create a few popcorn particles that fly upward
-            this.grid[idx] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
-            // Try to expand upward
-            const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
-            if (above === 0) {
-              this.grid[(y - 1) * W + x] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
-            }
-            // sideways
-            for (const dx of [-1, 1]) {
-              if (x + dx >= 0 && x + dx < W && this.grid[y * W + x + dx] === 0) {
-                if (Math.random() < 0.5) {
-                  this.grid[y * W + x + dx] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
+          if ((fireN || lavaN || moltenSaltN || hot) && Math.random() < 0.3) {
+            // Fireworks pop: radial impulse + scatter popcorn particles outward
+            this.applyImpulse(x, y, 4, 60);
+            // Scatter popcorn particles in random directions
+            const dirs = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
+            for (const [dx, dy] of dirs) {
+              if (Math.random() < 0.6) {
+                const nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < W && ny >= 0 && ny < H && this.grid[ny * W + nx] === 0) {
+                  this.grid[ny * W + nx] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
                 }
               }
+            }
+            // The original kernel becomes popcorn (already is) — sometimes launches up
+            if (Math.random() < 0.5 && y > 0 && this.grid[(y - 1) * W + x] === 0) {
+              this.grid[(y - 1) * W + x] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
             }
           }
           continue;
@@ -786,11 +850,23 @@ export class SandWorld {
           continue;
         }
 
-        // --- C4: detonated by adjacent fire (e.g. from a burning fuse),
-        // and chain-detonates all connected C4. ---
+        // --- C4: only detonates when a burning fuse is adjacent.
+        // C4 itself burns like wax (flammable, slow burn) but does NOT explode from fire alone.
+        // Chain-detonates all connected C4 via flood fill. ---
         if (mat === Material.C4) {
-          const fireN = this.findNeighbor(x, y, Material.Fire);
-          if (fireN && Math.random() < 0.3) {
+          // C4 only detonates when adjacent to FuseFire (fire from a burning fuse).
+          // Regular fire does NOT trigger C4 — only fuse fire does.
+          let fuseBurning = false;
+          for (let dy = -1; dy <= 1 && !fuseBurning; dy++) {
+            for (let dx = -1; dx <= 1 && !fuseBurning; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+              const n = unpack(this.grid[ny * W + nx]);
+              if (n.mat === Material.FuseFire) { fuseBurning = true; break; }
+            }
+          }
+          if (fuseBurning && Math.random() < 0.3) {
             this.detonateC4(x, y);
           }
           continue;
@@ -817,25 +893,25 @@ export class SandWorld {
         // --- Glitter: suspends in water, floats in air ---
         // (handled in tryMove via low gravity — no special reaction needed)
 
-        // --- Fireflies: organic flight + random flickering ---
+        // --- Fireflies: random flicker + organic flight, spread out (no buoyancy) ---
         if (mat === Material.Fireflies) {
-          // Flicker: randomly change shade each frame for independent blinking.
-          // Each firefly independently toggles bright/dim — no spatial pattern.
-          if (Math.random() < 0.4) {
+          // Flicker: each firefly independently picks a random shade each frame.
+          // Uses cell.lifetime as a per-particle phase seed so neighbors don't sync.
+          if (Math.random() < 0.5) {
             const newShade = Math.floor(Math.random() * 4);
             this.grid[idx] = pack({ mat, lifetime: cell.lifetime, flags: (cell.flags & ~SHADE_MASK) | newShade | FLAG_UPDATED });
           }
 
-          // Flight: biased random walk — mostly drift sideways with gentle
-          // vertical wander. Occasional darts (2-cell jumps) for organic motion.
-          if (Math.random() < 0.6) {
+          // Flight: pure random walk in all 8 directions + occasional darts.
+          // No gravity/buoyancy — they spread out evenly in all directions.
+          if (Math.random() < 0.7) {
             let dx: number, dy: number;
-            if (Math.random() < 0.15) {
-              // Dart: 2-cell jump in a random direction
-              dx = (Math.floor(Math.random() * 5) - 2);
-              dy = (Math.floor(Math.random() * 5) - 2);
+            if (Math.random() < 0.2) {
+              // Dart: 2-3 cell jump for organic burst movement
+              dx = Math.floor(Math.random() * 7) - 3;
+              dy = Math.floor(Math.random() * 7) - 3;
             } else {
-              // Normal drift: 1-cell step, biased horizontally
+              // Normal: 1-cell step in any of 8 directions (uniform)
               dx = Math.floor(Math.random() * 3) - 1;
               dy = Math.floor(Math.random() * 3) - 1;
             }
@@ -1048,10 +1124,19 @@ export class SandWorld {
 
   private applyCombustion(): void {
     const W = this.W, H = this.H;
+    // Snapshot which cells are fire/lava at the start of this pass.
+    // Only these cells can spread fire — newly ignited cells wait until next frame.
+    // This prevents instant cascade through fuse/gunpowder chains in a single pass.
+    const fireSources = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      const m = this.grid[i] & 0xff;
+      if (m === Material.Fire || m === Material.FuseFire || m === Material.Lava) fireSources[i] = 1;
+    }
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
+        const idx = y * W + x;
+        if (!fireSources[idx]) continue;
         const c = this.getCell(x, y);
-        if (c.mat !== Material.Fire && c.mat !== Material.Lava) continue;
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
             if (dx === 0 && dy === 0) continue;
@@ -1086,8 +1171,72 @@ export class SandWorld {
             // Per-cell temperature scales fire spread rate
             const chance = baseChance * this.getTemperature(nx, ny) * matMult;
             if (Math.random() < chance) {
-              this.setCell(nx, ny, { mat: Material.Fire, lifetime: def.burnTime, flags: randomShade() });
+              // Fuse gets FuseFire (yellow, stays put, deterministic spread)
+              if (n.mat === Material.Fuse) {
+                this.setCell(nx, ny, { mat: Material.FuseFire, lifetime: 15, flags: randomShade() });
+              } else {
+                this.setCell(nx, ny, { mat: Material.Fire, lifetime: 30, flags: randomShade() });
+              }
             }
+          }
+        }
+      }
+    }
+
+    // --- Deterministic fuse burn ---
+    // FuseFire deterministically ignites ALL adjacent fuse cells when its
+    // lifetime drops to the threshold. The fire has a short lifetime
+    // (FUSE_FIRE_LIFETIME) so the flame trail is brief. The burn speed is
+    // controlled by the lifetime: each cell burns for FUSE_FIRE_LIFETIME frames
+    // before passing the flame onward.
+    //
+    // FuseFire is a separate material (Material.FuseFire) so it's reliably
+    // identified even at the end of the trail where all adjacent fuse has been
+    // consumed. No flag bits needed.
+    //
+    // To prevent single-frame cascades, we use an ignitedFuse set.
+    const FUSE_FIRE_LIFETIME = 15;
+    const FUSE_SPREAD_THRESHOLD = 3;
+    const ignitedFuse = new Set<number>();
+    for (let i = 0; i < W * H; i++) {
+      const c = unpack(this.grid[i]);
+      if (c.mat !== Material.FuseFire) continue;
+      if (c.lifetime > FUSE_SPREAD_THRESHOLD || c.lifetime === 0) continue;
+      const x = i % W;
+      const y = Math.floor(i / W);
+
+      // Emit sparks: small fire particles that fly upward with random spread.
+      // Sparks use Material.Fire (red) so they're visually distinct from the
+      // yellow fuse fire and fly freely (FuseFire is anchored, Fire is not).
+      for (let s = 0; s < 3; s++) {
+        if (Math.random() < 0.5) {
+          const sx = x + Math.floor(Math.random() * 3) - 1;
+          const sy = y - 1 - Math.floor(Math.random() * 2); // 1-2 cells above
+          if (sx >= 0 && sx < W && sy >= 0 && sy < H && this.grid[sy * W + sx] === 0) {
+            // Sparks: very short lifetime, expire to empty (not smoke) so they
+            // don't accumulate and suffocate the burn when going upward.
+            this.grid[sy * W + sx] = pack({ mat: Material.Fire, lifetime: 6, flags: randomShade() | FLAG_SPARK });
+            // Give the spark upward wind + random horizontal drift
+            const fi = (sy * W + sx) * 4;
+            const driftX = Math.floor(Math.random() * 7) - 3; // -3 to 3
+            this.fields[fi + FIELD.WIND_X] = driftX & 0xff;
+            this.fields[fi + FIELD.WIND_Y] = (-30) & 0xff; // strong upward
+          }
+        }
+      }
+
+      // Spread to adjacent fuse cells
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          const ni = ny * W + nx;
+          if (ignitedFuse.has(ni)) continue;
+          const n = unpack(this.grid[ni]);
+          if (n.mat === Material.Fuse) {
+            this.setCell(nx, ny, { mat: Material.FuseFire, lifetime: FUSE_FIRE_LIFETIME, flags: randomShade() });
+            ignitedFuse.add(ni);
           }
         }
       }
@@ -1105,17 +1254,33 @@ export class SandWorld {
         // individual particles last variable amounts of time.
         if (c.mat === Material.Fire) {
           if (Math.random() < 0.7) c.lifetime--;
+        } else if (c.mat === Material.FuseFire) {
+          // FuseFire decays deterministically for consistent burn speed
+          c.lifetime--;
         } else if (c.mat === Material.Smoke) {
           if (Math.random() < 0.8) c.lifetime--;
         } else if (c.mat === Material.Steam) {
           if (Math.random() < 0.75) c.lifetime--;
+        } else if (c.mat === Material.MagicPowder) {
+          if (Math.random() < 0.7) c.lifetime--;
         } else {
           c.lifetime--;
         }
         if (c.lifetime === 0) {
           if (c.mat === Material.Fire) {
+            // Sparks expire to empty, not smoke. Sparks are marked with
+            // FLAG_SPARK (bit 3) to distinguish them from regular fire.
+            if (c.flags & FLAG_SPARK) {
+              this.grid[i] = 0;
+              continue;
+            }
             c.mat = Material.Smoke;
             c.lifetime = 120;
+          } else if (c.mat === Material.FuseFire) {
+            // FuseFire expires to empty (not smoke) — smoke would accumulate
+            // below the rising fire and suffocate the burn trail.
+            this.grid[i] = 0;
+            continue;
           } else if (c.mat === Material.Smoke) {
             this.grid[i] = 0;
             continue;
@@ -1147,7 +1312,8 @@ export class SandWorld {
                      c.mat === Material.Flesh || c.mat === Material.Leaf || c.mat === Material.TreeWood ||
                      c.mat === Material.Root || c.mat === Material.Grass || c.mat === Material.Toast ||
                      c.mat === Material.Plastic || c.mat === Material.Wax || c.mat === Material.Fuse ||
-                     c.mat === Material.Rubber) {
+                     c.mat === Material.Rubber || c.mat === Material.C4 || c.mat === Material.Glitter ||
+                     c.mat === Material.MagicPowder) {
             c.mat = Material.Smoke;
             c.lifetime = 60;
           }

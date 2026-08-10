@@ -4,7 +4,10 @@ import { createRoot } from "react-dom/client";
 import App from "./app";
 import { FallingSandRenderer } from "./renderer/falling-sand-renderer";
 import { useGameStore } from "./stores/game-store";
+import { autosave, loadAutosave } from "./stores/save-system";
 import "./styles/globals.css";
+
+const AUTOSAVE_INTERVAL_MS = 3000;
 
 async function bootstrap() {
   const root = createRoot(getOverlay(0));
@@ -27,11 +30,36 @@ async function bootstrap() {
 
   useGameStore.getState().setRenderer(renderer);
 
+  // --- Autoload: restore last session before starting the render loop ---
+  if (!deterministic) {
+    try {
+      const saved = await loadAutosave();
+      if (saved) {
+        await renderer.loadSave(saved.grids, saved.fields, saved.gridW, saved.gridH);
+        console.log("[autosave] Restored last session");
+      }
+    } catch (e) {
+      console.warn("[autosave] Failed to load:", e);
+    }
+  }
+
   setInterval(() => {
     useGameStore.getState().setFPS(renderer.getFPS());
   }, 500);
 
   renderer.start();
+
+  // --- Autosave: persist game state every 3s (skip in deterministic/e2e mode) ---
+  if (!deterministic) {
+    setInterval(async () => {
+      try {
+        const { grids, fields, gridW, gridH } = renderer.snapshotGrids();
+        await autosave(gridW, gridH, grids, fields);
+      } catch (e) {
+        console.warn("[autosave] Failed to save:", e);
+      }
+    }, AUTOSAVE_INTERVAL_MS);
+  }
 }
 
 bootstrap().catch((e) => {

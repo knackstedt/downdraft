@@ -72,6 +72,8 @@ export interface GameState {
   showSaves: boolean;
   /** Live cell inspector data under the cursor */
   inspector: CellInspector;
+  /** Brush radius in grid cells */
+  brushRadius: number;
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -91,6 +93,7 @@ export interface GameState {
   setSaves: (saves: SaveMetadata[]) => void;
   setShowSaves: (show: boolean) => void;
   setInspector: (inspector: CellInspector) => void;
+  setBrushRadius: (r: number) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -120,6 +123,7 @@ export const useGameStore = create<GameState>((set) => ({
     windX: 0, windY: 0, windMag: 0, windDir: 0,
     valid: false,
   },
+  brushRadius: 3,
 
   setFPS: (fps) => set((s) => {
     const history = [...s.fpsHistory, fps].slice(-30);
@@ -143,4 +147,5 @@ export const useGameStore = create<GameState>((set) => ({
   setSaves: (saves) => set({ saves }),
   setShowSaves: (showSaves) => set({ showSaves }),
   setInspector: (inspector) => set({ inspector }),
+  setBrushRadius: (brushRadius) => set({ brushRadius }),
 }));
