@@ -55,7 +55,8 @@ export class ModelRenderer {
 
   private static readonly MAX_MODELS = 256;
   private static readonly UNIFORM_SIZE = 256; // 64 floats, padded to 256
-  private static readonly MAX_BONES = 256; // matches joints Uint8 range
+  /** Initial bone buffer capacity. Grows dynamically when larger skeletons are loaded. */
+  private static readonly INITIAL_BONE_CAPACITY = 256;
 
   private modelResources: Map<string, ModelGPUResources[]> = new Map();
   private viewProjCache: Float32Array | null = null;
@@ -73,6 +74,8 @@ export class ModelRenderer {
   private skinBindGroup: GPUBindGroup | null = null;
   private skinnedPipeline: GPURenderPipeline | null = null;
   private skinBindGroupSetThisFrame = false;
+  /** Current bone capacity (number of mat4s the skin buffer can hold). Grows on demand. */
+  private boneCapacity = ModelRenderer.INITIAL_BONE_CAPACITY;
 
   // Bindless deps
   private bindless: ModelRendererBindlessDeps | null = null;
@@ -180,9 +183,10 @@ export class ModelRenderer {
     });
 
     // ── Skinning resources ──
-    // Shared storage buffer for bone matrices (MAX_BONES * 16 floats).
+    // Shared storage buffer for bone matrices. Starts at INITIAL_BONE_CAPACITY
+    // and grows on demand when larger skeletons are loaded.
     this.skinMatrixBuffer = this.device.createBuffer({
-      size: ModelRenderer.MAX_BONES * 64, // mat4x4 = 64 bytes
+      size: this.boneCapacity * 64, // mat4x4 = 64 bytes
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
@@ -357,9 +361,9 @@ export class ModelRenderer {
   }
 
   /**
-   * Build the per-mesh skin vertex buffer: joints as uint32x4 (4 bone indices
-   * packed from uint8) followed by weights as float32x4. 32 bytes/vertex.
-   * Returns undefined when the mesh has no skinning data.
+   * Build the per-mesh skin vertex buffer: joints as uint32x4 (4 bone indices,
+   * upcast from uint8/uint16/uint32 source) followed by weights as float32x4.
+   * 32 bytes/vertex. Returns undefined when the mesh has no skinning data.
    */
   private buildSkinVertexBuffer(mesh: MeshData): GPUBuffer | undefined {
     if (!mesh.joints || !mesh.weights || mesh.joints.length < mesh.vertexCount * 4) return undefined;
@@ -589,13 +593,34 @@ export class ModelRenderer {
   /**
    * Upload bone skin matrices for the current frame. The `matrices` buffer is
    * a flat Float32Array of boneCount * 16 floats (column-major mat4s). It is
-   * copied into the shared skin matrix storage buffer (up to MAX_BONES bones).
+   * copied into the shared skin matrix storage buffer. If the buffer is too
+   * small for the current skeleton, it is recreated (grown) automatically.
    * Call once per frame before render() for skinned models.
    */
   updateSkinMatrices(matrices: Float32Array): void {
     if (!this.skinMatrixBuffer) return;
-    // boneCount is always <= 255 < MAX_BONES, so the full array fits in the
-    // shared skin matrix buffer. Write the whole thing.
+
+    const requiredBones = matrices.length / 16;
+    if (requiredBones > this.boneCapacity) {
+      // Grow the skin matrix buffer to fit the larger skeleton.
+      // Round up to the next power of 2 to reduce reallocations.
+      const newCapacity = Math.max(requiredBones, this.boneCapacity * 2);
+      this.skinMatrixBuffer.destroy();
+      this.skinMatrixBuffer = this.device.createBuffer({
+        size: newCapacity * 64,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.boneCapacity = newCapacity;
+      // Recreate the bind group with the new buffer
+      if (this.skinBindGroupLayout) {
+        this.skinBindGroup = this.device.createBindGroup({
+          layout: this.skinBindGroupLayout,
+          entries: [{ binding: 0, resource: { buffer: this.skinMatrixBuffer } }],
+        });
+      }
+      this.skinBindGroupSetThisFrame = false; // force re-bind
+    }
+
     this.device.queue.writeBuffer(
       this.skinMatrixBuffer,
       0,

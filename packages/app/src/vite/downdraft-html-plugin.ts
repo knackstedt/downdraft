@@ -131,8 +131,8 @@ export function downdraftHtmlPlugin(opts: DowndraftHtmlOptions): Plugin {
       return null;
     },
     transformIndexHtml: {
-      enforce: "pre",
-      transform(_html: string, ctx: { path: string }) {
+      order: "pre",
+      handler(_html: string, ctx: { path: string }) {
         // Replace the index.html content with the framework-generated HTML.
         // This ensures the framework controls the canvas/DOM layer layout.
         void ctx;

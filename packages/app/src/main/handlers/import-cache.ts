@@ -1,7 +1,7 @@
 // ============================================================================
 // Import Cache IPC Handler — SQLite-backed cache for resolved ImportSettings
 // ============================================================================
-// Uses node:sqlite (experimental in Node 22, available in Electron 43).
+// Uses node:sqlite (stable in Node 24+ / Electron 43+, no flag required).
 // Opens downdraft-import-cache.db in the game's userData directory.
 //
 // If node:sqlite is unavailable (older Node/Electron), falls back to an
@@ -38,7 +38,7 @@ function openDatabase(): void {
   if (db || memoryFallback) return;
 
   try {
-    // node:sqlite is experimental — use dynamic require to avoid bundler issues
+    // Use dynamic require to avoid bundler issues with node:sqlite
     const { DatabaseSync } = require("node:sqlite");
     const dbPath = join(app.getPath("userData"), "downdraft-import-cache.db");
     const database: DatabaseSyncLike = new DatabaseSync(dbPath);

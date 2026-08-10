@@ -35,6 +35,7 @@ export interface BoneData {
   restTranslation: [number, number, number];
   restRotation: [number, number, number, number];
   restScale: [number, number, number];
+  rootAncestorMatrix?: Float32Array;
 }
 
 export interface SkinData {
@@ -55,6 +56,7 @@ export function skinDataToSkeletonData(skin: SkinData): SkeletonData {
     bindRotation: b.restRotation,
     bindScale: b.restScale,
     inverseBindMatrix: b.inverseBindMatrix,
+    rootAncestorMatrix: b.rootAncestorMatrix,
   }));
 
   for (let i = 0; i < bones.length; i++) {
@@ -308,7 +310,6 @@ export class SkeletonAnimator {
     for (let c = 0; c < anim.channels.length; c++) {
       const ch = anim.channels[c];
       let nodeName = ch.targetNode;
-      if (nodeName.endsWith("Model")) nodeName = nodeName.slice(0, -5);
 
       // For non-Mixamo, apply bone name mapping
       if (!this.isMixamoSkeleton) {
@@ -463,8 +464,7 @@ export class SkeletonAnimator {
 
     if (sourcePreRots) {
       for (const [boneName, quat] of sourcePreRots) {
-        let name = boneName;
-        if (name.endsWith("Model")) name = name.slice(0, -5);
+        const name = boneName;
         const targetName = this.isMixamoSkeleton
           ? name
           : (name.startsWith("mixamorig:") ? (map[name] ?? name) : name);
@@ -475,8 +475,7 @@ export class SkeletonAnimator {
     }
     if (sourceRests) {
       for (const [boneName, quat] of sourceRests) {
-        let name = boneName;
-        if (name.endsWith("Model")) name = name.slice(0, -5);
+        const name = boneName;
         const targetName = this.isMixamoSkeleton
           ? name
           : (name.startsWith("mixamorig:") ? (map[name] ?? name) : name);
@@ -500,8 +499,7 @@ export class SkeletonAnimator {
       duration = Math.max(duration, anim.duration);
       for (let c = 0; c < anim.channels.length; c++) {
         const ch = anim.channels[c];
-        let nodeName = ch.targetNode;
-        if (nodeName.endsWith("Model")) nodeName = nodeName.slice(0, -5);
+        const nodeName = ch.targetNode;
         const targetName = this.isMixamoSkeleton
           ? nodeName
           : (nodeName.startsWith("mixamorig:") ? (map[nodeName] ?? nodeName) : nodeName);
