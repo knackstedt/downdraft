@@ -10,6 +10,9 @@ export interface InputState {
   mouseRight: boolean;
   mouseX: number;
   mouseY: number;
+  lastMouseX: number;
+  lastMouseY: number;
+  hasLastMouse: boolean;
   selectedMaterial: number;
   brushRadius: number;
   magnet: boolean;

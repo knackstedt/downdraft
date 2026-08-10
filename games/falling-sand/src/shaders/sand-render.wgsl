@@ -7,10 +7,11 @@ struct Uniforms {
 
 @group(0) @binding(0) var gridTex: texture_2d<u32>;
 @group(0) @binding(1) var paletteTex: texture_2d<f32>;
-@group(0) @binding(2) var u: Uniforms;
+@group(0) @binding(2) var<uniform> u: Uniforms;
 
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  // Grid fills the entire canvas — UVs map 1:1, no letterboxing.
   let coords = vec2<i32>(i32(uv.x * u.gridW), i32(uv.y * u.gridH));
   let packed = textureLoad(gridTex, coords, 0).r;
   let matId = packed & 0xffu;
@@ -18,7 +19,6 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
   let color = textureLoad(paletteTex, vec2<i32>(i32(matId), 0), 0);
 
-  // Fire flicker / smoke fade
   var alpha = color.a;
   if (matId == 5u || matId == 6u || matId == 11u) {
     alpha = alpha * (0.4 + 0.6 * lifetime);

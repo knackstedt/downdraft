@@ -11,6 +11,9 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
     mouseRight: false,
     mouseX: 0,
     mouseY: 0,
+    lastMouseX: 0,
+    lastMouseY: 0,
+    hasLastMouse: false,
     selectedMaterial: 1,
     brushRadius: 3,
     magnet: false,
@@ -30,9 +33,20 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
   window.addEventListener("keydown", (e) => onKey(e, true));
   window.addEventListener("keyup", (e) => onKey(e, false));
 
+  function toCanvasCoords(e: MouseEvent): { x: number; y: number } {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
   canvas.addEventListener("mousedown", (e) => {
     if (e.button === 0) state.mouseDown = true;
     if (e.button === 2) state.mouseRight = true;
+    const { x, y } = toCanvasCoords(e);
+    state.mouseX = x;
+    state.mouseY = y;
     e.preventDefault();
   });
   canvas.addEventListener("mouseup", (e) => {
@@ -40,11 +54,11 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
     if (e.button === 2) state.mouseRight = false;
   });
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
   canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    state.mouseX = (e.clientX - rect.left) * dpr;
-    state.mouseY = (e.clientY - rect.top) * dpr;
+    const { x, y } = toCanvasCoords(e);
+    state.mouseX = x;
+    state.mouseY = y;
   });
 
   return state;

@@ -1,8 +1,6 @@
-import { GRID_H, GRID_W } from "../shared/constants";
-import { buildPalette } from "../simulation/palette";
-
 import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
 import SAND_FS from "../shaders/sand-render.wgsl?raw";
+import { buildPalette } from "../simulation/palette";
 
 export class SandGridPass {
   private device: GPUDevice;
@@ -15,10 +13,14 @@ export class SandGridPass {
   private gridView: GPUTextureView | null = null;
   private paletteTexture: GPUTexture | null = null;
   private paletteView: GPUTextureView | null = null;
+  gridW: number;
+  gridH: number;
 
-  constructor(device: GPUDevice, format: GPUTextureFormat) {
+  constructor(device: GPUDevice, format: GPUTextureFormat, gridW: number, gridH: number) {
     this.device = device;
     this.format = format;
+    this.gridW = gridW;
+    this.gridH = gridH;
   }
 
   init(): void {
@@ -27,12 +29,7 @@ export class SandGridPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.gridTexture = this.device.createTexture({
-      size: [GRID_W, GRID_H],
-      format: "r32uint",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    this.gridView = this.gridTexture.createView();
+    this.createGridTexture();
 
     const pal = buildPalette();
     this.paletteTexture = this.device.createTexture({
@@ -71,6 +68,21 @@ export class SandGridPass {
       primitive: { topology: "triangle-list" },
     });
 
+    this.createBindGroup();
+  }
+
+  private createGridTexture(): void {
+    this.gridTexture?.destroy();
+    this.gridTexture = this.device.createTexture({
+      size: [this.gridW, this.gridH],
+      format: "r32uint",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.gridView = this.gridTexture.createView();
+  }
+
+  private createBindGroup(): void {
+    if (!this.bindGroupLayout || !this.gridView || !this.paletteView || !this.uniformBuffer) return;
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
@@ -81,14 +93,21 @@ export class SandGridPass {
     });
   }
 
+  resize(gridW: number, gridH: number): void {
+    this.gridW = gridW;
+    this.gridH = gridH;
+    this.createGridTexture();
+    this.createBindGroup();
+  }
+
   updateGrid(grid: Uint32Array): void {
     this.device.queue.writeTexture(
       { texture: this.gridTexture! },
-      grid.buffer,
-      { bytesPerRow: GRID_W * 4, rowsPerImage: GRID_H },
-      [GRID_W, GRID_H],
+      grid.buffer as BufferSource,
+      { offset: grid.byteOffset, bytesPerRow: this.gridW * 4, rowsPerImage: this.gridH },
+      [this.gridW, this.gridH],
     );
-    const u = new Float32Array([GRID_W, GRID_H, performance.now() / 1000, 0]);
+    const u = new Float32Array([this.gridW, this.gridH, performance.now() / 1000, 1.0]);
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, u);
   }
 
