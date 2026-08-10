@@ -5,17 +5,20 @@ export const PALETTE_SIZE = MAX_MATERIAL;
 
 const DEFAULT_SHADES = [0.82, 0.91, 1.0, 1.08];
 const SUBTLE_SHADES = [0.93, 0.97, 1.0, 1.03];
+// Fireflies: dramatic brightness range for visible flickering (dark → bright)
+const FIREFLY_SHADES = [0.15, 0.5, 1.0, 1.6];
 
 const FIRE_SHADES: [number, number, number][] = [
-  [0.85, 0.35, 0.10],
-  [0.95, 0.50, 0.15],
-  [1.0, 1.0, 1.0],
-  [1.05, 1.15, 0.60],
+  [0.75, 0.15, 0.05],
+  [0.90, 0.30, 0.08],
+  [1.0, 0.55, 0.12],
+  [1.1, 0.85, 0.25],
 ];
 
 function shadeFactorsFor(mat: number): number[] {
   if (mat === Material.Water || mat === Material.Sand || mat === Material.Snow ||
       mat === Material.Salt || mat === Material.Flour) return SUBTLE_SHADES;
+  if (mat === Material.Fireflies) return FIREFLY_SHADES;
   return DEFAULT_SHADES;
 }
 

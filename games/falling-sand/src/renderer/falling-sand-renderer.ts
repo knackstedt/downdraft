@@ -1,5 +1,6 @@
 import { computeGridDims } from "../shared/constants";
-import { NUM_LAYERS, SimBufferReader } from "../shared/sim-buffer";
+import { FIELD, NUM_LAYERS, SimBufferReader } from "../shared/sim-buffer";
+import { MATERIALS } from "../simulation/materials";
 import { SandWorkerHost } from "../simulation/sand-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler } from "./input-handler";
@@ -24,6 +25,8 @@ export class FallingSandRenderer {
   private fpsTimer = 0;
   private resizeHandler: (() => void) | null = null;
   private storeUnsub: (() => void) | null = null;
+  private prevMouseMiddle = false;
+  private inspectorTimer = 0;
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
     this.canvas = canvas;
@@ -159,6 +162,8 @@ export class FallingSandRenderer {
     }
 
     this.writeInputToWorker();
+    this.handlePicker();
+    this.updateInspector(dt);
 
     // Update all layer grids
     for (let i = 0; i < NUM_LAYERS; i++) {
@@ -247,5 +252,76 @@ export class FallingSandRenderer {
           break;
       }
     }
+  }
+
+  /** Middle-click picker: read the material under the cursor and select it. */
+  private handlePicker(): void {
+    if (!this.input || !this.gridReader) return;
+    const middle = this.input.mouseMiddle;
+    // Detect rising edge (click moment)
+    if (middle && !this.prevMouseMiddle) {
+      const gx = Math.floor((this.input.mouseX / this.canvas.width) * this.gridW);
+      const gy = Math.floor((this.input.mouseY / this.canvas.height) * this.gridH);
+      if (gx >= 0 && gx < this.gridW && gy >= 0 && gy < this.gridH) {
+        const layer = useGameStore.getState().activeLayer;
+        const grid = this.gridReader.getGrid(layer);
+        const packed = grid[gy * this.gridW + gx];
+        const mat = packed & 0xff;
+        if (mat > 0) {
+          useGameStore.getState().setSelectedMaterial(mat);
+        }
+      }
+    }
+    this.prevMouseMiddle = middle;
+  }
+
+  /**
+   * Live cell inspector: reads cell + field data at the cursor position and
+   * updates the store. Throttled to ~15fps to avoid excessive React re-renders.
+   */
+  private updateInspector(dt: number): void {
+    if (!this.input || !this.gridReader) return;
+    this.inspectorTimer += dt;
+    if (this.inspectorTimer < 0.066) return; // ~15fps
+    this.inspectorTimer = 0;
+
+    const gx = Math.floor((this.input.mouseX / this.canvas.width) * this.gridW);
+    const gy = Math.floor((this.input.mouseY / this.canvas.height) * this.gridH);
+    const layer = useGameStore.getState().activeLayer;
+
+    if (gx < 0 || gx >= this.gridW || gy < 0 || gy >= this.gridH) {
+      const cur = useGameStore.getState().inspector;
+      if (cur.valid) {
+        useGameStore.getState().setInspector({ ...cur, valid: false, gx: -1, gy: -1 });
+      }
+      return;
+    }
+
+    const grid = this.gridReader.getGrid(layer);
+    const fields = this.gridReader.getFieldGrid(layer);
+    const packed = grid[gy * this.gridW + gx];
+    const mat = packed & 0xff;
+    const lifetime = (packed >> 8) & 0xff;
+    const flags = (packed >> 16) & 0xff;
+    const shade = flags & 0x03;
+
+    const fi = (gy * this.gridW + gx) * 4;
+    const gravity = fields[fi + FIELD.GRAVITY];
+    const temperature = fields[fi + FIELD.TEMP];
+    const windX = (fields[fi + FIELD.WIND_X] << 24) >> 24; // sign-extend i8
+    const windY = (fields[fi + FIELD.WIND_Y] << 24) >> 24;
+    const windMag = Math.sqrt(windX * windX + windY * windY);
+    const windDir = Math.atan2(windY, windX) * 180 / Math.PI;
+
+    const matName = MATERIALS[mat]?.name ?? "Unknown";
+
+    useGameStore.getState().setInspector({
+      gx, gy, layer,
+      mat, matName, lifetime, shade,
+      gravity, gravityMult: gravity / 128,
+      temperature, temperatureMult: temperature / 128,
+      windX, windY, windMag, windDir,
+      valid: true,
+    });
   }
 }

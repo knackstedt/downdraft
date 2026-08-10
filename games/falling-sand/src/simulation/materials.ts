@@ -98,7 +98,7 @@ export const MATERIALS: Record<number, MaterialDef> = {
   [Material.Water]: def(2, "Water", [0.12, 0.42, 0.85, 0.9], { gravity: 2, gravityDir: 1, liquid: true, albedo: 0.3, reflectivity: 0.8, brightness: 0.8 }),
   [Material.Stone]: def(3, "Stone", [0.45, 0.45, 0.48, 1.0], { solid: true, albedo: 0.5, reflectivity: 0.1 }),
   [Material.Wood]: def(4, "Wood", [0.55, 0.35, 0.18, 1.0], { solid: true, flammable: true, burnTime: 240, albedo: 0.5 }),
-  [Material.Fire]: def(5, "Fire", [0.95, 0.55, 0.10, 1.0], { gravity: 2, gravityDir: -1, gas: true, albedo: 0, reflectivity: 0, brightness: 2.0 }),
+  [Material.Fire]: def(5, "Fire", [0.98, 0.25, 0.05, 1.0], { gravity: 2, gravityDir: -1, gas: true, burnTime: 60, albedo: 0, reflectivity: 0, brightness: 2.0 }),
   [Material.Smoke]: def(6, "Smoke", [0.5, 0.5, 0.5, 0.7], { gravity: 3, gravityDir: -1, gas: true, albedo: 0.1, brightness: 0.5 }),
   [Material.Oil]: def(7, "Oil", [0.15, 0.12, 0.08, 0.95], { gravity: 1, gravityDir: 1, liquid: true, flammable: true, burnTime: 300, albedo: 0.2, reflectivity: 0.3, brightness: 0.7 }),
   [Material.Gunpowder]: def(8, "Gunpowder", [0.2, 0.2, 0.2, 1.0], { gravity: 1, gravityDir: 1, solid: true, flammable: true, burnTime: 10, albedo: 0.3 }),
@@ -141,7 +141,7 @@ export const MATERIALS: Record<number, MaterialDef> = {
   [Material.Mystery]: def(18, "???", [0.6, 0.0, 0.6, 1.0], { gravity: 1, gravityDir: 1, solid: true, albedo: 0.1, reflectivity: 0.3, brightness: 1.2 }),
   [Material.Plasma]: def(39, "Plasma", [0.2, 0.8, 1.0, 1.0], { gravity: 1, gravityDir: -1, gas: true, albedo: 0, reflectivity: 0, brightness: 3.0 }),
   [Material.Fuse]: def(32, "Fuse", [0.3, 0.2, 0.1, 1.0], { solid: true, flammable: true, burnTime: 600, albedo: 0.3 }),
-  [Material.C4]: def(33, "C4", [0.8, 0.6, 0.2, 1.0], { gravity: 1, gravityDir: 1, solid: true, albedo: 0.4 }),
+  [Material.C4]: def(33, "C4", [0.8, 0.6, 0.2, 1.0], { solid: true, albedo: 0.4 }),
   [Material.Dynamite]: def(34, "Dynamite", [0.7, 0.2, 0.15, 1.0], { gravity: 1, gravityDir: 1, solid: true, flammable: true, burnTime: 5, albedo: 0.4 }),
   [Material.Wax]: def(35, "Wax", [0.9, 0.88, 0.7, 1.0], { solid: true, flammable: true, burnTime: 400, albedo: 0.5, reflectivity: 0.1 }),
 
@@ -154,7 +154,7 @@ export const MATERIALS: Record<number, MaterialDef> = {
   [Material.Nanobots]: def(40, "Nanobots", [0.6, 0.6, 0.65, 0.9], { gravity: 0.5, gravityDir: -1, gas: true, albedo: 0.3, reflectivity: 0.5, brightness: 1.2 }),
   [Material.MagicPowder]: def(41, "Magic Powder", [0.8, 0.3, 0.9, 1.0], { gravity: 1, gravityDir: 1, solid: true, albedo: 0.2, reflectivity: 0.3, brightness: 1.3 }),
   [Material.Popcorn]: def(43, "Popcorn", [0.95, 0.9, 0.7, 1.0], { gravity: 0.3, gravityDir: 1, solid: true, albedo: 0.5 }),
-  [Material.Rubber]: def(44, "Rubber", [0.15, 0.15, 0.15, 1.0], { solid: true, albedo: 0.3, reflectivity: 0.15 }),
+  [Material.Rubber]: def(44, "Rubber", [0.15, 0.15, 0.15, 1.0], { solid: true, flammable: true, burnTime: 300, albedo: 0.3, reflectivity: 0.15 }),
 };
 
 export function getMaterialColor(mat: Material): [number, number, number, number] {

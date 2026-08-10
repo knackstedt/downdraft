@@ -214,6 +214,7 @@ export class SandWorld {
 
     this.applyCombustion();
     this.applyAging();
+    this.decayWind();
   }
 
   private tryMove(x: number, y: number): void {
@@ -249,9 +250,17 @@ export class SandWorld {
     if (windX !== 0 || windY !== 0) {
       const wdx = windX > 0 ? 1 : windX < 0 ? -1 : 0;
       const wdy = windY > 0 ? 1 : windY < 0 ? -1 : 0;
-      const windChance = Math.min(1, (Math.abs(windX) + Math.abs(windY)) / 20) * 0.15;
+      // Scale chance with wind magnitude: 30 = 100% move chance.
+      // Strong impulses (100+) reliably push particles every frame.
+      const windChance = Math.min(1, (Math.abs(windX) + Math.abs(windY)) / 30);
       if (Math.random() < windChance) {
-        if (this.trySwap(x, y, x + wdx, y + wdy)) return;
+        // Strong wind can shove into occupied cells (displace liquids/gases)
+        const windMag = Math.abs(windX) + Math.abs(windY);
+        if (windMag >= 50) {
+          if (this.tryShove(x, y, x + wdx, y + wdy)) return;
+        } else {
+          if (this.trySwap(x, y, x + wdx, y + wdy)) return;
+        }
       }
     }
 
@@ -339,8 +348,10 @@ export class SandWorld {
             this.grid[idx] = pack({ ...belowCell, flags: belowCell.flags | FLAG_UPDATED });
             return;
           }
-          // Mercury is heavier than water — sinks through water
-          if (mat === Material.Mercury && belowCell.mat === Material.Water && !(belowCell.flags & FLAG_UPDATED)) {
+          // Dense liquids sink through less-dense liquids (density = gravity).
+          // Mercury (gravity 4) sinks through water (2), brine (2.5), honey (1.5),
+          // lava (3), molten salt (3), etc.
+          if (belowDef?.liquid && def.gravity > belowDef.gravity && !(belowCell.flags & FLAG_UPDATED)) {
             this.grid[below * W + x] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
             this.grid[idx] = pack({ ...belowCell, flags: belowCell.flags | FLAG_UPDATED });
             return;
@@ -369,6 +380,38 @@ export class SandWorld {
     const packed = this.grid[srcIdx];
     this.grid[destIdx] = pack({ ...unpack(packed), flags: unpack(packed).flags | FLAG_UPDATED });
     this.grid[srcIdx] = 0;
+    return true;
+  }
+
+  /**
+   * Like trySwap, but can also displace liquids/gases: if the destination is
+   * occupied by a liquid or gas, the two cells swap (the pushed particle moves
+   * into the source cell). Solids and walls block the shove. Used by strong
+   * wind/impulse forces to push particles through dense media.
+   */
+  private tryShove(x: number, y: number, nx: number, ny: number): boolean {
+    const W = this.W, H = this.H;
+    if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
+    const destIdx = ny * W + nx;
+    const srcIdx = y * W + x;
+    const destPacked = this.grid[destIdx];
+    // Empty destination: normal swap
+    if (destPacked === 0) {
+      const packed = this.grid[srcIdx];
+      this.grid[destIdx] = pack({ ...unpack(packed), flags: unpack(packed).flags | FLAG_UPDATED });
+      this.grid[srcIdx] = 0;
+      return true;
+    }
+    // Occupied: only displace liquids/gases (not solids, walls, or already-updated cells)
+    const destCell = unpack(destPacked);
+    const destDef = MATERIALS[destCell.mat as Material];
+    if (!destDef || !destDef.liquid && !destDef.gas) return false;
+    if (destCell.flags & FLAG_UPDATED) return false;
+    const srcPacked = this.grid[srcIdx];
+    const srcCell = unpack(srcPacked);
+    // Swap the two cells
+    this.grid[destIdx] = pack({ ...srcCell, flags: srcCell.flags | FLAG_UPDATED });
+    this.grid[srcIdx] = pack({ ...destCell, flags: destCell.flags | FLAG_UPDATED });
     return true;
   }
 
@@ -542,6 +585,25 @@ export class SandWorld {
             this.grid[waterN.y * W + waterN.x] = pack({ mat: Material.Brine, lifetime: 0, flags: randomShade() });
             continue;
           }
+          // Salt dissolves snow: 1 salt grain melts up to 10 snow cells nearby
+          const snowN = this.findNeighbor(x, y, Material.Snow);
+          if (snowN) {
+            // Remove the salt grain
+            this.grid[idx] = 0;
+            // Dissolve up to 10 snow cells in a radius
+            let dissolved = 0;
+            for (let ry = y - 3; ry <= y + 3 && dissolved < 10; ry++) {
+              for (let rx = x - 3; rx <= x + 3 && dissolved < 10; rx++) {
+                if (rx < 0 || rx >= W || ry < 0 || ry >= H) continue;
+                const ridx = ry * W + rx;
+                if (unpack(this.grid[ridx]).mat === Material.Snow) {
+                  this.grid[ridx] = pack({ mat: Material.Water, lifetime: 0, flags: randomShade() });
+                  dissolved++;
+                }
+              }
+            }
+            continue;
+          }
           // High temp: salt → molten salt (destructive liquid)
           if (temp > 1.8 && Math.random() < 0.02) {
             this.grid[idx] = pack({ mat: Material.MoltenSalt, lifetime: 0, flags: randomShade() });
@@ -555,13 +617,27 @@ export class SandWorld {
             this.grid[idx] = pack({ mat: Material.Salt, lifetime: 0, flags: randomShade() });
             continue;
           }
-          // Destroy water neighbors (violent reaction)
+          // Contact with water → violent impulse explosion (steam pressure, not destruction)
           const waterN = this.findNeighbor(x, y, Material.Water);
           if (waterN) {
+            this.applyImpulse(x, y, 6, 100);
+            // Convert water to steam, molten salt cools to salt
             this.grid[waterN.y * W + waterN.x] = pack({ mat: Material.Steam, lifetime: 80, flags: randomShade() });
             if (Math.random() < 0.3) {
               this.grid[idx] = pack({ mat: Material.Salt, lifetime: 0, flags: randomShade() });
             }
+            continue;
+          }
+          // Contact with dry ice → violent impulse explosion (thermal shock)
+          const dryIceN = this.findNeighbor(x, y, Material.DryIce);
+          if (dryIceN) {
+            this.applyImpulse(x, y, 6, 100);
+            // Consume the dry ice, cool molten salt to salt
+            this.grid[dryIceN.y * W + dryIceN.x] = 0;
+            if (Math.random() < 0.5) {
+              this.grid[idx] = pack({ mat: Material.Salt, lifetime: 0, flags: randomShade() });
+            }
+            continue;
           }
           continue;
         }
@@ -577,12 +653,12 @@ export class SandWorld {
           }
         }
 
-        // --- Dry Ice: sublimates into gas (smoke-like) ---
+        // --- Dry Ice: sublimates into CO2 gas (smoke-like, no water) ---
         if (mat === Material.DryIce) {
           if (Math.random() < 0.02) {
             const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
             if (above === 0) {
-              this.grid[(y - 1) * W + x] = pack({ mat: Material.Steam, lifetime: 60, flags: randomShade() });
+              this.grid[(y - 1) * W + x] = pack({ mat: Material.Smoke, lifetime: 60, flags: randomShade() });
               if (Math.random() < 0.5) this.grid[idx] = 0;
             }
           }
@@ -676,10 +752,11 @@ export class SandWorld {
           continue;
         }
 
-        // --- Popcorn: pops near fire into low-density particles ---
+        // --- Popcorn: pops near fire or high heat into low-density particles ---
         if (mat === Material.Popcorn) {
           const fireN = this.findNeighbor(x, y, Material.Fire);
-          if (fireN && Math.random() < 0.3) {
+          const hot = temp > 1.3;
+          if ((fireN || hot) && Math.random() < 0.3) {
             // Pop: create a few popcorn particles that fly upward
             this.grid[idx] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
             // Try to expand upward
@@ -709,11 +786,12 @@ export class SandWorld {
           continue;
         }
 
-        // --- C4: only detonates with fuse ---
+        // --- C4: detonated by adjacent fire (e.g. from a burning fuse),
+        // and chain-detonates all connected C4. ---
         if (mat === Material.C4) {
-          const fuseN = this.findNeighbor(x, y, Material.Fuse);
-          if (fuseN && Math.random() < 0.3) {
-            this.explode(x, y, 8);
+          const fireN = this.findNeighbor(x, y, Material.Fire);
+          if (fireN && Math.random() < 0.3) {
+            this.detonateC4(x, y);
           }
           continue;
         }
@@ -739,15 +817,31 @@ export class SandWorld {
         // --- Glitter: suspends in water, floats in air ---
         // (handled in tryMove via low gravity — no special reaction needed)
 
-        // --- Fireflies: drift randomly, emit faint light ---
+        // --- Fireflies: organic flight + random flickering ---
         if (mat === Material.Fireflies) {
-          // Random walk
-          if (Math.random() < 0.3) {
-            const dx = Math.floor(Math.random() * 3) - 1;
-            const dy = Math.floor(Math.random() * 3) - 1;
+          // Flicker: randomly change shade each frame for independent blinking.
+          // Each firefly independently toggles bright/dim — no spatial pattern.
+          if (Math.random() < 0.4) {
+            const newShade = Math.floor(Math.random() * 4);
+            this.grid[idx] = pack({ mat, lifetime: cell.lifetime, flags: (cell.flags & ~SHADE_MASK) | newShade | FLAG_UPDATED });
+          }
+
+          // Flight: biased random walk — mostly drift sideways with gentle
+          // vertical wander. Occasional darts (2-cell jumps) for organic motion.
+          if (Math.random() < 0.6) {
+            let dx: number, dy: number;
+            if (Math.random() < 0.15) {
+              // Dart: 2-cell jump in a random direction
+              dx = (Math.floor(Math.random() * 5) - 2);
+              dy = (Math.floor(Math.random() * 5) - 2);
+            } else {
+              // Normal drift: 1-cell step, biased horizontally
+              dx = Math.floor(Math.random() * 3) - 1;
+              dy = Math.floor(Math.random() * 3) - 1;
+            }
             const nx = x + dx, ny = y + dy;
             if (nx >= 0 && nx < W && ny >= 0 && ny < H && this.grid[ny * W + nx] === 0) {
-              this.grid[ny * W + nx] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
+              this.grid[ny * W + nx] = pack({ mat, lifetime: cell.lifetime, flags: cell.flags | FLAG_UPDATED });
               this.grid[idx] = 0;
             }
           }
@@ -757,6 +851,91 @@ export class SandWorld {
         // --- Toast: made from bread near fire (future), burns like wood ---
         // --- Wax: slow burning (handled by combustion + aging) ---
         // --- Rubber: bouncy (handled in tryMove) ---
+      }
+    }
+  }
+
+  /**
+   * Apply a radial impulse: immediately shoves particles outward from (cx, cy)
+   * and sets per-cell wind fields for ongoing push. This pushes particles away
+   * without destroying them. The wind decays each frame via decayWind().
+   *
+   * Immediate displacement: process rings from outermost to innermost so outer
+   * particles move first, creating space for inner ones. Each particle is
+   * shoved one cell radially outward (displacing liquids/gases via tryShove).
+   *
+   * Wind field: sets radial wind with linear falloff for continued push over
+   * the next several frames.
+   */
+  private applyImpulse(cx: number, cy: number, radius: number, strength: number): void {
+    const W = this.W, H = this.H;
+
+    // --- Phase 1: Immediate radial displacement (outer ring → inner ring) ---
+    // Process from the outermost ring inward so outer particles shove out first,
+    // creating space for inner particles to follow.
+    for (let ring = radius; ring >= 1; ring--) {
+      for (let y = cy - ring; y <= cy + ring; y++) {
+        for (let x = cx - ring; x <= cx + ring; x++) {
+          // Only process cells on the current ring boundary (skip inner cells)
+          const dx = x - cx, dy = y - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (Math.round(dist) !== ring) continue;
+          if (x < 0 || x >= W || y < 0 || y >= H) continue;
+
+          const idx = y * W + x;
+          const packed = this.grid[idx];
+          if (packed === 0) continue;
+          const cell = unpack(packed);
+          if (cell.flags & FLAG_UPDATED) continue;
+          // Don't move walls or static solids
+          const def = MATERIALS[cell.mat as Material];
+          if (!def || cell.mat === Material.Wall || cell.mat === Material.Stone) continue;
+
+          // Shove one step radially outward
+          const stepX = dx === 0 ? 0 : dx > 0 ? 1 : -1;
+          const stepY = dy === 0 ? 0 : dy > 0 ? 1 : -1;
+          this.tryShove(x, y, x + stepX, y + stepY);
+        }
+      }
+    }
+
+    // --- Phase 2: Set wind fields for ongoing push ---
+    for (let y = cy - radius; y <= cy + radius; y++) {
+      for (let x = cx - radius; x <= cx + radius; x++) {
+        if (x < 0 || x >= W || y < 0 || y >= H) continue;
+        const dx = x - cx, dy = y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > radius || dist < 0.5) continue;
+        // Falloff: strongest at center, weaker at edge
+        const falloff = 1 - dist / radius;
+        const mag = strength * falloff;
+        const ux = dx / dist, uy = dy / dist;
+        const fi = (y * W + x) * 4;
+        // Add to existing wind (clamped to i8 range), sign-extended for proper arithmetic
+        const curWx = (this.fields[fi + FIELD.WIND_X] << 24) >> 24;
+        const curWy = (this.fields[fi + FIELD.WIND_Y] << 24) >> 24;
+        const newWx = Math.max(-127, Math.min(127, Math.round(curWx + ux * mag)));
+        const newWy = Math.max(-127, Math.min(127, Math.round(curWy + uy * mag)));
+        this.fields[fi + FIELD.WIND_X] = newWx & 0xff;
+        this.fields[fi + FIELD.WIND_Y] = newWy & 0xff;
+      }
+    }
+  }
+
+  /** Decay all wind fields toward 0 each frame so impulses fade over time. */
+  private decayWind(): void {
+    const W = this.W, H = this.H;
+    for (let i = 0; i < W * H * 4; i += 4) {
+      if (this.fields[i + FIELD.WIND_X] !== 0) {
+        const v = (this.fields[i + FIELD.WIND_X] << 24) >> 24;
+        // Decay by ~25% per frame, minimum step of 1
+        const dec = Math.abs(v) >= 4 ? Math.trunc(v * 0.75) : v > 0 ? v - 1 : v < 0 ? v + 1 : 0;
+        this.fields[i + FIELD.WIND_X] = dec & 0xff;
+      }
+      if (this.fields[i + FIELD.WIND_Y] !== 0) {
+        const v = (this.fields[i + FIELD.WIND_Y] << 24) >> 24;
+        const dec = Math.abs(v) >= 4 ? Math.trunc(v * 0.75) : v > 0 ? v - 1 : v < 0 ? v + 1 : 0;
+        this.fields[i + FIELD.WIND_Y] = dec & 0xff;
       }
     }
   }
@@ -771,6 +950,8 @@ export class SandWorld {
         if (x < 0 || x >= W || y < 0 || y >= H) continue;
         const c = unpack(this.grid[y * W + x]);
         if (c.mat === Material.Wall) continue;
+        // Don't destroy C4 in the blast — let detonateC4 handle chain reactions
+        if (c.mat === Material.C4) continue;
         if (dist < radius * radius * 0.3) {
           // Core: fire
           this.grid[y * W + x] = pack({ mat: Material.Fire, lifetime: 20, flags: randomShade() });
@@ -783,6 +964,40 @@ export class SandWorld {
           }
         }
       }
+    }
+  }
+
+  /** Detonate C4 at (cx, cy) and flood-fill all connected C4 for chain reaction */
+  private detonateC4(cx: number, cy: number): void {
+    const W = this.W, H = this.H;
+    // Collect all connected C4 cells (8-connected flood fill)
+    const stack: number[] = [cy * W + cx];
+    const visited = new Set<number>();
+    const c4Cells: number[] = [];
+    while (stack.length > 0) {
+      const idx = stack.pop()!;
+      if (visited.has(idx)) continue;
+      visited.add(idx);
+      const px = idx % W;
+      const py = Math.floor(idx / W);
+      const c = unpack(this.grid[idx]);
+      if (c.mat !== Material.C4) continue;
+      c4Cells.push(idx);
+      // Check 8 neighbors
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = px + dx, ny = py + dy;
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          stack.push(ny * W + nx);
+        }
+      }
+    }
+    // Explode each C4 cell
+    for (const idx of c4Cells) {
+      const px = idx % W;
+      const py = Math.floor(idx / W);
+      this.explode(px, py, 8);
     }
   }
 
@@ -866,8 +1081,10 @@ export class SandWorld {
               continue;
             }
             const baseChance = c.mat === Material.Lava ? 0.1 : 0.08;
+            // Rubber is hard to ignite — low continual burn/spread chance
+            const matMult = n.mat === Material.Rubber ? 0.3 : 1.0;
             // Per-cell temperature scales fire spread rate
-            const chance = baseChance * this.getTemperature(nx, ny);
+            const chance = baseChance * this.getTemperature(nx, ny) * matMult;
             if (Math.random() < chance) {
               this.setCell(nx, ny, { mat: Material.Fire, lifetime: def.burnTime, flags: randomShade() });
             }
@@ -929,7 +1146,8 @@ export class SandWorld {
           } else if (c.mat === Material.Wood || c.mat === Material.Plant || c.mat === Material.Oil ||
                      c.mat === Material.Flesh || c.mat === Material.Leaf || c.mat === Material.TreeWood ||
                      c.mat === Material.Root || c.mat === Material.Grass || c.mat === Material.Toast ||
-                     c.mat === Material.Plastic || c.mat === Material.Wax || c.mat === Material.Fuse) {
+                     c.mat === Material.Plastic || c.mat === Material.Wax || c.mat === Material.Fuse ||
+                     c.mat === Material.Rubber) {
             c.mat = Material.Smoke;
             c.lifetime = 60;
           }
