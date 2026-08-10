@@ -27,11 +27,17 @@ function randomShade(): number {
 }
 
 function initialLifetime(mat: number): number {
-  const def = MATERIALS[mat as Material];
+  const def = MATERIALS[mat];
   if (!def) return 0;
   if (mat === Material.Fire) return def.burnTime;
   if (mat === Material.Smoke) return 120;
   if (mat === Material.Steam) return 120;
+  if (mat === Material.GasVapor) return 200;
+  if (mat === Material.Plasma) return 30;
+  if (mat === Material.Fireflies) return 255;
+  if (mat === Material.Nanobots) return 255;
+  if (mat === Material.Hydrogen) return 200;
+  if (def.burnTime > 0 && def.flammable) return 0; // burnTime used when ignited, not on placement
   return 0;
 }
 
@@ -130,7 +136,7 @@ export class SandWorld {
       for (let x = cx - radius; x <= cx + radius; x++) {
         if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > radius * radius) continue;
         const c = this.getCell(x, y);
-        if (c.mat === Material.Stone) continue;
+        if (c.mat === Material.Stone || c.mat === Material.Wall) continue;
         this.setCell(x, y, { mat, lifetime: initialLifetime(mat), flags: randomShade() });
       }
     }
@@ -195,6 +201,7 @@ export class SandWorld {
     }
 
     this.applyReactions();
+    this.applySpecialReactions();
 
     const leftToRight = this.frame % 2 === 0;
     for (let y = H - 1; y >= 0; y--) {
@@ -249,16 +256,14 @@ export class SandWorld {
     }
 
     // --- Edge friction ---
-    // Particles on the outside of a mass (missing horizontal neighbors) have
-    // a chance to "stick" and not fall this tick. Interior particles (both
-    // sides occupied) always fall. This creates fluid pouring behavior where
-    // the core flows through while edges lag behind.
     const hasLeft = x > 0 && this.grid[y * W + (x - 1)] !== 0;
     const hasRight = x < W - 1 && this.grid[y * W + (x + 1)] !== 0;
     const isExterior = !hasLeft || !hasRight;
 
+    // Honey: very thick — high friction, barely flows
+    if (mat === Material.Honey && isExterior && Math.random() < 0.7) return;
+
     // Exterior particles have a chance to skip falling (friction).
-    // Denser materials (higher gravity) have less friction — they push through.
     if (isExterior && !isGas) {
       const frictionChance = 0.3 / Math.max(1, def.gravity);
       if (Math.random() < frictionChance) return;
@@ -288,6 +293,22 @@ export class SandWorld {
     // 1. Try gravity direction
     if (this.trySwap(x, y, x, y + dy)) return;
 
+    // Rubber: bouncy — try to bounce upward when blocked from below
+    if (mat === Material.Rubber) {
+      // Check if we're resting on something (can't fall)
+      const belowY = y + dy;
+      const blocked = belowY < 0 || belowY >= H || this.grid[belowY * W + x] !== 0;
+      if (blocked) {
+        // Bounce: try to move up or sideways
+        if (Math.random() < 0.5) {
+          if (this.trySwap(x, y, x, y - dy)) return;
+        }
+        const bounceDir = Math.random() < 0.5 ? -1 : 1;
+        if (this.trySwap(x, y, x + bounceDir * 2, y)) return;
+        if (this.trySwap(x, y, x + bounceDir, y)) return;
+      }
+    }
+
     const dir = Math.random() < 0.5 ? -1 : 1;
     if (this.trySwap(x, y, x + dir, y + dy)) return;
     if (this.trySwap(x, y, x - dir, y + dy)) return;
@@ -312,14 +333,28 @@ export class SandWorld {
         const belowPacked = this.grid[below * W + x];
         if (belowPacked !== 0) {
           const belowCell = unpack(belowPacked);
-          const belowDef = MATERIALS[belowCell.mat as Material];
+          const belowDef = MATERIALS[belowCell.mat];
           if (belowDef?.gas && !(belowCell.flags & FLAG_UPDATED)) {
-            // Liquid sinks down, gas rises up
+            this.grid[below * W + x] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
+            this.grid[idx] = pack({ ...belowCell, flags: belowCell.flags | FLAG_UPDATED });
+            return;
+          }
+          // Mercury is heavier than water — sinks through water
+          if (mat === Material.Mercury && belowCell.mat === Material.Water && !(belowCell.flags & FLAG_UPDATED)) {
             this.grid[below * W + x] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
             this.grid[idx] = pack({ ...belowCell, flags: belowCell.flags | FLAG_UPDATED });
             return;
           }
         }
+      }
+    }
+
+    // Glitter: suspends in water (tries to float up when in water)
+    if (mat === Material.Glitter) {
+      const below = y + 1 < H ? unpack(this.grid[(y + 1) * W + x]) : null;
+      if (below && below.mat === Material.Water) {
+        // Stay suspended — don't sink further
+        if (Math.random() < 0.8) return;
       }
     }
   }
@@ -407,6 +442,381 @@ export class SandWorld {
     }
   }
 
+  // ===========================================================================
+  // Special reactions for new materials
+  // ===========================================================================
+
+  private applySpecialReactions(): void {
+    const W = this.W, H = this.H;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = y * W + x;
+        const cell = unpack(this.grid[idx]);
+        if (cell.mat === Material.Empty) continue;
+        const mat = cell.mat;
+        const temp = this.getTemperature(x, y);
+
+        // --- Antimatter: eliminates any normal neighbor, small explosion ---
+        if (mat === Material.Antimatter) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+              const n = unpack(this.grid[ny * W + nx]);
+              if (n.mat !== Material.Empty && n.mat !== Material.Antimatter && n.mat !== Material.Wall) {
+                // Annihilate both
+                this.grid[ny * W + nx] = 0;
+                this.grid[idx] = 0;
+                // Create fire explosion
+                this.explode(x, y, 3);
+                break;
+              }
+            }
+          }
+          continue;
+        }
+
+        // --- Plasma: damages everything around, decays quickly ---
+        if (mat === Material.Plasma) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+              const n = unpack(this.grid[ny * W + nx]);
+              if (n.mat !== Material.Empty && n.mat !== Material.Plasma && n.mat !== Material.Wall) {
+                if (Math.random() < 0.3) {
+                  this.grid[ny * W + nx] = pack({ mat: Material.Fire, lifetime: 10, flags: randomShade() });
+                }
+              }
+            }
+          }
+          continue;
+        }
+
+        // --- Mystery (???): oscillating reaction ---
+        // Changes color/behavior in a sine wave pattern based on frame count
+        if (mat === Material.Mystery) {
+          const phase = Math.sin(this.frame * 0.1 + x * 0.3 + y * 0.2);
+          if (phase > 0.9 && Math.random() < 0.1) {
+            // Emit plasma occasionally
+            const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
+            if (above === 0) {
+              this.grid[(y - 1) * W + x] = pack({ mat: Material.Plasma, lifetime: 20, flags: randomShade() });
+            }
+          }
+          if (phase < -0.9 && Math.random() < 0.05) {
+            // Absorb nearby particles
+            const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+            const [dx, dy] = dirs[Math.floor(Math.random() * 4)];
+            const nx = x + dx, ny = y + dy;
+            if (nx >= 0 && nx < W && ny >= 0 && ny < H) {
+              const n = unpack(this.grid[ny * W + nx]);
+              if (n.mat !== Material.Empty && n.mat !== Material.Wall && n.mat !== Material.Mystery) {
+                this.grid[ny * W + nx] = 0;
+              }
+            }
+          }
+          continue;
+        }
+
+        // --- Gasoline: slowly vaporizes into gas vapor ---
+        if (mat === Material.Gasoline) {
+          if (Math.random() < 0.005) {
+            const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
+            if (above === 0) {
+              this.grid[(y - 1) * W + x] = pack({ mat: Material.GasVapor, lifetime: 200, flags: randomShade() });
+              // Small chance to consume the gasoline
+              if (Math.random() < 0.3) this.grid[idx] = 0;
+            }
+          }
+          continue;
+        }
+
+        // --- Salt + Water → Brine ---
+        if (mat === Material.Salt) {
+          const waterN = this.findNeighbor(x, y, Material.Water);
+          if (waterN && Math.random() < 0.1) {
+            this.grid[idx] = pack({ mat: Material.Brine, lifetime: 0, flags: randomShade() });
+            this.grid[waterN.y * W + waterN.x] = pack({ mat: Material.Brine, lifetime: 0, flags: randomShade() });
+            continue;
+          }
+          // High temp: salt → molten salt (destructive liquid)
+          if (temp > 1.8 && Math.random() < 0.02) {
+            this.grid[idx] = pack({ mat: Material.MoltenSalt, lifetime: 0, flags: randomShade() });
+            continue;
+          }
+        }
+
+        // --- Molten Salt: destroys neighbors, cools to salt in low temp ---
+        if (mat === Material.MoltenSalt) {
+          if (temp < 0.5 && Math.random() < 0.05) {
+            this.grid[idx] = pack({ mat: Material.Salt, lifetime: 0, flags: randomShade() });
+            continue;
+          }
+          // Destroy water neighbors (violent reaction)
+          const waterN = this.findNeighbor(x, y, Material.Water);
+          if (waterN) {
+            this.grid[waterN.y * W + waterN.x] = pack({ mat: Material.Steam, lifetime: 80, flags: randomShade() });
+            if (Math.random() < 0.3) {
+              this.grid[idx] = pack({ mat: Material.Salt, lifetime: 0, flags: randomShade() });
+            }
+          }
+          continue;
+        }
+
+        // --- Concrete Powder + Water → Concrete ---
+        if (mat === Material.ConcretePowder) {
+          const waterN = this.findNeighbor(x, y, Material.Water);
+          if (waterN && Math.random() < 0.2) {
+            this.grid[idx] = pack({ mat: Material.Concrete, lifetime: 0, flags: randomShade() });
+            // Consume the water
+            this.grid[waterN.y * W + waterN.x] = 0;
+            continue;
+          }
+        }
+
+        // --- Dry Ice: sublimates into gas (smoke-like) ---
+        if (mat === Material.DryIce) {
+          if (Math.random() < 0.02) {
+            const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
+            if (above === 0) {
+              this.grid[(y - 1) * W + x] = pack({ mat: Material.Steam, lifetime: 60, flags: randomShade() });
+              if (Math.random() < 0.5) this.grid[idx] = 0;
+            }
+          }
+          continue;
+        }
+
+        // --- Liquid Nitrogen: cools neighbors, evaporates ---
+        if (mat === Material.LiquidNitrogen) {
+          // Cool down nearby fire/lava
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+              const n = unpack(this.grid[ny * W + nx]);
+              if (n.mat === Material.Fire || n.mat === Material.Lava || n.mat === Material.Plasma) {
+                this.grid[ny * W + nx] = n.mat === Material.Lava
+                  ? pack({ mat: Material.Stone, lifetime: 0, flags: randomShade() })
+                  : 0;
+              }
+            }
+          }
+          if (Math.random() < 0.01) {
+            this.grid[idx] = pack({ mat: Material.Steam, lifetime: 40, flags: randomShade() });
+          }
+          continue;
+        }
+
+        // --- Seed: grows into tree on dirt ---
+        if (mat === Material.Seed) {
+          const below = y + 1 < H ? unpack(this.grid[(y + 1) * W + x]) : null;
+          if (below && (below.mat === Material.Dirt || below.mat === Material.Grass)) {
+            if (Math.random() < 0.05) {
+              this.growTree(x, y);
+              continue;
+            }
+          }
+          continue;
+        }
+
+        // --- Grass: spreads on top of dirt ---
+        if (mat === Material.Grass) {
+          const below = y + 1 < H ? unpack(this.grid[(y + 1) * W + x]) : null;
+          if (below && below.mat === Material.Dirt) {
+            // Spread sideways on dirt surface
+            if (Math.random() < 0.02) {
+              const dir = Math.random() < 0.5 ? -1 : 1;
+              const nx = x + dir;
+              if (nx >= 0 && nx < W) {
+              const belowN = y + 1 < H ? unpack(this.grid[(y + 1) * W + nx]) : null;
+                if (belowN && belowN.mat === Material.Dirt && this.grid[y * W + nx] === 0) {
+                  this.grid[y * W + nx] = pack({ mat: Material.Grass, lifetime: 0, flags: randomShade() });
+                }
+              }
+            }
+          }
+          continue;
+        }
+
+        // --- Nanobots: convert neighbors into nanobots ---
+        if (mat === Material.Nanobots) {
+          const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
+          const [dx, dy] = dirs[Math.floor(Math.random() * 8)];
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < W && ny >= 0 && ny < H) {
+            const n = unpack(this.grid[ny * W + nx]);
+            if (n.mat !== Material.Empty && n.mat !== Material.Nanobots &&
+                n.mat !== Material.Wall && n.mat !== Material.Antimatter) {
+              if (Math.random() < 0.02) {
+                this.grid[ny * W + nx] = pack({ mat: Material.Nanobots, lifetime: 255, flags: randomShade() });
+              }
+            }
+          }
+          continue;
+        }
+
+        // --- Magic Powder: rainbow effect, explodes on contact with flesh ---
+        if (mat === Material.MagicPowder) {
+          const fleshN = this.findNeighbor(x, y, Material.Flesh);
+          if (fleshN && Math.random() < 0.3) {
+            this.explode(x, y, 4);
+            continue;
+          }
+          // Emit colorful fireflies occasionally
+          if (Math.random() < 0.01) {
+            const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
+            if (above === 0) {
+              this.grid[(y - 1) * W + x] = pack({ mat: Material.Fireflies, lifetime: 100, flags: randomShade() });
+            }
+          }
+          continue;
+        }
+
+        // --- Popcorn: pops near fire into low-density particles ---
+        if (mat === Material.Popcorn) {
+          const fireN = this.findNeighbor(x, y, Material.Fire);
+          if (fireN && Math.random() < 0.3) {
+            // Pop: create a few popcorn particles that fly upward
+            this.grid[idx] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
+            // Try to expand upward
+            const above = y > 0 ? this.grid[(y - 1) * W + x] : 1;
+            if (above === 0) {
+              this.grid[(y - 1) * W + x] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
+            }
+            // sideways
+            for (const dx of [-1, 1]) {
+              if (x + dx >= 0 && x + dx < W && this.grid[y * W + x + dx] === 0) {
+                if (Math.random() < 0.5) {
+                  this.grid[y * W + x + dx] = pack({ mat: Material.Popcorn, lifetime: 0, flags: randomShade() });
+                }
+              }
+            }
+          }
+          continue;
+        }
+
+        // --- Dynamite: detonated by fire or fuse ---
+        if (mat === Material.Dynamite) {
+          const fireN = this.findNeighbor(x, y, Material.Fire);
+          const fuseN = this.findNeighbor(x, y, Material.Fuse);
+          if ((fireN || fuseN) && Math.random() < 0.2) {
+            this.explode(x, y, 6);
+          }
+          continue;
+        }
+
+        // --- C4: only detonates with fuse ---
+        if (mat === Material.C4) {
+          const fuseN = this.findNeighbor(x, y, Material.Fuse);
+          if (fuseN && Math.random() < 0.3) {
+            this.explode(x, y, 8);
+          }
+          continue;
+        }
+
+        // --- Flour: dust explosion when suspended near fire ---
+        if (mat === Material.Flour) {
+          const fireN = this.findNeighbor(x, y, Material.Fire);
+          if (fireN && Math.random() < 0.15) {
+            this.explode(x, y, 3);
+          }
+          continue;
+        }
+
+        // --- Hydrogen: explodes near fire ---
+        if (mat === Material.Hydrogen) {
+          const fireN = this.findNeighbor(x, y, Material.Fire);
+          if (fireN && Math.random() < 0.3) {
+            this.explode(x, y, 4);
+          }
+          continue;
+        }
+
+        // --- Glitter: suspends in water, floats in air ---
+        // (handled in tryMove via low gravity — no special reaction needed)
+
+        // --- Fireflies: drift randomly, emit faint light ---
+        if (mat === Material.Fireflies) {
+          // Random walk
+          if (Math.random() < 0.3) {
+            const dx = Math.floor(Math.random() * 3) - 1;
+            const dy = Math.floor(Math.random() * 3) - 1;
+            const nx = x + dx, ny = y + dy;
+            if (nx >= 0 && nx < W && ny >= 0 && ny < H && this.grid[ny * W + nx] === 0) {
+              this.grid[ny * W + nx] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
+              this.grid[idx] = 0;
+            }
+          }
+          continue;
+        }
+
+        // --- Toast: made from bread near fire (future), burns like wood ---
+        // --- Wax: slow burning (handled by combustion + aging) ---
+        // --- Rubber: bouncy (handled in tryMove) ---
+      }
+    }
+  }
+
+  /** Create an explosion: fire + smoke in a radius */
+  private explode(cx: number, cy: number, radius: number): void {
+    const W = this.W, H = this.H;
+    for (let y = cy - radius; y <= cy + radius; y++) {
+      for (let x = cx - radius; x <= cx + radius; x++) {
+        const dist = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+        if (dist > radius * radius) continue;
+        if (x < 0 || x >= W || y < 0 || y >= H) continue;
+        const c = unpack(this.grid[y * W + x]);
+        if (c.mat === Material.Wall) continue;
+        if (dist < radius * radius * 0.3) {
+          // Core: fire
+          this.grid[y * W + x] = pack({ mat: Material.Fire, lifetime: 20, flags: randomShade() });
+        } else {
+          // Outer: smoke or empty
+          if (Math.random() < 0.5) {
+            this.grid[y * W + x] = pack({ mat: Material.Smoke, lifetime: 60, flags: randomShade() });
+          } else {
+            this.grid[y * W + x] = 0;
+          }
+        }
+      }
+    }
+  }
+
+  /** Grow a tree from a seed at (x, y) on dirt */
+  private growTree(x: number, y: number): void {
+    const W = this.W, H = this.H;
+    // Remove seed, place root
+    this.grid[y * W + x] = pack({ mat: Material.Root, lifetime: 0, flags: randomShade() });
+    // Grow trunk upward
+    const trunkHeight = 8 + Math.floor(Math.random() * 8);
+    let topY = y;
+    for (let i = 1; i <= trunkHeight; i++) {
+      const ty = y - i;
+      if (ty < 0) break;
+      if (this.grid[ty * W + x] !== 0) break;
+      this.grid[ty * W + x] = pack({ mat: Material.TreeWood, lifetime: 0, flags: randomShade() });
+      topY = ty;
+    }
+    // Grow leaves canopy
+    const canopyRadius = 3 + Math.floor(Math.random() * 2);
+    for (let dy = -canopyRadius; dy <= 0; dy++) {
+      for (let dx = -canopyRadius; dx <= canopyRadius; dx++) {
+        const lx = x + dx, ly = topY + dy - canopyRadius;
+        if (lx < 0 || lx >= W || ly < 0 || ly >= H) continue;
+        const dist = dx * dx + dy * dy;
+        if (dist > canopyRadius * canopyRadius) continue;
+        if (this.grid[ly * W + lx] !== 0) continue;
+        if (Math.random() < 0.7) {
+          this.grid[ly * W + lx] = pack({ mat: Material.Leaf, lifetime: 0, flags: randomShade() });
+        }
+      }
+    }
+  }
+
   private findNeighbor(x: number, y: number, mat: number): { x: number; y: number } | null {
     const W = this.W, H = this.H;
     for (let dy = -1; dy <= 1; dy++) {
@@ -437,6 +847,22 @@ export class SandWorld {
             if (!def?.flammable) continue;
             if (n.mat === Material.Gunpowder) {
               this.setCell(nx, ny, { mat: Material.Fire, lifetime: 15, flags: randomShade() });
+              continue;
+            }
+            // Gas vapor and hydrogen: explosive
+            if (n.mat === Material.GasVapor || n.mat === Material.Hydrogen) {
+              this.setCell(nx, ny, { mat: Material.Fire, lifetime: 20, flags: randomShade() });
+              this.explode(nx, ny, 3);
+              continue;
+            }
+            // Flour: dust explosion
+            if (n.mat === Material.Flour) {
+              this.explode(nx, ny, 3);
+              continue;
+            }
+            // Dynamite: chain detonate
+            if (n.mat === Material.Dynamite) {
+              this.explode(nx, ny, 6);
               continue;
             }
             const baseChance = c.mat === Material.Lava ? 0.1 : 0.08;
@@ -474,7 +900,6 @@ export class SandWorld {
             c.mat = Material.Smoke;
             c.lifetime = 120;
           } else if (c.mat === Material.Smoke) {
-            // Expired smoke → truly empty (clear all flags so packed value is 0)
             this.grid[i] = 0;
             continue;
           } else if (c.mat === Material.Steam) {
@@ -482,11 +907,29 @@ export class SandWorld {
               c.mat = Material.Water;
               c.lifetime = 0;
             } else {
-              // Expired steam → truly empty
               this.grid[i] = 0;
               continue;
             }
-          } else if (c.mat === Material.Wood || c.mat === Material.Plant || c.mat === Material.Oil || c.mat === Material.Flesh) {
+          } else if (c.mat === Material.GasVapor) {
+            // Expired vapor → empty
+            this.grid[i] = 0;
+            continue;
+          } else if (c.mat === Material.Hydrogen) {
+            this.grid[i] = 0;
+            continue;
+          } else if (c.mat === Material.Plasma) {
+            // Plasma → fire then smoke
+            c.mat = Material.Fire;
+            c.lifetime = 15;
+          } else if (c.mat === Material.Fireflies) {
+            // Fireflies don't expire (lifetime stays at max)
+            c.lifetime = 255;
+          } else if (c.mat === Material.Nanobots) {
+            c.lifetime = 255;
+          } else if (c.mat === Material.Wood || c.mat === Material.Plant || c.mat === Material.Oil ||
+                     c.mat === Material.Flesh || c.mat === Material.Leaf || c.mat === Material.TreeWood ||
+                     c.mat === Material.Root || c.mat === Material.Grass || c.mat === Material.Toast ||
+                     c.mat === Material.Plastic || c.mat === Material.Wax || c.mat === Material.Fuse) {
             c.mat = Material.Smoke;
             c.lifetime = 60;
           }

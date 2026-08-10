@@ -1,30 +1,27 @@
-import { Material, MATERIALS } from "./materials";
+import { Material, MATERIALS, MAX_MATERIAL } from "./materials";
 
 export const SHADES_PER_MATERIAL = 4;
+export const PALETTE_SIZE = MAX_MATERIAL;
 
-// Per-material shade variation factors. Most materials use the default
-// [0.82, 0.91, 1.0, 1.08], but water and sand use subtler variation
-// since they cover large areas where high variation looks noisy.
-// Fire uses a deep-red shift: some particles are darker and redder.
 const DEFAULT_SHADES = [0.82, 0.91, 1.0, 1.08];
 const SUBTLE_SHADES = [0.93, 0.97, 1.0, 1.03];
 
-// Fire shades: [deep red, red-orange, base orange, bright yellow-orange]
-// Each entry is [rMul, gMul, bMul] applied to the base color.
 const FIRE_SHADES: [number, number, number][] = [
-  [0.85, 0.35, 0.10], // deep red
-  [0.95, 0.50, 0.15], // red-orange
-  [1.0, 1.0, 1.0],    // base (orange)
-  [1.05, 1.15, 0.60], // bright yellow-orange
+  [0.85, 0.35, 0.10],
+  [0.95, 0.50, 0.15],
+  [1.0, 1.0, 1.0],
+  [1.05, 1.15, 0.60],
 ];
 
-function shadeFactorsFor(mat: Material): number[] {
-  if (mat === Material.Water || mat === Material.Sand) return SUBTLE_SHADES;
+function shadeFactorsFor(mat: number): number[] {
+  if (mat === Material.Water || mat === Material.Sand || mat === Material.Snow ||
+      mat === Material.Salt || mat === Material.Flour) return SUBTLE_SHADES;
   return DEFAULT_SHADES;
 }
 
-function isFireShaded(mat: Material): boolean {
-  return mat === Material.Fire;
+function isFireShaded(mat: number): boolean {
+  return mat === Material.Fire || mat === Material.Lava || mat === Material.Plasma ||
+         mat === Material.MoltenSalt;
 }
 
 function clamp8(v: number): number {
@@ -32,14 +29,14 @@ function clamp8(v: number): number {
 }
 
 export function buildPalette(): Uint8Array {
-  const colors = new Uint8Array(16 * SHADES_PER_MATERIAL * 4);
-  for (let mat = 0; mat < 16; mat++) {
-    const m = mat as Material;
-    const c = MATERIALS[m]?.color ?? [0, 0, 0, 0];
-    const factors = shadeFactorsFor(m);
+  const colors = new Uint8Array(PALETTE_SIZE * SHADES_PER_MATERIAL * 4);
+  for (let mat = 0; mat < PALETTE_SIZE; mat++) {
+    const m = MATERIALS[mat];
+    const c = m?.color ?? [0, 0, 0, 0];
+    const factors = shadeFactorsFor(mat);
     for (let shade = 0; shade < SHADES_PER_MATERIAL; shade++) {
       const idx = (mat * SHADES_PER_MATERIAL + shade) * 4;
-      if (isFireShaded(m)) {
+      if (isFireShaded(mat)) {
         const [rMul, gMul, bMul] = FIRE_SHADES[shade];
         colors[idx + 0] = clamp8(c[0] * 255 * rMul);
         colors[idx + 1] = clamp8(c[1] * 255 * gMul);
@@ -57,11 +54,10 @@ export function buildPalette(): Uint8Array {
   return colors;
 }
 
-/** Build material properties palette: 16×1 rgba8 = (albedo, reflectivity, brightness, 0). */
 export function buildMaterialProps(): Uint8Array {
-  const props = new Uint8Array(16 * 4);
-  for (let mat = 0; mat < 16; mat++) {
-    const def = MATERIALS[mat as Material];
+  const props = new Uint8Array(PALETTE_SIZE * 4);
+  for (let mat = 0; mat < PALETTE_SIZE; mat++) {
+    const def = MATERIALS[mat];
     props[mat * 4 + 0] = clamp8((def?.albedo ?? 0) * 255);
     props[mat * 4 + 1] = clamp8((def?.reflectivity ?? 0) * 255);
     props[mat * 4 + 2] = clamp8((def?.brightness ?? 1) * 255);

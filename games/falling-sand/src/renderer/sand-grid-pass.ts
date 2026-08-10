@@ -1,6 +1,6 @@
 import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
 import SAND_FS from "../shaders/sand-render.wgsl?raw";
-import { buildMaterialProps, buildPalette, SHADES_PER_MATERIAL } from "../simulation/palette";
+import { buildMaterialProps, buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "../simulation/palette";
 
 export class SandGridPass {
   private device: GPUDevice;
@@ -69,7 +69,7 @@ export class SandGridPass {
     }
 
     const pal = buildPalette();
-    const palW = 16 * SHADES_PER_MATERIAL;
+    const palW = PALETTE_SIZE * SHADES_PER_MATERIAL;
     this.paletteTexture = this.device.createTexture({
       size: [palW, 1],
       format: "rgba8unorm",
@@ -85,7 +85,7 @@ export class SandGridPass {
 
     const props = buildMaterialProps();
     this.propsTexture = this.device.createTexture({
-      size: [16, 1],
+      size: [PALETTE_SIZE, 1],
       format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
@@ -93,8 +93,8 @@ export class SandGridPass {
     this.device.queue.writeTexture(
       { texture: this.propsTexture },
       props as unknown as BufferSource,
-      { bytesPerRow: 16 * 4, rowsPerImage: 1 },
-      [16, 1],
+      { bytesPerRow: PALETTE_SIZE * 4, rowsPerImage: 1 },
+      [PALETTE_SIZE, 1],
     );
 
     this.bindGroupLayout = this.device.createBindGroupLayout({
