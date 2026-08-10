@@ -2,7 +2,8 @@
 // App — React UI overlay for the model viewer
 // ============================================================================
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { registerAnimDisplay } from "./anim-display";
 import type { AnimationData, LoadedModel, ModelEntry, ModelStats } from "./model-loader";
 
 interface ViewerState {
@@ -440,6 +441,16 @@ function AnimationPanel({ animations, animationIndex, playing, time, onSelect, o
   const duration = current?.duration ?? 0;
   const clampedTime = duration > 0 ? Math.min(time, duration) : 0;
 
+  // Refs to the scrubber + time-text DOM elements. Registered with the
+  // anim-display module so the frame loop can update them directly via the
+  // DOM (no React re-render) during animation playback.
+  const scrubberRef = useRef<HTMLInputElement>(null);
+  const timeTextRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    registerAnimDisplay(scrubberRef.current, timeTextRef.current, duration);
+    return () => registerAnimDisplay(null, null, 0);
+  }, [duration]);
+
   return (
     <div style={animPanelStyle}>
       <div style={animHeaderStyle}>
@@ -468,6 +479,7 @@ function AnimationPanel({ animations, animationIndex, playing, time, onSelect, o
         </button>
 
         <input
+          ref={scrubberRef}
           type="range"
           style={scrubberStyle}
           min={0}
@@ -477,7 +489,7 @@ function AnimationPanel({ animations, animationIndex, playing, time, onSelect, o
           disabled={animationIndex === null}
           onChange={(e) => onSeek(Number(e.target.value))}
         />
-        <span style={timeStyle}>
+        <span ref={timeTextRef} style={timeStyle}>
           {clampedTime.toFixed(2)}s / {duration.toFixed(2)}s
         </span>
       </div>

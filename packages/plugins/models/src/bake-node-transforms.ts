@@ -119,11 +119,16 @@ export function bakeNodeTransforms(modelData: ModelData): void {
   }
 
   // Apply world transforms to mesh vertices and normals.
+  // Skip skinned meshes — their node hierarchy transforms are encoded in the
+  // bone rest poses and applied via skin matrices at render time. Baking the
+  // node transforms into skinned vertices would double-transform them.
   for (let i = 0; i < modelData.nodes.length; i++) {
     const node = modelData.nodes[i];
     if (node.mesh === undefined || node.mesh >= modelData.meshes.length) continue;
 
     const mesh = modelData.meshes[node.mesh];
+    if (mesh.joints && mesh.weights && mesh.joints.length >= mesh.vertexCount * 4) continue;
+
     const wt = worldTransforms[i];
 
     // Skip identity transforms (common for root nodes) to avoid unnecessary work.

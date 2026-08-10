@@ -42,7 +42,7 @@ export { convertPluginMesh, convertPluginModel } from "./model-to-mesh";
 export type { PluginMaterialData, PluginMeshData, PluginModelData, TargetLayout } from "./model-to-mesh";
 // Model normalization — transform math for import-time correction
 export {
-    applyRootRotation, applyRootScale, applyUnitScale, applyUpAxisConversion, autoFit, centerToOrigin, computeBounds, isExtremeScale, maxDimension
+    applyRootRotation, applyRootScale, applyUnitScale, applyUpAxisConversion, autoFit, centerToOrigin, computeBounds, isExtremeScale, maxDimension, UNIT_TO_METERS
 } from "./model-normalizer";
 export type { Bounds } from "./model-normalizer";
 // Import settings — per-model normalization configuration
@@ -71,3 +71,4 @@ export {
     validateManifest
 } from "./manifest";
 export type { AssetManifest, AssetPackEntry } from "./manifest";
+

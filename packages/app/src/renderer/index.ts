@@ -71,3 +71,42 @@ export const downdraft: DowndraftBridge = (() => {
 
 // Import cache adapter — Electron IPC-backed with memory fallback
 export { createElectronImportCache } from "./import-cache";
+
+// --- Canvas / overlay layer helpers ---
+
+/**
+ * Get the canvas element for a given layer index.
+ * Layer 0 is the primary game canvas (id="game-canvas" by default).
+ * Higher indices are additional canvases (e.g. minimap, debug overlay).
+ */
+export function getCanvas(layer: number = 0): HTMLCanvasElement {
+  const el = document.querySelector(`canvas[data-dd-layer="${layer}"]`) as HTMLCanvasElement | null;
+  if (el) return el;
+  // Fallback to legacy id-based lookup for backward compatibility
+  if (layer === 0) {
+    const legacy = document.getElementById("game-canvas") as HTMLCanvasElement | null;
+    if (legacy) return legacy;
+  }
+  throw new Error(`No canvas found for layer ${layer}. Ensure the HTML has <canvas data-dd-layer="${layer}">.`);
+}
+
+/**
+ * Get the DOM overlay element for a given overlay index.
+ * Overlay 0 is the primary React root (id="root" by default).
+ */
+export function getOverlay(overlay: number = 0): HTMLElement {
+  const el = document.querySelector(`div[data-dd-overlay="${overlay}"]`) as HTMLElement | null;
+  if (el) return el;
+  if (overlay === 0) {
+    const legacy = document.getElementById("root") as HTMLElement | null;
+    if (legacy) return legacy;
+  }
+  throw new Error(`No overlay found for index ${overlay}. Ensure the HTML has <div data-dd-overlay="${overlay}">.`);
+}
+
+/**
+ * Get all canvas layers in order (layer 0 first).
+ */
+export function getAllCanvases(): HTMLCanvasElement[] {
+  return Array.from(document.querySelectorAll("canvas[data-dd-layer]")) as HTMLCanvasElement[];
+}

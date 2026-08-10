@@ -20,12 +20,14 @@ import {
     type GCControllerConfig,
     type RenderContext,
 } from "@downdraft/core";
+import { ModelRenderer } from "@downdraft/library-entities";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
 import { BaseSceneInspector, type IAssetResolver, type IDevToolsRenderer } from "@downdraft/plugin-devtools";
-import { ModelRenderer } from "@downdraft/library-entities";
 import type { MeshData } from "@downdraft/plugin-models";
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { updateAnimDisplay } from "./anim-display";
+import { ModelAnimator } from "./animation";
 import App from "./app";
 import { GridRenderer } from "./grid-renderer";
 import {
@@ -435,8 +437,19 @@ async function bootstrap() {
         if (state.animationTime >= anim.duration) {
           state.animationTime = state.animationTime % anim.duration;
         }
-        notify();
+        // Update the scrubber + time text directly via the DOM (no React
+        // re-render). The GPU animation sampling below still runs at full
+        // frame rate.
+        updateAnimDisplay(state.animationTime, anim.duration);
       }
+    }
+
+    // Sample the active animation (or bind pose) into skin matrices for the
+    // current skinned model, then upload them to the renderer. Done every frame
+    // so scrubbing and bind-pose rest both stay correct.
+    if (_animator && _modelRenderer) {
+      _animator.sample(state.animationIndex, state.animationTime);
+      _modelRenderer.updateSkinMatrices(_animator.skinMatrices);
     }
 
     // Frame new model on load
@@ -679,6 +692,10 @@ async function bootstrap() {
 // ── Model selection ──
 
 let _modelRenderer: ModelRenderer | null = null;
+// Animator for the currently-loaded skinned model (null when the model has no
+// skin). Rebuilt on each model load. Sampled each frame to produce skin
+// matrices consumed by ModelRenderer.updateSkinMatrices().
+let _animator: ModelAnimator | null = null;
 
 function rebuildModel() {
   const m = state.currentModel;
@@ -718,6 +735,7 @@ async function selectModel(entry: ModelEntry) {
   state.animationIndex = null;
   state.animationPlaying = false;
   state.animationTime = 0;
+  _animator = null;
   notify();
 
   try {
@@ -733,12 +751,51 @@ async function selectModel(entry: ModelEntry) {
     state.currentModel = loaded;
     state.loading = false;
 
-    // Default to showing only the first part
-    const firstPart = loaded.stats.parts.find(p => p.hasMesh);
-    if (firstPart) {
-      state.selectedPartIndices = new Set([firstPart.nodeIndex]);
+    // Build the animator for skinned models so rigging + animations play.
+    // Non-skinned models have no animator (rendered as static meshes).
+    if (loaded.data.skin && loaded.data.skin.bones.length > 0) {
+      try {
+        _animator = new ModelAnimator(loaded.data.skin, loaded.data.animations ?? []);
+        // Replace the stats animation list with the animator's playable clip
+        // list (embedded clips + procedural demos), so the animation panel
+        // shows everything that can actually play on this rig.
+        loaded.stats.animations = _animator.clipNames.map((name, i) => ({
+          name,
+          duration: _animator!.clipDurations[i],
+          channels: [],
+        }));
+        const playable = _animator.clips.filter((c) => c !== null).length;
+        console.log(`[Anim] Animator built: ${_animator.boneCount} bones, ${playable}/${_animator.clips.length} clips playable`);
+      } catch (e) {
+        console.error("[Anim] Failed to build animator:", e);
+        _animator = null;
+      }
     } else {
-      state.selectedPartIndices = null;
+      _animator = null;
+    }
+
+    // Default part selection: rigged character models (LP_fe_mesh, LP_male_mesh,
+    // etc.) have many mesh-part variants per body-part group (e.g. f_hair,
+    // f_hair.002, f_hair.003 …). Showing all variants at once is visually noisy
+    // and produces bad framing bounds. Instead, group mesh parts by name prefix
+    // (stripping the trailing ".<digits>" variant suffix) and select the first
+    // part from each group — yielding one complete character by default.
+    // Static models default to the first mesh part (matches prior behaviour).
+    if (loaded.stats.hasSkin) {
+      const groups = new Map<string, number>();
+      for (const p of loaded.stats.parts) {
+        if (!p.hasMesh) continue;
+        const pref = (p.name || `node_${p.nodeIndex}`).replace(/\.\d+$/, "");
+        if (!groups.has(pref)) groups.set(pref, p.nodeIndex);
+      }
+      state.selectedPartIndices = groups.size > 0 ? new Set(groups.values()) : null;
+    } else {
+      const firstPart = loaded.stats.parts.find(p => p.hasMesh);
+      if (firstPart) {
+        state.selectedPartIndices = new Set([firstPart.nodeIndex]);
+      } else {
+        state.selectedPartIndices = null;
+      }
     }
 
     // Initial upload with texture loading

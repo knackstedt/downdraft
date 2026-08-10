@@ -2,6 +2,39 @@ import { assertFinite, assertPositive, MAX_DECOMPRESS_SIZE, MAX_NODE_DEPTH } fro
 import { decompressSync } from "fflate";
 import type { AnimationChannel, AnimationData, BoneData, MaterialData, MeshData, ModelData, ModelNode } from "./types";
 
+/** Invert a 4×4 column-major matrix via adjugate / determinant. */
+function invertMat4CM(m: Float32Array): Float32Array {
+  const a00 = m[0], a01 = m[4], a02 = m[8],  a03 = m[12];
+  const a10 = m[1], a11 = m[5], a12 = m[9],  a13 = m[13];
+  const a20 = m[2], a21 = m[6], a22 = m[10], a23 = m[14];
+  const a30 = m[3], a31 = m[7], a32 = m[11], a33 = m[15];
+  const b00 = a11*a22*a33 - a11*a23*a32 - a21*a12*a33 + a21*a13*a32 + a31*a12*a23 - a31*a13*a22;
+  const b01 = -a10*a22*a33 + a10*a23*a32 + a20*a12*a33 - a20*a13*a32 - a30*a12*a23 + a30*a13*a22;
+  const b02 = a10*a21*a33 - a10*a23*a31 - a20*a11*a33 + a20*a13*a31 + a30*a11*a23 - a30*a13*a21;
+  const b03 = -a10*a21*a32 + a10*a22*a31 + a20*a11*a32 - a20*a12*a31 - a30*a11*a22 + a30*a12*a21;
+  const b10 = -a01*a22*a33 + a01*a23*a32 + a21*a02*a33 - a21*a03*a32 - a31*a02*a23 + a31*a03*a22;
+  const b11 = a00*a22*a33 - a00*a23*a32 - a20*a02*a33 + a20*a03*a32 + a30*a02*a23 - a30*a03*a22;
+  const b12 = -a00*a21*a33 + a00*a23*a31 + a20*a01*a33 - a20*a03*a31 - a30*a01*a23 + a30*a03*a21;
+  const b13 = a00*a21*a32 - a00*a22*a31 - a20*a01*a32 + a20*a02*a31 + a30*a01*a22 - a30*a02*a21;
+  const b20 = a01*a12*a33 - a01*a13*a32 - a11*a02*a33 + a11*a03*a32 + a31*a02*a13 - a31*a03*a12;
+  const b21 = -a00*a12*a33 + a00*a13*a32 + a10*a02*a33 - a10*a03*a32 - a30*a02*a13 + a30*a03*a12;
+  const b22 = a00*a11*a33 - a00*a13*a31 - a10*a01*a33 + a10*a03*a31 + a30*a01*a13 - a30*a03*a11;
+  const b23 = -a00*a11*a32 + a00*a12*a31 + a10*a01*a32 - a10*a02*a31 - a30*a01*a12 + a30*a02*a11;
+  const b30 = -a01*a12*a23 + a01*a13*a22 + a11*a02*a23 - a11*a03*a22 - a21*a02*a13 + a21*a03*a12;
+  const b31 = a00*a12*a23 - a00*a13*a22 - a10*a02*a23 + a10*a03*a22 + a20*a02*a13 - a20*a03*a12;
+  const b32 = -a00*a11*a23 + a00*a13*a21 + a10*a01*a23 - a10*a03*a21 - a20*a01*a13 + a20*a03*a11;
+  const b33 = a00*a11*a22 - a00*a12*a21 - a10*a01*a22 + a10*a02*a21 + a20*a01*a12 - a20*a02*a11;
+  let det = a00*b00 + a01*b01 + a02*b02 + a03*b03;
+  if (Math.abs(det) < 1e-12) return new Float32Array(16);
+  det = 1 / det;
+  const out = new Float32Array(16);
+  out[0]=b00*det; out[1]=b01*det; out[2]=b02*det; out[3]=b03*det;
+  out[4]=b10*det; out[5]=b11*det; out[6]=b12*det; out[7]=b13*det;
+  out[8]=b20*det; out[9]=b21*det; out[10]=b22*det; out[11]=b23*det;
+  out[12]=b30*det; out[13]=b31*det; out[14]=b32*det; out[15]=b33*det;
+  return out;
+}
+
 interface FBXNode {
   name: string;
   properties: FBXProperty[];
@@ -1019,21 +1052,32 @@ function parseFBXNodes(nodes: FBXNode[]): ModelNode[] | undefined {
   const modelNodes = findNodesByName(objectsNode, "Model");
   if (modelNodes.length === 0) return undefined;
 
-  // Build connections map
+  // Build connections map (only "OO" = Object-Object parent-child links;
+  // "OP" = Object-Property connections are NOT hierarchy links and would
+  // overwrite correct parents if included). Don't overwrite existing entries:
+  // a child may have both a bone→parentBone OO link and a bone→sceneRoot OO
+  // link; the first (bone→parentBone) is the correct hierarchy parent.
   const connectionsNode = nodes.find(n => n.name === "Connections");
   const childToParent = new Map<string, string>();
   if (connectionsNode) {
     let cCount = 0;
+    let skipped = 0;
     for (let i = 0; i < connectionsNode.children.length; i++) {
       const c = connectionsNode.children[i];
       if (c.name === "C" && c.properties.length >= 3) {
+        const connType = String(c.properties[0].value);
+        if (connType !== "OO") continue;
         cCount++;
         const childId = String(c.properties[1].value);
         const parentId = String(c.properties[2].value);
-        childToParent.set(childId, parentId);
+        if (childToParent.has(childId)) {
+          skipped++;
+        } else {
+          childToParent.set(childId, parentId);
+        }
       }
     }
-    console.log(`[FBX-Debug] Connections: ${cCount} C entries, ${childToParent.size} in map, ${connectionsNode.children.length} total children`);
+    console.log(`[FBX-Debug] Connections: ${cCount} OO entries, ${childToParent.size} in map, ${skipped} duplicates skipped, ${connectionsNode.children.length} total children`);
   } else {
     console.log(`[FBX-Debug] No Connections node found! Top-level names: ${nodes.map(n => n.name).join(', ')}`);
   }
@@ -1050,7 +1094,8 @@ function parseFBXNodes(nodes: FBXNode[]): ModelNode[] | undefined {
     }
 
     let translation: [number, number, number] | undefined;
-    let rotation: [number, number, number, number] | undefined;
+    let lclRotation: [number, number, number, number] | undefined;
+    let preRotation: [number, number, number, number] | undefined;
     let scale: [number, number, number] | undefined;
 
     for (let j = 0; j < node.children.length; j++) {
@@ -1070,7 +1115,7 @@ function parseFBXNodes(nodes: FBXNode[]): ModelNode[] | undefined {
               const cy = Math.cos(ey / 2), sy = Math.sin(ey / 2);
               const cz = Math.cos(ez / 2), sz = Math.sin(ez / 2);
               // FBX default rotation order is 0 = XYZ extrinsic = ZYX intrinsic
-              rotation = [sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz, cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz];
+              lclRotation = [sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz, cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz];
             } else if (propName === "PreRotation") {
               const ex = (p.properties[4].value as number) * Math.PI / 180;
               const ey = (p.properties[5].value as number) * Math.PI / 180;
@@ -1078,26 +1123,30 @@ function parseFBXNodes(nodes: FBXNode[]): ModelNode[] | undefined {
               const cx = Math.cos(ex / 2), sx = Math.sin(ex / 2);
               const cy = Math.cos(ey / 2), sy = Math.sin(ey / 2);
               const cz = Math.cos(ez / 2), sz = Math.sin(ez / 2);
-              const preRot: [number, number, number, number] = [sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz, cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz];
-              // Full rest rotation = PreRotation * LclRotation
-              if (rotation) {
-                const ax = preRot[0], ay = preRot[1], az = preRot[2], aw = preRot[3];
-                const bx = rotation[0], by = rotation[1], bz = rotation[2], bw = rotation[3];
-                rotation = [
-                  aw * bx + ax * bw + ay * bz - az * by,
-                  aw * by - ax * bz + ay * bw + az * bx,
-                  aw * bz + ax * by - ay * bx + az * bw,
-                  aw * bw - ax * bx - ay * by - az * bz,
-                ];
-              } else {
-                rotation = preRot;
-              }
+              preRotation = [sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz, cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz];
             } else if (propName === "Lcl Scaling") {
               scale = [p.properties[4].value as number, p.properties[5].value as number, p.properties[6].value as number];
             }
           }
         }
       }
+    }
+
+    // Combine PreRotation * LclRotation (order-independent of FBX property order)
+    let rotation: [number, number, number, number] | undefined;
+    if (preRotation && lclRotation) {
+      const ax = preRotation[0], ay = preRotation[1], az = preRotation[2], aw = preRotation[3];
+      const bx = lclRotation[0], by = lclRotation[1], bz = lclRotation[2], bw = lclRotation[3];
+      rotation = [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+      ];
+    } else if (preRotation) {
+      rotation = preRotation;
+    } else if (lclRotation) {
+      rotation = lclRotation;
     }
 
     idToIndex.set(id, i);
@@ -1276,6 +1325,7 @@ function parseFBXSkinData(
     let indexes: number[] = [];
     let weights: number[] = [];
     let transform: number[] = [];
+    let transformLink: number[] = [];
     for (let j = 0; j < clusterNode.children.length; j++) {
       const child = clusterNode.children[j];
       if (child.name === "Indexes" && child.properties.length > 0 && Array.isArray(child.properties[0].value)) {
@@ -1284,17 +1334,22 @@ function parseFBXSkinData(
         weights = child.properties[0].value as number[];
       } else if (child.name === "Transform" && child.properties.length > 0 && Array.isArray(child.properties[0].value)) {
         transform = child.properties[0].value as number[];
+      } else if (child.name === "TransformLink" && child.properties.length > 0 && Array.isArray(child.properties[0].value)) {
+        transformLink = child.properties[0].value as number[];
       }
     }
 
-    // Store inverse bind matrix (transpose from row-major to column-major for WebGPU)
-    if (transform.length === 16) {
-      const ibm = bones[boneIdx].inverseBindMatrix;
-      for (let r = 0; r < 4; r++) {
-        for (let c = 0; c < 4; c++) {
-          ibm[c * 4 + r] = transform[r * 4 + c];
-        }
-      }
+    // The cluster's TransformLink is the bone's WORLD transform at bind time.
+    // The inverse bind matrix (IBM) = inverse(TransformLink).
+    // FBX stores matrices in column-major layout (translation at [12,13,14]),
+    // matching WebGPU — no transpose needed.
+    if (transformLink.length === 16) {
+      bones[boneIdx].inverseBindMatrix = invertMat4CM(new Float32Array(transformLink));
+    } else if (transform.length === 16) {
+      // Fallback: some FBX files only have Transform (the mesh node's transform,
+      // which is the inverse of the bone world transform). Copy directly since
+      // FBX matrices are already column-major.
+      bones[boneIdx].inverseBindMatrix = new Float32Array(transform);
     }
 
     // Find geometry: cluster -> skin -> geometry

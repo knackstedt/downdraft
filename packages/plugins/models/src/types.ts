@@ -91,6 +91,15 @@ export interface BoneData {
 export interface SkinData {
   bones: BoneData[];
   boneNameToIndex: Map<string, number>;
+  /**
+   * The 4×4 normalization transform (column-major) that was applied to mesh
+   * vertices during normalization. The animator must conjugate skin matrices
+   * with this (T * skinMatrix * T^-1) so that skinned vertices, which were
+   * transformed by T, are mapped to the correct normalized world positions.
+   * Identity (or undefined) when no normalization was applied or the model
+   * has no skin.
+   */
+  normalizationMatrix?: Float32Array;
 }
 
 export interface PunctualLightData {

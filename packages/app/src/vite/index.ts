@@ -14,9 +14,10 @@
 
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "path";
 import { hotReloadPlugin } from "../../../core/src/vite/hot-reload-plugin";
+import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
 
 export interface DowndraftViteConfigOptions {
   /** The game directory (usually `__dirname` from the game's electron.vite.config.ts). */
@@ -25,7 +26,7 @@ export interface DowndraftViteConfigOptions {
   main?: string;
   /** Preload entry (default: `<root>/src/preload.ts`). */
   preload?: string;
-  /** Renderer root directory (default: `<root>`). Must contain `index.html`. */
+  /** Renderer root directory (default: `<root>`). Must contain `index.html` unless `html` is set. */
   rendererRoot?: string;
   /** Game name — used to determine hot-reload simPaths. Defaults to basename(root). */
   game?: string;
@@ -43,6 +44,23 @@ export interface DowndraftViteConfigOptions {
   rendererPaths?: string[];
   /** Hot-reload exclude paths. */
   excludePaths?: string[];
+  /**
+   * HTML generation config. When provided, the framework generates index.html
+   * from a layer spec instead of requiring the game to maintain its own.
+   * Defaults to one canvas + one DOM root:
+   *
+   *   { title: game, layers: [{ type: "canvas", id: "game-canvas" }, { type: "dom", id: "root" }] }
+   *
+   * If the game has a physical index.html, the generated HTML replaces its
+   * content at build/dev time. Set to `false` to disable generation and use
+   * the game's own index.html as-is.
+   */
+  html?: DowndraftHtmlOptions | false;
+  /**
+   * Convenience shorthand for `html.layers`. If set, implies `html` is enabled.
+   * Defaults to one canvas + one DOM root.
+   */
+  layers?: LayerSpec[];
 }
 
 export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): ReturnType<typeof defineConfig> {
@@ -145,8 +163,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/mcp\//, replacement: resolve(repoRoot, "packages/mcp/src") + "/" },
     { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src/index.ts") },
     { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src") + "/" },
-    // @downdraft/app renderer accessor
+    // @downdraft/app renderer accessor + base CSS
     { find: /^@downdraft\/app\/renderer$/, replacement: resolve(repoRoot, "packages/app/src/renderer/index.ts") },
+    { find: /^@downdraft\/app\/renderer\/downdraft-base\.css$/, replacement: resolve(repoRoot, "packages/app/src/renderer/downdraft-base.css") },
     { find: /^@downdraft\/app\/shared$/, replacement: resolve(repoRoot, "packages/app/src/shared/index.ts") },
     { find: /^@downdraft\/app$/, replacement: resolve(repoRoot, "packages/app/src/index.ts") },
     ...(options.rendererAliases ?? []),
@@ -169,6 +188,31 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     "games/to-the-ocean/plugins/buoyancy/src/",
     "games/to-the-ocean/plugins/collision/src/",
   ];
+
+  // --- HTML generation ---
+  // If html is not explicitly false, generate index.html from the layer spec.
+  // Games can opt out by setting html: false to use their own index.html as-is.
+  const htmlOpts: DowndraftHtmlOptions | null = options.html === false
+    ? null
+    : options.html ?? {
+        title: game,
+        layers: options.layers ?? [
+          { type: "canvas", id: "game-canvas" },
+          { type: "dom", id: "root" },
+        ],
+        entry: "/src/main.tsx",
+      };
+
+  // Ensure index.html exists for the rollup input — if the game doesn't have
+  // one, the HTML plugin will generate it virtually. But rollup needs a file
+  // to exist at the input path. We create a placeholder if needed.
+  const indexHtmlPath = resolve(rendererRoot, "index.html");
+  if (htmlOpts && !existsSync(indexHtmlPath)) {
+    // The plugin's transformIndexHtml will replace this content at build time.
+    // We just need a file to exist so rollup can resolve the input.
+    mkdirSync(resolve(rendererRoot), { recursive: true });
+    writeFileSync(indexHtmlPath, "<!-- downdraft: generated -->\n", "utf-8");
+  }
 
   return defineConfig({
     main: {
@@ -255,6 +299,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         },
       } as any,
       plugins: [
+        ...(htmlOpts ? [downdraftHtmlPlugin(htmlOpts)] : []),
         react(),
         hotReloadPlugin({
           simPaths,
@@ -268,3 +313,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     },
   });
 }
+
+// Re-export HTML generation types for games that need them
+export type { CanvasLayer, DomLayer, DowndraftHtmlOptions, LayerSpec } from "./downdraft-html-plugin";
+
