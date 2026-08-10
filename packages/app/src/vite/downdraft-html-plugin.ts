@@ -130,23 +130,11 @@ export function downdraftHtmlPlugin(opts: DowndraftHtmlOptions): Plugin {
       }
       return null;
     },
-    configureServer(server) {
-      // In dev, serve the generated HTML at /index.html if no physical file exists
-      server.middlewares.use((req, res, next) => {
-        if (req.url === "/" || req.url === "/index.html") {
-          // Check if a physical index.html exists — if so, let Vite handle it
-          // This is a fallback; the transformIndexHtml hook below handles the
-          // case where the file doesn't exist.
-        }
-        next();
-      });
-    },
     transformIndexHtml: {
-      enforce: "pre" as const,
-      transform(_html, ctx) {
-        // If Vite is processing an index.html that exists, replace its content
-        // with the generated HTML. This ensures the framework controls the layout.
-        // The ctx.path tells us which file is being transformed.
+      enforce: "pre",
+      transform(_html: string, ctx: { path: string }) {
+        // Replace the index.html content with the framework-generated HTML.
+        // This ensures the framework controls the canvas/DOM layer layout.
         void ctx;
         return html;
       },
