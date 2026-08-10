@@ -35,6 +35,19 @@
       "problemMatcher": []
     },
     {
+      "label": "Dev: Falling Sand",
+      "type": "shell",
+      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/falling-sand/electron.vite.config.ts",
+      "runOptions": {
+        "instanceLimit": 2
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
       "label": "Build",
       "type": "shell",
       "command": "bun run build",

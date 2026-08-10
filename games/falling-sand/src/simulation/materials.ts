@@ -41,7 +41,7 @@ export const MATERIALS: Record<Material, MaterialDef> = {
     magnetic: false, color: [0.76, 0.70, 0.50, 1.0],
   },
   [Material.Water]: {
-    id: 2, name: "Water", gravity: 1, gravityDir: 1,
+    id: 2, name: "Water", gravity: 2, gravityDir: 1,
     flammable: false, burnTime: 0, solid: false, liquid: true, gas: false,
     magnetic: false, color: [0.12, 0.42, 0.85, 0.9],
   },
@@ -51,7 +51,7 @@ export const MATERIALS: Record<Material, MaterialDef> = {
     magnetic: false, color: [0.45, 0.45, 0.48, 1.0],
   },
   [Material.Wood]: {
-    id: 4, name: "Wood", gravity: 1, gravityDir: 1,
+    id: 4, name: "Wood", gravity: 0, gravityDir: 0,
     flammable: true, burnTime: 240, solid: true, liquid: false, gas: false,
     magnetic: false, color: [0.55, 0.35, 0.18, 1.0],
   },
@@ -81,7 +81,7 @@ export const MATERIALS: Record<Material, MaterialDef> = {
     magnetic: true, color: [0.65, 0.65, 0.70, 1.0],
   },
   [Material.Lava]: {
-    id: 10, name: "Lava", gravity: 1, gravityDir: 1,
+    id: 10, name: "Lava", gravity: 3, gravityDir: 1,
     flammable: false, burnTime: 0, solid: false, liquid: true, gas: false,
     magnetic: false, color: [0.9, 0.25, 0.05, 1.0],
   },
