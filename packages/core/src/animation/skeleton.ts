@@ -6,6 +6,8 @@ export interface Bone {
   bindRotation: [number, number, number, number];
   bindScale: [number, number, number];
   inverseBindMatrix: Float32Array;
+  /** World transform of non-bone ancestors for root bones. See BoneData. */
+  rootAncestorMatrix?: Float32Array;
 }
 
 export interface SkeletonData {
@@ -21,20 +23,16 @@ export interface GLTFSkin {
   name?: string;
 }
 
-function multiplyMat4(a: Float32Array, b: Float32Array): Float32Array {
-  // Compute A * B in column-major layout.
+function multiplyMat4Into(a: Float32Array, b: Float32Array, out: Float32Array): void {
+  // Compute A * B in column-major layout, writing into `out` (no allocation).
   // out[col=i, row=j] = sum_k A[col=k, row=j] * B[col=i, row=k]
-  const out = new Float32Array(16);
   for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 4; j++) {
-      out[i * 4 + j] =
-        a[0 * 4 + j] * b[i * 4 + 0] +
-        a[1 * 4 + j] * b[i * 4 + 1] +
-        a[2 * 4 + j] * b[i * 4 + 2] +
-        a[3 * 4 + j] * b[i * 4 + 3];
-    }
+    const bi0 = b[i * 4 + 0], bi1 = b[i * 4 + 1], bi2 = b[i * 4 + 2], bi3 = b[i * 4 + 3];
+    out[i * 4 + 0] = a[0] * bi0 + a[4] * bi1 + a[8] * bi2 + a[12] * bi3;
+    out[i * 4 + 1] = a[1] * bi0 + a[5] * bi1 + a[9] * bi2 + a[13] * bi3;
+    out[i * 4 + 2] = a[2] * bi0 + a[6] * bi1 + a[10] * bi2 + a[14] * bi3;
+    out[i * 4 + 3] = a[3] * bi0 + a[7] * bi1 + a[11] * bi2 + a[15] * bi3;
   }
-  return out;
 }
 
 function invertMat4(m: Float32Array): Float32Array {
@@ -78,18 +76,18 @@ function invertMat4(m: Float32Array): Float32Array {
   return out;
 }
 
-function composeMat4(
+function composeMat4Into(
   pos: [number, number, number],
   rot: [number, number, number, number],
   scale: [number, number, number],
-): Float32Array {
+  m: Float32Array,
+): void {
   const x = rot[0], y = rot[1], z = rot[2], w = rot[3];
   const x2 = x + x, y2 = y + y, z2 = z + z;
   const xx = x * x2, xy = x * y2, xz = x * z2;
   const yy = y * y2, yz = y * z2, zz = z * z2;
   const wx = w * x2, wy = w * y2, wz = w * z2;
 
-  const m = new Float32Array(16);
   m[0] = (1 - (yy + zz)) * scale[0];
   m[1] = (xy + wz) * scale[0];
   m[2] = (xz - wy) * scale[0];
@@ -106,7 +104,6 @@ function composeMat4(
   m[13] = pos[1];
   m[14] = pos[2];
   m[15] = 1;
-  return m;
 }
 
 export class Skeleton {
@@ -114,6 +111,9 @@ export class Skeleton {
   private boneIndexMap: Map<string, number> = new Map();
   private boneWorldMatrices: Float32Array[];
   private skinMatrices: Float32Array;
+  // Scratch buffers to avoid per-frame allocations
+  private scratchLocal: Float32Array;
+  private scratchProduct: Float32Array;
 
   constructor(data: SkeletonData) {
     this.data = data;
@@ -122,6 +122,8 @@ export class Skeleton {
     }
     this.boneWorldMatrices = data.bones.map(() => new Float32Array(16));
     this.skinMatrices = new Float32Array(data.bones.length * 16);
+    this.scratchLocal = new Float32Array(16);
+    this.scratchProduct = new Float32Array(16);
   }
 
   getBoneIndex(name: string): number {
@@ -136,22 +138,32 @@ export class Skeleton {
     localTransforms: Array<{ position: [number, number, number]; rotation: [number, number, number, number]; scale: [number, number, number] }>,
   ): Float32Array {
     const bones = this.data.bones;
+    const scratchLocal = this.scratchLocal;
+    const scratchProduct = this.scratchProduct;
 
     for (let i = 0; i < bones.length; i++) {
       const bone = bones[i];
       const local = localTransforms[i];
-      const localMatrix = composeMat4(local.position, local.rotation, local.scale);
+      composeMat4Into(local.position, local.rotation, local.scale, scratchLocal);
 
-      if (bone.parentIndex >= 0) {
-        this.boneWorldMatrices[i] = multiplyMat4(this.boneWorldMatrices[bone.parentIndex], localMatrix);
+      const worldMat = this.boneWorldMatrices[i];
+      if (bone.parentIndex >= 0 && bone.rootAncestorMatrix) {
+        // Child bone with non-bone intermediates: world = parent * intermediate * local
+        multiplyMat4Into(bone.rootAncestorMatrix, scratchLocal, scratchProduct);
+        multiplyMat4Into(this.boneWorldMatrices[bone.parentIndex], scratchProduct, worldMat);
+      } else if (bone.parentIndex >= 0) {
+        multiplyMat4Into(this.boneWorldMatrices[bone.parentIndex], scratchLocal, worldMat);
+      } else if (bone.rootAncestorMatrix) {
+        // Root bone with non-bone ancestors: world = ancestorWorld * local
+        multiplyMat4Into(bone.rootAncestorMatrix, scratchLocal, worldMat);
       } else {
-        this.boneWorldMatrices[i] = localMatrix;
+        worldMat.set(scratchLocal);
       }
     }
 
     for (let i = 0; i < bones.length; i++) {
-      const skinMatrix = multiplyMat4(this.boneWorldMatrices[i], bones[i].inverseBindMatrix);
-      this.skinMatrices.set(skinMatrix, i * 16);
+      multiplyMat4Into(this.boneWorldMatrices[i], bones[i].inverseBindMatrix, scratchProduct);
+      this.skinMatrices.set(scratchProduct, i * 16);
     }
 
     return this.skinMatrices;
@@ -192,7 +204,8 @@ export function buildSkeletonFromGLTF(
     if (skin.inverseBindMatrices && i * 16 < skin.inverseBindMatrices.length) {
       ibm = skin.inverseBindMatrices.slice(i * 16, i * 16 + 16);
     } else {
-      const bindMatrix = composeMat4(bindPos, bindRot, bindScale);
+      const bindMatrix = new Float32Array(16);
+      composeMat4Into(bindPos, bindRot, bindScale, bindMatrix);
       ibm = invertMat4(bindMatrix);
     }
 

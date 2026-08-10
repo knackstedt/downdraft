@@ -27,7 +27,7 @@ export function webGpuSwitches(): Switch[] {
     ["enable-gpu-rasterization"],
     ["enable-zero-copy"],
     ["enable-accelerated-video-decode"],
-    ["js-flags", "--expose-gc --experimental-sqlite"],
+    ["js-flags", "--expose-gc"],
   ];
 
   if (useSwiftshader) {

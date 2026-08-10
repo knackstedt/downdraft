@@ -12,7 +12,7 @@ export interface MeshData {
   uvs: Float32Array | null;
   colors: Float32Array | null;
   materialIndex?: number;
-  joints?: Uint8Array;    // 4 bone indices per vertex (uint8, max 255 bones)
+  joints?: Uint8Array | Uint16Array | Uint32Array; // 4 bone indices per vertex
   weights?: Float32Array; // 4 bone weights per vertex (normalized)
   morphTargets?: MorphTargetData[];
   morphTargetNames?: string[];
@@ -86,6 +86,11 @@ export interface BoneData {
   restTranslation: [number, number, number];
   restRotation: [number, number, number, number];
   restScale: [number, number, number];
+  /** For root bones (parentIndex < 0) with non-bone ancestors in the FBX
+   *  hierarchy, this is the composed world transform of those ancestors.
+   *  Applied in computeSkinMatrices so the root bone's world matrix matches
+   *  the TransformLink. Undefined when no non-bone ancestors exist. */
+  rootAncestorMatrix?: Float32Array;
 }
 
 export interface SkinData {
