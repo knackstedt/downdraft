@@ -7,6 +7,12 @@ import {
 const materialNames = [
   "Empty", "Sand", "Water", "Stone", "Wood", "Fire", "Smoke",
   "Oil", "Gunpowder", "Iron", "Lava", "Steam", "Plant", "Flesh",
+  "Dirt", "Seed", "Leaf", "Antimatter", "???", "Flour",
+  "Gasoline", "Gas Vapor", "Hydrogen", "Plastic", "Toast", "Salt",
+  "Wall", "Fireflies", "Grass", "Snow", "Honey", "Mercury",
+  "Fuse", "C4", "Dynamite", "Wax", "Concrete Powder", "Dry Ice",
+  "Liquid Nitrogen", "Plasma", "Nanobots", "Magic Powder", "Glitter",
+  "Popcorn", "Rubber", "Root", "Brine", "Molten Salt", "Concrete", "Tree Wood",
 ];
 
 const overlayStyle: React.CSSProperties = {
