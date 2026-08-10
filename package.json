@@ -30,6 +30,8 @@
     "packages/plugins/*",
     "games/to-the-ocean",
     "games/to-the-ocean/plugins/*",
+    "games/falling-sand",
+    "games/falling-sand/plugins/*",
     "examples/plugin-tester"
   ],
   "devDependencies": {
