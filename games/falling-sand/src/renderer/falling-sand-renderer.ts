@@ -93,8 +93,12 @@ export class FallingSandRenderer {
     window.addEventListener("resize", this.resizeHandler);
 
     this.input.selectedMaterial = useGameStore.getState().selectedMaterial;
+    this.input.brushRadius = useGameStore.getState().brushRadius;
     this.storeUnsub = useGameStore.subscribe((s) => {
-      if (this.input) this.input.selectedMaterial = s.selectedMaterial;
+      if (this.input) {
+        this.input.selectedMaterial = s.selectedMaterial;
+        this.input.brushRadius = s.brushRadius;
+      }
     });
 
     this.gridPass = new SandGridPass(this.device, this.format, this.gridW, this.gridH, NUM_LAYERS);

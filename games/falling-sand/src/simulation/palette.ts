@@ -8,11 +8,20 @@ const SUBTLE_SHADES = [0.93, 0.97, 1.0, 1.03];
 // Fireflies: dramatic brightness range for visible flickering (dark → bright)
 const FIREFLY_SHADES = [0.15, 0.5, 1.0, 1.6];
 
+// Normal fire: red-orange shades (dark red → bright orange-red)
 const FIRE_SHADES: [number, number, number][] = [
-  [0.75, 0.15, 0.05],
-  [0.90, 0.30, 0.08],
-  [1.0, 0.55, 0.12],
-  [1.1, 0.85, 0.25],
+  [0.70, 0.15, 0.02],
+  [0.85, 0.25, 0.03],
+  [1.0, 0.40, 0.05],
+  [1.15, 0.60, 0.10],
+];
+
+// Fuse fire: bright yellow shades (orange → bright yellow)
+const FUSE_FIRE_SHADES: [number, number, number][] = [
+  [1.0, 0.65, 0.05],
+  [1.15, 0.85, 0.08],
+  [1.25, 1.0, 0.15],
+  [1.35, 1.2, 0.45],
 ];
 
 function shadeFactorsFor(mat: number): number[] {
@@ -23,8 +32,12 @@ function shadeFactorsFor(mat: number): number[] {
 }
 
 function isFireShaded(mat: number): boolean {
-  return mat === Material.Fire || mat === Material.Lava || mat === Material.Plasma ||
-         mat === Material.MoltenSalt;
+  return mat === Material.Fire || mat === Material.FuseFire || mat === Material.Lava ||
+         mat === Material.Plasma || mat === Material.MoltenSalt;
+}
+
+function fireShadesFor(mat: number): [number, number, number][] {
+  return mat === Material.FuseFire ? FUSE_FIRE_SHADES : FIRE_SHADES;
 }
 
 function clamp8(v: number): number {
@@ -40,7 +53,7 @@ export function buildPalette(): Uint8Array {
     for (let shade = 0; shade < SHADES_PER_MATERIAL; shade++) {
       const idx = (mat * SHADES_PER_MATERIAL + shade) * 4;
       if (isFireShaded(mat)) {
-        const [rMul, gMul, bMul] = FIRE_SHADES[shade];
+        const [rMul, gMul, bMul] = fireShadesFor(mat)[shade];
         colors[idx + 0] = clamp8(c[0] * 255 * rMul);
         colors[idx + 1] = clamp8(c[1] * 255 * gMul);
         colors[idx + 2] = clamp8(c[2] * 255 * bMul);

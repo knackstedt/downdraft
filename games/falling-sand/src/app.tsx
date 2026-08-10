@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MATERIALS } from "./simulation/materials";
 import { useGameStore, type FieldType } from "./stores/game-store";
 import {
     captureThumbnail, deleteSave, listSaves, loadGame, saveGame,
@@ -13,7 +14,15 @@ const materialNames = [
   "Fuse", "C4", "Dynamite", "Wax", "Concrete Powder", "Dry Ice",
   "Liquid Nitrogen", "Plasma", "Nanobots", "Magic Powder", "Glitter",
   "Popcorn", "Rubber", "Root", "Brine", "Molten Salt", "Concrete", "Tree Wood",
+  "Fuse Fire",
 ];
+
+/** Convert a material's float color [0-1] to a CSS rgb string. */
+function matColorCss(mat: number): string {
+  const c = MATERIALS[mat]?.color;
+  if (!c) return "rgb(0,0,0)";
+  return `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+}
 
 const overlayStyle: React.CSSProperties = {
   position: "absolute", inset: 0, pointerEvents: "none",
@@ -95,6 +104,52 @@ const inspectorStyle: React.CSSProperties = {
   minWidth: 200, pointerEvents: "none",
 };
 
+const toolbarStyle: React.CSSProperties = {
+  position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)",
+  display: "flex", flexWrap: "wrap", gap: 2,
+  padding: 4, background: "rgba(0,0,0,0.7)", borderRadius: 4,
+  pointerEvents: "auto", maxWidth: "calc(100vw - 360px)",
+  maxHeight: 120, overflowY: "auto",
+};
+
+const swatchStyle: React.CSSProperties = {
+  width: 22, height: 22, borderRadius: 3, cursor: "pointer",
+  border: "1px solid rgba(255,255,255,0.15)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontSize: 9, color: "rgba(255,255,255,0.7)", fontFamily: "monospace",
+  flexShrink: 0, position: "relative",
+};
+
+const swatchActiveStyle: React.CSSProperties = {
+  ...swatchStyle,
+  border: "2px solid #4fc3f7",
+  boxShadow: "0 0 4px rgba(79,195,247,0.6)",
+};
+
+const tooltipStyle: React.CSSProperties = {
+  position: "fixed",
+  background: "rgba(0,0,0,0.9)",
+  color: "white",
+  fontFamily: "monospace",
+  fontSize: 11,
+  padding: "4px 8px",
+  borderRadius: 4,
+  border: "1px solid rgba(255,255,255,0.25)",
+  pointerEvents: "none",
+  zIndex: 1000,
+  whiteSpace: "nowrap",
+};
+
+const brushCircleStyle: React.CSSProperties = {
+  position: "fixed",
+  borderRadius: "50%",
+  border: "1.5px solid rgba(255,255,255,0.6)",
+  background: "rgba(255,255,255,0.08)",
+  pointerEvents: "none",
+  zIndex: 999,
+  transform: "translate(-50%, -50%)",
+};
+
 const inspectorRowStyle: React.CSSProperties = {
   display: "flex", justifyContent: "space-between", gap: 12,
 };
@@ -134,7 +189,7 @@ export default function App() {
   const {
     fps, selectedMaterial, health, paused, settings, showSettings,
     brushMode, fieldType, fieldGravity, fieldTemperature, fieldWindX, fieldWindY,
-    showFieldOverlay, activeLayer, renderer, saves, showSaves, inspector,
+    showFieldOverlay, activeLayer, renderer, saves, showSaves, inspector, brushRadius,
   } = useGameStore();
   const setSettings = useGameStore((s) => s.setSettings);
   const setShowSettings = useGameStore((s) => s.setShowSettings);
@@ -148,8 +203,59 @@ export default function App() {
   const setActiveLayer = useGameStore((s) => s.setActiveLayer);
   const setSaves = useGameStore((s) => s.setSaves);
   const setShowSaves = useGameStore((s) => s.setShowSaves);
+  const setBrushRadius = useGameStore((s) => s.setBrushRadius);
   const [selected, setSelected] = useState(selectedMaterial);
   const [saveName, setSaveName] = useState("");
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const brushRef = useRef<HTMLDivElement | null>(null);
+  const cellCssPxRef = useRef(0);
+
+  // Recompute cell size (CSS px per grid cell) when renderer or brush radius changes.
+  // This is the only thing that needs React — mouse moves are handled via direct DOM.
+  useEffect(() => {
+    if (!renderer) return;
+    const canvas = renderer.getCanvas();
+    const rect = canvas.getBoundingClientRect();
+    cellCssPxRef.current = rect.width / renderer.getGridW();
+    const diameter = (brushRadius + 0.5) * 2 * cellCssPxRef.current;
+    if (brushRef.current) {
+      brushRef.current.style.width = `${diameter}px`;
+      brushRef.current.style.height = `${diameter}px`;
+    }
+  }, [renderer, brushRadius]);
+
+  // Track mouse position via direct DOM manipulation — no React state updates on mousemove.
+  // This avoids re-rendering the entire App component 60-120 times per second.
+  useEffect(() => {
+    const canvas = useGameStore.getState().renderer?.getCanvas() ?? null;
+    const onMove = (e: MouseEvent) => {
+      const el = brushRef.current;
+      if (!el) return;
+      const onCanvas = e.target === canvas;
+      if (onCanvas) {
+        el.style.display = "block";
+        el.style.left = `${e.clientX}px`;
+        el.style.top = `${e.clientY}px`;
+        if (canvas) canvas.style.cursor = "none";
+      } else {
+        el.style.display = "none";
+        if (canvas) canvas.style.cursor = "default";
+      }
+    };
+    const onLeave = (e: MouseEvent) => {
+      if (e.relatedTarget === null) {
+        if (brushRef.current) brushRef.current.style.display = "none";
+        if (canvas) canvas.style.cursor = "default";
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseout", onLeave);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseout", onLeave);
+      if (canvas) canvas.style.cursor = "default";
+    };
+  }, [renderer]);
 
   useEffect(() => {
     useGameStore.getState().setSelectedMaterial(selected);
@@ -240,15 +346,7 @@ export default function App() {
         </div>
 
         {brushMode === "material" ? (
-          <>
-            <div>Material: {materialNames[selected] ?? "Unknown"}</div>
-            <select style={selectStyle} value={selected}
-              onChange={(e) => setSelected(parseInt(e.target.value, 10))}>
-              {materialNames.map((name, i) => (
-                <option key={name} value={i}>{i}: {name}</option>
-              ))}
-            </select>
-          </>
+          <div>Material: {materialNames[selected] ?? "Unknown"}</div>
         ) : (
           <>
             <div style={{ marginTop: 4 }}>Field Type:</div>
@@ -285,6 +383,10 @@ export default function App() {
           </>
         )}
 
+        <Slider label="Brush" min={0} max={20} step={1} value={brushRadius}
+          display={brushRadius.toString()}
+          onChange={setBrushRadius} />
+
         {paused && <div style={{ color: "yellow" }}>PAUSED</div>}
 
         {/* Save / Load / Clear buttons */}
@@ -312,6 +414,40 @@ export default function App() {
           {showSettings ? "Close Settings" : "Settings"}
         </button>
       </div>
+
+      {/* Material toolbar — color swatch grid (only in material brush mode) */}
+      {brushMode === "material" && (
+        <div style={toolbarStyle}>
+          {materialNames.map((name, i) => (
+            <div
+              key={i}
+              style={selected === i ? swatchActiveStyle : swatchStyle}
+              onMouseEnter={(e) => setTooltip({ text: `${i}: ${name}`, x: e.clientX, y: e.clientY })}
+              onMouseMove={(e) => setTooltip({ text: `${i}: ${name}`, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setTooltip(null)}
+              onClick={() => setSelected(i)}
+            >
+              <div style={{
+                position: "absolute", inset: 2, borderRadius: 2,
+                background: matColorCss(i),
+                opacity: MATERIALS[i]?.color?.[3] ?? 1,
+              }} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Real DOM tooltip for material swatches */}
+      {tooltip && (
+        <div style={{
+          ...tooltipStyle,
+          left: tooltip.x + 14,
+          top: tooltip.y + 14,
+        }}>{tooltip.text}</div>
+      )}
+
+      {/* Phantom brush circle — positioned via direct DOM in mousemove (no React re-render) */}
+      <div ref={brushRef} style={{ ...brushCircleStyle, display: "none" }} />
 
       {/* Cell inspector — live readout of cell under cursor */}
       <div style={inspectorStyle}>
