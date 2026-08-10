@@ -8,6 +8,7 @@ export interface InputState {
   jump: boolean;
   mouseDown: boolean;
   mouseRight: boolean;
+  mouseMiddle: boolean;
   mouseX: number;
   mouseY: number;
   lastMouseX: number;

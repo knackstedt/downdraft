@@ -88,6 +88,27 @@ const thumbStyle: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.2)", flexShrink: 0,
 };
 
+const inspectorStyle: React.CSSProperties = {
+  position: "absolute", bottom: 8, right: 8,
+  color: "rgba(255,255,255,0.85)", fontFamily: "monospace", fontSize: 11,
+  padding: 8, background: "rgba(0,0,0,0.6)", borderRadius: 4,
+  minWidth: 200, pointerEvents: "none",
+};
+
+const inspectorRowStyle: React.CSSProperties = {
+  display: "flex", justifyContent: "space-between", gap: 12,
+};
+
+const inspectorLabelStyle: React.CSSProperties = {
+  color: "rgba(255,255,255,0.5)",
+};
+
+const inspectorHeaderStyle: React.CSSProperties = {
+  fontWeight: "bold", marginBottom: 4, paddingBottom: 2,
+  borderBottom: "1px solid rgba(255,255,255,0.15)",
+  color: "rgba(255,255,255,0.9)",
+};
+
 function Slider({ label, min, max, step, value, display, onChange }: {
   label: string; min: number; max: number; step: number; value: number;
   display: string; onChange: (v: number) => void;
@@ -113,7 +134,7 @@ export default function App() {
   const {
     fps, selectedMaterial, health, paused, settings, showSettings,
     brushMode, fieldType, fieldGravity, fieldTemperature, fieldWindX, fieldWindY,
-    showFieldOverlay, activeLayer, renderer, saves, showSaves,
+    showFieldOverlay, activeLayer, renderer, saves, showSaves, inspector,
   } = useGameStore();
   const setSettings = useGameStore((s) => s.setSettings);
   const setShowSettings = useGameStore((s) => s.setShowSettings);
@@ -292,6 +313,57 @@ export default function App() {
         </button>
       </div>
 
+      {/* Cell inspector — live readout of cell under cursor */}
+      <div style={inspectorStyle}>
+        <div style={inspectorHeaderStyle}>Cell Inspector</div>
+        {inspector.valid ? (
+          <>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Position</span>
+              <span>({inspector.gx}, {inspector.gy}) L{inspector.layer}</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Material</span>
+              <span>{inspector.mat}: {inspector.matName}</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Lifetime</span>
+              <span>{inspector.lifetime}</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Shade</span>
+              <span>{inspector.shade}/3</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Gravity</span>
+              <span>{inspector.gravityMult.toFixed(2)}× ({inspector.gravity})</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Temp</span>
+              <span>{inspector.temperatureMult.toFixed(2)} ({inspector.temperature})</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Wind X</span>
+              <span>{inspector.windX}</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Wind Y</span>
+              <span>{inspector.windY}</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Wind Mag</span>
+              <span>{inspector.windMag.toFixed(1)}</span>
+            </div>
+            <div style={inspectorRowStyle}>
+              <span style={inspectorLabelStyle}>Wind Dir</span>
+              <span>{inspector.windDir.toFixed(0)}°</span>
+            </div>
+          </>
+        ) : (
+          <div style={{ color: "rgba(255,255,255,0.4)" }}>Hover over the grid</div>
+        )}
+      </div>
+
       {showSettings && (
         <div style={settingsPanelStyle}>
           <div style={{ fontWeight: "bold", marginBottom: 4 }}>Impulse Settings</div>
@@ -333,7 +405,7 @@ export default function App() {
       )}
 
       <div style={helpStyle}>
-        WASD / Space • Left-click paint {brushMode === "field" ? "field" : "material"} • Right-click ignite
+        WASD / Space • Left-click paint {brushMode === "field" ? "field" : "material"} • Right-click ignite • Middle-click pick material
       </div>
     </div>
   );

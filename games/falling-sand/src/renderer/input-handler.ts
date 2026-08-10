@@ -9,6 +9,7 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
     jump: false,
     mouseDown: false,
     mouseRight: false,
+    mouseMiddle: false,
     mouseX: 0,
     mouseY: 0,
     lastMouseX: 0,
@@ -39,6 +40,7 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
 
   canvas.addEventListener("mousedown", (e) => {
     if (e.button === 0) state.mouseDown = true;
+    if (e.button === 1) state.mouseMiddle = true;
     if (e.button === 2) state.mouseRight = true;
     const { x, y } = toCanvasCoords(e);
     state.mouseX = x;
@@ -47,9 +49,11 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputState {
   });
   canvas.addEventListener("mouseup", (e) => {
     if (e.button === 0) state.mouseDown = false;
+    if (e.button === 1) state.mouseMiddle = false;
     if (e.button === 2) state.mouseRight = false;
   });
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("auxclick", (e) => e.preventDefault());
 
   canvas.addEventListener("mousemove", (e) => {
     const { x, y } = toCanvasCoords(e);
