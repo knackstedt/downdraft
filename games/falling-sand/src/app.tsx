@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useGameStore, type FieldType } from "./stores/game-store";
+import {
+    captureThumbnail, deleteSave, listSaves, loadGame, saveGame,
+} from "./stores/save-system";
 
 const materialNames = [
   "Empty", "Sand", "Water", "Stone", "Wood", "Fire", "Smoke",
@@ -34,6 +37,11 @@ const settingsPanelStyle: React.CSSProperties = {
   borderRadius: 4, minWidth: 280, maxHeight: "calc(100vh - 16px)", overflowY: "auto",
 };
 
+const savesPanelStyle: React.CSSProperties = {
+  ...settingsPanelStyle,
+  minWidth: 360,
+};
+
 const btnStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.1)", color: "white", fontSize: 12,
   padding: "4px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.2)",
@@ -44,6 +52,12 @@ const activeBtnStyle: React.CSSProperties = {
   ...btnStyle,
   background: "rgba(79,195,247,0.3)",
   border: "1px solid rgba(79,195,247,0.6)",
+};
+
+const dangerBtnStyle: React.CSSProperties = {
+  ...btnStyle,
+  background: "rgba(244,67,54,0.2)",
+  border: "1px solid rgba(244,67,54,0.5)",
 };
 
 const sectionLabelStyle: React.CSSProperties = {
@@ -57,6 +71,16 @@ const sliderRowStyle: React.CSSProperties = {
 };
 
 const sliderStyle: React.CSSProperties = { flex: 1, accentColor: "#4fc3f7" };
+
+const saveEntryStyle: React.CSSProperties = {
+  display: "flex", gap: 8, alignItems: "center", padding: "6px 0",
+  borderBottom: "1px solid rgba(255,255,255,0.1)",
+};
+
+const thumbStyle: React.CSSProperties = {
+  width: 80, height: "auto", objectFit: "contain", borderRadius: 2,
+  border: "1px solid rgba(255,255,255,0.2)", flexShrink: 0,
+};
 
 function Slider({ label, min, max, step, value, display, onChange }: {
   label: string; min: number; max: number; step: number; value: number;
@@ -83,7 +107,7 @@ export default function App() {
   const {
     fps, selectedMaterial, health, paused, settings, showSettings,
     brushMode, fieldType, fieldGravity, fieldTemperature, fieldWindX, fieldWindY,
-    showFieldOverlay,
+    showFieldOverlay, activeLayer, renderer, saves, showSaves,
   } = useGameStore();
   const setSettings = useGameStore((s) => s.setSettings);
   const setShowSettings = useGameStore((s) => s.setShowSettings);
@@ -94,11 +118,69 @@ export default function App() {
   const setFieldWindX = useGameStore((s) => s.setFieldWindX);
   const setFieldWindY = useGameStore((s) => s.setFieldWindY);
   const setShowFieldOverlay = useGameStore((s) => s.setShowFieldOverlay);
+  const setActiveLayer = useGameStore((s) => s.setActiveLayer);
+  const setSaves = useGameStore((s) => s.setSaves);
+  const setShowSaves = useGameStore((s) => s.setShowSaves);
   const [selected, setSelected] = useState(selectedMaterial);
+  const [saveName, setSaveName] = useState("");
 
   useEffect(() => {
     useGameStore.getState().setSelectedMaterial(selected);
   }, [selected]);
+
+  const refreshSaves = useCallback(async () => {
+    try {
+      const list = await listSaves();
+      setSaves(list);
+    } catch (e) {
+      console.error("Failed to list saves:", e);
+    }
+  }, [setSaves]);
+
+  const handleSave = useCallback(async () => {
+    if (!renderer) return;
+    try {
+      const canvas = renderer.getCanvas();
+      const thumb = await captureThumbnail(canvas);
+      const { grids, fields, gridW, gridH } = renderer.snapshotGrids();
+      const name = saveName.trim() || `Save ${new Date().toLocaleString()}`;
+      await saveGame(name, thumb, gridW, gridH, grids, fields);
+      setSaveName("");
+      await refreshSaves();
+    } catch (e) {
+      console.error("[save] Failed:", e);
+    }
+  }, [renderer, saveName, refreshSaves]);
+
+  const handleLoad = useCallback(async (id: string) => {
+    if (!renderer) return;
+    try {
+      const entry = await loadGame(id);
+      if (!entry) return;
+      await renderer.loadSave(entry.grids, entry.fields, entry.gridW, entry.gridH);
+    } catch (e) {
+      console.error("Failed to load:", e);
+    }
+  }, [renderer]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      await deleteSave(id);
+      await refreshSaves();
+    } catch (e) {
+      console.error("Failed to delete save:", e);
+    }
+  }, [refreshSaves]);
+
+  const handleClear = useCallback(() => {
+    renderer?.clearAll();
+  }, [renderer]);
+
+  const handleToggleSaves = useCallback(() => {
+    const next = !showSaves;
+    setShowSaves(next);
+    if (next) refreshSaves();
+  }, [showSaves, setShowSaves, refreshSaves]);
 
   return (
     <div style={overlayStyle}>
@@ -116,6 +198,18 @@ export default function App() {
             style={brushMode === "field" ? activeBtnStyle : btnStyle}
             onClick={() => setBrushMode("field")}
           >Field</button>
+        </div>
+
+        {/* Layer selector */}
+        <div style={{ marginTop: 4, display: "flex", gap: 4 }}>
+          <button
+            style={activeLayer === 0 ? activeBtnStyle : btnStyle}
+            onClick={() => setActiveLayer(0)}
+          >Layer 0 (back)</button>
+          <button
+            style={activeLayer === 1 ? activeBtnStyle : btnStyle}
+            onClick={() => setActiveLayer(1)}
+          >Layer 1 (front)</button>
         </div>
 
         {brushMode === "material" ? (
@@ -165,6 +259,28 @@ export default function App() {
         )}
 
         {paused && <div style={{ color: "yellow" }}>PAUSED</div>}
+
+        {/* Save / Load / Clear buttons */}
+        <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <button style={btnStyle} onClick={handleSave}>Save</button>
+          <button style={btnStyle} onClick={handleToggleSaves}>
+            {showSaves ? "Close Saves" : "Load"}
+          </button>
+          <button style={dangerBtnStyle} onClick={handleClear}>Clear</button>
+        </div>
+        {showSaves && (
+          <input
+            type="text"
+            placeholder="Save name (optional)"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            style={{
+              ...selectStyle, marginTop: 4, width: "100%",
+              boxSizing: "border-box",
+            }}
+          />
+        )}
+
         <button style={btnStyle} onClick={() => setShowSettings(!showSettings)}>
           {showSettings ? "Close Settings" : "Settings"}
         </button>
@@ -181,6 +297,32 @@ export default function App() {
             value={settings.horizontalImpulseStrength}
             display={settings.horizontalImpulseStrength.toFixed(1)}
             onChange={(v) => setSettings({ horizontalImpulseStrength: v })} />
+        </div>
+      )}
+
+      {showSaves && (
+        <div style={savesPanelStyle}>
+          <div style={{ fontWeight: "bold", marginBottom: 4 }}>Saves</div>
+          {saves.length === 0 && (
+            <div style={{ color: "rgba(255,255,255,0.5)", padding: "8px 0" }}>
+              No saves yet. Click "Save" to create one.
+            </div>
+          )}
+          {saves.map((save) => (
+            <div key={save.id} style={saveEntryStyle}>
+              <img src={save.thumbnailUrl} style={thumbStyle} alt="thumbnail" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>{save.name}</div>
+                <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 10 }}>
+                  {new Date(save.timestamp).toLocaleString()} • {save.gridW}×{save.gridH}
+                </div>
+              </div>
+              <button style={btnStyle} onClick={() => handleLoad(save.id)}>Load</button>
+              <button style={dangerBtnStyle} onClick={() => handleDelete(save.id)}>Del</button>
+            </div>
+          ))}
         </div>
       )}
 

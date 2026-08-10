@@ -7,6 +7,8 @@ type SandApi = {
   pause(): Promise<void>;
   resume(): Promise<void>;
   shutdown(): Promise<void>;
+  clear(): Promise<void>;
+  loadGrids(grids: Uint32Array[], fields: Uint8Array[], gridW: number, gridH: number): Promise<void>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
 };
 
@@ -69,6 +71,19 @@ export class SandWorkerHost {
   pause(): void { this.wp?.proxy.pause().catch(() => {}); }
   resume(): void { this.wp?.proxy.resume().catch(() => {}); }
 
+  clear(): void { this.wp?.proxy.clear().catch(() => {}); }
+
+  async loadGrids(grids: Uint32Array[], fields: Uint8Array[], gridW: number, gridH: number): Promise<void> {
+    // If dimensions changed, resize first
+    if (gridW !== this.gridW || gridH !== this.gridH) {
+      this.gridW = gridW;
+      this.gridH = gridH;
+      this.writer.setDims(gridW, gridH);
+      this.reader.setDims(gridW, gridH);
+    }
+    await this.wp?.proxy.loadGrids(grids, fields, gridW, gridH);
+  }
+
   async getStats(): Promise<{ fps: number; tick: number; frame: number } | null> {
     if (!this.wp) return null;
     try { return await this.wp.proxy.getStats(); }
@@ -105,5 +120,9 @@ export class SandWorkerHost {
 
   writeShowFields(show: boolean): void {
     this.writer.writeInput(INPUT.SHOW_FIELDS, show ? 1 : 0);
+  }
+
+  writeActiveLayer(layer: number): void {
+    this.writer.writeInput(INPUT.ACTIVE_LAYER, layer);
   }
 }

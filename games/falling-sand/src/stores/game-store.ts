@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import type { FallingSandRenderer } from "../renderer/falling-sand-renderer";
+import type { SaveMetadata } from "./save-system";
 
 export type BrushMode = "material" | "field";
 export type FieldType = "gravity" | "temperature" | "windX" | "windY";
@@ -29,6 +31,10 @@ export interface GameState {
   fieldWindX: number;     // -128 to 127
   fieldWindY: number;     // -128 to 127
   showFieldOverlay: boolean;
+  activeLayer: number;    // 0 = back, 1 = front
+  renderer: FallingSandRenderer | null;
+  saves: SaveMetadata[];
+  showSaves: boolean;
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -43,6 +49,10 @@ export interface GameState {
   setFieldWindX: (v: number) => void;
   setFieldWindY: (v: number) => void;
   setShowFieldOverlay: (show: boolean) => void;
+  setActiveLayer: (layer: number) => void;
+  setRenderer: (r: FallingSandRenderer | null) => void;
+  setSaves: (saves: SaveMetadata[]) => void;
+  setShowSaves: (show: boolean) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -60,6 +70,10 @@ export const useGameStore = create<GameState>((set) => ({
   fieldWindX: 0,
   fieldWindY: 0,
   showFieldOverlay: false,
+  activeLayer: 0,
+  renderer: null,
+  saves: [],
+  showSaves: false,
 
   setFPS: (fps) => set((s) => {
     const history = [...s.fpsHistory, fps].slice(-30);
@@ -78,4 +92,8 @@ export const useGameStore = create<GameState>((set) => ({
   setFieldWindX: (fieldWindX) => set({ fieldWindX }),
   setFieldWindY: (fieldWindY) => set({ fieldWindY }),
   setShowFieldOverlay: (showFieldOverlay) => set({ showFieldOverlay }),
+  setActiveLayer: (activeLayer) => set({ activeLayer }),
+  setRenderer: (renderer) => set({ renderer }),
+  setSaves: (saves) => set({ saves }),
+  setShowSaves: (showSaves) => set({ showSaves }),
 }));
