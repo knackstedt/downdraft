@@ -40,6 +40,9 @@ interface GeometryData {
  * (one MeshData per material region). Each split mesh has its materialIndex
  * set to the corresponding material index.
  *
+ * @param materialRemap Per-geometry remapping from local (per-model)
+ *        LayerElementMaterial indices to global material array indices.
+ *        Built by `buildMaterialRemap` in the FBX orchestrator.
  * @returns MeshData[] and a map of geometry ID → mesh indices (for skinning
  *          and node-mesh linking).
  */
@@ -48,6 +51,7 @@ export function parseGeometry(
   materials: { colors: [number, number, number][]; hasTextures: Set<number> },
   geometrySkins: Map<string, GeometrySkinData>,
   diag: DiagnosticsCollector,
+  materialRemap?: Map<string, Map<number, number>>,
 ): { meshes: MeshData[]; geoIdToMeshIndices: Map<string, number[]> } {
   const geometryNodes = findNodesInTree(nodes, "Geometry");
   const meshes: MeshData[] = [];
@@ -57,6 +61,20 @@ export function parseGeometry(
     const geoId = getObjectId(geoNode, "");
     const geoData = extractGeometryData(geoNode);
     if (!geoData) continue;
+
+    // Apply material index remapping (local → global) if available.
+    // FBX's LayerElementMaterial indices are local to the model's connected
+    // materials, not global array indices. Without remapping, meshes would
+    // use the wrong material (e.g. a palette texture instead of a solid color).
+    if (geoData.materials && materialRemap) {
+      const remap = materialRemap.get(geoId);
+      if (remap && remap.size > 0) {
+        geoData.materials = {
+          indices: geoData.materials.indices.map((localIdx) => remap.get(localIdx) ?? localIdx),
+          mappingType: geoData.materials.mappingType,
+        };
+      }
+    }
 
     const skin = geoId ? geometrySkins.get(geoId) : undefined;
     const splitMeshes = buildMeshesFromGeometry(geoData, materials, skin, diag);
@@ -163,8 +181,11 @@ function buildMeshesFromGeometry(
   const materialGroups = computeMaterialGroups(geo.materials, triangles.polyCount);
 
   if (materialGroups.length <= 1) {
-    // Single material (or no materials) — one MeshData
-    const mesh = buildSingleMesh(geo, triangles, 0, materialGroups[0] ?? { materialIndex: 0, polyRange: [0, triangles.polyCount] }, materials, skin, vertexCount);
+    // Single material (or no materials) — one MeshData.
+    // Use the group's materialIndex (which may have been remapped from local
+    // to global) instead of hardcoding 0.
+    const group = materialGroups[0] ?? { materialIndex: 0, polyRange: [0, triangles.polyCount] };
+    const mesh = buildSingleMesh(geo, triangles, group.materialIndex, group, materials, skin, vertexCount);
     return mesh ? [mesh] : [];
   }
 
@@ -381,10 +402,13 @@ function buildSingleMesh(
         }
 
         if (hasColors) {
-          const color = materials.colors[materialIndex] ?? [1, 1, 1];
-          // If material has a texture, use white vertex color so texture isn't darkened
-          const finalColor = materials.hasTextures.has(materialIndex) ? [1, 1, 1] : color;
-          newColors.push(finalColor[0], finalColor[1], finalColor[2]);
+          // Always use white vertex color. The material's baseColor (set by
+          // the renderer from MaterialData.baseColor) handles solid coloring,
+          // and the texture handles textured coloring. Baking the material's
+          // diffuse color into vertex colors here would double-apply it in the
+          // shader (texColor * vertexColor * baseColor), squaring the values
+          // and making colors too dark/desaturated.
+          newColors.push(1, 1, 1);
         }
 
         // Skin data: look up bone weights for this vertex

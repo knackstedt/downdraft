@@ -124,10 +124,9 @@ export function bakeNodeTransforms(modelData: ModelData): void {
   // node transforms into skinned vertices would double-transform them.
   for (let i = 0; i < modelData.nodes.length; i++) {
     const node = modelData.nodes[i];
-    if (node.mesh === undefined || node.mesh >= modelData.meshes.length) continue;
-
-    const mesh = modelData.meshes[node.mesh];
-    if (mesh.joints && mesh.weights && mesh.joints.length >= mesh.vertexCount * 4) continue;
+    // Bake every mesh owned by this node, including multi-material splits.
+    const nodeMeshes = node.meshes ?? (node.mesh !== undefined ? [node.mesh] : []);
+    if (nodeMeshes.length === 0) continue;
 
     const wt = worldTransforms[i];
 
@@ -138,28 +137,35 @@ export function bakeNodeTransforms(modelData: ModelData): void {
       wt.scale[0] === 1 && wt.scale[1] === 1 && wt.scale[2] === 1;
     if (isIdentity) continue;
 
-    const verts = mesh.vertices;
-    for (let v = 0; v < mesh.vertexCount; v++) {
-      const px = verts[v * 6];
-      const py = verts[v * 6 + 1];
-      const pz = verts[v * 6 + 2];
-      // Apply scale, then rotation, then translation.
-      const scaled: Vec3 = [px * wt.scale[0], py * wt.scale[1], pz * wt.scale[2]];
-      const rotated = qrotate(wt.rotation, scaled);
-      verts[v * 6] = rotated[0] + wt.translation[0];
-      verts[v * 6 + 1] = rotated[1] + wt.translation[1];
-      verts[v * 6 + 2] = rotated[2] + wt.translation[2];
+    for (const meshIdx of nodeMeshes) {
+      if (meshIdx >= modelData.meshes.length) continue;
+      const mesh = modelData.meshes[meshIdx];
+      // Skip skinned meshes (see comment above).
+      if (mesh.joints && mesh.weights && mesh.joints.length >= mesh.vertexCount * 4) continue;
 
-      // Transform normals (rotation only — no translation, and scale doesn't
-      // affect direction for uniform scale; for non-uniform scale we'd need
-      // inverse-transpose, but FBX character rigs typically use uniform scale).
-      const nx = verts[v * 6 + 3];
-      const ny = verts[v * 6 + 4];
-      const nz = verts[v * 6 + 5];
-      const rotatedN = qrotate(wt.rotation, [nx, ny, nz]);
-      verts[v * 6 + 3] = rotatedN[0];
-      verts[v * 6 + 4] = rotatedN[1];
-      verts[v * 6 + 5] = rotatedN[2];
+      const verts = mesh.vertices;
+      for (let v = 0; v < mesh.vertexCount; v++) {
+        const px = verts[v * 6];
+        const py = verts[v * 6 + 1];
+        const pz = verts[v * 6 + 2];
+        // Apply scale, then rotation, then translation.
+        const scaled: Vec3 = [px * wt.scale[0], py * wt.scale[1], pz * wt.scale[2]];
+        const rotated = qrotate(wt.rotation, scaled);
+        verts[v * 6] = rotated[0] + wt.translation[0];
+        verts[v * 6 + 1] = rotated[1] + wt.translation[1];
+        verts[v * 6 + 2] = rotated[2] + wt.translation[2];
+
+        // Transform normals (rotation only — no translation, and scale doesn't
+        // affect direction for uniform scale; for non-uniform scale we'd need
+        // inverse-transpose, but FBX character rigs typically use uniform scale).
+        const nx = verts[v * 6 + 3];
+        const ny = verts[v * 6 + 4];
+        const nz = verts[v * 6 + 5];
+        const rotatedN = qrotate(wt.rotation, [nx, ny, nz]);
+        verts[v * 6 + 3] = rotatedN[0];
+        verts[v * 6 + 4] = rotatedN[1];
+        verts[v * 6 + 5] = rotatedN[2];
+      }
     }
   }
 }

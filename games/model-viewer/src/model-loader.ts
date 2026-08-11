@@ -20,6 +20,10 @@ export interface PartInfo {
   nodeIndex: number;
   name: string;
   meshIndex: number | undefined;
+  /** All mesh indices for this part, including multi-material splits.
+   *  Used by the render selection so the full geometry is drawn, not just the
+   *  first material region. Falls back to `[meshIndex]` for single-mesh parts. */
+  meshIndices: number[];
   vertexCount: number;
   triangleCount: number;
   hasMesh: boolean;
@@ -174,12 +178,18 @@ export async function loadModelWithTextures(
       const node = modelData.nodes[i];
       const meshIdx = node.mesh;
       const hasMesh = meshIdx !== undefined && meshIdx < modelData.meshes.length;
+      // Collect all mesh indices for this node (multi-material splits), falling
+      // back to the primary mesh for single-mesh nodes.
+      const meshIndices = node.meshes
+        ? node.meshes.filter((mi) => mi < modelData.meshes.length)
+        : (hasMesh ? [meshIdx!] : []);
       const mesh = hasMesh ? modelData.meshes[meshIdx!] : null;
       parts.push({
         nodeIndex: i,
         name: node.name,
         meshIndex: meshIdx,
-        hasMesh,
+        meshIndices,
+        hasMesh: meshIndices.length > 0,
         vertexCount: mesh?.vertexCount ?? 0,
         triangleCount: mesh ? Math.floor(mesh.indexCount / 3) : 0,
         children: node.children,

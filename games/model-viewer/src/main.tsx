@@ -104,8 +104,8 @@ function getRenderedMeshes(): MeshData[] | null {
     const selectedMeshIndices = new Set<number>();
     for (const partIdx of state.selectedPartIndices) {
       const part = m.stats.parts[partIdx];
-      if (part?.hasMesh && part.meshIndex !== undefined) {
-        selectedMeshIndices.add(part.meshIndex);
+      if (part?.hasMesh) {
+        for (const mi of part.meshIndices) selectedMeshIndices.add(mi);
       }
     }
     meshes = m.data.meshes.filter((_, i) => selectedMeshIndices.has(i));
@@ -706,12 +706,12 @@ function rebuildModel() {
   let materialsToRender = m.data.materials;
 
   if (state.selectedPartIndices !== null && state.selectedPartIndices.size > 0) {
-    // Filter to only meshes belonging to selected parts
+    // Filter to only meshes belonging to selected parts (all material splits)
     const selectedMeshIndices = new Set<number>();
     for (const partIdx of state.selectedPartIndices) {
       const part = m.stats.parts[partIdx];
-      if (part?.hasMesh && part.meshIndex !== undefined) {
-        selectedMeshIndices.add(part.meshIndex);
+      if (part?.hasMesh) {
+        for (const mi of part.meshIndices) selectedMeshIndices.add(mi);
       }
     }
     meshesToRender = m.data.meshes.filter((_, i) => selectedMeshIndices.has(i));
@@ -806,8 +806,8 @@ async function selectModel(entry: ModelEntry) {
         const selectedMeshIndices = new Set<number>();
         for (const partIdx of state.selectedPartIndices) {
           const part = loaded.stats.parts[partIdx];
-          if (part?.hasMesh && part.meshIndex !== undefined) {
-            selectedMeshIndices.add(part.meshIndex);
+          if (part?.hasMesh) {
+            for (const mi of part.meshIndices) selectedMeshIndices.add(mi);
           }
         }
         meshesToRender = loaded.data.meshes.filter((_, i) => selectedMeshIndices.has(i));

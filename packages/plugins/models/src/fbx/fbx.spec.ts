@@ -11,6 +11,8 @@
 import { describe, expect, it } from "bun:test";
 import { resolve } from "path";
 import { parseFBX } from "./index";
+import { extractMaterialProperties } from "./interpreter/materials";
+import type { FBXNode } from "./types";
 
 const SPEC_DIR = import.meta.dirname!;
 const FIXTURES_DIR = resolve(SPEC_DIR, "../../test-fixtures/fbx");
@@ -93,6 +95,20 @@ describe("FBX m01-m16: Babylon test suite", () => {
     expect(model.meshes.length).toBeGreaterThanOrEqual(1);
     expect(model.materials).toBeDefined();
     expect(model.materials!.length).toBeGreaterThanOrEqual(3);
+    // Regression: every material split must be linked to its node via
+    // ModelNode.meshes, not just the first split. Otherwise renderers that
+    // select per-node only draw the first material region and the rest of the
+    // geometry appears missing/invisible.
+    if (model.nodes) {
+      const linkedViaMeshes = new Set<number>();
+      for (const n of model.nodes) {
+        if (n.meshes) for (const mi of n.meshes) linkedViaMeshes.add(mi);
+      }
+      // Every mesh should be reachable through some node's meshes[] array.
+      for (let i = 0; i < model.meshes.length; i++) {
+        expect(linkedViaMeshes.has(i)).toBe(true);
+      }
+    }
   });
 
   it("m08_transforms: TRS chain, pre/post-rotation, pivots", async () => {
@@ -101,6 +117,49 @@ describe("FBX m01-m16: Babylon test suite", () => {
     expect(model.meshes.length).toBeGreaterThanOrEqual(1);
     expect(model.nodes).toBeDefined();
     expect(model.nodes!.length).toBeGreaterThan(0);
+  });
+
+  it("material remapping: LayerElementMaterial local indices → global array indices", async () => {
+    // Regression: FBX's LayerElementMaterial indices are LOCAL to the model's
+    // connected materials, not global material array indices. A model whose
+    // only material is at global index 2 should have its meshes use index 2,
+    // not index 0. Without remapping, meshes would use the wrong material
+    // (e.g. a palette texture instead of a solid hair color).
+    //
+    // We verify by checking that every mesh's materialIndex points to a
+    // material that actually exists in the materials array, and that meshes
+    // linked to different models can use different material indices (not all 0).
+    const data = await loadFixture("m07_multimaterial.fbx");
+    const model = parseFBX(data, "m07_multimaterial.fbx");
+    expect(model.materials).toBeDefined();
+    if (!model.materials) return;
+
+    // Every mesh's materialIndex must be a valid index into the materials array.
+    for (const mesh of model.meshes) {
+      if (mesh.materialIndex !== undefined) {
+        expect(mesh.materialIndex).toBeGreaterThanOrEqual(0);
+        expect(mesh.materialIndex).toBeLessThan(model.materials!.length);
+      }
+    }
+
+    // For models with per-model material connections, the mesh materialIndex
+    // should reflect the connected material's global index, not just 0.
+    // (This is a smoke test — the real verification requires a fixture with
+    // per-model material connections like the Stylized Lowpoly Characters pack.)
+    if (model.nodes) {
+      const usedMatIndices = new Set<number>();
+      for (const n of model.nodes) {
+        const meshIndices = n.meshes ?? (n.mesh !== undefined ? [n.mesh] : []);
+        for (const mi of meshIndices) {
+          if (mi < model.meshes.length) {
+            const matIdx = model.meshes[mi].materialIndex;
+            if (matIdx !== undefined) usedMatIndices.add(matIdx);
+          }
+        }
+      }
+      // At least one material index should be used.
+      expect(usedMatIndices.size).toBeGreaterThan(0);
+    }
   });
 
   it("m09_skinning: skeleton + clusters + weights + bind pose", async () => {
@@ -244,5 +303,84 @@ describe("FBX real-world fixtures", () => {
     // Should have source rest rotations for retargeting
     expect(anim.sourceRestRotations).toBeDefined();
     expect(anim.sourceRestRotations!.size).toBeGreaterThan(0);
+  });
+});
+
+// ── extractMaterialProperties: TransparencyFactor vs Opacity convention ─────
+
+/** Build a minimal Material node with the given Properties70 P-entries. */
+function makeMaterialNode(props: Array<[string, ...number[]]>): FBXNode {
+  const pNodes: FBXNode[] = props.map(([name, ...vals]) => ({
+    name: "P",
+    properties: [
+      { type: "S", value: name },
+      { type: "S", value: "Vector" },
+      { type: "S", value: "Vector" },
+      { type: "S", value: "" },
+      ...vals.map((v) => ({ type: "D" as const, value: v })),
+    ],
+    children: [],
+  }));
+  return {
+    name: "Material",
+    properties: [
+      { type: "L", value: 0n },
+      { type: "S", value: "test_mat" },
+    ],
+    children: [{ name: "Properties70", properties: [], children: pNodes }],
+  };
+}
+
+describe("extractMaterialProperties: transparency conventions", () => {
+  it("TransparencyFactor=0 → opaque (alpha=1)", () => {
+    const node = makeMaterialNode([["TransparencyFactor", 0]]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBe(1);
+  });
+
+  it("TransparencyFactor=1 → fully transparent (alpha=0)", () => {
+    const node = makeMaterialNode([["TransparencyFactor", 1]]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBe(0);
+  });
+
+  it("TransparencyFactor=0.5 → half transparent (alpha=0.5)", () => {
+    const node = makeMaterialNode([["TransparencyFactor", 0.5]]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBeCloseTo(0.5, 5);
+  });
+
+  it("Opacity=0 → fully transparent (alpha=0)", () => {
+    const node = makeMaterialNode([["Opacity", 0]]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBe(0);
+  });
+
+  it("Opacity=1 → opaque (alpha=1)", () => {
+    const node = makeMaterialNode([["Opacity", 1]]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBe(1);
+  });
+
+  it("Opacity=0.5 → half opaque (alpha=0.5)", () => {
+    const node = makeMaterialNode([["Opacity", 0.5]]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBeCloseTo(0.5, 5);
+  });
+
+  it("both TransparencyFactor and Opacity present: Opacity wins (last write)", () => {
+    // Mirrors the LP_fe_mesh.fbx case: TransparencyFactor=0 then Opacity=1 → opaque.
+    const node = makeMaterialNode([
+      ["TransparencyFactor", 0],
+      ["Opacity", 1],
+    ]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBe(1);
+  });
+
+  it("no transparency props → opacity undefined (defaults to opaque upstream)", () => {
+    const node = makeMaterialNode([["DiffuseColor", 1, 1, 1]]);
+    const props = extractMaterialProperties(node);
+    expect(props.opacity).toBeUndefined();
   });
 });
