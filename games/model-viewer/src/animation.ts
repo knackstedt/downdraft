@@ -292,6 +292,9 @@ export class ModelAnimator {
   /** Flat skin matrices (boneCount * 16 floats), updated by sample(). */
   readonly skinMatrices: Float32Array;
 
+  /** The normalization matrix (T) applied to mesh vertices, or null. */
+  readonly normalizationMatrix: Float32Array | null;
+
   private bindPose: BoneTransform[];
   private positions: [number, number, number][];
   private rotations: [number, number, number, number][];
@@ -315,6 +318,7 @@ export class ModelAnimator {
     // Read the normalization transform (if any) and precompute its inverse.
     this.normMatrix = skin.normalizationMatrix ?? null;
     this.normMatrixInv = this.normMatrix ? matInvert(this.normMatrix) : null;
+    this.normalizationMatrix = this.normMatrix;
 
     // Build clips with pre-rotation baking, kept parallel to the input
     // animations array so the model viewer's animationIndex aligns directly.
@@ -412,5 +416,15 @@ export class ModelAnimator {
     } else {
       this.skinMatrices.set(matrices);
     }
+  }
+
+  /**
+   * Returns the animated bone world matrices from the last `sample()` call.
+   * Each entry is a column-major mat4 in the bone's original (pre-normalization)
+   * coordinate space. The caller should apply `normalizationMatrix` to transform
+   * them into the same space as the normalized mesh vertices.
+   */
+  getBoneWorldMatrices(): Float32Array[] {
+    return this.skeleton.getWorldMatrices();
   }
 }

@@ -24,15 +24,26 @@ fn vs_main(@location(0) position: vec3<f32>) -> VertexOutput {
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let dist = length(input.worldPos.xz);
-  let fade = 1.0 - smoothstep(8.0, 20.0, dist);
-  let grid = abs(fract(input.worldPos.x) - 0.5) + abs(fract(input.worldPos.z) - 0.5);
-  let line = 1.0 - smoothstep(0.0, 0.04, min(grid, abs(fract(input.worldPos.x + 0.5) - 0.5) + abs(fract(input.worldPos.z + 0.5) - 0.5)));
-  let majorLine = 1.0 - smoothstep(0.0, 0.02, min(
-    abs(fract(input.worldPos.x / 5.0) - 0.5),
-    abs(fract(input.worldPos.z / 5.0) - 0.5)
-  ));
-  let color = mix(vec3<f32>(0.08, 0.08, 0.12), vec3<f32>(0.15, 0.15, 0.22), max(line * 0.3, majorLine));
-  return vec4<f32>(color * fade, fade * 0.8);
+  let fade = 1.0 - smoothstep(15.0, 45.0, dist);
+
+  // 1m grid lines: distance to nearest integer on each axis.
+  // abs(fract(x + 0.5) - 0.5) is 0 at integers, 0.5 at half-integers.
+  let dx1 = abs(fract(input.worldPos.x + 0.5) - 0.5);
+  let dz1 = abs(fract(input.worldPos.z + 0.5) - 0.5);
+  let lineDist = min(dx1, dz1);
+  let line = 1.0 - smoothstep(0.0, 0.03, lineDist);
+
+  // 5m major lines: same pattern scaled by 1/5, remapped to world units.
+  let dx5 = abs(fract(input.worldPos.x / 5.0 + 0.5) - 0.5) * 5.0;
+  let dz5 = abs(fract(input.worldPos.z / 5.0 + 0.5) - 0.5) * 5.0;
+  let majorDist = min(dx5, dz5);
+  let majorLine = 1.0 - smoothstep(0.0, 0.03, majorDist);
+
+  let minorColor = vec3<f32>(0.24, 0.24, 0.30);
+  let majorColor = vec3<f32>(0.42, 0.42, 0.56);
+  let color = mix(minorColor, majorColor, majorLine);
+  let intensity = max(line, majorLine);
+  return vec4<f32>(color * intensity * fade, fade * 0.85);
 }
 `;
 
@@ -51,9 +62,11 @@ export class GridRenderer {
   }
 
   init() {
-    // Grid vertices — lines from -20 to +20 at 1-unit spacing
+    // Grid vertices — lines from -50 to +50 at 1-meter spacing.
+    // Wide enough for large true-scale models; the shader fades out the
+    // distant lines so the visible area stays focused on the model.
     const verts: number[] = [];
-    const range = 20;
+    const range = 50;
     const step = 1;
     for (let i = -range; i <= range; i += step) {
       // X-axis lines
