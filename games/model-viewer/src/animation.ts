@@ -22,18 +22,14 @@ type Quat = [number, number, number, number];
 // ── 4x4 matrix utilities (column-major, matching WebGPU convention) ──
 
 /** Compute A * B in column-major layout. */
-function matMultiply(a: Float32Array, b: Float32Array): Float32Array {
-  const out = new Float32Array(16);
+function matMultiplyInto(a: Float32Array, b: Float32Array, out: Float32Array): void {
   for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 4; j++) {
-      out[i * 4 + j] =
-        a[0 * 4 + j] * b[i * 4 + 0] +
-        a[1 * 4 + j] * b[i * 4 + 1] +
-        a[2 * 4 + j] * b[i * 4 + 2] +
-        a[3 * 4 + j] * b[i * 4 + 3];
-    }
+    const bi0 = b[i * 4 + 0], bi1 = b[i * 4 + 1], bi2 = b[i * 4 + 2], bi3 = b[i * 4 + 3];
+    out[i * 4 + 0] = a[0] * bi0 + a[4] * bi1 + a[8] * bi2 + a[12] * bi3;
+    out[i * 4 + 1] = a[1] * bi0 + a[5] * bi1 + a[9] * bi2 + a[13] * bi3;
+    out[i * 4 + 2] = a[2] * bi0 + a[6] * bi1 + a[10] * bi2 + a[14] * bi3;
+    out[i * 4 + 3] = a[3] * bi0 + a[7] * bi1 + a[11] * bi2 + a[15] * bi3;
   }
-  return out;
 }
 
 /** Invert a 4x4 column-major matrix via adjugate / determinant. */
@@ -80,9 +76,10 @@ function quatMul(a: Quat, b: Quat): Quat {
   ];
 }
 
-/** Normalize a bone/channel name: strip a trailing "Model" suffix (FBX quirk). */
+/** Normalize a bone/channel name. The FBX parser now strips the "Model" suffix,
+ * so this is a passthrough — kept for API compatibility. */
 function normalizeName(name: string): string {
-  return name.endsWith("Model") ? name.slice(0, -5) : name;
+  return name;
 }
 
 /**
@@ -306,6 +303,9 @@ export class ModelAnimator {
   // Null when no normalization was applied (identity transform).
   private normMatrix: Float32Array | null;
   private normMatrixInv: Float32Array | null;
+  // Scratch buffers for conjugation (avoid per-bone per-frame allocations)
+  private scratchTmp: Float32Array;
+  private scratchResult: Float32Array;
 
   constructor(skin: SkinData, animations: AnimationData[]) {
     const skelData = skinDataToSkeletonData(skin);
@@ -354,6 +354,8 @@ export class ModelAnimator {
     }));
 
     this.skinMatrices = new Float32Array(this.boneCount * 16);
+    this.scratchTmp = new Float32Array(16);
+    this.scratchResult = new Float32Array(16);
     // Initialize to bind-pose skin matrices (~identity).
     this.sample(null);
   }
@@ -398,11 +400,13 @@ export class ModelAnimator {
     if (this.normMatrix && this.normMatrixInv) {
       const T = this.normMatrix;
       const Tinv = this.normMatrixInv;
+      const tmp = this.scratchTmp;
+      const result = this.scratchResult;
       for (let i = 0; i < this.boneCount; i++) {
         const off = i * 16;
         const sm = matrices.subarray(off, off + 16);
-        const tmp = matMultiply(T, sm);
-        const result = matMultiply(tmp, Tinv);
+        matMultiplyInto(T, sm, tmp);
+        matMultiplyInto(tmp, Tinv, result);
         this.skinMatrices.set(result, off);
       }
     } else {

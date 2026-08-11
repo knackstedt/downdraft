@@ -69,7 +69,14 @@ export interface AnimationData {
 export interface ModelNode {
   name: string;
   children?: number[];
+  /** Index of the primary mesh for this node (first material split). */
   mesh?: number;
+  /** All mesh indices owned by this node, including multi-material splits.
+   *  For single-material nodes this is `[mesh]`. For multi-material FBX
+   *  geometries (split into one MeshData per material), this contains every
+   *  split so renderers can draw the full geometry. Undefined when the node
+   *  has no mesh. */
+  meshes?: number[];
   translation?: [number, number, number];
   rotation?: [number, number, number, number];
   scale?: [number, number, number];

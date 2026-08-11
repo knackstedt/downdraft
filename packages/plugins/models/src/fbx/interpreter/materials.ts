@@ -8,7 +8,7 @@
 
 import type { MaterialData } from "../../types";
 import type { FBXNode } from "../types";
-import { findNodesInTree, childNode } from "../types";
+import { childNode, findNodesInTree } from "../types";
 import type { FBXConnectionGraph } from "./connections";
 import { getObjectId } from "./connections";
 import type { DiagnosticsCollector } from "./diagnostics";
@@ -178,8 +178,28 @@ interface MaterialProps {
   opacity?: number;
 }
 
-/** Extract diffuse color, emissive color, and opacity from a Material node's Properties70. */
-function extractMaterialProperties(node: FBXNode): MaterialProps {
+/** Convert a single linear-space color channel to sRGB for display. */
+function linearToSrgb(c: number): number {
+  return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+/** Convert a linear-space [r, g, b] color to sRGB. */
+function linearColorToSrgb(rgb: [number, number, number]): [number, number, number] {
+  return [linearToSrgb(rgb[0]), linearToSrgb(rgb[1]), linearToSrgb(rgb[2])];
+}
+
+/** Extract diffuse color, emissive color, and opacity from a Material node's Properties70.
+ *
+ * FBX stores DiffuseColor in linear space. The renderer's shader outputs directly
+ * to an sRGB swapchain and samples textures with `colorSpaceConversion: 'none'`
+ * (textures stay sRGB). To keep solid colors consistent with textured colors,
+ * we convert DiffuseColor/EmissiveColor from linear to sRGB here.
+ *
+ * Transparency handling: FBX/3ds Max uses two conventions — `TransparencyFactor`
+ * (0 = opaque, 1 = transparent) and `Opacity` (0 = transparent, 1 = opaque).
+ * Both are normalized to the `Opacity` convention (alpha) on output.
+ */
+export function extractMaterialProperties(node: FBXNode): MaterialProps {
   const props70 = childNode(node, "Properties70");
   if (!props70) return { diffuse: [1, 1, 1] };
 
@@ -192,19 +212,25 @@ function extractMaterialProperties(node: FBXNode): MaterialProps {
     const propName = String(p.properties[0].value);
     const propLower = propName.toLowerCase();
 
-    if (propLower === "diffuse" || propLower === "color") {
-      diffuse = [
+    if (propLower === "diffuse" || propLower === "diffusecolor" || propLower === "color") {
+      diffuse = linearColorToSrgb([
         p.properties[4].value as number,
         p.properties[5].value as number,
         p.properties[6].value as number,
-      ];
-    } else if (propLower === "emissive") {
-      emissive = [
+      ]);
+    } else if (propLower === "emissive" || propLower === "emissivecolor") {
+      emissive = linearColorToSrgb([
         p.properties[4].value as number,
         p.properties[5].value as number,
         p.properties[6].value as number,
-      ];
-    } else if (propLower === "transparencyfactor" || propLower === "opacity") {
+      ]);
+    } else if (propLower === "transparencyfactor") {
+      // TransparencyFactor uses the 3ds Max convention: 0 = opaque, 1 = fully
+      // transparent. Convert to opacity (alpha) so the rest of the pipeline
+      // can treat `opacity` uniformly as 0 = transparent, 1 = opaque.
+      opacity = 1 - (p.properties[4].value as number);
+    } else if (propLower === "opacity") {
+      // Opacity is already in alpha convention: 0 = transparent, 1 = opaque.
       opacity = p.properties[4].value as number;
     }
   }

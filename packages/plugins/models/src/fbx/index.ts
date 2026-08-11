@@ -12,7 +12,7 @@
 // This is the only file that loader.ts and index.ts import from.
 //
 
-import type { MeshData, ModelData, ModelNode, MorphTargetData } from "../types";
+import type { MaterialData, MeshData, ModelData, ModelNode, MorphTargetData } from "../types";
 import { parseAnimations } from "./interpreter/animation";
 import { parseBlendShapes } from "./interpreter/blend-shapes";
 import { FBXConnectionGraph, getObjectId } from "./interpreter/connections";
@@ -63,6 +63,15 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     if (tex.textureData || tex.textureUri) hasTextures.add(idx);
   }
 
+  // Build per-geometry material index remapping.
+  // FBX's LayerElementMaterial indices are LOCAL to the model's connected
+  // materials, not global material array indices. A model with one material
+  // connected (e.g. "hair color" at global index 1) has LayerElementMaterial
+  // index 0 referring to that material, not global index 0. Without this
+  // remapping, meshes would use the wrong material (e.g. a palette texture
+  // instead of a solid hair color).
+  const materialRemap = buildMaterialRemap(nodes, graph, materials);
+
   // 5. Parse node hierarchy (needed for skin data)
   const nodesResult = parseNodeHierarchy(nodes, graph, diag);
 
@@ -77,6 +86,7 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
     { colors: materialColors, hasTextures },
     skinResult?.geometrySkins ?? new Map<string, GeometrySkinData>(),
     diag,
+    materialRemap,
   );
 
   // 8. Link meshes to model nodes via Geometry→Model connections
@@ -133,7 +143,11 @@ export function parseFBX(data: ArrayBuffer, name: string): ModelData {
 
 /**
  * Link meshes to model nodes via Geometry→Model OO connections.
- * Updates ModelNode.mesh for each node that has a connected geometry.
+ * Updates ModelNode.mesh (first split) and ModelNode.meshes (all splits) for
+ * each node that has a connected geometry. Multi-material geometries are split
+ * into one MeshData per material by the geometry interpreter; all splits are
+ * linked here so renderers can draw the full geometry, not just the first
+ * material region.
  */
 function linkMeshesToNodes(
   nodes: FBXNode[],
@@ -152,18 +166,103 @@ function linkMeshesToNodes(
     modelIdToNodeIndex.set(id, i);
   }
 
-  // Find Geometry→Model connections and set ModelNode.mesh
+  // Find Geometry→Model connections and set ModelNode.mesh + ModelNode.meshes.
   for (const conn of graph.connections) {
     if (conn.type !== "OO") continue;
     const meshIndices = geoIdToMeshIndices.get(conn.childId);
     if (!meshIndices || meshIndices.length === 0) continue;
     const nodeIdx = modelIdToNodeIndex.get(conn.parentId);
     if (nodeIdx === undefined) continue;
-    // For multi-material split, link the first mesh (the node owns all split meshes)
+    // Link the first mesh (primary) plus all material splits (the node owns
+    // every split produced from its geometry).
     if (modelNodes[nodeIdx].mesh === undefined) {
       modelNodes[nodeIdx].mesh = meshIndices[0];
+      modelNodes[nodeIdx].meshes = meshIndices.slice();
     }
   }
+}
+
+/**
+ * Build a per-geometry material index remapping (local → global).
+ *
+ * FBX's LayerElementMaterial indices are LOCAL to the model's connected
+ * materials — index 0 means "the first material connected to this model,"
+ * not "material 0 in the global array." Without remapping, a model whose
+ * only material is at global index 2 would incorrectly use global index 0.
+ *
+ * This function:
+ *  1. Maps Material node IDs → global array indices (parser order).
+ *  2. For each Model node, collects its connected Material node IDs (in
+ *     connection order) and maps local indices → global indices.
+ *  3. For each Geometry node, finds its parent Model and inherits the
+ *     model's remapping. Geometries with no parent model fall back to
+ *     identity (local = global).
+ *
+ * @returns Map<geoId, Map<localMatIdx, globalMatIdx>>
+ */
+function buildMaterialRemap(
+  nodes: FBXNode[],
+  graph: FBXConnectionGraph,
+  materials: MaterialData[] | undefined,
+): Map<string, Map<number, number>> {
+  const remap = new Map<string, Map<number, number>>();
+  if (!materials || materials.length === 0) return remap;
+
+  const objectsNode = nodes.find((n) => n.name === "Objects");
+  if (!objectsNode) return remap;
+
+  // 1. Material node ID → global index
+  const materialNodes = findNodesInTree([objectsNode], "Material");
+  const matIdToGlobal = new Map<string, number>();
+  for (let i = 0; i < materialNodes.length; i++) {
+    const id = getObjectId(materialNodes[i], `mat_${i}`);
+    matIdToGlobal.set(id, i);
+  }
+
+  // 2. For each Model, build local → global material index map
+  const modelNodes = findNodesInTree([objectsNode], "Model");
+  const modelMatRemap = new Map<string, Map<number, number>>();
+  for (const modelNode of modelNodes) {
+    const modelId = getObjectId(modelNode, "");
+    if (!modelId) continue;
+
+    // Collect Material connections (both OO and OP) in connection order.
+    // The LayerElementMaterial local index refers to this order.
+    const conns = graph.getConnectionsToParent(modelId);
+    const globalIndices: number[] = [];
+    for (const conn of conns) {
+      const globalIdx = matIdToGlobal.get(conn.childId);
+      if (globalIdx !== undefined) {
+        globalIndices.push(globalIdx);
+      }
+    }
+
+    if (globalIndices.length > 0) {
+      const localToGlobal = new Map<number, number>();
+      for (let i = 0; i < globalIndices.length; i++) {
+        localToGlobal.set(i, globalIndices[i]);
+      }
+      modelMatRemap.set(modelId, localToGlobal);
+    }
+  }
+
+  // 3. For each Geometry, find its parent Model and inherit the remapping
+  const geometryNodes = findNodesInTree([objectsNode], "Geometry");
+  for (const geoNode of geometryNodes) {
+    const geoId = getObjectId(geoNode, "");
+    if (!geoId) continue;
+
+    // Find parent model via Geometry→Model OO connection
+    const parentId = graph.getHierarchyParent(geoId);
+    if (parentId) {
+      const modelRemap = modelMatRemap.get(parentId);
+      if (modelRemap) {
+        remap.set(geoId, modelRemap);
+      }
+    }
+  }
+
+  return remap;
 }
 
 /** Apply morph target data to meshes based on geometry ID mapping. */
