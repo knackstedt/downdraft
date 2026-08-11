@@ -170,6 +170,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let layer = unpackLayerIndex(m.albedoTex);
   let texColor = sampleBindlessArray(arr, input.uv, layer);
 
+  // All inputs are sRGB: texture (rgba8unorm), vertex color (white), and
+  // baseColor (parser converts FBX linear DiffuseColor to sRGB). The swapchain
+  // is non-sRGB (bgra8unorm), so output sRGB directly.
   var color = texColor.rgb * input.color * lighting * m.baseColor.rgb;
 
   let dist = length(uniforms.cameraPos - input.worldPos);

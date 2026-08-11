@@ -51,6 +51,9 @@ export type {
 
 export { loadModel } from "./loader";
 
+// FBX parser (for direct parsing without normalization)
+export { parseFBX } from "./fbx";
+
 export type { ModelLoaderOptions } from "./loader";
 
 // Model normalization — import-time correction (up-axis, units, node transforms, bounds)

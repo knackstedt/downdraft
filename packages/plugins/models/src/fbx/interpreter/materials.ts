@@ -178,7 +178,7 @@ interface MaterialProps {
   opacity?: number;
 }
 
-/** Convert a single linear-space color channel to sRGB for display. */
+/** Convert a single linear-space channel to sRGB for display. */
 function linearToSrgb(c: number): number {
   return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
 }
@@ -190,10 +190,12 @@ function linearColorToSrgb(rgb: [number, number, number]): [number, number, numb
 
 /** Extract diffuse color, emissive color, and opacity from a Material node's Properties70.
  *
- * FBX stores DiffuseColor in linear space. The renderer's shader outputs directly
- * to an sRGB swapchain and samples textures with `colorSpaceConversion: 'none'`
- * (textures stay sRGB). To keep solid colors consistent with textured colors,
- * we convert DiffuseColor/EmissiveColor from linear to sRGB here.
+ * Blender 4.x exports DiffuseColor in linear space (see Blender bug #128498).
+ * The renderer's shader does simple sRGB-space multiplication (texture ×
+ * vertexColor × lighting × baseColor) and outputs to a non-sRGB swapchain.
+ * Textures are sRGB (rgba8unorm). To keep solid colors consistent with
+ * textured colors, we convert DiffuseColor/EmissiveColor from linear to sRGB
+ * here, so the shader can treat all inputs uniformly as sRGB.
  *
  * Transparency handling: FBX/3ds Max uses two conventions — `TransparencyFactor`
  * (0 = opaque, 1 = transparent) and `Opacity` (0 = transparent, 1 = opaque).
