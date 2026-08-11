@@ -330,9 +330,71 @@ export function parseSkinData(
     }
   }
 
-  diag.debug("skeleton", `Parsed ${bones.length} bones, ${geometrySkins.size} skinned geometries`);
+  // ── Topological sort: ensure parents come before children ─────────────────
+  // computeSkinMatrices processes bones in index order and reads the parent's
+  // world matrix, which must already be computed. If a bone's parentIndex >
+  // its own index, the parent's world matrix is stale (zero or previous frame),
+  // breaking the rigging. We reorder the bones array via BFS from roots and
+  // remap all index references (parentIndex, boneNameToIndex, and joint indices
+  // in geometrySkins).
+  const oldToNew = new Int32Array(bones.length);
+  oldToNew.fill(-1);
+  const newBones: BoneData[] = [];
+  // Find root bones (parentIndex < 0) and BFS down the hierarchy.
+  const childMap = new Map<number, number[]>();
+  for (let i = 0; i < bones.length; i++) {
+    const p = bones[i].parentIndex;
+    if (p >= 0) {
+      let list = childMap.get(p);
+      if (!list) { list = []; childMap.set(p, list); }
+      list.push(i);
+    }
+  }
+  const queue: number[] = [];
+  for (let i = 0; i < bones.length; i++) {
+    if (bones[i].parentIndex < 0) queue.push(i);
+  }
+  while (queue.length > 0) {
+    const oldIdx = queue.shift()!;
+    const newIdx = newBones.length;
+    oldToNew[oldIdx] = newIdx;
+    newBones.push(bones[oldIdx]);
+    const children = childMap.get(oldIdx);
+    if (children) for (const c of children) queue.push(c);
+  }
+  // Safety: if any bones weren't reached (cycle or disconnected), append them.
+  for (let i = 0; i < bones.length; i++) {
+    if (oldToNew[i] < 0) {
+      oldToNew[i] = newBones.length;
+      newBones.push(bones[i]);
+    }
+  }
 
-  return { geometrySkins, bones, boneNameToIndex };
+  // Remap parentIndex in the reordered bones.
+  for (let i = 0; i < newBones.length; i++) {
+    const p = newBones[i].parentIndex;
+    newBones[i] = { ...newBones[i], parentIndex: p >= 0 ? oldToNew[p] : -1 };
+  }
+
+  // Remap boneNameToIndex values.
+  const newBoneNameToIndex = new Map<string, number>();
+  for (const [name, oldIdx] of boneNameToIndex) {
+    newBoneNameToIndex.set(name, oldToNew[oldIdx]);
+  }
+
+  // Remap joint indices in geometrySkins so mesh joint arrays match the new
+  // bone order. Without this, meshes would reference the wrong bones.
+  for (const geoSkin of geometrySkins.values()) {
+    for (const boneList of geoSkin.vertexBones.values()) {
+      for (const entry of boneList) {
+        entry.boneIdx = oldToNew[entry.boneIdx];
+      }
+    }
+  }
+
+  diag.debug("skeleton", `Parsed ${newBones.length} bones, ${geometrySkins.size} skinned geometries (topologically sorted)`);
+
+  return { geometrySkins, bones: newBones, boneNameToIndex: newBoneNameToIndex };
 }
 
 /** Invert a 4×4 column-major matrix. Returns identity if singular. */
