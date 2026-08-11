@@ -2,9 +2,11 @@
 // App — React UI overlay for the model viewer
 // ============================================================================
 
+import type { ImportSettings, SkinData, UnitSystem, UpAxis } from "@downdraft/plugin-models";
 import { useEffect, useRef, useState } from "react";
 import { registerAnimDisplay } from "./anim-display";
 import type { AnimationData, LoadedModel, ModelEntry, ModelStats } from "./model-loader";
+import { makeSettings } from "./model-loader";
 
 interface ViewerState {
   models: ModelEntry[];
@@ -13,6 +15,10 @@ interface ViewerState {
   error: string | null;
   autoRotate: boolean;
   showGrid: boolean;
+  showHeightRuler: boolean;
+  showSkeleton: boolean;
+  skeletonBoneIndex: number | null;
+  skeletonBoneOffset: [number, number, number];
   wireframe: boolean;
   selectedPartIndices: Set<number> | null; // null = show all
   // Animation
@@ -35,6 +41,11 @@ interface AppProps {
   onSeek: (time: number) => void;
   onSetGroupMode: (mode: "tree" | "prefix") => void;
   onToggleGroupParts: (indices: number[]) => void;
+  onApplyMetadata: (settings: ImportSettings) => Promise<void>;
+  onSaveMetadata: (settings: ImportSettings) => Promise<void>;
+  currentEntryPath: string | null;
+  onSetSkeletonBone: (index: number | null) => void;
+  onSetSkeletonBoneOffset: (offset: [number, number, number]) => void;
 }
 
 export default function App({
@@ -49,6 +60,11 @@ export default function App({
   onSeek,
   onSetGroupMode,
   onToggleGroupParts,
+  onApplyMetadata,
+  onSaveMetadata,
+  currentEntryPath,
+  onSetSkeletonBone,
+  onSetSkeletonBoneOffset,
 }: AppProps) {
   const [, setTick] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -78,6 +94,16 @@ export default function App({
     setTick((t) => t + 1);
   };
 
+  const toggleHeightRuler = () => {
+    state.showHeightRuler = !state.showHeightRuler;
+    setTick((t) => t + 1);
+  };
+
+  const toggleSkeleton = () => {
+    state.showSkeleton = !state.showSkeleton;
+    setTick((t) => t + 1);
+  };
+
   const toggleGroup = (key: string) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
@@ -94,6 +120,46 @@ export default function App({
         <button style={pickerBtnStyle} onClick={() => setPickerOpen(true)}>
           ☰ Models
         </button>
+      )}
+
+      {/* Left panel — view toggles + skeleton debugger (visible once a model is loaded) */}
+      {state.currentModel && (
+        <div style={sidebarLeftStyle}>
+          <div style={infoTitleStyle}>View</div>
+          <label style={labelStyle}>
+            <input type="checkbox" checked={state.autoRotate} onChange={toggleAutoRotate} />
+            Auto-rotate
+          </label>
+          <label style={labelStyle}>
+            <input type="checkbox" checked={state.showGrid} onChange={toggleGrid} />
+            Show grid
+          </label>
+          <label style={labelStyle}>
+            <input type="checkbox" checked={state.showHeightRuler} onChange={toggleHeightRuler} />
+            Height ruler
+          </label>
+          <label style={labelStyle}>
+            <input
+              type="checkbox"
+              checked={state.showSkeleton}
+              onChange={toggleSkeleton}
+              disabled={!state.currentModel.stats.hasSkin}
+              style={!state.currentModel.stats.hasSkin ? { opacity: 0.4 } : undefined}
+            />
+            Show skeleton
+          </label>
+
+          {/* Skeleton debugger — bone selection + offset controls */}
+          {state.showSkeleton && state.currentModel.data.skin && (
+            <SkeletonDebugger
+              skin={state.currentModel.data.skin}
+              selectedBone={state.skeletonBoneIndex}
+              boneOffset={state.skeletonBoneOffset}
+              onSelectBone={onSetSkeletonBone}
+              onOffsetChange={onSetSkeletonBoneOffset}
+            />
+          )}
+        </div>
       )}
 
       {/* Model picker dialog — auto-shown when no model selected */}
@@ -130,18 +196,6 @@ export default function App({
               )}
             </div>
 
-            <div style={sectionTitleStyle}>Controls</div>
-            <div style={controlsStyle}>
-              <label style={labelStyle}>
-                <input type="checkbox" checked={state.autoRotate} onChange={toggleAutoRotate} />
-                Auto-rotate
-              </label>
-              <label style={labelStyle}>
-                <input type="checkbox" checked={state.showGrid} onChange={toggleGrid} />
-                Show grid
-              </label>
-            </div>
-
             <div style={hintStyle}>
               Drag: rotate | Shift+Drag: pan | Scroll: zoom
             </div>
@@ -165,6 +219,12 @@ export default function App({
             onSetGroupMode={onSetGroupMode}
             onToggleGroupParts={onToggleGroupParts}
           />
+          <MetadataPanel
+            model={state.currentModel}
+            entryPath={currentEntryPath}
+            onApply={onApplyMetadata}
+            onSave={onSaveMetadata}
+          />
         </div>
       )}
 
@@ -180,8 +240,75 @@ export default function App({
           onSeek={onSeek}
         />
       )}
+
+      {/* Height ruler labels — projected from 3D to screen each frame */}
+      {state.showHeightRuler && (
+        <HeightRulerOverlay getState={getState} />
+      )}
     </div>
   );
+}
+
+/** Adaptive label spacing: show fewer labels for taller models to avoid crowding. */
+function computeLabelStep(maxHeight: number): number {
+  if (maxHeight <= 5) return 1;
+  if (maxHeight <= 15) return 2;
+  if (maxHeight <= 50) return 5;
+  if (maxHeight <= 200) return 10;
+  if (maxHeight <= 1000) return 50;
+  return 100;
+}
+
+function HeightRulerOverlay({ getState }: { getState: () => ViewerState }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const state = getState() as any;
+      const markers = state._heightMarkers as Array<{ height: number; x: number; y: number; visible: boolean }> | null;
+      const container = containerRef.current;
+      if (container && markers) {
+        // Compute label step from the tallest marker
+        const maxH = markers.length > 0 ? markers[markers.length - 1].height : 1;
+        const step = computeLabelStep(maxH);
+
+        // Rebuild label DOM only if the set of visible labels changed.
+        // Position updates happen every frame via direct style mutation.
+        const visibleMarkers = markers.filter((m) => m.visible && m.height % step === 0);
+        const existing = container.children;
+
+        // Add/remove label elements to match visible markers
+        while (existing.length > visibleMarkers.length) {
+          container.removeChild(container.lastChild!);
+        }
+        while (existing.length < visibleMarkers.length) {
+          const el = document.createElement("div");
+          el.style.position = "absolute";
+          el.style.color = "#5a9fff";
+          el.style.fontSize = "11px";
+          el.style.fontFamily = "monospace";
+          el.style.textShadow = "0 0 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9)";
+          el.style.whiteSpace = "nowrap";
+          container.appendChild(el);
+        }
+
+        // Update positions + text
+        for (let i = 0; i < visibleMarkers.length; i++) {
+          const m = visibleMarkers[i];
+          const el = existing[i] as HTMLDivElement;
+          el.style.left = `${m.x + 6}px`;
+          el.style.top = `${m.y - 8}px`;
+          el.textContent = `${m.height}m`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [getState]);
+
+  return <div ref={containerRef} style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 50 }} />;
 }
 
 function StatsPanel({ stats }: { stats: ModelStats }) {
@@ -220,6 +347,310 @@ function StatsPanel({ stats }: { stats: ModelStats }) {
           {(stats.bounds.max[2] - stats.bounds.min[2]).toFixed(1)}
         </span>
       </div>
+    </div>
+  );
+}
+
+// ── Metadata Panel: edit import settings + normalize extreme-scale models ──
+
+interface MetadataPanelProps {
+  model: LoadedModel;
+  entryPath: string | null;
+  onApply: (settings: ImportSettings) => Promise<void>;
+  onSave: (settings: ImportSettings) => Promise<void>;
+}
+
+function MetadataPanel({ model, entryPath, onApply, onSave }: MetadataPanelProps) {
+  const data = model.data;
+  const bounds = model.stats.bounds;
+  const sizeX = bounds.max[0] - bounds.min[0];
+  const sizeY = bounds.max[1] - bounds.min[1];
+  const sizeZ = bounds.max[2] - bounds.min[2];
+  const maxDim = Math.max(sizeX, sizeY, sizeZ);
+  const isExtreme = maxDim > 100 || maxDim < 0.01;
+
+  // Local editable state
+  const [upAxis, setUpAxis] = useState<UpAxis>(data.sourceUpAxis ?? "y");
+  const [units, setUnits] = useState<UnitSystem>(data.sourceUnits ?? "meters");
+  const [scale, setScale] = useState("1.0");
+  const [autoFit, setAutoFit] = useState("");
+  const [normalizeTarget, setNormalizeTarget] = useState("2.0");
+  const [normalizeAxis, setNormalizeAxis] = useState<"height" | "width" | "depth">("height");
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  // Sync local state when model changes
+  useEffect(() => {
+    setUpAxis(data.sourceUpAxis ?? "y");
+    setUnits(data.sourceUnits ?? "meters");
+    setScale("1.0");
+    setAutoFit("");
+  }, [data]);
+
+  function buildSettings(overrides?: Partial<ImportSettings>): ImportSettings {
+    return makeSettings(data, {
+      upAxis,
+      units,
+      scale: parseFloat(scale) || 1.0,
+      autoFit: autoFit ? parseFloat(autoFit) : null,
+      ...overrides,
+    });
+  }
+
+  async function handleApply() {
+    await onApply(buildSettings());
+  }
+
+  async function handleNormalize() {
+    const target = parseFloat(normalizeTarget);
+    if (!target || target <= 0) return;
+    // Compute which dimension to normalize and set autoFit accordingly
+    const dim = normalizeAxis === "height" ? sizeY : normalizeAxis === "width" ? sizeX : sizeZ;
+    if (dim <= 0) return;
+    const fitValue = target; // autoFit scales the max dimension to this value
+    // But autoFit uses maxDimension, not a specific axis. If the target axis
+    // isn't the max, we need a scale multiplier instead.
+    if (dim === maxDim) {
+      await onApply(buildSettings({ autoFit: fitValue, centerToOrigin: true }));
+    } else {
+      const scaleMul = target / dim;
+      await onApply(buildSettings({ scale: scaleMul, centerToOrigin: true }));
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setSavedMsg("");
+    await onSave(buildSettings());
+    setSaving(false);
+    setSavedMsg("Saved .ddmeta.json");
+    setTimeout(() => setSavedMsg(""), 3000);
+  }
+
+  return (
+    <div>
+      <div style={infoTitleStyle}>Import Metadata</div>
+
+      {/* Current bounds display */}
+      <div style={infoRowStyle}>
+        <span style={infoLabelStyle}>Size (m)</span>
+        <span style={infoValueStyle}>
+          {sizeX.toFixed(2)} × {sizeY.toFixed(2)} × {sizeZ.toFixed(2)}
+        </span>
+      </div>
+      <div style={infoRowStyle}>
+        <span style={infoLabelStyle}>Source</span>
+        <span style={infoValueStyle}>
+          {data.sourceUpAxis ?? "?"}-up, {data.sourceUnits ?? "?"}
+        </span>
+      </div>
+
+      {/* Extreme scale warning + normalize */}
+      {isExtreme && (
+        <div style={{
+          marginTop: "8px",
+          padding: "8px",
+          background: "rgba(255, 180, 0, 0.15)",
+          border: "1px solid rgba(255, 180, 0, 0.4)",
+          borderRadius: "4px",
+        }}>
+          <div style={{ color: "#ffb400", fontSize: "12px", marginBottom: "6px" }}>
+            ⚠ Extreme scale detected ({maxDim.toFixed(1)}m)
+          </div>
+          <div style={{ display: "flex", gap: "4px", alignItems: "center", marginBottom: "4px" }}>
+            <span style={{ color: "#aaa", fontSize: "11px" }}>Scale to</span>
+            <select
+              value={normalizeAxis}
+              onChange={(e) => setNormalizeAxis(e.target.value as any)}
+              style={{ fontSize: "11px", background: "#222", color: "#ddd", border: "1px solid #444", borderRadius: "3px" }}
+            >
+              <option value="height">height (Y)</option>
+              <option value="width">width (X)</option>
+              <option value="depth">depth (Z)</option>
+            </select>
+            <input
+              type="number"
+              value={normalizeTarget}
+              onChange={(e) => setNormalizeTarget(e.target.value)}
+              style={{ width: "50px", fontSize: "11px", background: "#222", color: "#ddd", border: "1px solid #444", borderRadius: "3px", padding: "2px 4px" }}
+            />
+            <span style={{ color: "#aaa", fontSize: "11px" }}>m</span>
+          </div>
+          <button
+            onClick={handleNormalize}
+            style={{
+              fontSize: "11px",
+              padding: "4px 10px",
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              borderRadius: "3px",
+              cursor: "pointer",
+            }}
+          >
+            Normalize
+          </button>
+        </div>
+      )}
+
+      {/* Editable settings */}
+      <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+        <label style={{ ...labelStyle, fontSize: "11px" }}>
+          Up-axis:
+          <select
+            value={upAxis}
+            onChange={(e) => setUpAxis(e.target.value as UpAxis)}
+            style={{ fontSize: "11px", background: "#222", color: "#ddd", border: "1px solid #444", borderRadius: "3px", marginLeft: "4px" }}
+          >
+            <option value="y">Y</option>
+            <option value="z">Z</option>
+          </select>
+        </label>
+        <label style={{ ...labelStyle, fontSize: "11px" }}>
+          Units:
+          <select
+            value={units}
+            onChange={(e) => setUnits(e.target.value as UnitSystem)}
+            style={{ fontSize: "11px", background: "#222", color: "#ddd", border: "1px solid #444", borderRadius: "3px", marginLeft: "4px" }}
+          >
+            <option value="meters">meters</option>
+            <option value="centimeters">centimeters</option>
+            <option value="inches">inches</option>
+            <option value="millimeters">millimeters</option>
+            <option value="units">units</option>
+          </select>
+        </label>
+        <label style={{ ...labelStyle, fontSize: "11px" }}>
+          Scale:
+          <input
+            type="number"
+            step="0.01"
+            value={scale}
+            onChange={(e) => setScale(e.target.value)}
+            style={{ width: "60px", fontSize: "11px", background: "#222", color: "#ddd", border: "1px solid #444", borderRadius: "3px", padding: "2px 4px", marginLeft: "4px" }}
+          />
+        </label>
+        <label style={{ ...labelStyle, fontSize: "11px" }}>
+          Auto-fit (m):
+          <input
+            type="number"
+            step="0.1"
+            value={autoFit}
+            placeholder="off"
+            onChange={(e) => setAutoFit(e.target.value)}
+            style={{ width: "60px", fontSize: "11px", background: "#222", color: "#ddd", border: "1px solid #444", borderRadius: "3px", padding: "2px 4px", marginLeft: "4px" }}
+          />
+        </label>
+      </div>
+
+      {/* Action buttons */}
+      <div style={{ marginTop: "8px", display: "flex", gap: "6px" }}>
+        <button
+          onClick={handleApply}
+          style={{
+            fontSize: "11px",
+            padding: "4px 10px",
+            background: "#333",
+            color: "#ddd",
+            border: "1px solid #555",
+            borderRadius: "3px",
+            cursor: "pointer",
+          }}
+        >
+          Apply
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving || !entryPath}
+          style={{
+            fontSize: "11px",
+            padding: "4px 10px",
+            background: "#333",
+            color: "#ddd",
+            border: "1px solid #555",
+            borderRadius: "3px",
+            cursor: saving ? "wait" : "pointer",
+            opacity: (!entryPath || saving) ? 0.5 : 1,
+          }}
+          title={entryPath ? `Write .ddmeta.json next to ${entryPath}` : "No file path available"}
+        >
+          {saving ? "Saving..." : "Save .ddmeta.json"}
+        </button>
+      </div>
+      {savedMsg && <div style={{ color: "#4ade80", fontSize: "11px", marginTop: "4px" }}>{savedMsg}</div>}
+    </div>
+  );
+}
+
+// ── Skeleton Debugger: select a bone and offset it to verify mapping ───────
+
+interface SkeletonDebuggerProps {
+  skin: SkinData;
+  selectedBone: number | null;
+  boneOffset: [number, number, number];
+  onSelectBone: (index: number | null) => void;
+  onOffsetChange: (offset: [number, number, number]) => void;
+}
+
+function SkeletonDebugger({ skin, selectedBone, boneOffset, onSelectBone, onOffsetChange }: SkeletonDebuggerProps) {
+  const boneNames = skin.bones.map((b, i) => `${i}: ${b.name}`);
+
+  return (
+    <div style={{
+      marginTop: "6px",
+      padding: "6px",
+      background: "rgba(0, 0, 0, 0.3)",
+      borderRadius: "4px",
+      border: "1px solid rgba(255,255,255,0.08)",
+    }}>
+      <div style={{ fontSize: "10px", color: "#888", marginBottom: "4px" }}>Bone</div>
+      <select
+        value={selectedBone ?? -1}
+        onChange={(e) => {
+          const v = parseInt(e.target.value);
+          onSelectBone(v >= 0 ? v : null);
+        }}
+        style={{
+          width: "100%",
+          fontSize: "10px",
+          background: "#222",
+          color: "#ddd",
+          border: "1px solid #444",
+          borderRadius: "3px",
+          padding: "2px 4px",
+          marginBottom: "6px",
+        }}
+      >
+        <option value={-1}>— none —</option>
+        {boneNames.map((name, i) => (
+          <option key={i} value={i}>{name}</option>
+        ))}
+      </select>
+
+      {selectedBone !== null && (
+        <>
+          <div style={{ fontSize: "10px", color: "#888", marginBottom: "4px" }}>
+            Drag the gizmo arrows in the viewport to move the bone.
+          </div>
+          <div style={{ fontSize: "10px", color: "#aaa", marginBottom: "4px" }}>
+            Offset: [{boneOffset[0].toFixed(2)}, {boneOffset[1].toFixed(2)}, {boneOffset[2].toFixed(2)}]
+          </div>
+          <button
+            onClick={() => onOffsetChange([0, 0, 0])}
+            style={{
+              fontSize: "10px",
+              padding: "2px 8px",
+              background: "#333",
+              color: "#ddd",
+              border: "1px solid #555",
+              borderRadius: "3px",
+              cursor: "pointer",
+            }}
+          >
+            Reset
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -652,6 +1083,24 @@ const hintStyle: React.CSSProperties = {
   color: "#666",
   marginTop: 12,
   lineHeight: 1.5,
+};
+
+// Left sidebar — view toggles
+const sidebarLeftStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 56, left: 12,
+  maxHeight: "calc(100% - 68px)",
+  overflowY: "auto",
+  background: "rgba(10, 10, 20, 0.85)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 8,
+  padding: "10px 12px",
+  pointerEvents: "auto",
+  backdropFilter: "blur(8px)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  minWidth: 180,
 };
 
 // Right sidebar — full height

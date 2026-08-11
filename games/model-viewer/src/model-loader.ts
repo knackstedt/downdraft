@@ -1,4 +1,14 @@
-import { loadModel, type AnimationData, type MaterialData, type ModelData } from "@downdraft/plugin-models";
+import {
+    createDefaultImportSettings,
+    loadModel,
+    normalizeModel,
+    parseFBX,
+    writeDdmeta,
+    type AnimationData,
+    type ImportSettings,
+    type MaterialData,
+    type ModelData
+} from "@downdraft/plugin-models";
 import { gunzipSync, strFromU8 } from "fflate";
 
 export type { AnimationData };
@@ -211,22 +221,83 @@ export async function loadModelWithTextures(
 
   return {
     data: modelData,
-    stats: {
-      meshCount: modelData.meshes.length,
-      totalVertices: totalVerts,
-      totalTriangles: Math.floor(totalTris),
-      hasTexture,
-      hasSkin,
-      boneCount,
-      bounds: {
-        min: [minX, minY, minZ],
-        max: [maxX, maxY, maxZ],
-      },
-      parts,
-      animations: modelData.animations ?? [],
-      rootNodes,
-    },
+    stats: computeModelStats(modelData),
     nodeId: entry.id.replace(/[^a-zA-Z0-9]/g, "_"),
+  };
+}
+
+/** Compute ModelStats from a ModelData. Shared by loadModelWithTextures and reloadModelWithSettings. */
+function computeModelStats(modelData: ModelData): ModelStats {
+  let totalVerts = 0;
+  let totalTris = 0;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+  for (const mesh of modelData.meshes) {
+    totalVerts += mesh.vertexCount;
+    totalTris += mesh.indexCount / 3;
+    const verts = mesh.vertices;
+    const stride = 6;
+    for (let i = 0; i < mesh.vertexCount; i++) {
+      const x = verts[i * stride];
+      const y = verts[i * stride + 1];
+      const z = verts[i * stride + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+  }
+
+  const hasTexture = modelData.materials?.some((m: MaterialData) => m.textureData && m.textureData.byteLength > 0) ?? false;
+  const hasSkin = !!modelData.skin;
+  const boneCount = modelData.skin?.bones.length ?? 0;
+
+  const parts: PartInfo[] = [];
+  const rootNodes: number[] = [];
+  if (modelData.nodes) {
+    for (let i = 0; i < modelData.nodes.length; i++) {
+      const node = modelData.nodes[i];
+      const meshIdx = node.mesh;
+      const hasMesh = meshIdx !== undefined && meshIdx < modelData.meshes.length;
+      const meshIndices = node.meshes
+        ? node.meshes.filter((mi) => mi < modelData.meshes.length)
+        : (hasMesh ? [meshIdx!] : []);
+      const mesh = hasMesh ? modelData.meshes[meshIdx!] : null;
+      parts.push({
+        nodeIndex: i,
+        name: node.name,
+        meshIndex: meshIdx,
+        meshIndices,
+        hasMesh: meshIndices.length > 0,
+        vertexCount: mesh?.vertexCount ?? 0,
+        triangleCount: mesh ? Math.floor(mesh.indexCount / 3) : 0,
+        children: node.children,
+      });
+    }
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p.children) {
+        for (const c of p.children) {
+          if (parts[c]) parts[c].parent = i;
+        }
+      }
+    }
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].parent === undefined) rootNodes.push(i);
+    }
+  }
+
+  return {
+    meshCount: modelData.meshes.length,
+    totalVertices: totalVerts,
+    totalTriangles: Math.floor(totalTris),
+    hasTexture,
+    hasSkin,
+    boneCount,
+    bounds: { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] },
+    parts,
+    animations: modelData.animations ?? [],
+    rootNodes,
   };
 }
 
@@ -338,3 +409,111 @@ function parseTar(data: Uint8Array): UnityPackageEntry[] {
 
   return entries;
 }
+
+// ── Sidecar writing + model re-normalization ──────────────────────────────
+
+/**
+ * Convert a Vite `/@fs/` proxy URL to an absolute filesystem path.
+ * Used to derive the sidecar file path from the model's fetch URL.
+ */
+export function fsPathFromUrl(url: string): string {
+  return decodeURIComponent(url.replace(/^\/@fs\//, ""));
+}
+
+/**
+ * Derive the .ddmeta.json sidecar path from a model URL.
+ */
+export function ddmetaPathFromUrl(url: string): string {
+  const fsPath = fsPathFromUrl(url);
+  return fsPath.replace(/\.[^.]+$/, ".ddmeta.json");
+}
+
+/**
+ * Write a .ddmeta.json sidecar file via the Vite dev server's write endpoint.
+ * The renderer is sandboxed, so it can't use fs directly — this POSTs to the
+ * `sidecarWriterPlugin` middleware.
+ */
+export async function writeSidecar(modelUrl: string, settings: ImportSettings): Promise<{ success: boolean; error?: string }> {
+  const sidecarPath = ddmetaPathFromUrl(modelUrl);
+  const content = writeDdmeta(settings);
+  try {
+    const resp = await fetch(`/__ddmeta_write__?path=${encodeURIComponent(sidecarPath)}`, {
+      method: "POST",
+      body: content,
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({ error: resp.statusText }));
+      return { success: false, error: body.error ?? `HTTP ${resp.status}` };
+    }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
+
+/**
+ * Re-load a model from its URL with custom ImportSettings, bypassing the
+ * default parser-detected settings. Used by the metadata editor and the
+ * normalize-to-height feature.
+ *
+ * Fetches the raw FBX, parses without normalization, applies the given
+ * settings, then loads textures.
+ */
+export async function reloadModelWithSettings(
+  entry: ModelEntry,
+  assetBase: string,
+  settings: ImportSettings,
+): Promise<LoadedModel> {
+  let data: ArrayBuffer;
+  if (entry.source === "unitypackage") {
+    const resp = await fetch(entry.path);
+    const pkgData = await resp.arrayBuffer();
+    const pkgEntries = extractUnityPackage(pkgData);
+    const fbxEntry = pkgEntries.find(
+      (e) => e.pathname.split("/").pop() === entry.filename,
+    );
+    if (!fbxEntry || !fbxEntry.asset) throw new Error(`FBX not found in unitypackage: ${entry.filename}`);
+    data = fbxEntry.asset.slice().buffer;
+  } else {
+    const resp = await fetch(entry.path);
+    if (!resp.ok) throw new Error(`Failed to fetch: ${entry.path}`);
+    data = await resp.arrayBuffer();
+  }
+
+  // Parse without normalization, then apply custom settings
+  const format = entry.filename.split(".").pop()?.toLowerCase();
+  let modelData: ModelData;
+  if (format === "fbx") {
+    modelData = parseFBX(data, entry.filename);
+  } else {
+    // Fall back to loadModel with normalize:false for non-FBX
+    modelData = await loadModel(data, entry.filename, undefined, undefined, { normalize: false });
+  }
+  modelData = normalizeModel(modelData, settings);
+
+  await loadExternalTextures(modelData, assetBase);
+
+  return {
+    data: modelData,
+    stats: computeModelStats(modelData),
+    nodeId: entry.id.replace(/[^a-zA-Z0-9]/g, "_"),
+  };
+}
+
+/**
+ * Create ImportSettings from the model's parser-detected defaults, with
+ * optional overrides. Used by the UI to build settings before applying.
+ */
+export function makeSettings(
+  modelData: ModelData,
+  overrides?: Partial<ImportSettings>,
+): ImportSettings {
+  const settings = createDefaultImportSettings(
+    modelData.sourceUpAxis,
+    modelData.sourceUnits,
+  );
+  return { ...settings, ...overrides, source: "ddmeta" };
+}
+
+// ── Stats computation (extracted from loadModelWithTextures) ──────────────
+// (now shared via computeModelStats above)

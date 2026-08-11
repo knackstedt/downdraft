@@ -169,6 +169,17 @@ export class Skeleton {
     return this.skinMatrices;
   }
 
+  /**
+   * Returns the bone world matrices computed during the last
+   * `computeSkinMatrices()` call. Each entry is a column-major mat4.
+   * The translation component (indices 12,13,14) gives the bone's
+   * world-space position. Call after `computeSkinMatrices()` to get
+   * the current animated world transforms.
+   */
+  getWorldMatrices(): Float32Array[] {
+    return this.boneWorldMatrices;
+  }
+
   getBindPose(): Array<{ position: [number, number, number]; rotation: [number, number, number, number]; scale: [number, number, number] }> {
     return this.data.bones.map((bone) => ({
       position: bone.bindPosition,
