@@ -20,8 +20,9 @@ export const LAYER_BYTES = MAX_GRID_BYTES + MAX_FIELD_BYTES;
 export const ALL_LAYERS_BYTES = LAYER_BYTES * NUM_LAYERS;
 export const INPUT_BYTES = 128;
 export const STATS_BYTES = 16;
+export const PLAYER_BYTES = 32; // px, py, vx, vy, onGround, facing, animFrame, health
 
-export const TOTAL_BYTES = ALL_LAYERS_BYTES + INPUT_BYTES + STATS_BYTES;
+export const TOTAL_BYTES = ALL_LAYERS_BYTES + INPUT_BYTES + STATS_BYTES + PLAYER_BYTES;
 
 // Per-layer offsets
 export function gridOffset(layer: number): number {
@@ -34,6 +35,7 @@ export function fieldOffset(layer: number): number {
 
 export const INPUT_OFFSET = ALL_LAYERS_BYTES;
 export const STATS_OFFSET = ALL_LAYERS_BYTES + INPUT_BYTES;
+export const PLAYER_OFFSET = ALL_LAYERS_BYTES + INPUT_BYTES + STATS_BYTES;
 
 // Field byte offsets within each 4-byte field cell
 export const FIELD = {
@@ -77,6 +79,17 @@ export const STATS = {
   FPS: 8,
 } as const;
 
+export const PLAYER = {
+  PX: 0,         // float32 — player x in grid cells
+  PY: 4,         // float32 — player y in grid cells
+  VX: 8,         // float32 — velocity x
+  VY: 12,        // float32 — velocity y
+  ON_GROUND: 16, // int32 — 1 if on ground
+  FACING: 20,    // int32 — 1 = right, -1 = left
+  ANIM_FRAME: 24,// int32 — animation frame counter
+  HEALTH: 28,    // int32 — player health
+} as const;
+
 export function allocateSimBuffer(): SharedArrayBuffer {
   return new SharedArrayBuffer(TOTAL_BYTES);
 }
@@ -118,6 +131,14 @@ export class SimBufferReader {
   getStat(field: number): number {
     return this.buf[STATS_OFFSET / 4 + field / 4];
   }
+
+  getPlayerF32(field: number): number {
+    return new Float32Array(this.u8.buffer, PLAYER_OFFSET, PLAYER_BYTES / 4)[field / 4];
+  }
+
+  getPlayerI32(field: number): number {
+    return this.buf[PLAYER_OFFSET / 4 + field / 4];
+  }
 }
 
 export class SimBufferWriter {
@@ -156,6 +177,14 @@ export class SimBufferWriter {
 
   writeStat(field: number, value: number): void {
     this.buf[STATS_OFFSET / 4 + field / 4] = value;
+  }
+
+  writePlayerF32(field: number, value: number): void {
+    new Float32Array(this.u8.buffer, PLAYER_OFFSET, PLAYER_BYTES / 4)[field / 4] = value;
+  }
+
+  writePlayerI32(field: number, value: number): void {
+    this.buf[PLAYER_OFFSET / 4 + field / 4] = value;
   }
 
   init(): void {

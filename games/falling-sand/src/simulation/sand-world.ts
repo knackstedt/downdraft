@@ -22,6 +22,9 @@ function unpack(v: number): Cell {
 const FLAG_UPDATED = 0x04; // bit 2 — cell was updated this frame
 const FLAG_SPARK = 0x08;   // bit 3 — this fire is a spark (expires to empty, not smoke)
 const SHADE_MASK = 0x03;   // bits 0-1 — shade index (0-3)
+// Precomputed bit position of FLAG_UPDATED within the packed uint32 flags field.
+// OR-ing this into a packed cell value sets FLAG_UPDATED without re-packing.
+const FLAG_UPDATED_BIT = FLAG_UPDATED << 16;
 
 function randomShade(): number {
   return Math.floor(Math.random() * 4);
@@ -30,18 +33,7 @@ function randomShade(): number {
 function initialLifetime(mat: number): number {
   const def = MATERIALS[mat];
   if (!def) return 0;
-  if (mat === Material.Fire) return def.burnTime;
-  if (mat === Material.FuseFire) return def.burnTime;
-  if (mat === Material.Smoke) return 120;
-  if (mat === Material.Steam) return 120;
-  if (mat === Material.GasVapor) return 200;
-  if (mat === Material.Plasma) return 30;
-  if (mat === Material.Fireflies) return 255;
-  if (mat === Material.Nanobots) return 255;
-  if (mat === Material.Hydrogen) return 200;
-  if (mat === Material.MagicPowder) return 60; // decays like fire
-  if (def.burnTime > 0 && def.flammable) return 0; // burnTime used when ignited, not on placement
-  return 0;
+  return def.lifetime;
 }
 
 export class SandWorld {
@@ -55,13 +47,27 @@ export class SandWorld {
   horizontalImpulseChance = 0.02;
   horizontalImpulseStrength = 1;
 
+  // --- Reusable per-frame buffers (avoid allocations in hot paths) ---
+  // fireSources: marks cells that are fire/lava at the start of applyCombustion.
+  // visitedFrame: frame-tagged marker used in place of per-frame Sets for the
+  //   ignitedFuse / ignitedOil de-duplication. A cell is "visited this frame"
+  //   when visitedFrame[i] === this.frame. Shared between the fuse and
+  //   burning-oil passes — safe because the two passes target different
+  //   materials (Fuse vs Oil), so a cell marked in one pass is guarded out by
+  //   the material-type check in the other before the visited check runs.
+  private fireSources: Uint8Array;
+  private visitedFrame: Uint32Array;
+
   constructor(w: number, h: number) {
     this.W = w;
     this.H = h;
-    this.grid = new Uint32Array(w * h);
-    this.fields = new Uint8Array(w * h * 4);
+    const cells = w * h;
+    this.grid = new Uint32Array(cells);
+    this.fields = new Uint8Array(cells * 4);
+    this.fireSources = new Uint8Array(cells);
+    this.visitedFrame = new Uint32Array(cells);
     // Initialize fields to defaults
-    for (let i = 0; i < w * h * 4; i += 4) {
+    for (let i = 0; i < cells * 4; i += 4) {
       this.fields[i + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       this.fields[i + FIELD.TEMP] = DEFAULT_TEMP;
     }
@@ -187,6 +193,12 @@ export class SandWorld {
           // Fuse gets FuseFire (yellow, stays put, deterministic spread)
           if (c.mat === Material.Fuse) {
             this.setCell(x, y, { mat: Material.FuseFire, lifetime: 15, flags: randomShade() });
+          } else if (c.mat === Material.Oil) {
+            // Oil only ignites if exposed (has an empty/gas neighbor so fire
+            // can reach it). Buried oil stays inert.
+            if (!this.isExposed(x, y)) continue;
+            // Oil → BurningOil (flows like oil, slow decay, slow spread)
+            this.setCell(x, y, { mat: Material.BurningOil, lifetime: MATERIALS[Material.BurningOil].lifetime, flags: randomShade() });
           } else {
             this.setCell(x, y, { mat: Material.Fire, lifetime: 30, flags: randomShade() });
           }
@@ -269,9 +281,9 @@ export class SandWorld {
         // Strong wind can shove into occupied cells (displace liquids/gases)
         const windMag = Math.abs(windX) + Math.abs(windY);
         if (windMag >= 50) {
-          if (this.tryShove(x, y, x + wdx, y + wdy)) return;
+          if (this.tryShove(x, y, x + wdx, y + wdy, packed)) return;
         } else {
-          if (this.trySwap(x, y, x + wdx, y + wdy)) return;
+          if (this.trySwap(x, y, x + wdx, y + wdy, packed, def)) return;
         }
       }
     }
@@ -307,12 +319,12 @@ export class SandWorld {
       if (Math.random() < scaledChance) {
         const nudgeDir = Math.random() < 0.5 ? -1 : 1;
         const nudge = nudgeDir * Math.max(1, Math.round(this.horizontalImpulseStrength));
-        if (this.trySwap(x, y, x + nudge, y + dy)) return;
+        if (this.trySwap(x, y, x + nudge, y + dy, packed, def)) return;
       }
     }
 
     // 1. Try gravity direction
-    if (this.trySwap(x, y, x, y + dy)) return;
+    if (this.trySwap(x, y, x, y + dy, packed, def)) return;
 
     // Rubber: bouncy — try to bounce upward when blocked from below
     if (mat === Material.Rubber) {
@@ -322,17 +334,17 @@ export class SandWorld {
       if (blocked) {
         // Bounce: try to move up or sideways
         if (Math.random() < 0.5) {
-          if (this.trySwap(x, y, x, y - dy)) return;
+          if (this.trySwap(x, y, x, y - dy, packed, def)) return;
         }
         const bounceDir = Math.random() < 0.5 ? -1 : 1;
-        if (this.trySwap(x, y, x + bounceDir * 2, y)) return;
-        if (this.trySwap(x, y, x + bounceDir, y)) return;
+        if (this.trySwap(x, y, x + bounceDir * 2, y, packed, def)) return;
+        if (this.trySwap(x, y, x + bounceDir, y, packed, def)) return;
       }
     }
 
     const dir = Math.random() < 0.5 ? -1 : 1;
-    if (this.trySwap(x, y, x + dir, y + dy)) return;
-    if (this.trySwap(x, y, x - dir, y + dy)) return;
+    if (this.trySwap(x, y, x + dir, y + dy, packed, def)) return;
+    if (this.trySwap(x, y, x - dir, y + dy, packed, def)) return;
 
     if (isLiquid) {
       const flowDir = Math.random() < 0.5 ? -1 : 1;
@@ -351,21 +363,18 @@ export class SandWorld {
     if (isLiquid && dy > 0) {
       const below = y + 1;
       if (below < H) {
-        const belowPacked = this.grid[below * W + x];
+        const belowIdx = below * W + x;
+        const belowPacked = this.grid[belowIdx];
         if (belowPacked !== 0) {
           const belowCell = unpack(belowPacked);
           const belowDef = MATERIALS[belowCell.mat];
-          if (belowDef?.gas && !(belowCell.flags & FLAG_UPDATED)) {
-            this.grid[below * W + x] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
-            this.grid[idx] = pack({ ...belowCell, flags: belowCell.flags | FLAG_UPDATED });
-            return;
-          }
-          // Dense liquids sink through less-dense liquids (density = gravity).
-          // Mercury (gravity 4) sinks through water (2), brine (2.5), honey (1.5),
-          // lava (3), molten salt (3), etc.
-          if (belowDef?.liquid && def.gravity > belowDef.gravity && !(belowCell.flags & FLAG_UPDATED)) {
-            this.grid[below * W + x] = pack({ ...cell, flags: cell.flags | FLAG_UPDATED });
-            this.grid[idx] = pack({ ...belowCell, flags: belowCell.flags | FLAG_UPDATED });
+          // Heavy liquid sinks through a lighter gas or a less-dense liquid
+          // (density = gravity). Mercury (gravity 4) sinks through water (2),
+          // brine (2.5), honey (1.5), lava (3), molten salt (3), etc.
+          if (!(belowCell.flags & FLAG_UPDATED) &&
+              (belowDef?.gas || (belowDef?.liquid && def.gravity > belowDef.gravity))) {
+            this.grid[belowIdx] = packed | FLAG_UPDATED_BIT;
+            this.grid[idx] = belowPacked | FLAG_UPDATED_BIT;
             return;
           }
         }
@@ -382,33 +391,55 @@ export class SandWorld {
     }
   }
 
-  private trySwap(x: number, y: number, nx: number, ny: number): boolean {
+  /**
+   * Try to move/swap the cell at (x,y) into (nx,ny).
+   *
+   * The caller (tryMove) passes the already-read `srcPacked` and looked-up
+   * `srcDef` so the source cell is not re-read or re-unpacked on every call —
+   * tryMove calls this up to ~6 times per cell. The moved cell is written with
+   * FLAG_UPDATED set via a direct bit-OR on `srcPacked` (no object spread /
+   * re-pack).
+   */
+  private trySwap(
+    x: number, y: number, nx: number, ny: number,
+    srcPacked: number, srcDef: { gravity: number; gas: boolean } | undefined,
+  ): boolean {
     const W = this.W, H = this.H;
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
     const destIdx = ny * W + nx;
     const srcIdx = y * W + x;
-    const srcPacked = this.grid[srcIdx];
-    const srcCell = unpack(srcPacked);
-    const srcDef = MATERIALS[srcCell.mat as Material];
-
     const destPacked = this.grid[destIdx];
+
     if (destPacked === 0) {
       // Empty: simple move
-      this.grid[destIdx] = pack({ ...srcCell, flags: srcCell.flags | FLAG_UPDATED });
+      this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
       this.grid[srcIdx] = 0;
       return true;
+    }
+
+    // Non-gas displacing gas: solids and liquids are denser than gas, so a
+    // falling (or rising) solid/liquid pushes the gas aside and the gas swaps
+    // into the source cell. Without this, smoke/steam would block sand and
+    // water from falling — the gas has no gravity-driven way to yield. A gas
+    // that already moved this frame is left alone (it will yield next frame).
+    if (!srcDef?.gas) {
+      const destDef = MATERIALS[(destPacked & 0xff) as Material];
+      if (destDef?.gas && !((destPacked >> 16) & FLAG_UPDATED)) {
+        this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
+        this.grid[srcIdx] = destPacked | FLAG_UPDATED_BIT;
+        return true;
+      }
     }
 
     // Gas-to-gas displacement: a lighter gas (higher gravity for upward, i.e.
     // rises faster) can push through a slower gas. This lets fire (gravity 4)
     // rise through smoke (gravity 2) so they separate instead of mixing.
     if (srcDef?.gas) {
-      const destCell = unpack(destPacked);
-      const destDef = MATERIALS[destCell.mat as Material];
+      const destDef = MATERIALS[(destPacked & 0xff) as Material];
       if (destDef?.gas && srcDef.gravity > destDef.gravity) {
         // Swap: source moves to dest, dest moves to source
-        this.grid[destIdx] = pack({ ...srcCell, flags: srcCell.flags | FLAG_UPDATED });
-        this.grid[srcIdx] = pack({ ...destCell, flags: destCell.flags | FLAG_UPDATED });
+        this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
+        this.grid[srcIdx] = destPacked | FLAG_UPDATED_BIT;
         return true;
       }
     }
@@ -422,7 +453,16 @@ export class SandWorld {
    * into the source cell). Solids and walls block the shove. Used by strong
    * wind/impulse forces to push particles through dense media.
    */
-  private tryShove(x: number, y: number, nx: number, ny: number): boolean {
+  /**
+   * Like trySwap, but can also displace liquids/gases: if the destination is
+   * occupied by a liquid or gas, the two cells swap (the pushed particle moves
+   * into the source cell). Solids and walls block the shove. Used by strong
+   * wind/impulse forces to push particles through dense media.
+   *
+   * The caller passes the already-read `srcPacked` so the source is not
+   * re-read; the moved cell is written via a direct bit-OR (no spread/re-pack).
+   */
+  private tryShove(x: number, y: number, nx: number, ny: number, srcPacked: number): boolean {
     const W = this.W, H = this.H;
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
     const destIdx = ny * W + nx;
@@ -430,26 +470,27 @@ export class SandWorld {
     const destPacked = this.grid[destIdx];
     // Empty destination: normal swap
     if (destPacked === 0) {
-      const packed = this.grid[srcIdx];
-      this.grid[destIdx] = pack({ ...unpack(packed), flags: unpack(packed).flags | FLAG_UPDATED });
+      this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
       this.grid[srcIdx] = 0;
       return true;
     }
     // Occupied: only displace liquids/gases (not solids, walls, or already-updated cells)
-    const destCell = unpack(destPacked);
-    const destDef = MATERIALS[destCell.mat as Material];
+    const destDef = MATERIALS[(destPacked & 0xff) as Material];
     if (!destDef || !destDef.liquid && !destDef.gas) return false;
-    if (destCell.flags & FLAG_UPDATED) return false;
-    const srcPacked = this.grid[srcIdx];
-    const srcCell = unpack(srcPacked);
+    if ((destPacked >> 16) & FLAG_UPDATED) return false;
     // Swap the two cells
-    this.grid[destIdx] = pack({ ...srcCell, flags: srcCell.flags | FLAG_UPDATED });
-    this.grid[srcIdx] = pack({ ...destCell, flags: destCell.flags | FLAG_UPDATED });
+    this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
+    this.grid[srcIdx] = destPacked | FLAG_UPDATED_BIT;
     return true;
   }
 
   private tryFlow(x: number, y: number, dir: number, maxSteps: number): boolean {
     const W = this.W, H = this.H;
+    const srcIdx = y * W + x;
+    // Read the source once and pre-compute the moved value (FLAG_UPDATED set).
+    // The old code re-unpacked the source twice per move via
+    // `pack({ ...unpack(packed), flags: unpack(packed).flags | FLAG_UPDATED })`.
+    const movedPacked = this.grid[srcIdx] | FLAG_UPDATED_BIT;
     for (let step = 1; step <= maxSteps; step++) {
       const nx = x + dir * step;
       if (nx < 0 || nx >= W) return false;
@@ -460,18 +501,14 @@ export class SandWorld {
       if (belowY < H) {
         const belowIdx = belowY * W + nx;
         if (this.grid[belowIdx] === 0) {
-          const srcIdx = y * W + x;
-          const packed = this.grid[srcIdx];
-          this.grid[belowIdx] = pack({ ...unpack(packed), flags: unpack(packed).flags | FLAG_UPDATED });
+          this.grid[belowIdx] = movedPacked;
           this.grid[srcIdx] = 0;
           return true;
         }
       }
 
       if (step === maxSteps) {
-        const srcIdx = y * W + x;
-        const packed = this.grid[srcIdx];
-        this.grid[destIdx] = pack({ ...unpack(packed), flags: unpack(packed).flags | FLAG_UPDATED });
+        this.grid[destIdx] = movedPacked;
         this.grid[srcIdx] = 0;
         return true;
       }
@@ -496,6 +533,17 @@ export class SandWorld {
             this.grid[lavaN.y * W + lavaN.x] = pack({ mat: Material.Stone, lifetime: 0, flags: randomShade() });
             continue;
           }
+          // Contact with fire/fusefire/burning oil: water boils into steam and
+          // extinguishes the flame. Lava is handled above (cools to stone);
+          // fire-class materials turn to smoke (consumed by the water).
+          const fireN = this.findNeighbor(x, y, Material.Fire)
+            || this.findNeighbor(x, y, Material.FuseFire)
+            || this.findNeighbor(x, y, Material.BurningOil);
+          if (fireN && Math.random() < 0.25) {
+            this.grid[idx] = pack({ mat: Material.Steam, lifetime: 120, flags: randomShade() });
+            this.grid[fireN.y * W + fireN.x] = pack({ mat: Material.Smoke, lifetime: 40, flags: randomShade() });
+            continue;
+          }
           // High temperature: water evaporates into steam
           if (temp > 1.5 && Math.random() < (temp - 1.5) * 0.02) {
             this.grid[idx] = pack({ mat: Material.Steam, lifetime: 120, flags: randomShade() });
@@ -507,8 +555,8 @@ export class SandWorld {
           }
         }
 
-        // Low temperature: fire/fusefire dies faster
-        if ((cell.mat === Material.Fire || cell.mat === Material.FuseFire) && temp < 0.5) {
+        // Low temperature: fire/fusefire/burningoil dies faster
+        if ((cell.mat === Material.Fire || cell.mat === Material.FuseFire || cell.mat === Material.BurningOil) && temp < 0.5) {
           if (Math.random() < (0.5 - temp) * 0.1) {
             this.grid[idx] = pack({ mat: Material.Smoke, lifetime: 60, flags: randomShade() });
             continue;
@@ -681,7 +729,14 @@ export class SandWorld {
               const n = unpack(this.grid[ny * W + nx]);
               const ndef = MATERIALS[n.mat as Material];
               if (ndef?.flammable && Math.random() < 0.15) {
-                this.grid[ny * W + nx] = pack({ mat: Material.Fire, lifetime: 30, flags: randomShade() });
+                if (n.mat === Material.Oil) {
+                  // Oil needs air exposure to ignite — molten salt touching
+                  // buried oil heats it but can't sustain a flame without oxygen.
+                  if (!this.isExposed(nx, ny)) continue;
+                  this.grid[ny * W + nx] = pack({ mat: Material.BurningOil, lifetime: MATERIALS[Material.BurningOil].lifetime, flags: randomShade() });
+                } else {
+                  this.grid[ny * W + nx] = pack({ mat: Material.Fire, lifetime: 30, flags: randomShade() });
+                }
               }
             }
           }
@@ -695,6 +750,29 @@ export class SandWorld {
             this.grid[idx] = pack({ mat: Material.Concrete, lifetime: 0, flags: randomShade() });
             // Consume the water
             this.grid[waterN.y * W + waterN.x] = 0;
+            continue;
+          }
+        }
+
+        // --- Snow: melts to water when in contact with hot materials or at
+        // high ambient temperature. Hot neighbors: fire, fusefire, burning
+        // oil, lava, molten salt, plasma. ---
+        if (mat === Material.Snow) {
+          const hotN = this.findNeighbor(x, y, Material.Fire)
+            || this.findNeighbor(x, y, Material.FuseFire)
+            || this.findNeighbor(x, y, Material.BurningOil)
+            || this.findNeighbor(x, y, Material.Lava)
+            || this.findNeighbor(x, y, Material.MoltenSalt)
+            || this.findNeighbor(x, y, Material.Plasma);
+          if (hotN) {
+            // Direct contact with a hot material — melts quickly.
+            if (Math.random() < 0.3) {
+              this.grid[idx] = pack({ mat: Material.Water, lifetime: 0, flags: randomShade() });
+              continue;
+            }
+          } else if (temp > 1.3 && Math.random() < (temp - 1.3) * 0.05) {
+            // High ambient temperature — melts gradually.
+            this.grid[idx] = pack({ mat: Material.Water, lifetime: 0, flags: randomShade() });
             continue;
           }
         }
@@ -720,7 +798,7 @@ export class SandWorld {
               const nx = x + dx, ny = y + dy;
               if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
               const n = unpack(this.grid[ny * W + nx]);
-              if (n.mat === Material.Fire || n.mat === Material.FuseFire || n.mat === Material.Lava || n.mat === Material.Plasma) {
+              if (n.mat === Material.Fire || n.mat === Material.FuseFire || n.mat === Material.BurningOil || n.mat === Material.Lava || n.mat === Material.Plasma) {
                 this.grid[ny * W + nx] = n.mat === Material.Lava
                   ? pack({ mat: Material.Stone, lifetime: 0, flags: randomShade() })
                   : 0;
@@ -815,7 +893,7 @@ export class SandWorld {
 
         // --- Popcorn: pops like fireworks near fire/lava/molten salt or high heat ---
         if (mat === Material.Popcorn) {
-          const fireN = this.findNeighbor(x, y, Material.Fire) || this.findNeighbor(x, y, Material.FuseFire);
+          const fireN = this.findNeighbor(x, y, Material.Fire) || this.findNeighbor(x, y, Material.FuseFire) || this.findNeighbor(x, y, Material.BurningOil);
           const lavaN = this.findNeighbor(x, y, Material.Lava);
           const moltenSaltN = this.findNeighbor(x, y, Material.MoltenSalt);
           const hot = temp > 1.3;
@@ -842,7 +920,7 @@ export class SandWorld {
 
         // --- Dynamite: detonated by fire or fuse ---
         if (mat === Material.Dynamite) {
-          const fireN = this.findNeighbor(x, y, Material.Fire);
+          const fireN = this.findNeighbor(x, y, Material.Fire) || this.findNeighbor(x, y, Material.BurningOil);
           const fuseN = this.findNeighbor(x, y, Material.Fuse);
           if ((fireN || fuseN) && Math.random() < 0.2) {
             this.explode(x, y, 6);
@@ -874,7 +952,7 @@ export class SandWorld {
 
         // --- Flour: dust explosion when suspended near fire ---
         if (mat === Material.Flour) {
-          const fireN = this.findNeighbor(x, y, Material.Fire);
+          const fireN = this.findNeighbor(x, y, Material.Fire) || this.findNeighbor(x, y, Material.BurningOil);
           if (fireN && Math.random() < 0.15) {
             this.explode(x, y, 3);
           }
@@ -883,7 +961,7 @@ export class SandWorld {
 
         // --- Hydrogen: explodes near fire ---
         if (mat === Material.Hydrogen) {
-          const fireN = this.findNeighbor(x, y, Material.Fire);
+          const fireN = this.findNeighbor(x, y, Material.Fire) || this.findNeighbor(x, y, Material.BurningOil);
           if (fireN && Math.random() < 0.3) {
             this.explode(x, y, 4);
           }
@@ -970,7 +1048,7 @@ export class SandWorld {
           // Shove one step radially outward
           const stepX = dx === 0 ? 0 : dx > 0 ? 1 : -1;
           const stepY = dy === 0 ? 0 : dy > 0 ? 1 : -1;
-          this.tryShove(x, y, x + stepX, y + stepY);
+          this.tryShove(x, y, x + stepX, y + stepY, packed);
         }
       }
     }
@@ -1122,15 +1200,39 @@ export class SandWorld {
     return null;
   }
 
+  /**
+   * Check if a cell is "exposed" — has at least one neighbor that is empty
+   * or a gas (so fire/heat can reach it). Used to prevent buried oil from
+   * igniting when it's encased in solid/liquid material.
+   */
+  private isExposed(x: number, y: number): boolean {
+    const W = this.W, H = this.H;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+        const n = unpack(this.grid[ny * W + nx]);
+        if (n.mat === Material.Empty) return true;
+        const ndef = MATERIALS[n.mat as Material];
+        if (ndef?.gas) return true;
+      }
+    }
+    return false;
+  }
+
   private applyCombustion(): void {
     const W = this.W, H = this.H;
+    const n = W * H;
     // Snapshot which cells are fire/lava at the start of this pass.
     // Only these cells can spread fire — newly ignited cells wait until next frame.
     // This prevents instant cascade through fuse/gunpowder chains in a single pass.
-    const fireSources = new Uint8Array(W * H);
-    for (let i = 0; i < W * H; i++) {
+    // (Reused per-frame buffer — avoids a Uint8Array allocation every step.)
+    const fireSources = this.fireSources;
+    fireSources.fill(0);
+    for (let i = 0; i < n; i++) {
       const m = this.grid[i] & 0xff;
-      if (m === Material.Fire || m === Material.FuseFire || m === Material.Lava) fireSources[i] = 1;
+      if (m === Material.Fire || m === Material.FuseFire || m === Material.BurningOil || m === Material.Lava) fireSources[i] = 1;
     }
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -1166,14 +1268,29 @@ export class SandWorld {
               continue;
             }
             const baseChance = c.mat === Material.Lava ? 0.1 : 0.08;
-            // Rubber is hard to ignite — low continual burn/spread chance
-            const matMult = n.mat === Material.Rubber ? 0.3 : 1.0;
+            // Rubber is hard to ignite — low continual burn/spread chance.
+            // Oil is a slow-burning liquid fuel: low per-frame spread chance
+            // so the flame creeps gradually across the surface rather than
+            // flashing instantly. BurningOil→oil spread is handled by the
+            // dedicated burning-oil pass below (with decay-linked chance),
+            // so skip oil neighbors here when the source is BurningOil.
+            if (c.mat === Material.BurningOil && n.mat === Material.Oil) continue;
+            // Oil needs air exposure to ignite — fire/lava touching buried oil
+            // heats it but can't sustain a flame without oxygen.
+            if (n.mat === Material.Oil && !this.isExposed(nx, ny)) continue;
+            const matMult =
+              n.mat === Material.Rubber ? 0.3 :
+              n.mat === Material.Oil ? 0.3 :
+              1.0;
             // Per-cell temperature scales fire spread rate
             const chance = baseChance * this.getTemperature(nx, ny) * matMult;
             if (Math.random() < chance) {
               // Fuse gets FuseFire (yellow, stays put, deterministic spread)
               if (n.mat === Material.Fuse) {
                 this.setCell(nx, ny, { mat: Material.FuseFire, lifetime: 15, flags: randomShade() });
+              } else if (n.mat === Material.Oil) {
+                // Oil → BurningOil (stays put, slow decay, slow spread)
+                this.setCell(nx, ny, { mat: Material.BurningOil, lifetime: MATERIALS[Material.BurningOil].lifetime, flags: randomShade() });
               } else {
                 this.setCell(nx, ny, { mat: Material.Fire, lifetime: 30, flags: randomShade() });
               }
@@ -1194,11 +1311,14 @@ export class SandWorld {
     // identified even at the end of the trail where all adjacent fuse has been
     // consumed. No flag bits needed.
     //
-    // To prevent single-frame cascades, we use an ignitedFuse set.
+    // To prevent single-frame cascades, we use a frame-tagged visited array
+    // (this.visitedFrame) instead of allocating a Set every step. A cell is
+    // "visited this frame" when visitedFrame[i] === this.frame.
     const FUSE_FIRE_LIFETIME = 15;
     const FUSE_SPREAD_THRESHOLD = 3;
-    const ignitedFuse = new Set<number>();
-    for (let i = 0; i < W * H; i++) {
+    const frame = this.frame;
+    const visitedFrame = this.visitedFrame;
+    for (let i = 0; i < n; i++) {
       const c = unpack(this.grid[i]);
       if (c.mat !== Material.FuseFire) continue;
       if (c.lifetime > FUSE_SPREAD_THRESHOLD || c.lifetime === 0) continue;
@@ -1232,11 +1352,69 @@ export class SandWorld {
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
           const ni = ny * W + nx;
-          if (ignitedFuse.has(ni)) continue;
+          if (visitedFrame[ni] === frame) continue;
           const n = unpack(this.grid[ni]);
           if (n.mat === Material.Fuse) {
             this.setCell(nx, ny, { mat: Material.FuseFire, lifetime: FUSE_FIRE_LIFETIME, flags: randomShade() });
-            ignitedFuse.add(ni);
+            visitedFrame[ni] = frame;
+          }
+        }
+      }
+    }
+
+    // --- Burning oil pass ---
+    // BurningOil stays put on the oil surface. Each frame it:
+    //   1. Emits normal Fire particles upward (visual flames that rise and
+    //      decay to smoke like regular fire).
+    //   2. Slowly spreads to adjacent oil. The spread chance scales with
+    //      decay progress — early in its life it barely spreads, but as it
+    //      burns down the chance increases, so the fire creeps outward
+    //      gradually rather than flashing instantly.
+    // The ignitedOil de-dup uses the same frame-tagged visitedFrame array as
+    // the fuse pass above. Safe to share: the two passes target different
+    // materials (Fuse vs Oil), so a cell marked in one pass is guarded out by
+    // the material-type check in the other before the visited check runs.
+    const BURNING_OIL_LIFETIME = MATERIALS[Material.BurningOil].lifetime;
+    for (let i = 0; i < n; i++) {
+      const c = unpack(this.grid[i]);
+      if (c.mat !== Material.BurningOil) continue;
+      const x = i % W;
+      const y = Math.floor(i / W);
+
+      // Emit fire particles upward: normal Fire (not sparks) that rise and
+      // decay to smoke, giving visual flames above the burning oil surface.
+      for (let s = 0; s < 2; s++) {
+        if (Math.random() < 0.4) {
+          const sx = x + Math.floor(Math.random() * 3) - 1;
+          const sy = y - 1 - Math.floor(Math.random() * 2); // 1-2 cells above
+          if (sx >= 0 && sx < W && sy >= 0 && sy < H && this.grid[sy * W + sx] === 0) {
+            this.grid[sy * W + sx] = pack({ mat: Material.Fire, lifetime: 20, flags: randomShade() });
+            // Give the flame upward wind + random horizontal drift
+            const fi = (sy * W + sx) * 4;
+            const driftX = Math.floor(Math.random() * 5) - 2; // -2 to 2
+            this.fields[fi + FIELD.WIND_X] = driftX & 0xff;
+            this.fields[fi + FIELD.WIND_Y] = (-20) & 0xff; // upward
+          }
+        }
+      }
+
+      // Spread to adjacent oil: slow chance that increases with decay.
+      // decayProgress goes 0→1 as lifetime goes 200→0.
+      const decayProgress = 1 - (c.lifetime / BURNING_OIL_LIFETIME);
+      const spreadChance = 0.02 + 0.04 * decayProgress; // 2% early → 6% late
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          const ni = ny * W + nx;
+          if (visitedFrame[ni] === frame) continue;
+          const n = unpack(this.grid[ni]);
+          // Oil only ignites if it has air exposure (empty/gas neighbor) —
+          // burning oil flowing into buried oil won't ignite it without oxygen.
+          if (n.mat === Material.Oil && this.isExposed(nx, ny) && Math.random() < spreadChance) {
+            this.setCell(nx, ny, { mat: Material.BurningOil, lifetime: BURNING_OIL_LIFETIME, flags: randomShade() });
+            visitedFrame[ni] = frame;
           }
         }
       }
@@ -1257,6 +1435,10 @@ export class SandWorld {
         } else if (c.mat === Material.FuseFire) {
           // FuseFire decays deterministically for consistent burn speed
           c.lifetime--;
+        } else if (c.mat === Material.BurningOil) {
+          // BurningOil decays very slowly so the fire sits on the oil surface
+          // for a long time, giving it time to spread to neighbors gradually.
+          if (Math.random() < 0.15) c.lifetime--;
         } else if (c.mat === Material.Smoke) {
           if (Math.random() < 0.8) c.lifetime--;
         } else if (c.mat === Material.Steam) {
@@ -1281,6 +1463,10 @@ export class SandWorld {
             // below the rising fire and suffocate the burn trail.
             this.grid[i] = 0;
             continue;
+          } else if (c.mat === Material.BurningOil) {
+            // BurningOil expires to smoke — the oil is consumed.
+            c.mat = Material.Smoke;
+            c.lifetime = 60;
           } else if (c.mat === Material.Smoke) {
             this.grid[i] = 0;
             continue;

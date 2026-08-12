@@ -1,10 +1,11 @@
 import { computeGridDims } from "../shared/constants";
-import { FIELD, NUM_LAYERS, SimBufferReader } from "../shared/sim-buffer";
+import { FIELD, NUM_LAYERS, PLAYER, SimBufferReader } from "../shared/sim-buffer";
 import { MATERIALS } from "../simulation/materials";
 import { SandWorkerHost } from "../simulation/sand-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
+import { StickmanPass } from "./stickman-pass";
 
 export class FallingSandRenderer {
   private canvas: HTMLCanvasElement;
@@ -12,6 +13,7 @@ export class FallingSandRenderer {
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private gridPass: SandGridPass | null = null;
+  private stickmanPass: StickmanPass | null = null;
   private input: ReturnType<typeof createInputHandler> | null = null;
   private workerHost: SandWorkerHost | null = null;
   private gridReader: SimBufferReader | null = null;
@@ -104,6 +106,9 @@ export class FallingSandRenderer {
     this.gridPass = new SandGridPass(this.device, this.format, this.gridW, this.gridH, NUM_LAYERS);
     this.gridPass.init(this.canvas.width, this.canvas.height);
 
+    this.stickmanPass = new StickmanPass(this.device, this.format, this.gridW, this.gridH);
+    this.stickmanPass.init();
+
     this.workerHost = new SandWorkerHost(this.gridW, this.gridH);
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
@@ -135,6 +140,7 @@ export class FallingSandRenderer {
     this.gridW = dims.w;
     this.gridH = dims.h;
     this.gridPass.resize(this.gridW, this.gridH, this.canvas.width, this.canvas.height);
+    this.stickmanPass?.resize(this.gridW, this.gridH);
     this.workerHost.resize(this.gridW, this.gridH);
   }
 
@@ -149,6 +155,7 @@ export class FallingSandRenderer {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.workerHost?.stop();
+    this.stickmanPass?.destroy();
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.storeUnsub) this.storeUnsub();
   }
@@ -174,6 +181,25 @@ export class FallingSandRenderer {
       this.gridPass.updateGrid(i, this.gridReader.getGrid(i));
     }
     this.gridPass.updateUniforms();
+
+    // Update stickman uniforms from shared buffer
+    if (this.stickmanPass && this.workerHost) {
+      const pHealth = this.workerHost.getPlayerI32(PLAYER.HEALTH);
+      const pOnGround = this.workerHost.getPlayerI32(PLAYER.ON_GROUND) !== 0;
+      this.stickmanPass.update(
+        this.workerHost.getPlayerF32(PLAYER.PX),
+        this.workerHost.getPlayerF32(PLAYER.PY),
+        this.workerHost.getPlayerI32(PLAYER.FACING),
+        this.workerHost.getPlayerI32(PLAYER.ANIM_FRAME),
+        pHealth,
+        pOnGround,
+        this.workerHost.getPlayerF32(PLAYER.VX),
+        this.workerHost.getPlayerF32(PLAYER.VY),
+      );
+      // Sync player health to store
+      const s = useGameStore.getState();
+      if (s.health !== pHealth) s.setHealth(pHealth);
+    }
 
     const commandEncoder = this.device.createCommandEncoder();
 
@@ -211,6 +237,19 @@ export class FallingSandRenderer {
       canvasPass.end();
     }
 
+    // Phase 3: Render stickman player on top of all layers
+    if (this.stickmanPass) {
+      const stickmanPass = commandEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: cv,
+          loadOp: "load",
+          storeOp: "store",
+        }],
+      });
+      this.stickmanPass.render(stickmanPass);
+      stickmanPass.end();
+    }
+
     this.device.queue.submit([commandEncoder.finish()]);
 
     this.raf = requestAnimationFrame((t) => this.frame(t));
@@ -234,6 +273,11 @@ export class FallingSandRenderer {
     this.workerHost.writeBrushMode(s.brushMode === "field" ? 1 : 0);
     this.workerHost.writeShowFields(s.showFieldOverlay);
     this.workerHost.writeActiveLayer(s.activeLayer);
+
+    // Player input
+    this.workerHost.writePlayerInput(
+      this.input.left, this.input.right, this.input.up, this.input.down, this.input.jump
+    );
 
     const FIELD_GRAVITY = 0, FIELD_TEMP = 1, FIELD_WIND_X = 2, FIELD_WIND_Y = 3;
     if (s.brushMode === "field") {

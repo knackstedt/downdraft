@@ -31,10 +31,10 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
   // Alpha fade for gases and temporary particles
   // Fire=5, Smoke=6, Steam=11, GasVapor=21, Hydrogen=22, Fireflies=27,
-  // Plasma=39, Nanobots=40
+  // Plasma=39, Nanobots=40, BurningOil=51
   var alpha = matColor.a;
-  if (matId == 5u || matId == 50u) {
-    // Fire/FuseFire: keep bright and fairly opaque — don't fade too much with lifetime
+  if (matId == 5u || matId == 50u || matId == 51u) {
+    // Fire/FuseFire/BurningOil: keep bright and fairly opaque — don't fade too much with lifetime
     alpha = alpha * (0.85 + 0.15 * lifetime);
   } else if (matId == 6u || matId == 11u || matId == 21u ||
       matId == 22u || matId == 39u) {

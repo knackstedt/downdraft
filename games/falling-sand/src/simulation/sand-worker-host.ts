@@ -1,24 +1,31 @@
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
-import { allocateSimBuffer, INPUT, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
+import { allocateSimBuffer, INPUT, NUM_LAYERS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
 
-type SandApi = {
-  init(sab: SharedArrayBuffer, gridW: number, gridH: number): Promise<void>;
+// Per-layer worker API. Each worker ticks exactly one layer and writes to its
+// own region of the shared SAB.
+type SandLayerApi = {
+  init(sab: SharedArrayBuffer, gridW: number, gridH: number, layer: number): Promise<void>;
   resize(gridW: number, gridH: number): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   shutdown(): Promise<void>;
   clear(): Promise<void>;
-  loadGrids(grids: Uint32Array[], fields: Uint8Array[], gridW: number, gridH: number): Promise<void>;
+  loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
 };
+
+interface LayerWorker {
+  proxy: WorkerProxy<SandLayerApi>;
+  worker: Worker;
+  ready: boolean;
+}
 
 export class SandWorkerHost {
   private sab: SharedArrayBuffer;
   private writer: SimBufferWriter;
   private reader: SimBufferReader;
-  private wp: WorkerProxy<SandApi> | null = null;
-  private worker: Worker | null = null;
-  private ready = false;
+  private layers: LayerWorker[] = [];
+  private readyCount = 0;
   gridW: number;
   gridH: number;
 
@@ -33,22 +40,44 @@ export class SandWorkerHost {
 
   getSimBuffer(): SharedArrayBuffer { return this.sab; }
   getReader(): SimBufferReader { return this.reader; }
-  isReady(): boolean { return this.ready; }
+  isReady(): boolean { return this.readyCount >= NUM_LAYERS; }
 
   async start(): Promise<void> {
     const workerUrl = new URL("./sand-worker.ts", import.meta.url);
-    this.worker = new Worker(workerUrl, { type: "module" });
-    this.wp = wrap<SandApi>(this.worker);
 
-    this.worker.onerror = (e: ErrorEvent) => {
-      console.error("[SandWorkerHost] Worker error:", e.message);
-    };
+    // Snapshot the grid dimensions at spawn time. The await on init() below
+    // yields to the event loop, which can fire a resize event between spawning
+    // worker 0 and worker 1 — causing them to be initialized with different
+    // grid dimensions. Capturing the dims upfront ensures all workers start
+    // with the same size; any resize that arrived during spawn is applied
+    // after (via the resize RPC fan-out).
+    const spawnW = this.gridW;
+    const spawnH = this.gridH;
 
-    this.wp.onEvents((kind) => {
-      if (kind === "ready") this.ready = true;
-    });
+    for (let i = 0; i < NUM_LAYERS; i++) {
+      const worker = new Worker(workerUrl, { type: "module" });
+      const wp = wrap<SandLayerApi>(worker);
 
-    await this.wp.proxy.init(this.sab, this.gridW, this.gridH);
+      worker.onerror = (e: ErrorEvent) => {
+        console.error(`[SandWorkerHost] Layer ${i} worker error:`, e.message);
+      };
+
+      // Track ready events per-worker. isReady() returns true once every
+      // layer worker has reported ready.
+      const layerIdx = i;
+      wp.onEvents((kind) => {
+        if (kind === "ready") {
+          this.layers[layerIdx].ready = true;
+          this.readyCount++;
+        }
+      });
+
+      this.layers.push({ proxy: wp, worker, ready: false });
+
+      // Pass the shared SAB + this worker's layer index. All workers share
+      // the same SAB; each writes only to its own layer region.
+      await wp.proxy.init(this.sab, spawnW, spawnH, i);
+    }
   }
 
   async resize(gridW: number, gridH: number): Promise<void> {
@@ -56,39 +85,55 @@ export class SandWorkerHost {
     this.gridH = gridH;
     this.writer.setDims(gridW, gridH);
     this.reader.setDims(gridW, gridH);
-    await this.wp?.proxy.resize(gridW, gridH);
+    await Promise.all(this.layers.map(l => l.proxy.proxy.resize(gridW, gridH)));
   }
 
   async stop(): Promise<void> {
-    if (!this.wp) return;
-    try { await this.wp.proxy.shutdown(); } catch {}
-    this.wp.terminate();
-    this.wp = null;
-    this.worker = null;
-    this.ready = false;
+    await Promise.all(this.layers.map(async l => {
+      try { await l.proxy.proxy.shutdown(); } catch {}
+      l.proxy.terminate();
+    }));
+    this.layers = [];
+    this.readyCount = 0;
   }
 
-  pause(): void { this.wp?.proxy.pause().catch(() => {}); }
-  resume(): void { this.wp?.proxy.resume().catch(() => {}); }
+  pause(): void {
+    for (const l of this.layers) l.proxy.proxy.pause().catch(() => {});
+  }
+  resume(): void {
+    for (const l of this.layers) l.proxy.proxy.resume().catch(() => {});
+  }
 
-  clear(): void { this.wp?.proxy.clear().catch(() => {}); }
+  clear(): void {
+    for (const l of this.layers) l.proxy.proxy.clear().catch(() => {});
+  }
 
   async loadGrids(grids: Uint32Array[], fields: Uint8Array[], gridW: number, gridH: number): Promise<void> {
-    // If dimensions changed, resize first
+    // If dimensions changed, resize the host-side reader/writer first
     if (gridW !== this.gridW || gridH !== this.gridH) {
       this.gridW = gridW;
       this.gridH = gridH;
       this.writer.setDims(gridW, gridH);
       this.reader.setDims(gridW, gridH);
     }
-    await this.wp?.proxy.loadGrids(grids, fields, gridW, gridH);
+    // Each worker loads only its own layer's grid + fields
+    await Promise.all(this.layers.map((l, i) => {
+      if (i >= grids.length) return Promise.resolve();
+      const g = grids[i] ?? new Uint32Array(gridW * gridH);
+      const f = fields[i] ?? new Uint8Array(gridW * gridH * 4);
+      return l.proxy.proxy.loadGrid(g, f, gridW, gridH);
+    }));
   }
 
   async getStats(): Promise<{ fps: number; tick: number; frame: number } | null> {
-    if (!this.wp) return null;
-    try { return await this.wp.proxy.getStats(); }
+    // Stats are written by layer 0 (the primary worker).
+    if (this.layers.length === 0) return null;
+    try { return await this.layers[0].proxy.proxy.getStats(); }
     catch { return null; }
   }
+
+  // --- Input writing (unchanged — writes to the shared SAB input region) ---
+  // All workers read from the same input region; no per-worker fan-out needed.
 
   writeMouseDown(down: boolean): void { this.writer.writeInput(INPUT.MOUSE_DOWN, down ? 1 : 0); }
   writeMouseRight(right: boolean): void { this.writer.writeInput(INPUT.MOUSE_RIGHT, right ? 1 : 0); }
@@ -125,4 +170,15 @@ export class SandWorkerHost {
   writeActiveLayer(layer: number): void {
     this.writer.writeInput(INPUT.ACTIVE_LAYER, layer);
   }
+
+  writePlayerInput(left: boolean, right: boolean, up: boolean, down: boolean, jump: boolean): void {
+    this.writer.writeInput(INPUT.LEFT, left ? 1 : 0);
+    this.writer.writeInput(INPUT.RIGHT, right ? 1 : 0);
+    this.writer.writeInput(INPUT.UP, up ? 1 : 0);
+    this.writer.writeInput(INPUT.DOWN, down ? 1 : 0);
+    this.writer.writeInput(INPUT.JUMP, jump ? 1 : 0);
+  }
+
+  getPlayerF32(field: number): number { return this.reader.getPlayerF32(field); }
+  getPlayerI32(field: number): number { return this.reader.getPlayerI32(field); }
 }
