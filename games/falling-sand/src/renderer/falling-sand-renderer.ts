@@ -27,6 +27,7 @@ export class FallingSandRenderer {
   private fpsTimer = 0;
   private resizeHandler: (() => void) | null = null;
   private storeUnsub: (() => void) | null = null;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private prevMouseMiddle = false;
   private inspectorTimer = 0;
 
@@ -39,6 +40,7 @@ export class FallingSandRenderer {
   getCanvas(): HTMLCanvasElement { return this.canvas; }
   getGridW(): number { return this.gridW; }
   getGridH(): number { return this.gridH; }
+  getWorkerHost(): SandWorkerHost | null { return this.workerHost; }
 
   /** Snapshot all layer grids + fields from the SAB for saving. */
   snapshotGrids(): { grids: Uint32Array[]; fields: Uint8Array[]; gridW: number; gridH: number } {
@@ -113,6 +115,21 @@ export class FallingSandRenderer {
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
 
+    // P key toggles pause (syncs with DevTools Sim tab)
+    this.keydownHandler = (e: KeyboardEvent) => {
+      if (e.key === "p" || e.key === "P") {
+        const s = useGameStore.getState();
+        if (s.paused) {
+          this.workerHost?.resume();
+          s.setPaused(false);
+        } else {
+          this.workerHost?.pause();
+          s.setPaused(true);
+        }
+      }
+    };
+    window.addEventListener("keydown", this.keydownHandler);
+
     return true;
   }
 
@@ -158,6 +175,7 @@ export class FallingSandRenderer {
     this.stickmanPass?.destroy();
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.storeUnsub) this.storeUnsub();
+    if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
   }
 
   private frame(time: number): void {

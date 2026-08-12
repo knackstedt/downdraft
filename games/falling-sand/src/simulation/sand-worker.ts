@@ -1,11 +1,11 @@
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import {
-  INPUT,
-  INPUT_BYTES,
-  INPUT_OFFSET,
-  PLAYER,
-  STATS,
-  SimBufferWriter
+    INPUT,
+    INPUT_BYTES,
+    INPUT_OFFSET,
+    PLAYER,
+    STATS,
+    SimBufferWriter
 } from "../shared/sim-buffer";
 import { createPlayer, updatePlayer, type PlayerState } from "./player";
 import { SandWorld } from "./sand-world";
@@ -58,6 +58,9 @@ let wasmInitialized = false;
 const TICK_MS = 1000 / 30;
 const MAX_STEPS_PER_FRAME = 5;
 let tickAccumulator = 0;
+let speedMultiplier = 1;
+// When true, the loop runs exactly one tick then re-pauses (for the Step button).
+let stepOnce = false;
 
 expose({
   async init(sab: SharedArrayBuffer, gridW: number, gridH: number, layer: number): Promise<void> {
@@ -128,6 +131,17 @@ expose({
   resume(): void { paused = false; lastTick = performance.now(); },
   shutdown(): void { running = false; },
 
+  setSpeed(speed: number): void {
+    speedMultiplier = Math.max(0, speed);
+  },
+
+  step(): void {
+    // Advance exactly one tick, then re-pause. The loop checks stepOnce.
+    stepOnce = true;
+    paused = false;
+    lastTick = performance.now();
+  },
+
   clear(): void {
     if (!world) return;
     if (USE_WASM) {
@@ -175,11 +189,12 @@ async function loop(): Promise<void> {
 
     if (elapsed >= TICK_MS) {
       lastTick = now - (elapsed % TICK_MS);
-      tickAccumulator += elapsed / TICK_MS;
+      tickAccumulator += (elapsed / TICK_MS) * speedMultiplier;
 
-      if (!paused) {
+      if (!paused || stepOnce) {
         let steps = 0;
-        while (tickAccumulator >= 1 && steps < MAX_STEPS_PER_FRAME) {
+        const maxSteps = stepOnce ? 1 : MAX_STEPS_PER_FRAME;
+        while (tickAccumulator >= 1 && steps < maxSteps) {
           readInput();
           world.step();
           writer.writeGrid(layerIndex, world.grid);
@@ -222,6 +237,12 @@ async function loop(): Promise<void> {
           steps++;
         }
         if (tickAccumulator > MAX_STEPS_PER_FRAME) {
+          tickAccumulator = 0;
+        }
+        // After a single-step, re-pause and clear the flag.
+        if (stepOnce) {
+          stepOnce = false;
+          paused = true;
           tickAccumulator = 0;
         }
       }

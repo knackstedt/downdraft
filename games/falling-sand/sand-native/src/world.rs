@@ -473,7 +473,7 @@ impl SandWorld {
                     let below_flags = MAT_FLAGS[below_mat as usize];
                     if ((below_packed >> 16) & FLAG_UPDATED as u32) == 0 &&
                        ((below_flags & MAT_GAS) != 0 ||
-                        ((below_flags & MAT_LIQUID) != 0 && mat_gravity > MAT_GRAVITY[below_mat as usize])) {
+                        ((below_flags & MAT_LIQUID) != 0 && MAT_DENSITY[mat as usize] > MAT_DENSITY[below_mat as usize])) {
                         self.grid[below_idx] = packed | FLAG_UPDATED_BIT;
                         self.grid[idx] = below_packed | FLAG_UPDATED_BIT;
                         return;
@@ -491,7 +491,7 @@ impl SandWorld {
     }
 
     /// Try to move/swap the cell at (x,y) into (nx,ny).
-    fn try_swap(&mut self, x: i32, y: i32, nx: i32, ny: i32, src_packed: u32, _src_mat: u8, src_gravity: f32, src_is_gas: bool) -> bool {
+    fn try_swap(&mut self, x: i32, y: i32, nx: i32, ny: i32, src_packed: u32, src_mat: u8, src_gravity: f32, src_is_gas: bool) -> bool {
         let w = self.w as i32;
         let h = self.h as i32;
         if nx < 0 || nx >= w || ny < 0 || ny >= h { return false; }
@@ -522,6 +522,28 @@ impl SandWorld {
                 self.grid[dest_idx] = src_packed | FLAG_UPDATED_BIT;
                 self.grid[src_idx] = dest_packed | FLAG_UPDATED_BIT;
                 return true;
+            }
+        }
+
+        // Solid-liquid density displacement: a denser material sinks through
+        // a less-dense one. Sand (2.0) sinks through water (1.0) but not
+        // mercury (13.5). Water (1.0) sinks through wood (0.6), making wood
+        // float. Only solid-liquid pairs; structural barriers (static solids
+        // with density >= 2.0, e.g. stone/wall/concrete) are immovable.
+        if !src_is_gas {
+            let dest_mat = (dest_packed & 0xff) as u8;
+            let dest_flags = MAT_FLAGS[dest_mat as usize];
+            if (dest_flags & (MAT_SOLID | MAT_LIQUID)) != 0 && ((dest_packed >> 16) & FLAG_UPDATED as u32) == 0 {
+                let src_is_solid = (MAT_FLAGS[src_mat as usize] & MAT_SOLID) != 0;
+                let dest_is_solid = (dest_flags & MAT_SOLID) != 0;
+                let dest_is_barrier = dest_is_solid && MAT_GRAVITY_DIR[dest_mat as usize] == 0 && MAT_DENSITY[dest_mat as usize] >= 2.0;
+                if src_is_solid != dest_is_solid &&
+                   !dest_is_barrier &&
+                   MAT_DENSITY[src_mat as usize] > MAT_DENSITY[dest_mat as usize] {
+                    self.grid[dest_idx] = src_packed | FLAG_UPDATED_BIT;
+                    self.grid[src_idx] = dest_packed | FLAG_UPDATED_BIT;
+                    return true;
+                }
             }
         }
 

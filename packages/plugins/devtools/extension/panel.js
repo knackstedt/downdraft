@@ -1050,6 +1050,12 @@
     if (ext.script) {
       try {
         var lifecycle = sandboxEval(ext.script, { document: document, console: console, panel: panel });
+        // Scripts may be either a direct object literal or a function that
+        // takes DevToolsPanel and returns the lifecycle object. Invoke the
+        // latter so onActivate/onRefresh/onDeactivate are wired up.
+        if (typeof lifecycle === "function") {
+          lifecycle = lifecycle(window.DevToolsPanel);
+        }
         if (lifecycle && typeof lifecycle === "object") {
           extensionLifecycle[ext.id] = lifecycle;
         }
@@ -1069,7 +1075,10 @@
 
     if (toggle.script) {
       try {
-        sandboxEval(toggle.script, { document: document, console: console });
+        var toggleResult = sandboxEval(toggle.script, { document: document, console: console });
+        if (typeof toggleResult === "function") {
+          toggleResult(window.DevToolsPanel);
+        }
       } catch (e) {
         console.error("[DevTools] Overlay toggle script error (" + toggle.id + "):", e);
       }
