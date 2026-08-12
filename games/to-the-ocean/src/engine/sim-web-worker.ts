@@ -46,7 +46,46 @@ type SimApi = {
   forceMajorGC(): Promise<void>;
 };
 
-export class SimWebWorker implements IHotReloadable {
+/**
+ * Public interface for the simulation worker — the subset of SimWebWorker
+ * methods used by the sim-bridge. Extracted so the bridge can depend on an
+ * interface (enabling DI + testing with fakes) rather than the concrete class.
+ */
+export interface ISimWorker {
+  start(config: SimWebWorkerConfig): Promise<void>;
+  addPlayer(playerId: number, name: string): void;
+  removePlayer(playerId: number): void;
+  pause(): void;
+  resume(): void;
+  save(slotName: string): Promise<{ slotName: string; stateJson: string } | null>;
+  load(slotName: string, stateJson?: string): Promise<boolean>;
+  setGamemode(mode: number): void;
+  setSetting(key: string, value: number | boolean): void;
+  respawnPlayer(playerId: number): void;
+  setDebugMode(enabled: boolean): void;
+  sendCommand(cmd: any): void;
+  sendWorldCommand(cmd: any): void;
+  setWeather(weatherType: number): void;
+  setTimeOfDay(time: number): void;
+  setSimSpeed(speed: number): void;
+  getSimSpeed(): Promise<number>;
+  setPhysicsProfiler(enabled: boolean): void;
+  setGCConfig(config: Partial<GCControllerConfig>): void;
+  getGCStats(): Promise<GCControllerStats | null>;
+  forceMajorGC(): void;
+  restoreFromState(stateJson: string): Promise<void>;
+  hotReload(config: SimWebWorkerConfig, preserveState: boolean): Promise<void>;
+  stop(): Promise<void>;
+  onEvent(cb: SimEventCallback): void;
+  offEvent(cb: SimEventCallback): void;
+  getSimBuffer(): SharedArrayBuffer;
+  getInputBuffer(): SharedArrayBuffer;
+  getWaterBuffer(): SharedArrayBuffer;
+  getBoatBuffer(): SharedArrayBuffer;
+  isReady(): boolean;
+}
+
+export class SimWebWorker implements IHotReloadable, ISimWorker {
   private simBuffer: SharedArrayBuffer;
   private inputBuffer: SharedArrayBuffer;
   private waterBuffer: SharedArrayBuffer;

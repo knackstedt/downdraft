@@ -1,12 +1,12 @@
-import React from "react";
-import { useGameStore } from "../stores/game-store";
 import { SimBufferReader } from "@shared/sim-buffer";
 import { GameMode } from "@shared/types";
-import { simBridge } from "../sim-bridge";
+import React from "react";
+import { useGameStore } from "../stores/game-store";
 
 export default function DeathScreen() {
   const playerDied = useGameStore((s) => s.playerDied);
   const renderer = useGameStore((s) => s.renderer);
+  const simBridge = useGameStore((s) => s.simBridge);
 
   const [isHardcore, setIsHardcore] = React.useState(false);
 
@@ -21,13 +21,13 @@ export default function DeathScreen() {
 
   const handleRespawn = () => {
     if (playerDied) {
-      simBridge.respawnPlayer(playerDied.playerId);
+      simBridge?.respawnPlayer(playerDied.playerId);
       useGameStore.getState().setPlayerDied(null);
     }
   };
 
   const handleQuit = () => {
-    simBridge.quit();
+    simBridge?.quit();
   };
 
   if (!playerDied) return null;

@@ -24,7 +24,7 @@ import { EntityType, SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
-import { simBridge } from "./sim-bridge";
+import { createSimBridge } from "./sim-bridge";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
@@ -161,7 +161,7 @@ async function bootstrap() {
         // Command results etc. — could be forwarded to debug store if needed
         break;
       case "sim_speed_changed":
-        (window as any).__currentSimSpeed = msg.data?.speed ?? 1.0;
+        useGameStore.getState().setCurrentSimSpeed(msg.data?.speed ?? 1.0);
         console.log(`[Renderer] Sim speed changed to ${msg.data?.speed}x`);
         break;
     }
@@ -394,12 +394,15 @@ async function bootstrap() {
     }
   }
 
-  // Expose renderer for debugging (frame drop simulator, etc.)
-  (window as any).__renderer = renderer;
+  // Create the sim bridge with typed dependencies and store it for UI access.
+  // Replaces the old window.__simWorker / window.__renderer service-locator pattern.
+  const bridge = createSimBridge({ worker: simWorker, renderer, downdraft });
+  useGameStore.getState().setSimBridge(bridge);
 
   // Initialize Scene Inspector for DevTools integration
   const sceneInspector = new SceneInspector();
   sceneInspector.init(renderer);
+  sceneInspector.setSimBridge(bridge);
 
   // Gizmo mouse interaction handlers on canvas
   canvas.addEventListener("mousedown", (e) => {
@@ -467,9 +470,6 @@ async function bootstrap() {
   useGameStore.getState().setRenderer(renderer);
   useGameStore.getState().setReady(true);
 
-  // Expose simWorker on window for gameStore/UI to send commands
-  (window as any).__simWorker = simWorker;
-
   // Debug page lifecycle — start/stop GC profiler + notify sim worker
   let rendererGcHandle: GCProfilerHandle | null = null;
   let statsInterval: ReturnType<typeof setInterval> | null = null;
@@ -483,7 +483,7 @@ async function bootstrap() {
           });
         }
         renderer.setDebugMode(true);
-        simBridge.setDebugMode(true);
+        useGameStore.getState().simBridge?.setDebugMode(true);
         statsInterval = setInterval(() => {
           const sim = renderer.getSimReader();
           if (sim && sim.isValid()) {
@@ -519,7 +519,7 @@ async function bootstrap() {
         rendererGcHandle?.stop();
         rendererGcHandle = null;
         renderer.setDebugMode(false);
-        simBridge.setDebugMode(false);
+        useGameStore.getState().simBridge?.setDebugMode(false);
         if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
       }
     },

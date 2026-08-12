@@ -1,25 +1,24 @@
-import React from "react";
 import { useGameStore } from "../stores/game-store";
-import { simBridge } from "../sim-bridge";
 
 export default function PauseMenu() {
   const toggle = useGameStore((s) => s.togglePauseMenu);
   const isDev = useGameStore((s) => s.isDev);
+  const simBridge = useGameStore((s) => s.simBridge);
 
   const handleSave = () => {
-    simBridge.saveGame("quicksave");
+    simBridge?.saveGame("quicksave");
   };
 
   const handleLoad = () => {
-    simBridge.loadGame("quicksave");
+    simBridge?.loadGame("quicksave");
   };
 
   const handleReset = () => {
-    simBridge.resetGame();
+    simBridge?.resetGame();
   };
 
   const handleQuit = () => {
-    simBridge.quit();
+    simBridge?.quit();
   };
 
   const handleResume = () => {

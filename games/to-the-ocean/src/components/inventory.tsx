@@ -2,7 +2,6 @@ import { FloatingPortal, autoUpdate, flip, offset, shift, useFloating } from "@f
 import { BOAT_HOLD_INV_HEIGHT, BOAT_HOLD_INV_WIDTH, DAY_DURATION_SECONDS, PLAYER_INV_HEIGHT, PLAYER_INV_WIDTH } from "@shared/constants";
 import { getItem } from "@shared/data/items";
 import React from "react";
-import { simBridge } from "../sim-bridge";
 import { useGameStore } from "../stores/game-store";
 
 interface GridItem {
@@ -199,6 +198,7 @@ function ItemCell({
 export default function Inventory() {
   const toggle = useGameStore((s) => s.toggleInventory);
   const shipHoldData = useGameStore((s) => s.shipHoldData);
+  const simBridge = useGameStore((s) => s.simBridge);
   const [activeTab, setActiveTab] = React.useState<"player" | "ship">("player");
 
   const showShipTab = shipHoldData?.isOnboard ?? false;
@@ -216,7 +216,7 @@ export default function Inventory() {
 
   const transferAllToShip = () => {
     for (const item of playerItems) {
-      simBridge.sendCommand({
+      simBridge?.sendCommand({
         type: "transfer_to_ship",
         playerId: 0,
         payload: { shipId: shipEntityId, fromX: item.x, fromY: item.y, quantity: item.quantity },
@@ -226,7 +226,7 @@ export default function Inventory() {
 
   const transferAllToPlayer = () => {
     for (const item of holdItems) {
-      simBridge.sendCommand({
+      simBridge?.sendCommand({
         type: "transfer_from_ship",
         playerId: 0,
         payload: { shipId: shipEntityId, fromX: item.x, fromY: item.y, quantity: item.quantity },
