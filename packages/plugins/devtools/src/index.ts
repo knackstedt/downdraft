@@ -19,9 +19,10 @@ export { SceneSync } from "./scene-sync";
 // Asset utilities
 export { asyncFetchArrayBuffer, bufferCache, evictThumbnailCache, findBinForGLTF, findMTLForOBJ, syncFetchArrayBuffer, thumbnailCache } from "./asset-utils";
 
-// Base inspector & interfaces
+// Data bridge (non-abstract, data-feeds only) & base inspector & interfaces
+export { DevToolsDataBridge } from "./data-bridge";
 export { BaseSceneInspector } from "./scene-inspector";
 export type {
-    GameDevToolsTab, IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayData, IDebugOverlayProvider, IDevToolsOverlayToggle, IDevToolsPanelExtension, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, ILabelEntry, ILabelProvider, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider
+    GameDevToolsTab, IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayData, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsOverlayToggle, IDevToolsPanelExtension, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, ILabelEntry, ILabelProvider, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider
 } from "./types";
 

@@ -6,6 +6,7 @@
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
+    "@downdraft/plugin-devtools": "workspace:*",
     "@downdraft/shader-graph": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "react": "^19.2.8",

@@ -22,7 +22,7 @@ import {
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
-import { BaseSceneInspector, type IAssetResolver, type IDevToolsRenderer } from "@downdraft/plugin-devtools";
+import { DevToolsDataBridge, type IDevToolsDataRenderer } from "@downdraft/plugin-devtools";
 import type { MeshData } from "@downdraft/plugin-models";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -857,20 +857,9 @@ async function bootstrap() {
   requestAnimationFrame(frame);
 
   // ── DevTools integration ──────────────────────────────────────────────
-  // Create a renderer adapter that implements IDevToolsRenderer and exposes
-  // the telemetry/profiler/GC systems to the DevTools panel.
-  const devtoolsRenderer: IDevToolsRenderer = {
-    setGizmoPosition: () => {},
-    setGizmoMode: () => {},
-    setGizmoVisible: () => {},
-    uploadModel: () => {},
-    removeModel: () => {},
-    getPlayerWorldPos: () => null,
-    setShowHitboxes: () => {},
-    getShowHitboxes: () => false,
-    setHitboxLineWidth: () => {},
-    getHitboxLineWidth: () => 1,
-    setDebugMode: () => {},
+  // Create a renderer adapter that implements IDevToolsDataRenderer and exposes
+  // the telemetry/profiler/GC systems to the DevTools panel via DevToolsDataBridge.
+  const devtoolsRenderer: IDevToolsDataRenderer = {
     getGPUInfo: () => gpuProfiler.getGPUInfo(canvas, 1),
     getGPUErrors: () => gpuProfiler.getGPUErrors(),
     clearGPUErrors: () => gpuProfiler.clearGPUErrors(),
@@ -886,10 +875,10 @@ async function bootstrap() {
     getFPS: () => fps,
     getGCStats: () => gcController.getStats(),
     setGCConfig: (config: Partial<GCControllerConfig>) => gcController.setConfig(config),
-  } as any;
+  };
 
-  const inspector = new ModelViewerInspector();
-  inspector.init(devtoolsRenderer);
+  const devtoolsBridge = new DevToolsDataBridge();
+  devtoolsBridge.init(devtoolsRenderer);
   (window as any).__renderer = devtoolsRenderer;
 }
 
@@ -1267,18 +1256,5 @@ class ViewerScenePass extends RenderPass {
     if (!ctx.pass) return;
     const rawEncoder = ctx.pass.getRawPass() as GPURenderPassEncoder;
     this.drawFn(rawEncoder);
-  }
-}
-
-// ─── DevTools inspector ────────────────────────────────────────────────────
-
-/**
- * ModelViewerInspector — minimal BaseSceneInspector subclass for the model
- * viewer. Exposes the telemetry/profiler/GC systems to the DevTools panel
- * via window.__sceneInspector.
- */
-class ModelViewerInspector extends BaseSceneInspector {
-  protected getAssetResolver(): IAssetResolver | null {
-    return null;
   }
 }

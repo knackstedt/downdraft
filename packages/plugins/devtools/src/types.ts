@@ -5,8 +5,31 @@
 
 import type { GizmoMode } from "./index";
 
-/** Minimal renderer interface that BaseSceneInspector requires. */
-export interface IDevToolsRenderer {
+/** Minimal renderer interface for data feeds (perf, GC, GPU, telemetry).
+ *  Used by DevToolsDataBridge — games that don't need the full scene inspector
+ *  can pass an adapter implementing only these methods. Only getFPS() is
+ *  required; all other methods are optional and accessed via optional chaining. */
+export interface IDevToolsDataRenderer {
+  getFPS(): number;
+  // All optional — null/undefined = "not available" in the panel
+  getGPUInfo?(): any;
+  getGPUErrors?(): any[];
+  clearGPUErrors?(): void;
+  getFrameTelemetry?(): any;
+  getGPUResourceTracker?(): { getStats(): any } | null;
+  getTelemetryCollector?(): { getPassTimings(): any[]; saveSnapshot(label: string): any; getSnapshots(): any[]; clearSnapshots(): void } | null;
+  getGPUProfiler?(): { getPassTimings(): any[] } | null;
+  getFrameGraph?(): any | null;
+  setDebugMode?(enabled: boolean): void;
+  getGCStats?(): any;
+  setGCConfig?(config: any): void;
+  forceMajorGC?(): void;
+}
+
+/** Full renderer interface for the scene inspector (extends data renderer).
+ *  Used by BaseSceneInspector — games that want the full 3D scene inspector
+ *  pass a renderer implementing all of these methods. */
+export interface IDevToolsRenderer extends IDevToolsDataRenderer {
   // Gizmo
   setGizmoPosition(pos: [number, number, number]): void;
   setGizmoMode(mode: GizmoMode): void;
@@ -26,7 +49,7 @@ export interface IDevToolsRenderer {
   getHitboxLineWidth(): number;
   setDebugMode(enabled: boolean): void;
 
-  // GPU / telemetry
+  // GPU / telemetry (required for full inspector; optional on IDevToolsDataRenderer)
   getGPUInfo(): any;
   getGPUErrors(): any[];
   clearGPUErrors(): void;
@@ -35,7 +58,6 @@ export interface IDevToolsRenderer {
   getTelemetryCollector(): { getPassTimings(): any[]; saveSnapshot(label: string): any; getSnapshots(): any[]; clearSnapshots(): void } | null;
   getGPUProfiler(): { getPassTimings(): any[] } | null;
   getFrameGraph(): any | null;
-  getFPS(): number;
 }
 
 /** Asset resolution — games provide this to support model import/thumbnails. */
