@@ -2,14 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Cargo Build",
-      "type": "shell",
-      "command": "echo 'Run Build Audio Native and Build Physics Native'",
-      "dependsOn": ["Build Audio Native", "Build Physics Native"],
-      "problemMatcher": []
-    },
-    {
-      "label": "Dev: To The Ocean",
+      "label": "Dev: Ocean",
       "type": "shell",
       "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/to-the-ocean/electron.vite.config.ts",
       "runOptions": {
@@ -35,9 +28,20 @@
       "problemMatcher": []
     },
     {
-      "label": "Dev: Falling Sand",
+      "label": "WASM Build: Sand",
+      "type": "shell",
+      "hide": true,
+      "command": "wasm-pack build --target web games/falling-sand/sand-native",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev: Sand",
       "type": "shell",
       "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/falling-sand/electron.vite.config.ts",
+      "dependsOn": "WASM Build: Sand",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -45,16 +49,6 @@
         "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "Build",
-      "type": "shell",
-      "command": "bun run build",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "group": "build",
       "problemMatcher": []
     }
   ]
