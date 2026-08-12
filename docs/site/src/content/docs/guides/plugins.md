@@ -55,18 +55,28 @@ The plugin registry handles dependency resolution — plugins can declare depend
 | `@downdraft/plugin-physics-rapier` | Rapier3D physics backend |
 | `@downdraft/plugin-audio-kira` | Kira audio backend (Rust FFI) |
 | `@downdraft/plugin-networking` | WebSocket transport, state replication, RPCs |
-| `@downdraft/plugin-boats` | Boat design system and boat data buffer |
-| `@downdraft/plugin-items` | Item definitions and registry |
-| `@downdraft/plugin-inventory` | Inventory management |
-| `@downdraft/plugin-crafting` | Crafting recipes and system |
-| `@downdraft/plugin-economy` | Market system and price history |
-| `@downdraft/plugin-fishing` | Fishing mechanics |
 | `@downdraft/plugin-weather` | Weather system |
-| `@downdraft/plugin-survival` | Survival mechanics |
 | `@downdraft/plugin-camera-controls` | Orbit/pan/zoom camera controller (renderer plugin) |
 | `@downdraft/plugin-devtools` | Transform gizmo, debug overlays (renderer plugin) |
 | `@downdraft/plugin-electron-osr` | Electron offscreen render UI (renderer plugin) |
 | `@downdraft/plugin-xr` | WebXR VR sessions (sim + renderer plugin) |
+
+## Game Plugins (to-the-ocean)
+
+Game-specific plugins live in `games/to-the-ocean/plugins/` under the `@to-the-ocean/plugin-*` namespace. They depend on engine plugins and `@downdraft/core` but are owned by the game.
+
+| Plugin | Description |
+|---|---|
+| `@to-the-ocean/plugin-boats` | Boat design system and boat data buffer |
+| `@to-the-ocean/plugin-items` | Item definitions and registry |
+| `@to-the-ocean/plugin-inventory` | Inventory management |
+| `@to-the-ocean/plugin-crafting` | Crafting recipes and system |
+| `@to-the-ocean/plugin-economy` | Market system and price history |
+| `@to-the-ocean/plugin-fishing` | Fishing mechanics |
+| `@to-the-ocean/plugin-survival` | Survival mechanics |
+| `@to-the-ocean/plugin-wildlife` | Wildlife simulation |
+| `@to-the-ocean/plugin-buoyancy` | Boat buoyancy physics |
+| `@to-the-ocean/plugin-collision` | Voxel collision system |
 
 ## Renderer Plugins
 

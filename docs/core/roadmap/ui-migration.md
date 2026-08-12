@@ -2,67 +2,30 @@
 
 ## Current State
 
-- **to-the-ocean** uses React + Tailwind CSS + Zustand for all UI (17 components, ~130KB source)
-- **Engine UI system** has basic elements (panel, text, button, image), bitmap font, simple layout, basic input
-- to-the-ocean's `WebGPURenderer` does NOT use `@downdraft/core`'s `RenderLoop`
+- **to-the-ocean** uses React + Tailwind CSS + Zustand for all UI components (`.tsx` files in `src/components/`)
+- **Engine UI system** (`packages/core/src/ui/`) is fully built out with all Phase 1 capabilities
+- to-the-ocean's `WebGPURenderer` is wired into the engine UI system (`UIRenderer`, `UIRoot`, `UIInputRouter` integrated in `webgpu-renderer.ts` + `renderer-accessors.ts` + `renderer-input-handler.ts`)
+- **No React components have been migrated to the GPU UI yet** — coexistence phase
 
-## Phase 1: Extend Engine UI System
+## Phase 1: Extend Engine UI System (DONE)
 
-Before any migration can begin, the engine UI system needs these capabilities:
+All capabilities are implemented in `packages/core/src/ui/`:
 
-### 1a. Canvas-based Text Rendering (replace bitmap font)
-- Current 8×12 bitmap font only supports ASCII 32–126
-- Components use emoji (🌙☀️🪶🎣🔨), custom fonts (Doto, Montserrat, etc.), multiple sizes
-- **Plan**: Render text to offscreen Canvas2D, upload as texture, draw as textured quads
-- Text wrapping, multi-line, text measurement via `ctx.measureText()`
-- Font cache (font family + size → cached canvas texture atlas)
-
-### 1b. Scroll Container + Clip Rectangles
-- Needed by: Inventory, CraftMenu, SettingsPanel, BuilderWheel, MapView
-- GPU scissor rect support for clipping
-- Scroll offset tracking, scrollbar widget
-- Mouse wheel event routing
-
-### 1c. Text Input Field
-- Needed by: SettingsPanel (keybindings), search/filter in CraftMenu
-- Cursor positioning, text selection, clipboard
-- Focus management (only one input focused at a time)
-- Character insertion/deletion via keyboard events
-
-### 1d. Layout Extensions
-- Grid layout (for inventory slots) — rows, columns, spans
-- Flexbox-like layout (justify, align, gap, grow/shrink)
-- Z-ordering within parent
-- Min/max width/height constraints
-
-### 1e. Widget Library
-- **ProgressBar** — health/hunger/thirst/oxygen bars, loading bar
-- **Slider** — volume controls, sensitivity, render distance
-- **Toggle/Checkbox** — boolean settings
-- **TabBar** — settings tabs, inventory tabs
-- **Modal/Dialog** — backdrop dim, click-outside-to-close, focus trap
-- **Scrollbar** — vertical/horizontal, drag handle
-
-### 1f. Line/Path Rendering
-- Needed by: Reticule (SVG line segments with tweening)
-- Line list rendering with color, width
-- Basic 2D path support (arcs, curves)
-
-### 1g. Animation System
-- Property tweening (opacity, position, scale, rotation)
-- Easing functions (ease-in-out, linear, etc.)
-- Per-element animation state, completion callbacks
-- Needed by: Reticule (shape morphing), BuilderWheel (expand/collapse)
+- **Canvas-based text rendering** — `text-cache.ts` + `glyph-atlas.ts` (text → Canvas2D → texture)
+- **Scroll container + clip rectangles** — `scroll.ts` (GPU scissor rects, scroll offset, mouse wheel)
+- **Text input field** — `UITextInput` in `widgets.ts` (cursor, selection, focus management)
+- **Layout engine** — `layout.ts` (grid, flex-like, z-ordering, min/max constraints)
+- **Widget library** — `widgets.ts`: `UIProgressBar`, `UISlider`, `UIToggle`, `UITabBar`, `UIModal`, `UITextInput`
+- **Line/path rendering** — `UILine` in `element.ts`, `line-list` topology in `renderer.ts`
+- **Animation system** — `animation.ts` with `Easing` functions, `UIAnimationManager`
 
 ## Phase 2: Integration with to-the-ocean
 
-### 2a. Wire UIRenderer into WebGPURenderer
-- to-the-ocean has its own `WebGPURenderer` that doesn't use `@downdraft/core`'s `RenderLoop`
-- Add `UIRenderer` + `UIInputRouter` fields to `WebGPURenderer`
-- Create `UIRoot` in renderer init, execute UI pass at end of frame
-- Bridge mouse/keyboard events from existing input handlers to `UIInputRouter`
+### 2a. Wire UIRenderer into WebGPURenderer (DONE)
+`UIRenderer`, `UIRoot`, `UIInputRouter` are integrated in `webgpu-renderer.ts`. Mouse/keyboard
+events bridged from `renderer-input-handler.ts` to `UIInputRouter`.
 
-### 2b. State Bridge
+### 2b. State Bridge (NOT STARTED)
 - Create adapter between Zustand stores and UI element tree
 - Reactive updates: store change → update UI element properties
 - One-way: store → UI (UI events → store actions via callbacks)

@@ -25,14 +25,24 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 | `@downdraft/plugin-physics-rapier` | Rapier3D physics backend |
 | `@downdraft/plugin-audio-kira` | Kira audio backend (Rust FFI via `packages/audio-native`) |
 | `@downdraft/plugin-networking` | WebSocket transport, state replication, RPCs |
-| `@downdraft/plugin-boats` | Boat design system and boat data buffer |
-| `@downdraft/plugin-items` | Item definitions and registry |
-| `@downdraft/plugin-inventory` | Inventory management |
-| `@downdraft/plugin-crafting` | Crafting recipes and system |
-| `@downdraft/plugin-economy` | Market system and price history |
-| `@downdraft/plugin-fishing` | Fishing mechanics |
 | `@downdraft/plugin-weather` | Weather system |
-| `@downdraft/plugin-survival` | Survival mechanics |
+
+## Game Plugins (to-the-ocean)
+
+Game-specific plugins live in `games/to-the-ocean/plugins/` under the `@to-the-ocean/plugin-*` namespace.
+
+| Package | Description |
+|---|---|
+| `@to-the-ocean/plugin-boats` | Boat design system and boat data buffer |
+| `@to-the-ocean/plugin-items` | Item definitions and registry |
+| `@to-the-ocean/plugin-inventory` | Inventory management |
+| `@to-the-ocean/plugin-crafting` | Crafting recipes and system |
+| `@to-the-ocean/plugin-economy` | Market system and price history |
+| `@to-the-ocean/plugin-fishing` | Fishing mechanics |
+| `@to-the-ocean/plugin-survival` | Survival mechanics |
+| `@to-the-ocean/plugin-wildlife` | Wildlife simulation |
+| `@to-the-ocean/plugin-buoyancy` | Boat buoyancy physics |
+| `@to-the-ocean/plugin-collision` | Voxel collision system |
 
 ## Native Libraries
 
