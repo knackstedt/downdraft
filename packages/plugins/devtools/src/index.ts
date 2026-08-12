@@ -22,7 +22,9 @@ export { asyncFetchArrayBuffer, bufferCache, evictThumbnailCache, findBinForGLTF
 // Data bridge (non-abstract, data-feeds only) & base inspector & interfaces
 export { DevToolsDataBridge } from "./data-bridge";
 export { BaseSceneInspector } from "./scene-inspector";
+export { createSimStatsPanelExtension } from "./sim-stats-panel";
+export type { SimStatsPanelOptions } from "./sim-stats-panel";
 export type {
-    GameDevToolsTab, IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayData, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsOverlayToggle, IDevToolsPanelExtension, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, ILabelEntry, ILabelProvider, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider
+    GameDevToolsTab, IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayData, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsOverlayToggle, IDevToolsPanelExtension, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, ILabelEntry, ILabelProvider, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider, ISimStats, ISimStatsProvider
 } from "./types";
 

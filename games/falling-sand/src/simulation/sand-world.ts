@@ -1,15 +1,17 @@
 import { DEFAULT_GRAVITY, DEFAULT_TEMP, FIELD } from "../shared/sim-buffer";
 import {
-  IS_FIRE,
-  IS_HOT,
-  MAT_FLAGS,
-  MAT_FLAMMABLE,
-  MAT_GAS,
-  MAT_GRAVITY,
-  MAT_GRAVITY_DIR,
-  MAT_LIFETIME,
-  MAT_LIQUID,
-  Material,
+    IS_FIRE,
+    IS_HOT,
+    MAT_DENSITY,
+    MAT_FLAGS,
+    MAT_FLAMMABLE,
+    MAT_GAS,
+    MAT_GRAVITY,
+    MAT_GRAVITY_DIR,
+    MAT_LIFETIME,
+    MAT_LIQUID,
+    MAT_SOLID,
+    Material,
 } from "./materials";
 
 export interface Cell {
@@ -477,11 +479,12 @@ export class SandWorld {
         if (belowPacked !== 0) {
           const belowMat = belowPacked & 0xff;
           const belowFlags = MAT_FLAGS[belowMat];
-          // Heavy liquid sinks through a lighter gas or a less-dense liquid
-          // (density = gravity). Mercury (gravity 4) sinks through water (2),
-          // brine (2.5), honey (1.5), lava (3), molten salt (3), etc.
+          // Heavy liquid sinks through a lighter gas or a less-dense liquid.
+          // Density is a separate property from gravity (movement speed):
+          // mercury (13.5) sinks through water (1.0), lava (3.0) through
+          // water, honey (1.4) through water, etc.
           if (!((belowPacked >> 16) & FLAG_UPDATED) &&
-              ((belowFlags & MAT_GAS) || ((belowFlags & MAT_LIQUID) && matGravity > MAT_GRAVITY[belowMat]))) {
+              ((belowFlags & MAT_GAS) || ((belowFlags & MAT_LIQUID) && MAT_DENSITY[mat] > MAT_DENSITY[belowMat]))) {
             this.grid[belowIdx] = packed | FLAG_UPDATED_BIT;
             this.grid[idx] = belowPacked | FLAG_UPDATED_BIT;
             return;
@@ -541,7 +544,9 @@ export class SandWorld {
 
     // Gas-to-gas displacement: a lighter gas (higher gravity for upward, i.e.
     // rises faster) can push through a slower gas. This lets fire (gravity 4)
-    // rise through smoke (gravity 2) so they separate instead of mixing.
+    // rise through smoke (gravity 3) so they separate instead of mixing.
+    // Without this, smoke from a bottom-up burn would overtake the fire front
+    // and suffocate it (fire trapped below its own smoke, can't reach fuel).
     if (srcIsGas) {
       const destMat = destPacked & 0xff;
       if ((MAT_FLAGS[destMat] & MAT_GAS) && srcGravity > MAT_GRAVITY[destMat]) {
@@ -549,6 +554,32 @@ export class SandWorld {
         this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
         this.grid[srcIdx] = destPacked | FLAG_UPDATED_BIT;
         return true;
+      }
+    }
+
+    // Solid-liquid density displacement: a denser material sinks through a
+    // less-dense one. Sand (density 2.0) sinks through water (1.0) but not
+    // through mercury (13.5). Water (1.0) sinks through wood (0.6), making
+    // wood float. Only applies to solid-liquid pairs — solids don't flow
+    // through each other, and gas displacement is handled above. Structural
+    // barriers (static solids with density >= 2.0, e.g. stone/wall/concrete)
+    // are immovable — nothing sinks through them regardless of density.
+    if (!srcIsGas) {
+      const destMat = destPacked & 0xff;
+      const destFlags = MAT_FLAGS[destMat];
+      if ((destFlags & (MAT_SOLID | MAT_LIQUID)) && !((destPacked >> 16) & FLAG_UPDATED)) {
+        const srcIsSolid = (MAT_FLAGS[srcMat] & MAT_SOLID) !== 0;
+        const destIsSolid = (destFlags & MAT_SOLID) !== 0;
+        // One must be solid, the other liquid (not solid-solid or liquid-liquid).
+        // Structural barriers (static + dense) are immovable.
+        const destIsBarrier = destIsSolid && MAT_GRAVITY_DIR[destMat] === 0 && MAT_DENSITY[destMat] >= 2.0;
+        if (srcIsSolid !== destIsSolid &&
+            !destIsBarrier &&
+            MAT_DENSITY[srcMat] > MAT_DENSITY[destMat]) {
+          this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
+          this.grid[srcIdx] = destPacked | FLAG_UPDATED_BIT;
+          return true;
+        }
       }
     }
 

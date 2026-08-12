@@ -9,10 +9,10 @@
  * (material counts, relative positions) rather than exact coordinates.
  */
 
-import { expect, test, beforeAll } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { FIELD } from "../shared/sim-buffer";
 import { Material } from "./materials";
-import { initWasm, SandWasmWorld, reseedRng } from "./sand-wasm";
+import { initWasm, reseedRng, SandWasmWorld } from "./sand-wasm";
 
 // Deterministic helper: run N steps and return the grid as a mat-id matrix.
 function run(world: SandWasmWorld, steps: number): void {
@@ -101,6 +101,25 @@ test("WASM smoke rises (negative gravityDir)", () => {
   w.free();
 });
 
+test("WASM fire rises through smoke (gas-to-gas displacement, not suffocated)", () => {
+  const w = new SandWasmWorld(8, 32);
+  for (let y = 0; y < 28; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  for (let y = 18; y <= 22; y++) w.setCell(4, y, { mat: Material.Smoke, lifetime: 255, flags: 0 });
+  w.setCell(4, 23, { mat: Material.Fire, lifetime: 255, flags: 0 });
+  run(w, 40);
+  let topFire = 32, bottomSmoke = -1;
+  for (let y = 0; y < 32; y++) {
+    const m = matAt(w, 4, y);
+    if (m === Material.Fire && y < topFire) topFire = y;
+    if (m === Material.Smoke && y > bottomSmoke) bottomSmoke = y;
+  }
+  expect(topFire).toBeLessThan(bottomSmoke);
+  w.free();
+});
+
 test("WASM fire ignites adjacent wood and decays to smoke", () => {
   const w = new SandWasmWorld(8, 16);
   for (let y = 9; y <= 11; y++) w.setCell(4, y, { mat: Material.Wood, lifetime: 0, flags: 0 });
@@ -137,6 +156,36 @@ test("WASM mercury sinks through water (density displacement)", () => {
   const mercY = topMostY(w, Material.Mercury);
   const waterY = topMostY(w, Material.Water);
   expect(mercY).toBeGreaterThan(waterY);
+  w.free();
+});
+
+test("WASM sand sinks through water (solid denser than liquid)", () => {
+  const w = new SandWasmWorld(8, 16);
+  for (let y = 6; y <= 11; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  for (let y = 9; y <= 11; y++) w.setCell(4, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+  w.setCell(4, 8, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 80);
+  const sandY = topMostY(w, Material.Sand);
+  const waterY = topMostY(w, Material.Water);
+  expect(sandY).toBeGreaterThan(waterY);
+  w.free();
+});
+
+test("WASM sand floats on mercury (solid less dense than liquid)", () => {
+  const w = new SandWasmWorld(8, 16);
+  for (let y = 6; y <= 11; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  for (let y = 9; y <= 11; y++) w.setCell(4, y, { mat: Material.Mercury, lifetime: 0, flags: 0 });
+  w.setCell(4, 8, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 80);
+  const sandY = topMostY(w, Material.Sand);
+  const mercY = topMostY(w, Material.Mercury);
+  expect(sandY).toBeLessThan(mercY);
   w.free();
 });
 

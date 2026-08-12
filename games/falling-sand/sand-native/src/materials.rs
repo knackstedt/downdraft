@@ -141,6 +141,8 @@ pub const DEFAULT_WIND: u8 = 0;
 
 /// gravity multiplier as float (0-4). 0 = no gravity.
 pub static MAT_GRAVITY: [f32; MAX_MATERIAL] = build_gravity();
+/// density in g/cm³. Used for solid-liquid and liquid-liquid displacement.
+pub static MAT_DENSITY: [f32; MAX_MATERIAL] = build_density();
 /// gravity direction: 1 = down, -1 = up, 0 = static.
 pub static MAT_GRAVITY_DIR: [i8; MAX_MATERIAL] = build_gravity_dir();
 /// packed boolean flags (MAT_FLAMMABLE | MAT_SOLID | ...).
@@ -162,7 +164,7 @@ const fn build_gravity() -> [f32; MAX_MATERIAL] {
     let mut g = [0.0f32; MAX_MATERIAL];
     g[SAND as usize] = 1.0;
     g[WATER as usize] = 2.0;
-    g[FIRE as usize] = 2.0;
+    g[FIRE as usize] = 4.0;
     g[FUSE_FIRE as usize] = 2.0;
     g[BURNING_OIL as usize] = 1.0;
     g[SMOKE as usize] = 3.0;
@@ -198,6 +200,69 @@ const fn build_gravity() -> [f32; MAX_MATERIAL] {
     g[MAGIC_POWDER as usize] = 1.0;
     g[POPCORN as usize] = 0.3;
     g
+}
+
+/// Density in g/cm³. Used for solid-liquid and liquid-liquid displacement:
+/// a denser material sinks through a less-dense one. Sand (2.0) sinks in
+/// water (1.0) but floats on mercury (13.5). Wood (0.6) floats on water.
+const fn build_density() -> [f32; MAX_MATERIAL] {
+    let mut d = [0.0f32; MAX_MATERIAL];
+    // Solids (falling)
+    d[SAND as usize] = 2.0;
+    d[GUNPOWDER as usize] = 1.7;
+    d[IRON as usize] = 7.8;
+    d[FLESH as usize] = 1.0;
+    d[DIRT as usize] = 1.5;
+    d[SEED as usize] = 0.8;
+    d[FLOUR as usize] = 1.5;
+    d[SALT as usize] = 2.2;
+    d[SNOW as usize] = 0.3;
+    d[CONCRETE_POWDER as usize] = 1.5;
+    d[DRY_ICE as usize] = 1.5;
+    d[ANTIMATTER as usize] = 22.0;
+    d[MYSTERY as usize] = 5.0;
+    d[DYNAMITE as usize] = 1.3;
+    d[TOAST as usize] = 0.3;
+    d[MAGIC_POWDER as usize] = 0.5;
+    d[GLITTER as usize] = 1.0;
+    d[POPCORN as usize] = 0.05;
+    d[RUBBER as usize] = 1.2;
+    // Solids (static — barriers, but density set for reference)
+    d[STONE as usize] = 2.5;
+    d[WOOD as usize] = 0.6;
+    d[PLANT as usize] = 0.8;
+    d[LEAF as usize] = 0.5;
+    d[GRASS as usize] = 0.5;
+    d[ROOT as usize] = 0.8;
+    d[TREE_WOOD as usize] = 0.6;
+    d[FUSE as usize] = 1.5;
+    d[C4 as usize] = 1.5;
+    d[WAX as usize] = 0.9;
+    d[PLASTIC as usize] = 1.2;
+    d[WALL as usize] = 3.0;
+    d[CONCRETE as usize] = 2.4;
+    // Liquids
+    d[WATER as usize] = 1.0;
+    d[OIL as usize] = 0.8;
+    d[LAVA as usize] = 3.0;
+    d[HONEY as usize] = 1.4;
+    d[MERCURY as usize] = 13.5;
+    d[GASOLINE as usize] = 0.7;
+    d[BRINE as usize] = 1.2;
+    d[MOLTEN_SALT as usize] = 1.5;
+    d[LIQUID_NITROGEN as usize] = 0.8;
+    d[BURNING_OIL as usize] = 0.8;
+    // Gases (very low density)
+    d[FIRE as usize] = 0.1;
+    d[FUSE_FIRE as usize] = 0.1;
+    d[SMOKE as usize] = 0.3;
+    d[STEAM as usize] = 0.2;
+    d[GAS_VAPOR as usize] = 0.1;
+    d[HYDROGEN as usize] = 0.05;
+    d[PLASMA as usize] = 0.05;
+    d[FIREFLIES as usize] = 0.1;
+    d[NANOBOTS as usize] = 0.1;
+    d
 }
 
 const fn build_gravity_dir() -> [i8; MAX_MATERIAL] {

@@ -82,6 +82,36 @@ test("fire ignites adjacent wood and decays to smoke", () => {
   expect(woodLeft).toBeLessThan(3);
 });
 
+test("fire rises through smoke (gas-to-gas displacement, not suffocated)", () => {
+  // Regression: when fire gravity < smoke gravity, smoke from a bottom-up
+  // burn rises faster than the fire front, overtakes it, and pushes the fire
+  // back down (gas-to-gas displacement). The fire gets trapped below its own
+  // smoke, can't reach the fuel above, and decays — suffocating the burn.
+  // Fire must rise faster than smoke (gravity 4 > 3) so it pushes through.
+  const w = new SandWorld(8, 32);
+  // 1-wide column walled on both sides (walls span the full height so neither
+  // gas can escape sideways — the only way up is through the other gas).
+  for (let y = 0; y < 28; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  // Block of smoke with fire directly below it.
+  for (let y = 18; y <= 22; y++) w.setCell(4, y, { mat: Material.Smoke, lifetime: 255, flags: 0 });
+  w.setCell(4, 23, { mat: Material.Fire, lifetime: 255, flags: 0 });
+  run(w, 40);
+  // Find the topmost fire and bottommost smoke in the column.
+  let topFire = 32, bottomSmoke = -1;
+  for (let y = 0; y < 32; y++) {
+    const m = matAt(w, 4, y);
+    if (m === Material.Fire && y < topFire) topFire = y;
+    if (m === Material.Smoke && y > bottomSmoke) bottomSmoke = y;
+  }
+  // With the fix (fire gravity 4 > smoke gravity 3), fire displaces smoke
+  // and rises above it. Without the fix (fire 2 < smoke 3), fire is trapped
+  // below the smoke block and can never rise above it.
+  expect(topFire).toBeLessThan(bottomSmoke);
+});
+
 test("lava + water → steam + stone (applyReactions)", () => {
   const w = new SandWorld(8, 16);
   w.setCell(4, 10, { mat: Material.Lava, lifetime: 0, flags: 0 });
@@ -109,10 +139,108 @@ test("mercury sinks through water (density displacement)", () => {
   // Mercury on top.
   w.setCell(4, 8, { mat: Material.Mercury, lifetime: 0, flags: 0 });
   run(w, 80);
-  // Mercury (gravity 4) should end up below the water (gravity 2).
+  // Mercury (density 13.5) should end up below the water (density 1.0).
   const mercY = topMostY(w, Material.Mercury);
   const waterY = topMostY(w, Material.Water);
   expect(mercY).toBeGreaterThan(waterY); // mercury is lower (larger y)
+});
+
+test("sand sinks through water (solid denser than liquid)", () => {
+  const w = new SandWorld(8, 16);
+  // 1-wide basin with walls so sand can't flow around the water.
+  for (let y = 6; y <= 11; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  // Water column resting on the floor.
+  for (let y = 9; y <= 11; y++) w.setCell(4, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+  // Sand on top.
+  w.setCell(4, 8, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 80);
+  // Sand (density 2.0) should sink through water (density 1.0) and end up
+  // at the bottom of the basin, below the water.
+  const sandY = topMostY(w, Material.Sand);
+  const waterY = topMostY(w, Material.Water);
+  expect(sandY).toBeGreaterThan(waterY); // sand is lower (larger y)
+});
+
+test("sand floats on mercury (solid less dense than liquid)", () => {
+  const w = new SandWorld(8, 16);
+  for (let y = 6; y <= 11; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  // Mercury column resting on the floor.
+  for (let y = 9; y <= 11; y++) w.setCell(4, y, { mat: Material.Mercury, lifetime: 0, flags: 0 });
+  // Sand on top.
+  w.setCell(4, 8, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 80);
+  // Sand (density 2.0) should NOT sink through mercury (density 13.5).
+  // Sand stays on top, mercury stays below.
+  const sandY = topMostY(w, Material.Sand);
+  const mercY = topMostY(w, Material.Mercury);
+  expect(sandY).toBeLessThan(mercY); // sand is higher (smaller y)
+});
+
+test("wood floats on water (solid less dense than liquid)", () => {
+  const w = new SandWorld(8, 16);
+  for (let y = 4; y <= 11; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  // Water column resting on the floor.
+  for (let y = 8; y <= 11; y++) w.setCell(4, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+  // Wood is static (gravityDir 0) so place it in the middle of the water.
+  w.setCell(4, 9, { mat: Material.Wood, lifetime: 0, flags: 0 });
+  run(w, 80);
+  // Wood (density 0.6) is less dense than water (1.0), so water sinks
+  // through it and wood ends up on top of the water.
+  const woodY = topMostY(w, Material.Wood);
+  const waterY = topMostY(w, Material.Water);
+  expect(woodY).toBeLessThan(waterY); // wood is higher (smaller y)
+});
+
+test("iron sinks through water but not mercury", () => {
+  // Iron (density 7.8) sinks in water (1.0) but floats on mercury (13.5).
+  const w = new SandWorld(16, 16);
+  // Left basin: water. Right basin: mercury.
+  for (let y = 6; y <= 11; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(7, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(11, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(15, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  for (let y = 9; y <= 11; y++) {
+    w.setCell(4, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+    w.setCell(6, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+    w.setCell(12, y, { mat: Material.Mercury, lifetime: 0, flags: 0 });
+    w.setCell(13, y, { mat: Material.Mercury, lifetime: 0, flags: 0 });
+    w.setCell(14, y, { mat: Material.Mercury, lifetime: 0, flags: 0 });
+  }
+  // Iron on top of each basin.
+  w.setCell(5, 8, { mat: Material.Iron, lifetime: 0, flags: 0 });
+  w.setCell(13, 8, { mat: Material.Iron, lifetime: 0, flags: 0 });
+  run(w, 120);
+  // In water: iron sinks to the bottom (below the surface y=8).
+  // Search only the water basin (x=4..6) for iron.
+  let ironInWaterY = 16;
+  for (let y = 0; y < 16; y++) {
+    for (let x = 4; x <= 6; x++) {
+      if (matAt(w, x, y) === Material.Iron) ironInWaterY = Math.min(ironInWaterY, y);
+    }
+  }
+  // In mercury: iron stays on top (above the surface).
+  let ironInMercuryY = 16;
+  for (let y = 0; y < 16; y++) {
+    for (let x = 12; x <= 14; x++) {
+      if (matAt(w, x, y) === Material.Iron) ironInMercuryY = Math.min(ironInMercuryY, y);
+    }
+  }
+  // Iron in water should have sunk (y >= 9, below the surface).
+  expect(ironInWaterY).toBeGreaterThanOrEqual(9);
+  // Iron in mercury should still be near the top (y < 10, above or at surface).
+  expect(ironInMercuryY).toBeLessThan(10);
 });
 
 test("salt + water → brine (applySpecialReactions)", () => {

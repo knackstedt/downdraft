@@ -17,6 +17,7 @@ import type {
     IDevToolsOverlayToggle,
     IDevToolsPanelExtension,
     IPerformanceMetricsProvider,
+    ISimStatsProvider,
 } from "./types";
 
 export class DevToolsDataBridge {
@@ -47,6 +48,11 @@ export class DevToolsDataBridge {
   /** Games override this to declare custom overlay toggles. */
   protected getOverlayToggles(): IDevToolsOverlayToggle[] {
     return [];
+  }
+
+  /** Games override this to expose sim stats + controls (pause/step/speed/clear). */
+  protected getSimStatsProvider(): ISimStatsProvider | null {
+    return null;
   }
 
   // --- Init ---
@@ -236,6 +242,14 @@ export class DevToolsDataBridge {
       // --- Panel extensions (game-specific tabs and overlay toggles) ---
       getPanelExtensions: (): IDevToolsPanelExtension[] => this.getPanelExtensions(),
       getOverlayToggles: (): IDevToolsOverlayToggle[] => this.getOverlayToggles(),
+
+      // --- Sim stats & controls (optional — games implement ISimStatsProvider) ---
+      getSimStats: (): any => this.getSimStatsProvider()?.getSimStats() ?? null,
+      pauseSim: (): void => { this.getSimStatsProvider()?.pauseSim(); },
+      resumeSim: (): void => { this.getSimStatsProvider()?.resumeSim(); },
+      stepSim: (): void => { this.getSimStatsProvider()?.stepSim?.(); },
+      setSimSpeed: (speed: number): void => { this.getSimStatsProvider()?.setSimSpeed?.(speed); },
+      clearSim: (): void => { this.getSimStatsProvider()?.clearSim?.(); },
     };
   }
 

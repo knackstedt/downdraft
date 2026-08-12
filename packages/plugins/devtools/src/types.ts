@@ -253,3 +253,38 @@ export interface IGameDevToolsExtension {
   performanceMetricsProvider?: IPerformanceMetricsProvider;
   tabProvider?: IGameDevToolsProvider;
 }
+
+// --- Sim Stats & Controls ---
+
+/** Snapshot of simulation state for the DevTools "Sim" tab. */
+export interface ISimStats {
+  /** Sim ticks per second (worker-side, may differ from render FPS). */
+  fps: number;
+  /** Total tick count since sim start. */
+  tick: number;
+  /** Total frame count since sim start. */
+  frame: number;
+  /** Whether the sim is currently paused. */
+  paused: boolean;
+  /** Current speed multiplier (1.0 = normal). */
+  speed: number;
+  /** Game-specific extra rows (grid dims, entity count, player pos, etc.). */
+  extra?: Record<string, any>;
+}
+
+/**
+ * Provides sim stats and control methods for the DevTools "Sim" tab.
+ * Any sim-driven game (2D or 3D) can implement this; the reusable
+ * `createSimStatsPanelExtension()` factory renders the tab.
+ */
+export interface ISimStatsProvider {
+  getSimStats(): ISimStats;
+  pauseSim(): void;
+  resumeSim(): void;
+  /** Advance exactly one tick while paused. Optional. */
+  stepSim?(): void;
+  /** Set the sim speed multiplier (0 = paused-equivalent, 1 = normal). Optional. */
+  setSimSpeed?(speed: number): void;
+  /** Clear/reset the simulation state. Optional. */
+  clearSim?(): void;
+}

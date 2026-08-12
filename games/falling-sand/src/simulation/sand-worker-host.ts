@@ -12,6 +12,8 @@ type SandLayerApi = {
   clear(): Promise<void>;
   loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
+  setSpeed(speed: number): Promise<void>;
+  step(): Promise<void>;
 };
 
 interface LayerWorker {
@@ -102,6 +104,12 @@ export class SandWorkerHost {
   }
   resume(): void {
     for (const l of this.layers) l.proxy.proxy.resume().catch(() => {});
+  }
+  setSpeed(speed: number): void {
+    for (const l of this.layers) l.proxy.proxy.setSpeed(speed).catch(() => {});
+  }
+  step(): void {
+    for (const l of this.layers) l.proxy.proxy.step().catch(() => {});
   }
 
   clear(): void {
