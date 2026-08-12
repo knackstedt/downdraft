@@ -17,3 +17,7 @@ release
 
 # Playwright MCP runtime artifacts
 .playwright-mcp/
+
+# Rust / WASM build artifacts (sand-native)
+games/falling-sand/sand-native/target
+games/falling-sand/sand-native/pkg

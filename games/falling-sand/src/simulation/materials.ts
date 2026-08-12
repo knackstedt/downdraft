@@ -167,3 +167,68 @@ export const MATERIALS: Record<number, MaterialDef> = {
 export function getMaterialColor(mat: Material): [number, number, number, number] {
   return MATERIALS[mat]?.color ?? [0, 0, 0, 0];
 }
+
+// ============================================================================
+// Parallel typed arrays for hot-path material property lookups.
+//
+// These are precomputed from MATERIALS at module load time. In simulation hot
+// loops (millions of cell iterations/sec), indexing a typed array is
+// significantly faster than a Record<number, object> property lookup with
+// optional chaining (MATERIALS[mat]?.gravity). They also avoid any object
+// allocation.
+//
+// MAT_FLAGS packs boolean properties into bits:
+//   bit 0 = flammable, bit 1 = solid, bit 2 = liquid, bit 3 = gas,
+//   bit 4 = magnetic
+// ============================================================================
+
+export const MAT_FLAMMABLE = 0x01;
+export const MAT_SOLID = 0x02;
+export const MAT_LIQUID = 0x04;
+export const MAT_GAS = 0x08;
+export const MAT_MAGNETIC = 0x10;
+
+/** gravity multiplier as float (0-4). 0 = no gravity. */
+export const MAT_GRAVITY = new Float32Array(MAX_MATERIAL);
+/** gravity direction: 1 = down, -1 = up, 0 = static. */
+export const MAT_GRAVITY_DIR = new Int8Array(MAX_MATERIAL);
+/** packed boolean flags (MAT_FLAMMABLE | MAT_SOLID | ...). */
+export const MAT_FLAGS = new Uint8Array(MAX_MATERIAL);
+/** initial lifetime when placed/ignited. */
+export const MAT_LIFETIME = new Uint8Array(MAX_MATERIAL);
+
+// Lookup tables for common multi-material neighbor checks.
+// IS_HOT: fire-class + lava + molten salt + plasma (materials that melt snow, boil water, etc.)
+// IS_FIRE: fire-class only (Fire, FuseFire, BurningOil)
+export const IS_HOT = new Uint8Array(MAX_MATERIAL);
+export const IS_FIRE = new Uint8Array(MAX_MATERIAL);
+
+function buildMaterialTables(): void {
+  for (let i = 0; i < MAX_MATERIAL; i++) {
+    const def = MATERIALS[i];
+    if (!def) continue;
+    MAT_GRAVITY[i] = def.gravity;
+    MAT_GRAVITY_DIR[i] = def.gravityDir;
+    MAT_LIFETIME[i] = def.lifetime;
+    let flags = 0;
+    if (def.flammable) flags |= MAT_FLAMMABLE;
+    if (def.solid) flags |= MAT_SOLID;
+    if (def.liquid) flags |= MAT_LIQUID;
+    if (def.gas) flags |= MAT_GAS;
+    if (def.magnetic) flags |= MAT_MAGNETIC;
+    MAT_FLAGS[i] = flags;
+  }
+  // Hot materials: melt snow, boil water, ignite flammables, pop popcorn
+  IS_HOT[Material.Fire] = 1;
+  IS_HOT[Material.FuseFire] = 1;
+  IS_HOT[Material.BurningOil] = 1;
+  IS_HOT[Material.Lava] = 1;
+  IS_HOT[Material.MoltenSalt] = 1;
+  IS_HOT[Material.Plasma] = 1;
+  // Fire-class: used for extinguish checks, low-temp death, etc.
+  IS_FIRE[Material.Fire] = 1;
+  IS_FIRE[Material.FuseFire] = 1;
+  IS_FIRE[Material.BurningOil] = 1;
+}
+
+buildMaterialTables();

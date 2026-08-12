@@ -1,0 +1,29 @@
+[package]
+name = "sand-native"
+version = "0.1.0"
+edition = "2021"
+description = "WASM+SIMD+threads falling-sand simulation backend for the downdraft engine"
+
+[lib]
+name = "sand_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-rayon = { version = "1.2", optional = true }
+rayon = { version = "1.10", optional = true }
+js-sys = "0.3"
+getrandom = { version = "0.2", features = ["js"] }
+
+[features]
+default = ["threads"]
+threads = ["wasm-bindgen-rayon", "rayon"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
