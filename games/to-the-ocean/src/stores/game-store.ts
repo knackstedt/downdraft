@@ -8,7 +8,7 @@ import { createBaseGameStoreState, type BaseGameStoreState } from "@downdraft/co
 import { WeatherType } from "@shared/types";
 import { create } from "zustand";
 import { WebGPURenderer } from "../engine/webgpu-renderer";
-import { simBridge } from "../sim-bridge";
+import type { SimBridge } from "../sim-bridge";
 
 interface Bookmark {
   id: number;
@@ -46,6 +46,8 @@ interface GameStoreState extends BaseGameStoreState<WebGPURenderer> {
   showBuilderWheel: boolean;
   bookmarks: Bookmark[];
   waypoint: { x: number; z: number } | null;
+  simBridge: SimBridge | null;
+  currentSimSpeed: number;
 
   setWeather: (w: any) => void;
   setPlayerDied: (d: any) => void;
@@ -69,6 +71,8 @@ interface GameStoreState extends BaseGameStoreState<WebGPURenderer> {
   removeBookmark: (id: number) => void;
   setWaypoint: (wp: { x: number; z: number } | null) => void;
   setShipHoldData: (data: ShipHoldData | null) => void;
+  setSimBridge: (b: SimBridge) => void;
+  setCurrentSimSpeed: (v: number) => void;
 }
 
 let bookmarkId = 0;
@@ -96,6 +100,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   showBuilderWheel: false,
   bookmarks: [],
   waypoint: null,
+  simBridge: null,
+  currentSimSpeed: 1.0,
 
   setWeather: (w) => set({ weather: w }),
   setPlayerDied: (d) => set({ playerDied: d }),
@@ -131,9 +137,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     if (get().showPauseMenu) {
       get().renderer?.lockPointer();
       set({ suppressPauseMenu: true });
-      simBridge.resumeGame();
+      get().simBridge?.resumeGame();
     } else {
-      simBridge.pauseGame();
+      get().simBridge?.pauseGame();
     }
     set((s) => ({ showPauseMenu: !s.showPauseMenu }));
   },
@@ -158,4 +164,6 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set((s) => ({ bookmarks: s.bookmarks.filter((b) => b.id !== id) })),
   setWaypoint: (wp) => set({ waypoint: wp }),
   setShipHoldData: (data) => set({ shipHoldData: data }),
+  setSimBridge: (b) => set({ simBridge: b }),
+  setCurrentSimSpeed: (v) => set({ currentSimSpeed: v }),
 }));

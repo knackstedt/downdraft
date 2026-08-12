@@ -9,7 +9,6 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import React from "react";
-import { simBridge } from "../sim-bridge";
 import { useGameStore } from "../stores/game-store";
 
 type TabId = "gameplay" | "audio" | "graphics" | "controls";
@@ -29,6 +28,7 @@ const TABS: TabDef[] = [
 
 export default function SettingsPanel() {
   const toggle = useGameStore((s) => s.toggleSettings);
+  const simBridge = useGameStore((s) => s.simBridge);
   const [activeTab, setActiveTab] = React.useState<TabId>("gameplay");
 
   const [settings, setSettings] = React.useState({
@@ -100,7 +100,7 @@ export default function SettingsPanel() {
   };
 
   const handleExit = () => {
-    simBridge.quit();
+    simBridge?.quit();
   };
 
   // --- Keyboard navigation ---
@@ -311,6 +311,7 @@ interface TabProps {
 }
 
 function GameplayTab({ settings, update }: TabProps) {
+  const simBridge = useGameStore((s) => s.simBridge);
   return (
     <>
       <SectionTitle>Gameplay</SectionTitle>
@@ -345,7 +346,7 @@ function GameplayTab({ settings, update }: TabProps) {
         min={50} max={1000} step={50}
         onChange={(v) => {
           update("collisionLodDistance", v);
-          simBridge.setSetting("collisionLodDistance", v);
+          simBridge?.setSetting("collisionLodDistance", v);
         }}
         unit="m"
       />

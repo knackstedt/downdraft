@@ -17,7 +17,8 @@ import {
 import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
 import { getOverlayToggles, getPanelExtensions } from "../devtools/panel-extensions";
-import { simBridge } from "../sim-bridge";
+import type { SimBridge } from "../sim-bridge";
+import { useGameStore } from "../stores/game-store";
 import type { WebGPURenderer } from "./webgpu-renderer";
 
 import {
@@ -30,6 +31,12 @@ import {
 
 export class SceneInspector extends BaseSceneInspector {
   private gameRenderer: WebGPURenderer | null = null;
+  private simBridge: SimBridge | null = null;
+
+  /** Set by main.tsx after the bridge is created. */
+  setSimBridge(bridge: SimBridge): void {
+    this.simBridge = bridge;
+  }
 
   // --- Asset resolver ---
 
@@ -60,9 +67,9 @@ export class SceneInspector extends BaseSceneInspector {
 
   protected getDebugModeProvider(): IDebugModeProvider | null {
     return {
-      setDebugMode: (enabled: boolean) => simBridge.setDebugMode(enabled),
-      setGCConfig: (config: any) => simBridge.setGCConfig(config),
-      forceMajorGC: () => simBridge.forceWorkerMajorGC(),
+      setDebugMode: (enabled: boolean) => this.simBridge?.setDebugMode(enabled),
+      setGCConfig: (config: any) => this.simBridge?.setGCConfig(config),
+      forceMajorGC: () => this.simBridge?.forceWorkerMajorGC(),
     };
   }
 
@@ -157,7 +164,7 @@ export class SceneInspector extends BaseSceneInspector {
 
     // --- Physics Profiler ---
     base.setPhysicsProfiler = (enabled: boolean): void => {
-      simBridge.setPhysicsProfiler(enabled);
+      this.simBridge?.setPhysicsProfiler(enabled);
     };
 
     base.getPhysicsTiming = (): any => {
@@ -335,24 +342,24 @@ export class SceneInspector extends BaseSceneInspector {
     };
 
     base.sendWorldCommand = (cmd: any): void => {
-      simBridge.sendWorldCommand(cmd);
+      this.simBridge?.sendWorldCommand(cmd);
     };
 
     base.setWeather = (weatherType: number): void => {
-      simBridge.setWeather(weatherType);
+      this.simBridge?.setWeather(weatherType);
     };
 
     base.setTimeOfDay = (time: number): void => {
-      simBridge.setTimeOfDay(time);
+      this.simBridge?.setTimeOfDay(time);
     };
 
     base.setSimSpeed = (speed: number): void => {
-      (window as any).__currentSimSpeed = speed;
-      simBridge.setSimSpeed(speed);
+      useGameStore.getState().setCurrentSimSpeed(speed);
+      this.simBridge?.setSimSpeed(speed);
     };
 
     base.getSimSpeed = (): number => {
-      return (window as any).__currentSimSpeed ?? 1.0;
+      return useGameStore.getState().currentSimSpeed;
     };
 
     base.getBiomeList = (): { value: number; name: string }[] => {

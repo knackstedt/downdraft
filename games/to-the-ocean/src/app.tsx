@@ -21,13 +21,13 @@ import NotificationStack from "./components/notification-stack";
 import PauseMenu from "./components/pause-menu";
 import SettingsPanel from "./components/settings-panel";
 import TradeMenu from "./components/trade-menu";
-import { simBridge } from "./sim-bridge";
 import { useGameStore } from "./stores/game-store";
 
 export default function App() {
   const { ready, simReady, lutReady, renderer, showInventory, showMap, showBuildMenu,
     showCraftMenu, showFishingMinigame, showTradeMenu, showSettings, showPauseMenu,
     showCharacterCustomization, showCredits, playerDied, hudHidden, showBuilderWheel, isDev } = useGameStore();
+  const simBridge = useGameStore((s) => s.simBridge);
   const showDebugPage = useDebugStore((s) => s.showDebugPage);
   const [pointerLocked, setPointerLocked] = useState(document.pointerLockElement !== null);
   const [f1Devtools, setF1Devtools] = useState(false);
@@ -194,7 +194,7 @@ export default function App() {
     const onF11 = (e: KeyboardEvent) => {
       if (e.key === "F11") {
         e.preventDefault();
-        simBridge.toggleFullscreen();
+        simBridge?.toggleFullscreen();
       }
     };
     // F12 toggles DevTools — handled by the engine (createDowndraftApp devtools
@@ -217,7 +217,7 @@ export default function App() {
       const wt = map[e.code] ?? map[`Numpad${e.key}`];
       if (wt !== undefined) {
         e.preventDefault();
-        simBridge.setWeather(wt);
+        simBridge?.setWeather(wt);
       }
       // Numpad divide/asterisk/minus: set time of day
       const timeMap: Record<string, number> = {
@@ -228,7 +228,7 @@ export default function App() {
       const tod = timeMap[e.code];
       if (tod !== undefined) {
         e.preventDefault();
-        simBridge.setTimeOfDay(tod);
+        simBridge?.setTimeOfDay(tod);
       }
     };
     window.addEventListener("keydown", onKey);
