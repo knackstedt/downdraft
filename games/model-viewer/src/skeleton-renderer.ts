@@ -270,11 +270,13 @@ export class SkeletonRenderer {
       } else if (bone.parentIndex >= 0) {
         // Normal child: world = parent * local
         multiplyMat4(worldMats[bone.parentIndex], localMat, worldMat);
-      } else if (bone.rootAncestorMatrix) {
-        // Root bone with non-bone ancestors: world = ancestorWorld * local
-        multiplyMat4(bone.rootAncestorMatrix, localMat, worldMat);
       } else {
-        // Root bone: world = local
+        // Root bone: world = local (NOT rootAncestorMatrix * local).
+        // The rootAncestorMatrix often encodes the FBX scene's unit scale
+        // (e.g. 0.01 for cm→m), which would shrink the skeleton relative to
+        // the mesh vertices that stay in raw FBX coordinates. For visualization,
+        // bone rest translations are already in the same coordinate space as
+        // the mesh vertices, so we use the local transform directly.
         worldMat.set(localMat);
       }
     }

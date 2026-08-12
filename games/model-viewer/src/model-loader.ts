@@ -3,6 +3,7 @@ import {
     loadModel,
     normalizeModel,
     parseFBX,
+    resolveImportSettings,
     writeDdmeta,
     type AnimationData,
     type ImportSettings,
@@ -148,7 +149,17 @@ export async function loadModelWithTextures(
     data = await resp.arrayBuffer();
   }
 
-  const modelData = await loadModel(data, entry.filename);
+  // Load the model with sidecar resolution so saved .ddmeta.json settings
+  // (scale, autoFit, upAxis, etc.) are applied on load. Without this, the
+  // sync fallback only uses parser-detected defaults and ignores sidecars.
+  const modelData = await loadModel(data, entry.filename, undefined, undefined, {
+    sidecarResolver: (_filename, md) =>
+      resolveImportSettings({
+        modelPath: entry.path,
+        modelData: md,
+        fetchFn: (uri) => fetch(uri),
+      }),
+  });
   await loadExternalTextures(modelData, assetBase);
 
   // Node-transform baking is now handled by the engine's normalization
