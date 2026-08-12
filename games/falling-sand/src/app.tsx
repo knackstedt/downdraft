@@ -14,7 +14,7 @@ const materialNames = [
   "Fuse", "C4", "Dynamite", "Wax", "Concrete Powder", "Dry Ice",
   "Liquid Nitrogen", "Plasma", "Nanobots", "Magic Powder", "Glitter",
   "Popcorn", "Rubber", "Root", "Brine", "Molten Salt", "Concrete", "Tree Wood",
-  "Fuse Fire",
+  "Fuse Fire", "Burning Oil",
 ];
 
 /** Convert a material's float color [0-1] to a CSS rgb string. */

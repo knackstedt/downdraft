@@ -24,6 +24,14 @@ const FUSE_FIRE_SHADES: [number, number, number][] = [
   [1.35, 1.2, 0.45],
 ];
 
+// Burning oil: deep orange-red shades (darker, smokier than regular fire)
+const BURNING_OIL_SHADES: [number, number, number][] = [
+  [0.55, 0.10, 0.01],
+  [0.70, 0.18, 0.02],
+  [0.85, 0.30, 0.04],
+  [1.0, 0.45, 0.08],
+];
+
 function shadeFactorsFor(mat: number): number[] {
   if (mat === Material.Water || mat === Material.Sand || mat === Material.Snow ||
       mat === Material.Salt || mat === Material.Flour) return SUBTLE_SHADES;
@@ -33,11 +41,13 @@ function shadeFactorsFor(mat: number): number[] {
 
 function isFireShaded(mat: number): boolean {
   return mat === Material.Fire || mat === Material.FuseFire || mat === Material.Lava ||
-         mat === Material.Plasma || mat === Material.MoltenSalt;
+         mat === Material.Plasma || mat === Material.MoltenSalt || mat === Material.BurningOil;
 }
 
 function fireShadesFor(mat: number): [number, number, number][] {
-  return mat === Material.FuseFire ? FUSE_FIRE_SHADES : FIRE_SHADES;
+  if (mat === Material.FuseFire) return FUSE_FIRE_SHADES;
+  if (mat === Material.BurningOil) return BURNING_OIL_SHADES;
+  return FIRE_SHADES;
 }
 
 function clamp8(v: number): number {
