@@ -1,4 +1,5 @@
 import { downdraft, getCanvas, getOverlay } from "@downdraft/app/renderer";
+import { DevToolsDataBridge, type IDevToolsDataRenderer } from "@downdraft/plugin-devtools";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
@@ -29,6 +30,15 @@ async function bootstrap() {
   }
 
   useGameStore.getState().setRenderer(renderer);
+
+  // --- DevTools data bridge: expose perf/GC/GPU metrics to the DevTools panel ---
+  // Falling-sand doesn't use the full 3D scene inspector, but the data bridge
+  // provides FPS, GC stats, and GPU system info to the DevTools panel.
+  const dataRenderer: IDevToolsDataRenderer = {
+    getFPS: () => renderer.getFPS(),
+  };
+  const devtoolsBridge = new DevToolsDataBridge();
+  devtoolsBridge.init(dataRenderer);
 
   // --- Autoload: restore last session before starting the render loop ---
   if (!deterministic) {

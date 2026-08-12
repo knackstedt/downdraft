@@ -1642,7 +1642,7 @@
   }
 
   // --- Init ---
-  function start() {
+  function start(defaultView) {
     refreshSceneTree();
     scanAvailableModels();
     loadOverlayState();
@@ -1651,57 +1651,67 @@
     callInspector("setShowLabels", labelsVisible);
     callInspector("setShowHitboxes", hitboxesVisible);
     refreshTimer = setInterval(refreshSceneTree, 500);
-    switchView("scene");
+    switchView(defaultView || "scene");
   }
 
   function waitForInspector() {
     getSceneInspector().then(function (inspector) {
       if (inspector) {
-        // Load game-specific extensions before starting
-        loadExtensions(function (data) {
-          // Create extension tabs (check required methods first)
-          var pending = (data.extensions || []).length + (data.toggles || []).length;
-          if (pending === 0) { start(); return; }
+        // Check if the inspector has scene-tree methods (full BaseSceneInspector)
+        // or is just a DevToolsDataBridge (data feeds only). Data-only games
+        // default to the perf view instead of showing an empty scene tree.
+        evalInPage(
+          "typeof (window.__sceneInspector || {}).getSceneTree === 'function'",
+          function (hasSceneTree) {
+            var defaultView = hasSceneTree ? "scene" : "perf";
 
-          var validExtensions = [];
-          var validToggles = [];
+            // Load game-specific extensions before starting
+            loadExtensions(function (data) {
+              // Create extension tabs (check required methods first)
+              var pending = (data.extensions || []).length + (data.toggles || []).length;
+              if (pending === 0) { start(defaultView); return; }
 
-          // Check extensions
-          var extRemaining = (data.extensions || []).length;
-          if (extRemaining === 0) {
-            processToggles();
-          } else {
-            (data.extensions || []).forEach(function (ext) {
-              checkRequiredMethods(ext.requiredMethods, function (ok) {
-                if (ok) validExtensions.push(ext);
-                extRemaining--;
-                if (extRemaining === 0) processToggles();
-              });
+              var validExtensions = [];
+              var validToggles = [];
+
+              // Check extensions
+              var extRemaining = (data.extensions || []).length;
+              if (extRemaining === 0) {
+                processToggles();
+              } else {
+                (data.extensions || []).forEach(function (ext) {
+                  checkRequiredMethods(ext.requiredMethods, function (ok) {
+                    if (ok) validExtensions.push(ext);
+                    extRemaining--;
+                    if (extRemaining === 0) processToggles();
+                  });
+                });
+              }
+
+              function processToggles() {
+                var toggleRemaining = (data.toggles || []).length;
+                if (toggleRemaining === 0) {
+                  finish();
+                  return;
+                }
+                (data.toggles || []).forEach(function (toggle) {
+                  checkRequiredMethods(toggle.requiredMethods, function (ok) {
+                    if (ok) validToggles.push(toggle);
+                    toggleRemaining--;
+                    if (toggleRemaining === 0) finish();
+                  });
+                });
+              }
+
+              function finish() {
+                validExtensions.sort(function (a, b) { return (a.order || 100) - (b.order || 100); });
+                for (var i = 0; i < validExtensions.length; i++) createExtensionTab(validExtensions[i]);
+                for (var j = 0; j < validToggles.length; j++) createOverlayToggle(validToggles[j]);
+                start(defaultView);
+              }
             });
-          }
-
-          function processToggles() {
-            var toggleRemaining = (data.toggles || []).length;
-            if (toggleRemaining === 0) {
-              finish();
-              return;
-            }
-            (data.toggles || []).forEach(function (toggle) {
-              checkRequiredMethods(toggle.requiredMethods, function (ok) {
-                if (ok) validToggles.push(toggle);
-                toggleRemaining--;
-                if (toggleRemaining === 0) finish();
-              });
-            });
-          }
-
-          function finish() {
-            validExtensions.sort(function (a, b) { return (a.order || 100) - (b.order || 100); });
-            for (var i = 0; i < validExtensions.length; i++) createExtensionTab(validExtensions[i]);
-            for (var j = 0; j < validToggles.length; j++) createOverlayToggle(validToggles[j]);
-            start();
-          }
-        });
+          },
+        );
       } else {
         setTimeout(waitForInspector, 1000);
       }

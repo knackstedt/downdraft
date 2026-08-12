@@ -2,31 +2,22 @@
 // BaseSceneInspector — generic DevTools API exposed on window.__sceneInspector.
 // Games extend this class and provide game-specific features via
 // IGameDevToolsExtension.
+//
+// Extends DevToolsDataBridge (which provides perf/GC/GPU/telemetry data feeds)
+// and adds scene-tree / model / gizmo / material-editor methods.
 // ============================================================================
 
-import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, isExtremeScale, MaterialLibrary, maxDimension, startGCProfiler, TelemetryCollector, uiGraphToMaterialGraph, type GCProfilerHandle, type GCStats, type Material, type UIConnection, type UINodeData } from "@downdraft/core";
+import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, isExtremeScale, MaterialLibrary, maxDimension, uiGraphToMaterialGraph, type Material, type UIConnection, type UINodeData } from "@downdraft/core";
 import { createDefaultDdmeta, createDefaultImportSettings, detectFormat, loadModel, normalizeModel, writeDdmeta } from "@downdraft/plugin-models";
-import { useDebugStore } from "./debug-store";
+import { DevToolsDataBridge } from "./data-bridge";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store";
 import type {
     IAssetResolver,
-    IDebugModeProvider,
     IDebugOverlayProvider,
-    IDevToolsOverlayToggle,
-    IDevToolsPanelExtension,
     IDevToolsRenderer,
-    IPerformanceMetricsProvider,
 } from "./types";
 
-export abstract class BaseSceneInspector {
-  protected renderer: IDevToolsRenderer | null = null;
-  protected initialized = false;
-  protected perfGcHandle: GCProfilerHandle | null = null;
-  protected perfActive = false;
-  protected cachedGpuSystemInfo: any = null;
-  protected cachedElectronGpuInfo: any = null;
-  protected cachedVulkanValidation: any = null;
-  protected ipcFetchInterval: ReturnType<typeof setInterval> | null = null;
+export abstract class BaseSceneInspector extends DevToolsDataBridge {
   // Core material library — the single source of truth for materials created
   // via the graph editor. Graph-compiled materials are registered here.
   protected materialLibrary: MaterialLibrary = new MaterialLibrary();
@@ -38,49 +29,32 @@ export abstract class BaseSceneInspector {
   /** Games provide asset resolution for model import/thumbnails. */
   protected abstract getAssetResolver(): IAssetResolver | null;
 
+  /** Typed view of the renderer as IDevToolsRenderer (scene-specific methods).
+   *  The base class stores it as IDevToolsDataRenderer; this casts for scene use. */
+  protected get sceneRenderer(): IDevToolsRenderer | null {
+    return this.renderer as IDevToolsRenderer | null;
+  }
+
   // --- Optional overrides ---
 
   protected getDebugOverlayProvider(): IDebugOverlayProvider | null {
     return null;
   }
 
-  protected getDebugModeProvider(): IDebugModeProvider | null {
-    return null;
-  }
-
-  protected getPerformanceMetricsProvider(): IPerformanceMetricsProvider | null {
-    return null;
-  }
-
-  /** Games override this to declare custom DevTools panel tabs. */
-  protected getPanelExtensions(): IDevToolsPanelExtension[] {
-    return [];
-  }
-
-  /** Games override this to declare custom overlay toggles. */
-  protected getOverlayToggles(): IDevToolsOverlayToggle[] {
-    return [];
-  }
+  // getPanelExtensions() and getOverlayToggles() inherited from DevToolsDataBridge.
 
   // --- Init ---
 
   init(renderer: IDevToolsRenderer): void {
-    this.renderer = renderer;
-    this.initialized = true;
-
-    this.fetchIpcData();
-    this.ipcFetchInterval = setInterval(() => this.fetchIpcData(), 2000);
-
-    const api = this.buildApi();
-    (window as any).__sceneInspector = api;
-    console.log("[BaseSceneInspector] API exposed on window.__sceneInspector");
+    super.init(renderer);
 
     // Apply default label visibility (generic)
     useSceneStore.getState().setShowLabels(true);
   }
 
   protected buildApi(): Record<string, any> {
-    return {
+    const api = super.buildApi();
+    Object.assign(api, {
       // --- Scene Tree ---
       getSceneTree: (): SceneTreeSnapshot => {
         return useSceneStore.getState().getSceneTree();
@@ -91,7 +65,7 @@ export abstract class BaseSceneInspector {
         if (id) {
           const node = useSceneStore.getState().getNode(id);
           if (node) {
-            this.renderer?.setGizmoPosition(node.position);
+            this.sceneRenderer?.setGizmoPosition(node.position);
           }
         }
       },
@@ -109,7 +83,7 @@ export abstract class BaseSceneInspector {
         useSceneStore.getState().updateNodeTransform(id, transform);
         const updated = useSceneStore.getState().getNode(id);
         if (updated) {
-          this.renderer?.setGizmoPosition(updated.position);
+          this.sceneRenderer?.setGizmoPosition(updated.position);
         }
       },
 
@@ -172,10 +146,10 @@ export abstract class BaseSceneInspector {
             }
           }
 
-          const playerPos = this.renderer?.getPlayerWorldPos(0) ?? { x: 0, y: 5, z: 0 };
+          const playerPos = this.sceneRenderer?.getPlayerWorldPos(0) ?? { x: 0, y: 5, z: 0 };
           const pos: [number, number, number] = [playerPos.x, playerPos.y, playerPos.z];
           const nodeId = useSceneStore.getState().addModel(modelData, filename, pos);
-          this.renderer?.uploadModel(nodeId, modelData.meshes, modelData.materials);
+          this.sceneRenderer?.uploadModel(nodeId, modelData.meshes, modelData.materials);
 
           // Check for extreme scale and return warnings for the UI to prompt auto-fit
           const warnings = modelData.normalizationWarnings ?? [];
@@ -189,7 +163,7 @@ export abstract class BaseSceneInspector {
       },
 
       removeNode: (id: string): void => {
-        this.renderer?.removeModel(id);
+        this.sceneRenderer?.removeModel(id);
         useSceneStore.getState().removeNode(id);
       },
 
@@ -213,7 +187,7 @@ export abstract class BaseSceneInspector {
           normalizeModel(node.modelData, settings);
 
           // Re-upload the normalized meshes to the GPU
-          this.renderer?.uploadModel(nodeId, node.modelData.meshes, node.modelData.materials);
+          this.sceneRenderer?.uploadModel(nodeId, node.modelData.meshes, node.modelData.materials);
 
           // Generate a .ddmeta.json sidecar for persistence
           const sidecar = writeDdmeta(settings);
@@ -250,9 +224,9 @@ export abstract class BaseSceneInspector {
           }
           const node = useSceneStore.getState().getNode(newId);
           if (node && node.modelData) {
-            this.renderer?.uploadModel(newId, node.modelData.meshes, node.modelData.materials);
+            this.sceneRenderer?.uploadModel(newId, node.modelData.meshes, node.modelData.materials);
           }
-          this.renderer?.setGizmoPosition(node!.position);
+          this.sceneRenderer?.setGizmoPosition(node!.position);
           return { success: true, nodeId: newId };
         } catch (e) {
           return { success: false, error: String(e) };
@@ -325,10 +299,10 @@ export abstract class BaseSceneInspector {
               }
             }
           }
-          const playerPos = this.renderer?.getPlayerWorldPos(0) ?? { x: 0, y: 5, z: 0 };
+          const playerPos = this.sceneRenderer?.getPlayerWorldPos(0) ?? { x: 0, y: 5, z: 0 };
           const pos: [number, number, number] = [playerPos.x, playerPos.y, playerPos.z];
           const nodeId = useSceneStore.getState().addModel(modelData, file.name, pos);
-          this.renderer?.uploadModel(nodeId, modelData.meshes, modelData.materials);
+          this.sceneRenderer?.uploadModel(nodeId, modelData.meshes, modelData.materials);
           return { success: true, nodeId };
         } catch (e) {
           return { success: false, error: String(e) };
@@ -338,12 +312,12 @@ export abstract class BaseSceneInspector {
       // --- Gizmo ---
       setGizmoMode: (mode: GizmoMode): void => {
         useSceneStore.getState().setGizmoMode(mode);
-        this.renderer?.setGizmoMode(mode);
+        this.sceneRenderer?.setGizmoMode(mode);
       },
 
       setGizmoVisible: (visible: boolean): void => {
         useSceneStore.getState().setGizmoVisible(visible);
-        this.renderer?.setGizmoVisible(visible);
+        this.sceneRenderer?.setGizmoVisible(visible);
       },
 
       setShowLabels: (visible: boolean): void => {
@@ -358,22 +332,18 @@ export abstract class BaseSceneInspector {
         return useSceneStore.getState().gizmoMode;
       },
 
-      isReady: (): boolean => {
-        return this.initialized;
-      },
-
       // --- Hitbox overlays ---
       setShowHitboxes: (show: boolean): void => {
-        this.renderer?.setShowHitboxes(show);
+        this.sceneRenderer?.setShowHitboxes(show);
       },
       getShowHitboxes: (): boolean => {
-        return this.renderer?.getShowHitboxes() ?? false;
+        return this.sceneRenderer?.getShowHitboxes() ?? false;
       },
       setHitboxLineWidth: (width: number): void => {
-        this.renderer?.setHitboxLineWidth(width);
+        this.sceneRenderer?.setHitboxLineWidth(width);
       },
       getHitboxLineWidth: (): number => {
-        return this.renderer?.getHitboxLineWidth() ?? 3;
+        return this.sceneRenderer?.getHitboxLineWidth() ?? 3;
       },
 
       // --- Chunk grid / velocity arrows (optional, via debug overlay provider) ---
@@ -390,181 +360,13 @@ export abstract class BaseSceneInspector {
         return this.getDebugOverlayProvider()?.getShowVelocityArrows() ?? false;
       },
 
-      // --- Performance monitoring ---
-      enablePerformanceMonitoring: (): void => {
-        if (this.perfActive) return;
-        this.perfActive = true;
-
-        if (!this.perfGcHandle) {
-          this.perfGcHandle = startGCProfiler('renderer', (stats: GCStats) => {
-            useDebugStore.getState().updateGCStats(stats);
-          });
-        }
-
-        this.renderer?.setDebugMode(true);
-        this.getDebugModeProvider()?.setDebugMode(true);
-      },
-
-      disablePerformanceMonitoring: (): void => {
-        if (!this.perfActive) return;
-        this.perfActive = false;
-
-        this.perfGcHandle?.stop();
-        this.perfGcHandle = null;
-
-        if (!useDebugStore.getState().showDebugPage) {
-          this.renderer?.setDebugMode(false);
-          this.getDebugModeProvider()?.setDebugMode(false);
-        }
-      },
-
-      getPerformanceMetrics: (): any => {
-        const provider = this.getPerformanceMetricsProvider();
-        if (provider) return provider.getPerformanceMetrics();
-
-        // Fallback: basic renderer-only metrics
-        const gcStats = useDebugStore.getState().gcStats;
-        const fps = this.renderer?.getFPS() ?? 0;
-        const frameTimeMs = fps > 0 ? 1000 / fps : 0;
-        const targetFrameMs = 1000 / 60;
-        const gpuUtil = Math.min(100, (frameTimeMs / targetFrameMs) * 100);
-        const perfMem = (performance as any).memory;
-        const rendererMemMB = perfMem ? perfMem.usedJSHeapSize / 1048576 : 0;
-
-        function gcFor(label: string) {
-          const g = gcStats[label];
-          if (!g) return { count: 0, totalTime: 0, scavengeCount: 0, majorCount: 0 };
-          return {
-            count: g.interval.count,
-            totalTime: g.interval.totalTime,
-            scavengeCount: g.interval.scavengeCount,
-            majorCount: g.interval.majorCount,
-          };
-        }
-
-        return {
-          gpu: { utilization: gpuUtil, frameTimeMs, fps },
-          renderer: {
-            cpuPercent: gpuUtil, memUsedMB: rendererMemMB,
-            diskKBps: 0, networkKBps: 0, gc: gcFor("renderer"),
-          },
-          main: { cpuPercent: 0, memUsedMB: 0, diskKBps: 0, networkKBps: 0, gc: gcFor("main") },
-          worker: { cpuPercent: 0, memUsedMB: 0, diskKBps: 0, networkKBps: 0, gc: gcFor("sim-worker") },
-          timestamp: performance.now(),
-        };
-      },
-
-      // --- GPU Debugging ---
-      getGPUInfo: (): any => {
-        return this.renderer?.getGPUInfo() ?? null;
-      },
-
-      getGPUErrors: (): any => {
-        return this.renderer?.getGPUErrors() ?? [];
-      },
-
-      clearGPUErrors: (): void => {
-        this.renderer?.clearGPUErrors();
-      },
-
-      getFrameTelemetry: (): any => {
-        return this.renderer?.getFrameTelemetry() ?? null;
-      },
-
-      getGPUResourceStats: (): any => {
-        const tracker = this.renderer?.getGPUResourceTracker();
-        if (!tracker) return null;
-        return tracker.getStats();
-      },
-
-      getPassTimings: (): any => {
-        const tc = this.renderer?.getTelemetryCollector();
-        if (!tc) return [];
-        return tc.getPassTimings();
-      },
-
-      getFrameGraph: (): any => {
-        return this.renderer?.getFrameGraph() ?? null;
-      },
-
-      saveSnapshot: (label: string): any => {
-        const tc = this.renderer?.getTelemetryCollector();
-        if (!tc) return null;
-        return tc.saveSnapshot(label || "Snapshot");
-      },
-
-      getSnapshots: (): any => {
-        const tc = this.renderer?.getTelemetryCollector();
-        if (!tc) return [];
-        return tc.getSnapshots();
-      },
-
-      clearSnapshots: (): void => {
-        this.renderer?.getTelemetryCollector()?.clearSnapshots();
-      },
-
-      diffSnapshots: (idxA: number, idxB: number): any => {
-        const tc = this.renderer?.getTelemetryCollector();
-        if (!tc) return [];
-        const snaps = tc.getSnapshots();
-        if (idxA < 0 || idxB < 0 || idxA >= snaps.length || idxB >= snaps.length) return [];
-        return TelemetryCollector.diffSnapshots(snaps[idxA], snaps[idxB]);
-      },
-
-      // --- GC Controller ---
-      getGCStats: (): any => {
-        const r = this.renderer as any;
-        const stats: Record<string, any> = {};
-        if (r?.getGCStats) stats.renderer = r.getGCStats();
-        // Worker stats come from debug store (forwarded via events)
-        const debugStats = useDebugStore.getState().gcControllerStats;
-        if (debugStats["sim-worker"]) stats["sim-worker"] = debugStats["sim-worker"];
-        return stats;
-      },
-
-      setGCConfig: (config: any): void => {
-        const r = this.renderer as any;
-        if (r?.setGCConfig) r.setGCConfig(config);
-        // Forward to worker via debug mode provider
-        const provider = this.getDebugModeProvider() as any;
-        if (provider?.setGCConfig) provider.setGCConfig(config);
-        useDebugStore.getState().setGCConfig(config);
-      },
-
-      forceMajorGC: (): void => {
-        const r = this.renderer as any;
-        if (r?.forceMajorGC) r.forceMajorGC();
-        const provider = this.getDebugModeProvider() as any;
-        if (provider?.forceMajorGC) provider.forceMajorGC();
-      },
-
-      getVersion: (): string => {
-        return "1.0.0";
-      },
-
-      getGPUSystemInfo: (): any => {
-        return this.cachedGpuSystemInfo;
-      },
-
-      getElectronGPUInfo: (): any => {
-        return this.cachedElectronGpuInfo;
-      },
-
-      getVulkanValidationStatus: (): any => {
-        return this.cachedVulkanValidation;
-      },
-
-      // --- Panel extensions (game-specific tabs and overlay toggles) ---
-      getPanelExtensions: (): IDevToolsPanelExtension[] => this.getPanelExtensions(),
-      getOverlayToggles: (): IDevToolsOverlayToggle[] => this.getOverlayToggles(),
-
       // --- Debug mode (Inspector v2) ---
       setDebugMode: (mode: string): void => {
         const provider = this.getDebugModeProvider();
         if (provider && typeof (provider as any).setDebugMode === "function") {
           (provider as any).setDebugMode(mode);
         }
-        this.renderer?.setDebugMode(mode !== "none");
+        this.sceneRenderer?.setDebugMode(mode !== "none");
       },
 
       // --- Material Editor API ---
@@ -704,7 +506,8 @@ export abstract class BaseSceneInspector {
       getMaterialLibrary: (): MaterialLibrary => {
         return this.materialLibrary;
       },
-    };
+    });
+    return api;
   }
 
   // --- Thumbnail generation (generic, uses asset resolver) ---
@@ -827,30 +630,5 @@ export abstract class BaseSceneInspector {
     if (this.thumbnailCache.size > 30) {
       this.thumbnailCache.clear();
     }
-  }
-
-  // --- IPC data fetching (generic Electron) ---
-
-  private fetchIpcData(): void {
-    const w = window as any;
-    if (w.downdraft?.getGPUSystemInfo) {
-      w.downdraft.getGPUSystemInfo().then((data: any) => { this.cachedGpuSystemInfo = data; }).catch(() => {});
-    }
-    if (w.downdraft?.getElectronGPUInfo) {
-      w.downdraft.getElectronGPUInfo().then((info: any) => { this.cachedElectronGpuInfo = info; }).catch(() => {});
-    }
-    if (w.downdraft?.getVulkanValidationStatus) {
-      w.downdraft.getVulkanValidationStatus().then((data: any) => { this.cachedVulkanValidation = data; }).catch(() => {});
-    }
-  }
-
-  destroy(): void {
-    this.initialized = false;
-    this.renderer = null;
-    if (this.ipcFetchInterval) {
-      clearInterval(this.ipcFetchInterval);
-      this.ipcFetchInterval = null;
-    }
-    delete (window as any).__sceneInspector;
   }
 }

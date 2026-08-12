@@ -52,12 +52,17 @@
       "dependencies": {
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/plugin-devtools": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "zustand": "^5.0.2",
       },
+    },
+    "games/falling-sand/sand-native": {
+      "name": "@sand-native/sand_native",
+      "version": "0.1.0",
     },
     "games/to-the-ocean": {
       "name": "to-the-ocean",
@@ -365,10 +370,6 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
-    },
-    "packages/sand-native": {
-      "name": "@sand-native/sand_native",
-      "version": "0.1.0",
     },
     "packages/shader-graph": {
       "name": "@downdraft/shader-graph",
@@ -738,7 +739,7 @@
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.62.3", "", { "os": "win32", "cpu": "x64" }, "sha512-MOG/3gTOn4Fwf574RVOaY61I5o6P90legkFADiTyn1hyjNydT+cerU2rLUwPdZkKKyJ+iT+K9p7WXK4LM1Ka6g=="],
 
-    "@sand-native/sand_native": ["@sand-native/sand_native@workspace:packages/sand-native"],
+    "@sand-native/sand_native": ["@sand-native/sand_native@workspace:games/falling-sand/sand-native"],
 
     "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
