@@ -226,6 +226,12 @@
       ],
       "@to-the-ocean/shared/*": [
         "./games/to-the-ocean/src/shared/*"
+      ],
+      "@sand-native/sand_native": [
+        "./games/falling-sand/sand-native/pkg/sand_native.d.ts"
+      ],
+      "@sand-native/sand_native/*": [
+        "./games/falling-sand/sand-native/pkg/*"
       ]
     }
   },
@@ -236,6 +242,7 @@
     "packages/ui/src/**/*",
     "packages/shader-graph/src/**/*.ts",
     "packages/plugins/*/src/**/*.ts",
+    "games/falling-sand/sand-native/pkg/*.d.ts",
     "games/*/src/**/*",
     "games/*/plugins/*/src/**/*.ts"
   ],

@@ -93,6 +93,12 @@
       ],
       "@to-the-ocean/util/*": [
         "./games/to-the-ocean/src/util/*"
+      ],
+      "@sand-native/sand_native": [
+        "./games/falling-sand/sand-native/pkg/sand_native.js"
+      ],
+      "@sand-native/sand_native/*": [
+        "./games/falling-sand/sand-native/pkg/*"
       ]
     }
   },
