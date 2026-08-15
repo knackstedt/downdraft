@@ -35,6 +35,8 @@
     "games/falling-sand",
     "games/falling-sand/plugins/*",
     "games/falling-sand/sand-native",
+    "games/mining-rpg",
+    "games/mining-rpg/plugins/*",
     "examples/plugin-tester"
   ],
   "devDependencies": {

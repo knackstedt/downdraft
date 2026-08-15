@@ -50,6 +50,19 @@
       },
       "isBackground": true,
       "problemMatcher": []
+    },
+    {
+      "label": "Dev: Mining RPG",
+      "type": "shell",
+      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/mining-rpg/electron.vite.config.ts",
+      "runOptions": {
+        "instanceLimit": 2
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
     }
   ]
 }
