@@ -1,4 +1,4 @@
-import { Material, MATERIALS } from "./materials";
+import { Material, MATERIALS } from "@downdraft/library-sand";
 
 export interface PlayerInput {
   left: boolean;
