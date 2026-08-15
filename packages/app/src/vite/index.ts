@@ -115,6 +115,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/shader-graph\//, replacement: resolve(repoRoot, "packages/shader-graph/src") + "/" },
     { find: /^@downdraft\/library-postfx$/, replacement: resolve(repoRoot, "packages/plugins/postfx/src/index.ts") },
     { find: /^@downdraft\/library-postfx\//, replacement: resolve(repoRoot, "packages/plugins/postfx/src") + "/" },
+    { find: /^@downdraft\/library-sand$/, replacement: resolve(repoRoot, "packages/plugins/physics-sand/src/index.ts") },
+    { find: /^@downdraft\/library-sand\//, replacement: resolve(repoRoot, "packages/plugins/physics-sand/src") + "/" },
     { find: /^@downdraft\/library-lighting$/, replacement: resolve(repoRoot, "packages/plugins/lighting/src/index.ts") },
     { find: /^@downdraft\/library-lighting\//, replacement: resolve(repoRoot, "packages/plugins/lighting/src") + "/" },
     { find: /^@downdraft\/plugin-weatherfx$/, replacement: resolve(repoRoot, "packages/plugins/weatherfx/src/index.ts") },

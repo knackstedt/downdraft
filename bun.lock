@@ -53,6 +53,7 @@
       "dependencies": {
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-sand": "workspace:*",
         "@downdraft/plugin-devtools": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "@downdraft/ui": "workspace:*",
@@ -64,6 +65,20 @@
     "games/falling-sand/sand-native": {
       "name": "@sand-native/sand_native",
       "version": "0.1.0",
+    },
+    "games/mining-rpg": {
+      "name": "mining-rpg",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/app": "workspace:*",
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-sand": "workspace:*",
+        "@downdraft/plugin-devtools": "workspace:*",
+        "@downdraft/ui": "workspace:*",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
+        "zustand": "^5.0.2",
+      },
     },
     "games/to-the-ocean": {
       "name": "to-the-ocean",
@@ -327,6 +342,13 @@
         "@downdraft/core": "workspace:*",
       },
     },
+    "packages/plugins/physics-sand": {
+      "name": "@downdraft/library-sand",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
     "packages/plugins/postfx": {
       "name": "@downdraft/library-postfx",
       "version": "0.1.0",
@@ -340,6 +362,13 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/plugin-marching-cubes": "workspace:*",
+      },
+    },
+    "packages/plugins/undertow": {
+      "name": "undertow",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
       },
     },
     "packages/plugins/water": {
@@ -363,13 +392,6 @@
         "@downdraft/core": "workspace:*",
         "@downdraft/library-weather": "workspace:*",
         "@downdraft/plugin-marching-cubes": "workspace:*",
-      },
-    },
-    "packages/plugins/worker-dom": {
-      "name": "@downdraft/library-worker-dom",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
       },
     },
     "packages/plugins/xr": {
@@ -503,9 +525,9 @@
 
     "@downdraft/library-postfx": ["@downdraft/library-postfx@workspace:packages/plugins/postfx"],
 
-    "@downdraft/library-weather": ["@downdraft/library-weather@workspace:packages/plugins/weather"],
+    "@downdraft/library-sand": ["@downdraft/library-sand@workspace:packages/plugins/physics-sand"],
 
-    "@downdraft/library-worker-dom": ["@downdraft/library-worker-dom@workspace:packages/plugins/worker-dom"],
+    "@downdraft/library-weather": ["@downdraft/library-weather@workspace:packages/plugins/weather"],
 
     "@downdraft/mcp": ["@downdraft/mcp@workspace:packages/mcp"],
 
@@ -1279,6 +1301,8 @@
 
     "minimist": ["minimist@1.2.8", "", {}, "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA=="],
 
+    "mining-rpg": ["mining-rpg@workspace:games/mining-rpg"],
+
     "minipass": ["minipass@5.0.0", "", {}, "sha512-3FnjYuehv9k6ovOEbyOswadCDPX1piCfhV8ncmYtHOjuPwylVWsghTLo7rabjC3Rx5xD4HDx8Wm1xnMF7S5qFQ=="],
 
     "minipass-collect": ["minipass-collect@1.0.2", "", { "dependencies": { "minipass": "^3.0.0" } }, "sha512-6T6lH0H8OG9kITm/Jm6tdooIbogG9e0tLgpY6mphXSm/A9u8Nq1ryBG+Qspiub9LjWlBPsPS3tWQ/Botq4FdxA=="],
@@ -1524,6 +1548,8 @@
     "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "undertow": ["undertow@workspace:packages/plugins/undertow"],
 
     "undici": ["undici@7.29.0", "", {}, "sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw=="],
 

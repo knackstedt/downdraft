@@ -35,6 +35,12 @@
       "@downdraft/library-postfx/*": [
         "./packages/plugins/postfx/src/*"
       ],
+      "@downdraft/library-sand": [
+        "./packages/plugins/physics-sand/src/index.ts"
+      ],
+      "@downdraft/library-sand/*": [
+        "./packages/plugins/physics-sand/src/*"
+      ],
       "@downdraft/library-lighting": [
         "./packages/plugins/lighting/src/index.ts"
       ],
@@ -238,6 +244,18 @@
       ],
       "@sand-native/sand_native/*": [
         "./games/falling-sand/sand-native/pkg/*"
+      ],
+      "@mining-rpg/shared/*": [
+        "./games/mining-rpg/src/shared/*"
+      ],
+      "@mining-rpg/simulation/*": [
+        "./games/mining-rpg/src/simulation/*"
+      ],
+      "@mining-rpg/renderer/*": [
+        "./games/mining-rpg/src/renderer/*"
+      ],
+      "@mining-rpg/stores/*": [
+        "./games/mining-rpg/src/stores/*"
       ]
     }
   },
