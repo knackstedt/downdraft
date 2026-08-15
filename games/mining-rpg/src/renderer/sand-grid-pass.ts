@@ -134,7 +134,7 @@ export class SandGridPass {
 
     this.createBindGroup();
     this.updateUniforms();
-    this.updateCamera(0, 0, 2, canvasW, canvasH);
+    this.updateCamera(0, 0, 4, canvasW, canvasH);
   }
 
   private createGridTexture(): void {

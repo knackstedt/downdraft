@@ -1,4 +1,4 @@
-import { Material, packCell } from "@downdraft/library-sand";
+import { DEFAULT_GRAVITY, FIELD, Material, packCell } from "@downdraft/library-sand";
 import { expect, test } from "bun:test";
 import { ACTIVE_GRID_W, CHUNK_H, CHUNK_W, FREEZE_TICKS } from "../shared/constants";
 import { ChunkWorld } from "./chunk-world";
@@ -15,6 +15,10 @@ function setMatAtWorld(world: ChunkWorld, wx: number, wy: number, mat: number): 
   const { x: ax, y: ay } = world.worldToActive(wx, wy);
   const idx = ay * ACTIVE_GRID_W + ax;
   world.activeGrid.grid[idx] = packCell(mat, 0, 0);
+  // Also reset the gravity field — ore cells (TinOre/CopperOre) have gravity=0
+  // set during terrain generation, and without resetting it, test-placed
+  // stone/dirt above those cells won't fall.
+  world.activeGrid.fields[idx * 4 + FIELD.GRAVITY] = DEFAULT_GRAVITY;
 }
 
 // Helper: run N steps with no input
@@ -80,10 +84,8 @@ test("dig clears stone cell and converts stone above to dirt", () => {
   expect(matAtWorld(w, digX, digY)).toBe(Material.Empty);
   // Stone above should be converted to dirt (loose falling particle)
   expect(matAtWorld(w, digX, digY - 1)).toBe(Material.Dirt);
-  // Stone should have been collected
-  expect(collected).toHaveLength(1);
-  expect(collected[0].mat).toBe(Material.Stone);
-  expect(collected[0].count).toBe(1);
+  // dig() no longer collects directly — collection is proximity-based only
+  expect(collected).toHaveLength(0);
 });
 
 test("dig does not destroy Wall material", () => {
@@ -127,7 +129,10 @@ test("dug dirt particle falls down due to gravity", () => {
   runIdle(w, 1);
 
   const digX = Math.floor(w.player.x);
-  const digY = Math.floor(w.player.y) + 15;
+  // Dig deep enough to be in the Stone layer (below the variable-thickness
+  // dirt layer). The dirt layer can be up to ~surface + 10 cells thick, and
+  // the player spawns ~9 cells above the surface, so +25 ensures we're in Stone.
+  const digY = Math.floor(w.player.y) + 25;
 
   // Set up: stone column
   for (let y = digY - 2; y <= digY + 2; y++) {
@@ -165,8 +170,13 @@ test("collect picks up loose ore near player", () => {
   const px = Math.floor(w.player.x);
   const py = Math.floor(w.player.y);
 
-  // Place ore on solid ground so it doesn't fall away
-  setMatAtWorld(w, px, py + 8, Material.Stone); // ground below
+  // Place ore on solid ground so it doesn't fall away.
+  // Use a 3-cell wide stone platform so the ore can't fall diagonally
+  // past the ground (the player spawns above the surface, so neighboring
+  // cells at this depth may be empty sky).
+  for (let dx = -1; dx <= 1; dx++) {
+    setMatAtWorld(w, px + dx, py + 8, Material.Stone); // ground below
+  }
   setMatAtWorld(w, px, py + 7, Material.TinOre); // ore resting on ground
 
   // The dig step itself runs collect at the end, so the ore may be collected

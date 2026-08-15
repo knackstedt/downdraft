@@ -63,6 +63,8 @@ export enum Material {
   // --- Mining RPG gases (toxic, rise) ---
   MethaneGas = 59,    // flammable, rises
   SulfurGas = 60,     // toxic, non-flammable, rises
+  // --- Mining RPG: coal (solid, flammable, becomes falling when dug) ---
+  Coal = 61,
 }
 
 export const MAX_MATERIAL = 128;
@@ -190,6 +192,9 @@ export const MATERIALS: Record<number, MaterialDef> = {
   [Material.SilverOre]: def(56, "Silver Ore", [0.85, 0.85, 0.88, 1.0], { gravity: 1, gravityDir: 1, density: 10.5, solid: true, albedo: 0.6, reflectivity: 0.6 }),
   [Material.GoldOre]: def(57, "Gold Ore", [0.90, 0.78, 0.20, 1.0], { gravity: 1, gravityDir: 1, density: 19.3, solid: true, albedo: 0.55, reflectivity: 0.5 }),
   [Material.CobaltOre]: def(58, "Cobalt Ore", [0.25, 0.35, 0.80, 1.0], { gravity: 1, gravityDir: 1, density: 8.9, solid: true, albedo: 0.5, reflectivity: 0.3 }),
+
+  // --- Mining RPG: coal (solid, flammable, falls when dug) ---
+  [Material.Coal]: def(61, "Coal", [0.10, 0.10, 0.11, 1.0], { gravity: 1, gravityDir: 1, density: 1.3, solid: true, flammable: true, burnTime: 120, albedo: 0.15, reflectivity: 0.05, brightness: 0.8 }),
 
   // --- Mining RPG: gases (toxic, rise) ---
   [Material.MethaneGas]: def(59, "Methane Gas", [0.75, 0.78, 0.65, 0.35], { gravity: 1, gravityDir: -1, density: 0.07, gas: true, flammable: true, burnTime: 0, lifetime: 200, albedo: 0.1, brightness: 0.5 }),

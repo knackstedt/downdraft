@@ -18,11 +18,9 @@ export interface OreEntry {
   name: string;
   minChunkY: number; // minimum depth (chunk Y, 0 = surface)
   maxChunkY: number; // maximum depth (chunk Y, inclusive)
-  noiseThreshold: number; // 0-1, fBm must exceed this
-  noiseScale: number; // spatial frequency
+  noiseThreshold: number; // 0-1, anisotropic noise must exceed this for ore
+  noiseScale: number; // spatial frequency of the vein noise (lower = longer gashes)
   octaves: number;
-  rarity: number; // 0-1, probability multiplier
-  veinSize: number; // approximate radius in cells
 }
 
 export interface LakeEntry {
@@ -44,6 +42,16 @@ export interface LakeEntry {
 //   cy 3-8:   mid (iron, bauxite)
 //   cy 6-12:  mid-deep (silver)
 //   cy 10+:   deep (gold, cobalt)
+//
+// Veins are produced by anisotropic noise: the noise field is stretched 4×
+// along a per-region direction, so thresholded regions form elongated gashes
+// rather than circular blobs. Only ONE ore type is selected per ~128-cell
+// region (regional gating), preventing different ores from mixing messily.
+//
+// noiseThreshold controls how thin the gashes are (higher = thinner, rarer).
+// noiseScale controls the gash length (lower = longer gashes).
+// 1 octave for smooth, coherent shapes — more octaves produce busy noise.
+// Values are tuned so ~1-3% of a chunk's stone body becomes ore.
 
 export const ORE_CONFIG: OreEntry[] = [
   {
@@ -51,77 +59,72 @@ export const ORE_CONFIG: OreEntry[] = [
     name: "Tin",
     minChunkY: 0,
     maxChunkY: 3,
-    noiseThreshold: 0.62,
-    noiseScale: 0.08,
-    octaves: 3,
-    rarity: 0.7,
-    veinSize: 4,
+    noiseThreshold: 0.90,
+    noiseScale: 0.03,
+    octaves: 1,
   },
   {
     material: Material.CopperOre,
     name: "Copper",
     minChunkY: 0,
     maxChunkY: 4,
-    noiseThreshold: 0.60,
-    noiseScale: 0.07,
-    octaves: 3,
-    rarity: 0.65,
-    veinSize: 5,
+    noiseThreshold: 0.89,
+    noiseScale: 0.028,
+    octaves: 1,
+  },
+  {
+    material: Material.Coal,
+    name: "Coal",
+    minChunkY: 0,
+    maxChunkY: 6,
+    noiseThreshold: 0.88,
+    noiseScale: 0.032,
+    octaves: 1,
   },
   {
     material: Material.IronOre,
     name: "Iron",
     minChunkY: 3,
     maxChunkY: 8,
-    noiseThreshold: 0.63,
-    noiseScale: 0.06,
-    octaves: 4,
-    rarity: 0.6,
-    veinSize: 5,
+    noiseThreshold: 0.90,
+    noiseScale: 0.025,
+    octaves: 1,
   },
   {
     material: Material.BauxiteOre,
     name: "Bauxite",
     minChunkY: 3,
     maxChunkY: 9,
-    noiseThreshold: 0.65,
-    noiseScale: 0.09,
-    octaves: 3,
-    rarity: 0.5,
-    veinSize: 4,
+    noiseThreshold: 0.91,
+    noiseScale: 0.03,
+    octaves: 1,
   },
   {
     material: Material.SilverOre,
     name: "Silver",
     minChunkY: 6,
     maxChunkY: 12,
-    noiseThreshold: 0.68,
-    noiseScale: 0.07,
-    octaves: 4,
-    rarity: 0.4,
-    veinSize: 3,
+    noiseThreshold: 0.91,
+    noiseScale: 0.028,
+    octaves: 1,
   },
   {
     material: Material.GoldOre,
     name: "Gold",
     minChunkY: 10,
     maxChunkY: 99,
-    noiseThreshold: 0.70,
-    noiseScale: 0.06,
-    octaves: 4,
-    rarity: 0.3,
-    veinSize: 3,
+    noiseThreshold: 0.92,
+    noiseScale: 0.025,
+    octaves: 1,
   },
   {
     material: Material.CobaltOre,
     name: "Cobalt",
     minChunkY: 10,
     maxChunkY: 99,
-    noiseThreshold: 0.72,
-    noiseScale: 0.08,
-    octaves: 4,
-    rarity: 0.25,
-    veinSize: 3,
+    noiseThreshold: 0.92,
+    noiseScale: 0.03,
+    octaves: 1,
   },
 ];
 
@@ -144,7 +147,7 @@ export const LAKE_CONFIG: LakeEntry[] = [
     octaves: 3,
     minSize: 8,
     maxSize: 20,
-    fillChance: 0.008,
+    fillChance: 0.0016,
   },
   {
     material: Material.Oil,
@@ -211,7 +214,9 @@ export const CAVITY_CONFIG = {
 export const SURFACE_CONFIG = {
   surfaceYRatio: 0.3, // surface at 30% down in chunk cy=0
   grassDepth: 1, // grass layer thickness
-  dirtDepth: 5, // dirt layer thickness below grass
+  dirtDepth: 5, // base dirt layer thickness below grass
+  dirtDepthVariation: 4, // max ± variation in dirt thickness per column
+  dirtDepthNoiseScale: 0.03, // spatial frequency of dirt depth variation
   noiseScale: 0.02, // surface height variation
   noiseAmplitude: 8, // max height variation in cells
 };

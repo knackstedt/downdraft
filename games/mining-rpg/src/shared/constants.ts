@@ -30,7 +30,7 @@ export const PLAYER_W = 3;
 export const PLAYER_H = 7;
 
 // Collection magnet radius (in grid cells) for auto-collecting loose ore.
-export const COLLECT_RADIUS = 8;
+export const COLLECT_RADIUS = 16;
 
 // Dig brush radius (in grid cells) for the mining tool.
 export const DEFAULT_DIG_RADIUS = 3;

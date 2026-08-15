@@ -6,7 +6,8 @@ struct Uniforms {
 };
 
 struct CameraUniforms {
-  // Camera center in active-grid cell coords (foreground space)
+  // Camera center in backdrop-local cell coords (already parallax-scaled
+  // and half-res converted by the renderer).
   camX: f32,
   camY: f32,
   // Zoom factor (1 = 1 cell per pixel, >1 = zoomed in)
@@ -14,7 +15,7 @@ struct CameraUniforms {
   // Canvas dimensions in pixels
   canvasW: f32,
   canvasH: f32,
-  // Parallax factor (camera offset is multiplied by this)
+  // Parallax factor (screen offset is multiplied by this)
   parallax: f32,
   pad1: f32,
 };
@@ -29,13 +30,13 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   // Convert to screen pixel coords.
   let screenPx = vec2<f32>(uv.x * cam.canvasW, uv.y * cam.canvasH);
 
-  // The backdrop is at half resolution, so each backdrop cell covers 2x2
-  // foreground cells. The camera position is in foreground cell coords.
-  // Apply parallax: the backdrop scrolls slower by the parallax factor.
-  // Since the backdrop grid is half-res, we also divide by 2 to convert
-  // foreground cell coords → backdrop cell coords.
-  let cellX = (screenPx.x - cam.canvasW * 0.5) / cam.zoom * cam.parallax * 0.5 + cam.camX * cam.parallax * 0.5;
-  let cellY = (screenPx.y - cam.canvasH * 0.5) / cam.zoom * cam.parallax * 0.5 + cam.camY * cam.parallax * 0.5;
+  // The camera position (cam.camX/cam.camY) is already in backdrop-local
+  // cell coords — the renderer computed it as:
+  //   worldCam * parallax * 0.5 - backdropOrigin
+  // The screen offset (distance from camera center) still needs parallax
+  // and half-res scaling to convert from foreground pixels to backdrop cells.
+  let cellX = (screenPx.x - cam.canvasW * 0.5) / cam.zoom * cam.parallax * 0.5 + cam.camX;
+  let cellY = (screenPx.y - cam.canvasH * 0.5) / cam.zoom * cam.parallax * 0.5 + cam.camY;
 
   let coords = vec2<i32>(i32(cellX), i32(cellY));
   if (coords.x < 0 || coords.x >= i32(u.gridW) || coords.y < 0 || coords.y >= i32(u.gridH)) {

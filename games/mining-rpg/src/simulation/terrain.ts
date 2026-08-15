@@ -15,7 +15,7 @@
 import { Material, packCell } from "@downdraft/library-sand";
 import { CHUNK_H, CHUNK_W } from "../shared/constants";
 import type { Chunk } from "../shared/types";
-import { cellHash, mulberry32, worldFbm, worldValueNoise } from "./noise";
+import { cellHash, fbm2D, mulberry32, worldFbm, worldValueNoise } from "./noise";
 import {
     CAVITY_CONFIG,
     LAKE_CONFIG,
@@ -48,27 +48,80 @@ function surfaceHeightAt(wx: number, seed: number): number {
 }
 
 /**
+ * Compute the dirt layer thickness at a given world X.
+ * Uses an independent noise field (different Y offset) so dirt depth varies
+ * per column independently of the surface height, giving a more natural
+ * uneven dirt layer rather than a constant-thickness band.
+ */
+function dirtDepthAt(wx: number, seed: number): number {
+  const base = SURFACE_CONFIG.dirtDepth;
+  const variation = SURFACE_CONFIG.dirtDepthVariation;
+  const noise = worldFbm(
+    wx,
+    1000, // offset Y so this noise field is independent from surfaceHeightAt
+    seed,
+    SURFACE_CONFIG.dirtDepthNoiseScale,
+    2,
+  );
+  // noise ~0-1 → variation centered at 0, range [-variation, +variation]
+  const delta = Math.floor((noise - 0.5) * 2 * variation);
+  return Math.max(1, base + delta); // at least 1 cell of dirt
+}
+
+/**
  * Check if a world cell should be part of an ore vein.
  * Returns the ore material if yes, 0 otherwise.
+ *
+ * Uses anisotropic noise to produce elongated, gash-like veins:
+ *   1. A regional selector picks ONE ore type per ~128-cell region, so
+ *      different ore types don't overlap and create a messy mix.
+ *   2. A slowly-varying angle field gives veins in a local area a consistent
+ *      direction (like stress fractures in rock).
+ *   3. The ore noise is sampled with coordinates rotated by that angle and
+ *      stretched 4× along one axis. This makes the noise field itself
+ *      elongated, so thresholded regions are naturally gash-shaped.
+ *   4. A high noise threshold (0.88-0.92) ensures only thin ridges of the
+ *      noise field become ore (~1-3% coverage), producing distinct cracks.
  */
 function oreAt(wx: number, wy: number, cy: number, seed: number): number {
+  // --- Regional ore selection: pick one ore type per ~128-cell region ---
+  // This prevents multiple ore types from overlapping in the same area.
+  const REGION_SIZE = 128;
+  const rx = Math.floor(wx / REGION_SIZE);
+  const ry = Math.floor(wy / REGION_SIZE);
+  // Find all ore types valid at this depth
+  const valid: OreEntry[] = [];
   for (const ore of ORE_CONFIG) {
-    if (cy < ore.minChunkY || cy > ore.maxChunkY) continue;
+    if (cy >= ore.minChunkY && cy <= ore.maxChunkY) valid.push(ore);
+  }
+  if (valid.length === 0) return 0;
+  // Deterministic pick from the region hash
+  const regionHash = cellHash(rx, ry, 0, 0, seed + 7777);
+  const ore = valid[Math.floor(regionHash * valid.length)];
 
-    const noise = worldFbm(wx, wy, seed, ore.noiseScale, ore.octaves);
-    if (noise < ore.noiseThreshold) continue;
+  // --- Anisotropic noise for gash-like shape ---
+  // Slowly-varying orientation field (changes over ~200 cells)
+  const angleNoise = worldFbm(wx, wy, seed + ore.material * 101, 0.005, 2);
+  const angle = angleNoise * Math.PI * 2;
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
 
-    // Additional rarity check using cell hash
-    const hash = cellHash(
-      Math.floor(wx / CHUNK_W),
-      Math.floor(wy / CHUNK_H),
-      wx % CHUNK_W,
-      wy % CHUNK_H,
-      seed + ore.material,
-    );
-    if (hash < ore.rarity) {
-      return ore.material;
-    }
+  // Rotate world coords into the vein's local frame
+  const lx = wx * cosA + wy * sinA;
+  const ly = -wx * sinA + wy * cosA;
+
+  // Sample fBm with Y axis stretched by ASPECT → elongated along local X.
+  // 1 octave for smooth, coherent shapes (more octaves = busy/noisy).
+  const ASPECT = 4.0;
+  const noise = fbm2D(
+    lx * ore.noiseScale,
+    ly * ore.noiseScale * ASPECT,
+    seed + ore.material,
+    ore.octaves,
+  );
+
+  if (noise > ore.noiseThreshold) {
+    return ore.material;
   }
   return 0;
 }
@@ -198,6 +251,7 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
     for (let x = 0; x < CHUNK_W; x++) {
       const wx = cx * CHUNK_W + x;
       const surfaceY = surfaceHeightAt(wx, seed);
+      const dirtDepth = dirtDepthAt(wx, seed);
       for (let y = 0; y < CHUNK_H; y++) {
         const idx = y * CHUNK_W + x;
         if (y < surfaceY) {
@@ -206,8 +260,8 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
         } else if (y < surfaceY + SURFACE_CONFIG.grassDepth) {
           // Grass layer
           grid[idx] = packCell(Material.Grass, 0, shade());
-        } else if (y < surfaceY + SURFACE_CONFIG.grassDepth + SURFACE_CONFIG.dirtDepth) {
-          // Dirt layer
+        } else if (y < surfaceY + SURFACE_CONFIG.grassDepth + dirtDepth) {
+          // Dirt layer (thickness varies per column for natural look)
           grid[idx] = packCell(Material.Dirt, 0, shade());
         } else {
           // Stone
@@ -239,7 +293,7 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
     }
   }
 
-  // --- Step 3: Place ore veins ---
+  // --- Step 3: Place ore veins (anisotropic noise → gash-like shapes) ---
   if (cy >= 0) {
     for (let y = 0; y < CHUNK_H; y++) {
       for (let x = 0; x < CHUNK_W; x++) {
@@ -253,6 +307,12 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
         const oreMat = oreAt(wx, wy, cy, seed);
         if (oreMat !== 0) {
           grid[idx] = packCell(oreMat, 0, shade());
+          // Tin and copper ore don't have gravity until mined — set the
+          // per-cell gravity field to 0 so they stay put in the ground.
+          // dig() sets it back to DEFAULT_GRAVITY (128) when loosened.
+          if (oreMat === Material.TinOre || oreMat === Material.CopperOre) {
+            fields[idx * 4 + 0] = 0; // gravity field = 0 (no falling)
+          }
         }
       }
     }
@@ -291,6 +351,6 @@ export { chunkKey };
 
 // --- Exported helpers for testing ---
 
-    export { isCavity, lakeCenterAt, oreAt, surfaceHeightAt };
+    export { dirtDepthAt, isCavity, lakeCenterAt, oreAt, surfaceHeightAt };
     export type { LakeEntry, OreEntry };
 

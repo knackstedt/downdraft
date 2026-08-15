@@ -10,7 +10,7 @@
 //   5. Render stickman pass (player sprite)
 // ============================================================================
 
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, CHUNK_H, CHUNK_W, PLAYER, STATS, WORLD_SEED } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, PLAYER, STATS, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
@@ -36,10 +36,6 @@ export class MiningRenderer {
   private gridReader: MiningSimBufferReader | null = null;
   private autosave: AutosaveManager | null = null;
   private camera: Camera2D;
-  // Active grid origin in world cell coords (read from SAB each frame, used
-  // to convert mouse screen coords → world coords for the worker).
-  private activeOriginX = 0;
-  private activeOriginY = 0;
   private running = false;
   private raf = 0;
   private lastTime = 0;
@@ -243,8 +239,6 @@ export class MiningRenderer {
     const vy = this.workerHost.getPlayerF32(PLAYER.VY);
     const originX = this.gridReader.getStat(STATS.ORIGIN_X);
     const originY = this.gridReader.getStat(STATS.ORIGIN_Y);
-    this.activeOriginX = originX;
-    this.activeOriginY = originY;
 
     // --- Update backdrop window + upload backdrop grid ---
     // The backdrop uses the same chunk origin as the foreground.
@@ -258,7 +252,11 @@ export class MiningRenderer {
     const localPx = px - originX;
     const localPy = py - originY;
 
-    updateCamera(this.camera, localPx, localPy);
+    // Track the camera in WORLD coords — this is continuous across chunk
+    // boundary crossings (the active grid origin shifts by CHUNK_W, which
+    // would make a local-space target jump by a full chunk). The camera
+    // lerps toward the player's world position; we convert to local below.
+    updateCamera(this.camera, px, py);
     // Sync player health + depth to store (needed for depth uniform)
     const s = useGameStore.getState();
     if (s.health !== health) s.setHealth(health);
@@ -267,22 +265,36 @@ export class MiningRenderer {
     const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
     if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);
 
+    // Convert camera world coords → active-grid-local coords for the
+    // render passes (grid texture + stickman shader work in local coords).
+    const camLocalX = this.camera.x - originX;
+    const camLocalY = this.camera.y - originY;
+
     this.gridPass.updateCamera(
-      this.camera.x, this.camera.y, this.camera.zoom,
+      camLocalX, camLocalY, this.camera.zoom,
       this.canvas.width, this.canvas.height,
       depth,
     );
-    // Backdrop camera uses the same foreground-local camera position;
-    // the shader applies the parallax factor internally.
+    // Backdrop camera: compute the camera position in BACKDROP-local coords.
+    // The backdrop has its own origin (in backdrop cell coords, at half the
+    // foreground resolution). We convert the world-space camera position to
+    // backdrop-local: world * parallax * 0.5 (half-res + parallax) - bdOrigin.
+    // Using the backdrop's own origin (not the foreground origin) ensures
+    // continuity across chunk boundary crossings — both the camera and the
+    // backdrop grid shift together when the backdrop window updates.
+    const bdOriginX = this.backdropHost.getOriginX();
+    const bdOriginY = this.backdropHost.getOriginY();
+    const bdCamX = this.camera.x * BACKDROP_PARALLAX * 0.5 - bdOriginX;
+    const bdCamY = this.camera.y * BACKDROP_PARALLAX * 0.5 - bdOriginY;
     this.backdropPass.updateCamera(
-      this.camera.x, this.camera.y, this.camera.zoom,
+      bdCamX, bdCamY, this.camera.zoom,
       this.canvas.width, this.canvas.height,
     );
 
     // --- Update stickman (in local coords) ---
     this.stickmanPass.update(
       localPx, localPy, facing, animFrame,
-      this.camera.x, this.camera.y, this.camera.zoom,
+      camLocalX, camLocalY, this.camera.zoom,
       this.canvas.width, this.canvas.height,
       health, onGround, vx, vy,
     );
@@ -318,12 +330,13 @@ export class MiningRenderer {
       this.input.left, this.input.right, this.input.up, this.input.down, this.input.jump,
     );
 
-    // Mouse: convert screen pixels → camera-local coords → world coords
+    // Mouse: convert screen pixels → world cell coords
+    // (camera tracks in world coords, so screenToWorld returns world coords)
     const dpr = window.devicePixelRatio || 1;
     const screenX = this.input.mouseX * dpr;
     const screenY = this.input.mouseY * dpr;
-    const local = screenToWorld(this.camera, screenX, screenY);
-    this.workerHost.writeMousePos(local.x + this.activeOriginX, local.y + this.activeOriginY);
+    const world = screenToWorld(this.camera, screenX, screenY);
+    this.workerHost.writeMousePos(world.x, world.y);
     this.workerHost.writeMouseDown(this.input.mouseDown);
     this.workerHost.writeDigRadius(this.input.digRadius);
   }

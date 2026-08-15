@@ -1,14 +1,21 @@
 // ============================================================================
 // 2D camera for the mining RPG — follows the player, scrolls horizontally
-// and vertically. Camera coords are in active-grid-local space (the same
-// space the grid texture and stickman shader use).
+// and vertically. Camera coords are in WORLD cell coords (the same space as
+// the player position from the worker SAB).
+//
+// Tracking in world coords (not active-grid-local) is important: when the
+// player crosses a chunk boundary, the active grid origin shifts by CHUNK_W,
+// which would make the local-space target jump by a full chunk. By tracking
+// in world space, the target is continuous, and the local-space conversion
+// (cam.x - originX) shifts both the camera and player equally — no visible
+// jump at chunk seams.
 //
 // Uses smooth lerp follow for a polished feel — the camera eases toward the
 // target position rather than snapping.
 // ============================================================================
 
 export interface Camera2D {
-  x: number; // active-grid-local cell coords (center of view)
+  x: number; // WORLD cell coords (center of view)
   y: number;
   zoom: number;
   width: number; // canvas width in pixels
@@ -16,11 +23,11 @@ export interface Camera2D {
 }
 
 export function makeCamera2D(w: number, h: number): Camera2D {
-  return { x: 0, y: 0, zoom: 2, width: w, height: h };
+  return { x: 0, y: 0, zoom: 4, width: w, height: h };
 }
 
 // Smoothing factor — higher = snappier, lower = smoother
-const CAMERA_SMOOTH = 0.12;
+const CAMERA_SMOOTH = 0.08;
 
 /** Update camera to follow a target with smooth lerp. No clamping — the
  *  active grid bounds the visible area, and anything outside it renders
@@ -34,7 +41,7 @@ export function updateCamera(
   cam.y += (targetY - cam.y) * CAMERA_SMOOTH;
 }
 
-/** Convert screen pixel coords to active-grid-local cell coords. */
+/** Convert screen pixel coords to world cell coords. */
 export function screenToWorld(cam: Camera2D, sx: number, sy: number): { x: number; y: number } {
   // sx, sy are in device pixels with origin at top-left
   return {
