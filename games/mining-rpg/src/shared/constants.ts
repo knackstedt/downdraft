@@ -110,3 +110,39 @@ export const PLAYER = {
   ANIM_FRAME: 24, // int32 — animation frame counter
   HEALTH: 28, // int32 — player health
 } as const;
+
+// ============================================================================
+// Backdrop layer — low-res parallax background behind the foreground.
+//
+// The backdrop is at half resolution (CHUNK_W/2 × CHUNK_H/2 per chunk) and
+// uses a separate SAB region. It is generated once per chunk and never
+// simulated (no physics). Rendered with a parallax factor (0.5) so it
+// scrolls slower than the foreground.
+// ============================================================================
+
+// Backdrop chunk dimensions (half the foreground resolution).
+export const BACKDROP_CHUNK_W = CHUNK_W / 2;
+export const BACKDROP_CHUNK_H = CHUNK_H / 2;
+
+// Backdrop active grid dimensions (same chunk window as foreground, half-res cells).
+export const BACKDROP_GRID_W = (2 * ACTIVE_RADIUS_CHUNKS + 1) * BACKDROP_CHUNK_W;
+export const BACKDROP_GRID_H = (2 * ACTIVE_RADIUS_CHUNKS + 1) * BACKDROP_CHUNK_H;
+export const BACKDROP_GRID_CELLS = BACKDROP_GRID_W * BACKDROP_GRID_H;
+
+// Backdrop parallax factor (camera offset is multiplied by this).
+export const BACKDROP_PARALLAX = 0.5;
+
+// Backdrop SAB layout:
+//   grid:   BACKDROP_GRID_W * BACKDROP_GRID_H * 4 bytes (Uint32 per cell — packed color)
+//   stats:  8 bytes (originX, originY — backdrop grid origin in backdrop cell coords)
+export const BACKDROP_GRID_BYTES = BACKDROP_GRID_CELLS * CELL_BYTES;
+export const BACKDROP_STATS_BYTES = 8;
+export const BACKDROP_TOTAL_SAB_BYTES = BACKDROP_GRID_BYTES + BACKDROP_STATS_BYTES;
+
+export const BACKDROP_GRID_OFFSET = 0;
+export const BACKDROP_STATS_OFFSET = BACKDROP_GRID_BYTES;
+
+export const BACKDROP_STATS = {
+  ORIGIN_X: 0, // int32 — backdropOriginCx * BACKDROP_CHUNK_W
+  ORIGIN_Y: 4, // int32 — backdropOriginCy * BACKDROP_CHUNK_H
+} as const;

@@ -10,10 +10,12 @@
 //   5. Render stickman pass (player sprite)
 // ============================================================================
 
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, PLAYER, STATS } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, CHUNK_H, CHUNK_W, PLAYER, STATS } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
+import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
 import { useGameStore } from "../stores/game-store";
+import { BackdropPass } from "./backdrop-pass";
 import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
@@ -25,9 +27,11 @@ export class MiningRenderer {
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private gridPass: SandGridPass | null = null;
+  private backdropPass: BackdropPass | null = null;
   private stickmanPass: StickmanPass | null = null;
   private input: MiningInputState | null = null;
   private workerHost: MiningWorkerHost | null = null;
+  private backdropHost: BackdropWorkerHost | null = null;
   private gridReader: MiningSimBufferReader | null = null;
   private camera: Camera2D;
   // Active grid origin in world cell coords (read from SAB each frame, used
@@ -86,12 +90,20 @@ export class MiningRenderer {
     this.gridPass = new SandGridPass(this.device, this.format, ACTIVE_GRID_W, ACTIVE_GRID_H);
     this.gridPass.init(this.canvas.width, this.canvas.height);
 
+    // Backdrop pass (rendered behind the foreground with parallax)
+    this.backdropPass = new BackdropPass(this.device, this.format);
+    this.backdropPass.init();
+
     this.stickmanPass = new StickmanPass(this.device, this.format);
     this.stickmanPass.init();
 
     this.workerHost = new MiningWorkerHost();
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
+
+    // Backdrop worker (generates low-res cave-wall texture)
+    this.backdropHost = new BackdropWorkerHost();
+    await this.backdropHost.start();
 
     // Handle collected items
     this.workerHost.onCollectedItems((items) => {
@@ -146,14 +158,17 @@ export class MiningRenderer {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.workerHost?.stop();
+    this.backdropHost?.stop();
     this.stickmanPass?.destroy();
+    this.backdropPass?.destroy();
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
   }
 
   private frame(time: number): void {
     if (!this.running || !this.device || !this.context || !this.input || !this.gridReader ||
-        !this.gridPass || !this.stickmanPass || !this.workerHost) return;
+        !this.gridPass || !this.backdropPass || !this.stickmanPass || !this.workerHost ||
+        !this.backdropHost) return;
 
     const dt = Math.min(0.1, (time - this.lastTime) / 1000);
     this.lastTime = time;
@@ -186,6 +201,13 @@ export class MiningRenderer {
     this.activeOriginX = originX;
     this.activeOriginY = originY;
 
+    // --- Update backdrop window + upload backdrop grid ---
+    // The backdrop uses the same chunk origin as the foreground.
+    const fgOriginCx = Math.floor(originX / CHUNK_W);
+    const fgOriginCy = Math.floor(originY / CHUNK_H);
+    this.backdropHost.updateWindowIfNeeded(fgOriginCx, fgOriginCy);
+    this.backdropPass.updateGrid(this.backdropHost.getGrid());
+
     // Convert player world coords to active-grid-local coords.
     // The grid texture and stickman shader both work in local coords.
     const localPx = px - originX;
@@ -193,6 +215,12 @@ export class MiningRenderer {
 
     updateCamera(this.camera, localPx, localPy);
     this.gridPass.updateCamera(
+      this.camera.x, this.camera.y, this.camera.zoom,
+      this.canvas.width, this.canvas.height,
+    );
+    // Backdrop camera uses the same foreground-local camera position;
+    // the shader applies the parallax factor internally.
+    this.backdropPass.updateCamera(
       this.camera.x, this.camera.y, this.camera.zoom,
       this.canvas.width, this.canvas.height,
     );
@@ -224,6 +252,9 @@ export class MiningRenderer {
       }],
     });
 
+    // Render backdrop first (opaque, fills the background)
+    this.backdropPass.render(passEncoder);
+    // Then foreground grid + player on top
     this.gridPass.render(passEncoder);
     this.stickmanPass.render(passEncoder);
 
