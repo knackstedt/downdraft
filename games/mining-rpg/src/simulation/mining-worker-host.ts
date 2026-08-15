@@ -13,7 +13,8 @@ import {
     MiningSimBufferWriter,
     allocateMiningSimBuffer,
 } from "../shared/sim-buffer";
-import type { InventoryEntry } from "../shared/types";
+import type { InventoryEntry, MiningPlayerState } from "../shared/types";
+import type { SavedChunk } from "./chunk-world";
 
 type MiningWorkerApi = {
   init(sab: SharedArrayBuffer): Promise<void>;
@@ -23,6 +24,8 @@ type MiningWorkerApi = {
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
+  getSaveData(): Promise<{ player: MiningPlayerState; dirtyChunks: SavedChunk[]; tick: number }>;
+  loadSaveData(data: { player: MiningPlayerState; chunks: SavedChunk[]; tick: number }): Promise<void>;
 };
 
 export class MiningWorkerHost {
@@ -148,6 +151,26 @@ export class MiningWorkerHost {
       return await this.proxy.proxy.getStats();
     } catch {
       return null;
+    }
+  }
+
+  // --- Save / Load ---
+
+  async getSaveData(): Promise<{ player: MiningPlayerState; dirtyChunks: SavedChunk[]; tick: number } | null> {
+    if (!this.proxy) return null;
+    try {
+      return await this.proxy.proxy.getSaveData();
+    } catch {
+      return null;
+    }
+  }
+
+  async loadSaveData(data: { player: MiningPlayerState; chunks: SavedChunk[]; tick: number }): Promise<void> {
+    if (!this.proxy) return;
+    try {
+      await this.proxy.proxy.loadSaveData(data);
+    } catch (e) {
+      console.error("[MiningWorkerHost] Load save data failed:", e);
     }
   }
 }

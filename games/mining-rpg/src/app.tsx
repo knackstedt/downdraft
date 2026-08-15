@@ -1,19 +1,7 @@
 import { useEffect } from "react";
+import { HUD } from "./components/hud";
+import { InventoryPanel } from "./components/inventory-panel";
 import { useGameStore } from "./stores/game-store";
-
-const hudStyle: React.CSSProperties = {
-  position: "absolute",
-  top: 8,
-  left: 8,
-  color: "rgba(255,255,255,0.85)",
-  fontFamily: "monospace",
-  fontSize: 13,
-  padding: "8px 12px",
-  background: "rgba(0,0,0,0.6)",
-  borderRadius: 4,
-  pointerEvents: "none",
-  zIndex: 10,
-};
 
 const helpStyle: React.CSSProperties = {
   position: "absolute",
@@ -30,13 +18,17 @@ const helpStyle: React.CSSProperties = {
 };
 
 export default function App() {
-  const { fps, health, depth, paused, loadedChunks, activeChunks } = useGameStore();
+  const { paused } = useGameStore();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "p" || e.key === "P") {
         const s = useGameStore.getState();
         s.setPaused(!s.paused);
+      }
+      if (e.key === "i" || e.key === "I") {
+        const s = useGameStore.getState();
+        s.setShowInventory(!s.showInventory);
       }
     };
     window.addEventListener("keydown", handler);
@@ -45,15 +37,11 @@ export default function App() {
 
   return (
     <>
-      <div style={hudStyle}>
-        <div>FPS: {fps ?? "—"}</div>
-        <div>Health: {health}</div>
-        <div>Depth: {depth} chunks</div>
-        <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
-        {paused && <div style={{ color: "#ff5252" }}>PAUSED</div>}
-      </div>
+      <HUD />
+      <InventoryPanel />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | P: pause
+        WASD/Arrows: move | Space: jump | Left-click: dig | P: pause | I: inventory
+        {paused && " | PAUSED"}
       </div>
     </>
   );

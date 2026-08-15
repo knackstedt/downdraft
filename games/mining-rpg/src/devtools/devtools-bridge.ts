@@ -4,14 +4,14 @@
 // ============================================================================
 
 import {
-  createSimStatsPanelExtension,
-  DevToolsDataBridge,
-  type IDevToolsPanelExtension,
-  type ISimStats,
-  type ISimStatsProvider,
+    createSimStatsPanelExtension,
+    DevToolsDataBridge,
+    type IDevToolsPanelExtension,
+    type ISimStats,
+    type ISimStatsProvider,
 } from "@downdraft/plugin-devtools";
 import type { MiningRenderer } from "../renderer/mining-renderer";
-import { PLAYER, STATS } from "../shared/constants";
+import { PLAYER, WORLD_SEED } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
 export class MiningDevToolsBridge extends DevToolsDataBridge {
@@ -70,7 +70,12 @@ export class MiningDevToolsBridge extends DevToolsDataBridge {
           extra: {
             depth: store.depth,
             loadedChunks: store.loadedChunks,
+            activeChunks: store.activeChunks,
+            frozenChunks: store.loadedChunks - store.activeChunks,
+            terrainSeed: WORLD_SEED,
             renderFPS: renderer.getFPS(),
+            inventoryCount: store.inventory.reduce((sum, e) => sum + e.count, 0),
+            inventoryTypes: store.inventory.length,
             player,
           },
         };
@@ -105,7 +110,12 @@ export class MiningDevToolsBridge extends DevToolsDataBridge {
           const rows: [string, string][] = [
             ["Depth", String(extra.depth ?? "—")],
             ["Loaded Chunks", String(extra.loadedChunks ?? "—")],
+            ["Active Chunks", String(extra.activeChunks ?? "—")],
+            ["Frozen Chunks", String(extra.frozenChunks ?? "—")],
+            ["Terrain Seed", String(extra.terrainSeed ?? "—")],
             ["Render FPS", String(extra.renderFPS ?? "—")],
+            ["Inventory Items", String(extra.inventoryCount ?? "—")],
+            ["Inventory Types", String(extra.inventoryTypes ?? "—")],
           ];
           if (extra.player) {
             const p = extra.player;

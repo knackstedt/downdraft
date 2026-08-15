@@ -8,10 +8,10 @@
 // ============================================================================
 
 import {
-  buildMaterialProps,
-  buildPalette,
-  PALETTE_SIZE,
-  SHADES_PER_MATERIAL,
+    buildMaterialProps,
+    buildPalette,
+    PALETTE_SIZE,
+    SHADES_PER_MATERIAL,
 } from "@downdraft/library-sand";
 import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
 import SAND_FS from "../shaders/sand-render.wgsl?raw";
@@ -186,8 +186,8 @@ export class SandGridPass {
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, u);
   }
 
-  updateCamera(camX: number, camY: number, zoom: number, canvasW: number, canvasH: number): void {
-    const u = new Float32Array([camX, camY, zoom, canvasW, canvasH, 0, 0, 0]);
+  updateCamera(camX: number, camY: number, zoom: number, canvasW: number, canvasH: number, depth: number = 0): void {
+    const u = new Float32Array([camX, camY, zoom, canvasW, canvasH, depth, 0, 0]);
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, u);
   }
 

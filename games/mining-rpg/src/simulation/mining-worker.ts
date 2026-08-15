@@ -8,7 +8,8 @@
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, PLAYER, STATS, TICK_RATE } from "../shared/constants";
 import { MiningSimBufferWriter } from "../shared/sim-buffer";
-import { ChunkWorld } from "./chunk-world";
+import type { MiningPlayerState } from "../shared/types";
+import { ChunkWorld, type SavedChunk } from "./chunk-world";
 
 const events = exposeEvents();
 
@@ -67,6 +68,33 @@ expose({
 
   getStats(): { fps: number; tick: number; frame: number } {
     return { fps, tick: tickCount, frame: frameCount };
+  },
+
+  // --- Save / Load ---
+
+  getSaveData(): {
+    player: MiningPlayerState;
+    dirtyChunks: SavedChunk[];
+    tick: number;
+  } {
+    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, dirtyChunks: [], tick: 0 };
+    return {
+      player: { ...world.player },
+      dirtyChunks: world.getDirtyChunks(),
+      tick: world.currentTick,
+    };
+  },
+
+  loadSaveData(data: { player: MiningPlayerState; chunks: SavedChunk[]; tick: number }): void {
+    if (!world) return;
+    // Restore chunks first (before player state, since setPlayerState forces rebuild)
+    for (const chunk of data.chunks) {
+      world.restoreChunk(chunk);
+    }
+    // Restore player state
+    world.setPlayerState(data.player);
+    // Restore tick counter
+    if (data.tick) world.currentTick = data.tick;
   },
 });
 

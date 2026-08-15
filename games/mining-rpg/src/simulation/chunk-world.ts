@@ -631,6 +631,83 @@ export class ChunkWorld {
   getPlayerDepth(): number {
     return Math.floor(this.player.y / CHUNK_H);
   }
+
+  // --- Save / Load support ---
+
+  /**
+   * Get all dirty chunks for saving. Only dirty chunks (modified since
+   * generation) need to be persisted — unmodified chunks regenerate from seed.
+   * Returns an array of serializable chunk data.
+   */
+  getDirtyChunks(): SavedChunk[] {
+    const result: SavedChunk[] = [];
+    for (const chunk of this.chunks.values()) {
+      if (chunk.dirty) {
+        result.push({
+          cx: chunk.cx,
+          cy: chunk.cy,
+          grid: chunk.grid.slice(),
+          fields: chunk.fields.slice(),
+          wakeTick: chunk.wakeTick.slice(),
+        });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Restore a saved chunk into the world. Overwrites any existing chunk
+   * at the same coords. Marks it as generated + dirty.
+   */
+  restoreChunk(saved: SavedChunk): void {
+    const key = chunkKey(saved.cx, saved.cy);
+    const chunk: Chunk = {
+      cx: saved.cx,
+      cy: saved.cy,
+      grid: saved.grid.slice(),
+      fields: saved.fields.slice(),
+      wakeTick: saved.wakeTick.slice(),
+      generated: true,
+      dirty: true,
+      active: false,
+    };
+    this.chunks.set(key, chunk);
+  }
+
+  /**
+   * Set the player state (position, velocity, health, etc.) from a save.
+   * Forces an active grid rebuild on the next step.
+   */
+  setPlayerState(state: Partial<MiningPlayerState>): void {
+    if (state.x !== undefined) this.player.x = state.x;
+    if (state.y !== undefined) this.player.y = state.y;
+    if (state.vx !== undefined) this.player.vx = state.vx;
+    if (state.vy !== undefined) this.player.vy = state.vy;
+    if (state.onGround !== undefined) this.player.onGround = state.onGround;
+    if (state.facing !== undefined) this.player.facing = state.facing;
+    if (state.animFrame !== undefined) this.player.animFrame = state.animFrame;
+    if (state.health !== undefined) this.player.health = state.health;
+    // Force rebuild — the player may have moved to a different chunk
+    this.needsRebuild = true;
+  }
+
+  /** Get the frozen chunk count (chunks with no unfrozen cells, not near player). */
+  getFrozenChunkCount(): number {
+    let count = 0;
+    for (const chunk of this.chunks.values()) {
+      if (!chunk.active) count++;
+    }
+    return count;
+  }
+}
+
+/** Serializable chunk data for save/load. */
+export interface SavedChunk {
+  cx: number;
+  cy: number;
+  grid: Uint32Array;
+  fields: Uint8Array;
+  wakeTick: Uint32Array;
 }
 
 /** Check if a material is collectible (ore or loose debris). */

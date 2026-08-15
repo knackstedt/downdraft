@@ -10,11 +10,12 @@
 //   5. Render stickman pass (player sprite)
 // ============================================================================
 
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, CHUNK_H, CHUNK_W, PLAYER, STATS } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, CHUNK_H, CHUNK_W, PLAYER, STATS, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
 import { useGameStore } from "../stores/game-store";
+import { AutosaveManager, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
 import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
@@ -33,6 +34,7 @@ export class MiningRenderer {
   private workerHost: MiningWorkerHost | null = null;
   private backdropHost: BackdropWorkerHost | null = null;
   private gridReader: MiningSimBufferReader | null = null;
+  private autosave: AutosaveManager | null = null;
   private camera: Camera2D;
   // Active grid origin in world cell coords (read from SAB each frame, used
   // to convert mouse screen coords → world coords for the worker).
@@ -105,6 +107,44 @@ export class MiningRenderer {
     this.backdropHost = new BackdropWorkerHost();
     await this.backdropHost.start();
 
+    // --- Load save data (if any) ---
+    const deterministic = !!(globalThis as any).__downdraft_deterministic;
+    try {
+      const save = await loadWorld();
+      if (save) {
+        // Restore chunks + player state in the worker
+        await this.workerHost.loadSaveData({
+          player: save.player,
+          chunks: save.chunks,
+          tick: 0, // don't restore tick counter (fresh start)
+        });
+        // Restore inventory to the game store
+        const store = useGameStore.getState();
+        store.setInventory(save.inventory);
+        if (save.player.health) store.setHealth(save.player.health);
+      }
+    } catch (e) {
+      console.warn("[MiningRenderer] Failed to load save:", e);
+    }
+
+    // --- Set up autosave ---
+    this.autosave = new AutosaveManager(async () => {
+      const saveData = await this.workerHost!.getSaveData();
+      if (!saveData) {
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, inventory: [], chunks: [], savedAt: Date.now() };
+      }
+      const store = useGameStore.getState();
+      return {
+        version: 1,
+        seed: WORLD_SEED,
+        player: saveData.player,
+        inventory: store.inventory,
+        chunks: saveData.dirtyChunks,
+        savedAt: Date.now(),
+      };
+    }, deterministic);
+    this.autosave.start();
+
     // Handle collected items
     this.workerHost.onCollectedItems((items) => {
       for (const item of items) {
@@ -154,9 +194,14 @@ export class MiningRenderer {
     this.raf = requestAnimationFrame((t) => this.frame(t));
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
+    // Final save before shutdown
+    if (this.autosave) {
+      try { await this.autosave.saveNow(); } catch {}
+      this.autosave.stop();
+    }
     this.workerHost?.stop();
     this.backdropHost?.stop();
     this.stickmanPass?.destroy();
@@ -214,9 +259,18 @@ export class MiningRenderer {
     const localPy = py - originY;
 
     updateCamera(this.camera, localPx, localPy);
+    // Sync player health + depth to store (needed for depth uniform)
+    const s = useGameStore.getState();
+    if (s.health !== health) s.setHealth(health);
+    const depth = Math.floor(py / 128);
+    if (s.depth !== depth) s.setDepth(depth);
+    const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
+    if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);
+
     this.gridPass.updateCamera(
       this.camera.x, this.camera.y, this.camera.zoom,
       this.canvas.width, this.canvas.height,
+      depth,
     );
     // Backdrop camera uses the same foreground-local camera position;
     // the shader applies the parallax factor internally.
@@ -224,14 +278,6 @@ export class MiningRenderer {
       this.camera.x, this.camera.y, this.camera.zoom,
       this.canvas.width, this.canvas.height,
     );
-
-    // Sync player health + depth to store
-    const s = useGameStore.getState();
-    if (s.health !== health) s.setHealth(health);
-    const depth = Math.floor(py / 128);
-    if (s.depth !== depth) s.setDepth(depth);
-    const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
-    if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);
 
     // --- Update stickman (in local coords) ---
     this.stickmanPass.update(

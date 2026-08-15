@@ -14,7 +14,8 @@ struct CameraUniforms {
   // Canvas dimensions in pixels
   canvasW: f32,
   canvasH: f32,
-  pad0: f32,
+  // Player depth in chunks (for ambient darkening)
+  depth: f32,
   pad1: f32,
 };
 
@@ -71,5 +72,14 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   }
 
   let finalColor = matColor.rgb * brightness;
-  return vec4<f32>(finalColor, alpha);
+
+  // Depth-based ambient darkening: deeper = darker.
+  // At depth 0 (surface): full brightness. At depth 20+: 40% brightness.
+  // Lava and fire materials are exempt (they emit light).
+  var ambient = 1.0 - clamp(cam.depth / 20.0, 0.0, 0.6);
+  if (matId == 27u || matId == 6u || matId == 21u) {
+    ambient = 1.0; // lava, fire, burning oil emit light
+  }
+
+  return vec4<f32>(finalColor * ambient, alpha);
 }
