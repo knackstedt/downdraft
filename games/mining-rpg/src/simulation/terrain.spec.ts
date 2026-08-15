@@ -1,10 +1,9 @@
-import { expect, test } from "bun:test";
 import { Material } from "@downdraft/library-sand";
-import { CHUNK_H, CHUNK_W } from "../shared/constants";
-import { WORLD_SEED } from "../shared/constants";
-import { generateChunk, isCavity, oreAt, surfaceHeightAt } from "./terrain";
+import { expect, test } from "bun:test";
+import { CHUNK_H, CHUNK_W, WORLD_SEED } from "../shared/constants";
 import { cellHash, fbm2D, mulberry32, worldFbm } from "./noise";
-import { ORE_CONFIG, LAKE_CONFIG } from "./ore-config";
+import { ORE_CONFIG } from "./ore-config";
+import { generateChunk, surfaceHeightAt } from "./terrain";
 
 const SEED = WORLD_SEED;
 
@@ -103,8 +102,12 @@ test("surface chunk (cy=0) has sky at top, grass, then dirt, then stone", () => 
   // Top rows should be empty (sky)
   expect(matAt(chunk.grid, 64, 0)).toBe(Material.Empty);
   expect(matAt(chunk.grid, 64, 5)).toBe(Material.Empty);
-  // Bottom rows should be stone
-  expect(matAt(chunk.grid, 64, CHUNK_H - 1)).toBe(Material.Stone);
+  // Bottom rows should be solid (stone or ore — ore veins can replace stone
+  // at any depth within their chunk range)
+  const bottomMat = matAt(chunk.grid, 64, CHUNK_H - 1);
+  expect(bottomMat).not.toBe(Material.Empty);
+  expect(bottomMat).not.toBe(Material.Grass);
+  expect(bottomMat).not.toBe(Material.Dirt);
   // Should have some grass
   expect(countMaterial(chunk.grid, Material.Grass)).toBeGreaterThan(0);
   // Should have some dirt
@@ -283,8 +286,16 @@ test("all cells start frozen (wakeTick = 0)", () => {
 test("fields are initialized to defaults (gravity=128, temp=128)", () => {
   const chunk = generateChunk(2, 3, SEED);
   for (let i = 0; i < chunk.fields.length; i += 4) {
-    expect(chunk.fields[i + 0]).toBe(128); // gravity
-    expect(chunk.fields[i + 1]).toBe(128); // temp
+    const mat = chunk.grid[i / 4] & 0xff;
+    // Temp is always default (128)
+    expect(chunk.fields[i + 1]).toBe(128);
+    // Gravity is default (128) for most cells, but 0 for tin/copper ore
+    // (they don't have gravity until mined — dig() re-enables it)
+    if (mat === Material.TinOre || mat === Material.CopperOre) {
+      expect(chunk.fields[i + 0]).toBe(0);
+    } else {
+      expect(chunk.fields[i + 0]).toBe(128);
+    }
   }
 });
 

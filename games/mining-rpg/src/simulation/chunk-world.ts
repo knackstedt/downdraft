@@ -21,6 +21,7 @@ import {
     DEFAULT_TEMP,
     FIELD,
     FLAG_UPDATED,
+    MAT_GRAVITY_DIR,
     Material,
     MATERIALS,
     packCell,
@@ -35,11 +36,13 @@ import {
     COLLECT_RADIUS,
     FREEZE_TICKS,
     MAX_CHUNKS_X,
+    PLAYER_H,
+    PLAYER_W,
     WORLD_SEED,
 } from "../shared/constants";
 import type { Chunk, ChunkCoord, InventoryEntry, MiningPlayerState } from "../shared/types";
 import { createMiningPlayer, updateMiningPlayer } from "./mining-player";
-import { generateChunk } from "./terrain";
+import { generateChunk, surfaceHeightAt } from "./terrain";
 
 function chunkKey(cx: number, cy: number): string {
   return `${cx},${cy}`;
@@ -61,6 +64,11 @@ export class ChunkWorld {
   private prevOriginCy = 0;
   // Whether the active grid needs rebuild (player crossed chunk boundary)
   private needsRebuild = true;
+  // Whether the player position needs validation after the next grid rebuild.
+  // Set on construction and when loading a save — if the player ends up inside
+  // solid terrain (e.g. from a stale save created before a spawn fix), the
+  // first rebuild lifts them to the nearest open space above.
+  private needsSpawnValidation = true;
   // Current tick counter
   currentTick = 0;
   // Player state (world cell coords)
@@ -80,9 +88,12 @@ export class ChunkWorld {
       this.activeGrid.fields[i + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       this.activeGrid.fields[i + FIELD.TEMP] = DEFAULT_TEMP;
     }
-    // Player starts at the surface, centered horizontally
+    // Player starts at the surface, centered horizontally.
+    // Compute the actual surface height at the player's X so they spawn above
+    // the ground (the surface varies by ±noiseAmplitude cells via fBm noise).
     const playerWorldX = Math.floor(MAX_CHUNKS_X * CHUNK_W / 2);
-    const playerWorldY = Math.floor(CHUNK_H * 0.3) - 10; // just above surface
+    const surfaceY = surfaceHeightAt(playerWorldX, WORLD_SEED);
+    const playerWorldY = surfaceY - PLAYER_H - 2; // 2 cells of clearance above surface
     this.player = createMiningPlayer(playerWorldX, playerWorldY);
   }
 
@@ -199,6 +210,52 @@ export class ChunkWorld {
     }
 
     this.needsRebuild = false;
+  }
+
+  /**
+   * Validate the player's position after a grid rebuild.
+   * If the player's bounding box overlaps any solid cell (e.g. from a stale
+   * save created before a spawn fix), scan upward to find the first position
+   * where the player fits entirely in open space and place them there.
+   * Does nothing if the player is already in open space.
+   */
+  private validatePlayerSpawn(): void {
+    const grid = this.activeGrid.grid;
+    const { x: axF, y: ayF } = this.worldToActive(this.player.x, this.player.y);
+    let ax = Math.floor(axF);
+    let ay = Math.floor(ayF);
+
+    // Check if the player's bounding box overlaps any solid cell
+    const playerBoxHitsSolid = (px: number, py: number): boolean => {
+      const x0 = Math.floor(px - PLAYER_W / 2);
+      const x1 = Math.floor(px + PLAYER_W / 2);
+      const y0 = Math.floor(py);
+      const y1 = Math.floor(py + PLAYER_H - 1);
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) return true;
+          const packed = grid[y * ACTIVE_GRID_W + x];
+          if (packed === 0) continue;
+          const def = MATERIALS[packed & 0xff];
+          if (def?.solid) return true;
+        }
+      }
+      return false;
+    };
+
+    if (!playerBoxHitsSolid(ax, ay)) return; // already in open space
+
+    // Scan upward to find the first position where the player fits
+    for (let dy = 1; dy < CHUNK_H * 2; dy++) {
+      const candidateY = ay - dy;
+      if (candidateY < 0) break;
+      if (!playerBoxHitsSolid(ax, candidateY)) {
+        // Found open space — move the player here (world coords)
+        this.player.y = (this.activeOriginCy * CHUNK_H + candidateY) + 0.0;
+        this.player.vy = 0;
+        return;
+      }
+    }
   }
 
   /**
@@ -322,18 +379,26 @@ export class ChunkWorld {
 
   /**
    * Dig a circular region at world coords (wx, wy) with the given radius.
-   * Destroyed cells become loose falling-sand particles (same material).
-   * Static solids (stone, gravity=0) are converted to dirt so they can fall.
-   * Ores already have gravity=1 and fall naturally.
-   * Sets wakeTick = currentTick + FREEZE_TICKS for dug cells, marks chunk dirty.
+   *
+   * Collectible ores (tin, copper, iron, coal, etc.) are loosened in place —
+   * their per-cell gravity field is enabled so they fall — but are NOT cleared
+   * and NOT collected directly. They are collected later by collect() when the
+   * loose particles touch the player.
+   *
+   * Non-collectible solids (stone, dirt) are cleared to create holes. The cell
+   * directly above a cleared hole is loosened: stone (gravity=0) is converted to
+   * dirt so it can cascade down; tin/copper ore (gravity field=0) has its field
+   * set to DEFAULT_GRAVITY so it falls while keeping its ore identity.
+   *
+   * Returns an empty array — all collection is proximity-based via collect().
    */
- dig(wx: number, wy: number, radius: number): InventoryEntry[] {
+  dig(wx: number, wy: number, radius: number): InventoryEntry[] {
     const { x: axF, y: ayF } = this.worldToActive(wx, wy);
     const ax = Math.floor(axF);
     const ay = Math.floor(ayF);
     const grid = this.activeGrid.grid;
+    const fields = this.activeGrid.fields;
     const r2 = radius * radius;
-    const collected: Map<number, number> = new Map();
 
     for (let dy = -radius; dy <= radius; dy++) {
       for (let dx = -radius; dx <= radius; dx++) {
@@ -348,34 +413,47 @@ export class ChunkWorld {
         // Don't dig through walls or bedrock-like materials
         if (mat === Material.Wall) continue;
 
-        // Collect the cleared material
-        collected.set(mat, (collected.get(mat) ?? 0) + 1);
+        if (isCollectible(mat)) {
+          // Loosen the ore in place — don't clear, don't collect.
+          // Enable the per-cell gravity field (tin/copper start at 0).
+          const fi = idx * 4;
+          if (fields[fi + FIELD.GRAVITY] === 0) {
+            fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+          }
+          this.markCellUnfrozen(x, y);
+        } else {
+          // Non-collectible solid: clear to create a hole
+          grid[idx] = 0;
+          this.clearWakeTick(x, y);
 
-        // Clear the cell — creates a hole
-        grid[idx] = 0;
-        this.clearWakeTick(x, y);
-
-        // Convert static solids (stone) directly above the hole to dirt so
-        // they become loose falling particles and cascade down.
-        const aboveIdx = idx - ACTIVE_GRID_W;
-        if (aboveIdx >= 0) {
-          const above = grid[aboveIdx];
-          if (above !== 0) {
-            const aboveMat = above & 0xff;
-            if (aboveMat !== Material.Wall) {
-              const aboveDef = MATERIALS[aboveMat];
-              if (aboveDef?.solid && aboveDef.gravity === 0) {
-                const shade = (above >> 16) & 0xff;
-                grid[aboveIdx] = packCell(Material.Dirt, 0, shade);
+          // Loosen the cell directly above the hole so it cascades down.
+          const aboveIdx = idx - ACTIVE_GRID_W;
+          if (aboveIdx >= 0) {
+            const above = grid[aboveIdx];
+            if (above !== 0) {
+              const aboveMat = above & 0xff;
+              if (aboveMat !== Material.Wall) {
+                const aboveDef = MATERIALS[aboveMat];
+                if (aboveDef?.solid) {
+                  const aboveFi = aboveIdx * 4;
+                  if (fields[aboveFi + FIELD.GRAVITY] === 0 && MAT_GRAVITY_DIR[aboveMat] !== 0) {
+                    // Ore with gravity disabled (tin/copper) — re-enable gravity
+                    fields[aboveFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+                  } else if (aboveDef.gravity === 0) {
+                    // Static solid (stone) — convert to dirt so it can fall
+                    const shade = (above >> 16) & 0xff;
+                    grid[aboveIdx] = packCell(Material.Dirt, 0, shade);
+                  }
+                }
+                this.markCellUnfrozen(x, y - 1);
               }
-              this.markCellUnfrozen(x, y - 1);
             }
           }
         }
       }
     }
 
-    return Array.from(collected.entries()).map(([mat, count]) => ({ mat, count }));
+    return [];
   }
 
   /** Mark a cell (in active grid coords) as unfrozen in its chunk's wakeTick. */
@@ -417,12 +495,20 @@ export class ChunkWorld {
 
   /**
    * Expire wakeTicks for cells whose freeze timer has elapsed.
-   * After the sim step, scan each non-near-player chunk in the active window:
+   * After the sim step, scan every chunk in the active window:
+   *
+   * Near-player chunks (within ACTIVE_RADIUS_CHUNKS of the player):
+   *   - Keep ALL unfrozen cells alive by extending their wakeTick. This ensures
+   *     dug/loosened ore stays collectible as long as the player is nearby,
+   *     even if the particle has settled on the ground. Without this, cells
+   *     near the player would silently become non-collectible after FREEZE_TICKS
+   *     because expireWakeTicks used to skip near-player chunks entirely.
+   *
+   * Non-near-player chunks (outer ring of the active grid):
    *   - If a cell's wakeTick <= currentTick (expired) and the cell didn't move
    *     this tick (FLAG_UPDATED not set), set wakeTick = 0 (re-freeze).
    *   - If a cell moved this tick (FLAG_UPDATED set), extend its wakeTick so
    *     it stays unfrozen while still in motion.
-   * Near-player chunks are always active, so their wakeTicks don't matter.
    */
   private expireWakeTicks(): void {
     const grid = this.activeGrid.grid;
@@ -438,10 +524,9 @@ export class ChunkWorld {
         const chunk = this.chunks.get(key);
         if (!chunk) continue;
 
-        // Skip near-player chunks — always active, no expiry needed
         const distX = Math.abs(cx - playerChunk.cx);
         const distY = Math.abs(cy - playerChunk.cy);
-        if (distX <= ACTIVE_RADIUS_CHUNKS && distY <= ACTIVE_RADIUS_CHUNKS) continue;
+        const nearPlayer = distX <= ACTIVE_RADIUS_CHUNKS && distY <= ACTIVE_RADIUS_CHUNKS;
 
         const offsetX = dcx * CHUNK_W;
         const offsetY = dcy * CHUNK_H;
@@ -453,6 +538,15 @@ export class ChunkWorld {
             const localIdx = ly * CHUNK_W + lx;
             const wt = wakeTick[localIdx];
             if (wt === 0) continue;
+
+            if (nearPlayer) {
+              // Near-player: keep all unfrozen cells alive so they stay
+              // collectible. Re-extend the wakeTick every tick.
+              wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+              chunk.dirty = true;
+              hasUnfrozen = true;
+              continue;
+            }
 
             if (wt > this.currentTick) {
               // Still unfrozen — check if the cell moved this tick
@@ -492,7 +586,13 @@ export class ChunkWorld {
     const collected: Map<number, number> = new Map();
     const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
     const pax = Math.floor(paxF);
-    const pay = Math.floor(payF);
+    // Center collection at the player's vertical midpoint, not the top of the
+    // bounding box. The player is PLAYER_H cells tall; centering at the top
+    // leaves only 1-2 cells of collection range below the feet (COLLECT_RADIUS
+    // minus PLAYER_H). Centering at the midpoint gives balanced range above
+    // and below, which is critical for picking up ore settled beneath the
+    // player's feet while mining downward.
+    const pay = Math.floor(payF) + Math.floor(PLAYER_H / 2);
     const grid = this.activeGrid.grid;
     const r2 = COLLECT_RADIUS * COLLECT_RADIUS;
 
@@ -569,6 +669,12 @@ export class ChunkWorld {
     this.checkRebuild();
     if (this.needsRebuild) {
       this.rebuildActiveGrid();
+      // Validate player position after (re)build — lifts the player out of
+      // solid ground if a stale save placed them inside terrain.
+      if (this.needsSpawnValidation) {
+        this.validatePlayerSpawn();
+        this.needsSpawnValidation = false;
+      }
     }
 
     // 2. Build skip mask
@@ -689,6 +795,9 @@ export class ChunkWorld {
     if (state.health !== undefined) this.player.health = state.health;
     // Force rebuild — the player may have moved to a different chunk
     this.needsRebuild = true;
+    // Validate the loaded position — old saves may have the player inside
+    // the ground (e.g. from before a spawn fix).
+    this.needsSpawnValidation = true;
   }
 
   /** Get the frozen chunk count (chunks with no unfrozen cells, not near player). */
@@ -713,8 +822,8 @@ export interface SavedChunk {
 /** Check if a material is collectible (ore or loose debris). */
 function isCollectible(mat: number): boolean {
   // Only ores and refined metals are collected by proximity.
-  // Dirt/Sand/Stone are collected directly by dig() instead, so that
-  // collect() doesn't eat the ground the player is standing on.
+  // Dirt/Sand/Stone are not collectible — they are cleared by dig() to
+  // create holes, and the cascading loose particles fall into them.
   return (
     mat === Material.TinOre ||
     mat === Material.CopperOre ||
@@ -723,6 +832,7 @@ function isCollectible(mat: number): boolean {
     mat === Material.SilverOre ||
     mat === Material.GoldOre ||
     mat === Material.CobaltOre ||
+    mat === Material.Coal ||
     mat === Material.Iron
   );
 }

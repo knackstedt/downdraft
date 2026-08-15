@@ -77,6 +77,7 @@ const ORE_INFO: Record<number, { name: string; color: string }> = {
   [Material.SilverOre]: { name: "Silver", color: "#d9d9e0" },
   [Material.GoldOre]: { name: "Gold", color: "#e6c833" },
   [Material.CobaltOre]: { name: "Cobalt", color: "#4059cc" },
+  [Material.Coal]: { name: "Coal", color: "#1a1a1a" },
   [Material.Iron]: { name: "Iron Block", color: "#888" },
   [Material.Stone]: { name: "Stone", color: "#666" },
   [Material.Dirt]: { name: "Dirt", color: "#8b5a2b" },

@@ -10,13 +10,13 @@
 // (behind the foreground), with no blending (opaque).
 // ============================================================================
 
-import {
-  BACKDROP_GRID_H,
-  BACKDROP_GRID_W,
-  BACKDROP_PARALLAX,
-} from "../shared/constants";
-import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
 import BACKDROP_FS from "../shaders/backdrop-render.wgsl?raw";
+import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
+import {
+    BACKDROP_GRID_H,
+    BACKDROP_GRID_W,
+    BACKDROP_PARALLAX,
+} from "../shared/constants";
 
 export class BackdropPass {
   private device: GPUDevice;
@@ -121,9 +121,11 @@ export class BackdropPass {
   }
 
   /**
-   * Update camera uniforms. The camera position is in foreground active-grid
-   * cell coords. The shader applies the parallax factor and half-resolution
-   * scaling internally.
+   * Update camera uniforms. The camera position (camX, camY) should be in
+   * backdrop-local cell coords — the renderer computes this by converting
+   * the world-space camera position to backdrop space (parallax * half-res)
+   * and subtracting the backdrop grid origin. The shader applies parallax
+   * scaling only to the screen offset, not to the camera position.
    */
   updateCamera(camX: number, camY: number, zoom: number, canvasW: number, canvasH: number): void {
     const u = new Float32Array([camX, camY, zoom, canvasW, canvasH, BACKDROP_PARALLAX, 0, 0]);
