@@ -20,6 +20,7 @@ import {
     DEFAULT_GRAVITY,
     DEFAULT_TEMP,
     FIELD,
+    FLAG_UPDATED,
     Material,
     MATERIALS,
     packCell,
@@ -54,6 +55,10 @@ export class ChunkWorld {
   // The chunk coords of the active grid's top-left corner
   private activeOriginCx = 0;
   private activeOriginCy = 0;
+  // The previous origin (saved before checkRebuild updates activeOriginCx/Cy,
+  // used by rebuildActiveGrid to sync the outgoing grid to the correct chunks)
+  private prevOriginCx = 0;
+  private prevOriginCy = 0;
   // Whether the active grid needs rebuild (player crossed chunk boundary)
   private needsRebuild = true;
   // Current tick counter
@@ -132,6 +137,8 @@ export class ChunkWorld {
     const newOriginCx = cx - ACTIVE_RADIUS_CHUNKS;
     const newOriginCy = cy - ACTIVE_RADIUS_CHUNKS;
     if (newOriginCx !== this.activeOriginCx || newOriginCy !== this.activeOriginCy) {
+      this.prevOriginCx = this.activeOriginCx;
+      this.prevOriginCy = this.activeOriginCy;
       this.activeOriginCx = newOriginCx;
       this.activeOriginCy = newOriginCy;
       this.needsRebuild = true;
@@ -147,8 +154,9 @@ export class ChunkWorld {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
 
-    // Copy out the old active grid back to chunk storage (sync dirty data)
-    this.syncActiveGridToChunks();
+    // Copy out the old active grid back to chunk storage using the PREVIOUS
+    // origin — the grid data is still laid out for the old origin.
+    this.syncActiveGridToChunks(this.prevOriginCx, this.prevOriginCy);
 
     // Clear the active grid
     grid.fill(0);
@@ -193,15 +201,21 @@ export class ChunkWorld {
     this.needsRebuild = false;
   }
 
-  /** Sync the active grid back to chunk storage (copy dirty regions). */
-  private syncActiveGridToChunks(): void {
+  /**
+   * Sync the active grid back to chunk storage.
+   * Uses the current activeOriginCx/Cy by default, or the provided origin
+   * (used by rebuildActiveGrid to sync with the previous origin).
+   */
+  private syncActiveGridToChunks(originCx?: number, originCy?: number): void {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
+    const ocx = originCx ?? this.activeOriginCx;
+    const ocy = originCy ?? this.activeOriginCy;
 
     for (let dcy = 0; dcy < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcy++) {
       for (let dcx = 0; dcx < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcx++) {
-        const cx = this.activeOriginCx + dcx;
-        const cy = this.activeOriginCy + dcy;
+        const cx = ocx + dcx;
+        const cy = ocy + dcy;
         if (cx < 0 || cx >= MAX_CHUNKS_X) continue;
 
         const key = chunkKey(cx, cy);
@@ -309,12 +323,17 @@ export class ChunkWorld {
   /**
    * Dig a circular region at world coords (wx, wy) with the given radius.
    * Destroyed cells become loose falling-sand particles (same material).
-   * Sets wakeTick = currentTick + FREEZE_TICKS for dug cells.
+   * Static solids (stone, gravity=0) are converted to dirt so they can fall.
+   * Ores already have gravity=1 and fall naturally.
+   * Sets wakeTick = currentTick + FREEZE_TICKS for dug cells, marks chunk dirty.
    */
-  dig(wx: number, wy: number, radius: number): void {
-    const { x: ax, y: ay } = this.worldToActive(wx, wy);
+ dig(wx: number, wy: number, radius: number): InventoryEntry[] {
+    const { x: axF, y: ayF } = this.worldToActive(wx, wy);
+    const ax = Math.floor(axF);
+    const ay = Math.floor(ayF);
     const grid = this.activeGrid.grid;
     const r2 = radius * radius;
+    const collected: Map<number, number> = new Map();
 
     for (let dy = -radius; dy <= radius; dy++) {
       for (let dx = -radius; dx <= radius; dx++) {
@@ -328,21 +347,35 @@ export class ChunkWorld {
         const mat = packed & 0xff;
         // Don't dig through walls or bedrock-like materials
         if (mat === Material.Wall) continue;
-        // The cell stays as its material but now has gravity (loose particle)
-        // Set wakeTick so it unfreezes for FREEZE_TICKS
-        const def = MATERIALS[mat];
-        if (def?.solid && def.gravity === 0) {
-          // Static solid (stone) — make it fall by giving it gravity
-          // We keep the material but the sim will now move it since it's unfrozen
-          // Actually, stone has gravityDir=0 so it won't fall. We need to convert
-          // it to a "loose" version. For Phase 1, convert stone→dirt (which falls),
-          // and ores stay as their material (they have gravity=1).
-          grid[idx] = packCell(Material.Dirt, 0, packed >> 16 & 0xff);
+
+        // Collect the cleared material
+        collected.set(mat, (collected.get(mat) ?? 0) + 1);
+
+        // Clear the cell — creates a hole
+        grid[idx] = 0;
+        this.clearWakeTick(x, y);
+
+        // Convert static solids (stone) directly above the hole to dirt so
+        // they become loose falling particles and cascade down.
+        const aboveIdx = idx - ACTIVE_GRID_W;
+        if (aboveIdx >= 0) {
+          const above = grid[aboveIdx];
+          if (above !== 0) {
+            const aboveMat = above & 0xff;
+            if (aboveMat !== Material.Wall) {
+              const aboveDef = MATERIALS[aboveMat];
+              if (aboveDef?.solid && aboveDef.gravity === 0) {
+                const shade = (above >> 16) & 0xff;
+                grid[aboveIdx] = packCell(Material.Dirt, 0, shade);
+              }
+              this.markCellUnfrozen(x, y - 1);
+            }
+          }
         }
-        // Mark the cell's chunk as unfrozen
-        this.markCellUnfrozen(x, y);
       }
     }
+
+    return Array.from(collected.entries()).map(([mat, count]) => ({ mat, count }));
   }
 
   /** Mark a cell (in active grid coords) as unfrozen in its chunk's wakeTick. */
@@ -364,15 +397,102 @@ export class ChunkWorld {
     chunk.dirty = true;
   }
 
+  /** Check if a cell (in active grid coords) is unfrozen (loose). */
+  private isCellUnfrozen(ax: number, ay: number): boolean {
+    const dcx = Math.floor(ax / CHUNK_W);
+    const dcy = Math.floor(ay / CHUNK_H);
+    const cx = this.activeOriginCx + dcx;
+    const cy = this.activeOriginCy + dcy;
+    if (cx < 0 || cx >= MAX_CHUNKS_X) return false;
+
+    const key = chunkKey(cx, cy);
+    const chunk = this.chunks.get(key);
+    if (!chunk) return false;
+
+    const localX = ax - dcx * CHUNK_W;
+    const localY = ay - dcy * CHUNK_H;
+    const localIdx = localY * CHUNK_W + localX;
+    return chunk.wakeTick[localIdx] > this.currentTick;
+  }
+
+  /**
+   * Expire wakeTicks for cells whose freeze timer has elapsed.
+   * After the sim step, scan each non-near-player chunk in the active window:
+   *   - If a cell's wakeTick <= currentTick (expired) and the cell didn't move
+   *     this tick (FLAG_UPDATED not set), set wakeTick = 0 (re-freeze).
+   *   - If a cell moved this tick (FLAG_UPDATED set), extend its wakeTick so
+   *     it stays unfrozen while still in motion.
+   * Near-player chunks are always active, so their wakeTicks don't matter.
+   */
+  private expireWakeTicks(): void {
+    const grid = this.activeGrid.grid;
+    const playerChunk = this.worldToChunk(this.player.x, this.player.y);
+
+    for (let dcy = 0; dcy < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcy++) {
+      for (let dcx = 0; dcx < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcx++) {
+        const cx = this.activeOriginCx + dcx;
+        const cy = this.activeOriginCy + dcy;
+        if (cx < 0 || cx >= MAX_CHUNKS_X) continue;
+
+        const key = chunkKey(cx, cy);
+        const chunk = this.chunks.get(key);
+        if (!chunk) continue;
+
+        // Skip near-player chunks — always active, no expiry needed
+        const distX = Math.abs(cx - playerChunk.cx);
+        const distY = Math.abs(cy - playerChunk.cy);
+        if (distX <= ACTIVE_RADIUS_CHUNKS && distY <= ACTIVE_RADIUS_CHUNKS) continue;
+
+        const offsetX = dcx * CHUNK_W;
+        const offsetY = dcy * CHUNK_H;
+        const wakeTick = chunk.wakeTick;
+        let hasUnfrozen = false;
+
+        for (let ly = 0; ly < CHUNK_H; ly++) {
+          for (let lx = 0; lx < CHUNK_W; lx++) {
+            const localIdx = ly * CHUNK_W + lx;
+            const wt = wakeTick[localIdx];
+            if (wt === 0) continue;
+
+            if (wt > this.currentTick) {
+              // Still unfrozen — check if the cell moved this tick
+              const ax = offsetX + lx;
+              const ay = offsetY + ly;
+              const packed = grid[ay * ACTIVE_GRID_W + ax];
+              const flags = (packed >> 16) & 0xff;
+              if (flags & FLAG_UPDATED) {
+                // Cell moved — extend wakeTick
+                wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                chunk.dirty = true;
+                hasUnfrozen = true;
+              } else {
+                // Cell didn't move — still unfrozen but could settle soon
+                hasUnfrozen = true;
+              }
+            } else {
+              // wakeTick expired — re-freeze
+              wakeTick[localIdx] = 0;
+              chunk.dirty = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
   // --- Collection ---
 
   /**
    * Collect loose particles (ore/debris) near the player.
+   * Only collects cells that are unfrozen (loose — recently dug/disturbed).
+   * Frozen cells (ores embedded in stone) are not collectible.
    * Returns an array of {mat, count} collected this tick.
    */
   collect(): InventoryEntry[] {
     const collected: Map<number, number> = new Map();
-    const { x: pax, y: pay } = this.worldToActive(this.player.x, this.player.y);
+    const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
+    const pax = Math.floor(paxF);
+    const pay = Math.floor(payF);
     const grid = this.activeGrid.grid;
     const r2 = COLLECT_RADIUS * COLLECT_RADIUS;
 
@@ -386,16 +506,37 @@ export class ChunkWorld {
         const packed = grid[idx];
         if (packed === 0) continue;
         const mat = packed & 0xff;
-        // Collect ores and loose debris (dirt that's falling)
+        // Only collect loose (unfrozen) particles
+        if (!this.isCellUnfrozen(x, y)) continue;
         if (isCollectible(mat)) {
           grid[idx] = 0; // remove from grid
           collected.set(mat, (collected.get(mat) ?? 0) + 1);
-          this.markCellUnfrozen(x, y); // update chunk storage
+          // Clear the wakeTick for this cell (it's now empty)
+          this.clearWakeTick(x, y);
         }
       }
     }
 
     return Array.from(collected.entries()).map(([mat, count]) => ({ mat, count }));
+  }
+
+  /** Clear the wakeTick for a cell (in active grid coords). */
+  private clearWakeTick(ax: number, ay: number): void {
+    const dcx = Math.floor(ax / CHUNK_W);
+    const dcy = Math.floor(ay / CHUNK_H);
+    const cx = this.activeOriginCx + dcx;
+    const cy = this.activeOriginCy + dcy;
+    if (cx < 0 || cx >= MAX_CHUNKS_X) return;
+
+    const key = chunkKey(cx, cy);
+    const chunk = this.chunks.get(key);
+    if (!chunk) return;
+
+    const localX = ax - dcx * CHUNK_W;
+    const localY = ay - dcy * CHUNK_H;
+    const localIdx = localY * CHUNK_W + localX;
+    chunk.wakeTick[localIdx] = 0;
+    chunk.dirty = true;
   }
 
   // --- Main step ---
@@ -404,10 +545,12 @@ export class ChunkWorld {
    * Advance the simulation by one tick.
    * 1. Check if active grid needs rebuild (player crossed chunk boundary)
    * 2. Build skip mask (freeze optimization)
-   * 3. Run SandWorld.step on the active grid
-   * 4. Sync active grid back to chunk storage
-   * 5. Update player physics
-   * 6. Collect loose ore near player
+   * 3. Handle digging (before sim so dug particles can fall this tick)
+   * 4. Run SandWorld.step on the active grid
+   * 5. Expire wakeTicks (re-freeze settled cells, extend for moving particles)
+   * 6. Sync active grid back to chunk storage
+   * 7. Update player physics
+   * 8. Collect loose ore near player
    */
   step(input: {
     left: boolean;
@@ -431,30 +574,36 @@ export class ChunkWorld {
     // 2. Build skip mask
     this.buildSkipMask();
 
-    // Handle digging
+    // 3. Handle digging (before sim so dug particles can fall this tick)
+    let digCollected: InventoryEntry[] = [];
     if (input.mouseDown) {
-      this.dig(input.mouseX, input.mouseY, input.digRadius);
+      digCollected = this.dig(input.mouseX, input.mouseY, input.digRadius);
     }
 
-    // 3. Run simulation
+    // 4. Run simulation
     this.activeGrid.step();
 
-    // 4. Sync back to chunks
+    // 5. Expire wakeTicks (re-freeze settled, extend for moving)
+    this.expireWakeTicks();
+
+    // 6. Sync back to chunks
     this.syncActiveGridToChunks();
 
-    // 5. Update player (in active grid local coords)
-    // updateMiningPlayer writes the new local position into player.x/y,
-    // so we convert world→local before the call, then local→world after.
+    // 7. Update player (in active grid local coords)
     const { x: pax, y: pay } = this.worldToActive(this.player.x, this.player.y);
     updateMiningPlayer(this.player, input, this.activeGrid.grid, ACTIVE_GRID_W, ACTIVE_GRID_H, pax, pay);
-    // player.x/y now hold the updated LOCAL coords — convert back to world
     this.player.x = this.player.x + this.activeOriginCx * CHUNK_W;
     this.player.y = this.player.y + this.activeOriginCy * CHUNK_H;
 
-    // 6. Collect loose ore
+    // 8. Collect loose ore near player
     const collected = this.collect();
 
-    return collected;
+    // Merge dig-collected and proximity-collected items
+    const merged = new Map<number, number>();
+    for (const { mat, count } of digCollected) merged.set(mat, (merged.get(mat) ?? 0) + count);
+    for (const { mat, count } of collected) merged.set(mat, (merged.get(mat) ?? 0) + count);
+
+    return Array.from(merged.entries()).map(([mat, count]) => ({ mat, count }));
   }
 
   // --- Stats ---
@@ -486,6 +635,9 @@ export class ChunkWorld {
 
 /** Check if a material is collectible (ore or loose debris). */
 function isCollectible(mat: number): boolean {
+  // Only ores and refined metals are collected by proximity.
+  // Dirt/Sand/Stone are collected directly by dig() instead, so that
+  // collect() doesn't eat the ground the player is standing on.
   return (
     mat === Material.TinOre ||
     mat === Material.CopperOre ||
