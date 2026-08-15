@@ -13,6 +13,7 @@ export interface BaseGameStoreState<R = unknown> {
   fps: number;
   playerCount: number;
   splitScreenLayout: string;
+  pointerLocked: boolean;
   notifications: { id: number; text: string; type: string }[];
   showPauseMenu: boolean;
   hudHidden: boolean;
@@ -25,6 +26,7 @@ export interface BaseGameStoreState<R = unknown> {
   setFPS: (fps: number) => void;
   setPlayerCount: (n: number) => void;
   setSplitScreenLayout: (l: string) => void;
+  setPointerLocked: (v: boolean) => void;
   addNotification: (text: string, type?: string) => void;
   removeNotification: (id: number) => void;
   setShowPauseMenu: (v: boolean) => void;
@@ -58,6 +60,7 @@ export function createBaseGameStoreState<R>(
     fps: 0,
     playerCount: 1,
     splitScreenLayout: "1p",
+    pointerLocked: false,
     notifications: [],
     showPauseMenu: false,
     hudHidden: false,
@@ -70,6 +73,7 @@ export function createBaseGameStoreState<R>(
     setFPS: (fps) => set({ fps }),
     setPlayerCount: (n) => set({ playerCount: n }),
     setSplitScreenLayout: (l) => set({ splitScreenLayout: l }),
+    setPointerLocked: (v) => set({ pointerLocked: v }),
     addNotification: (text, type = "info") =>
       set((s) => ({ notifications: [...s.notifications, { id: ++notifId, text, type }] })),
     removeNotification: (id) =>
