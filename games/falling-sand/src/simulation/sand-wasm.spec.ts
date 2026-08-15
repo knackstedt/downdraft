@@ -9,9 +9,9 @@
  * (material counts, relative positions) rather than exact coordinates.
  */
 
+import { Material } from "@downdraft/library-sand";
 import { beforeAll, expect, test } from "bun:test";
 import { FIELD } from "../shared/sim-buffer";
-import { Material } from "./materials";
 import { initWasm, reseedRng, SandWasmWorld } from "./sand-wasm";
 
 // Deterministic helper: run N steps and return the grid as a mat-id matrix.

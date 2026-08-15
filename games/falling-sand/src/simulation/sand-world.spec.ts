@@ -1,7 +1,5 @@
+import { FIELD, Material, SandWorld } from "@downdraft/library-sand";
 import { expect, test } from "bun:test";
-import { FIELD } from "../shared/sim-buffer";
-import { Material } from "./materials";
-import { SandWorld } from "./sand-world";
 
 // Deterministic helper: run N steps and return the grid as a mat-id matrix.
 function run(world: SandWorld, steps: number): void {

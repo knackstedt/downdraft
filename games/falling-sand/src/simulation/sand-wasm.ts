@@ -18,8 +18,8 @@
  *   world.grid // Uint32Array view into WASM memory (zero-copy)
  */
 
+import type { Cell } from "@downdraft/library-sand";
 import { FIELD } from "../shared/sim-buffer";
-import type { Cell } from "./sand-world";
 
 // The wasm-pack output is at games/falling-sand/sand-native/pkg/sand_native.js.
 // Vite resolves this via the @sand-native alias configured in the game's

@@ -1,4 +1,5 @@
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
+import { SandWorld } from "@downdraft/library-sand";
 import {
     INPUT,
     INPUT_BYTES,
@@ -8,7 +9,6 @@ import {
     SimBufferWriter
 } from "../shared/sim-buffer";
 import { createPlayer, updatePlayer, type PlayerState } from "./player";
-import { SandWorld } from "./sand-world";
 
 // --- Backend selection ---
 // Set USE_WASM=true to use the Rust WASM+SIMD+threads backend instead of the

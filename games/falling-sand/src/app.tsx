@@ -1,5 +1,5 @@
+import { MATERIALS } from "@downdraft/library-sand";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MATERIALS } from "./simulation/materials";
 import { useGameStore, type FieldType } from "./stores/game-store";
 import {
     captureThumbnail, deleteSave, listSaves, loadGame, saveGame,

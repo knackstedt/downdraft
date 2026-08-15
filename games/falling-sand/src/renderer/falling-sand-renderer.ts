@@ -1,6 +1,6 @@
+import { MATERIALS } from "@downdraft/library-sand";
 import { computeGridDims } from "../shared/constants";
 import { FIELD, NUM_LAYERS, PLAYER, SimBufferReader } from "../shared/sim-buffer";
-import { MATERIALS } from "../simulation/materials";
 import { SandWorkerHost } from "../simulation/sand-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler } from "./input-handler";
