@@ -129,6 +129,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/plugin-devtools\//, replacement: resolve(repoRoot, "packages/plugins/devtools/src") + "/" },
     { find: /^@downdraft\/plugin-camera-controls$/, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src/index.ts") },
     { find: /^@downdraft\/plugin-camera-controls\//, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src") + "/" },
+    { find: /^undertow$/, replacement: resolve(repoRoot, "packages/plugins/undertow/src/index.ts") },
+    { find: /^undertow\//, replacement: resolve(repoRoot, "packages/plugins/undertow/src") + "/" },
     { find: /^node:fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
     { find: /^fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
     { find: /^@downdraft\/plugin-marching-cubes$/, replacement: resolve(repoRoot, "packages/plugins/marching-cubes/src/index.ts") },
@@ -288,6 +290,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       root: rendererRoot,
       resolve: {
         alias: rendererAliasEntries,
+      },
+      worker: {
+        format: "es",
       },
       build: {
         outDir: "dist/renderer",

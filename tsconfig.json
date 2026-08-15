@@ -43,6 +43,12 @@
       "@downdraft/plugin-water/*": [
         "./packages/plugins/water/src/*"
       ],
+      "undertow": [
+        "./packages/plugins/undertow/src/index.ts"
+      ],
+      "undertow/*": [
+        "./packages/plugins/undertow/src/*"
+      ],
       "@downdraft/plugin-physics-rapier": [
         "./packages/plugins/physics-rapier/src/index.ts"
       ],

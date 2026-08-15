@@ -77,6 +77,12 @@
       "@downdraft/plugin-water/*": [
         "./packages/plugins/water/src/*"
       ],
+      "undertow": [
+        "./packages/plugins/undertow/src/index.ts"
+      ],
+      "undertow/*": [
+        "./packages/plugins/undertow/src/*"
+      ],
       "@downdraft/plugin-marching-cubes": [
         "./packages/plugins/marching-cubes/src/index.ts"
       ],
