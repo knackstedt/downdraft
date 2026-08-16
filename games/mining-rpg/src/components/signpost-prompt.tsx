@@ -7,6 +7,7 @@
 // nearSignpost=true in the game store, which triggers this prompt.
 // ============================================================================
 
+import { SELL_PRICES } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
 const promptStyle: React.CSSProperties = {
@@ -51,6 +52,8 @@ export function SignpostPrompt() {
   if (!nearSignpost) return null;
 
   const hasItems = inventory.length > 0;
+  const itemCount = inventory.reduce((s, e) => s + e.count, 0);
+  const inventoryValue = inventory.reduce((s, e) => s + (SELL_PRICES[e.mat] ?? 0) * e.count, 0);
 
   return (
     <div style={promptStyle}>
@@ -59,12 +62,12 @@ export function SignpostPrompt() {
       </div>
       {hasItems ? (
         <div style={currencyStyle}>
-          {inventory.reduce((s, e) => s + e.count, 0)} items to sell
+          {itemCount} items &mdash; value: <span style={{ color: "#e6c833" }}>{inventoryValue}g</span>
         </div>
       ) : (
         <div style={emptyStyle}>Mine some ore and come back!</div>
       )}
-      <div style={currencyStyle}>Gold: {currency}</div>
+      <div style={currencyStyle}>Gold: <span style={{ color: "#e6c833" }}>{currency}</span></div>
     </div>
   );
 }
