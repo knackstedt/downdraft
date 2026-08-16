@@ -77,21 +77,11 @@ export default function App() {
           else if (s.showBuilderWheel) s.setShowBuilderWheel(false);
           return;
         }
-        // No panel open — exit pointer lock first; the pointerlockchange
-        // handler will open the craft menu once lock is released.
-        if (document.pointerLockElement) {
-          // In undertow mode, the pointerlockchange handler lives on the main
-          // thread (undertow-host.ts) and defaults to opening the pause menu.
-          // Signal "tab-requested" so it opens the craft menu instead.
-          if ((self as any).__undertow) {
-            (self as any).postMessage({ type: "tab-requested" });
-          } else {
-            tabRequested = true;
-          }
-          document.exitPointerLock();
-        } else {
-          s.toggleCraftMenu();
-        }
+        // No panel open — toggle the craft menu. The main thread's
+        // toggleCraftMenu action handles exiting pointer lock (if active)
+        // before opening the menu, so the pointerlockchange handler sees
+        // showCraftMenu=true and doesn't open the pause menu instead.
+        s.toggleCraftMenu();
         return;
       }
       // Single-key panel toggles (M=map, I=inventory, B=build)
@@ -105,19 +95,16 @@ export default function App() {
         if (key === "m" && (s.showMap || !anyPanelOpen)) {
           e.preventDefault();
           s.toggleMap();
-          if (!s.showMap) document.exitPointerLock();
           return;
         }
         if (key === "i" && (s.showInventory || !anyPanelOpen)) {
           e.preventDefault();
           s.toggleInventory();
-          if (!s.showInventory) document.exitPointerLock();
           return;
         }
         if (key === "b" && (s.showBuildMenu || !anyPanelOpen)) {
           e.preventDefault();
           s.toggleBuildMenu();
-          if (!s.showBuildMenu) document.exitPointerLock();
           return;
         }
         if (key === "f" && !anyPanelOpen) {

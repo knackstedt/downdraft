@@ -38,8 +38,9 @@ export function startUndertowHost(options?: { drainIntervalMs?: number }): Under
   worker.postMessage(sab);
 
   // 4. Start the store bridge — forwards main-thread store state to the worker
-  //    and receives action requests back.
-  const disposeStoreBridge = startStoreBridgeMain(worker);
+  //    and receives action requests back. Returns a dispose fn + flushImmediate
+  //    (bypasses the 16ms throttle for latency-sensitive state changes).
+  const storeBridge = startStoreBridgeMain(worker);
 
   // 4b. Register a user-gesture callback for pointer lock.
   //     requestPointerLock() must be called within a user gesture event handler.
@@ -101,6 +102,7 @@ export function startUndertowHost(options?: { drainIntervalMs?: number }): Under
             !s.showBuilderWheel) {
           s.toggleCraftMenu();
         }
+        storeBridge.flushImmediate();
         return;
       }
       // Otherwise open the pause menu (same logic as App's onPointerLockChange)
@@ -111,6 +113,11 @@ export function startUndertowHost(options?: { drainIntervalMs?: number }): Under
           !s.showCredits && !s.showBuilderWheel) {
         s.togglePauseMenu();
       }
+      // Flush immediately so the worker sees the menu state change without
+      // waiting for the 16ms throttle. Without this, the worker sees
+      // pointerLocked=false (SAB flag, ~4ms) before showPauseMenu=true (store
+      // sync, ~16ms), causing a flash of the click-to-resume overlay.
+      storeBridge.flushImmediate();
     } else {
       // Pointer lock gained — close pause menu if open and reset suppressPauseMenu.
       // suppressPauseMenu is set to true when a menu is closed (to prevent the
@@ -121,13 +128,15 @@ export function startUndertowHost(options?: { drainIntervalMs?: number }): Under
       const s = useGameStore.getState();
       if (s.showPauseMenu) s.setShowPauseMenu(false);
       if (s.suppressPauseMenu) s.setSuppressPauseMenu(false);
+      storeBridge.flushImmediate();
     }
   });
 
-  // Listen for Tab-requested signals from the worker. The worker's keydown
-  // handler sets tabRequested and calls document.exitPointerLock() (proxied
-  // here). When pointer lock is lost, the pointerlockchange handler above
-  // checks tabRequested and opens the craft menu instead of the pause menu.
+  // Listen for Tab-requested signals from the worker. When the worker's
+  // keydown handler sees Tab while pointer-locked, it sends this message so
+  // the pointerlockchange handler opens the craft menu instead of the pause
+  // menu. (The toggleCraftMenu action itself handles exitPointerLock, but
+  // this flag ensures the pointerlockchange handler doesn't fight it.)
   worker.addEventListener("message", (e: MessageEvent) => {
     if (e.data?.type === "tab-requested") {
       tabRequested = true;
@@ -158,7 +167,7 @@ export function startUndertowHost(options?: { drainIntervalMs?: number }): Under
     dispose: () => {
       cancelAnimationFrame(rafId);
       clearInterval(intervalId);
-      disposeStoreBridge();
+      storeBridge.dispose();
       worker.terminate();
     },
   };

@@ -47,6 +47,7 @@ const stubBridge: DowndraftBridge = {
   getElectronGPUInfo: () => Promise.resolve(null),
   getVulkanValidationStatus: () => Promise.resolve({ enabled: false, envVar: null }),
   openChromeUrl: noop,
+  capturePage: () => Promise.resolve(null),
   importCacheGet: () => Promise.resolve(null),
   importCacheSet: () => Promise.resolve(),
   importCacheInvalidate: () => Promise.resolve(),

@@ -151,4 +151,15 @@ export function registerDevtoolsHandlers(ctx: MainContext, devtools: ResolvedDev
   ipcMain.handle(IPC.QUIT, () => {
     ctx.app.quit();
   });
+
+  // --- Full-page screenshot (canvas + DOM overlay) ---
+  // Uses webContents.capturePage() which composites the WebGPU canvas and
+  // all DOM overlay layers into a single NativeImage. Returns the PNG-encoded
+  // buffer so the renderer can base64-encode it for MCP tool responses.
+  ipcMain.handle(IPC.CAPTURE_PAGE, async () => {
+    if (!ctx.window || ctx.window.isDestroyed()) return null;
+    const image = await ctx.window.webContents.capturePage();
+    if (image.isEmpty()) return null;
+    return image.toPNG();
+  });
 }

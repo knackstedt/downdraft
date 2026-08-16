@@ -101,6 +101,16 @@ export function setupTtolMcp(renderer: WebGPURenderer, worker: SimWebWorker): vo
   harness.register(createAutomationTools({
     renderer: () => renderer,
     worker: () => worker,
+    store: () => {
+      // Dynamic import to avoid circular dependency at module load time.
+      // The game-store module imports components that import setup.ts
+      // indirectly, causing a circular dep if we import at the top level.
+      try {
+        return (window as any).__gameStore ?? null;
+      } catch {
+        return null;
+      }
+    },
   }));
   harness.attach();
 

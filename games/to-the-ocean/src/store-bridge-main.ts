@@ -100,7 +100,17 @@ const WORKER_ACTIONS = new Set([
  * Start the store bridge on the main thread.
  * Call this after the UI worker has been spawned.
  */
-export function startStoreBridgeMain(worker: Worker): () => void {
+export interface StoreBridgeHandle {
+  dispose: () => void;
+  flushImmediate: () => void;
+}
+
+/**
+ * Start the store bridge on the main thread.
+ * Call this after the UI worker has been spawned.
+ * Returns a handle with dispose() and flushImmediate() (bypasses the 16ms throttle).
+ */
+export function startStoreBridgeMain(worker: Worker): StoreBridgeHandle {
   // Forward state updates to the worker — throttled to avoid flooding the
   // worker with postMessage calls when the store changes rapidly (e.g., FPS
   // updates, mouse move handlers, etc.). We coalesce changes and flush at most
@@ -143,7 +153,9 @@ export function startStoreBridgeMain(worker: Worker): () => void {
     const msg = e.data;
     if (msg?.type !== "store-action") return;
     const { store, action, args } = msg;
-    if (!WORKER_ACTIONS.has(action)) return;
+    if (!WORKER_ACTIONS.has(action)) {
+      return;
+    }
 
     // Special actions that need direct main-thread handling
     if (action === "lockPointer") {
@@ -172,9 +184,17 @@ export function startStoreBridgeMain(worker: Worker): () => void {
   };
   worker.addEventListener("message", onMessage);
 
-  return () => {
-    unsubGame();
-    unsubDebug();
-    worker.removeEventListener("message", onMessage);
+  return {
+    dispose: () => {
+      unsubGame();
+      unsubDebug();
+      worker.removeEventListener("message", onMessage);
+      if (flushTimeout !== null) clearTimeout(flushTimeout);
+    },
+    /** Flush pending store state to the worker immediately, bypassing the
+     *  16ms throttle. Call this after main-thread-initiated store changes
+     *  that the worker needs to see promptly (e.g. pointerlockchange opening
+     *  the pause menu). */
+    flushImmediate,
   };
 }

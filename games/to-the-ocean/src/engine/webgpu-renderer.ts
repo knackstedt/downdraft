@@ -687,6 +687,11 @@ export class WebGPURenderer implements IRendererStateProvider {
     }
   }
 
+  /** Whether the continuous render loop is currently running. */
+  isRunning(): boolean {
+    return this.running;
+  }
+
   setFrameRateLimit(refreshRate: number): void {
     if (refreshRate > 0) {
       this.targetFrameTime = 1000 / refreshRate;

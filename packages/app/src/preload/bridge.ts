@@ -87,6 +87,8 @@ export function createDefaultBridge(): DowndraftBridgeAPI {
     getVulkanValidationStatus: (): Promise<VulkanValidationStatus> => ipcRenderer.invoke(IPC.VULKAN_VALIDATION_STATUS),
     openChromeUrl: (url: string): void => { ipcRenderer.send(IPC.OPEN_CHROME_URL, url); },
 
+    capturePage: (): Promise<ArrayBuffer | null> => ipcRenderer.invoke(IPC.CAPTURE_PAGE),
+
     // Import cache — caches resolved model import settings (SQLite-backed in main process)
     importCacheGet: (modelPath: string): Promise<ImportCacheEntry | null> =>
       ipcRenderer.invoke(IPC.IMPORT_CACHE_GET, modelPath),
