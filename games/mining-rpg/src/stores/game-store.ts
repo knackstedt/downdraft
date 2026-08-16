@@ -7,6 +7,7 @@ export interface GameState {
   health: number;
   depth: number; // player depth in chunks (0 = surface)
   paused: boolean;
+  gameOver: boolean; // true when player health reaches 0
   digRadius: number;
   inventory: InventoryEntry[];
   upgrades: PlayerUpgrades;
@@ -19,6 +20,7 @@ export interface GameState {
   setHealth: (health: number) => void;
   setDepth: (depth: number) => void;
   setPaused: (p: boolean) => void;
+  setGameOver: (g: boolean) => void;
   setDigRadius: (r: number) => void;
   setInventory: (inv: InventoryEntry[]) => void;
   addToInventory: (mat: number, count: number) => void;
@@ -36,6 +38,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   health: 100,
   depth: 0,
   paused: false,
+  gameOver: false,
   digRadius: 3,
   inventory: [],
   upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
@@ -48,6 +51,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setHealth: (health) => set({ health }),
   setDepth: (depth) => set({ depth }),
   setPaused: (paused) => set({ paused }),
+  setGameOver: (gameOver) => set({ gameOver }),
   setDigRadius: (digRadius) => set({ digRadius }),
   setInventory: (inventory) => set({ inventory }),
   addToInventory: (mat, count) =>

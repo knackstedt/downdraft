@@ -952,6 +952,30 @@ export class ChunkWorld {
     this.needsSpawnValidation = true;
   }
 
+  /**
+   * Respawn the player at the surface spawn point with full health.
+   * Upgrades and inventory are preserved (the player keeps their progress).
+   * Clears per-cell mining damage so half-mined cells don't carry over.
+   */
+  respawn(): void {
+    const playerWorldX = Math.floor(MAX_CHUNKS_X * CHUNK_W / 2);
+    const surfaceY = surfaceHeightAt(playerWorldX, WORLD_SEED);
+    const playerWorldY = surfaceY - PLAYER_H - 2;
+    this.player.x = playerWorldX;
+    this.player.y = playerWorldY;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.onGround = false;
+    this.player.health = 100;
+    // Clear per-cell mining damage
+    this.cellDamage.fill(0);
+    // Reset mining cooldown so the player can mine immediately
+    this.mineCooldown = 0;
+    // Force rebuild + spawn validation
+    this.needsRebuild = true;
+    this.needsSpawnValidation = true;
+  }
+
   /** Get the frozen chunk count (chunks with no unfrozen cells, not near player). */
   getFrozenChunkCount(): number {
     let count = 0;
