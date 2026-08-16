@@ -4,5 +4,7 @@
   "dependencies": {
     "@downdraft/core": "workspace:*",
     "@downdraft/plugin-physics-rapier": "workspace:*"
-  }
+  },
+<%~ include("_shared/partials/dev-deps", it) %>
+<%~ include("_shared/partials/build-config", it) %>
 }

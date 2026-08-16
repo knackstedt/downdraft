@@ -1,0 +1,58 @@
+  "build": {
+    "appId": "com.<%= it.name %>.game",
+    "productName": "<%= titleCase(it.name) %>",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "resources/**/*"
+    ],
+    "win": {
+      "target": ["portable"],
+      "artifactName": "${productName}-${version}-${arch}-portable.exe"
+    },
+    "linux": {
+      "target": ["AppImage", "deb", "rpm", "flatpak"],
+      "category": "Game",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ]
+    },
+    "rpm": {
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "nss",
+        "libXScrnSaver",
+        "libXtst",
+        "xdg-utils",
+        "at-spi2-atk",
+        "libuuid",
+        "libsecret"
+      ]
+    },
+    "flatpak": {
+      "base": "org.electronjs.Electron2.BaseApp",
+      "baseVersion": "23.08",
+      "finishArgs": [
+        "--socket=x11",
+        "--socket=wayland",
+        "--share=ipc",
+        "--share=network",
+        "--device=dri",
+        "--filesystem=home"
+      ]
+    }
+  }

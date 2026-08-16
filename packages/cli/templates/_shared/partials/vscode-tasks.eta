@@ -1,0 +1,117 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Dev",
+      "detail": "Start the game in dev mode with hot reload",
+      "type": "shell",
+      "command": "draft dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Build",
+      "detail": "Build the game for a target platform",
+      "type": "shell",
+      "command": "draft build --target=${input:buildTarget} --mode=${input:buildMode} --out=dist",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Export",
+      "detail": "Package the built game for distribution (run Build first)",
+      "type": "shell",
+      "command": "draft export --target=${input:exportTarget} --out=export",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build & Export",
+      "detail": "Build then export for a chosen platform in one step",
+      "type": "shell",
+      "command": "set -e; draft build --target=${input:platformTarget} --mode=prod --out=dist; draft export --target=${input:platformTarget} --out=export",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Typecheck",
+      "detail": "Run tsc --noEmit",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Lint",
+      "detail": "Run oxlint",
+      "type": "shell",
+      "command": "npm run lint",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test",
+      "detail": "Run tests",
+      "type": "shell",
+      "command": "npm test",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "buildTarget",
+      "type": "pickString",
+      "options": ["current", "windows", "macos", "linux"],
+      "default": "current",
+      "description": "Build target platform"
+    },
+    {
+      "id": "buildMode",
+      "type": "pickString",
+      "options": ["prod", "dev", "debug"],
+      "default": "prod",
+      "description": "Build mode"
+    },
+    {
+      "id": "exportTarget",
+      "type": "pickString",
+      "options": ["all", "windows", "macos", "linux"],
+      "default": "all",
+      "description": "Export target platform(s)"
+    },
+    {
+      "id": "platformTarget",
+      "type": "pickString",
+      "options": ["all", "windows", "macos", "linux"],
+      "default": "all",
+      "description": "Platform to build and export for"
+    }
+  ]
+}

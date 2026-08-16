@@ -8,5 +8,7 @@
     "@downdraft/plugin-marching-cubes": "workspace:*",
     "@downdraft/plugin-models": "workspace:*",
     "@downdraft/plugin-devtools": "workspace:*"
-  }
+  },
+<%~ include("_shared/partials/dev-deps", it) %>
+<%~ include("_shared/partials/build-config", it) %>
 }

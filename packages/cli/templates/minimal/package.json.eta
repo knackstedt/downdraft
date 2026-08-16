@@ -3,5 +3,7 @@
 <%~ include("_shared/partials/package-json-fields", it) %>
   "dependencies": {
     "@downdraft/core": "workspace:*"
-  }
+  },
+<%~ include("_shared/partials/dev-deps", it) %>
+<%~ include("_shared/partials/build-config", it) %>
 }

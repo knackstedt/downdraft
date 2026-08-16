@@ -1,0 +1,12 @@
+  "devDependencies": {
+    "@downdraft/app": "workspace:*",
+    "@downdraft/cli": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@webgpu/types": "^0.1.71",
+    "electron": "^43.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "oxlint": "^1.4.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  },
