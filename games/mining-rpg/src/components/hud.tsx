@@ -82,6 +82,8 @@ const ORE_INFO: Record<number, { name: string; color: string }> = {
   [Material.Stone]: { name: "Stone", color: "#666" },
   [Material.Dirt]: { name: "Dirt", color: "#8b5a2b" },
   [Material.Grass]: { name: "Grass", color: "#4a7c2f" },
+  [Material.Gravel]: { name: "Gravel", color: "#666560" },
+  [Material.LooseStone]: { name: "Loose Stone", color: "#6b6b6e" },
   [Material.Sand]: { name: "Sand", color: "#c2b280" },
 };
 

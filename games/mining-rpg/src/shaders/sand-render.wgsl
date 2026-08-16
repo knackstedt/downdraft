@@ -26,6 +26,20 @@ struct CameraUniforms {
 @group(0) @binding(4) var<uniform> u: Uniforms;
 @group(0) @binding(5) var<uniform> cam: CameraUniforms;
 
+// Returns true if the cell at grid coords c is a non-empty detached cell.
+// Out-of-bounds and empty (air) cells are treated as non-detached so that
+// detached cells get an outline against the world edge and against air.
+fn isDetachedAt(c: vec2<i32>) -> bool {
+  if (c.x < 0 || c.x >= i32(u.gridW) || c.y < 0 || c.y >= i32(u.gridH)) {
+    return false;
+  }
+  let p = textureLoad(gridTex, c, 0).r;
+  if ((p & 0xffu) == 0u) {
+    return false;
+  }
+  return ((p >> 16u) & 0x10u) != 0u;
+}
+
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   // uv is 0..1 across the fullscreen quad (uv.y=0 at top, uv.y=1 at bottom).
@@ -58,11 +72,35 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let props = textureLoad(propsTex, vec2<i32>(i32(matId), 0), 0);
   let brightness = props.b;
 
-  // Detached cells (loosened by mining) get a warm tint + slight brightness
-  // boost so the player can distinguish loose material from static terrain.
+  // Detached cells (loosened by mining) get a stronger warm tint plus a dark
+  // amber outline along any edge that borders attached terrain or air. This
+  // makes loose material clearly readable against static terrain at any zoom.
   var color = matColor.rgb;
   if (detached) {
-    color = color * 1.15 + vec3<f32>(0.08, 0.04, 0.0);
+    color = color * 1.2 + vec3<f32>(0.10, 0.05, 0.0);
+
+    // Outline: draw a dark amber edge where a detached cell touches a
+    // non-detached neighbor (attached solid or air). Clusters of detached
+    // cells share a single perimeter outline.
+    let frac = fract(vec2<f32>(cellX, cellY));
+    // Outline thickness in cell-fraction, kept ~1.5px but clamped so it never
+    // overwhelms tiny (zoomed-out) or huge (zoomed-in) cells.
+    let outlineW = clamp(1.5 / cam.zoom, 0.04, 0.45);
+    var onEdge = false;
+    if (frac.x < outlineW && !isDetachedAt(coords + vec2<i32>(-1, 0))) {
+      onEdge = true;
+    } else if (frac.x > (1.0 - outlineW) && !isDetachedAt(coords + vec2<i32>(1, 0))) {
+      onEdge = true;
+    } else if (frac.y < outlineW && !isDetachedAt(coords + vec2<i32>(0, -1))) {
+      onEdge = true;
+    } else if (frac.y > (1.0 - outlineW) && !isDetachedAt(coords + vec2<i32>(0, 1))) {
+      onEdge = true;
+    }
+    if (onEdge) {
+      // Dark amber: darker than the brightened interior (frames it) but
+      // lighter than pure black (visible against air).
+      color = mix(color, vec3<f32>(0.22, 0.11, 0.03), 0.7);
+    }
   }
 
   var alpha = matColor.a;

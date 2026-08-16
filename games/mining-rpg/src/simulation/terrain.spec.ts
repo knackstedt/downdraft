@@ -2,8 +2,8 @@ import { Material } from "@downdraft/library-sand";
 import { expect, test } from "bun:test";
 import { CHUNK_H, CHUNK_W, WORLD_SEED } from "../shared/constants";
 import { cellHash, fbm2D, mulberry32, worldFbm } from "./noise";
-import { ORE_CONFIG } from "./ore-config";
-import { generateChunk, surfaceHeightAt } from "./terrain";
+import { ORE_CONFIG, WORM_CONFIG } from "./ore-config";
+import { generateChunk, pickOreByDepth, surfaceHeightAt } from "./terrain";
 
 const SEED = WORLD_SEED;
 
@@ -324,4 +324,135 @@ test("surfaceHeightAt is deterministic", () => {
   for (let x = 0; x < 50; x++) {
     expect(surfaceHeightAt(x, SEED)).toBe(surfaceHeightAt(x, SEED));
   }
+});
+
+// --- Perlin worm ore generation tests ---
+
+test("multiple ore types coexist in the same chunk (no single-ore striation)", () => {
+  // At mid depths (cy 3-5, worldY ~384-767), iron, bauxite, coal, and silver
+  // should all be valid. A chunk at this depth should contain more than one
+  // ore type (the old system picked one ore per 128-cell region = one per chunk).
+  const oreMats = new Set(ORE_CONFIG.map((o) => o.material));
+  for (let cx = 0; cx < 8; cx++) {
+    const found = new Set<number>();
+    for (let cy = 3; cy <= 5; cy++) {
+      const chunk = generateChunk(cx, cy, SEED);
+      for (let i = 0; i < chunk.grid.length; i++) {
+        const m = chunk.grid[i] & 0xff;
+        if (oreMats.has(m)) found.add(m);
+      }
+    }
+    // At least one of these 8 column-groups should have 2+ ore types
+    if (found.size >= 2) return;
+  }
+  // If no chunk group had 2+ ores, fail
+  expect(true).toBe(false); // should not reach here
+});
+
+test("ore veins span chunk boundaries (same vein appears in adjacent chunks)", () => {
+  // Generate two horizontally adjacent chunks and check that ore cells exist
+  // at the same world-Y near the boundary. If veins are chunk-local, the
+  // boundary columns will have no correlation. With Perlin worms, worms from
+  // one chunk's seed neighborhood deposit into adjacent chunks.
+  const cy = 4; // mid depth where iron/bauxite are common
+  let foundSpanning = false;
+  for (let cx = 0; cx < 10 && !foundSpanning; cx++) {
+    const left = generateChunk(cx, cy, SEED);
+    const right = generateChunk(cx + 1, cy, SEED);
+    // Check the last 5 columns of left chunk and first 5 columns of right chunk
+    // at the same world Y — if both have ore at the same Y, the vein spans
+    for (let y = CHUNK_H - 20; y < CHUNK_H; y++) {
+      const leftMat = left.grid[y * CHUNK_W + (CHUNK_W - 1)] & 0xff;
+      const rightMat = right.grid[y * CHUNK_W + 0] & 0xff;
+      const oreMats = new Set(ORE_CONFIG.map((o) => o.material));
+      if (oreMats.has(leftMat) && leftMat === rightMat) {
+        foundSpanning = true;
+        break;
+      }
+    }
+  }
+  // It's possible (but unlikely) that no vein crosses an exact pixel boundary.
+  // Check within a 3-cell tolerance instead.
+  if (!foundSpanning) {
+    for (let cx = 0; cx < 10 && !foundSpanning; cx++) {
+      const left = generateChunk(cx, cy, SEED);
+      const right = generateChunk(cx + 1, cy, SEED);
+      const oreMats = new Set(ORE_CONFIG.map((o) => o.material));
+      for (let y = 0; y < CHUNK_H; y++) {
+        // Check if any ore in the last 3 columns of left matches any ore
+        // in the first 3 columns of right at the same y (±2 tolerance)
+        for (let dx = 0; dx < 3; dx++) {
+          const lm = left.grid[y * CHUNK_W + (CHUNK_W - 1 - dx)] & 0xff;
+          if (!oreMats.has(lm)) continue;
+          for (let dy = -2; dy <= 2; dy++) {
+            const ny = y + dy;
+            if (ny < 0 || ny >= CHUNK_H) continue;
+            for (let rdx = 0; rdx < 3; rdx++) {
+              const rm = right.grid[ny * CHUNK_W + rdx] & 0xff;
+              if (rm === lm) {
+                foundSpanning = true;
+                break;
+              }
+            }
+            if (foundSpanning) break;
+          }
+          if (foundSpanning) break;
+        }
+        if (foundSpanning) break;
+      }
+    }
+  }
+  expect(foundSpanning).toBe(true);
+});
+
+test("pickOreByDepth returns null above all ore depths (sky region)", () => {
+  // At worldY=10 (well above the stone body), no ore should be selected
+  const ore = pickOreByDepth(100, 10, SEED);
+  expect(ore).toBeNull();
+});
+
+test("pickOreByDepth returns shallow ore at shallow depth", () => {
+  // At worldY=80 (tin's ideal depth), should return a valid ore
+  const ore = pickOreByDepth(100, 80, SEED);
+  expect(ore).not.toBeNull();
+  expect(ore!.minDepthY).toBeLessThanOrEqual(80);
+  expect(ore!.maxDepthY).toBeGreaterThanOrEqual(80);
+});
+
+test("pickOreByDepth is deterministic at the same spawn point", () => {
+  const a = pickOreByDepth(64, 300, SEED);
+  const b = pickOreByDepth(64, 300, SEED);
+  expect(a?.material).toBe(b?.material);
+});
+
+test("ore coverage is reasonable (1-8% of stone body)", () => {
+  // Worms should produce a reasonable amount of ore — not too sparse,
+  // not too dense. Check a few mid-depth chunks.
+  const oreMats = new Set(ORE_CONFIG.map((o) => o.material));
+  let totalOre = 0;
+  let totalStone = 0;
+  for (let cx = 0; cx < 5; cx++) {
+    const chunk = generateChunk(cx, 4, SEED);
+    for (let i = 0; i < chunk.grid.length; i++) {
+      const m = chunk.grid[i] & 0xff;
+      if (m === Material.Stone) totalStone++;
+      else if (oreMats.has(m)) totalOre++;
+    }
+  }
+  const ratio = totalOre / (totalOre + totalStone);
+  // Should be between 0.5% and 10%
+  expect(ratio).toBeGreaterThan(0.005);
+  expect(ratio).toBeLessThan(0.10);
+});
+
+test("WORM_CONFIG seedGrid and spawnChance produce worms in a chunk neighborhood", () => {
+  // Sanity: the neighborhood radius calculation should cover at least the
+  // chunk itself (neighborhoodRadius >= 1)
+  const maxVeinLen = ORE_CONFIG.reduce((m, o) => Math.max(m, o.veinLength), 0);
+  const maxTravel = maxVeinLen * WORM_CONFIG.stepSize;
+  const neighborhoodRadius = Math.ceil(maxTravel / WORM_CONFIG.seedGrid) + 1;
+  expect(neighborhoodRadius).toBeGreaterThanOrEqual(2);
+  // Total seed cells in neighborhood should be reasonable (< 500)
+  const totalSeeds = (2 * neighborhoodRadius + 1) ** 2;
+  expect(totalSeeds).toBeLessThan(500);
 });

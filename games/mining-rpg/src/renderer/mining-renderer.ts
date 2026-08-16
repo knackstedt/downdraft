@@ -17,7 +17,7 @@ import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
 import { surfaceHeightAt } from "../simulation/terrain";
 import { pickDeathQuip, useGameStore } from "../stores/game-store";
-import { AutosaveManager, loadWorld } from "../stores/save-system";
+import { AutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
 import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
@@ -94,6 +94,16 @@ export class MiningRenderer {
   /** Signpost world position (surface spawn point). */
   getSignpostPos(): { x: number; y: number } {
     return { x: this.signpostX, y: this.signpostY };
+  }
+
+  /** Pause the simulation (called from UI menus). */
+  pause(): void {
+    this.workerHost?.pause();
+  }
+
+  /** Resume the simulation (called from UI menus). */
+  resume(): void {
+    this.workerHost?.resume();
   }
 
   async init(): Promise<boolean> {
@@ -266,6 +276,68 @@ export class MiningRenderer {
     this.workerHost?.respawn();
     this.workerHost?.resume();
     s.setPaused(false);
+  }
+
+  /**
+   * Reset the entire world: stop the sim worker, delete the save, reset the
+   * game store, and restart the worker with a fresh ChunkWorld. The world
+   * regenerates from seed (new ore veins, terrain, etc.). Called from the
+   * EscapeMenu UI when the player clicks "Reset World".
+   */
+  async resetWorld(): Promise<void> {
+    const s = useGameStore.getState();
+
+    // Stop autosave so it doesn't write the old state back during teardown
+    this.autosave?.stop();
+
+    // Stop the current sim worker + backdrop worker
+    await this.workerHost?.stop();
+    await this.backdropHost?.stop();
+
+    // Delete the saved world so the fresh worker doesn't reload it
+    try {
+      await deleteSave();
+    } catch (e) {
+      console.warn("[MiningRenderer] Failed to delete save on reset:", e);
+    }
+
+    // Reset all game store state to defaults
+    s.setGameOver(false);
+    s.setHealth(100);
+    s.setDeathCause(0);
+    s.setDeathQuip("");
+    s.setInventory([]);
+    s.setUpgrades({ damage: 0, radius: 0, rate: 0, inventorySize: 0 });
+    s.setCurrency(0);
+    s.setNearSignpost(false);
+    s.setPaused(false);
+
+    // Clear bombs + explosions
+    this.bombs = [];
+    this.explosions = [];
+
+    // Suppress death/health detection until the new worker writes its first frame
+    this.respawning = true;
+    this.simReady = false;
+
+    // Restart the sim worker with a fresh ChunkWorld
+    this.workerHost = new MiningWorkerHost();
+    await this.workerHost.start();
+    this.gridReader = this.workerHost.getReader();
+    this.workerHost.onCollectedItems((items) => {
+      for (const item of items) {
+        useGameStore.getState().addToInventory(item.mat, item.count);
+      }
+    });
+
+    // Restart the backdrop worker
+    this.backdropHost = new BackdropWorkerHost();
+    await this.backdropHost.start();
+
+    // Restart autosave
+    if (this.autosave) {
+      this.autosave.start();
+    }
   }
 
   private frame(time: number): void {
@@ -459,10 +531,19 @@ export class MiningRenderer {
     const py = this.workerHost!.getPlayerF32(PLAYER.PY);
 
     // Direction from player center to target
-    const dx = targetX - px;
-    const dy = targetY - py;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 0.001) return;
+    let dx = targetX - px;
+    let dy = targetY - py;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) {
+      // Target is essentially at the player's position (e.g. mouse hasn't
+      // moved from center yet). Throw in the direction the player is facing
+      // so the bomb goes forward instead of straight up or in a random
+      // direction.
+      const facing = this.workerHost!.getPlayerI32(PLAYER.FACING);
+      dx = facing;
+      dy = -1; // slight upward angle
+      dist = Math.sqrt(dx * dx + dy * dy);
+    }
 
     // Velocity: scale by BOMB_SPEED, with a minimum arc
     const speed = BOMB_SPEED;

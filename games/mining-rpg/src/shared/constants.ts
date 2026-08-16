@@ -2,6 +2,8 @@
 // Mining RPG — world constants
 // ============================================================================
 
+import { Material } from "@downdraft/library-sand";
+
 // Chunk dimensions (configurable). Start at 128x128 cells per chunk.
 export const CHUNK_W = 128;
 export const CHUNK_H = 128;
@@ -17,7 +19,7 @@ export const ACTIVE_RADIUS_CHUNKS = 2;
 export const TICK_RATE = 30;
 
 // Freeze duration in ticks. 300 seconds @ 30tps = 9000 ticks.
-export const FREEZE_TICKS = 9000;
+export const FREEZE_TICKS = TICK_RATE * 60 * 1;
 
 // Cell bytes (same as the sand library: 4 bytes per cell in the grid Uint32Array).
 export const CELL_BYTES = 4;
@@ -68,6 +70,10 @@ export const STONE_HARDNESS = 30;
 export const DIRT_HARDNESS = 10;
 /** Ore hardness — how much damage needed to dislodge an ore cell. */
 export const ORE_HARDNESS = 20;
+/** Gravel hardness — easy to clear (fine crushed stone). */
+export const GRAVEL_HARDNESS = 8;
+/** LooseStone hardness — medium (coarse chunk, easier than solid stone). */
+export const LOOSE_STONE_HARDNESS = 15;
 
 /** Max raycast range from player (in cells). */
 export const MAX_MINE_RANGE = 30;
@@ -82,6 +88,8 @@ export const SELL_PRICES: Record<number, number> = {
   3: 1,    // Stone
   14: 1,   // Dirt
   15: 1,   // Grass
+  62: 1,   // Gravel
+  63: 2,   // LooseStone (slightly more valuable than gravel)
   // Shallow ores (tin, copper, iron, bauxite, coal)
   52: 5,   // TinOre
   53: 8,   // CopperOre
@@ -206,3 +214,33 @@ export const BACKDROP_STATS = {
   ORIGIN_X: 0, // int32 — backdropOriginCx * BACKDROP_CHUNK_W
   ORIGIN_Y: 4, // int32 — backdropOriginCy * BACKDROP_CHUNK_H
 } as const;
+
+// ============================================================================
+// Material helpers — shared between chunk-world.ts and mining-player.ts
+// (kept here to avoid circular imports between those two modules).
+// ============================================================================
+
+/**
+ * Check if a material is collectible (ore, loose stone/dirt, refined metals).
+ * Ores, refined metals, and loose stone debris (Gravel, LooseStone, Dirt,
+ * Grass) are collected by proximity. Static Stone itself is NOT collectible —
+ * it must be mined first (converted to Gravel/LooseStone via the mining damage
+ * system), then the loose debris is collected.
+ */
+export function isCollectible(mat: number): boolean {
+  return (
+    mat === Material.TinOre ||
+    mat === Material.CopperOre ||
+    mat === Material.IronOre ||
+    mat === Material.BauxiteOre ||
+    mat === Material.SilverOre ||
+    mat === Material.GoldOre ||
+    mat === Material.CobaltOre ||
+    mat === Material.Coal ||
+    mat === Material.Iron ||
+    mat === Material.Dirt ||
+    mat === Material.Grass ||
+    mat === Material.Gravel ||
+    mat === Material.LooseStone
+  );
+}

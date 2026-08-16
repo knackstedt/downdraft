@@ -54,6 +54,7 @@ expose({
   resume(): void {
     paused = false;
     lastTick = performance.now();
+    tickAccumulator = 0;
   },
   shutdown(): void {
     running = false;
@@ -65,6 +66,7 @@ expose({
     stepOnce = true;
     paused = false;
     lastTick = performance.now();
+    tickAccumulator = 0;
   },
 
   getStats(): { fps: number; tick: number; frame: number } {
@@ -130,9 +132,15 @@ async function loop(): Promise<void> {
 
     if (elapsed >= TICK_MS) {
       lastTick = now - (elapsed % TICK_MS);
-      tickAccumulator += (elapsed / TICK_MS) * speedMultiplier;
 
       if (!paused || stepOnce) {
+        // Only accumulate sim time when actually stepping. While paused,
+        // lastTick still advances (above) so we don't get a huge elapsed
+        // spike on resume, but we must NOT let tickAccumulator build up —
+        // otherwise the sim runs MAX_STEPS_PER_FRAME catch-up ticks every
+        // frame after resume, making the player move at 5x speed for a
+        // few seconds (e.g. after the death menu).
+        tickAccumulator += (elapsed / TICK_MS) * speedMultiplier;
         let steps = 0;
         const maxSteps = stepOnce ? 1 : MAX_STEPS_PER_FRAME;
         while (tickAccumulator >= 1 && steps < maxSteps) {

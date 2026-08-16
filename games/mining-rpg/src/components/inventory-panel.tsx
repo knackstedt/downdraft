@@ -67,6 +67,8 @@ const MATERIAL_INFO: Record<number, { name: string; color: string }> = {
   [Material.Iron]: { name: "Iron Block", color: "#888888" },
   [Material.Stone]: { name: "Stone", color: "#666666" },
   [Material.Dirt]: { name: "Dirt", color: "#8b5a2b" },
+  [Material.Gravel]: { name: "Gravel", color: "#666560" },
+  [Material.LooseStone]: { name: "Loose Stone", color: "#6b6b6e" },
   [Material.Sand]: { name: "Sand", color: "#c2b280" },
 };
 

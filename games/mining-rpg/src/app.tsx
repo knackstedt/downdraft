@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { BombOverlay } from "./components/bomb-overlay";
 import { DeathMenu } from "./components/death-menu";
+import { EscapeMenu } from "./components/escape-menu";
 import { HUD } from "./components/hud";
 import { InventoryPanel } from "./components/inventory-panel";
 import { SignpostOverlay } from "./components/signpost-overlay";
@@ -22,7 +23,7 @@ const helpStyle: React.CSSProperties = {
 };
 
 export default function App() {
-  const { paused } = useGameStore();
+  const { paused, showEscapeMenu } = useGameStore();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -40,6 +41,19 @@ export default function App() {
           s.sellAll();
         }
       }
+      if (e.key === "Escape") {
+        const s = useGameStore.getState();
+        // Don't toggle ESC menu if the death menu is open
+        if (s.gameOver) return;
+        const nowOpen = !s.showEscapeMenu;
+        s.setShowEscapeMenu(nowOpen);
+        s.setPaused(nowOpen);
+        if (nowOpen) {
+          (s.renderer as { pause?: () => void } | null)?.pause?.();
+        } else {
+          (s.renderer as { resume?: () => void } | null)?.resume?.();
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -53,8 +67,9 @@ export default function App() {
       <SignpostPrompt />
       <BombOverlay />
       <DeathMenu />
+      <EscapeMenu />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | P: pause | I: inventory | E: sell
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | P: pause | I: inventory | E: sell | ESC: menu
         {paused && " | PAUSED"}
       </div>
     </>

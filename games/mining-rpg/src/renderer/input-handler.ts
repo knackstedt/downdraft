@@ -20,6 +20,12 @@ export interface MiningInputState {
 }
 
 export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInputState {
+  // Initialize mouse to the center of the canvas so that before the user
+  // moves the mouse, screenToWorld maps to the viewport center (roughly
+  // where the player is) instead of the top-left corner (0,0). Without
+  // this, right-clicking to throw a bomb before moving the mouse would
+  // throw it up-and-to-the-left toward screen (0,0).
+  const rect0 = canvas.getBoundingClientRect();
   const state: MiningInputState = {
     left: false,
     right: false,
@@ -28,8 +34,8 @@ export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInput
     jump: false,
     mouseDown: false,
     mouseRight: false,
-    mouseX: 0,
-    mouseY: 0,
+    mouseX: rect0.width / 2,
+    mouseY: rect0.height / 2,
     digRadius: 3,
   };
 

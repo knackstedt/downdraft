@@ -21,6 +21,7 @@ import {
     DEFAULT_TEMP,
     FIELD,
     FLAG_UPDATED,
+    LOOSE_STONE_SETTLE_TICKS,
     MAT_GRAVITY_DIR,
     Material,
     MATERIALS,
@@ -41,7 +42,10 @@ import {
     DAMAGE_UPGRADE_INCREMENT,
     DIRT_HARDNESS,
     FREEZE_TICKS,
+    GRAVEL_HARDNESS,
     INVENTORY_SIZE_UPGRADE_INCREMENT,
+    isCollectible,
+    LOOSE_STONE_HARDNESS,
     MAX_CHUNKS_X,
     MAX_MINE_RANGE,
     ORE_HARDNESS,
@@ -58,14 +62,15 @@ import { generateChunk, surfaceHeightAt } from "./terrain";
 
 /**
  * Flag bit stored in the packed cell's flags field (bits 16-23) to indicate
- * that a cell has been dislodged from the static terrain by mining. This bit
- * is preserved through physics operations (swap, applyAging) because it lives
- * in the flags field alongside shade/FLAG_UPDATED/FLAG_SPARK. The renderer
- * reads this bit to tint detached cells differently from static terrain.
+ * that a cell has been dislodged from the static terrain by mining. The
+ * renderer reads this bit to tint detached cells differently from static
+ * terrain.
  *
  * Bit 4 of the flags field (bit 20 of the packed uint32). Unused by the
  * physics engine (which only uses bits 0-3: shade 0-1, FLAG_UPDATED 2,
- * FLAG_SPARK 3).
+ * FLAG_SPARK 3). Registered with SandWorld.preserveFlagsMask so it survives
+ * the per-frame FLAG_UPDATED clear in buildActiveListAndClearFlags(). Swaps
+ * and applyAging preserve it via bit-OR / selective clear.
  */
 const FLAG_DETACHED = 0x10;
 
@@ -116,6 +121,10 @@ export class ChunkWorld {
     this.skipMask = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.cellDamage = new Float32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.activeGrid.skipMask = this.skipMask;
+    // Preserve FLAG_DETACHED (bit 4 of the flags byte) across the physics
+    // engine's per-frame FLAG_UPDATED clear. Without this, the detached bit
+    // is stripped every step() and the renderer never sees it.
+    this.activeGrid.preserveFlagsMask = FLAG_DETACHED;
     // Don't initialize the stone floor — the chunk system provides terrain
     this.activeGrid.grid.fill(0);
     this.activeGrid.fields.fill(DEFAULT_TEMP);
@@ -554,12 +563,16 @@ export class ChunkWorld {
 
         // Determine hardness based on material type
         let hardness: number;
-        if (isCollectible(mat)) {
-          hardness = ORE_HARDNESS;
-        } else if (mat === Material.Stone) {
+        if (mat === Material.Stone) {
           hardness = STONE_HARDNESS;
+        } else if (mat === Material.LooseStone) {
+          hardness = LOOSE_STONE_HARDNESS;
+        } else if (mat === Material.Gravel) {
+          hardness = GRAVEL_HARDNESS;
         } else if (mat === Material.Dirt || mat === Material.Grass) {
           hardness = DIRT_HARDNESS;
+        } else if (isCollectible(mat)) {
+          hardness = ORE_HARDNESS;
         } else {
           hardness = STONE_HARDNESS; // default for other solids
         }
@@ -581,9 +594,18 @@ export class ChunkWorld {
             grid[idx] = packed | (FLAG_DETACHED << 16);
             this.markCellUnfrozen(x, y);
           } else if (mat === Material.Stone || mat === Material.Grass) {
-            // Stone/Grass → convert to Dirt (loose, collectible, falls with gravity)
+            // Stone/Grass → 60% Gravel (fine, flows+settles) + 40% LooseStone
+            // (coarse, falls then re-settles to Stone). Both are collectible.
             const shade = (packed >> 16) & 0xff;
-            grid[idx] = packCell(Material.Dirt, 0, shade | FLAG_DETACHED);
+            const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
+            // LooseStone uses the lifetime field as a settle timer; Gravel
+            // has no timer (never re-settles to Stone).
+            const lifetime = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
+            grid[idx] = packCell(newMat, lifetime, shade | FLAG_DETACHED);
+            const fi = idx * 4;
+            if (fields[fi + FIELD.GRAVITY] === 0) {
+              fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+            }
             this.markCellUnfrozen(x, y);
           } else {
             // Dirt/Grass/other: clear to create a hole
@@ -606,8 +628,14 @@ export class ChunkWorld {
                     // Mark as detached (loosened)
                     grid[aboveIdx] = above | (FLAG_DETACHED << 16);
                   } else if (aboveDef.gravity === 0) {
+                    // Static solid (stone) loosened by cascade → Gravel/LooseStone
                     const shade = (above >> 16) & 0xff;
-                    grid[aboveIdx] = packCell(Material.Dirt, 0, shade | FLAG_DETACHED);
+                    const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
+                    const lt = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
+                    grid[aboveIdx] = packCell(newMat, lt, shade | FLAG_DETACHED);
+                    if (fields[aboveFi + FIELD.GRAVITY] === 0) {
+                      fields[aboveFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+                    }
                   }
                 }
                 this.markCellUnfrozen(x, y - 1);
@@ -702,7 +730,23 @@ export class ChunkWorld {
           for (let lx = 0; lx < CHUNK_W; lx++) {
             const localIdx = ly * CHUNK_W + lx;
             const wt = wakeTick[localIdx];
-            if (wt === 0) continue;
+            if (wt === 0) {
+              // Cell is frozen at this position. But if a detached (loose)
+              // particle has fallen here via physics, its wakeTick was set at
+              // its previous position and NOT transferred to this one. Detect
+              // this case: if the grid cell has FLAG_DETACHED set, it's a loose
+              // particle that needs its wakeTick re-activated here so it stays
+              // collectible.
+              const ax = offsetX + lx;
+              const ay = offsetY + ly;
+              const packed = grid[ay * ACTIVE_GRID_W + ax];
+              if (packed !== 0 && ((packed >> 16) & FLAG_DETACHED) !== 0) {
+                wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                chunk.dirty = true;
+                hasUnfrozen = true;
+              }
+              continue;
+            }
 
             if (nearPlayer) {
               // Near-player: keep all unfrozen cells alive so they stay
@@ -766,12 +810,23 @@ export class ChunkWorld {
     const grid = this.activeGrid.grid;
     const r2 = COLLECT_RADIUS * COLLECT_RADIUS;
 
+    // Player body AABB in active-grid coords — debris overlapping these cells
+    // should NOT be collected; it buries the player and causes crush/suffocation
+    // damage. Without this, collect() vacuums up debris on the player's body
+    // every tick, preventing suffocation.
+    const bodyX0 = Math.floor(paxF - PLAYER_W / 2);
+    const bodyX1 = Math.floor(paxF + PLAYER_W / 2);
+    const bodyY0 = Math.floor(payF);
+    const bodyY1 = Math.floor(payF + PLAYER_H - 1);
+
     for (let dy = -COLLECT_RADIUS; dy <= COLLECT_RADIUS; dy++) {
       for (let dx = -COLLECT_RADIUS; dx <= COLLECT_RADIUS; dx++) {
         if (dx * dx + dy * dy > r2) continue;
         const x = pax + dx;
         const y = pay + dy;
         if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) continue;
+        // Skip cells overlapping the player's body — those bury the player
+        if (x >= bodyX0 && x <= bodyX1 && y >= bodyY0 && y <= bodyY1) continue;
         const idx = y * ACTIVE_GRID_W + x;
         const packed = grid[idx];
         if (packed === 0) continue;
@@ -1037,8 +1092,10 @@ export class ChunkWorld {
           grid[idx] = packed | (FLAG_DETACHED << 16);
           this.markCellUnfrozen(gx, gy);
         } else if (mat === Material.Stone || mat === Material.Grass) {
-          // Stone/Grass → convert to Dirt (loose, collectible, falls with gravity)
-          grid[idx] = packCell(Material.Dirt, 0, shade | FLAG_DETACHED);
+          // Stone/Grass → 60% Gravel + 40% LooseStone (loose, collectible)
+          const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
+          const lt = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
+          grid[idx] = packCell(newMat, lt, shade | FLAG_DETACHED);
           if (fields[fi + FIELD.GRAVITY] === 0) {
             fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
           }
@@ -1089,7 +1146,9 @@ export class ChunkWorld {
       const damage = Math.round(50 * (1 - pdist / (radius + PLAYER_W)));
       if (damage > 0) {
         this.player.health = Math.max(0, this.player.health - damage);
-        this.player.lastDamageMaterial = Material.Fire; // explosion = fire damage
+        // Bombs use the fuse-fire death cause so the quip reflects the
+        // explosion (e.g. "should've cut the red wire"), not generic fire.
+        this.player.lastDamageMaterial = Material.FuseFire;
       }
     }
   }
@@ -1111,25 +1170,4 @@ export interface SavedChunk {
   grid: Uint32Array;
   fields: Uint8Array;
   wakeTick: Uint32Array;
-}
-
-/** Check if a material is collectible (ore, loose stone/dirt, refined metals). */
-function isCollectible(mat: number): boolean {
-  // Ores, refined metals, and loose Dirt (from dislodged stone) are collected
-  // by proximity. Stone itself is NOT collectible — it must be mined first
-  // (converted to Dirt via the mining damage system), then the loose Dirt
-  // is collected.
-  return (
-    mat === Material.TinOre ||
-    mat === Material.CopperOre ||
-    mat === Material.IronOre ||
-    mat === Material.BauxiteOre ||
-    mat === Material.SilverOre ||
-    mat === Material.GoldOre ||
-    mat === Material.CobaltOre ||
-    mat === Material.Coal ||
-    mat === Material.Iron ||
-    mat === Material.Dirt ||
-    mat === Material.Grass
-  );
 }
