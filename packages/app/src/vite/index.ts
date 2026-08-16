@@ -90,6 +90,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/plugin-electron-osr\/main-entry$/, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src/main-entry.ts") },
     { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src") + "/" },
     { find: /^@downdraft\/library-persistence$/, replacement: resolve(repoRoot, "packages/plugins/persistence/src/index.ts") },
+    { find: /^@downdraft\/library-persistence\/browser$/, replacement: resolve(repoRoot, "packages/plugins/persistence/src/browser.ts") },
     { find: /^@downdraft\/library-persistence\//, replacement: resolve(repoRoot, "packages/plugins/persistence/src") + "/" },
     // plugin-models — dynamically imported by core's loader-mesh.ts; needs to
     // be resolvable in the main process build.
@@ -113,6 +114,10 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/ui\//, replacement: resolve(repoRoot, "packages/ui/src") + "/" },
     { find: /^@downdraft\/shader-graph$/, replacement: resolve(repoRoot, "packages/shader-graph/src/index.ts") },
     { find: /^@downdraft\/shader-graph\//, replacement: resolve(repoRoot, "packages/shader-graph/src") + "/" },
+    // Persistence — browser entry excludes FileSaveStore (node:fs/node:path)
+    { find: /^@downdraft\/library-persistence\/browser$/, replacement: resolve(repoRoot, "packages/plugins/persistence/src/browser.ts") },
+    { find: /^@downdraft\/library-persistence$/, replacement: resolve(repoRoot, "packages/plugins/persistence/src/browser.ts") },
+    { find: /^@downdraft\/library-persistence\//, replacement: resolve(repoRoot, "packages/plugins/persistence/src") + "/" },
     { find: /^@downdraft\/library-postfx$/, replacement: resolve(repoRoot, "packages/plugins/postfx/src/index.ts") },
     { find: /^@downdraft\/library-postfx\//, replacement: resolve(repoRoot, "packages/plugins/postfx/src") + "/" },
     { find: /^@downdraft\/library-sand$/, replacement: resolve(repoRoot, "packages/plugins/physics-sand/src/index.ts") },

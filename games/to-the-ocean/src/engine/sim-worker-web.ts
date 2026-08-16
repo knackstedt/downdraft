@@ -6,7 +6,7 @@
 
 import { GCController, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
-import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence";
+import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { BoatBufferWriter } from "@shared/boat-buffer";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
 import { InputBufferReader } from "@shared/input-buffer";

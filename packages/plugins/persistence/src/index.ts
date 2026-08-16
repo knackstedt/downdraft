@@ -1,6 +1,10 @@
 // ============================================================================
 // @downdraft/library-persistence — versioned, compressed save system
 // ============================================================================
+//
+// This barrel re-exports everything including FileSaveStore (Node-only).
+// For browser/renderer code that cannot import node:fs/node:path, import from
+// @downdraft/library-persistence/browser instead.
 
 export { FileSaveStore } from "./file-save-store";
 export type { FileSaveStoreOptions } from "./file-save-store";

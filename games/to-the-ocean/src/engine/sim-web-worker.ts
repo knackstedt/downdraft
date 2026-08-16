@@ -6,7 +6,7 @@
 
 import { HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
-import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence";
+import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { allocateBoatBuffer } from "@shared/boat-buffer";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
 import { allocateInputBuffer, allocateSimBuffer, allocateWaterBuffer } from "@shared/sim-buffer";

@@ -15,8 +15,7 @@
 // The factory is called from the renderer after the sim worker is initialized.
 
 import type { ISaveStore } from "@downdraft/core";
-import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence";
-import { SaveWorkerProxy } from "@downdraft/library-persistence";
+import { OpfsSaveStore, SaveWorkerProxy, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
 
 export type SaveStoreMode = "inline" | "worker" | "auto";
