@@ -64,7 +64,36 @@ export function installStoreBridgeWorker(runtime?: any): void {
     };
   }
 
-  // Patch game store actions to forward to main thread
+  // Patch game store actions to forward to main thread.
+  // For toggle actions, we apply an optimistic local update immediately so
+  // the worker's onKey handler sees the correct state on the next keydown
+  // (the store-sync from the main thread is async and may not arrive before
+  // the next key event, causing stale-state bugs).
+  const toggleStateKey: Record<string, string> = {
+    toggleInventory: "showInventory",
+    toggleMap: "showMap",
+    toggleBuildMenu: "showBuildMenu",
+    toggleCraftMenu: "showCraftMenu",
+    toggleFishingMinigame: "showFishingMinigame",
+    toggleTradeMenu: "showTradeMenu",
+    toggleSettings: "showSettings",
+    togglePauseMenu: "showPauseMenu",
+    toggleCharacterCustomization: "showCharacterCustomization",
+    toggleCredits: "showCredits",
+  };
+
+  // Track toggle state keys with pending optimistic updates.
+  // When the worker applies an optimistic update (flipping a boolean), we add
+  // the key here. Store-syncs from the main thread skip these keys for a short
+  // window, because the sync may reflect stale state (the main thread hasn't
+  // processed our action yet, or a sync from a previous action arrives late
+  // and would overwrite our more recent optimistic update).
+  const optimisticPending = new Set<string>();
+  // How long to skip syncs for a key after an optimistic update. The main
+  // thread processes actions within ~1ms and syncs within ~16ms, so 200ms
+  // is a generous safety margin.
+  const OPTIMISTIC_SKIP_MS = 200;
+
   const gameActions = [
     "toggleInventory", "toggleMap", "toggleBuildMenu", "toggleCraftMenu",
     "toggleFishingMinigame", "toggleTradeMenu", "toggleSettings",
@@ -80,6 +109,17 @@ export function installStoreBridgeWorker(runtime?: any): void {
     // Replace with a forwarder
     (useGameStore as any).setState({
       [action]: (...args: any[]) => {
+        // Optimistic update: flip the corresponding boolean immediately
+        // so the next keydown in the worker sees the correct state.
+        const stateKey = toggleStateKey[action];
+        if (stateKey) {
+          const current = (useGameStore.getState() as any)[stateKey];
+          useGameStore.setState({ [stateKey]: !current }, false);
+          // Mark this key as having a pending optimistic update so store-syncs
+          // from the main thread don't overwrite it with stale state.
+          optimisticPending.add(stateKey);
+          setTimeout(() => { optimisticPending.delete(stateKey); }, OPTIMISTIC_SKIP_MS);
+        }
         (self as any).postMessage({ type: "store-action", store: "game", action, args });
       },
     }, false);
@@ -107,10 +147,18 @@ export function installStoreBridgeWorker(runtime?: any): void {
     if (msg?.type !== "store-sync") return;
 
     if (msg.game) {
-      // Apply state without triggering the actions we patched.
+      // Filter out toggle state keys that have pending optimistic updates.
+      // The worker's optimistic update is more recent than the main thread's
+      // sync (which may reflect stale state from before the action was processed).
+      const filtered: Record<string, any> = {};
+      for (const key in msg.game) {
+        if (optimisticPending.has(key)) continue;
+        filtered[key] = msg.game[key];
+      }
+      // Apply filtered state without triggering the actions we patched.
       // pointerLocked is NOT included in the sync — it's read from the SAB
       // flag by the runtime's checkPointerLockFlag() after each callSync.
-      useGameStore.setState(msg.game, false);
+      useGameStore.setState(filtered, false);
     }
     if (msg.debug) {
       useDebugStore.setState(msg.debug, false);

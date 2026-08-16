@@ -281,6 +281,9 @@ export interface DowndraftBridgeAPI {
   getElectronGPUInfo(): Promise<ElectronGPUInfo | null>;
   getVulkanValidationStatus(): Promise<VulkanValidationStatus>;
   openChromeUrl(url: string): void;
+  /** Capture the full page (WebGPU canvas + DOM overlay) as a PNG buffer.
+   *  Returns null if the window is gone or the capture is empty. */
+  capturePage(): Promise<ArrayBuffer | null>;
   importCacheGet(modelPath: string): Promise<ImportCacheEntry | null>;
   importCacheSet(modelPath: string, entry: ImportCacheEntry): Promise<void>;
   importCacheInvalidate(modelPath: string): Promise<void>;

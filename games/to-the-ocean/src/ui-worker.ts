@@ -42,7 +42,6 @@ self.onmessage = (e: MessageEvent) => {
     // Also drain on a short interval — the worker's rAF is async (proxied
     // to the main thread) and can be delayed when the main thread is busy.
     // setInterval fires locally in the worker without main-thread cooperation.
-    let intervalCount = 0;
     setInterval(() => {
       if (runtime) {
         runtime.drainReplies();
@@ -50,8 +49,6 @@ self.onmessage = (e: MessageEvent) => {
         // Also check the pointer lock flag — the main thread writes this
         // directly to the SAB (postMessage would be stuck while we're blocked).
         if (runtime.checkPointerLockFlag) runtime.checkPointerLockFlag();
-        intervalCount++;
-        if (intervalCount % 500 === 0) console.log(`[ui-worker] interval tick #${intervalCount}`);
       }
     }, 4);
 

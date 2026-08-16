@@ -28,6 +28,9 @@ export const IPC = {
   VULKAN_VALIDATION_STATUS: "vulkan-validation-status",
   OPEN_CHROME_URL: "open-chrome-url",
 
+  // Screenshot — Renderer -> Main (captures full page: canvas + DOM overlay)
+  CAPTURE_PAGE: "capture-page",
+
   // MCP proxy (Main <-> Renderer)
   MCP_REQUEST: "mcp-request",
 

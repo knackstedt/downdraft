@@ -131,6 +131,24 @@ export const DEFAULT_HUD_STATE: HudState = {
 
 let bookmarkId = 0;
 
+/**
+ * Safety net: after closing a menu and calling lockPointer(), the browser may
+ * reject the pointer lock request (e.g. if it's within the cooldown period
+ * after a recent unlock, ~1.5s in Chromium). If lockPointer() fails, the
+ * pointerlockchange event never fires with locked=true, so suppressPauseMenu
+ * would never be reset — permanently blocking the pause menu from opening on
+ * subsequent ESC presses. This timeout checks after 200ms whether pointer lock
+ * was actually acquired; if not, it resets suppressPauseMenu so the user can
+ * still open the pause menu via ESC or the click-to-resume overlay.
+ */
+function scheduleSuppressReset(get: () => GameStoreState): void {
+  setTimeout(() => {
+    if (!document.pointerLockElement && get().suppressPauseMenu) {
+      get().setSuppressPauseMenu(false);
+    }
+  }, 200);
+}
+
 export const useGameStore = create<GameStoreState>((set, get) => ({
   ...createBaseGameStoreState<WebGPURenderer>(set as any, get as any),
 
@@ -161,49 +179,106 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   setWeather: (w) => set({ weather: w }),
   setPlayerDied: (d) => set({ playerDied: d }),
   toggleInventory: () => {
-    if (get().showInventory) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showInventory) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showInventory: !s.showInventory }));
   },
   toggleMap: () => {
-    if (get().showMap) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showMap) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showMap: !s.showMap }));
   },
   toggleBuildMenu: () => {
-    if (get().showBuildMenu) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showBuildMenu) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showBuildMenu: !s.showBuildMenu }));
   },
   toggleCraftMenu: () => {
-    if (get().showCraftMenu) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showCraftMenu) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showCraftMenu: !s.showCraftMenu }));
   },
   toggleFishingMinigame: () => {
-    if (get().showFishingMinigame) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showFishingMinigame) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showFishingMinigame: !s.showFishingMinigame }));
   },
   toggleTradeMenu: () => {
-    if (get().showTradeMenu) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showTradeMenu) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showTradeMenu: !s.showTradeMenu }));
   },
   toggleSettings: () => {
-    if (get().showSettings) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showSettings) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showSettings: !s.showSettings }));
   },
   togglePauseMenu: () => {
-    if (get().showPauseMenu) {
+    const wasOpen = get().showPauseMenu;
+    if (wasOpen) {
       get().renderer?.lockPointer();
       set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
       get().simBridge?.resumeGame();
     } else {
+      document.exitPointerLock?.();
       get().simBridge?.pauseGame();
     }
     set((s) => ({ showPauseMenu: !s.showPauseMenu }));
   },
   toggleCharacterCustomization: () => {
-    if (get().showCharacterCustomization) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showCharacterCustomization) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showCharacterCustomization: !s.showCharacterCustomization }));
   },
   toggleCredits: () => {
-    if (get().showCredits) { get().renderer?.lockPointer(); set({ suppressPauseMenu: true }); }
+    if (get().showCredits) {
+      get().renderer?.lockPointer();
+      set({ suppressPauseMenu: true });
+      scheduleSuppressReset(get);
+    } else {
+      document.exitPointerLock?.();
+    }
     set((s) => ({ showCredits: !s.showCredits }));
   },
   equipItem: (slot, itemId) =>
@@ -223,3 +298,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   setCurrentSimSpeed: (v) => set({ currentSimSpeed: v }),
   setHudState: (s) => set((state) => ({ hudState: { ...state.hudState, ...s } })),
 }));
+
+// Expose on window for MCP automation tools (avoids circular import in setup.ts)
+if (typeof window !== "undefined") {
+  (window as any).__gameStore = useGameStore;
+}

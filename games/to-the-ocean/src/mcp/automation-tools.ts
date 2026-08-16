@@ -5,6 +5,7 @@
 // (SharedArrayBuffers, WebGPU canvas) rather than the generic EngineContext.
 // ============================================================================
 
+import { downdraft } from "@downdraft/app/renderer";
 import { type InjectedInputFrame } from "../engine/renderer-input-handler";
 import type { SimWebWorker } from "../engine/sim-web-worker";
 import type { WebGPURenderer } from "../engine/webgpu-renderer";
@@ -16,6 +17,8 @@ import { errorResult, jsonResult } from "./mcp-types";
 export interface AutomationContext {
   renderer: () => WebGPURenderer | null;
   worker: () => SimWebWorker | null;
+  /** Lazy getter for the game store — avoids circular import issues. */
+  store: () => { getState: () => any } | null;
 }
 
 const KEY_NAME_MAP: Record<string, number> = {
@@ -55,6 +58,49 @@ function blobToBase64(blob: Blob): Promise<string> {
     };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Composite the WebGPU canvas screenshot with the DOM overlay into a single
+ * PNG. The canvas is drawn first (bottom layer), then the overlay (captured
+ * via Electron's webContents.capturePage()) is drawn on top.
+ *
+ * webContents.capturePage() captures the DOM compositor output (which includes
+ * the HTML/React overlay) but NOT the WebGPU canvas (which renders directly to
+ * the GPU, bypassing the DOM compositor). So we composite renderer-side:
+ *   1. Draw the WebGPU canvas onto an offscreen 2D canvas
+ *   2. Load the capturePage() PNG (DOM overlay) as an ImageBitmap
+ *   3. Draw the overlay ImageBitmap on top
+ *   4. Export the composited canvas as PNG
+ *
+ * Both images are same-origin (canvas.toBlob + IPC), so the canvas is NOT tainted.
+ */
+async function compositeScreenshot(
+  canvas: HTMLCanvasElement,
+  capturePagePng: ArrayBuffer,
+  width: number,
+  height: number,
+): Promise<Blob | null> {
+  const offscreen = document.createElement("canvas");
+  offscreen.width = width;
+  offscreen.height = height;
+  const ctx = offscreen.getContext("2d");
+  if (!ctx) return null;
+
+  // Layer 1: WebGPU canvas (bottom)
+  ctx.drawImage(canvas, 0, 0, width, height);
+
+  // Layer 2: DOM overlay from webContents.capturePage() (top)
+  // The capturePage PNG has the DOM compositor output: the overlay elements
+  // on a transparent/black background. We draw it on top of the canvas.
+  const overlayBlob = new Blob([capturePagePng], { type: "image/png" });
+  const overlayBitmap = await createImageBitmap(overlayBlob);
+  ctx.drawImage(overlayBitmap, 0, 0, width, height);
+  overlayBitmap.close();
+
+  return new Promise((resolve) => {
+    offscreen.toBlob((blob) => resolve(blob), "image/png");
   });
 }
 
@@ -247,18 +293,62 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
     {
       def: {
         name: "capture_screenshot",
-        description: "Capture the current WebGPU canvas as a PNG image. Returns the image inline as base64.",
-        inputSchema: { type: "object", properties: {} },
+        description: "Capture the current frame as a PNG image. By default composites the WebGPU canvas with the DOM/React overlay (HUD, menus, etc.). Set fullPage=false to capture only the WebGPU canvas. Returns the image inline as base64.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            fullPage: { type: "boolean", default: true, description: "If true, composite the WebGPU canvas + DOM overlay. If false, capture only the WebGPU canvas." },
+          },
+        },
       },
-      handler: async () => {
+      handler: async (params: Record<string, unknown>) => {
         const renderer = ctx.renderer();
         if (!renderer) return errorResult("Renderer not initialized");
+        const fullPage = params.fullPage !== false; // default true
+        const canvas = renderer.getCanvas();
+        const width = renderer.getCanvasWidth();
+        const height = renderer.getCanvasHeight();
+
+        // If the render loop is paused (test/headless mode), render one frame
+        // first so the screenshot reflects current simulation state.
+        if (!renderer.isRunning()) {
+          renderer.renderOneFrame();
+        }
+
+        if (fullPage) {
+          // Composite the WebGPU canvas + DOM overlay into a single PNG.
+          // webContents.capturePage() captures the DOM overlay but NOT the
+          // WebGPU canvas (it renders to the GPU, bypassing the DOM compositor).
+          // So we capture both separately and composite renderer-side.
+          const bridge = downdraft as any;
+          if (typeof bridge?.capturePage === "function") {
+            try {
+              const overlayPng = await bridge.capturePage();
+              if (overlayPng && overlayPng.byteLength > 0) {
+                const blob = await compositeScreenshot(canvas, overlayPng, width, height);
+                if (blob) {
+                  const base64 = await blobToBase64(blob);
+                  return {
+                    content: [
+                      { type: "text", text: JSON.stringify({ width, height, fullPage: true }, null, 2) },
+                      { type: "image", data: base64, mimeType: "image/png" },
+                    ],
+                  };
+                }
+              }
+            } catch (e) {
+              console.warn(`[MCP] Composite screenshot failed, falling back to canvas-only: ${(e as Error).message}`);
+            }
+          }
+        }
+
+        // Fallback: canvas-only capture (no DOM overlay)
         const blob = await renderer.captureScreenshot();
         if (!blob) return errorResult("Screenshot capture failed");
         const base64 = await blobToBase64(blob);
         return {
           content: [
-            { type: "text", text: JSON.stringify({ width: renderer.getCanvasWidth(), height: renderer.getCanvasHeight() }, null, 2) },
+            { type: "text", text: JSON.stringify({ width, height, fullPage: false }, null, 2) },
             { type: "image", data: base64, mimeType: "image/png" },
           ],
         };
@@ -306,6 +396,67 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
         if (!renderer) return errorResult("Renderer not initialized");
         renderer.getInputHandler().clearInjectedInput();
         return jsonResult({ cleared: true });
+      },
+    },
+
+    {
+      def: {
+        name: "dispatch_key",
+        description: "Dispatch a real DOM keyboard event on the main thread (keydown or keyup). This tests the full undertow event pipeline: main-thread DOM → event ring → worker event pump → React handler.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            key: { type: "string", description: "Key value (e.g. 'i', 'Tab', 'Escape', 'm', 'b')" },
+            code: { type: "string", description: "Key code (e.g. 'KeyI', 'Tab', 'Escape')" },
+            type: { type: "string", enum: ["keydown", "keyup"], default: "keydown" },
+            repeat: { type: "boolean", default: false },
+          },
+          required: ["key"],
+        },
+      },
+      handler: (params: Record<string, unknown>) => {
+        const key = params.key as string;
+        const code = (params.code as string) ?? key;
+        const type = (params.type as string) ?? "keydown";
+        const repeat = !!params.repeat;
+        // Dispatch a real DOM event on the main thread's window.
+        // The undertow event dispatcher will pick this up and forward it
+        // to the worker via the event ring.
+        const ev = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, repeat });
+        window.dispatchEvent(ev);
+        return jsonResult({ dispatched: true, key, code, type });
+      },
+    },
+
+    {
+      def: {
+        name: "get_ui_state",
+        description: "Read the current UI store state (menu visibility, pointer lock, suppressPauseMenu, etc.) for testing UI behavior.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      handler: () => {
+        const store = ctx.store();
+        if (!store) return errorResult("Game store not initialized");
+        const s = store.getState();
+        return jsonResult({
+          showInventory: s.showInventory,
+          showMap: s.showMap,
+          showBuildMenu: s.showBuildMenu,
+          showCraftMenu: s.showCraftMenu,
+          showPauseMenu: s.showPauseMenu,
+          showSettings: s.showSettings,
+          showFishingMinigame: s.showFishingMinigame,
+          showTradeMenu: s.showTradeMenu,
+          showCharacterCustomization: s.showCharacterCustomization,
+          showCredits: s.showCredits,
+          showBuilderWheel: s.showBuilderWheel,
+          pointerLocked: s.pointerLocked,
+          suppressPauseMenu: s.suppressPauseMenu,
+          playerDied: !!s.playerDied,
+          ready: s.ready,
+          simReady: s.simReady,
+          lutReady: s.lutReady,
+        });
       },
     },
   ];

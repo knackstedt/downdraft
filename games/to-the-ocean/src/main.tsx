@@ -216,10 +216,12 @@ async function bootstrap() {
   // Add default player
   simWorker.addPlayer(0, "Player 1");
 
-  // Register MCP automation harness (input injection, screenshots, state reads)
-  // so Playwright / MCP clients can drive the game through the existing HTTP proxy.
-  const { setupTtolMcp } = await import("./mcp/setup");
-  setupTtolMcp(renderer, simWorker);
+  // Mark renderer as ready early — the UI (key handlers, HUD, etc.) can
+  // activate before the save store finishes initializing. The save store
+  // init can hang in some environments (e.g. SwiftShader test env), which
+  // would prevent the UI from ever becoming interactive.
+  useGameStore.getState().setRenderer(renderer);
+  useGameStore.getState().setReady(true);
 
   // --- Save store initialization (before autosave loading) ---
   // Detect save mode from config and create the appropriate ISaveStore.
@@ -354,6 +356,15 @@ async function bootstrap() {
     renderer.stop();
     console.log("[Renderer] Deterministic mode: render loop paused (on-demand rendering only)");
   }
+
+  // Register MCP automation harness (input injection, screenshots, state reads)
+  // so Playwright / MCP clients can drive the game through the existing HTTP proxy.
+  // IMPORTANT: this must run AFTER renderer.setBuffers() so the sim SharedArrayBuffer
+  // is wired into the renderer (getSimReader() returns a valid reader). Attaching the
+  // harness earlier exposes tools before the sim reader exists, causing get_world_state
+  // / get_player_state to return "not available" errors to MCP clients.
+  const { setupTtolMcp } = await import("./mcp/setup");
+  setupTtolMcp(renderer, simWorker);
 
   // --- Debug: Electron OSR billboard at helm position ---
   // Creates a dedicated OSR renderer loading google.com and places a
@@ -537,9 +548,10 @@ async function bootstrap() {
     console.warn("[Renderer] onPerfStats not available:", e);
   }
 
-  // Update store with renderer reference
-  useGameStore.getState().setRenderer(renderer);
-  useGameStore.getState().setReady(true);
+  // Update store with renderer reference (already set early above)
+  // useGameStore.getState().setRenderer(renderer); // moved up
+  // useGameStore.getState().setReady(true); // moved up
+
 
   // --- HUD state polling (main thread) ---
   // The HUD component reads health/hunger/thirst/timeOfDay/weather/camera mode
