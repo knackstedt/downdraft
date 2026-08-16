@@ -1,0 +1,53 @@
+// ============================================================================
+// @downdraft/library-persistence/browser — browser-safe exports
+// ============================================================================
+//
+// This entry point excludes FileSaveStore (which imports node:fs and node:path)
+// so it can be safely imported from renderer/worker code without triggering
+// Vite's "Module node:path has been externalized for browser compatibility" error.
+//
+// Import from @downdraft/library-persistence/browser in renderer code.
+// Import from @downdraft/library-persistence (the main index) in Node/main process code.
+
+export { OpfsSaveStore } from "./opfs-save-store";
+export type { OpfsSaveStoreOptions } from "./opfs-save-store";
+
+export { SaveWorkerProxy } from "./save-worker-proxy";
+export type { SaveWorkerProxyOptions } from "./save-worker-proxy";
+
+export type { SaveWorkerApi } from "./save-worker";
+
+// Re-export core types for convenience
+export {
+  MigrationRegistryImpl,
+  packEngineVersion,
+  unpackEngineVersion,
+  engineVersionString,
+  encodeHeader,
+  decodeHeader,
+  readHeaderFromFile,
+  SAVE_MAGIC,
+  SAVE_FORMAT_VERSION,
+  HEADER_SIZE,
+  XXH128_SIZE,
+} from "@downdraft/core/index";
+
+export type {
+  ComponentMigration,
+  ComponentSection,
+  IMigrationRegistry,
+  IRendererStateProvider,
+  ISaveStore,
+  LoadOptions,
+  LoadResult,
+  SaveGenerationInfo,
+  SaveHeader,
+  SaveMeta,
+  SaveOptions,
+  SaveResult,
+  SaveSlotInfo,
+  SaveState,
+  SaveStateBuilder,
+  SaveWarning,
+  SaveWarningKind,
+} from "@downdraft/core/index";
