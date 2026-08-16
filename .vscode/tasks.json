@@ -4,7 +4,7 @@
     {
       "label": "Dev: Ocean",
       "type": "shell",
-      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/to-the-ocean/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"electron-vite dev --config games/to-the-ocean/electron.vite.config.ts\"); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/to-the-ocean/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -12,12 +12,13 @@
         "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
-      "problemMatcher": []
+      "problemMatcher": [],
+      "filePattern": "games/to-the-ocean/**"
     },
     {
       "label": "Dev: Model Viewer",
       "type": "shell",
-      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/model-viewer/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"electron-vite dev --config games/model-viewer/electron.vite.config.ts\"); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/model-viewer/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -25,7 +26,8 @@
         "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
-      "problemMatcher": []
+      "problemMatcher": [],
+      "filePattern": "games/model-viewer/**"
     },
     {
       "label": "WASM Build: Sand",
@@ -40,7 +42,7 @@
     {
       "label": "Dev: Sand",
       "type": "shell",
-      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/falling-sand/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"electron-vite dev --config games/falling-sand/electron.vite.config.ts\"); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/falling-sand/electron.vite.config.ts",
       "dependsOn": "WASM Build: Sand",
       "runOptions": {
         "instanceLimit": 2
@@ -49,12 +51,13 @@
         "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
-      "problemMatcher": []
+      "problemMatcher": [],
+      "filePattern": "games/falling-sand/**"
     },
     {
       "label": "Dev: Mining RPG",
       "type": "shell",
-      "command": "for p in $(pgrep -x electron); do [ \"$(readlink /proc/$p/cwd 2>/dev/null)\" = \"${workspaceFolder}\" ] && kill \"$p\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/mining-rpg/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"electron-vite dev --config games/mining-rpg/electron.vite.config.ts\"); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 0.5; npx electron-vite dev --config games/mining-rpg/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -62,7 +65,50 @@
         "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
-      "problemMatcher": []
+      "problemMatcher": [],
+      "filePattern": "games/mining-rpg/**"
+    },
+    {
+      "label": "Build: Game",
+      "detail": "Pick a game + target platform(s), then build + package with electron-builder",
+      "type": "shell",
+      "command": "set -e; G=\"${input:game}\"; if [ \"$G\" = \"falling-sand\" ]; then echo '[Build] Compiling WASM for falling-sand...'; wasm-pack build --target web games/falling-sand/sand-native; fi; echo \"[Build] Building $G with Vite...\"; npx electron-vite build --config \"games/$G/electron.vite.config.ts\"; WIN=\"\"; LINUX=\"\"; MAC=\"\"; for pt in ${input:platforms}; do p=\"${pt%%:*}\"; t=\"${pt#*:}\"; case \"$p\" in win) WIN=\"$WIN $t\";; linux) LINUX=\"$LINUX $t\";; mac) MAC=\"$MAC $t\";; esac; done; EB_ARGS=\"\"; [ -n \"$WIN\" ] && EB_ARGS=\"$EB_ARGS --win$WIN\"; [ -n \"$LINUX\" ] && EB_ARGS=\"$EB_ARGS --linux$LINUX\"; [ -n \"$MAC\" ] && EB_ARGS=\"$EB_ARGS --mac$MAC\"; echo \"[Build] Packaging with electron-builder ($EB_ARGS)...\"; npx electron-builder $EB_ARGS; echo '[Build] Done. Opening release folder...'; OPENER=xdg-open; command -v xdg-open >/dev/null 2>&1 || OPENER=open; $OPENER \"${workspaceFolder}/release\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": false
+      },
+      "problemMatcher": [],
+      "filePattern": "games/**"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "game",
+      "type": "command",
+      "command": "shellCommand.execute",
+      "args": {
+        "command": "find games -mindepth 2 -maxdepth 2 -name electron.vite.config.ts | sed 's#games/##;s#/electron.vite.config.ts##'",
+        "cwd": "${workspaceFolder}",
+        "description": "Select the game to build"
+      }
+    },
+    {
+      "id": "platforms",
+      "type": "command",
+      "command": "shellCommand.execute",
+      "args": {
+        "command": "printf '%s\\n' 'win:portable|Windows Portable|Single .exe, no install needed' 'win:nsis|Windows Installer|NSIS .exe installer' 'mac:dmg|macOS DMG|Disk image installer' 'mac:zip|macOS Zip|Zipped app bundle' 'linux:AppImage|Linux AppImage|Portable single-file executable' 'linux:deb|Linux .deb|Debian/Ubuntu package' 'linux:rpm|Linux .rpm|Fedora/RHEL package' 'linux:flatpak|Linux Flatpak|Sandboxed Flathub package'",
+        "fieldSeparator": "|",
+        "multiselect": true,
+        "multiselectSeparator": " ",
+        "description": "Select target format(s) — pick multiple to build several at once"
+      }
     }
   ]
 }
