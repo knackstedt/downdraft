@@ -37,6 +37,8 @@
     "games/falling-sand/sand-native",
     "games/mining-rpg",
     "games/mining-rpg/plugins/*",
+    "games/alchemy",
+    "games/alchemy/plugins/*",
     "examples/plugin-tester"
   ],
   "devDependencies": {
@@ -50,6 +52,7 @@
     "electron": "^43.0.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.11.2",
     "oxlint": "^1.4.0",
     "tailwindcss": "^3.4.0",

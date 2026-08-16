@@ -809,13 +809,13 @@ export class SandWorld {
       // Inline field read — no bounds check needed (idx is always valid)
       const fi = idx * 4;
       const temp = fields[fi + FIELD.TEMP] / 128;
+      const x = idx % W;
+      const y = (idx / W) | 0;
 
       if (mat === Material.Water) {
         // Single 8-neighbor scan: check for lava, fire-class, and plant at once
         // instead of up to 4 separate findNeighbor calls (4×8 = 32 neighbor
         // unpacks → 1×8 = 8 with direct grid reads).
-        const x = idx % W;
-        const y = (idx / W) | 0;
         let lavaIdx = -1, fireIdx = -1, hasPlant = false;
         for (let dy = -1; dy <= 1; dy++) {
           const ny = y + dy;
@@ -860,6 +860,30 @@ export class SandWorld {
       if (IS_FIRE[mat] && temp < 0.5) {
         if (Math.random() < (0.5 - temp) * 0.1) {
           grid[idx] = packCell(Material.Smoke, 60, randomShade());
+          continue;
+        }
+      }
+
+      // --- Alchemy: water freezes to ice at low temperature ---
+      if (mat === Material.Water && temp < 0.35 && Math.random() < (0.35 - temp) * 0.2) {
+        grid[idx] = packCell(Material.Ice, 0, randomShade());
+        continue;
+      }
+      // --- Alchemy: ice melts back to water at high ambient temp or hot neighbors ---
+      if (mat === Material.Ice) {
+        let hasHot = false;
+        for (let dy = -1; dy <= 1 && !hasHot; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            if (IS_HOT[grid[ny * W + nx] & 0xff]) { hasHot = true; break; }
+          }
+        }
+        if ((hasHot && Math.random() < 0.3) || (temp > 1.3 && Math.random() < (temp - 1.3) * 0.05)) {
+          grid[idx] = packCell(Material.Water, 0, randomShade());
           continue;
         }
       }
@@ -1408,6 +1432,180 @@ export class SandWorld {
       // --- Toast: made from bread near fire (future), burns like wood ---
       // --- Wax: slow burning (handled by combustion + aging) ---
       // --- Rubber: bouncy (handled in tryMove) ---
+
+      // ===============================================================
+      // Alchemy game reactions (games/alchemy)
+      // Minimal physical reactions; most "mixing" is analyzer-driven
+      // effect-vector math in the game, not cell transforms here.
+      // ===============================================================
+
+      // --- Ether + Fire → EtherealVapor (glowing gas byproduct) ---
+      if (mat === Material.Ether) {
+        let fireNi = -1;
+        for (let dy = -1; dy <= 1 && fireNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            if (IS_FIRE[grid[ny * W + nx] & 0xff]) { fireNi = ny * W + nx; break; }
+          }
+        }
+        if (fireNi >= 0 && Math.random() < 0.3) {
+          grid[idx] = packCell(Material.EtherealVapor, 120, randomShade());
+          grid[fireNi] = packCell(Material.Smoke, 40, randomShade());
+          continue;
+        }
+        // High temp: ether evaporates to ethereal vapor
+        if (temp > 1.4 && Math.random() < (temp - 1.4) * 0.03) {
+          grid[idx] = packCell(Material.EtherealVapor, 120, randomShade());
+          continue;
+        }
+      }
+
+      // --- Sulfur + Water → corrosive reaction (produces AlchemicalSlag slowly) ---
+      if (mat === Material.Sulfur) {
+        let waterNi = -1;
+        for (let dy = -1; dy <= 1 && waterNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            if ((grid[ny * W + nx] & 0xff) === Material.Water) { waterNi = ny * W + nx; break; }
+          }
+        }
+        if (waterNi >= 0 && temp > 1.0 && Math.random() < 0.04) {
+          grid[idx] = packCell(Material.AlchemicalSlag, 0, randomShade());
+          grid[waterNi] = 0; // consume the water
+          continue;
+        }
+      }
+
+      // --- Blood + BoneDust → necrotic reaction (slow, produces Slag) ---
+      if (mat === Material.Blood) {
+        let boneNi = -1;
+        for (let dy = -1; dy <= 1 && boneNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            if ((grid[ny * W + nx] & 0xff) === Material.BoneDust) { boneNi = ny * W + nx; break; }
+          }
+        }
+        if (boneNi >= 0 && Math.random() < 0.02) {
+          grid[idx] = packCell(Material.AlchemicalSlag, 0, randomShade());
+          grid[boneNi] = 0;
+          continue;
+        }
+      }
+
+      // --- MushroomSpores + Water → grows into Plant (mild toxic reaction) ---
+      if (mat === Material.MushroomSpores) {
+        let waterNi = -1;
+        for (let dy = -1; dy <= 1 && waterNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            if ((grid[ny * W + nx] & 0xff) === Material.Water) { waterNi = ny * W + nx; break; }
+          }
+        }
+        if (waterNi >= 0 && Math.random() < 0.03) {
+          grid[idx] = packCell(Material.Plant, 0, randomShade());
+          continue;
+        }
+      }
+
+      // --- PhoenixFeather near fire/lava: glows brighter, resists burning ---
+      // (flammable but long burnTime already set; here we just let it shimmer)
+      // --- DragonScale: very dense, sinks through liquids (handled by density) ---
+
+      // --- LiquidShadow + light source (fire/plasma) → dissipates to smoke ---
+      if (mat === Material.LiquidShadow) {
+        let lightNi = -1;
+        for (let dy = -1; dy <= 1 && lightNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            const nMat = grid[ny * W + nx] & 0xff;
+            if (nMat === Material.Fire || nMat === Material.Plasma || nMat === Material.StarShard) {
+              lightNi = ny * W + nx; break;
+            }
+          }
+        }
+        if (lightNi >= 0 && Math.random() < 0.08) {
+          grid[idx] = packCell(Material.Smoke, 80, randomShade());
+          continue;
+        }
+      }
+
+      // --- VoidEssence + any organic (Blood/Flesh/Plant) → violent annihilation ---
+      if (mat === Material.VoidEssence) {
+        let organicNi = -1;
+        for (let dy = -1; dy <= 1 && organicNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            const nMat = grid[ny * W + nx] & 0xff;
+            if (nMat === Material.Blood || nMat === Material.Flesh || nMat === Material.Plant ||
+                nMat === Material.TrollBlood) {
+              organicNi = ny * W + nx; break;
+            }
+          }
+        }
+        if (organicNi >= 0 && Math.random() < 0.05) {
+          grid[organicNi] = 0;
+          grid[idx] = packCell(Material.AlchemicalSlag, 0, randomShade());
+          this.applyImpulse(x, y, 3, 40);
+          continue;
+        }
+      }
+
+      // --- TimeSand + high temp → brief plasma flash (reality-bending) ---
+      if (mat === Material.TimeSand && temp > 1.6 && Math.random() < 0.02) {
+        grid[idx] = packCell(Material.Plasma, 20, randomShade());
+        continue;
+      }
+
+      // --- StarShard: emits fireflies when in contact with ether/ethereal vapor ---
+      if (mat === Material.StarShard) {
+        let etherNi = -1;
+        for (let dy = -1; dy <= 1 && etherNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            const nMat = grid[ny * W + nx] & 0xff;
+            if (nMat === Material.Ether || nMat === Material.EtherealVapor) {
+              etherNi = ny * W + nx; break;
+            }
+          }
+        }
+        if (etherNi >= 0 && Math.random() < 0.04) {
+          // Emit a firefly into a random empty neighbor
+          const rdx = Math.floor(Math.random() * 3) - 1;
+          const rdy = Math.floor(Math.random() * 3) - 1;
+          const ex = x + rdx, ey = y + rdy;
+          if (ex >= 0 && ex < W && ey >= 0 && ey < H && grid[ey * W + ex] === 0) {
+            grid[ey * W + ex] = packCell(Material.Fireflies, 255, randomShade());
+          }
+        }
+      }
     }
   }
 
