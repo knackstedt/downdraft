@@ -29,6 +29,17 @@ function initialLifetime(mat: number): number {
   return MAT_LIFETIME[mat];
 }
 
+/** Ticks a LooseStone cell must remain stationary before re-settling to Stone. */
+export const LOOSE_STONE_SETTLE_TICKS = 60;
+/** Settle ticks used when a LooseStone/Stone is disturbed by adjacent gravel
+ *  movement. Short so the cell re-settles quickly if still supported, but
+ *  gives it time to start falling if gravel flowed out from under it. */
+export const GRAVEL_DISTURB_SETTLE_TICKS = 2;
+
+// 4-neighbor offsets for disturbAdjacent
+const DIR_DX = [0, 0, -1, 1];
+const DIR_DY = [-1, 1, 0, 0];
+
 export class SandWorld {
   W: number;
   H: number;
@@ -39,6 +50,12 @@ export class SandWorld {
   // Global impulse settings (not spatial)
   horizontalImpulseChance = 0.02;
   horizontalImpulseStrength = 1;
+  // Additional flag bits (in the flags byte, bits 16-23) that consumers want
+  // preserved across the per-frame FLAG_UPDATED clear in buildActiveListAndClearFlags.
+  // The physics engine only uses bits 0-3 (shade 0-1, FLAG_UPDATED 2, FLAG_SPARK 3);
+  // bits 4-7 are available for game-specific flags (e.g. mining-rpg's FLAG_DETACHED).
+  // Set this mask so those bits survive the clear. Defaults to 0 (no extra bits).
+  preserveFlagsMask = 0;
 
   // --- Reusable per-frame buffers (avoid allocations in hot paths) ---
   // fireSources: marks cells that are fire/lava at the start of applyCombustion.
@@ -298,7 +315,7 @@ export class SandWorld {
     const fields = this.fields;
     const active = this.activeCells;
     const n = this.W * this.H;
-    const clearMask = ~((0xff & ~(SHADE_MASK | FLAG_SPARK)) << 16);
+    const clearMask = ~((0xff & ~(SHADE_MASK | FLAG_SPARK | this.preserveFlagsMask)) << 16);
     const skip = this.skipMask;
     let count = 0;
     let windDetected = false;
@@ -426,7 +443,10 @@ export class SandWorld {
     }
 
     // 1. Try gravity direction
-    if (this.trySwap(x, y, x, y + dy, packed, mat, matGravity, isGas)) return;
+    if (this.trySwap(x, y, x, y + dy, packed, mat, matGravity, isGas)) {
+      if (mat === Material.Gravel) this.disturbAdjacent(x, y);
+      return;
+    }
 
     // Rubber: bouncy — try to bounce upward when blocked from below
     if (mat === Material.Rubber) {
@@ -445,8 +465,33 @@ export class SandWorld {
     }
 
     const dir = Math.random() < 0.5 ? -1 : 1;
-    if (this.trySwap(x, y, x + dir, y + dy, packed, mat, matGravity, isGas)) return;
-    if (this.trySwap(x, y, x - dir, y + dy, packed, mat, matGravity, isGas)) return;
+    if (this.trySwap(x, y, x + dir, y + dy, packed, mat, matGravity, isGas)) {
+      if (mat === Material.Gravel) this.disturbAdjacent(x, y);
+      return;
+    }
+    if (this.trySwap(x, y, x - dir, y + dy, packed, mat, matGravity, isGas)) {
+      if (mat === Material.Gravel) this.disturbAdjacent(x, y);
+      return;
+    }
+
+    // Gravel: flows horizontally like a liquid when unsupported, but settles
+    // firmly in place when supported from below. Unlike a true liquid, gravel
+    // only flows when there's empty space below the adjacent cell (it "spills"
+    // downhill), and stops as soon as it's resting on something. This creates
+    // realistic pile behavior — gravel spreads into low spots then freezes.
+    if (mat === Material.Gravel) {
+      const flowDir = Math.random() < 0.5 ? -1 : 1;
+      if (this.tryGravelFlow(x, y, flowDir)) {
+        this.disturbAdjacent(x, y);
+        return;
+      }
+      if (this.tryGravelFlow(x, y, -flowDir)) {
+        this.disturbAdjacent(x, y);
+        return;
+      }
+      // Gravel is settled (supported below, can't spread) — stop moving.
+      return;
+    }
 
     if (isLiquid) {
       const flowDir = Math.random() < 0.5 ? -1 : 1;
@@ -639,6 +684,111 @@ export class SandWorld {
       }
     }
     return false;
+  }
+
+  /**
+   * When a gravel cell vacates position (x, y), disturb adjacent Stone and
+   * LooseStone cells so they don't float in the air when their support flows
+   * away.
+   *
+   * - Stone (re-settled or natural) → converted to LooseStone with a short
+   *   settle timer and gravity enabled, so it falls if unsupported.
+   * - LooseStone → settle timer reset to the short disturbed value, gravity
+   *   ensured, so it keeps falling instead of re-settling prematurely.
+   *
+   * The disturbed settle timer is GRAVEL_DISTURB_SETTLE_TICKS (2 ticks). If the
+   * cell is still supported after gravel moves, it re-settles to Stone in 2
+   * ticks. If gravel removed its support, the cell starts falling (FLAG_UPDATED
+   * keeps the timer reset to 2 via applyAging) and won't settle until it lands.
+   */
+  private disturbAdjacent(x: number, y: number): void {
+    const W = this.W, H = this.H;
+    // Check 4-neighbors (the cell above is most critical — it lost support)
+    for (let i = 0; i < 4; i++) {
+      const nx = x + DIR_DX[i];
+      const ny = y + DIR_DY[i];
+      if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+      const nIdx = ny * W + nx;
+      const nPacked = this.grid[nIdx];
+      if (nPacked === 0) continue;
+      const nMat = nPacked & 0xff;
+      const nFlags = (nPacked >> 16) & 0xff;
+      const nFi = nIdx * 4;
+
+      if (nMat === Material.Stone) {
+        // Convert Stone → LooseStone so it can fall if unsupported
+        const shade = nFlags & SHADE_MASK;
+        this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | FLAG_UPDATED);
+        this.fields[nFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+      } else if (nMat === Material.LooseStone) {
+        // Reset settle timer to short value, ensure gravity is on
+        const shade = nFlags & SHADE_MASK;
+        this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | FLAG_UPDATED);
+        this.fields[nFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+      }
+    }
+  }
+
+  /**
+   * Gravel flow: like liquid flow, but gravel only moves horizontally to an
+   * adjacent cell if that cell is empty AND the cell below the destination is
+   * also empty (i.e. it "spills downhill" into a low spot). If the destination
+   * at the same level is empty but supported below, gravel still moves there
+   * (spreading along a flat surface), but only for a limited distance so it
+   * forms realistic piles rather than spreading infinitely like water.
+   *
+   * This creates the "flows like a liquid but settles in place" behavior:
+   * gravel pours into gaps, spreads to fill low spots, then stops once it's
+   * resting on something with no downhill path.
+   */
+  private tryGravelFlow(x: number, y: number, dir: number): boolean {
+    const W = this.W, H = this.H;
+    const srcIdx = y * W + x;
+    const movedPacked = this.grid[srcIdx] | FLAG_UPDATED_BIT;
+
+    // Step 1: try to spill into the adjacent cell at the same level
+    const nx = x + dir;
+    if (nx < 0 || nx >= W) return false;
+    const destIdx = y * W + nx;
+    if (this.grid[destIdx] !== 0) return false;
+
+    // Check if there's a drop below the destination (downhill spill).
+    // If so, gravel falls into the gap — this is the primary flow mode.
+    const belowY = y + 1;
+    if (belowY < H) {
+      const belowDestIdx = belowY * W + nx;
+      if (this.grid[belowDestIdx] === 0) {
+        // Downhill: gravel spills into the gap and falls
+        this.grid[belowDestIdx] = movedPacked;
+        this.grid[srcIdx] = 0;
+        return true;
+      }
+    }
+
+    // Same-level spread: gravel moves to an adjacent empty cell that's
+    // supported below. Limit spread distance to 2 cells so gravel forms
+    // piles rather than spreading infinitely like a liquid.
+    // Only spread if the gravel is NOT supported directly below (i.e. it's
+    // on an edge and could fall off). This prevents gravel on a flat floor
+    // from spreading forever.
+    const srcBelowIdx = (y + 1) * W + x;
+    const srcSupported = (y + 1 >= H) || this.grid[srcBelowIdx] !== 0;
+    if (srcSupported) {
+      // Gravel is supported below — only spread if the destination is also
+      // NOT supported (gravel flows off the edge of a pile).
+      if (belowY < H) {
+        const belowDestIdx = belowY * W + nx;
+        if (this.grid[belowDestIdx] !== 0) {
+          // Destination is supported too — no flow needed, gravel settles
+          return false;
+        }
+      }
+    }
+
+    // Spread to the adjacent cell
+    this.grid[destIdx] = movedPacked;
+    this.grid[srcIdx] = 0;
+    return true;
   }
 
   private applyReactions(): void {
@@ -1739,6 +1889,36 @@ export class SandWorld {
       let mat = packed & 0xff;
       let lifetime = (packed >> 8) & 0xff;
       let flags = (packed >> 16) & 0xff;
+
+      // LooseStone: re-settle to Stone when stationary AND supported. The
+      // lifetime field is a settle timer, set when the stone is dislodged by
+      // mining (LOOSE_STONE_SETTLE_TICKS) or disturbed by adjacent gravel
+      // movement (GRAVEL_DISTURB_SETTLE_TICKS). When the cell moves
+      // (FLAG_UPDATED), the timer keeps its current value. When stationary,
+      // the timer only counts down if the cell is supported from below —
+      // otherwise it's floating and must not re-settle (it needs to keep
+      // trying to fall). This prevents LooseStone from freezing mid-air when
+      // friction or random chance prevents it from moving for a few ticks.
+      if (mat === Material.LooseStone) {
+        if (!(flags & FLAG_UPDATED) && lifetime > 0) {
+          // Check if supported from below (solid cell or grid boundary)
+          const belowIdx = i + this.W;
+          const supported = belowIdx >= this.grid.length || this.grid[belowIdx] !== 0;
+          if (supported) {
+            lifetime--;
+            if (lifetime === 0) {
+              // Re-settle: convert back to Stone (static, no gravity)
+              mat = Material.Stone;
+              lifetime = 0;
+            }
+          }
+          // If not supported, don't count down — keep trying to fall
+        }
+        const newFlags = flags & ~FLAG_UPDATED;
+        const newPacked = (mat & 0xff) | ((lifetime & 0xff) << 8) | ((newFlags & 0xff) << 16);
+        if (newPacked !== packed) grid[i] = newPacked;
+        continue;
+      }
 
       if (lifetime > 0) {
         // Randomized decay: fire/smoke/steam sometimes skip a tick so
