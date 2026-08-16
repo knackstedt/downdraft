@@ -59,10 +59,16 @@ function extractImported(received: unknown): ImportedSharedTexture | null {
  */
 export function createDefaultBridge(): DowndraftBridgeAPI {
   return {
-    saveGameState: (slotName: string, stateJson: string): Promise<boolean> => ipcRenderer.invoke(IPC.SAVE_GAME_STATE, slotName, stateJson),
-    loadGameState: (slotName: string): Promise<string | null> => ipcRenderer.invoke(IPC.LOAD_GAME_STATE, slotName),
+    saveGameState: (slotName: string, stateJson: string, opts?: any): Promise<boolean> => ipcRenderer.invoke(IPC.SAVE_GAME_STATE, slotName, stateJson, opts),
+    loadGameState: (slotName: string, opts?: any): Promise<string | null> => ipcRenderer.invoke(IPC.LOAD_GAME_STATE, slotName, opts),
     deleteGameState: (slotName: string): Promise<boolean> => ipcRenderer.invoke(IPC.DELETE_GAME_STATE, slotName),
     listSaveSlots: (): Promise<SaveSlotInfo[]> => ipcRenderer.invoke(IPC.LIST_SAVE_SLOTS),
+    listSaveGenerations: (slotName: string): Promise<any[]> => ipcRenderer.invoke(IPC.LIST_SAVE_GENERATIONS, slotName),
+    deleteSaveGeneration: (slotName: string, gen: number): Promise<boolean> => ipcRenderer.invoke(IPC.DELETE_SAVE_GENERATION, slotName, gen),
+    setThumbnail: (slotName: string, data: ArrayBuffer | Uint8Array): Promise<void> => ipcRenderer.invoke(IPC.SET_THUMBNAIL, slotName, data),
+    getThumbnail: (slotName: string): Promise<ArrayBuffer | null> => ipcRenderer.invoke(IPC.GET_THUMBNAIL, slotName),
+    setSaveProperties: (slotName: string, props: Record<string, unknown>): Promise<void> => ipcRenderer.invoke(IPC.SET_SAVE_PROPERTIES, slotName, props),
+    getSaveProperties: (slotName: string): Promise<Record<string, unknown>> => ipcRenderer.invoke(IPC.GET_SAVE_PROPERTIES, slotName),
 
     quit: (): Promise<void> => ipcRenderer.invoke(IPC.QUIT),
 

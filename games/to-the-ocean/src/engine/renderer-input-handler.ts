@@ -198,13 +198,14 @@ export class RendererInputHandler {
     } catch (_e) {
       // ignore — fallback timer below will retry
     }
-    // Always schedule a check: if pointerlockchange doesn't fire within
-    // 300ms (silent failure during ESC cooldown), retry.
+    // Schedule a check: if pointerlockchange doesn't fire within 2s
+    // (silent failure during ESC cooldown), retry. The browser enforces
+    // a ~1s cooldown after ESC during which requestPointerLock fails.
     if (this.pointerLockRetryTimer) clearTimeout(this.pointerLockRetryTimer);
     this.pointerLockRetryTimer = setTimeout(() => {
       this.pointerLockRetryTimer = null;
       if (!this.pointerLocked) this.tryLockPointer();
-    }, 300);
+    }, 2000);
   }
 
   private schedulePointerLockRetry(): void {

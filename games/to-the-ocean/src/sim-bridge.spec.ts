@@ -1,7 +1,7 @@
-import { describe, expect, it, mock } from "bun:test";
 import type { DowndraftBridge } from "@downdraft/app/renderer";
+import { describe, expect, it } from "bun:test";
+import type { GCControllerConfig, GCControllerStats, SimEventCallback, SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { createSimBridge, type IRendererMeta, type ISimWorker } from "./sim-bridge";
-import type { SimWebWorkerConfig, SimEventCallback, GCControllerConfig, GCControllerStats } from "./engine/sim-web-worker";
 
 // ============================================================================
 // Fakes
@@ -40,6 +40,7 @@ function makeFakeWorker(overrides: Partial<ISimWorker> = {}): ISimWorker {
     restoreFromState: async (_s: string) => {},
     hotReload: async (_c: SimWebWorkerConfig, _p: boolean) => {},
     stop: async () => {},
+    initSaveStore: async () => {},
     onEvent: (_cb: SimEventCallback) => {},
     offEvent: (_cb: SimEventCallback) => {},
     getSimBuffer: () => new SharedArrayBuffer(0),
@@ -210,6 +211,136 @@ describe("createSimBridge", () => {
 
     expect(result).toBe(false);
     expect(renderer._calls.some((c) => c.method === "restoreRendererMeta")).toBe(false);
+  });
+
+  // --- Inline OPFS mode tests ---
+
+  it("saveGame in inline mode delegates to worker.save with options", async () => {
+    const worker = makeFakeWorker({
+      save: async (slotName: string, opts?: any) => {
+        (worker as any)._calls.push({ method: "save", args: [slotName, opts] });
+        return { slotName, stateJson: "{}", success: true, gen: 1 };
+      },
+    });
+    const renderer = makeFakeRenderer();
+    const dd = makeFakeDowndraft();
+    const bridge = createSimBridge({ worker, renderer, downdraft: dd, saveMode: "inline" });
+
+    const result = await bridge.saveGame("quicksave", { properties: { mode: "creative" } });
+
+    expect(result).toBe(true);
+    // Downdraft saveGameState should NOT have been called (inline mode)
+    expect(dd._calls.some((c) => c.method === "saveGameState")).toBe(false);
+  });
+
+  it("loadGame in inline mode delegates to worker.load without stateJson", async () => {
+    const worker = makeFakeWorker({
+      load: async (slotName: string, stateJson?: string) => {
+        (worker as any)._calls.push({ method: "load", args: [slotName, stateJson] });
+        return true;
+      },
+    });
+    const renderer = makeFakeRenderer();
+    const dd = makeFakeDowndraft();
+    const bridge = createSimBridge({ worker, renderer, downdraft: dd, saveMode: "inline" });
+
+    const result = await bridge.loadGame("quicksave");
+
+    expect(result).toBe(true);
+    // Downdraft loadGameState should NOT have been called (inline mode)
+    expect(dd._calls.some((c) => c.method === "loadGameState")).toBe(false);
+    // Worker load was called without stateJson (inline OPFS loads from store)
+    const loadCall = (worker as any)._calls.find((c: any) => c.method === "load");
+    expect(loadCall.args[1]).toBeUndefined();
+  });
+
+  // --- Dedicated worker mode tests ---
+
+  it("saveGame in worker mode serializes in worker then writes to saveStore", async () => {
+    const saveStoreCalls: { method: string; args: unknown[] }[] = [];
+    const worker = makeFakeWorker({
+      save: async (slotName: string) => {
+        (worker as any)._calls.push({ method: "save", args: [slotName] });
+        return { slotName, stateJson: '{"world":{"tick":1}}', success: true };
+      },
+    });
+    const renderer = makeFakeRenderer();
+    const dd = makeFakeDowndraft();
+    const fakeSaveStore = {
+      save: async (slot: string, state: any, opts?: any) => {
+        saveStoreCalls.push({ method: "save", args: [slot, state, opts] });
+        return { success: true, bytes: 100, gen: 1 };
+      },
+      load: async () => ({ state: null }),
+      listSaves: async () => [],
+      listGenerations: async () => [],
+      deleteSave: async () => true,
+      deleteGeneration: async () => true,
+      setThumbnail: async () => {},
+      getThumbnail: async () => null,
+      setProperties: async () => {},
+      getProperties: async () => ({}),
+      onWarning: () => () => {},
+    };
+    const bridge = createSimBridge({ worker, renderer, downdraft: dd, saveStore: fakeSaveStore as any, saveMode: "worker" });
+
+    const result = await bridge.saveGame("quicksave");
+
+    expect(result).toBe(true);
+    // Downdraft saveGameState should NOT have been called (worker mode)
+    expect(dd._calls.some((c) => c.method === "saveGameState")).toBe(false);
+    // saveStore.save should have been called with the serialized state
+    expect(saveStoreCalls.length).toBe(1);
+    expect(saveStoreCalls[0].args[0]).toBe("quicksave");
+    const state = saveStoreCalls[0].args[1] as any;
+    expect(state.components.world).toBeDefined();
+    // Renderer meta should have been merged in
+    expect(state.components.renderer).toBeDefined();
+    expect(state.components.renderer.data).toEqual({ cameraPos: [1, 2, 3] });
+  });
+
+  it("loadGame in worker mode loads from saveStore and restores in worker", async () => {
+    const worker = makeFakeWorker({
+      load: async (slotName: string, stateJson?: string) => {
+        (worker as any)._calls.push({ method: "load", args: [slotName, stateJson] });
+        return true;
+      },
+    });
+    const renderer = makeFakeRenderer();
+    const dd = makeFakeDowndraft();
+    const fakeSaveStore = {
+      save: async () => ({ success: true, bytes: 100, gen: 1 }),
+      load: async () => ({
+        state: {
+          components: { world: { v: 1, data: { tick: 42 } }, renderer: { v: 1, data: { cameraPos: [7, 8, 9] } } },
+          meta: { engineVersion: "0.1.0", timestamp: 0, entityCount: 0, playerCount: 0 },
+        },
+      }),
+      listSaves: async () => [],
+      listGenerations: async () => [],
+      deleteSave: async () => true,
+      deleteGeneration: async () => true,
+      setThumbnail: async () => {},
+      getThumbnail: async () => null,
+      setProperties: async () => {},
+      getProperties: async () => ({}),
+      onWarning: () => () => {},
+    };
+    const bridge = createSimBridge({ worker, renderer, downdraft: dd, saveStore: fakeSaveStore as any, saveMode: "worker" });
+
+    const result = await bridge.loadGame("quicksave");
+
+    expect(result).toBe(true);
+    // Downdraft loadGameState should NOT have been called (worker mode)
+    expect(dd._calls.some((c) => c.method === "loadGameState")).toBe(false);
+    // Worker load was called with stateJson from saveStore
+    const loadCall = (worker as any)._calls.find((c: any) => c.method === "load");
+    expect(loadCall).toBeDefined();
+    expect(loadCall.args[1]).toContain('"renderer"');
+    // Renderer meta was restored
+    const restoreCall = renderer._calls.find((c) => c.method === "restoreRendererMeta");
+    expect(restoreCall).toBeDefined();
+    expect(restoreCall!.args[0]).toEqual({ cameraPos: [7, 8, 9] });
   });
 
   it("sendCommand forwards to worker", () => {

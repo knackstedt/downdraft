@@ -8,6 +8,7 @@
 // ============================================================================
 
 import type { DowndraftBridge } from "@downdraft/app/renderer";
+import type { ISaveStore, SaveOptions, SaveState } from "@downdraft/core";
 import type { ISimWorker } from "./engine/sim-web-worker";
 
 /**
@@ -23,11 +24,15 @@ export interface SimBridgeDeps {
   worker: ISimWorker;
   renderer: IRendererMeta;
   downdraft: DowndraftBridge;
+  /** Optional save store (OPFS or dedicated worker). When provided, saves bypass IPC. */
+  saveStore?: ISaveStore | null;
+  /** Save mode: "inline" (worker has OPFS store), "worker" (dedicated save store), "ipc" (Electron bridge). Default: "ipc". */
+  saveMode?: "inline" | "worker" | "ipc";
 }
 
 export interface SimBridge {
   // --- Save/Load ---
-  saveGame(slotName: string): Promise<boolean>;
+  saveGame(slotName: string, opts?: SaveOptions): Promise<boolean>;
   loadGame(slotName: string): Promise<boolean>;
 
   // --- Player ---
@@ -74,32 +79,84 @@ export interface SimBridge {
  * Called once in main.tsx after the worker and renderer are initialized.
  */
 export function createSimBridge(deps: SimBridgeDeps): SimBridge {
-  const { worker, renderer, downdraft } = deps;
+  const { worker, renderer, downdraft, saveStore, saveMode = "ipc" } = deps;
 
   return {
     // --- Save/Load ---
-    async saveGame(slotName: string): Promise<boolean> {
-      const result = await worker.save(slotName);
+    async saveGame(slotName: string, opts?: SaveOptions): Promise<boolean> {
+      const mergedOpts: SaveOptions = { ...opts };
+
+      // If we have a dedicated save store (worker mode), serialize in the
+      // sim worker, then write to the SaveWorkerProxy (dedicated save worker).
+      if (saveMode === "worker" && saveStore) {
+        const result = await worker.save(slotName, mergedOpts);
+        if (!result?.stateJson) return false;
+        const components = JSON.parse(result.stateJson);
+        if (renderer.serializeRendererMeta) {
+          components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
+        }
+        const state: SaveState = {
+          components,
+          meta: {
+            engineVersion: (mergedOpts.properties?.engineVersion as string) ?? "0.1.0",
+            timestamp: Date.now() / 1000,
+            entityCount: 0,
+            playerCount: 0,
+          },
+        };
+        const saveResult = await saveStore.save(slotName, state, mergedOpts);
+        return saveResult.success;
+      }
+
+      // Inline mode: worker has its own OpfsSaveStore, just pass opts
+      if (saveMode === "inline") {
+        const result = await worker.save(slotName, mergedOpts);
+        return result?.success ?? false;
+      }
+
+      // IPC fallback: worker returns stateJson, send via bridge
+      const result = await worker.save(slotName, mergedOpts);
       if (result?.stateJson) {
         if (downdraft.saveGameState) {
-          // Merge renderer meta into the component-section state
           const components = JSON.parse(result.stateJson);
           if (renderer.serializeRendererMeta) {
             components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
           }
-          return downdraft.saveGameState(slotName, JSON.stringify(components));
+          return downdraft.saveGameState(slotName, JSON.stringify(components), mergedOpts);
         }
       }
       return false;
     },
 
     async loadGame(slotName: string): Promise<boolean> {
+      // If we have a dedicated save store, load from it
+      if (saveMode === "worker" && saveStore) {
+        const loadResult = await saveStore.load(slotName);
+        if (!loadResult.state) return false;
+        const stateJson = JSON.stringify(loadResult.state.components);
+        const ok = await worker.load(slotName, stateJson);
+        if (ok && renderer.restoreRendererMeta) {
+          try {
+            const components = JSON.parse(stateJson);
+            if (components.renderer?.data) {
+              renderer.restoreRendererMeta(components.renderer.data);
+            }
+          } catch { /* ignore */ }
+        }
+        return ok;
+      }
+
+      // Inline mode: worker loads from its own OPFS store
+      if (saveMode === "inline") {
+        return worker.load(slotName);
+      }
+
+      // IPC fallback: load from downdraft bridge
       if (!downdraft.loadGameState) return false;
       const stateJson = await downdraft.loadGameState(slotName);
       if (!stateJson) return false;
-      const ok = await worker.load(slotName, stateJson);
-      // Restore renderer meta if present
-      if (ok) {
+      const loaded = await worker.load(slotName, stateJson);
+      if (loaded) {
         try {
           const components = JSON.parse(stateJson);
           if (components.renderer?.data) {
@@ -111,7 +168,7 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
           // ignore parse errors
         }
       }
-      return ok;
+      return loaded;
     },
 
     // --- Player ---

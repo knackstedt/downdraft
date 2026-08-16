@@ -7,12 +7,12 @@
 // code — so importing them from any process (main / preload / renderer) is safe.
 
 import type {
-  AtlasLayout,
-  AtlasPanelRect,
-  OSRInputEvent,
-  OSRPanelConfig,
-  OSRRendererConfig,
-  OSRRendererEvent,
+    AtlasLayout,
+    AtlasPanelRect,
+    OSRInputEvent,
+    OSRPanelConfig,
+    OSRRendererConfig,
+    OSRRendererEvent,
 } from "@downdraft/plugin-electron-osr";
 
 // ---------------------------------------------------------------------------
@@ -20,12 +20,12 @@ import type {
 // ---------------------------------------------------------------------------
 
 export type {
-  AtlasLayout,
-  AtlasPanelRect,
-  OSRInputEvent,
-  OSRPanelConfig,
-  OSRRendererConfig,
-  OSRRendererEvent,
+    AtlasLayout,
+    AtlasPanelRect,
+    OSRInputEvent,
+    OSRPanelConfig,
+    OSRRendererConfig,
+    OSRRendererEvent
 };
 
 /** Layout data sent via the `OSR_PANEL_LAYOUT` IPC event. */
@@ -173,6 +173,32 @@ export interface SaveSlotInfo {
   playerCount: number;
   engineVersion: string;
   fileSize: number;
+  currentGen: number;
+  generationCount: number;
+  hasThumbnail: boolean;
+  properties?: Record<string, unknown>;
+}
+
+export interface SaveGenerationInfo {
+  gen: number;
+  timestamp: number;
+  engineVersion: string;
+  entityCount: number;
+  playerCount: number;
+  bodySize: number;
+  blobCount: number;
+}
+
+export interface SaveOptions {
+  maxGenerations?: number;
+  thumbnail?: ArrayBuffer | Uint8Array;
+  properties?: Record<string, unknown>;
+  blobs?: Record<string, ArrayBuffer>;
+}
+
+export interface LoadOptions {
+  gen?: number;
+  includeBlobs?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,10 +261,16 @@ export interface DowndraftOsrBridgeAPI {
 // ---------------------------------------------------------------------------
 
 export interface DowndraftBridgeAPI {
-  saveGameState(slotName: string, stateJson: string): Promise<boolean>;
-  loadGameState(slotName: string): Promise<string | null>;
+  saveGameState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
+  loadGameState(slotName: string, opts?: LoadOptions): Promise<string | null>;
   deleteGameState(slotName: string): Promise<boolean>;
   listSaveSlots(): Promise<SaveSlotInfo[]>;
+  listSaveGenerations(slotName: string): Promise<SaveGenerationInfo[]>;
+  deleteSaveGeneration(slotName: string, gen: number): Promise<boolean>;
+  setThumbnail(slotName: string, data: ArrayBuffer | Uint8Array): Promise<void>;
+  getThumbnail(slotName: string): Promise<ArrayBuffer | null>;
+  setSaveProperties(slotName: string, props: Record<string, unknown>): Promise<void>;
+  getSaveProperties(slotName: string): Promise<Record<string, unknown>>;
   quit(): Promise<void>;
   setDebugMode(enabled: boolean): void;
   toggleDevtools(): void;

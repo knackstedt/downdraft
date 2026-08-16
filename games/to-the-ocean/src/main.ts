@@ -27,7 +27,7 @@ createDowndraftApp({
   },
   switches: webGpuSwitches(),
   features: {
-    saves: { engineVersion: "0.1.0" },
+    saves: { engineVersion: "0.1.0", mode: "auto", maxGenerations: 3 },
     osr: true,
     mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
     // In deterministic/test mode, don't auto-open devtools (steals focus from canvas)

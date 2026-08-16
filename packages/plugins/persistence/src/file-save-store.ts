@@ -27,11 +27,14 @@ import { MigrationRegistryImpl } from "@downdraft/core/save/migration-registry";
 import type {
     IMigrationRegistry,
     ISaveStore,
+    LoadOptions,
     LoadResult,
+    SaveGenerationInfo,
+    SaveOptions,
     SaveResult,
     SaveSlotInfo,
     SaveState,
-    SaveWarning,
+    SaveWarning
 } from "@downdraft/core/save/persist-types";
 import { createLogger } from "@downdraft/core/util/logger";
 import { promises as fs } from "node:fs";
@@ -41,6 +44,9 @@ const log = createLogger("info");
 
 const SAVE_EXT = ".ddsave";
 const BACKUP_EXT = ".ddsave.bak";
+const THUMB_EXT = ".thumb";
+const PROPS_EXT = ".props.json";
+const BLOBS_DIR_SUFFIX = ".blobs";
 
 export interface FileSaveStoreOptions {
   /** Directory to store save files (typically app.getPath("userData") + "/saves") */
@@ -134,7 +140,7 @@ export class FileSaveStore implements ISaveStore {
     return decompress(data);
   }
 
-  async save(slot: string, state: SaveState): Promise<SaveResult> {
+  async save(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult> {
     try {
       await fs.mkdir(this.saveDir, { recursive: true });
       const bodyJson = JSON.stringify(state.components);
@@ -165,6 +171,15 @@ export class FileSaveStore implements ISaveStore {
       } catch {
         // No existing file — fine
       }
+      // Rotate blobs dir too
+      const blobsDir = this.blobsDirPath(slot);
+      const bakBlobsDir = blobsDir + ".bak";
+      try {
+        await fs.access(blobsDir);
+        await fs.rename(blobsDir, bakBlobsDir);
+      } catch {
+        // No existing blobs dir — fine
+      }
 
       // Write new save
       const fileBuf = new Uint8Array(headerBuf.byteLength + compressed.length);
@@ -172,23 +187,46 @@ export class FileSaveStore implements ISaveStore {
       fileBuf.set(compressed, headerBuf.byteLength);
       await fs.writeFile(filePath, fileBuf);
 
-      log.info("FileSaveStore", `Saved slot '${slot}' (${fileBuf.length} bytes)`);
-      return { success: true, bytes: fileBuf.length };
+      // Write blobs if provided
+      let blobBytes = 0;
+      if (opts?.blobs && Object.keys(opts.blobs).length > 0) {
+        await fs.mkdir(blobsDir, { recursive: true });
+        for (const [key, buf] of Object.entries(opts.blobs) as Array<[string, ArrayBuffer]>) {
+          const safeKey = key.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          await fs.writeFile(join(blobsDir, safeKey), new Uint8Array(buf));
+          blobBytes += buf.byteLength;
+        }
+      }
+
+      // Write thumbnail if provided
+      if (opts?.thumbnail) {
+        const thumbData = opts.thumbnail instanceof Uint8Array ? opts.thumbnail : new Uint8Array(opts.thumbnail);
+        await fs.writeFile(this.thumbPath(slot), thumbData);
+      }
+
+      // Write properties if provided
+      if (opts?.properties) {
+        await fs.writeFile(this.propsPath(slot), JSON.stringify(opts.properties, null, 2));
+      }
+
+      log.info("FileSaveStore", `Saved slot '${slot}' (${fileBuf.length + blobBytes} bytes)`);
+      return { success: true, bytes: fileBuf.length + blobBytes, gen: 1 };
     } catch (err) {
       log.error("FileSaveStore", `Save failed for slot '${slot}': ${err}`);
       return { success: false, bytes: 0 };
     }
   }
 
-  async load(slot: string): Promise<LoadResult> {
+  async load(slot: string, opts?: LoadOptions): Promise<LoadResult> {
     const filePath = this.slotPath(slot);
     const bakPath = filePath + ".bak";
+    const includeBlobs = opts?.includeBlobs ?? true;
 
-    const result = await this.loadFromFile(filePath, slot);
+    const result = await this.loadFromFile(filePath, slot, includeBlobs);
     if (result.state) return result;
 
     // Try backup
-    const bakResult = await this.loadFromFile(bakPath, slot);
+    const bakResult = await this.loadFromFile(bakPath, slot, includeBlobs);
     if (bakResult.state) {
       this.warn({
         kind: "backup_loaded",
@@ -206,7 +244,7 @@ export class FileSaveStore implements ISaveStore {
     return { state: null };
   }
 
-  private async loadFromFile(filePath: string, slot: string): Promise<LoadResult> {
+  private async loadFromFile(filePath: string, slot: string, includeBlobs: boolean): Promise<LoadResult> {
     try {
       const fileBuf = await fs.readFile(filePath);
       const header = readHeaderFromFile(fileBuf.buffer);
@@ -277,10 +315,31 @@ export class FileSaveStore implements ISaveStore {
       };
 
       log.info("FileSaveStore", `Loaded slot '${slot}'`);
-      return { state };
+      // Load blobs if requested
+      let blobs: Record<string, ArrayBuffer> | undefined;
+      if (includeBlobs) {
+        blobs = await this.loadBlobs(slot);
+        if (blobs && Object.keys(blobs).length === 0) blobs = undefined;
+      }
+      return { state, blobs, gen: 1 };
     } catch (err) {
       // File doesn't exist or other error — return null silently
       return { state: null };
+    }
+  }
+
+  private async loadBlobs(slot: string): Promise<Record<string, ArrayBuffer> | undefined> {
+    try {
+      const blobsDir = this.blobsDirPath(slot);
+      const files = await fs.readdir(blobsDir);
+      const blobs: Record<string, ArrayBuffer> = {};
+      for (const file of files) {
+        const buf = await fs.readFile(join(blobsDir, file));
+        blobs[file] = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      }
+      return blobs;
+    } catch {
+      return undefined;
     }
   }
 
@@ -297,13 +356,21 @@ export class FileSaveStore implements ISaveStore {
         const header = readHeaderFromFile(fileBuf.buffer);
         if (!header) continue;
 
+        const slotName = file.replace(SAVE_EXT, "");
+        const hasThumbnail = await this.fileExists(this.thumbPath(slotName));
+        const properties = await this.readProps(slotName);
+
         saves.push({
-          slot: file.replace(SAVE_EXT, ""),
+          slot: slotName,
           timestamp: header.timestamp,
           entityCount: header.entityCount,
           playerCount: header.playerCount,
           engineVersion: engineVersionString(header.engineVersionPacked),
           fileSize: stat.size,
+          currentGen: 1,
+          generationCount: 1,
+          hasThumbnail,
+          properties: Object.keys(properties).length > 0 ? properties : undefined,
         });
       }
 
@@ -312,6 +379,70 @@ export class FileSaveStore implements ISaveStore {
     } catch {
       return [];
     }
+  }
+
+  async listGenerations(slot: string): Promise<SaveGenerationInfo[]> {
+    try {
+      const filePath = this.slotPath(slot);
+      const fileBuf = await fs.readFile(filePath);
+      const header = readHeaderFromFile(fileBuf.buffer);
+      if (!header) return [];
+      const stat = await fs.stat(filePath);
+      return [{
+        gen: 1,
+        timestamp: header.timestamp,
+        engineVersion: engineVersionString(header.engineVersionPacked),
+        entityCount: header.entityCount,
+        playerCount: header.playerCount,
+        bodySize: stat.size,
+        blobCount: 0,
+      }];
+    } catch {
+      return [];
+    }
+  }
+
+  async deleteGeneration(slot: string, _gen: number): Promise<boolean> {
+    // FileSaveStore only has one "generation" — deleting it deletes the slot
+    if (_gen !== 1) return false;
+    return this.deleteSave(slot);
+  }
+
+  async setThumbnail(slot: string, data: ArrayBuffer | Uint8Array): Promise<void> {
+    const thumbData = data instanceof Uint8Array ? data : new Uint8Array(data);
+    await fs.writeFile(this.thumbPath(slot), thumbData);
+  }
+
+  async getThumbnail(slot: string): Promise<ArrayBuffer | null> {
+    try {
+      const buf = await fs.readFile(this.thumbPath(slot));
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    } catch {
+      return null;
+    }
+  }
+
+  async setProperties(slot: string, props: Record<string, unknown>): Promise<void> {
+    const existing = await this.readProps(slot);
+    const merged = { ...existing, ...props };
+    await fs.writeFile(this.propsPath(slot), JSON.stringify(merged, null, 2));
+  }
+
+  async getProperties(slot: string): Promise<Record<string, unknown>> {
+    return this.readProps(slot);
+  }
+
+  private async readProps(slot: string): Promise<Record<string, unknown>> {
+    try {
+      const text = await fs.readFile(this.propsPath(slot), "utf-8");
+      return safeJsonParse<Record<string, unknown>>(text);
+    } catch {
+      return {};
+    }
+  }
+
+  private async fileExists(path: string): Promise<boolean> {
+    try { await fs.access(path); return true; } catch { return false; }
   }
 
   async deleteSave(slot: string): Promise<boolean> {
@@ -330,6 +461,11 @@ export class FileSaveStore implements ISaveStore {
     } catch {
       // ignore
     }
+    // Clean up blobs, thumbnail, properties
+    try { await fs.rm(this.blobsDirPath(slot), { recursive: true, force: true }); } catch {}
+    try { await fs.rm(this.blobsDirPath(slot) + ".bak", { recursive: true, force: true }); } catch {}
+    try { await fs.unlink(this.thumbPath(slot)); } catch {}
+    try { await fs.unlink(this.propsPath(slot)); } catch {}
     return deleted;
   }
 
@@ -337,6 +473,21 @@ export class FileSaveStore implements ISaveStore {
     // Sanitize slot name to prevent path traversal
     const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
     return join(this.saveDir, safe + SAVE_EXT);
+  }
+
+  private blobsDirPath(slot: string): string {
+    const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    return join(this.saveDir, safe + BLOBS_DIR_SUFFIX);
+  }
+
+  private thumbPath(slot: string): string {
+    const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    return join(this.saveDir, safe + THUMB_EXT);
+  }
+
+  private propsPath(slot: string): string {
+    const safe = slot.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    return join(this.saveDir, safe + PROPS_EXT);
   }
 
   private hashEqual(a: Uint8Array, b: Uint8Array): boolean {

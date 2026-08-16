@@ -31,6 +31,12 @@ const stubBridge: DowndraftBridge = {
   loadGameState: () => Promise.resolve(null),
   deleteGameState: () => Promise.resolve(false),
   listSaveSlots: () => Promise.resolve([]),
+  listSaveGenerations: () => Promise.resolve([]),
+  deleteSaveGeneration: () => Promise.resolve(false),
+  setThumbnail: () => Promise.resolve(),
+  getThumbnail: () => Promise.resolve(null),
+  setSaveProperties: () => Promise.resolve(),
+  getSaveProperties: () => Promise.resolve({}),
   quit: () => Promise.resolve(),
   setDebugMode: noop,
   toggleDevtools: noop,
@@ -71,6 +77,10 @@ export const downdraft: DowndraftBridge = (() => {
 
 // Import cache adapter — Electron IPC-backed with memory fallback
 export { createElectronImportCache } from "./import-cache";
+
+// Save store factory + IPC fallback
+export { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
+export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type SaveStoreMode } from "./save-store-factory";
 
 // --- Canvas / overlay layer helpers ---
 

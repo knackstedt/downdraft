@@ -1,5 +1,4 @@
 import { BUILDER_CELL_OPTIONS, HOTBAR_TOOLS } from "@shared/constants";
-import { PLR, PLR_FLAG, SimBufferReader } from "@shared/sim-buffer";
 import { CameraMode, WeatherType } from "@shared/types";
 import React from "react";
 import { useGameStore } from "../stores/game-store";
@@ -34,94 +33,31 @@ function BuilderCellLabel() {
 }
 
 export default function HUD() {
-  const { fps, weather, renderer } = useGameStore();
+  const hudState = useGameStore((s) => s.hudState);
+  const fps = useGameStore((s) => s.fps);
+  const reticleSize = useGameStore((s) => s.reticleSize);
   const waypoint = useGameStore((s) => s.waypoint);
   const setWaypoint = useGameStore((s) => s.setWaypoint);
-  const [hudState, setHudState] = React.useState({
-    health: 100, maxHealth: 100,
-    hunger: 100, thirst: 100,
-    oxygen: 100, maxOxygen: 100,
-    temperature: 50,
-    timeOfDay: 0.3,
-    weatherType: 0,
-    biome: 7,
-    security: 0,
-    cameraMode: CameraMode.ThirdPerson,
-    isFishing: false,
-    fishingTension: 50,
-    fishingProgress: 0,
-    activeSlot: 0,
-    isPiloting: false,
-    isOnboard: false,
-    gold: 0,
-  });
-  const [waypointInfo, setWaypointInfo] = React.useState<{ dist: number; bearing: number } | null>(null);
 
-  React.useEffect(() => {
-    if (!renderer) return;
-    const interval = setInterval(() => {
-      // Read from sim buffer
-      const simReader = (renderer as any).simReader as SimBufferReader | null;
-      if (!simReader || !simReader.isValid()) return;
-
-      const playerSlot = simReader.getPlayerSlot(0);
-      if (!playerSlot) return;
-
-      const flags = playerSlot.u32[PLR.FLAGS];
-      const newCamMode = playerSlot.u32[PLR.CAMERA_MODE] as CameraMode;
-
-      // Auto-unhide HUD when leaving freecam
-      if (newCamMode !== CameraMode.FreeCam && useGameStore.getState().hudHidden) {
-        useGameStore.getState().setHudHidden(false);
-      }
-
-      setHudState({
-        health: playerSlot.f32[PLR.HEALTH],
-        maxHealth: playerSlot.f32[PLR.MAX_HEALTH],
-        hunger: playerSlot.f32[PLR.HUNGER],
-        thirst: playerSlot.f32[PLR.THIRST],
-        oxygen: playerSlot.f32[PLR.OXYGEN],
-        maxOxygen: playerSlot.f32[PLR.MAX_OXYGEN],
-        temperature: playerSlot.f32[PLR.TEMPERATURE],
-        timeOfDay: simReader.getTimeOfDay(),
-        weatherType: simReader.getWeatherType(),
-        biome: 7,
-        security: 0,
-        cameraMode: newCamMode,
-        isFishing: (flags & PLR_FLAG.FISHING) !== 0,
-        fishingTension: playerSlot.f32[PLR.FISHING_TENSION] ?? 50,
-        fishingProgress: playerSlot.f32[PLR.FISHING_PROGRESS] ?? 0,
-        activeSlot: playerSlot.u32[PLR.ACTIVE_SLOT] ?? 0,
-        isPiloting: (flags & PLR_FLAG.PILOTING) !== 0,
-        isOnboard: (flags & PLR_FLAG.ONBOARD) !== 0,
-        gold: playerSlot.f32[PLR.GOLD] ?? 0,
-      });
-
-      // Waypoint tracking
-      const wp = useGameStore.getState().waypoint;
-      if (wp) {
-        const px = playerSlot.f32[PLR.POS_X];
-        const pz = playerSlot.f32[PLR.POS_Z];
-        const heading = playerSlot.f32[PLR.HEADING];
-        const dx = wp.x - px;
-        const dz = wp.z - pz;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < 50) {
-          useGameStore.getState().setWaypoint(null);
-          setWaypointInfo(null);
-        } else {
-          const wpBearing = Math.atan2(dx, -dz);
-          let relBearing = wpBearing - heading;
-          while (relBearing > Math.PI) relBearing -= Math.PI * 2;
-          while (relBearing < -Math.PI) relBearing += Math.PI * 2;
-          setWaypointInfo({ dist, bearing: relBearing });
-        }
-      } else {
-        setWaypointInfo(null);
-      }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [renderer]);
+  // Waypoint tracking — computed from the synced player position/heading in
+  // hudState (populated by the main thread's sim-buffer poll). The sim reader
+  // is not available in the worker, so we can't poll it here.
+  const waypointInfo = React.useMemo<{ dist: number; bearing: number } | null>(() => {
+    if (!waypoint) return null;
+    const dx = waypoint.x - hudState.playerX;
+    const dz = waypoint.z - hudState.playerZ;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < 50) {
+      // Reached the waypoint — clear it (forwarded to main thread via store bridge)
+      useGameStore.getState().setWaypoint(null);
+      return null;
+    }
+    const wpBearing = Math.atan2(dx, -dz);
+    let relBearing = wpBearing - hudState.heading;
+    while (relBearing > Math.PI) relBearing -= Math.PI * 2;
+    while (relBearing < -Math.PI) relBearing += Math.PI * 2;
+    return { dist, bearing: relBearing };
+  }, [waypoint, hudState.playerX, hudState.playerZ, hudState.heading]);
 
   const healthPct = (hudState.health / hudState.maxHealth) * 100;
   const oxygenPct = (hudState.oxygen / hudState.maxOxygen) * 100;
@@ -135,7 +71,7 @@ export default function HUD() {
         cameraMode={hudState.cameraMode}
         toolAction={(HOTBAR_TOOLS[hudState.activeSlot]?.action ?? "build") as ToolAction}
         isFishing={hudState.isFishing}
-        size={useGameStore.getState().reticleSize}
+        size={reticleSize}
       />
 
       {/* Top bar: time, weather, biome, camera mode */}
