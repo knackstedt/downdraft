@@ -51,4 +51,5 @@ export {
 } from "./materials";
 export type { MaterialDef } from "./materials";
 
-export { SandWorld } from "./sand-world";
+export { GRAVEL_DISTURB_SETTLE_TICKS, LOOSE_STONE_SETTLE_TICKS, SandWorld } from "./sand-world";
+

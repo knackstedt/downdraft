@@ -65,6 +65,9 @@ export enum Material {
   SulfurGas = 60,     // toxic, non-flammable, rises
   // --- Mining RPG: coal (solid, flammable, becomes falling when dug) ---
   Coal = 61,
+  // --- Mining RPG: stone debris (from mining stone) ---
+  Gravel = 62,      // fine crushed stone — flows like a liquid, settles in place
+  LooseStone = 63,  // coarse stone chunk — falls like a solid, re-settles to Stone
 }
 
 export const MAX_MATERIAL = 128;
@@ -195,6 +198,17 @@ export const MATERIALS: Record<number, MaterialDef> = {
 
   // --- Mining RPG: coal (solid, flammable, falls when dug) ---
   [Material.Coal]: def(61, "Coal", [0.10, 0.10, 0.11, 1.0], { gravity: 1, gravityDir: 1, density: 1.3, solid: true, flammable: true, burnTime: 120, albedo: 0.15, reflectivity: 0.05, brightness: 0.8 }),
+
+  // --- Mining RPG: stone debris (from mining stone) ---
+  // Gravel: fine crushed stone. Marked solid (so it doesn't displace like a
+  // liquid) but has special flow logic in SandWorld.tryMove that lets it
+  // spread horizontally like a liquid when unsupported, then settle firmly
+  // in place when supported from below. Never re-settles to Stone.
+  [Material.Gravel]: def(62, "Gravel", [0.40, 0.38, 0.36, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, solid: true, albedo: 0.45, reflectivity: 0.08 }),
+  // LooseStone: coarse stone chunk. Falls like a normal solid, then re-settles
+  // back to Stone after being stationary for a while (handled in applyAging
+  // via the lifetime field as a settle timer).
+  [Material.LooseStone]: def(63, "Loose Stone", [0.42, 0.42, 0.45, 1.0], { gravity: 1, gravityDir: 1, density: 2.5, solid: true, albedo: 0.5, reflectivity: 0.1 }),
 
   // --- Mining RPG: gases (toxic, rise) ---
   [Material.MethaneGas]: def(59, "Methane Gas", [0.75, 0.78, 0.65, 0.35], { gravity: 1, gravityDir: -1, density: 0.07, gas: true, flammable: true, burnTime: 0, lifetime: 200, albedo: 0.1, brightness: 0.5 }),
