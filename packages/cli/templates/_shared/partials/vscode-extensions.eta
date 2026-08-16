@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "antaalt.shader-validator",
+    "PKief.material-icon-theme",
+    "actboy168.tasks",
+    "Gruntfuggly.todo-tree",
+    "augustocdias.tasks-shell-input",
+    "oxc.oxc-vscode",
+    "wgsl-analyzer.wgsl-analyzer"
+  ]
+}

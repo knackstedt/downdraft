@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { build } from "./build";
@@ -7,6 +7,7 @@ import { newProject } from "./new";
 import { listTemplates } from "./scaffold";
 
 const TEST_DIR = join(tmpdir(), "downdraft-cli-test");
+const origCwd = process.cwd();
 
 function cleanup() {
   if (existsSync(TEST_DIR)) {
@@ -19,7 +20,14 @@ function ensureCleanDir() {
   if (!existsSync(TEST_DIR)) {
     mkdirSync(TEST_DIR, { recursive: true });
   }
+  // chdir to tmpdir so confinePath(process.cwd(), TEST_DIR) accepts the
+  // absolute tmp path instead of rejecting it as outside the engine repo.
+  process.chdir(tmpdir());
 }
+
+afterAll(() => {
+  process.chdir(origCwd);
+});
 
 describe("CLI new — minimal template", () => {
   beforeAll(() => {
@@ -38,6 +46,8 @@ describe("CLI new — minimal template", () => {
     expect(existsSync(join(TEST_DIR, "downdraft.config.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "README.md"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".gitignore"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(true);
   });
 
   it("should write valid package.json", async () => {
@@ -47,6 +57,90 @@ describe("CLI new — minimal template", () => {
     expect(pkg.dependencies["@downdraft/core"]).toBe("workspace:*");
     expect(pkg.scripts.dev).toBe("draft dev");
     expect(pkg.scripts.build).toBe("draft build");
+    expect(pkg.scripts.export).toBe("draft export");
+    expect(pkg.scripts.dist).toBe("electron-vite build && electron-builder");
+    expect(pkg.scripts.typecheck).toBe("tsc --noEmit");
+    expect(pkg.scripts.lint).toBe("oxlint");
+    expect(pkg.scripts.test).toBe("npm test");
+    expect(pkg.scripts.postinstall).toBe("node node_modules/electron/install.js");
+  });
+
+  it("should preconfigure electron-builder in package.json", async () => {
+    const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
+    expect(pkg.build).toBeDefined();
+    expect(pkg.build.appId).toBe("com.my-game.game");
+    expect(pkg.build.productName).toBe("My Game");
+    expect(pkg.build.directories.output).toBe("release");
+    expect(pkg.build.files).toContain("dist/**/*");
+    expect(pkg.build.win.target).toContain("portable");
+    expect(pkg.build.linux.target).toContain("AppImage");
+    expect(pkg.build.linux.target).toContain("deb");
+    expect(pkg.build.linux.target).toContain("rpm");
+    expect(pkg.build.linux.target).toContain("flatpak");
+    expect(pkg.build.deb.depends).toContain("libgtk-3-0");
+    expect(pkg.build.flatpak.base).toBe("org.electronjs.Electron2.BaseApp");
+  });
+
+  it("should include builder devDependencies", async () => {
+    const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
+    expect(pkg.devDependencies).toBeDefined();
+    expect(pkg.devDependencies["electron"]).toBeDefined();
+    expect(pkg.devDependencies["electron-builder"]).toBeDefined();
+    expect(pkg.devDependencies["electron-vite"]).toBeDefined();
+    expect(pkg.devDependencies["vite"]).toBeDefined();
+    expect(pkg.devDependencies["typescript"]).toBeDefined();
+    expect(pkg.devDependencies["oxlint"]).toBeDefined();
+    expect(pkg.devDependencies["@downdraft/app"]).toBe("workspace:*");
+    expect(pkg.devDependencies["@downdraft/cli"]).toBe("workspace:*");
+  });
+
+  it("should scaffold .vscode config files", async () => {
+    expect(existsSync(join(TEST_DIR, ".vscode", "extensions.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, ".vscode", "settings.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
+  });
+
+  it("should write valid extensions.json with recommendations", async () => {
+    const ext = JSON.parse(readFileSync(join(TEST_DIR, ".vscode", "extensions.json"), "utf-8"));
+    expect(Array.isArray(ext.recommendations)).toBe(true);
+    expect(ext.recommendations).toContain("oxc.oxc-vscode");
+    expect(ext.recommendations).toContain("wgsl-analyzer.wgsl-analyzer");
+    expect(ext.recommendations).toContain("antaalt.shader-validator");
+  });
+
+  it("should write valid settings.json", async () => {
+    const settings = JSON.parse(readFileSync(join(TEST_DIR, ".vscode", "settings.json"), "utf-8"));
+    expect(settings["explorer.fileNesting.enabled"]).toBe(true);
+    expect(settings["files.associations"]["*.wgsl"]).toBe("wgsl");
+  });
+
+  it("should write valid tasks.json with draft CLI and QA tasks", async () => {
+    const tasks = JSON.parse(readFileSync(join(TEST_DIR, ".vscode", "tasks.json"), "utf-8"));
+    expect(tasks.version).toBe("2.0.0");
+    const labels = tasks.tasks.map((t: any) => t.label);
+    expect(labels).toContain("Dev");
+    expect(labels).toContain("Build");
+    expect(labels).toContain("Export");
+    expect(labels).toContain("Build & Export");
+    expect(labels).toContain("Typecheck");
+    expect(labels).toContain("Lint");
+    expect(labels).toContain("Test");
+    const devTask = tasks.tasks.find((t: any) => t.label === "Dev");
+    expect(devTask.command).toBe("draft dev");
+    expect(devTask.group.isDefault).toBe(true);
+    const inputs = tasks.inputs.map((i: any) => i.id);
+    expect(inputs).toContain("buildTarget");
+    expect(inputs).toContain("buildMode");
+    expect(inputs).toContain("exportTarget");
+    expect(inputs).toContain("platformTarget");
+  });
+
+  it("should write valid tsconfig.json", async () => {
+    const tsconfig = JSON.parse(readFileSync(join(TEST_DIR, "tsconfig.json"), "utf-8"));
+    expect(tsconfig.compilerOptions.target).toBe("ESNext");
+    expect(tsconfig.compilerOptions.noEmit).toBe(true);
+    expect(tsconfig.compilerOptions.strict).toBe(true);
+    expect(tsconfig.include).toContain("src");
   });
 
   it("should write valid downdraft.config.json", async () => {
@@ -84,6 +178,9 @@ describe("CLI new — physics template", () => {
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/main.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "downdraft.config.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(true);
   });
 
   it("should include physics-rapier dependency", async () => {
@@ -121,6 +218,10 @@ describe("CLI new — full template", () => {
     expect(existsSync(join(TEST_DIR, "src/systems"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/entities"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "assets/shaders"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, ".vscode", "extensions.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(true);
   });
 
   it("should include all plugin dependencies", async () => {

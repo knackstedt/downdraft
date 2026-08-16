@@ -9,13 +9,13 @@
 bun install
 
 # Start dev server (includes DevTools panel)
-bun run dev
+npm run dev
 
 # Build for production
-bun run build
+npm run build
 
 # Export for distribution
-bun run export
+npm run export
 ```
 
 ## Project Structure

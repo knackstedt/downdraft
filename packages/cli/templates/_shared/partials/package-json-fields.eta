@@ -5,5 +5,10 @@
   "scripts": {
     "dev": "draft dev",
     "build": "draft build",
-    "export": "draft export"
+    "export": "draft export",
+    "dist": "electron-vite build && electron-builder",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "npm test",
+    "postinstall": "node node_modules/electron/install.js"
   },
