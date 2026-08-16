@@ -209,6 +209,21 @@ export class MiningRenderer {
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
   }
 
+  /**
+   * Respawn the player at the surface spawn point with full health.
+   * Called from the DeathMenu UI when the player clicks "Respawn".
+   * Resets the game-over state, resumes the simulation, and tells the
+   * worker to reset the player position.
+   */
+  respawn(): void {
+    const s = useGameStore.getState();
+    s.setGameOver(false);
+    s.setHealth(100);
+    this.workerHost?.respawn();
+    this.workerHost?.resume();
+    s.setPaused(false);
+  }
+
   private frame(time: number): void {
     if (!this.running || !this.device || !this.context || !this.input || !this.gridReader ||
         !this.gridPass || !this.backdropPass || !this.stickmanPass || !this.workerHost ||
@@ -267,6 +282,13 @@ export class MiningRenderer {
     if (s.depth !== depth) s.setDepth(depth);
     const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
     if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);
+
+    // Death detection — when health reaches 0, pause the simulation and
+    // show the death menu. Only triggers once (guarded by gameOver flag).
+    if (health <= 0 && !s.gameOver && !s.paused) {
+      s.setGameOver(true);
+      this.workerHost?.pause();
+    }
 
     // Convert camera world coords → active-grid-local coords for the
     // render passes (grid texture + stickman shader work in local coords).

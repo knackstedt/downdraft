@@ -110,6 +110,11 @@ expose({
   setInventory(inventory: InventoryEntry[]): void {
     currentInventory = inventory;
   },
+
+  respawn(): void {
+    if (!world) return;
+    world.respawn();
+  },
 });
 
 async function loop(): Promise<void> {

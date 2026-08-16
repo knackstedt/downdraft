@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { DeathMenu } from "./components/death-menu";
 import { HUD } from "./components/hud";
 import { InventoryPanel } from "./components/inventory-panel";
 import { useGameStore } from "./stores/game-store";
@@ -39,6 +40,7 @@ export default function App() {
     <>
       <HUD />
       <InventoryPanel />
+      <DeathMenu />
       <div style={helpStyle}>
         WASD/Arrows: move | Space: jump | Left-click: dig | P: pause | I: inventory
         {paused && " | PAUSED"}

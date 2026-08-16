@@ -533,3 +533,65 @@ test("getPlayerDepth returns chunk Y of player", () => {
   const expectedDepth = Math.floor(w.player.y / CHUNK_H);
   expect(w.getPlayerDepth()).toBe(expectedDepth);
 });
+
+// --- Respawn ---
+
+test("respawn resets player to spawn point with full health", () => {
+  const w = new ChunkWorld();
+  // Record initial spawn position BEFORE running any steps (the player
+  // falls during simulation, so we capture the constructor's spawn point)
+  const spawnX = w.player.x;
+  const spawnY = w.player.y;
+
+  runIdle(w, 1);
+
+  // Move player away and damage them
+  w.player.x += 100;
+  w.player.y += 100;
+  w.player.health = 0;
+
+  // Respawn
+  w.respawn();
+
+  // Player should be back at spawn with full health
+  expect(w.player.x).toBe(spawnX);
+  expect(w.player.y).toBe(spawnY);
+  expect(w.player.vx).toBe(0);
+  expect(w.player.vy).toBe(0);
+  expect(w.player.health).toBe(100);
+});
+
+test("respawn preserves upgrades", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  // Set upgrades
+  w.setUpgrades({ damage: 3, radius: 2, rate: 1, inventorySize: 1 });
+  expect(w.getMiningDamage()).toBe(25);
+
+  // Respawn
+  w.respawn();
+
+  // Upgrades should be preserved
+  expect(w.getMiningDamage()).toBe(25);
+  expect(w.getMiningRadius()).toBe(3);
+  expect(w.getMiningRate()).toBe(2);
+  expect(w.getMaxInventory()).toBe(75);
+});
+
+test("respawn clears mining cooldown", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  // Mine once to set cooldown
+  clearShaft(w, Math.floor(w.player.x), Math.floor(w.player.y) + 20);
+  placeStoneWall(w, Math.floor(w.player.x), Math.floor(w.player.y) + 20);
+  w.mine(Math.floor(w.player.x), Math.floor(w.player.y) + 20);
+  expect(w.mineCooldown).toBeGreaterThan(0);
+
+  // Respawn
+  w.respawn();
+
+  // Cooldown should be reset
+  expect(w.mineCooldown).toBe(0);
+});

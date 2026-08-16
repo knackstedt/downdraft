@@ -28,6 +28,7 @@ type MiningWorkerApi = {
   loadSaveData(data: { player: MiningPlayerState; upgrades?: PlayerUpgrades; chunks: SavedChunk[]; tick: number }): Promise<void>;
   setUpgrades(upgrades: PlayerUpgrades): Promise<void>;
   setInventory(inventory: InventoryEntry[]): Promise<void>;
+  respawn(): Promise<void>;
 };
 
 export class MiningWorkerHost {
@@ -182,5 +183,9 @@ export class MiningWorkerHost {
 
   setInventory(inventory: InventoryEntry[]): void {
     this.proxy?.proxy.setInventory(inventory).catch(() => {});
+  }
+
+  respawn(): void {
+    this.proxy?.proxy.respawn().catch(() => {});
   }
 }
