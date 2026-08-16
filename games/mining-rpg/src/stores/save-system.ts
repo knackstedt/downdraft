@@ -9,9 +9,9 @@
 // Autosave data is loaded on startup before the worker begins simulating.
 // ============================================================================
 
-import type { InventoryEntry, MiningPlayerState } from "../shared/types";
-import type { SavedChunk } from "../simulation/chunk-world";
 import { WORLD_SEED } from "../shared/constants";
+import type { InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
+import type { SavedChunk } from "../simulation/chunk-world";
 
 const DB_NAME = "mining-rpg-save";
 const DB_VERSION = 1;
@@ -24,6 +24,7 @@ export interface SaveData {
   version: number;
   seed: number;
   player: MiningPlayerState;
+  upgrades: PlayerUpgrades;
   inventory: InventoryEntry[];
   chunks: SavedChunk[];
   savedAt: number;
@@ -122,6 +123,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     version: meta.version,
     seed: meta.seed ?? WORLD_SEED,
     player: meta.player,
+    upgrades: meta.upgrades ?? { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
     inventory: meta.inventory ?? [],
     chunks,
     savedAt: meta.savedAt ?? 0,

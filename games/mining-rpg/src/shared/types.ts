@@ -60,6 +60,22 @@ export interface MiningPlayerState {
   health: number;
 }
 
+/**
+ * Player upgrade levels. Each upgrade starts at level 0 (base stats) and
+ * can be increased to improve mining capabilities and inventory capacity.
+ * Persisted in the save file alongside player state.
+ */
+export interface PlayerUpgrades {
+  /** Damage per hit — how much progress each mining tick makes. */
+  damage: number;
+  /** Mining radius — area of effect around the raycast hit point. */
+  radius: number;
+  /** Mining rate — ticks between hits (lower = faster). */
+  rate: number;
+  /** Max inventory slots — total item count the player can carry. */
+  inventorySize: number;
+}
+
 export interface WorldConfig {
   seed: number;
   chunkW: number;

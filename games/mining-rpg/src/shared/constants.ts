@@ -35,6 +35,43 @@ export const COLLECT_RADIUS = 16;
 // Dig brush radius (in grid cells) for the mining tool.
 export const DEFAULT_DIG_RADIUS = 3;
 
+// ============================================================================
+// Mining upgrade system — base stats and per-level increments.
+//
+// The player starts with base stats and can upgrade via the upgrade system.
+// Each upgrade level adds the increment to the base value.
+// ============================================================================
+
+/** Base mining damage per hit (progress points per mining tick). */
+export const BASE_MINING_DAMAGE = 10;
+/** Damage increment per upgrade level. */
+export const DAMAGE_UPGRADE_INCREMENT = 5;
+
+/** Base mining radius (cells around the raycast hit point). */
+export const BASE_MINING_RADIUS = 1;
+/** Radius increment per upgrade level. */
+export const RADIUS_UPGRADE_INCREMENT = 1;
+
+/** Base mining rate — ticks between hits (lower = faster). */
+export const BASE_MINING_RATE = 3;
+/** Rate reduction per upgrade level (minimum 1 tick between hits). */
+export const RATE_UPGRADE_REDUCTION = 1;
+
+/** Base max inventory size (total item count). */
+export const BASE_INVENTORY_SIZE = 50;
+/** Inventory size increment per upgrade level. */
+export const INVENTORY_SIZE_UPGRADE_INCREMENT = 25;
+
+/** Stone hardness — how much damage needed to dislodge a stone cell. */
+export const STONE_HARDNESS = 30;
+/** Dirt hardness — how much damage needed to dislodge a dirt cell. */
+export const DIRT_HARDNESS = 10;
+/** Ore hardness — how much damage needed to dislodge an ore cell. */
+export const ORE_HARDNESS = 20;
+
+/** Max raycast range from player (in cells). */
+export const MAX_MINE_RANGE = 30;
+
 // World seed for deterministic terrain generation.
 export const WORLD_SEED = 12345;
 

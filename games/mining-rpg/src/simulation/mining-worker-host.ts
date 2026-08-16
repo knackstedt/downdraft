@@ -13,7 +13,7 @@ import {
     MiningSimBufferWriter,
     allocateMiningSimBuffer,
 } from "../shared/sim-buffer";
-import type { InventoryEntry, MiningPlayerState } from "../shared/types";
+import type { InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import type { SavedChunk } from "./chunk-world";
 
 type MiningWorkerApi = {
@@ -24,8 +24,10 @@ type MiningWorkerApi = {
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
-  getSaveData(): Promise<{ player: MiningPlayerState; dirtyChunks: SavedChunk[]; tick: number }>;
-  loadSaveData(data: { player: MiningPlayerState; chunks: SavedChunk[]; tick: number }): Promise<void>;
+  getSaveData(): Promise<{ player: MiningPlayerState; upgrades: PlayerUpgrades; dirtyChunks: SavedChunk[]; tick: number }>;
+  loadSaveData(data: { player: MiningPlayerState; upgrades?: PlayerUpgrades; chunks: SavedChunk[]; tick: number }): Promise<void>;
+  setUpgrades(upgrades: PlayerUpgrades): Promise<void>;
+  setInventory(inventory: InventoryEntry[]): Promise<void>;
 };
 
 export class MiningWorkerHost {
@@ -156,7 +158,7 @@ export class MiningWorkerHost {
 
   // --- Save / Load ---
 
-  async getSaveData(): Promise<{ player: MiningPlayerState; dirtyChunks: SavedChunk[]; tick: number } | null> {
+  async getSaveData(): Promise<{ player: MiningPlayerState; upgrades: PlayerUpgrades; dirtyChunks: SavedChunk[]; tick: number } | null> {
     if (!this.proxy) return null;
     try {
       return await this.proxy.proxy.getSaveData();
@@ -165,12 +167,20 @@ export class MiningWorkerHost {
     }
   }
 
-  async loadSaveData(data: { player: MiningPlayerState; chunks: SavedChunk[]; tick: number }): Promise<void> {
+  async loadSaveData(data: { player: MiningPlayerState; upgrades?: PlayerUpgrades; chunks: SavedChunk[]; tick: number }): Promise<void> {
     if (!this.proxy) return;
     try {
       await this.proxy.proxy.loadSaveData(data);
     } catch (e) {
       console.error("[MiningWorkerHost] Load save data failed:", e);
     }
+  }
+
+  setUpgrades(upgrades: PlayerUpgrades): void {
+    this.proxy?.proxy.setUpgrades(upgrades).catch(() => {});
+  }
+
+  setInventory(inventory: InventoryEntry[]): void {
+    this.proxy?.proxy.setInventory(inventory).catch(() => {});
   }
 }
