@@ -16,11 +16,11 @@ import "@fontsource/urbanist/400.css";
 import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
-import { downdraft } from "@downdraft/app/renderer";
-import { startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { createSaveStore, downdraft, type SaveStoreMode } from "@downdraft/app/renderer";
+import { startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats, type ISaveStore } from "@downdraft/core";
 import { useDebugStore } from "@downdraft/plugin-devtools";
-import { ENT, PLR } from "@shared/sim-buffer";
-import { EntityType, SimToMainMessage } from "@shared/types";
+import { ENT, PLR, PLR_FLAG, SimBufferReader } from "@shared/sim-buffer";
+import { CameraMode, EntityType, SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
@@ -31,13 +31,25 @@ import "./styles/globals.css";
 (globalThis as any).__ddThreadTag = "R0";
 
 async function bootstrap() {
-  // Render React UI immediately so the loading screen is visible during init
-  const root = createRoot(document.getElementById("root")!);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
-  );
+  // Undertow is enabled by default — the React UI runs in a Web Worker and
+  // proxies DOM operations to the main thread via a SharedArrayBuffer.
+  // Pass ?undertow=0 to disable and run React on the main thread directly.
+  const undertowDisabled = new URLSearchParams(location.search).get("undertow") === "0";
+  if (!undertowDisabled) {
+    // Start the undertow UI worker — it renders React into #root via SAB.
+    const { startUndertowHost } = await import("./undertow-host");
+    startUndertowHost();
+    // Don't return — the main thread still needs to init WebGPU + sim.
+    // The worker owns the React UI; the main thread owns the canvas + game logic.
+  } else {
+    // Non-undertow mode: render React on the main thread directly.
+    const root = createRoot(document.getElementById("root")!);
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>,
+    );
+  }
 
   const canvas = document.getElementById("game-canvas") as HTMLCanvasElement | null;
   if (!canvas) {
@@ -67,6 +79,10 @@ async function bootstrap() {
   const inputSAB = simWorker.getInputBuffer();
   const waterSAB = simWorker.getWaterBuffer();
   const boatSAB = simWorker.getBoatBuffer();
+
+  // Save mode — determined later during save store init, but the event
+  // handler needs to know it. Default to "ipc" until save store is initialized.
+  let bridgeSaveMode: "inline" | "worker" | "ipc" = "ipc";
 
   // Route sim events to the renderer
   simWorker.onEvent((msg: SimToMainMessage) => {
@@ -152,8 +168,9 @@ async function bootstrap() {
         useDebugStore.getState().setCollisionLog(msg.data);
         break;
       case "saved":
-        // Forward save state to main process for DB persistence
-        if (downdraft && msg.data?.stateJson) {
+        // In inline/worker mode, the save is already written to OPFS by the
+        // worker. Only forward to IPC in the fallback "ipc" mode.
+        if (bridgeSaveMode === "ipc" && downdraft && msg.data?.stateJson) {
           downdraft.saveGameState(msg.data.slotName, msg.data.stateJson);
         }
         break;
@@ -204,12 +221,65 @@ async function bootstrap() {
   const { setupTtolMcp } = await import("./mcp/setup");
   setupTtolMcp(renderer, simWorker);
 
-  // Auto-load saved state if available (skip in deterministic/test mode)
-  if (!deterministic && downdraft?.loadGameState) {
+  // --- Save store initialization (before autosave loading) ---
+  // Detect save mode from config and create the appropriate ISaveStore.
+  // "inline": OpfsSaveStore runs inside the sim worker (zero-copy saves).
+  // "worker": Dedicated save Web Worker with OpfsSaveStore.
+  // "auto":   Pick "worker" if OPFS available, else IPC fallback.
+  const saveMode = "auto" as SaveStoreMode;
+  let saveStore: ISaveStore | null = null;
+
+  try {
+    if (saveMode === "inline") {
+      // Initialize OpfsSaveStore inside the sim worker
+      await simWorker.initSaveStore({
+        engineVersion: "0.1.0",
+        maxGenerations: 3,
+      });
+      bridgeSaveMode = "inline";
+    } else {
+      // "worker" or "auto" — createSaveStore handles OPFS detection
+      saveStore = await createSaveStore({
+        mode: saveMode,
+        opfsOptions: {
+          engineVersion: "0.1.0",
+          maxGenerations: 3,
+        },
+        bridge: downdraft,
+      });
+      bridgeSaveMode = saveStore ? "worker" : "ipc";
+    }
+  } catch (e) {
+    console.warn("[Renderer] Save store initialization failed, falling back to IPC:", e);
+    bridgeSaveMode = "ipc";
+  }
+
+  // Auto-load saved state if available (skip in deterministic/test mode).
+  // Tries the save store (OPFS) first, falls back to IPC for legacy saves.
+  if (!deterministic) {
     try {
-      const savedState = await downdraft.loadGameState("autosave");
+      let savedState: string | null = null;
+      if (bridgeSaveMode === "inline") {
+        // Inline mode: worker loads from its own OPFS store
+        const loaded = await simWorker.load("autosave");
+        if (loaded) {
+          console.log("[Renderer] Auto-loaded saved game state (inline OPFS)");
+        }
+      } else if (saveStore) {
+        // Worker mode: load from the dedicated save store
+        const loadResult = await saveStore.load("autosave");
+        if (loadResult.state) {
+          savedState = JSON.stringify(loadResult.state.components);
+        }
+      }
+      // IPC fallback or worker mode with no OPFS save — try legacy IPC
+      if (!savedState && downdraft?.loadGameState) {
+        savedState = await downdraft.loadGameState("autosave");
+      }
       if (savedState) {
-        await simWorker.load("autosave", savedState);
+        if (bridgeSaveMode !== "inline") {
+          await simWorker.load("autosave", savedState);
+        }
         // Restore renderer meta if present
         try {
           const components = JSON.parse(savedState);
@@ -396,7 +466,8 @@ async function bootstrap() {
 
   // Create the sim bridge with typed dependencies and store it for UI access.
   // Replaces the old window.__simWorker / window.__renderer service-locator pattern.
-  const bridge = createSimBridge({ worker: simWorker, renderer, downdraft });
+  // (saveStore and bridgeSaveMode were initialized earlier, before autosave loading)
+  const bridge = createSimBridge({ worker: simWorker, renderer, downdraft, saveStore, saveMode: bridgeSaveMode });
   useGameStore.getState().setSimBridge(bridge);
 
   // Initialize Scene Inspector for DevTools integration
@@ -469,6 +540,55 @@ async function bootstrap() {
   // Update store with renderer reference
   useGameStore.getState().setRenderer(renderer);
   useGameStore.getState().setReady(true);
+
+  // --- HUD state polling (main thread) ---
+  // The HUD component reads health/hunger/thirst/timeOfDay/weather/camera mode
+  // etc. from the sim buffer. In undertow mode the React UI runs in a worker
+  // where `renderer` (and thus the sim reader) is unavailable. We poll the sim
+  // buffer here on the main thread and write the values into the game store;
+  // the store bridge syncs them to the worker so the HUD can render. FPS is
+  // also polled here (the worker's App never mounts on the main thread in
+  // undertow mode, so its FPS useEffect never runs).
+  const hudInterval = setInterval(() => {
+    const simReader = renderer.getSimReader() as SimBufferReader | null;
+    if (!simReader || !simReader.isValid()) return;
+    const playerSlot = simReader.getPlayerSlot(0);
+    if (!playerSlot) return;
+    const flags = playerSlot.u32[PLR.FLAGS];
+    useGameStore.getState().setHudState({
+      health: playerSlot.f32[PLR.HEALTH],
+      maxHealth: playerSlot.f32[PLR.MAX_HEALTH],
+      hunger: playerSlot.f32[PLR.HUNGER],
+      thirst: playerSlot.f32[PLR.THIRST],
+      oxygen: playerSlot.f32[PLR.OXYGEN],
+      maxOxygen: playerSlot.f32[PLR.MAX_OXYGEN],
+      temperature: playerSlot.f32[PLR.TEMPERATURE],
+      timeOfDay: simReader.getTimeOfDay(),
+      weatherType: simReader.getWeatherType(),
+      cameraMode: playerSlot.u32[PLR.CAMERA_MODE] as CameraMode,
+      isFishing: (flags & PLR_FLAG.FISHING) !== 0,
+      fishingTension: playerSlot.f32[PLR.FISHING_TENSION] ?? 50,
+      fishingProgress: playerSlot.f32[PLR.FISHING_PROGRESS] ?? 0,
+      activeSlot: playerSlot.u32[PLR.ACTIVE_SLOT] ?? 0,
+      isPiloting: (flags & PLR_FLAG.PILOTING) !== 0,
+      isOnboard: (flags & PLR_FLAG.ONBOARD) !== 0,
+      gold: playerSlot.f32[PLR.GOLD] ?? 0,
+      playerX: playerSlot.f32[PLR.POS_X],
+      playerZ: playerSlot.f32[PLR.POS_Z],
+      heading: playerSlot.f32[PLR.HEADING],
+    });
+    // Auto-unhide HUD when leaving freecam
+    const camMode = playerSlot.u32[PLR.CAMERA_MODE];
+    if (camMode !== CameraMode.FreeCam && useGameStore.getState().hudHidden) {
+      useGameStore.getState().setHudHidden(false);
+    }
+  }, 100);
+
+  // FPS polling — the worker's App useEffect never runs in undertow mode, so
+  // poll FPS here and write to the store (synced to the worker).
+  const fpsInterval = setInterval(() => {
+    useGameStore.getState().setFPS(renderer.getFPS());
+  }, 500);
 
   // Debug page lifecycle — start/stop GC profiler + notify sim worker
   let rendererGcHandle: GCProfilerHandle | null = null;

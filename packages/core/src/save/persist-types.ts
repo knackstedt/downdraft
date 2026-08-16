@@ -35,7 +35,7 @@ export interface SaveMeta {
   playerCount: number;
 }
 
-// --- Save File Info (from header only, no decompression needed) ---
+// --- Save File Info (from header/meta only, no decompression needed) ---
 
 export interface SaveSlotInfo {
   slot: string;
@@ -43,8 +43,55 @@ export interface SaveSlotInfo {
   entityCount: number;
   playerCount: number;
   engineVersion: string;
-  /** File size in bytes */
+  /** File size in bytes (total across all generations for OPFS, single file for FileSaveStore) */
   fileSize: number;
+  /** Current generation number (OPFS stores; 1 for FileSaveStore) */
+  currentGen: number;
+  /** Number of available generations (OPFS stores; 1 for FileSaveStore) */
+  generationCount: number;
+  /** Whether a thumbnail is stored for this slot */
+  hasThumbnail: boolean;
+  /** Slot-level properties (game mode, playtime, world name, etc.) */
+  properties?: Record<string, unknown>;
+}
+
+// --- Generation Info ---
+// Describes a single snapshot within a slot's generation history.
+
+export interface SaveGenerationInfo {
+  gen: number;
+  timestamp: number;
+  engineVersion: string;
+  entityCount: number;
+  playerCount: number;
+  /** Compressed body size in bytes */
+  bodySize: number;
+  /** Number of binary blobs stored with this generation */
+  blobCount: number;
+}
+
+// --- Save Options ---
+// Passed to ISaveStore.save() to control generation retention and attach
+// thumbnails, properties, and binary blobs.
+
+export interface SaveOptions {
+  /** Max generations to retain per slot. Older gens are pruned. Default: 3. */
+  maxGenerations?: number;
+  /** Thumbnail image data (PNG/WebP bytes). Stored as a separate file. */
+  thumbnail?: ArrayBuffer | Uint8Array;
+  /** Arbitrary slot-level properties (game mode, playtime, world name, etc.) */
+  properties?: Record<string, unknown>;
+  /** Binary blobs from the serializer (typed arrays keyed by blobRef). */
+  blobs?: Record<string, ArrayBuffer>;
+}
+
+// --- Load Options ---
+
+export interface LoadOptions {
+  /** Load a specific generation instead of current. Default: current. */
+  gen?: number;
+  /** Whether to include binary blobs in the result. Default: true. */
+  includeBlobs?: boolean;
 }
 
 // --- Save Result ---
@@ -52,6 +99,8 @@ export interface SaveSlotInfo {
 export interface SaveResult {
   success: boolean;
   bytes: number;
+  /** Generation number that was written */
+  gen?: number;
   warning?: SaveWarning;
 }
 
@@ -79,6 +128,10 @@ export interface SaveWarning {
 
 export interface LoadResult {
   state: SaveState | null;
+  /** Binary blobs keyed by blobRef (only present if includeBlobs was true) */
+  blobs?: Record<string, ArrayBuffer>;
+  /** Generation number that was loaded */
+  gen?: number;
   warning?: SaveWarning;
 }
 
@@ -109,12 +162,28 @@ export interface IMigrationRegistry {
 }
 
 // --- Save Store Interface ---
+// The unified interface for all save backends (OPFS, File, IPC fallback).
+// save() and load() accept optional options for generation control, blobs,
+// thumbnails, and properties. Backends that don't support a feature degrade
+// gracefully (e.g. FileSaveStore returns generationCount: 1).
 
 export interface ISaveStore {
-  save(slot: string, state: SaveState): Promise<SaveResult>;
-  load(slot: string): Promise<LoadResult>;
+  save(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult>;
+  load(slot: string, opts?: LoadOptions): Promise<LoadResult>;
   listSaves(): Promise<SaveSlotInfo[]>;
+  /** List all generations for a slot (newest first). */
+  listGenerations(slot: string): Promise<SaveGenerationInfo[]>;
   deleteSave(slot: string): Promise<boolean>;
+  /** Delete a specific generation from a slot. Returns false if not supported. */
+  deleteGeneration(slot: string, gen: number): Promise<boolean>;
+  /** Set the thumbnail image for a slot (PNG/WebP bytes). */
+  setThumbnail(slot: string, data: ArrayBuffer | Uint8Array): Promise<void>;
+  /** Get the thumbnail image for a slot, or null if none. */
+  getThumbnail(slot: string): Promise<ArrayBuffer | null>;
+  /** Set slot-level properties (merged with existing). */
+  setProperties(slot: string, props: Record<string, unknown>): Promise<void>;
+  /** Get slot-level properties, or empty object if none. */
+  getProperties(slot: string): Promise<Record<string, unknown>>;
   onWarning(cb: (warning: SaveWarning) => void): () => void;
 }
 

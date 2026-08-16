@@ -29,7 +29,9 @@ export default function App() {
     showCharacterCustomization, showCredits, playerDied, hudHidden, showBuilderWheel, isDev } = useGameStore();
   const simBridge = useGameStore((s) => s.simBridge);
   const showDebugPage = useDebugStore((s) => s.showDebugPage);
-  const [pointerLocked, setPointerLocked] = useState(document.pointerLockElement !== null);
+  const pointerLocked = useGameStore((s) => s.pointerLocked);
+  const setPointerLocked = useGameStore((s) => s.setPointerLocked);
+  // console.log(`[App] render: pointerLocked=${pointerLocked} showPauseMenu=${showPauseMenu} fps=${useGameStore.getState().fps}`);
   const [f1Devtools, setF1Devtools] = useState(false);
   const [osrForcedFocus, setOsrForcedFocus] = useState(false);
   const osrForcedFocusRef = useRef(false);
@@ -78,7 +80,14 @@ export default function App() {
         // No panel open — exit pointer lock first; the pointerlockchange
         // handler will open the craft menu once lock is released.
         if (document.pointerLockElement) {
-          tabRequested = true;
+          // In undertow mode, the pointerlockchange handler lives on the main
+          // thread (undertow-host.ts) and defaults to opening the pause menu.
+          // Signal "tab-requested" so it opens the craft menu instead.
+          if ((self as any).__undertow) {
+            (self as any).postMessage({ type: "tab-requested" });
+          } else {
+            tabRequested = true;
+          }
           document.exitPointerLock();
         } else {
           s.toggleCraftMenu();
@@ -242,7 +251,12 @@ export default function App() {
     // When pointer lock is active, the browser consumes the first Escape
     // to exit pointer lock — the keydown event never reaches JS. Listen
     // for pointerlockchange so one Escape opens the pause menu.
+    // In undertow mode, ALL pointer lock logic is handled by the main thread
+    // (undertow-host.ts). The worker's onPointerLockChange is a complete no-op.
+    // The main thread sends direct postMessage to update the worker's store.
+    const isUndertow = typeof (self as any).__undertow !== "undefined";
     const onPointerLockChange = () => {
+      if (isUndertow) return; // main thread handles everything
       const locked = document.pointerLockElement !== null;
       setPointerLocked(locked);
       if (locked) {
@@ -328,8 +342,10 @@ export default function App() {
         <div
           className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-ocean-950/60 cursor-pointer"
           onClick={() => {
-            const r = useGameStore.getState().renderer;
-            if (r) r.lockPointer();
+            // In worker mode, pointer lock is handled by the main thread's
+            // onUserGesture callback (in undertow-host.ts) which runs within
+            // the browser's user gesture context. The worker-side onClick
+            // is a no-op here — the main thread intercepts the click.
           }}
         >
           <div className="text-center">

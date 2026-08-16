@@ -7,7 +7,7 @@
 import { createBaseGameStoreState, type BaseGameStoreState } from "@downdraft/core";
 import { WeatherType } from "@shared/types";
 import { create } from "zustand";
-import { WebGPURenderer } from "../engine/webgpu-renderer";
+import type { WebGPURenderer } from "../engine/webgpu-renderer";
 import type { SimBridge } from "../sim-bridge";
 
 interface Bookmark {
@@ -48,6 +48,9 @@ interface GameStoreState extends BaseGameStoreState<WebGPURenderer> {
   waypoint: { x: number; z: number } | null;
   simBridge: SimBridge | null;
   currentSimSpeed: number;
+  /** HUD state derived from the sim buffer by the main thread. Synced to the
+   *  worker via the store bridge so the HUD can render without direct sim access. */
+  hudState: HudState;
 
   setWeather: (w: any) => void;
   setPlayerDied: (d: any) => void;
@@ -73,7 +76,58 @@ interface GameStoreState extends BaseGameStoreState<WebGPURenderer> {
   setShipHoldData: (data: ShipHoldData | null) => void;
   setSimBridge: (b: SimBridge) => void;
   setCurrentSimSpeed: (v: number) => void;
+  setHudState: (s: Partial<HudState>) => void;
 }
+
+/** HUD values read from the sim buffer by the main thread and synced to the
+ *  worker. The HUD component reads these from the store instead of polling
+ *  the sim buffer directly (which is only available on the main thread). */
+export interface HudState {
+  health: number;
+  maxHealth: number;
+  hunger: number;
+  thirst: number;
+  oxygen: number;
+  maxOxygen: number;
+  temperature: number;
+  timeOfDay: number;
+  weatherType: number;
+  biome: number;
+  security: number;
+  cameraMode: number;
+  isFishing: boolean;
+  fishingTension: number;
+  fishingProgress: number;
+  activeSlot: number;
+  isPiloting: boolean;
+  isOnboard: boolean;
+  gold: number;
+  playerX: number;
+  playerZ: number;
+  heading: number;
+}
+
+export const DEFAULT_HUD_STATE: HudState = {
+  health: 100, maxHealth: 100,
+  hunger: 100, thirst: 100,
+  oxygen: 100, maxOxygen: 100,
+  temperature: 50,
+  timeOfDay: 0.3,
+  weatherType: 0,
+  biome: 7,
+  security: 0,
+  cameraMode: 2,
+  isFishing: false,
+  fishingTension: 50,
+  fishingProgress: 0,
+  activeSlot: 0,
+  isPiloting: false,
+  isOnboard: false,
+  gold: 0,
+  playerX: 0,
+  playerZ: 0,
+  heading: 0,
+};
 
 let bookmarkId = 0;
 
@@ -102,6 +156,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   waypoint: null,
   simBridge: null,
   currentSimSpeed: 1.0,
+  hudState: { ...DEFAULT_HUD_STATE },
 
   setWeather: (w) => set({ weather: w }),
   setPlayerDied: (d) => set({ playerDied: d }),
@@ -166,4 +221,5 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   setShipHoldData: (data) => set({ shipHoldData: data }),
   setSimBridge: (b) => set({ simBridge: b }),
   setCurrentSimSpeed: (v) => set({ currentSimSpeed: v }),
+  setHudState: (s) => set((state) => ({ hudState: { ...state.hudState, ...s } })),
 }));

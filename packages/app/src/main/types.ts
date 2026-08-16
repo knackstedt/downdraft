@@ -28,6 +28,10 @@ export interface DowndraftWindowConfig {
 export interface DowndraftSavesConfig {
   engineVersion: string;
   skipMigrations?: boolean;
+  /** Save store mode: "inline" (OPFS in sim worker), "worker" (dedicated save worker), "auto" (pick best). Default: "auto". */
+  mode?: "inline" | "worker" | "auto";
+  /** Default max generations per slot (OPFS mode). Default: 3. */
+  maxGenerations?: number;
 }
 
 export interface DowndraftMcpConfig {

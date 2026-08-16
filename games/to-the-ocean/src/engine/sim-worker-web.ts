@@ -4,8 +4,9 @@
 // Uses the RPC layer (expose/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { GCController, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { GCController, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
+import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence";
 import { BoatBufferWriter } from "@shared/boat-buffer";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
 import { InputBufferReader } from "@shared/input-buffer";
@@ -26,6 +27,7 @@ let perfTimer: ReturnType<typeof setInterval> | null = null;
 let perfWallStart = 0;
 
 let simLoop: SimWorkerLoop | null = null;
+let opfsStore: OpfsSaveStore | null = null;
 
 const events = exposeEvents();
 
@@ -88,20 +90,58 @@ expose({
   pause() { simLoop?.pause(); },
   resume() { simLoop?.resume(); },
 
-  async save(slotName: string): Promise<{ slotName: string; stateJson: string }> {
+  async save(slotName: string, opts?: SaveOptions): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }> {
     if (!simulation || !stateHelper) throw new Error("Simulation not initialized");
     const stateJson = stateHelper.saveState();
+
+    // If inline OPFS store is available, save directly to OPFS from this worker
+    if (opfsStore) {
+      const components = JSON.parse(stateJson);
+      const result = await opfsStore.save(slotName, {
+        components,
+        meta: {
+          engineVersion: opts?.properties?.engineVersion as string ?? "0.1.0",
+          timestamp: Date.now() / 1000,
+          entityCount: 0,
+          playerCount: 0,
+        },
+      }, opts);
+      events.emit("saved", { slotName, stateJson, success: result.success, gen: result.gen });
+      return { slotName, stateJson, success: result.success, gen: result.gen };
+    }
+
+    // Fallback: return stateJson to the renderer for IPC-based saving
     events.emit("saved", { slotName, stateJson });
-    return { slotName, stateJson };
+    return { slotName, stateJson, success: true };
   },
 
-  async load(slotName: string, stateJson?: string): Promise<boolean> {
+  async load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean> {
     if (!simulation) throw new Error("Simulation not initialized");
+
+    // If inline OPFS store is available, load directly from OPFS
+    if (opfsStore && !stateJson) {
+      const result = await opfsStore.load(slotName, opts);
+      if (!result.state) {
+        events.emit("loaded", { slotName, success: false });
+        return false;
+      }
+      const loadedJson = JSON.stringify(result.state.components);
+      simulation.restoreState(loadedJson);
+      events.emit("loaded", { slotName, success: true, gen: result.gen });
+      return true;
+    }
+
+    // Fallback: use provided stateJson (from IPC)
     if (stateJson) {
       simulation.restoreState(stateJson);
     }
-    events.emit("loaded", { slotName });
+    events.emit("loaded", { slotName, success: true });
     return true;
+  },
+
+  async initSaveStore(opts: OpfsSaveStoreOptions): Promise<void> {
+    opfsStore = new OpfsSaveStore(opts);
+    await opfsStore.init();
   },
 
   setGamemode(mode: number) { simulation?.setGamemode(mode); },

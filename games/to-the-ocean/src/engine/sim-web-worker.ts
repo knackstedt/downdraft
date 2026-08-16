@@ -4,8 +4,9 @@
 // Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable } from "@downdraft/core";
+import { HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence";
 import { allocateBoatBuffer } from "@shared/boat-buffer";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
 import { allocateInputBuffer, allocateSimBuffer, allocateWaterBuffer } from "@shared/sim-buffer";
@@ -24,8 +25,9 @@ type SimApi = {
   init(simBuffer: SharedArrayBuffer, inputBuffer: SharedArrayBuffer, waterBuffer: SharedArrayBuffer, boatBuffer: SharedArrayBuffer, config: any): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
-  save(slotName: string): Promise<{ slotName: string; stateJson: string }>;
-  load(slotName: string, stateJson?: string): Promise<boolean>;
+  save(slotName: string, opts?: SaveOptions): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number }>;
+  load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean>;
+  initSaveStore(opts: OpfsSaveStoreOptions): Promise<void>;
   setGamemode(mode: number): Promise<void>;
   addPlayer(playerId: number, name: string): Promise<void>;
   removePlayer(playerId: number): Promise<void>;
@@ -57,8 +59,9 @@ export interface ISimWorker {
   removePlayer(playerId: number): void;
   pause(): void;
   resume(): void;
-  save(slotName: string): Promise<{ slotName: string; stateJson: string } | null>;
-  load(slotName: string, stateJson?: string): Promise<boolean>;
+  save(slotName: string, opts?: SaveOptions): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number } | null>;
+  load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean>;
+  initSaveStore(opts: OpfsSaveStoreOptions): Promise<void>;
   setGamemode(mode: number): void;
   setSetting(key: string, value: number | boolean): void;
   respawnPlayer(playerId: number): void;
@@ -146,24 +149,29 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
     this.wp?.proxy.resume().catch(() => {});
   }
 
-  async save(slotName: string): Promise<{ slotName: string; stateJson: string } | null> {
+  async save(slotName: string, opts?: SaveOptions): Promise<{ slotName: string; stateJson: string; success: boolean; gen?: number } | null> {
     if (!this.wp) return null;
     try {
-      return await this.wp.proxy.save(slotName);
+      return await this.wp.proxy.save(slotName, opts);
     } catch (err) {
       console.error("[SimWebWorker] Save failed:", err);
       return null;
     }
   }
 
-  async load(slotName: string, stateJson?: string): Promise<boolean> {
+  async load(slotName: string, stateJson?: string, opts?: LoadOptions): Promise<boolean> {
     if (!this.wp) return false;
     try {
-      return await this.wp.proxy.load(slotName, stateJson);
+      return await this.wp.proxy.load(slotName, stateJson, opts);
     } catch (err) {
       console.error("[SimWebWorker] Load failed:", err);
       return false;
     }
+  }
+
+  async initSaveStore(opts: OpfsSaveStoreOptions): Promise<void> {
+    if (!this.wp) throw new Error("Worker not started");
+    await this.wp.proxy.initSaveStore(opts);
   }
 
   setGamemode(mode: number): void {
