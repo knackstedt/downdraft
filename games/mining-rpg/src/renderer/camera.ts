@@ -49,3 +49,11 @@ export function screenToWorld(cam: Camera2D, sx: number, sy: number): { x: numbe
     y: (sy - cam.height / 2) / cam.zoom + cam.y,
   };
 }
+
+/** Convert world cell coords to screen pixel coords (device pixels). */
+export function worldToScreen(cam: Camera2D, wx: number, wy: number): { x: number; y: number } {
+  return {
+    x: (wx - cam.x) * cam.zoom + cam.width / 2,
+    y: (wy - cam.y) * cam.zoom + cam.height / 2,
+  };
+}

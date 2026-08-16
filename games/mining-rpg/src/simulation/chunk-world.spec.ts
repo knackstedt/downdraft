@@ -109,7 +109,7 @@ test("upgrade system has correct base stats", () => {
   expect(w.getMiningDamage()).toBe(10); // BASE_MINING_DAMAGE
   expect(w.getMiningRadius()).toBe(1); // BASE_MINING_RADIUS
   expect(w.getMiningRate()).toBe(3); // BASE_MINING_RATE
-  expect(w.getMaxInventory()).toBe(50); // BASE_INVENTORY_SIZE
+  expect(w.getMaxInventory()).toBe(250); // BASE_INVENTORY_SIZE
 });
 
 test("upgrade system increases stats with levels", () => {
@@ -118,7 +118,7 @@ test("upgrade system increases stats with levels", () => {
   expect(w.getMiningDamage()).toBe(20); // 10 + 2*5
   expect(w.getMiningRadius()).toBe(2); // 1 + 1*1
   expect(w.getMiningRate()).toBe(2); // max(1, 3 - 1*1)
-  expect(w.getMaxInventory()).toBe(75); // 50 + 1*25
+  expect(w.getMaxInventory()).toBe(375); // 250 + 1*125
 });
 
 test("upgrade rate has minimum of 1 tick", () => {
@@ -326,8 +326,8 @@ test("collect respects max inventory size", () => {
   const px = Math.floor(w.player.x);
   const py = Math.floor(w.player.y);
 
-  // Fill inventory to max (50 items)
-  const fullInventory = [{ mat: Material.Stone, count: 50 }];
+  // Fill inventory to max (250 items)
+  const fullInventory = [{ mat: Material.Stone, count: 250 }];
 
   // Place loose ore near player
   clearShaft(w, px, py + 8);
@@ -356,7 +356,7 @@ test("collect works when inventory has space", () => {
   const px = Math.floor(w.player.x);
   const py = Math.floor(w.player.y);
 
-  // Partially fill inventory (10 items, max 50)
+  // Partially fill inventory (10 items, max 250)
   const partialInventory = [{ mat: Material.Stone, count: 10 }];
 
   clearShaft(w, px, py + 8);
@@ -478,6 +478,194 @@ test("player health decreases when touching lava", () => {
   expect(w.player.health).toBeLessThan(initialHealth);
 });
 
+test("player tracks last damage material (death cause)", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  // Surround the player completely with lava (wide + tall) so they can't
+  // move out of it during the simulation steps
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  for (let dx = -3; dx <= 3; dx++) {
+    for (let dy = -2; dy <= 10; dy++) {
+      setMatAtWorld(w, px + dx, py + dy, Material.Lava);
+    }
+  }
+
+  runIdle(w, 10);
+
+  // lastDamageMaterial should be set to a damaging material (lava or fire —
+  // lava can convert to fire during simulation)
+  const DAMAGING = [Material.Lava, Material.Fire, Material.Plasma, Material.FuseFire, Material.BurningOil, Material.MethaneGas, Material.SulfurGas];
+  expect(DAMAGING).toContain(w.player.lastDamageMaterial);
+});
+
+test("respawn clears last damage material", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  // Damage the player with lava
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  for (let dx = -3; dx <= 3; dx++) {
+    for (let dy = -2; dy <= 10; dy++) {
+      setMatAtWorld(w, px + dx, py + dy, Material.Lava);
+    }
+  }
+  runIdle(w, 10);
+  // Player should have taken some damage
+  expect(w.player.lastDamageMaterial).not.toBe(0);
+
+  // Respawn
+  w.respawn();
+
+  // lastDamageMaterial should be cleared
+  expect(w.player.lastDamageMaterial).toBe(0);
+});
+
+// --- Bury / crush mechanics ---
+
+test("fully buried player takes crush damage", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const initialHealth = w.player.health;
+
+  // Completely surround the player with stone (all body cells)
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -1; dy <= 8; dy++) {
+      setMatAtWorld(w, px + dx, py + dy, Material.Stone);
+    }
+  }
+
+  // Run a few ticks — player should take damage
+  runIdle(w, 5);
+
+  expect(w.player.health).toBeLessThan(initialHealth);
+  expect(w.player.lastDamageMaterial).toBe(Material.Stone);
+});
+
+test("partially buried player can wiggle out", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  // Place stone only on the right side of the player (partial coverage)
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  for (let dx = 1; dx <= 2; dx++) {
+    for (let dy = 0; dy < 7; dy++) {
+      setMatAtWorld(w, px + dx, py + dy, Material.Stone);
+    }
+  }
+
+  const initialX = w.player.x;
+
+  // Press left to wiggle away from the stone
+  for (let i = 0; i < 60; i++) {
+    w.step({
+      left: true, right: false, up: false, down: false,
+      jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
+    });
+  }
+
+  // Player should have moved left (wiggled out)
+  expect(w.player.x).toBeLessThan(initialX);
+});
+
+test("partially buried player does not take crush damage", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const initialHealth = w.player.health;
+
+  // Place stone only on one side (partial)
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  for (let dx = 1; dx <= 2; dx++) {
+    for (let dy = 0; dy < 7; dy++) {
+      setMatAtWorld(w, px + dx, py + dy, Material.Stone);
+    }
+  }
+
+  runIdle(w, 10);
+
+  // Should not take crush damage (only fully buried triggers crush)
+  expect(w.player.health).toBe(initialHealth);
+});
+
+// --- Bomb explosion ---
+
+test("explosion dislodges stone to dirt in radius", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  // Place a block of stone at a known location
+  const targetX = Math.floor(w.player.x) + 20;
+  const targetY = Math.floor(w.player.y) + 10;
+  for (let dx = -8; dx <= 8; dx++) {
+    for (let dy = -8; dy <= 8; dy++) {
+      setMatAtWorld(w, targetX + dx, targetY + dy, Material.Stone);
+    }
+  }
+
+  // Explode at the center
+  w.explode(targetX, targetY, 5);
+
+  // Center stone should be dislodged (converted to Dirt, not destroyed)
+  expect(matAtRow(w, targetX, targetY, Material.Stone)).toBe(false);
+  expect(matAtRow(w, targetX, targetY, Material.Dirt)).toBe(true);
+
+  // Cells within radius should be dislodged too
+  expect(matAtRow(w, targetX + 3, targetY, Material.Stone)).toBe(false);
+  expect(matAtRow(w, targetX, targetY + 3, Material.Stone)).toBe(false);
+
+  // Cells outside radius should remain as stone
+  expect(matAtRow(w, targetX + 8, targetY, Material.Stone)).toBe(true);
+});
+
+test("explosion does not destroy walls", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const targetX = Math.floor(w.player.x) + 20;
+  const targetY = Math.floor(w.player.y) + 10;
+  placeStoneWall(w, targetX, targetY, Material.Wall);
+
+  w.explode(targetX, targetY, 5);
+
+  // Wall should still be there
+  expect(matAtRow(w, targetX, targetY, Material.Wall)).toBe(true);
+});
+
+test("explosion damages player if in range", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const initialHealth = w.player.health;
+
+  // Explode right at the player's position
+  w.explode(w.player.x, w.player.y, 5);
+
+  expect(w.player.health).toBeLessThan(initialHealth);
+  expect(w.player.lastDamageMaterial).toBe(Material.Fire);
+});
+
+test("explosion does not damage player if out of range", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const initialHealth = w.player.health;
+
+  // Explode far from the player
+  const farX = Math.floor(w.player.x) + 100;
+  const farY = Math.floor(w.player.y) + 100;
+  w.explode(farX, farY, 5);
+
+  expect(w.player.health).toBe(initialHealth);
+});
+
 // --- Chunk management ---
 
 test("active grid rebuilds when player crosses chunk boundary", () => {
@@ -576,7 +764,7 @@ test("respawn preserves upgrades", () => {
   expect(w.getMiningDamage()).toBe(25);
   expect(w.getMiningRadius()).toBe(3);
   expect(w.getMiningRate()).toBe(2);
-  expect(w.getMaxInventory()).toBe(75);
+  expect(w.getMaxInventory()).toBe(375);
 });
 
 test("respawn clears mining cooldown", () => {

@@ -58,6 +58,7 @@ export interface MiningPlayerState {
   facing: number;
   animFrame: number;
   health: number;
+  lastDamageMaterial?: number; // Material ID that last damaged the player (for death cause)
 }
 
 /**

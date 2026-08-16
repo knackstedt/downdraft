@@ -56,6 +56,19 @@ import type { Chunk, ChunkCoord, InventoryEntry, MiningPlayerState, PlayerUpgrad
 import { createMiningPlayer, updateMiningPlayer } from "./mining-player";
 import { generateChunk, surfaceHeightAt } from "./terrain";
 
+/**
+ * Flag bit stored in the packed cell's flags field (bits 16-23) to indicate
+ * that a cell has been dislodged from the static terrain by mining. This bit
+ * is preserved through physics operations (swap, applyAging) because it lives
+ * in the flags field alongside shade/FLAG_UPDATED/FLAG_SPARK. The renderer
+ * reads this bit to tint detached cells differently from static terrain.
+ *
+ * Bit 4 of the flags field (bit 20 of the packed uint32). Unused by the
+ * physics engine (which only uses bits 0-3: shade 0-1, FLAG_UPDATED 2,
+ * FLAG_SPARK 3).
+ */
+const FLAG_DETACHED = 0x10;
+
 function chunkKey(cx: number, cy: number): string {
   return `${cx},${cy}`;
 }
@@ -564,11 +577,13 @@ export class ChunkWorld {
             if (fields[fi + FIELD.GRAVITY] === 0) {
               fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
             }
+            // Mark as detached (loosened from static terrain)
+            grid[idx] = packed | (FLAG_DETACHED << 16);
             this.markCellUnfrozen(x, y);
-          } else if (mat === Material.Stone) {
-            // Stone → convert to Dirt (loose, collectible, falls with gravity)
+          } else if (mat === Material.Stone || mat === Material.Grass) {
+            // Stone/Grass → convert to Dirt (loose, collectible, falls with gravity)
             const shade = (packed >> 16) & 0xff;
-            grid[idx] = packCell(Material.Dirt, 0, shade);
+            grid[idx] = packCell(Material.Dirt, 0, shade | FLAG_DETACHED);
             this.markCellUnfrozen(x, y);
           } else {
             // Dirt/Grass/other: clear to create a hole
@@ -588,9 +603,11 @@ export class ChunkWorld {
                   const aboveFi = aboveIdx * 4;
                   if (fields[aboveFi + FIELD.GRAVITY] === 0 && MAT_GRAVITY_DIR[aboveMat] !== 0) {
                     fields[aboveFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+                    // Mark as detached (loosened)
+                    grid[aboveIdx] = above | (FLAG_DETACHED << 16);
                   } else if (aboveDef.gravity === 0) {
                     const shade = (above >> 16) & 0xff;
-                    grid[aboveIdx] = packCell(Material.Dirt, 0, shade);
+                    grid[aboveIdx] = packCell(Material.Dirt, 0, shade | FLAG_DETACHED);
                   }
                 }
                 this.markCellUnfrozen(x, y - 1);
@@ -967,6 +984,7 @@ export class ChunkWorld {
     this.player.vy = 0;
     this.player.onGround = false;
     this.player.health = 100;
+    this.player.lastDamageMaterial = 0;
     // Clear per-cell mining damage
     this.cellDamage.fill(0);
     // Reset mining cooldown so the player can mine immediately
@@ -974,6 +992,106 @@ export class ChunkWorld {
     // Force rebuild + spawn validation
     this.needsRebuild = true;
     this.needsSpawnValidation = true;
+  }
+
+  /**
+   * Explode a bomb at the given world coordinates. Damages/clears solid cells
+   * in a circular radius and damages the player if they're within range.
+   * Liquids and gases are cleared too; walls are immune.
+   */
+  explode(worldX: number, worldY: number, radius: number): void {
+    const grid = this.activeGrid.grid;
+    const fields = this.activeGrid.fields;
+    const { x: ax, y: ay } = this.worldToActive(worldX, worldY);
+    const cx = Math.floor(ax);
+    const cy = Math.floor(ay);
+    const r = Math.floor(radius);
+
+    // Dislodge cells in a circle (like mining, not destruction):
+    // - Stone → converted to Dirt (loose, collectible, falls with gravity)
+    // - Ore → re-enable gravity (loosened, collectible)
+    // - Dirt/Grass/other solids → cleared to create a hole
+    // - Liquids/gases → cleared
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > radius) continue;
+        const gx = cx + dx;
+        const gy = cy + dy;
+        if (gx < 0 || gx >= ACTIVE_GRID_W || gy < 0 || gy >= ACTIVE_GRID_H) continue;
+        const idx = gy * ACTIVE_GRID_W + gx;
+        const packed = grid[idx];
+        if (packed === 0) continue;
+        const mat = packed & 0xff;
+        if (mat === Material.Wall) continue; // walls are immune
+        const def = MATERIALS[mat];
+        if (!def) continue;
+        const shade = (packed >> 16) & 0xff;
+        const fi = idx * 4;
+
+        if (isCollectible(mat)) {
+          // Ore: re-enable gravity so it falls, mark unfrozen (collectible)
+          if (fields[fi + FIELD.GRAVITY] === 0) {
+            fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+          }
+          grid[idx] = packed | (FLAG_DETACHED << 16);
+          this.markCellUnfrozen(gx, gy);
+        } else if (mat === Material.Stone || mat === Material.Grass) {
+          // Stone/Grass → convert to Dirt (loose, collectible, falls with gravity)
+          grid[idx] = packCell(Material.Dirt, 0, shade | FLAG_DETACHED);
+          if (fields[fi + FIELD.GRAVITY] === 0) {
+            fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+          }
+          this.markCellUnfrozen(gx, gy);
+        } else {
+          // Dirt/Grass/other: clear to create a hole
+          grid[idx] = 0;
+          fields[fi + FIELD.GRAVITY] = 0;
+          this.cellDamage[idx] = 0;
+          this.clearWakeTick(gx, gy);
+        }
+      }
+    }
+
+    // Loosen cells around the blast perimeter so terrain cascades
+    for (let dy = -r - 1; dy <= r + 1; dy++) {
+      for (let dx = -r - 1; dx <= r + 1; dx++) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < radius || dist > radius + 1.5) continue;
+        const gx = cx + dx;
+        const gy = cy + dy;
+        if (gx < 0 || gx >= ACTIVE_GRID_W || gy < 0 || gy >= ACTIVE_GRID_H) continue;
+        const idx = gy * ACTIVE_GRID_W + gx;
+        const packed = grid[idx];
+        if (packed === 0) continue;
+        const mat = packed & 0xff;
+        if (mat === Material.Wall) continue;
+        const def = MATERIALS[mat];
+        if (!def?.solid) continue;
+        // Re-enable gravity so the loosened cell falls
+        const fi = idx * 4;
+        if (fields[fi + FIELD.GRAVITY] === 0) {
+          fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+        }
+        this.markCellUnfrozen(gx, gy);
+      }
+    }
+
+    // Damage the player if within blast radius
+    const { x: pax, y: pay } = this.worldToActive(this.player.x, this.player.y);
+    const pcx = pax + PLAYER_W / 2;
+    const pcy = pay + PLAYER_H / 2;
+    const pdx = pcx - cx;
+    const pdy = pcy - cy;
+    const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+    if (pdist <= radius + PLAYER_W) {
+      // Damage scales inversely with distance: 50 at point-blank, 0 at edge
+      const damage = Math.round(50 * (1 - pdist / (radius + PLAYER_W)));
+      if (damage > 0) {
+        this.player.health = Math.max(0, this.player.health - damage);
+        this.player.lastDamageMaterial = Material.Fire; // explosion = fire damage
+      }
+    }
   }
 
   /** Get the frozen chunk count (chunks with no unfrozen cells, not near player). */
@@ -1011,6 +1129,7 @@ function isCollectible(mat: number): boolean {
     mat === Material.CobaltOre ||
     mat === Material.Coal ||
     mat === Material.Iron ||
-    mat === Material.Dirt
+    mat === Material.Dirt ||
+    mat === Material.Grass
   );
 }

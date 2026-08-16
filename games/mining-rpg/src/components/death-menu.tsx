@@ -1,9 +1,12 @@
 // ============================================================================
 // DeathMenu — overlay shown when the player's health reaches 0.
 //
-// Displays a "YOU DIED" message and a Respawn button. Respawn resets the
-// player to the surface spawn point with full health, keeping upgrades and
-// inventory. The simulation is paused while this menu is visible.
+// Displays a "YOU DIED" message with a cause-of-death quip and a Respawn
+// button. The quip is picked once per death event (in the renderer) and
+// stored in the game store, so it doesn't rotate on re-renders.
+// Respawn resets the player to the surface spawn point with full health,
+// keeping upgrades and inventory. The simulation is paused while this
+// menu is visible.
 // ============================================================================
 
 import { useGameStore } from "../stores/game-store";
@@ -16,6 +19,7 @@ const overlayStyle: React.CSSProperties = {
   justifyContent: "center",
   background: "rgba(0,0,0,0.7)",
   zIndex: 20,
+  pointerEvents: "auto",
 };
 
 const panelStyle: React.CSSProperties = {
@@ -29,6 +33,8 @@ const panelStyle: React.CSSProperties = {
   borderRadius: 8,
   fontFamily: "monospace",
   color: "#e0c0c0",
+  maxWidth: 480,
+  pointerEvents: "auto",
 };
 
 const titleStyle: React.CSSProperties = {
@@ -39,10 +45,13 @@ const titleStyle: React.CSSProperties = {
   margin: 0,
 };
 
-const subtitleStyle: React.CSSProperties = {
-  fontSize: 14,
-  color: "rgba(255,255,255,0.5)",
+const quipStyle: React.CSSProperties = {
+  fontSize: 15,
+  color: "rgba(255,255,255,0.7)",
+  fontStyle: "italic",
   margin: 0,
+  textAlign: "center" as const,
+  lineHeight: 1.5,
 };
 
 const respawnButtonStyle: React.CSSProperties = {
@@ -58,12 +67,11 @@ const respawnButtonStyle: React.CSSProperties = {
 };
 
 export function DeathMenu() {
-  const { gameOver, renderer } = useGameStore();
+  const { gameOver, deathQuip, renderer } = useGameStore();
 
   if (!gameOver) return null;
 
   const handleRespawn = () => {
-    // The renderer is stored as unknown — cast to access respawn()
     const r = renderer as { respawn?: () => void } | null;
     r?.respawn?.();
   };
@@ -72,7 +80,7 @@ export function DeathMenu() {
     <div style={overlayStyle}>
       <div style={panelStyle}>
         <h1 style={titleStyle}>YOU DIED</h1>
-        <p style={subtitleStyle}>Your health reached zero.</p>
+        <p style={quipStyle}>{deathQuip}</p>
         <button style={respawnButtonStyle} onClick={handleRespawn}>
           Respawn
         </button>

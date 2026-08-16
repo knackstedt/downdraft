@@ -79,7 +79,7 @@ expose({
     dirtyChunks: SavedChunk[];
     tick: number;
   } {
-    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, dirtyChunks: [], tick: 0 };
+    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, dirtyChunks: [], tick: 0 };
     return {
       player: { ...world.player },
       upgrades: { ...world.upgrades },
@@ -114,6 +114,10 @@ expose({
   respawn(): void {
     if (!world) return;
     world.respawn();
+  },
+  explode(x: number, y: number, radius: number): void {
+    if (!world) return;
+    world.explode(x, y, radius);
   },
 });
 
@@ -163,6 +167,7 @@ async function loop(): Promise<void> {
           writer.writePlayerI32(PLAYER.FACING, world.player.facing);
           writer.writePlayerI32(PLAYER.ANIM_FRAME, world.player.animFrame);
           writer.writePlayerI32(PLAYER.HEALTH, world.player.health);
+          writer.writePlayerI32(PLAYER.DEATH_CAUSE, world.player.lastDamageMaterial ?? 0);
 
           // Write stats
           writer.writeStat(STATS.FRAME, frameCount);

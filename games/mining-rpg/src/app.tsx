@@ -1,7 +1,10 @@
 import { useEffect } from "react";
+import { BombOverlay } from "./components/bomb-overlay";
 import { DeathMenu } from "./components/death-menu";
 import { HUD } from "./components/hud";
 import { InventoryPanel } from "./components/inventory-panel";
+import { SignpostOverlay } from "./components/signpost-overlay";
+import { SignpostPrompt } from "./components/signpost-prompt";
 import { useGameStore } from "./stores/game-store";
 
 const helpStyle: React.CSSProperties = {
@@ -31,6 +34,12 @@ export default function App() {
         const s = useGameStore.getState();
         s.setShowInventory(!s.showInventory);
       }
+      if (e.key === "e" || e.key === "E") {
+        const s = useGameStore.getState();
+        if (s.nearSignpost && s.inventory.length > 0) {
+          s.sellAll();
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -40,9 +49,12 @@ export default function App() {
     <>
       <HUD />
       <InventoryPanel />
+      <SignpostOverlay />
+      <SignpostPrompt />
+      <BombOverlay />
       <DeathMenu />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | P: pause | I: inventory
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | P: pause | I: inventory | E: sell
         {paused && " | PAUSED"}
       </div>
     </>

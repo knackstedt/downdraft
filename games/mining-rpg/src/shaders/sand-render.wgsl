@@ -45,6 +45,8 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let matId = packed & 0xffu;
   let lifetime = f32((packed >> 8u) & 0xffu) / 255.0;
   let shade = (packed >> 16u) & 0x03u;
+  // Bit 4 of the flags field (bit 20 of packed) = FLAG_DETACHED
+  let detached = ((packed >> 16u) & 0x10u) != 0u;
 
   if (matId == 0u) {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -55,6 +57,13 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
   let props = textureLoad(propsTex, vec2<i32>(i32(matId), 0), 0);
   let brightness = props.b;
+
+  // Detached cells (loosened by mining) get a warm tint + slight brightness
+  // boost so the player can distinguish loose material from static terrain.
+  var color = matColor.rgb;
+  if (detached) {
+    color = color * 1.15 + vec3<f32>(0.08, 0.04, 0.0);
+  }
 
   var alpha = matColor.a;
   if (matId == 5u || matId == 50u || matId == 51u) {
@@ -71,7 +80,7 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     alpha = alpha * flicker;
   }
 
-  let finalColor = matColor.rgb * brightness;
+  let finalColor = color * brightness;
 
   // Depth-based ambient darkening: deeper = darker.
   // At depth 0 (surface): full brightness. At depth 20+: 40% brightness.
