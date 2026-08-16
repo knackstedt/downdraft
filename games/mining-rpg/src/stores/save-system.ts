@@ -26,6 +26,7 @@ export interface SaveData {
   player: MiningPlayerState;
   upgrades: PlayerUpgrades;
   inventory: InventoryEntry[];
+  currency: number;
   chunks: SavedChunk[];
   savedAt: number;
 }
@@ -63,6 +64,7 @@ export async function saveWorld(data: SaveData): Promise<void> {
     seed: data.seed,
     player: data.player,
     inventory: data.inventory,
+    currency: data.currency,
     savedAt: data.savedAt,
   }, SAVE_KEY);
 
@@ -125,6 +127,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     player: meta.player,
     upgrades: meta.upgrades ?? { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
     inventory: meta.inventory ?? [],
+    currency: meta.currency ?? 0,
     chunks,
     savedAt: meta.savedAt ?? 0,
   };

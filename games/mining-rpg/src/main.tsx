@@ -34,11 +34,19 @@ async function bootstrap() {
   const devtoolsBridge = new MiningDevToolsBridge(renderer);
   devtoolsBridge.init(dataRenderer);
 
-  setInterval(() => {
+  const fpsInterval = setInterval(() => {
     useGameStore.getState().setFPS(renderer.getFPS());
   }, 500);
 
   renderer.start();
+
+  // Hot reload: dispose the old renderer before re-running bootstrap.
+  if (import.meta.hot) {
+    import.meta.hot.dispose(async () => {
+      clearInterval(fpsInterval);
+      await renderer.stop();
+    });
+  }
 }
 
 bootstrap().catch((e) => {

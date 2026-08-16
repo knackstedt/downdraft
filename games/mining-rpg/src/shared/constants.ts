@@ -58,9 +58,9 @@ export const BASE_MINING_RATE = 3;
 export const RATE_UPGRADE_REDUCTION = 1;
 
 /** Base max inventory size (total item count). */
-export const BASE_INVENTORY_SIZE = 50;
+export const BASE_INVENTORY_SIZE = 250;
 /** Inventory size increment per upgrade level. */
-export const INVENTORY_SIZE_UPGRADE_INCREMENT = 25;
+export const INVENTORY_SIZE_UPGRADE_INCREMENT = 125;
 
 /** Stone hardness — how much damage needed to dislodge a stone cell. */
 export const STONE_HARDNESS = 30;
@@ -74,6 +74,28 @@ export const MAX_MINE_RANGE = 30;
 
 // World seed for deterministic terrain generation.
 export const WORLD_SEED = 12345;
+
+// --- Sell prices (currency per unit) ---
+// Prices reflect rarity and depth requirement. Ores found deeper are worth more.
+export const SELL_PRICES: Record<number, number> = {
+  // Stone/Dirt/Sand — common, low value
+  3: 1,    // Stone
+  14: 1,   // Dirt
+  15: 1,   // Grass
+  // Shallow ores (tin, copper, iron, bauxite, coal)
+  52: 5,   // TinOre
+  53: 8,   // CopperOre
+  54: 12,  // IronOre
+  55: 10,  // BauxiteOre
+  61: 7,   // Coal
+  // Deep ores (silver, gold, cobalt)
+  56: 30,  // SilverOre
+  57: 50,  // GoldOre
+  58: 80,  // CobaltOre
+};
+
+// Radius (in cells) around the spawn point where the signpost sell zone is active.
+export const SIGNPOST_RADIUS = 15;
 
 // Active grid dimensions derived from chunk size + active radius.
 export const ACTIVE_GRID_W = (2 * ACTIVE_RADIUS_CHUNKS + 1) * CHUNK_W;
@@ -98,7 +120,7 @@ export const ACTIVE_GRID_BYTES = ACTIVE_GRID_CELLS * CELL_BYTES;
 export const ACTIVE_FIELD_BYTES = ACTIVE_GRID_CELLS * FIELD_BYTES;
 export const INPUT_BYTES = 128;
 export const STATS_BYTES = 32; // 8 int32s (6 used: frame, tick, fps, loadedChunks, originX, originY)
-export const PLAYER_BYTES = 32;
+export const PLAYER_BYTES = 36; // 8 float32/int32 + 1 int32 (death cause)
 
 export const TOTAL_SAB_BYTES =
   ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + INPUT_BYTES + STATS_BYTES + PLAYER_BYTES;
@@ -146,6 +168,7 @@ export const PLAYER = {
   FACING: 20, // int32 — 1 = right, -1 = left
   ANIM_FRAME: 24, // int32 — animation frame counter
   HEALTH: 28, // int32 — player health
+  DEATH_CAUSE: 32, // int32 — Material that caused death (0 = none)
 } as const;
 
 // ============================================================================

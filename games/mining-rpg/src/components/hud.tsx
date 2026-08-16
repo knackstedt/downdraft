@@ -81,13 +81,18 @@ const ORE_INFO: Record<number, { name: string; color: string }> = {
   [Material.Iron]: { name: "Iron Block", color: "#888" },
   [Material.Stone]: { name: "Stone", color: "#666" },
   [Material.Dirt]: { name: "Dirt", color: "#8b5a2b" },
+  [Material.Grass]: { name: "Grass", color: "#4a7c2f" },
   [Material.Sand]: { name: "Sand", color: "#c2b280" },
 };
 
 export function HUD() {
-  const { fps, health, depth, paused, loadedChunks, activeChunks, digRadius, inventory } = useGameStore();
+  const { fps, health, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
+  const invUsed = getInventoryCount();
+  const invMax = getMaxInventory();
+  const invPct = invMax > 0 ? (invUsed / invMax) * 100 : 0;
+  const invColor = invPct < 70 ? "#4caf50" : invPct < 90 ? "#ff9800" : "#f44336";
 
   return (
     <div style={containerStyle}>
@@ -99,9 +104,22 @@ export function HUD() {
         </div>
         <span>{health}</span>
       </div>
+      <div style={healthBarStyle}>
+        <span>Inv:</span>
+        <div style={barOuterStyle}>
+          <div style={{
+            width: `${Math.min(100, invPct)}%`,
+            height: "100%",
+            background: invColor,
+            transition: "width 0.2s",
+          }} />
+        </div>
+        <span>{invUsed}/{invMax}</span>
+      </div>
       <div>Depth: {depth} chunks ({depthMeters}m)</div>
       <div>Brush: {digRadius} cells</div>
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
+      <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
       {paused && <div style={{ color: "#ff5252" }}>PAUSED</div>}
       {inventory.length > 0 && (
         <div style={oreRowStyle}>

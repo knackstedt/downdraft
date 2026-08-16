@@ -29,6 +29,7 @@ type MiningWorkerApi = {
   setUpgrades(upgrades: PlayerUpgrades): Promise<void>;
   setInventory(inventory: InventoryEntry[]): Promise<void>;
   respawn(): Promise<void>;
+  explode(x: number, y: number, radius: number): Promise<void>;
 };
 
 export class MiningWorkerHost {
@@ -187,5 +188,8 @@ export class MiningWorkerHost {
 
   respawn(): void {
     this.proxy?.proxy.respawn().catch(() => {});
+  }
+  explode(x: number, y: number, radius: number): void {
+    this.proxy?.proxy.explode(x, y, radius).catch(() => {});
   }
 }

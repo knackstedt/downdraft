@@ -10,17 +10,33 @@
 //   5. Render stickman pass (player sprite)
 // ============================================================================
 
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, PLAYER, STATS, WORLD_SEED } from "../shared/constants";
+import { Material, MATERIALS } from "@downdraft/library-sand";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, MAX_CHUNKS_X, PLAYER, SIGNPOST_RADIUS, STATS, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
-import { useGameStore } from "../stores/game-store";
+import { surfaceHeightAt } from "../simulation/terrain";
+import { pickDeathQuip, useGameStore } from "../stores/game-store";
 import { AutosaveManager, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
 import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
 import { StickmanPass } from "./stickman-pass";
+
+// --- Bomb constants ---
+const BOMB_RADIUS = 6;       // explosion radius in cells
+const BOMB_COOLDOWN_MS = 800; // throw cooldown
+const BOMB_SPEED = 0.8;      // initial speed multiplier
+const BOMB_GRAVITY = 0.015;  // per-tick gravity acceleration
+const BOMB_MAX_TICKS = 120;  // max travel ticks before forced explosion (~4s)
+const MAX_BOMBS = 8;
+
+interface Bomb {
+  x: number; y: number;       // world cell coords (float)
+  vx: number; vy: number;     // velocity per tick
+  ticks: number;              // ticks since thrown
+}
 
 export class MiningRenderer {
   private canvas: HTMLCanvasElement;
@@ -44,10 +60,23 @@ export class MiningRenderer {
   private fpsTimer = 0;
   private resizeHandler: (() => void) | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
+  private respawning = false; // suppresses death re-detection until SAB health > 0
+  private simReady = false; // false until the worker writes its first frame (prevents false death on init/hot-reload)
+  // Signpost position (surface spawn point) — computed once, used for sell proximity
+  private readonly signpostX = Math.floor(MAX_CHUNKS_X * CHUNK_W / 2);
+  private readonly signpostY: number;
+  // Bomb state
+  private bombs: Bomb[] = [];
+  private lastBombTime = 0;
+  private prevMouseRight = false;
+  // Explosion flashes: { x, y, age, maxAge } in world coords
+  private explosions: { x: number; y: number; age: number; maxAge: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
     this.canvas = canvas;
     this.camera = makeCamera2D(canvas.width, canvas.height);
+    // Compute signpost Y from terrain (surface height at spawn X)
+    this.signpostY = surfaceHeightAt(this.signpostX, WORLD_SEED);
   }
 
   getFPS(): number {
@@ -58,6 +87,13 @@ export class MiningRenderer {
   }
   getWorkerHost(): MiningWorkerHost | null {
     return this.workerHost;
+  }
+  getCamera(): Camera2D {
+    return this.camera;
+  }
+  /** Signpost world position (surface spawn point). */
+  getSignpostPos(): { x: number; y: number } {
+    return { x: this.signpostX, y: this.signpostY };
   }
 
   async init(): Promise<boolean> {
@@ -115,11 +151,12 @@ export class MiningRenderer {
           chunks: save.chunks,
           tick: 0, // don't restore tick counter (fresh start)
         });
-        // Restore inventory and upgrades to the game store
+        // Restore inventory, upgrades, and currency to the game store
         const store = useGameStore.getState();
         store.setInventory(save.inventory);
         if (save.upgrades) store.setUpgrades(save.upgrades);
         if (save.player.health) store.setHealth(save.player.health);
+        store.setCurrency(save.currency ?? 0);
       }
     } catch (e) {
       console.warn("[MiningRenderer] Failed to load save:", e);
@@ -129,7 +166,7 @@ export class MiningRenderer {
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, inventory: [], chunks: [], savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, inventory: [], currency: 0, chunks: [], savedAt: Date.now() };
       }
       const store = useGameStore.getState();
       return {
@@ -138,6 +175,7 @@ export class MiningRenderer {
         player: saveData.player,
         upgrades: saveData.upgrades,
         inventory: store.inventory,
+        currency: store.currency,
         chunks: saveData.dirtyChunks,
         savedAt: Date.now(),
       };
@@ -217,8 +255,14 @@ export class MiningRenderer {
    */
   respawn(): void {
     const s = useGameStore.getState();
+    // Suppress death re-detection until the worker processes the respawn
+    // and writes health > 0 back to the SAB. Without this, the next frame
+    // reads the stale health=0 from the SAB and re-triggers the death menu.
+    this.respawning = true;
     s.setGameOver(false);
     s.setHealth(100);
+    s.setDeathCause(0);
+    s.setDeathQuip("");
     this.workerHost?.respawn();
     this.workerHost?.resume();
     s.setPaused(false);
@@ -252,6 +296,7 @@ export class MiningRenderer {
     const facing = this.workerHost.getPlayerI32(PLAYER.FACING);
     const animFrame = this.workerHost.getPlayerI32(PLAYER.ANIM_FRAME);
     const health = this.workerHost.getPlayerI32(PLAYER.HEALTH);
+    const deathCause = this.workerHost.getPlayerI32(PLAYER.DEATH_CAUSE);
     const onGround = this.workerHost.getPlayerI32(PLAYER.ON_GROUND) !== 0;
     const vx = this.workerHost.getPlayerF32(PLAYER.VX);
     const vy = this.workerHost.getPlayerF32(PLAYER.VY);
@@ -283,9 +328,29 @@ export class MiningRenderer {
     const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
     if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);
 
+    // Signpost proximity check — player must be near the surface spawn point
+    // (within SIGNPOST_RADIUS cells horizontally and near the surface vertically)
+    const dx = Math.abs(px - this.signpostX);
+    const nearSign = dx <= SIGNPOST_RADIUS && depth === 0;
+    if (s.nearSignpost !== nearSign) s.setNearSignpost(nearSign);
+
+    // Wait for the worker to write its first frame before doing any death
+    // detection. The SAB starts zeroed (health=0), so without this guard the
+    // death menu would fire on init / hot-reload before the worker runs.
+    if (!this.simReady) {
+      if (health > 0 || this.gridReader.getStat(STATS.TICK) > 0) this.simReady = true;
+    }
+
     // Death detection — when health reaches 0, pause the simulation and
     // show the death menu. Only triggers once (guarded by gameOver flag).
-    if (health <= 0 && !s.gameOver && !s.paused) {
+    // The quip is picked once here so it doesn't rotate on re-renders.
+    // The respawning flag suppresses re-detection after clicking Respawn
+    // until the worker writes health > 0 back to the SAB.
+    if (this.respawning) {
+      if (health > 0) this.respawning = false;
+    } else if (this.simReady && health <= 0 && !s.gameOver && !s.paused) {
+      s.setDeathCause(deathCause);
+      s.setDeathQuip(pickDeathQuip(deathCause));
       s.setGameOver(true);
       this.workerHost?.pause();
     }
@@ -365,10 +430,128 @@ export class MiningRenderer {
     this.workerHost.writeMouseDown(this.input.mouseDown);
     this.workerHost.writeDigRadius(this.input.digRadius);
 
+    // Right-click edge detection: throw a bomb towards the cursor
+    const mouseRightNow = this.input.mouseRight;
+    if (mouseRightNow && !this.prevMouseRight) {
+      this.tryThrowBomb(world.x, world.y);
+    }
+    this.prevMouseRight = mouseRightNow;
+
+    // Update active bombs (physics + collision + explosion)
+    this.updateBombs();
+
     // Sync current inventory to the worker so collect() can enforce max size
     const store = useGameStore.getState();
     this.workerHost.setInventory(store.inventory);
     // Sync upgrades to the worker so mining uses current stats
     this.workerHost.setUpgrades(store.upgrades);
+  }
+
+  /** Throw a bomb from the player towards the target world coords. */
+  private tryThrowBomb(targetX: number, targetY: number): void {
+    const now = performance.now();
+    if (now - this.lastBombTime < BOMB_COOLDOWN_MS) return;
+    if (this.bombs.length >= MAX_BOMBS) return;
+    this.lastBombTime = now;
+
+    // Read player position from SAB
+    const px = this.workerHost!.getPlayerF32(PLAYER.PX);
+    const py = this.workerHost!.getPlayerF32(PLAYER.PY);
+
+    // Direction from player center to target
+    const dx = targetX - px;
+    const dy = targetY - py;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.001) return;
+
+    // Velocity: scale by BOMB_SPEED, with a minimum arc
+    const speed = BOMB_SPEED;
+    this.bombs.push({
+      x: px,
+      y: py - 2, // start slightly above player center
+      vx: (dx / dist) * speed,
+      vy: (dy / dist) * speed - 0.3, // slight upward arc
+      ticks: 0,
+    });
+  }
+
+  /** Update all active bombs: move, check collision, explode on impact. */
+  private updateBombs(): void {
+    if (this.bombs.length === 0) {
+      // Still age explosion flashes
+      this.ageExplosions();
+      return;
+    }
+
+    const grid = this.gridReader?.getGrid();
+    const originX = this.gridReader?.getStat(STATS.ORIGIN_X) ?? 0;
+    const originY = this.gridReader?.getStat(STATS.ORIGIN_Y) ?? 0;
+    if (!grid) return;
+
+    const surviving: Bomb[] = [];
+    for (const bomb of this.bombs) {
+      bomb.ticks++;
+      bomb.vy += BOMB_GRAVITY;
+      bomb.x += bomb.vx;
+      bomb.y += bomb.vy;
+
+      // Check if bomb hit a solid cell or expired
+      let exploded = false;
+      if (bomb.ticks >= BOMB_MAX_TICKS) {
+        exploded = true;
+      } else {
+        // Convert world coords to active grid coords
+        const ax = Math.floor(bomb.x - originX);
+        const ay = Math.floor(bomb.y - originY);
+        if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
+          const idx = ay * ACTIVE_GRID_W + ax;
+          const packed = grid[idx];
+          if (packed !== 0) {
+            const mat = packed & 0xff;
+            const def = MATERIALS[mat];
+            if (def?.solid && mat !== Material.Wall) {
+              exploded = true; // hit solid terrain
+            }
+          }
+        } else {
+          exploded = true; // out of bounds
+        }
+      }
+
+      if (exploded) {
+        // Tell the worker to explode at the bomb's world position
+        this.workerHost?.explode(bomb.x, bomb.y, BOMB_RADIUS);
+        // Add a visual explosion flash
+        this.explosions.push({ x: bomb.x, y: bomb.y, age: 0, maxAge: 0.5 });
+      } else {
+        surviving.push(bomb);
+      }
+    }
+    this.bombs = surviving;
+    this.ageExplosions();
+  }
+
+  /** Age and remove expired explosion flashes. */
+  private ageExplosions(): void {
+    if (this.explosions.length === 0) return;
+    const dt = 1 / 60; // approximate
+    this.explosions = this.explosions.filter((e) => {
+      e.age += dt;
+      return e.age < e.maxAge;
+    });
+  }
+
+  /** Get active bombs for rendering (world coords). */
+  getBombs(): { x: number; y: number }[] {
+    return this.bombs.map((b) => ({ x: b.x, y: b.y }));
+  }
+
+  /** Get active explosion flashes for rendering (world coords + progress). */
+  getExplosions(): { x: number; y: number; progress: number }[] {
+    return this.explosions.map((e) => ({
+      x: e.x,
+      y: e.y,
+      progress: e.age / e.maxAge,
+    }));
   }
 }
