@@ -67,6 +67,16 @@ function matAtRow(world: ChunkWorld, wx: number, wy: number, mat: number): boole
   return false;
 }
 
+// Helper: check if any cell in a 5-wide row at the given Y is stone debris
+// (Gravel or LooseStone — the materials stone converts to when mined)
+function isStoneDebrisAtRow(world: ChunkWorld, wx: number, wy: number): boolean {
+  for (let dx = -2; dx <= 2; dx++) {
+    const m = matAtWorld(world, wx + dx, wy);
+    if (m === Material.Gravel || m === Material.LooseStone) return true;
+  }
+  return false;
+}
+
 // Helper: mine a target multiple times until the stone is dislodged.
 // With base damage=10 and stone hardness=30, it takes 3 hits.
 // Clears a shaft first so the raycast can reach the target.
@@ -129,7 +139,7 @@ test("upgrade rate has minimum of 1 tick", () => {
 
 // --- Mining (raycast) ---
 
-test("mining damages stone and eventually dislodges it to dirt", () => {
+test("mining damages stone and eventually dislodges it to gravel/loose stone", () => {
   const w = new ChunkWorld();
   runIdle(w, 1);
 
@@ -145,11 +155,12 @@ test("mining damages stone and eventually dislodges it to dirt", () => {
   runMine(w, digX, digY);
   expect(matAtRow(w, digX, digY, Material.Stone)).toBe(true);
 
-  // After enough hits, stone should be converted to dirt (loose, collectible)
+  // After enough hits, stone should be converted to Gravel or LooseStone
+  // (60% chance Gravel, 40% chance LooseStone per cell)
   for (let i = 0; i < 10; i++) {
     runMine(w, digX, digY);
   }
-  expect(matAtRow(w, digX, digY, Material.Dirt)).toBe(true);
+  expect(isStoneDebrisAtRow(w, digX, digY)).toBe(true);
 });
 
 test("mining does not destroy Wall material", () => {
@@ -189,7 +200,7 @@ test("mining marks chunk as dirty", () => {
   expect(chunk.dirty).toBe(true);
 });
 
-test("mined dirt particle falls down due to gravity", () => {
+test("mined stone debris falls down due to gravity", () => {
   const w = new ChunkWorld();
   runIdle(w, 1);
 
@@ -202,24 +213,24 @@ test("mined dirt particle falls down due to gravity", () => {
   placeStoneWall(w, digX, digY + 1);
   placeStoneWall(w, digX, digY + 2);
 
-  // Mine until the stone is dislodged to dirt (using mine() directly)
+  // Mine until the stone is dislodged to gravel/loose stone
   for (let i = 0; i < 10; i++) {
     w.mine(digX, digY);
   }
-  expect(matAtRow(w, digX, digY, Material.Dirt)).toBe(true);
+  expect(isStoneDebrisAtRow(w, digX, digY)).toBe(true);
 
-  // Run simulation steps — dirt should fall
+  // Run simulation steps — debris should fall
   runIdle(w, 10);
 
-  // The dirt should have moved down from digY
-  let foundDirt = false;
+  // The debris should have moved down from digY
+  let foundDebris = false;
   for (let y = digY; y <= digY + 3; y++) {
-    if (matAtRow(w, digX, y, Material.Dirt)) {
-      foundDirt = true;
+    if (isStoneDebrisAtRow(w, digX, y)) {
+      foundDebris = true;
       break;
     }
   }
-  expect(foundDirt).toBe(true);
+  expect(foundDebris).toBe(true);
 });
 
 test("mining is rate-limited by cooldown", () => {
@@ -238,7 +249,7 @@ test("mining is rate-limited by cooldown", () => {
   for (let i = 0; i < 15; i++) {
     runMine(w, digX, digY);
   }
-  expect(matAtRow(w, digX, digY, Material.Dirt)).toBe(true);
+  expect(isStoneDebrisAtRow(w, digX, digY)).toBe(true);
 });
 
 test("mining liquids does not destroy them", () => {
@@ -597,7 +608,7 @@ test("partially buried player does not take crush damage", () => {
 
 // --- Bomb explosion ---
 
-test("explosion dislodges stone to dirt in radius", () => {
+test("explosion dislodges stone to gravel/loose stone in radius", () => {
   const w = new ChunkWorld();
   runIdle(w, 1);
 
@@ -613,9 +624,9 @@ test("explosion dislodges stone to dirt in radius", () => {
   // Explode at the center
   w.explode(targetX, targetY, 5);
 
-  // Center stone should be dislodged (converted to Dirt, not destroyed)
+  // Center stone should be dislodged (converted to Gravel/LooseStone, not destroyed)
   expect(matAtRow(w, targetX, targetY, Material.Stone)).toBe(false);
-  expect(matAtRow(w, targetX, targetY, Material.Dirt)).toBe(true);
+  expect(isStoneDebrisAtRow(w, targetX, targetY)).toBe(true);
 
   // Cells within radius should be dislodged too
   expect(matAtRow(w, targetX + 3, targetY, Material.Stone)).toBe(false);
@@ -649,7 +660,9 @@ test("explosion damages player if in range", () => {
   w.explode(w.player.x, w.player.y, 5);
 
   expect(w.player.health).toBeLessThan(initialHealth);
-  expect(w.player.lastDamageMaterial).toBe(Material.Fire);
+  // Bombs attribute damage to FuseFire so the death quip reflects the
+  // explosion (e.g. "should've cut the red wire"), not generic fire.
+  expect(w.player.lastDamageMaterial).toBe(Material.FuseFire);
 });
 
 test("explosion does not damage player if out of range", () => {
@@ -782,4 +795,87 @@ test("respawn clears mining cooldown", () => {
 
   // Cooldown should be reset
   expect(w.mineCooldown).toBe(0);
+});
+
+// --- WakeTick transfer bug (cells that fall remain collectible) ---
+
+test("loose ore that falls to a new position is still collectible", () => {
+  // Regression test: when a detached (loose) particle falls via physics,
+  // its wakeTick was set at its ORIGINAL position, not its new one.
+  // The collect() function checks isCellUnfrozen at the current position,
+  // which had wakeTick=0, so the particle was never collected.
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+
+  // Set up: stone floor far below, ore above it with empty space to fall through
+  const floorY = py + 12;
+  clearShaft(w, px, floorY);
+  placeStoneWall(w, px, floorY, Material.Stone); // stone floor
+  // Place ore 5 cells above the floor with empty space below it
+  const oreY = floorY - 5;
+  for (let dx = -2; dx <= 2; dx++) {
+    setMatAtWorld(w, px + dx, oreY, Material.TinOre);
+  }
+
+  // Mine the ore to loosen it (sets FLAG_DETACHED + markCellUnfrozen)
+  for (let i = 0; i < 20; i++) {
+    runMine(w, px, oreY);
+  }
+
+  // Verify ore is loosened (FLAG_DETACHED set, gravity enabled)
+  // Run several steps to let the ore fall to the floor
+  let tinCollected: { mat: number; count: number } | undefined;
+  for (let i = 0; i < 30; i++) {
+    const collected = w.step({
+      left: false, right: false, up: false, down: false,
+      jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
+    });
+    tinCollected = collected.find((c) => c.mat === Material.TinOre);
+    if (tinCollected) break;
+  }
+
+  // The ore should have been collected after falling near the player
+  expect(tinCollected).toBeDefined();
+  expect(tinCollected!.count).toBeGreaterThan(0);
+});
+
+test("loose stone debris that falls multiple cells is still collectible", () => {
+  // Regression: stone debris (Gravel/LooseStone from mined stone) falls and
+  // should remain collectible at its landing position.
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+
+  // Set up: stone floor below player, stone wall above to mine
+  const floorY = py + 10;
+  clearShaft(w, px, floorY);
+  placeStoneWall(w, px, floorY, Material.Stone); // floor
+  const wallY = py + 3;
+  placeStoneWall(w, px, wallY, Material.Stone); // stone to mine
+
+  // Mine the stone until it becomes gravel/loose stone (loose, collectible)
+  for (let i = 0; i < 15; i++) {
+    runMine(w, px, wallY);
+  }
+
+  // The debris should fall and be collected
+  let debrisCollected: { mat: number; count: number } | undefined;
+  for (let i = 0; i < 30; i++) {
+    const collected = w.step({
+      left: false, right: false, up: false, down: false,
+      jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
+    });
+    debrisCollected = collected.find(
+      (c) => c.mat === Material.Gravel || c.mat === Material.LooseStone,
+    );
+    if (debrisCollected) break;
+  }
+
+  expect(debrisCollected).toBeDefined();
+  expect(debrisCollected!.count).toBeGreaterThan(0);
 });

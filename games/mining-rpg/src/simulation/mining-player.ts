@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { Material, MATERIALS } from "@downdraft/library-sand";
-import { PLAYER_H, PLAYER_W } from "../shared/constants";
+import { isCollectible, PLAYER_H, PLAYER_W } from "../shared/constants";
 import type { MiningPlayerState } from "../shared/types";
 
 export interface MiningPlayerInput {
@@ -127,6 +127,11 @@ function wiggleClear(grid: Uint32Array, W: number, H: number, px: number, py: nu
       if (packed === 0) continue;
       const mat = packed & 0xff;
       if (mat === Material.Wall) continue; // can't wiggle through walls
+      // Don't destroy collectible materials (ore, dirt, gravel, loose stone).
+      // The player must collect them (if inventory has space) or suffocate.
+      // Without this, wiggleClear would destroy debris without collecting it,
+      // wasting materials and preventing suffocation when inventory is full.
+      if (isCollectible(mat)) continue;
       const def = MATERIALS[mat];
       if (!def?.solid) continue;
       grid[idx] = 0; // clear the cell so the player can move

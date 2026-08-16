@@ -7,14 +7,19 @@ import type { InventoryEntry, PlayerUpgrades } from "../shared/types";
 // Each cause has a list of possible quips — one is picked at random.
 const DEATH_QUIPS: Record<number, string[]> = {
   [Material.Lava]: [
-    "maybe don't try jumping in lava",
-    "that was magma, not a hot tub",
-    "lava: it's not a spa treatment",
+    "Maybe don't try jumping in lava",
+    "That was magma, not a hot tub",
+    "Lava: it's not a spa treatment",
+    "You do know that lava is hot, right?",
+    "Didn't your parents ever teach you to not touch lava?",
+    "Caution: lava is hot and may cause severe injury or even death",
+    "What made you think that jumping in a pool of lava was a good idea?"
   ],
   [Material.Fire]: [
-    "stop, drop, and roll next time",
-    "you got a little too toasty",
-    "fire is hot, who knew",
+    "Stop, drop, and roll next time",
+    "You got a little too toasty",
+    "Fire is hot, who knew",
+    "I know it may be a bit late to say this, but don't stand on fire"
   ],
   [Material.Plasma]: [
     "that's some premium incineration",
@@ -25,31 +30,37 @@ const DEATH_QUIPS: Record<number, string[]> = {
     "fuse fire: surprisingly effective",
   ],
   [Material.BurningOil]: [
-    "oil and fire — a classic combo",
-    "that slick was slippery in more ways than one",
+    "Oil and fire — a classic afternoon combo",
+    "I don't know why you thought taking a bath in boiling oil was a good idea",
+    "Did you know that not swimming in burning oil is a requirement for survival?"
   ],
   [Material.MethaneGas]: [
-    "breathing isn't optional",
-    "methane: the silent killer (well, not that silent)",
-    "should've brought a gas mask",
+    "Breathing isn't optional",
+    "Methane: the silent killer (well, not that silent)",
+    "Should've brought a gas mask",
+    "I know you can't see it, but you sure as hell can smell it"
   ],
   [Material.SulfurGas]: [
-    "breathing isn't optional",
-    "sulfur gas: smells like death, tastes like it too",
-    "that's some toxic air right there",
+    "Breathing isn't optional",
+    "Sulfur gas: smells like death, tastes like it too",
+    "That's some toxic air right there",
+    "You could have smelled that from so far away"
   ],
   [Material.Stone]: [
-    "crushed under the weight of the earth",
-    "the mountain doesn't move, you do",
-    "should've dug faster",
-    "rocks fall, everyone dies",
+    "Crushed under the weight of the earth",
+    "The mountain doesn't move, you do",
+    "Should've dug faster",
+    "Rocks fall, everyone dies",
+    "Do you like hugs with extreme force?",
+    "Cave-ins are a serious source of injury and death",
+    ""
   ],
 };
 
 const FALLBACK_QUIPS = [
-  "gravity is a bitch, eh?",
-  "you really should watch your step",
-  "the mine claims another soul",
+  "The mine claims another soul",
+  "Your health insurance plan isn't unlimited you know",
+  "Act 2; The Consequences of your actions"
 ];
 
 /** Pick a random death quip for the given cause material. */
@@ -73,6 +84,7 @@ export interface GameState {
   activeChunks: number;
   renderer: unknown | null; // set to MiningRenderer at runtime; typed as unknown to avoid circular import
   showInventory: boolean;
+  showEscapeMenu: boolean; // true when the ESC pause menu is open
   currency: number; // gold earned from selling materials at the signpost
   nearSignpost: boolean; // true when player is within sell range of the surface signpost
 
@@ -91,6 +103,7 @@ export interface GameState {
   setActiveChunks: (n: number) => void;
   setRenderer: (r: unknown | null) => void;
   setShowInventory: (show: boolean) => void;
+  setShowEscapeMenu: (show: boolean) => void;
   setCurrency: (c: number) => void;
   addCurrency: (amount: number) => void;
   setNearSignpost: (near: boolean) => void;
@@ -114,6 +127,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   activeChunks: 0,
   renderer: null,
   showInventory: false,
+  showEscapeMenu: false,
   currency: 0,
   nearSignpost: false,
 
@@ -143,6 +157,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setActiveChunks: (activeChunks) => set({ activeChunks }),
   setRenderer: (renderer) => set({ renderer }),
   setShowInventory: (showInventory) => set({ showInventory }),
+  setShowEscapeMenu: (showEscapeMenu) => set({ showEscapeMenu }),
   setCurrency: (currency) => set({ currency }),
   addCurrency: (amount) => set((s) => ({ currency: s.currency + amount })),
   setNearSignpost: (nearSignpost) => set({ nearSignpost }),
