@@ -31,16 +31,28 @@ import {
     ACTIVE_GRID_H,
     ACTIVE_GRID_W,
     ACTIVE_RADIUS_CHUNKS,
+    BASE_INVENTORY_SIZE,
+    BASE_MINING_DAMAGE,
+    BASE_MINING_RADIUS,
+    BASE_MINING_RATE,
     CHUNK_H,
     CHUNK_W,
     COLLECT_RADIUS,
+    DAMAGE_UPGRADE_INCREMENT,
+    DIRT_HARDNESS,
     FREEZE_TICKS,
+    INVENTORY_SIZE_UPGRADE_INCREMENT,
     MAX_CHUNKS_X,
+    MAX_MINE_RANGE,
+    ORE_HARDNESS,
     PLAYER_H,
     PLAYER_W,
+    RADIUS_UPGRADE_INCREMENT,
+    RATE_UPGRADE_REDUCTION,
+    STONE_HARDNESS,
     WORLD_SEED,
 } from "../shared/constants";
-import type { Chunk, ChunkCoord, InventoryEntry, MiningPlayerState } from "../shared/types";
+import type { Chunk, ChunkCoord, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import { createMiningPlayer, updateMiningPlayer } from "./mining-player";
 import { generateChunk, surfaceHeightAt } from "./terrain";
 
@@ -73,6 +85,15 @@ export class ChunkWorld {
   currentTick = 0;
   // Player state (world cell coords)
   player: MiningPlayerState;
+  // Player upgrades (mining damage, radius, rate, inventory size)
+  upgrades: PlayerUpgrades;
+  // Per-cell mining damage accumulator (active grid coords). When accumulated
+  // damage reaches the material's hardness, the cell is dislodged (converted
+  // to a loose, collectible form). Cleared on grid rebuild.
+  private cellDamage: Float32Array;
+  // Tick counter for mining rate limiting — counts down; when 0, the next
+  // mouseDown tick can mine.
+  private mineCooldown = 0;
   // World config
   readonly seed: number;
 
@@ -80,6 +101,7 @@ export class ChunkWorld {
     this.seed = WORLD_SEED;
     this.activeGrid = new SandWorld(ACTIVE_GRID_W, ACTIVE_GRID_H);
     this.skipMask = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
+    this.cellDamage = new Float32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.activeGrid.skipMask = this.skipMask;
     // Don't initialize the stone floor — the chunk system provides terrain
     this.activeGrid.grid.fill(0);
@@ -95,6 +117,40 @@ export class ChunkWorld {
     const surfaceY = surfaceHeightAt(playerWorldX, WORLD_SEED);
     const playerWorldY = surfaceY - PLAYER_H - 2; // 2 cells of clearance above surface
     this.player = createMiningPlayer(playerWorldX, playerWorldY);
+    this.upgrades = {
+      damage: 0,
+      radius: 0,
+      rate: 0,
+      inventorySize: 0,
+    };
+  }
+
+  // --- Upgrade system ---
+
+  /** Get the effective mining damage per hit. */
+  getMiningDamage(): number {
+    return BASE_MINING_DAMAGE + this.upgrades.damage * DAMAGE_UPGRADE_INCREMENT;
+  }
+  /** Get the effective mining radius (cells around the raycast hit). */
+  getMiningRadius(): number {
+    return BASE_MINING_RADIUS + this.upgrades.radius * RADIUS_UPGRADE_INCREMENT;
+  }
+  /** Get the effective mining rate (ticks between hits). */
+  getMiningRate(): number {
+    return Math.max(1, BASE_MINING_RATE - this.upgrades.rate * RATE_UPGRADE_REDUCTION);
+  }
+  /** Get the max inventory size (total item count). */
+  getMaxInventory(): number {
+    return BASE_INVENTORY_SIZE + this.upgrades.inventorySize * INVENTORY_SIZE_UPGRADE_INCREMENT;
+  }
+  /** Get the current total item count in inventory. */
+  getInventoryCount(inventory: InventoryEntry[]): number {
+    return inventory.reduce((sum, e) => sum + e.count, 0);
+  }
+
+  /** Set upgrade levels (from save or UI). */
+  setUpgrades(upgrades: PlayerUpgrades): void {
+    this.upgrades = { ...upgrades };
   }
 
   // --- Chunk management ---
@@ -172,6 +228,7 @@ export class ChunkWorld {
     // Clear the active grid
     grid.fill(0);
     fields.fill(DEFAULT_TEMP);
+    this.cellDamage.fill(0);
     for (let i = 0; i < ACTIVE_GRID_W * ACTIVE_GRID_H * 4; i += 4) {
       fields[i + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       fields[i + FIELD.TEMP] = DEFAULT_TEMP;
@@ -392,41 +449,134 @@ export class ChunkWorld {
    *
    * Returns an empty array — all collection is proximity-based via collect().
    */
-  dig(wx: number, wy: number, radius: number): InventoryEntry[] {
-    const { x: axF, y: ayF } = this.worldToActive(wx, wy);
-    const ax = Math.floor(axF);
-    const ay = Math.floor(ayF);
+  /**
+   * Mine toward the mouse position using a raycast from the player.
+   *
+   * 1. Cast a ray from the player's center toward the mouse world position.
+   * 2. Find the first solid (mineable) cell the ray hits.
+   * 3. Apply damage to cells within the mining radius around the hit point.
+   * 4. When a cell's accumulated damage reaches its hardness, it is dislodged:
+   *    - Stone → converted to Dirt (loose, collectible, falls with gravity)
+   *    - Ore → loosened (gravity re-enabled, becomes collectible)
+   *    - Dirt → cleared (already loose, just removed)
+   * 5. Liquids (water, oil, lava) and gases are NOT mineable — the ray passes
+   *    through them.
+   * 6. Walls are indestructible.
+   *
+   * Rate-limited by mineCooldown (controlled by the rate upgrade).
+   * Returns collected items (always empty — collection is proximity-based).
+   */
+  mine(mouseWX: number, mouseWY: number): InventoryEntry[] {
+    // Rate limiting — only mine when cooldown has elapsed.
+    // getMiningRate() returns ticks between hits (e.g. 3 = hit every 3 ticks).
+    // We set cooldown to rate-1 so the next hit happens exactly `rate` ticks later.
+    if (this.mineCooldown > 0) {
+      this.mineCooldown--;
+      return [];
+    }
+    // Reset cooldown for next hit
+    this.mineCooldown = this.getMiningRate() - 1;
+
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
-    const r2 = radius * radius;
+    const damage = this.getMiningDamage();
+    const radius = this.getMiningRadius();
 
-    for (let dy = -radius; dy <= radius; dy++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        if (dx * dx + dy * dy > r2) continue;
-        const x = ax + dx;
-        const y = ay + dy;
+    // Player center in active grid coords
+    const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
+    const px = paxF + PLAYER_W / 2;
+    const py = payF + PLAYER_H / 2;
+
+    // Mouse in active grid coords
+    const { x: mxF, y: myF } = this.worldToActive(mouseWX, mouseWY);
+    const mx = mxF;
+    const my = myF;
+
+    // Ray direction (normalized)
+    let dx = mx - px;
+    let dy = my - py;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.001) return [];
+    dx /= dist;
+    dy /= dist;
+
+    // March the ray until we hit a solid mineable cell or reach max range
+    let hitX = -1, hitY = -1;
+    const maxRange = MAX_MINE_RANGE;
+    for (let step = 0; step < maxRange; step++) {
+      const cx = Math.floor(px + dx * step);
+      const cy = Math.floor(py + dy * step);
+      if (cx < 0 || cx >= ACTIVE_GRID_W || cy < 0 || cy >= ACTIVE_GRID_H) break;
+      const idx = cy * ACTIVE_GRID_W + cx;
+      const packed = grid[idx];
+      if (packed === 0) continue; // empty — ray passes through
+      const mat = packed & 0xff;
+      if (mat === Material.Wall) break; // wall blocks the ray
+      const def = MATERIALS[mat];
+      if (!def?.solid) continue; // liquid/gas — ray passes through
+      // Hit a solid mineable cell
+      hitX = cx;
+      hitY = cy;
+      break;
+    }
+
+    if (hitX < 0) return []; // nothing hit
+
+    // Apply damage to cells within radius of the hit point
+    const r2 = radius * radius;
+    for (let ddy = -radius; ddy <= radius; ddy++) {
+      for (let ddx = -radius; ddx <= radius; ddx++) {
+        if (ddx * ddx + ddy * ddy > r2) continue;
+        const x = hitX + ddx;
+        const y = hitY + ddy;
         if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) continue;
         const idx = y * ACTIVE_GRID_W + x;
         const packed = grid[idx];
         if (packed === 0) continue;
         const mat = packed & 0xff;
-        // Don't dig through walls or bedrock-like materials
         if (mat === Material.Wall) continue;
 
-        if (isCollectible(mat)) {
-          // Loosen the ore in place — don't clear, don't collect.
-          // Enable the per-cell gravity field (tin/copper start at 0).
-          const fi = idx * 4;
-          if (fields[fi + FIELD.GRAVITY] === 0) {
-            fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
-          }
-          this.markCellUnfrozen(x, y);
-        } else {
-          // Non-collectible solid: clear to create a hole
-          grid[idx] = 0;
-          this.clearWakeTick(x, y);
+        const def = MATERIALS[mat];
+        if (!def?.solid) continue; // don't damage liquids/gases
 
-          // Loosen the cell directly above the hole so it cascades down.
+        // Determine hardness based on material type
+        let hardness: number;
+        if (isCollectible(mat)) {
+          hardness = ORE_HARDNESS;
+        } else if (mat === Material.Stone) {
+          hardness = STONE_HARDNESS;
+        } else if (mat === Material.Dirt || mat === Material.Grass) {
+          hardness = DIRT_HARDNESS;
+        } else {
+          hardness = STONE_HARDNESS; // default for other solids
+        }
+
+        // Accumulate damage
+        this.cellDamage[idx] += damage;
+
+        if (this.cellDamage[idx] >= hardness) {
+          // Cell is dislodged!
+          this.cellDamage[idx] = 0;
+
+          if (isCollectible(mat)) {
+            // Ore: re-enable gravity so it falls, mark unfrozen (collectible)
+            const fi = idx * 4;
+            if (fields[fi + FIELD.GRAVITY] === 0) {
+              fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+            }
+            this.markCellUnfrozen(x, y);
+          } else if (mat === Material.Stone) {
+            // Stone → convert to Dirt (loose, collectible, falls with gravity)
+            const shade = (packed >> 16) & 0xff;
+            grid[idx] = packCell(Material.Dirt, 0, shade);
+            this.markCellUnfrozen(x, y);
+          } else {
+            // Dirt/Grass/other: clear to create a hole
+            grid[idx] = 0;
+            this.clearWakeTick(x, y);
+          }
+
+          // Loosen the cell directly above so it cascades down
           const aboveIdx = idx - ACTIVE_GRID_W;
           if (aboveIdx >= 0) {
             const above = grid[aboveIdx];
@@ -437,10 +587,8 @@ export class ChunkWorld {
                 if (aboveDef?.solid) {
                   const aboveFi = aboveIdx * 4;
                   if (fields[aboveFi + FIELD.GRAVITY] === 0 && MAT_GRAVITY_DIR[aboveMat] !== 0) {
-                    // Ore with gravity disabled (tin/copper) — re-enable gravity
                     fields[aboveFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
                   } else if (aboveDef.gravity === 0) {
-                    // Static solid (stone) — convert to dirt so it can fall
                     const shade = (above >> 16) & 0xff;
                     grid[aboveIdx] = packCell(Material.Dirt, 0, shade);
                   }
@@ -577,13 +725,18 @@ export class ChunkWorld {
   // --- Collection ---
 
   /**
-   * Collect loose particles (ore/debris) near the player.
-   * Only collects cells that are unfrozen (loose — recently dug/disturbed).
+   * Collect loose particles (ore/loose stone) near the player.
+   * Only collects cells that are unfrozen (loose — recently mined/disturbed).
    * Frozen cells (ores embedded in stone) are not collectible.
+   * Respects the max inventory size — stops collecting when full.
    * Returns an array of {mat, count} collected this tick.
    */
-  collect(): InventoryEntry[] {
+  collect(currentInventory: InventoryEntry[] = []): InventoryEntry[] {
     const collected: Map<number, number> = new Map();
+    const maxInv = this.getMaxInventory();
+    let currentCount = this.getInventoryCount(currentInventory);
+    if (currentCount >= maxInv) return []; // inventory full
+
     const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
     const pax = Math.floor(paxF);
     // Center collection at the player's vertical midpoint, not the top of the
@@ -609,12 +762,16 @@ export class ChunkWorld {
         // Only collect loose (unfrozen) particles
         if (!this.isCellUnfrozen(x, y)) continue;
         if (isCollectible(mat)) {
+          // Check inventory space
+          if (currentCount >= maxInv) break;
           grid[idx] = 0; // remove from grid
           collected.set(mat, (collected.get(mat) ?? 0) + 1);
+          currentCount++;
           // Clear the wakeTick for this cell (it's now empty)
           this.clearWakeTick(x, y);
         }
       }
+      if (currentCount >= maxInv) break;
     }
 
     return Array.from(collected.entries()).map(([mat, count]) => ({ mat, count }));
@@ -645,12 +802,13 @@ export class ChunkWorld {
    * Advance the simulation by one tick.
    * 1. Check if active grid needs rebuild (player crossed chunk boundary)
    * 2. Build skip mask (freeze optimization)
-   * 3. Handle digging (before sim so dug particles can fall this tick)
+   * 3. Handle mining (raycast from player toward mouse, before sim so mined
+   *    particles can fall this tick)
    * 4. Run SandWorld.step on the active grid
    * 5. Expire wakeTicks (re-freeze settled cells, extend for moving particles)
    * 6. Sync active grid back to chunk storage
    * 7. Update player physics
-   * 8. Collect loose ore near player
+   * 8. Collect loose ore/stone near player (respects max inventory size)
    */
   step(input: {
     left: boolean;
@@ -662,7 +820,7 @@ export class ChunkWorld {
     mouseX: number;
     mouseY: number;
     digRadius: number;
-  }): InventoryEntry[] {
+  }, currentInventory: InventoryEntry[] = []): InventoryEntry[] {
     this.currentTick++;
 
     // 1. Rebuild if needed
@@ -680,10 +838,9 @@ export class ChunkWorld {
     // 2. Build skip mask
     this.buildSkipMask();
 
-    // 3. Handle digging (before sim so dug particles can fall this tick)
-    let digCollected: InventoryEntry[] = [];
+    // 3. Handle mining (before sim so mined particles can fall this tick)
     if (input.mouseDown) {
-      digCollected = this.dig(input.mouseX, input.mouseY, input.digRadius);
+      this.mine(input.mouseX, input.mouseY);
     }
 
     // 4. Run simulation
@@ -701,15 +858,10 @@ export class ChunkWorld {
     this.player.x = this.player.x + this.activeOriginCx * CHUNK_W;
     this.player.y = this.player.y + this.activeOriginCy * CHUNK_H;
 
-    // 8. Collect loose ore near player
-    const collected = this.collect();
+    // 8. Collect loose ore/stone near player (respects max inventory size)
+    const collected = this.collect(currentInventory);
 
-    // Merge dig-collected and proximity-collected items
-    const merged = new Map<number, number>();
-    for (const { mat, count } of digCollected) merged.set(mat, (merged.get(mat) ?? 0) + count);
-    for (const { mat, count } of collected) merged.set(mat, (merged.get(mat) ?? 0) + count);
-
-    return Array.from(merged.entries()).map(([mat, count]) => ({ mat, count }));
+    return collected;
   }
 
   // --- Stats ---
@@ -819,11 +971,12 @@ export interface SavedChunk {
   wakeTick: Uint32Array;
 }
 
-/** Check if a material is collectible (ore or loose debris). */
+/** Check if a material is collectible (ore, loose stone/dirt, refined metals). */
 function isCollectible(mat: number): boolean {
-  // Only ores and refined metals are collected by proximity.
-  // Dirt/Sand/Stone are not collectible — they are cleared by dig() to
-  // create holes, and the cascading loose particles fall into them.
+  // Ores, refined metals, and loose Dirt (from dislodged stone) are collected
+  // by proximity. Stone itself is NOT collectible — it must be mined first
+  // (converted to Dirt via the mining damage system), then the loose Dirt
+  // is collected.
   return (
     mat === Material.TinOre ||
     mat === Material.CopperOre ||
@@ -833,6 +986,7 @@ function isCollectible(mat: number): boolean {
     mat === Material.GoldOre ||
     mat === Material.CobaltOre ||
     mat === Material.Coal ||
-    mat === Material.Iron
+    mat === Material.Iron ||
+    mat === Material.Dirt
   );
 }

@@ -8,7 +8,7 @@
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, PLAYER, STATS, TICK_RATE } from "../shared/constants";
 import { MiningSimBufferWriter } from "../shared/sim-buffer";
-import type { MiningPlayerState } from "../shared/types";
+import type { InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import { ChunkWorld, type SavedChunk } from "./chunk-world";
 
 const events = exposeEvents();
@@ -27,6 +27,7 @@ let speedMultiplier = 1;
 let stepOnce = false;
 let inputBuf: Int32Array | null = null;
 let inputF32: Float32Array | null = null;
+let currentInventory: InventoryEntry[] = [];
 
 const TICK_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 5;
@@ -74,18 +75,20 @@ expose({
 
   getSaveData(): {
     player: MiningPlayerState;
+    upgrades: PlayerUpgrades;
     dirtyChunks: SavedChunk[];
     tick: number;
   } {
-    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, dirtyChunks: [], tick: 0 };
+    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, dirtyChunks: [], tick: 0 };
     return {
       player: { ...world.player },
+      upgrades: { ...world.upgrades },
       dirtyChunks: world.getDirtyChunks(),
       tick: world.currentTick,
     };
   },
 
-  loadSaveData(data: { player: MiningPlayerState; chunks: SavedChunk[]; tick: number }): void {
+  loadSaveData(data: { player: MiningPlayerState; upgrades?: PlayerUpgrades; chunks: SavedChunk[]; tick: number }): void {
     if (!world) return;
     // Restore chunks first (before player state, since setPlayerState forces rebuild)
     for (const chunk of data.chunks) {
@@ -93,8 +96,19 @@ expose({
     }
     // Restore player state
     world.setPlayerState(data.player);
+    // Restore upgrades
+    if (data.upgrades) world.setUpgrades(data.upgrades);
     // Restore tick counter
     if (data.tick) world.currentTick = data.tick;
+  },
+
+  setUpgrades(upgrades: PlayerUpgrades): void {
+    if (!world) return;
+    world.setUpgrades(upgrades);
+  },
+
+  setInventory(inventory: InventoryEntry[]): void {
+    currentInventory = inventory;
   },
 });
 
@@ -128,7 +142,7 @@ async function loop(): Promise<void> {
             digRadius: ib[INPUT.DIG_RADIUS / 4],
           };
 
-          const collected = world.step(input);
+          const collected = world.step(input, currentInventory);
           tickCount++;
 
           // Write active grid + fields to SAB

@@ -108,15 +108,17 @@ export class MiningRenderer {
     try {
       const save = await loadWorld();
       if (save) {
-        // Restore chunks + player state in the worker
+        // Restore chunks + player state + upgrades in the worker
         await this.workerHost.loadSaveData({
           player: save.player,
+          upgrades: save.upgrades,
           chunks: save.chunks,
           tick: 0, // don't restore tick counter (fresh start)
         });
-        // Restore inventory to the game store
+        // Restore inventory and upgrades to the game store
         const store = useGameStore.getState();
         store.setInventory(save.inventory);
+        if (save.upgrades) store.setUpgrades(save.upgrades);
         if (save.player.health) store.setHealth(save.player.health);
       }
     } catch (e) {
@@ -127,13 +129,14 @@ export class MiningRenderer {
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, inventory: [], chunks: [], savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, inventory: [], chunks: [], savedAt: Date.now() };
       }
       const store = useGameStore.getState();
       return {
         version: 1,
         seed: WORLD_SEED,
         player: saveData.player,
+        upgrades: saveData.upgrades,
         inventory: store.inventory,
         chunks: saveData.dirtyChunks,
         savedAt: Date.now(),
@@ -339,5 +342,11 @@ export class MiningRenderer {
     this.workerHost.writeMousePos(world.x, world.y);
     this.workerHost.writeMouseDown(this.input.mouseDown);
     this.workerHost.writeDigRadius(this.input.digRadius);
+
+    // Sync current inventory to the worker so collect() can enforce max size
+    const store = useGameStore.getState();
+    this.workerHost.setInventory(store.inventory);
+    // Sync upgrades to the worker so mining uses current stats
+    this.workerHost.setUpgrades(store.upgrades);
   }
 }
