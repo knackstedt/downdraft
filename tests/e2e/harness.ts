@@ -21,6 +21,9 @@ export interface McpClient {
 export interface GameProcess {
   process: ReturnType<typeof Bun.spawn>;
   mcpClient: McpClient;
+  /** Returns JS errors captured from the game process console output.
+   *  Call after tests to verify no uncaught errors occurred. */
+  getConsoleErrors(): string[];
   kill(): Promise<void>;
 }
 
@@ -220,16 +223,71 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     stderr: "pipe",
   });
 
-  // Stream logs to console for debugging
+  // Capture console output lines to detect JS errors.
+  // We collect lines matching error patterns so tests can assert no errors
+  // were thrown during the test run. We also stream to stdout/stderr for
+  // real-time debugging.
+  const consoleErrors: string[] = [];
+  const errorPatterns = [
+    /Uncaught/i,
+    /TypeError:/,
+    /ReferenceError:/,
+    /SyntaxError:/,
+    /RangeError:/,
+    /WrongDocumentError:/,
+    /is not a function/,
+    /is not defined/,
+    /cannot read propert/,
+    /REJECTED action/,
+  ];
+  // Ignore errors from known noisy subsystems that aren't real bugs
+  const ignorePatterns = [
+    /ERROR:components\/services\/storage/,
+    /ERROR:storage\/browser/,
+    /Gtk-Message/,
+    /deprecated.*session\.loadExtension/,
+    /SandboxOriginDatabase/,
+    /Failed to load module.*xapp-gtk3/,
+    /Failed to delete the database/,
+    /Could not open the quota database/,
+    /WebSocket connection.*failed/,
+    /gc.*does not exist/,
+    /Physics re-initialized after panic/,
+    /Slow (tick|physics)/,
+  ];
+
+  function isRealError(line: string): boolean {
+    const stripped = line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\[[0-9;]*/g, "");
+    if (!errorPatterns.some((p) => p.test(stripped))) return false;
+    if (ignorePatterns.some((p) => p.test(stripped))) return false;
+    return true;
+  }
+
   const decoder = new TextDecoder();
+  let stdoutBuffer = "";
+  let stderrBuffer = "";
   (async () => {
     for await (const chunk of proc.stdout) {
-      process.stdout.write(decoder.decode(chunk));
+      const text = decoder.decode(chunk);
+      stdoutBuffer += text;
+      process.stdout.write(text);
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (isRealError(line)) consoleErrors.push(line.replace(/\x1b\[[0-9;]*m/g, "").trim());
+      }
     }
   })();
   (async () => {
     for await (const chunk of proc.stderr) {
-      process.stderr.write(decoder.decode(chunk));
+      const text = decoder.decode(chunk);
+      stderrBuffer += text;
+      process.stderr.write(text);
+      const lines = stderrBuffer.split("\n");
+      stderrBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (isRealError(line)) consoleErrors.push(line.replace(/\x1b\[[0-9;]*m/g, "").trim());
+      }
     }
   })();
 
@@ -244,6 +302,7 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   return {
     process: proc,
     mcpClient: createMcpClient(port),
+    getConsoleErrors(): string[] { return [...consoleErrors]; },
     async kill(): Promise<void> {
       proc.kill();
       try {

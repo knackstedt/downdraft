@@ -430,6 +430,39 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
 
     {
       def: {
+        name: "dispatch_click",
+        description: "Dispatch a real DOM click event on the main thread's canvas. This triggers the undertow onUserGesture callback (which calls requestPointerLock within the user gesture context) and tests the full click-to-resume interaction path.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            x: { type: "number", description: "X coordinate (default: center of canvas)" },
+            y: { type: "number", description: "Y coordinate (default: center of canvas)" },
+          },
+        },
+      },
+      handler: (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const canvas = renderer.getCanvas();
+        const x = (params.x as number) ?? canvas.clientWidth / 2;
+        const y = (params.y as number) ?? canvas.clientHeight / 2;
+        // Dispatch a real click event on the canvas. The undertow event
+        // dispatcher's onUserGesture callback fires within this user gesture
+        // context, allowing requestPointerLock() to succeed.
+        const rect = canvas.getBoundingClientRect();
+        const ev = new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + x,
+          clientY: rect.top + y,
+        });
+        canvas.dispatchEvent(ev);
+        return jsonResult({ dispatched: true, x, y });
+      },
+    },
+
+    {
+      def: {
         name: "get_ui_state",
         description: "Read the current UI store state (menu visibility, pointer lock, suppressPauseMenu, etc.) for testing UI behavior.",
         inputSchema: { type: "object", properties: {} },

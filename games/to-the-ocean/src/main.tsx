@@ -223,6 +223,15 @@ async function bootstrap() {
   useGameStore.getState().setRenderer(renderer);
   useGameStore.getState().setReady(true);
 
+  // Register MCP automation harness early — before the save store init,
+  // which can hang in test environments (OPFS not available under
+  // SwiftShader). The harness exposes dispatch_key / get_ui_state (used by
+  // e2e UI tests) which only need the renderer + store, not the sim SAB.
+  // Tools that need the sim reader (get_world_state, get_player_state)
+  // gracefully return "not available" until setBuffers() wires the SAB.
+  const { setupTtolMcp } = await import("./mcp/setup");
+  setupTtolMcp(renderer, simWorker);
+
   // --- Save store initialization (before autosave loading) ---
   // Detect save mode from config and create the appropriate ISaveStore.
   // "inline": OpfsSaveStore runs inside the sim worker (zero-copy saves).
@@ -356,15 +365,6 @@ async function bootstrap() {
     renderer.stop();
     console.log("[Renderer] Deterministic mode: render loop paused (on-demand rendering only)");
   }
-
-  // Register MCP automation harness (input injection, screenshots, state reads)
-  // so Playwright / MCP clients can drive the game through the existing HTTP proxy.
-  // IMPORTANT: this must run AFTER renderer.setBuffers() so the sim SharedArrayBuffer
-  // is wired into the renderer (getSimReader() returns a valid reader). Attaching the
-  // harness earlier exposes tools before the sim reader exists, causing get_world_state
-  // / get_player_state to return "not available" errors to MCP clients.
-  const { setupTtolMcp } = await import("./mcp/setup");
-  setupTtolMcp(renderer, simWorker);
 
   // --- Debug: Electron OSR billboard at helm position ---
   // Creates a dedicated OSR renderer loading google.com and places a

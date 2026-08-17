@@ -31,7 +31,16 @@ const handleCache: Map<number, WorkerNode | WorkerElement | WorkerText | WorkerC
 /** Get or create a cached SyncElement for the given handle. */
 export function getSyncElement(handleId: number, rt: WorkerRuntime): SyncElement {
   const cached = handleCache.get(handleId);
-  if (cached) return cached as SyncElement;
+  if (cached) {
+    // If the cached object is already a SyncElement, return it.
+    // If it's a SyncNode (e.g. firstChild was called before createElement),
+    // we need to upgrade it to a SyncElement so it has setAttribute etc.
+    if (cached instanceof SyncElement) return cached;
+    // Replace the cached SyncNode with a SyncElement for this handle.
+    const el = new SyncElement(handleId, rt);
+    handleCache.set(handleId, el);
+    return el;
+  }
   const el = new SyncElement(handleId, rt);
   handleCache.set(handleId, el);
   return el;
@@ -257,7 +266,9 @@ export class SyncElement extends WorkerElement {
 
   cloneNode(deep = false): WorkerNode {
     const r = this.rt.callSync(ids.OP_NODE_CLONE_NODE, this.handleId, [deep]);
-    return getSyncNode(r.value as number, this.rt);
+    // Cloning an element produces an element — use getSyncElement so the
+    // clone has setAttribute and other element methods.
+    return getSyncElement(r.value as number, this.rt);
   }
 
   // ownerDocument — React accesses this for event delegation
@@ -492,6 +503,13 @@ export class SyncCSSStyleDeclaration extends WorkerCSSStyleDeclaration {
 }
 
 export function wrapSyncNode(handleId: number, rt: WorkerRuntime): WorkerNode {
+  // Query the node type from the main thread to determine the correct wrapper.
+  // Without this, cloned elements (cloneNode) get a SyncNode without setAttribute,
+  // causing "node.setAttribute is not a function" errors in React DOM.
+  const nodeType = rt.callSync(ids.OP_NODE_GET_NODE_TYPE, handleId, []).value as number;
+  if (nodeType === 1) return new SyncElement(handleId, rt); // ELEMENT_NODE
+  if (nodeType === 3) return new SyncText(handleId, rt);    // TEXT_NODE
+  if (nodeType === 8) return new SyncComment(handleId, rt); // COMMENT_NODE
   return new SyncNode(handleId, rt);
 }
 

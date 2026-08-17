@@ -194,7 +194,14 @@ export class RendererInputHandler {
     if (this.pointerLockRetryCount >= 20) return;
     this.pointerLockRetryCount++;
     try {
-      this.canvas.requestPointerLock();
+      const result = this.canvas.requestPointerLock();
+      // In newer Chrome, requestPointerLock() returns a Promise that can
+      // reject (e.g. WrongDocumentError if the canvas was detached, or
+      // SecurityError during ESC cooldown). Catch the rejection to prevent
+      // an uncaught promise rejection — the retry timer below handles it.
+      if (result && typeof (result as Promise<void>).catch === "function") {
+        (result as Promise<void>).catch(() => { /* retry timer handles it */ });
+      }
     } catch (_e) {
       // ignore — fallback timer below will retry
     }

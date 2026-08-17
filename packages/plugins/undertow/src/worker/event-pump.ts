@@ -114,19 +114,9 @@ export class EventPump {
 
   private dispatch(handle: number, type: string, event: WorkerEvent): void {
     const byType = this.listeners.get(handle);
-    if (!byType) {
-      if (type === "keydown" || type === "keyup") {
-        console.log(`[event-pump] dispatch: no listeners for handle=${handle} type=${type}`);
-      }
-      return;
-    }
+    if (!byType) return;
     const set = byType.get(type);
-    if (!set) {
-      if (type === "keydown" || type === "keyup") {
-        console.log(`[event-pump] dispatch: no listener set for handle=${handle} type=${type} (types: ${Array.from(byType.keys()).join(",")})`);
-      }
-      return;
-    }
+    if (!set) return;
     for (const listener of set) {
       try {
         listener(event);
