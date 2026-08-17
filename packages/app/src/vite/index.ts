@@ -297,6 +297,11 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       root: rendererRoot,
       resolve: {
         alias: rendererAliasEntries,
+        // Force a single copy of React in the bundle. With bun's symlinked
+        // node_modules and multiple workspace packages each declaring react,
+        // Rollup can otherwise resolve react/react-dom from different paths
+        // and emit two copies, causing "Invalid hook call" at runtime.
+        dedupe: ["react", "react-dom"],
       },
       worker: {
         format: "es",
