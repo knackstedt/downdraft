@@ -17,6 +17,28 @@ function ensureDir(path: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
+// MCP tool results are { content: [...], isError?: boolean }. When a tool
+// returns an error, content[0].text is a plain message (NOT JSON). Parsing it
+// blindly yields a confusing "Unexpected identifier" SyntaxError. This helper
+// surfaces tool errors as clear assertion failures instead.
+interface McpToolResult {
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+  isError?: boolean;
+}
+
+function parseJsonContent(result: unknown): Record<string, unknown> {
+  const r = result as McpToolResult;
+  const text = r.content?.[0]?.text ?? "";
+  if (r.isError) {
+    throw new Error(`MCP tool returned an error: ${text}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`MCP tool returned non-JSON text (isError=${r.isError ?? false}): ${(e as Error).message} | text=${text.slice(0, 200)}`);
+  }
+}
+
 describe("to-the-ocean MCP automation smoke", () => {
   let game: GameProcess | null = null;
 
@@ -48,10 +70,8 @@ describe("to-the-ocean MCP automation smoke", () => {
   });
 
   it("reads a valid initial world state", async () => {
-    const result = (await game!.mcpClient.callTool("get_world_state", {})) as {
-      content: Array<{ type: string; text: string }>;
-    };
-    const state = JSON.parse(result.content[0].text) as {
+    const result = await game!.mcpClient.callTool("get_world_state", {});
+    const state = parseJsonContent(result) as {
       tick: number;
       playerCount: number;
       entityCount: number;
@@ -63,10 +83,8 @@ describe("to-the-ocean MCP automation smoke", () => {
   });
 
   it("reads player state for player 0", async () => {
-    const result = (await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 })) as {
-      content: Array<{ type: string; text: string }>;
-    };
-    const state = JSON.parse(result.content[0].text) as {
+    const result = await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 });
+    const state = parseJsonContent(result) as {
       position: number[];
       health: number;
       flags: { dead: boolean };
@@ -84,10 +102,8 @@ describe("to-the-ocean MCP automation smoke", () => {
       simSpeed: 1,
     });
 
-    const before = (await game!.mcpClient.callTool("get_world_state", {})) as {
-      content: Array<{ type: string; text: string }>;
-    };
-    const beforeTick = JSON.parse(before.content[0].text).tick as number;
+    const before = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {}));
+    const beforeTick = before.tick as number;
 
     // Hold W for 120 frames to drive the player forward.
     await game!.mcpClient.callTool("inject_input", {
@@ -101,27 +117,25 @@ describe("to-the-ocean MCP automation smoke", () => {
       timeoutMs: 30000,
     });
 
-    const after = (await game!.mcpClient.callTool("get_world_state", {})) as {
-      content: Array<{ type: string; text: string }>;
-    };
-    const afterState = JSON.parse(after.content[0].text) as { tick: number };
+    const afterState = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {})) as { tick: number };
     expect(afterState.tick).toBeGreaterThan(beforeTick);
   }, 90000);
 
-  it("captures a non-empty screenshot", async () => {
+  it("captures a non-empty screenshot including the DOM overlay", async () => {
     // Give the renderer a moment to produce at least one frame.
     await sleep(500);
 
-    const result = (await game!.mcpClient.callTool("capture_screenshot", {})) as {
-      content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
-    };
+    // Default: fullPage=true — captures canvas + DOM overlay via Electron.
+    const result = (await game!.mcpClient.callTool("capture_screenshot", {})) as McpToolResult;
 
-    const meta = JSON.parse(result.content.find((c) => c.type === "text")?.text ?? "{}") as {
-      width?: number;
-      height?: number;
-    };
+    const textPart = result.content.find((c) => c.type === "text");
+    const meta = textPart?.text ? (parseJsonContent(result) as { width?: number; height?: number; fullPage?: boolean }) : {};
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
+    // The screenshot should be a full-page capture (canvas + overlay), not
+    // a canvas-only fallback. If this fails, the Electron bridge's
+    // capturePage() is not wired up or returned an empty image.
+    expect(meta.fullPage).toBe(true);
 
     const image = result.content.find((c) => c.type === "image");
     expect(image).toBeDefined();
@@ -139,10 +153,8 @@ describe("to-the-ocean MCP automation smoke", () => {
       keys: ["W", "A"],
       frames: 300,
     });
-    const result = (await game!.mcpClient.callTool("clear_injected_input", {})) as {
-      content: Array<{ type: string; text: string }>;
-    };
-    const response = JSON.parse(result.content[0].text) as { cleared: boolean };
+    const result = await game!.mcpClient.callTool("clear_injected_input", {});
+    const response = parseJsonContent(result) as { cleared: boolean };
     expect(response.cleared).toBe(true);
   });
 });

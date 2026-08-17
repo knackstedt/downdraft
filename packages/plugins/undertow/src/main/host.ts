@@ -36,6 +36,7 @@ import {
     EVENT_SEQ_OFF,
     EVENT_TYPEATOM_OFF,
     f64ToLoHi,
+    HANDLE_WINDOW,
     loHiToF64,
     OP_ARG0_OFF,
     OP_ARG1_OFF,
@@ -50,7 +51,7 @@ import {
     REPLY_PAYLOADOFF_OFF,
     REPLY_REQID_OFF,
     REPLY_RESULT_OFF,
-    REPLY_RESULTKIND_OFF
+    REPLY_RESULTKIND_OFF,
 } from "../shared/protocol";
 import { EventDispatcher } from "./event-dispatcher";
 import { HandleTable } from "./handle-table";
@@ -218,14 +219,14 @@ export class MainThreadHost {
     if (opId === ids.OP_WINDOW_ADD_EVENT_LISTENER) {
       const typeAtom = u32[OP_ARG0_OFF / 4];
       const type = this.pool.resolve(typeAtom) ?? "";
-      this.events.add(4 /* HANDLE_WINDOW */, type);
+      this.events.add(HANDLE_WINDOW, type);
       this.writeReply(reqId, { kind: ArgKind.Void });
       return;
     }
     if (opId === ids.OP_WINDOW_REMOVE_EVENT_LISTENER) {
       const typeAtom = u32[OP_ARG0_OFF / 4];
       const type = this.pool.resolve(typeAtom) ?? "";
-      this.events.remove(4 /* HANDLE_WINDOW */, type);
+      this.events.remove(HANDLE_WINDOW, type);
       this.writeReply(reqId, { kind: ArgKind.Void });
       return;
     }
