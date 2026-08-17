@@ -19,9 +19,6 @@ import { WorkerWindow } from "./dom/window";
 import type { WorkerRuntime } from "./runtime";
 import { SyncComment, SyncDocument, SyncElement, SyncNode, SyncText, SyncWindow, wrapSyncNode } from "./sync-dom";
 
-// Cache: handle → node type (so wrapNode can return the right subclass)
-const nodeTypeCache: Map<number, number> = new Map();
-
 // Re-export wrapSyncNode for use by the DOM classes
 export { wrapSyncNode as wrapNode };
 

@@ -261,6 +261,11 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
       webgpu: true,
       enableBlinkFeatures: "SharedArrayBuffer",
       sharedTexture: true,
+      // Disable background timer throttling so the worker DOM drain loop
+      // (setInterval + MessageChannel) keeps running even when the window
+      // loses focus. Without this, setInterval is throttled to 1 second in
+      // background tabs, causing 1000ms callSync latency.
+      backgroundThrottling: false,
       ...config.webPreferences,
     } as any,
   });

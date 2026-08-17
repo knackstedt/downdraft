@@ -368,6 +368,7 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
             simSpeed: { type: "number" },
             pauseRendering: { type: "boolean", description: "Pause the continuous render loop to save CPU. Screenshot capture still works (renders on demand)." },
             resumeRendering: { type: "boolean", description: "Resume the continuous render loop." },
+            targetFPS: { type: "number", description: "Set a target FPS limit for the render loop (0 = unlimited, uses rAF). Useful for headed tests to save GPU." },
           },
         },
       },
@@ -381,6 +382,7 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
         if (params.respawn) worker.respawnPlayer(0);
         if (params.pauseRendering && renderer) renderer.stop();
         if (params.resumeRendering && renderer) renderer.start();
+        if (params.targetFPS !== undefined && renderer) (renderer as any).setTargetFPS?.(params.targetFPS as number);
         return jsonResult({ applied: true, params });
       },
     },
@@ -446,18 +448,22 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
         const canvas = renderer.getCanvas();
         const x = (params.x as number) ?? canvas.clientWidth / 2;
         const y = (params.y as number) ?? canvas.clientHeight / 2;
-        // Dispatch a real click event on the canvas. The undertow event
-        // dispatcher's onUserGesture callback fires within this user gesture
-        // context, allowing requestPointerLock() to succeed.
+        // Find the actual element at the given coordinates — this mimics
+        // what a real user click would hit (the topmost element at that point).
+        // Dispatching on the canvas doesn't work for UI overlay elements
+        // because they're siblings of the canvas, not ancestors.
         const rect = canvas.getBoundingClientRect();
+        const clientX = rect.left + x;
+        const clientY = rect.top + y;
+        const target = document.elementFromPoint(clientX, clientY) ?? canvas;
         const ev = new MouseEvent("click", {
           bubbles: true,
           cancelable: true,
-          clientX: rect.left + x,
-          clientY: rect.top + y,
+          clientX,
+          clientY,
         });
-        canvas.dispatchEvent(ev);
-        return jsonResult({ dispatched: true, x, y });
+        target.dispatchEvent(ev);
+        return jsonResult({ dispatched: true, x, y, targetTag: target.tagName, targetClass: (target as HTMLElement).className?.slice(0, 80) });
       },
     },
 
@@ -490,6 +496,120 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
           simReady: s.simReady,
           lutReady: s.lutReady,
         });
+      },
+    },
+
+    {
+      def: {
+        name: "get_element_bounds",
+        description: "Get the bounding box of a DOM element matching a CSS selector on the main thread. Returns {x, y, width, height, top, left, bottom, right} or null if not found. Used to verify CSS/layout regressions in the undertow worker UI.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            selector: { type: "string", description: "CSS selector (e.g. '.hud-panel', '#root > div > div')" },
+          },
+          required: ["selector"],
+        },
+      },
+      handler: (params: Record<string, unknown>) => {
+        const selector = params.selector as string;
+        try {
+          const el = document.querySelector(selector);
+          if (!el) return jsonResult({ found: false, selector });
+          const rect = el.getBoundingClientRect();
+          return jsonResult({
+            found: true,
+            selector,
+            x: rect.x, y: rect.y,
+            width: rect.width, height: rect.height,
+            top: rect.top, left: rect.left,
+            bottom: rect.bottom, right: rect.right,
+          });
+        } catch (e) {
+          return errorResult(`Failed to query selector "${selector}": ${(e as Error).message}`);
+        }
+      },
+    },
+
+    {
+      def: {
+        name: "inspect_dom",
+        description: "Inspect the main thread's DOM for debugging CSS/layout issues. Returns information about stylesheets, specific elements, and their computed styles.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["stylesheets", "element"], description: "What to inspect: 'stylesheets' lists all <style> and <link> tags in <head>; 'element' gets details about an element matching a selector" },
+            selector: { type: "string", description: "CSS selector (for action='element')" },
+          },
+          required: ["action"],
+        },
+      },
+      handler: (params: Record<string, unknown>) => {
+        const action = params.action as string;
+        if (action === "stylesheets") {
+          const styles = Array.from(document.querySelectorAll("style, link[rel='stylesheet']")).map((el) => {
+            const tag = el.tagName.toLowerCase();
+            if (tag === "style") {
+              const text = el.textContent ?? "";
+              return { tag, length: text.length, preview: text.slice(0, 200) };
+            }
+            return { tag, href: (el as HTMLLinkElement).href };
+          });
+          return jsonResult({ stylesheets: styles, count: styles.length });
+        }
+        if (action === "element" && params.selector) {
+          const el = document.querySelector(params.selector as string);
+          if (!el) return jsonResult({ found: false, selector: params.selector });
+          const cs = getComputedStyle(el);
+          return jsonResult({
+            found: true,
+            selector: params.selector,
+            tagName: el.tagName,
+            className: el.className,
+            id: el.id,
+            style: {
+              width: cs.width, height: cs.height,
+              maxWidth: cs.maxWidth, maxHeight: cs.maxHeight,
+              display: cs.display, position: cs.position,
+              top: cs.top, left: cs.left,
+              overflow: cs.overflow,
+            },
+            bounds: el.getBoundingClientRect().toJSON(),
+            childCount: el.children.length,
+          });
+        }
+        return errorResult("Invalid action or missing selector");
+      },
+    },
+
+    {
+      def: {
+        name: "get_element_style",
+        description: "Get computed style of a DOM element matching a CSS selector on the main thread. Returns a subset of computed style properties. Used to verify CSS is applied correctly in the undertow worker UI.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            selector: { type: "string", description: "CSS selector" },
+            properties: { type: "array", items: { type: "string" }, description: "CSS properties to read (e.g. ['height', 'width', 'max-width', 'display'])" },
+          },
+          required: ["selector"],
+        },
+      },
+      handler: (params: Record<string, unknown>) => {
+        const selector = params.selector as string;
+        const props = (params.properties as string[]) ?? [];
+        try {
+          const el = document.querySelector(selector);
+          if (!el) return jsonResult({ found: false, selector });
+          const cs = getComputedStyle(el);
+          const result: Record<string, any> = { found: true, selector };
+          for (const p of props) result[p] = cs.getPropertyValue(p);
+          // Also get className for debugging
+          (result as any)._className = el.className;
+          return jsonResult(result);
+        } catch (e) {
+          return errorResult(`Failed to query style for "${selector}": ${(e as Error).message}`);
+        }
       },
     },
   ];

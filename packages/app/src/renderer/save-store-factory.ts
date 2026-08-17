@@ -72,16 +72,23 @@ export async function createSaveStore(opts: CreateSaveStoreOptions): Promise<ISa
 
     case "auto": {
       if (isOpfsAvailable()) {
-        // Try dedicated worker mode first
+        // Try dedicated worker mode first, with a 5s timeout.
+        // The worker spawn can hang in some environments (e.g. when Vite's
+        // worker URL resolution fails in dev mode). Fall back to IPC on timeout.
         try {
           const proxy = new SaveWorkerProxy({
             storeOptions: opts.opfsOptions,
             workerUrl: opts.workerUrl,
           });
-          await proxy.init();
+          await Promise.race([
+            proxy.init(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("SaveWorkerProxy init timeout (5s)")), 5000),
+            ),
+          ]);
           return proxy;
         } catch (err) {
-          // Worker spawn failed — fall through to IPC
+          // Worker spawn failed or timed out — fall through to IPC
           console.warn("[createSaveStore] Worker mode failed, falling back to IPC:", err);
         }
       }

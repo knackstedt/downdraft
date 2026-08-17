@@ -74,41 +74,61 @@ function InventoryGrid({ items, width, height }: { items: GridItem[]; width: num
   const grid = buildGridArray(items, width, height);
   const [activeKey, setActiveKey] = React.useState<string | null>(null);
 
+  // Only render cells that have items — empty cells are drawn via CSS
+  // background pattern on the grid container. This avoids creating 300+
+  // DOM elements for a 20×15 grid, which would cause multi-second lag
+  // in the undertow worker (each DOM element requires a callSync round-trip).
+  const itemCells: { item: GridItem; x: number; y: number }[] = [];
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const cell = grid[y][x];
+      if (cell?.isRoot) {
+        itemCells.push({ item: cell.item, x, y });
+      }
+    }
+  }
+
+  // Cell size: w-7 h-7 = 1.75rem = 28px. Gap is 1px.
+  const CELL = 28;
+  const GAP = 1;
+  // Background pattern: alternating cell background and gap color.
+  // Creates a grid of 28×28 cells with 1px gaps.
+  const cellBg = "rgba(30, 58, 95, 0.5)"; // bg-ocean-800/50
+  const gapBg = "rgba(30, 64, 96, 0.3)";  // bg-ocean-700/30
+
   return (
     <div
-      className="grid gap-px bg-ocean-700/30"
-      style={{ gridTemplateColumns: `repeat(${width}, 1fr)` }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${width}, ${CELL}px)`,
+        gridTemplateRows: `repeat(${height}, ${CELL}px)`,
+        gap: `${GAP}px`,
+        backgroundColor: gapBg,
+        // Draw empty cells with a background pattern — each cell gets cellBg,
+        // the gap between cells shows gapBg (the container background).
+        backgroundImage: `repeating-conic-gradient(${cellBg} 0% 25%, transparent 0% 50%)`,
+        backgroundSize: `${CELL + GAP}px ${CELL + GAP}px`,
+        width: `calc(${width} * ${CELL}px + ${width - 1} * ${GAP}px)`,
+      }}
     >
-      {grid.map((row, y) =>
-        row.map((cell, x) => {
-          if (!cell) {
-            return (
-              <div
-                key={`${x}-${y}`}
-                className="w-7 h-7 bg-ocean-800/50 border border-ocean-700/30 hover:bg-ocean-700/50"
-              />
-            );
-          }
-          if (!cell.isRoot) {
-            return null;
-          }
-          const { item } = cell;
-          const def = getItem(item.itemId);
-          const spoil = getSpoilInfo(item);
-          const key = `${item.x}-${item.y}`;
-          return (
-            <ItemCell
-              key={key}
-              item={item}
-              def={def}
-              spoil={spoil}
-              isOpen={activeKey === key}
-              onOpen={() => setActiveKey(key)}
-              onClose={() => setActiveKey(null)}
-            />
-          );
-        })
-      )}
+      {itemCells.map(({ item, x, y }) => {
+        const def = getItem(item.itemId);
+        const spoil = getSpoilInfo(item);
+        const key = `${x}-${y}`;
+        return (
+          <ItemCell
+            key={key}
+            item={item}
+            def={def}
+            spoil={spoil}
+            isOpen={activeKey === key}
+            onOpen={() => setActiveKey(key)}
+            onClose={() => setActiveKey(null)}
+            gridX={x}
+            gridY={y}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -120,6 +140,8 @@ function ItemCell({
   isOpen,
   onOpen,
   onClose,
+  gridX,
+  gridY,
 }: {
   item: GridItem;
   def: ReturnType<typeof getItem>;
@@ -127,6 +149,8 @@ function ItemCell({
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
+  gridX: number;
+  gridY: number;
 }) {
   const { refs, floatingStyles } = useFloating({
     open: isOpen,
@@ -142,8 +166,8 @@ function ItemCell({
         ref={refs.setReference}
         className="bg-ocean-600/60 border border-ocean-400/40 hover:bg-ocean-500/60 flex flex-col items-center justify-center text-xs text-ocean-50 cursor-pointer overflow-hidden"
         style={{
-          gridColumn: `span ${item.width}`,
-          gridRow: `span ${item.height}`,
+          gridColumn: `${gridX + 1} / span ${item.width}`,
+          gridRow: `${gridY + 1} / span ${item.height}`,
         }}
         onMouseEnter={onOpen}
         onMouseLeave={onClose}
@@ -235,9 +259,9 @@ export default function Inventory() {
   };
 
   return (
-    <div className="w-full h-full flex items-center justify-center pointer-events-auto" onClick={toggle}>
+    <div className="w-full h-full flex items-center justify-center pointer-events-auto" data-close-menu="true" onClick={toggle}>
       <div
-        className="hud-panel p-6 max-w-4xl"
+        className="hud-panel p-6 max-w-4xl max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Tab bar */}

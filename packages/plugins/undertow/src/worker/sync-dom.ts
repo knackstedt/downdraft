@@ -33,11 +33,20 @@ export function getSyncElement(handleId: number, rt: WorkerRuntime): SyncElement
   const cached = handleCache.get(handleId);
   if (cached) {
     // If the cached object is already a SyncElement, return it.
+    if (cached instanceof SyncElement) return cached;
     // If it's a SyncNode (e.g. firstChild was called before createElement),
     // we need to upgrade it to a SyncElement so it has setAttribute etc.
-    if (cached instanceof SyncElement) return cached;
-    // Replace the cached SyncNode with a SyncElement for this handle.
+    // IMPORTANT: Copy React's internal properties (__reactFiber, __reactProps,
+    // etc.) from the old SyncNode to the new SyncElement. React sets these
+    // properties on the DOM element instances. If we replace the cached object
+    // without copying them, React's event delegation can't find the fiber for
+    // the element, and onClick/onChange handlers won't fire.
     const el = new SyncElement(handleId, rt);
+    for (const key of Object.getOwnPropertyNames(cached)) {
+      if (key.startsWith("__react") || key.startsWith("__eventTag")) {
+        (el as any)[key] = (cached as any)[key];
+      }
+    }
     handleCache.set(handleId, el);
     return el;
   }
@@ -63,7 +72,11 @@ export class SyncElement extends WorkerElement {
   private _attrCache: Map<string, string> | null = null;
   setAttribute(name: string, value: string): void {
     this._attrCache?.delete(name);
-    this.rt.callSync(ids.OP_ELEMENT_SET_ATTRIBUTE, this.handleId, [name, value]);
+    // Fire-and-forget: setAttribute doesn't return a value. The main thread
+    // processes it in the next drain, batched with other fire-and-forget ops.
+    // This avoids a blocking round-trip for every attribute set during React
+    // reconciliation, which would add ~16ms per attribute (one frame).
+    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_ATTRIBUTE, this.handleId, [name, value]);
   }
 
   getAttribute(name: string): string {
@@ -78,7 +91,7 @@ export class SyncElement extends WorkerElement {
 
   removeAttribute(name: string): void {
     this._attrCache?.delete(name);
-    this.rt.callSync(ids.OP_ELEMENT_REMOVE_ATTRIBUTE, this.handleId, [name]);
+    this.rt.callFireAndForget(ids.OP_ELEMENT_REMOVE_ATTRIBUTE, this.handleId, [name]);
   }
 
   hasAttribute(name: string): boolean {
@@ -102,7 +115,7 @@ export class SyncElement extends WorkerElement {
 
   set id(v: string) {
     this._id = v;
-    this.rt.callSync(ids.OP_ELEMENT_SET_ID, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_ID, this.handleId, [v]);
   }
 
   private _className: string | null = null;
@@ -114,7 +127,7 @@ export class SyncElement extends WorkerElement {
 
   set className(v: string) {
     this._className = v;
-    this.rt.callSync(ids.OP_ELEMENT_SET_CLASS_NAME, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_CLASS_NAME, this.handleId, [v]);
   }
 
   get innerHTML(): string {
@@ -122,7 +135,7 @@ export class SyncElement extends WorkerElement {
   }
 
   set innerHTML(v: string) {
-    this.rt.callSync(ids.OP_ELEMENT_SET_INNER_HTML, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_INNER_HTML, this.handleId, [v]);
   }
 
   get style(): WorkerCSSStyleDeclaration {
@@ -139,10 +152,10 @@ export class SyncElement extends WorkerElement {
     const handleId = this.handleId;
     return {
       add: (...tokens: string[]) => {
-        for (const t of tokens) rt.callSync(ids.OP_ELEMENT_CLASS_LIST_ADD, handleId, [t]);
+        for (const t of tokens) rt.callFireAndForget(ids.OP_ELEMENT_CLASS_LIST_ADD, handleId, [t]);
       },
       remove: (...tokens: string[]) => {
-        for (const t of tokens) rt.callSync(ids.OP_ELEMENT_CLASS_LIST_REMOVE, handleId, [t]);
+        for (const t of tokens) rt.callFireAndForget(ids.OP_ELEMENT_CLASS_LIST_REMOVE, handleId, [t]);
       },
       toggle: (token: string): boolean => {
         return rt.callSync(ids.OP_ELEMENT_CLASS_LIST_TOGGLE, handleId, [token]).value as boolean;
@@ -164,30 +177,44 @@ export class SyncElement extends WorkerElement {
     return handles.map((h) => getSyncElement(h, this.rt));
   }
 
-  remove(): void {
-    this.rt.callSync(ids.OP_ELEMENT_REMOVE, this.handleId, []);
+  // Canvas elements — getContext is not supported in the worker DOM polyfill
+  // (canvas rendering happens on the main thread). Return null so callers
+  // that check for a falsy context (e.g. map-view.tsx) gracefully skip drawing.
+  getContext(_type: string): CanvasRenderingContext2D | null {
+    return null;
   }
 
-  // Node methods (inherited via WorkerElement -> WorkerNode)
+  remove(): void {
+    this.rt.callFireAndForget(ids.OP_ELEMENT_REMOVE, this.handleId, []);
+  }
+
+  // Node methods — all tree mutations use fire-and-forget. React's commit
+  // phase doesn't use the return values of appendChild/insertBefore/
+  // replaceChild/removeChild, and doesn't read back DOM tree state (parentNode,
+  // nextSibling, etc.) after mutations — it tracks the DOM structure via its
+  // internal fiber tree. Using callSync for these would block the worker for
+  // ~16ms per call (the main thread processes sync requests as macrotasks via
+  // MessageChannel, which preempt rAF and starve the render loop), causing
+  // 0 FPS during React reconciliation (hundreds of appendChild calls).
   appendChild(child: WorkerNode): WorkerNode {
-    const r = this.rt.callSync(ids.OP_NODE_APPEND_CHILD, this.handleId, [child.handleId]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_APPEND_CHILD, this.handleId, [child.handleId]);
+    return child;
   }
 
   removeChild(child: WorkerNode): WorkerNode {
-    const r = this.rt.callSync(ids.OP_NODE_REMOVE_CHILD, this.handleId, [child.handleId]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_REMOVE_CHILD, this.handleId, [child.handleId]);
+    return child;
   }
 
   insertBefore(newChild: WorkerNode, refChild: WorkerNode | null): WorkerNode {
     const refHandle = refChild ? refChild.handleId : 0;
-    const r = this.rt.callSync(ids.OP_NODE_INSERT_BEFORE, this.handleId, [newChild.handleId, refHandle]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_INSERT_BEFORE, this.handleId, [newChild.handleId, refHandle]);
+    return newChild;
   }
 
   replaceChild(newChild: WorkerNode, oldChild: WorkerNode): WorkerNode {
-    const r = this.rt.callSync(ids.OP_NODE_REPLACE_CHILD, this.handleId, [newChild.handleId, oldChild.handleId]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_REPLACE_CHILD, this.handleId, [newChild.handleId, oldChild.handleId]);
+    return oldChild;
   }
 
   get textContent(): string {
@@ -195,7 +222,7 @@ export class SyncElement extends WorkerElement {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get parentNode(): WorkerNode | null {
@@ -253,7 +280,7 @@ export class SyncElement extends WorkerElement {
   }
 
   set nodeValue(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
   }
 
   hasChildNodes(): boolean {
@@ -266,9 +293,11 @@ export class SyncElement extends WorkerElement {
 
   cloneNode(deep = false): WorkerNode {
     const r = this.rt.callSync(ids.OP_NODE_CLONE_NODE, this.handleId, [deep]);
-    // Cloning an element produces an element — use getSyncElement so the
-    // clone has setAttribute and other element methods.
-    return getSyncElement(r.value as number, this.rt);
+    const h = r.value as number;
+    // Cloned nodes inherit the source's node type — cache it so wrapSyncNode
+    // doesn't need a callSync round-trip.
+    cacheNodeType(h, 1); // ELEMENT_NODE (SyncElement.cloneNode)
+    return getSyncElement(h, this.rt);
   }
 
   // ownerDocument — React accesses this for event delegation
@@ -294,24 +323,24 @@ export class SyncNode extends WorkerNode {
   }
 
   appendChild(child: WorkerNode): WorkerNode {
-    const r = this.rt.callSync(ids.OP_NODE_APPEND_CHILD, this.handleId, [child.handleId]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_APPEND_CHILD, this.handleId, [child.handleId]);
+    return child;
   }
 
   removeChild(child: WorkerNode): WorkerNode {
-    const r = this.rt.callSync(ids.OP_NODE_REMOVE_CHILD, this.handleId, [child.handleId]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_REMOVE_CHILD, this.handleId, [child.handleId]);
+    return child;
   }
 
   insertBefore(newChild: WorkerNode, refChild: WorkerNode | null): WorkerNode {
     const refHandle = refChild ? refChild.handleId : 0;
-    const r = this.rt.callSync(ids.OP_NODE_INSERT_BEFORE, this.handleId, [newChild.handleId, refHandle]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_INSERT_BEFORE, this.handleId, [newChild.handleId, refHandle]);
+    return newChild;
   }
 
   replaceChild(newChild: WorkerNode, oldChild: WorkerNode): WorkerNode {
-    const r = this.rt.callSync(ids.OP_NODE_REPLACE_CHILD, this.handleId, [newChild.handleId, oldChild.handleId]);
-    return getSyncNode(r.value as number, this.rt);
+    this.rt.callFireAndForget(ids.OP_NODE_REPLACE_CHILD, this.handleId, [newChild.handleId, oldChild.handleId]);
+    return oldChild;
   }
 
   get textContent(): string {
@@ -319,7 +348,7 @@ export class SyncNode extends WorkerNode {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get parentNode(): WorkerNode | null {
@@ -377,7 +406,7 @@ export class SyncNode extends WorkerNode {
   }
 
   set nodeValue(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
   }
 
   hasChildNodes(): boolean {
@@ -420,7 +449,7 @@ export class SyncText extends WorkerText {
   }
 
   set data(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_DATA, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_DATA, this.handleId, [v]);
   }
 
   get textContent(): string {
@@ -428,7 +457,7 @@ export class SyncText extends WorkerText {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get nodeValue(): string {
@@ -436,7 +465,7 @@ export class SyncText extends WorkerText {
   }
 
   set nodeValue(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
   }
 }
 
@@ -450,7 +479,7 @@ export class SyncComment extends WorkerComment {
   }
 
   set data(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_DATA, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_DATA, this.handleId, [v]);
   }
 
   get textContent(): string {
@@ -458,7 +487,7 @@ export class SyncComment extends WorkerComment {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get nodeValue(): string {
@@ -466,7 +495,7 @@ export class SyncComment extends WorkerComment {
   }
 
   set nodeValue(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
+    this.rt.callFireAndForget(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
   }
 }
 
@@ -483,7 +512,7 @@ export class SyncCSSStyleDeclaration extends WorkerCSSStyleDeclaration {
           (target as any)[prop] = value;
           return true;
         }
-        target.rt.callSync(ids.OP_ELEMENT_SET_STYLE_PROP, target.handleId, [prop, String(value)]);
+        target.rt.callFireAndForget(ids.OP_ELEMENT_SET_STYLE_PROP, target.handleId, [prop, String(value)]);
         return true;
       },
     });
@@ -494,23 +523,43 @@ export class SyncCSSStyleDeclaration extends WorkerCSSStyleDeclaration {
   }
 
   setProperty(name: string, value: string): void {
-    this.rt.callSync(ids.OP_ELEMENT_SET_STYLE_PROP, this.handleId, [name, value]);
+    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_STYLE_PROP, this.handleId, [name, value]);
   }
 
   removeProperty(name: string): void {
-    this.rt.callSync(ids.OP_ELEMENT_SET_STYLE_PROP, this.handleId, [name, ""]);
+    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_STYLE_PROP, this.handleId, [name, ""]);
   }
 }
 
+// Cache: handle → node type. Populated by createElement/createTextNode/etc.
+// and by wrapSyncNode when it has to query. This avoids a callSync round-trip
+// for every uncached node during React reconciliation (which would add seconds
+// of latency when opening menus).
+const nodeTypeCache: Map<number, number> = new Map();
+
+/** Cache the node type for a handle (used by SyncDocument methods). */
+export function cacheNodeType(handleId: number, nodeType: number): void {
+  nodeTypeCache.set(handleId, nodeType);
+}
+
 export function wrapSyncNode(handleId: number, rt: WorkerRuntime): WorkerNode {
-  // Query the node type from the main thread to determine the correct wrapper.
-  // Without this, cloned elements (cloneNode) get a SyncNode without setAttribute,
-  // causing "node.setAttribute is not a function" errors in React DOM.
-  const nodeType = rt.callSync(ids.OP_NODE_GET_NODE_TYPE, handleId, []).value as number;
-  if (nodeType === 1) return new SyncElement(handleId, rt); // ELEMENT_NODE
-  if (nodeType === 3) return new SyncText(handleId, rt);    // TEXT_NODE
-  if (nodeType === 8) return new SyncComment(handleId, rt); // COMMENT_NODE
-  return new SyncNode(handleId, rt);
+  // Check the node type cache first — createElement/createTextNode/etc.
+  // populate this, avoiding a callSync round-trip.
+  const cachedType = nodeTypeCache.get(handleId);
+  if (cachedType !== undefined) {
+    if (cachedType === 1) return new SyncElement(handleId, rt); // ELEMENT_NODE
+    if (cachedType === 3) return new SyncText(handleId, rt);    // TEXT_NODE
+    if (cachedType === 8) return new SyncComment(handleId, rt); // COMMENT_NODE
+    return new SyncNode(handleId, rt);
+  }
+  // Default to SyncElement — the vast majority of DOM nodes React creates
+  // and traverses are element nodes. Text/comment nodes are created via
+  // createTextNode/createComment which populate the cache. If this is wrong
+  // (e.g. a text node returned by firstChild), the nodeType getter will
+  // still return the correct value lazily.
+  // This avoids a callSync round-trip for every uncached node, which was
+  // adding several seconds of latency when opening menus.
+  return new SyncElement(handleId, rt);
 }
 
 export class SyncDocument extends WorkerDocument {
@@ -520,27 +569,37 @@ export class SyncDocument extends WorkerDocument {
 
   createElement(tag: string): WorkerElement {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_ELEMENT, HANDLE_DOCUMENT, [tag]);
-    return getSyncElement(r.value as number, this.rt);
+    const h = r.value as number;
+    cacheNodeType(h, 1); // ELEMENT_NODE
+    return getSyncElement(h, this.rt);
   }
 
   createElementNS(ns: string, tag: string): WorkerElement {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_ELEMENT_NS, HANDLE_DOCUMENT, [ns, tag]);
-    return getSyncElement(r.value as number, this.rt);
+    const h = r.value as number;
+    cacheNodeType(h, 1); // ELEMENT_NODE
+    return getSyncElement(h, this.rt);
   }
 
   createTextNode(text: string): WorkerText {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_TEXT_NODE, HANDLE_DOCUMENT, [text]);
-    return new SyncText(r.value as number, this.rt);
+    const h = r.value as number;
+    cacheNodeType(h, 3); // TEXT_NODE
+    return new SyncText(h, this.rt);
   }
 
   createComment(text: string): WorkerComment {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_COMMENT, HANDLE_DOCUMENT, [text]);
-    return new SyncComment(r.value as number, this.rt);
+    const h = r.value as number;
+    cacheNodeType(h, 8); // COMMENT_NODE
+    return new SyncComment(h, this.rt);
   }
 
   createDocumentFragment(): WorkerNode {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_DOCUMENT_FRAGMENT, HANDLE_DOCUMENT, []);
-    return new SyncNode(r.value as number, this.rt);
+    const h = r.value as number;
+    cacheNodeType(h, 11); // DOCUMENT_FRAGMENT_NODE
+    return new SyncNode(h, this.rt);
   }
 
   getElementById(id: string): WorkerElement | null {

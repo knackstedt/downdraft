@@ -214,4 +214,10 @@ export class WorkerElement extends WorkerNode {
   get childElementCount(): Promise<number> {
     return this.rt.call(ids.OP_ELEMENT_GET_CHILD_ELEMENT_COUNT, this.handleId, []).then((r) => r.value as number);
   }
+
+  // Canvas — getContext is not supported in the worker DOM polyfill.
+  // Subclasses (SyncElement) override with a sync null return.
+  getContext(_type: string): CanvasRenderingContext2D | null {
+    return null;
+  }
 }

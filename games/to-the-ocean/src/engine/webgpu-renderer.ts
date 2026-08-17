@@ -146,6 +146,9 @@ export class WebGPURenderer implements IRendererStateProvider {
   private running = false;
   private rafHandle = 0;
   private lastTime = 0;
+  /** FPS limit for test mode (0 = unlimited, uses rAF). When > 0, uses setTimeout. */
+  private targetFPS = 0;
+  private renderTimer = 0;
   private frameCount = 0;
   private fpsTimer = 0;
   private lastDebugLog = 0;
@@ -664,15 +667,37 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.cancelRaf();
   }
 
+  /** Set a target FPS limit for test mode. 0 = unlimited (uses rAF). */
+  setTargetFPS(fps: number): void {
+    this.targetFPS = Math.max(0, fps);
+    if (this.running) {
+      this.cancelRaf();
+      this.scheduleRaf();
+    }
+  }
+
   private scheduleRaf(): void {
-    if (this.rafHandle) return;
-    this.rafHandle = requestAnimationFrame(this.render);
+    if (this.targetFPS > 0) {
+      if (this.renderTimer) return;
+      const interval = 1000 / this.targetFPS;
+      this.renderTimer = setTimeout(() => {
+        this.renderTimer = 0;
+        this.rafHandle = requestAnimationFrame(this.render);
+      }, interval) as unknown as number;
+    } else {
+      if (this.rafHandle) return;
+      this.rafHandle = requestAnimationFrame(this.render);
+    }
   }
 
   private cancelRaf(): void {
     if (this.rafHandle) {
       cancelAnimationFrame(this.rafHandle);
       this.rafHandle = 0;
+    }
+    if (this.renderTimer) {
+      clearTimeout(this.renderTimer);
+      this.renderTimer = 0;
     }
   }
 

@@ -104,7 +104,11 @@ export class EventDispatcher {
       // the browser's user gesture context, so it can call requestPointerLock()
       // which requires a user gesture. The worker round-trip would lose this context.
       if (type === "click" && this.onUserGesture) {
-        this.onUserGesture(e);
+        try {
+          this.onUserGesture(e);
+        } catch (ge) {
+          console.error("[event-dispatcher] onUserGesture threw:", ge);
+        }
       }
 
       if (coalesce) {
