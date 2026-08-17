@@ -4,6 +4,75 @@
 
 import { Material } from "@downdraft/library-sand";
 
+// ============================================================================
+// Build system — placeable scaffolding / ladders / ropes.
+//
+// The player toggles "build mode" (B) and selects a material (1/2/3). While in
+// build mode, left-click places the selected material at the cursor (within
+// MAX_MINE_RANGE) instead of mining. Build materials are purchased at the
+// surface signpost with gold. Scaffolding is solid (stand on it); ladders and
+// ropes are non-solid + climbable (climb through them, gravity suspended).
+// ============================================================================
+
+/** Build material types selectable by the player. */
+export type BuildMaterialType = "scaffolding" | "ladder" | "rope";
+
+/** Map a build material type to its sand-library Material ID. */
+export const BUILD_MATERIAL_ID: Record<BuildMaterialType, number> = {
+  scaffolding: Material.Scaffolding,
+  ladder: Material.Ladder,
+  rope: Material.Rope,
+};
+
+/** Inverse map: Material ID → build material type (null if not a build mat). */
+export function buildMaterialTypeFromId(mat: number): BuildMaterialType | null {
+  switch (mat) {
+    case Material.Scaffolding: return "scaffolding";
+    case Material.Ladder: return "ladder";
+    case Material.Rope: return "rope";
+    default: return null;
+  }
+}
+
+/** Build material display info (name + swatch color + shape description). */
+export const BUILD_MATERIAL_INFO: Record<BuildMaterialType, { name: string; color: string; shape: string }> = {
+  scaffolding: { name: "Scaffolding", color: "#9e6b38", shape: "5-wide + 2 legs" },
+  ladder: { name: "Ladder", color: "#8c5c2e", shape: "5×7" },
+  rope: { name: "Rope", color: "#c7a866", shape: "3-wide, stacks" },
+};
+
+/** Purchase price per unit (gold) at the signpost shop. */
+export const BUILD_MATERIAL_PRICES: Record<BuildMaterialType, number> = {
+  scaffolding: 4,
+  ladder: 8,
+  rope: 3,
+};
+
+/** Hardness of placed build blocks when mined (low — easy to remove). */
+export const BUILD_HARDNESS = 6;
+
+/** Climb speed (cells/tick) while overlapping a ladder/rope. */
+export const CLIMB_SPEED = 0.35;
+
+// ============================================================================
+// Build item dimensions — each item places a dynamic multi-cell pattern in the
+// background grid. The cells are computed at placement time by place().
+//
+// Scaffolding: 5-wide horizontal platform centered on cursor, with auto
+//   supports that fill downward up to SUPPORT_DEPTH cells, stopping when they
+//   hit solid ground (foreground or background solid cell).
+// Ladder: 5-wide × 7-tall block, top-center at cursor, extends downward.
+// Rope: 3-wide × ROPE_SEGMENT_HEIGHT-tall segment. If the cursor is directly
+//   above existing rope, the rope extends downward from its current bottom
+//   instead of placing a new segment.
+// ============================================================================
+
+export const BUILD_DIMENSIONS = {
+  scaffolding: { width: 5, supportDepth: 7 },
+  ladder: { width: 5, height: 7 },
+  rope: { width: 3, segmentHeight: 5 },
+} as const;
+
 // Chunk dimensions (configurable). Start at 128x128 cells per chunk.
 export const CHUNK_W = 128;
 export const CHUNK_H = 128;
@@ -16,7 +85,7 @@ export const MAX_CHUNKS_X = 24;
 export const ACTIVE_RADIUS_CHUNKS = 2;
 
 // Simulation tick rate (ticks per second).
-export const TICK_RATE = 30;
+export const TICK_RATE = 60;
 
 // Freeze duration in ticks. 300 seconds @ 30tps = 9000 ticks.
 export const FREEZE_TICKS = TICK_RATE * 60 * 1;
@@ -35,7 +104,7 @@ export const PLAYER_H = 7;
 export const COLLECT_RADIUS = 16;
 
 // Dig brush radius (in grid cells) for the mining tool.
-export const DEFAULT_DIG_RADIUS = 3;
+export const DEFAULT_DIG_RADIUS = 5;
 
 // ============================================================================
 // Mining upgrade system — base stats and per-level increments.
@@ -50,7 +119,7 @@ export const BASE_MINING_DAMAGE = 10;
 export const DAMAGE_UPGRADE_INCREMENT = 5;
 
 /** Base mining radius (cells around the raycast hit point). */
-export const BASE_MINING_RADIUS = 1;
+export const BASE_MINING_RADIUS = 5;
 /** Radius increment per upgrade level. */
 export const RADIUS_UPGRADE_INCREMENT = 1;
 
@@ -60,7 +129,7 @@ export const BASE_MINING_RATE = 3;
 export const RATE_UPGRADE_REDUCTION = 1;
 
 /** Base max inventory size (total item count). */
-export const BASE_INVENTORY_SIZE = 250;
+export const BASE_INVENTORY_SIZE = 25000;
 /** Inventory size increment per upgrade level. */
 export const INVENTORY_SIZE_UPGRADE_INCREMENT = 125;
 
@@ -117,28 +186,31 @@ export const ACTIVE_GRID_CELLS = ACTIVE_GRID_W * ACTIVE_GRID_H;
 //
 // The active grid is a contiguous region that the worker writes each tick.
 // Layout:
-//   grid:   ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (Uint32 per cell)
-//   fields: ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (gravity, temp, windX, windY)
-//   input:  128 bytes
-//   stats:  16 bytes
-//   player: 32 bytes (px, py, vx, vy, onGround, facing, animFrame, health)
+//   grid:     ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (Uint32 per cell)
+//   fields:   ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (gravity, temp, windX, windY)
+//   bgGrid:   ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (Uint32 per cell — build layer)
+//   input:    128 bytes
+//   stats:    16 bytes
+//   player:   36 bytes (px, py, vx, vy, onGround, facing, animFrame, health, deathCause)
 // ============================================================================
 
 export const ACTIVE_GRID_BYTES = ACTIVE_GRID_CELLS * CELL_BYTES;
 export const ACTIVE_FIELD_BYTES = ACTIVE_GRID_CELLS * FIELD_BYTES;
+export const BG_GRID_BYTES = ACTIVE_GRID_CELLS * CELL_BYTES; // same res as foreground
 export const INPUT_BYTES = 128;
 export const STATS_BYTES = 32; // 8 int32s (6 used: frame, tick, fps, loadedChunks, originX, originY)
 export const PLAYER_BYTES = 36; // 8 float32/int32 + 1 int32 (death cause)
 
 export const TOTAL_SAB_BYTES =
-  ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + INPUT_BYTES + STATS_BYTES + PLAYER_BYTES;
+  ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + INPUT_BYTES + STATS_BYTES + PLAYER_BYTES;
 
 // Offsets within the SAB
 export const GRID_OFFSET = 0;
 export const FIELD_OFFSET = ACTIVE_GRID_BYTES;
-export const INPUT_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES;
-export const STATS_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + INPUT_BYTES;
-export const PLAYER_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + INPUT_BYTES + STATS_BYTES;
+export const BG_GRID_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES;
+export const INPUT_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES;
+export const STATS_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + INPUT_BYTES;
+export const PLAYER_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + INPUT_BYTES + STATS_BYTES;
 
 // Input field offsets (within the INPUT region, byte offsets)
 export const INPUT = {
@@ -152,7 +224,9 @@ export const INPUT = {
   MOUSE_X: 32, // world X in grid cells (float32)
   MOUSE_Y: 36, // world Y in grid cells (float32)
   DIG_RADIUS: 40,
-  // offset 44-56 reserved
+  BUILD_MODE: 44, // int32 — 1 when build mode is active (left-click places)
+  BUILD_MAT: 48,  // int32 — Material ID to place while in build mode
+  // offset 52-56 reserved
   IMPULSE_CHANCE: 60,
   IMPULSE_STRENGTH: 64,
 } as const;

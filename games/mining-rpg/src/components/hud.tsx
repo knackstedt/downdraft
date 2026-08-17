@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
+import { BUILD_MATERIAL_INFO, type BuildMaterialType } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
 const containerStyle: React.CSSProperties = {
@@ -87,8 +88,26 @@ const ORE_INFO: Record<number, { name: string; color: string }> = {
   [Material.Sand]: { name: "Sand", color: "#c2b280" },
 };
 
+const buildRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 4,
+};
+
+const buildItemStyle = (selected: boolean): React.CSSProperties => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 3,
+  fontSize: 11,
+  padding: "1px 4px",
+  borderRadius: 3,
+  border: selected ? "1px solid #ffd700" : "1px solid transparent",
+  background: selected ? "rgba(255,215,0,0.12)" : "transparent",
+});
+
 export function HUD() {
-  const { fps, health, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, buildMode, selectedBuild, buildMaterials, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
@@ -122,6 +141,19 @@ export function HUD() {
       <div>Brush: {digRadius} cells</div>
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
+      {buildMode && <div style={{ color: "#ffd700" }}>BUILD MODE — left-click to place</div>}
+      <div style={buildRowStyle}>
+        {(Object.keys(BUILD_MATERIAL_INFO) as BuildMaterialType[]).map((type) => {
+          const info = BUILD_MATERIAL_INFO[type];
+          const count = buildMaterials[type];
+          return (
+            <div key={type} style={buildItemStyle(buildMode && selectedBuild === type)}>
+              <span style={oreSwatchStyle(info.color)} />
+              <span>{info.name}: {count}</span>
+            </div>
+          );
+        })}
+      </div>
       {paused && <div style={{ color: "#ff5252" }}>PAUSED</div>}
       {inventory.length > 0 && (
         <div style={oreRowStyle}>

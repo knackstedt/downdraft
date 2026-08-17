@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
+import { BUILD_MATERIAL_INFO, type BuildMaterialType } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
 const panelStyle: React.CSSProperties = {
@@ -73,13 +74,14 @@ const MATERIAL_INFO: Record<number, { name: string; color: string }> = {
 };
 
 export function InventoryPanel() {
-  const { inventory, showInventory } = useGameStore();
+  const { inventory, showInventory, buildMaterials } = useGameStore();
 
   if (!showInventory) return null;
 
   // Sort: ores first (by material ID), then other materials
   const sorted = [...inventory].sort((a, b) => a.mat - b.mat);
   const totalItems = inventory.reduce((sum, e) => sum + e.count, 0);
+  const buildTypes: BuildMaterialType[] = ["scaffolding", "ladder", "rope"];
 
   return (
     <div style={panelStyle}>
@@ -98,6 +100,17 @@ export function InventoryPanel() {
           );
         })
       )}
+      <div style={{ ...titleStyle, marginTop: 8 }}>Build Materials</div>
+      {buildTypes.map((type) => {
+        const info = BUILD_MATERIAL_INFO[type];
+        return (
+          <div key={type} style={rowStyle}>
+            <span style={swatchStyle(info.color)} />
+            <span>{info.name}</span>
+            <span style={{ marginLeft: "auto", fontWeight: "bold" }}>{buildMaterials[type]}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

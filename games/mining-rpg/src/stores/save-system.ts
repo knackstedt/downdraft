@@ -10,7 +10,7 @@
 // ============================================================================
 
 import { WORLD_SEED } from "../shared/constants";
-import type { InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
+import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import type { SavedChunk } from "../simulation/chunk-world";
 
 const DB_NAME = "mining-rpg-save";
@@ -27,7 +27,11 @@ export interface SaveData {
   upgrades: PlayerUpgrades;
   inventory: InventoryEntry[];
   currency: number;
+  buildMaterials: BuildMaterials;
   chunks: SavedChunk[];
+  // Camera zoom level at save time (optional for backward compat with saves
+  // made before zoom was persisted). Restored by the renderer on load.
+  zoom?: number;
   savedAt: number;
 }
 
@@ -65,6 +69,8 @@ export async function saveWorld(data: SaveData): Promise<void> {
     player: data.player,
     inventory: data.inventory,
     currency: data.currency,
+    buildMaterials: data.buildMaterials,
+    zoom: data.zoom,
     savedAt: data.savedAt,
   }, SAVE_KEY);
 
@@ -80,6 +86,7 @@ export async function saveWorld(data: SaveData): Promise<void> {
       cy: chunk.cy,
       grid: chunk.grid,
       fields: chunk.fields,
+      bgGrid: chunk.bgGrid,
       wakeTick: chunk.wakeTick,
     });
   }
@@ -115,6 +122,7 @@ export async function loadWorld(): Promise<SaveData | null> {
         cy: r.cy,
         grid: r.grid as Uint32Array,
         fields: r.fields as Uint8Array,
+        bgGrid: (r.bgGrid as Uint32Array) ?? new Uint32Array(128 * 128),
         wakeTick: r.wakeTick as Uint32Array,
       })));
     };
@@ -128,7 +136,9 @@ export async function loadWorld(): Promise<SaveData | null> {
     upgrades: meta.upgrades ?? { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
     inventory: meta.inventory ?? [],
     currency: meta.currency ?? 0,
+    buildMaterials: meta.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0 },
     chunks,
+    zoom: meta.zoom,
     savedAt: meta.savedAt ?? 0,
   };
 }

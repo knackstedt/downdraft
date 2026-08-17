@@ -36,6 +36,9 @@ import {
     BASE_MINING_DAMAGE,
     BASE_MINING_RADIUS,
     BASE_MINING_RATE,
+    BUILD_DIMENSIONS,
+    BUILD_HARDNESS,
+    buildMaterialTypeFromId,
     CHUNK_H,
     CHUNK_W,
     COLLECT_RADIUS,
@@ -55,8 +58,9 @@ import {
     RATE_UPGRADE_REDUCTION,
     STONE_HARDNESS,
     WORLD_SEED,
+    type BuildMaterialType
 } from "../shared/constants";
-import type { Chunk, ChunkCoord, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
+import type { BuildMaterials, Chunk, ChunkCoord, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import { createMiningPlayer, updateMiningPlayer } from "./mining-player";
 import { generateChunk, surfaceHeightAt } from "./terrain";
 
@@ -112,6 +116,18 @@ export class ChunkWorld {
   // Tick counter for mining rate limiting — counts down; when 0, the next
   // mouseDown tick can mine.
   private mineCooldown = 0;
+  // Build material counts (scaffolding/ladder/rope). The worker is the single
+  // source of truth — placement consumes from here, purchases add to here.
+  // The renderer mirrors these for display via the "buildMaterials" event.
+  buildMaterials: BuildMaterials = { scaffolding: 0, ladder: 0, rope: 0 };
+  // Background grid: build materials layer at the same resolution as the
+  // active grid. Stores placed scaffolding/ladder/rope cells. The player
+  // physics checks this grid for solid (scaffolding) and climbable
+  // (ladder/rope) cells, but falling sand in the foreground grid passes
+  // through — build materials don't participate in the sand simulation.
+  // Synced to/from chunks during active grid rebuilds, and written to the
+  // SAB each tick for the renderer's background pass.
+  backgroundGrid: Uint32Array;
   // World config
   readonly seed: number;
 
@@ -120,6 +136,7 @@ export class ChunkWorld {
     this.activeGrid = new SandWorld(ACTIVE_GRID_W, ACTIVE_GRID_H);
     this.skipMask = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.cellDamage = new Float32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
+    this.backgroundGrid = new Uint32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.activeGrid.skipMask = this.skipMask;
     // Preserve FLAG_DETACHED (bit 4 of the flags byte) across the physics
     // engine's per-frame FLAG_UPDATED clear. Without this, the detached bit
@@ -242,13 +259,15 @@ export class ChunkWorld {
   private rebuildActiveGrid(): void {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
+    const bgGrid = this.backgroundGrid;
 
-    // Copy out the old active grid back to chunk storage using the PREVIOUS
-    // origin — the grid data is still laid out for the old origin.
+    // Copy out the old active grid + background grid back to chunk storage
+    // using the PREVIOUS origin — the grid data is still laid out for the old origin.
     this.syncActiveGridToChunks(this.prevOriginCx, this.prevOriginCy);
 
-    // Clear the active grid
+    // Clear the active grid + background grid
     grid.fill(0);
+    bgGrid.fill(0);
     fields.fill(DEFAULT_TEMP);
     this.cellDamage.fill(0);
     for (let i = 0; i < ACTIVE_GRID_W * ACTIVE_GRID_H * 4; i += 4) {
@@ -256,7 +275,7 @@ export class ChunkWorld {
       fields[i + FIELD.TEMP] = DEFAULT_TEMP;
     }
 
-    // Copy each chunk in the active window into the active grid
+    // Copy each chunk in the active window into the active grid + background grid
     for (let dcy = 0; dcy < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcy++) {
       for (let dcx = 0; dcx < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcx++) {
         const cx = this.activeOriginCx + dcx;
@@ -273,6 +292,15 @@ export class ChunkWorld {
           const dstRow = (offsetY + y) * ACTIVE_GRID_W + offsetX;
           grid.set(
             chunk.grid.subarray(srcRow, srcRow + CHUNK_W),
+            dstRow,
+          );
+        }
+        // Copy background grid
+        for (let y = 0; y < CHUNK_H; y++) {
+          const srcRow = y * CHUNK_W;
+          const dstRow = (offsetY + y) * ACTIVE_GRID_W + offsetX;
+          bgGrid.set(
+            chunk.bgGrid.subarray(srcRow, srcRow + CHUNK_W),
             dstRow,
           );
         }
@@ -300,11 +328,12 @@ export class ChunkWorld {
    */
   private validatePlayerSpawn(): void {
     const grid = this.activeGrid.grid;
+    const bgGrid = this.backgroundGrid;
     const { x: axF, y: ayF } = this.worldToActive(this.player.x, this.player.y);
     let ax = Math.floor(axF);
     let ay = Math.floor(ayF);
 
-    // Check if the player's bounding box overlaps any solid cell
+    // Check if the player's bounding box overlaps any solid cell (foreground or background)
     const playerBoxHitsSolid = (px: number, py: number): boolean => {
       const x0 = Math.floor(px - PLAYER_W / 2);
       const x1 = Math.floor(px + PLAYER_W / 2);
@@ -314,9 +343,16 @@ export class ChunkWorld {
         for (let x = x0; x <= x1; x++) {
           if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) return true;
           const packed = grid[y * ACTIVE_GRID_W + x];
-          if (packed === 0) continue;
-          const def = MATERIALS[packed & 0xff];
-          if (def?.solid) return true;
+          if (packed !== 0) {
+            const def = MATERIALS[packed & 0xff];
+            if (def?.solid) return true;
+          }
+          // Check background grid (scaffolding is solid)
+          const bgPacked = bgGrid[y * ACTIVE_GRID_W + x];
+          if (bgPacked !== 0) {
+            const bgDef = MATERIALS[bgPacked & 0xff];
+            if (bgDef?.solid) return true;
+          }
         }
       }
       return false;
@@ -345,6 +381,7 @@ export class ChunkWorld {
   private syncActiveGridToChunks(originCx?: number, originCy?: number): void {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
+    const bgGrid = this.backgroundGrid;
     const ocx = originCx ?? this.activeOriginCx;
     const ocy = originCy ?? this.activeOriginCy;
 
@@ -367,6 +404,15 @@ export class ChunkWorld {
           const dstRow = y * CHUNK_W;
           chunk.grid.set(
             grid.subarray(srcRow, srcRow + CHUNK_W),
+            dstRow,
+          );
+        }
+        // Copy background grid back
+        for (let y = 0; y < CHUNK_H; y++) {
+          const srcRow = (offsetY + y) * ACTIVE_GRID_W + offsetX;
+          const dstRow = y * CHUNK_W;
+          chunk.bgGrid.set(
+            bgGrid.subarray(srcRow, srcRow + CHUNK_W),
             dstRow,
           );
         }
@@ -501,6 +547,7 @@ export class ChunkWorld {
 
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
+    const bgGrid = this.backgroundGrid;
     const damage = this.getMiningDamage();
     const radius = this.getMiningRadius();
 
@@ -522,28 +569,83 @@ export class ChunkWorld {
     dx /= dist;
     dy /= dist;
 
-    // March the ray until we hit a solid mineable cell or reach max range
+    // March the ray until we hit a solid mineable cell or reach max range.
+    // Check both the foreground grid and the background (build materials) grid.
+    // The foreground takes priority (it's in front), but if the foreground cell
+    // is empty/liquid/gas, the ray hits the background cell behind it.
     let hitX = -1, hitY = -1;
+    let hitBg = false; // true if the hit is in the background grid
     const maxRange = MAX_MINE_RANGE;
     for (let step = 0; step < maxRange; step++) {
       const cx = Math.floor(px + dx * step);
       const cy = Math.floor(py + dy * step);
       if (cx < 0 || cx >= ACTIVE_GRID_W || cy < 0 || cy >= ACTIVE_GRID_H) break;
       const idx = cy * ACTIVE_GRID_W + cx;
+
+      // Check foreground first
       const packed = grid[idx];
-      if (packed === 0) continue; // empty — ray passes through
-      const mat = packed & 0xff;
-      if (mat === Material.Wall) break; // wall blocks the ray
-      const def = MATERIALS[mat];
-      if (!def?.solid) continue; // liquid/gas — ray passes through
-      // Hit a solid mineable cell
-      hitX = cx;
-      hitY = cy;
-      break;
+      if (packed !== 0) {
+        const mat = packed & 0xff;
+        if (mat === Material.Wall) break; // wall blocks the ray
+        const def = MATERIALS[mat];
+        if (def?.solid || def?.climbable) {
+          hitX = cx;
+          hitY = cy;
+          hitBg = false;
+          break;
+        }
+        // Liquid/gas — ray passes through foreground, check background
+      }
+
+      // Check background (build materials)
+      const bgPacked = bgGrid[idx];
+      if (bgPacked !== 0) {
+        const bgMat = bgPacked & 0xff;
+        const bgDef = MATERIALS[bgMat];
+        if (bgDef?.solid || bgDef?.climbable) {
+          hitX = cx;
+          hitY = cy;
+          hitBg = true;
+          break;
+        }
+      }
     }
 
     if (hitX < 0) return []; // nothing hit
 
+    // --- Background hit: mine build materials (scaffolding/ladder/rope) ---
+    // Build materials are in the background grid. Mining them clears the
+    // background cell (they don't cascade or produce collectibles — they're
+    // just removed). The damage accumulator is shared with the foreground
+    // (cellDamage), keyed by active-grid index.
+    if (hitBg) {
+      const r2 = radius * radius;
+      for (let ddy = -radius; ddy <= radius; ddy++) {
+        for (let ddx = -radius; ddx <= radius; ddx++) {
+          if (ddx * ddx + ddy * ddy > r2) continue;
+          const x = hitX + ddx;
+          const y = hitY + ddy;
+          if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) continue;
+          const idx = y * ACTIVE_GRID_W + x;
+          const bgPacked = bgGrid[idx];
+          if (bgPacked === 0) continue;
+          const bgMat = bgPacked & 0xff;
+          const bgDef = MATERIALS[bgMat];
+          if (!bgDef) continue;
+
+          // All build materials use BUILD_HARDNESS
+          this.cellDamage[idx] += damage;
+          if (this.cellDamage[idx] >= BUILD_HARDNESS) {
+            this.cellDamage[idx] = 0;
+            bgGrid[idx] = 0; // clear the background cell
+            this.markChunkDirty(x, y);
+          }
+        }
+      }
+      return [];
+    }
+
+    // --- Foreground hit: mine terrain (existing behavior) ---
     // Apply damage to cells within radius of the hit point
     const r2 = radius * radius;
     for (let ddy = -radius; ddy <= radius; ddy++) {
@@ -559,7 +661,7 @@ export class ChunkWorld {
         if (mat === Material.Wall) continue;
 
         const def = MATERIALS[mat];
-        if (!def?.solid) continue; // don't damage liquids/gases
+        if (!def?.solid && !def?.climbable) continue; // don't damage liquids/gases
 
         // Determine hardness based on material type
         let hardness: number;
@@ -628,7 +730,7 @@ export class ChunkWorld {
                     // Mark as detached (loosened)
                     grid[aboveIdx] = above | (FLAG_DETACHED << 16);
                   } else if (aboveDef.gravity === 0) {
-                    // Static solid (stone) loosened by cascade → Gravel/LooseStone
+                    // Static solid (stone) loosened by cascade → Gravel/LooseStone.
                     const shade = (above >> 16) & 0xff;
                     const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
                     const lt = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
@@ -647,6 +749,150 @@ export class ChunkWorld {
     }
 
     return [];
+  }
+
+  /**
+   * Place a build item at world coords (wx, wy). Each item places a dynamic
+   * multi-cell pattern into the background grid:
+   *
+   *   Scaffolding: 5-wide horizontal platform centered on cursor, with auto
+   *     supports that fill downward up to 7 cells, stopping at solid ground.
+   *   Ladder:      5-wide × 7-tall block, top-center at cursor.
+   *   Rope:        3-wide segment. If cursor is directly above existing rope,
+   *     extends that rope downward from its current bottom. Otherwise places
+   *     a new 3-wide × 5-tall segment.
+   *
+   * All cells must be valid: within bounds, within range, foreground not solid,
+   * background empty, not inside the player body. If any cell fails, the entire
+   * placement is aborted (returns false).
+   *
+   * On success, consumes one item from buildMaterials and returns true.
+   */
+  place(wx: number, wy: number, mat: number): boolean {
+    const type = buildMaterialTypeFromId(mat);
+    if (!type || this.buildMaterials[type] <= 0) return false;
+
+    const fgGrid = this.activeGrid.grid;
+    const bgGrid = this.backgroundGrid;
+    const { x: axF, y: ayF } = this.worldToActive(wx, wy);
+    const ax = Math.floor(axF);
+    const ay = Math.floor(ayF);
+
+    // Player center + body AABB in active coords
+    const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
+    const pcx = paxF + PLAYER_W / 2;
+    const pcy = payF + PLAYER_H / 2;
+    const bodyX0 = Math.floor(paxF - PLAYER_W / 2);
+    const bodyX1 = Math.floor(paxF + PLAYER_W / 2);
+    const bodyY0 = Math.floor(payF);
+    const bodyY1 = Math.floor(payF + PLAYER_H - 1);
+    const maxR2 = MAX_MINE_RANGE * MAX_MINE_RANGE;
+
+    // Helper: check if a cell is valid for placement
+    const isValid = (x: number, y: number): boolean => {
+      if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) return false;
+      const rdx = x - pcx;
+      const rdy = y - pcy;
+      if (rdx * rdx + rdy * rdy > maxR2) return false;
+      if (x >= bodyX0 && x <= bodyX1 && y >= bodyY0 && y <= bodyY1) return false;
+      const idx = y * ACTIVE_GRID_W + x;
+      const fgPacked = fgGrid[idx];
+      if (fgPacked !== 0) {
+        if (MATERIALS[fgPacked & 0xff]?.solid) return false;
+      }
+      if (bgGrid[idx] !== 0) return false;
+      return true;
+    };
+
+    // Helper: check if a background cell has a specific material
+    const bgIs = (x: number, y: number, m: number): boolean => {
+      if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) return false;
+      return (bgGrid[y * ACTIVE_GRID_W + x] & 0xff) === m;
+    };
+
+    // --- Compute cells to place based on material type ---
+    let cells: Array<[number, number]> = [];
+
+    if (type === "scaffolding") {
+      const { width, supportDepth } = BUILD_DIMENSIONS.scaffolding;
+      const halfW = Math.floor(width / 2);
+      // Platform: 5-wide row at cursor y
+      for (let dx = -halfW; dx <= halfW; dx++) {
+        cells.push([ax + dx, ay]);
+      }
+      // Supports: only 2 legs at the left and right edges of the platform.
+      // Each leg scans downward up to supportDepth, stopping at solid ground.
+      const legOffsets = [-halfW, halfW];
+      for (const dx of legOffsets) {
+        for (let dy = 1; dy <= supportDepth; dy++) {
+          const sx = ax + dx;
+          const sy = ay + dy;
+          if (sx < 0 || sx >= ACTIVE_GRID_W || sy < 0 || sy >= ACTIVE_GRID_H) break;
+          const sIdx = sy * ACTIVE_GRID_W + sx;
+          if (fgGrid[sIdx] !== 0 && MATERIALS[fgGrid[sIdx] & 0xff]?.solid) break;
+          if (bgGrid[sIdx] !== 0) break;
+          cells.push([sx, sy]);
+        }
+      }
+    } else if (type === "ladder") {
+      const { width, height } = BUILD_DIMENSIONS.ladder;
+      const halfW = Math.floor(width / 2);
+      for (let dy = 0; dy < height; dy++) {
+        for (let dx = -halfW; dx <= halfW; dx++) {
+          cells.push([ax + dx, ay + dy]);
+        }
+      }
+    } else {
+      // rope
+      const { width, segmentHeight } = BUILD_DIMENSIONS.rope;
+      const halfW = Math.floor(width / 2);
+      let startY = ay;
+      // Check if cursor is directly above existing rope → extend downward
+      if (bgIs(ax, ay + 1, mat)) {
+        // Find the bottom of the existing rope column (scan down from cursor)
+        let bottomY = ay + 1;
+        while (bgIs(ax, bottomY + 1, mat)) bottomY++;
+        // Start placing below the current bottom
+        startY = bottomY + 1;
+      }
+      for (let dy = 0; dy < segmentHeight; dy++) {
+        for (let dx = -halfW; dx <= halfW; dx++) {
+          cells.push([ax + dx, startY + dy]);
+        }
+      }
+    }
+
+    // --- Validate all cells ---
+    for (const [x, y] of cells) {
+      if (!isValid(x, y)) return false;
+    }
+
+    // --- Write all cells ---
+    for (const [x, y] of cells) {
+      const idx = y * ACTIVE_GRID_W + x;
+      bgGrid[idx] = packCell(mat, 0, 0);
+      this.markChunkDirty(x, y);
+    }
+
+    this.buildMaterials[type]--;
+    return true;
+  }
+
+  /** Add build materials (from a purchase at the signpost shop). */
+  addBuildMaterial(type: BuildMaterialType, qty: number): void {
+    this.buildMaterials[type] = Math.max(0, this.buildMaterials[type] + qty);
+  }
+
+  /** Mark the chunk containing an active-grid cell as dirty (needs saving). */
+  private markChunkDirty(ax: number, ay: number): void {
+    const dcx = Math.floor(ax / CHUNK_W);
+    const dcy = Math.floor(ay / CHUNK_H);
+    const cx = this.activeOriginCx + dcx;
+    const cy = this.activeOriginCy + dcy;
+    if (cx < 0 || cx >= MAX_CHUNKS_X) return;
+    const key = chunkKey(cx, cy);
+    const chunk = this.chunks.get(key);
+    if (chunk) chunk.dirty = true;
   }
 
   /** Mark a cell (in active grid coords) as unfrozen in its chunk's wakeTick. */
@@ -731,19 +977,27 @@ export class ChunkWorld {
             const localIdx = ly * CHUNK_W + lx;
             const wt = wakeTick[localIdx];
             if (wt === 0) {
-              // Cell is frozen at this position. But if a detached (loose)
-              // particle has fallen here via physics, its wakeTick was set at
-              // its previous position and NOT transferred to this one. Detect
-              // this case: if the grid cell has FLAG_DETACHED set, it's a loose
-              // particle that needs its wakeTick re-activated here so it stays
-              // collectible.
+              // Cell is frozen at this position. But if a particle has
+              // moved here via physics, its wakeTick was set at its
+              // previous position and NOT transferred to this one. Detect
+              // this case and re-activate:
+              //   - FLAG_DETACHED: a loose particle (ore/loose stone) that
+              //     was dislodged from static terrain and fell here.
+              //   - FLAG_UPDATED: any cell (including liquids) that moved
+              //     this tick. Without this, liquid flowing into a crater
+              //     (e.g. from a bomb blast) wouldn't keep its chunk
+              //     active — the chunk would re-freeze with air pockets
+              //     trapped in the crater.
               const ax = offsetX + lx;
               const ay = offsetY + ly;
               const packed = grid[ay * ACTIVE_GRID_W + ax];
-              if (packed !== 0 && ((packed >> 16) & FLAG_DETACHED) !== 0) {
-                wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
-                chunk.dirty = true;
-                hasUnfrozen = true;
+              if (packed !== 0) {
+                const flags = (packed >> 16) & 0xff;
+                if ((flags & (FLAG_DETACHED | FLAG_UPDATED)) !== 0) {
+                  wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                  chunk.dirty = true;
+                  hasUnfrozen = true;
+                }
               }
               continue;
             }
@@ -892,6 +1146,8 @@ export class ChunkWorld {
     mouseX: number;
     mouseY: number;
     digRadius: number;
+    buildMode: boolean;
+    buildMat: number;
   }, currentInventory: InventoryEntry[] = []): InventoryEntry[] {
     this.currentTick++;
 
@@ -910,9 +1166,16 @@ export class ChunkWorld {
     // 2. Build skip mask
     this.buildSkipMask();
 
-    // 3. Handle mining (before sim so mined particles can fall this tick)
+    // 3. Handle mining or placement (before sim so changes apply this tick).
+    // In build mode, left-click places the selected material; otherwise it
+    // mines toward the cursor. Placement is rate-limited by the caller (the
+    // worker enforces PLACE_COOLDOWN_MS) so holding the button draws a line.
     if (input.mouseDown) {
-      this.mine(input.mouseX, input.mouseY);
+      if (input.buildMode) {
+        this.place(input.mouseX, input.mouseY, input.buildMat);
+      } else {
+        this.mine(input.mouseX, input.mouseY);
+      }
     }
 
     // 4. Run simulation
@@ -926,7 +1189,7 @@ export class ChunkWorld {
 
     // 7. Update player (in active grid local coords)
     const { x: pax, y: pay } = this.worldToActive(this.player.x, this.player.y);
-    updateMiningPlayer(this.player, input, this.activeGrid.grid, ACTIVE_GRID_W, ACTIVE_GRID_H, pax, pay);
+    updateMiningPlayer(this.player, input, this.activeGrid.grid, this.backgroundGrid, ACTIVE_GRID_W, ACTIVE_GRID_H, pax, pay);
     this.player.x = this.player.x + this.activeOriginCx * CHUNK_W;
     this.player.y = this.player.y + this.activeOriginCy * CHUNK_H;
 
@@ -978,6 +1241,7 @@ export class ChunkWorld {
           cy: chunk.cy,
           grid: chunk.grid.slice(),
           fields: chunk.fields.slice(),
+          bgGrid: chunk.bgGrid.slice(),
           wakeTick: chunk.wakeTick.slice(),
         });
       }
@@ -996,6 +1260,7 @@ export class ChunkWorld {
       cy: saved.cy,
       grid: saved.grid.slice(),
       fields: saved.fields.slice(),
+      bgGrid: saved.bgGrid?.slice() ?? new Uint32Array(CHUNK_W * CHUNK_H),
       wakeTick: saved.wakeTick.slice(),
       generated: true,
       dirty: true,
@@ -1052,21 +1317,30 @@ export class ChunkWorld {
   /**
    * Explode a bomb at the given world coordinates. Damages/clears solid cells
    * in a circular radius and damages the player if they're within range.
-   * Liquids and gases are cleared too; walls are immune.
+   * Liquids and gases are NOT destroyed — they're unfrozen so they flow
+   * naturally into the crater. Walls are immune.
    */
   explode(worldX: number, worldY: number, radius: number): void {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
+    const bgGrid = this.backgroundGrid;
     const { x: ax, y: ay } = this.worldToActive(worldX, worldY);
     const cx = Math.floor(ax);
     const cy = Math.floor(ay);
     const r = Math.floor(radius);
 
-    // Dislodge cells in a circle (like mining, not destruction):
-    // - Stone → converted to Dirt (loose, collectible, falls with gravity)
+    // Dislodge foreground cells in a circle (like mining, not destruction):
+    // - Stone → converted to Gravel/LooseStone (loose, collectible, falls)
     // - Ore → re-enable gravity (loosened, collectible)
-    // - Dirt/Grass/other solids → cleared to create a hole
-    // - Liquids/gases → cleared
+    // - Other solids (Dirt, Wood, etc.) → cleared to create a hole
+    // - Liquids/gases → NOT cleared, just unfrozen so they flow naturally
+    //   into the crater. Clearing them would destroy the liquid and leave
+    //   permanent air pockets under the liquid surface (the surrounding
+    //   liquid can't flow in fast enough before the chunk re-freezes).
+    //   Physically, an underwater explosion creates a void in solid material
+    //   and the liquid rushes in to fill it.
+    // Also clear background build materials (scaffolding/ladder/rope) in the
+    // blast radius — bombs destroy placed build items.
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1075,6 +1349,14 @@ export class ChunkWorld {
         const gy = cy + dy;
         if (gx < 0 || gx >= ACTIVE_GRID_W || gy < 0 || gy >= ACTIVE_GRID_H) continue;
         const idx = gy * ACTIVE_GRID_W + gx;
+
+        // --- Clear background build materials in blast radius ---
+        if (bgGrid[idx] !== 0) {
+          bgGrid[idx] = 0;
+          this.markChunkDirty(gx, gy);
+        }
+
+        // --- Foreground terrain damage ---
         const packed = grid[idx];
         if (packed === 0) continue;
         const mat = packed & 0xff;
@@ -1100,17 +1382,35 @@ export class ChunkWorld {
             fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
           }
           this.markCellUnfrozen(gx, gy);
-        } else {
-          // Dirt/Grass/other: clear to create a hole
+        } else if (def.solid) {
+          // Dirt/Wood/other solids: clear to create a hole.
+          // Reset ALL fields (gravity, temp, wind) to defaults so stale
+          // values from the destroyed cell don't corrupt particles that
+          // later flow into this space (e.g. a high temp field left behind
+          // by fire/smoke would turn inflowing water into steam).
           grid[idx] = 0;
           fields[fi + FIELD.GRAVITY] = 0;
+          fields[fi + FIELD.TEMP] = DEFAULT_TEMP;
+          fields[fi + FIELD.WIND_X] = 0;
+          fields[fi + FIELD.WIND_Y] = 0;
           this.cellDamage[idx] = 0;
           this.clearWakeTick(gx, gy);
+        } else {
+          // Liquids/gases: don't destroy — just unfreeze so they flow
+          // naturally into the crater. This prevents permanent air pockets
+          // under liquids (the liquid fills the void instead of being
+          // deleted) and avoids leaving stale fields that corrupt new
+          // particles.
+          this.markCellUnfrozen(gx, gy);
         }
       }
     }
 
-    // Loosen cells around the blast perimeter so terrain cascades
+    // Loosen cells around the blast perimeter so terrain cascades and
+    // liquids/gases flow into the crater. Without unfreezing liquid cells
+    // here, the crater would remain filled with air — the surrounding liquid
+    // stays frozen and never flows in (its chunk becomes inactive once the
+    // solid debris settles and re-freezes).
     for (let dy = -r - 1; dy <= r + 1; dy++) {
       for (let dx = -r - 1; dx <= r + 1; dx++) {
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1124,11 +1424,15 @@ export class ChunkWorld {
         const mat = packed & 0xff;
         if (mat === Material.Wall) continue;
         const def = MATERIALS[mat];
-        if (!def?.solid) continue;
-        // Re-enable gravity so the loosened cell falls
-        const fi = idx * 4;
-        if (fields[fi + FIELD.GRAVITY] === 0) {
-          fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+        if (!def) continue;
+        // Re-enable gravity for solids so the loosened cell falls.
+        // Liquids/gases flow via their material properties (not the GRAVITY
+        // field), so we only unfreeze them — no gravity change needed.
+        if (def.solid) {
+          const fi = idx * 4;
+          if (fields[fi + FIELD.GRAVITY] === 0) {
+            fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+          }
         }
         this.markCellUnfrozen(gx, gy);
       }
@@ -1151,6 +1455,13 @@ export class ChunkWorld {
         this.player.lastDamageMaterial = Material.FuseFire;
       }
     }
+
+    // Ignite flammable materials (oil, wood, coal, etc.) in and around the
+    // blast. The explosion's heat ignites oil into BurningOil and other
+    // flammables into Fire. Uses a slightly larger radius than the blast
+    // so fire spreads to exposed fuel at the crater's edge.
+    const igniteR = Math.ceil(radius) + 1;
+    this.activeGrid.ignite(cx, cy, igniteR);
   }
 
   /** Get the frozen chunk count (chunks with no unfrozen cells, not near player). */
@@ -1169,5 +1480,6 @@ export interface SavedChunk {
   cy: number;
   grid: Uint32Array;
   fields: Uint8Array;
+  bgGrid: Uint32Array;
   wakeTick: Uint32Array;
 }

@@ -393,6 +393,7 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
   const cells = CHUNK_W * CHUNK_H;
   const grid = new Uint32Array(cells);
   const fields = new Uint8Array(cells * 4);
+  const bgGrid = new Uint32Array(cells); // background layer — empty (no build materials)
   const wakeTick = new Uint32Array(cells); // all frozen
 
   // Initialize fields to defaults (gravity=128, temp=128)
@@ -486,6 +487,7 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
     cy,
     grid,
     fields,
+    bgGrid,
     wakeTick,
     generated: true,
     dirty: false,

@@ -11,7 +11,7 @@
 // ============================================================================
 
 import { Material, MATERIALS } from "@downdraft/library-sand";
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, MAX_CHUNKS_X, PLAYER, SIGNPOST_RADIUS, STATS, WORLD_SEED } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, MAX_CHUNKS_X, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
@@ -19,6 +19,7 @@ import { surfaceHeightAt } from "../simulation/terrain";
 import { pickDeathQuip, useGameStore } from "../stores/game-store";
 import { AutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
+import { BackgroundGridPass } from "./background-grid-pass";
 import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
@@ -32,6 +33,26 @@ const BOMB_GRAVITY = 0.015;  // per-tick gravity acceleration
 const BOMB_MAX_TICKS = 120;  // max travel ticks before forced explosion (~4s)
 const MAX_BOMBS = 8;
 
+// --- Zoom constants ---
+// Per keypress step factor; drained from input.zoomDelta each frame.
+const ZOOM_STEP_FACTOR = 1.2;
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 24;
+
+// --- Player render interpolation ---
+// The sim runs at TICK_RATE (30Hz) but the renderer runs at the display
+// framerate (~60Hz). Without interpolation the player sprite snaps forward
+// in stair-steps every sim tick — visible as "teleportation" when zoomed in
+// (up to ~14px per tick at ZOOM_MAX). We lerp between the previous and
+// current sim-tick positions using a wall-clock accumulator so the rendered
+// player moves smoothly at the display framerate.
+const TICK_MS = 1000 / TICK_RATE;
+// If the player moves more than this many cells in one tick transition, treat
+// it as a teleport (respawn / world reset / save load) and snap instead of
+// lerping across the gap. Normal max speed is 0.6 cells/tick × up to 5
+// catch-up ticks = 3 cells; 10 is safely above that.
+const TELEPORT_SNAP_R2 = 10 * 10;
+
 interface Bomb {
   x: number; y: number;       // world cell coords (float)
   vx: number; vy: number;     // velocity per tick
@@ -44,6 +65,7 @@ export class MiningRenderer {
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private gridPass: SandGridPass | null = null;
+  private bgGridPass: BackgroundGridPass | null = null;
   private backdropPass: BackdropPass | null = null;
   private stickmanPass: StickmanPass | null = null;
   private input: MiningInputState | null = null;
@@ -71,6 +93,16 @@ export class MiningRenderer {
   private prevMouseRight = false;
   // Explosion flashes: { x, y, age, maxAge } in world coords
   private explosions: { x: number; y: number; age: number; maxAge: number }[] = [];
+  // Player render interpolation: prev = position at the previous sim tick,
+  // cur = position at the current sim tick. The rendered player is lerped
+  // between them by alpha = renderAccumulator / TICK_MS.
+  private prevPx = 0;
+  private prevPy = 0;
+  private curPx = 0;
+  private curPy = 0;
+  private lastTick = -1;
+  private renderAccumulator = 0;
+  private interpInitialized = false;
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
     this.canvas = canvas;
@@ -134,6 +166,11 @@ export class MiningRenderer {
     this.gridPass = new SandGridPass(this.device, this.format, ACTIVE_GRID_W, ACTIVE_GRID_H);
     this.gridPass.init(this.canvas.width, this.canvas.height);
 
+    // Background grid pass — renders build materials (scaffolding/ladders/ropes)
+    // with material-specific shape masks, between the backdrop and foreground.
+    this.bgGridPass = new BackgroundGridPass(this.device, this.format, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.bgGridPass.init(this.canvas.width, this.canvas.height);
+
     // Backdrop pass (rendered behind the foreground with parallax)
     this.backdropPass = new BackdropPass(this.device, this.format);
     this.backdropPass.init();
@@ -158,6 +195,7 @@ export class MiningRenderer {
         await this.workerHost.loadSaveData({
           player: save.player,
           upgrades: save.upgrades,
+          buildMaterials: save.buildMaterials,
           chunks: save.chunks,
           tick: 0, // don't restore tick counter (fresh start)
         });
@@ -167,6 +205,12 @@ export class MiningRenderer {
         if (save.upgrades) store.setUpgrades(save.upgrades);
         if (save.player.health) store.setHealth(save.player.health);
         store.setCurrency(save.currency ?? 0);
+        store.setBuildMaterials(save.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0 });
+        // Restore camera zoom (clamped to the allowed range; old saves
+        // without a zoom field keep the default from makeCamera2D).
+        if (typeof save.zoom === "number" && Number.isFinite(save.zoom)) {
+          this.camera.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, save.zoom));
+        }
       }
     } catch (e) {
       console.warn("[MiningRenderer] Failed to load save:", e);
@@ -176,7 +220,7 @@ export class MiningRenderer {
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, inventory: [], currency: 0, chunks: [], savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, inventory: [], currency: 0, chunks: [], zoom: this.camera.zoom, savedAt: Date.now() };
       }
       const store = useGameStore.getState();
       return {
@@ -184,9 +228,11 @@ export class MiningRenderer {
         seed: WORLD_SEED,
         player: saveData.player,
         upgrades: saveData.upgrades,
+        buildMaterials: saveData.buildMaterials,
         inventory: store.inventory,
         currency: store.currency,
         chunks: saveData.dirtyChunks,
+        zoom: this.camera.zoom,
         savedAt: Date.now(),
       };
     }, deterministic);
@@ -197,6 +243,12 @@ export class MiningRenderer {
       for (const item of items) {
         useGameStore.getState().addToInventory(item.mat, item.count);
       }
+    });
+
+    // Sync build material counts (worker is the source of truth — placement
+    // consumes and purchases add). The store mirror is for display.
+    this.workerHost!.onBuildMaterials((mats) => {
+      useGameStore.getState().setBuildMaterials(mats);
     });
 
     // P key toggles pause
@@ -234,6 +286,19 @@ export class MiningRenderer {
     this.camera.height = this.canvas.height;
   }
 
+  /** Reset player position interpolation state. Call after the player
+   *  position is known to jump discontinuously (respawn, world reset, save
+   *  load) so the renderer doesn't try to lerp across the gap. */
+  private resetInterpolation(): void {
+    this.interpInitialized = false;
+    this.lastTick = -1;
+    this.renderAccumulator = 0;
+    this.prevPx = 0;
+    this.prevPy = 0;
+    this.curPx = 0;
+    this.curPy = 0;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -253,6 +318,7 @@ export class MiningRenderer {
     this.backdropHost?.stop();
     this.stickmanPass?.destroy();
     this.backdropPass?.destroy();
+    this.bgGridPass?.destroy();
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
   }
@@ -269,6 +335,7 @@ export class MiningRenderer {
     // and writes health > 0 back to the SAB. Without this, the next frame
     // reads the stale health=0 from the SAB and re-triggers the death menu.
     this.respawning = true;
+    this.resetInterpolation();
     s.setGameOver(false);
     s.setHealth(100);
     s.setDeathCause(0);
@@ -311,6 +378,8 @@ export class MiningRenderer {
     s.setCurrency(0);
     s.setNearSignpost(false);
     s.setPaused(false);
+    s.setBuildMode(false);
+    s.setBuildMaterials({ scaffolding: 0, ladder: 0, rope: 0 });
 
     // Clear bombs + explosions
     this.bombs = [];
@@ -319,6 +388,7 @@ export class MiningRenderer {
     // Suppress death/health detection until the new worker writes its first frame
     this.respawning = true;
     this.simReady = false;
+    this.resetInterpolation();
 
     // Restart the sim worker with a fresh ChunkWorld
     this.workerHost = new MiningWorkerHost();
@@ -358,9 +428,11 @@ export class MiningRenderer {
     // --- Write input to worker ---
     this.writeInputToWorker();
 
-    // --- Read active grid from SAB and upload to GPU ---
+    // --- Read active grid + background grid from SAB and upload to GPU ---
     this.gridPass.updateGrid(this.gridReader.getGrid());
     this.gridPass.updateUniforms();
+    this.bgGridPass!.updateGrid(this.gridReader.getBackgroundGrid());
+    this.bgGridPass!.updateUniforms();
 
     // --- Read player state and active grid origin ---
     const px = this.workerHost.getPlayerF32(PLAYER.PX);
@@ -375,6 +447,49 @@ export class MiningRenderer {
     const originX = this.gridReader.getStat(STATS.ORIGIN_X);
     const originY = this.gridReader.getStat(STATS.ORIGIN_Y);
 
+    // --- Render-side player position interpolation ---
+    // The sim writes a new player position to the SAB at TICK_RATE (30Hz).
+    // The renderer runs at the display framerate (~60Hz), so without
+    // interpolation the player snaps forward in 0.6-cell stair-steps every
+    // tick — visible as "teleportation" when zoomed in. We track the
+    // previous and current sim-tick positions and lerp between them using a
+    // wall-clock accumulator, so the rendered player moves smoothly.
+    const tick = this.gridReader.getStat(STATS.TICK);
+    if (tick !== this.lastTick) {
+      if (this.interpInitialized) {
+        this.prevPx = this.curPx;
+        this.prevPy = this.curPy;
+        this.curPx = px;
+        this.curPy = py;
+        // Teleport detection: if the position jumped too far for normal
+        // movement (respawn / world reset / save load), snap instead of
+        // lerping across the gap.
+        const ddx = this.curPx - this.prevPx;
+        const ddy = this.curPy - this.prevPy;
+        if (ddx * ddx + ddy * ddy > TELEPORT_SNAP_R2) {
+          this.prevPx = this.curPx;
+          this.prevPy = this.curPy;
+        }
+      } else {
+        // First tick: seed prev = cur so we render a stationary player
+        // until the next tick arrives (no previous position to lerp from).
+        this.prevPx = px;
+        this.prevPy = py;
+        this.curPx = px;
+        this.curPy = py;
+        this.interpInitialized = true;
+      }
+      this.lastTick = tick;
+      this.renderAccumulator = 0;
+    }
+    // Advance the accumulator by wall-clock dt. Clamped to TICK_MS so a long
+    // frame (e.g. tab throttled) doesn't overshoot past the current sim
+    // position.
+    this.renderAccumulator = Math.min(TICK_MS, this.renderAccumulator + dt * 1000);
+    const alpha = this.renderAccumulator / TICK_MS;
+    const interpPx = this.prevPx + (this.curPx - this.prevPx) * alpha;
+    const interpPy = this.prevPy + (this.curPy - this.prevPy) * alpha;
+
     // --- Update backdrop window + upload backdrop grid ---
     // The backdrop uses the same chunk origin as the foreground.
     const fgOriginCx = Math.floor(originX / CHUNK_W);
@@ -382,16 +497,27 @@ export class MiningRenderer {
     this.backdropHost.updateWindowIfNeeded(fgOriginCx, fgOriginCy);
     this.backdropPass.updateGrid(this.backdropHost.getGrid());
 
-    // Convert player world coords to active-grid-local coords.
-    // The grid texture and stickman shader both work in local coords.
-    const localPx = px - originX;
-    const localPy = py - originY;
+    // Convert the interpolated player world coords to active-grid-local
+    // coords. The grid texture and stickman shader both work in local coords.
+    const localPx = interpPx - originX;
+    const localPy = interpPy - originY;
 
     // Track the camera in WORLD coords — this is continuous across chunk
     // boundary crossings (the active grid origin shifts by CHUNK_W, which
     // would make a local-space target jump by a full chunk). The camera
-    // lerps toward the player's world position; we convert to local below.
-    updateCamera(this.camera, px, py);
+    // lerps toward the interpolated player position; we convert to local
+    // below. Using the interpolated position keeps the camera in lockstep
+    // with the smoothed player (no relative teleportation).
+    updateCamera(this.camera, interpPx, interpPy);
+    // Apply queued zoom steps from "=" / "-" keybinds. Each step multiplies
+    // (or divides) the zoom by ZOOM_STEP_FACTOR; clamped to [ZOOM_MIN, ZOOM_MAX].
+    if (this.input.zoomDelta !== 0) {
+      this.camera.zoom = Math.max(
+        ZOOM_MIN,
+        Math.min(ZOOM_MAX, this.camera.zoom * Math.pow(ZOOM_STEP_FACTOR, this.input.zoomDelta)),
+      );
+      this.input.zoomDelta = 0;
+    }
     // Sync player health + depth to store (needed for depth uniform)
     const s = useGameStore.getState();
     if (s.health !== health) s.setHealth(health);
@@ -437,6 +563,13 @@ export class MiningRenderer {
       this.canvas.width, this.canvas.height,
       depth,
     );
+    // Background grid uses the same camera as the foreground (same resolution,
+    // same world-space position — the bg grid is at the same active-grid coords).
+    this.bgGridPass!.updateCamera(
+      camLocalX, camLocalY, this.camera.zoom,
+      this.canvas.width, this.canvas.height,
+      depth,
+    );
     // Backdrop camera: compute the camera position in BACKDROP-local coords.
     // The backdrop has its own origin (in backdrop cell coords, at half the
     // foreground resolution). We convert the world-space camera position to
@@ -474,6 +607,8 @@ export class MiningRenderer {
 
     // Render backdrop first (opaque, fills the background)
     this.backdropPass.render(passEncoder);
+    // Then background grid (build materials — scaffolding/ladders/ropes with masks)
+    this.bgGridPass!.render(passEncoder);
     // Then foreground grid + player on top
     this.gridPass.render(passEncoder);
     this.stickmanPass.render(passEncoder);
@@ -517,6 +652,9 @@ export class MiningRenderer {
     this.workerHost.setInventory(store.inventory);
     // Sync upgrades to the worker so mining uses current stats
     this.workerHost.setUpgrades(store.upgrades);
+    // Build mode: when active, left-click places the selected material
+    // (handled in the worker via world.place) instead of mining.
+    this.workerHost.writeBuildInput(store.buildMode, store.getSelectedBuildMatId());
   }
 
   /** Throw a bomb from the player towards the target world coords. */
@@ -565,6 +703,7 @@ export class MiningRenderer {
     }
 
     const grid = this.gridReader?.getGrid();
+    const bgGrid = this.gridReader?.getBackgroundGrid();
     const originX = this.gridReader?.getStat(STATS.ORIGIN_X) ?? 0;
     const originY = this.gridReader?.getStat(STATS.ORIGIN_Y) ?? 0;
     if (!grid) return;
@@ -586,12 +725,24 @@ export class MiningRenderer {
         const ay = Math.floor(bomb.y - originY);
         if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
           const idx = ay * ACTIVE_GRID_W + ax;
+          // Check foreground grid for solid terrain
           const packed = grid[idx];
           if (packed !== 0) {
             const mat = packed & 0xff;
             const def = MATERIALS[mat];
             if (def?.solid && mat !== Material.Wall) {
               exploded = true; // hit solid terrain
+            }
+          }
+          // Also check background grid for build materials (scaffolding is solid)
+          if (!exploded && bgGrid) {
+            const bgPacked = bgGrid[idx];
+            if (bgPacked !== 0) {
+              const bgMat = bgPacked & 0xff;
+              const bgDef = MATERIALS[bgMat];
+              if (bgDef?.solid) {
+                exploded = true; // hit scaffolding/platform
+              }
             }
           }
         } else {
@@ -634,5 +785,18 @@ export class MiningRenderer {
       y: e.y,
       progress: e.age / e.maxAge,
     }));
+  }
+
+  /**
+   * Buy `qty` of a build material at the signpost shop. Checks + deducts
+   * currency (renderer-side) and tells the worker to add the materials (worker
+   * is the source of truth for counts; it emits the updated counts back).
+   * Returns true on success, false if not enough gold.
+   */
+  buyBuildMaterial(type: "scaffolding" | "ladder" | "rope", qty: number): boolean {
+    const s = useGameStore.getState();
+    if (!s.buyBuildMaterial(type, qty)) return false;
+    this.workerHost?.addBuildMaterial(type, qty);
+    return true;
   }
 }

@@ -6,9 +6,9 @@
 // ============================================================================
 
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, PLAYER, STATS, TICK_RATE } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, PLAYER, STATS, TICK_RATE, type BuildMaterialType } from "../shared/constants";
 import { MiningSimBufferWriter } from "../shared/sim-buffer";
-import type { InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
+import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import { ChunkWorld, type SavedChunk } from "./chunk-world";
 
 const events = exposeEvents();
@@ -28,6 +28,8 @@ let stepOnce = false;
 let inputBuf: Int32Array | null = null;
 let inputF32: Float32Array | null = null;
 let currentInventory: InventoryEntry[] = [];
+// Last buildMaterials snapshot emitted to the renderer — emit only on change.
+let lastEmittedBuild: BuildMaterials = { scaffolding: 0, ladder: 0, rope: 0 };
 
 const TICK_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 5;
@@ -78,19 +80,21 @@ expose({
   getSaveData(): {
     player: MiningPlayerState;
     upgrades: PlayerUpgrades;
+    buildMaterials: BuildMaterials;
     dirtyChunks: SavedChunk[];
     tick: number;
   } {
-    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, dirtyChunks: [], tick: 0 };
+    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, dirtyChunks: [], tick: 0 };
     return {
       player: { ...world.player },
       upgrades: { ...world.upgrades },
+      buildMaterials: { ...world.buildMaterials },
       dirtyChunks: world.getDirtyChunks(),
       tick: world.currentTick,
     };
   },
 
-  loadSaveData(data: { player: MiningPlayerState; upgrades?: PlayerUpgrades; chunks: SavedChunk[]; tick: number }): void {
+  loadSaveData(data: { player: MiningPlayerState; upgrades?: PlayerUpgrades; buildMaterials?: BuildMaterials; chunks: SavedChunk[]; tick: number }): void {
     if (!world) return;
     // Restore chunks first (before player state, since setPlayerState forces rebuild)
     for (const chunk of data.chunks) {
@@ -100,6 +104,11 @@ expose({
     world.setPlayerState(data.player);
     // Restore upgrades
     if (data.upgrades) world.setUpgrades(data.upgrades);
+    // Restore build materials
+    if (data.buildMaterials) {
+      world.buildMaterials = { ...data.buildMaterials };
+      lastEmittedBuild = { ...data.buildMaterials };
+    }
     // Restore tick counter
     if (data.tick) world.currentTick = data.tick;
   },
@@ -111,6 +120,11 @@ expose({
 
   setInventory(inventory: InventoryEntry[]): void {
     currentInventory = inventory;
+  },
+
+  addBuildMaterial(type: BuildMaterialType, qty: number): void {
+    if (!world) return;
+    world.addBuildMaterial(type, qty);
   },
 
   respawn(): void {
@@ -157,14 +171,28 @@ async function loop(): Promise<void> {
             mouseX: if32[INPUT.MOUSE_X / 4],
             mouseY: if32[INPUT.MOUSE_Y / 4],
             digRadius: ib[INPUT.DIG_RADIUS / 4],
+            buildMode: ib[INPUT.BUILD_MODE / 4] !== 0,
+            buildMat: ib[INPUT.BUILD_MAT / 4],
           };
 
           const collected = world.step(input, currentInventory);
           tickCount++;
 
-          // Write active grid + fields to SAB
+          // Emit buildMaterials to the renderer when counts change (placement
+          // consumed one, or a purchase added some). Throttled by value compare
+          // so we only emit on actual changes, not every tick.
+          const bm = world.buildMaterials;
+          if (bm.scaffolding !== lastEmittedBuild.scaffolding ||
+              bm.ladder !== lastEmittedBuild.ladder ||
+              bm.rope !== lastEmittedBuild.rope) {
+            lastEmittedBuild = { ...bm };
+            events.emit("buildMaterials", { ...bm });
+          }
+
+          // Write active grid + fields + background grid to SAB
           writer.writeGrid(world.activeGrid.grid);
           writer.writeFields(world.activeGrid.fields);
+          writer.writeBackgroundGrid(world.backgroundGrid);
 
           // Write player state
           writer.writePlayerF32(PLAYER.PX, world.player.x);

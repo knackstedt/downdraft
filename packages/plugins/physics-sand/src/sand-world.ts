@@ -2088,20 +2088,37 @@ export class SandWorld {
       let lifetime = (packed >> 8) & 0xff;
       let flags = (packed >> 16) & 0xff;
 
-      // LooseStone: re-settle to Stone when stationary AND supported. The
-      // lifetime field is a settle timer, set when the stone is dislodged by
-      // mining (LOOSE_STONE_SETTLE_TICKS) or disturbed by adjacent gravel
-      // movement (GRAVEL_DISTURB_SETTLE_TICKS). When the cell moves
+      // LooseStone: re-settle to Stone when stationary AND supported by stable
+      // ground. The lifetime field is a settle timer, set when the stone is
+      // dislodged by mining (LOOSE_STONE_SETTLE_TICKS) or disturbed by adjacent
+      // gravel movement (GRAVEL_DISTURB_SETTLE_TICKS). When the cell moves
       // (FLAG_UPDATED), the timer keeps its current value. When stationary,
-      // the timer only counts down if the cell is supported from below —
-      // otherwise it's floating and must not re-settle (it needs to keep
-      // trying to fall). This prevents LooseStone from freezing mid-air when
-      // friction or random chance prevents it from moving for a few ticks.
+      // the timer only counts down if the cell is supported from below by a
+      // STABLE (static, gravity=0) material — otherwise it's floating and must
+      // not re-settle (it needs to keep trying to fall). This prevents
+      // LooseStone from freezing mid-air when friction or random chance
+      // prevents it from moving for a few ticks.
+      //
+      // Only static materials (gravityDir === 0: Stone, Wall, Concrete, etc.)
+      // count as stable support. Gravel, LooseStone, Dirt, Sand and other
+      // gravity-affected materials are NOT stable support: they can flow or
+      // fall away (or be picked up by the player as gravel), which would leave
+      // a re-settled Stone chunk floating in mid-air. Requiring bedrock-level
+      // support ensures LooseStone only re-freezes to Stone once it has truly
+      // settled at the bottom.
       if (mat === Material.LooseStone) {
         if (!(flags & FLAG_UPDATED) && lifetime > 0) {
-          // Check if supported from below (solid cell or grid boundary)
+          // Check if supported from below by a stable (static) cell or grid
+          // boundary. Falling/flowing materials (gravel, loose stone, dirt,
+          // sand, liquids) do NOT count — they can move out from under us.
           const belowIdx = i + this.W;
-          const supported = belowIdx >= this.grid.length || this.grid[belowIdx] !== 0;
+          let supported: boolean;
+          if (belowIdx >= this.grid.length) {
+            supported = true; // grid boundary = stable floor
+          } else {
+            const belowPacked = this.grid[belowIdx];
+            supported = belowPacked !== 0 && MAT_GRAVITY_DIR[belowPacked & 0xff] === 0;
+          }
           if (supported) {
             lifetime--;
             if (lifetime === 0) {
@@ -2110,7 +2127,7 @@ export class SandWorld {
               lifetime = 0;
             }
           }
-          // If not supported, don't count down — keep trying to fall
+          // If not stably supported, don't count down — keep trying to fall
         }
         const newFlags = flags & ~FLAG_UPDATED;
         const newPacked = (mat & 0xff) | ((lifetime & 0xff) << 8) | ((newFlags & 0xff) << 16);

@@ -41,6 +41,13 @@ export default function App() {
           s.sellAll();
         }
       }
+      // Build mode: B toggles, 1/2/3 select scaffolding/ladder/rope.
+      if (e.key === "b" || e.key === "B") {
+        useGameStore.getState().toggleBuildMode();
+      }
+      if (e.key === "1") useGameStore.getState().selectBuild("scaffolding");
+      if (e.key === "2") useGameStore.getState().selectBuild("ladder");
+      if (e.key === "3") useGameStore.getState().selectBuild("rope");
       if (e.key === "Escape") {
         const s = useGameStore.getState();
         // Don't toggle ESC menu if the death menu is open
@@ -69,7 +76,7 @@ export default function App() {
       <DeathMenu />
       <EscapeMenu />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | P: pause | I: inventory | E: sell | ESC: menu
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | E: sell | ESC: menu
         {paused && " | PAUSED"}
       </div>
     </>

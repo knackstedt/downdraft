@@ -1,7 +1,8 @@
 // ============================================================================
 // Input handler — captures keyboard + mouse input for the mining RPG.
 //
-// Keyboard: WASD/arrows for movement, Space for jump, P for pause.
+// Keyboard: WASD/arrows for movement, Space for jump, P for pause,
+//   "=" to zoom in, "-" to zoom out.
 // Mouse: left-click for digging, position tracked in screen pixels (converted
 // to world coords by the renderer using the camera).
 // ============================================================================
@@ -17,6 +18,12 @@ export interface MiningInputState {
   mouseX: number; // screen pixels
   mouseY: number; // screen pixels
   digRadius: number;
+  // Accumulated zoom steps since the last frame. Each "=" keydown adds +1,
+  // each "-" keydown adds -1 (OS key-repeat produces a steady stream while
+  // held). The renderer drains this each frame and applies
+  //   zoom *= ZOOM_STEP_FACTOR ^ zoomDelta
+  // then resets it to 0.
+  zoomDelta: number;
 }
 
 export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInputState {
@@ -37,6 +44,7 @@ export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInput
     mouseX: rect0.width / 2,
     mouseY: rect0.height / 2,
     digRadius: 3,
+    zoomDelta: 0,
   };
 
   const keyMap: Record<string, keyof MiningInputState> = {
@@ -60,6 +68,17 @@ export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInput
     const key = keyMap[e.key];
     if (key) {
       (state[key] as boolean) = true;
+      e.preventDefault();
+      return;
+    }
+    // Zoom controls — "=" (and "+", since that's the shifted form on most
+    // layouts) zoom in, "-" zooms out. keydown repeats while held, which
+    // produces a smooth, OS-throttled zoom stream.
+    if (e.key === "=" || e.key === "+") {
+      state.zoomDelta += 1;
+      e.preventDefault();
+    } else if (e.key === "-" || e.key === "_") {
+      state.zoomDelta -= 1;
       e.preventDefault();
     }
   });

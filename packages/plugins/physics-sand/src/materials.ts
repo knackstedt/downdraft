@@ -102,6 +102,10 @@ export enum Material {
   // Gases
   EtherealVapor = 91,    // ether + fire byproduct, rises, glowing
   AlchemicalSlag = 92,   // waste byproduct of failed reactions, dense, inert
+  // --- Mining RPG: build materials (placeable by the player) ---
+  Scaffolding = 93,  // wooden plank — solid, static, stand on it
+  Ladder = 94,       // wooden ladder — non-solid, climbable
+  Rope = 95,         // fiber rope — non-solid, climbable
 }
 
 export const MAX_MATERIAL = 256;
@@ -126,6 +130,14 @@ export interface MaterialDef {
   liquid: boolean;
   gas: boolean;
   magnetic: boolean;
+  /**
+   * Climbable cells (ladders, ropes) are non-solid so the player can pass
+   * through them, but while overlapping one the player can move vertically
+   * (climb) and gravity is suspended. Falling sand is still blocked by them
+   * (they're non-empty, non-gas, non-liquid, non-solid → trySwap returns
+   * false), so they act as physical objects that only the player traverses.
+   */
+  climbable: boolean;
   color: [number, number, number, number];
   albedo: number;
   reflectivity: number;
@@ -148,6 +160,7 @@ function def(
     liquid: opts.liquid ?? false,
     gas: opts.gas ?? false,
     magnetic: opts.magnetic ?? false,
+    climbable: opts.climbable ?? false,
     albedo: opts.albedo ?? 0.5,
     reflectivity: opts.reflectivity ?? 0.05,
     brightness: opts.brightness ?? 1.0,
@@ -284,6 +297,17 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // --- Alchemy game: gases + byproducts ---
   [Material.EtherealVapor]: def(91, "Ethereal Vapor", [0.6, 0.5, 0.9, 0.5], { gravity: 1, gravityDir: -1, density: 0.08, gas: true, lifetime: 180, albedo: 0.1, brightness: 1.3 }),
   [Material.AlchemicalSlag]: def(92, "Alchemical Slag", [0.25, 0.22, 0.2, 1.0], { gravity: 2, gravityDir: 1, density: 2.8, solid: true, albedo: 0.2, reflectivity: 0.05, brightness: 0.5 }),
+
+  // --- Mining RPG: build materials (placeable by the player) ---
+  // Scaffolding: wooden plank. Solid + static (gravity=0) so the player can
+  // stand on it. Flammable. Mined away (cleared, not collected as ore).
+  [Material.Scaffolding]: def(93, "Scaffolding", [0.62, 0.42, 0.22, 1.0], { density: 0.6, solid: true, flammable: true, burnTime: 200, albedo: 0.5, reflectivity: 0.05 }),
+  // Ladder: wooden ladder. Non-solid + climbable so the player climbs through
+  // it; gravity=0 so it stays put. Flammable. Blocks falling particles.
+  [Material.Ladder]: def(94, "Ladder", [0.55, 0.36, 0.18, 1.0], { density: 0.5, flammable: true, burnTime: 180, climbable: true, albedo: 0.45 }),
+  // Rope: fiber rope. Non-solid + climbable; gravity=0 so it stays put.
+  // Flammable. Blocks falling particles.
+  [Material.Rope]: def(95, "Rope", [0.78, 0.66, 0.40, 1.0], { density: 0.3, flammable: true, burnTime: 120, climbable: true, albedo: 0.4 }),
 };
 
 export function getMaterialColor(mat: Material): [number, number, number, number] {
@@ -309,6 +333,7 @@ export const MAT_SOLID = 0x02;
 export const MAT_LIQUID = 0x04;
 export const MAT_GAS = 0x08;
 export const MAT_MAGNETIC = 0x10;
+export const MAT_CLIMBABLE = 0x20;
 
 /** gravity multiplier as float (0-4). 0 = no gravity. */
 export const MAT_GRAVITY = new Float32Array(MAX_MATERIAL);
@@ -341,6 +366,7 @@ function buildMaterialTables(): void {
     if (def.liquid) flags |= MAT_LIQUID;
     if (def.gas) flags |= MAT_GAS;
     if (def.magnetic) flags |= MAT_MAGNETIC;
+    if (def.climbable) flags |= MAT_CLIMBABLE;
     MAT_FLAGS[i] = flags;
   }
   // Hot materials: melt snow, boil water, ignite flammables, pop popcorn

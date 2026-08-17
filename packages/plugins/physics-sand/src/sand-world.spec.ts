@@ -530,3 +530,47 @@ test("unsupported loose stone does not re-settle even if friction prevents movem
   }
   expect(foundBelow).toBe(true);
 });
+
+test("loose stone resting on gravel does not re-settle (no floating when gravel is picked up)", () => {
+  // Regression: a LooseStone chunk that lands on top of gravel must NOT
+  // re-freeze to static Stone. If it did, picking up or flowing away of the
+  // gravel below would leave the Stone floating in mid-air (Stone has
+  // gravity=0 and never falls). Only stable (static, gravity=0) support —
+  // bedrock/Wall/Stone — should allow the settle timer to count down.
+  const w = new SandWorld(8, 16);
+  // Floor of static Wall at the very bottom
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Gravel layer resting on the floor (static support under the gravel, but
+  // the gravel itself is gravity-affected and not stable support)
+  for (let x = 0; x < 8; x++) {
+    w.setCell(x, 14, { mat: Material.Gravel, lifetime: 0, flags: 0 });
+    w.fields[(14 * 8 + x) * 4 + FIELD.GRAVITY] = 128;
+  }
+  // LooseStone sitting directly on the gravel with a short settle timer
+  w.setCell(4, 13, { mat: Material.LooseStone, lifetime: 3, flags: 0 });
+  w.fields[(13 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
+
+  // Run well past the settle timer (3 ticks). The LooseStone is stationary
+  // and "supported" by gravel, but gravel is not stable support, so the
+  // timer must NOT count down and the cell must NOT become Stone.
+  run(w, 30);
+
+  // The cell at y=13 must still be LooseStone (not re-frozen to Stone).
+  expect(matAt(w, 4, 13)).toBe(Material.LooseStone);
+});
+
+test("loose stone resting on static stone re-settles normally", () => {
+  // Counterpart to the above: when the support below IS static (Stone
+  // bedrock), the settle timer counts down and LooseStone re-freezes to
+  // Stone as before. This confirms the fix only blocks non-static support.
+  const w = new SandWorld(8, 16);
+  // Static Stone floor (gravity=0)
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Stone, lifetime: 0, flags: 0 });
+  // LooseStone on top with a short settle timer
+  w.setCell(4, 14, { mat: Material.LooseStone, lifetime: 3, flags: 0 });
+  w.fields[(14 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
+
+  run(w, 10);
+  // Should have re-settled to Stone on static support
+  expect(matAt(w, 4, 14)).toBe(Material.Stone);
+});
