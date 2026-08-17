@@ -2,6 +2,7 @@
 // Mining RPG — shared types
 // ============================================================================
 
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -38,6 +39,10 @@ export interface Chunk {
   cy: number;
   grid: Uint32Array; // CHUNK_W * CHUNK_H cells (4 bytes/cell, packed)
   fields: Uint8Array; // CHUNK_W * CHUNK_H * 4 (gravity, temp, windX, windY)
+  // Background layer: build materials (scaffolding/ladder/rope) at the same
+  // resolution as the foreground grid. Stored per-chunk so it persists across
+  // active grid rebuilds and saves. Empty (all zeros) for unmodified chunks.
+  bgGrid: Uint32Array; // CHUNK_W * CHUNK_H cells (4 bytes/cell, packed)
   wakeTick: Uint32Array; // CHUNK_W * CHUNK_H — tick when cell re-freezes (0 = frozen)
   generated: boolean;
   dirty: boolean;
@@ -47,6 +52,16 @@ export interface Chunk {
 export interface InventoryEntry {
   mat: number;
   count: number;
+}
+
+/**
+ * Counts of each placeable build material the player owns. Purchased at the
+ * signpost with gold and consumed by placing blocks. Persisted in the save.
+ */
+export interface BuildMaterials {
+  scaffolding: number;
+  ladder: number;
+  rope: number;
 }
 
 export interface MiningPlayerState {

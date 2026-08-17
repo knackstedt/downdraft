@@ -8,12 +8,13 @@
 // ============================================================================
 
 import {
-  FIELD_OFFSET,
-  GRID_OFFSET,
-  INPUT_OFFSET,
-  PLAYER_OFFSET,
-  STATS_OFFSET,
-  TOTAL_SAB_BYTES,
+    BG_GRID_OFFSET,
+    FIELD_OFFSET,
+    GRID_OFFSET,
+    INPUT_OFFSET,
+    PLAYER_OFFSET,
+    STATS_OFFSET,
+    TOTAL_SAB_BYTES
 } from "./constants";
 
 export function allocateMiningSimBuffer(): SharedArrayBuffer {
@@ -52,6 +53,12 @@ export class MiningSimBufferReader {
   getFields(): Uint8Array {
     const off = FIELD_OFFSET;
     return this.u8.subarray(off, off + this.activeGridW * this.activeGridH * 4);
+  }
+
+  /** Get a view of the background grid (Uint32Array — build materials layer). */
+  getBackgroundGrid(): Uint32Array {
+    const off = BG_GRID_OFFSET / 4;
+    return this.u32.subarray(off, off + this.activeGridW * this.activeGridH);
   }
 
   getInput(field: number): number {
@@ -105,6 +112,11 @@ export class MiningSimBufferWriter {
   writeFields(fields: Uint8Array): void {
     const off = FIELD_OFFSET;
     this.u8.set(fields.subarray(0, this.activeGridW * this.activeGridH * 4), off);
+  }
+
+  writeBackgroundGrid(grid: Uint32Array): void {
+    const off = BG_GRID_OFFSET / 4;
+    this.u32.set(grid.subarray(0, this.activeGridW * this.activeGridH), off);
   }
 
   writeInput(field: number, value: number): void {

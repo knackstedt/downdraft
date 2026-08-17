@@ -1,7 +1,7 @@
 import { Material } from "@downdraft/library-sand";
 import { create } from "zustand";
-import { BASE_INVENTORY_SIZE, INVENTORY_SIZE_UPGRADE_INCREMENT, SELL_PRICES } from "../shared/constants";
-import type { InventoryEntry, PlayerUpgrades } from "../shared/types";
+import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, INVENTORY_SIZE_UPGRADE_INCREMENT, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
+import type { BuildMaterials, InventoryEntry, PlayerUpgrades } from "../shared/types";
 
 // Cause-of-death messages, keyed by Material ID.
 // Each cause has a list of possible quips — one is picked at random.
@@ -87,6 +87,10 @@ export interface GameState {
   showEscapeMenu: boolean; // true when the ESC pause menu is open
   currency: number; // gold earned from selling materials at the signpost
   nearSignpost: boolean; // true when player is within sell range of the surface signpost
+  // Build system
+  buildMode: boolean; // true when build mode is active (left-click places)
+  selectedBuild: BuildMaterialType; // currently selected build material
+  buildMaterials: BuildMaterials; // mirror of worker-authoritative counts (for display)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -110,6 +114,20 @@ export interface GameState {
   sellAll: () => void;
   getMaxInventory: () => number;
   getInventoryCount: () => number;
+  // Build system
+  setBuildMode: (on: boolean) => void;
+  toggleBuildMode: () => void;
+  selectBuild: (type: BuildMaterialType) => void;
+  setBuildMaterials: (mats: BuildMaterials) => void; // sync from worker events
+  /** Get the Material ID of the currently selected build material. */
+  getSelectedBuildMatId: () => number;
+  /**
+   * Buy `qty` of a build material at the signpost shop. Checks currency and
+   * returns true on success. Does NOT mutate buildMaterials directly — the
+   * caller (renderer) forwards the purchase to the worker, which is the source
+   * of truth and emits the updated counts.
+   */
+  buyBuildMaterial: (type: BuildMaterialType, qty: number) => boolean;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -130,6 +148,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   showEscapeMenu: false,
   currency: 0,
   nearSignpost: false,
+  buildMode: false,
+  selectedBuild: "scaffolding",
+  buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 },
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -172,4 +193,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     }),
   getMaxInventory: () => BASE_INVENTORY_SIZE + get().upgrades.inventorySize * INVENTORY_SIZE_UPGRADE_INCREMENT,
   getInventoryCount: () => get().inventory.reduce((sum, e) => sum + e.count, 0),
+  setBuildMode: (on) => set({ buildMode: on }),
+  toggleBuildMode: () => set((s) => ({ buildMode: !s.buildMode })),
+  selectBuild: (type) => set({ selectedBuild: type }),
+  setBuildMaterials: (mats) => set({ buildMaterials: { ...mats } }),
+  getSelectedBuildMatId: () => BUILD_MATERIAL_ID[get().selectedBuild],
+  buyBuildMaterial: (type, qty) => {
+    const price = BUILD_MATERIAL_PRICES[type] * qty;
+    const s = get();
+    if (s.currency < price) return false;
+    set({ currency: s.currency - price });
+    return true;
+  },
 }));

@@ -35,6 +35,7 @@ export {
     getMaterialColor,
     IS_FIRE,
     IS_HOT,
+    MAT_CLIMBABLE,
     MAT_DENSITY,
     MAT_FLAGS,
     MAT_FLAMMABLE,
