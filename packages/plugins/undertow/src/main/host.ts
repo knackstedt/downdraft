@@ -131,12 +131,18 @@ export class MainThreadHost {
     this.armRequestWait();
   }
 
-  /** Drain all queued requests, dispatch, write replies. Call on raf/notify. */
+  /** Drain all queued requests, dispatch, write replies. Call on raf/notify.
+   *  Yields after processing a batch (max 50 requests or 4ms) to ensure the
+   *  render loop (rAF) gets a chance to run between drains. Without this yield,
+   *  the waitAsync + MessageChannel mechanism can continuously drain requests,
+   *  preempting rAF and causing 0 FPS. */
   drain(): void {
     if (this.draining) return; // re-entrancy guard
     this.draining = true;
     const t0 = performance.now();
     let count = 0;
+    const MAX_BATCH = 50;
+    const MAX_BATCH_MS = 4;
     try {
       // Mark direction: main is processing worker requests (not main→worker).
       Atomics.store(this.controlI32, CTL_DIRECTION_IDX, 0);
@@ -146,6 +152,11 @@ export class MainThreadHost {
         this.reqRing.release(slot);
         slot = this.reqRing.tryPop();
         count++;
+        // Yield to rAF after processing a batch — remaining requests will be
+        // processed on the next drain (rAF or setInterval or waitAsync).
+        if (count >= MAX_BATCH || performance.now() - t0 > MAX_BATCH_MS) {
+          break;
+        }
       }
       // After draining, arm waitAsync so we're notified immediately when the
       // worker pushes a new request — no need to wait for the next setInterval tick.
@@ -160,8 +171,10 @@ export class MainThreadHost {
   }
 
   /** Arm an async wait on the request ring so we drain immediately on new requests.
-   *  Uses a MessageChannel to ensure the drain runs as a high-priority macrotask,
-   *  not a microtask (which can be delayed behind rAF/WebGPU on the main thread). */
+   *  Uses MessageChannel to ensure the drain runs as a high-priority macrotask.
+   *  The batch limit in drain() (max 50 requests or 4ms) ensures rAF gets a
+   *  chance to run between drains, preventing 0 FPS when the worker pushes
+   *  many fire-and-forget requests continuously. */
   private requestWaitArmed = false;
   private drainChannel: MessageChannel | null = null;
   private armRequestWait(): void {
@@ -177,8 +190,8 @@ export class MainThreadHost {
     this.reqRing.waitAsync(seq, 5000).then((changed) => {
       this.requestWaitArmed = false;
       if (changed) {
-        // Post to the MessageChannel — this schedules drain() as a macrotask
-        // that runs before the next rAF/setInterval, giving near-zero latency.
+        // Post to the MessageChannel — this schedules drain() as a macrotask.
+        // The batch limit in drain() ensures rAF runs between batches.
         this.drainChannel!.port2.postMessage(null);
       }
     }).catch(() => { this.requestWaitArmed = false; });

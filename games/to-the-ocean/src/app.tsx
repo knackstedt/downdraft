@@ -327,6 +327,7 @@ export default function App() {
       {/* Click-to-resume overlay — shown when pointer lock is lost but no menu is open */}
       {ready && lutReady && simReady && !pointerLocked && !anyOverlayOpen && !playerDied && !f1Devtools && !osrForcedFocus && (
         <div
+          data-click-to-resume="true"
           className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-ocean-950/60 cursor-pointer"
           onClick={() => {
             // In worker mode, pointer lock is handled by the main thread's

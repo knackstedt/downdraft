@@ -60,19 +60,50 @@ export function startUndertowHost(options?: { drainIntervalMs?: number }): Under
   // subsequently lost, we open the craft menu instead of the pause menu.
   let tabRequested = false;
 
-  host.eventDispatcher.onUserGesture = () => {
+  host.eventDispatcher.onUserGesture = (e: Event) => {
+    // Check the click target — this is more reliable than reading the main
+    // thread's store state, which is stale (the worker's state is ahead
+    // because store-syncs are async). The worker may have already closed
+    // a menu optimistically, but the main thread hasn't received the sync yet.
+    const target = e.target as HTMLElement | null;
+
+    // Case 1: Click on the click-to-resume overlay → always lock pointer.
+    // The overlay is only rendered when no menus are open, so it's safe.
+    if (target?.closest("[data-click-to-resume]")) {
+      if (performance.now() - lastUnlockTime < 2000) return;
+      const r = useGameStore.getState().renderer;
+      if (r) {
+        r.lockPointer();
+        Atomics.store(controlI32, CTL_POINTER_LOCKED_IDX, 1);
+      }
+      return;
+    }
+
+    // Case 2: Click on a "resume" button (e.g., pause menu Resume) or a
+    // "close menu" overlay (e.g., clicking outside the inventory) → lock
+    // pointer. The button's onClick will close the menu in the worker, but
+    // we lock pointer here in the user gesture context (the worker's
+    // lockPointer() call would be outside a user gesture and fail).
+    if (target?.closest("[data-resume], [data-close-menu]")) {
+      if (performance.now() - lastUnlockTime < 2000) return;
+      const r = useGameStore.getState().renderer;
+      if (r) {
+        r.lockPointer();
+        Atomics.store(controlI32, CTL_POINTER_LOCKED_IDX, 1);
+      }
+      return;
+    }
+
+    // Case 3: Other clicks — check store state as before
     const s = useGameStore.getState();
-    // Only lock if not already locked and no overlay menus are open
     if (!s.pointerLocked && !s.showPauseMenu && !s.showInventory && !s.showMap &&
         !s.showSettings && !s.showBuildMenu && !s.showCraftMenu &&
         !s.showTradeMenu && !s.showCharacterCustomization && !s.showCredits &&
         !s.playerDied) {
-      // Browser enforces a cooldown after exiting pointer lock (~1.5s in Chromium)
       if (performance.now() - lastUnlockTime < 2000) return;
       const r = s.renderer;
       if (r) {
         r.lockPointer();
-        // Set the SAB flag immediately — the worker reads this after each callSync.
         Atomics.store(controlI32, CTL_POINTER_LOCKED_IDX, 1);
       }
     }
@@ -152,10 +183,17 @@ export function startUndertowHost(options?: { drainIntervalMs?: number }): Under
   rafId = requestAnimationFrame(drainOnRaf);
 
   // 6. Also drain on a short interval (fallback for when rAF is paused).
-  // The waitAsync mechanism in the host handles immediate notification,
-  // but this serves as a safety net. In Electron, setInterval(0) is clamped
-  // to ~1ms which gives us near-immediate drain latency.
-  const intervalMs = options?.drainIntervalMs ?? 0;
+  // The waitAsync mechanism in the host handles immediate notification via
+  // setTimeout(0), and rAF drains every frame. This setInterval serves as a
+  // safety net for when rAF is paused (e.g. tab in background).
+  // IMPORTANT: Don't use 0ms here. With fire-and-forget DOM mutations, the
+  // worker can push requests continuously. setInterval(0) fires every ~1ms
+  // and processes all queued requests, leaving no time for rAF → 0 FPS.
+  // 4ms is a good compromise: frequent enough for responsive UI (250
+  // drains/sec), but gives the main thread ~4ms between drains for rAF.
+  // The batch limit in drain() (max 50 requests or 4ms) further ensures
+  // rAF is not starved.
+  const intervalMs = options?.drainIntervalMs ?? 4;
   const intervalId = setInterval(() => {
     host.drain();
   }, intervalMs);

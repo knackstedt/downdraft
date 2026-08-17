@@ -54,4 +54,24 @@ export class WorkerEvent {
   stopPropagation(): void {
     // Same as above.
   }
+
+  /** React 18 may call composedPath() to find the event target in shadow DOM.
+   *  We don't have shadow DOM, so return [target, currentTarget] (or just [target]). */
+  composedPath(): EventTarget[] {
+    return this.target ? [this.target] : [];
+  }
+
+  /** React 18 may check isTrusted. Synthetic events from the event ring are
+   *  "trusted" in the sense that they originate from real DOM events on the
+   *  main thread. Return true so React processes them like real events. */
+  get isTrusted(): boolean { return true; }
+
+  /** React 18 may check defaultPrevented. */
+  get defaultPrevented(): boolean { return false; }
+
+  /** React 18 may access type/composedPath. Ensure eventPhase is defined. */
+  get eventPhase(): number { return 2; /* AT_TARGET */ }
+
+  /** React 18 may check timeStamp. */
+  get timeStamp(): number { return 0; }
 }

@@ -1,9 +1,9 @@
+import { getItem } from "@shared/data/items";
+import { RECIPES, Recipe } from "@shared/data/recipes";
+import { PLR, SimBufferReader } from "@shared/sim-buffer";
+import { ItemCategory } from "@shared/types";
 import React from "react";
 import { useGameStore } from "../stores/game-store";
-import { RECIPES, Recipe } from "@shared/data/recipes";
-import { ITEMS, getItem } from "@shared/data/items";
-import { ItemCategory } from "@shared/types";
-import { SimBufferReader, PLR } from "@shared/sim-buffer";
 
 type TabId = "crafting" | "inventory" | "character";
 
@@ -191,6 +191,7 @@ export default function CraftMenu() {
   return (
     <div
       className="w-full h-full flex items-center justify-center pointer-events-auto bg-ocean-950/80"
+      data-close-menu="true"
       onClick={toggle}
     >
       <div

@@ -30,7 +30,7 @@ export default function PauseMenu() {
       <div className="hud-panel p-8 w-64" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-2xl font-bold text-ocean-100 mb-6 text-center">Paused</h2>
         <div className="space-y-3">
-          <button className="btn-primary w-full" onClick={handleResume}>Resume</button>
+          <button className="btn-primary w-full" data-resume="true" onClick={handleResume}>Resume</button>
           <button className="btn-secondary w-full" onClick={handleSave}>Save Game</button>
           <button className="btn-secondary w-full" onClick={handleLoad}>Load Game</button>
           <button
