@@ -1,11 +1,17 @@
 import { Material } from "@downdraft/library-sand";
 import { create } from "zustand";
-import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, INVENTORY_SIZE_UPGRADE_INCREMENT, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
+import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
 import type { BuildMaterials, InventoryEntry, PlayerUpgrades } from "../shared/types";
 
-// Cause-of-death messages, keyed by Material ID.
-// Each cause has a list of possible quips — one is picked at random.
-const DEATH_QUIPS: Record<number, string[]> = {
+// ============================================================================
+// Death messages — a single object covering all death causes.
+//
+// Material-based deaths (lava, fire, gas, etc.) are keyed by Material ID.
+// Non-material deaths (suffocation, falling) are keyed by DeathCause IDs
+// (1000+). Each cause has a list of quips; one is picked at random.
+// ============================================================================
+const DEATH_MESSAGES: Record<number, string[]> = {
+  // --- Material-based deaths (keyed by Material ID) ---
   [Material.Lava]: [
     "Maybe don't try jumping in lava",
     "That was magma, not a hot tub",
@@ -46,26 +52,46 @@ const DEATH_QUIPS: Record<number, string[]> = {
     "That's some toxic air right there",
     "You could have smelled that from so far away"
   ],
-  [Material.Stone]: [
+
+  // --- Non-material deaths (keyed by DeathCause ID) ---
+  [DeathCause.Suffocation]: [
     "Crushed under the weight of the earth",
     "The mountain doesn't move, you do",
     "Should've dug faster",
     "Rocks fall, everyone dies",
     "Do you like hugs with extreme force?",
     "Cave-ins are a serious source of injury and death",
-    ""
+    "Buried alive — the mine keeps what it takes",
+    "Next time, watch where you dig",
+    "You do know that breathing is important, right",
+    "You should have paid attention to the cracks in the ceiling"
+  ],
+  [DeathCause.Falling]: [
+    "It's not the fall that kills you, it's the sudden stop",
+    "Gravity called, you answered",
+    "Should've packed a parachute",
+    "The ground came up fast, didn't it?",
+    "Splat. That's the technical term.",
+    "Next time, try landing on your feet",
+    "You fell for it — literally",
+    "That was quite the leap of faith",
+    "What goes up must come down, hard",
+    "Terminal velocity is not just a suggestion"
   ],
 };
 
+// Fallback for unrecognized death causes (shouldn't happen, but just in case)
 const FALLBACK_QUIPS = [
   "The mine claims another soul",
   "Your health insurance plan isn't unlimited you know",
-  "Act 2; The Consequences of your actions"
+  "Act 2; The Consequences of your actions",
+  "While you don't feel pain, he does",
+  "How'd you manage that?"
 ];
 
-/** Pick a random death quip for the given cause material. */
+/** Pick a random death quip for the given cause (Material ID or DeathCause ID). */
 export function pickDeathQuip(deathCause: number): string {
-  const quips = DEATH_QUIPS[deathCause] ?? FALLBACK_QUIPS;
+  const quips = DEATH_MESSAGES[deathCause] ?? FALLBACK_QUIPS;
   return quips[Math.floor(Math.random() * quips.length)];
 }
 

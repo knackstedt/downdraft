@@ -1,6 +1,6 @@
 import { DEFAULT_GRAVITY, FIELD, Material, packCell } from "@downdraft/library-sand";
 import { expect, test } from "bun:test";
-import { ACTIVE_GRID_W, CHUNK_H, CHUNK_W } from "../shared/constants";
+import { ACTIVE_GRID_W, CHUNK_H, CHUNK_W, DeathCause } from "../shared/constants";
 import { ChunkWorld } from "./chunk-world";
 
 // Helper: get material at world coords from the active grid
@@ -555,7 +555,7 @@ test("fully buried player takes crush damage", () => {
   runIdle(w, 5);
 
   expect(w.player.health).toBeLessThan(initialHealth);
-  expect(w.player.lastDamageMaterial).toBe(Material.Stone);
+  expect(w.player.lastDamageMaterial).toBe(DeathCause.Suffocation);
 });
 
 test("partially buried player can wiggle out", () => {

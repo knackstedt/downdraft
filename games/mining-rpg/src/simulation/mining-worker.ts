@@ -44,7 +44,14 @@ expose({
 
     world = new ChunkWorld();
     running = true;
-    paused = false;
+    // Start PAUSED — the renderer resumes us after loading save data (if any).
+    // Without this, the worker simulates at the default spawn position before
+    // the save is loaded. When loadSaveData() then moves the player to the
+    // saved position, rebuildActiveGrid() syncs the stale active grid (freshly
+    // generated spawn-area terrain) back to chunks at the spawn origin,
+    // overwriting saved chunks near spawn with original terrain — appearing
+    // as "partial map regeneration" on hot reload / restart.
+    paused = true;
     lastTick = performance.now();
     events.emit("ready", {});
     loop();
