@@ -404,7 +404,7 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
     {
       def: {
         name: "dispatch_key",
-        description: "Dispatch a real DOM keyboard event on the main thread (keydown or keyup). This tests the full undertow event pipeline: main-thread DOM → event ring → worker event pump → React handler.",
+        description: "Dispatch a real DOM keyboard event on the main thread (keydown or keyup). This tests the full input pipeline: DOM event → React handler.",
         inputSchema: {
           type: "object",
           properties: {
@@ -422,8 +422,6 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
         const type = (params.type as string) ?? "keydown";
         const repeat = !!params.repeat;
         // Dispatch a real DOM event on the main thread's window.
-        // The undertow event dispatcher will pick this up and forward it
-        // to the worker via the event ring.
         const ev = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, repeat });
         window.dispatchEvent(ev);
         return jsonResult({ dispatched: true, key, code, type });
@@ -433,7 +431,7 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
     {
       def: {
         name: "dispatch_click",
-        description: "Dispatch a real DOM click event on the main thread's canvas. This triggers the undertow onUserGesture callback (which calls requestPointerLock within the user gesture context) and tests the full click-to-resume interaction path.",
+        description: "Dispatch a real DOM click event on the main thread's canvas. This triggers the click-to-resume overlay's onClick (which calls requestPointerLock within the user gesture context) and tests the full click-to-resume interaction path.",
         inputSchema: {
           type: "object",
           properties: {
@@ -502,7 +500,7 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
     {
       def: {
         name: "get_element_bounds",
-        description: "Get the bounding box of a DOM element matching a CSS selector on the main thread. Returns {x, y, width, height, top, left, bottom, right} or null if not found. Used to verify CSS/layout regressions in the undertow worker UI.",
+        description: "Get the bounding box of a DOM element matching a CSS selector on the main thread. Returns {x, y, width, height, top, left, bottom, right} or null if not found. Used to verify CSS/layout regressions in the UI.",
         inputSchema: {
           type: "object",
           properties: {
@@ -585,7 +583,7 @@ export function createAutomationTools(ctx: AutomationContext): ToolRegistration[
     {
       def: {
         name: "get_element_style",
-        description: "Get computed style of a DOM element matching a CSS selector on the main thread. Returns a subset of computed style properties. Used to verify CSS is applied correctly in the undertow worker UI.",
+        description: "Get computed style of a DOM element matching a CSS selector on the main thread. Returns a subset of computed style properties. Used to verify CSS is applied correctly in the UI.",
         inputSchema: {
           type: "object",
           properties: {

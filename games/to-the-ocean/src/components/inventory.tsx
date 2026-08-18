@@ -74,27 +74,12 @@ function InventoryGrid({ items, width, height }: { items: GridItem[]; width: num
   const grid = buildGridArray(items, width, height);
   const [activeKey, setActiveKey] = React.useState<string | null>(null);
 
-  // Only render cells that have items — empty cells are drawn via CSS
-  // background pattern on the grid container. This avoids creating 300+
-  // DOM elements for a 20×15 grid, which would cause multi-second lag
-  // in the undertow worker (each DOM element requires a callSync round-trip).
-  const itemCells: { item: GridItem; x: number; y: number }[] = [];
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const cell = grid[y][x];
-      if (cell?.isRoot) {
-        itemCells.push({ item: cell.item, x, y });
-      }
-    }
-  }
-
-  // Cell size: w-7 h-7 = 1.75rem = 28px. Gap is 1px.
+  // Render every cell as a DOM element — both empty and filled.
+  // (The previous approach drew empty cells via a CSS conic-gradient
+  // background pattern to avoid 300+ callSync round-trips in the undertow
+  // worker. Now that React runs on the main thread, 300 divs is trivial.)
   const CELL = 28;
   const GAP = 1;
-  // Background pattern: alternating cell background and gap color.
-  // Creates a grid of 28×28 cells with 1px gaps.
-  const cellBg = "rgba(30, 58, 95, 0.5)"; // bg-ocean-800/50
-  const gapBg = "rgba(30, 64, 96, 0.3)";  // bg-ocean-700/30
 
   return (
     <div
@@ -103,32 +88,42 @@ function InventoryGrid({ items, width, height }: { items: GridItem[]; width: num
         gridTemplateColumns: `repeat(${width}, ${CELL}px)`,
         gridTemplateRows: `repeat(${height}, ${CELL}px)`,
         gap: `${GAP}px`,
-        backgroundColor: gapBg,
-        // Draw empty cells with a background pattern — each cell gets cellBg,
-        // the gap between cells shows gapBg (the container background).
-        backgroundImage: `repeating-conic-gradient(${cellBg} 0% 25%, transparent 0% 50%)`,
-        backgroundSize: `${CELL + GAP}px ${CELL + GAP}px`,
         width: `calc(${width} * ${CELL}px + ${width - 1} * ${GAP}px)`,
       }}
     >
-      {itemCells.map(({ item, x, y }) => {
-        const def = getItem(item.itemId);
-        const spoil = getSpoilInfo(item);
-        const key = `${x}-${y}`;
-        return (
-          <ItemCell
-            key={key}
-            item={item}
-            def={def}
-            spoil={spoil}
-            isOpen={activeKey === key}
-            onOpen={() => setActiveKey(key)}
-            onClose={() => setActiveKey(null)}
-            gridX={x}
-            gridY={y}
-          />
-        );
-      })}
+      {Array.from({ length: height }, (_, y) =>
+        Array.from({ length: width }, (_, x) => {
+          const cell = grid[y][x];
+          if (cell?.isRoot) {
+            const item = cell.item;
+            const def = getItem(item.itemId);
+            const spoil = getSpoilInfo(item);
+            const key = `${x}-${y}`;
+            return (
+              <ItemCell
+                key={key}
+                item={item}
+                def={def}
+                spoil={spoil}
+                isOpen={activeKey === key}
+                onOpen={() => setActiveKey(key)}
+                onClose={() => setActiveKey(null)}
+                gridX={x}
+                gridY={y}
+              />
+            );
+          }
+          // Empty cell — render a plain div so the grid layout is correct
+          // and item cells can span multiple rows/columns via gridColumn/gridRow.
+          if (cell && !cell.isRoot) {
+            // Occupied by a multi-cell item but not the root — render nothing
+            // (the root cell spans this position via gridColumn/gridRow).
+            return <div key={`${x}-${y}`} />;
+          }
+          // Truly empty cell
+          return <div key={`${x}-${y}`} className="bg-ocean-800/50" />;
+        }),
+      )}
     </div>
   );
 }
