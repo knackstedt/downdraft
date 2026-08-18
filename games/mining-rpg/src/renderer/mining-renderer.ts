@@ -103,6 +103,11 @@ export class MiningRenderer {
   private lastTick = -1;
   private renderAccumulator = 0;
   private interpInitialized = false;
+  // Camera snap-on-first-frame: the camera starts at (0,0) from makeCamera2D
+  // (constructor / hot reload). Without this flag, the first updateCamera call
+  // lerps from (0,0) toward the player — visible as a tween from the top-left
+  // corner on hot reload. Snapping on the first frame avoids the tween.
+  private cameraInitialized = false;
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
     this.canvas = canvas;
@@ -216,6 +221,13 @@ export class MiningRenderer {
       console.warn("[MiningRenderer] Failed to load save:", e);
     }
 
+    // Resume the worker now that save data has been loaded (or there was no
+    // save). The worker starts paused (see mining-worker.ts init) to prevent
+    // it from simulating at the default spawn position before saved chunks
+    // are restored, which would overwrite saved chunks near spawn with
+    // freshly generated terrain on the first rebuild.
+    this.workerHost.resume();
+
     // --- Set up autosave ---
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
@@ -291,6 +303,7 @@ export class MiningRenderer {
    *  load) so the renderer doesn't try to lerp across the gap. */
   private resetInterpolation(): void {
     this.interpInitialized = false;
+    this.cameraInitialized = false;
     this.lastTick = -1;
     this.renderAccumulator = 0;
     this.prevPx = 0;
@@ -508,7 +521,16 @@ export class MiningRenderer {
     // lerps toward the interpolated player position; we convert to local
     // below. Using the interpolated position keeps the camera in lockstep
     // with the smoothed player (no relative teleportation).
-    updateCamera(this.camera, interpPx, interpPy);
+    // Snap the camera to the target on the first frame (after construction,
+    // hot reload, respawn, or save load) instead of lerping from (0,0) —
+    // which would visibly tween from the top-left corner.
+    if (!this.cameraInitialized) {
+      this.camera.x = interpPx;
+      this.camera.y = interpPy;
+      this.cameraInitialized = true;
+    } else {
+      updateCamera(this.camera, interpPx, interpPy);
+    }
     // Apply queued zoom steps from "=" / "-" keybinds. Each step multiplies
     // (or divides) the zoom by ZOOM_STEP_FACTOR; clamped to [ZOOM_MIN, ZOOM_MAX].
     if (this.input.zoomDelta !== 0) {

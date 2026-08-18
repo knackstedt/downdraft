@@ -7,9 +7,15 @@
 // updateMiningPlayer.
 // ============================================================================
 
-import { Material, MATERIALS } from "@downdraft/library-sand";
-import { CLIMB_SPEED, isCollectible, PLAYER_H, PLAYER_W } from "../shared/constants";
+import { FLAG_UPDATED, Material, MATERIALS } from "@downdraft/library-sand";
+import { CLIMB_SPEED, DeathCause, FALL_DAMAGE_SCALE, FALL_DAMAGE_THRESHOLD, isCollectible, PLAYER_H, PLAYER_W } from "../shared/constants";
 import type { MiningPlayerState } from "../shared/types";
+
+// FLAG_DETACHED is a game-specific flag (bit 4 of the flags byte) defined in
+// chunk-world.ts. Re-declared here to avoid a circular import.
+const FLAG_DETACHED = 0x10;
+// Combined mask for cells that are currently falling/moving (not static).
+const FLAG_FALLING = FLAG_UPDATED | FLAG_DETACHED;
 
 export interface MiningPlayerInput {
   left: boolean;
@@ -19,14 +25,14 @@ export interface MiningPlayerInput {
   jump: boolean;
 }
 
-const GRAVITY = 0.08;
+const GRAVITY = 0.04;
 const MOVE_ACCEL = 0.12;
 const MAX_SPEED = 0.6;
 const FRICTION = 0.85;
-const JUMP_FORCE = 1.25;
-// Terminal fall velocity. With GRAVITY=0.08, the player accelerates over ~1s
-// (31 ticks) before reaching this cap — giving falls a sense of inertia and
-// weight instead of snapping to max speed in 0.33s.
+const JUMP_FORCE = 0.9;
+// Terminal fall velocity. With GRAVITY=0.04, the player accelerates over ~1s
+// (63 ticks @ 60Hz) before reaching this cap — giving falls a sense of inertia
+// and weight. A full-speed fall (vy=2.5) deals lethal damage on landing.
 const MAX_FALL = 2.5;
 // Max movement per collision sub-step. The Y collision check is sub-stepped
 // so that high fall speeds (up to MAX_FALL) can't tunnel through 1-cell-thick
@@ -40,7 +46,6 @@ const CLING_DAMP = 0.5;
 // they can wiggle out if partially covered, but are crushed if fully covered.
 const BURY_WIGGLE_SPEED = 0.15;   // max speed when partially buried
 const BURY_DAMAGE_PER_TICK = 2;   // crush damage per tick when fully buried
-const BURY_MATERIAL = Material.Stone; // death cause for crushing
 
 export function createMiningPlayer(worldX: number, worldY: number): MiningPlayerState {
   return {
@@ -150,6 +155,56 @@ function countSolidOverlap(grid: Uint32Array, bgGrid: Uint32Array, W: number, H:
 }
 
 /**
+ * Like isSolid, but excludes falling/moving particles (cells with
+ * FLAG_UPDATED or FLAG_DETACHED set). Static terrain (stone, dirt, walls)
+ * and background build materials (scaffolding) still count as solid.
+ * Used for the crush-damage check so that falling debris (gravel, loose
+ * stone, ore) landing on the player doesn't trigger suffocation damage —
+ * only a static cave-in (all body cells encased in static solid) crushes.
+ */
+function isStaticSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, x: number, y: number): boolean {
+  if (x < 0 || x >= W || y < 0 || y >= H) return true; // out of bounds = wall
+  const packed = grid[y * W + x];
+  if (packed !== 0) {
+    const def = MATERIALS[packed & 0xff];
+    if (def?.solid) {
+      // Exclude falling/moving particles — only static solids count.
+      const flags = (packed >> 16) & 0xff;
+      if ((flags & FLAG_FALLING) !== 0) return false;
+      return true;
+    }
+  }
+  // Background grid cells (scaffolding) are always static — no movement flags.
+  const bgPacked = bgGrid[y * W + x];
+  if (bgPacked !== 0) {
+    const bgDef = MATERIALS[bgPacked & 0xff];
+    if (bgDef?.solid) return true;
+  }
+  return false;
+}
+
+/**
+ * Count how many STATIC solid cells overlap the player's body AABB.
+ * Falling particles (gravel, loose stone, ore) are excluded — only static
+ * terrain and build materials count. Used for the crush-damage check.
+ */
+function countStaticSolidOverlap(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, px: number, py: number): { solid: number; total: number } {
+  const x0 = Math.floor(px - PLAYER_W / 2);
+  const x1 = Math.floor(px + PLAYER_W / 2);
+  const y0 = Math.floor(py);
+  const y1 = Math.floor(py + PLAYER_H - 1);
+  let solid = 0;
+  let total = 0;
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      total++;
+      if (isStaticSolid(grid, bgGrid, W, H, x, y)) solid++;
+    }
+  }
+  return { solid, total };
+}
+
+/**
  * Clear solid cells overlapping the player's body so they can wiggle out.
  * Only clears a few cells per tick (slow escape). Prioritizes cells in the
  * direction the player is trying to move.
@@ -212,15 +267,21 @@ export function updateMiningPlayer(
   const climbCount = countClimbable(grid, bgGrid, W, H, px, py);
   const onClimb = climbCount > 0;
 
-  // Check how buried the player is at the start of this tick
+  // Check how buried the player is at the start of this tick.
+  // - partiallyBuried: ANY solid overlap (including falling particles) →
+  //   restricts movement to wiggle speed so the player can push through debris.
+  // - fullyBuried: ALL body cells are STATIC solid (excludes falling particles)
+  //   → crush damage. Falling debris (gravel, loose stone, ore) landing on the
+  //   player won't crush them — only a static cave-in (encased in stone) does.
   const overlap = countSolidOverlap(grid, bgGrid, W, H, px, py);
-  const fullyBuried = overlap.solid >= overlap.total; // every body cell is solid
+  const staticOverlap = countStaticSolidOverlap(grid, bgGrid, W, H, px, py);
+  const fullyBuried = staticOverlap.solid >= staticOverlap.total;
   const partiallyBuried = overlap.solid > 0 && !fullyBuried;
 
   // If fully buried, take crush damage
   if (fullyBuried) {
     p.health = Math.max(0, p.health - BURY_DAMAGE_PER_TICK);
-    p.lastDamageMaterial = BURY_MATERIAL;
+    p.lastDamageMaterial = DeathCause.Suffocation;
   }
 
   // Horizontal movement
@@ -342,6 +403,10 @@ export function updateMiningPlayer(
         } else {
           if (p.vy > 0) {
             p.onGround = true;
+            // Fall damage: if the player landed with high vertical velocity,
+            // apply damage proportional to the excess speed above the safe
+            // landing threshold. The velocity is captured before zeroing.
+            const fallSpeed = p.vy;
             // Fine-snap: binary search between the last safe position (py)
             // and the colliding position (newY) to find the closest resting
             // position. 5 iterations → precision ~0.028 cells (invisible).
@@ -352,6 +417,18 @@ export function updateMiningPlayer(
               else lo = mid;
             }
             py = lo;
+            // Apply fall damage after snapping (so the player is planted
+            // on the ground regardless of whether the fall was lethal).
+            // Damage scales quadratically with excess speed — no cap, so
+            // higher velocity always means more damage.
+            if (fallSpeed > FALL_DAMAGE_THRESHOLD) {
+              const excess = fallSpeed - FALL_DAMAGE_THRESHOLD;
+              const damage = Math.round(excess * excess * FALL_DAMAGE_SCALE);
+              if (damage > 0) {
+                p.health = Math.max(0, p.health - damage);
+                p.lastDamageMaterial = DeathCause.Falling;
+              }
+            }
           }
           p.vy = 0;
           break;

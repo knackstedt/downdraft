@@ -5,6 +5,33 @@
 import { Material } from "@downdraft/library-sand";
 
 // ============================================================================
+// Death causes — unified enum for all death types.
+//
+// Material-based deaths (lava, fire, gas, etc.) use the Material ID directly
+// (0-95). Non-material deaths use IDs starting at 1000 to avoid collision.
+// The player's lastDamageMaterial field stores a DeathCause value, which is
+// looked up in the DEATH_MESSAGES object to pick a quip.
+// ============================================================================
+export const DeathCause = {
+  // Non-material death causes (IDs above 1000 to avoid Material ID collision)
+  Suffocation: 1000, // fully buried / crushed by terrain
+  Falling: 1001, // lethal fall impact (high vertical velocity on landing)
+} as const;
+
+// Fall damage — landing with vertical velocity above FALL_DAMAGE_THRESHOLD
+// (in cells/tick) deals damage that scales QUADRATICALLY with the excess
+// speed: damage = (excess)^2 * FALL_DAMAGE_SCALE. This makes short falls
+// forgiving and long falls lethal:
+//   vy=1.5 (threshold):   0 damage (safe)
+//   vy=2.0:               25 damage (minor)
+//   vy=2.5 (max fall):   100 damage (lethal)
+//   vy=3.0:              225 damage (overkill)
+//   vy=3.5 (bomb launch): 400 damage (overkill)
+// There is no cap — higher velocity always means more damage.
+export const FALL_DAMAGE_THRESHOLD = 1.5;
+export const FALL_DAMAGE_SCALE = 100; // damage per (cell/tick above threshold)^2
+
+// ============================================================================
 // Build system — placeable scaffolding / ladders / ropes.
 //
 // The player toggles "build mode" (B) and selects a material (1/2/3). While in
