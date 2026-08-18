@@ -58,15 +58,9 @@ export class Query {
       const count = entities.length;
 
       const columns = this.iterColumns;
-      if (columns.length !== ncomps) {
-        columns.length = ncomps;
-        for (let r = 0; r < ncomps; r++) {
-          columns[r] = getComponentColumn(arch, required[r]);
-        }
-      } else {
-        for (let r = 0; r < ncomps; r++) {
-          columns[r] = getComponentColumn(arch, required[r]);
-        }
+      if (columns.length !== ncomps) columns.length = ncomps;
+      for (let r = 0; r < ncomps; r++) {
+        columns[r] = getComponentColumn(arch, required[r]);
       }
 
       if (changedFilter !== undefined) {

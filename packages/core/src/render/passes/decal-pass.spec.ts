@@ -13,8 +13,8 @@ beforeAll(() => {
 
 function makeMockDevice() {
   const createBuffer = vi.fn(() => ({ destroy: vi.fn() }));
-  const createShaderModule = vi.fn(() => ({}));
-  const createRenderPipeline = vi.fn(() => ({ getBindGroupLayout: () => ({}) }));
+  const createShaderModule = vi.fn(() => ({ destroy: vi.fn() }));
+  const createRenderPipeline = vi.fn(() => ({ getBindGroupLayout: () => ({}), destroy: vi.fn() }));
   const createBindGroup = vi.fn(() => ({}));
   const createSampler = vi.fn(() => ({}));
   return {

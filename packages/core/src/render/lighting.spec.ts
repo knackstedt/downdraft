@@ -34,10 +34,11 @@ describe("Lighting", () => {
     expect(data.pointLightCount).toBe(0);
   });
 
-  it("should pack light uniform into Float32Array of size 16", () => {
+  it("should pack light uniform into Float32Array of size 32", () => {
     const data = createDefaultLightUniform();
     const packed = packLightUniform(data);
-    expect(packed.length).toBe(16);
+    // 8 directional + 12 hemisphere + 8 ambient/counts + 4 pad = 32 (std140 layout)
+    expect(packed.length).toBe(32);
     // First 3 values are direction
     expect(packed[0]).toBeCloseTo(data.directional.direction[0]);
     // 4th value is intensity
