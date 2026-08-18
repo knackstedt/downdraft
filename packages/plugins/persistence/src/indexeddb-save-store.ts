@@ -263,12 +263,9 @@ export class IndexedDBSaveStore implements ISaveStore {
     }
 
     private async computeHash(data: Uint8Array): Promise<Uint8Array> {
-        const xxh = await import("xxhash-wasm");
-        const instance = await xxh.default();
-        const h64 = instance.h64Raw(data);
-        const result = new Uint8Array(16);
-        result.set(h64, 0);
-        return result;
+        // True XXH3-128 hash (16 bytes) — no longer padded h64.
+        const { xxh3_128 } = await import("./hash-utils");
+        return xxh3_128(data);
     }
 
     private async compressBytes(data: Uint8Array): Promise<Uint8Array> {

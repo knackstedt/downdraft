@@ -1,3 +1,4 @@
+import type { AnimationEventTrack } from "./animation-event";
 import type { MorphTargetTrack } from "./morph-target";
 import { sampleMorphWeight } from "./morph-target";
 
@@ -10,11 +11,6 @@ export interface KeyframeTrack {
   times: Float32Array;
   values: Float32Array;
   interpolation: "step" | "linear" | "cubicspline";
-}
-
-export interface AnimationEventTrack {
-  times: Float32Array;
-  events: string[];
 }
 
 export interface AnimationClipData {

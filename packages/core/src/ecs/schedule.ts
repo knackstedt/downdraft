@@ -118,6 +118,20 @@ export class Schedule {
       nameToIdx.set(systems[i].name, i);
     }
 
+    // Build reverse edges from `before` declarations (same as topologicalSort)
+    const implicitAfter = new Map<string, string[]>();
+    for (let i = 0; i < systems.length; i++) {
+      const sys = systems[i];
+      if (!sys.before) continue;
+      for (let j = 0; j < sys.before.length; j++) {
+        const target = sys.before[j];
+        if (!nameToIdx.has(target)) continue;
+        let list = implicitAfter.get(target);
+        if (!list) { list = []; implicitAfter.set(target, list); }
+        list.push(sys.name);
+      }
+    }
+
     // Track completion state
     const completed = new Array<boolean>(systems.length).fill(false);
     const running = new Set<number>();
@@ -126,7 +140,7 @@ export class Schedule {
     for (let i = 0; i < systems.length; i++) {
       const sys = systems[i];
 
-      // Check if all `after` deps are completed
+      // Check if all `after` deps (explicit + implicit from `before`) are completed
       let depsReady = true;
       if (sys.after) {
         for (let j = 0; j < sys.after.length; j++) {
@@ -134,6 +148,18 @@ export class Schedule {
           if (depIdx !== undefined && !completed[depIdx]) {
             depsReady = false;
             break;
+          }
+        }
+      }
+      if (depsReady) {
+        const implicit = implicitAfter.get(sys.name);
+        if (implicit) {
+          for (let j = 0; j < implicit.length; j++) {
+            const depIdx = nameToIdx.get(implicit[j]);
+            if (depIdx !== undefined && !completed[depIdx]) {
+              depsReady = false;
+              break;
+            }
           }
         }
       }
@@ -198,6 +224,22 @@ export class Schedule {
       nameToSys.set(bucket[i].system.name, bucket[i]);
     }
 
+    // Build reverse edges from `before` declarations:
+    // if A declares `before: [B]`, then B must run after A.
+    // We collect these as additional implicit `after` deps on B.
+    const implicitAfter = new Map<string, string[]>();
+    for (let i = 0; i < bucket.length; i++) {
+      const sys = bucket[i].system;
+      if (!sys.before) continue;
+      for (let j = 0; j < sys.before.length; j++) {
+        const target = sys.before[j];
+        if (!nameToSys.has(target)) continue; // skip unknown systems
+        let list = implicitAfter.get(target);
+        if (!list) { list = []; implicitAfter.set(target, list); }
+        list.push(sys.name);
+      }
+    }
+
     const visited = new Set<string>();
     const result: System[] = [];
 
@@ -212,9 +254,17 @@ export class Schedule {
 
       path.add(name);
 
+      // Process explicit `after` deps
       if (entry.system.after) {
         for (let i = 0; i < entry.system.after.length; i++) {
           visit(entry.system.after[i], path);
+        }
+      }
+      // Process implicit `after` deps (from other systems' `before` declarations)
+      const implicit = implicitAfter.get(name);
+      if (implicit) {
+        for (let i = 0; i < implicit.length; i++) {
+          visit(implicit[i], path);
         }
       }
 

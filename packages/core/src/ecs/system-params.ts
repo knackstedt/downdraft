@@ -6,6 +6,7 @@ import { Stage, type System, type SystemContext, type SystemFn } from "./system"
 import type { World } from "./world";
 
 export interface Res<T> {
+  /** Live view of the resource — re-reads from the world on every access. */
   readonly value: T | undefined;
 }
 
@@ -40,7 +41,13 @@ export function resolveParams(
   const resolved: ResolvedParam[] = [];
   for (const param of params) {
     if (param.kind === "res") {
-      resolved.push({ value: world.getResourceTyped(param.token) });
+      // Live view: the getter reads from the world on every .value access,
+      // so resource updates (including hot-reload) are reflected immediately.
+      resolved.push({
+        get value() {
+          return world.getResourceTyped(param.token);
+        },
+      });
     } else {
       resolved.push(param.query);
     }
