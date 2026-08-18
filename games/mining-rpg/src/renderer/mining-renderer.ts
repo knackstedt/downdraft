@@ -11,7 +11,7 @@
 // ============================================================================
 
 import { Material, MATERIALS } from "@downdraft/library-sand";
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, MAX_CHUNKS_X, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
@@ -128,6 +128,15 @@ export class MiningRenderer {
   getCamera(): Camera2D {
     return this.camera;
   }
+  /** Active grid origin in WORLD cell coords (top-left of the simulated
+   *  window). Used by the debug chunk-border overlay to highlight the active
+   *  simulation window. Returns {0,0} before the worker writes its first
+   *  frame. */
+  getActiveGridOrigin(): { x: number; y: number; w: number; h: number } {
+    const originX = this.gridReader?.getStat(STATS.ORIGIN_X) ?? 0;
+    const originY = this.gridReader?.getStat(STATS.ORIGIN_Y) ?? 0;
+    return { x: originX, y: originY, w: ACTIVE_GRID_W, h: ACTIVE_GRID_H };
+  }
   /** Signpost world position (surface spawn point). */
   getSignpostPos(): { x: number; y: number } {
     return { x: this.signpostX, y: this.signpostY };
@@ -232,7 +241,7 @@ export class MiningRenderer {
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, inventory: [], currency: 0, chunks: [], zoom: this.camera.zoom, savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, inventory: [], currency: 0, chunks: [], zoom: this.camera.zoom, savedAt: Date.now() };
       }
       const store = useGameStore.getState();
       return {
@@ -351,6 +360,7 @@ export class MiningRenderer {
     this.resetInterpolation();
     s.setGameOver(false);
     s.setHealth(100);
+    s.setOxygen(OXYGEN_MAX_TICKS);
     s.setDeathCause(0);
     s.setDeathQuip("");
     this.workerHost?.respawn();
@@ -384,6 +394,7 @@ export class MiningRenderer {
     // Reset all game store state to defaults
     s.setGameOver(false);
     s.setHealth(100);
+    s.setOxygen(OXYGEN_MAX_TICKS);
     s.setDeathCause(0);
     s.setDeathQuip("");
     s.setInventory([]);
@@ -454,6 +465,7 @@ export class MiningRenderer {
     const animFrame = this.workerHost.getPlayerI32(PLAYER.ANIM_FRAME);
     const health = this.workerHost.getPlayerI32(PLAYER.HEALTH);
     const deathCause = this.workerHost.getPlayerI32(PLAYER.DEATH_CAUSE);
+    const oxygen = this.workerHost.getPlayerI32(PLAYER.OXYGEN);
     const onGround = this.workerHost.getPlayerI32(PLAYER.ON_GROUND) !== 0;
     const vx = this.workerHost.getPlayerF32(PLAYER.VX);
     const vy = this.workerHost.getPlayerF32(PLAYER.VY);
@@ -540,9 +552,10 @@ export class MiningRenderer {
       );
       this.input.zoomDelta = 0;
     }
-    // Sync player health + depth to store (needed for depth uniform)
+    // Sync player health + oxygen + depth to store (needed for depth uniform)
     const s = useGameStore.getState();
     if (s.health !== health) s.setHealth(health);
+    if (s.oxygen !== oxygen) s.setOxygen(oxygen);
     const depth = Math.floor(py / 128);
     if (s.depth !== depth) s.setDepth(depth);
     const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
@@ -677,6 +690,9 @@ export class MiningRenderer {
     // Build mode: when active, left-click places the selected material
     // (handled in the worker via world.place) instead of mining.
     this.workerHost.writeBuildInput(store.buildMode, store.getSelectedBuildMatId());
+    // Noclip (dev cheat): written every frame so toggling it on/off is
+    // immediate. The worker reads it from the SAB each sim tick.
+    this.workerHost.writeNoclip(store.noclip);
   }
 
   /** Throw a bomb from the player towards the target world coords. */

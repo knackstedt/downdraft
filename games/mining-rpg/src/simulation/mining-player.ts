@@ -7,15 +7,9 @@
 // updateMiningPlayer.
 // ============================================================================
 
-import { FLAG_UPDATED, Material, MATERIALS } from "@downdraft/library-sand";
-import { CLIMB_SPEED, DeathCause, FALL_DAMAGE_SCALE, FALL_DAMAGE_THRESHOLD, isCollectible, PLAYER_H, PLAYER_W } from "../shared/constants";
+import { MAT_GRAVITY_DIR, Material, MATERIALS } from "@downdraft/library-sand";
+import { CLIMB_SPEED, DeathCause, FALL_DAMAGE_SCALE, FALL_DAMAGE_THRESHOLD, isCollectible, OXYGEN_DROWN_DAMAGE_PER_TICK, OXYGEN_MAX_TICKS, OXYGEN_REGEN_PER_TICK, PLAYER_H, PLAYER_W } from "../shared/constants";
 import type { MiningPlayerState } from "../shared/types";
-
-// FLAG_DETACHED is a game-specific flag (bit 4 of the flags byte) defined in
-// chunk-world.ts. Re-declared here to avoid a circular import.
-const FLAG_DETACHED = 0x10;
-// Combined mask for cells that are currently falling/moving (not static).
-const FLAG_FALLING = FLAG_UPDATED | FLAG_DETACHED;
 
 export interface MiningPlayerInput {
   left: boolean;
@@ -23,6 +17,7 @@ export interface MiningPlayerInput {
   up: boolean;
   down: boolean;
   jump: boolean;
+  noclip: boolean;
 }
 
 const GRAVITY = 0.04;
@@ -47,6 +42,12 @@ const CLING_DAMP = 0.5;
 const BURY_WIGGLE_SPEED = 0.15;   // max speed when partially buried
 const BURY_DAMAGE_PER_TICK = 2;   // crush damage per tick when fully buried
 
+// Noclip (development cheat): the player flies freely through terrain — no
+// gravity, no collision, no damage, no drowning. WASD moves in all 4
+// directions; Space/Up = up, Down = down. Faster than normal movement so
+// traversing the world is quick.
+const NOCLIP_SPEED = 3.0;
+
 export function createMiningPlayer(worldX: number, worldY: number): MiningPlayerState {
   return {
     x: worldX,
@@ -58,6 +59,7 @@ export function createMiningPlayer(worldX: number, worldY: number): MiningPlayer
     animFrame: 0,
     health: 100,
     lastDamageMaterial: 0,
+    oxygen: OXYGEN_MAX_TICKS,
   };
 }
 
@@ -90,6 +92,25 @@ function boxHitsSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: numb
   return false;
 }
 
+/**
+ * Like boxHitsSolid, but only checks against STATIC solid cells (excludes
+ * falling/moving particles). Used for downward Y collision so the player
+ * falls through falling debris (grass, gravel, ore) instead of landing on
+ * it — preventing instant fall-damage death from landing on falling particles.
+ */
+function boxHitsStaticSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, px: number, py: number): boolean {
+  const x0 = Math.floor(px - PLAYER_W / 2);
+  const x1 = Math.floor(px + PLAYER_W / 2);
+  const y0 = Math.floor(py);
+  const y1 = Math.floor(py + PLAYER_H - 1);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (isStaticSolid(grid, bgGrid, W, H, x, y)) return true;
+    }
+  }
+  return false;
+}
+
 function countLiquid(grid: Uint32Array, W: number, H: number, px: number, py: number): number {
   let n = 0;
   const x0 = Math.floor(px - PLAYER_W / 2);
@@ -105,6 +126,26 @@ function countLiquid(grid: Uint32Array, W: number, H: number, px: number, py: nu
     }
   }
   return n;
+}
+
+/**
+ * Check if the player's HEAD is submerged in liquid. The head is the top row
+ * of the player's AABB (py = top). Only head submersion causes drowning —
+ * standing waist-deep in water is safe. Returns true if any cell in the top
+ * row of the AABB is a liquid material.
+ */
+function isHeadInLiquid(grid: Uint32Array, W: number, H: number, px: number, py: number): boolean {
+  const x0 = Math.floor(px - PLAYER_W / 2);
+  const x1 = Math.floor(px + PLAYER_W / 2);
+  const y = Math.floor(py); // top row = head
+  if (y < 0 || y >= H) return false;
+  for (let x = x0; x <= x1; x++) {
+    if (x < 0 || x >= W) continue;
+    const packed = grid[y * W + x];
+    if (packed === 0) continue;
+    if (MATERIALS[packed & 0xff]?.liquid) return true;
+  }
+  return false;
 }
 
 /**
@@ -155,40 +196,45 @@ function countSolidOverlap(grid: Uint32Array, bgGrid: Uint32Array, W: number, H:
 }
 
 /**
- * Like isSolid, but excludes falling/moving particles (cells with
- * FLAG_UPDATED or FLAG_DETACHED set). Static terrain (stone, dirt, walls)
- * and background build materials (scaffolding) still count as solid.
- * Used for the crush-damage check so that falling debris (gravel, loose
- * stone, ore) landing on the player doesn't trigger suffocation damage —
- * only a static cave-in (all body cells encased in static solid) crushes.
+ * Check if a cell is "hard" — a solid material that can NEVER fall
+ * (MAT_GRAVITY_DIR === 0). These are the materials that cause fall damage
+ * when the player lands on them: stone, walls, concrete, scaffolding.
+ *
+ * Materials that CAN fall (grass, dirt, gravel, sand, ore — gravityDir != 0)
+ * are "soft" and don't cause fall damage. This includes falling particles:
+ * if the player lands on falling grass, the grass has gravityDir=1 so it's
+ * treated as soft — no fall damage.
+ *
+ * FLAG_UPDATED/FLAG_DETACHED can't be used because FLAG_UPDATED is cleared
+ * at the end of each sim step (before player physics runs), and FLAG_DETACHED
+ * is only set by mining/explosion code, not by the sim when a cell loses
+ * support and starts falling. MAT_GRAVITY_DIR is a static material property
+ * that reliably distinguishes "can fall" from "can never fall."
  */
-function isStaticSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, x: number, y: number): boolean {
+function isHardSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, x: number, y: number): boolean {
   if (x < 0 || x >= W || y < 0 || y >= H) return true; // out of bounds = wall
   const packed = grid[y * W + x];
   if (packed !== 0) {
-    const def = MATERIALS[packed & 0xff];
-    if (def?.solid) {
-      // Exclude falling/moving particles — only static solids count.
-      const flags = (packed >> 16) & 0xff;
-      if ((flags & FLAG_FALLING) !== 0) return false;
-      return true;
-    }
+    const mat = packed & 0xff;
+    const def = MATERIALS[mat];
+    if (def?.solid && MAT_GRAVITY_DIR[mat] === 0) return true;
   }
-  // Background grid cells (scaffolding) are always static — no movement flags.
+  // Background grid: scaffolding is solid and static (gravityDir=0).
   const bgPacked = bgGrid[y * W + x];
   if (bgPacked !== 0) {
-    const bgDef = MATERIALS[bgPacked & 0xff];
-    if (bgDef?.solid) return true;
+    const bgMat = bgPacked & 0xff;
+    const bgDef = MATERIALS[bgMat];
+    if (bgDef?.solid && MAT_GRAVITY_DIR[bgMat] === 0) return true;
   }
   return false;
 }
 
 /**
- * Count how many STATIC solid cells overlap the player's body AABB.
- * Falling particles (gravel, loose stone, ore) are excluded — only static
- * terrain and build materials count. Used for the crush-damage check.
+ * Count how many "hard" solid cells (can never fall) overlap the player's
+ * body AABB. Used for the crush-damage check: only being fully encased in
+ * hard materials (stone, walls) causes suffocation.
  */
-function countStaticSolidOverlap(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, px: number, py: number): { solid: number; total: number } {
+function countHardSolidOverlap(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, px: number, py: number): { solid: number; total: number } {
   const x0 = Math.floor(px - PLAYER_W / 2);
   const x1 = Math.floor(px + PLAYER_W / 2);
   const y0 = Math.floor(py);
@@ -198,7 +244,7 @@ function countStaticSolidOverlap(grid: Uint32Array, bgGrid: Uint32Array, W: numb
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
       total++;
-      if (isStaticSolid(grid, bgGrid, W, H, x, y)) solid++;
+      if (isHardSolid(grid, bgGrid, W, H, x, y)) solid++;
     }
   }
   return { solid, total };
@@ -259,6 +305,41 @@ export function updateMiningPlayer(
   let px = localX;
   let py = localY;
 
+  // --- Noclip (development cheat) ---
+  // When active: free flight through terrain. No gravity, no collision, no
+  // damage, no drowning. WASD + Space/Up = up, Down = down. The player still
+  // faces left/right so mining/building works normally while noclip is on.
+  if (input.noclip) {
+    let vx = 0;
+    let vy = 0;
+    if (input.left) { vx -= 1; p.facing = -1; }
+    if (input.right) { vx += 1; p.facing = 1; }
+    if (input.up || input.jump) vy -= 1;
+    if (input.down) vy += 1;
+    // Normalize diagonal so speed is consistent in all directions
+    const len = Math.hypot(vx, vy);
+    if (len > 0) {
+      vx = (vx / len) * NOCLIP_SPEED;
+      vy = (vy / len) * NOCLIP_SPEED;
+    }
+    px += vx;
+    py += vy;
+    // Clamp to active grid bounds (don't fly out of the simulated window —
+    // the active grid rebuilds as the player crosses chunk boundaries, so
+    // this just prevents rendering garbage outside the grid).
+    px = Math.max(PLAYER_W / 2, Math.min(W - PLAYER_W / 2 - 1, px));
+    py = Math.max(0, Math.min(H - PLAYER_H, py));
+    p.vx = vx;
+    p.vy = vy;
+    p.onGround = false;
+    p.animFrame++;
+    // Refill oxygen while noclip is on (no drowning)
+    p.oxygen = OXYGEN_MAX_TICKS;
+    p.x = px;
+    p.y = py;
+    return;
+  }
+
   const liquidCount = countLiquid(grid, W, H, px, py);
   const inLiquid = liquidCount >= 2;
   const buoyancy = inLiquid ? Math.min(0.06, liquidCount * 0.008) : 0;
@@ -270,12 +351,12 @@ export function updateMiningPlayer(
   // Check how buried the player is at the start of this tick.
   // - partiallyBuried: ANY solid overlap (including falling particles) →
   //   restricts movement to wiggle speed so the player can push through debris.
-  // - fullyBuried: ALL body cells are STATIC solid (excludes falling particles)
-  //   → crush damage. Falling debris (gravel, loose stone, ore) landing on the
-  //   player won't crush them — only a static cave-in (encased in stone) does.
+  // - fullyBuried: ALL body cells are HARD solid (can never fall — stone,
+  //   walls, etc.) → crush damage. Falling debris (grass, gravel, ore) landing
+  //   on the player won't crush them — only a static cave-in does.
   const overlap = countSolidOverlap(grid, bgGrid, W, H, px, py);
-  const staticOverlap = countStaticSolidOverlap(grid, bgGrid, W, H, px, py);
-  const fullyBuried = staticOverlap.solid >= staticOverlap.total;
+  const hardOverlap = countHardSolidOverlap(grid, bgGrid, W, H, px, py);
+  const fullyBuried = hardOverlap.solid >= hardOverlap.total;
   const partiallyBuried = overlap.solid > 0 && !fullyBuried;
 
   // If fully buried, take crush damage
@@ -376,6 +457,14 @@ export function updateMiningPlayer(
   // the ground surface (no gap, no settle jitter). When vy=0 and the player
   // was on ground, check if the ground is still below — if it was mined/removed
   // the player starts falling.
+  //
+  // Fall damage is only applied when the player lands on "hard" materials
+  // (MAT_GRAVITY_DIR === 0: stone, walls, scaffolding). "Soft" materials
+  // (grass, dirt, gravel — gravityDir != 0) cushion the fall. This prevents
+  // instant death from landing on falling particles (e.g. falling grass),
+  // which can't be distinguished from static grass by flags (FLAG_UPDATED is
+  // cleared at the end of each sim step, FLAG_DETACHED is only set by
+  // mining/explosion — not by the sim when a cell loses support).
   {
     const totalDy = p.vy;
     if (totalDy === 0) {
@@ -417,16 +506,29 @@ export function updateMiningPlayer(
               else lo = mid;
             }
             py = lo;
-            // Apply fall damage after snapping (so the player is planted
-            // on the ground regardless of whether the fall was lethal).
-            // Damage scales quadratically with excess speed — no cap, so
-            // higher velocity always means more damage.
+            // Apply fall damage only if the player landed on "hard" material
+            // (MAT_GRAVITY_DIR === 0: stone, walls, scaffolding). "Soft"
+            // materials (grass, dirt, gravel — gravityDir != 0) cushion
+            // the fall. This prevents instant death from landing on falling
+            // particles (e.g. falling grass) which can't be distinguished
+            // from static grass by flags alone.
             if (fallSpeed > FALL_DAMAGE_THRESHOLD) {
-              const excess = fallSpeed - FALL_DAMAGE_THRESHOLD;
-              const damage = Math.round(excess * excess * FALL_DAMAGE_SCALE);
-              if (damage > 0) {
-                p.health = Math.max(0, p.health - damage);
-                p.lastDamageMaterial = DeathCause.Falling;
+              // Check the cells directly below the player's feet — if ANY
+              // is a hard solid, the fall damage applies.
+              const feetY = Math.floor(py + PLAYER_H);
+              const fx0 = Math.floor(px - PLAYER_W / 2);
+              const fx1 = Math.floor(px + PLAYER_W / 2);
+              let landedOnHard = false;
+              for (let x = fx0; x <= fx1; x++) {
+                if (isHardSolid(grid, bgGrid, W, H, x, feetY)) { landedOnHard = true; break; }
+              }
+              if (landedOnHard) {
+                const excess = fallSpeed - FALL_DAMAGE_THRESHOLD;
+                const damage = Math.round(excess * excess * FALL_DAMAGE_SCALE);
+                if (damage > 0) {
+                  p.health = Math.max(0, p.health - damage);
+                  p.lastDamageMaterial = DeathCause.Falling;
+                }
               }
             }
           }
@@ -452,7 +554,11 @@ export function updateMiningPlayer(
   if (Math.abs(p.vx) > 0.01 || !p.onGround) p.animFrame++;
   else p.animFrame = 0;
 
-  // Damage from fire/lava/gas contact
+  // Damage from fire/lava/gas contact.
+  // Fire/lava/plasma/burning oil are instant-contact hazards (1 dmg/tick =
+  // 60 dmg/sec, kills in ~1.7s). Toxic gases are slower — they poison rather
+  // than incinerate, giving the player time to escape (0.2 dmg/tick = 12
+  // dmg/sec, kills in ~8s).
   const cx = Math.floor(px);
   for (let dy = 0; dy < PLAYER_H; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
@@ -460,19 +566,39 @@ export function updateMiningPlayer(
       const gy = Math.floor(py) + dy;
       if (gx < 0 || gx >= W || gy < 0 || gy >= H) continue;
       const m = grid[gy * W + gx] & 0xff;
+      const isGas = m === Material.MethaneGas || m === Material.SulfurGas;
       if (
         m === Material.Fire ||
         m === Material.Lava ||
         m === Material.Plasma ||
         m === Material.FuseFire ||
         m === Material.BurningOil ||
-        m === Material.MethaneGas ||
-        m === Material.SulfurGas
+        isGas
       ) {
-        p.health = Math.max(0, p.health - 1);
+        // Gas damage accumulates fractionally (0.2/tick) so it's tracked
+        // with a float; health is floored for display. Non-gas hazards
+        // deal 1/tick as before.
+        const dmg = isGas ? 0.2 : 1;
+        p.health = Math.max(0, p.health - dmg);
         p.lastDamageMaterial = m;
       }
     }
+  }
+
+  // Drowning — oxygen bar ticks down while the player's head is submerged in
+  // liquid. Once depleted, the player takes damage per tick until they surface
+  // or die. Oxygen regenerates quickly when the head is above liquid.
+  const headSubmerged = isHeadInLiquid(grid, W, H, px, py);
+  if (headSubmerged) {
+    p.oxygen = Math.max(0, (p.oxygen ?? OXYGEN_MAX_TICKS) - 1);
+    if (p.oxygen === 0) {
+      // Out of breath — take drowning damage
+      p.health = Math.max(0, p.health - OXYGEN_DROWN_DAMAGE_PER_TICK);
+      p.lastDamageMaterial = DeathCause.Drowning;
+    }
+  } else {
+    // Regenerate oxygen when above liquid (fast refill)
+    p.oxygen = Math.min(OXYGEN_MAX_TICKS, (p.oxygen ?? OXYGEN_MAX_TICKS) + OXYGEN_REGEN_PER_TICK);
   }
 
   // Write back local coords (caller converts to world)

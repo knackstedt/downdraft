@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
-import { BUILD_MATERIAL_INFO, type BuildMaterialType } from "../shared/constants";
+import { BUILD_MATERIAL_INFO, OXYGEN_MAX_TICKS, type BuildMaterialType } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
 const containerStyle: React.CSSProperties = {
@@ -45,6 +45,14 @@ const barInnerStyle = (health: number): React.CSSProperties => ({
   height: "100%",
   background: health > 50 ? "#4caf50" : health > 25 ? "#ff9800" : "#f44336",
   transition: "width 0.2s",
+});
+
+const oxygenBarInnerStyle = (pct: number): React.CSSProperties => ({
+  width: `${Math.max(0, Math.min(100, pct))}%`,
+  height: "100%",
+  // Blue when healthy, cyan when mid, red when near-empty
+  background: pct > 50 ? "#29b6f6" : pct > 20 ? "#26c6da" : "#ef5350",
+  transition: "width 0.15s",
 });
 
 const oreRowStyle: React.CSSProperties = {
@@ -107,13 +115,17 @@ const buildItemStyle = (selected: boolean): React.CSSProperties => ({
 });
 
 export function HUD() {
-  const { fps, health, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, buildMode, selectedBuild, buildMaterials, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, buildMode, selectedBuild, buildMaterials, noclip, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
   const invMax = getMaxInventory();
   const invPct = invMax > 0 ? (invUsed / invMax) * 100 : 0;
   const invColor = invPct < 70 ? "#4caf50" : invPct < 90 ? "#ff9800" : "#f44336";
+  // Oxygen bar — only show when below max (i.e. player has been submerged).
+  // Hides when full to avoid cluttering the HUD during normal play.
+  const oxygenPct = OXYGEN_MAX_TICKS > 0 ? (oxygen / OXYGEN_MAX_TICKS) * 100 : 100;
+  const showOxygen = oxygen < OXYGEN_MAX_TICKS;
 
   return (
     <div style={containerStyle}>
@@ -123,8 +135,17 @@ export function HUD() {
         <div style={barOuterStyle}>
           <div style={barInnerStyle(health)} />
         </div>
-        <span>{health}</span>
+        <span>{Math.ceil(health)}</span>
       </div>
+      {showOxygen && (
+        <div style={healthBarStyle}>
+          <span>O2:</span>
+          <div style={barOuterStyle}>
+            <div style={oxygenBarInnerStyle(oxygenPct)} />
+          </div>
+          <span>{Math.ceil(oxygen / 60)}s</span>
+        </div>
+      )}
       <div style={healthBarStyle}>
         <span>Inv:</span>
         <div style={barOuterStyle}>
@@ -142,6 +163,7 @@ export function HUD() {
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
       {buildMode && <div style={{ color: "#ffd700" }}>BUILD MODE — left-click to place</div>}
+      {noclip && <div style={{ color: "#00e5ff" }}>NOCLIP — WASD/Space to fly, F3 to disable</div>}
       <div style={buildRowStyle}>
         {(Object.keys(BUILD_MATERIAL_INFO) as BuildMaterialType[]).map((type) => {
           const info = BUILD_MATERIAL_INFO[type];

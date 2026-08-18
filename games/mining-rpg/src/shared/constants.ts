@@ -16,6 +16,7 @@ export const DeathCause = {
   // Non-material death causes (IDs above 1000 to avoid Material ID collision)
   Suffocation: 1000, // fully buried / crushed by terrain
   Falling: 1001, // lethal fall impact (high vertical velocity on landing)
+  Drowning: 1002, // oxygen depleted while submerged in liquid
 } as const;
 
 // Fall damage — landing with vertical velocity above FALL_DAMAGE_THRESHOLD
@@ -114,6 +115,17 @@ export const ACTIVE_RADIUS_CHUNKS = 2;
 // Simulation tick rate (ticks per second).
 export const TICK_RATE = 60;
 
+// ============================================================================
+// Drowning — oxygen bar that ticks down while the player's head is submerged
+// in liquid. The bar lasts OXYGEN_MAX_TICKS (30 seconds @ 60tps = 1800 ticks).
+// Once depleted, the player takes OXYGEN_DROWN_DAMAGE_PER_TICK damage per tick
+// until they surface or die. Oxygen regenerates at OXYGEN_REGEN_PER_TICK when
+// the head is above liquid (full refill in ~3 seconds).
+// ============================================================================
+export const OXYGEN_MAX_TICKS = TICK_RATE * 10; // 30 seconds of breath
+export const OXYGEN_DROWN_DAMAGE_PER_TICK = .5; // 
+export const OXYGEN_REGEN_PER_TICK = TICK_RATE * 20; // full refill in 60 ticks (~1s)
+
 // Freeze duration in ticks. 300 seconds @ 30tps = 9000 ticks.
 export const FREEZE_TICKS = TICK_RATE * 60 * 1;
 
@@ -156,7 +168,7 @@ export const BASE_MINING_RATE = 3;
 export const RATE_UPGRADE_REDUCTION = 1;
 
 /** Base max inventory size (total item count). */
-export const BASE_INVENTORY_SIZE = 25000;
+export const BASE_INVENTORY_SIZE = 250000;
 /** Inventory size increment per upgrade level. */
 export const INVENTORY_SIZE_UPGRADE_INCREMENT = 125;
 
@@ -218,7 +230,7 @@ export const ACTIVE_GRID_CELLS = ACTIVE_GRID_W * ACTIVE_GRID_H;
 //   bgGrid:   ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (Uint32 per cell — build layer)
 //   input:    128 bytes
 //   stats:    16 bytes
-//   player:   36 bytes (px, py, vx, vy, onGround, facing, animFrame, health, deathCause)
+//   player:   40 bytes (px, py, vx, vy, onGround, facing, animFrame, health, deathCause, oxygen)
 // ============================================================================
 
 export const ACTIVE_GRID_BYTES = ACTIVE_GRID_CELLS * CELL_BYTES;
@@ -226,7 +238,7 @@ export const ACTIVE_FIELD_BYTES = ACTIVE_GRID_CELLS * FIELD_BYTES;
 export const BG_GRID_BYTES = ACTIVE_GRID_CELLS * CELL_BYTES; // same res as foreground
 export const INPUT_BYTES = 128;
 export const STATS_BYTES = 32; // 8 int32s (6 used: frame, tick, fps, loadedChunks, originX, originY)
-export const PLAYER_BYTES = 36; // 8 float32/int32 + 1 int32 (death cause)
+export const PLAYER_BYTES = 40; // 8 float32/int32 + 2 int32 (death cause, oxygen)
 
 export const TOTAL_SAB_BYTES =
   ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + INPUT_BYTES + STATS_BYTES + PLAYER_BYTES;
@@ -253,7 +265,9 @@ export const INPUT = {
   DIG_RADIUS: 40,
   BUILD_MODE: 44, // int32 — 1 when build mode is active (left-click places)
   BUILD_MAT: 48,  // int32 — Material ID to place while in build mode
-  // offset 52-56 reserved
+  NOCLIP: 52,     // int32 — 1 when noclip (dev cheat) is active: player flies
+                  //         freely through terrain, no gravity/collision/damage
+  // offset 56 reserved
   IMPULSE_CHANCE: 60,
   IMPULSE_STRENGTH: 64,
 } as const;
@@ -277,7 +291,8 @@ export const PLAYER = {
   FACING: 20, // int32 — 1 = right, -1 = left
   ANIM_FRAME: 24, // int32 — animation frame counter
   HEALTH: 28, // int32 — player health
-  DEATH_CAUSE: 32, // int32 — Material that caused death (0 = none)
+  DEATH_CAUSE: 32, // int32 — Material/DeathCause that caused death (0 = none)
+  OXYGEN: 36, // int32 — remaining oxygen ticks (OXYGEN_MAX_TICKS = full)
 } as const;
 
 // ============================================================================

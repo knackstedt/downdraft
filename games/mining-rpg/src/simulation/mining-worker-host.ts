@@ -151,6 +151,12 @@ export class MiningWorkerHost {
     this.writer.writeInput(INPUT.BUILD_MAT, buildMat);
   }
 
+  /** Write noclip (dev cheat) state — when true, the player flies freely
+   *  through terrain with no gravity/collision/damage. */
+  writeNoclip(noclip: boolean): void {
+    this.writer.writeInput(INPUT.NOCLIP, noclip ? 1 : 0);
+  }
+
   // --- Player state reading ---
 
   getPlayerF32(field: number): number {
