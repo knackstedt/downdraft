@@ -1,3 +1,4 @@
+import { isDebug } from "../sab/errors";
 import { createLogger } from "../util/logger";
 import {
     addEntityToArchetype,
@@ -11,7 +12,6 @@ import type { ComponentDefinition, ComponentId, IComponent } from "./component";
 import type { Entity, EntityMeta } from "./entity";
 import { ROOT_ENTITY } from "./entity";
 import { EventBus } from "./events";
-import type { JobScheduler } from "./job-system";
 import type { ResourceToken } from "./resource";
 import { Schedule, type SystemContext } from "./schedule";
 
@@ -33,11 +33,6 @@ export class World {
   resources: Map<string, unknown> = new Map();
   tick: number = 0;
   archetypesDirty: boolean = false;
-  // When true, PostUpdate stage systems with `parallelizable: true` run on the
-  // job scheduler's worker pool instead of inline. Requires a JobScheduler to be
-  // set via setJobScheduler(). Off by default for safety.
-  useParallelScheduler: boolean = false;
-  private jobScheduler: JobScheduler | null = null;
 
   private commands: Command[] = [];
   private emptyArchetype: Archetype;
@@ -203,6 +198,9 @@ export class World {
         this.commands[i](this);
       } catch (err) {
         log.error("World", `Command at index ${i} threw: ${err}`);
+        // In debug mode, re-throw to surface command errors immediately.
+        // In production, log and continue for game-loop resilience.
+        if (isDebug()) throw err;
       }
     }
     this.commands.length = 0;
@@ -210,10 +208,6 @@ export class World {
       this.schedule.updateQueryArchetypes(this.allArchetypes);
       this.archetypesDirty = false;
     }
-  }
-
-  setJobScheduler(scheduler: JobScheduler): void {
-    this.jobScheduler = scheduler;
   }
 
   step(dt: number): void {
@@ -233,17 +227,7 @@ export class World {
     this.schedule.runStage(0, ctx); // Input
     this.schedule.runStage(1, ctx); // Update
     this.schedule.runStage(2, ctx); // Physics
-    // PostUpdate: run parallelizable systems on the worker pool when enabled.
-    // Falls back to sequential if no job scheduler is set or the flag is off.
-    if (this.useParallelScheduler && this.jobScheduler) {
-      // runStageParallel is async but we can't await in step() without making it async.
-      // For now, run sequentially — the parallel path requires an async step() which
-      // would be a breaking API change. The infrastructure is in place for when the
-      // ECS migration (Phase 6) makes step() async.
-      this.schedule.runStage(3, ctx); // PostUpdate (sequential fallback)
-    } else {
-      this.schedule.runStage(3, ctx); // PostUpdate
-    }
+    this.schedule.runStage(3, ctx); // PostUpdate
     this.schedule.runStage(4, ctx); // Render (render-prep systems)
     this.flushCommands();
   }

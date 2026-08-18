@@ -44,6 +44,8 @@ export interface GameRendererConfig {
     showPercentiles?: boolean;
     showMemory?: boolean;
   };
+  /** Max number of cached depth textures (per resolution). Older entries are evicted. Default: 3. */
+  depthTextureCacheSize?: number;
 }
 
 export interface FrameCallbacks {
@@ -155,7 +157,9 @@ export class GameRenderer implements CanvasResizeHandler {
   private graphCompiled = false;
 
   // Depth texture cache (used when the graph does not own depth)
+  // LRU: Map insertion order = access order (delete + re-set on access).
   private depthTextures = new Map<string, GPUTexture>();
+  private depthTextureCacheSize: number;
 
   // Frame stats
   private frameDrawCalls = 0;
@@ -183,6 +187,7 @@ export class GameRenderer implements CanvasResizeHandler {
     this.config = config;
     this.depthFormat = config.depthFormat ?? "depth32float";
     this.msaaSampleCount = config.msaaSampleCount ?? 1;
+    this.depthTextureCacheSize = config.depthTextureCacheSize ?? 3;
     this.deviceManager = new GPUDeviceManager();
     this.inputManager = new InputManager(canvas);
     this.frameGraph = new FrameGraph();
@@ -758,13 +763,25 @@ export class GameRenderer implements CanvasResizeHandler {
     if (!this.device) throw new Error("No device");
     const key = `${w}x${h}`;
     let tex = this.depthTextures.get(key);
-    if (!tex) {
+    if (tex) {
+      // LRU: move to most-recently-used by re-inserting.
+      this.depthTextures.delete(key);
+      this.depthTextures.set(key, tex);
+    } else {
       tex = this.device.createTexture({
         size: [w, h],
         format: this.depthFormat,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
       this.depthTextures.set(key, tex);
+      // Evict oldest entries if over cap.
+      while (this.depthTextures.size > this.depthTextureCacheSize) {
+        const oldestKey = this.depthTextures.keys().next().value;
+        if (oldestKey === undefined) break;
+        const oldest = this.depthTextures.get(oldestKey);
+        this.depthTextures.delete(oldestKey);
+        oldest?.destroy();
+      }
     }
     return tex.createView();
   }

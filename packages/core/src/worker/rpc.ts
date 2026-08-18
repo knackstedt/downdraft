@@ -142,9 +142,21 @@ export interface WorkerProxy<T extends WorkerApi> {
   terminate: () => void;
 }
 
-export function wrap<T extends WorkerApi>(worker: AnyWorker): WorkerProxy<T> {
+export interface WrapOptions {
+  /** Timeout in ms for pending RPC requests. 0 disables (wait forever). Default: 30000. */
+  timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptions): WorkerProxy<T> {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let reqId = 0;
-  const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  const pending = new Map<number, {
+    resolve: (v: unknown) => void;
+    reject: (e: Error) => void;
+    timer?: ReturnType<typeof setTimeout>;
+  }>();
   const eventListeners: Set<(kind: string, data: any) => void> = new Set();
 
   const onMsg = (raw: any) => {
@@ -154,6 +166,7 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker): WorkerProxy<T> {
       const p = pending.get(msg.id);
       if (!p) return;
       pending.delete(msg.id);
+      if (p.timer) clearTimeout(p.timer);
       if (msg.error) p.reject(new Error(msg.error));
       else p.resolve(msg.result);
       return;
@@ -180,7 +193,15 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker): WorkerProxy<T> {
       return (...args: any[]) =>
         new Promise((resolve, reject) => {
           const id = ++reqId;
-          pending.set(id, { resolve, reject });
+          const entry: { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: ReturnType<typeof setTimeout> } = { resolve, reject };
+          if (timeoutMs > 0) {
+            entry.timer = setTimeout(() => {
+              if (pending.delete(id)) {
+                reject(new Error(`RPC '${method}' timed out after ${timeoutMs}ms`));
+              }
+            }, timeoutMs);
+          }
+          pending.set(id, entry);
           const req: RpcRequest = { __rpc: true, id, method, args };
           worker.postMessage(req);
         });
@@ -194,7 +215,10 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker): WorkerProxy<T> {
       return () => { eventListeners.delete(cb); };
     },
     terminate: () => {
-      for (const p of pending.values()) p.reject(new Error("Worker terminated"));
+      for (const p of pending.values()) {
+        if (p.timer) clearTimeout(p.timer);
+        p.reject(new Error("Worker terminated"));
+      }
       pending.clear();
       eventListeners.clear();
       if (worker.removeEventListener) worker.removeEventListener("message", onMsg);

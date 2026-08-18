@@ -119,13 +119,9 @@ export class FileSaveStore implements ISaveStore {
   }
 
   private async computeHash(data: Uint8Array): Promise<Uint8Array> {
-    const xxh = await import("xxhash-wasm");
-    const instance = await xxh.default();
-    const h64 = instance.h64Raw(data);
-    // Pad 8-byte h64 to 16-byte hash
-    const result = new Uint8Array(16);
-    result.set(h64, 0);
-    return result;
+    // True XXH3-128 hash (16 bytes) — no longer padded h64.
+    const { xxh3_128 } = await import("./hash-utils");
+    return xxh3_128(data);
   }
 
   private async compressBytes(data: Uint8Array): Promise<Uint8Array> {
@@ -163,17 +159,39 @@ export class FileSaveStore implements ISaveStore {
       const headerBuf = encodeHeader(header);
       const filePath = this.slotPath(slot);
       const bakPath = filePath + ".bak";
+      const tmpPath = filePath + ".tmp";
 
-      // Rotate previous save to backup
+      const blobsDir = this.blobsDirPath(slot);
+      const bakBlobsDir = blobsDir + ".bak";
+      const tmpBlobsDir = blobsDir + ".tmp";
+
+      // Phase 1: Write everything to temp locations first.
+      // If the process crashes here, the old save is still intact.
+      const fileBuf = new Uint8Array(headerBuf.byteLength + compressed.length);
+      fileBuf.set(new Uint8Array(headerBuf), 0);
+      fileBuf.set(compressed, headerBuf.byteLength);
+      await fs.writeFile(tmpPath, fileBuf);
+
+      // Write blobs to temp dir
+      let blobBytes = 0;
+      if (opts?.blobs && Object.keys(opts.blobs).length > 0) {
+        await fs.mkdir(tmpBlobsDir, { recursive: true });
+        for (const [key, buf] of Object.entries(opts.blobs) as Array<[string, ArrayBuffer]>) {
+          const safeKey = key.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          await fs.writeFile(join(tmpBlobsDir, safeKey), new Uint8Array(buf));
+          blobBytes += buf.byteLength;
+        }
+      }
+
+      // Phase 2: All writes succeeded — now rotate old → .bak, then rename .tmp → final.
+      // This minimizes the crash-corruption window: the old save is only rotated
+      // after the new save is fully written to .tmp.
       try {
         await fs.access(filePath);
         await fs.rename(filePath, bakPath);
       } catch {
         // No existing file — fine
       }
-      // Rotate blobs dir too
-      const blobsDir = this.blobsDirPath(slot);
-      const bakBlobsDir = blobsDir + ".bak";
       try {
         await fs.access(blobsDir);
         await fs.rename(blobsDir, bakBlobsDir);
@@ -181,30 +199,20 @@ export class FileSaveStore implements ISaveStore {
         // No existing blobs dir — fine
       }
 
-      // Write new save
-      const fileBuf = new Uint8Array(headerBuf.byteLength + compressed.length);
-      fileBuf.set(new Uint8Array(headerBuf), 0);
-      fileBuf.set(compressed, headerBuf.byteLength);
-      await fs.writeFile(filePath, fileBuf);
-
-      // Write blobs if provided
-      let blobBytes = 0;
+      // Atomic rename: .tmp → final
+      await fs.rename(tmpPath, filePath);
+      // Rename temp blobs dir → final
       if (opts?.blobs && Object.keys(opts.blobs).length > 0) {
-        await fs.mkdir(blobsDir, { recursive: true });
-        for (const [key, buf] of Object.entries(opts.blobs) as Array<[string, ArrayBuffer]>) {
-          const safeKey = key.replace(/[^a-zA-Z0-9_\-]/g, "_");
-          await fs.writeFile(join(blobsDir, safeKey), new Uint8Array(buf));
-          blobBytes += buf.byteLength;
-        }
+        await fs.rename(tmpBlobsDir, blobsDir);
       }
 
-      // Write thumbnail if provided
+      // Write thumbnail if provided (not part of the atomic commit — thumbnail is non-critical)
       if (opts?.thumbnail) {
         const thumbData = opts.thumbnail instanceof Uint8Array ? opts.thumbnail : new Uint8Array(opts.thumbnail);
         await fs.writeFile(this.thumbPath(slot), thumbData);
       }
 
-      // Write properties if provided
+      // Write properties if provided (not part of the atomic commit — properties are non-critical)
       if (opts?.properties) {
         await fs.writeFile(this.propsPath(slot), JSON.stringify(opts.properties, null, 2));
       }
@@ -448,6 +456,7 @@ export class FileSaveStore implements ISaveStore {
   async deleteSave(slot: string): Promise<boolean> {
     const filePath = this.slotPath(slot);
     const bakPath = filePath + ".bak";
+    const tmpPath = filePath + ".tmp";
     let deleted = false;
     try {
       await fs.unlink(filePath);
@@ -461,9 +470,15 @@ export class FileSaveStore implements ISaveStore {
     } catch {
       // ignore
     }
-    // Clean up blobs, thumbnail, properties
+    try {
+      await fs.unlink(tmpPath);
+    } catch {
+      // ignore — orphaned temp from a crashed save
+    }
+    // Clean up blobs, thumbnail, properties, and orphaned temp files
     try { await fs.rm(this.blobsDirPath(slot), { recursive: true, force: true }); } catch {}
     try { await fs.rm(this.blobsDirPath(slot) + ".bak", { recursive: true, force: true }); } catch {}
+    try { await fs.rm(this.blobsDirPath(slot) + ".tmp", { recursive: true, force: true }); } catch {}
     try { await fs.unlink(this.thumbPath(slot)); } catch {}
     try { await fs.unlink(this.propsPath(slot)); } catch {}
     return deleted;

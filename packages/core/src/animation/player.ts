@@ -388,7 +388,7 @@ export class AnimationPlayer {
 
       const prevTime = this.lastSampleTimes.get(l.name) ?? l.time;
       if (l.clip.eventTrack && !l.paused) {
-        const events = getEventsInRange(l.clip.eventTrack as unknown as import("./animation-event.js").AnimationEventTrack, prevTime, l.time, l.clip.duration);
+        const events = getEventsInRange(l.clip.eventTrack, prevTime, l.time, l.clip.duration);
         for (const e of events) {
           this.pendingEvents.push(e);
           const handlers = this.eventHandlers.get(e.type);

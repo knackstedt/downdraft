@@ -1,7 +1,7 @@
+import { component } from "./component";
 import { Schedule } from "./schedule";
 import { Stage, system, type SystemFn } from "./system";
 import type { World } from "./world";
-import { component } from "./component";
 
 const A = component("A", { value: 0 });
 const B = component("B", { value: 0 });
@@ -74,6 +74,35 @@ describe("Schedule", () => {
     s.run(world, 0.016, 1);
 
     expect(order.indexOf("a")).toBeLessThan(order.indexOf("b"));
+  });
+
+  it("should respect before dependencies", () => {
+    const s = new Schedule();
+    const order: string[] = [];
+
+    // "a" declares `before: ["b"]` — a must run before b
+    s.addSystem(system("a", Stage.Update, () => { order.push("a"); }, { before: ["b"] }));
+    s.addSystem(system("b", Stage.Update, () => { order.push("b"); }));
+
+    const world = makeMockWorld();
+    s.run(world, 0.016, 1);
+
+    expect(order.indexOf("a")).toBeLessThan(order.indexOf("b"));
+  });
+
+  it("should handle before and after dependencies together", () => {
+    const s = new Schedule();
+    const order: string[] = [];
+
+    // a → b → c chain: a has before:[b], c has after:[b]
+    s.addSystem(system("c", Stage.Update, () => { order.push("c"); }, { after: ["b"] }));
+    s.addSystem(system("a", Stage.Update, () => { order.push("a"); }, { before: ["b"] }));
+    s.addSystem(system("b", Stage.Update, () => { order.push("b"); }));
+
+    const world = makeMockWorld();
+    s.run(world, 0.016, 1);
+
+    expect(order).toEqual(["a", "b", "c"]);
   });
 
   it("should handle multiple stages with dependencies", () => {
