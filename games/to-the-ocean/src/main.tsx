@@ -31,25 +31,16 @@ import "./styles/globals.css";
 (globalThis as any).__ddThreadTag = "R0";
 
 async function bootstrap() {
-  // Undertow is enabled by default — the React UI runs in a Web Worker and
-  // proxies DOM operations to the main thread via a SharedArrayBuffer.
-  // Pass ?undertow=0 to disable and run React on the main thread directly.
-  const undertowDisabled = new URLSearchParams(location.search).get("undertow") === "0";
-  if (!undertowDisabled) {
-    // Start the undertow UI worker — it renders React into #root via SAB.
-    const { startUndertowHost } = await import("./undertow-host");
-    startUndertowHost();
-    // Don't return — the main thread still needs to init WebGPU + sim.
-    // The worker owns the React UI; the main thread owns the canvas + game logic.
-  } else {
-    // Non-undertow mode: render React on the main thread directly.
-    const root = createRoot(document.getElementById("root")!);
-    root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>,
-    );
-  }
+  // React UI runs on the main thread directly.
+  // (The undertow worker-DOM plugin has been shelved — see
+  // packages/plugins/undertow/SHELVED.md for the known stability and
+  // latency flaws that are not yet solved.)
+  const root = createRoot(document.getElementById("root")!);
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
 
   const canvas = document.getElementById("game-canvas") as HTMLCanvasElement | null;
   if (!canvas) {
@@ -555,12 +546,8 @@ async function bootstrap() {
 
   // --- HUD state polling (main thread) ---
   // The HUD component reads health/hunger/thirst/timeOfDay/weather/camera mode
-  // etc. from the sim buffer. In undertow mode the React UI runs in a worker
-  // where `renderer` (and thus the sim reader) is unavailable. We poll the sim
-  // buffer here on the main thread and write the values into the game store;
-  // the store bridge syncs them to the worker so the HUD can render. FPS is
-  // also polled here (the worker's App never mounts on the main thread in
-  // undertow mode, so its FPS useEffect never runs).
+  // etc. from the sim buffer. We poll the sim buffer here on the main thread
+  // and write the values into the game store so the HUD can render.
   const hudInterval = setInterval(() => {
     const simReader = renderer.getSimReader() as SimBufferReader | null;
     if (!simReader || !simReader.isValid()) return;
@@ -596,8 +583,7 @@ async function bootstrap() {
     }
   }, 100);
 
-  // FPS polling — the worker's App useEffect never runs in undertow mode, so
-  // poll FPS here and write to the store (synced to the worker).
+  // FPS polling — write to the store so the HUD/debug panels can render it.
   const fpsInterval = setInterval(() => {
     useGameStore.getState().setFPS(renderer.getFPS());
   }, 500);

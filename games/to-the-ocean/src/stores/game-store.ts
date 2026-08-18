@@ -40,6 +40,12 @@ interface GameStoreState extends BaseGameStoreState<WebGPURenderer> {
   showCredits: boolean;
   equipment: Record<string, string | null>;
   suppressPauseMenu: boolean;
+  /** True when the user clicked "Resume" and we're waiting for pointer lock
+   *  to be acquired before closing the pause menu. Prevents the click-to-resume
+   *  overlay from appearing when lockPointer() fails during the browser's ESC
+   *  cooldown (~1.5s). The pointerlockchange handler clears this and closes
+   *  the menu when lock is acquired. */
+  pendingResume: boolean;
   reticleSize: number;
   builderCellType: number;
   builderRotation: number;
@@ -62,6 +68,11 @@ interface GameStoreState extends BaseGameStoreState<WebGPURenderer> {
   toggleTradeMenu: () => void;
   toggleSettings: () => void;
   togglePauseMenu: () => void;
+  /** Resume from the pause menu — calls lockPointer() and waits for pointer
+   *  lock to be confirmed before closing the menu. Unlike togglePauseMenu(),
+   *  this does NOT close the menu immediately if pointer lock can't be
+   *  acquired (e.g. during the browser's ESC cooldown). */
+  resumeFromPause: () => void;
   toggleCharacterCustomization: () => void;
   toggleCredits: () => void;
   equipItem: (slot: string, itemId: string | null) => void;
@@ -166,6 +177,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   showCredits: false,
   equipment: { rod: null, weapon: null, armor: null, accessory: null },
   suppressPauseMenu: false,
+  pendingResume: false,
   reticleSize: 80,
   builderCellType: 0,
   builderRotation: 0,
@@ -252,7 +264,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const wasOpen = get().showPauseMenu;
     if (wasOpen) {
       get().renderer?.lockPointer();
-      set({ suppressPauseMenu: true });
+      set({ suppressPauseMenu: true, pendingResume: false });
       scheduleSuppressReset(get);
       get().simBridge?.resumeGame();
     } else {
@@ -260,6 +272,25 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       get().simBridge?.pauseGame();
     }
     set((s) => ({ showPauseMenu: !s.showPauseMenu }));
+  },
+  resumeFromPause: () => {
+    // Called by the pause menu's "Resume" button. Unlike togglePauseMenu(),
+    // this does NOT close the menu immediately if pointer lock can't be
+    // acquired (e.g. during the browser's ESC cooldown). Instead it keeps
+    // the menu open and sets pendingResume=true; the pointerlockchange
+    // handler in app.tsx closes the menu when lock is confirmed.
+    if (!get().showPauseMenu) return;
+    get().renderer?.lockPointer();
+    get().simBridge?.resumeGame();
+    if (document.pointerLockElement) {
+      // Already locked — close immediately.
+      set({ showPauseMenu: false, suppressPauseMenu: true, pendingResume: false });
+      scheduleSuppressReset(get);
+    } else {
+      // Not locked yet — wait for pointerlockchange to close the menu.
+      set({ suppressPauseMenu: true, pendingResume: true });
+      scheduleSuppressReset(get);
+    }
   },
   toggleCharacterCustomization: () => {
     if (get().showCharacterCustomization) {

@@ -1,6 +1,9 @@
 // ============================================================================
 // undertow — public API
 //
+// ⚠️ SHELVED — not in use by any game. See ../SHELVED.md for the known
+// stability and latency flaws that are not yet solved before un-shelving.
+//
 // A lock-free DOM proxy that moves arbitrary client UI code into a Web Worker
 // via a resizable SharedArrayBuffer + Atomics. The worker owns the JS object
 // graph (integer handles); every DOM call becomes a fixed-shape op record in

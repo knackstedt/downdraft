@@ -238,18 +238,18 @@ export default function App() {
     // When pointer lock is active, the browser consumes the first Escape
     // to exit pointer lock — the keydown event never reaches JS. Listen
     // for pointerlockchange so one Escape opens the pause menu.
-    // In undertow mode, ALL pointer lock logic is handled by the main thread
-    // (undertow-host.ts). The worker's onPointerLockChange is a complete no-op.
-    // The main thread sends direct postMessage to update the worker's store.
-    const isUndertow = typeof (self as any).__undertow !== "undefined";
     const onPointerLockChange = () => {
-      if (isUndertow) return; // main thread handles everything
       const locked = document.pointerLockElement !== null;
       setPointerLocked(locked);
       if (locked) {
         setF1Devtools(false);
         const s = useGameStore.getState();
         if (s.suppressPauseMenu) s.setSuppressPauseMenu(false);
+        // If the user clicked "Resume" and we were waiting for pointer lock,
+        // close the pause menu now that lock is confirmed.
+        if (s.pendingResume) {
+          useGameStore.setState({ pendingResume: false, showPauseMenu: false });
+        }
       } else {
         const s = useGameStore.getState();
         if (s.suppressPauseMenu) return;
@@ -330,10 +330,9 @@ export default function App() {
           data-click-to-resume="true"
           className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-ocean-950/60 cursor-pointer"
           onClick={() => {
-            // In worker mode, pointer lock is handled by the main thread's
-            // onUserGesture callback (in undertow-host.ts) which runs within
-            // the browser's user gesture context. The worker-side onClick
-            // is a no-op here — the main thread intercepts the click.
+            // Pointer lock must be re-acquired within a user gesture.
+            const r = useGameStore.getState().renderer;
+            if (r) r.lockPointer();
           }}
         >
           <div className="text-center">
