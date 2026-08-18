@@ -1,6 +1,7 @@
 import { Material } from "@downdraft/library-sand";
 import { expect, test } from "bun:test";
 import { CHUNK_H, CHUNK_W, WORLD_SEED } from "../shared/constants";
+import { isStaticUntilDamaged } from "./material-overrides";
 import { cellHash, fbm2D, mulberry32, worldFbm } from "./noise";
 import { ORE_CONFIG, WORM_CONFIG } from "./ore-config";
 import { generateChunk, pickOreByDepth, surfaceHeightAt } from "./terrain";
@@ -361,9 +362,9 @@ test("fields are initialized to defaults (gravity=128, temp=128)", () => {
     const mat = chunk.grid[i / 4] & 0xff;
     // Temp is always default (128)
     expect(chunk.fields[i + 1]).toBe(128);
-    // Gravity is default (128) for most cells, but 0 for tin/copper ore
-    // (they don't have gravity until mined — dig() re-enables it)
-    if (mat === Material.TinOre || mat === Material.CopperOre) {
+    // Gravity is default (128) for most cells, but 0 for ores/coal
+    // (they don't have gravity until mined — the mining system re-enables it)
+    if (isStaticUntilDamaged(mat)) {
       expect(chunk.fields[i + 0]).toBe(0);
     } else {
       expect(chunk.fields[i + 0]).toBe(128);

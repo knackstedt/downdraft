@@ -15,6 +15,7 @@
 import { Material, packCell } from "@downdraft/library-sand";
 import { CHUNK_H, CHUNK_W } from "../shared/constants";
 import type { Chunk } from "../shared/types";
+import { isStaticUntilDamaged } from "./material-overrides";
 import { cellHash, mulberry32, worldFbm, worldValueNoise } from "./noise";
 import {
     CAVITY_CONFIG,
@@ -162,8 +163,10 @@ function depositOreAt(
       // Only overwrite stone (preserve cavities, dirt, existing ores, walls)
       if (existing !== Material.Stone) continue;
       grid[idx] = packCell(material, 0, shade());
-      // Tin and copper ore don't have gravity until mined
-      if (material === Material.TinOre || material === Material.CopperOre) {
+      // Ores and coal are static until mined: set per-cell gravity=0 so they
+      // don't fall while embedded in stone. The mining system restores the
+      // gravity field when the cell is dislodged (cellDamage >= hardness).
+      if (isStaticUntilDamaged(material)) {
         fields[idx * 4 + 0] = 0; // gravity field = 0 (no falling)
       }
     }

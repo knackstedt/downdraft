@@ -92,25 +92,6 @@ function boxHitsSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: numb
   return false;
 }
 
-/**
- * Like boxHitsSolid, but only checks against STATIC solid cells (excludes
- * falling/moving particles). Used for downward Y collision so the player
- * falls through falling debris (grass, gravel, ore) instead of landing on
- * it — preventing instant fall-damage death from landing on falling particles.
- */
-function boxHitsStaticSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, px: number, py: number): boolean {
-  const x0 = Math.floor(px - PLAYER_W / 2);
-  const x1 = Math.floor(px + PLAYER_W / 2);
-  const y0 = Math.floor(py);
-  const y1 = Math.floor(py + PLAYER_H - 1);
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      if (isStaticSolid(grid, bgGrid, W, H, x, y)) return true;
-    }
-  }
-  return false;
-}
-
 function countLiquid(grid: Uint32Array, W: number, H: number, px: number, py: number): number {
   let n = 0;
   const x0 = Math.floor(px - PLAYER_W / 2);
