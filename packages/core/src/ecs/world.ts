@@ -220,6 +220,15 @@ export class World {
     this.tick++;
     this.events.swapAll();
 
+    // Update query archetypes before running systems so that entities
+    // spawned/modified before this step are visible to queries during it.
+    // flushCommands() at the end of step() will handle any structural
+    // changes made by systems during this step.
+    if (this.archetypesDirty) {
+      this.schedule.updateQueryArchetypes(this.allArchetypes);
+      this.archetypesDirty = false;
+    }
+
     const ctx: SystemContext = { world: this, dt, tick: this.tick };
     this.schedule.runStage(0, ctx); // Input
     this.schedule.runStage(1, ctx); // Update

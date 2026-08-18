@@ -1,3 +1,4 @@
+import { findEntityRow } from "../ecs/archetype";
 import type { Entity } from "../ecs/entity";
 import type { World } from "../ecs/world";
 
@@ -29,9 +30,7 @@ export class CheckpointManager {
       const components: Array<{ id: number; data: unknown }> = [];
 
       for (const [cid, col] of arch.columns) {
-        const row = arch.entities.findIndex(
-          (e) => e.index === entity.index && e.generation === entity.generation,
-        );
+        const row = findEntityRow(arch, entity);
         if (row >= 0) {
           components.push({ id: cid, data: col[row] });
         }
