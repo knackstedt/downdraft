@@ -1,0 +1,436 @@
+# Downdraft Engine — Agent Notes
+
+## Plugin architecture: engine vs game boundary
+
+Packages in `packages/plugins/` and `games/<game>/plugins/` are split into two categories:
+
+- **Plugins** (namespace `@downdraft/plugin-*` / `@to-the-ocean/plugin-*`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle. Engine plugins: physics-rapier, audio-kira, networking, marching-cubes, water, xr, models, camera-controls, devtools, electron-osr, mcp, surface-nets, weatherfx, physics-native. Game plugins: crafting, inventory.
+- **Libraries** (namespace `@downdraft/library-*` / `@to-the-ocean/library-*`): packages that export classes/functions without a plugin lifecycle. Engine libraries: entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats. Game libraries: boats, fishing, economy, survival, wildlife, items, buoyancy, collision.
+
+Both types live in the same `packages/plugins/` or `games/<game>/plugins/` directories. The distinction is whether the package implements the `Plugin` interface (has `register()`/`onDispose()`) or is just a library of classes/functions.
+
+No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/plugins/` for its game-specific systems.
+
+Config that must be updated when moving/adding packages: `package.json` (root workspaces), `tsconfig.web.json` + `tsconfig.node.json` (path mappings + include globs), `packages/app/src/vite/index.ts` (renderer aliases + hot-reload simPaths/excludePaths).
+
+## HTML generation and canvas/DOM layer stacking
+
+The framework generates `index.html` from a layer spec, so games don't need to maintain their own HTML or CSS stacking rules.
+
+### How it works
+
+- `createDowndraftViteConfig()` accepts an `html` option (or `layers` shorthand). When provided, the `downdraftHtmlPlugin` generates `index.html` at build/dev time with the correct canvas + DOM overlay structure.
+- Default: one canvas (`<canvas data-dd-layer="0" id="game-canvas">`) + one DOM root (`<div data-dd-overlay="0" id="root">`).
+- Games with multiple canvases (e.g. minimap + main) can specify multiple `layers`.
+- The framework provides `@downdraft/app/renderer/downdraft-base.css` with the stacking rules (canvases at `z-index: 0`, overlays at `z-index: 100`, `pointer-events: none` on overlays). Games import it and add theme overrides.
+- Renderer code uses `getCanvas(layer)` and `getOverlay(index)` from `@downdraft/app/renderer` instead of `document.getElementById`.
+- Games that want to keep their own `index.html` can set `html: false` to opt out.
+
+### Files
+
+- `packages/app/src/vite/downdraft-html-plugin.ts` — Vite plugin that generates HTML from `LayerSpec[]`.
+- `packages/app/src/renderer/downdraft-base.css` — framework base CSS with canvas/overlay stacking.
+- `packages/app/src/renderer/index.ts` — exports `getCanvas()`, `getOverlay()`, `getAllCanvases()`.
+- `packages/app/src/vite/index.ts` — `DowndraftViteConfigOptions.html` and `.layers` options.
+
+## Plugin registration patterns
+
+The engine supports two registration patterns:
+
+1. **Direct registration** (`pluginHost.registerPlugin(plugin)`) — registers and immediately activates a single plugin. Use for standalone plugins with no interdependencies.
+
+2. **Batch registration** (`pluginHost.registerPluginDeferred(plugin)` + `pluginHost.activateAll()`) — registers multiple plugins, then activates them in dependency-resolved topological order. Use when multiple plugins have `dependencies` arrays. `GameWorld.usePlugins(plugins[])` wraps this pattern.
+
+Libraries that export factory functions (e.g., `createWildlifeSystem`) can be wrapped as plugins using a factory pattern:
+```ts
+export function createWildlifePlugin(opts: WildlifePluginOptions): Plugin {
+  return { name: "wildlife", version: "1.0.0", register(ctx) { ... } };
+}
+```
+The `opts` object encapsulates all config and dependencies. This is the standard pattern for migrating library packages to the plugin system.
+
+## Verification commands
+
+- `bun run tsc` — now runs `tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit`.
+- `bun run lint` — runs `oxlint` on the whole repo. Currently reports many pre-existing `no-console`/`no-unused-vars` warnings/errors.
+- `bun test packages/core/src/ecs/world.spec.ts packages/core/src/render/frustum.spec.ts packages/core/src/telemetry/collector.spec.ts`
+- `bun test packages/core/src/physics/*.spec.ts` — all physics specs (121 tests).
+- `bun test packages/plugins/physics-rapier/src/*.spec.ts` — rapier plugin specs (16 tests).
+- `bun test packages/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
+- `bun test packages/core/src/material/material.spec.ts packages/core/src/material/variants.spec.ts` — material + variant specs.
+- `bun test packages/shader-graph/src/graph.spec.ts` — shader graph compiler specs (includes GBuffer multi-target + variant tests).
+- `bun test packages/plugins/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
+- `bun test packages/core/src/assets/model-normalizer.spec.ts` — model normalizer math (up-axis, units, bounds, auto-fit).
+- `bun test packages/plugins/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
+- `bun test packages/plugins/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
+- `bun test packages/plugins/models/src/normalize.spec.ts` — full normalization pipeline specs.
+- `bun test packages/core/src/plugin/host.spec.ts` — PluginHost activation order, deferred registration, dispose order (12 tests).
+- `bun test packages/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
+- `bun test games/to-the-ocean/plugins/wildlife/src/wildlife-plugin.spec.ts` — game plugin wrappers (wildlife, buoyancy, collision) (9 tests).
+- `bun test packages/plugins/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
+- `bun test packages/plugins/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
+- `bun test packages/plugins/persistence/src/firebird-browser-save-store.spec.ts` — FirebirdBrowserSaveStore (WASM ISaveStore) specs (10 tests). Runs under Bun — uses the WASM engine, no native addon.
+- `FIREBIRD_LOCK=/tmp/fb-$USER/lock FIREBIRD_TMP=/tmp/fb-$USER/tmp npx tsx packages/plugins/persistence/src/benchmark.ts` — 3-way benchmark: WASM (`FirebirdBrowserSaveStore`) vs native (`FirebirdSaveStore`) vs Rust (`FirebirdRustSaveStore`) across body sizes (2KB–1.7MB), plus cloud save export/import timing for WASM and Rust. Requires Node+tsx (native backend crashes Bun) and the Rust addon built (`cd packages/plugins/persistence/firebird-rust-addon && cargo build --release && cp target/release/libfirebird_rust_addon.so target/release/firebird_rust_addon.linux-x64-gnu.node`).
+- FirebirdSaveStore (native) specs — `FIREBIRD_LOCK=/tmp/fb-$USER/lock FIREBIRD_TMP=/tmp/fb-$USER/tmp npx tsx --test packages/plugins/persistence/src/firebird-save-store.node-test.ts` (11 tests). **Not run under `bun test`**: firebird-wasm's Node native backend (`node-firebird-driver-native`, which dlopens `libfbclient` and uses pthreads) crashes Bun's test runner with a native segfault. The `*.spec.ts` is skipped under Bun; the `*.node-test.ts` runs under Node+tsx. Requires `libfbclient.so` on the system and a one-time native-addon build (`npx node-gyp configure && npx node-gyp build` in `node_modules/.bun/node-firebird-native-api@*/.../node-firebird-native-api`, with `node-addon-api` installed there).
+- `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
+- `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
+- `bun run draft:test -- --headed` — same but shows the Electron window (useful for debugging).
+- `bun run test:e2e` — legacy: runs the spec directly via `bun test` (bypasses the CLI).
+- `bun run tsc:e2e` — type-checks e2e test files against `tsconfig.e2e.json`.
+
+### E2E test environment variables
+
+These are set automatically by `draft test`. See the "Running the smoke test" section below for the full CLI flag reference.
+
+- `DOWNDRAFT_GPU=swiftshader|hardware` — selects WebGPU backend via `webGpuSwitches()`. `swiftshader` = software Vulkan (CI), `hardware` = NVIDIA Vulkan (local).
+- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave loading, disable devtools auto-open and error dialogs, pause the render loop (on-demand rendering only via `set_test_state` or `capture_screenshot`). The flag is passed from the main process to the renderer via the `downdraft.deterministic` bridge property (set in `packages/app/src/preload/bridge.ts`).
+- `DOWNDRAFT_HEADED=1` — show the Electron window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
+- `MCP_PORT=9976` — MCP HTTP transport port (default 9876 for normal dev, 9976 for e2e tests).
+- `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
+
+## Unified Material System
+
+The material system is unified around the **shader graph as the single source of truth**. The 8 hand-written `material-types/*.wgsl` files serve as fallbacks (loaded via Vite `?raw` as `inlineShaderSource`). The graph compiler generates WGSL from `MaterialGraph` nodes; the `Material` class compiles the graph at construction time and caches the result in `inlineShaderSource`.
+
+### Architecture
+
+- **`MaterialDefinition`** (`packages/core/src/material/material.ts`) — the material definition. Key fields: `graph?: MaterialGraph` (primary), `inlineShaderSource?: string` (compiled graph or fallback .wgsl), `variantFlags?: MaterialVariantFlags`, `profile?: string`.
+- **`MaterialLibrary`** (`packages/core/src/material/library.ts`) — creates and registers materials. The 8 `create*` methods (Physical, Toon, Matcap, SSS, Sprite, Normal, Line, Depth) load their `.wgsl` fallbacks via `?raw` imports. Graph preset methods (`createPBRGraph`, `createGBufferGraph`) build `MaterialGraph` instances.
+- **`GraphCompiler`** (`packages/shader-graph/src/compiler.ts`) — compiles a `MaterialGraph` to WGSL. Supports multi-render-target (GBuffer) profiles via `outputFormats`/`outputNames`, and variant-aware compilation via `variantFlags` in `CompileOptions`.
+- **`MaterialVariantFlags`** (`packages/core/src/material/variants.ts`) — hybrid variant strategy: compile-time permutations for `shadowCaster`/`skinning`/`alphaMode`/`morph`/`instanced`; `fog` stays a dynamic branch (NOT part of the variant key). `variantKey()` produces a deterministic string key; `permutationCount()` = 48.
+- **`graph-bridge.ts`** (`packages/core/src/material/graph-bridge.ts`) — `compileGraphToMaterialVariants` compiles all variants for a material; `compileVariant` compiles a single variant.
+- **`OpaquePass`** (`packages/core/src/render/passes/opaque.ts`) — `setMaterial()` sets a graph-compiled material; `setMaterialVariant()` compiles + caches a per-variant pipeline (bounded LRU, max 24). `getProfileTargets()` emits multi-target `GPUColorTargetState[]` for GBuffer profiles.
+
+### Profiles
+
+- `SIMPLE_PROFILE`, `PBR_PROFILE`, `PBR_TEXTURED_PROFILE`, `PBR_SKINNED_PROFILE`, `PBR_INSTANCED_PROFILE`, `PBR_COLOR_VERTEX_PROFILE` — single-target.
+- `GBUFFER_PROFILE` — multi-render-target deferred surface shader. 4 targets: albedo+AO, normal+roughness, metallic+emissive, velocity. Graph output nodes use names: `"albedo"`, `"normal"`, `"metallicEmissive"`, `"velocity"`.
+
+### Material adapter (plugin-models)
+
+`materialDataToMaterial()` (`packages/plugins/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
+
+## Model Import Normalization Pipeline
+
+The engine has a unified model import normalization pipeline that corrects common anomalies (incorrect scaling, rotation, up-axis) at load time. This replaces ad-hoc hardcoded fixes in individual games.
+
+### Architecture
+
+- **`ImportSettings`** (`packages/core/src/assets/import-settings.ts`) — per-model normalization config: `upAxis`, `units`, `scale`, `rotation`, `centerToOrigin`, `autoFit`, `nodeTransforms`. Resolved from sidecar files or parser-detected defaults.
+- **`model-normalizer.ts`** (`packages/core/src/assets/model-normalizer.ts`) — pure transform math: `applyUpAxisConversion` (Z-up→Y-up), `applyUnitScale` (source units→meters), `applyRootScale`, `applyRootRotation` (quaternion), `computeBounds`, `centerToOrigin`, `autoFit`, `isExtremeScale`. Operates on interleaved [pos(3)+normal(3)] mesh vertices (6 floats/vertex).
+- **`bake-node-transforms.ts`** (`packages/plugins/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from model-viewer to the engine so all games benefit.
+- **`normalize.ts`** (`packages/plugins/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
+- **`loadModel()`** (`packages/plugins/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
+
+### Sidecar System
+
+Per-model import settings are stored in sidecar files, tried in priority order:
+1. `.ddmeta.json` (our format, JSON-with-comments via `comment-json`)
+2. Unity `.meta` (YAML, `scaleFactor` field)
+3. Godot `.import` (INI, `scale`/`rotation` params)
+4. Blender extras (glTF `asset.extras.glTF2ExportSettings.YUP`)
+
+Sidecar parsers: `packages/plugins/models/src/sidecar/` — `ddmeta.ts`, `unity-meta.ts`, `godot-import.ts`, `blender-extras.ts`, `resolver.ts`.
+
+### Parser Detection
+
+FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScaleFactor` (units per cm). glTF parser checks `asset.extras.glTF2ExportSettings.YUP`. DAE parser reads `<asset><up_axis>` and `<unit meter="...">`. Stored on `ModelData.sourceUpAxis` and `ModelData.sourceUnits`.
+
+### Import Cache
+
+`ImportCache` (`packages/core/src/assets/import-cache.ts`) caches resolved `ImportSettings` keyed by model path. `MemoryImportCache` is the in-memory fallback. In Electron, `registerImportCacheHandlers()` (`packages/app/src/main/handlers/import-cache.ts`) provides a SQLite-backed cache via `node:sqlite` (stable in Node 24+ / Electron 43+, no flag required), accessed through IPC (`IMPORT_CACHE_GET/SET/INVALIDATE`). The renderer-side adapter (`packages/app/src/renderer/import-cache.ts`) bridges to the IPC with a memory fallback for browser-only mode.
+
+## Save system / storage backends
+
+`ISaveStore` (`packages/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/library-persistence` (`packages/plugins/persistence/`):
+
+- **`OpfsSaveStore`** (`opfs-save-store.ts`) — **default** OPFS-backed store for Web Workers and renderer. Writes directly to OPFS (no IPC, no main process). Supports generation history (N snapshots per slot, previous gen is backup on corruption), binary blobs (stored as separate files per blob key), thumbnails (PNG/WebP bytes), and arbitrary properties (game mode, playtime, etc.). Uses `createSyncAccessHandle()` in workers (sync I/O) or `createWritable()` on main thread. Directory layout: `downdraft/saves/<slot>/meta.json` + `thumbnail.png` + `gen/<NNNN>/body.zst` + `body.hash` + `blobs/<key>`. The `meta.json` file is the commit point — written last after body + blobs. 22 tests in `opfs-save-store.spec.ts` (uses mock OPFS via `mock-opfs.ts`).
+
+  **Three save modes** (game selects via `DowndraftSavesConfig.mode`):
+  - `"inline"` — `OpfsSaveStore` runs inside the sim worker. Sim loop pauses during save (sync OPFS handles). Zero-copy: no data crosses worker boundaries. The sim worker calls `initSaveStore()` to create the store, then `save()`/`load()` use it directly.
+  - `"worker"` — Renderer spawns a dedicated `save-worker.ts` Web Worker. Sim worker sends serialized state as transferable `ArrayBuffer` via `MessageChannel`. Sim loop continues running during save. The `SaveWorkerProxy` (`save-worker-proxy.ts`) implements `ISaveStore` by delegating to the worker via the RPC layer.
+  - `"auto"` (default) — Picks `"worker"` if OPFS is available (`navigator.storage.getDirectory`), else falls back to IPC.
+
+  The `createSaveStore()` factory (`packages/app/src/renderer/save-store-factory.ts`) handles mode selection and OPFS detection. The `SimBridgeDeps.saveMode` field tells the sim bridge which path to use.
+
+- **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, used as the IPC fallback. One `.ddsave` file per slot (header + zstd body), rotated to `.bak` on each save; `.bak` is the load fallback on corruption/hash-mismatch. Node-only (`node:fs`). Now supports the extended `ISaveStore` interface: blobs stored in `<slot>.blobs/` directory, thumbnails in `<slot>.thumb`, properties in `<slot>.props.json` sidecar. `listGenerations()` returns a single synthetic generation; `deleteGeneration()` delegates to `deleteSave()`.
+- **`FirebirdSaveStore`** (`firebird-save-store.ts`) — Firebird embedded backend via `firebird-wasm` (`FirebirdLite`, Node native, `libfbclient`). One `.fdb` per store; each slot is a row with two generations (0 = current, 1 = backup). The compressed body and 16-byte hash are binary BLOBs. Rotation is a plain `UPDATE` of the `generation` column (BLOBs stay in place). Loads run inside an explicit transaction because firebird-wasm returns BLOB columns as lazy `{ id, attachment }` references bound to the fetching transaction; the store reads them via the transaction's internal `attachment.openBlob` → `BlobStream.read` (reached through a cast, since firebird-wasm does not expose blob reading on its public API). Forward-incompatibility, hash verification, migration, warnings, slot-name sanitization, and `.bak`-style fallback all mirror `FileSaveStore`.
+
+  Requirements/caveats: needs `libfbclient.so`/`fbclient.dll` on the system library path; the `node-firebird-native-api` native addon must be built once (`node-gyp build` after installing `node-addon-api` in that package's dir); Firebird embedded writes a lock file to `/tmp/firebird` (root/firebird-owned on most distros) so `FIREBIRD_LOCK`/`FIREBIRD_TMP` must point at a writable per-user dir — the constructor sets these via `process.env` (works under Node/Electron), but **Bun does not propagate `process.env` writes to the C `environ`** that native addons see, so under Bun they must be set on the command line. Additionally, **`bun test` crashes (native segfault) on the firebird driver** (pthreads + Bun's native-addon handling), so the FirebirdSaveStore spec is skipped under Bun and verified under Node+tsx instead — see the verification command above.
+
+- **`FirebirdRustSaveStore`** (`firebird-rust-save-store.ts`) — Firebird embedded backend via a Rust NAPI addon (`firebird-rust-addon/`, using the `rsfbclient` crate with `dynamic_loading` feature). Same concept as `FirebirdSaveStore` (native) but the FFI boundary is Rust→C instead of Node→C. Uses `BLOB SUB_TYPE BINARY` for body and hash (rsfbclient handles `Vec<u8>` BLOB params natively). Save path uses a single `EXECUTE BLOCK` to batch DELETE + UPDATE + INSERT into one statement (reduces rsfbclient's per-execute overhead — `isc_dsql_describe_bind` + `isc_dsql_sql_info` + XSQLDA allocation — from 3× to 1×). Database created with `page_size(16384)` (Firebird's max) — this is the single biggest optimization, reducing BLOB page splits by 4× vs the default 4096. Same ISaveStore contract. **After optimizations, 1.5x faster than the native Node addon** at 1.7MB (90.7ms vs 137.5ms) and competitive at all sizes. The native backend can't set page_size because `node-firebird-driver`'s `CreateDatabaseOptions` doesn't expose it — `rsfbclient` does, which is a real API advantage. Requirements: `libfbclient.so` at runtime (dynamic loading, no compile-time link), `FIREBIRD_LOCK`/`FIREBIRD_TMP` set, Rust toolchain + `cargo build --release` to build the addon. Does not crash Bun (no pthreads issue like the Node native addon), but still requires Node+tsx for the benchmark since the native `FirebirdSaveStore` is in the same benchmark.
+
+- **`FirebirdBrowserSaveStore`** (`firebird-browser-save-store.ts`) — Firebird WASM backend via `firebird-wasm/browser` (`FirebirdBrowser`). Runs entirely in the renderer — no main-process IPC, no native addon, no `libfbclient`, no `node-gyp`. The WASM engine (~9 MB) ships in the npm package and runs in a Worker (pthreads + SharedArrayBuffer require COOP/COEP, already set in `window.ts`). Persistence is automatic via IndexedDB (debounced 500 ms after writes; `persist()` forces a flush). Uses `memory://name` for ephemeral/test databases, `opfs://name` for OPFS, or a plain name for IndexedDB. The WASM backend cannot bind binary params or string params to BLOB columns, so compressed bodies are base64-encoded and stored in a chunk table (`dd_save_chunks`, VARCHAR(8000) per chunk, parameterized inserts); the 16-byte hash (~24 base64 chars) is stored as a BLOB via a SQL string literal (base64 is SQL-safe). No lazy blob refs — the browser backend materializes everything across the Worker boundary. Same ISaveStore contract: forward-incompatibility, hash verification, migration, warnings, slot sanitization, backup fallback. **Runs under `bun test` without crashing** (no native addon involved).
+
+  **Cloud saves:** `exportDatabase()` returns the entire live Firebird DB as a `Uint8Array` (via `FirebirdBrowser.dumpDataDir()` — reads the live engine, not the IndexedDB copy, so unsaved writes are included). `importDatabase(bytes)` closes the current connection and re-seeds from the provided bytes (via `loadDataDir`). The flow for cloud saves: renderer calls `exportDatabase()` → IPC to main process → `fs.writeFile(cloudPath)` → cloud sync (Steam Cloud / OneDrive / etc.) picks up the file. On restore: cloud sync delivers the file → `fs.readFile` → IPC → `importDatabase(bytes)`. The export is a full Firebird database image (page-aligned, 8 KB pages), not a JSON dump — it includes all slots, all generations, the chunk table, and the schema in one atomic file.
+
+  **Performance (4-way: WASM-mem vs WASM-IDB vs Native vs Rust):** The WASM backend was benchmarked in two configurations: `memory://` (ephemeral, no persistence — reference baseline) and IndexedDB with forced `persist()` after each save (simulates disk-backed persistence). The IndexedDB run uses `fake-indexeddb` (in-memory polyfill) since Node has no native IndexedDB — so WASM-IDB numbers include full IndexedDB transaction + serialization overhead but **not real disk I/O**. In a real browser, IndexedDB writes to LevelDB on disk and would be slower. The Native and Rust backends write to real `.fdb` files with fsync. The Rust backend uses `page_size=16384` (Firebird's max); the Native backend uses Firebird's default `page_size=4096` because `node-firebird-driver`'s `CreateDatabaseOptions` doesn't expose the parameter. Benchmark results (Node+tsx, 5 iterations per size, noop compression to isolate DB cost):
+
+  | Body size | W-mem save | W-idb save | Nat save | Rust save | W-mem load | W-idb load | Nat load | Rust load | W-mem total | W-idb total | Nat total | Rust total | W-idb/Nat | W-idb/Rust |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | 2 KB | 0.2 ms | 3.7 ms | 3.1 ms | 3.1 ms | 0.2 ms | 0.2 ms | 1.0 ms | 0.8 ms | 0.5 ms | 3.9 ms | 4.1 ms | 3.9 ms | 1.0x | 1.0x |
+  | 16 KB | 0.7 ms | 4.0 ms | 7.0 ms | 4.4 ms | 0.5 ms | 0.5 ms | 1.0 ms | 0.8 ms | 1.2 ms | 4.5 ms | 8.0 ms | 5.2 ms | 0.6x | 0.9x |
+  | 172 KB | 3.5 ms | 8.1 ms | 15.8 ms | 9.3 ms | 4.7 ms | 2.5 ms | 2.4 ms | 2.5 ms | 8.2 ms | 10.6 ms | 18.2 ms | 11.8 ms | 0.6x | 0.9x |
+  | 872 KB | 15.6 ms | 28.7 ms | 65.0 ms | 36.9 ms | 10.7 ms | 11.1 ms | 7.4 ms | 10.2 ms | 26.3 ms | 39.8 ms | 72.4 ms | 47.1 ms | 0.5x | 0.8x |
+  | 1.7 MB | 32.6 ms | 61.1 ms | 126.6 ms | 69.7 ms | 20.9 ms | 20.7 ms | 10.9 ms | 21.0 ms | 53.5 ms | 81.9 ms | 137.5 ms | 90.7 ms | 0.6x | 0.9x |
+
+  **Key findings:**
+  - **Rust is 1.5x faster than Native at 1.7MB** (90.7ms vs 137.5ms) after two optimizations: (1) `EXECUTE BLOCK` batches DELETE+UPDATE+INSERT into one statement, reducing rsfbclient's per-execute overhead (`isc_dsql_describe_bind` + `isc_dsql_sql_info` + XSQLDA allocation) from 3× to 1×; (2) `page_size=16384` reduces BLOB page splits by 4× vs the default 4096. Before these optimizations, Rust was 2.1x *slower* than Native at 1.7MB (269.4ms vs 137.5ms). The page_size change alone accounted for 63% of the save-time reduction (193ms→70ms at 1.7MB).
+  - **WASM-IDB is 1.6–1.9x faster than Native** at 16KB–1.7MB even with forced persist after every save. At 2KB they're tied (1.0x). This is with fake-indexeddb (in-memory) — real browser IndexedDB would narrow the gap, but the WASM engine's in-memory architecture still avoids FFI BLOB overhead on the engine write path.
+  - **WASM-IDB and Rust are roughly tied** at all sizes (0.8–1.0x). Rust is faster at 2KB (1.0x) and 16KB (0.9x); WASM-IDB is faster at 172KB+ (0.9x). But WASM-IDB uses in-memory IndexedDB (no real disk I/O) while Rust writes to real .fdb with fsync — so in a real browser, Rust would likely beat WASM-IDB.
+  - **WASM load is always fast regardless of persistence mode** — loads read from the WASM engine's in-memory state, never from IndexedDB. Native and Rust loads read from disk through the engine's page cache.
+  - **The persist() overhead is 4–28ms per save** (WASM-mem to WASM-IDB delta). In production with `autoPersist: true` (default 500ms debounce), most saves don't trigger a persist immediately — saves appear near-instant (engine write only) and persistence happens in the background. This is a structural advantage the Native/Rust backends can't match (every commit hits disk).
+  - **WASM-mem (ephemeral) is 8–10x faster than everything** — but it's not a fair comparison since there's no persistence. Included only as a reference baseline for the engine's raw SQL overhead.
+  - **Native backend page_size caveat:** The native `FirebirdSaveStore` uses Firebird's default page_size=4096 because `node-firebird-driver`'s `CreateDatabaseOptions` doesn't expose the parameter. If it also used 16384, it would likely close the gap with Rust. The Rust backend's `rsfbclient` crate exposes `page_size()` on the builder, which is a real API advantage.
+
+  Cloud save export/import: WASM-IDB export 4.6 ms / import 218.5 ms (26.9 MB image); Rust export 1.9 ms / import 20.0 ms (20.2 MB image — smaller because the Rust schema is simpler, no chunk table, and 16384-byte pages waste less space). The WASM-IDB import is slow because `importDatabase()` closes the connection, creates a new `FirebirdBrowser` with `loadDataDir`, and re-initializes through the IndexedDB VFS. The Rust addon lives at `packages/plugins/persistence/firebird-rust-addon/` (NAPI-RS crate using `rsfbclient` 0.27 with `dynamic_loading` feature, no compile-time libfbclient link). Build: `cd packages/plugins/persistence/firebird-rust-addon && cargo build --release && cp target/release/libfirebird_rust_addon.so target/release/firebird_rust_addon.linux-x64-gnu.node`. Benchmark script: `packages/plugins/persistence/src/benchmark.ts` — run with `FIREBIRD_LOCK=/tmp/fb-$USER/lock FIREBIRD_TMP=/tmp/fb-$USER/tmp npx tsx packages/plugins/persistence/src/benchmark.ts`.
+
+### Devtools Auto-Fit
+
+`BaseSceneInspector.importModel()` returns `needsAutoFit` and `warnings` when a model has extreme scale (< 0.01m or > 100m). The DevTools panel UI (`extension/panel.js`) shows an auto-fit prompt with a button that calls `autoFitModel(nodeId, targetMaxDim)`, which re-normalizes and generates a `.ddmeta.json` sidecar for persistence. `generateSidecar(nodeId)` creates a starter sidecar with commented-out fields.
+
+### Devtools material editor
+
+`BaseSceneInspector` (`packages/plugins/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`). The editor UI (`packages/ui/src/editor/material-graph/material-graph-editor.tsx`) has a synced node palette (all compiler node types) and a Preview button.
+
+### Hot reload
+
+`HotReloader` (`packages/core/src/render/hot-reload.ts`) writes reloaded shader source into `material.inlineShaderSource` (not the dead `shader` string field) and calls `material.invalidateVariants()` to flush the variant cache.
+
+## Compute Graph System
+
+The engine has a node-based compute shader authoring system that parallels the material graph. It provides a higher-level alternative to hand-writing WGSL compute shaders (the "gpu.js replacement" for WebGPU).
+
+### Architecture
+
+- **`ComputeGraph`** (`packages/shader-graph/src/compute-graph.ts`) — the compute graph data structure. Separate from `MaterialGraph` (which is vertex/fragment only). Contains nodes + connections + `StorageBufferDecl`/`UniformBufferDecl` declarations + `ComputeDispatchConfig` (workgroup size + dispatch count).
+- **`ComputeGraphCompiler`** (`packages/shader-graph/src/compute-compiler.ts`) — compiles a `ComputeGraph` to WGSL `@compute @workgroup_size(...)` shader. Emits struct declarations from buffer decls, `@group/@binding` var declarations, and a `cs_main` entry point with `global_invocation_id`/`local_invocation_id`/`workgroup_id`/`num_workgroups` builtins. Compute-specific nodes: `global_id`, `buffer_load`, `buffer_store`, `atomic_add/sub/min/max/exchange`, `workgroup_barrier`, `storage_barrier`. Math nodes (multiply, add, sin, etc.) are shared with the material compiler.
+- **`ComputeProfile`** (`packages/shader-graph/src/compute-profiles.ts`) — simpler than `ShaderGraphProfile`: just `name`, `chunks`, `workgroupSize`. Built-in profiles: `SIMPLE_COMPUTE_PROFILE` (64x1x1), `PARTICLE_COMPUTE_PROFILE` (64x1x1), `TEXTURE_COMPUTE_PROFILE` (8x8x1), `VOLUMETRIC_COMPUTE_PROFILE` (4x4x4).
+- **`GraphComputePass`** (`packages/core/src/render/passes/graph-compute.ts`) — `RenderPass` subclass with `PassType.Custom`. Integrates with the frame graph (dispatches on the shared encoder). Supports both auto-allocated buffers (from `StorageBufferDecl`/`UniformBufferDecl`) and externally-provided buffers (`setExternalBuffer()`). `recompile()` supports hot-reload. Uses local `BUFFER_USAGE`/`SHADER_STAGE_COMPUTE` constants instead of WebGPU globals for testability.
+- **`runComputeKernel()`** (`packages/core/src/render/compute-kernel.ts`) — thin imperative helper for quick one-off GPGPU. Takes WGSL + typed inputs, dispatches once, returns a `readBuffer()` function for CPU readback. No graph, no frame graph needed.
+- **`ComputeGraphEditor`** (`packages/ui/src/editor/compute-graph/compute-graph-editor.tsx`) — React component for visual compute graph authoring. Compute-specific node palette + buffer declaration panel (add/edit storage & uniform buffers) + dispatch config (workgroup size, dispatch count).
+
+### Buffer management
+
+`GraphComputePass` supports two modes:
+1. **Auto-allocated** (default): creates `GPUBuffer`s from `StorageBufferDecl`/`UniformBufferDecl` declarations. Storage buffers use `STORAGE | COPY_DST | COPY_SRC`; uniform buffers use `UNIFORM | COPY_DST`. Runtime-sized arrays default to 1 MB.
+2. **Externally provided**: `setExternalBuffer(name, buffer)` skips auto-allocation for that buffer. Used for interop with existing systems (e.g. particle buffers from `ParticleComputePass`).
+
+Data is written via `writeUniform(name, data)` (queued, flushed before dispatch) and `writeStorage(name, data)` (immediate `queue.writeBuffer`).
+
+### Verification commands
+
+- `bun test packages/shader-graph/src/compute-compiler.spec.ts` — compute graph + compiler specs (17 tests).
+- `bun test packages/core/src/render/passes/graph-compute.spec.ts` — compute pass specs (7 tests).
+- `bun test packages/core/src/render/compute-kernel.spec.ts` — kernel helper specs (5 tests).
+
+## Bindless rendering model
+
+The engine uses a bindless material binding model to eliminate per-draw bind-group churn. Material parameters (baseColor, roughness, texture indices) live in a single SSBO; textures are registered into global `texture_2d_array` buckets keyed by format/dimensions/mips. A single bind group (`@group(3)`) is set once per frame and shared by all draw calls.
+
+### Core infrastructure (`packages/core/src/render/bindless/`)
+
+- `BindlessTextureRegistry` — manages `texture_2d_array` buckets. Textures are registered by `sourceId` (stable string key) and packed into array layers. `registerFromTexture(src, GPUTexture, key)` and `registerFromImageBitmap(src, ImageBitmap, format, mipCount)` are the entry points. `getHandle(sourceId)` returns a packed `(pageIndex << 16) | layerIndex` handle. `defaultWhiteHandle` is a 1x1 white fallback.
+- `BindlessMaterialManager` — manages the material SSBO. `registerMaterial(MaterialParams)` returns a `materialIndex`; `updateMaterial(index, params)` updates in place; `unregisterMaterial(index)` frees the slot.
+- `BindlessFrameBindings` — owns the `@group(3)` bind group layout + bind group. `prepareFrame()` flushes the material SSBO and returns the bind group. `getBindGroup()` returns the cached bind group.
+- `bindless.wgsl.ts` — WGSL chunks (`BINDLESS_MATERIAL_CHUNK`) for the `BindlessMaterial` struct + `unpackArrayIndex`/`unpackLayerIndex` helpers.
+
+### WGSL binding convention
+
+- `@group(0)` — per-draw uniform (camera, model matrix, `materialIndex: u32`). The materialIndex selects the material from the SSBO.
+- `@group(1)` — lighting data (storage buffer).
+- `@group(2)` — IBL bind group (brdfLUT, irradiance, prefilter).
+- `@group(3)` — bindless materials: `binding(0)` = material SSBO, `binding(1..8)` = 8 separate `texture_2d_array` bindings (WGSL does NOT allow `array<texture_2d_array<f32>, N>` — each array must be a separate `@binding`), `binding(9)` = repeat sampler, `binding(10)` = clamp sampler.
+- Texture handles pack `(globalArrayIndex << 16) | layerIndex`. The `globalArrayIndex` is a monotonic flat index across all buckets/pages — assigned when a page is appended, never reused. Shaders use `sampleBindlessArray(arr, uv, layer)` (a switch over arr 0..7) to sample the correct binding.
+
+### Device limits
+
+`device.ts` and `game-renderer.ts` request `maxTextureArrayLayers: 256` in `requiredLimits`. `GPUDeviceManager.requestDevice` checks for the limit before requesting.
+
+### Migration status
+
+- `ModelRenderer` (plugin-entities) — fully bindless. `setBindlessDeps()` + `setBindlessBindGroup()` wire the registry/material manager. The model shader samples albedo from `albedoArrays[arr]` using the material's `albedoTex` handle.
+- `PlayerMeshRenderer` (to-the-ocean) — fully bindless. Player texture registered via `BindlessTextureRegistry.registerFromImageBitmap`. `materialIndex` written into the entity uniform at float slot 44.
+- `OpaquePass` PBR path — fully bindless. `PBRMaterialResources` uses `*TextureSourceId` fields. `setBindlessDeps()` wires the registry. `materialIndex` uniform at `@group(0) binding(3)`.
+- `DecalPass` — fully bindless. Per-item bind group creation eliminated; bind group created once per pass. `materialIndex` in the decal uniform.
+- `shader-graph` profiles — `PBR_TEXTURED_PROFILE` and `PBR_SKINNED_PROFILE` updated to use `@group(3)` for bindless materials instead of per-material sampler/texture in group 0.
+- `material-bridge.ts` — `bridgeMaterial()` accepts an optional `BindlessTextureRegistry` and registers textures into it when provided.
+
+### WebGPU type gotchas
+
+- `GPUTexelCopyTextureInfo` and `GPUCopyExternalImageDestInfo` use `origin: [x, y, layer]` (z component = array layer), not a separate `arrayLayer` property.
+- `GPUSupportedLimits` → `Record<string, number>` conversion requires `any` cast.
+
+- `tsconfig.web.json` and `tsconfig.node.json` are composite projects with `outDir: "dist"`. electron-vite also emits its bundles to `dist/main`, `dist/preload`, `dist/renderer` (configured in `electron.vite.config.ts`).
+- `@dimforge/rapier3d-compat` is at `0.19.3`. The internal `RawRigidBodySet`/`RawColliderSet` types are not exported in that version, so `rapier-physics-system.ts` uses `any` for the raw body/collider references.
+- **WASM borrow aliasing:** Rapier 0.19.x returns `RawVector`/`RawRotation`/`RawColliderShape` objects from methods like `body.translation()`, `controller.computedMovement()`, and `ColliderDesc.trimesh()`. These hold WASM borrows that must be explicitly `.free()`d before `world.step()`. The `rapier-backend.ts` `addCollider` frees `cd.shape` after `world.createCollider()` (the collider set clones the `SharedShape` Arc). Same for `getColliderPosition`, `getBodyTransform`, `characterMove`, and the raw fast-path fallbacks. Failure to free causes "recursive use of an object detected which would lead to unsafe aliasing in rust" panics during `world.step()`.
+- **Raw fast-path handle mapping:** The `*Raw` methods in `rapier-backend.ts` receive `bodyId` (the game's `PhysicsBody.id`, sequential: 1, 2, 3...) but must pass the **Rapier rigid-body handle** (`body.handle`, starts at 0) to WASM functions like `rbSetTranslation`. The raw fast paths look up the `RigidBody` from `bodyMaps` to get `body.handle`. Passing `bodyId` directly causes out-of-bounds WASM access that corrupts internal state and triggers the aliasing panic.
+- **`swapColliderShapeRaw` shape type:** `ColliderDesc.trimesh()` returns a `SharedShape` (Eg) which stores vertices/indices but does NOT hold a `RawColliderShape`. `coSetShape` expects a `RawShape` (OA). Call `shape.intoRaw()` to get the `RawColliderShape`, pass it to `coSetShape`, then `.free()` it.
+
+## Universal Physics Plugin (physics-rapier 0.2.0)
+
+- The `PhysicsBackend` interface is now `PhysicsBody`-keyed (opaque body refs). Raw Rapier `RigidBodyHandle` is no longer exported from `@downdraft/core`.
+- Multi-realm LOD: `RealmManager` drives near/mid/far tiers with promote/demote + dwell hysteresis. Static bodies are duplicated into all realms by default.
+- `UniversalPhysicsAPI` (`@downdraft/plugin-physics-rapier`) is the single public surface: body lifecycle, validated state access, realm queries, interpolation, raycast, snapshots, hooks.
+- Subsystems: `PhysicsAccumulator` (fixed timestep), `InterpolationBuffer` (double-buffered), `LoadShedder` (island-aware freeze), `SafetyLayer` (NaN/Inf + hard-lock), `CCDHeuristic` (per-body), `SnapshotManager` (multiplayer), `RealmWorkerPool` (nested-worker parallelism, `workerCount:0` = single-threaded).
+- `PhysicsSystem` (ECS, `Stage.Physics`) wires all subsystems together; created via `createPhysicsSystem(resources)`.
+- Demo: `examples/physics-demo/main.ts` exercises realms, transfers, CCD, NaN injection, snapshot/restore.
+- **Raw fast paths** (`*Raw` methods on `UniversalPhysicsAPI`/`PhysicsBackend`): scalar transform sync/readback, `isSleepingRaw`, `swapColliderShapeRaw` (in-place trimesh shape swap, avoids broadphase re-insertion), `reserveMemory`, `setIntegrationDt`. These bypass safety validation and avoid JS object allocation — callers must validate inputs. Use in hot loops (e.g. `to-the-ocean`'s per-entity sync runs every tick).
+
+## Recent performance work
+
+- Simulation tick telemetry now emits `perf_stats` with `process: "sim"` every 30 ticks; `main.tsx` records systems into the `TelemetryCollector` overlay.
+- `simulation-tick.ts` caches player center once per tick and builds slow-log/per-event arrays with loops instead of chained filter/map.
+- ECS `World` uses numeric archetype keys, avoids `allArchetypes.includes`, removes duplicate `updateQueryArchetypes` call in `step`, and `Schedule` caches the query list.
+- `WebGPURenderer` builds a single `GPUCommandEncoder` per frame and submits once; the depth texture cache is cleared on resize.
+- Main process `nvidia-smi` queries are async and cached for 1s.
+- `TelemetryCollector.passTimings` is now a bounded `Map` instead of an unbounded array.
+- `GPUProfiler` supports up to 32 passes (was hardcoded to 16).
+
+## Host SDK (`@downdraft/app` — game-bootstrapped host layer)
+
+Games bootstrap themselves by calling engine-exported host methods, instead of the engine owning a monolithic main/preload process. The engine obscures Electron's main/preload/renderer machinery behind a config-driven surface (Angular-style: devs set config, rarely touch raw Electron APIs). Raw process access is a deliberate `extend(ctx)` escape hatch.
+
+### Subpath exports
+
+- `@downdraft/app/main` — `createDowndraftApp(config)`, `webGpuSwitches()`, composable handlers, `MainContext` types.
+- `@downdraft/app/preload` — `createDowndraftBridge(config)` with default `window.downdraft` API + `extend` hook.
+- `@downdraft/app/renderer` — typed `downdraft` accessor (coexists with `window.downdraft`; stubs to no-op in browser-only mode).
+- `@downdraft/app/shared` — IPC channel constants (safe in all processes).
+- `@downdraft/app/vite` — `createDowndraftViteConfig({ root, ...overrides })` build-config factory.
+
+### Per-game files
+
+Each Electron game owns:
+- `electron.vite.config.ts` — calls `createDowndraftViteConfig({ root: __dirname })`.
+- `src/main.ts` — calls `createDowndraftApp({ window, switches, features, lifecycle, extend })`.
+- `src/preload.ts` — calls `createDowndraftBridge({ extend })`.
+
+The root `electron.vite.config.ts` is a `DOWNDRAFT_GAME` dispatcher that uses the factory with the selected game's root. `DOWNDRAFT_GAME=<game> bun run dev` still works.
+
+### Config-driven features
+
+`features` in `createDowndraftApp()` gates which IPC handlers are registered: `saves`, `osr`, `mcp`, `devtools`, `gpuInfo`, `consoleForwarding`, `errorDialog`, `windowStatePersistence`. Set to `false` to disable.
+
+`features.devtools` accepts a `DevtoolsConfig` object (or boolean shorthand): `enabled` (master switch, default true), `keybind` (key that toggles DevTools via main-process `before-input-event`, matched against `KeyboardEvent.key`; default `"F12"`, set to `""` to disable), `autoOpen` (auto-open on window ready-to-show; default true), `debugPort` (optional; sets Chromium's `--remote-debugging-port` switch before app ready). The keybind is handled in the main process, so renderer keydown listeners for the same key are suppressed via `preventDefault()`. `resolveDevtoolsConfig(feature)` returns the resolved `{ enabled, autoOpen, keybind, debugPort }`.
+
+### Deliberate escape hatch
+
+`extend(ctx)` in both `createDowndraftApp()` and `createDowndraftBridge()` provides raw Electron access (`ctx.app`, `ctx.BrowserWindow`, `ctx.ipcMain`, etc.) for game-specific needs. This is the intended way to reach Electron APIs directly — "deliberate" by API design, not by lint/runtime guards.
+
+## Game automation & headless testing
+
+### GPU mode environment variable
+
+Set `DOWNDRAFT_GPU=swiftshader` to force Chromium's software Vulkan backend for headless CI / testing without a GPU. Without this env var, the engine uses the hardware GPU (NVIDIA Vulkan on Linux, D3D12 on Windows).
+
+### MCP automation harness (`to-the-ocean`)
+
+`to-the-ocean` registers a renderer-side MCP automation harness (`games/to-the-ocean/src/mcp/setup.ts`) wired to the existing main-process MCP HTTP proxy. It exposes game-specific tools without importing the Node-only `@downdraft/mcp` server bundle into the renderer:
+
+- `inject_input` — hold keys/mouse/wheel for a number of frames via `RendererInputHandler.injectInput()`.
+- `clear_injected_input` — cancel pending injected input.
+- `get_player_state` — read player slot from the simulation SharedArrayBuffer.
+- `get_world_state` — read global simulation state (tick, entity count, weather, etc.).
+- `wait_for_condition` — poll a JS predicate against player/world state with timeout.
+- `capture_screenshot` — return the WebGPU canvas as a base64 PNG.
+- `set_test_state` — set weather, time of day, sim speed, or respawn the player.
+
+Input injection is merged with real DOM input in `processInput()` so the game loop does not need to know whether the input came from a human or a test.
+
+### Connecting Devin's MCP client to the game
+
+The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. However, Devin's MCP client uses stdio for local servers. A stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+
+To connect:
+1. Start the game: `DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 bun run dev`
+2. The MCP config (`.devin/mcp_config.json`) defines the `ocean` server using the bridge script.
+3. The bridge forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:9876/mcp`.
+4. Notifications (messages without an `id` field, like `notifications/initialized`) are silently ignored by the bridge.
+5. `resources/list` and `prompts/list` return empty lists (the game doesn't expose resources or prompts).
+
+Key bridge fixes:
+- Notifications (no `id`) must not receive a response — the bridge silently drops them.
+- The proxy handler wraps errors in the `result` field; the bridge detects `result.error` and converts it to a proper MCP `error` response.
+- `ELECTRON_RUN_AS_NODE` must be unset in the game's env or Electron's `app` object is undefined.
+
+### Running the smoke test
+
+The `draft test` CLI command (`packages/cli/src/test.ts`) launches the game, waits for the MCP endpoint, and runs the e2e spec via `bun test`. It sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, paused render loop, no autosave, no window) by default.
+
+```bash
+# CPU rendering (SwiftShader, headless) — default, for CI
+bun run draft:test-cpu
+
+# GPU rendering (hardware Vulkan, headless)
+bun run draft:test
+
+# Show the window while testing (useful for debugging)
+bun run draft:test -- --headed
+bun run draft:test-cpu -- --headed
+
+# Direct CLI usage
+draft test --renderer=gpu --headed
+draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
+```
+
+**CLI flags:**
+- `--renderer <gpu|cpu>` — WebGPU backend. `cpu` = SwiftShader software (default), `gpu` = hardware Vulkan.
+- `--headed` — Show the Electron window instead of running headless. Sets `DOWNDRAFT_HEADED=1`.
+- `--game <name>` — Game to test (default: `to-the-ocean`). Resolves spec to `tests/e2e/<game>-smoke.spec.ts`.
+- `--spec <path>` — Override the spec file path.
+- `--port <n>` — MCP port (default: 9976).
+- `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
+
+**Environment variables (set automatically by `draft test`):**
+- `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
+- `DOWNDRAFT_DETERMINISTIC=1` — fixed seed (99999), skip autosave, disable devtools auto-open, pause render loop (on-demand rendering only). Passed to the renderer via the `downdraft.deterministic` preload bridge property.
+- `DOWNDRAFT_HEADED=1` — show the window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
+- `MCP_PORT=9976` — MCP HTTP transport port.
+- `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout.
+
+**Headless / CI without a display:** The CLI auto-detects missing `DISPLAY` and wraps in `xvfb-run` if available. Install it with `sudo apt install xvfb`. Electron still needs an X server even when the window is hidden — SwiftShader renders to an offscreen surface but Chromium's ozone platform requires a display connection.
+
+**Legacy scripts** (still available, bypass the CLI):
+- `bun run test:e2e` — runs the spec directly via `bun test` (uses whatever env vars are set).
+- `bun run test:e2e:headless` — same, but forces `DOWNDRAFT_GPU=swiftshader`.
+- `bun run test:e2e:local` — same, no env override (uses hardware GPU by default).
+
+`tests/e2e/harness.ts` launches `bun run dev` with `DOWNDRAFT_GAME=to-the-ocean`, waits for the MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
+
+### E2E test verification — checking for JS errors
+
+**Do NOT rely solely on test pass/fail to verify correctness.** The e2e tests drive the game through MCP tool calls and assert on returned state, but uncaught JS errors in the game process (React DOM errors, uncaught Promise rejections, TypeError from polyfill gaps) will NOT cause test failures unless explicitly checked.
+
+The harness (`tests/e2e/harness.ts`) captures console output from the game process and exposes it via `game.getConsoleErrors()`. Tests should include a final assertion that no JS errors occurred:
+
+```ts
+it("no uncaught JS errors during the test run", async () => {
+  await sleep(500); // wait for pending async errors to surface
+  const errors = game!.getConsoleErrors();
+  if (errors.length > 0) console.error("Console errors:\n" + errors.join("\n"));
+  expect(errors).toEqual([]);
+});
+```
+
+When verifying changes, always:
+1. Run `bun run tsc` — type-check both web and node configs
+2. Run the e2e test with `DOWNDRAFT_GPU=swiftshader` (CPU rendering for CI)
+3. Grep the full test output for error patterns: `grep -E "Uncaught|TypeError|ReferenceError|WrongDocumentError|is not a function|is not defined" /tmp/undertow-test-*.log`
+4. Do NOT ignore errors that appear "during teardown" — they may indicate real bugs (e.g. React trying to render on detached DOM nodes, uncaught Promise rejections from `requestPointerLock()`)
+
+Common false positives to filter out: Chromium storage errors (`ERROR:components/services/storage`, `ERROR:storage/browser`), GTK module warnings, WebSocket connection failures during teardown, `session.loadExtension` deprecation warnings.
+
+### E2E test gotchas
+
+- **MCP port conflicts**: If a previous test run didn't clean up, port 9977 may still be in use. Kill with `fuser -k 9977/tcp; pkill -9 -f electron` before running.
+- **Save store hangs in test environments**: `createSaveStore()` can hang when OPFS is not available (SwiftShader/headless). The MCP harness (`setupTtolMcp`) must be registered BEFORE the save store init so e2e tests can connect. The harness's `dispatch_key` / `get_ui_state` tools only need the renderer + store, not the sim SAB.
+- **Undertow worker event pump**: The worker's `onKey` handler reads `useGameStore.getState()` to decide which action to dispatch. Store-syncs from the main thread are async (throttled to ~16ms), so the worker may read stale state. The store bridge applies optimistic updates for toggle actions and skips syncing toggle state keys for 200ms after an optimistic update to prevent stale overwrites.
+- **`requestPointerLock()` returns a Promise in newer Chrome**: The Promise can reject with `WrongDocumentError` if the canvas was detached or during ESC cooldown. Always `.catch()` the return value to avoid uncaught rejections.
+- **Undertow DOM polyfill node type caching**: `wrapSyncNode` must NOT do a `callSync` round-trip for every uncached node — this adds seconds of latency when React renders a menu (dozens of elements). Instead, cache the node type in `createElement`/`createTextNode`/`createComment` and default to `SyncElement` for uncached handles (the most common case). `getSyncElement` must also upgrade cached `SyncNode`s to `SyncElement`s when accessed via `getSyncElement` (the cache may have a `SyncNode` from `firstChild`/`childNodes` that needs `setAttribute`).
+- **Renderer stub in worker**: The worker's `useGameStore` needs a Proxy-based renderer stub that forwards `lockPointer`/`exitPointerLock` to the main thread via `postMessage` and returns safe defaults for other methods (`getFPS` → 0, settings setters → no-op). Without this, `togglePauseMenu`'s `lockPointer()` call is a no-op in the worker, and `app.tsx`'s FPS polling throws `renderer.getFPS is not a function` every 500ms.
+- **Inventory panel height**: The inventory grid is 20×15 cells × 28px = ~8400px tall. The panel needs `max-h-[80vh] overflow-y-auto` to constrain it, otherwise it renders at 8k+ pixels.
+
+### Why not a WebGL2 fallback?
+
+The engine relies on WebGPU-specific features (bindless `texture_2d_array`, storage buffers, compute passes, GBuffer MRT). A WebGL2 renderer would be a second, incompatible implementation. For testing, we instead use SwiftShader's Vulkan backend to run the unmodified WebGPU pipeline in software, and we inject input through the renderer so Playwright does not need to manipulate pointer lock or raw GPU output.
