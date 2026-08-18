@@ -37,10 +37,22 @@ async function bootstrap() {
   const devtoolsBridge = new AlchemyDevToolsBridge(renderer);
   devtoolsBridge.init(dataRenderer);
 
-  // Autoload
+  // Start the render loop immediately — don't let a hung autosave load
+  // (e.g. IndexedDB locked by another process) block the canvas from rendering.
+  renderer.start();
+
+  setInterval(() => {
+    useGameStore.getState().setFPS(renderer.getFPS());
+  }, 500);
+
+  // Autoload (after the render loop is running, with a 5s timeout so a
+  // locked IndexedDB doesn't block the autosave interval setup)
   if (!deterministic) {
     try {
-      const saved = await loadAutosave();
+      const saved = await Promise.race([
+        loadAutosave(),
+        new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+      ]);
       if (saved) {
         await renderer.loadSave(saved.grid, saved.fields, saved.gridW, saved.gridH);
         useGameStore.getState().loadFullState({
@@ -56,12 +68,6 @@ async function bootstrap() {
       console.warn("[autosave] Failed to load:", e);
     }
   }
-
-  setInterval(() => {
-    useGameStore.getState().setFPS(renderer.getFPS());
-  }, 500);
-
-  renderer.start();
 
   // Autosave
   if (!deterministic) {

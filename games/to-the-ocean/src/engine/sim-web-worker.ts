@@ -4,13 +4,13 @@
 // Uses the RPC layer (wrap/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
+import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
-import { allocateBoatBuffer } from "@shared/boat-buffer";
+import { WaterChannel } from "@downdraft/plugin-water";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
-import { allocateInputBuffer, allocateSimBuffer, allocateWaterBuffer } from "@shared/sim-buffer";
 import { SimToMainMessage } from "@shared/types";
+import { allocateBoatBuffer } from "@to-the-ocean/library-boats/boat-sab";
 
 export type SimEventCallback = (msg: SimToMainMessage) => void;
 
@@ -101,7 +101,7 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   constructor() {
     this.simBuffer = allocateSimBuffer();
     this.inputBuffer = allocateInputBuffer();
-    this.waterBuffer = allocateWaterBuffer();
+    this.waterBuffer = WaterChannel.allocate();
     this.boatBuffer = allocateBoatBuffer();
   }
 

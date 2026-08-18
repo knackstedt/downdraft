@@ -4,6 +4,11 @@ export type { TransformGizmoPluginOptions } from "./gizmo-plugin";
 export { TransformGizmo } from "./transform-gizmo";
 export type { GizmoHitPart } from "./transform-gizmo";
 
+// Debug renderers (promoted from model-viewer)
+export { GridRenderer } from "./grid-renderer";
+export { HeightRulerRenderer } from "./height-ruler-renderer";
+export { SkeletonRenderer } from "./skeleton-renderer";
+
 // Scene & debug stores
 export { useDebugStore } from "./debug-store";
 export type { CollisionLogEntry } from "./debug-store";

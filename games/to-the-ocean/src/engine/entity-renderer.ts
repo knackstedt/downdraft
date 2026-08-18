@@ -4,7 +4,7 @@
 
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
 import type { MeshData, ModelData } from "@downdraft/plugin-models";
-import { BoatBufferReader } from "@shared/boat-buffer";
+import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import {
     BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT,
@@ -12,7 +12,7 @@ import {
     getWallCollisionBoxes, hasSolidCollision, isWallType,
     PLAYER_HEIGHT, PLAYER_RADIUS
 } from "@shared/constants";
-import { SimBufferReader } from "@shared/sim-buffer";
+import { SimBufferReader } from "@downdraft/core";
 import { EntityType, PortSize } from "@shared/types";
 import { CameraState } from "./camera-system";
 

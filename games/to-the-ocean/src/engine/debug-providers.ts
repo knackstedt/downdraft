@@ -13,8 +13,8 @@ import {
   isWalkableSurface,
   PLAYER_EYE_HEIGHT,
 } from "@shared/constants";
-import { BoatBufferReader } from "@shared/boat-buffer";
-import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
+import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
+import { ENT, PLR, SimBufferReader } from "@downdraft/core";
 import { CameraMode, EntityType, EntityTypeNames } from "@shared/types";
 import type {
   IDebugOverlayData,

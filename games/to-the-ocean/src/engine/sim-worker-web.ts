@@ -7,12 +7,12 @@
 import { GCController, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
-import { BoatBufferWriter } from "@shared/boat-buffer";
+import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
-import { InputBufferReader } from "@shared/input-buffer";
-import { PLR_FLAG, SimBufferWriter } from "@shared/sim-buffer";
+import { InputBufferReader } from "@downdraft/core";
+import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
 import { SimToMainMessage } from "@shared/types";
-import { WaterBufferWriter } from "@shared/water-buffer";
+import { WaterBufferWriter } from "@downdraft/plugin-water";
 import { Simulation } from "@sim/simulation";
 
 (globalThis as any).__ddThreadTag = "R1";

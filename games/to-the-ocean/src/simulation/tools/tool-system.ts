@@ -3,10 +3,10 @@
 // Runs in the sim worker. Processes player clicks when gun/shovel is active.
 // ============================================================================
 
-import { InputBufferReader } from "../../shared/input-buffer";
+import { InputBufferReader } from "@downdraft/core";
 import { SimEntity, SimPlayer } from "../simulation";
 import { EntityType } from "../../shared/types";
-import { PLR_FLAG } from "../../shared/sim-buffer";
+import { PLR_FLAG } from "@downdraft/core";
 import {
   HOTBAR_TOOLS, PLAYER_EYE_HEIGHT,
 } from "../../shared/constants";

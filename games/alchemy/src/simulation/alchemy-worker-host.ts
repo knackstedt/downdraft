@@ -1,5 +1,5 @@
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
-import { allocateSimBuffer, INPUT, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
+import { allocateSimBuffer, INPUT, OFFSETS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
 
 type AlchemyWorkerApi = {
   init(sab: SharedArrayBuffer, gridW: number, gridH: number): Promise<void>;
@@ -31,8 +31,8 @@ export class AlchemyWorkerHost {
     this.gridW = gridW;
     this.gridH = gridH;
     this.sab = allocateSimBuffer();
-    this.writer = new SimBufferWriter(this.sab, gridW, gridH);
-    this.reader = new SimBufferReader(this.sab, gridW, gridH);
+    this.writer = new SimBufferWriter(this.sab, OFFSETS, gridW, gridH);
+    this.reader = new SimBufferReader(this.sab, OFFSETS, gridW, gridH);
     this.writer.init();
   }
 

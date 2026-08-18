@@ -6,8 +6,8 @@ import {
     MAX_ENTITIES,
     SIM_TICK_DT
 } from "../shared/constants";
-import { InputBufferReader } from "../shared/input-buffer";
-import { PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
+import { InputBufferReader } from "@downdraft/core";
+import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
 import {
     BiomeType,
     CameraMode,
@@ -19,7 +19,7 @@ import {
     SimToMainMessage,
     WorldCommand
 } from "../shared/types";
-import { WaterBufferWriter } from "../shared/water-buffer";
+import { WaterBufferWriter } from "@downdraft/plugin-water";
 
 import type { ISimulation } from "@downdraft/core";
 import type { JobScheduler } from "@downdraft/core/ecs/job-system";
@@ -27,7 +27,7 @@ import { WeatherSystem } from "@downdraft/library-weather";
 import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
 import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/library-collision";
 import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/library-wildlife";
-import { BoatBufferWriter } from "../shared/boat-buffer";
+import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import {
     BOAT_CELL_WORLD_SIZE,

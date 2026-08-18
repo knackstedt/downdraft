@@ -1,3 +1,4 @@
+import { GPUDeviceManager } from "@downdraft/core";
 import { computeGridDims } from "../shared/constants";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { AlchemyWorkerHost } from "../simulation/alchemy-worker-host";
@@ -8,6 +9,7 @@ import { SandGridPass } from "./sand-grid-pass";
 export class AlchemyRenderer {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
+  private deviceManager = new GPUDeviceManager();
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private gridPass: SandGridPass | null = null;
@@ -62,13 +64,8 @@ export class AlchemyRenderer {
   }
 
   async init(): Promise<boolean> {
-    if (!navigator.gpu) {
-      console.error("WebGPU not supported");
-      return false;
-    }
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-    if (!adapter) return false;
-    this.device = await adapter.requestDevice();
+    this.device = await this.deviceManager.requestDevice();
+    if (!this.device) return false;
     this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
     if (!this.context) return false;
     this.format = navigator.gpu.getPreferredCanvasFormat();

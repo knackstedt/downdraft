@@ -19,7 +19,7 @@ import "@fontsource/wavefont/400.css";
 import { createSaveStore, downdraft, type SaveStoreMode } from "@downdraft/app/renderer";
 import { startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats, type ISaveStore } from "@downdraft/core";
 import { useDebugStore } from "@downdraft/plugin-devtools";
-import { ENT, PLR, PLR_FLAG, SimBufferReader } from "@shared/sim-buffer";
+import { ENT, PLR, PLR_FLAG, SimBufferReader } from "@downdraft/core";
 import { CameraMode, EntityType, SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";

@@ -77,10 +77,6 @@ export function calculateViewProjInto(camera: CameraState, target: Float32Array)
   return mat4.multiply(tmpProj, tmpView, target);
 }
 
-export function invertMat4(m: Float32Array): Float32Array {
-  return mat4.inverse(m, new Float32Array(16));
-}
-
 export function transformVec4(
   m: Float32Array,
   v: [number, number, number, number],

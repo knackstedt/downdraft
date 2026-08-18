@@ -1,4 +1,4 @@
-import { SimBufferReader } from "@shared/sim-buffer";
+import { SimBufferReader } from "@downdraft/core";
 import { GameMode } from "@shared/types";
 import React from "react";
 import { useGameStore } from "../stores/game-store";

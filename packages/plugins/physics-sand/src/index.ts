@@ -54,3 +54,13 @@ export type { MaterialDef } from "./materials";
 
 export { GRAVEL_DISTURB_SETTLE_TICKS, LOOSE_STONE_SETTLE_TICKS, SandWorld } from "./sand-world";
 
+// Generic grid-based SharedArrayBuffer framework for sand/grid games
+export {
+    allocateGridSimBuffer,
+    computeGridSimOffsets,
+    GridSimBufferReader,
+    GridSimBufferWriter,
+    type GridSimBufferLayout,
+    type GridSimBufferOffsets
+} from "./grid-sim-buffer";
+

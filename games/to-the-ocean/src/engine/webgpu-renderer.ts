@@ -13,14 +13,14 @@ import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, us
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/plugin-models";
 import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/plugin-weatherfx";
-import { BoatBufferReader } from "@shared/boat-buffer";
+import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, ISLAND_DATA, PORT_DATA } from "@shared/constants";
-import { InputBufferWriter } from "@shared/input-buffer";
-import { ENT, PLR, SimBufferReader } from "@shared/sim-buffer";
+import { InputBufferWriter } from "@downdraft/core";
+import { ENT, PLR, SimBufferReader } from "@downdraft/core";
 import { generateIslandBlobs } from "@shared/terrain";
 import { CameraMode, EntityFlags, EntityType, PortSize, WeatherType } from "@shared/types";
-import { WATER_GRID, WaterBufferReader } from "@shared/water-buffer";
+import { WATER_GRID_SAB as WATER_GRID, WaterBufferReader } from "@downdraft/plugin-water";
 import { CameraSystem, type CameraState } from "./camera-system";
 import { GameDebugOverlayData, GameLabelProvider, GameRaycastProvider, GameSceneSyncProvider, getRayDirection, getRayOrigin } from "./debug-providers";
 import { EntityRenderer } from "./entity-renderer";

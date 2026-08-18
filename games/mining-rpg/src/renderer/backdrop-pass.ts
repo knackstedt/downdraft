@@ -10,8 +10,8 @@
 // (behind the foreground), with no blending (opaque).
 // ============================================================================
 
+import { FULLSCREEN_VS } from "@downdraft/core";
 import BACKDROP_FS from "../shaders/backdrop-render.wgsl?raw";
-import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
 import {
     BACKDROP_GRID_H,
     BACKDROP_GRID_W,

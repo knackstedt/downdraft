@@ -2,12 +2,12 @@
 
 import { WeatherSystem } from "@downdraft/library-weather";
 import { SIM_TICK_DT } from "../shared/constants";
-import { InputBufferReader } from "../shared/input-buffer";
+import { InputBufferReader } from "@downdraft/core";
 import {
     collectShoreSources,
     type ShoreSource,
 } from "../shared/shore-damping";
-import { PLR_FLAG } from "../shared/sim-buffer";
+import { PLR_FLAG } from "@downdraft/core";
 import { SimToMainMessage } from "../shared/types";
 import { BoatCellSystem } from "./boat/boat-cell-system";
 import { BoatSystem } from "./boat/boat-system";

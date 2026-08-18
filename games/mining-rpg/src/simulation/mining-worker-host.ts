@@ -12,6 +12,7 @@ import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT } from "../shared/constants";
 import {
     MiningSimBufferReader,
     MiningSimBufferWriter,
+    OFFSETS,
     allocateMiningSimBuffer,
 } from "../shared/sim-buffer";
 import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
@@ -46,8 +47,8 @@ export class MiningWorkerHost {
 
   constructor() {
     this.sab = allocateMiningSimBuffer();
-    this.writer = new MiningSimBufferWriter(this.sab, ACTIVE_GRID_W, ACTIVE_GRID_H);
-    this.reader = new MiningSimBufferReader(this.sab, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.writer = new MiningSimBufferWriter(this.sab, OFFSETS, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.reader = new MiningSimBufferReader(this.sab, OFFSETS, ACTIVE_GRID_W, ACTIVE_GRID_H);
     this.writer.init();
   }
 

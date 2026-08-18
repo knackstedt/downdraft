@@ -22,16 +22,13 @@ import {
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
-import { DevToolsDataBridge, type IDevToolsDataRenderer } from "@downdraft/plugin-devtools";
+import { DevToolsDataBridge, GridRenderer, HeightRulerRenderer, SkeletonRenderer, TransformGizmo, type IDevToolsDataRenderer } from "@downdraft/plugin-devtools";
 import type { MeshData } from "@downdraft/plugin-models";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { updateAnimDisplay } from "./anim-display";
 import { ModelAnimator } from "./animation";
 import App from "./app";
-import { GizmoManager } from "./gizmo-manager";
-import { GridRenderer } from "./grid-renderer";
-import { HeightRulerRenderer } from "./height-ruler-renderer";
 import {
     discoverModels,
     loadModelWithTextures,
@@ -40,7 +37,6 @@ import {
     type LoadedModel,
     type ModelEntry
 } from "./model-loader";
-import { SkeletonRenderer } from "./skeleton-renderer";
 import "./styles/globals.css";
 
 /** Compose a column-major 4x4 model matrix from translation, rotation (quaternion), and uniform scale.
@@ -452,8 +448,11 @@ async function bootstrap() {
     },
   });
 
-  // Gizmo manager for bone manipulation
-  const gizmoManager = new GizmoManager();
+  // Gizmo for bone manipulation — uses engine TransformGizmo in translate mode
+  const gizmoManager = new TransformGizmo(device, format);
+  await gizmoManager.init();
+  gizmoManager.setMode("translate");
+  gizmoManager.setVisible(false);
   _gizmoManager = gizmoManager;
 
   // Gizmo input handlers — high priority (50) so they run before the camera
@@ -464,25 +463,40 @@ async function bootstrap() {
     return { w: canvas.clientWidth * dpr, h: canvas.clientHeight * dpr };
   };
 
+  // Gizmo drag callback — updates bone offset when the gizmo is dragged
+  gizmoManager.onTransformUpdate = (transform: { position?: [number, number, number] }) => {
+    if (transform.position) {
+      state.skeletonBoneOffset = [...transform.position] as [number, number, number];
+      rebuildSkeleton();
+      notify();
+    }
+  };
+
   inputBus.onPointerDown((e: PointerEvent, ctrl) => {
     if (!state.showSkeleton || state.skeletonBoneIndex === null) return;
     if (e.button !== 0) return; // left button only
-    gizmoManager.setModelMatrix(_latestModelMatrix);
     const { w, h } = getCanvasSize();
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (w / rect.width);
     const my = (e.clientY - rect.top) * (h / rect.height);
     const cam = cameraController.getCameraState(0);
     if (!cam) return;
-    const started = gizmoManager.startDrag(mx, my, cam, w, h, state.skeletonBoneOffset);
-    if (started) {
+    const part = gizmoManager.hitTest(mx, my, w, h, cam);
+    if (part) {
+      gizmoManager.startDrag(
+        part, mx, my, w, h, cam,
+        {
+          position: [...state.skeletonBoneOffset] as [number, number, number],
+          rotation: [0, 0, 0, 1],
+          scale: [1, 1, 1],
+        },
+      );
       ctrl.stopPropagation();
     }
   }, 50);
 
   inputBus.onPointerMove((e: PointerEvent, ctrl) => {
     if (!state.showSkeleton || state.skeletonBoneIndex === null) return;
-    gizmoManager.setModelMatrix(_latestModelMatrix);
     const { w, h } = getCanvasSize();
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (w / rect.width);
@@ -491,17 +505,12 @@ async function bootstrap() {
     if (!cam) return;
 
     if (gizmoManager.isDragging()) {
-      const newOffset = gizmoManager.updateDrag(mx, my);
-      if (newOffset) {
-        state.skeletonBoneOffset = newOffset;
-        rebuildSkeleton();
-        notify();
-      }
+      gizmoManager.updateDrag(mx, my, w, h, cam);
       ctrl.stopPropagation();
     } else {
       // Hover detection
-      const hovered = gizmoManager.pickAxis(mx, my, cam, w, h);
-      gizmoManager.setHovered(hovered);
+      const hovered = gizmoManager.hitTest(mx, my, w, h, cam);
+      gizmoManager.setHover(hovered);
       if (hovered) {
         canvas.style.cursor = "pointer";
       } else {
@@ -759,18 +768,14 @@ async function bootstrap() {
             modelMat = composeModelMatrix(pos, rot, scaleFactor);
           }
 
-          // Update gizmo manager with the same model transform for picking
-          gizmoManager.setModelMatrix(modelMat);
+          // Update gizmo position to follow the selected bone
           _latestModelMatrix = modelMat;
 
           skeletonRenderer.render(passEncoder, camera, modelMat);
 
-          // Render gizmo at selected bone position
+          // Render engine TransformGizmo at selected bone position
           if (state.skeletonBoneIndex !== null) {
-            const gizmoVerts = gizmoManager.buildVertices();
-            if (gizmoVerts) {
-              skeletonRenderer.renderGizmo(passEncoder, camera, gizmoVerts.vertices, gizmoVerts.vertexCount, modelMat);
-            }
+            gizmoManager.render(passEncoder, camera);
           }
         }
 
@@ -894,8 +899,8 @@ let _animator: ModelAnimator | null = null;
 let _heightRulerRenderer: HeightRulerRenderer | null = null;
 // Skeleton renderer — set during bootstrap, used to visualize bone hierarchy.
 let _skeletonRenderer: SkeletonRenderer | null = null;
-// Gizmo manager — handles 3D translate gizmo for bone manipulation.
-let _gizmoManager: GizmoManager | null = null;
+// Gizmo — engine TransformGizmo for bone manipulation (translate mode).
+let _gizmoManager: TransformGizmo | null = null;
 // Latest model matrix (updated each frame, used by input handlers for picking)
 let _latestModelMatrix: Float32Array | null = null;
 // Current model entry (for re-loading with custom settings)
@@ -963,9 +968,7 @@ async function selectModel(entry: ModelEntry) {
     // Update skeleton renderer with the model's skin (if any)
     if (loaded.data.skin) {
       _skeletonRenderer?.setSkin(loaded.data.skin);
-      // Scale gizmo to model size (10% of model height, clamped)
-      const h = loaded.stats.bounds.max[1] - loaded.stats.bounds.min[1];
-      if (_gizmoManager) _gizmoManager.gizmoSize = Math.max(0.05, Math.min(0.5, h * 0.1));
+      // Gizmo auto-scales based on camera distance (engine TransformGizmo)
     }
 
     // Build the animator for skinned models so rigging + animations play.
@@ -1141,8 +1144,6 @@ async function applyMetadata(settings: any): Promise<void> {
     // Update skeleton renderer with the model's skin (if any)
     if (loaded.data.skin) {
       _skeletonRenderer?.setSkin(loaded.data.skin);
-      const h = loaded.stats.bounds.max[1] - loaded.stats.bounds.min[1];
-      if (_gizmoManager) _gizmoManager.gizmoSize = Math.max(0.05, Math.min(0.5, h * 0.1));
     }
 
     // Frame the model using the rendered meshes' bounds
@@ -1177,9 +1178,12 @@ function setSkeletonBone(index: number | null): void {
   // Update gizmo position
   if (index !== null && _skeletonRenderer && _gizmoManager) {
     const pos = _skeletonRenderer.getBoneWorldPosition(index);
-    if (pos) _gizmoManager.setPosition(pos);
+    if (pos) {
+      _gizmoManager.setPosition(pos);
+      _gizmoManager.setVisible(true);
+    }
   } else {
-    _gizmoManager?.clear();
+    _gizmoManager?.setVisible(false);
   }
   notify();
 }

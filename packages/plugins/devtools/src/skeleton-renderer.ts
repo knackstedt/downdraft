@@ -1,4 +1,4 @@
-import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
+import { calculateViewProj, composeMat4Into, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/core";
 import type { SkinData } from "@downdraft/plugin-models";
 
 const SKELETON_WGSL = /* wgsl */ `
@@ -37,34 +37,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 `;
 
-const GIZMO_WGSL = /* wgsl */ `
-struct Uniforms {
-  viewProj: mat4x4<f32>,
-  model: mat4x4<f32>,
-};
-
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-
-struct VertexOutput {
-  @builtin(position) clipPos: vec4<f32>,
-  @location(0) color: vec3<f32>,
-};
-
-@vertex
-fn vs_main(@location(0) position: vec3<f32>, @location(1) color: vec3<f32>) -> VertexOutput {
-  var output: VertexOutput;
-  let worldPos = uniforms.model * vec4<f32>(position, 1.0);
-  output.clipPos = uniforms.viewProj * worldPos;
-  output.color = color;
-  return output;
-}
-
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  return vec4<f32>(input.color, 1.0);
-}
-`;
-
 /**
  * Renders a skeleton (bone hierarchy) as lines between bone rest positions,
  * with small cross-shaped joint markers at each bone.
@@ -80,11 +52,6 @@ export class SkeletonRenderer {
   private bindGroup: GPUBindGroup | null = null;
   private vertexBuffer: GPUBuffer | null = null;
   private vertexCount = 0;
-
-  // Gizmo pipeline (per-vertex colored lines)
-  private gizmoPipeline: GPURenderPipeline | null = null;
-  private gizmoVertexBuffer: GPUBuffer | null = null;
-  private gizmoVertexCount = 0;
 
   // Cached bone world positions (for gizmo placement)
   private boneWorldPositions: [number, number, number][] = [];
@@ -149,41 +116,6 @@ export class SkeletonRenderer {
         depthCompare: "always",
       },
     });
-
-    // Gizmo pipeline — per-vertex colored lines (pos(3) + color(3) = 6 floats)
-    const gizmoShader = this.device.createShaderModule({ code: GIZMO_WGSL });
-    this.gizmoPipeline = this.device.createRenderPipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
-      vertex: {
-        module: gizmoShader,
-        entryPoint: "vs_main",
-        buffers: [{
-          arrayStride: 24, // pos(3) + color(3)
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: "float32x3" },
-            { shaderLocation: 1, offset: 12, format: "float32x3" },
-          ],
-        }],
-      },
-      fragment: {
-        module: gizmoShader,
-        entryPoint: "fs_main",
-        targets: [{
-          format: this.format,
-          blend: {
-            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
-            alpha: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
-          },
-        }],
-      },
-      primitive: { topology: "line-list" },
-      multisample: { count: MSAA_SAMPLE_COUNT },
-      depthStencil: {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: false,
-        depthCompare: "always",
-      },
-    });
   }
 
   /** Build vertex data from skin bone rest positions. Call when a model loads.
@@ -200,46 +132,7 @@ export class SkeletonRenderer {
     const verts: number[] = [];
     const jointSize = 0.02; // 2cm joint crosses
 
-    // --- Matrix helpers (column-major 4x4) ---
-
-    const composeMat4 = (
-      pos: [number, number, number],
-      rot: [number, number, number, number],
-      scale: [number, number, number],
-      m: Float32Array,
-    ): void => {
-      const x = rot[0], y = rot[1], z = rot[2], w = rot[3];
-      const x2 = x + x, y2 = y + y, z2 = z + z;
-      const xx = x * x2, xy = x * y2, xz = x * z2;
-      const yy = y * y2, yz = y * z2, zz = z * z2;
-      const wx = w * x2, wy = w * y2, wz = w * z2;
-      m[0] = (1 - (yy + zz)) * scale[0];
-      m[1] = (xy + wz) * scale[0];
-      m[2] = (xz - wy) * scale[0];
-      m[3] = 0;
-      m[4] = (xy - wz) * scale[1];
-      m[5] = (1 - (xx + zz)) * scale[1];
-      m[6] = (yz + wx) * scale[1];
-      m[7] = 0;
-      m[8] = (xz + wy) * scale[2];
-      m[9] = (yz - wx) * scale[2];
-      m[10] = (1 - (xx + yy)) * scale[2];
-      m[11] = 0;
-      m[12] = pos[0];
-      m[13] = pos[1];
-      m[14] = pos[2];
-      m[15] = 1;
-    };
-
-    const multiplyMat4 = (a: Float32Array, b: Float32Array, out: Float32Array): void => {
-      for (let i = 0; i < 4; i++) {
-        const bi0 = b[i * 4], bi1 = b[i * 4 + 1], bi2 = b[i * 4 + 2], bi3 = b[i * 4 + 3];
-        out[i * 4] = a[0] * bi0 + a[4] * bi1 + a[8] * bi2 + a[12] * bi3;
-        out[i * 4 + 1] = a[1] * bi0 + a[5] * bi1 + a[9] * bi2 + a[13] * bi3;
-        out[i * 4 + 2] = a[2] * bi0 + a[6] * bi1 + a[10] * bi2 + a[14] * bi3;
-        out[i * 4 + 3] = a[3] * bi0 + a[7] * bi1 + a[11] * bi2 + a[15] * bi3;
-      }
-    };
+    // --- Matrix helpers (column-major 4x4) — imported from @downdraft/core ---
 
     // --- Compute world-space bone matrices by traversing the hierarchy ---
 
@@ -260,16 +153,16 @@ export class SkeletonRenderer {
            bone.restTranslation[1] + boneOffset.offset[1],
            bone.restTranslation[2] + boneOffset.offset[2]]
         : bone.restTranslation;
-      composeMat4(pos, bone.restRotation, bone.restScale, localMat);
+      composeMat4Into(pos, bone.restRotation, bone.restScale, localMat);
 
       const worldMat = worldMats[i];
       if (bone.parentIndex >= 0 && bone.rootAncestorMatrix) {
         // Child bone with non-bone intermediates: world = parent * intermediate * local
-        multiplyMat4(bone.rootAncestorMatrix, localMat, scratch);
-        multiplyMat4(worldMats[bone.parentIndex], scratch, worldMat);
+        multiplyMat4Into(bone.rootAncestorMatrix, localMat, scratch);
+        multiplyMat4Into(worldMats[bone.parentIndex], scratch, worldMat);
       } else if (bone.parentIndex >= 0) {
         // Normal child: world = parent * local
-        multiplyMat4(worldMats[bone.parentIndex], localMat, worldMat);
+        multiplyMat4Into(worldMats[bone.parentIndex], localMat, worldMat);
       } else {
         // Root bone: world = local (NOT rootAncestorMatrix * local).
         // The rootAncestorMatrix often encodes the FBX scene's unit scale
@@ -288,7 +181,7 @@ export class SkeletonRenderer {
     for (let i = 0; i < bones.length; i++) {
       const wm = worldMats[i];
       if (normMat) {
-        multiplyMat4(normMat, wm, scratch);
+        multiplyMat4Into(normMat, wm, scratch);
         positions.push([scratch[12], scratch[13], scratch[14]]);
       } else {
         positions.push([wm[12], wm[13], wm[14]]);
@@ -418,35 +311,6 @@ export class SkeletonRenderer {
   getBoneWorldPosition(index: number): [number, number, number] | null {
     if (index < 0 || index >= this.boneWorldPositions.length) return null;
     return this.boneWorldPositions[index];
-  }
-
-  /** Render a gizmo from vertex data built by GizmoManager. */
-  renderGizmo(passEncoder: GPURenderPassEncoder, camera: CameraState, vertices: Float32Array, vertexCount: number, modelMatrix: Float32Array | null = null) {
-    if (!this.gizmoPipeline || !this.bindGroup || !this.uniformBuffer || vertexCount === 0) return;
-
-    // Update gizmo vertex buffer
-    if (this.gizmoVertexBuffer) this.gizmoVertexBuffer.destroy();
-    this.gizmoVertexBuffer = this.device.createBuffer({
-      size: vertices.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    this.device.queue.writeBuffer(this.gizmoVertexBuffer, 0, vertices.buffer as ArrayBuffer, vertices.byteOffset, vertices.byteLength);
-
-    // Update uniforms (shared with skeleton pipeline)
-    const viewProj = calculateViewProj(camera);
-    const uniforms = new Float32Array(32);
-    for (let i = 0; i < 16; i++) uniforms[i] = viewProj[i];
-    if (modelMatrix) {
-      for (let i = 0; i < 16; i++) uniforms[16 + i] = modelMatrix[i];
-    } else {
-      uniforms[16] = 1; uniforms[21] = 1; uniforms[26] = 1; uniforms[31] = 1;
-    }
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
-
-    passEncoder.setPipeline(this.gizmoPipeline);
-    passEncoder.setBindGroup(0, this.bindGroup);
-    passEncoder.setVertexBuffer(0, this.gizmoVertexBuffer);
-    passEncoder.draw(vertexCount);
   }
 
   destroy() {

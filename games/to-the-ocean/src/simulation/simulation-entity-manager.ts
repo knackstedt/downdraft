@@ -12,7 +12,7 @@ import {
     SHIP_DATA,
     SHIP_DATA_SLOTS,
 } from "../shared/constants";
-import { PLR_FLAG, SimBufferWriter } from "../shared/sim-buffer";
+import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
 import { CameraMode, EntityId, EntityType } from "../shared/types";
 import { BoatCellSystem } from "./boat/boat-cell-system";
 import { BoatDesignSystem } from "./boat/boat-design-system";

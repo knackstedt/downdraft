@@ -5,7 +5,7 @@
 import { createLogger } from "@downdraft/core/util/logger";
 import { parentPort } from "worker_threads";
 import { PORT_DATA, PORT_SERVICE_BITS } from "../shared/constants";
-import { ENT, SimBufferReader } from "../shared/sim-buffer";
+import { ENT, SimBufferReader } from "@downdraft/core";
 import { EntityType, PortSize, SecurityLevel } from "../shared/types";
 
 const log = createLogger("info");

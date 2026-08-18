@@ -18,7 +18,7 @@ import { EntityType, SecurityLevel } from "@shared/types";
 import { createBuoyancyPlugin, type BuoyancyConfig, type BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
 import { createCollisionPlugin, type CollisionConfig, type CollisionDeps } from "@to-the-ocean/library-collision";
 import { createWildlifePlugin, type WildlifeConfig, type WildlifeDeps } from "@to-the-ocean/library-wildlife";
-import { InputBufferReader } from "../../shared/input-buffer";
+import { InputBufferReader } from "@downdraft/core";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
 import type { SimEntity, SimPlayer } from "../simulation";
 import {

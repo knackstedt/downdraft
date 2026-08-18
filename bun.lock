@@ -54,6 +54,7 @@
       "dependencies": {
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/plugin-devtools": "workspace:*",
         "@downdraft/ui": "workspace:*",
@@ -68,6 +69,7 @@
       "dependencies": {
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/plugin-devtools": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
@@ -87,6 +89,7 @@
       "dependencies": {
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/plugin-devtools": "workspace:*",
         "@downdraft/ui": "workspace:*",

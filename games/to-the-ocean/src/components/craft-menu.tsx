@@ -1,6 +1,6 @@
 import { getItem } from "@shared/data/items";
 import { RECIPES, Recipe } from "@shared/data/recipes";
-import { PLR, SimBufferReader } from "@shared/sim-buffer";
+import { PLR, SimBufferReader } from "@downdraft/core";
 import { ItemCategory } from "@shared/types";
 import React from "react";
 import { useGameStore } from "../stores/game-store";

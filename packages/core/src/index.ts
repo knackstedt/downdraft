@@ -282,7 +282,13 @@ export { UIModal, UIProgressBar, UISlider, UITabBar, UITextInput, UIToggle } fro
 // ─────────────────────────────────────────────────────────────────────────────
 // Math
 // ─────────────────────────────────────────────────────────────────────────────
+export { composeMat4Into, invertMat4, multiplyMat4Into } from "./math/mat4";
+export { PerlinNoise2D } from "./math/perlin-noise-2d";
 export { PerlinNoise3D } from "./math/perlin-noise-3d";
+export { eulerXYZToQuat, quatMul } from "./math/quat";
+export { createRng, mulberry32, type RngFn } from "./math/rng";
+export { fastCos, fastSin } from "./math/trig";
+export { fbm2D, hash2, smoothstep, valueNoise2D } from "./math/value-noise";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stores

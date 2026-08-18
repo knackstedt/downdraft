@@ -20,7 +20,7 @@ import {
     SHIP_COLLISION_RESTITUTION,
     SIM_TICK_DT,
 } from "../../shared/constants";
-import { PLR_FLAG } from "../../shared/sim-buffer";
+import { PLR_FLAG } from "@downdraft/core";
 import { generateTerrainTrimeshSubRegion } from "../../shared/terrain";
 import { EntityFlags, EntityType, EntityTypeNames } from "../../shared/types";
 import { BoatCellSystem } from "../boat/boat-cell-system";

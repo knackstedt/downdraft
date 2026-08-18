@@ -1,5 +1,5 @@
+import { FULLSCREEN_VS } from "@downdraft/core";
 import { buildMaterialProps, buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "@downdraft/library-sand";
-import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
 import SAND_FS from "../shaders/sand-render.wgsl?raw";
 
 export class SandGridPass {

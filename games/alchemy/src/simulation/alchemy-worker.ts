@@ -5,6 +5,7 @@ import {
     INPUT,
     INPUT_BYTES,
     INPUT_OFFSET,
+    OFFSETS,
     STATS,
     SimBufferWriter,
 } from "../shared/sim-buffer";
@@ -46,7 +47,7 @@ let stepOnce = false;
 expose({
   async init(sab: SharedArrayBuffer, gridW: number, gridH: number): Promise<void> {
     sabRef = sab;
-    writer = new SimBufferWriter(sab, gridW, gridH);
+    writer = new SimBufferWriter(sab, OFFSETS, gridW, gridH);
     inputBuf = new Int32Array(sab, INPUT_OFFSET, INPUT_BYTES / 4);
     histogram = new Uint32Array(256);
 

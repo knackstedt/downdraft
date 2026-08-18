@@ -10,6 +10,7 @@
 //   5. Render stickman pass (player sprite)
 // ============================================================================
 
+import { GPUDeviceManager } from "@downdraft/core";
 import { Material, MATERIALS } from "@downdraft/library-sand";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
@@ -62,6 +63,7 @@ interface Bomb {
 export class MiningRenderer {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
+  private deviceManager = new GPUDeviceManager();
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private gridPass: SandGridPass | null = null;
@@ -111,7 +113,7 @@ export class MiningRenderer {
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
     this.canvas = canvas;
-    this.camera = makeCamera2D(canvas.width, canvas.height);
+    this.camera = makeCamera2D(canvas.width, canvas.height, { zoom: 4, x: 0, y: 0 });
     // Compute signpost Y from terrain (surface height at spawn X)
     this.signpostY = surfaceHeightAt(this.signpostX, WORLD_SEED);
   }
@@ -153,13 +155,8 @@ export class MiningRenderer {
   }
 
   async init(): Promise<boolean> {
-    if (!navigator.gpu) {
-      console.error("WebGPU not supported");
-      return false;
-    }
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-    if (!adapter) return false;
-    this.device = await adapter.requestDevice();
+    this.device = await this.deviceManager.requestDevice();
+    if (!this.device) return false;
     this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
     if (!this.context) return false;
     this.format = navigator.gpu.getPreferredCanvasFormat();
@@ -172,7 +169,7 @@ export class MiningRenderer {
     this.input = createMiningInputHandler(this.canvas);
 
     this.resizeCanvas();
-    this.camera = makeCamera2D(this.canvas.width, this.canvas.height);
+    this.camera = makeCamera2D(this.canvas.width, this.canvas.height, { zoom: 4, x: 0, y: 0 });
 
     this.resizeHandler = () => this.handleResize();
     window.addEventListener("resize", this.resizeHandler);

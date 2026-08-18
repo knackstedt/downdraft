@@ -14,7 +14,7 @@ import {
     type IDevToolsPanelExtension,
     type IPerformanceMetricsProvider
 } from "@downdraft/plugin-devtools";
-import { ENT, PLR, PLR_FLAG } from "@shared/sim-buffer";
+import { ENT, PLR, PLR_FLAG } from "@downdraft/core";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
 import { getOverlayToggles, getPanelExtensions } from "../devtools/panel-extensions";
 import type { SimBridge } from "../sim-bridge";

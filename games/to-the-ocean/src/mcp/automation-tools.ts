@@ -9,8 +9,8 @@ import { downdraft } from "@downdraft/app/renderer";
 import { type InjectedInputFrame } from "../engine/renderer-input-handler";
 import type { SimWebWorker } from "../engine/sim-web-worker";
 import type { WebGPURenderer } from "../engine/webgpu-renderer";
-import { KEY } from "../shared/input-buffer";
-import { PLR, PLR_FLAG } from "../shared/sim-buffer";
+import { KEY } from "@downdraft/core";
+import { PLR, PLR_FLAG } from "@downdraft/core";
 import type { ToolRegistration } from "./mcp-types";
 import { errorResult, jsonResult } from "./mcp-types";
 
