@@ -25,8 +25,8 @@ import {
     SHIP_TURN_SPEED_FACTOR,
     SHIP_YAW_MAX
 } from "../../shared/constants";
-import { InputBufferReader, KEY } from "../../shared/input-buffer";
-import { PLR_FLAG } from "../../shared/sim-buffer";
+import { InputBufferReader, KEY } from "@downdraft/core";
+import { PLR_FLAG } from "@downdraft/core";
 import { EntityType } from "../../shared/types";
 import { SimEntity, SimPlayer } from "../simulation";
 import { AnchorSystem } from "./anchor-system";

@@ -81,7 +81,13 @@ export class IBLSystem {
       for (const tex of this.currentEnv.prefilteredSpecular) {
         this.pendingDestroy.push(tex);
       }
-      this.currentEnv.cubemap?.destroy();
+      // The cubemap is also deferred (not destroyed immediately) because it
+      // may still be referenced by a previously submitted command buffer, and
+      // CubemapCapturePass now creates a fresh texture each capture so the
+      // old one is safe to release after the frame completes.
+      if (this.currentEnv.cubemap) {
+        this.pendingDestroy.push(this.currentEnv.cubemap);
+      }
     }
 
     this.currentEnv = {

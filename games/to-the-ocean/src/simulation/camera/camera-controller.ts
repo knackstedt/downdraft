@@ -2,7 +2,7 @@
 // Camera Controller — 1st/3rd person, freecam, portaled cameras
 // ============================================================================
 
-import { InputBufferReader, KEY } from "../../shared/input-buffer";
+import { InputBufferReader, KEY } from "@downdraft/core";
 import { SimPlayer, SimEntity } from "../simulation";
 import { CameraMode, EntityType } from "../../shared/types";
 

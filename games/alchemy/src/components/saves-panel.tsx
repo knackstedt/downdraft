@@ -1,7 +1,8 @@
+import { captureCanvasThumbnail } from "@downdraft/app/renderer";
 import { useEffect, useState } from "react";
 import { useGameStore } from "../stores/game-store";
 import {
-  captureThumbnail, deleteSave, listSaves, loadGame, saveGame, type SaveMetadata,
+    deleteSave, listSaves, loadGame, saveGame, type SaveMetadata,
 } from "../stores/save-system";
 
 const panelStyle: React.CSSProperties = {
@@ -73,7 +74,7 @@ export function SavesPanel() {
     setSaving(true);
     try {
       const canvas = renderer.getCanvas();
-      const thumb = await captureThumbnail(canvas);
+      const thumb = await captureCanvasThumbnail(canvas);
       const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
       const name = `Save ${new Date().toLocaleString()}`;
       await saveGame(name, thumb, gridW, gridH, grid, fields, {

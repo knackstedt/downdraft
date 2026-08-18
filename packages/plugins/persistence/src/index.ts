@@ -12,6 +12,9 @@ export type { FileSaveStoreOptions } from "./file-save-store";
 export { OpfsSaveStore } from "./opfs-save-store";
 export type { OpfsSaveStoreOptions } from "./opfs-save-store";
 
+export { IndexedDBSaveStore } from "./indexeddb-save-store";
+export type { IndexedDBSaveStoreOptions } from "./indexeddb-save-store";
+
 export { SaveWorkerProxy } from "./save-worker-proxy";
 export type { SaveWorkerProxyOptions } from "./save-worker-proxy";
 

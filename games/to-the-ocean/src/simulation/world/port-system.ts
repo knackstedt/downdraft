@@ -14,8 +14,8 @@ import {
     PORT_SERVICE_BITS,
     SHIP_DATA
 } from "../../shared/constants";
-import { InputBufferReader, KEY } from "../../shared/input-buffer";
-import { PLR_FLAG } from "../../shared/sim-buffer";
+import { InputBufferReader, KEY } from "@downdraft/core";
+import { PLR_FLAG } from "@downdraft/core";
 import { BiomeType, EntityFlags, EntityType, PortDef, PortService, PortSize, SecurityLevel } from "../../shared/types";
 import { BoatCellSystem } from "../boat/boat-cell-system";
 import { SimEntity, SimPlayer } from "../simulation";

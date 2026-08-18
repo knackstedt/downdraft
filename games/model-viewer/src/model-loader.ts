@@ -73,6 +73,7 @@ export async function discoverModels(assetBase: string): Promise<ModelEntry[]> {
     { dir: "/Aisha/mesh", name: "Aisha", file: "Aisha.fbx" },
     { dir: "/Stylized Lowpoly Characters/mesh", name: "LP_fe_mesh", file: "LP_fe_mesh.fbx" },
     { dir: "/Stylized Lowpoly Characters/mesh", name: "LP_male_mesh", file: "LP_male_mesh.fbx" },
+    { dir: "/Robin_re/Robin/mesh", name: "Robin", file: "Robin.fbx" },
   ];
 
   for (const known of knownPaths) {
@@ -126,6 +127,7 @@ export async function discoverModels(assetBase: string): Promise<ModelEntry[]> {
 const TEXTURE_SEARCH_PATHS = [
   "/Aisha/texture",
   "/Stylized Lowpoly Characters/textue",
+  "/Robin_re/Robin/texture",
 ];
 
 export async function loadModelWithTextures(

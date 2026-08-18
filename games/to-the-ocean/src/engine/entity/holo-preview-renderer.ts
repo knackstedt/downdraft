@@ -1,5 +1,5 @@
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
-import type { BoatBufferReader } from "@shared/boat-buffer";
+import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType } from "@shared/constants";
 import { HOLO_WGSL } from "../shaders/entity-shaders";
 import type { EntityRenderContext } from "./render-context";

@@ -1,6 +1,6 @@
 import React from "react";
 import { useGameStore } from "../stores/game-store";
-import { SimBufferReader, PLR, ENT } from "@shared/sim-buffer";
+import { SimBufferReader, PLR, ENT } from "@downdraft/core";
 import { CHUNK_SIZE, WORLD_SEED_DEFAULT, BIOME_NAMES, SECURITY_COLORS, SECURITY_NAMES } from "@shared/constants";
 import { BiomeType, SecurityLevel, EntityType } from "@shared/types";
 import { WorldGenerator } from "@shared/world/world-generator";

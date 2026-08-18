@@ -26,9 +26,9 @@ import {
     FISHING_TENSION_MAX,
     FISHING_TENSION_SLIP,
 } from "../../shared/constants";
-import { InputBufferReader } from "../../shared/input-buffer";
+import { InputBufferReader } from "@downdraft/core";
 import { SimToMainMessage } from "../../shared/types";
-import { WaterBufferWriter } from "../../shared/water-buffer";
+import { WaterBufferWriter } from "@downdraft/plugin-water";
 import { addItem } from "../inventory/inventory-system";
 import { SimPlayer } from "../simulation";
 import { BiomeSystem } from "../world/biome-system";

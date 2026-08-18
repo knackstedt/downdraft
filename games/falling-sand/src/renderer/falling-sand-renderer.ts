@@ -1,3 +1,4 @@
+import { GPUDeviceManager } from "@downdraft/core";
 import { MATERIALS } from "@downdraft/library-sand";
 import { computeGridDims } from "../shared/constants";
 import { FIELD, NUM_LAYERS, PLAYER, SimBufferReader } from "../shared/sim-buffer";
@@ -10,6 +11,7 @@ import { StickmanPass } from "./stickman-pass";
 export class FallingSandRenderer {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
+  private deviceManager = new GPUDeviceManager();
   private context: GPUCanvasContext | null = null;
   private format: GPUTextureFormat = "bgra8unorm";
   private gridPass: SandGridPass | null = null;
@@ -70,13 +72,8 @@ export class FallingSandRenderer {
   }
 
   async init(): Promise<boolean> {
-    if (!navigator.gpu) {
-      console.error("WebGPU not supported");
-      return false;
-    }
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-    if (!adapter) return false;
-    this.device = await adapter.requestDevice();
+    this.device = await this.deviceManager.requestDevice();
+    if (!this.device) return false;
     this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
     if (!this.context) return false;
     this.format = navigator.gpu.getPreferredCanvasFormat();

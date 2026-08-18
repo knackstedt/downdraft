@@ -4,6 +4,7 @@ import {
     INPUT,
     INPUT_BYTES,
     INPUT_OFFSET,
+    OFFSETS,
     PLAYER,
     STATS,
     SimBufferWriter
@@ -67,7 +68,7 @@ expose({
     sabRef = sab;
     layerIndex = layer;
     (globalThis as any).__ddThreadTag = `S${layer}`;
-    writer = new SimBufferWriter(sab, gridW, gridH);
+    writer = new SimBufferWriter(sab, OFFSETS, gridW, gridH);
     // Cache the input view once — avoids a per-tick Int32Array allocation.
     inputBuf = new Int32Array(sab, INPUT_OFFSET, INPUT_BYTES / 4);
     // NOTE: do NOT call writer.init() here — the host already initialized the
@@ -197,8 +198,8 @@ async function loop(): Promise<void> {
         while (tickAccumulator >= 1 && steps < maxSteps) {
           readInput();
           world.step();
-          writer.writeGrid(layerIndex, world.grid);
-          writer.writeFieldGrid(layerIndex, world.fields);
+          writer.writeGrid(world.grid, layerIndex);
+          writer.writeFieldGrid(world.fields, layerIndex);
 
           // Player physics on layer 0 only — reads input from the shared SAB
           // input region, writes player state to the shared SAB player region.

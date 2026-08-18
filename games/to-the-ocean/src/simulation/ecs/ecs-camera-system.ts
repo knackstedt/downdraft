@@ -8,7 +8,7 @@
 
 import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { CameraMode } from "@shared/types";
-import { InputBufferReader } from "../../shared/input-buffer";
+import { InputBufferReader } from "@downdraft/core";
 import { SimPlayerState } from "./components";
 
 const cameraPositions = new Map<number, { x: number; y: number; z: number }>();

@@ -1,23 +1,21 @@
 // ============================================================================
-// SaveSystem — IndexedDB-based persistence for the mining RPG.
+// Mining RPG save system — thin adapter over @downdraft/library-persistence
+// IndexedDBSaveStore. The engine handles IndexedDB storage, compression,
+// hashing, and generation history; this module only maps the game's save
+// shape (player + inventory + dirty chunks) to SaveState components + blobs.
 //
 // Only **dirty** chunks are persisted (unmodified chunks regenerate from
-// seed). The save includes: player state, inventory, world seed, and all
-// dirty chunk data (grid + fields + wakeTick).
-//
-// Autosave runs every 3 seconds (skipped in deterministic mode).
-// Autosave data is loaded on startup before the worker begins simulating.
+// seed). Autosave runs every 3 seconds (skipped in deterministic mode).
 // ============================================================================
 
+import type { SaveState } from "@downdraft/core";
+import { IndexedDBSaveStore } from "@downdraft/library-persistence/browser";
 import { WORLD_SEED } from "../shared/constants";
 import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import type { SavedChunk } from "../simulation/chunk-world";
 
-const DB_NAME = "mining-rpg-save";
-const DB_VERSION = 1;
-const STORE_META = "meta";
-const STORE_CHUNKS = "chunks";
-const SAVE_KEY = "world";
+const SAVE_SLOT = "world";
+const ENGINE_VERSION = "0.1.0";
 const AUTOSAVE_INTERVAL_MS = 3000;
 
 export interface SaveData {
@@ -35,108 +33,103 @@ export interface SaveData {
   savedAt: number;
 }
 
-let dbPromise: Promise<IDBDatabase> | null = null;
+let storePromise: Promise<IndexedDBSaveStore> | null = null;
 
-function openDB(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_META)) {
-        db.createObjectStore(STORE_META);
-      }
-      if (!db.objectStoreNames.contains(STORE_CHUNKS)) {
-        db.createObjectStore(STORE_CHUNKS, { keyPath: "key" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  return dbPromise;
+function getStore(): Promise<IndexedDBSaveStore> {
+  if (!storePromise) {
+    storePromise = (async () => {
+      const store = new IndexedDBSaveStore({ engineVersion: ENGINE_VERSION });
+      await store.init();
+      return store;
+    })();
+  }
+  return storePromise;
 }
 
-/** Save the world state to IndexedDB. */
-export async function saveWorld(data: SaveData): Promise<void> {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META, STORE_CHUNKS], "readwrite");
+function chunksToBlobs(chunks: SavedChunk[]): Record<string, ArrayBuffer> {
+  const blobs: Record<string, ArrayBuffer> = {};
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    blobs[`chunk${i}_grid`] = c.grid.buffer.slice(c.grid.byteOffset, c.grid.byteOffset + c.grid.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_fields`] = c.fields.buffer.slice(c.fields.byteOffset, c.fields.byteOffset + c.fields.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_bgGrid`] = c.bgGrid.buffer.slice(c.bgGrid.byteOffset, c.bgGrid.byteOffset + c.bgGrid.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_wakeTick`] = c.wakeTick.buffer.slice(c.wakeTick.byteOffset, c.wakeTick.byteOffset + c.wakeTick.byteLength) as ArrayBuffer;
+  }
+  return blobs;
+}
 
-  // Save metadata (player, inventory, seed)
-  const metaStore = tx.objectStore(STORE_META);
-  metaStore.put({
-    version: data.version,
-    seed: data.seed,
-    player: data.player,
-    inventory: data.inventory,
-    currency: data.currency,
-    buildMaterials: data.buildMaterials,
-    zoom: data.zoom,
-    savedAt: data.savedAt,
-  }, SAVE_KEY);
-
-  // Save dirty chunks — clear old chunks first, then write new ones
-  const chunkStore = tx.objectStore(STORE_CHUNKS);
-  chunkStore.clear();
-  for (const chunk of data.chunks) {
-    const key = `${chunk.cx},${chunk.cy}`;
-    // Copy typed arrays to plain arrays for structured clone compatibility
-    chunkStore.put({
-      key,
-      cx: chunk.cx,
-      cy: chunk.cy,
-      grid: chunk.grid,
-      fields: chunk.fields,
-      bgGrid: chunk.bgGrid,
-      wakeTick: chunk.wakeTick,
+function blobsToChunks(blobs: Record<string, ArrayBuffer>, coords: { cx: number; cy: number }[]): SavedChunk[] {
+  const chunks: SavedChunk[] = [];
+  for (let i = 0; i < coords.length; i++) {
+    const grid = blobs[`chunk${i}_grid`];
+    const fields = blobs[`chunk${i}_fields`];
+    const bgGrid = blobs[`chunk${i}_bgGrid`];
+    const wakeTick = blobs[`chunk${i}_wakeTick`];
+    if (!grid || !fields || !bgGrid || !wakeTick) continue;
+    chunks.push({
+      cx: coords[i].cx,
+      cy: coords[i].cy,
+      grid: new Uint32Array(grid),
+      fields: new Uint8Array(fields),
+      bgGrid: new Uint32Array(bgGrid),
+      wakeTick: new Uint32Array(wakeTick),
     });
   }
-
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
+  return chunks;
 }
 
-/** Load the world state from IndexedDB. Returns null if no save exists. */
+function buildState(data: SaveData): SaveState {
+  return {
+    components: {
+      meta: { v: 1, data: { version: data.version, seed: data.seed, savedAt: data.savedAt, zoom: data.zoom } },
+      player: {
+        v: 1,
+        data: {
+          player: data.player,
+          upgrades: data.upgrades,
+          inventory: data.inventory,
+          currency: data.currency,
+          buildMaterials: data.buildMaterials,
+        },
+      },
+      chunks: { v: 1, data: { count: data.chunks.length, coords: data.chunks.map((c) => ({ cx: c.cx, cy: c.cy })) } },
+    },
+    meta: {
+      engineVersion: ENGINE_VERSION,
+      timestamp: Date.now() / 1000,
+      entityCount: data.chunks.length,
+      playerCount: 1,
+    },
+  };
+}
+
+/** Save the world state via the engine IndexedDBSaveStore. */
+export async function saveWorld(data: SaveData): Promise<void> {
+  const store = await getStore();
+  await store.save(SAVE_SLOT, buildState(data), { blobs: chunksToBlobs(data.chunks) });
+}
+
+/** Load the world state. Returns null if no save exists. */
 export async function loadWorld(): Promise<SaveData | null> {
-  const db = await openDB();
-
-  // Load metadata
-  const meta = await new Promise<any>((resolve, reject) => {
-    const tx = db.transaction(STORE_META, "readonly");
-    const req = tx.objectStore(STORE_META).get(SAVE_KEY);
-    req.onsuccess = () => resolve(req.result ?? null);
-    req.onerror = () => reject(req.error);
-  });
-  if (!meta) return null;
-
-  // Load all saved chunks
-  const chunks = await new Promise<SavedChunk[]>((resolve, reject) => {
-    const tx = db.transaction(STORE_CHUNKS, "readonly");
-    const req = tx.objectStore(STORE_CHUNKS).getAll();
-    req.onsuccess = () => {
-      const results = (req.result ?? []) as any[];
-      resolve(results.map((r) => ({
-        cx: r.cx,
-        cy: r.cy,
-        grid: r.grid as Uint32Array,
-        fields: r.fields as Uint8Array,
-        bgGrid: (r.bgGrid as Uint32Array) ?? new Uint32Array(128 * 128),
-        wakeTick: r.wakeTick as Uint32Array,
-      })));
-    };
-    req.onerror = () => reject(req.error);
-  });
-
+  const store = await getStore();
+  const result = await store.load(SAVE_SLOT);
+  if (!result.state) return null;
+  const meta = result.state.components.meta?.data as { version: number; seed: number; savedAt: number; zoom?: number } | undefined;
+  const player = result.state.components.player?.data as {
+    player: MiningPlayerState; upgrades?: PlayerUpgrades; inventory?: InventoryEntry[];
+    currency?: number; buildMaterials?: BuildMaterials;
+  } | undefined;
+  const chunksComp = result.state.components.chunks?.data as { count: number; coords: { cx: number; cy: number }[] } | undefined;
+  if (!meta || !player) return null;
+  const chunks = chunksComp && result.blobs ? blobsToChunks(result.blobs, chunksComp.coords) : [];
   return {
     version: meta.version,
     seed: meta.seed ?? WORLD_SEED,
-    player: meta.player,
-    upgrades: meta.upgrades ?? { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
-    inventory: meta.inventory ?? [],
-    currency: meta.currency ?? 0,
-    buildMaterials: meta.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0 },
+    player: player.player,
+    upgrades: player.upgrades ?? { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
+    inventory: player.inventory ?? [],
+    currency: player.currency ?? 0,
+    buildMaterials: player.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0 },
     chunks,
     zoom: meta.zoom,
     savedAt: meta.savedAt ?? 0,
@@ -145,14 +138,8 @@ export async function loadWorld(): Promise<SaveData | null> {
 
 /** Delete the save data (new game / reset). */
 export async function deleteSave(): Promise<void> {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META, STORE_CHUNKS], "readwrite");
-  tx.objectStore(STORE_META).delete(SAVE_KEY);
-  tx.objectStore(STORE_CHUNKS).clear();
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  const store = await getStore();
+  await store.deleteSave(SAVE_SLOT);
 }
 
 /**

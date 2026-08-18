@@ -12,6 +12,9 @@
 export { OpfsSaveStore } from "./opfs-save-store";
 export type { OpfsSaveStoreOptions } from "./opfs-save-store";
 
+export { IndexedDBSaveStore } from "./indexeddb-save-store";
+export type { IndexedDBSaveStoreOptions } from "./indexeddb-save-store";
+
 export { SaveWorkerProxy } from "./save-worker-proxy";
 export type { SaveWorkerProxyOptions } from "./save-worker-proxy";
 
@@ -19,35 +22,27 @@ export type { SaveWorkerApi } from "./save-worker";
 
 // Re-export core types for convenience
 export {
-  MigrationRegistryImpl,
-  packEngineVersion,
-  unpackEngineVersion,
-  engineVersionString,
-  encodeHeader,
-  decodeHeader,
-  readHeaderFromFile,
-  SAVE_MAGIC,
-  SAVE_FORMAT_VERSION,
-  HEADER_SIZE,
-  XXH128_SIZE,
+    decodeHeader, encodeHeader, engineVersionString, HEADER_SIZE, MigrationRegistryImpl,
+    packEngineVersion, readHeaderFromFile, SAVE_FORMAT_VERSION, SAVE_MAGIC, unpackEngineVersion, XXH128_SIZE
 } from "@downdraft/core/index";
 
 export type {
-  ComponentMigration,
-  ComponentSection,
-  IMigrationRegistry,
-  IRendererStateProvider,
-  ISaveStore,
-  LoadOptions,
-  LoadResult,
-  SaveGenerationInfo,
-  SaveHeader,
-  SaveMeta,
-  SaveOptions,
-  SaveResult,
-  SaveSlotInfo,
-  SaveState,
-  SaveStateBuilder,
-  SaveWarning,
-  SaveWarningKind,
+    ComponentMigration,
+    ComponentSection,
+    IMigrationRegistry,
+    IRendererStateProvider,
+    ISaveStore,
+    LoadOptions,
+    LoadResult,
+    SaveGenerationInfo,
+    SaveHeader,
+    SaveMeta,
+    SaveOptions,
+    SaveResult,
+    SaveSlotInfo,
+    SaveState,
+    SaveStateBuilder,
+    SaveWarning,
+    SaveWarningKind
 } from "@downdraft/core/index";
+

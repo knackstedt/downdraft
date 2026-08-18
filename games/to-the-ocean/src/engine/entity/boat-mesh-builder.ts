@@ -1,4 +1,4 @@
-import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@shared/boat-buffer";
+import { BoatBufferReader, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@to-the-ocean/library-boats/boat-sab";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, WALL_THICKNESS, getCellGeometry, isWallType } from "@shared/constants";
 import type { EntityRenderContext } from "./render-context";

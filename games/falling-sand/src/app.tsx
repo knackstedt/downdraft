@@ -1,8 +1,9 @@
+import { captureCanvasThumbnail } from "@downdraft/app/renderer";
 import { MATERIALS } from "@downdraft/library-sand";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGameStore, type FieldType } from "./stores/game-store";
 import {
-    captureThumbnail, deleteSave, listSaves, loadGame, saveGame,
+    deleteSave, listSaves, loadGame, saveGame,
 } from "./stores/save-system";
 
 const materialNames = [
@@ -274,7 +275,7 @@ export default function App() {
     if (!renderer) return;
     try {
       const canvas = renderer.getCanvas();
-      const thumb = await captureThumbnail(canvas);
+      const thumb = await captureCanvasThumbnail(canvas);
       const { grids, fields, gridW, gridH } = renderer.snapshotGrids();
       const name = saveName.trim() || `Save ${new Date().toLocaleString()}`;
       await saveGame(name, thumb, gridW, gridH, grids, fields);

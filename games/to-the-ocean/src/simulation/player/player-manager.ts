@@ -16,11 +16,11 @@ import {
   PLAYER_WATER_DRAG,
   PLAYER_WATER_SINK_RATE,
 } from "../../shared/constants";
-import { InputBufferReader, KEY } from "../../shared/input-buffer";
+import { InputBufferReader, KEY } from "@downdraft/core";
 import { collectShoreSources, type ShoreSource } from "../../shared/shore-damping";
-import { PLR_FLAG } from "../../shared/sim-buffer";
+import { PLR_FLAG } from "@downdraft/core";
 import { CameraMode } from "../../shared/types";
-import { WATER_GRID, WaterBufferWriter } from "../../shared/water-buffer";
+import { WATER_GRID_SAB as WATER_GRID, WaterBufferWriter } from "@downdraft/plugin-water";
 import { PlayerMoveRequest } from "../physics/rapier-physics-system";
 import { SimEntity, SimPlayer } from "../simulation";
 

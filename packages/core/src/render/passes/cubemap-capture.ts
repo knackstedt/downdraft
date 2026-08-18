@@ -35,13 +35,16 @@ export class CubemapCapturePass {
   }
 
   capture(uniforms: Omit<SkyDomeUniforms, "viewProj" | "cameraPos">): GPUTexture {
-    if (!this.cubemapTexture) {
-      this.cubemapTexture = this.device.createTexture({
-        size: [this.faceSize, this.faceSize, 6],
-        format: "rgba16float",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      });
-    }
+    // Create a fresh cubemap texture each capture. The caller (IBLSystem) owns
+    // the returned texture's lifecycle and defers destruction of the previous
+    // cubemap until after the frame's command buffers have been submitted.
+    // Reusing a single texture here would conflict with that deferred-destroy
+    // contract — the next capture would render into a destroyed texture.
+    this.cubemapTexture = this.device.createTexture({
+      size: [this.faceSize, this.faceSize, 6],
+      format: "rgba16float",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
 
     if (!this.depthTexture) {
       this.depthTexture = this.device.createTexture({

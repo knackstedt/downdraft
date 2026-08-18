@@ -121,3 +121,63 @@ export function getOverlay(overlay: number = 0): HTMLElement {
 export function getAllCanvases(): HTMLCanvasElement[] {
   return Array.from(document.querySelectorAll("canvas[data-dd-layer]")) as HTMLCanvasElement[];
 }
+
+// --- Thumbnail capture ---
+
+/**
+ * Capture a downscaled JPEG thumbnail of a canvas as an ArrayBuffer.
+ *
+ * Downscaled to a max width of 320px (preserving aspect ratio). Falls back to
+ * a placeholder image if canvas capture fails. The returned ArrayBuffer is
+ * suitable for `ISaveStore.setThumbnail()` / `SaveOptions.thumbnail`.
+ */
+export async function captureCanvasThumbnail(canvas: HTMLCanvasElement): Promise<ArrayBuffer> {
+  const maxW = 320;
+  const scale = Math.min(1, maxW / canvas.width);
+  const thumbW = Math.floor(canvas.width * scale);
+  const thumbH = Math.floor(canvas.height * scale);
+
+  const fullBlob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((b) => resolve(b), "image/jpeg", 0.8);
+  });
+
+  if (fullBlob) {
+    const img = new Image();
+    const url = URL.createObjectURL(fullBlob);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("img load"));
+        img.src = url;
+      });
+      const off = document.createElement("canvas");
+      off.width = thumbW;
+      off.height = thumbH;
+      const ctx = off.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, thumbW, thumbH);
+      const thumbBlob = await new Promise<Blob | null>((resolve) => {
+        off.toBlob((b) => resolve(b), "image/jpeg", 0.8);
+      });
+      if (thumbBlob) return await thumbBlob.arrayBuffer();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // Placeholder if capture fails
+  const placeholder = document.createElement("canvas");
+  placeholder.width = 320;
+  placeholder.height = 180;
+  const pctx = placeholder.getContext("2d")!;
+  pctx.fillStyle = "#0a0a12";
+  pctx.fillRect(0, 0, 320, 180);
+  pctx.fillStyle = "rgba(255,255,255,0.5)";
+  pctx.font = "14px monospace";
+  pctx.textAlign = "center";
+  pctx.fillText("No preview", 160, 90);
+  const phBlob = await new Promise<Blob | null>((resolve) => {
+    placeholder.toBlob((b) => resolve(b), "image/jpeg", 0.8);
+  });
+  if (phBlob) return await phBlob.arrayBuffer();
+  throw new Error("Thumbnail capture failed");
+}

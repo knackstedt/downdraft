@@ -18,8 +18,9 @@ export type {
     TextureRegistryOptions
 } from "./bindless";
 export { ArenaBuffer, RingBuffer } from "./buffer";
-export { calculateViewProj, calculateViewProjInto, CameraMode, CameraSystem, dot3, invertMat4, normalize3, transformVec4 } from "./camera";
+export { calculateViewProj, calculateViewProjInto, CameraMode, CameraSystem, dot3, normalize3, transformVec4 } from "./camera";
 export type { CameraConfig, CameraState } from "./camera";
+export { cameraMatrix, makeCamera2D, screenToWorld, updateCamera, worldToScreen, type Camera2D, type Camera2DOptions } from "./camera-2d";
 export { CameraController } from "./camera-controller";
 export type { CameraControllerOptions, OrbitInputOptions } from "./camera-controller";
 export { CanvasResizeWatcher } from "./canvas-resize-watcher";
@@ -30,6 +31,7 @@ export { FrameGraph, PassType, SlotRegistry, TextureHandle } from "./frame-graph
 export type { ColorAttachmentDesc, DepthAttachmentDesc, FrameContext, RenderContext, TextureDesc } from "./frame-graph";
 export { computeAABB, cullItems, Frustum, transformAABB } from "./frustum";
 export type { AABB, CullableItem, FrustumPlane } from "./frustum";
+export { FULLSCREEN_VS } from "./fullscreen-vs";
 export { G_BUFFER_FORMATS, GBuffer } from "./g-buffer";
 export type { GBufferTextures, GBufferViews } from "./g-buffer";
 export { GameRenderer } from "./game-renderer";
@@ -182,3 +184,4 @@ export type { SplitscreenLayoutType, ViewportSlot } from "./splitscreen";
 // GPU Resource Tracker (destroy helpers)
 export { destroyAll, destroyAndNull, destroyMapValues } from "./resource-tracker";
 export type { Destroyable } from "./resource-tracker";
+

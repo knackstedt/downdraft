@@ -1,5 +1,5 @@
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
-import { allocateSimBuffer, INPUT, NUM_LAYERS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
+import { allocateSimBuffer, INPUT, NUM_LAYERS, OFFSETS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
 
 // Per-layer worker API. Each worker ticks exactly one layer and writes to its
 // own region of the shared SAB.
@@ -35,8 +35,8 @@ export class SandWorkerHost {
     this.gridW = gridW;
     this.gridH = gridH;
     this.sab = allocateSimBuffer();
-    this.writer = new SimBufferWriter(this.sab, gridW, gridH);
-    this.reader = new SimBufferReader(this.sab, gridW, gridH);
+    this.writer = new SimBufferWriter(this.sab, OFFSETS, gridW, gridH);
+    this.reader = new SimBufferReader(this.sab, OFFSETS, gridW, gridH);
     this.writer.init();
   }
 

@@ -9,10 +9,10 @@ import {
     FISHING_REEL_POWER,
     FISHING_TENSION_MAX
 } from "../../shared/constants";
-import { InputBufferReader, InputBufferWriter, KEY } from "../../shared/input-buffer";
-import { PLR_FLAG } from "../../shared/sim-buffer";
+import { InputBufferReader, InputBufferWriter, KEY } from "@downdraft/core";
+import { PLR_FLAG } from "@downdraft/core";
 import { BiomeType, WeatherState, WeatherType } from "../../shared/types";
-import { WaterBufferWriter } from "../../shared/water-buffer";
+import { WaterBufferWriter } from "@downdraft/plugin-water";
 import { createGrid } from "../inventory/inventory-system";
 import { SimPlayer } from "../simulation";
 import { BiomeSystem } from "../world/biome-system";

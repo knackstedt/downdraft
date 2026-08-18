@@ -42,10 +42,24 @@ async function bootstrap() {
   const devtoolsBridge = new FallingSandDevToolsBridge(renderer);
   devtoolsBridge.init(dataRenderer);
 
-  // --- Autoload: restore last session before starting the render loop ---
+  // Start the render loop immediately — don't let a hung autosave load
+  // (e.g. IndexedDB locked by another process) block the canvas from rendering.
+  renderer.start();
+
+  setInterval(() => {
+    useGameStore.getState().setFPS(renderer.getFPS());
+  }, 500);
+
+  // --- Autoload: restore last session (after the render loop is running,
+  // so a hung/slow IndexedDB access doesn't leave the canvas black).
+  // A 5s timeout prevents a locked IndexedDB from blocking the autosave
+  // interval setup. ---
   if (!deterministic) {
     try {
-      const saved = await loadAutosave();
+      const saved = await Promise.race([
+        loadAutosave(),
+        new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+      ]);
       if (saved) {
         await renderer.loadSave(saved.grids, saved.fields, saved.gridW, saved.gridH);
         console.log("[autosave] Restored last session");
@@ -54,12 +68,6 @@ async function bootstrap() {
       console.warn("[autosave] Failed to load:", e);
     }
   }
-
-  setInterval(() => {
-    useGameStore.getState().setFPS(renderer.getFPS());
-  }, 500);
-
-  renderer.start();
 
   // --- Autosave: persist game state every 3s (skip in deterministic/e2e mode) ---
   if (!deterministic) {

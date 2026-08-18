@@ -10,10 +10,10 @@ import type { LightSystem } from "@downdraft/library-lighting";
 import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/plugin-models";
 import type { PixelationSystem } from "@downdraft/library-postfx";
 import type { ParticleSystem } from "@downdraft/plugin-weatherfx";
-import type { BoatBufferReader } from "@shared/boat-buffer";
-import type { SimBufferReader } from "@shared/sim-buffer";
-import { PLR } from "@shared/sim-buffer";
-import type { WaterBufferReader } from "@shared/water-buffer";
+import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
+import type { SimBufferReader } from "@downdraft/core";
+import { PLR } from "@downdraft/core";
+import type { WaterBufferReader } from "@downdraft/plugin-water";
 import type { CameraSystem } from "./camera-system";
 import type { EntityRenderer } from "./entity-renderer";
 

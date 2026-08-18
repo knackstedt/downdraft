@@ -1,43 +1,56 @@
+// ============================================================================
+// Falling-sand sim-buffer — thin adapter over @downdraft/library-sand
+// GridSimBuffer.
+//
+// The engine handles the generic SAB layout. This module defines the
+// falling-sand-specific layout config (2 layers + player) and field offsets.
+// ============================================================================
+
+import {
+    computeGridSimOffsets,
+    GridSimBufferReader,
+    GridSimBufferWriter,
+    type GridSimBufferLayout,
+    type GridSimBufferOffsets,
+} from "@downdraft/library-sand";
 import { MAX_GRID_H, MAX_GRID_W } from "./constants";
 
-// ============================================================================
-// SharedArrayBuffer layout for the falling-sand sim ↔ renderer bridge
-//
-// Supports N_LAYER layers, each with its own material grid + physics field grid.
-//
-// Layout (per layer):
-//   grid:   MAX_GRID_W * MAX_GRID_H * 4 bytes (Uint32 per cell)
-//   fields: MAX_GRID_W * MAX_GRID_H * 4 bytes (gravity:u8, temp:u8, windX:i8, windY:i8)
-//
-// Then shared input + stats regions.
-// ============================================================================
+// --- Layout ---
+
+const LAYOUT: GridSimBufferLayout = {
+  numLayers: 2,
+  maxGridW: MAX_GRID_W,
+  maxGridH: MAX_GRID_H,
+  inputBytes: 128,
+  statsBytes: 16,
+  playerBytes: 32,
+};
+
+export const OFFSETS: GridSimBufferOffsets = computeGridSimOffsets(LAYOUT);
 
 export const NUM_LAYERS = 2;
-
-export const MAX_GRID_BYTES = MAX_GRID_W * MAX_GRID_H * 4;
-export const MAX_FIELD_BYTES = MAX_GRID_W * MAX_GRID_H * 4;
-export const LAYER_BYTES = MAX_GRID_BYTES + MAX_FIELD_BYTES;
+export const MAX_GRID_BYTES = OFFSETS.gridBytes;
+export const MAX_FIELD_BYTES = OFFSETS.fieldBytes;
+export const LAYER_BYTES = OFFSETS.layerBytes;
 export const ALL_LAYERS_BYTES = LAYER_BYTES * NUM_LAYERS;
 export const INPUT_BYTES = 128;
 export const STATS_BYTES = 16;
-export const PLAYER_BYTES = 32; // px, py, vx, vy, onGround, facing, animFrame, health
+export const PLAYER_BYTES = 32;
+export const TOTAL_BYTES = OFFSETS.totalBytes;
 
-export const TOTAL_BYTES = ALL_LAYERS_BYTES + INPUT_BYTES + STATS_BYTES + PLAYER_BYTES;
-
-// Per-layer offsets
 export function gridOffset(layer: number): number {
-  return layer * LAYER_BYTES;
+  return OFFSETS.gridOffset[layer];
 }
-
 export function fieldOffset(layer: number): number {
-  return layer * LAYER_BYTES + MAX_GRID_BYTES;
+  return OFFSETS.fieldOffset[layer];
 }
 
-export const INPUT_OFFSET = ALL_LAYERS_BYTES;
-export const STATS_OFFSET = ALL_LAYERS_BYTES + INPUT_BYTES;
-export const PLAYER_OFFSET = ALL_LAYERS_BYTES + INPUT_BYTES + STATS_BYTES;
+export const INPUT_OFFSET = OFFSETS.inputOffset;
+export const STATS_OFFSET = OFFSETS.statsOffset;
+export const PLAYER_OFFSET = OFFSETS.playerOffset;
 
-// Field byte offsets within each 4-byte field cell
+// --- Game-specific field offsets ---
+
 export const FIELD = {
   GRAVITY: 0,
   TEMP: 1,
@@ -57,20 +70,19 @@ export const INPUT = {
   JUMP: 16,
   MOUSE_DOWN: 20,
   MOUSE_RIGHT: 24,
-  // offset 28 reserved
   MOUSE_X: 32,
   MOUSE_Y: 36,
   SELECTED_MAT: 40,
   BRUSH_RADIUS: 44,
   LAST_MOUSE_X: 48,
   LAST_MOUSE_Y: 52,
-  BRUSH_MODE: 56,    // 0 = material, 1 = field
-  FIELD_TYPE: 60,    // 0=gravity, 1=temp, 2=windX, 3=windY
-  FIELD_VALUE: 64,   // raw byte value
+  BRUSH_MODE: 56,
+  FIELD_TYPE: 60,
+  FIELD_VALUE: 64,
   IMPULSE_CHANCE: 68,
   IMPULSE_STRENGTH: 72,
   SHOW_FIELDS: 76,
-  ACTIVE_LAYER: 80,  // which layer the brush paints on (0 or 1)
+  ACTIVE_LAYER: 80,
 } as const;
 
 export const STATS = {
@@ -80,116 +92,28 @@ export const STATS = {
 } as const;
 
 export const PLAYER = {
-  PX: 0,         // float32 — player x in grid cells
-  PY: 4,         // float32 — player y in grid cells
-  VX: 8,         // float32 — velocity x
-  VY: 12,        // float32 — velocity y
-  ON_GROUND: 16, // int32 — 1 if on ground
-  FACING: 20,    // int32 — 1 = right, -1 = left
-  ANIM_FRAME: 24,// int32 — animation frame counter
-  HEALTH: 28,    // int32 — player health
+  PX: 0,
+  PY: 4,
+  VX: 8,
+  VY: 12,
+  ON_GROUND: 16,
+  FACING: 20,
+  ANIM_FRAME: 24,
+  HEALTH: 28,
 } as const;
+
+// --- Allocation ---
 
 export function allocateSimBuffer(): SharedArrayBuffer {
   return new SharedArrayBuffer(TOTAL_BYTES);
 }
 
-export class SimBufferReader {
-  private u32: Uint32Array;
-  private buf: Int32Array;
-  private u8: Uint8Array;
-  gridW: number;
-  gridH: number;
+// --- Reader/Writer ---
 
-  constructor(sab: SharedArrayBuffer, gridW: number, gridH: number) {
-    this.u32 = new Uint32Array(sab);
-    this.buf = new Int32Array(sab);
-    this.u8 = new Uint8Array(sab);
-    this.gridW = gridW;
-    this.gridH = gridH;
-  }
-
-  setDims(w: number, h: number): void {
-    this.gridW = w;
-    this.gridH = h;
-  }
-
-  getGrid(layer: number): Uint32Array {
-    const off = gridOffset(layer) / 4;
-    return this.u32.subarray(off, off + this.gridW * this.gridH);
-  }
-
-  getFieldGrid(layer: number): Uint8Array {
-    const off = fieldOffset(layer);
-    return this.u8.subarray(off, off + this.gridW * this.gridH * 4);
-  }
-
-  getInput(field: number): number {
-    return this.buf[INPUT_OFFSET / 4 + field / 4];
-  }
-
-  getStat(field: number): number {
-    return this.buf[STATS_OFFSET / 4 + field / 4];
-  }
-
-  getPlayerF32(field: number): number {
-    return new Float32Array(this.u8.buffer, PLAYER_OFFSET, PLAYER_BYTES / 4)[field / 4];
-  }
-
-  getPlayerI32(field: number): number {
-    return this.buf[PLAYER_OFFSET / 4 + field / 4];
-  }
-}
-
-export class SimBufferWriter {
-  private buf: Int32Array;
-  private u32: Uint32Array;
-  private u8: Uint8Array;
-  gridW: number;
-  gridH: number;
-
-  constructor(sab: SharedArrayBuffer, gridW: number, gridH: number) {
-    this.u32 = new Uint32Array(sab);
-    this.buf = new Int32Array(sab);
-    this.u8 = new Uint8Array(sab);
-    this.gridW = gridW;
-    this.gridH = gridH;
-  }
-
-  setDims(w: number, h: number): void {
-    this.gridW = w;
-    this.gridH = h;
-  }
-
-  writeGrid(layer: number, grid: Uint32Array): void {
-    const off = gridOffset(layer) / 4;
-    this.u32.set(grid.subarray(0, this.gridW * this.gridH), off);
-  }
-
-  writeFieldGrid(layer: number, fields: Uint8Array): void {
-    const off = fieldOffset(layer);
-    this.u8.set(fields.subarray(0, this.gridW * this.gridH * 4), off);
-  }
-
-  writeInput(field: number, value: number): void {
-    this.buf[INPUT_OFFSET / 4 + field / 4] = value;
-  }
-
-  writeStat(field: number, value: number): void {
-    this.buf[STATS_OFFSET / 4 + field / 4] = value;
-  }
-
-  writePlayerF32(field: number, value: number): void {
-    new Float32Array(this.u8.buffer, PLAYER_OFFSET, PLAYER_BYTES / 4)[field / 4] = value;
-  }
-
-  writePlayerI32(field: number, value: number): void {
-    this.buf[PLAYER_OFFSET / 4 + field / 4] = value;
-  }
-
+export class SimBufferReader extends GridSimBufferReader {}
+export class SimBufferWriter extends GridSimBufferWriter {
   init(): void {
     this.buf.fill(0, INPUT_OFFSET / 4, (INPUT_OFFSET + INPUT_BYTES) / 4);
-    // Initialize all layer field grids to defaults
     for (let layer = 0; layer < NUM_LAYERS; layer++) {
       const off = fieldOffset(layer);
       const size = this.gridW * this.gridH * 4;

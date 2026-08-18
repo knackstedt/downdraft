@@ -1,6 +1,6 @@
 import React from "react";
 import { useGameStore } from "../stores/game-store";
-import { SimBufferReader, PLR } from "@shared/sim-buffer";
+import { SimBufferReader, PLR } from "@downdraft/core";
 
 export default function FishingMinigame() {
   const renderer = useGameStore((s) => s.renderer);

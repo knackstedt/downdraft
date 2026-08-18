@@ -7,7 +7,7 @@
 
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, OXYGEN_MAX_TICKS, PLAYER, STATS, TICK_RATE, type BuildMaterialType } from "../shared/constants";
-import { MiningSimBufferWriter } from "../shared/sim-buffer";
+import { MiningSimBufferWriter, OFFSETS } from "../shared/sim-buffer";
 import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import { ChunkWorld, type SavedChunk } from "./chunk-world";
 import { applyMaterialOverrides } from "./material-overrides";
@@ -39,7 +39,7 @@ let tickAccumulator = 0;
 expose({
   async init(sab: SharedArrayBuffer): Promise<void> {
     sabRef = sab;
-    writer = new MiningSimBufferWriter(sab, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    writer = new MiningSimBufferWriter(sab, OFFSETS, ACTIVE_GRID_W, ACTIVE_GRID_H);
     inputBuf = new Int32Array(sab, INPUT_OFFSET, 128 / 4);
     inputF32 = new Float32Array(sab, INPUT_OFFSET, 128 / 4);
 

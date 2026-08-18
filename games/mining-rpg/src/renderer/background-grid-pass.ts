@@ -9,8 +9,8 @@
 // behind terrain.
 // ============================================================================
 
+import { FULLSCREEN_VS } from "@downdraft/core";
 import { buildPalette, PALETTE_SIZE, SHADES_PER_MATERIAL } from "@downdraft/library-sand";
-import FULLSCREEN_VS from "../shaders/fullscreen-vs.wgsl?raw";
 import BG_FS from "../shaders/background-render.wgsl?raw";
 
 export class BackgroundGridPass {

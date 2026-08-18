@@ -2,7 +2,7 @@
 // Boat Cell System — grid-based boat building with auto-connecting tiles
 // ============================================================================
 
-import { BoatBufferWriter, MAX_BOATS, MAX_CELLS_PER_BOAT } from "../../shared/boat-buffer";
+import { BoatBufferWriter, MAX_BOATS, MAX_CELLS_PER_BOAT } from "@to-the-ocean/library-boats/boat-sab";
 import { BOAT_CELL_WORLD_SIZE, BOAT_GRID_MAX, BOAT_GRID_MAX_HEIGHT, BOAT_LAYER_HEIGHT, CellTemplateEntry, SHIP_MASS_PER_CELL, getCellCollisionBottomY, getCellCollisionTopY, getCellSize, getWallCollisionBoxes, hasSolidCollision, isWalkableSurface, isWallType } from "../../shared/constants";
 import { BOAT_PRESETS, BoatPresetName } from "./boat-presets";
 

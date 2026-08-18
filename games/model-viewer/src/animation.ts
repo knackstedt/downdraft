@@ -14,67 +14,17 @@
 // ============================================================================
 
 import type { KeyframeTrack } from "@downdraft/core";
-import { AnimationClip, Skeleton, skinDataToSkeletonData } from "@downdraft/core";
+import {
+    AnimationClip,
+    Skeleton,
+    eulerXYZToQuat,
+    invertMat4,
+    multiplyMat4Into,
+    quatMul,
+    skinDataToSkeletonData,
+    type Quat
+} from "@downdraft/core";
 import type { AnimationData, SkinData } from "@downdraft/plugin-models";
-
-type Quat = [number, number, number, number];
-
-// ── 4x4 matrix utilities (column-major, matching WebGPU convention) ──
-
-/** Compute A * B in column-major layout. */
-function matMultiplyInto(a: Float32Array, b: Float32Array, out: Float32Array): void {
-  for (let i = 0; i < 4; i++) {
-    const bi0 = b[i * 4 + 0], bi1 = b[i * 4 + 1], bi2 = b[i * 4 + 2], bi3 = b[i * 4 + 3];
-    out[i * 4 + 0] = a[0] * bi0 + a[4] * bi1 + a[8] * bi2 + a[12] * bi3;
-    out[i * 4 + 1] = a[1] * bi0 + a[5] * bi1 + a[9] * bi2 + a[13] * bi3;
-    out[i * 4 + 2] = a[2] * bi0 + a[6] * bi1 + a[10] * bi2 + a[14] * bi3;
-    out[i * 4 + 3] = a[3] * bi0 + a[7] * bi1 + a[11] * bi2 + a[15] * bi3;
-  }
-}
-
-/** Invert a 4x4 column-major matrix via adjugate / determinant. */
-function matInvert(m: Float32Array): Float32Array {
-  const a00 = m[0], a01 = m[4], a02 = m[8],  a03 = m[12];
-  const a10 = m[1], a11 = m[5], a12 = m[9],  a13 = m[13];
-  const a20 = m[2], a21 = m[6], a22 = m[10], a23 = m[14];
-  const a30 = m[3], a31 = m[7], a32 = m[11], a33 = m[15];
-  const b00 = a11*a22*a33 - a11*a23*a32 - a21*a12*a33 + a21*a13*a32 + a31*a12*a23 - a31*a13*a22;
-  const b01 = -a10*a22*a33 + a10*a23*a32 + a20*a12*a33 - a20*a13*a32 - a30*a12*a23 + a30*a13*a22;
-  const b02 = a10*a21*a33 - a10*a23*a31 - a20*a11*a33 + a20*a13*a31 + a30*a11*a23 - a30*a13*a21;
-  const b03 = -a10*a21*a32 + a10*a22*a31 + a20*a11*a32 - a20*a12*a31 - a30*a11*a22 + a30*a12*a21;
-  const b10 = -a01*a22*a33 + a01*a23*a32 + a21*a02*a33 - a21*a03*a32 - a31*a02*a23 + a31*a03*a22;
-  const b11 = a00*a22*a33 - a00*a23*a32 - a20*a02*a33 + a20*a03*a32 + a30*a02*a23 - a30*a03*a22;
-  const b12 = -a00*a21*a33 + a00*a23*a31 + a20*a01*a33 - a20*a03*a31 - a30*a01*a23 + a30*a03*a21;
-  const b13 = a00*a21*a32 - a00*a22*a31 - a20*a01*a32 + a20*a02*a31 + a30*a01*a22 - a30*a02*a21;
-  const b20 = a01*a12*a33 - a01*a13*a32 - a11*a02*a33 + a11*a03*a32 + a31*a02*a13 - a31*a03*a12;
-  const b21 = -a00*a12*a33 + a00*a13*a32 + a10*a02*a33 - a10*a03*a32 - a30*a02*a13 + a30*a03*a12;
-  const b22 = a00*a11*a33 - a00*a13*a31 - a10*a01*a33 + a10*a03*a31 + a30*a01*a13 - a30*a03*a11;
-  const b23 = -a00*a11*a32 + a00*a12*a31 + a10*a01*a32 - a10*a02*a31 - a30*a01*a12 + a30*a02*a11;
-  const b30 = -a01*a12*a23 + a01*a13*a22 + a11*a02*a23 - a11*a03*a22 - a21*a02*a13 + a21*a03*a12;
-  const b31 = a00*a12*a23 - a00*a13*a22 - a10*a02*a23 + a10*a03*a22 + a20*a02*a13 - a20*a03*a12;
-  const b32 = -a00*a11*a23 + a00*a13*a21 + a10*a01*a23 - a10*a03*a21 - a20*a01*a13 + a20*a03*a11;
-  const b33 = a00*a11*a22 - a00*a12*a21 - a10*a01*a22 + a10*a02*a21 + a20*a01*a12 - a20*a02*a11;
-  let det = a00*b00 + a01*b01 + a02*b02 + a03*b03;
-  if (Math.abs(det) < 1e-9) return new Float32Array(16);
-  det = 1 / det;
-  const out = new Float32Array(16);
-  out[0]=b00*det; out[1]=b01*det; out[2]=b02*det; out[3]=b03*det;
-  out[4]=b10*det; out[5]=b11*det; out[6]=b12*det; out[7]=b13*det;
-  out[8]=b20*det; out[9]=b21*det; out[10]=b22*det; out[11]=b23*det;
-  out[12]=b30*det; out[13]=b31*det; out[14]=b32*det; out[15]=b33*det;
-  return out;
-}
-
-function quatMul(a: Quat, b: Quat): Quat {
-  const ax = a[0], ay = a[1], az = a[2], aw = a[3];
-  const bx = b[0], by = b[1], bz = b[2], bw = b[3];
-  return [
-    aw * bx + ax * bw + ay * bz - az * by,
-    aw * by - ax * bz + ay * bw + az * bx,
-    aw * bz + ax * by - ay * bx + az * bw,
-    aw * bw - ax * bx - ay * by - az * bz,
-  ];
-}
 
 /** Normalize a bone/channel name. The FBX parser now strips the "Model" suffix,
  * so this is a passthrough — kept for API compatibility. */
@@ -118,19 +68,20 @@ export function buildClip(
       if (preRot === undefined) preRot = preRotations.get(ch.targetNode);
       if (preRot) {
         const baked = new Float32Array(ch.keyframeValues.length);
+        const preRotQuat: Quat = { x: preRot[0], y: preRot[1], z: preRot[2], w: preRot[3] };
         for (let k = 0; k < ch.keyframeTimes.length; k++) {
           const v0 = k * 4;
-          const lcl: Quat = [
-            ch.keyframeValues[v0],
-            ch.keyframeValues[v0 + 1],
-            ch.keyframeValues[v0 + 2],
-            ch.keyframeValues[v0 + 3],
-          ];
-          const full = quatMul(preRot, lcl);
-          baked[v0] = full[0];
-          baked[v0 + 1] = full[1];
-          baked[v0 + 2] = full[2];
-          baked[v0 + 3] = full[3];
+          const lcl: Quat = {
+            x: ch.keyframeValues[v0],
+            y: ch.keyframeValues[v0 + 1],
+            z: ch.keyframeValues[v0 + 2],
+            w: ch.keyframeValues[v0 + 3],
+          };
+          const full = quatMul(preRotQuat, lcl);
+          baked[v0] = full.x;
+          baked[v0 + 1] = full.y;
+          baked[v0 + 2] = full.z;
+          baked[v0 + 3] = full.w;
         }
         values = baked;
       }
@@ -163,19 +114,6 @@ interface BoneTransform {
 // upperarm_r, …) and only emit tracks for bones that actually exist, so they
 // work across different rigs and degrade gracefully on partial skeletons.
 
-/** Euler XYZ (radians) → quaternion (ZYX intrinsic: q = qz*qy*qx). */
-function eulerXYZToQuat(ex: number, ey: number, ez: number): Quat {
-  const cx = Math.cos(ex / 2), sx = Math.sin(ex / 2);
-  const cy = Math.cos(ey / 2), sy = Math.sin(ey / 2);
-  const cz = Math.cos(ez / 2), sz = Math.sin(ez / 2);
-  return [
-    sx * cy * cz - cx * sy * sz,
-    cx * sy * cz + sx * cy * sz,
-    cx * cy * sz - sx * sy * cz,
-    cx * cy * cz + sx * sy * sz,
-  ];
-}
-
 /** Build a rotation keyframe track for one bone over the given times. */
 function rotTrack(
   boneName: string,
@@ -186,10 +124,10 @@ function rotTrack(
   const values = new Float32Array(times.length * 4);
   for (let i = 0; i < times.length; i++) {
     const q = eulerXYZToQuat(eulers[i][0], eulers[i][1], eulers[i][2]);
-    values[i * 4] = q[0];
-    values[i * 4 + 1] = q[1];
-    values[i * 4 + 2] = q[2];
-    values[i * 4 + 3] = q[3];
+    values[i * 4] = q.x;
+    values[i * 4 + 1] = q.y;
+    values[i * 4 + 2] = q.z;
+    values[i * 4 + 3] = q.w;
   }
   return { boneName, boneIndex, path: "rotation", times: new Float32Array(times), values, interpolation: "linear" };
 }
@@ -317,7 +255,7 @@ export class ModelAnimator {
 
     // Read the normalization transform (if any) and precompute its inverse.
     this.normMatrix = skin.normalizationMatrix ?? null;
-    this.normMatrixInv = this.normMatrix ? matInvert(this.normMatrix) : null;
+    this.normMatrixInv = this.normMatrix ? invertMat4(this.normMatrix) : null;
     this.normalizationMatrix = this.normMatrix;
 
     // Build clips with pre-rotation baking, kept parallel to the input
@@ -409,8 +347,8 @@ export class ModelAnimator {
       for (let i = 0; i < this.boneCount; i++) {
         const off = i * 16;
         const sm = matrices.subarray(off, off + 16);
-        matMultiplyInto(T, sm, tmp);
-        matMultiplyInto(tmp, Tinv, result);
+        multiplyMat4Into(T, sm, tmp);
+        multiplyMat4Into(tmp, Tinv, result);
         this.skinMatrices.set(result, off);
       }
     } else {
