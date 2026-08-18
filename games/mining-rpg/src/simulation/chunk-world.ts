@@ -52,6 +52,7 @@ import {
     MAX_CHUNKS_X,
     MAX_MINE_RANGE,
     ORE_HARDNESS,
+    OXYGEN_MAX_TICKS,
     PLAYER_H,
     PLAYER_W,
     RADIUS_UPGRADE_INCREMENT,
@@ -751,6 +752,74 @@ export class ChunkWorld {
     return [];
   }
 
+  // --- World-space background/foreground access (for rope extension) ---
+  // These helpers read/write cells by WORLD coords, transparently checking
+  // the active grid (for in-bounds cells) or loaded chunk storage (for cells
+  // outside the active grid). They never generate new chunks — unloaded
+  // chunks are treated as empty/non-solid, and writes to them are skipped.
+  // This lets the rope extension scan/find the true bottom of an existing
+  // rope column that spans loaded chunks beyond the active grid.
+
+  /** Read the packed background cell at world coords. Returns 0 for cells in
+   *  unloaded chunks or out of the world (no generation). */
+  private bgAtWorld(wx: number, wy: number): number {
+    const ax = wx - this.activeOriginCx * CHUNK_W;
+    const ay = wy - this.activeOriginCy * CHUNK_H;
+    if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
+      return this.backgroundGrid[ay * ACTIVE_GRID_W + ax];
+    }
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    if (cx < 0 || cx >= MAX_CHUNKS_X) return 0;
+    const chunk = this.chunks.get(chunkKey(cx, cy));
+    if (!chunk) return 0;
+    const lx = wx - cx * CHUNK_W;
+    const ly = wy - cy * CHUNK_H;
+    return chunk.bgGrid[ly * CHUNK_W + lx];
+  }
+
+  /** Check if the foreground cell at world coords is solid. Returns false for
+   *  cells in unloaded chunks (treated as non-solid / passable). */
+  private fgSolidAtWorld(wx: number, wy: number): boolean {
+    const ax = wx - this.activeOriginCx * CHUNK_W;
+    const ay = wy - this.activeOriginCy * CHUNK_H;
+    if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
+      const packed = this.activeGrid.grid[ay * ACTIVE_GRID_W + ax];
+      if (packed === 0) return false;
+      return !!MATERIALS[packed & 0xff]?.solid;
+    }
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    if (cx < 0 || cx >= MAX_CHUNKS_X) return false;
+    const chunk = this.chunks.get(chunkKey(cx, cy));
+    if (!chunk) return false;
+    const lx = wx - cx * CHUNK_W;
+    const ly = wy - cy * CHUNK_H;
+    const packed = chunk.grid[ly * CHUNK_W + lx];
+    if (packed === 0) return false;
+    return !!MATERIALS[packed & 0xff]?.solid;
+  }
+
+  /** Set a background cell at world coords. Writes to the active grid (and
+   *  marks the chunk dirty) for in-bounds cells, or to chunk storage for
+   *  out-of-grid cells. No-op for unloaded chunks (caller must ensure the
+   *  chunk is loaded before calling). */
+  private setBgAtWorld(wx: number, wy: number, packed: number): void {
+    const ax = wx - this.activeOriginCx * CHUNK_W;
+    const ay = wy - this.activeOriginCy * CHUNK_H;
+    if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
+      this.backgroundGrid[ay * ACTIVE_GRID_W + ax] = packed;
+      this.markChunkDirty(ax, ay);
+      return;
+    }
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    if (cx < 0 || cx >= MAX_CHUNKS_X) return;
+    const chunk = this.chunks.get(chunkKey(cx, cy));
+    if (!chunk) return;
+    const lx = wx - cx * CHUNK_W;
+    const ly = wy - cy * CHUNK_H;
+    chunk.bgGrid[ly * CHUNK_W + lx] = packed;
+    chunk.dirty = true;
+  }
+
   /**
    * Place a build item at world coords (wx, wy). Each item places a dynamic
    * multi-cell pattern into the background grid:
@@ -759,12 +828,18 @@ export class ChunkWorld {
    *     supports that fill downward up to 7 cells, stopping at solid ground.
    *   Ladder:      5-wide × 7-tall block, top-center at cursor.
    *   Rope:        3-wide segment. If cursor is directly above existing rope,
-   *     extends that rope downward from its current bottom. Otherwise places
-   *     a new 3-wide × 5-tall segment.
+   *     extends that rope downward from its current bottom — scanning through
+   *     loaded chunks (not just the active grid) to find the true bottom, and
+   *     writing the new segment to chunk storage for cells beyond the active
+   *     grid. Otherwise places a new 3-wide × 5-tall segment.
    *
-   * All cells must be valid: within bounds, within range, foreground not solid,
-   * background empty, not inside the player body. If any cell fails, the entire
-   * placement is aborted (returns false).
+   * Scaffolding/ladder cells must be valid: within active-grid bounds, within
+   * range, foreground not solid, background empty, not inside the player body.
+   * Rope extension cells are validated against loaded chunks (foreground not
+   * solid, background empty, not in body) with NO range limit — the only limit
+   * is that the containing chunk must be loaded. New rope cells are range-
+   * limited like scaffolding/ladder. If any cell fails, the entire placement
+   * is aborted (returns false).
    *
    * On success, consumes one item from buildMaterials and returns true.
    */
@@ -804,12 +879,6 @@ export class ChunkWorld {
       return true;
     };
 
-    // Helper: check if a background cell has a specific material
-    const bgIs = (x: number, y: number, m: number): boolean => {
-      if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) return false;
-      return (bgGrid[y * ACTIVE_GRID_W + x] & 0xff) === m;
-    };
-
     // --- Compute cells to place based on material type ---
     let cells: Array<[number, number]> = [];
 
@@ -843,26 +912,80 @@ export class ChunkWorld {
         }
       }
     } else {
-      // rope
+      // rope — handled entirely in WORLD coords so the extension can span
+      // loaded chunks beyond the active grid. The scan for the existing
+      // rope's bottom continues through loaded chunks (not just the active
+      // grid), and the new segment is written to chunk storage for cells
+      // outside the active grid. Only loaded chunks limit the extension.
       const { width, segmentHeight } = BUILD_DIMENSIONS.rope;
       const halfW = Math.floor(width / 2);
-      let startY = ay;
-      // Check if cursor is directly above existing rope → extend downward
-      if (bgIs(ax, ay + 1, mat)) {
-        // Find the bottom of the existing rope column (scan down from cursor)
-        let bottomY = ay + 1;
-        while (bgIs(ax, bottomY + 1, mat)) bottomY++;
+      const { x: wAx, y: wAy } = this.activeToWorld(ax, ay);
+      let startWY = wAy;
+      let isExtension = false;
+      // Check if cursor is directly above existing rope → extend downward.
+      // bgAtWorld checks the active grid first, then loaded chunk storage, so
+      // the scan continues past the active grid boundary into loaded chunks.
+      if ((this.bgAtWorld(wAx, wAy + 1) & 0xff) === mat) {
+        isExtension = true;
+        // Find the bottom of the existing rope column, scanning down through
+        // loaded chunks. Stops at the first non-rope cell OR an unloaded
+        // chunk (bgAtWorld returns 0 for unloaded chunks).
+        let bottomWY = wAy + 1;
+        while ((this.bgAtWorld(wAx, bottomWY + 1) & 0xff) === mat) bottomWY++;
         // Start placing below the current bottom
-        startY = bottomY + 1;
+        startWY = bottomWY + 1;
       }
+      // Build the new segment cells in world coords
+      const ropeCells: Array<[number, number]> = [];
       for (let dy = 0; dy < segmentHeight; dy++) {
         for (let dx = -halfW; dx <= halfW; dx++) {
-          cells.push([ax + dx, startY + dy]);
+          ropeCells.push([wAx + dx, startWY + dy]);
         }
       }
+      // Validate each rope cell. Extensions are NOT range-limited (the rope
+      // follows itself down to its true bottom across loaded chunks); new
+      // ropes ARE range-limited (cells are at the cursor, near the player).
+      // All cells must: be in a loaded chunk, foreground not solid,
+      // background empty, not inside the player body.
+      for (const [rwx, rwy] of ropeCells) {
+        // Convert to active coords for the body + range checks
+        const cax = rwx - this.activeOriginCx * CHUNK_W;
+        const cay = rwy - this.activeOriginCy * CHUNK_H;
+        const inGrid = cax >= 0 && cax < ACTIVE_GRID_W && cay >= 0 && cay < ACTIVE_GRID_H;
+        // Body check (player is always within the active grid, so out-of-grid
+        // cells can't overlap the body — skip the check for them)
+        if (inGrid && cax >= bodyX0 && cax <= bodyX1 && cay >= bodyY0 && cay <= bodyY1) {
+          return false;
+        }
+        // Foreground must not be solid (checks active grid or loaded chunk)
+        if (this.fgSolidAtWorld(rwx, rwy)) return false;
+        // Background must be empty (checks active grid or loaded chunk)
+        if (this.bgAtWorld(rwx, rwy) !== 0) return false;
+        // Range check only for new ropes (extension follows the existing rope)
+        if (!isExtension) {
+          const rdx = cax - pcx;
+          const rdy = cay - pcy;
+          if (rdx * rdx + rdy * rdy > maxR2) return false;
+        }
+        // For out-of-grid cells, the containing chunk MUST be loaded — we
+        // can't write to an unloaded chunk (setBgAtWorld would no-op).
+        if (!inGrid) {
+          const { cx, cy } = this.worldToChunk(rwx, rwy);
+          if (cx < 0 || cx >= MAX_CHUNKS_X) return false;
+          if (!this.chunks.has(chunkKey(cx, cy))) return false;
+        }
+      }
+      // Write all rope cells (active grid for in-bounds, chunk storage for
+      // out-of-grid)
+      const ropePacked = packCell(mat, 0, 0);
+      for (const [rwx, rwy] of ropeCells) {
+        this.setBgAtWorld(rwx, rwy, ropePacked);
+      }
+      this.buildMaterials[type]--;
+      return true;
     }
 
-    // --- Validate all cells ---
+    // --- Validate all cells (scaffolding/ladder, active coords) ---
     for (const [x, y] of cells) {
       if (!isValid(x, y)) return false;
     }
@@ -1142,6 +1265,7 @@ export class ChunkWorld {
     up: boolean;
     down: boolean;
     jump: boolean;
+    noclip: boolean;
     mouseDown: boolean;
     mouseX: number;
     mouseY: number;
@@ -1282,6 +1406,9 @@ export class ChunkWorld {
     if (state.facing !== undefined) this.player.facing = state.facing;
     if (state.animFrame !== undefined) this.player.animFrame = state.animFrame;
     if (state.health !== undefined) this.player.health = state.health;
+    // Restore oxygen if the save provides it; old saves without the field
+    // default to a full breath.
+    this.player.oxygen = state.oxygen ?? OXYGEN_MAX_TICKS;
     // Force rebuild — the player may have moved to a different chunk
     this.needsRebuild = true;
     // Validate the loaded position — old saves may have the player inside
@@ -1305,6 +1432,7 @@ export class ChunkWorld {
     this.player.onGround = false;
     this.player.health = 100;
     this.player.lastDamageMaterial = 0;
+    this.player.oxygen = OXYGEN_MAX_TICKS;
     // Clear per-cell mining damage
     this.cellDamage.fill(0);
     // Reset mining cooldown so the player can mine immediately

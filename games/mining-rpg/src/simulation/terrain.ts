@@ -333,35 +333,64 @@ function lakeCenterAt(
 }
 
 /**
- * Carve a circular lake/pocket around a center point.
+ * Carve a circular lake/pocket around a center point (in WORLD coords).
  * Fills cells within the radius with the lake material (overwriting stone).
  * Does not overwrite existing non-stone cells (preserves ores/cavities at edges).
+ *
+ * The center can be in a neighboring chunk — only the cells that fall within
+ * the chunk being generated (chunkCx, chunkCy) are written. This lets lakes
+ * span chunk boundaries seamlessly: each chunk carves the portion of the lake
+ * that falls within its own cells, using the same deterministic center.
+ *
+ * Depth gating: cells outside the lake's [minChunkY, maxChunkY] range are
+ * skipped. This prevents a lake center near a depth boundary (e.g. lava at
+ * the top of chunk 8) from carving into chunks above its depth range (e.g.
+ * chunk 7). Horizontal spanning is preserved — only the vertical depth gate
+ * is enforced.
  */
 function carveLake(
   grid: Uint32Array,
-  cx: number,
-  cy: number,
-  centerX: number,
-  centerY: number,
+  chunkCx: number,
+  chunkCy: number,
+  centerWX: number,
+  centerWY: number,
   radius: number,
   material: number,
+  minChunkY: number,
+  maxChunkY: number,
   seed: number,
   shade: () => number,
 ): void {
   const r2 = radius * radius;
-  const x0 = Math.max(0, centerX - radius);
-  const x1 = Math.min(CHUNK_W - 1, centerX + radius);
-  const y0 = Math.max(0, centerY - radius);
-  const y1 = Math.min(CHUNK_H - 1, centerY + radius);
+  const chunkWorldX = chunkCx * CHUNK_W;
+  const chunkWorldY = chunkCy * CHUNK_H;
+  // Center in chunk-local coords (may be negative or >= CHUNK_W/H if the
+  // center is in a neighboring chunk — that's fine, the bounds clamp below
+  // ensures we only write to cells within this chunk).
+  const lcx = centerWX - chunkWorldX;
+  const lcy = centerWY - chunkWorldY;
+  const x0 = Math.max(0, lcx - radius);
+  const x1 = Math.min(CHUNK_W - 1, lcx + radius);
+  const y0 = Math.max(0, lcy - radius);
+  const y1 = Math.min(CHUNK_H - 1, lcy + radius);
 
   for (let y = y0; y <= y1; y++) {
+    const cellWY = chunkWorldY + y;
+    // Depth gate: skip cells outside the lake's valid chunk-Y range. This
+    // prevents lakes from spilling across depth boundaries (e.g. lava from
+    // chunk 8 carving up into chunk 7) while still allowing horizontal
+    // chunk-border spanning.
+    const cellCY = Math.floor(cellWY / CHUNK_H);
+    if (cellCY < minChunkY || cellCY > maxChunkY) continue;
     for (let x = x0; x <= x1; x++) {
-      const dx = x - centerX;
-      const dy = y - centerY;
-      // Use noise to make the lake blob irregular
+      const dx = x - lcx;
+      const dy = y - lcy;
+      // Use noise to make the lake blob irregular (world coords → deterministic
+      // across chunk boundaries, so the lake shape is consistent regardless of
+      // which chunk is carving it)
       const distNoise = worldValueNoise(
-        cx * CHUNK_W + x,
-        cy * CHUNK_H + y,
+        chunkWorldX + x,
+        cellWY,
         seed + material * 31,
         0.15,
       );
@@ -466,18 +495,36 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
   }
 
   // --- Step 4: Carve lakes / gas pockets ---
+  // Lake centers are detected per-cell via a deterministic hash. A lake center
+  // near a chunk border must carve into neighboring chunks too — so we iterate
+  // candidate centers in a neighborhood extending by the max lake radius beyond
+  // the chunk borders. Each center carves only the cells that fall within THIS
+  // chunk (carveLake skips out-of-bounds cells). This guarantees lakes span
+  // chunk boundaries seamlessly, matching the ore-worm neighborhood approach.
   if (cy >= 0) {
-    for (let y = 0; y < CHUNK_H; y++) {
-      for (let x = 0; x < CHUNK_W; x++) {
-        const wx = cx * CHUNK_W + x;
-        const wy = cy * CHUNK_H + y;
-        const lake = lakeCenterAt(wx, wy, cy, seed);
-        if (lake) {
-          // Determine lake radius (deterministic from position)
-          const sizeHash = cellHash(cx, cy, x, y, seed + lake.material + 9999);
-          const radius = lake.minSize + sizeHash * (lake.maxSize - lake.minSize);
-          carveLake(grid, cx, cy, x, y, Math.floor(radius), lake.material, seed, shade);
-        }
+    const maxLakeRadius = LAKE_CONFIG.reduce((m, l) => Math.max(m, l.maxSize), 0);
+    const chunkWorldX = cx * CHUNK_W;
+    const chunkWorldY = cy * CHUNK_H;
+    const startWX = chunkWorldX - maxLakeRadius;
+    const endWX = chunkWorldX + CHUNK_W + maxLakeRadius;
+    const startWY = chunkWorldY - maxLakeRadius;
+    const endWY = chunkWorldY + CHUNK_H + maxLakeRadius;
+    for (let wy = startWY; wy < endWY; wy++) {
+      for (let wx = startWX; wx < endWX; wx++) {
+        // Use the center cell's own chunk Y for the depth-range check
+        // (a center in a neighboring chunk is gated by its own depth, not
+        // the chunk being generated).
+        const centerCy = Math.floor(wy / CHUNK_H);
+        const lake = lakeCenterAt(wx, wy, centerCy, seed);
+        if (!lake) continue;
+        // Determine lake radius (deterministic from the center's chunk + local
+        // coords — same radius regardless of which chunk is carving it)
+        const centerCx = Math.floor(wx / CHUNK_W);
+        const centerLx = wx - centerCx * CHUNK_W;
+        const centerLy = wy - centerCy * CHUNK_H;
+        const sizeHash = cellHash(centerCx, centerCy, centerLx, centerLy, seed + lake.material + 9999);
+        const radius = lake.minSize + sizeHash * (lake.maxSize - lake.minSize);
+        carveLake(grid, cx, cy, wx, wy, Math.floor(radius), lake.material, lake.minChunkY, lake.maxChunkY, seed, shade);
       }
     }
   }

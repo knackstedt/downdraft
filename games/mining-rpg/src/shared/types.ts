@@ -74,6 +74,7 @@ export interface MiningPlayerState {
   animFrame: number;
   health: number;
   lastDamageMaterial?: number; // Material ID that last damaged the player (for death cause)
+  oxygen?: number; // remaining oxygen ticks (OXYGEN_MAX_TICKS = full breath)
 }
 
 /**

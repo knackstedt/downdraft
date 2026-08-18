@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, PLAYER, STATS, TICK_RATE, type BuildMaterialType } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, OXYGEN_MAX_TICKS, PLAYER, STATS, TICK_RATE, type BuildMaterialType } from "../shared/constants";
 import { MiningSimBufferWriter } from "../shared/sim-buffer";
 import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import { ChunkWorld, type SavedChunk } from "./chunk-world";
@@ -91,7 +91,7 @@ expose({
     dirtyChunks: SavedChunk[];
     tick: number;
   } {
-    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0 }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, dirtyChunks: [], tick: 0 };
+    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, dirtyChunks: [], tick: 0 };
     return {
       player: { ...world.player },
       upgrades: { ...world.upgrades },
@@ -174,6 +174,7 @@ async function loop(): Promise<void> {
             up: ib[INPUT.UP / 4] !== 0,
             down: ib[INPUT.DOWN / 4] !== 0,
             jump: ib[INPUT.JUMP / 4] !== 0,
+            noclip: ib[INPUT.NOCLIP / 4] !== 0,
             mouseDown: ib[INPUT.MOUSE_DOWN / 4] !== 0,
             mouseX: if32[INPUT.MOUSE_X / 4],
             mouseY: if32[INPUT.MOUSE_Y / 4],
@@ -211,6 +212,7 @@ async function loop(): Promise<void> {
           writer.writePlayerI32(PLAYER.ANIM_FRAME, world.player.animFrame);
           writer.writePlayerI32(PLAYER.HEALTH, world.player.health);
           writer.writePlayerI32(PLAYER.DEATH_CAUSE, world.player.lastDamageMaterial ?? 0);
+          writer.writePlayerI32(PLAYER.OXYGEN, world.player.oxygen ?? OXYGEN_MAX_TICKS);
 
           // Write stats
           writer.writeStat(STATS.FRAME, frameCount);

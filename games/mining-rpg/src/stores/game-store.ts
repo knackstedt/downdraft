@@ -1,6 +1,6 @@
 import { Material } from "@downdraft/library-sand";
 import { create } from "zustand";
-import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
+import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, OXYGEN_MAX_TICKS, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
 import type { BuildMaterials, InventoryEntry, PlayerUpgrades } from "../shared/types";
 
 // ============================================================================
@@ -25,15 +25,17 @@ const DEATH_MESSAGES: Record<number, string[]> = {
     "Stop, drop, and roll next time",
     "You got a little too toasty",
     "Fire is hot, who knew",
-    "I know it may be a bit late to say this, but don't stand on fire"
+    "I know it may be a bit late to say this, but don't stand on fire",
+    "Warning: Death by fire is not covered under your health plan"
   ],
   [Material.Plasma]: [
     "that's some premium incineration",
     "plasma: not just a state of matter, it's a lifestyle",
+    "what the hell was that?"
   ],
   [Material.FuseFire]: [
     "should've cut the red wire",
-    "fuse fire: surprisingly effective",
+    "Now you know why it says 'Parental Supervision required'.",
   ],
   [Material.BurningOil]: [
     "Oil and fire — a classic afternoon combo",
@@ -61,9 +63,8 @@ const DEATH_MESSAGES: Record<number, string[]> = {
     "Rocks fall, everyone dies",
     "Do you like hugs with extreme force?",
     "Cave-ins are a serious source of injury and death",
-    "Buried alive — the mine keeps what it takes",
+    "Buried alive — then you become dead",
     "Next time, watch where you dig",
-    "You do know that breathing is important, right",
     "You should have paid attention to the cracks in the ceiling"
   ],
   [DeathCause.Falling]: [
@@ -73,10 +74,23 @@ const DEATH_MESSAGES: Record<number, string[]> = {
     "The ground came up fast, didn't it?",
     "Splat. That's the technical term.",
     "Next time, try landing on your feet",
-    "You fell for it — literally",
-    "That was quite the leap of faith",
-    "What goes up must come down, hard",
-    "Terminal velocity is not just a suggestion"
+    "You fell for it — literally!",
+    "That was quite the leap of faith.",
+    "Did you forget your umbrella?",
+    "Terminal velocity is not a suggestion"
+  ],
+  [DeathCause.Drowning]: [
+    "You should have come up for air",
+    "Glub glub glub",
+    "This just in: you are not a fish.",
+    "Waterboarding: not just for interrogations anymore!",
+    "Should've taken swimming lessons",
+    "You held your breath for a really long time, just not long enough",
+    "Reminder: breathing is compulsory",
+    "Who would have thought that you couldn't drink all that water",
+    "Looks like you forgot your floaty",
+    "Maybe next time try the kiddie pool",
+    "Congratulations, you just learned that you can drown in this game",
   ],
 };
 
@@ -86,7 +100,8 @@ const FALLBACK_QUIPS = [
   "Your health insurance plan isn't unlimited you know",
   "Act 2; The Consequences of your actions",
   "While you don't feel pain, he does",
-  "How'd you manage that?"
+  "How'd you manage that",
+  "What are you doing, running around like you have free healthcare"
 ];
 
 /** Pick a random death quip for the given cause (Material ID or DeathCause ID). */
@@ -98,6 +113,7 @@ export function pickDeathQuip(deathCause: number): string {
 export interface GameState {
   fps: number | null;
   health: number;
+  oxygen: number; // remaining oxygen ticks (OXYGEN_MAX_TICKS = full breath)
   depth: number; // player depth in chunks (0 = surface)
   paused: boolean;
   gameOver: boolean; // true when player health reaches 0
@@ -117,9 +133,12 @@ export interface GameState {
   buildMode: boolean; // true when build mode is active (left-click places)
   selectedBuild: BuildMaterialType; // currently selected build material
   buildMaterials: BuildMaterials; // mirror of worker-authoritative counts (for display)
+  // Dev cheats
+  noclip: boolean; // true when noclip (free flight through terrain) is active
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
+  setOxygen: (oxygen: number) => void;
   setDepth: (depth: number) => void;
   setPaused: (p: boolean) => void;
   setGameOver: (g: boolean) => void;
@@ -147,6 +166,9 @@ export interface GameState {
   setBuildMaterials: (mats: BuildMaterials) => void; // sync from worker events
   /** Get the Material ID of the currently selected build material. */
   getSelectedBuildMatId: () => number;
+  // Dev cheats
+  setNoclip: (on: boolean) => void;
+  toggleNoclip: () => void;
   /**
    * Buy `qty` of a build material at the signpost shop. Checks currency and
    * returns true on success. Does NOT mutate buildMaterials directly — the
@@ -159,6 +181,7 @@ export interface GameState {
 export const useGameStore = create<GameState>((set, get) => ({
   fps: null,
   health: 100,
+  oxygen: OXYGEN_MAX_TICKS,
   depth: 0,
   paused: false,
   gameOver: false,
@@ -177,9 +200,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   buildMode: false,
   selectedBuild: "scaffolding",
   buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 },
+  noclip: false,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
+  setOxygen: (oxygen) => set({ oxygen }),
   setDepth: (depth) => set({ depth }),
   setPaused: (paused) => set({ paused }),
   setGameOver: (gameOver) => set({ gameOver }),
@@ -224,6 +249,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   selectBuild: (type) => set({ selectedBuild: type }),
   setBuildMaterials: (mats) => set({ buildMaterials: { ...mats } }),
   getSelectedBuildMatId: () => BUILD_MATERIAL_ID[get().selectedBuild],
+  setNoclip: (on) => set({ noclip: on }),
+  toggleNoclip: () => set((s) => ({ noclip: !s.noclip })),
   buyBuildMaterial: (type, qty) => {
     const price = BUILD_MATERIAL_PRICES[type] * qty;
     const s = get();

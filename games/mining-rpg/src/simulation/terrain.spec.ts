@@ -267,6 +267,78 @@ test("lava does NOT appear in shallow chunks (cy < 8)", () => {
   expect(lavaInShallow).toBe(0);
 });
 
+test("lakes span chunk boundaries (same lake appears in adjacent chunks)", () => {
+  // Generate two horizontally adjacent chunks and check that liquid cells
+  // exist at the same world-Y near the boundary. Before the neighborhood
+  // fix, lakes were truncated at chunk borders — the boundary columns would
+  // have liquid on one side and stone on the other at the same Y.
+  const liquidMats = new Set([
+    Material.Water,
+    Material.Oil,
+    Material.Lava,
+  ]);
+  let foundSpanning = false;
+  for (let cx = 0; cx < 20 && !foundSpanning; cx++) {
+    for (let cy = 2; cy <= 12 && !foundSpanning; cy++) {
+      const left = generateChunk(cx, cy, SEED);
+      const right = generateChunk(cx + 1, cy, SEED);
+      // Check the last 5 columns of left and first 5 of right at the same Y.
+      // If both have the same liquid at the same Y, the lake spans the border.
+      for (let y = 0; y < CHUNK_H; y++) {
+        for (let dx = 0; dx < 5; dx++) {
+          const lm = left.grid[y * CHUNK_W + (CHUNK_W - 1 - dx)] & 0xff;
+          if (!liquidMats.has(lm)) continue;
+          for (let rdx = 0; rdx < 5; rdx++) {
+            const rm = right.grid[y * CHUNK_W + rdx] & 0xff;
+            if (rm === lm) {
+              foundSpanning = true;
+              break;
+            }
+          }
+          if (foundSpanning) break;
+        }
+        if (foundSpanning) break;
+      }
+    }
+  }
+  expect(foundSpanning).toBe(true);
+});
+
+test("lakes span vertical chunk boundaries (same lake in chunk above and below)", () => {
+  // Same as the horizontal test but for vertical borders. A lake center near
+  // the bottom of chunk N should carve into the top of chunk N+1 (within the
+  // same depth range).
+  const liquidMats = new Set([
+    Material.Water,
+    Material.Oil,
+    Material.Lava,
+  ]);
+  let foundSpanning = false;
+  for (let cx = 0; cx < 20 && !foundSpanning; cx++) {
+    for (let cy = 2; cy <= 12 && !foundSpanning; cy++) {
+      const top = generateChunk(cx, cy, SEED);
+      const bottom = generateChunk(cx, cy + 1, SEED);
+      // Check the last 5 rows of top and first 5 of bottom at the same X.
+      for (let x = 0; x < CHUNK_W; x++) {
+        for (let dy = 0; dy < 5; dy++) {
+          const tm = top.grid[(CHUNK_H - 1 - dy) * CHUNK_W + x] & 0xff;
+          if (!liquidMats.has(tm)) continue;
+          for (let bdy = 0; bdy < 5; bdy++) {
+            const bm = bottom.grid[bdy * CHUNK_W + x] & 0xff;
+            if (bm === tm) {
+              foundSpanning = true;
+              break;
+            }
+          }
+          if (foundSpanning) break;
+        }
+        if (foundSpanning) break;
+      }
+    }
+  }
+  expect(foundSpanning).toBe(true);
+});
+
 // --- Chunk structure tests ---
 
 test("generated chunk has correct dimensions", () => {

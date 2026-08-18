@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { BombOverlay } from "./components/bomb-overlay";
+import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
 import { DeathMenu } from "./components/death-menu";
 import { EscapeMenu } from "./components/escape-menu";
 import { HUD } from "./components/hud";
@@ -48,6 +49,13 @@ export default function App() {
       if (e.key === "1") useGameStore.getState().selectBuild("scaffolding");
       if (e.key === "2") useGameStore.getState().selectBuild("ladder");
       if (e.key === "3") useGameStore.getState().selectBuild("rope");
+      // F3 toggles noclip (dev cheat): free flight through terrain, no
+      // gravity/collision/damage. Useful for inspecting generation and
+      // testing features without playing through normally.
+      if (e.key === "F3") {
+        e.preventDefault();
+        useGameStore.getState().toggleNoclip();
+      }
       if (e.key === "Escape") {
         const s = useGameStore.getState();
         // Don't toggle ESC menu if the death menu is open
@@ -73,10 +81,11 @@ export default function App() {
       <SignpostOverlay />
       <SignpostPrompt />
       <BombOverlay />
+      <ChunkDebugOverlay />
       <DeathMenu />
       <EscapeMenu />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | E: sell | ESC: menu
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | E: sell | F2: chunk borders | F3: noclip | ESC: menu
         {paused && " | PAUSED"}
       </div>
     </>
