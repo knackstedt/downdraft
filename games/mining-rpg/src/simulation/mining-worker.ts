@@ -10,6 +10,7 @@ import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT, INPUT_OFFSET, OXYGEN_MAX_TICKS, PL
 import { MiningSimBufferWriter } from "../shared/sim-buffer";
 import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import { ChunkWorld, type SavedChunk } from "./chunk-world";
+import { applyMaterialOverrides } from "./material-overrides";
 
 const events = exposeEvents();
 
@@ -41,6 +42,11 @@ expose({
     writer = new MiningSimBufferWriter(sab, ACTIVE_GRID_W, ACTIVE_GRID_H);
     inputBuf = new Int32Array(sab, INPUT_OFFSET, 128 / 4);
     inputF32 = new Float32Array(sab, INPUT_OFFSET, 128 / 4);
+
+    // Apply mining-game material overrides before creating the world.
+    // This patches the sand engine's precomputed arrays (MAT_GRAVITY_DIR,
+    // MAT_DENSITY, etc.) for any game-specific property overrides.
+    applyMaterialOverrides();
 
     world = new ChunkWorld();
     running = true;
