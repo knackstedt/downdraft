@@ -9,6 +9,7 @@
 import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
 
 createDowndraftApp({
+  appId: "downdraft-model-viewer",
   window: {
     title: "Downdraft Model Viewer",
     width: 1280,
