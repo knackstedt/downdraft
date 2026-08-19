@@ -12,6 +12,7 @@
 // `GameRenderer` directly (avoids a circular import).
 // ============================================================================
 
+import type { PluginDevToolsAPI } from "../plugin/plugin";
 import type {
     CameraControllerLike,
     FrameHook,
@@ -80,11 +81,20 @@ export class RendererPluginHost {
 
   private cameraController: CameraControllerLike | null = null;
   private viewportCameraProvider: ((viewportIdx: number, dt: number, elapsedTime: number) => CameraViewportInfo | null) | null = null;
+  private _devtools: PluginDevToolsAPI | null = null;
 
   constructor(canvas: HTMLCanvasElement, callbacks: RendererPluginHostCallbacks) {
     this.canvas = canvas;
     this.callbacks = callbacks;
     this.inputBus = new RendererInputBusImpl(canvas);
+  }
+
+  /**
+   * Inject the DevTools API so renderer plugins can self-register debug
+   * panels via `ctx.devtools.registerPanel(...)` during their `register()`.
+   */
+  setDevToolsAPI(api: PluginDevToolsAPI): void {
+    this._devtools = api;
   }
 
   // ── Registration ──
@@ -309,9 +319,20 @@ export class RendererPluginHost {
       setRenderTargetProvider: (provider) => this.callbacks.setRenderTargetProvider(provider),
       setRAFSource: (src, cancel) => this.callbacks.setRAFSource(src, cancel),
 
+      devtools: this._devtools ?? NoopRendererDevToolsAPI,
+
       onDispose: (fn) => {
         active.disposeFns.push(fn);
       },
     };
   }
 }
+
+// No-op DevTools API stub — used when setDevToolsAPI() hasn't been called.
+const NoopRendererDevToolsAPI: PluginDevToolsAPI = {
+  registerPanel: () => {},
+  registerOverlayToggle: () => {},
+  registerDataFeed: () => {},
+  registerCommand: () => {},
+  registerSABStat: () => {},
+};

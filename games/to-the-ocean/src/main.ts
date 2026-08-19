@@ -30,8 +30,8 @@ createDowndraftApp({
     saves: { engineVersion: "0.1.0", mode: "auto", maxGenerations: 3 },
     osr: true,
     mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
-    // In deterministic/test mode, don't auto-open devtools (steals focus from canvas)
-    devtools: { enabled: true, autoOpen: !deterministic, keybind: deterministic ? "" : "F12" },
+    // Devtools defaults are now deterministic-aware in resolveDevtoolsConfig().
+    devtools: true,
     gpuInfo: true,
     consoleForwarding: true,
     errorDialog: !deterministic,
