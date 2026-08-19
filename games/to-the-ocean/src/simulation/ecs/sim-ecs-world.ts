@@ -12,13 +12,13 @@
 //   - Mapping slot indices ↔ ECS entities
 // ============================================================================
 
-import { PluginHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
+import { InputBufferReader, PluginHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
+import { devtools } from "@downdraft/plugin-devtools";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
 import { createBuoyancyPlugin, type BuoyancyConfig, type BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
 import { createCollisionPlugin, type CollisionConfig, type CollisionDeps } from "@to-the-ocean/library-collision";
 import { createWildlifePlugin, type WildlifeConfig, type WildlifeDeps } from "@to-the-ocean/library-wildlife";
-import { InputBufferReader } from "@downdraft/core";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
 import type { SimEntity, SimPlayer } from "../simulation";
 import {
@@ -82,6 +82,9 @@ export class SimEcsWorld {
   constructor() {
     this.world = new World();
     this.pluginHost = new PluginHost(this.world);
+    // Inject the devtools singleton so sim plugins can self-register
+    // debug panels/data feeds via ctx.devtools.register*(...).
+    this.pluginHost.setDevToolsAPI(devtools);
 
     // Query: all entities with Transform + EntityMeta (every SimEntity)
     this.allEntities = new Query([ComponentIds.Transform, ComponentIds.EntityMeta]);

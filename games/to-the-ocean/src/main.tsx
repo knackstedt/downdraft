@@ -17,9 +17,8 @@ import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
 import { createSaveStore, downdraft, type SaveStoreMode } from "@downdraft/app/renderer";
-import { startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats, type ISaveStore } from "@downdraft/core";
-import { useDebugStore } from "@downdraft/plugin-devtools";
-import { ENT, PLR, PLR_FLAG, SimBufferReader } from "@downdraft/core";
+import { ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats, type ISaveStore } from "@downdraft/core";
+import { initDevTools, useDebugStore } from "@downdraft/plugin-devtools";
 import { CameraMode, EntityType, SimToMainMessage } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
@@ -472,9 +471,16 @@ async function bootstrap() {
   const bridge = createSimBridge({ worker: simWorker, renderer, downdraft, saveStore, saveMode: bridgeSaveMode });
   useGameStore.getState().setSimBridge(bridge);
 
-  // Initialize Scene Inspector for DevTools integration
-  const sceneInspector = new SceneInspector();
-  sceneInspector.init(renderer);
+  // Initialize Scene Inspector for DevTools integration via initDevTools().
+  // to-the-ocean uses the full 3D scene inspector (BaseSceneInspector subclass)
+  // with custom panels, overlay toggles, and game-specific API methods.
+  // Worker manifests are synced so sim plugins (wildlife, buoyancy, collision)
+  // can self-register debug panels via ctx.devtools.registerPanel().
+  const devtoolsProxy = simWorker.getDevToolsProxy();
+  const sceneInspector = await initDevTools(renderer, {
+    bridgeClass: SceneInspector,
+    workerHosts: devtoolsProxy ? [{ prefix: "sim", proxy: devtoolsProxy }] : [],
+  }) as SceneInspector;
   sceneInspector.setSimBridge(bridge);
 
   // Gizmo mouse interaction handlers on canvas

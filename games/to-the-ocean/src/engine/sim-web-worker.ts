@@ -7,6 +7,7 @@
 import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
+import type { DevToolsManifest } from "@downdraft/plugin-devtools";
 import { WaterChannel } from "@downdraft/plugin-water";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
 import { SimToMainMessage } from "@shared/types";
@@ -46,6 +47,10 @@ type SimApi = {
   setGCConfig(config: Partial<GCControllerConfig>): Promise<void>;
   getGCStats(): Promise<GCControllerStats | null>;
   forceMajorGC(): Promise<void>;
+  // DevTools RPC methods (added by exposeDevToolsApi in the worker)
+  __devtoolsGetManifest(): Promise<DevToolsManifest>;
+  __devtoolsCallCommand(name: string, args: any[]): Promise<any>;
+  __devtoolsGetSAB(): Promise<SharedArrayBuffer | null>;
 };
 
 /**
@@ -111,6 +116,14 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   getBoatBuffer(): SharedArrayBuffer { return this.boatBuffer; }
 
   isReady(): boolean { return this.ready; }
+
+  /**
+   * Returns a DevToolsWorkerProxy for syncing the worker's devtools manifest
+   * with the renderer-side registry. Used by initDevTools() via syncWorkerManifests().
+   */
+  getDevToolsProxy(): { __devtoolsGetManifest(): Promise<DevToolsManifest>; __devtoolsCallCommand(name: string, args: any[]): Promise<any>; __devtoolsGetSAB(): Promise<SharedArrayBuffer | null> } | null {
+    return this.wp?.proxy ?? null;
+  }
 
   onEvent(cb: SimEventCallback): void {
     this.eventCallbacks.add(cb);

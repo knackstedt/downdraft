@@ -1,9 +1,8 @@
 import { downdraft, getCanvas, getOverlay } from "@downdraft/app/renderer";
-import { type IDevToolsDataRenderer } from "@downdraft/plugin-devtools";
+import { createSimStatsPanelExtension, createSimStatsProvider, initDevTools } from "@downdraft/plugin-devtools";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
-import { AlchemyDevToolsBridge } from "./devtools/devtools-bridge";
 import { AlchemyRenderer } from "./renderer/alchemy-renderer";
 import { useGameStore } from "./stores/game-store";
 import { autosave, loadAutosave } from "./stores/save-system";
@@ -31,11 +30,41 @@ async function bootstrap() {
 
   useGameStore.getState().setRenderer(renderer);
 
-  const dataRenderer: IDevToolsDataRenderer = {
-    getFPS: () => renderer.getFPS(),
-  };
-  const devtoolsBridge = new AlchemyDevToolsBridge(renderer);
-  devtoolsBridge.init(dataRenderer);
+  // --- DevTools: one-line wiring via initDevTools() ---
+  const simStatsProvider = createSimStatsProvider({
+    getWorkerHost: () => renderer.getWorkerHost(),
+    getStorePaused: () => useGameStore.getState().paused,
+    setStorePaused: (paused) => useGameStore.getState().setPaused(paused),
+    clearSim: () => renderer.clearAll(),
+    getExtra: () => {
+      const store = useGameStore.getState();
+      return {
+        grid: `${renderer.getGridW()}x${renderer.getGridH()}`,
+        renderFPS: renderer.getFPS(),
+        money: store.money,
+        potions: store.potions.length,
+        activeStation: store.activeStation,
+      };
+    },
+  });
+  await initDevTools(renderer, {
+    simStatsProvider,
+    panels: [
+      createSimStatsPanelExtension({
+        extraRows: (stats) => {
+          const extra = stats.extra as any;
+          if (!extra) return [];
+          return [
+            ["Grid", extra.grid ?? "—"],
+            ["Render FPS", String(extra.renderFPS ?? "—")],
+            ["Money", String(extra.money ?? "—")],
+            ["Potions", String(extra.potions ?? "—")],
+            ["Station", extra.activeStation ?? "none"],
+          ] as [string, string][];
+        },
+      }),
+    ],
+  });
 
   // Start the render loop immediately — don't let a hung autosave load
   // (e.g. IndexedDB locked by another process) block the canvas from rendering.

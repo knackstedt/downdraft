@@ -16,20 +16,20 @@
 // ============================================================================
 
 import { _devtoolsImpl, devtools } from "./api";
-import { createDevToolsRendererAdapter } from "./renderer-adapter";
 import { DevToolsDataBridge } from "./data-bridge";
+import { createDevToolsRendererAdapter } from "./renderer-adapter";
 import { BaseSceneInspector } from "./scene-inspector";
-import { syncWorkerManifests, type DevToolsWorkerProxy, type WorkerSyncEntry } from "./worker-sync";
 import type {
-  IAssetResolver,
-  IDebugModeProvider,
-  IDebugOverlayProvider,
-  IDevToolsOverlayToggle,
-  IDevToolsPanelExtension,
-  IDevToolsRenderer,
-  IPerformanceMetricsProvider,
-  ISimStatsProvider,
+    IAssetResolver,
+    IDebugModeProvider,
+    IDebugOverlayProvider,
+    IDevToolsOverlayToggle,
+    IDevToolsPanelExtension,
+    IDevToolsRenderer,
+    IPerformanceMetricsProvider,
+    ISimStatsProvider,
 } from "./types";
+import { syncWorkerManifests, type WorkerSyncEntry } from "./worker-sync";
 
 export interface InitDevToolsOptions {
   // --- Panel extensions & toggles (game-declared) ---
@@ -90,6 +90,13 @@ export async function initDevTools(renderer: any, options: InitDevToolsOptions =
   // 4. Sync worker manifests (fetches panels/feeds/commands from sim workers)
   if (options.workerHosts && options.workerHosts.length > 0) {
     await syncWorkerManifests(options.workerHosts);
+  }
+
+  // 4b. Inject devtools into the renderer's plugin host so renderer plugins
+  //     can self-register via ctx.devtools.register*(...).
+  const rendererPluginHost = renderer?.getRendererPluginHost?.();
+  if (rendererPluginHost && typeof rendererPluginHost.setDevToolsAPI === "function") {
+    rendererPluginHost.setDevToolsAPI(devtools);
   }
 
   // 5. Create the bridge

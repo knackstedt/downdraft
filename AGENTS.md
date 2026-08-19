@@ -65,6 +65,7 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun test packages/plugins/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
 - `bun test packages/plugins/models/src/normalize.spec.ts` — full normalization pipeline specs.
 - `bun test packages/core/src/plugin/host.spec.ts` — PluginHost activation order, deferred registration, dispose order (12 tests).
+- `bun test packages/plugins/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
 - `bun test packages/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
 - `bun test games/to-the-ocean/plugins/wildlife/src/wildlife-plugin.spec.ts` — game plugin wrappers (wildlife, buoyancy, collision) (9 tests).
 - `bun test packages/plugins/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
@@ -87,6 +88,56 @@ These are set automatically by `draft test`. See the "Running the smoke test" se
 - `DOWNDRAFT_HEADED=1` — show the Electron window even in deterministic mode. Without this, `window.ts` suppresses `win.show()` when `DOWNDRAFT_DETERMINISTIC=1`.
 - `MCP_PORT=9976` — MCP HTTP transport port (default 9876 for normal dev, 9976 for e2e tests).
 - `MCP_TIMEOUT_MS=120000` — MCP proxy IPC round-trip timeout in ms (must be longer than the longest `wait_for_condition` call).
+
+## Unified DevTools API
+
+The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/plugin-devtools`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
+
+- **Main realm**: panels/feeds/commands registered directly on `window.__sceneInspector` via `DevToolsDataBridge`.
+- **Worker realm**: data feeds written to a devtools SharedArrayBuffer (zero-copy, synchronous reads); commands forwarded via IPC RPC; panel declarations synced to renderer via one-time manifest RPC.
+
+### Architecture
+
+- **`devtools` singleton** (`packages/plugins/devtools/src/api.ts`) — the unified API. Auto-detects realm. Plugins import `devtools` and call `registerPanel()`, `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
+- **`DevToolsSABLayout`** — dedicated SAB region for JSON-serialized data feed results + direct numeric stats. Worker writes via `flushDataFeeds()` (called from sim loop); renderer reads synchronously. No IPC polling.
+- **`exposeDevToolsApi()`** (`packages/plugins/devtools/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
+- **`syncWorkerManifests()`** (`packages/plugins/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, merges panels, wires SAB data feed readers, wires command forwarders.
+- **`createDevToolsRendererAdapter()`** (`packages/plugins/devtools/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
+- **`createSimStatsProvider()`** (`packages/plugins/devtools/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
+- **`initDevTools()`** (`packages/plugins/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global registry panels, syncs worker manifests, exposes on `window.__sceneInspector`.
+- **`createMaterialStatsPanelExtension()`** (`packages/plugins/devtools/src/material-stats-panel.ts`) — reusable "Materials" tab for any game using the unified material system.
+
+### Plugin integration
+
+Both `PluginContext` (sim) and `RendererPluginContext` (renderer) have a `devtools` property. Plugins self-register during `register()`:
+
+```ts
+// In a renderer plugin
+register(ctx: RendererPluginContext) {
+  ctx.devtools.registerPanel({ id: "physics", tabLabel: "Physics", ... });
+  ctx.devtools.registerDataFeed("getPhysicsStats", () => ({ bodyCount: ... }));
+}
+
+// In a sim plugin (worker realm)
+register(ctx: PluginContext) {
+  ctx.devtools.registerPanel({ id: "wildlife", tabLabel: "Wildlife", ... });
+  ctx.devtools.registerDataFeed("getWildlifeStats", () => ({ count: ... }));
+  ctx.devtools.registerCommand("cullWildlife", (max: number) => { ... });
+}
+```
+
+The host injects the `devtools` singleton via `PluginHost.setDevToolsAPI()` / `RendererPluginHost.setDevToolsAPI()`. If not set, a no-op stub is used (plugins that call `ctx.devtools.registerPanel()` silently no-op).
+
+### Deterministic mode
+
+`resolveDevtoolsConfig()` in `packages/app/src/main/handlers/devtools.ts` is now deterministic-aware: when `DOWNDRAFT_DETERMINISTIC=1`, autoOpen defaults to `false` and keybind defaults to `""` (disabled). Games no longer need to plumb `devtools: { autoOpen: !deterministic, keybind: deterministic ? "" : "F12" }` — just use `devtools: true`.
+
+### Panel order convention
+
+- `0–19`: core devtools tabs (Scene, Import, Perf, GC, Material, Render Graph)
+- `20–50`: renderer-plugin tabs (Physics, Water, Audio, Particles)
+- `50–80`: sim-plugin/worker tabs (Wildlife, Buoyancy, Collision, Sim Stats)
+- `100+`: game-declared tabs (Debug Info, Boat Layout, World)
 
 ## Unified Material System
 

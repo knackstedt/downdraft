@@ -48,7 +48,7 @@ export async function syncWorkerManifests(
 }
 
 async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
-  const { prefix, proxy, sab } = entry;
+  const { prefix, proxy } = entry;
 
   let manifest: DevToolsManifest;
   try {
@@ -56,6 +56,16 @@ async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {
   } catch (e) {
     console.warn(`[devtools] Failed to fetch manifest from worker "${prefix}":`, e);
     return;
+  }
+
+  // Fetch the devtools SAB from the worker (allocated and attached there)
+  let sab: SharedArrayBuffer | null = entry.sab ?? null;
+  if (!sab) {
+    try {
+      sab = await proxy.__devtoolsGetSAB();
+    } catch {
+      // Worker may not have a devtools SAB (older workers)
+    }
   }
 
   // Register panels (namespaced by prefix to avoid collisions)
