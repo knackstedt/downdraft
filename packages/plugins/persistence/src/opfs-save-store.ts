@@ -402,7 +402,6 @@ export class OpfsSaveStore implements ISaveStore {
       await this.writeMeta(slotDir, newMeta);
 
       const totalBytes = compressed.length + hashBytes.length + (opts?.blobs ? Object.values(opts.blobs).reduce((s, b) => s + b.byteLength, 0) : 0);
-      log.info("OpfsSaveStore", `Saved slot '${slot}' gen ${currentGen} (${totalBytes} bytes)`);
       return { success: true, bytes: totalBytes, gen: currentGen };
     } catch (err) {
       log.error("OpfsSaveStore", `Save failed for slot '${slot}': ${err}`);

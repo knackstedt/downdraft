@@ -306,6 +306,17 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       worker: {
         format: "es",
       },
+      // Exclude @bokuweb/zstd-wasm from dep pre-bundling. The package loads
+      // its WASM via `new URL("./zstd.wasm", import.meta.url)`, which esbuild's
+      // pre-bundler doesn't handle — the .wasm file isn't copied alongside the
+      // pre-bundled output, so import.meta.url points to a non-existent path
+      // and the dev server returns the HTML SPA fallback (causing
+      // "expected magic word 00 61 73 6d, found 3c 21 44 4f" WASM errors).
+      // Excluding it lets Vite serve the original module with the correct
+      // import.meta.url pointing into node_modules.
+      optimizeDeps: {
+        exclude: ["@bokuweb/zstd-wasm"],
+      },
       build: {
         outDir: "dist/renderer",
         sourcemap: "hidden",

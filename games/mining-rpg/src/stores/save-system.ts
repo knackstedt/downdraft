@@ -1,15 +1,20 @@
 // ============================================================================
 // Mining RPG save system — thin adapter over @downdraft/library-persistence
-// IndexedDBSaveStore. The engine handles IndexedDB storage, compression,
-// hashing, and generation history; this module only maps the game's save
-// shape (player + inventory + dirty chunks) to SaveState components + blobs.
+// OpfsSaveStore. The engine handles OPFS storage, compression, hashing, and
+// generation history; this module only maps the game's save shape (player +
+// inventory + dirty chunks) to SaveState components + blobs.
 //
 // Only **dirty** chunks are persisted (unmodified chunks regenerate from
 // seed). Autosave runs every 3 seconds (skipped in deterministic mode).
+//
+// OPFS is used (not IndexedDB) because chunk voxel data is large binary blobs;
+// OPFS lets us write them directly to disk without the structured-clone
+// serialization cost that IndexedDB imposes on ArrayBuffer values, which
+// matters for games with much larger worlds.
 // ============================================================================
 
 import type { SaveState } from "@downdraft/core";
-import { IndexedDBSaveStore } from "@downdraft/library-persistence/browser";
+import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
 import { WORLD_SEED } from "../shared/constants";
 import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
 import type { SavedChunk } from "../simulation/chunk-world";
@@ -33,12 +38,12 @@ export interface SaveData {
   savedAt: number;
 }
 
-let storePromise: Promise<IndexedDBSaveStore> | null = null;
+let storePromise: Promise<OpfsSaveStore> | null = null;
 
-function getStore(): Promise<IndexedDBSaveStore> {
+function getStore(): Promise<OpfsSaveStore> {
   if (!storePromise) {
     storePromise = (async () => {
-      const store = new IndexedDBSaveStore({ engineVersion: ENGINE_VERSION });
+      const store = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
       await store.init();
       return store;
     })();
@@ -103,7 +108,7 @@ function buildState(data: SaveData): SaveState {
   };
 }
 
-/** Save the world state via the engine IndexedDBSaveStore. */
+/** Save the world state via the engine OpfsSaveStore. */
 export async function saveWorld(data: SaveData): Promise<void> {
   const store = await getStore();
   await store.save(SAVE_SLOT, buildState(data), { blobs: chunksToBlobs(data.chunks) });

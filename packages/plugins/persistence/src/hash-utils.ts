@@ -10,21 +10,17 @@
 // default hash implementation. The `hash128` injection option remains for
 // testing or custom hash providers.
 //
+// NOTE: xxh3-ts ships CJS .js files (with require()). A static import lets
+// Vite pre-bundle the CJS→ESM conversion. A dynamic import with a variable
+// name (the previous approach) broke Vite's pre-bundling — the browser got
+// raw CJS with require() calls that fail at runtime, which blocked
+// `loadWorld()` during renderer init and left the canvas black.
+// See ./xxh3-ts.d.ts for the type override that avoids a TS 5.9+
+// BigUint64Array incompatibility in the package's .ts source.
+//
 
 import { Buffer } from "buffer";
-
-// xxh3-ts ships .ts source files that have a BigUint64Array generic
-// incompatibility with TypeScript 5.9+. We use a non-static import path
-// so TypeScript doesn't follow into the library source for type-checking.
-const _moduleName = "xxh3-ts";
-type Xxh3Module = { XXH3_128: (data: Uint8Array, seed?: bigint) => bigint };
-
-let _cached: Xxh3Module | null = null;
-async function getXxh3(): Promise<Xxh3Module> {
-  if (_cached) return _cached;
-  _cached = (await import(_moduleName)) as unknown as Xxh3Module;
-  return _cached;
-}
+import { XXH3_128 } from "xxh3-ts";
 
 /**
  * Compute a true XXH3-128 hash of the input data.
@@ -33,8 +29,7 @@ async function getXxh3(): Promise<Xxh3Module> {
 export async function xxh3_128(data: Uint8Array): Promise<Uint8Array> {
   // Buffer.from(uint8array) works in both Node.js (native Buffer) and browser (polyfill).
   const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-  const mod = await getXxh3();
-  const hash = mod.XXH3_128(buf);
+  const hash = XXH3_128(buf);
   const result = new Uint8Array(16);
   const view = new DataView(result.buffer);
   // Low 64 bits at offset 0, high 64 bits at offset 8 (little-endian).
