@@ -106,6 +106,19 @@ export interface DowndraftLifecycle {
 
 export interface DowndraftAppConfig {
   window: DowndraftWindowConfig;
+  /**
+   * Per-game application identifier. Used as the userData subdirectory name
+   * (e.g. `"downdraft-mining-rpg"` → `~/.config/downdraft-mining-rpg/`).
+   *
+   * Each game MUST set a unique `appId` so that Chromium storage (OPFS,
+   * IndexedDB, Service Worker DB, cookies, cache) is isolated per game.
+   * Without this, all games share the same `--user-data-dir` and concurrent
+   * instances corrupt each other's LevelDB locks.
+   *
+   * Also enables a single-instance lock (per `appId`) and stale-lock cleanup
+   * on startup, so a crashed/killed previous run won't poison the next launch.
+   */
+  appId?: string;
   /** Switch preset (e.g. `webGpuSwitches()`) or custom array. Applied before `app.whenReady`. */
   switches?: Switch[];
   features?: DowndraftFeatures;

@@ -3,6 +3,7 @@ import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
 const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
 
 createDowndraftApp({
+  appId: "downdraft-falling-sand",
   window: {
     title: "Falling Sand",
     width: 1280,

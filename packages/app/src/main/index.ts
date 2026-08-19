@@ -10,6 +10,7 @@ export { registerGpuInfoHandlers } from "./handlers/gpu-info";
 export { startMcpProxy } from "./handlers/mcp";
 export { registerOsrHandlers } from "./handlers/osr";
 export { registerSaveHandlers } from "./handlers/saves";
+export { cleanupStaleStorage, resolveUserDataDir } from "./storage";
 export { applySwitches, webGpuSwitches } from "./switches";
 export type { Switch } from "./switches";
 export type {

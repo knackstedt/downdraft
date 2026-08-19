@@ -3,6 +3,7 @@ import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
 const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
 
 createDowndraftApp({
+  appId: "downdraft-alchemy",
   window: {
     title: "Alchemist's Lab",
     width: 1280,

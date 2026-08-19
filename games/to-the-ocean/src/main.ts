@@ -11,6 +11,7 @@ import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
 const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
 
 createDowndraftApp({
+  appId: "downdraft-to-the-ocean",
   window: {
     title: "To The Ocean",
     width: 1920,

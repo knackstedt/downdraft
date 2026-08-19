@@ -13,6 +13,7 @@ import { closeImportCache, registerImportCacheHandlers } from "./handlers/import
 import { startMcpProxy } from "./handlers/mcp";
 import { registerOsrHandlers } from "./handlers/osr";
 import { registerSaveHandlers } from "./handlers/saves";
+import { cleanupStaleStorage, resolveUserDataDir } from "./storage";
 import { applySwitches } from "./switches";
 import type { DowndraftAppConfig, MainContext } from "./types";
 import { createWindow } from "./window";
@@ -35,6 +36,15 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
   const features = config.features ?? {};
   const devtools = resolveDevtoolsConfig(features.devtools);
 
+  // --- Per-game userData directory ---
+  // Must be set before anything touches app.getPath("userData") and before
+  // app.whenReady(). Each game gets its own isolated Chromium storage (OPFS,
+  // IndexedDB, Service Worker DB, cookies, cache) so concurrent game instances
+  // don't corrupt each other's LevelDB locks.
+  if (config.appId) {
+    app.setPath("userData", resolveUserDataDir(app, config.appId));
+  }
+
   // --- Apply chrome switches before app.whenReady ---
   if (config.switches) {
     applySwitches(app, config.switches);
@@ -53,6 +63,26 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
 
   let mainWindow: BrowserWindow | null = null;
   let osrManager: ReturnType<typeof registerOsrHandlers> | null = null;
+
+  // --- Single-instance lock + stale storage cleanup ---
+  // Prevents two instances of the same game from corrupting each other's
+  // storage. After acquiring the lock, clean up stale LOCK files and Chromium
+  // temp artifacts from a previous run that didn't shut down cleanly.
+  if (config.appId) {
+    const gotLock = app.requestSingleInstanceLock();
+    if (!gotLock) {
+      log.info("main", `Another instance of "${config.appId}" is already running — quitting.`);
+      app.quit();
+      return;
+    }
+    app.on("second-instance", () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+    cleanupStaleStorage(app.getPath("userData"));
+  }
 
   const ctx: MainContext = {
     app,
