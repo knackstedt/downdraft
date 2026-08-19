@@ -22,7 +22,7 @@ createDowndraftApp({
     saves: { engineVersion: "0.1.0" },
     osr: false,
     mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
-    devtools: { enabled: true, autoOpen: !deterministic, keybind: deterministic ? "" : "F12" },
+    devtools: true,
     gpuInfo: true,
     consoleForwarding: true,
     errorDialog: !deterministic,

@@ -3,7 +3,7 @@ import { getComponentId } from "../ecs/component";
 import type { Stage, System, SystemFn } from "../ecs/system";
 import type { World } from "../ecs/world";
 import { createLogger } from "../util/logger";
-import type { Plugin, PluginContext, SABChannel } from "./plugin";
+import type { Plugin, PluginContext, PluginDevToolsAPI, SABChannel } from "./plugin";
 import { PluginRegistry } from "./registry";
 import { TSPluginLoader } from "./ts-loader";
 
@@ -22,11 +22,27 @@ export class PluginHost implements PluginContext {
   private active: Map<string, ActivePlugin> = new Map();
   private pending: Map<string, Plugin> = new Map();
   private migrations: Map<number, (data: unknown) => unknown> = new Map();
+  private _devtools: PluginDevToolsAPI | null = null;
 
   constructor(world: World, registry?: PluginRegistry) {
     this.world = world;
     this.registry = registry ?? new PluginRegistry();
     this.tsLoader = new TSPluginLoader(this.registry);
+  }
+
+  /**
+   * Inject the DevTools API. Called by the game bootstrap after
+   * `initDevTools()` so plugins can self-register debug panels via
+   * `ctx.devtools.registerPanel(...)` during their `register()` lifecycle.
+   */
+  setDevToolsAPI(api: PluginDevToolsAPI): void {
+    this._devtools = api;
+  }
+
+  get devtools(): PluginDevToolsAPI {
+    // Return the injected API, or a no-op stub if not set (so plugins that
+    // call ctx.devtools.registerPanel() don't crash if devtools isn't wired).
+    return this._devtools ?? NoopDevToolsAPI;
   }
 
   getRegistry(): PluginRegistry {
@@ -171,3 +187,13 @@ export class PluginHost implements PluginContext {
     this.currentPluginName = name;
   }
 }
+
+// No-op DevTools API stub — used when setDevToolsAPI() hasn't been called.
+// Plugins that call ctx.devtools.registerPanel() will silently no-op.
+const NoopDevToolsAPI: PluginDevToolsAPI = {
+  registerPanel: () => {},
+  registerOverlayToggle: () => {},
+  registerDataFeed: () => {},
+  registerCommand: () => {},
+  registerSABStat: () => {},
+};

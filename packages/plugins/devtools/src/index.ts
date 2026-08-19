@@ -33,3 +33,29 @@ export type {
     GameDevToolsTab, IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayData, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsOverlayToggle, IDevToolsPanelExtension, IDevToolsRenderer, IGameDevToolsExtension, IGameDevToolsProvider, ILabelEntry, ILabelProvider, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider, ISimStats, ISimStatsProvider
 } from "./types";
 
+// Unified DevTools API — single registration surface for plugins, games, and
+// engine systems. Auto-detects realm (main vs worker) and chooses transport.
+export { allocateDevToolsSAB, computeDevToolsSABLayout, devtools, DEVTOOLS_REALM, DEVTOOLS_SAB_MAX_FEEDS } from "./api";
+export type { DevToolsAPI, DevToolsManifest, DevToolsSABLayout, DevToolsSABStat } from "./api";
+
+// Worker-side helpers for exposing devtools RPC methods
+export { attachDevToolsSAB, exposeDevToolsApi } from "./worker-expose";
+
+// Renderer-side worker manifest sync
+export { syncWorkerManifests } from "./worker-sync";
+export type { DevToolsWorkerProxy, WorkerSyncEntry } from "./worker-sync";
+
+// Renderer adapter — auto-discovers renderer capabilities
+export { createDevToolsRendererAdapter } from "./renderer-adapter";
+
+// Sim stats provider factory — eliminates duplicated polling/control boilerplate
+export { createSimStatsProvider } from "./sim-stats-provider";
+
+// initDevTools helper — one-line wiring per game
+export { initDevTools } from "./init";
+export type { InitDevToolsOptions } from "./init";
+
+// Material stats panel — reusable DevTools tab for the material system
+export { createMaterialStatsPanelExtension } from "./material-stats-panel";
+export type { MaterialStatsPanelOptions } from "./material-stats-panel";
+

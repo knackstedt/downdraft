@@ -31,6 +31,12 @@ const DISABLED: ResolvedDevtoolsConfig = { enabled: false, autoOpen: false, keyb
 /**
  * Normalize the `features.devtools` value (boolean | object | undefined) into a
  * fully-resolved config. Defaults: enabled `true`, autoOpen `true`, keybind `"F12"`.
+ *
+ * In deterministic/test mode (DOWNDRAFT_DETERMINISTIC=1), autoOpen defaults to
+ * `false` and keybind defaults to `""` (disabled) — the DevTools panel steals
+ * focus from the canvas and interferes with headless testing. Games no longer
+ * need to plumb `devtools: { autoOpen: !deterministic, keybind: deterministic ? "" : "F12" }`
+ * themselves; this is the engine default.
  */
 export function resolveDevtoolsConfig(
   feature: DevtoolsConfig | boolean | undefined,
@@ -38,10 +44,11 @@ export function resolveDevtoolsConfig(
   if (feature === false) return DISABLED;
   const cfg: DevtoolsConfig = feature === true || feature === undefined ? {} : feature;
   if (cfg.enabled === false) return DISABLED;
+  const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
   return {
     enabled: true,
-    autoOpen: cfg.autoOpen ?? true,
-    keybind: cfg.keybind ?? "F12",
+    autoOpen: cfg.autoOpen ?? !deterministic,
+    keybind: cfg.keybind ?? (deterministic ? "" : "F12"),
     debugPort: cfg.debugPort ?? null,
   };
 }

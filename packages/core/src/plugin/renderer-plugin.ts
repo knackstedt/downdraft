@@ -168,6 +168,14 @@ export interface RendererPluginContext {
   setRenderTargetProvider(provider: RenderTargetProvider | null): void;
   setRAFSource(src: RAFSource | null, cancel: CancelRAF | null): void;
 
+  // ── DevTools ──
+  /**
+   * DevTools registration surface. Renderer plugins self-register debug
+   * panels, data feeds, and commands via `ctx.devtools.register*(...)`.
+   * Same interface as the sim-thread PluginContext.devtools.
+   */
+  readonly devtools: import("../plugin/plugin").PluginDevToolsAPI;
+
   // ── Lifecycle ──
   onDispose(fn: () => void): void;
 }
