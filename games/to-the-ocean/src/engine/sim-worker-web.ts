@@ -4,16 +4,15 @@
 // Uses the RPC layer (expose/exposeEvents) for typed async communication.
 // ============================================================================
 
-import { GCController, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats, type LoadOptions, type SaveOptions } from "@downdraft/core";
+import { GCController, InputBufferReader, PLR_FLAG, SimBufferWriter, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
-import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
-import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
-import { InputBufferReader } from "@downdraft/core";
-import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
-import { SimToMainMessage } from "@shared/types";
+import { allocateDevToolsSAB, attachDevToolsSAB, devtools, exposeDevToolsApi } from "@downdraft/plugin-devtools";
 import { WaterBufferWriter } from "@downdraft/plugin-water";
+import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
+import { SimToMainMessage } from "@shared/types";
 import { Simulation } from "@sim/simulation";
+import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
 
 (globalThis as any).__ddThreadTag = "R1";
 
@@ -33,7 +32,13 @@ const events = exposeEvents();
 
 const onEvent = (msg: SimToMainMessage) => { events.emit(msg.kind, msg.data); };
 
-expose({
+// Allocate and attach the devtools SAB for worker→renderer data feeds.
+// Sim plugins write data feeds here via devtools.registerDataFeed(); the
+// renderer reads them synchronously from the shared SAB.
+const devtoolsSAB = allocateDevToolsSAB();
+attachDevToolsSAB(devtoolsSAB);
+
+expose(exposeDevToolsApi({
   async init(
     simBuffer: SharedArrayBuffer,
     inputBuffer: SharedArrayBuffer,
@@ -265,7 +270,7 @@ expose({
     // Transition complete — trigger major GC to clean up restore allocations
     gcController?.collectMajor();
   },
-});
+}));
 
 // --- Event forwarding ---
 
@@ -302,6 +307,9 @@ simLoop = new SimWorkerLoop({
   },
   onAfterTicks: (_ticksThisIteration: number) => {
     drainAndForwardEvents();
+    // Flush devtools data feeds to SAB so the renderer can read them
+    // synchronously (zero-copy, no IPC polling).
+    devtools.flushDataFeeds();
   },
   onError: (err: Error) => {
     const errMsg = `Sim tick crashed at tick ${simLoop?.getTickCount()}: ${err.message}\n${err.stack}`;
