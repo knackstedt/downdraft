@@ -1,12 +1,16 @@
 // ============================================================================
 // Falling-sand save system — thin adapter over @downdraft/library-persistence
-// IndexedDBSaveStore. The engine handles IndexedDB storage, compression,
-// hashing, and generation history; this module only maps the game's save
-// shape (multi-layer grids + fields) to SaveState components + binary blobs.
+// OpfsSaveStore. The engine handles OPFS storage, compression, hashing, and
+// generation history; this module only maps the game's save shape (multi-layer
+// grids + fields) to SaveState components + binary blobs.
+//
+// OPFS is used (not IndexedDB) because the grid/field arrays are large binary
+// blobs; OPFS writes them directly to disk without the structured-clone
+// serialization cost that IndexedDB imposes on ArrayBuffer values.
 // ============================================================================
 
 import type { SaveState } from "@downdraft/core";
-import { IndexedDBSaveStore } from "@downdraft/library-persistence/browser";
+import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
 
 export interface SaveEntry {
   id: string;
@@ -32,12 +36,12 @@ export interface SaveMetadata {
 const AUTOSAVE_SLOT = "autosave";
 const ENGINE_VERSION = "0.1.0";
 
-let storePromise: Promise<IndexedDBSaveStore> | null = null;
+let storePromise: Promise<OpfsSaveStore> | null = null;
 
-function getStore(): Promise<IndexedDBSaveStore> {
+function getStore(): Promise<OpfsSaveStore> {
   if (!storePromise) {
     storePromise = (async () => {
-      const store = new IndexedDBSaveStore({ engineVersion: ENGINE_VERSION });
+      const store = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
       await store.init();
       return store;
     })();

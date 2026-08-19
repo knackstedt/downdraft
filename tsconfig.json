@@ -9,6 +9,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "paths": {
+      "xxh3-ts": [
+        "./packages/plugins/persistence/src/xxh3-ts.d.ts"
+      ],
       "@shared/*": [
         "./games/to-the-ocean/src/shared/*",
         "./packages/app/src/shared/*"
