@@ -177,6 +177,7 @@ async function loop(): Promise<void> {
         tickAccumulator += (elapsed / TICK_MS) * speedMultiplier;
         let steps = 0;
         const maxSteps = stepOnce ? 1 : MAX_STEPS_PER_FRAME;
+        let anyCollected: InventoryEntry[] = [];
         while (tickAccumulator >= 1 && steps < maxSteps) {
           // Read input from SAB
           const ib = inputBuf!;
@@ -198,6 +199,9 @@ async function loop(): Promise<void> {
 
           const collected = world.step(input, currentInventory);
           tickCount++;
+          if (collected.length > 0) {
+            for (const c of collected) anyCollected.push(c);
+          }
 
           // Emit buildMaterials to the renderer when counts change (placement
           // consumed one, or a purchase added some). Throttled by value compare
@@ -211,7 +215,18 @@ async function loop(): Promise<void> {
             events.emit("buildMaterials", { ...bm });
           }
 
-          // Write active grid + fields + background grid + explored grid to SAB
+          steps++;
+          tickAccumulator -= 1;
+        }
+        stepOnce = false;
+
+        // --- SAB writes: once per frame (after all steps), not per step ---
+        // Writing ~5MB of grid/fields/bg/explored data per step is a hidden
+        // cost that scales with the catch-up step count. With 5 steps/frame,
+        // per-step writes copy 25MB/frame vs 5MB/frame with once-per-frame.
+        // The renderer reads the SAB at its own cadence; it only needs the
+        // latest state, not intermediate steps.
+        if (steps > 0) {
           writer.writeGrid(world.activeGrid.grid);
           writer.writeFields(world.activeGrid.fields);
           writer.writeBackgroundGrid(world.backgroundGrid);
@@ -238,16 +253,11 @@ async function loop(): Promise<void> {
           writer.writeStat(STATS.ORIGIN_X, world.getActiveOriginX());
           writer.writeStat(STATS.ORIGIN_Y, world.getActiveOriginY());
 
-          // Store collected items for the renderer to read (via a separate channel)
-          // For now, we'll emit an event with the collected items
-          if (collected.length > 0) {
-            events.emit("collected", collected);
+          // Emit collected items (batched across all steps this frame)
+          if (anyCollected.length > 0) {
+            events.emit("collected", anyCollected);
           }
-
-          steps++;
-          tickAccumulator -= 1;
         }
-        stepOnce = false;
       }
     }
 

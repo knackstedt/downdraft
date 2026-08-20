@@ -1,6 +1,6 @@
 import { DEFAULT_GRAVITY, FIELD, Material, packCell } from "@downdraft/library-sand";
 import { expect, test } from "bun:test";
-import { ACTIVE_GRID_W, CHUNK_H, CHUNK_W, DeathCause } from "../shared/constants";
+import { ACTIVE_GRID_W, CHUNK_H, CHUNK_W, DeathCause, INTEGRITY_CHECK_INTERVAL } from "../shared/constants";
 import { ChunkWorld } from "./chunk-world";
 
 // Helper: get material at world coords from the active grid
@@ -19,6 +19,26 @@ function setMatAtWorld(world: ChunkWorld, wx: number, wy: number, mat: number): 
   // set during terrain generation, and without resetting it, test-placed
   // stone/dirt above those cells won't fall.
   world.activeGrid.fields[idx * 4 + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+}
+
+// Helper: set a STATIC solid cell at world coords with gravity=0, mimicking
+// generated terrain (stone/ores have gravity=0 until dislodged by mining).
+// Used by structural-integrity tests so placed stone doesn't fall on the next
+// sim step before the integrity check runs.
+function setStaticCellAtWorld(world: ChunkWorld, wx: number, wy: number, mat: number): void {
+  const { x: ax, y: ay } = world.worldToActive(wx, wy);
+  const idx = ay * ACTIVE_GRID_W + ax;
+  world.activeGrid.grid[idx] = packCell(mat, 0, 0);
+  world.activeGrid.fields[idx * 4 + FIELD.GRAVITY] = 0; // static — no gravity
+}
+
+// Helper: clear a rectangular region to Empty at world coords (inclusive).
+function clearRegion(world: ChunkWorld, wx0: number, wy0: number, wx1: number, wy1: number): void {
+  for (let y = wy0; y <= wy1; y++) {
+    for (let x = wx0; x <= wx1; x++) {
+      setMatAtWorld(world, x, y, Material.Empty);
+    }
+  }
 }
 
 // Helper: run N steps with no input
@@ -756,7 +776,12 @@ test("chunk data is not corrupted during rebuild (origin sync bug)", () => {
 
   const markerX = Math.floor(w.player.x) + 5;
   const markerY = Math.floor(w.player.y) - 5;
-  setMatAtWorld(w, markerX, markerY, Material.Stone);
+  // Use Wall (not Stone) as the marker: Wall is solid and never falls, but —
+  // unlike Stone — it is immune to the structural-integrity check. A Stone
+  // marker placed in the sky (player.y - 5) is an isolated floating block and
+  // is correctly demolished by the integrity check, which would conflate with
+  // the rebuild-sync behavior this test actually verifies.
+  setMatAtWorld(w, markerX, markerY, Material.Wall);
 
   runIdle(w, 1);
 
@@ -765,7 +790,7 @@ test("chunk data is not corrupted during rebuild (origin sync bug)", () => {
   const localMx = markerX - cx * CHUNK_W;
   const localMy = markerY - cy * CHUNK_H;
   const markerIdx = localMy * CHUNK_W + localMx;
-  expect(chunkBefore.grid[markerIdx] & 0xff).toBe(Material.Stone);
+  expect(chunkBefore.grid[markerIdx] & 0xff).toBe(Material.Wall);
 
   w.player.x += CHUNK_W;
   runIdle(w, 1);
@@ -774,7 +799,7 @@ test("chunk data is not corrupted during rebuild (origin sync bug)", () => {
   runIdle(w, 1);
 
   const chunkAfter = w.getChunkAt(markerX, markerY);
-  expect(chunkAfter.grid[markerIdx] & 0xff).toBe(Material.Stone);
+  expect(chunkAfter.grid[markerIdx] & 0xff).toBe(Material.Wall);
 });
 
 test("getActiveChunkCount returns positive after step", () => {
@@ -933,4 +958,161 @@ test("loose stone debris that falls multiple cells is still collectible", () => 
 
   expect(debrisCollected).toBeDefined();
   expect(debrisCollected!.count).toBeGreaterThan(0);
+});
+
+// ============================================================================
+// Structural integrity — auto-demolish cells disconnected from the main world.
+//
+// Static Stone has gravity=0, so a block fully surrounded by empty space (a
+// "floating island") hangs forever. The integrity check is a 4-connected
+// flood-fill from the active-grid border; unreached solid cells are demolished
+// (converted to loose falling debris, same as explode()). Walls are immune.
+// ============================================================================
+
+// Helper: find the first solid Stone cell below the player (in generated
+// terrain) so tests have a known connected stone cell to assert against.
+function firstStoneBelowPlayer(world: ChunkWorld): { x: number; y: number } {
+  const px = Math.floor(world.player.x);
+  const py = Math.floor(world.player.y);
+  for (let y = py + 2; y < py + 200; y++) {
+    if (matAtWorld(world, px, y) === Material.Stone) return { x: px, y };
+  }
+  throw new Error("no stone found below player");
+}
+
+test("structural integrity: a floating island of stone is demolished", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 5); // settle player + fire initial integrity check
+
+  // Pick a spot near the player and clear a cavity, then place an isolated
+  // static stone block in the center.
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  const bx = px + 15;
+  const by = py + 15;
+  // Clear a 7×7 cavity (the surrounding terrain stays — connected to border).
+  clearRegion(w, bx - 3, by - 3, bx + 3, by + 3);
+  // Place a static stone block isolated in the middle of the cavity.
+  setStaticCellAtWorld(w, bx, by, Material.Stone);
+  expect(matAtWorld(w, bx, by)).toBe(Material.Stone);
+
+  // Force the integrity check. The block is surrounded by empty space →
+  // unreachable from the border → demolished to Gravel/LooseStone.
+  w.forceIntegrityCheckForTest();
+
+  const m = matAtWorld(w, bx, by);
+  expect(m === Material.Gravel || m === Material.LooseStone).toBe(true);
+});
+
+test("structural integrity: stone connected to the main world is not demolished", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 5);
+
+  // A stone cell in the generated terrain (connected to the bottom border via
+  // the surrounding stone mass) must survive the integrity check.
+  const stone = firstStoneBelowPlayer(w);
+  expect(matAtWorld(w, stone.x, stone.y)).toBe(Material.Stone);
+
+  w.forceIntegrityCheckForTest();
+
+  expect(matAtWorld(w, stone.x, stone.y)).toBe(Material.Stone);
+});
+
+test("structural integrity: Walls are immune (never demolished)", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 5);
+
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  const bx = px + 15;
+  const by = py + 15;
+  // Clear a cavity and place an isolated Wall block.
+  clearRegion(w, bx - 3, by - 3, bx + 3, by + 3);
+  setStaticCellAtWorld(w, bx, by, Material.Wall);
+  expect(matAtWorld(w, bx, by)).toBe(Material.Wall);
+
+  w.forceIntegrityCheckForTest();
+
+  // Wall is solid (participates in the connectivity graph) but the demolish
+  // loop skips it — it stays even though it's disconnected.
+  expect(matAtWorld(w, bx, by)).toBe(Material.Wall);
+});
+
+test("structural integrity: check is gated by cadence between edits", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 30); // settle player; initial check fires (needsIntegrityCheck)
+
+  // Reset the cadence timer so the next check is gated by INTEGRITY_CHECK_INTERVAL
+  // from NOW (not from tick 1, when the initial check ran). Without this, the
+  // cadence would elapse mid-way through the idle-step loop below.
+  w.forceIntegrityCheckForTest();
+
+  // Place an isolated static stone block DEEP in the stone body. Near the
+  // surface the dirt/grass layer has gravity (gravityDir=1) and would fall
+  // into a cleared cavity during idle steps, reconnecting the block. Deep
+  // stone (gravityDir=0) never falls, so the cavity persists.
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  const bx = px + 15;
+  const by = py + 200; // deep stone body — below the dirt layer
+  clearRegion(w, bx - 3, by - 3, bx + 3, by + 3);
+  setStaticCellAtWorld(w, bx, by, Material.Stone);
+  expect(matAtWorld(w, bx, by)).toBe(Material.Stone);
+
+  // Set the dirty flag by exploding far from the block. explode() always
+  // sets terrainDirtyForIntegrity=true, so the cadence gate is the only thing
+  // holding the check back. The blast is far enough that its debris won't
+  // reach the isolated block's cavity.
+  w.explode(px - 60, py + 60, 3);
+
+  // Step for fewer than INTEGRITY_CHECK_INTERVAL ticks. The check must NOT
+  // run (cadence not elapsed, no rebuild) → the isolated block survives.
+  for (let i = 0; i < INTEGRITY_CHECK_INTERVAL - 1; i++) {
+    runIdle(w, 1);
+    if (matAtWorld(w, bx, by) !== Material.Stone) break;
+  }
+  expect(matAtWorld(w, bx, by)).toBe(Material.Stone);
+
+  // Step past the cadence. Now the check runs and demolishes the block.
+  for (let i = 0; i < 5; i++) {
+    runIdle(w, 1);
+    if (matAtWorld(w, bx, by) !== Material.Stone) break;
+  }
+  const m = matAtWorld(w, bx, by);
+  expect(m === Material.Gravel || m === Material.LooseStone).toBe(true);
+});
+
+test("structural integrity: demolish cap limits cells demolished per check", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 5);
+
+  // Lower the cap so we can exceed it with a small grid of isolated blocks.
+  w.integrityMaxDemolish = 3;
+
+  const px = Math.floor(w.player.x);
+  const py = Math.floor(w.player.y);
+  // Place 10 isolated static stone blocks, each in its own 3×3 cavity spaced
+  // 5 cells apart so none touch each other or the surrounding terrain.
+  const blocks: Array<[number, number]> = [];
+  for (let i = 0; i < 10; i++) {
+    const bx = px + 10 + i * 6;
+    const by = py + 10;
+    clearRegion(w, bx - 1, by - 1, bx + 1, by + 1);
+    setStaticCellAtWorld(w, bx, by, Material.Stone);
+    blocks.push([bx, by]);
+  }
+
+  w.forceIntegrityCheckForTest();
+
+  // Exactly `integrityMaxDemolish` blocks should be demolished; the rest stay
+  // Stone (deferred to the next check).
+  let demolished = 0;
+  let remaining = 0;
+  for (const [bx, by] of blocks) {
+    const m = matAtWorld(w, bx, by);
+    if (m === Material.Gravel || m === Material.LooseStone) demolished++;
+    else if (m === Material.Stone) remaining++;
+  }
+  expect(demolished).toBe(3);
+  expect(remaining).toBe(7);
 });

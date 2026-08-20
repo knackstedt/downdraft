@@ -46,6 +46,8 @@ import {
     DIRT_HARDNESS,
     FREEZE_TICKS,
     GRAVEL_HARDNESS,
+    INTEGRITY_CHECK_INTERVAL,
+    INTEGRITY_MAX_DEMOLISH_PER_CHECK,
     INVENTORY_SIZE_UPGRADE_INCREMENT,
     isCollectible,
     LIGHT_GRID_STRIDE,
@@ -63,6 +65,7 @@ import {
     RATE_UPGRADE_REDUCTION,
     REVEAL_RADIUS,
     STONE_HARDNESS,
+    TORCH_DOUSE_INTERVAL,
     TORCH_LIGHT_COLOR,
     TORCH_LIGHT_INTENSITY,
     TORCH_LIGHT_RADIUS,
@@ -164,6 +167,34 @@ export class ChunkWorld {
   // light accumulation pass.
   lightList: Float32Array;
   lightCount = 0;
+  // --- Torch index ---
+  // Set of active-grid cell indices (y * ACTIVE_GRID_W + x) where the
+  // background grid contains a Torch. Maintained incrementally: rebuilt
+  // during rebuildActiveGrid(), updated on place/douse/mine/explode. Used by
+  // douseTorches() and scanEmittingLights() to avoid full-grid scans of the
+  // 410k-cell background grid every tick (the primary cause of the physics
+  // loop performance regression).
+  private torchCells: Set<number> = new Set();
+  // --- Structural integrity (auto-demolish disconnected cells) ---
+  // Pre-allocated BFS scratch buffers (reused across checks — no per-check
+  // allocation). visited is 1 byte/cell (0 = unvisited, 1 = reachable from
+  // the active-grid border). queue holds cell indices for the BFS frontier.
+  private integrityVisited: Uint8Array;
+  private integrityQueue: Int32Array;
+  // Last tick a structural-integrity check ran. The next check is gated by
+  // INTEGRITY_CHECK_INTERVAL AND terrainDirtyForIntegrity/needsIntegrityCheck.
+  private lastIntegrityTick = 0;
+  // Set when mining/explosions modify terrain — the next cadence tick re-runs
+  // the check. Without this, the check would run every interval even when the
+  // world is static (wasted work).
+  private terrainDirtyForIntegrity = false;
+  // Set after an active-grid rebuild — the border changed, so the connectivity
+  // graph must be re-evaluated on the next cadence tick regardless of whether
+  // terrain was modified.
+  private needsIntegrityCheck = false;
+  // Max cells demolished per check (safety cap). Defaults to the constant but
+  // exposed so tests can lower it. See INTEGRITY_MAX_DEMOLISH_PER_CHECK.
+  integrityMaxDemolish = INTEGRITY_MAX_DEMOLISH_PER_CHECK;
   // World config
   readonly seed: number;
 
@@ -175,6 +206,8 @@ export class ChunkWorld {
     this.backgroundGrid = new Uint32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.exploredGrid = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.lightList = new Float32Array(MAX_WORLD_LIGHTS * LIGHT_STRUCT_FLOATS);
+    this.integrityVisited = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
+    this.integrityQueue = new Int32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.activeGrid.skipMask = this.skipMask;
     // Preserve FLAG_DETACHED (bit 4 of the flags byte) across the physics
     // engine's per-frame FLAG_UPDATED clear. Without this, the detached bit
@@ -310,6 +343,7 @@ export class ChunkWorld {
     explored.fill(0);
     fields.fill(DEFAULT_TEMP);
     this.cellDamage.fill(0);
+    this.torchCells.clear();
     for (let i = 0; i < ACTIVE_GRID_W * ACTIVE_GRID_H * 4; i += 4) {
       fields[i + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       fields[i + FIELD.TEMP] = DEFAULT_TEMP;
@@ -335,14 +369,23 @@ export class ChunkWorld {
             dstRow,
           );
         }
-        // Copy background grid
+        // Copy background grid + build torch index
+        const chunkBg = chunk.bgGrid;
         for (let y = 0; y < CHUNK_H; y++) {
           const srcRow = y * CHUNK_W;
           const dstRow = (offsetY + y) * ACTIVE_GRID_W + offsetX;
           bgGrid.set(
-            chunk.bgGrid.subarray(srcRow, srcRow + CHUNK_W),
+            chunkBg.subarray(srcRow, srcRow + CHUNK_W),
             dstRow,
           );
+          // Scan the chunk's bg row for torches and add to the index.
+          // This replaces the per-tick full-grid torch scan in douseTorches()
+          // and scanEmittingLights() with an O(torch_count) index lookup.
+          for (let x = 0; x < CHUNK_W; x++) {
+            if ((chunkBg[srcRow + x] & 0xff) === Material.Torch) {
+              this.torchCells.add(dstRow + x);
+            }
+          }
         }
         // Copy explored grid
         for (let y = 0; y < CHUNK_H; y++) {
@@ -366,6 +409,9 @@ export class ChunkWorld {
     }
 
     this.needsRebuild = false;
+    // The active-grid border changed → the connectivity graph must be
+    // re-evaluated on the next cadence tick regardless of terrain edits.
+    this.needsIntegrityCheck = true;
   }
 
   /**
@@ -704,7 +750,11 @@ export class ChunkWorld {
           if (this.cellDamage[idx] >= BUILD_HARDNESS) {
             this.cellDamage[idx] = 0;
             bgGrid[idx] = 0; // clear the background cell
+            if (bgMat === Material.Torch) this.torchCells.delete(idx);
             this.markChunkDirty(x, y);
+            // Removing a build cell can disconnect foreground terrain it was
+            // supporting (rare, but possible) — flag for an integrity re-check.
+            this.terrainDirtyForIntegrity = true;
           }
         }
       }
@@ -751,6 +801,7 @@ export class ChunkWorld {
         if (this.cellDamage[idx] >= hardness) {
           // Cell is dislodged!
           this.cellDamage[idx] = 0;
+          this.terrainDirtyForIntegrity = true;
 
           if (isCollectible(mat)) {
             // Ore: re-enable gravity so it falls, mark unfrozen (collectible)
@@ -935,6 +986,7 @@ export class ChunkWorld {
       if (bgGrid[idx] !== 0) continue;
       // Place the torch in the background grid
       bgGrid[idx] = packCell(Material.Torch, 0, 0);
+      this.torchCells.add(idx);
       this.buildMaterials.torch--;
       // Mark the chunk dirty for saving
       const cx = this.activeOriginCx + Math.floor(x / CHUNK_W);
@@ -955,38 +1007,48 @@ export class ChunkWorld {
 
   /**
    * Douse torches in the background grid that are touched by any liquid
-   * (water, oil, etc.) in the foreground grid. Called after each sand step.
-   * Removes the torch from both the active background grid and chunk storage.
+   * (water, oil, etc.) in the foreground grid. Iterates only the torch index
+   * (O(torch_count) instead of a full O(ACTIVE_GRID_CELLS) scan) and removes
+   * the torch from both the active background grid and chunk storage.
+   *
+   * Throttled to every TORCH_DOUSE_INTERVAL ticks by the caller (step()).
    */
   douseTorches(): void {
+    if (this.torchCells.size === 0) return;
     const fgGrid = this.activeGrid.grid;
     const bgGrid = this.backgroundGrid;
-    for (let y = 0; y < ACTIVE_GRID_H; y++) {
-      for (let x = 0; x < ACTIVE_GRID_W; x++) {
-        const idx = y * ACTIVE_GRID_W + x;
-        const bgPacked = bgGrid[idx];
-        if ((bgPacked & 0xff) !== Material.Torch) continue;
-        // Check the foreground cell at the same position
-        const fgPacked = fgGrid[idx];
-        if (fgPacked === 0) continue;
-        const fgMat = fgPacked & 0xff;
-        const def = MATERIALS[fgMat];
-        if (def?.liquid) {
-          // Douse: remove the torch
-          bgGrid[idx] = 0;
-          // Sync to chunk storage
-          const cx = this.activeOriginCx + Math.floor(x / CHUNK_W);
-          const cy = this.activeOriginCy + Math.floor(y / CHUNK_H);
-          const chunk = this.chunks.get(chunkKey(cx, cy));
-          if (chunk) {
-            const lx = x - Math.floor(x / CHUNK_W) * CHUNK_W;
-            const ly = y - Math.floor(y / CHUNK_H) * CHUNK_H;
-            chunk.bgGrid[ly * CHUNK_W + lx] = 0;
-            chunk.dirty = true;
-          }
+    const toRemove: number[] = [];
+    for (const idx of this.torchCells) {
+      // Verify the cell is still a torch (safety — index should be in sync)
+      const bgPacked = bgGrid[idx];
+      if ((bgPacked & 0xff) !== Material.Torch) {
+        toRemove.push(idx);
+        continue;
+      }
+      // Check the foreground cell at the same position
+      const fgPacked = fgGrid[idx];
+      if (fgPacked === 0) continue;
+      const fgMat = fgPacked & 0xff;
+      const def = MATERIALS[fgMat];
+      if (def?.liquid) {
+        // Douse: remove the torch
+        const x = idx % ACTIVE_GRID_W;
+        const y = (idx / ACTIVE_GRID_W) | 0;
+        bgGrid[idx] = 0;
+        toRemove.push(idx);
+        // Sync to chunk storage
+        const cx = this.activeOriginCx + Math.floor(x / CHUNK_W);
+        const cy = this.activeOriginCy + Math.floor(y / CHUNK_H);
+        const chunk = this.chunks.get(chunkKey(cx, cy));
+        if (chunk) {
+          const lx = x - Math.floor(x / CHUNK_W) * CHUNK_W;
+          const ly = y - Math.floor(y / CHUNK_H) * CHUNK_H;
+          chunk.bgGrid[ly * CHUNK_W + lx] = 0;
+          chunk.dirty = true;
         }
       }
     }
+    for (const idx of toRemove) this.torchCells.delete(idx);
   }
 
   /**
@@ -1167,6 +1229,7 @@ export class ChunkWorld {
     for (const [x, y] of cells) {
       const idx = y * ACTIVE_GRID_W + x;
       bgGrid[idx] = packCell(mat, 0, 0);
+      if (mat === Material.Torch) this.torchCells.add(idx);
       this.markChunkDirty(x, y);
     }
 
@@ -1333,6 +1396,206 @@ export class ChunkWorld {
     }
   }
 
+  // --- Structural integrity (auto-demolish disconnected cells) ---
+
+  /**
+   * Force a structural-integrity check now (test hook). Resets the cadence
+   * timer and dirty flags so the check actually runs, then runs it. Safe to
+   * call from tests after setting up terrain directly in the active grid.
+   */
+  forceIntegrityCheckForTest(): void {
+    this.terrainDirtyForIntegrity = true;
+    this.needsIntegrityCheck = true;
+    this.lastIntegrityTick = 0;
+    this.runStructuralIntegrityCheck();
+  }
+
+  /**
+   * Run a structural-integrity check if needed.
+   *
+   * A 4-connected flood-fill starts from every solid cell on the outer border
+   * of the active grid (the border represents the rest of the world outside
+   * the window). Any solid cell NOT reached by the flood is "disconnected from
+   * the main world" — e.g. a block of stone fully surrounded by an empty
+   * cavity (a floating island). Disconnected solid cells are demolished by
+   * converting them to loose falling debris (same per-cell logic as explode()).
+   *
+   * Gating:
+   *   - Always runs when needsIntegrityCheck is set (active-grid rebuild →
+   *     border changed → re-evaluate).
+   *   - Otherwise runs at most every INTEGRITY_CHECK_INTERVAL ticks, and only
+   *     when terrainDirtyForIntegrity is set (mining/explosions modified
+   *     terrain since the last check). A static world never re-runs the check.
+   *
+   * Walls are solid so they participate in the connectivity graph (they can
+   * connect regions) but are never demolished. Liquids/gases are not solid so
+   * they're excluded from both the flood and the demolish loop — a frozen
+   * liquid on a collapsing island may briefly float until disturbed; this is
+   * a known, self-correcting limitation.
+   */
+  private runStructuralIntegrityCheck(): void {
+    return; // TEMPORARILY DISABLED — re-enable by removing this line.
+    if (this.needsIntegrityCheck) {
+      // Border changed — always re-check.
+    } else if (!this.terrainDirtyForIntegrity) {
+      return; // world unchanged since last check
+    } else if (this.currentTick - this.lastIntegrityTick < INTEGRITY_CHECK_INTERVAL) {
+      return; // cadence not elapsed
+    }
+
+    this.lastIntegrityTick = this.currentTick;
+    this.terrainDirtyForIntegrity = false;
+    this.needsIntegrityCheck = false;
+
+    const W = ACTIVE_GRID_W;
+    const H = ACTIVE_GRID_H;
+    const grid = this.activeGrid.grid;
+    const visited = this.integrityVisited;
+    const queue = this.integrityQueue;
+    visited.fill(0);
+
+    // --- Seed: enqueue every solid cell on the four outer borders ---
+    let head = 0;
+    let tail = 0;
+    const enqueueIfSolid = (idx: number): void => {
+      if (visited[idx] !== 0) return;
+      const packed = grid[idx];
+      if (packed === 0) return;
+      const def = MATERIALS[packed & 0xff];
+      if (!def?.solid) return;
+      visited[idx] = 1;
+      queue[tail++] = idx;
+    };
+    // Top + bottom rows
+    for (let x = 0; x < W; x++) {
+      enqueueIfSolid(x);            // y = 0
+      enqueueIfSolid((H - 1) * W + x); // y = H - 1
+    }
+    // Left + right columns (skip corners already done)
+    for (let y = 1; y < H - 1; y++) {
+      enqueueIfSolid(y * W);        // x = 0
+      enqueueIfSolid(y * W + (W - 1)); // x = W - 1
+    }
+
+    // --- BFS (4-connected) over solid cells ---
+    while (head < tail) {
+      const idx = queue[head++];
+      const x = idx % W;
+      const y = (idx / W) | 0;
+      // Up
+      if (y > 0) {
+        const nidx = idx - W;
+        if (visited[nidx] === 0) {
+          const packed = grid[nidx];
+          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+            visited[nidx] = 1;
+            queue[tail++] = nidx;
+          }
+        }
+      }
+      // Down
+      if (y < H - 1) {
+        const nidx = idx + W;
+        if (visited[nidx] === 0) {
+          const packed = grid[nidx];
+          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+            visited[nidx] = 1;
+            queue[tail++] = nidx;
+          }
+        }
+      }
+      // Left
+      if (x > 0) {
+        const nidx = idx - 1;
+        if (visited[nidx] === 0) {
+          const packed = grid[nidx];
+          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+            visited[nidx] = 1;
+            queue[tail++] = nidx;
+          }
+        }
+      }
+      // Right
+      if (x < W - 1) {
+        const nidx = idx + 1;
+        if (visited[nidx] === 0) {
+          const packed = grid[nidx];
+          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+            visited[nidx] = 1;
+            queue[tail++] = nidx;
+          }
+        }
+      }
+    }
+
+    // --- Demolish unreached solid cells ---
+    let demolished = 0;
+    for (let y = 0; y < H; y++) {
+      const rowStart = y * W;
+      for (let x = 0; x < W; x++) {
+        const idx = rowStart + x;
+        if (visited[idx] !== 0) continue;
+        const packed = grid[idx];
+        if (packed === 0) continue;
+        const mat = packed & 0xff;
+        if (mat === Material.Wall) continue; // walls are immune
+        const def = MATERIALS[mat];
+        if (!def?.solid) continue; // liquids/gases left alone
+        this.demolishCell(idx, x, y, packed, mat);
+        demolished++;
+        if (demolished >= this.integrityMaxDemolish) return;
+      }
+    }
+  }
+
+  /**
+   * Demolish a single disconnected solid cell — mirrors explode()'s per-cell
+   * foreground terrain damage (see explode() lines ~1523-1566). Converts the
+   * cell to loose falling debris so it falls and becomes collectible, rather
+   * than being deleted (preserves player loot).
+   *
+   *   - Collectibles (ores, coal, dirt, grass, gravel, loose stone) →
+   *     re-enable gravity + FLAG_DETACHED + markCellUnfrozen (falls, collectible).
+   *   - Stone/Grass → Gravel (60%) / LooseStone (40%) with FLAG_DETACHED,
+   *     gravity re-enabled, markCellUnfrozen. (Grass is also collectible so
+   *     the first branch catches it in practice; kept for parity with explode.)
+   *   - Other solids (Wood, Concrete, …) → cleared to empty, fields reset,
+   *     cellDamage + wakeTick cleared.
+   */
+  private demolishCell(idx: number, ax: number, ay: number, packed: number, mat: number): void {
+    const grid = this.activeGrid.grid;
+    const fields = this.activeGrid.fields;
+    const shade = (packed >> 16) & 0xff;
+    const fi = idx * 4;
+
+    if (isCollectible(mat)) {
+      // Ore/coal/dirt/grass/gravel/loose stone: re-enable gravity so it falls,
+      // mark detached + unfrozen (collectible).
+      if (fields[fi + FIELD.GRAVITY] === 0) {
+        fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+      }
+      grid[idx] = packed | (FLAG_DETACHED << 16);
+      this.markCellUnfrozen(ax, ay);
+    } else if (mat === Material.Stone || mat === Material.Grass) {
+      // Stone/Grass → 60% Gravel + 40% LooseStone (loose, collectible, falls).
+      const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
+      const lt = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
+      grid[idx] = packCell(newMat, lt, shade | FLAG_DETACHED);
+      if (fields[fi + FIELD.GRAVITY] === 0) {
+        fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
+      }
+      this.markCellUnfrozen(ax, ay);
+    } else {
+      // Other solids (Wood, Concrete, …): clear to create a hole. Reset all
+      // fields so stale values don't corrupt particles that later flow in.
+      grid[idx] = 0;
+      fields[fi + FIELD.GRAVITY] = 0;
+      fields[fi + FIELD.TEMP] = DEFAULT_TEMP;
+      this.cellDamage[idx] = 0;
+      this.clearWakeTick(ax, ay);
+    }
+  }
+
   // --- Collection ---
 
   /**
@@ -1428,9 +1691,14 @@ export class ChunkWorld {
    *    particles can fall this tick)
    * 4. Run SandWorld.step on the active grid
    * 5. Expire wakeTicks (re-freeze settled cells, extend for moving particles)
-   * 6. Sync active grid back to chunk storage
-   * 7. Update player physics
-   * 8. Collect loose ore/stone near player (respects max inventory size)
+   * 6. Structural integrity check (slow cadence) — demolish solid cells
+   *    disconnected from the active-grid border (floating islands). Runs at
+   *    most every INTEGRITY_CHECK_INTERVAL ticks, only when terrain is dirty.
+   * 7. Sync active grid back to chunk storage
+   * 7b. Douse torches touched by liquids (throttled to TORCH_DOUSE_INTERVAL,
+   *     uses torch index — runs after sync to keep the hot path cache-warm)
+   * 8. Update player physics
+   * 9. Collect loose ore/stone near player (respects max inventory size)
    */
   step(input: {
     left: boolean;
@@ -1478,22 +1746,34 @@ export class ChunkWorld {
     // 4. Run simulation
     this.activeGrid.step();
 
-    // 4b. Douse torches that are touched by water/lava in the foreground
-    this.douseTorches();
-
     // 5. Expire wakeTicks (re-freeze settled, extend for moving)
     this.expireWakeTicks();
 
-    // 6. Sync back to chunks
+    // 6. Structural integrity check (slow cadence) — demolish solid cells
+    //    disconnected from the active-grid border (floating islands). Runs
+    //    before the sync so demolished cells are persisted to chunks this
+    //    tick; the new loose particles fall on subsequent ticks (they were
+    //    markCellUnfrozen'd so their chunks stay active).
+    this.runStructuralIntegrityCheck();
+
+    // 7. Sync back to chunks
     this.syncActiveGridToChunks();
 
-    // 7. Update player (in active grid local coords)
+    // 7b. Douse torches touched by liquids (throttled). Runs AFTER the sync
+    //     and after the sand step + expireWakeTicks so the hot path
+    //     (step → expireWakeTicks → next step) keeps the grid warm in cache.
+    //     The torch index makes this O(torch_count) instead of O(N).
+    if (this.currentTick % TORCH_DOUSE_INTERVAL === 0) {
+      this.douseTorches();
+    }
+
+    // 8. Update player (in active grid local coords)
     const { x: pax, y: pay } = this.worldToActive(this.player.x, this.player.y);
     updateMiningPlayer(this.player, input, this.activeGrid.grid, this.backgroundGrid, ACTIVE_GRID_W, ACTIVE_GRID_H, pax, pay);
     this.player.x = this.player.x + this.activeOriginCx * CHUNK_W;
     this.player.y = this.player.y + this.activeOriginCy * CHUNK_H;
 
-    // 8. Collect loose ore/stone near player (respects max inventory size)
+    // 9. Collect loose ore/stone near player (respects max inventory size)
     const collected = this.collect(currentInventory);
 
     // 9. Fog-of-war: mark cells around the player as explored
@@ -1568,13 +1848,13 @@ export class ChunkWorld {
 
   /**
    * Scan the active grid for emitting materials (lava, fire, torches, etc.)
-   * on a sparse grid (every LIGHT_GRID_STRIDE cells). Cluster hits and pack
-   * into the light list, prioritizing lights nearest to the player.
-   * Called every LIGHT_SCAN_INTERVAL ticks from step().
+   * on a sparse grid (every LIGHT_GRID_STRIDE cells). Torch lights are read
+   * from the torch index (O(torch_count)) instead of a full background grid
+   * scan. Cluster hits and pack into the light list, prioritizing lights
+   * nearest to the player. Called every LIGHT_SCAN_INTERVAL ticks from step().
    */
   scanEmittingLights(): void {
     const grid = this.activeGrid.grid;
-    const bgGrid = this.backgroundGrid;
     const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
     const px = Math.floor(paxF);
     const py = Math.floor(payF);
@@ -1610,28 +1890,24 @@ export class ChunkWorld {
       }
     }
 
-    // Full scan for torches in the background grid (they're placed individually
-    // at any position, so the sparse stride would miss most of them)
-    for (let y = 0; y < ACTIVE_GRID_H && count < MAX_WORLD_LIGHTS; y++) {
-      for (let x = 0; x < ACTIVE_GRID_W && count < MAX_WORLD_LIGHTS; x++) {
-        const idx = y * ACTIVE_GRID_W + x;
-        const bgPacked = bgGrid[idx];
-        if (bgPacked !== 0) {
-          const bgMat = bgPacked & 0xff;
-          if (bgMat === Material.Torch) {
-            const off = count * LIGHT_STRUCT_FLOATS;
-            lights[off] = x + this.activeOriginCx * CHUNK_W;
-            lights[off + 1] = y + this.activeOriginCy * CHUNK_H;
-            lights[off + 2] = TORCH_LIGHT_COLOR[0];
-            lights[off + 3] = TORCH_LIGHT_COLOR[1];
-            lights[off + 4] = TORCH_LIGHT_COLOR[2];
-            lights[off + 5] = TORCH_LIGHT_INTENSITY;
-            lights[off + 6] = TORCH_LIGHT_RADIUS;
-            lights[off + 7] = 0;
-            count++;
-          }
-        }
-      }
+    // Torch lights from the torch index (O(torch_count) instead of a full
+    // O(ACTIVE_GRID_CELLS) background grid scan). Torches are placed
+    // individually at any position, so the sparse stride above would miss
+    // most of them — the index tracks exact positions.
+    for (const idx of this.torchCells) {
+      if (count >= MAX_WORLD_LIGHTS) break;
+      const x = idx % ACTIVE_GRID_W;
+      const y = (idx / ACTIVE_GRID_W) | 0;
+      const off = count * LIGHT_STRUCT_FLOATS;
+      lights[off] = x + this.activeOriginCx * CHUNK_W;
+      lights[off + 1] = y + this.activeOriginCy * CHUNK_H;
+      lights[off + 2] = TORCH_LIGHT_COLOR[0];
+      lights[off + 3] = TORCH_LIGHT_COLOR[1];
+      lights[off + 4] = TORCH_LIGHT_COLOR[2];
+      lights[off + 5] = TORCH_LIGHT_INTENSITY;
+      lights[off + 6] = TORCH_LIGHT_RADIUS;
+      lights[off + 7] = 0;
+      count++;
     }
 
     // Sort by distance to player (nearest first) — simple selection sort
@@ -1776,6 +2052,7 @@ export class ChunkWorld {
    * naturally into the crater. Walls are immune.
    */
   explode(worldX: number, worldY: number, radius: number): void {
+    this.terrainDirtyForIntegrity = true;
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
     const bgGrid = this.backgroundGrid;
@@ -1812,6 +2089,7 @@ export class ChunkWorld {
 
         // --- Clear background build materials in blast radius ---
         if (bgGrid[idx] !== 0) {
+          if ((bgGrid[idx] & 0xff) === Material.Torch) this.torchCells.delete(idx);
           bgGrid[idx] = 0;
           this.markChunkDirty(gx, gy);
         }

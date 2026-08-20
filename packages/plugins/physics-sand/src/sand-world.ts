@@ -19,10 +19,11 @@ import {
     MAT_GAS,
     MAT_GRAVITY,
     MAT_GRAVITY_DIR,
+    MAT_HAS_REACTIONS,
     MAT_LIFETIME,
     MAT_LIQUID,
     MAT_SOLID,
-    Material,
+    Material
 } from "./materials";
 import { PARTICLE_TYPES, ParticleSystem } from "./particles";
 import { SandRNG } from "./rng";
@@ -425,6 +426,18 @@ export class SandWorld {
    * loop with active-list construction. Also detects non-zero wind fields so
    * that externally-set wind (e.g. by tests or future field-painting code) is
    * detected even when applyImpulse wasn't called.
+   *
+   * Static solids (MAT_GRAVITY_DIR === 0: Stone, Wall, Dirt, etc.) are
+   * excluded from the active list and chunkDirty bitmap. They can never move,
+   * have no reactions, and no lifetimes — including them bloats the active
+   * list to ~300k cells in a terrain-heavy world, making every active-list
+   * iteration (ruleEngine, applySpecialReactions, applyAging, applyCombustion)
+   * 5-10× slower. The tryMove loop also benefits: chunks with only static
+   * solids aren't marked dirty, so the loop skips them entirely instead of
+   * visiting every cell just to early-return at gravityDir === 0.
+   *
+   * FLAG_UPDATED is still cleared for ALL cells (including static solids) —
+   * the clearMask operation is outside the filter and runs unconditionally.
    */
   private buildActiveListAndClearFlags(): void {
     const grid = this.grid;
@@ -444,6 +457,13 @@ export class SandWorld {
     for (let i = 0; i < n; i++) {
       grid[i] &= clearMask;
       if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
+        // Exclude static solids from the active list — they can never move
+        // and have no reactions/lifetimes. This reduces the active list from
+        // ~300k (all terrain) to ~10-50k (only dynamic cells) in typical play.
+        // Exception: static materials with self-triggered reactions (e.g. Ice
+        // melting) are kept via MAT_HAS_REACTIONS.
+        const mat = grid[i] & 0xff;
+        if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
         active[count++] = i;
         const y = (i / W) | 0;
         const x = i - y * W;
@@ -459,7 +479,9 @@ export class SandWorld {
     this.maxActiveY = maxY;
   }
 
-  /** Build the active-cell list without clearing flags (for mid-frame rebuild). */
+  /** Build the active-cell list without clearing flags (for mid-frame rebuild).
+   *  Like buildActiveListAndClearFlags, excludes static solids (gravityDir=0)
+   *  from the active list and chunkDirty bitmap. */
   private buildActiveList(): void {
     const grid = this.grid;
     const active = this.activeCells;
@@ -475,6 +497,8 @@ export class SandWorld {
     let count = 0;
     for (let i = 0; i < n; i++) {
       if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
+        const mat = grid[i] & 0xff;
+        if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
         active[count++] = i;
         const y = (i / W) | 0;
         const x = i - y * W;

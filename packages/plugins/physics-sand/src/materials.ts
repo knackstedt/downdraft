@@ -356,6 +356,12 @@ export const MAT_LIFETIME = new Uint8Array(MAX_MATERIAL);
 // IS_FIRE: fire-class only (Fire, FuseFire, BurningOil)
 export const IS_HOT = new Uint8Array(MAX_MATERIAL);
 export const IS_FIRE = new Uint8Array(MAX_MATERIAL);
+/** Static materials (gravityDir=0) that still have self-triggered reactions
+ *  (rule-engine rules or applySpecialReactions handlers). These must remain
+ *  in the active list even though they can't move — excluding them would
+ *  skip their reactions. Currently: Ice (melts near heat). Dynamic materials
+ *  (gravityDir!=0) are always in the active list and don't need to be listed. */
+export const MAT_HAS_REACTIONS = new Uint8Array(MAX_MATERIAL);
 
 function buildMaterialTables(): void {
   for (let i = 0; i < MAX_MATERIAL; i++) {
@@ -385,6 +391,8 @@ function buildMaterialTables(): void {
   IS_FIRE[Material.Fire] = 1;
   IS_FIRE[Material.FuseFire] = 1;
   IS_FIRE[Material.BurningOil] = 1;
+  // Static materials with self-triggered reactions (must stay in active list)
+  MAT_HAS_REACTIONS[Material.Ice] = 1; // melts near heat / high temp
 }
 
 buildMaterialTables();
