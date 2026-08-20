@@ -610,9 +610,14 @@ export class ChunkWorld {
     const damage = this.getMiningDamage();
     const radius = this.getMiningRadius();
 
-    // Player center in active grid coords
+    // Player center in active grid coords. player.x is the horizontal CENTER
+    // of the AABB (see mining-player.ts: x0 = floor(px - PLAYER_W/2)), and
+    // player.y is the TOP of the AABB (y0 = floor(py)). So the X center is
+    // paxF directly, and the Y center is payF + PLAYER_H/2. Adding PLAYER_W/2
+    // to X here would double-shift the ray origin right by 1.5 cells, biasing
+    // mining hits to the right (visible when aiming straight down).
     const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
-    const px = paxF + PLAYER_W / 2;
+    const px = paxF;
     const py = payF + PLAYER_H / 2;
 
     // Mouse in active grid coords
@@ -891,8 +896,10 @@ export class ChunkWorld {
 
     const fgGrid = this.activeGrid.grid;
     const bgGrid = this.backgroundGrid;
+    // player.x is the horizontal CENTER of the AABB (see mining-player.ts),
+    // player.y is the TOP.
     const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
-    const pcx = paxF + PLAYER_W / 2;
+    const pcx = paxF;
     const pcy = payF + PLAYER_H / 2;
     const bodyX0 = Math.floor(paxF - PLAYER_W / 2);
     const bodyX1 = Math.floor(paxF + PLAYER_W / 2);
@@ -1015,9 +1022,10 @@ export class ChunkWorld {
     const ax = Math.floor(axF);
     const ay = Math.floor(ayF);
 
-    // Player center + body AABB in active coords
+    // Player center + body AABB in active coords. player.x is the horizontal
+    // CENTER of the AABB (see mining-player.ts), player.y is the TOP.
     const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
-    const pcx = paxF + PLAYER_W / 2;
+    const pcx = paxF;
     const pcy = payF + PLAYER_H / 2;
     const bodyX0 = Math.floor(paxF - PLAYER_W / 2);
     const bodyX1 = Math.floor(paxF + PLAYER_W / 2);
@@ -1888,9 +1896,10 @@ export class ChunkWorld {
       }
     }
 
-    // Damage the player if within blast radius
+    // Damage the player if within blast radius. player.x is the horizontal
+    // CENTER of the AABB (see mining-player.ts), player.y is the TOP.
     const { x: pax, y: pay } = this.worldToActive(this.player.x, this.player.y);
-    const pcx = pax + PLAYER_W / 2;
+    const pcx = pax;
     const pcy = pay + PLAYER_H / 2;
     const pdx = pcx - cx;
     const pdy = pcy - cy;
