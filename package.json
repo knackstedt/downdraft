@@ -18,9 +18,7 @@
     "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "tsc:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "lint": "oxlint",
-    "postinstall": "node node_modules/electron/install.js",
-    "wasm:build": "wasm-pack build --target web games/falling-sand/sand-native",
-    "wasm:watch": "wasm-pack build --target web --dev games/falling-sand/sand-native"
+    "postinstall": "node node_modules/electron/install.js"
   },
   "workspaces": [
     "packages/app",
@@ -34,7 +32,6 @@
     "games/to-the-ocean/plugins/*",
     "games/falling-sand",
     "games/falling-sand/plugins/*",
-    "games/falling-sand/sand-native",
     "games/mining-rpg",
     "games/mining-rpg/plugins/*",
     "games/alchemy",

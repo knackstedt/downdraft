@@ -49,13 +49,12 @@ export const MIXTURE_OFFSET = OFFSETS.extraRegionOffset["mixture"];
 export const FIELD = {
   GRAVITY: 0,
   TEMP: 1,
-  WIND_X: 2,
-  WIND_Y: 3,
+  RESERVED_2: 2,
+  RESERVED_3: 3,
 } as const;
 
 export const DEFAULT_GRAVITY = 128;
 export const DEFAULT_TEMP = 128;
-export const DEFAULT_WIND = 0;
 
 export const INPUT = {
   MOUSE_DOWN: 0,

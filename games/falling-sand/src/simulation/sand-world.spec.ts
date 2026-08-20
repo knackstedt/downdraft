@@ -1,8 +1,9 @@
-import { FIELD, Material, SandWorld } from "@downdraft/library-sand";
+import { Material, SandWorld } from "@downdraft/library-sand";
 import { expect, test } from "bun:test";
 
 // Deterministic helper: run N steps and return the grid as a mat-id matrix.
 function run(world: SandWorld, steps: number): void {
+  world.reseed(42);
   for (let i = 0; i < steps; i++) world.step();
 }
 function matAt(world: SandWorld, x: number, y: number): number {
@@ -284,14 +285,12 @@ test("reusable buffers are sized to the grid (no out-of-bounds in combustion)", 
   expect(w.frame).toBe(200);
 });
 
-test("wind field decays toward 0", () => {
+test("fluid grid velocity is zero without impulses", () => {
   const w = new SandWorld(8, 16);
-  const fi = (11 * 8 + 4) * 4;
-  w.fields[fi + FIELD.WIND_X] = 100 & 0xff;
   run(w, 40);
-  // Should have decayed significantly.
-  const v = (w.fields[fi + FIELD.WIND_X] << 24) >> 24;
-  expect(Math.abs(v)).toBeLessThan(100);
+  // No impulses applied — wind should be zero everywhere.
+  expect(w.getWindX(4, 8)).toBe(0);
+  expect(w.getWindY(4, 8)).toBe(0);
 });
 
 test("nanobots move and eat through material", () => {

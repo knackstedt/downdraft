@@ -1,4 +1,4 @@
-import { packCell, randomShade, Material } from "@downdraft/library-sand";
+import { Material, packCell } from "@downdraft/library-sand";
 import { CAULDRON_WALL_THICKNESS } from "../shared/constants";
 
 /**
@@ -14,7 +14,7 @@ export function initCauldron(grid: Uint32Array, fields: Uint8Array, W: number, H
       // Wall ring: top, bottom, left, right strips of thickness t
       const isWall = x < t || x >= W - t || y < t || y >= H - t;
       if (isWall) {
-        grid[y * W + x] = packCell(Material.Wall, 0, randomShade());
+        grid[y * W + x] = packCell(Material.Wall, 0, Math.floor(Math.random() * 4));
       }
     }
   }
@@ -22,8 +22,8 @@ export function initCauldron(grid: Uint32Array, fields: Uint8Array, W: number, H
   for (let i = 0; i < W * H * 4; i += 4) {
     fields[i + 0] = 128; // gravity
     fields[i + 1] = 128; // temp
-    fields[i + 2] = 0;   // windX
-    fields[i + 3] = 0;   // windY
+    fields[i + 2] = 0;   // reserved (formerly windX)
+    fields[i + 3] = 0;   // reserved (formerly windY)
   }
 }
 

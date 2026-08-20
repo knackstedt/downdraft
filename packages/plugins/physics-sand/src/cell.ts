@@ -38,7 +38,3 @@ export function unpack(v: number): Cell {
 export function packCell(mat: number, lifetime: number, flags: number): number {
   return (mat & 0xff) | ((lifetime & 0xff) << 8) | ((flags & 0xff) << 16);
 }
-
-export function randomShade(): number {
-  return Math.floor(Math.random() * 4);
-}

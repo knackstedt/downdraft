@@ -33,6 +33,30 @@ The framework generates `index.html` from a layer spec, so games don't need to m
 - `packages/app/src/renderer/index.ts` — exports `getCanvas()`, `getOverlay()`, `getAllCanvases()`.
 - `packages/app/src/vite/index.ts` — `DowndraftViteConfigOptions.html` and `.layers` options.
 
+## Per-game storage isolation
+
+Each game MUST pass a unique `appId` to `createDowndraftApp()`. This sets a per-game Electron `userData` directory (e.g. `~/.config/downdraft-mining-rpg/`) so that Chromium storage subsystems (OPFS, IndexedDB, Service Worker DB, cookies, cache) are fully isolated per game. Without this, all games share the same `--user-data-dir` and concurrent instances corrupt each other's LevelDB locks (`File System/Origins/LOCK`, `Service Worker/LOCK`), causing OPFS init failures and games not loading.
+
+When `appId` is set, `createDowndraftApp()` also:
+1. Calls `app.requestSingleInstanceLock()` — prevents two instances of the same game from running concurrently (which would corrupt storage). A second launch focuses the existing window and quits.
+2. Calls `cleanupStaleStorage()` — removes stale LevelDB `LOCK` files and `.org.chromium.Chromium.*` temp artifacts from a previous run that crashed or was killed. Safe because the single-instance lock guarantees no live process is using the directory.
+
+### Files
+
+- `packages/app/src/main/storage.ts` — `resolveUserDataDir()` (builds the per-game path) and `cleanupStaleStorage()` (stale lock + temp file cleanup).
+- `packages/app/src/main/app.ts` — wires `app.setPath("userData", ...)` + `requestSingleInstanceLock()` + `cleanupStaleStorage()` early in `createDowndraftApp()`, before `app.whenReady()`.
+
+### Adding a new game
+
+Always set `appId` in the game's `src/main.ts`:
+```ts
+createDowndraftApp({
+  appId: "downdraft-my-game",  // → ~/.config/downdraft-my-game/
+  window: { title: "My Game" },
+  // ...
+});
+```
+
 ## Plugin registration patterns
 
 The engine supports two registration patterns:

@@ -294,7 +294,7 @@ export class FallingSandRenderer {
       this.input.left, this.input.right, this.input.up, this.input.down, this.input.jump
     );
 
-    const FIELD_GRAVITY = 0, FIELD_TEMP = 1, FIELD_WIND_X = 2, FIELD_WIND_Y = 3;
+    const FIELD_GRAVITY = 0, FIELD_TEMP = 1;
     if (s.brushMode === "field") {
       switch (s.fieldType) {
         case "gravity":
@@ -305,13 +305,10 @@ export class FallingSandRenderer {
           this.workerHost.writeFieldType(FIELD_TEMP);
           this.workerHost.writeFieldValue(s.fieldTemperature);
           break;
+        // windX/windY field painting is no longer supported — wind is now
+        // handled by the coarse-grid FluidGrid, not per-cell fields.
         case "windX":
-          this.workerHost.writeFieldType(FIELD_WIND_X);
-          this.workerHost.writeFieldValue(s.fieldWindX & 0xff);
-          break;
         case "windY":
-          this.workerHost.writeFieldType(FIELD_WIND_Y);
-          this.workerHost.writeFieldValue(s.fieldWindY & 0xff);
           break;
       }
     }
@@ -371,10 +368,12 @@ export class FallingSandRenderer {
     const fi = (gy * this.gridW + gx) * 4;
     const gravity = fields[fi + FIELD.GRAVITY];
     const temperature = fields[fi + FIELD.TEMP];
-    const windX = (fields[fi + FIELD.WIND_X] << 24) >> 24; // sign-extend i8
-    const windY = (fields[fi + FIELD.WIND_Y] << 24) >> 24;
-    const windMag = Math.sqrt(windX * windX + windY * windY);
-    const windDir = Math.atan2(windY, windX) * 180 / Math.PI;
+    // Wind is now handled by the coarse-grid FluidGrid (not per-cell fields).
+    // The inspector shows 0 for wind until fluid grid data is exposed via SAB.
+    const windX = 0;
+    const windY = 0;
+    const windMag = 0;
+    const windDir = 0;
 
     const matName = MATERIALS[mat]?.name ?? "Unknown";
 

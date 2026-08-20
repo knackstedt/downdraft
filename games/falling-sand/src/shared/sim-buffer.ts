@@ -50,17 +50,18 @@ export const STATS_OFFSET = OFFSETS.statsOffset;
 export const PLAYER_OFFSET = OFFSETS.playerOffset;
 
 // --- Game-specific field offsets ---
+// Wind is now handled by the coarse-grid FluidGrid, not per-cell fields.
+// Bytes 2-3 are reserved (formerly WIND_X/WIND_Y).
 
 export const FIELD = {
   GRAVITY: 0,
   TEMP: 1,
-  WIND_X: 2,
-  WIND_Y: 3,
+  RESERVED_2: 2,
+  RESERVED_3: 3,
 } as const;
 
 export const DEFAULT_GRAVITY = 128;
 export const DEFAULT_TEMP = 128;
-export const DEFAULT_WIND = 0;
 
 export const INPUT = {
   LEFT: 0,

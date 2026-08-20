@@ -11,18 +11,22 @@ export {
     FLAG_UPDATED_BIT,
     pack,
     packCell,
-    randomShade,
     SHADE_MASK,
     unpack,
     type Cell
 } from "./cell";
 
+export { SandRNG } from "./rng";
+
 export {
     DEFAULT_GRAVITY,
     DEFAULT_TEMP,
-    DEFAULT_WIND,
     FIELD
 } from "./fields";
+
+export { FluidGrid } from "./fluid-grid";
+
+export { PARTICLE_BYTES, PARTICLE_FLOATS, PARTICLE_TYPES, ParticleSystem, type Particle } from "./particles";
 
 export {
     buildMaterialProps,
