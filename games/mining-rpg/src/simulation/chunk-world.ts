@@ -26,7 +26,8 @@ import {
     Material,
     MATERIALS,
     packCell,
-    SandWorld,
+    SandStepPool,
+    SandWorld
 } from "@downdraft/library-sand";
 import {
     ACTIVE_GRID_H,
@@ -57,6 +58,7 @@ import {
     MAX_CHUNKS_X,
     MAX_MINE_RANGE,
     MAX_WORLD_LIGHTS,
+    NEAR_PLAYER_RADIUS_CHUNKS,
     ORE_HARDNESS,
     OXYGEN_MAX_TICKS,
     PLAYER_H,
@@ -116,6 +118,8 @@ export class ChunkWorld {
   private chunks = new Map<string, Chunk>();
   // The contiguous active grid simulation
   activeGrid: SandWorld;
+  // Multi-threaded sand step pool (null = single-threaded fallback)
+  private sandStepPool: SandStepPool | null = null;
   // Per-cell skip mask for the active grid (frozen cells)
   private skipMask: Uint8Array;
   // The chunk coords of the active grid's top-left corner
@@ -198,21 +202,47 @@ export class ChunkWorld {
   // World config
   readonly seed: number;
 
-  constructor() {
+  constructor(numSandWorkers: number = 0) {
     this.seed = WORLD_SEED;
-    this.activeGrid = new SandWorld(ACTIVE_GRID_W, ACTIVE_GRID_H);
-    this.skipMask = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
+    if (numSandWorkers > 0) {
+      // Multi-threaded: create a SandStepPool with SAB-backed grid.
+      this.sandStepPool = new SandStepPool({
+        W: ACTIVE_GRID_W,
+        H: ACTIVE_GRID_H,
+        numWorkers: numSandWorkers,
+        preserveFlagsMask: FLAG_DETACHED,
+        disturbedFlags: FLAG_DETACHED,
+      });
+      this.activeGrid = this.sandStepPool.getBoundaryWorld();
+      // The skip mask is SAB-backed — get a reference to it.
+      this.skipMask = this.sandStepPool.getSkipMask();
+    } else {
+      // Single-threaded: regular SandWorld with ArrayBuffer grid.
+      this.activeGrid = new SandWorld(ACTIVE_GRID_W, ACTIVE_GRID_H);
+      this.skipMask = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
+      this.activeGrid.skipMask = this.skipMask;
+    }
     this.cellDamage = new Float32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.backgroundGrid = new Uint32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.exploredGrid = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.lightList = new Float32Array(MAX_WORLD_LIGHTS * LIGHT_STRUCT_FLOATS);
     this.integrityVisited = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.integrityQueue = new Int32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
-    this.activeGrid.skipMask = this.skipMask;
-    // Preserve FLAG_DETACHED (bit 4 of the flags byte) across the physics
-    // engine's per-frame FLAG_UPDATED clear. Without this, the detached bit
-    // is stripped every step() and the renderer never sees it.
-    this.activeGrid.preserveFlagsMask = FLAG_DETACHED;
+    // In single-threaded mode, set the skip mask + flags on the activeGrid.
+    // In multi-threaded mode, these are already set via the SandStepPool.
+    if (!this.sandStepPool) {
+      this.activeGrid.skipMask = this.skipMask;
+      // Preserve FLAG_DETACHED (bit 4 of the flags byte) across the physics
+      // engine's per-frame FLAG_UPDATED clear. Without this, the detached bit
+      // is stripped every step() and the renderer never sees it.
+      this.activeGrid.preserveFlagsMask = FLAG_DETACHED;
+      // disturbAdjacent() sets FLAG_DETACHED on Stone→LooseStone conversions
+      // so expireWakeTicks can detect disturbed cells in frozen chunks (outer
+      // ring) even after applyAging clears FLAG_UPDATED. Without this, disturbed
+      // cells in frozen chunks stay frozen and never fall — a regression where
+      // disconnected cells don't break correctly when the outer ring freezes.
+      this.activeGrid.disturbedFlags = FLAG_DETACHED;
+    }
     // Don't initialize the stone floor — the chunk system provides terrain
     this.activeGrid.grid.fill(0);
     this.activeGrid.fields.fill(DEFAULT_TEMP);
@@ -233,6 +263,21 @@ export class ChunkWorld {
       rate: 0,
       inventorySize: 0,
     };
+  }
+
+  /** Initialize the multi-threaded sand step pool (if enabled). */
+  async initSandStepPool(): Promise<void> {
+    if (this.sandStepPool) {
+      await this.sandStepPool.init();
+    }
+  }
+
+  /** Shut down the sand step pool (if active). */
+  shutdownSandStepPool(): void {
+    if (this.sandStepPool) {
+      this.sandStepPool.shutdown();
+      this.sandStepPool = null;
+    }
   }
 
   // --- Upgrade system ---
@@ -335,7 +380,9 @@ export class ChunkWorld {
 
     // Copy out the old active grid + background grid back to chunk storage
     // using the PREVIOUS origin — the grid data is still laid out for the old origin.
-    this.syncActiveGridToChunks(this.prevOriginCx, this.prevOriginCy);
+    // Force sync all chunks since the origin is changing and we need to persist
+    // the full old grid before overwriting it.
+    this.syncActiveGridToChunks(this.prevOriginCx, this.prevOriginCy, true);
 
     // Clear the active grid + background grid + explored grid
     grid.fill(0);
@@ -472,8 +519,18 @@ export class ChunkWorld {
    * Sync the active grid back to chunk storage.
    * Uses the current activeOriginCx/Cy by default, or the provided origin
    * (used by rebuildActiveGrid to sync with the previous origin).
+   *
+   * Only syncs chunks with chunk.dirty = true — most chunks don't change
+   * every tick (frozen terrain, undisturbed caves). The dirty flag is set
+   * by markCellUnfrozen, clearWakeTick, mining, explosions, torch placement,
+   * expireWakeTicks, etc. This reduces the per-tick copy from ~5.1MB
+   * (all 25 chunks) to ~1MB (only dirty chunks, typically 3-5).
+   *
+   * When forceAll=true (used by rebuildActiveGrid), syncs all chunks
+   * regardless of dirty state — the grid origin changed so all chunks
+   * need to be written back.
    */
-  private syncActiveGridToChunks(originCx?: number, originCy?: number): void {
+  private syncActiveGridToChunks(originCx?: number, originCy?: number, forceAll = false): void {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
     const bgGrid = this.backgroundGrid;
@@ -490,6 +547,13 @@ export class ChunkWorld {
         const key = chunkKey(cx, cy);
         const chunk = this.chunks.get(key);
         if (!chunk) continue;
+
+        // Skip chunks that haven't been modified this tick. The dirty flag
+        // is set by any operation that modifies the chunk's grid/fields/
+        // bgGrid/explored/wakeTick. Frozen chunks with no activity stay
+        // clean and are skipped — a massive save when most of the active
+        // grid is settled terrain.
+        if (!forceAll && !chunk.dirty) continue;
 
         const offsetX = dcx * CHUNK_W;
         const offsetY = dcy * CHUNK_H;
@@ -530,6 +594,8 @@ export class ChunkWorld {
             dstRow,
           );
         }
+        // Clear dirty flag — the chunk is now in sync with the active grid.
+        chunk.dirty = false;
       }
     }
   }
@@ -537,25 +603,32 @@ export class ChunkWorld {
   // --- Freeze optimization ---
 
   /**
-   * Build the skip mask for the active grid.
-   * A chunk is active if:
-   *   - it's within ACTIVE_RADIUS_CHUNKS of the player's chunk, OR
-   *   - it has any cell with wakeTick > currentTick
-   * A chunk adjacent to an active chunk is also active (1-chunk buffer)
-   * so particles can't enter a frozen chunk without it being active.
+   * Combined freeze-state update — replaces the separate buildSkipMask() and
+   * expireWakeTicks() passes. Runs AFTER the sand step to:
+   *
+   * 1. Expire wakeTicks (re-freeze settled cells, extend for moving particles,
+   *    re-activate frozen cells that particles moved into).
+   * 2. Build the skip mask for the NEXT tick's sand step.
+   *
+   * Combining these into one pass eliminates a full 400k-cell scan per tick
+   * (both functions iterated all 25 chunks' wakeTick arrays separately).
+   * Near-player chunks skip the wakeTick scan entirely (always active).
+   *
+   * The skip mask from the PREVIOUS tick's updateFreezeState is used by the
+   * current tick's sand step. On rebuild (chunk boundary crossing), the skip
+   * mask is rebuilt from scratch via buildSkipMaskOnly().
    */
-  private buildSkipMask(): void {
+  private updateFreezeState(): void {
     const skip = this.skipMask;
-    skip.fill(0);
-
+    const grid = this.activeGrid.grid;
     const playerChunk = this.worldToChunk(this.player.x, this.player.y);
+    const W = ACTIVE_GRID_W;
 
     for (let dcy = 0; dcy < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcy++) {
       for (let dcx = 0; dcx < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcx++) {
         const cx = this.activeOriginCx + dcx;
         const cy = this.activeOriginCy + dcy;
         if (cx < 0 || cx >= MAX_CHUNKS_X) {
-          // Out of bounds — mark entire chunk region as skip (frozen wall)
           this.fillSkipRegion(skip, dcx, dcy, 1);
           continue;
         }
@@ -567,14 +640,134 @@ export class ChunkWorld {
           continue;
         }
 
-        // Check if chunk should be active
         const distX = Math.abs(cx - playerChunk.cx);
         const distY = Math.abs(cy - playerChunk.cy);
-        const nearPlayer = distX <= ACTIVE_RADIUS_CHUNKS + 1 && distY <= ACTIVE_RADIUS_CHUNKS + 1;
+        const nearPlayer = distX <= NEAR_PLAYER_RADIUS_CHUNKS && distY <= NEAR_PLAYER_RADIUS_CHUNKS;
+
+        if (nearPlayer) {
+          // Near-player: always active, no skip mask. Extend all unfrozen
+          // wakeTicks so cells stay collectible. Also re-activate frozen
+          // cells that particles moved into this tick (FLAG_UPDATED/DETACHED).
+          this.fillSkipRegion(skip, dcx, dcy, 0);
+          chunk.active = true;
+          const wakeTick = chunk.wakeTick;
+          const offsetX = dcx * CHUNK_W;
+          const offsetY = dcy * CHUNK_H;
+          for (let ly = 0; ly < CHUNK_H; ly++) {
+            for (let lx = 0; lx < CHUNK_W; lx++) {
+              const localIdx = ly * CHUNK_W + lx;
+              const wt = wakeTick[localIdx];
+              if (wt === 0) {
+                // Frozen — check if a particle moved here this tick
+                const ax = offsetX + lx;
+                const ay = offsetY + ly;
+                const packed = grid[ay * W + ax];
+                if (packed !== 0) {
+                  const flags = (packed >> 16) & 0xff;
+                  if ((flags & (FLAG_DETACHED | FLAG_UPDATED)) !== 0) {
+                    wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                    chunk.dirty = true;
+                  }
+                }
+              } else {
+                // Unfrozen — extend so it stays collectible
+                wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                chunk.dirty = true;
+              }
+            }
+          }
+          continue;
+        }
+
+        // Non-near-player: scan wakeTicks, expire/re-activate, build skip mask
+        const wakeTick = chunk.wakeTick;
+        const offsetX = dcx * CHUNK_W;
+        const offsetY = dcy * CHUNK_H;
+        let hasUnfrozen = false;
+
+        for (let ly = 0; ly < CHUNK_H; ly++) {
+          for (let lx = 0; lx < CHUNK_W; lx++) {
+            const localIdx = ly * CHUNK_W + lx;
+            const wt = wakeTick[localIdx];
+            if (wt === 0) {
+              // Frozen — check if a particle moved here this tick
+              const ax = offsetX + lx;
+              const ay = offsetY + ly;
+              const packed = grid[ay * W + ax];
+              if (packed !== 0) {
+                const flags = (packed >> 16) & 0xff;
+                if ((flags & (FLAG_DETACHED | FLAG_UPDATED)) !== 0) {
+                  wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                  chunk.dirty = true;
+                  hasUnfrozen = true;
+                }
+              }
+              continue;
+            }
+
+            if (wt > this.currentTick) {
+              // Still unfrozen — extend if moved, keep if stationary
+              const ax = offsetX + lx;
+              const ay = offsetY + ly;
+              const packed = grid[ay * W + ax];
+              const flags = (packed >> 16) & 0xff;
+              if (flags & FLAG_UPDATED) {
+                wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                chunk.dirty = true;
+                hasUnfrozen = true;
+              } else {
+                hasUnfrozen = true;
+              }
+            } else {
+              // Expired — re-freeze
+              wakeTick[localIdx] = 0;
+              chunk.dirty = true;
+            }
+          }
+        }
+
+        chunk.active = hasUnfrozen;
+        if (!hasUnfrozen) {
+          this.fillSkipRegion(skip, dcx, dcy, 1);
+        } else {
+          this.fillSkipRegion(skip, dcx, dcy, 0);
+        }
+      }
+    }
+  }
+
+  /**
+   * Build the skip mask only (no wakeTick updates). Used after a rebuild
+   * when the grid content changed and we need the skip mask before the sand
+   * step, but don't want to expire wakeTicks yet (the sand step hasn't run).
+   */
+  private buildSkipMaskOnly(): void {
+    const skip = this.skipMask;
+    skip.fill(0);
+    const playerChunk = this.worldToChunk(this.player.x, this.player.y);
+
+    for (let dcy = 0; dcy < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcy++) {
+      for (let dcx = 0; dcx < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcx++) {
+        const cx = this.activeOriginCx + dcx;
+        const cy = this.activeOriginCy + dcy;
+        if (cx < 0 || cx >= MAX_CHUNKS_X) {
+          this.fillSkipRegion(skip, dcx, dcy, 1);
+          continue;
+        }
+
+        const key = chunkKey(cx, cy);
+        const chunk = this.chunks.get(key);
+        if (!chunk) {
+          this.fillSkipRegion(skip, dcx, dcy, 1);
+          continue;
+        }
+
+        const distX = Math.abs(cx - playerChunk.cx);
+        const distY = Math.abs(cy - playerChunk.cy);
+        const nearPlayer = distX <= NEAR_PLAYER_RADIUS_CHUNKS && distY <= NEAR_PLAYER_RADIUS_CHUNKS;
 
         let hasUnfrozen = false;
         if (!nearPlayer) {
-          // Check if any cell is unfrozen
           for (let i = 0; i < chunk.wakeTick.length; i++) {
             if (chunk.wakeTick[i] > this.currentTick) {
               hasUnfrozen = true;
@@ -583,11 +776,8 @@ export class ChunkWorld {
           }
         }
 
-        const isActive = nearPlayer || hasUnfrozen;
-        chunk.active = isActive;
-
-        if (!isActive) {
-          // Freeze the entire chunk region in the skip mask
+        chunk.active = nearPlayer || hasUnfrozen;
+        if (!chunk.active) {
           this.fillSkipRegion(skip, dcx, dcy, 1);
         }
       }
@@ -1291,111 +1481,6 @@ export class ChunkWorld {
     return chunk.wakeTick[localIdx] > this.currentTick;
   }
 
-  /**
-   * Expire wakeTicks for cells whose freeze timer has elapsed.
-   * After the sim step, scan every chunk in the active window:
-   *
-   * Near-player chunks (within ACTIVE_RADIUS_CHUNKS of the player):
-   *   - Keep ALL unfrozen cells alive by extending their wakeTick. This ensures
-   *     dug/loosened ore stays collectible as long as the player is nearby,
-   *     even if the particle has settled on the ground. Without this, cells
-   *     near the player would silently become non-collectible after FREEZE_TICKS
-   *     because expireWakeTicks used to skip near-player chunks entirely.
-   *
-   * Non-near-player chunks (outer ring of the active grid):
-   *   - If a cell's wakeTick <= currentTick (expired) and the cell didn't move
-   *     this tick (FLAG_UPDATED not set), set wakeTick = 0 (re-freeze).
-   *   - If a cell moved this tick (FLAG_UPDATED set), extend its wakeTick so
-   *     it stays unfrozen while still in motion.
-   */
-  private expireWakeTicks(): void {
-    const grid = this.activeGrid.grid;
-    const playerChunk = this.worldToChunk(this.player.x, this.player.y);
-
-    for (let dcy = 0; dcy < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcy++) {
-      for (let dcx = 0; dcx < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcx++) {
-        const cx = this.activeOriginCx + dcx;
-        const cy = this.activeOriginCy + dcy;
-        if (cx < 0 || cx >= MAX_CHUNKS_X) continue;
-
-        const key = chunkKey(cx, cy);
-        const chunk = this.chunks.get(key);
-        if (!chunk) continue;
-
-        const distX = Math.abs(cx - playerChunk.cx);
-        const distY = Math.abs(cy - playerChunk.cy);
-        const nearPlayer = distX <= ACTIVE_RADIUS_CHUNKS && distY <= ACTIVE_RADIUS_CHUNKS;
-
-        const offsetX = dcx * CHUNK_W;
-        const offsetY = dcy * CHUNK_H;
-        const wakeTick = chunk.wakeTick;
-        let hasUnfrozen = false;
-
-        for (let ly = 0; ly < CHUNK_H; ly++) {
-          for (let lx = 0; lx < CHUNK_W; lx++) {
-            const localIdx = ly * CHUNK_W + lx;
-            const wt = wakeTick[localIdx];
-            if (wt === 0) {
-              // Cell is frozen at this position. But if a particle has
-              // moved here via physics, its wakeTick was set at its
-              // previous position and NOT transferred to this one. Detect
-              // this case and re-activate:
-              //   - FLAG_DETACHED: a loose particle (ore/loose stone) that
-              //     was dislodged from static terrain and fell here.
-              //   - FLAG_UPDATED: any cell (including liquids) that moved
-              //     this tick. Without this, liquid flowing into a crater
-              //     (e.g. from a bomb blast) wouldn't keep its chunk
-              //     active — the chunk would re-freeze with air pockets
-              //     trapped in the crater.
-              const ax = offsetX + lx;
-              const ay = offsetY + ly;
-              const packed = grid[ay * ACTIVE_GRID_W + ax];
-              if (packed !== 0) {
-                const flags = (packed >> 16) & 0xff;
-                if ((flags & (FLAG_DETACHED | FLAG_UPDATED)) !== 0) {
-                  wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
-                  chunk.dirty = true;
-                  hasUnfrozen = true;
-                }
-              }
-              continue;
-            }
-
-            if (nearPlayer) {
-              // Near-player: keep all unfrozen cells alive so they stay
-              // collectible. Re-extend the wakeTick every tick.
-              wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
-              chunk.dirty = true;
-              hasUnfrozen = true;
-              continue;
-            }
-
-            if (wt > this.currentTick) {
-              // Still unfrozen — check if the cell moved this tick
-              const ax = offsetX + lx;
-              const ay = offsetY + ly;
-              const packed = grid[ay * ACTIVE_GRID_W + ax];
-              const flags = (packed >> 16) & 0xff;
-              if (flags & FLAG_UPDATED) {
-                // Cell moved — extend wakeTick
-                wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
-                chunk.dirty = true;
-                hasUnfrozen = true;
-              } else {
-                // Cell didn't move — still unfrozen but could settle soon
-                hasUnfrozen = true;
-              }
-            } else {
-              // wakeTick expired — re-freeze
-              wakeTick[localIdx] = 0;
-              chunk.dirty = true;
-            }
-          }
-        }
-      }
-    }
-  }
-
   // --- Structural integrity (auto-demolish disconnected cells) ---
 
   /**
@@ -1434,7 +1519,6 @@ export class ChunkWorld {
    * a known, self-correcting limitation.
    */
   private runStructuralIntegrityCheck(): void {
-    return; // TEMPORARILY DISABLED — re-enable by removing this line.
     if (this.needsIntegrityCheck) {
       // Border changed — always re-check.
     } else if (!this.terrainDirtyForIntegrity) {
@@ -1686,21 +1770,23 @@ export class ChunkWorld {
   /**
    * Advance the simulation by one tick.
    * 1. Check if active grid needs rebuild (player crossed chunk boundary)
-   * 2. Build skip mask (freeze optimization)
+   * 2. Build skip mask (only on rebuild; otherwise reused from last tick's
+   *    updateFreezeState)
    * 3. Handle mining (raycast from player toward mouse, before sim so mined
    *    particles can fall this tick)
    * 4. Run SandWorld.step on the active grid
-   * 5. Expire wakeTicks (re-freeze settled cells, extend for moving particles)
+   * 5. Update freeze state (combined expireWakeTicks + buildSkipMask for next
+   *    tick — eliminates one full-grid scan per tick)
    * 6. Structural integrity check (slow cadence) — demolish solid cells
    *    disconnected from the active-grid border (floating islands). Runs at
    *    most every INTEGRITY_CHECK_INTERVAL ticks, only when terrain is dirty.
-   * 7. Sync active grid back to chunk storage
+   * 7. Sync active grid back to chunk storage (only dirty chunks)
    * 7b. Douse torches touched by liquids (throttled to TORCH_DOUSE_INTERVAL,
    *     uses torch index — runs after sync to keep the hot path cache-warm)
    * 8. Update player physics
    * 9. Collect loose ore/stone near player (respects max inventory size)
    */
-  step(input: {
+  async step(input: {
     left: boolean;
     right: boolean;
     up: boolean;
@@ -1713,7 +1799,7 @@ export class ChunkWorld {
     digRadius: number;
     buildMode: boolean;
     buildMat: number;
-  }, currentInventory: InventoryEntry[] = []): InventoryEntry[] {
+  }, currentInventory: InventoryEntry[] = []): Promise<InventoryEntry[]> {
     this.currentTick++;
 
     // 1. Rebuild if needed
@@ -1726,10 +1812,13 @@ export class ChunkWorld {
         this.validatePlayerSpawn();
         this.needsSpawnValidation = false;
       }
+      // After rebuild, build skip mask from scratch (the grid content changed).
+      // updateFreezeState will run after the sand step to update it for next tick.
+      this.buildSkipMaskOnly();
     }
 
-    // 2. Build skip mask
-    this.buildSkipMask();
+    // 2. Skip mask is already set from last tick's updateFreezeState (or from
+    //    buildSkipMaskOnly above if we just rebuilt). No need to rebuild every tick.
 
     // 3. Handle mining or placement (before sim so changes apply this tick).
     // In build mode, left-click places the selected material; otherwise it
@@ -1744,10 +1833,22 @@ export class ChunkWorld {
     }
 
     // 4. Run simulation
-    this.activeGrid.step();
+    if (this.sandStepPool) {
+      // Multi-threaded: dispatch to sand-step workers + boundary cleanup.
+      // The pool shares the SAB-backed grid with workers. The async step
+      // resolves when all workers finish + boundary cleanup is done.
+      await this.sandStepPool.step(this.activeGrid.frame);
+      // Increment the frame counter (normally done by SandWorld.step()).
+      this.activeGrid.frame++;
+    } else {
+      this.activeGrid.step();
+    }
 
-    // 5. Expire wakeTicks (re-freeze settled, extend for moving)
-    this.expireWakeTicks();
+    // 5. Update freeze state (combined expireWakeTicks + buildSkipMask).
+    //    Expires wakeTicks for settled cells, extends for moving particles,
+    //    re-activates frozen cells that particles moved into, and builds the
+    //    skip mask for the next tick's sand step — all in one pass.
+    this.updateFreezeState();
 
     // 6. Structural integrity check (slow cadence) — demolish solid cells
     //    disconnected from the active-grid border (floating islands). Runs
@@ -1756,12 +1857,12 @@ export class ChunkWorld {
     //    markCellUnfrozen'd so their chunks stay active).
     this.runStructuralIntegrityCheck();
 
-    // 7. Sync back to chunks
+    // 7. Sync back to chunks (only dirty chunks — most are clean)
     this.syncActiveGridToChunks();
 
     // 7b. Douse torches touched by liquids (throttled). Runs AFTER the sync
-    //     and after the sand step + expireWakeTicks so the hot path
-    //     (step → expireWakeTicks → next step) keeps the grid warm in cache.
+    //     and after the sand step + updateFreezeState so the hot path
+    //     (step → updateFreezeState → next step) keeps the grid warm in cache.
     //     The torch index makes this O(torch_count) instead of O(N).
     if (this.currentTick % TORCH_DOUSE_INTERVAL === 0) {
       this.douseTorches();
@@ -1818,6 +1919,8 @@ export class ChunkWorld {
   /**
    * Mark cells within REVEAL_RADIUS of the player as explored in the active
    * explored grid. Uses a filled-circle stamp. Called every tick from step().
+   * Also marks the player's chunk dirty so the explored changes are persisted
+   * to chunk storage on the next sync.
    */
   markExploredAroundPlayer(): void {
     const { x: axF, y: ayF } = this.worldToActive(this.player.x, this.player.y);
@@ -1836,6 +1939,16 @@ export class ChunkWorld {
         // Use 255 so r8unorm normalizes to 1.0 (explored = fully transparent)
         explored[y * ACTIVE_GRID_W + x] = 255;
       }
+    }
+    // Mark the player's chunk dirty so explored changes are persisted.
+    // Without this, dirty-chunk-sync would skip the player's chunk when
+    // nothing else changed (no mining, no particle movement), and the
+    // explored grid wouldn't be saved until a chunk boundary crossing.
+    const pcx = this.activeOriginCx + Math.floor(cx / CHUNK_W);
+    const pcy = this.activeOriginCy + Math.floor(cy / CHUNK_H);
+    if (pcx >= 0 && pcx < MAX_CHUNKS_X) {
+      const chunk = this.chunks.get(chunkKey(pcx, pcy));
+      if (chunk) chunk.dirty = true;
     }
   }
 

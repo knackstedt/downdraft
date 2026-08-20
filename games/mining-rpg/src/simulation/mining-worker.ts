@@ -48,7 +48,14 @@ expose({
     // MAT_DENSITY, etc.) for any game-specific property overrides.
     applyMaterialOverrides();
 
-    world = new ChunkWorld();
+    // Multi-threaded sand step: spawn N sand-step workers (nested workers).
+    // Use min(4, hardwareConcurrency-1) — leave one core for the mining worker
+    // itself + the renderer. Falls back to single-threaded if nested workers
+    // aren't supported or hardwareConcurrency is low.
+    const sandWorkers = Math.min(4, Math.max(0, (navigator.hardwareConcurrency || 4) - 2));
+    world = new ChunkWorld(sandWorkers);
+    // Initialize the sand step pool (spawns nested workers) before starting.
+    await world.initSandStepPool();
     running = true;
     // Start PAUSED — the renderer resumes us after loading save data (if any).
     // Without this, the worker simulates at the default spawn position before
@@ -197,7 +204,7 @@ async function loop(): Promise<void> {
             buildMat: ib[INPUT.BUILD_MAT / 4],
           };
 
-          const collected = world.step(input, currentInventory);
+          const collected = await world.step(input, currentInventory);
           tickCount++;
           if (collected.length > 0) {
             for (const c of collected) anyCollected.push(c);

@@ -355,7 +355,7 @@ test("mining straight down originates from player center, not offset right", () 
 
 // --- Collection ---
 
-test("collect picks up loose ore near player", () => {
+test("collect picks up loose ore near player", async () => {
   const w = new ChunkWorld();
   runIdle(w, 1);
 
@@ -375,7 +375,7 @@ test("collect picks up loose ore near player", () => {
   // Run steps to collect
   let tinCollected: { mat: number; count: number } | undefined;
   for (let i = 0; i < 10; i++) {
-    const collected = w.step({
+    const collected = await w.step({
       left: false, right: false, up: false, down: false,
       jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
     });
@@ -387,7 +387,7 @@ test("collect picks up loose ore near player", () => {
   expect(tinCollected!.count).toBeGreaterThan(0);
 });
 
-test("collect does not pick up frozen ore (embedded in stone)", () => {
+test("collect does not pick up frozen ore (embedded in stone)", async () => {
   const w = new ChunkWorld();
   runIdle(w, 1);
 
@@ -396,7 +396,7 @@ test("collect does not pick up frozen ore (embedded in stone)", () => {
   setMatAtWorld(w, px + 2, py, Material.TinOre);
 
   // Run a step without mining — the ore is frozen (never mined)
-  const collected = w.step({
+  const collected = await w.step({
     left: false, right: false, up: false, down: false,
     jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
   });
@@ -405,7 +405,7 @@ test("collect does not pick up frozen ore (embedded in stone)", () => {
   expect(tinCollected).toBeUndefined();
 });
 
-test("collect respects max inventory size", () => {
+test("collect respects max inventory size", async () => {
   const w = new ChunkWorld();
   runIdle(w, 1);
 
@@ -426,7 +426,7 @@ test("collect respects max inventory size", () => {
   }
 
   // Run a step with full inventory — should NOT collect
-  const collected = w.step({
+  const collected = await w.step({
     left: false, right: false, up: false, down: false,
     jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
   }, fullInventory);
@@ -435,7 +435,7 @@ test("collect respects max inventory size", () => {
   expect(tinCollected).toBeUndefined();
 });
 
-test("collect works when inventory has space", () => {
+test("collect works when inventory has space", async () => {
   const w = new ChunkWorld();
   runIdle(w, 1);
 
@@ -456,7 +456,7 @@ test("collect works when inventory has space", () => {
 
   let tinCollected: { mat: number; count: number } | undefined;
   for (let i = 0; i < 10; i++) {
-    const collected = w.step({
+    const collected = await w.step({
       left: false, right: false, up: false, down: false,
       jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
     }, partialInventory);
@@ -879,7 +879,7 @@ test("respawn clears mining cooldown", () => {
 
 // --- WakeTick transfer bug (cells that fall remain collectible) ---
 
-test("loose ore that falls to a new position is still collectible", () => {
+test("loose ore that falls to a new position is still collectible", async () => {
   // Regression test: when a detached (loose) particle falls via physics,
   // its wakeTick was set at its ORIGINAL position, not its new one.
   // The collect() function checks isCellUnfrozen at the current position,
@@ -909,7 +909,7 @@ test("loose ore that falls to a new position is still collectible", () => {
   // Run several steps to let the ore fall to the floor
   let tinCollected: { mat: number; count: number } | undefined;
   for (let i = 0; i < 30; i++) {
-    const collected = w.step({
+    const collected = await w.step({
       left: false, right: false, up: false, down: false,
       jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
     });
@@ -922,7 +922,7 @@ test("loose ore that falls to a new position is still collectible", () => {
   expect(tinCollected!.count).toBeGreaterThan(0);
 });
 
-test("loose stone debris that falls multiple cells is still collectible", () => {
+test("loose stone debris that falls multiple cells is still collectible", async () => {
   // Regression: stone debris (Gravel/LooseStone from mined stone) falls and
   // should remain collectible at its landing position.
   const w = new ChunkWorld();
@@ -946,7 +946,7 @@ test("loose stone debris that falls multiple cells is still collectible", () => 
   // The debris should fall and be collected
   let debrisCollected: { mat: number; count: number } | undefined;
   for (let i = 0; i < 30; i++) {
-    const collected = w.step({
+    const collected = await w.step({
       left: false, right: false, up: false, down: false,
       jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
     });
