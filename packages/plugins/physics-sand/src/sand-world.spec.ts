@@ -201,6 +201,45 @@ test("wood floats on water (solid less dense than liquid)", () => {
   expect(woodY).toBeLessThan(waterY); // wood is higher (smaller y)
 });
 
+test("oil floats on water and spreads horizontally across the surface", () => {
+  // Regression: oil (density 0.8) rises through water (density 1.0) via
+  // buoyancy, but once at the surface it was trapped in a narrow column
+  // because tryFlow only moves into empty cells — the adjacent cells at the
+  // surface were water. With tryDensityFlow, oil pushes water aside and
+  // spreads across the surface.
+  const w = new SandWorld(16, 20);
+  // Basin walls
+  for (let y = 12; y <= 19; y++) {
+    w.setCell(2, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(13, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  // Fill basin with water (rows 14-18)
+  for (let y = 14; y <= 18; y++) {
+    for (let x = 3; x <= 12; x++) {
+      w.setCell(x, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+    }
+  }
+  // Drop oil in the center of the water pool (4-wide column, 3 tall)
+  for (let y = 15; y <= 17; y++) {
+    for (let x = 6; x <= 9; x++) {
+      w.setCell(x, y, { mat: Material.Oil, lifetime: 0, flags: 0 });
+    }
+  }
+  run(w, 500);
+  // Oil should have risen to the water surface and spread horizontally.
+  let oilTopY = 20;
+  for (let y = 0; y < 20; y++)
+    for (let x = 3; x <= 12; x++)
+      if (matAt(w, x, y) === Material.Oil) oilTopY = Math.min(oilTopY, y);
+  expect(oilTopY).toBeLessThan(20); // oil exists
+  // Oil should spread across multiple columns at the surface (not just the
+  // initial 4-wide column).
+  let oilAtSurface = 0;
+  for (let x = 3; x <= 12; x++)
+    if (matAt(w, x, oilTopY) === Material.Oil) oilAtSurface++;
+  expect(oilAtSurface).toBeGreaterThan(4);
+});
+
 test("iron sinks through water but not mercury", () => {
   // Iron (density 7.8) sinks in water (1.0) but floats on mercury (13.5).
   const w = new SandWorld(16, 16);

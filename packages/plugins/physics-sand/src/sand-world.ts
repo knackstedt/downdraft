@@ -637,9 +637,40 @@ export class SandWorld {
     }
 
     if (isLiquid) {
+      // Buoyancy: a less-dense liquid rises through a denser liquid above it.
+      // This is the mirror of the "heavy liquid sinks through lighter liquid
+      // below" code at the end of tryMove. Without active rising, oil dropped
+      // into water spreads horizontally at the bottom but never reaches the
+      // surface — the passive sinking mechanism is too slow because the
+      // bottom-to-top movement pass lets oil spread sideways before the water
+      // above gets a chance to sink through it.
+      if (dy > 0) {
+        const above = y - 1;
+        if (above >= 0) {
+          const aboveIdx = above * W + x;
+          const abovePacked = this.grid[aboveIdx];
+          if (abovePacked !== 0) {
+            const aboveMat = abovePacked & 0xff;
+            if (!((abovePacked >> 16) & FLAG_UPDATED) &&
+                (MAT_FLAGS[aboveMat] & MAT_LIQUID) &&
+                MAT_DENSITY[aboveMat] > MAT_DENSITY[mat]) {
+              this.grid[aboveIdx] = packed | FLAG_UPDATED_BIT;
+              this.grid[idx] = abovePacked | FLAG_UPDATED_BIT;
+              return;
+            }
+          }
+        }
+      }
+
       const flowDir = this.rng.random() < 0.5 ? -1 : 1;
       if (this.tryFlow(x, y, flowDir, 5)) return;
       if (this.tryFlow(x, y, -flowDir, 5)) return;
+      // Density-based horizontal spread: a less-dense liquid (e.g. oil) can
+      // push through a denser liquid (e.g. water) to spread across its
+      // surface. Without this, oil rises to the top of water in a column but
+      // can't spread sideways because tryFlow only enters empty cells.
+      if (this.tryDensityFlow(x, y, flowDir, mat, packed)) return;
+      if (this.tryDensityFlow(x, y, -flowDir, mat, packed)) return;
     }
 
     // Gas: wider horizontal drift (up to 3 cells) for organic spread
@@ -827,6 +858,40 @@ export class SandWorld {
       }
     }
     return false;
+  }
+
+  /**
+   * Density-based horizontal flow for liquids: a less-dense liquid can swap
+   * with an adjacent denser liquid. This lets oil (density 0.8) spread across
+   * the surface of water (density 1.0). Without this, oil rises to the top of
+   * water in a vertical column but can't spread horizontally because tryFlow
+   * only moves into empty cells, and the adjacent cells at the surface are
+   * water, not empty.
+   *
+   * Only fires when the source is strictly less dense than the destination
+   * (so same-density liquids don't churn). Solids, gases, and already-updated
+   * cells are not displaced.
+   */
+  private tryDensityFlow(
+    x: number, y: number, dir: number,
+    srcMat: number, srcPacked: number,
+  ): boolean {
+    const W = this.W;
+    const nx = x + dir;
+    if (nx < 0 || nx >= W) return false;
+    const destIdx = y * W + nx;
+    const destPacked = this.grid[destIdx];
+    if (destPacked === 0) return false; // empty — tryFlow already handled this
+    const destMat = destPacked & 0xff;
+    // Only displace liquids (not solids, gases, or already-updated cells)
+    if (!(MAT_FLAGS[destMat] & MAT_LIQUID)) return false;
+    if ((destPacked >> 16) & FLAG_UPDATED) return false;
+    // Source must be strictly less dense than destination
+    if (MAT_DENSITY[srcMat] >= MAT_DENSITY[destMat]) return false;
+    // Swap: less-dense liquid moves sideways, denser liquid takes its place
+    this.grid[destIdx] = srcPacked | FLAG_UPDATED_BIT;
+    this.grid[y * W + x] = destPacked | FLAG_UPDATED_BIT;
+    return true;
   }
 
   /**
