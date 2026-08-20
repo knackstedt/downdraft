@@ -22,7 +22,9 @@ import {
     FIELD,
     FLAG_UPDATED,
     LOOSE_STONE_SETTLE_TICKS,
+    MAT_FLAGS,
     MAT_GRAVITY_DIR,
+    MAT_SOLID,
     Material,
     MATERIALS,
     packCell,
@@ -1536,55 +1538,103 @@ export class ChunkWorld {
     const grid = this.activeGrid.grid;
     const visited = this.integrityVisited;
     const queue = this.integrityQueue;
+    const flags = MAT_FLAGS;
+    const solid = MAT_SOLID;
     visited.fill(0);
 
+    // Queue entries pack x into the high bits so the BFS can do bounds checks
+    // without idx % W / idx / W divisions. Layout: bits 0-18 = idx (max
+    // 409599 < 2^19), bits 20-31 = x (max 639 < 2^12). Add a gap bit (19) for
+    // safety so the signed Int32Array never goes negative.
+    const X_SHIFT = 20;
+    const IDX_MASK = 0xFFFFF; // 20 bits
+
     // --- Seed: enqueue every solid cell on the four outer borders ---
+    // Inlined (no closure) so V8 keeps head/tail in registers.
     let head = 0;
     let tail = 0;
-    const enqueueIfSolid = (idx: number): void => {
-      if (visited[idx] !== 0) return;
-      const packed = grid[idx];
-      if (packed === 0) return;
-      const def = MATERIALS[packed & 0xff];
-      if (!def?.solid) return;
-      visited[idx] = 1;
-      queue[tail++] = idx;
-    };
     // Top + bottom rows
     for (let x = 0; x < W; x++) {
-      enqueueIfSolid(x);            // y = 0
-      enqueueIfSolid((H - 1) * W + x); // y = H - 1
+      // y = 0
+      {
+        const idx = x;
+        if (visited[idx] === 0) {
+          const packed = grid[idx];
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
+            visited[idx] = 1;
+            queue[tail++] = (x << X_SHIFT) | idx;
+          }
+        }
+      }
+      // y = H - 1
+      {
+        const idx = (H - 1) * W + x;
+        if (visited[idx] === 0) {
+          const packed = grid[idx];
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
+            visited[idx] = 1;
+            queue[tail++] = (x << X_SHIFT) | idx;
+          }
+        }
+      }
     }
     // Left + right columns (skip corners already done)
     for (let y = 1; y < H - 1; y++) {
-      enqueueIfSolid(y * W);        // x = 0
-      enqueueIfSolid(y * W + (W - 1)); // x = W - 1
+      // x = 0
+      {
+        const idx = y * W;
+        if (visited[idx] === 0) {
+          const packed = grid[idx];
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
+            visited[idx] = 1;
+            queue[tail++] = (0 << X_SHIFT) | idx;
+          }
+        }
+      }
+      // x = W - 1
+      {
+        const idx = y * W + (W - 1);
+        if (visited[idx] === 0) {
+          const packed = grid[idx];
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
+            visited[idx] = 1;
+            queue[tail++] = ((W - 1) << X_SHIFT) | idx;
+          }
+        }
+      }
     }
 
     // --- BFS (4-connected) over solid cells ---
+    // Bounds checks use idx range comparisons (no division):
+    //   Up:   idx >= W           (y > 0)
+    //   Down: idx < downLimit    (y < H - 1)
+    //   Left: x > 0
+    //   Right: x < W - 1
+    const downLimit = (H - 1) * W;
+    const xMax = W - 1;
     while (head < tail) {
-      const idx = queue[head++];
-      const x = idx % W;
-      const y = (idx / W) | 0;
+      const entry = queue[head++];
+      const idx = entry & IDX_MASK;
+      const x = entry >>> X_SHIFT;
       // Up
-      if (y > 0) {
+      if (idx >= W) {
         const nidx = idx - W;
         if (visited[nidx] === 0) {
           const packed = grid[nidx];
-          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
             visited[nidx] = 1;
-            queue[tail++] = nidx;
+            queue[tail++] = (x << X_SHIFT) | nidx;
           }
         }
       }
       // Down
-      if (y < H - 1) {
+      if (idx < downLimit) {
         const nidx = idx + W;
         if (visited[nidx] === 0) {
           const packed = grid[nidx];
-          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
             visited[nidx] = 1;
-            queue[tail++] = nidx;
+            queue[tail++] = (x << X_SHIFT) | nidx;
           }
         }
       }
@@ -1593,27 +1643,31 @@ export class ChunkWorld {
         const nidx = idx - 1;
         if (visited[nidx] === 0) {
           const packed = grid[nidx];
-          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
             visited[nidx] = 1;
-            queue[tail++] = nidx;
+            queue[tail++] = ((x - 1) << X_SHIFT) | nidx;
           }
         }
       }
       // Right
-      if (x < W - 1) {
+      if (x < xMax) {
         const nidx = idx + 1;
         if (visited[nidx] === 0) {
           const packed = grid[nidx];
-          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) {
+          if (packed !== 0 && (flags[packed & 0xff] & solid) !== 0) {
             visited[nidx] = 1;
-            queue[tail++] = nidx;
+            queue[tail++] = ((x + 1) << X_SHIFT) | nidx;
           }
         }
       }
     }
 
     // --- Demolish unreached solid cells ---
+    // Time-budget guard: if the check has run longer than 2ms, defer remaining
+    // demolitions to the next check. Checked every 64 cells to amortize the
+    // performance.now() call. Prevents frame spikes from pathological collapses.
     let demolished = 0;
+    const checkStart = performance.now();
     for (let y = 0; y < H; y++) {
       const rowStart = y * W;
       for (let x = 0; x < W; x++) {
@@ -1623,11 +1677,11 @@ export class ChunkWorld {
         if (packed === 0) continue;
         const mat = packed & 0xff;
         if (mat === Material.Wall) continue; // walls are immune
-        const def = MATERIALS[mat];
-        if (!def?.solid) continue; // liquids/gases left alone
+        if ((flags[mat] & solid) === 0) continue; // liquids/gases left alone
         this.demolishCell(idx, x, y, packed, mat);
         demolished++;
         if (demolished >= this.integrityMaxDemolish) return;
+        if ((demolished & 63) === 0 && performance.now() - checkStart > 2.0) return;
       }
     }
   }

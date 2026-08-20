@@ -156,11 +156,13 @@ export const FREEZE_TICKS = TICK_RATE * 60 * 1;
 // the border (i.e. disconnected from the main world mass) and demolishes them
 // by converting them to loose falling debris (same per-cell logic as explode()).
 //
-// The check is expensive (O(N) BFS over the ~410k-cell active grid), so it runs
-// on a slow cadence and only when terrain was modified since the last check.
+// The check uses typed-array MAT_FLAGS lookups + division-free BFS, so it's
+// cheap enough to run frequently. It only runs when terrain was modified since
+// the last check (static world = no re-check).
 // ============================================================================
-// Ticks between integrity checks. 2 seconds @ 60tps.
-export const INTEGRITY_CHECK_INTERVAL = TICK_RATE * 2;
+// Ticks between integrity checks. ~0.5 seconds @ 60tps — frequent enough that
+// floating islands collapse before the player notices, without per-tick cost.
+export const INTEGRITY_CHECK_INTERVAL = TICK_RATE / 2; // 30 ticks
 // Safety cap on cells demolished per check — prevents a single pathological
 // collapse from causing a multi-tick spike. 20000 is high enough to not limit
 // normal play (a floating island that big is extreme); lower it if frame spikes
