@@ -311,6 +311,38 @@ export const EXPLOSION_LIGHT_RADIUS = 30;
 export const EXPLOSION_LIGHT_COLOR: [number, number, number] = [1.0, 0.8, 0.4];
 export const EXPLOSION_LIGHT_INTENSITY = 2.0;
 
+// --- Volumetric light diffusion (GPU compute pass) ---
+// Light propagates through air/water/solid cells with per-medium coefficients.
+// Air spreads light well, water absorbs it (with a blue-green tint), and solid
+// walls heavily attenuate light (slight bleed only) so caves are visualized
+// with light flooding through air tunnels and dimming in water-filled caverns.
+export interface VolumetricLightConfig {
+  /** Number of Jacobi diffusion iterations per frame (~8 spreads light ~8 cells). */
+  iterations: number;
+  /** Light propagation per iteration through air (0..0.25 for stability). */
+  airPropagation: number;
+  /** Light propagation per iteration through water (lower = more absorption). */
+  waterPropagation: number;
+  /** Light bleed per iteration through solid walls (very low — heavy attenuation). */
+  solidPropagation: number;
+  /** Absorption tint applied to light passing through water (RGB multiplier). */
+  waterAbsorption: [number, number, number];
+  /** Ambient sky light color at the surface. */
+  ambientSurface: [number, number, number];
+  /** Cells below surface for ambient to reach black (quadratic falloff). */
+  ambientDepthFalloff: number;
+}
+
+export const DEFAULT_VOLUMETRIC_LIGHT_CONFIG: VolumetricLightConfig = {
+  iterations: 24,
+  airPropagation: 1,
+  waterPropagation: .8,
+  solidPropagation: .4,
+  waterAbsorption: [0.92, 0.96, 1.0], // slight blue-green absorption per iteration
+  ambientSurface: [0.75, 0.75, 0.70],
+  ambientDepthFalloff: 40,
+};
+
 // ============================================================================
 // SharedArrayBuffer layout for the mining-rpg sim ↔ renderer bridge
 //

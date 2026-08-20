@@ -10,6 +10,7 @@ export class StickmanPass {
   private bindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private lightView: GPUTextureView | null = null;
+  private volumetricView: GPUTextureView | null = null;
   private dummyTexture: GPUTexture | null = null;
   private dummyView: GPUTextureView | null = null;
 
@@ -44,6 +45,7 @@ export class StickmanPass {
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       ],
     });
 
@@ -64,11 +66,13 @@ export class StickmanPass {
   private createBindGroup(): void {
     if (!this.bindGroupLayout || !this.uniformBuffer || !this.dummyView) return;
     const lView = this.lightView ?? this.dummyView;
+    const vView = this.volumetricView ?? this.dummyView;
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
         { binding: 1, resource: lView },
+        { binding: 2, resource: vView },
       ],
     });
   }
@@ -77,6 +81,13 @@ export class StickmanPass {
   setLightTexture(view: GPUTextureView | null): void {
     if (this.lightView === view) return;
     this.lightView = view;
+    this.createBindGroup();
+  }
+
+  /** Set the volumetric light texture view (called each frame by the renderer). */
+  setVolumetricTexture(view: GPUTextureView | null): void {
+    if (this.volumetricView === view) return;
+    this.volumetricView = view;
     this.createBindGroup();
   }
 
