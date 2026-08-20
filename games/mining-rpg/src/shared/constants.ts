@@ -117,6 +117,19 @@ export const MAX_CHUNKS_X = 24;
 // (2*R+1) chunks wide and tall. R=2 → 5x5 chunks → 640x640 cells.
 export const ACTIVE_RADIUS_CHUNKS = 2;
 
+// Near-player radius in chunks. Chunks within this Chebyshev distance of the
+// player's chunk are always kept active (never frozen) and their unfrozen
+// cells have wakeTick re-extended every tick (never expire). Chunks OUTSIDE
+// this radius (the outer ring of the active grid) can freeze when they have
+// no unfrozen cells, reducing the active list and dirty-chunk count.
+//
+// Set to ACTIVE_RADIUS_CHUNKS - 1 so the center 3×3 chunks are always active
+// (player's chunk + 1-ring buffer for particle flow) and the outer ring
+// (distance 2 = 256+ cells, well beyond MAX_MINE_RANGE=30) can freeze.
+// Particles that flow into a frozen chunk re-activate it via the wakeTick
+// mechanism in expireWakeTicks (FLAG_UPDATED detection).
+export const NEAR_PLAYER_RADIUS_CHUNKS = ACTIVE_RADIUS_CHUNKS - 1;
+
 // Simulation tick rate (ticks per second).
 export const TICK_RATE = 60;
 

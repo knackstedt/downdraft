@@ -51,6 +51,17 @@ export class SandWorld {
   // Per-cell physics fields: 4 bytes per cell [gravity:u8, temp:u8, windX:i8, windY:i8]
   fields: Uint8Array;
   frame = 0;
+  // --- Strip mode (multi-threaded sand step) ---
+  // When strip mode is enabled, this SandWorld only processes cells in
+  // [stripStartX, stripEndX). It can READ the full grid (backed by SAB) but
+  // only WRITES to cells in [writeXMin, writeXMax). Cross-strip writes are
+  // skipped (trySwap/tryShove return false), and the coordinator's boundary
+  // cleanup pass handles them after all workers finish.
+  // Defaults: full grid (no restriction) — zero overhead when strip mode is off.
+  stripStartX = 0;
+  stripEndX = 0; // set to W in constructor
+  writeXMin = 0;
+  writeXMax = 0; // set to W in constructor
   // Fast xorshift32 PRNG — replaces Math.random() in hot loops.
   private rng: SandRNG;
   // Data-driven rule engine — replaces hardcoded if-else in applyReactions().
@@ -71,6 +82,15 @@ export class SandWorld {
   // bits 4-7 are available for game-specific flags (e.g. mining-rpg's FLAG_DETACHED).
   // Set this mask so those bits survive the clear. Defaults to 0 (no extra bits).
   preserveFlagsMask = 0;
+  // Flag bits OR'd into the flags of cells disturbed by disturbAdjacent()
+  // (Stone→LooseStone conversions when gravel flows out from under them).
+  // Disturbed cells also get FLAG_UPDATED, but applyAging clears FLAG_UPDATED
+  // before the chunk-world's expireWakeTicks() can detect them in frozen
+  // chunks. Setting a persistent flag here (e.g. mining-rpg's FLAG_DETACHED)
+  // ensures expireWakeTicks can re-activate frozen chunks that contain
+  // disturbed cells. Defaults to 0 (no extra flags). Must be a subset of
+  // preserveFlagsMask so the flag survives the per-frame clear.
+  disturbedFlags = 0;
 
   // --- Reusable per-frame buffers (avoid allocations in hot paths) ---
   // fireSources: marks cells that are fire/lava at the start of applyCombustion.
@@ -126,8 +146,20 @@ export class SandWorld {
   // frame. Used by the mining-rpg chunk world to skip inactive (frozen) chunks.
   // null = no skipping (backward compatible with the original single-grid sim).
   skipMask: Uint8Array | null = null;
+  // Per-column active cell count — SAB-backed when multi-threaded.
+  // Written by each worker during buildActiveListAndClearFlags (only its own
+  // strip's columns). Read by the coordinator after all workers finish to
+  // rebalance strip boundaries for load balancing.
+  histogram: Uint32Array | null = null;
 
-  constructor(w: number, h: number) {
+  constructor(w: number, h: number, options?: {
+    sab?: SharedArrayBuffer;
+    gridOffset?: number;
+    fieldsOffset?: number;
+    skipMaskOffset?: number;
+    histogramOffset?: number;
+    skipStoneFloor?: boolean;
+  }) {
     this.W = w;
     this.H = h;
     const cells = w * h;
@@ -135,8 +167,34 @@ export class SandWorld {
     this.ruleEngine = new RuleEngine();
     this.particles = new ParticleSystem(512);
     this.fluid = new FluidGrid(w, h);
-    this.grid = new Uint32Array(cells);
-    this.fields = new Uint8Array(cells * 4);
+    // Grid + fields can be backed by a SharedArrayBuffer for multi-threaded
+    // sand step. When SAB is provided, all workers share the same grid data.
+    // Otherwise, regular ArrayBuffer (single-threaded, tests, backward compat).
+    if (options?.sab) {
+      const gridBytes = cells * 4;
+      this.grid = new Uint32Array(options.sab, options.gridOffset ?? 0, cells);
+      this.fields = new Uint8Array(options.sab, options.fieldsOffset ?? gridBytes, cells * 4);
+      // Optional SAB-backed skip mask — shared between coordinator and workers.
+      if (options.skipMaskOffset !== undefined) {
+        this.skipMask = new Uint8Array(options.sab, options.skipMaskOffset, cells);
+      }
+      // Optional SAB-backed per-column active cell histogram — used by the
+      // coordinator to rebalance strip boundaries for load balancing.
+      // Each worker writes only to its own strip's columns (no races).
+      if (options.histogramOffset !== undefined) {
+        this.histogram = new Uint32Array(options.sab, options.histogramOffset, w);
+      }
+    } else {
+      this.grid = new Uint32Array(cells);
+      this.fields = new Uint8Array(cells * 4);
+    }
+    // Strip mode defaults: full grid (no restriction). Set by SandStepPool
+    // when creating per-worker SandWorld instances.
+    this.stripStartX = 0;
+    this.stripEndX = w;
+    this.writeXMin = 0;
+    this.writeXMax = w;
+    // Per-worker local arrays (not shared — each worker has its own)
     this.fireSources = new Uint8Array(cells);
     this.visitedFrame = new Uint32Array(cells);
     this.visitedC4Frame = new Uint32Array(cells);
@@ -151,20 +209,46 @@ export class SandWorld {
       this.fields[i + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       this.fields[i + FIELD.TEMP] = DEFAULT_TEMP;
     }
-    // Stone floor
-    for (let x = 0; x < w; x++) {
-      for (let y = h - 4; y < h; y++) {
-        this.grid[y * w + x] = pack({ mat: Material.Stone, lifetime: 0, flags: 0 });
+    if (!options?.skipStoneFloor) {
+      // Stone floor
+      for (let x = 0; x < w; x++) {
+        for (let y = h - 4; y < h; y++) {
+          this.grid[y * w + x] = pack({ mat: Material.Stone, lifetime: 0, flags: 0 });
+        }
+      }
+      // Mark the stone floor chunks as dirty so the first movement pass processes them.
+      this.minActiveY = h - 4;
+      this.maxActiveY = h - 1;
+      for (let cy = 0; cy < this.numChunksY; cy++) {
+        for (let cx = 0; cx < this.numChunksX; cx++) {
+          this.chunkDirty[cy * this.numChunksX + cx] = 1;
+        }
       }
     }
-    // Mark the stone floor chunks as dirty so the first movement pass processes them.
-    this.minActiveY = h - 4;
-    this.maxActiveY = h - 1;
-    for (let cy = 0; cy < this.numChunksY; cy++) {
-      for (let cx = 0; cx < this.numChunksX; cx++) {
-        this.chunkDirty[cy * this.numChunksX + cx] = 1;
-      }
-    }
+  }
+
+  /** Configure strip mode for multi-threaded sand step. */
+  setStripBounds(stripStartX: number, stripEndX: number): void {
+    this.stripStartX = stripStartX;
+    this.stripEndX = stripEndX;
+    this.writeXMin = stripStartX;
+    this.writeXMax = stripEndX;
+  }
+
+  /** Check if a cell at X coordinate can be written (within write bounds). */
+  canWriteX(x: number): boolean {
+    return x >= this.writeXMin && x < this.writeXMax;
+  }
+
+  /** Check if a grid index can be written (within strip write bounds). */
+  canWriteIdx(idx: number): boolean {
+    const x = idx % this.W;
+    return x >= this.writeXMin && x < this.writeXMax;
+  }
+
+  /** Get the active Y bounds [minY, maxY] — used by SandStepPool for boundary cleanup. */
+  getActiveYBounds(): { minY: number; maxY: number } {
+    return { minY: this.minActiveY, maxY: this.maxActiveY };
   }
 
   /** Re-seed the PRNG for deterministic test mode. */
@@ -370,17 +454,19 @@ export class SandWorld {
     // outside [minActiveY, maxActiveY] and empty chunks within those bounds.
     // In interlace mode, we process every Nth row (offset by frame % N) to
     // halve movement cost on low-end devices.
+    // Strip mode: iterate only [stripStartX, stripEndX) in the X dimension.
     const leftToRight = this.frame % 2 === 0;
     const chunkSize = SandWorld.CHUNK_SIZE;
     const numChunksX = this.numChunksX;
     const chunkDirty = this.chunkDirty;
     const interlace = this.interlaceEnabled ? this.interlaceScale : 1;
     const interlaceOffset = this.frame % interlace;
+    const moveX0 = this.stripStartX;
+    const moveX1 = this.stripEndX;
     for (let y = this.maxActiveY; y >= this.minActiveY; y--) {
       // Interlace: skip rows not in this frame's subset
       if (interlace > 1 && (y % interlace) !== interlaceOffset) continue;
       // Skip entire rows that are in non-dirty chunks.
-      // Check if any chunk in this row is dirty; if not, skip the whole row.
       const chunkY = (y / chunkSize) | 0;
       const rowBase = chunkY * numChunksX;
       let rowHasDirty = false;
@@ -389,13 +475,12 @@ export class SandWorld {
       }
       if (!rowHasDirty) continue;
       if (leftToRight) {
-        for (let x = 0; x < W; x++) {
-          // Skip non-dirty chunks within the row
+        for (let x = moveX0; x < moveX1; x++) {
           if (!chunkDirty[rowBase + ((x / chunkSize) | 0)]) continue;
           this.tryMove(x, y);
         }
       } else {
-        for (let x = W - 1; x >= 0; x--) {
+        for (let x = moveX1 - 1; x >= moveX0; x--) {
           if (!chunkDirty[rowBase + ((x / chunkSize) | 0)]) continue;
           this.tryMove(x, y);
         }
@@ -406,7 +491,9 @@ export class SandWorld {
     this.applyCombustion();
 
     // Rebuild active list to capture cells created/destroyed by reactions,
-    // movement, and combustion. This is a cheap full-grid scan (no unpack).
+    // movement, and combustion. Uses the Y bounds from Pass 1 (expanded by a
+    // margin) to avoid a full O(W*H) grid scan — cells can only move a few
+    // positions per frame, so the active Y range can't expand beyond that.
     this.buildActiveList();
 
     // Pass 6: Aging — iterates the rebuilt active list.
@@ -418,6 +505,30 @@ export class SandWorld {
 
     // Pass 8: Update explosion particles.
     this.particles.update();
+  }
+
+  /**
+   * Boundary cleanup movement pass — used by SandStepPool after all strip
+   * workers finish. Re-runs tryMove on the specified columns so cross-strip
+   * writes (which were skipped by write guards during the parallel step) get
+   * a chance to execute.
+   *
+   * This is a movement-only pass — reactions, combustion, and aging already
+   * ran in the workers. We only need to handle the movement writes that were
+   * skipped at the boundaries.
+   *
+   * The caller must set writeXMin/writeXMax to cover the full grid (or at
+   * least the columns adjacent to the boundary columns) so trySwap/tryFlow
+   * can cross strip boundaries.
+   */
+  runBoundaryMovement(cols: number[], minY: number, maxY: number, leftToRight: boolean): void {
+    // Sort columns in the iteration order matching the main movement pass.
+    const sorted = cols.slice().sort((a, b) => leftToRight ? a - b : b - a);
+    for (let y = maxY; y >= minY; y--) {
+      for (const x of sorted) {
+        this.tryMove(x, y);
+      }
+    }
   }
 
   /**
@@ -444,34 +555,50 @@ export class SandWorld {
     const fields = this.fields;
     const active = this.activeCells;
     const W = this.W, H = this.H;
-    const n = W * H;
     const clearMask = ~((0xff & ~(SHADE_MASK | FLAG_SPARK | this.preserveFlagsMask)) << 16);
     const skip = this.skipMask;
     const chunkDirty = this.chunkDirty;
     const numChunksX = this.numChunksX;
     const chunkSize = SandWorld.CHUNK_SIZE;
+    // Strip mode: only scan [stripStartX, stripEndX) in the X dimension.
+    // Flag clearing covers [stripStartX-1, stripEndX+1) to handle halo cells
+    // at strip boundaries (overlap ensures all flags are cleared).
+    const sx0 = this.stripStartX;
+    const sx1 = this.stripEndX;
+    const clearX0 = sx0 > 0 ? sx0 - 1 : 0;
+    const clearX1 = sx1 < W ? sx1 + 1 : W;
     // Reset chunk dirty bitmap and Y bounds — rebuilt from the scan.
     chunkDirty.fill(0);
+    // Per-column active cell histogram — clear our strip's columns then
+    // count during the scan. SAB-backed; each worker only writes its own
+    // columns so there are no races. The coordinator reads it after all
+    // workers finish to rebalance strip boundaries.
+    const histogram = this.histogram;
+    if (histogram !== null) {
+      for (let x = sx0; x < sx1; x++) histogram[x] = 0;
+    }
     let minY = H, maxY = 0;
     let count = 0;
-    for (let i = 0; i < n; i++) {
-      grid[i] &= clearMask;
-      if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
-        // Exclude static solids from the active list — they can never move
-        // and have no reactions/lifetimes. This reduces the active list from
-        // ~300k (all terrain) to ~10-50k (only dynamic cells) in typical play.
-        // Exception: static materials with self-triggered reactions (e.g. Ice
-        // melting) are kept via MAT_HAS_REACTIONS.
-        const mat = grid[i] & 0xff;
-        if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
-        active[count++] = i;
-        const y = (i / W) | 0;
-        const x = i - y * W;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        const cx = (x / chunkSize) | 0;
-        const cy = (y / chunkSize) | 0;
-        chunkDirty[cy * numChunksX + cx] = 1;
+    for (let y = 0; y < H; y++) {
+      const rowBase = y * W;
+      // Clear flags for the extended range (strip + 1-cell halo)
+      for (let x = clearX0; x < clearX1; x++) {
+        grid[rowBase + x] &= clearMask;
+      }
+      // Build active list only for the strip range
+      for (let x = sx0; x < sx1; x++) {
+        const i = rowBase + x;
+        if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
+          const mat = grid[i] & 0xff;
+          if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
+          active[count++] = i;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          const cx = (x / chunkSize) | 0;
+          const cy = (y / chunkSize) | 0;
+          chunkDirty[cy * numChunksX + cx] = 1;
+          if (histogram !== null) histogram[x]++;
+        }
       }
     }
     this.activeCount = count;
@@ -481,12 +608,17 @@ export class SandWorld {
 
   /** Build the active-cell list without clearing flags (for mid-frame rebuild).
    *  Like buildActiveListAndClearFlags, excludes static solids (gravityDir=0)
-   *  from the active list and chunkDirty bitmap. */
+   *  from the active list and chunkDirty bitmap.
+   *
+   *  Optimized: only scans rows within [minActiveY - margin, maxActiveY + margin]
+   *  instead of the full grid. The margin covers cells that moved during the
+   *  movement pass (particles move at most ~5 cells/frame; reactions affect
+   *  only 8-connected neighbors). This reduces the scan from O(W*H) to
+   *  O(W * activeHeight) — typically a 2-4x speedup. */
   private buildActiveList(): void {
     const grid = this.grid;
     const active = this.activeCells;
     const W = this.W, H = this.H;
-    const n = W * H;
     const skip = this.skipMask;
     const chunkDirty = this.chunkDirty;
     const numChunksX = this.numChunksX;
@@ -495,18 +627,28 @@ export class SandWorld {
     chunkDirty.fill(0);
     let minY = H, maxY = 0;
     let count = 0;
-    for (let i = 0; i < n; i++) {
-      if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
-        const mat = grid[i] & 0xff;
-        if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
-        active[count++] = i;
-        const y = (i / W) | 0;
-        const x = i - y * W;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        const cx = (x / chunkSize) | 0;
-        const cy = (y / chunkSize) | 0;
-        chunkDirty[cy * numChunksX + cx] = 1;
+
+    // Only scan rows near the Pass 1 active Y range. Cells can move at most
+    // ~5 cells per frame (liquid flow) and reactions affect 8-connected
+    // neighbors (1 cell). A margin of 8 covers all cases with room to spare.
+    const margin = 8;
+    const startY = Math.max(0, this.minActiveY - margin);
+    const endY = Math.min(H - 1, this.maxActiveY + margin);
+
+    for (let y = startY; y <= endY; y++) {
+      const rowBase = y * W;
+      for (let x = this.stripStartX; x < this.stripEndX; x++) {
+        const i = rowBase + x;
+        if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
+          const mat = grid[i] & 0xff;
+          if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
+          active[count++] = i;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          const cx = (x / chunkSize) | 0;
+          const cy = (y / chunkSize) | 0;
+          chunkDirty[cy * numChunksX + cx] = 1;
+        }
       }
     }
     this.activeCount = count;
@@ -751,6 +893,9 @@ export class SandWorld {
   ): boolean {
     const W = this.W, H = this.H;
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
+    // Strip mode write guard: don't write to cells outside our strip.
+    // The coordinator's boundary cleanup handles deferred cross-strip moves.
+    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
     const destIdx = ny * W + nx;
     const srcIdx = y * W + x;
     const destPacked = this.grid[destIdx];
@@ -832,6 +977,8 @@ export class SandWorld {
   private tryShove(x: number, y: number, nx: number, ny: number, srcPacked: number): boolean {
     const W = this.W, H = this.H;
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
+    // Strip mode write guard
+    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
     const destIdx = ny * W + nx;
     const srcIdx = y * W + x;
     const destPacked = this.grid[destIdx];
@@ -862,6 +1009,8 @@ export class SandWorld {
     for (let step = 1; step <= maxSteps; step++) {
       const nx = x + dir * step;
       if (nx < 0 || nx >= W) return false;
+      // Strip mode write guard
+      if (nx < this.writeXMin || nx >= this.writeXMax) return false;
       const destIdx = y * W + nx;
       if (this.grid[destIdx] !== 0) return false;
 
@@ -903,6 +1052,8 @@ export class SandWorld {
     const W = this.W;
     const nx = x + dir;
     if (nx < 0 || nx >= W) return false;
+    // Strip mode write guard
+    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
     const destIdx = y * W + nx;
     const destPacked = this.grid[destIdx];
     if (destPacked === 0) return false; // empty — tryFlow already handled this
@@ -936,10 +1087,17 @@ export class SandWorld {
   private disturbAdjacent(x: number, y: number): void {
     const W = this.W, H = this.H;
     // Check 4-neighbors (the cell above is most critical — it lost support)
+    // Set disturbedFlags (in addition to FLAG_UPDATED) so the chunk-world's
+    // expireWakeTicks can detect disturbed cells in frozen chunks even after
+    // applyAging clears FLAG_UPDATED. disturbedFlags is persistent (included
+    // in preserveFlagsMask by the game).
+    const extra = this.disturbedFlags | FLAG_UPDATED;
     for (let i = 0; i < 4; i++) {
       const nx = x + DIR_DX[i];
       const ny = y + DIR_DY[i];
       if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+      // Strip mode write guard: skip neighbors outside our write bounds.
+      if (nx < this.writeXMin || nx >= this.writeXMax) continue;
       const nIdx = ny * W + nx;
       const nPacked = this.grid[nIdx];
       if (nPacked === 0) continue;
@@ -950,12 +1108,12 @@ export class SandWorld {
       if (nMat === Material.Stone) {
         // Convert Stone → LooseStone so it can fall if unsupported
         const shade = nFlags & SHADE_MASK;
-        this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | FLAG_UPDATED);
+        this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | extra);
         this.fields[nFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       } else if (nMat === Material.LooseStone) {
         // Reset settle timer to short value, ensure gravity is on
         const shade = nFlags & SHADE_MASK;
-        this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | FLAG_UPDATED);
+        this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | extra);
         this.fields[nFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       }
     }
@@ -981,6 +1139,8 @@ export class SandWorld {
     // Step 1: try to spill into the adjacent cell at the same level
     const nx = x + dir;
     if (nx < 0 || nx >= W) return false;
+    // Strip mode write guard
+    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
     const destIdx = y * W + nx;
     if (this.grid[destIdx] !== 0) return false;
 
@@ -1033,6 +1193,8 @@ export class SandWorld {
     const fields = this.fields;
     const active = this.activeCells;
     const count = this.activeCount;
+    // Strip mode write bounds — neighbor writes outside this range are skipped.
+    const wxMin = this.writeXMin, wxMax = this.writeXMax;
 
     for (let a = 0; a < count; a++) {
       const idx = active[a];
@@ -1058,6 +1220,7 @@ export class SandWorld {
             if (dx === 0 && dy === 0) continue;
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
             const nMat = grid[ny * W + nx] & 0xff;
             if (nMat !== Material.Empty && nMat !== Material.Antimatter && nMat !== Material.Wall) {
               // Annihilate both
@@ -1079,6 +1242,7 @@ export class SandWorld {
             if (dx === 0 && dy === 0) continue;
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
             const nMat = grid[ny * W + nx] & 0xff;
             if (nMat !== Material.Empty && nMat !== Material.Plasma && nMat !== Material.Wall) {
               if (this.rng.random() < 0.3) {
@@ -1095,7 +1259,7 @@ export class SandWorld {
       if (mat === Material.Mystery) {
         const phase = Math.sin(this.frame * 0.1 + x * 0.3 + y * 0.2);
         if (phase > 0.9 && this.rng.random() < 0.1) {
-          // Emit plasma occasionally
+          // Emit plasma occasionally (same X, always in strip)
           if (y > 0 && grid[(y - 1) * W + x] === 0) {
             grid[(y - 1) * W + x] = packCell(Material.Plasma, 20, this.rng.randomShade());
           }
@@ -1106,7 +1270,7 @@ export class SandWorld {
           const di = Math.floor(this.rng.random() * 4) * 2;
           const dx = MYSTERY_DIRS[di], dy = MYSTERY_DIRS[di + 1];
           const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && nx < W && ny >= 0 && ny < H) {
+          if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax) {
             const nMat = grid[ny * W + nx] & 0xff;
             if (nMat !== Material.Empty && nMat !== Material.Wall && nMat !== Material.Mystery) {
               grid[ny * W + nx] = 0;
@@ -1119,6 +1283,7 @@ export class SandWorld {
       // --- Gasoline: slowly vaporizes into gas vapor ---
       if (mat === Material.Gasoline) {
         if (this.rng.random() < 0.005) {
+          // Same X as source, always in strip
           if (y > 0 && grid[(y - 1) * W + x] === 0) {
             grid[(y - 1) * W + x] = packCell(Material.GasVapor, 200, this.rng.randomShade());
             // Small chance to consume the gasoline
@@ -1139,6 +1304,7 @@ export class SandWorld {
             if (dx === 0 && dy === 0) continue;
             const nx = x + dx;
             if (nx < 0 || nx >= W) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
             const nMat = grid[ny * W + nx] & 0xff;
             if (nMat === Material.Water) { waterNi = ny * W + nx; }
             else if (nMat === Material.Snow) { hasSnow = true; }
@@ -1158,6 +1324,7 @@ export class SandWorld {
           for (let ry = y - 3; ry <= y + 3 && dissolved < 10; ry++) {
             for (let rx = x - 3; rx <= x + 3 && dissolved < 10; rx++) {
               if (rx < 0 || rx >= W || ry < 0 || ry >= H) continue;
+              if (rx < wxMin || rx >= wxMax) continue;
               const ridx = ry * W + rx;
               if ((grid[ridx] & 0xff) === Material.Snow) {
                 grid[ridx] = packCell(Material.Water, 0, this.rng.randomShade());
@@ -1189,6 +1356,7 @@ export class SandWorld {
             if (dx === 0 && dy === 0) continue;
             const nx = x + dx;
             if (nx < 0 || nx >= W) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
             const nMat = grid[ny * W + nx] & 0xff;
             if (nMat === Material.Water) { waterNi = ny * W + nx; }
             else if (nMat === Material.DryIce) { dryIceNi = ny * W + nx; }
@@ -1220,6 +1388,7 @@ export class SandWorld {
             if (dx === 0 && dy === 0) continue;
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
             const ni = ny * W + nx;
             const nMat = grid[ni] & 0xff;
             if ((MAT_FLAGS[nMat] & MAT_FLAMMABLE) && this.rng.random() < 0.15) {
@@ -1247,6 +1416,7 @@ export class SandWorld {
             if (dx === 0 && dy === 0) continue;
             const nx = x + dx;
             if (nx < 0 || nx >= W) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
             if ((grid[ny * W + nx] & 0xff) === Material.Water) { waterNi = ny * W + nx; break; }
           }
           if (waterNi >= 0) break;
@@ -1360,7 +1530,7 @@ export class SandWorld {
         const di = Math.floor(this.rng.random() * 8) * 2;
         const dx = NANOBOT_DIRS[di], dy = NANOBOT_DIRS[di + 1];
         const nx = x + dx, ny = y + dy;
-        if (nx >= 0 && nx < W && ny >= 0 && ny < H) {
+        if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax) {
           const ni = ny * W + nx;
           const nMat = grid[ni] & 0xff;
           if (nMat === Material.Empty) {
@@ -1406,7 +1576,7 @@ export class SandWorld {
           const dx = Math.floor(this.rng.random() * 3) - 1;
           const dy = Math.floor(this.rng.random() * 3) - 1;
           const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && nx < W && ny >= 0 && ny < H && grid[ny * W + nx] === 0) {
+          if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax && grid[ny * W + nx] === 0) {
             grid[ny * W + nx] = packCell(Material.Fireflies, 255, this.rng.randomShade());
           }
         }
@@ -1435,7 +1605,7 @@ export class SandWorld {
           for (let di = 0; di < 16; di += 2) {
             if (this.rng.random() < 0.6) {
               const nx = x + POPCORN_DIRS[di], ny = y + POPCORN_DIRS[di + 1];
-              if (nx >= 0 && nx < W && ny >= 0 && ny < H && grid[ny * W + nx] === 0) {
+              if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax && grid[ny * W + nx] === 0) {
                 grid[ny * W + nx] = packCell(Material.Popcorn, 0, this.rng.randomShade());
               }
             }
@@ -1734,7 +1904,7 @@ export class SandWorld {
           const rdx = Math.floor(this.rng.random() * 3) - 1;
           const rdy = Math.floor(this.rng.random() * 3) - 1;
           const ex = x + rdx, ey = y + rdy;
-          if (ex >= 0 && ex < W && ey >= 0 && ey < H && grid[ey * W + ex] === 0) {
+          if (ex >= 0 && ex < W && ey >= 0 && ey < H && ex >= wxMin && ex < wxMax && grid[ey * W + ex] === 0) {
             grid[ey * W + ex] = packCell(Material.Fireflies, 255, this.rng.randomShade());
           }
         }
@@ -1811,11 +1981,15 @@ export class SandWorld {
   private explode(cx: number, cy: number, radius: number): void {
     const W = this.W, H = this.H;
     const grid = this.grid;
+    const wxMin = this.writeXMin, wxMax = this.writeXMax;
     for (let y = cy - radius; y <= cy + radius; y++) {
       for (let x = cx - radius; x <= cx + radius; x++) {
         const dist = (x - cx) * (x - cx) + (y - cy) * (y - cy);
         if (dist > radius * radius) continue;
         if (x < 0 || x >= W || y < 0 || y >= H) continue;
+        // Strip mode write guard — explosions don't cross strip boundaries.
+        // The coordinator's boundary cleanup re-runs explosions that span strips.
+        if (x < wxMin || x >= wxMax) continue;
         const mat = grid[y * W + x] & 0xff;
         if (mat === Material.Wall) continue;
         // Don't destroy C4 in the blast — let detonateC4 handle chain reactions
@@ -1907,9 +2081,10 @@ export class SandWorld {
   private growTree(x: number, y: number): void {
     const W = this.W, H = this.H;
     const grid = this.grid;
-    // Remove seed, place root
+    const wxMin = this.writeXMin, wxMax = this.writeXMax;
+    // Remove seed, place root (same X as source, always in strip)
     grid[y * W + x] = packCell(Material.Root, 0, this.rng.randomShade());
-    // Grow trunk upward
+    // Grow trunk upward (same X, always in strip)
     const trunkHeight = 8 + Math.floor(this.rng.random() * 8);
     let topY = y;
     for (let i = 1; i <= trunkHeight; i++) {
@@ -1925,6 +2100,7 @@ export class SandWorld {
       for (let dx = -canopyRadius; dx <= canopyRadius; dx++) {
         const lx = x + dx, ly = topY + dy - canopyRadius;
         if (lx < 0 || lx >= W || ly < 0 || ly >= H) continue;
+        if (lx < wxMin || lx >= wxMax) continue;
         const dist = dx * dx + dy * dy;
         if (dist > canopyRadius * canopyRadius) continue;
         if (grid[ly * W + lx] !== 0) continue;
@@ -1976,6 +2152,8 @@ export class SandWorld {
     const fields = this.fields;
     const active = this.activeCells;
     const count = this.activeCount;
+    // Strip mode write bounds
+    const wxMin = this.writeXMin, wxMax = this.writeXMax;
 
     // Snapshot which cells are fire/lava at the start of this pass.
     // Only these cells can spread fire — newly ignited cells wait until next frame.
@@ -2013,6 +2191,7 @@ export class SandWorld {
           if (dx === 0 && dy === 0) continue;
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < wxMin || nx >= wxMax) continue;
           const ni = ny * W + nx;
           const nMat = grid[ni] & 0xff;
           if (!(MAT_FLAGS[nMat] & MAT_FLAMMABLE)) continue;
@@ -2104,7 +2283,7 @@ export class SandWorld {
         if (this.rng.random() < 0.5) {
           const sx = x + Math.floor(this.rng.random() * 3) - 1;
           const sy = y - 1 - Math.floor(this.rng.random() * 2); // 1-2 cells above
-          if (sx >= 0 && sx < W && sy >= 0 && sy < H && grid[sy * W + sx] === 0) {
+          if (sx >= 0 && sx < W && sy >= 0 && sy < H && sx >= wxMin && sx < wxMax && grid[sy * W + sx] === 0) {
             // Sparks: very short lifetime, expire to empty (not smoke) so they
             // don't accumulate and suffocate the burn when going upward.
             grid[sy * W + sx] = packCell(Material.Fire, 6, this.rng.randomShade() | FLAG_SPARK);
@@ -2121,6 +2300,7 @@ export class SandWorld {
           if (dx === 0 && dy === 0) continue;
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < wxMin || nx >= wxMax) continue;
           const ni = ny * W + nx;
           if (visitedFrame[ni] === frame) continue;
           if ((grid[ni] & 0xff) === Material.Fuse) {
@@ -2159,7 +2339,7 @@ export class SandWorld {
         if (this.rng.random() < 0.4) {
           const sx = x + Math.floor(this.rng.random() * 3) - 1;
           const sy = y - 1 - Math.floor(this.rng.random() * 2); // 1-2 cells above
-          if (sx >= 0 && sx < W && sy >= 0 && sy < H && grid[sy * W + sx] === 0) {
+          if (sx >= 0 && sx < W && sy >= 0 && sy < H && sx >= wxMin && sx < wxMax && grid[sy * W + sx] === 0) {
             grid[sy * W + sx] = packCell(Material.Fire, 20, this.rng.randomShade());
             // Give the flame upward velocity + random horizontal drift via the fluid grid
             const driftX = (this.rng.random() * 5 - 2) * 0.1; // -0.2 to 0.2
@@ -2177,6 +2357,7 @@ export class SandWorld {
           if (dx === 0 && dy === 0) continue;
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < wxMin || nx >= wxMax) continue;
           const ni = ny * W + nx;
           if (visitedFrame[ni] === frame) continue;
           // Oil only ignites if it has air exposure (empty/gas neighbor) —

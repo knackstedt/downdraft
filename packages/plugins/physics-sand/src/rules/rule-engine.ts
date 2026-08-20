@@ -144,6 +144,11 @@ function executeActions(
   mat: number,
   rng: { randomShade(): number; random(): number },
 ): void {
+  // Write bounds for strip mode — neighbor transforms that would write
+  // outside the strip are skipped (the coordinator's boundary cleanup
+  // handles them). Self transforms are always safe (the cell is in the strip).
+  const writeXMin = world.writeXMin;
+  const writeXMax = world.writeXMax;
   for (let i = 0; i < rule.actionCount; i++) {
     const type = rule.actionTypes[i];
     switch (type) {
@@ -162,6 +167,7 @@ function executeActions(
           const nx = x + DIR_DX[d];
           const ny = y + DIR_DY[d];
           if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < writeXMin || nx >= writeXMax) continue;
           const ni = ny * W + nx;
           const nMat = grid[ni] & 0xff;
           if (matchNeighbor(mk, mv, nMat)) {
@@ -179,6 +185,7 @@ function executeActions(
           const nx = x + DIR_DX[d];
           const ny = y + DIR_DY[d];
           if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < writeXMin || nx >= writeXMax) continue;
           const ni = ny * W + nx;
           const nMat = grid[ni] & 0xff;
           if (matchNeighbor(mk, mv, nMat)) {
@@ -199,6 +206,7 @@ function executeActions(
           const nx = x + DIR_DX[d];
           const ny = y + DIR_DY[d];
           if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < writeXMin || nx >= writeXMax) continue;
           const ni = ny * W + nx;
           const nMat = grid[ni] & 0xff;
           if (matchNeighbor(mk, mv, nMat)) {

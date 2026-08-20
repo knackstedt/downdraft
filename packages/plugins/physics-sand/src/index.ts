@@ -56,6 +56,7 @@ export {
 } from "./materials";
 export type { MaterialDef } from "./materials";
 
+export { SandStepPool, type SandStepPoolOptions } from "./sand-step-pool";
 export { GRAVEL_DISTURB_SETTLE_TICKS, LOOSE_STONE_SETTLE_TICKS, SandWorld } from "./sand-world";
 
 // Generic grid-based SharedArrayBuffer framework for sand/grid games
