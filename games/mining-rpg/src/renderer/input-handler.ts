@@ -24,6 +24,10 @@ export interface MiningInputState {
   //   zoom *= ZOOM_STEP_FACTOR ^ zoomDelta
   // then resets it to 0.
   zoomDelta: number;
+  // Edge-triggered: set true on F keydown, consumed by the renderer each frame.
+  fPressed: boolean;
+  // Edge-triggered: set true on G keydown, consumed by the renderer each frame.
+  gPressed: boolean;
 }
 
 export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInputState {
@@ -45,6 +49,8 @@ export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInput
     mouseY: rect0.height / 2,
     digRadius: 3,
     zoomDelta: 0,
+    fPressed: false,
+    gPressed: false,
   };
 
   const keyMap: Record<string, keyof MiningInputState> = {
@@ -79,6 +85,13 @@ export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInput
       e.preventDefault();
     } else if (e.key === "-" || e.key === "_") {
       state.zoomDelta -= 1;
+      e.preventDefault();
+    } else if (e.key === "f" || e.key === "F") {
+      // Edge-triggered: set true, renderer consumes and resets to false
+      state.fPressed = true;
+      e.preventDefault();
+    } else if (e.key === "g" || e.key === "G") {
+      state.gPressed = true;
       e.preventDefault();
     }
   });

@@ -30,6 +30,12 @@ interface RenderedExplosion {
   progress: number;
 }
 
+interface RenderedGlowstick {
+  x: number;
+  y: number;
+  color: [number, number, number];
+}
+
 export function BombOverlay() {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -45,6 +51,7 @@ export function BombOverlay() {
         | {
             getBombs?: () => RenderedBomb[];
             getExplosions?: () => RenderedExplosion[];
+            getGlowsticks?: () => RenderedGlowstick[];
             getCamera?: () => Camera2D;
           }
         | null;
@@ -53,8 +60,9 @@ export function BombOverlay() {
         const dpr = window.devicePixelRatio || 1;
         const bombs = renderer.getBombs();
         const explosions = renderer.getExplosions();
+        const glowsticks = renderer.getGlowsticks?.() ?? [];
 
-        // Build inner HTML for bombs + explosions
+        // Build inner HTML for bombs + explosions + glowsticks
         let html = "";
         for (const b of bombs) {
           const s = worldToScreen(cam, b.x, b.y);
@@ -70,6 +78,16 @@ export function BombOverlay() {
           const radius = 6 * 4 * (0.3 + e.progress * 0.7); // BOMB_RADIUS * zoom-ish
           const alpha = 1 - e.progress;
           html += `<div style="position:absolute;left:${cssX - radius}px;top:${cssY - radius}px;width:${radius * 2}px;height:${radius * 2}px;border-radius:50%;background:radial-gradient(circle,rgba(255,200,0,${alpha * 0.8}) 0%,rgba(255,100,0,${alpha * 0.5}) 40%,rgba(200,50,0,0) 70%);"></div>`;
+        }
+        for (const g of glowsticks) {
+          const s = worldToScreen(cam, g.x, g.y);
+          const cssX = s.x / dpr;
+          const cssY = s.y / dpr;
+          const r = Math.round(g.color[0] * 255);
+          const gr = Math.round(g.color[1] * 255);
+          const bl = Math.round(g.color[2] * 255);
+          const size = 6;
+          html += `<div style="position:absolute;left:${cssX - size / 2}px;top:${cssY - size / 2}px;width:${size}px;height:${size}px;border-radius:50%;background:rgb(${r},${gr},${bl});box-shadow:0 0 8px 2px rgba(${r},${gr},${bl},0.8);"></div>`;
         }
         container.innerHTML = html;
       }

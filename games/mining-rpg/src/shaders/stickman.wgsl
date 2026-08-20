@@ -15,10 +15,12 @@ struct PlayerUniforms {
 };
 
 @group(0) @binding(0) var<uniform> u: PlayerUniforms;
+@group(0) @binding(1) var lightTex: texture_2d<f32>;
 
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) color: vec3<f32>,
+  @location(1) localPos: vec2<f32>,
 };
 
 // Convert world cell coords to clip space using camera
@@ -118,10 +120,15 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VSOut {
   let clip = worldToClip(p.x, p.y);
   out.pos = vec4<f32>(clip, 0.0, 1.0);
   out.color = col;
+  out.localPos = vec2<f32>(p.x, p.y);
   return out;
 }
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.color, 1.0);
+  // Sample the light accumulation texture at the player's local position (half-res)
+  let lightCoords = vec2<i32>(i32(in.localPos.x) / 2, i32(in.localPos.y) / 2);
+  let lightSample = textureLoad(lightTex, lightCoords, 0);
+  let lighting = lightSample.rgb;
+  return vec4<f32>(in.color * lighting, 1.0);
 }

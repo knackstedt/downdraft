@@ -426,6 +426,7 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
   const grid = new Uint32Array(cells);
   const fields = new Uint8Array(cells * 4);
   const bgGrid = new Uint32Array(cells); // background layer — empty (no build materials)
+  const explored = new Uint8Array(cells); // fog-of-war — all unexplored
   const wakeTick = new Uint32Array(cells); // all frozen
 
   // Initialize fields to defaults (gravity=128, temp=128)
@@ -538,6 +539,7 @@ export function generateChunk(cx: number, cy: number, seed: number): Chunk {
     grid,
     fields,
     bgGrid,
+    explored,
     wakeTick,
     generated: true,
     dirty: false,

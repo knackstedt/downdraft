@@ -106,6 +106,7 @@ export enum Material {
   Scaffolding = 93,  // wooden plank — solid, static, stand on it
   Ladder = 94,       // wooden ladder — non-solid, climbable
   Rope = 95,         // fiber rope — non-solid, climbable
+  Torch = 96,        // placeable torch — static, emits light (mining-rpg)
 }
 
 export const MAX_MATERIAL = 256;
@@ -308,6 +309,10 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // Rope: fiber rope. Non-solid + climbable; gravity=0 so it stays put.
   // Flammable. Blocks falling particles.
   [Material.Rope]: def(95, "Rope", [0.78, 0.66, 0.40, 1.0], { density: 0.3, flammable: true, burnTime: 120, climbable: true, albedo: 0.4 }),
+  // Torch: placeable light source. Static (gravity=0), non-solid, emits warm
+  // orange light (handled by the mining-rpg lighting system, not physics).
+  // Non-flammable so it doesn't burn away. Bright color so it's visible.
+  [Material.Torch]: def(96, "Torch", [0.9, 0.5, 0.2, 1.0], { density: 0.4, albedo: 0.6, brightness: 1.5 }),
 };
 
 export function getMaterialColor(mat: Material): [number, number, number, number] {

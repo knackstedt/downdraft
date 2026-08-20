@@ -33,6 +33,8 @@ export class SandGridPass {
   // 1x1 dummy texture for the "behind" binding (unused in mining-rpg for now)
   private dummyTexture: GPUTexture | null = null;
   private dummyView: GPUTextureView | null = null;
+  // Light texture view (set each frame by the renderer)
+  private lightView: GPUTextureView | null = null;
   gridW: number;
   gridH: number;
 
@@ -108,6 +110,7 @@ export class SandGridPass {
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       ],
     });
 
@@ -151,6 +154,8 @@ export class SandGridPass {
   private createBindGroup(): void {
     if (!this.bindGroupLayout || !this.gridView || !this.paletteView || !this.propsView ||
         !this.uniformBuffer || !this.cameraBuffer || !this.dummyView) return;
+    // Use a 1x1 dummy texture for the light binding if no light view is set yet
+    const lView = this.lightView ?? this.dummyView;
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
@@ -160,8 +165,16 @@ export class SandGridPass {
         { binding: 3, resource: this.dummyView },
         { binding: 4, resource: { buffer: this.uniformBuffer } },
         { binding: 5, resource: { buffer: this.cameraBuffer } },
+        { binding: 6, resource: lView },
       ],
     });
+  }
+
+  /** Set the light accumulation texture view (called each frame by the renderer). */
+  setLightTexture(view: GPUTextureView | null): void {
+    if (this.lightView === view) return;
+    this.lightView = view;
+    this.createBindGroup();
   }
 
   resize(gridW: number, gridH: number): void {

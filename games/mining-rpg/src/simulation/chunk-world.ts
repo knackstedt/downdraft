@@ -48,16 +48,24 @@ import {
     GRAVEL_HARDNESS,
     INVENTORY_SIZE_UPGRADE_INCREMENT,
     isCollectible,
+    LIGHT_GRID_STRIDE,
+    LIGHT_SCAN_INTERVAL,
+    LIGHT_STRUCT_FLOATS,
     LOOSE_STONE_HARDNESS,
     MAX_CHUNKS_X,
     MAX_MINE_RANGE,
+    MAX_WORLD_LIGHTS,
     ORE_HARDNESS,
     OXYGEN_MAX_TICKS,
     PLAYER_H,
     PLAYER_W,
     RADIUS_UPGRADE_INCREMENT,
     RATE_UPGRADE_REDUCTION,
+    REVEAL_RADIUS,
     STONE_HARDNESS,
+    TORCH_LIGHT_COLOR,
+    TORCH_LIGHT_INTENSITY,
+    TORCH_LIGHT_RADIUS,
     WORLD_SEED,
     type BuildMaterialType
 } from "../shared/constants";
@@ -81,6 +89,23 @@ const FLAG_DETACHED = 0x10;
 
 function chunkKey(cx: number, cy: number): string {
   return `${cx},${cy}`;
+}
+
+/**
+ * Light properties for emitting materials (lava, fire, plasma, etc.).
+ * Returns null for non-emitting materials. The worker uses this to build
+ * the dynamic light list each scan.
+ */
+function materialLight(mat: number): { color: [number, number, number]; intensity: number; radius: number } | null {
+  switch (mat) {
+    case Material.Lava: return { color: [1.0, 0.4, 0.05], intensity: 1.0, radius: 15 };
+    case Material.Fire: return { color: [1.0, 0.5, 0.1], intensity: 0.8, radius: 12 };
+    case Material.BurningOil: return { color: [0.9, 0.4, 0.1], intensity: 0.7, radius: 12 };
+    case Material.Plasma: return { color: [0.6, 0.8, 1.0], intensity: 1.0, radius: 15 };
+    case Material.FuseFire: return { color: [1.0, 0.7, 0.2], intensity: 0.8, radius: 12 };
+    case Material.Fireflies: return { color: [0.8, 1.0, 0.4], intensity: 0.3, radius: 8 };
+    default: return null;
+  }
 }
 
 export class ChunkWorld {
@@ -120,7 +145,7 @@ export class ChunkWorld {
   // Build material counts (scaffolding/ladder/rope). The worker is the single
   // source of truth — placement consumes from here, purchases add to here.
   // The renderer mirrors these for display via the "buildMaterials" event.
-  buildMaterials: BuildMaterials = { scaffolding: 0, ladder: 0, rope: 0 };
+  buildMaterials: BuildMaterials = { scaffolding: 0, ladder: 0, rope: 0, torch: 0 };
   // Background grid: build materials layer at the same resolution as the
   // active grid. Stores placed scaffolding/ladder/rope cells. The player
   // physics checks this grid for solid (scaffolding) and climbable
@@ -129,6 +154,16 @@ export class ChunkWorld {
   // Synced to/from chunks during active grid rebuilds, and written to the
   // SAB each tick for the renderer's background pass.
   backgroundGrid: Uint32Array;
+  // Fog-of-war: 1 byte per cell in the active grid (0 = unexplored,
+  // 1 = explored). Synced to/from chunks during active grid rebuilds and
+  // written to the SAB each tick for the renderer's fog pass.
+  exploredGrid: Uint8Array;
+  // Light list: packed light structs (posX, posY, r, g, b, intensity, radius,
+  // pad) for emitting cells (lava, fire, torches). Scanned every
+  // LIGHT_SCAN_INTERVAL ticks and written to the SAB for the renderer's
+  // light accumulation pass.
+  lightList: Float32Array;
+  lightCount = 0;
   // World config
   readonly seed: number;
 
@@ -138,6 +173,8 @@ export class ChunkWorld {
     this.skipMask = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.cellDamage = new Float32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
     this.backgroundGrid = new Uint32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
+    this.exploredGrid = new Uint8Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
+    this.lightList = new Float32Array(MAX_WORLD_LIGHTS * LIGHT_STRUCT_FLOATS);
     this.activeGrid.skipMask = this.skipMask;
     // Preserve FLAG_DETACHED (bit 4 of the flags byte) across the physics
     // engine's per-frame FLAG_UPDATED clear. Without this, the detached bit
@@ -261,14 +298,16 @@ export class ChunkWorld {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
     const bgGrid = this.backgroundGrid;
+    const explored = this.exploredGrid;
 
     // Copy out the old active grid + background grid back to chunk storage
     // using the PREVIOUS origin — the grid data is still laid out for the old origin.
     this.syncActiveGridToChunks(this.prevOriginCx, this.prevOriginCy);
 
-    // Clear the active grid + background grid
+    // Clear the active grid + background grid + explored grid
     grid.fill(0);
     bgGrid.fill(0);
+    explored.fill(0);
     fields.fill(DEFAULT_TEMP);
     this.cellDamage.fill(0);
     for (let i = 0; i < ACTIVE_GRID_W * ACTIVE_GRID_H * 4; i += 4) {
@@ -276,7 +315,7 @@ export class ChunkWorld {
       fields[i + FIELD.TEMP] = DEFAULT_TEMP;
     }
 
-    // Copy each chunk in the active window into the active grid + background grid
+    // Copy each chunk in the active window into the active grid + background grid + explored grid
     for (let dcy = 0; dcy < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcy++) {
       for (let dcx = 0; dcx < 2 * ACTIVE_RADIUS_CHUNKS + 1; dcx++) {
         const cx = this.activeOriginCx + dcx;
@@ -302,6 +341,15 @@ export class ChunkWorld {
           const dstRow = (offsetY + y) * ACTIVE_GRID_W + offsetX;
           bgGrid.set(
             chunk.bgGrid.subarray(srcRow, srcRow + CHUNK_W),
+            dstRow,
+          );
+        }
+        // Copy explored grid
+        for (let y = 0; y < CHUNK_H; y++) {
+          const srcRow = y * CHUNK_W;
+          const dstRow = (offsetY + y) * ACTIVE_GRID_W + offsetX;
+          explored.set(
+            chunk.explored.subarray(srcRow, srcRow + CHUNK_W),
             dstRow,
           );
         }
@@ -383,6 +431,7 @@ export class ChunkWorld {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
     const bgGrid = this.backgroundGrid;
+    const explored = this.exploredGrid;
     const ocx = originCx ?? this.activeOriginCx;
     const ocy = originCy ?? this.activeOriginCy;
 
@@ -414,6 +463,15 @@ export class ChunkWorld {
           const dstRow = y * CHUNK_W;
           chunk.bgGrid.set(
             bgGrid.subarray(srcRow, srcRow + CHUNK_W),
+            dstRow,
+          );
+        }
+        // Copy explored grid back
+        for (let y = 0; y < CHUNK_H; y++) {
+          const srcRow = (offsetY + y) * ACTIVE_GRID_W + offsetX;
+          const dstRow = y * CHUNK_W;
+          chunk.explored.set(
+            explored.subarray(srcRow, srcRow + CHUNK_W),
             dstRow,
           );
         }
@@ -603,7 +661,9 @@ export class ChunkWorld {
       if (bgPacked !== 0) {
         const bgMat = bgPacked & 0xff;
         const bgDef = MATERIALS[bgMat];
-        if (bgDef?.solid || bgDef?.climbable) {
+        // Build materials are hit if solid, climbable, or a known build type
+        // (torch is neither solid nor climbable but should be mineable)
+        if (bgDef?.solid || bgDef?.climbable || buildMaterialTypeFromId(bgMat) !== null) {
           hitX = cx;
           hitY = cy;
           hitBg = true;
@@ -821,6 +881,72 @@ export class ChunkWorld {
   }
 
   /**
+   * Place a torch via raycast from the player center toward the target world
+   * coords. Walks in 1-cell steps from the player toward the target, placing
+   * the torch at the first valid cell (empty foreground, empty background,
+   * within range, not inside the player body). Returns true on success.
+   */
+  placeTorchRaycast(targetX: number, targetY: number): boolean {
+    if (this.buildMaterials.torch <= 0) return false;
+
+    const fgGrid = this.activeGrid.grid;
+    const bgGrid = this.backgroundGrid;
+    const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
+    const pcx = paxF + PLAYER_W / 2;
+    const pcy = payF + PLAYER_H / 2;
+    const bodyX0 = Math.floor(paxF - PLAYER_W / 2);
+    const bodyX1 = Math.floor(paxF + PLAYER_W / 2);
+    const bodyY0 = Math.floor(payF);
+    const bodyY1 = Math.floor(payF + PLAYER_H - 1);
+    const maxR2 = MAX_MINE_RANGE * MAX_MINE_RANGE;
+
+    // Direction from player center to target
+    const { x: taxF, y: tayF } = this.worldToActive(targetX, targetY);
+    let dx = taxF - pcx;
+    let dy = tayF - pcy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.001) return false;
+    dx /= dist;
+    dy /= dist;
+
+    // Walk from player center toward the target in 1-cell steps
+    const maxSteps = Math.min(Math.ceil(dist), MAX_MINE_RANGE + 2);
+    for (let step = 1; step <= maxSteps; step++) {
+      const x = Math.floor(pcx + dx * step);
+      const y = Math.floor(pcy + dy * step);
+      if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) break;
+      const rdx = x - pcx;
+      const rdy = y - pcy;
+      if (rdx * rdx + rdy * rdy > maxR2) break;
+      // Skip cells inside the player body
+      if (x >= bodyX0 && x <= bodyX1 && y >= bodyY0 && y <= bodyY1) continue;
+      const idx = y * ACTIVE_GRID_W + x;
+      const fgPacked = fgGrid[idx];
+      // Must be empty foreground (or non-solid)
+      if (fgPacked !== 0 && MATERIALS[fgPacked & 0xff]?.solid) continue;
+      // Must be empty background
+      if (bgGrid[idx] !== 0) continue;
+      // Place the torch in the background grid
+      bgGrid[idx] = packCell(Material.Torch, 0, 0);
+      this.buildMaterials.torch--;
+      // Mark the chunk dirty for saving
+      const cx = this.activeOriginCx + Math.floor(x / CHUNK_W);
+      const cy = this.activeOriginCy + Math.floor(y / CHUNK_H);
+      const chunk = this.chunks.get(chunkKey(cx, cy));
+      if (chunk) {
+        const lx = x - Math.floor(x / CHUNK_W) * CHUNK_W;
+        const ly = y - Math.floor(y / CHUNK_H) * CHUNK_H;
+        chunk.bgGrid[ly * CHUNK_W + lx] = bgGrid[idx];
+        chunk.dirty = true;
+      }
+      // Force a light scan on the next tick so the torch light appears immediately
+      this.currentTick = 0;
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Place a build item at world coords (wx, wy). Each item places a dynamic
    * multi-cell pattern into the background grid:
    *
@@ -911,6 +1037,9 @@ export class ChunkWorld {
           cells.push([ax + dx, ay + dy]);
         }
       }
+    } else if (type === "torch") {
+      // Torch: single cell at the cursor position
+      cells.push([ax, ay]);
     } else {
       // rope — handled entirely in WORLD coords so the extension can span
       // loaded chunks beyond the active grid. The scan for the existing
@@ -1320,6 +1449,14 @@ export class ChunkWorld {
     // 8. Collect loose ore/stone near player (respects max inventory size)
     const collected = this.collect(currentInventory);
 
+    // 9. Fog-of-war: mark cells around the player as explored
+    this.markExploredAroundPlayer();
+
+    // 10. Colored lighting: scan for emitting cells (throttled)
+    if (this.currentTick % LIGHT_SCAN_INTERVAL === 0) {
+      this.scanEmittingLights();
+    }
+
     return collected;
   }
 
@@ -1349,6 +1486,144 @@ export class ChunkWorld {
     return Math.floor(this.player.y / CHUNK_H);
   }
 
+  // --- Fog-of-war ---
+
+  /**
+   * Mark cells within REVEAL_RADIUS of the player as explored in the active
+   * explored grid. Uses a filled-circle stamp. Called every tick from step().
+   */
+  markExploredAroundPlayer(): void {
+    const { x: axF, y: ayF } = this.worldToActive(this.player.x, this.player.y);
+    const cx = Math.floor(axF);
+    const cy = Math.floor(ayF);
+    const r = REVEAL_RADIUS;
+    const r2 = r * r;
+    const explored = this.exploredGrid;
+    for (let dy = -r; dy <= r; dy++) {
+      const y = cy + dy;
+      if (y < 0 || y >= ACTIVE_GRID_H) continue;
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r2) continue;
+        const x = cx + dx;
+        if (x < 0 || x >= ACTIVE_GRID_W) continue;
+        // Use 255 so r8unorm normalizes to 1.0 (explored = fully transparent)
+        explored[y * ACTIVE_GRID_W + x] = 255;
+      }
+    }
+  }
+
+  /** Get the active explored grid (for SAB upload by the worker). */
+  getExploredGrid(): Uint8Array {
+    return this.exploredGrid;
+  }
+
+  // --- Colored lighting ---
+
+  /**
+   * Scan the active grid for emitting materials (lava, fire, torches, etc.)
+   * on a sparse grid (every LIGHT_GRID_STRIDE cells). Cluster hits and pack
+   * into the light list, prioritizing lights nearest to the player.
+   * Called every LIGHT_SCAN_INTERVAL ticks from step().
+   */
+  scanEmittingLights(): void {
+    const grid = this.activeGrid.grid;
+    const bgGrid = this.backgroundGrid;
+    const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
+    const px = Math.floor(paxF);
+    const py = Math.floor(payF);
+    const stride = LIGHT_GRID_STRIDE;
+    const lights = this.lightList;
+    let count = 0;
+
+    // Sparse scan: sample every stride cells in both dimensions for foreground
+    // emitting materials (lava, fire). Torch check uses a finer stride since
+    // torches are placed individually and can be at any position.
+    for (let y = 0; y < ACTIVE_GRID_H && count < MAX_WORLD_LIGHTS; y += stride) {
+      for (let x = 0; x < ACTIVE_GRID_W && count < MAX_WORLD_LIGHTS; x += stride) {
+        const idx = y * ACTIVE_GRID_W + x;
+        // Check foreground grid for emitting materials
+        const packed = grid[idx];
+        if (packed !== 0) {
+          const mat = packed & 0xff;
+          const light = materialLight(mat);
+          if (light) {
+            const off = count * LIGHT_STRUCT_FLOATS;
+            // World coords = active grid local + origin
+            lights[off] = x + this.activeOriginCx * CHUNK_W;
+            lights[off + 1] = y + this.activeOriginCy * CHUNK_H;
+            lights[off + 2] = light.color[0];
+            lights[off + 3] = light.color[1];
+            lights[off + 4] = light.color[2];
+            lights[off + 5] = light.intensity;
+            lights[off + 6] = light.radius;
+            lights[off + 7] = 0;
+            count++;
+          }
+        }
+      }
+    }
+
+    // Full scan for torches in the background grid (they're placed individually
+    // at any position, so the sparse stride would miss most of them)
+    for (let y = 0; y < ACTIVE_GRID_H && count < MAX_WORLD_LIGHTS; y++) {
+      for (let x = 0; x < ACTIVE_GRID_W && count < MAX_WORLD_LIGHTS; x++) {
+        const idx = y * ACTIVE_GRID_W + x;
+        const bgPacked = bgGrid[idx];
+        if (bgPacked !== 0) {
+          const bgMat = bgPacked & 0xff;
+          if (bgMat === Material.Torch) {
+            const off = count * LIGHT_STRUCT_FLOATS;
+            lights[off] = x + this.activeOriginCx * CHUNK_W;
+            lights[off + 1] = y + this.activeOriginCy * CHUNK_H;
+            lights[off + 2] = TORCH_LIGHT_COLOR[0];
+            lights[off + 3] = TORCH_LIGHT_COLOR[1];
+            lights[off + 4] = TORCH_LIGHT_COLOR[2];
+            lights[off + 5] = TORCH_LIGHT_INTENSITY;
+            lights[off + 6] = TORCH_LIGHT_RADIUS;
+            lights[off + 7] = 0;
+            count++;
+          }
+        }
+      }
+    }
+
+    // Sort by distance to player (nearest first) — simple selection sort
+    // on the first `count` lights, keeping only the nearest MAX_WORLD_LIGHTS.
+    // Since count <= MAX_WORLD_LIGHTS already, we just sort in-place.
+    for (let i = 0; i < count - 1; i++) {
+      let minIdx = i;
+      let minDist = Infinity;
+      for (let j = i; j < count; j++) {
+        const lx = lights[j * LIGHT_STRUCT_FLOATS];
+        const ly = lights[j * LIGHT_STRUCT_FLOATS + 1];
+        const ddx = lx - px;
+        const ddy = ly - py;
+        const d = ddx * ddx + ddy * ddy;
+        if (d < minDist) { minDist = d; minIdx = j; }
+      }
+      if (minIdx !== i) {
+        // Swap 8 floats
+        const ia = i * LIGHT_STRUCT_FLOATS;
+        const ib = minIdx * LIGHT_STRUCT_FLOATS;
+        for (let k = 0; k < LIGHT_STRUCT_FLOATS; k++) {
+          const tmp = lights[ia + k];
+          lights[ia + k] = lights[ib + k];
+          lights[ib + k] = tmp;
+        }
+      }
+    }
+
+    this.lightCount = count;
+  }
+
+  /** Get the packed light list (for SAB upload by the worker). */
+  getLightList(): Float32Array {
+    return this.lightList;
+  }
+  getLightCount(): number {
+    return this.lightCount;
+  }
+
   // --- Save / Load support ---
 
   /**
@@ -1359,13 +1634,17 @@ export class ChunkWorld {
   getDirtyChunks(): SavedChunk[] {
     const result: SavedChunk[] = [];
     for (const chunk of this.chunks.values()) {
-      if (chunk.dirty) {
+      // Save chunks that are dirty (terrain modified) OR have any explored
+      // cells (fog-of-war progress). The explored check ensures the player's
+      // exploration is persisted even in chunks with no terrain changes.
+      if (chunk.dirty || chunkHasExplored(chunk.explored)) {
         result.push({
           cx: chunk.cx,
           cy: chunk.cy,
           grid: chunk.grid.slice(),
           fields: chunk.fields.slice(),
           bgGrid: chunk.bgGrid.slice(),
+          explored: chunk.explored.slice(),
           wakeTick: chunk.wakeTick.slice(),
         });
       }
@@ -1385,6 +1664,7 @@ export class ChunkWorld {
       grid: saved.grid.slice(),
       fields: saved.fields.slice(),
       bgGrid: saved.bgGrid?.slice() ?? new Uint32Array(CHUNK_W * CHUNK_H),
+      explored: saved.explored?.slice() ?? new Uint8Array(CHUNK_W * CHUNK_H),
       wakeTick: saved.wakeTick.slice(),
       generated: true,
       dirty: true,
@@ -1452,6 +1732,7 @@ export class ChunkWorld {
     const grid = this.activeGrid.grid;
     const fields = this.activeGrid.fields;
     const bgGrid = this.backgroundGrid;
+    const explored = this.exploredGrid;
     const { x: ax, y: ay } = this.worldToActive(worldX, worldY);
     const cx = Math.floor(ax);
     const cy = Math.floor(ay);
@@ -1469,6 +1750,7 @@ export class ChunkWorld {
     //   and the liquid rushes in to fill it.
     // Also clear background build materials (scaffolding/ladder/rope) in the
     // blast radius — bombs destroy placed build items.
+    // Also mark cells as explored (explosions reveal terrain).
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1477,6 +1759,9 @@ export class ChunkWorld {
         const gy = cy + dy;
         if (gx < 0 || gx >= ACTIVE_GRID_W || gy < 0 || gy >= ACTIVE_GRID_H) continue;
         const idx = gy * ACTIVE_GRID_W + gx;
+
+        // --- Reveal fog-of-war in blast radius ---
+        explored[idx] = 255;
 
         // --- Clear background build materials in blast radius ---
         if (bgGrid[idx] !== 0) {
@@ -1607,5 +1892,14 @@ export interface SavedChunk {
   grid: Uint32Array;
   fields: Uint8Array;
   bgGrid: Uint32Array;
+  explored: Uint8Array;
   wakeTick: Uint32Array;
+}
+
+/** Check if a chunk's explored array has any explored cells (for save filtering). */
+function chunkHasExplored(explored: Uint8Array): boolean {
+  for (let i = 0; i < explored.length; i++) {
+    if (explored[i] !== 0) return true;
+  }
+  return false;
 }

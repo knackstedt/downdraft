@@ -84,7 +84,7 @@ const buyBtnStyle: React.CSSProperties = {
   pointerEvents: "auto",
 };
 
-const BUILD_TYPES: BuildMaterialType[] = ["scaffolding", "ladder", "rope"];
+const BUILD_TYPES: BuildMaterialType[] = ["scaffolding", "ladder", "rope", "torch"];
 
 export function SignpostPrompt() {
   const { nearSignpost, inventory, currency, buildMaterials } = useGameStore();

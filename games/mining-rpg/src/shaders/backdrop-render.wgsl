@@ -23,6 +23,7 @@ struct CameraUniforms {
 @group(0) @binding(0) var gridTex: texture_2d<u32>;
 @group(0) @binding(1) var<uniform> u: Uniforms;
 @group(0) @binding(2) var<uniform> cam: CameraUniforms;
+@group(0) @binding(3) var lightTex: texture_2d<f32>;
 
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
@@ -50,5 +51,10 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let b = f32((packed >> 16u) & 0xffu) / 255.0;
   let a = f32((packed >> 24u) & 0xffu) / 255.0;
 
-  return vec4<f32>(r, g, b, 1.0);
+  // Sample the light accumulation texture (half-res)
+  let lightCoords = vec2<i32>(coords.x / 2, coords.y / 2);
+  let lightSample = textureLoad(lightTex, lightCoords, 0);
+  let lighting = lightSample.rgb;
+
+  return vec4<f32>(r * lighting.r, g * lighting.g, b * lighting.b, 1.0);
 }
