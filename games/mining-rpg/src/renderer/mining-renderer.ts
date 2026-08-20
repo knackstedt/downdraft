@@ -979,6 +979,38 @@ export class MiningRenderer {
       // Expire after 1 hour real time
       if (now - gs.bornAt > GLOWSTICK_LIFETIME_MS) continue;
 
+      if (gs.settled) {
+        // Check if the cell below is still solid — if the terrain was mined/
+        // destroyed, resume falling
+        const ax = Math.floor(gs.x - originX);
+        const ay = Math.floor(gs.y - originY) + 1; // cell below
+        if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H && grid) {
+          const belowIdx = ay * ACTIVE_GRID_W + ax;
+          let stillSupported = false;
+          const belowPacked = grid[belowIdx];
+          if (belowPacked !== 0) {
+            const mat = belowPacked & 0xff;
+            const def = MATERIALS[mat];
+            if (def?.solid) stillSupported = true;
+          }
+          if (!stillSupported && bgGrid) {
+            const bgBelow = bgGrid[belowIdx];
+            if (bgBelow !== 0) {
+              const bgMat = bgBelow & 0xff;
+              const bgDef = MATERIALS[bgMat];
+              if (bgDef?.solid) stillSupported = true;
+            }
+          }
+          if (!stillSupported) {
+            // Terrain below was destroyed — resume falling
+            gs.settled = false;
+            gs.vx = 0;
+            gs.vy = 0;
+            gs.ticks = 0;
+          }
+        }
+      }
+
       if (!gs.settled) {
         gs.ticks++;
         gs.vy += GLOWSTICK_GRAVITY;

@@ -947,6 +947,42 @@ export class ChunkWorld {
   }
 
   /**
+   * Douse torches in the background grid that are touched by any liquid
+   * (water, oil, etc.) in the foreground grid. Called after each sand step.
+   * Removes the torch from both the active background grid and chunk storage.
+   */
+  douseTorches(): void {
+    const fgGrid = this.activeGrid.grid;
+    const bgGrid = this.backgroundGrid;
+    for (let y = 0; y < ACTIVE_GRID_H; y++) {
+      for (let x = 0; x < ACTIVE_GRID_W; x++) {
+        const idx = y * ACTIVE_GRID_W + x;
+        const bgPacked = bgGrid[idx];
+        if ((bgPacked & 0xff) !== Material.Torch) continue;
+        // Check the foreground cell at the same position
+        const fgPacked = fgGrid[idx];
+        if (fgPacked === 0) continue;
+        const fgMat = fgPacked & 0xff;
+        const def = MATERIALS[fgMat];
+        if (def?.liquid) {
+          // Douse: remove the torch
+          bgGrid[idx] = 0;
+          // Sync to chunk storage
+          const cx = this.activeOriginCx + Math.floor(x / CHUNK_W);
+          const cy = this.activeOriginCy + Math.floor(y / CHUNK_H);
+          const chunk = this.chunks.get(chunkKey(cx, cy));
+          if (chunk) {
+            const lx = x - Math.floor(x / CHUNK_W) * CHUNK_W;
+            const ly = y - Math.floor(y / CHUNK_H) * CHUNK_H;
+            chunk.bgGrid[ly * CHUNK_W + lx] = 0;
+            chunk.dirty = true;
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Place a build item at world coords (wx, wy). Each item places a dynamic
    * multi-cell pattern into the background grid:
    *
@@ -1433,6 +1469,9 @@ export class ChunkWorld {
 
     // 4. Run simulation
     this.activeGrid.step();
+
+    // 4b. Douse torches that are touched by water/lava in the foreground
+    this.douseTorches();
 
     // 5. Expire wakeTicks (re-freeze settled, extend for moving)
     this.expireWakeTicks();
