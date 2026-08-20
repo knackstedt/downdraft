@@ -134,6 +134,26 @@ export const OXYGEN_REGEN_PER_TICK = TICK_RATE * 20; // full refill in 60 ticks 
 // Freeze duration in ticks. 300 seconds @ 30tps = 9000 ticks.
 export const FREEZE_TICKS = TICK_RATE * 60 * 1;
 
+// ============================================================================
+// Structural integrity — auto-demolish cells disconnected from the main world.
+//
+// Static Stone has gravity=0, so a block of stone fully surrounded by empty
+// space (a "floating island") would hang forever. A periodic 4-connected
+// flood-fill from the active-grid border detects solid cells with no path to
+// the border (i.e. disconnected from the main world mass) and demolishes them
+// by converting them to loose falling debris (same per-cell logic as explode()).
+//
+// The check is expensive (O(N) BFS over the ~410k-cell active grid), so it runs
+// on a slow cadence and only when terrain was modified since the last check.
+// ============================================================================
+// Ticks between integrity checks. 2 seconds @ 60tps.
+export const INTEGRITY_CHECK_INTERVAL = TICK_RATE * 2;
+// Safety cap on cells demolished per check — prevents a single pathological
+// collapse from causing a multi-tick spike. 20000 is high enough to not limit
+// normal play (a floating island that big is extreme); lower it if frame spikes
+// appear during huge collapses.
+export const INTEGRITY_MAX_DEMOLISH_PER_CHECK = 20000;
+
 // Cell bytes (same as the sand library: 4 bytes per cell in the grid Uint32Array).
 export const CELL_BYTES = 4;
 
@@ -258,6 +278,10 @@ export const LIGHT_GRID_STRIDE = 12;
 
 /** Scan emitting cells every N ticks (lights don't need 60Hz updates). */
 export const LIGHT_SCAN_INTERVAL = 4;
+
+/** Douse torches touched by liquids every N ticks. Torch-liquid interaction
+ *  is not time-critical — 10 ticks (~6x/sec at 60tps) is responsive enough. */
+export const TORCH_DOUSE_INTERVAL = 10;
 
 // --- Headlamp (renderer-side light that follows the player) ---
 export const HEADLAMP_RADIUS = 40;
