@@ -150,27 +150,37 @@ fn ropeMask(frac: vec2<f32>, coords: vec2<i32>) -> f32 {
 }
 
 // Torch: a wooden stick with a flame on top. The stick occupies the lower
-// 60% of the cell (thin vertical bar), and the flame occupies the upper 40%
-// (wider, with a flickering shape driven by the time uniform).
+// 50% of the cell, and the flame occupies the upper 50%. The glow extends
+// into neighboring cells (handled in fs_main) for a ~2x visual size.
 fn torchMask(frac: vec2<f32>, coords: vec2<i32>) -> f32 {
-  // Stick: thin vertical bar in the center, lower 60% of the cell
   var mask = 0.0;
-  let stickW = 0.12;
-  if (abs(frac.x - 0.5) < stickW && frac.y > 0.4 && frac.y < 1.0) {
-    mask = 0.7;
+
+  // Stick: thick vertical bar in the center, lower 50% of the cell
+  let stickW = 0.25;
+  if (abs(frac.x - 0.5) < stickW && frac.y > 0.5 && frac.y < 1.0) {
+    mask = 0.85;
   }
 
-  // Flame: wider blob in the upper 40%, with a flickering shape
+  // Flame: large blob in the upper 50%, with a flickering shape
   let flicker = 0.5 + 0.5 * sin(u.time * 8.0 + f32(coords.x) * 3.0);
-  let flameH = 0.35 + 0.05 * flicker;
-  let flameY = 0.4 - flameH;  // flame extends from y=0.05 to y=0.4
-  if (frac.y > flameY && frac.y < 0.4) {
+  let flameH = 0.5 + 0.08 * flicker;
+  let flameY = 0.5 - flameH;
+  if (frac.y > flameY && frac.y < 0.5) {
     let flameProgress = (frac.y - flameY) / flameH;  // 0 at bottom, 1 at top
-    let flameW = (0.18 - flameProgress * 0.08) * (0.85 + 0.15 * flicker);
+    let flameW = (0.38 - flameProgress * 0.15) * (0.85 + 0.15 * flicker);
     if (abs(frac.x - 0.5) < flameW) {
-      // Flame is brighter than the stick
       mask = max(mask, 1.0);
     }
+  }
+
+  // Inner glow halo: soft circular glow around the flame center within the cell
+  let glowCx = 0.5;
+  let glowCy = 0.2;
+  let glowDist = distance(frac, vec2<f32>(glowCx, glowCy));
+  let glowRadius = 0.45 + 0.05 * flicker;
+  if (glowDist < glowRadius) {
+    let glowStrength = (1.0 - glowDist / glowRadius) * 0.5;
+    mask = max(mask, glowStrength);
   }
 
   return mask;
@@ -192,7 +202,40 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let matId = packed & 0xffu;
   let shade = (packed >> 16u) & 0x03u;
 
-  if (matId == 0u) {
+  // Check if any neighboring cell (within 1 cell in any direction) contains a
+  // torch. If so, we render the torch's glow halo extending into this cell,
+  // making the torch appear ~2x larger. The torch itself is centered on its
+  // own cell; neighboring cells only show the glow halo + flame overflow.
+  var torchGlow = 0.0;
+  if (matId != MAT_TORCH) {
+    let flickerN = 0.5 + 0.5 * sin(u.time * 8.0 + f32(coords.x) * 3.0);
+    for (var dyN = -1; dyN <= 1; dyN++) {
+      for (var dxN = -1; dxN <= 1; dxN++) {
+        if (dxN == 0 && dyN == 0) { continue; }
+        let nCoords = coords + vec2<i32>(dxN, dyN);
+        if (nCoords.x < 0 || nCoords.x >= i32(u.gridW) || nCoords.y < 0 || nCoords.y >= i32(u.gridH)) {
+          continue;
+        }
+        let nPacked = textureLoad(gridTex, nCoords, 0).r;
+        if ((nPacked & 0xffu) == MAT_TORCH) {
+          // This neighbor is a torch. Compute the offset from the torch cell
+          // center to the current fragment position, in cell units.
+          let torchCenter = vec2<f32>(f32(nCoords.x) + 0.5, f32(nCoords.y) + 0.5);
+          let fragPos = vec2<f32>(cellX, cellY);
+          let offset = fragPos - torchCenter;
+          // Flame glow extends ~1.2 cells from the torch center
+          let glowDist = length(offset);
+          let glowRadius = 1.2 + 0.1 * flickerN;
+          if (glowDist < glowRadius) {
+            let strength = (1.0 - glowDist / glowRadius) * 0.5;
+            torchGlow = max(torchGlow, strength);
+          }
+        }
+      }
+    }
+  }
+
+  if (matId == 0u && torchGlow <= 0.0) {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
 
@@ -211,9 +254,15 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     mask = ropeMask(frac, coords);
   } else if (matId == MAT_TORCH) {
     mask = torchMask(frac, coords);
+  } else if (matId == 0u) {
+    // Empty cell — only show torch glow from neighbors
+    mask = 0.0;
   } else {
     mask = 1.0;
   }
+
+  // Add torch glow from neighboring torches (renders on top of any cell)
+  mask = max(mask, torchGlow);
 
   if (mask <= 0.0) {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -224,7 +273,14 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let lightSample = textureLoad(lightTex, lightCoords, 0);
   let lighting = lightSample.rgb;
 
-  let color = matColor.rgb;
-  let alpha = matColor.a * mask;
+  // If this is an empty cell showing only torch glow, use the torch flame color
+  // (warm orange) instead of the empty cell's palette color (black).
+  var color = matColor.rgb;
+  var alpha = matColor.a * mask;
+  if (matId == 0u && torchGlow > 0.0) {
+    // Warm flame color for the glow
+    color = vec3<f32>(1.0, 0.6, 0.2);
+    alpha = torchGlow;
+  }
   return vec4<f32>(color * lighting, alpha);
 }
