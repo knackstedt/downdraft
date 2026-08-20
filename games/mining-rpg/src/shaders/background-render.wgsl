@@ -35,6 +35,7 @@ struct CameraUniforms {
 @group(0) @binding(2) var<uniform> u: Uniforms;
 @group(0) @binding(3) var<uniform> cam: CameraUniforms;
 @group(0) @binding(4) var lightTex: texture_2d<f32>;
+@group(0) @binding(5) var volumetricTex: texture_2d<f32>;
 
 // Material IDs (must match the Material enum in materials.ts)
 const MAT_SCAFFOLDING: u32 = 93u;
@@ -271,7 +272,8 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   // Sample the light accumulation texture (half-res)
   let lightCoords = vec2<i32>(coords.x / 2, coords.y / 2);
   let lightSample = textureLoad(lightTex, lightCoords, 0);
-  let lighting = lightSample.rgb;
+  let volSample = textureLoad(volumetricTex, lightCoords, 0);
+  let lighting = lightSample.rgb + volSample.rgb;
 
   // If this is an empty cell showing only torch glow, use the torch flame color
   // (warm orange) instead of the empty cell's palette color (black).

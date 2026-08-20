@@ -35,6 +35,8 @@ export class SandGridPass {
   private dummyView: GPUTextureView | null = null;
   // Light texture view (set each frame by the renderer)
   private lightView: GPUTextureView | null = null;
+  // Volumetric light texture view (set each frame by the renderer)
+  private volumetricView: GPUTextureView | null = null;
   gridW: number;
   gridH: number;
 
@@ -111,6 +113,7 @@ export class SandGridPass {
         { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+        { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       ],
     });
 
@@ -156,6 +159,7 @@ export class SandGridPass {
         !this.uniformBuffer || !this.cameraBuffer || !this.dummyView) return;
     // Use a 1x1 dummy texture for the light binding if no light view is set yet
     const lView = this.lightView ?? this.dummyView;
+    const vView = this.volumetricView ?? this.dummyView;
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
@@ -166,14 +170,27 @@ export class SandGridPass {
         { binding: 4, resource: { buffer: this.uniformBuffer } },
         { binding: 5, resource: { buffer: this.cameraBuffer } },
         { binding: 6, resource: lView },
+        { binding: 7, resource: vView },
       ],
     });
+  }
+
+  /** Get the grid texture view (for sharing with the volumetric light compute pass). */
+  getGridView(): GPUTextureView | null {
+    return this.gridView;
   }
 
   /** Set the light accumulation texture view (called each frame by the renderer). */
   setLightTexture(view: GPUTextureView | null): void {
     if (this.lightView === view) return;
     this.lightView = view;
+    this.createBindGroup();
+  }
+
+  /** Set the volumetric light texture view (called each frame by the renderer). */
+  setVolumetricTexture(view: GPUTextureView | null): void {
+    if (this.volumetricView === view) return;
+    this.volumetricView = view;
     this.createBindGroup();
   }
 

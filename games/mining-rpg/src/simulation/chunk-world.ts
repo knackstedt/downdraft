@@ -1815,6 +1815,11 @@ export class ChunkWorld {
       // After rebuild, build skip mask from scratch (the grid content changed).
       // updateFreezeState will run after the sand step to update it for next tick.
       this.buildSkipMaskOnly();
+      // Re-scan lights immediately after rebuild — the active grid origin
+      // shifted, so the old light list has stale world coords that don't
+      // match the new origin. Without this, lights are wrong for up to
+      // LIGHT_SCAN_INTERVAL ticks after every chunk border crossing.
+      this.scanEmittingLights();
     }
 
     // 2. Skip mask is already set from last tick's updateFreezeState (or from

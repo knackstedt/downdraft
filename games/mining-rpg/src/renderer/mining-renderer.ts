@@ -12,7 +12,7 @@
 
 import { GPUDeviceManager } from "@downdraft/core";
 import { Material, MATERIALS } from "@downdraft/library-sand";
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, HEADLAMP_COLOR, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
@@ -24,9 +24,10 @@ import { BackgroundGridPass } from "./background-grid-pass";
 import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
 import { FogOfWarPass } from "./fog-pass";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
-import { createExplosionLight, createHeadlampLight, LightAccumPass, type RendererLight } from "./light-accum-pass";
+import { createExplosionLight, LightAccumPass, type RendererLight } from "./light-accum-pass";
 import { SandGridPass } from "./sand-grid-pass";
 import { StickmanPass } from "./stickman-pass";
+import { VolumetricLightPass, type VolRendererLight } from "./volumetric-light-pass";
 
 // --- Bomb constants ---
 const BOMB_RADIUS = 6;       // explosion radius in cells
@@ -108,6 +109,7 @@ export class MiningRenderer {
   private stickmanPass: StickmanPass | null = null;
   private fogPass: FogOfWarPass | null = null;
   private lightAccumPass: LightAccumPass | null = null;
+  private volumetricPass: VolumetricLightPass | null = null;
   private input: MiningInputState | null = null;
   private workerHost: MiningWorkerHost | null = null;
   private backdropHost: BackdropWorkerHost | null = null;
@@ -198,6 +200,17 @@ export class MiningRenderer {
   async init(): Promise<boolean> {
     this.device = await this.deviceManager.requestDevice();
     if (!this.device) return false;
+
+    // Handle GPU device loss — disable the volumetric compute pass (the most
+    // likely culprit for TDR crashes) so the game can attempt to continue
+    // with just the LightAccumPass lighting.
+    this.device.lost.then((info: GPUDeviceLostInfo) => {
+      console.error(`[DownDraft] GPU device lost: ${info.message}`);
+      if (this.volumetricPass) {
+        this.volumetricPass.disabled = true;
+      }
+    });
+
     this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
     if (!this.context) return false;
     this.format = navigator.gpu.getPreferredCanvasFormat();
@@ -241,6 +254,15 @@ export class MiningRenderer {
     // depth) + dynamic lights (headlamp, torches, lava, explosions).
     this.lightAccumPass = new LightAccumPass(this.device);
     this.lightAccumPass.init(ACTIVE_GRID_W, ACTIVE_GRID_H);
+
+    // Volumetric light pass (render-pass-based diffusion through air/water/solid).
+    // Uses fragment shaders + render targets (no compute shaders, no storage
+    // textures) for maximum GPU compatibility. Diffuses ambient + world lights
+    // (lava, torches, glowsticks) through cells with per-medium attenuation so
+    // caves are visualized with light flooding through air tunnels and dimming
+    // in water. Augments LightAccumPass, which keeps sharp nearby lights.
+    this.volumetricPass = new VolumetricLightPass(this.device);
+    this.volumetricPass.init(ACTIVE_GRID_W, ACTIVE_GRID_H);
 
     this.workerHost = new MiningWorkerHost();
     await this.workerHost.start();
@@ -393,6 +415,7 @@ export class MiningRenderer {
     this.bgGridPass?.destroy();
     this.fogPass?.destroy();
     this.lightAccumPass?.destroy();
+    this.volumetricPass?.destroy();
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
   }
@@ -490,7 +513,7 @@ export class MiningRenderer {
   private frame(time: number): void {
     if (!this.running || !this.device || !this.context || !this.input || !this.gridReader ||
         !this.gridPass || !this.backdropPass || !this.stickmanPass || !this.workerHost ||
-        !this.backdropHost) return;
+        !this.backdropHost || !this.lightAccumPass || !this.volumetricPass) return;
 
     const dt = Math.min(0.1, (time - this.lastTime) / 1000);
     this.lastTime = time;
@@ -694,44 +717,65 @@ export class MiningRenderer {
     );
 
     // --- Update light accumulation pass ---
-    // The light texture provides per-cell colored lighting for explored cells.
-    // Ambient = sky light that drops with depth; dynamic lights add color.
-    // Combine worker lights (from SAB) with renderer lights (headlamp, explosions)
+    // LightAccumPass: explosions only (sharp brief flashes)
+    // VolumetricLightPass: ambient + headlamp + world lights + glowsticks
+    //   ALL persistent light goes through the volumetric pass so it diffuses
+    //   through air/water/solid. Only explosions stay sharp (they're brief).
     const { count: workerLightCount, lights: workerLights } = this.gridReader.getLightRegion();
+
     const rendererLights: RendererLight[] = [];
-    // Headlamp (if on)
-    if (useGameStore.getState().headlampOn) {
-      rendererLights.push(createHeadlampLight(interpPx, interpPy));
-    }
-    // Explosion lights
     for (const exp of this.explosions) {
       const progress = exp.age / exp.maxAge;
       rendererLights.push(createExplosionLight(exp.x, exp.y, progress));
     }
-    // Glowstick lights (random rainbow color, persist for 1 hour real time)
+    this.lightAccumPass!.updateLights(workerLights, 0, rendererLights, originX, originY);
+    this.lightAccumPass!.updateAmbient(9999);
+
+    // Volumetric pass: ambient + headlamp + world lights + glowsticks
+    // High intensity compensates for diffusion dimming over 8 iterations.
+    // Inject only into air/water cells (shader handles this) so light follows
+    // tunnel geometry instead of being a flat circle.
+    const volRendererLights: VolRendererLight[] = [];
+    if (useGameStore.getState().headlampOn) {
+      volRendererLights.push({
+        x: interpPx, y: interpPy,
+        color: HEADLAMP_COLOR,
+        intensity: 15.0,
+        radius: 20,
+      });
+    }
     for (const gs of this.glowsticks) {
-      rendererLights.push({
+      volRendererLights.push({
         x: gs.x, y: gs.y,
         color: gs.color,
         intensity: GLOWSTICK_INTENSITY,
         radius: GLOWSTICK_RADIUS,
       });
     }
-    this.lightAccumPass!.updateLights(workerLights, workerLightCount, rendererLights, originX, originY);
-    this.lightAccumPass!.updateAmbient(depthCells);
+    this.volumetricPass!.updateLights(workerLights, workerLightCount, volRendererLights, originX, originY);
+    this.volumetricPass!.updateUniforms(originX, originY, surfaceY);
 
     // --- Render ---
     const commandEncoder = this.device.createCommandEncoder();
 
-    // 1. Light accumulation pass (renders to the light texture, separate pass)
+    // 1. Light accumulation pass (renders to the light texture)
     this.lightAccumPass!.render(commandEncoder);
 
-    // Wire the light texture into all material passes
+    // 2. Volumetric light pass (render-pass-based diffusion through air/water/solid)
+    this.volumetricPass!.setGridView(this.gridPass!.getGridView());
+    this.volumetricPass!.compute(commandEncoder);
+
+    // Wire the light textures into all material passes
     const lightView = this.lightAccumPass!.getLightTextureView();
+    const volView = this.volumetricPass!.getVolumetricTextureView();
     this.backdropPass.setLightTexture(lightView);
     this.bgGridPass!.setLightTexture(lightView);
     this.gridPass.setLightTexture(lightView);
     this.stickmanPass.setLightTexture(lightView);
+    this.backdropPass.setVolumetricTexture(volView);
+    this.bgGridPass!.setVolumetricTexture(volView);
+    this.gridPass.setVolumetricTexture(volView);
+    this.stickmanPass.setVolumetricTexture(volView);
 
     // 2. Main scene pass (renders to the canvas)
     const passEncoder = commandEncoder.beginRenderPass({

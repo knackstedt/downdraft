@@ -16,6 +16,7 @@ struct PlayerUniforms {
 
 @group(0) @binding(0) var<uniform> u: PlayerUniforms;
 @group(0) @binding(1) var lightTex: texture_2d<f32>;
+@group(0) @binding(2) var volumetricTex: texture_2d<f32>;
 
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
@@ -129,6 +130,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Sample the light accumulation texture at the player's local position (half-res)
   let lightCoords = vec2<i32>(i32(in.localPos.x) / 2, i32(in.localPos.y) / 2);
   let lightSample = textureLoad(lightTex, lightCoords, 0);
-  let lighting = lightSample.rgb;
+  let volSample = textureLoad(volumetricTex, lightCoords, 0);
+  let lighting = lightSample.rgb + volSample.rgb;
   return vec4<f32>(in.color * lighting, 1.0);
 }

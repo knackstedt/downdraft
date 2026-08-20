@@ -26,6 +26,7 @@ struct CameraUniforms {
 @group(0) @binding(4) var<uniform> u: Uniforms;
 @group(0) @binding(5) var<uniform> cam: CameraUniforms;
 @group(0) @binding(6) var lightTex: texture_2d<f32>;
+@group(0) @binding(7) var volumetricTex: texture_2d<f32>;
 
 // Returns true if the cell at grid coords c is a non-empty detached cell.
 // Out-of-bounds and empty (air) cells are treated as non-detached so that
@@ -126,7 +127,9 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   // colored lights (lava, fire, torches, headlamp, explosions).
   let lightCoords = vec2<i32>(coords.x / 2, coords.y / 2);
   let lightSample = textureLoad(lightTex, lightCoords, 0);
-  let lighting = lightSample.rgb;
+  // Volumetric light texture: diffused light through air/water/solid cells.
+  let volSample = textureLoad(volumetricTex, lightCoords, 0);
+  let lighting = lightSample.rgb + volSample.rgb;
 
   return vec4<f32>(finalColor * lighting, alpha);
 }
