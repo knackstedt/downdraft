@@ -25,6 +25,7 @@ struct CameraUniforms {
 @group(0) @binding(3) var behindTex: texture_2d<f32>;
 @group(0) @binding(4) var<uniform> u: Uniforms;
 @group(0) @binding(5) var<uniform> cam: CameraUniforms;
+@group(0) @binding(6) var lightTex: texture_2d<f32>;
 
 // Returns true if the cell at grid coords c is a non-empty detached cell.
 // Out-of-bounds and empty (air) cells are treated as non-detached so that
@@ -120,13 +121,12 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
   let finalColor = color * brightness;
 
-  // Depth-based ambient darkening: deeper = darker.
-  // At depth 0 (surface): full brightness. At depth 20+: 40% brightness.
-  // Lava and fire materials are exempt (they emit light).
-  var ambient = 1.0 - clamp(cam.depth / 20.0, 0.0, 0.6);
-  if (matId == 27u || matId == 6u || matId == 21u) {
-    ambient = 1.0; // lava, fire, burning oil emit light
-  }
+  // Sample the light accumulation texture at this cell's coords (half-res).
+  // The light texture contains: base ambient color (depth-driven) + dynamic
+  // colored lights (lava, fire, torches, headlamp, explosions).
+  let lightCoords = vec2<i32>(coords.x / 2, coords.y / 2);
+  let lightSample = textureLoad(lightTex, lightCoords, 0);
+  let lighting = lightSample.rgb;
 
-  return vec4<f32>(finalColor * ambient, alpha);
+  return vec4<f32>(finalColor * lighting, alpha);
 }

@@ -33,6 +33,7 @@ type MiningWorkerApi = {
   addBuildMaterial(type: BuildMaterialType, qty: number): Promise<void>;
   respawn(): Promise<void>;
   explode(x: number, y: number, radius: number): Promise<void>;
+  placeTorch(targetX: number, targetY: number): Promise<boolean>;
 };
 
 export class MiningWorkerHost {
@@ -217,5 +218,15 @@ export class MiningWorkerHost {
   }
   explode(x: number, y: number, radius: number): void {
     this.proxy?.proxy.explode(x, y, radius).catch(() => {});
+  }
+
+  /** Place a torch via raycast from the player toward the target world coords. */
+  async placeTorch(targetX: number, targetY: number): Promise<boolean> {
+    if (!this.proxy) return false;
+    try {
+      return await this.proxy.proxy.placeTorch(targetX, targetY);
+    } catch {
+      return false;
+    }
   }
 }

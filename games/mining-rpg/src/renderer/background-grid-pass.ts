@@ -25,6 +25,9 @@ export class BackgroundGridPass {
   private gridView: GPUTextureView | null = null;
   private paletteTexture: GPUTexture | null = null;
   private paletteView: GPUTextureView | null = null;
+  private lightView: GPUTextureView | null = null;
+  private dummyTexture: GPUTexture | null = null;
+  private dummyView: GPUTextureView | null = null;
   gridW: number;
   gridH: number;
 
@@ -63,12 +66,27 @@ export class BackgroundGridPass {
       [palW, 1],
     );
 
+    // 1x1 dummy texture for the light binding (before light view is set)
+    this.dummyTexture = this.device.createTexture({
+      size: [1, 1],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.dummyView = this.dummyTexture.createView();
+    this.device.queue.writeTexture(
+      { texture: this.dummyTexture },
+      new Uint8Array([255, 255, 255, 255]),
+      { bytesPerRow: 4, rowsPerImage: 1 },
+      [1, 1],
+    );
+
     this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       ],
     });
 
@@ -111,7 +129,8 @@ export class BackgroundGridPass {
 
   private createBindGroup(): void {
     if (!this.bindGroupLayout || !this.gridView || !this.paletteView ||
-        !this.uniformBuffer || !this.cameraBuffer) return;
+        !this.uniformBuffer || !this.cameraBuffer || !this.dummyView) return;
+    const lView = this.lightView ?? this.dummyView;
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
@@ -119,8 +138,16 @@ export class BackgroundGridPass {
         { binding: 1, resource: this.paletteView },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
         { binding: 3, resource: { buffer: this.cameraBuffer } },
+        { binding: 4, resource: lView },
       ],
     });
+  }
+
+  /** Set the light accumulation texture view (called each frame by the renderer). */
+  setLightTexture(view: GPUTextureView | null): void {
+    if (this.lightView === view) return;
+    this.lightView = view;
+    this.createBindGroup();
   }
 
   resize(gridW: number, gridH: number): void {
@@ -160,6 +187,7 @@ export class BackgroundGridPass {
   destroy(): void {
     this.gridTexture?.destroy();
     this.paletteTexture?.destroy();
+    this.dummyTexture?.destroy();
     this.uniformBuffer?.destroy();
     this.cameraBuffer?.destroy();
   }

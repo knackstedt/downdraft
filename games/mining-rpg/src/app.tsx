@@ -42,13 +42,18 @@ export default function App() {
           s.sellAll();
         }
       }
-      // Build mode: B toggles, 1/2/3 select scaffolding/ladder/rope.
+      // Build mode: B toggles, 1/2/3/4 select scaffolding/ladder/rope/torch.
       if (e.key === "b" || e.key === "B") {
         useGameStore.getState().toggleBuildMode();
       }
       if (e.key === "1") useGameStore.getState().selectBuild("scaffolding");
       if (e.key === "2") useGameStore.getState().selectBuild("ladder");
       if (e.key === "3") useGameStore.getState().selectBuild("rope");
+      if (e.key === "4") useGameStore.getState().selectBuild("torch");
+      // L toggles the headlamp (player light source)
+      if (e.key === "l" || e.key === "L") {
+        useGameStore.getState().toggleHeadlamp();
+      }
       // F3 toggles noclip (dev cheat): free flight through terrain, no
       // gravity/collision/damage. Useful for inspecting generation and
       // testing features without playing through normally.

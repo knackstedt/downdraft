@@ -43,13 +43,14 @@ export const FALL_DAMAGE_SCALE = 100; // damage per (cell/tick above threshold)^
 // ============================================================================
 
 /** Build material types selectable by the player. */
-export type BuildMaterialType = "scaffolding" | "ladder" | "rope";
+export type BuildMaterialType = "scaffolding" | "ladder" | "rope" | "torch";
 
 /** Map a build material type to its sand-library Material ID. */
 export const BUILD_MATERIAL_ID: Record<BuildMaterialType, number> = {
   scaffolding: Material.Scaffolding,
   ladder: Material.Ladder,
   rope: Material.Rope,
+  torch: Material.Torch,
 };
 
 /** Inverse map: Material ID → build material type (null if not a build mat). */
@@ -58,6 +59,7 @@ export function buildMaterialTypeFromId(mat: number): BuildMaterialType | null {
     case Material.Scaffolding: return "scaffolding";
     case Material.Ladder: return "ladder";
     case Material.Rope: return "rope";
+    case Material.Torch: return "torch";
     default: return null;
   }
 }
@@ -67,6 +69,7 @@ export const BUILD_MATERIAL_INFO: Record<BuildMaterialType, { name: string; colo
   scaffolding: { name: "Scaffolding", color: "#9e6b38", shape: "5-wide + 2 legs" },
   ladder: { name: "Ladder", color: "#8c5c2e", shape: "5×7" },
   rope: { name: "Rope", color: "#c7a866", shape: "3-wide, stacks" },
+  torch: { name: "Torch", color: "#e68030", shape: "1×1, emits light" },
 };
 
 /** Purchase price per unit (gold) at the signpost shop. */
@@ -74,6 +77,7 @@ export const BUILD_MATERIAL_PRICES: Record<BuildMaterialType, number> = {
   scaffolding: 4,
   ladder: 8,
   rope: 3,
+  torch: 12,
 };
 
 /** Hardness of placed build blocks when mined (low — easy to remove). */
@@ -99,6 +103,7 @@ export const BUILD_DIMENSIONS = {
   scaffolding: { width: 5, supportDepth: 7 },
   ladder: { width: 5, height: 7 },
   rope: { width: 3, segmentHeight: 5 },
+  torch: { width: 1, height: 1 },
 } as const;
 
 // Chunk dimensions (configurable). Start at 128x128 cells per chunk.
@@ -221,6 +226,55 @@ export const ACTIVE_GRID_H = (2 * ACTIVE_RADIUS_CHUNKS + 1) * CHUNK_H;
 export const ACTIVE_GRID_CELLS = ACTIVE_GRID_W * ACTIVE_GRID_H;
 
 // ============================================================================
+// Fog-of-war + colored lighting constants
+//
+// Fog-of-war: per-cell explored tracking. The worker marks cells within
+// REVEAL_RADIUS of the player as explored each tick. The explored grid is
+// uploaded to the renderer as an r8unorm texture; unexplored cells render
+// as solid black.
+//
+// Colored lighting: the worker scans the active grid for emitting materials
+// (lava, fire, torches, etc.) on a sparse grid every LIGHT_SCAN_INTERVAL
+// ticks, clusters them, and writes a packed light list to the SAB. The
+// renderer combines worker lights with renderer-side lights (headlamp,
+// explosions) and renders them to a half-res light accumulation texture.
+// ============================================================================
+
+/** Cells around the player marked explored each tick (filled circle stamp). */
+export const REVEAL_RADIUS = 32;
+
+/** Max dynamic lights from the worker (emitting cells). Renderer adds more. */
+export const MAX_WORLD_LIGHTS = 128;
+
+/** Packed light struct: posX, posY, colorR, colorG, colorB, intensity, radius, pad (8 f32 = 32 bytes). */
+export const LIGHT_STRUCT_FLOATS = 8;
+export const LIGHT_STRUCT_BYTES = LIGHT_STRUCT_FLOATS * 4;
+
+/** Light region: 4-byte count header + MAX_WORLD_LIGHTS * LIGHT_STRUCT_BYTES. */
+export const LIGHT_REGION_BYTES = 4 + MAX_WORLD_LIGHTS * LIGHT_STRUCT_BYTES;
+
+/** Sparse grid stride (in cells) for the emitting-cell scan. */
+export const LIGHT_GRID_STRIDE = 12;
+
+/** Scan emitting cells every N ticks (lights don't need 60Hz updates). */
+export const LIGHT_SCAN_INTERVAL = 4;
+
+// --- Headlamp (renderer-side light that follows the player) ---
+export const HEADLAMP_RADIUS = 40;
+export const HEADLAMP_COLOR: [number, number, number] = [1.0, 0.95, 0.8];
+export const HEADLAMP_INTENSITY = 1.2;
+
+// --- Torch (placeable build material that emits light) ---
+export const TORCH_LIGHT_RADIUS = 25;
+export const TORCH_LIGHT_COLOR: [number, number, number] = [1.0, 0.6, 0.2];
+export const TORCH_LIGHT_INTENSITY = 0.9;
+
+// --- Explosion light (renderer-side, brief flash) ---
+export const EXPLOSION_LIGHT_RADIUS = 30;
+export const EXPLOSION_LIGHT_COLOR: [number, number, number] = [1.0, 0.8, 0.4];
+export const EXPLOSION_LIGHT_INTENSITY = 2.0;
+
+// ============================================================================
 // SharedArrayBuffer layout for the mining-rpg sim ↔ renderer bridge
 //
 // The active grid is a contiguous region that the worker writes each tick.
@@ -228,28 +282,34 @@ export const ACTIVE_GRID_CELLS = ACTIVE_GRID_W * ACTIVE_GRID_H;
 //   grid:     ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (Uint32 per cell)
 //   fields:   ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (gravity, temp, windX, windY)
 //   bgGrid:   ACTIVE_GRID_W * ACTIVE_GRID_H * 4 bytes (Uint32 per cell — build layer)
+//   explored: ACTIVE_GRID_W * ACTIVE_GRID_H * 1 byte  (fog-of-war: 0=unexplored, 1=explored)
 //   input:    128 bytes
-//   stats:    16 bytes
+//   stats:    32 bytes
 //   player:   40 bytes (px, py, vx, vy, onGround, facing, animFrame, health, deathCause, oxygen)
+//   lights:   4 + MAX_WORLD_LIGHTS * 32 bytes (count header + packed light structs)
 // ============================================================================
 
 export const ACTIVE_GRID_BYTES = ACTIVE_GRID_CELLS * CELL_BYTES;
 export const ACTIVE_FIELD_BYTES = ACTIVE_GRID_CELLS * FIELD_BYTES;
 export const BG_GRID_BYTES = ACTIVE_GRID_CELLS * CELL_BYTES; // same res as foreground
+export const EXPLORED_GRID_BYTES = ACTIVE_GRID_CELLS * 1; // 1 byte per cell (fog-of-war)
 export const INPUT_BYTES = 128;
 export const STATS_BYTES = 32; // 8 int32s (6 used: frame, tick, fps, loadedChunks, originX, originY)
 export const PLAYER_BYTES = 40; // 8 float32/int32 + 2 int32 (death cause, oxygen)
 
 export const TOTAL_SAB_BYTES =
-  ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + INPUT_BYTES + STATS_BYTES + PLAYER_BYTES;
+  ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + EXPLORED_GRID_BYTES +
+  INPUT_BYTES + STATS_BYTES + PLAYER_BYTES + LIGHT_REGION_BYTES;
 
 // Offsets within the SAB
 export const GRID_OFFSET = 0;
 export const FIELD_OFFSET = ACTIVE_GRID_BYTES;
 export const BG_GRID_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES;
-export const INPUT_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES;
-export const STATS_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + INPUT_BYTES;
-export const PLAYER_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES + INPUT_BYTES + STATS_BYTES;
+export const EXPLORED_GRID_OFFSET = ACTIVE_GRID_BYTES + ACTIVE_FIELD_BYTES + BG_GRID_BYTES;
+export const INPUT_OFFSET = EXPLORED_GRID_OFFSET + EXPLORED_GRID_BYTES;
+export const STATS_OFFSET = INPUT_OFFSET + INPUT_BYTES;
+export const PLAYER_OFFSET = STATS_OFFSET + STATS_BYTES;
+export const LIGHT_REGION_OFFSET = PLAYER_OFFSET + PLAYER_BYTES;
 
 // Input field offsets (within the INPUT region, byte offsets)
 export const INPUT = {

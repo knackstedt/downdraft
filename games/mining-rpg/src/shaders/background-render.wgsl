@@ -34,11 +34,13 @@ struct CameraUniforms {
 @group(0) @binding(1) var paletteTex: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> u: Uniforms;
 @group(0) @binding(3) var<uniform> cam: CameraUniforms;
+@group(0) @binding(4) var lightTex: texture_2d<f32>;
 
 // Material IDs (must match the Material enum in materials.ts)
 const MAT_SCAFFOLDING: u32 = 93u;
 const MAT_LADDER: u32 = 94u;
 const MAT_ROPE: u32 = 95u;
+const MAT_TORCH: u32 = 96u;
 
 // Check if the cell at (x, y) has the given material in the background grid.
 fn bgIs(x: i32, y: i32, mat: u32) -> bool {
@@ -147,6 +149,33 @@ fn ropeMask(frac: vec2<f32>, coords: vec2<i32>) -> f32 {
   return mask;
 }
 
+// Torch: a wooden stick with a flame on top. The stick occupies the lower
+// 60% of the cell (thin vertical bar), and the flame occupies the upper 40%
+// (wider, with a flickering shape driven by the time uniform).
+fn torchMask(frac: vec2<f32>, coords: vec2<i32>) -> f32 {
+  // Stick: thin vertical bar in the center, lower 60% of the cell
+  var mask = 0.0;
+  let stickW = 0.12;
+  if (abs(frac.x - 0.5) < stickW && frac.y > 0.4 && frac.y < 1.0) {
+    mask = 0.7;
+  }
+
+  // Flame: wider blob in the upper 40%, with a flickering shape
+  let flicker = 0.5 + 0.5 * sin(u.time * 8.0 + f32(coords.x) * 3.0);
+  let flameH = 0.35 + 0.05 * flicker;
+  let flameY = 0.4 - flameH;  // flame extends from y=0.05 to y=0.4
+  if (frac.y > flameY && frac.y < 0.4) {
+    let flameProgress = (frac.y - flameY) / flameH;  // 0 at bottom, 1 at top
+    let flameW = (0.18 - flameProgress * 0.08) * (0.85 + 0.15 * flicker);
+    if (abs(frac.x - 0.5) < flameW) {
+      // Flame is brighter than the stick
+      mask = max(mask, 1.0);
+    }
+  }
+
+  return mask;
+}
+
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   // Convert UV to active-grid cell coords (same as sand-render.wgsl)
@@ -180,6 +209,8 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     mask = ladderMask(frac, coords);
   } else if (matId == MAT_ROPE) {
     mask = ropeMask(frac, coords);
+  } else if (matId == MAT_TORCH) {
+    mask = torchMask(frac, coords);
   } else {
     mask = 1.0;
   }
@@ -188,9 +219,12 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
 
-  // Depth-based ambient darkening (same as foreground)
-  let ambient = 1.0 - clamp(cam.depth / 20.0, 0.0, 0.6);
+  // Sample the light accumulation texture (half-res)
+  let lightCoords = vec2<i32>(coords.x / 2, coords.y / 2);
+  let lightSample = textureLoad(lightTex, lightCoords, 0);
+  let lighting = lightSample.rgb;
+
   let color = matColor.rgb;
-  let alpha = matColor.a * mask * ambient;
-  return vec4<f32>(color * ambient, alpha);
+  let alpha = matColor.a * mask;
+  return vec4<f32>(color * lighting, alpha);
 }

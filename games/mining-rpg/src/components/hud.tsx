@@ -115,7 +115,7 @@ const buildItemStyle = (selected: boolean): React.CSSProperties => ({
 });
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, buildMode, selectedBuild, buildMaterials, noclip, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
@@ -162,7 +162,9 @@ export function HUD() {
       <div>Brush: {digRadius} cells</div>
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
-      {buildMode && <div style={{ color: "#ffd700" }}>BUILD MODE — left-click to place</div>}
+      {buildMode && <div style={{ color: "#ffd700" }}>BUILD MODE — left-click to place (1/2/3/4 to select)</div>}
+      <div style={{ color: headlampOn ? "#ffcc66" : "#666" }}>Headlamp: {headlampOn ? "ON" : "OFF"} (L to toggle)</div>
+      <div style={{ color: "#888" }}>F: Torch · G: Glowstick · RMB: Bomb</div>
       {noclip && <div style={{ color: "#00e5ff" }}>NOCLIP — WASD/Space to fly, F3 to disable</div>}
       <div style={buildRowStyle}>
         {(Object.keys(BUILD_MATERIAL_INFO) as BuildMaterialType[]).map((type) => {

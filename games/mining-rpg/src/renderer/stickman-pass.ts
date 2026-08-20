@@ -9,6 +9,9 @@ export class StickmanPass {
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private lightView: GPUTextureView | null = null;
+  private dummyTexture: GPUTexture | null = null;
+  private dummyView: GPUTextureView | null = null;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -21,14 +24,27 @@ export class StickmanPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    // 1x1 dummy texture for the light binding (before light view is set)
+    this.dummyTexture = this.device.createTexture({
+      size: [1, 1],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.dummyView = this.dummyTexture.createView();
+    this.device.queue.writeTexture(
+      { texture: this.dummyTexture },
+      new Uint8Array([255, 255, 255, 255]),
+      { bytesPerRow: 4, rowsPerImage: 1 },
+      [1, 1],
+    );
+
     const shader = this.device.createShaderModule({ code: STICKMAN_WGSL });
 
     this.bindGroupLayout = this.device.createBindGroupLayout({
-      entries: [{
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
-      }],
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      ],
     });
 
     const pipelineLayout = this.device.createPipelineLayout({
@@ -42,10 +58,26 @@ export class StickmanPass {
       primitive: { topology: "line-list" },
     });
 
+    this.createBindGroup();
+  }
+
+  private createBindGroup(): void {
+    if (!this.bindGroupLayout || !this.uniformBuffer || !this.dummyView) return;
+    const lView = this.lightView ?? this.dummyView;
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: lView },
+      ],
     });
+  }
+
+  /** Set the light accumulation texture view (called each frame by the renderer). */
+  setLightTexture(view: GPUTextureView | null): void {
+    if (this.lightView === view) return;
+    this.lightView = view;
+    this.createBindGroup();
   }
 
   update(
@@ -80,5 +112,6 @@ export class StickmanPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this.dummyTexture?.destroy();
   }
 }

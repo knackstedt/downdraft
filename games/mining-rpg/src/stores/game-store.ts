@@ -135,6 +135,8 @@ export interface GameState {
   buildMaterials: BuildMaterials; // mirror of worker-authoritative counts (for display)
   // Dev cheats
   noclip: boolean; // true when noclip (free flight through terrain) is active
+  // Lighting
+  headlampOn: boolean; // true when the player headlamp is on (toggle with L)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -169,6 +171,9 @@ export interface GameState {
   // Dev cheats
   setNoclip: (on: boolean) => void;
   toggleNoclip: () => void;
+  // Lighting
+  setHeadlamp: (on: boolean) => void;
+  toggleHeadlamp: () => void;
   /**
    * Buy `qty` of a build material at the signpost shop. Checks currency and
    * returns true on success. Does NOT mutate buildMaterials directly — the
@@ -199,8 +204,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   nearSignpost: false,
   buildMode: false,
   selectedBuild: "scaffolding",
-  buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 },
+  buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 },
   noclip: false,
+  headlampOn: true,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -251,6 +257,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   getSelectedBuildMatId: () => BUILD_MATERIAL_ID[get().selectedBuild],
   setNoclip: (on) => set({ noclip: on }),
   toggleNoclip: () => set((s) => ({ noclip: !s.noclip })),
+  setHeadlamp: (on) => set({ headlampOn: on }),
+  toggleHeadlamp: () => set((s) => ({ headlampOn: !s.headlampOn })),
   buyBuildMaterial: (type, qty) => {
     const price = BUILD_MATERIAL_PRICES[type] * qty;
     const s = get();

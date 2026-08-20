@@ -43,6 +43,9 @@ export interface Chunk {
   // resolution as the foreground grid. Stored per-chunk so it persists across
   // active grid rebuilds and saves. Empty (all zeros) for unmodified chunks.
   bgGrid: Uint32Array; // CHUNK_W * CHUNK_H cells (4 bytes/cell, packed)
+  // Fog-of-war: 1 byte per cell (0 = unexplored, 1 = explored). Stored
+  // per-chunk so it persists across active grid rebuilds and saves.
+  explored: Uint8Array; // CHUNK_W * CHUNK_H bytes
   wakeTick: Uint32Array; // CHUNK_W * CHUNK_H — tick when cell re-freezes (0 = frozen)
   generated: boolean;
   dirty: boolean;
@@ -62,6 +65,7 @@ export interface BuildMaterials {
   scaffolding: number;
   ladder: number;
   rope: number;
+  torch: number;
 }
 
 export interface MiningPlayerState {

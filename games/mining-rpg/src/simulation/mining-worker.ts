@@ -30,7 +30,7 @@ let inputBuf: Int32Array | null = null;
 let inputF32: Float32Array | null = null;
 let currentInventory: InventoryEntry[] = [];
 // Last buildMaterials snapshot emitted to the renderer — emit only on change.
-let lastEmittedBuild: BuildMaterials = { scaffolding: 0, ladder: 0, rope: 0 };
+let lastEmittedBuild: BuildMaterials = { scaffolding: 0, ladder: 0, rope: 0, torch: 0 };
 
 const TICK_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 5;
@@ -97,7 +97,7 @@ expose({
     dirtyChunks: SavedChunk[];
     tick: number;
   } {
-    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, dirtyChunks: [], tick: 0 };
+    if (!world) return { player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, dirtyChunks: [], tick: 0 };
     return {
       player: { ...world.player },
       upgrades: { ...world.upgrades },
@@ -147,6 +147,13 @@ expose({
   explode(x: number, y: number, radius: number): void {
     if (!world) return;
     world.explode(x, y, radius);
+  },
+  /** Place a torch via raycast from the player toward the target world coords.
+   *  Walks from the player center toward the target in 1-cell steps, placing
+   *  the torch at the first valid (empty, in-range, not-inside-player) cell. */
+  placeTorch(targetX: number, targetY: number): boolean {
+    if (!world) return false;
+    return world.placeTorchRaycast(targetX, targetY);
   },
 });
 
@@ -198,15 +205,18 @@ async function loop(): Promise<void> {
           const bm = world.buildMaterials;
           if (bm.scaffolding !== lastEmittedBuild.scaffolding ||
               bm.ladder !== lastEmittedBuild.ladder ||
-              bm.rope !== lastEmittedBuild.rope) {
+              bm.rope !== lastEmittedBuild.rope ||
+              bm.torch !== lastEmittedBuild.torch) {
             lastEmittedBuild = { ...bm };
             events.emit("buildMaterials", { ...bm });
           }
 
-          // Write active grid + fields + background grid to SAB
+          // Write active grid + fields + background grid + explored grid to SAB
           writer.writeGrid(world.activeGrid.grid);
           writer.writeFields(world.activeGrid.fields);
           writer.writeBackgroundGrid(world.backgroundGrid);
+          writer.writeExploredGrid(world.getExploredGrid());
+          writer.writeLightRegion(world.getLightCount(), world.getLightList());
 
           // Write player state
           writer.writePlayerF32(PLAYER.PX, world.player.x);

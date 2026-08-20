@@ -22,7 +22,9 @@ import { AutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
 import { BackgroundGridPass } from "./background-grid-pass";
 import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
+import { FogOfWarPass } from "./fog-pass";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
+import { createExplosionLight, createHeadlampLight, LightAccumPass, type RendererLight } from "./light-accum-pass";
 import { SandGridPass } from "./sand-grid-pass";
 import { StickmanPass } from "./stickman-pass";
 
@@ -34,11 +36,36 @@ const BOMB_GRAVITY = 0.015;  // per-tick gravity acceleration
 const BOMB_MAX_TICKS = 120;  // max travel ticks before forced explosion (~4s)
 const MAX_BOMBS = 8;
 
+// --- Glowstick constants ---
+const GLOWSTICK_SPEED = 0.6;   // initial throw speed
+const GLOWSTICK_GRAVITY = 0.012; // per-tick gravity (lighter than bombs)
+const GLOWSTICK_MAX_TICKS = 200; // max travel ticks before settling (~6.7s)
+const MAX_GLOWSTICKS = 32;
+const GLOWSTICK_LIFETIME_MS = 60 * 60 * 1000; // 1 hour real time
+const GLOWSTICK_RADIUS = 25;   // light radius in cells
+const GLOWSTICK_INTENSITY = 1.5;
+
 // --- Zoom constants ---
 // Per keypress step factor; drained from input.zoomDelta each frame.
 const ZOOM_STEP_FACTOR = 1.2;
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 24;
+
+/** Convert HSV (h: 0-360, s: 0-1, v: 0-1) to RGB [r,g,b] (0-1). */
+function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
+  const c = v * s;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs(hp % 2 - 1));
+  let r = 0, g = 0, b = 0;
+  if (hp < 1) { r = c; g = x; }
+  else if (hp < 2) { r = x; g = c; }
+  else if (hp < 3) { g = c; b = x; }
+  else if (hp < 4) { g = x; b = c; }
+  else if (hp < 5) { r = x; b = c; }
+  else { r = c; b = x; }
+  const m = v - c;
+  return [r + m, g + m, b + m];
+}
 
 // --- Player render interpolation ---
 // The sim runs at TICK_RATE (30Hz) but the renderer runs at the display
@@ -60,6 +87,15 @@ interface Bomb {
   ticks: number;              // ticks since thrown
 }
 
+interface Glowstick {
+  x: number; y: number;       // world cell coords (float)
+  vx: number; vy: number;     // velocity per tick (0 when settled)
+  ticks: number;              // ticks since thrown
+  settled: boolean;           // true once it hits ground
+  bornAt: number;             // performance.now() when thrown
+  color: [number, number, number]; // random rainbow color
+}
+
 export class MiningRenderer {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
@@ -70,6 +106,8 @@ export class MiningRenderer {
   private bgGridPass: BackgroundGridPass | null = null;
   private backdropPass: BackdropPass | null = null;
   private stickmanPass: StickmanPass | null = null;
+  private fogPass: FogOfWarPass | null = null;
+  private lightAccumPass: LightAccumPass | null = null;
   private input: MiningInputState | null = null;
   private workerHost: MiningWorkerHost | null = null;
   private backdropHost: BackdropWorkerHost | null = null;
@@ -95,6 +133,9 @@ export class MiningRenderer {
   private prevMouseRight = false;
   // Explosion flashes: { x, y, age, maxAge } in world coords
   private explosions: { x: number; y: number; age: number; maxAge: number }[] = [];
+  // Glowstick state (thrown light sources that persist for 1 hour real time)
+  private glowsticks: Glowstick[] = [];
+  private prevKeyG = false;
   // Player render interpolation: prev = position at the previous sim tick,
   // cur = position at the current sim tick. The rendered player is lerped
   // between them by alpha = renderAccumulator / TICK_MS.
@@ -189,6 +230,18 @@ export class MiningRenderer {
     this.stickmanPass = new StickmanPass(this.device, this.format);
     this.stickmanPass.init();
 
+    // Fog-of-war pass: renders solid black over unexplored cells, transparent
+    // over explored cells. The light texture (below) provides the actual
+    // lighting for explored cells — dim ambient underground, bright near lights.
+    this.fogPass = new FogOfWarPass(this.device, this.format, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.fogPass.init();
+
+    // Light accumulation pass (renders to a half-res light texture).
+    // Provides per-cell colored lighting: ambient (sky light that drops with
+    // depth) + dynamic lights (headlamp, torches, lava, explosions).
+    this.lightAccumPass = new LightAccumPass(this.device);
+    this.lightAccumPass.init(ACTIVE_GRID_W, ACTIVE_GRID_H);
+
     this.workerHost = new MiningWorkerHost();
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
@@ -216,7 +269,7 @@ export class MiningRenderer {
         if (save.upgrades) store.setUpgrades(save.upgrades);
         if (save.player.health) store.setHealth(save.player.health);
         store.setCurrency(save.currency ?? 0);
-        store.setBuildMaterials(save.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0 });
+        store.setBuildMaterials(save.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0, torch: 0 });
         // Restore camera zoom (clamped to the allowed range; old saves
         // without a zoom field keep the default from makeCamera2D).
         if (typeof save.zoom === "number" && Number.isFinite(save.zoom)) {
@@ -238,7 +291,7 @@ export class MiningRenderer {
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0 }, inventory: [], currency: 0, chunks: [], zoom: this.camera.zoom, savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], zoom: this.camera.zoom, savedAt: Date.now() };
       }
       const store = useGameStore.getState();
       return {
@@ -338,6 +391,8 @@ export class MiningRenderer {
     this.stickmanPass?.destroy();
     this.backdropPass?.destroy();
     this.bgGridPass?.destroy();
+    this.fogPass?.destroy();
+    this.lightAccumPass?.destroy();
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
   }
@@ -400,11 +455,12 @@ export class MiningRenderer {
     s.setNearSignpost(false);
     s.setPaused(false);
     s.setBuildMode(false);
-    s.setBuildMaterials({ scaffolding: 0, ladder: 0, rope: 0 });
+    s.setBuildMaterials({ scaffolding: 0, ladder: 0, rope: 0, torch: 0 });
 
-    // Clear bombs + explosions
+    // Clear bombs + explosions + glowsticks
     this.bombs = [];
     this.explosions = [];
+    this.glowsticks = [];
 
     // Suppress death/health detection until the new worker writes its first frame
     this.respawning = true;
@@ -555,6 +611,9 @@ export class MiningRenderer {
     if (s.oxygen !== oxygen) s.setOxygen(oxygen);
     const depth = Math.floor(py / 128);
     if (s.depth !== depth) s.setDepth(depth);
+    // Cell depth below the surface (for lighting — ambient drops with actual depth)
+    const surfaceY = surfaceHeightAt(px, WORLD_SEED);
+    const depthCells = Math.max(0, py - surfaceY);
     const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
     if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);
 
@@ -626,8 +685,55 @@ export class MiningRenderer {
       health, onGround, vx, vy,
     );
 
+    // --- Update fog-of-war pass ---
+    this.fogPass!.updateGrid(this.gridReader.getExploredGrid());
+    this.fogPass!.updateCamera(
+      camLocalX, camLocalY, this.camera.zoom,
+      this.canvas.width, this.canvas.height,
+      depth,
+    );
+
+    // --- Update light accumulation pass ---
+    // The light texture provides per-cell colored lighting for explored cells.
+    // Ambient = sky light that drops with depth; dynamic lights add color.
+    // Combine worker lights (from SAB) with renderer lights (headlamp, explosions)
+    const { count: workerLightCount, lights: workerLights } = this.gridReader.getLightRegion();
+    const rendererLights: RendererLight[] = [];
+    // Headlamp (if on)
+    if (useGameStore.getState().headlampOn) {
+      rendererLights.push(createHeadlampLight(interpPx, interpPy));
+    }
+    // Explosion lights
+    for (const exp of this.explosions) {
+      const progress = exp.age / exp.maxAge;
+      rendererLights.push(createExplosionLight(exp.x, exp.y, progress));
+    }
+    // Glowstick lights (random rainbow color, persist for 1 hour real time)
+    for (const gs of this.glowsticks) {
+      rendererLights.push({
+        x: gs.x, y: gs.y,
+        color: gs.color,
+        intensity: GLOWSTICK_INTENSITY,
+        radius: GLOWSTICK_RADIUS,
+      });
+    }
+    this.lightAccumPass!.updateLights(workerLights, workerLightCount, rendererLights, originX, originY);
+    this.lightAccumPass!.updateAmbient(depthCells);
+
     // --- Render ---
     const commandEncoder = this.device.createCommandEncoder();
+
+    // 1. Light accumulation pass (renders to the light texture, separate pass)
+    this.lightAccumPass!.render(commandEncoder);
+
+    // Wire the light texture into all material passes
+    const lightView = this.lightAccumPass!.getLightTextureView();
+    this.backdropPass.setLightTexture(lightView);
+    this.bgGridPass!.setLightTexture(lightView);
+    this.gridPass.setLightTexture(lightView);
+    this.stickmanPass.setLightTexture(lightView);
+
+    // 2. Main scene pass (renders to the canvas)
     const passEncoder = commandEncoder.beginRenderPass({
       colorAttachments: [{
         view: this.context.getCurrentTexture().createView(),
@@ -644,6 +750,9 @@ export class MiningRenderer {
     // Then foreground grid + player on top
     this.gridPass.render(passEncoder);
     this.stickmanPass.render(passEncoder);
+    // Fog-of-war overlay last: solid black over unexplored cells, transparent
+    // over explored cells (let the light texture do the actual lighting).
+    this.fogPass!.render(passEncoder);
 
     passEncoder.end();
     this.device.queue.submit([commandEncoder.finish()]);
@@ -676,8 +785,22 @@ export class MiningRenderer {
     }
     this.prevMouseRight = mouseRightNow;
 
+    // F key edge detection: place a torch via raycast toward the cursor
+    if (this.input.fPressed) {
+      this.input.fPressed = false;
+      this.workerHost?.placeTorch(world.x, world.y);
+    }
+
+    // G key edge detection: throw a rainbow glowstick toward the cursor
+    if (this.input.gPressed) {
+      this.input.gPressed = false;
+      this.tryThrowGlowstick(world.x, world.y);
+    }
+
     // Update active bombs (physics + collision + explosion)
     this.updateBombs();
+    // Update active glowsticks (physics + settle + expire)
+    this.updateGlowsticks();
 
     // Sync current inventory to the worker so collect() can enforce max size
     const store = useGameStore.getState();
@@ -808,9 +931,112 @@ export class MiningRenderer {
     });
   }
 
+  /** Throw a rainbow glowstick from the player towards the target world coords. */
+  private tryThrowGlowstick(targetX: number, targetY: number): void {
+    if (this.glowsticks.length >= MAX_GLOWSTICKS) return;
+
+    const px = this.workerHost!.getPlayerF32(PLAYER.PX);
+    const py = this.workerHost!.getPlayerF32(PLAYER.PY);
+
+    let dx = targetX - px;
+    let dy = targetY - py;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) {
+      const facing = this.workerHost!.getPlayerI32(PLAYER.FACING);
+      dx = facing;
+      dy = -1;
+      dist = Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Random rainbow color (HSV with full saturation, random hue)
+    const hue = Math.random() * 360;
+    const rgb = hsvToRgb(hue, 1.0, 1.0);
+
+    this.glowsticks.push({
+      x: px,
+      y: py - 2,
+      vx: (dx / dist) * GLOWSTICK_SPEED,
+      vy: (dy / dist) * GLOWSTICK_SPEED - 0.2,
+      ticks: 0,
+      settled: false,
+      bornAt: performance.now(),
+      color: rgb,
+    });
+  }
+
+  /** Update all active glowsticks: move with gravity, settle on collision,
+   *  expire after GLOWSTICK_LIFETIME_MS (1 hour real time). */
+  private updateGlowsticks(): void {
+    if (this.glowsticks.length === 0) return;
+    const grid = this.gridReader?.getGrid();
+    const bgGrid = this.gridReader?.getBackgroundGrid();
+    const originX = this.gridReader?.getStat(STATS.ORIGIN_X) ?? 0;
+    const originY = this.gridReader?.getStat(STATS.ORIGIN_Y) ?? 0;
+    const now = performance.now();
+
+    const surviving: Glowstick[] = [];
+    for (const gs of this.glowsticks) {
+      // Expire after 1 hour real time
+      if (now - gs.bornAt > GLOWSTICK_LIFETIME_MS) continue;
+
+      if (!gs.settled) {
+        gs.ticks++;
+        gs.vy += GLOWSTICK_GRAVITY;
+        gs.x += gs.vx;
+        gs.y += gs.vy;
+
+        // Check collision with terrain
+        if (gs.ticks >= GLOWSTICK_MAX_TICKS) {
+          gs.settled = true;
+          gs.vx = 0;
+          gs.vy = 0;
+        } else {
+          const ax = Math.floor(gs.x - originX);
+          const ay = Math.floor(gs.y - originY);
+          if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H && grid) {
+            const idx = ay * ACTIVE_GRID_W + ax;
+            let hit = false;
+            const packed = grid[idx];
+            if (packed !== 0) {
+              const mat = packed & 0xff;
+              const def = MATERIALS[mat];
+              if (def?.solid) hit = true;
+            }
+            if (!hit && bgGrid) {
+              const bgPacked = bgGrid[idx];
+              if (bgPacked !== 0) {
+                const bgMat = bgPacked & 0xff;
+                const bgDef = MATERIALS[bgMat];
+                if (bgDef?.solid) hit = true;
+              }
+            }
+            if (hit) {
+              gs.settled = true;
+              gs.vx = 0;
+              gs.vy = 0;
+            }
+          } else {
+            // Out of bounds — settle it (it'll resume lighting if the player
+            // moves close enough for the grid to cover it again)
+            gs.settled = true;
+            gs.vx = 0;
+            gs.vy = 0;
+          }
+        }
+      }
+      surviving.push(gs);
+    }
+    this.glowsticks = surviving;
+  }
+
   /** Get active bombs for rendering (world coords). */
   getBombs(): { x: number; y: number }[] {
     return this.bombs.map((b) => ({ x: b.x, y: b.y }));
+  }
+
+  /** Get active glowsticks for rendering (world coords + color). */
+  getGlowsticks(): { x: number; y: number; color: [number, number, number] }[] {
+    return this.glowsticks.map((g) => ({ x: g.x, y: g.y, color: g.color }));
   }
 
   /** Get active explosion flashes for rendering (world coords + progress). */

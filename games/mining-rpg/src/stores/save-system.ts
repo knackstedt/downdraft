@@ -58,6 +58,7 @@ function chunksToBlobs(chunks: SavedChunk[]): Record<string, ArrayBuffer> {
     blobs[`chunk${i}_grid`] = c.grid.buffer.slice(c.grid.byteOffset, c.grid.byteOffset + c.grid.byteLength) as ArrayBuffer;
     blobs[`chunk${i}_fields`] = c.fields.buffer.slice(c.fields.byteOffset, c.fields.byteOffset + c.fields.byteLength) as ArrayBuffer;
     blobs[`chunk${i}_bgGrid`] = c.bgGrid.buffer.slice(c.bgGrid.byteOffset, c.bgGrid.byteOffset + c.bgGrid.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_explored`] = c.explored.buffer.slice(c.explored.byteOffset, c.explored.byteOffset + c.explored.byteLength) as ArrayBuffer;
     blobs[`chunk${i}_wakeTick`] = c.wakeTick.buffer.slice(c.wakeTick.byteOffset, c.wakeTick.byteOffset + c.wakeTick.byteLength) as ArrayBuffer;
   }
   return blobs;
@@ -69,6 +70,7 @@ function blobsToChunks(blobs: Record<string, ArrayBuffer>, coords: { cx: number;
     const grid = blobs[`chunk${i}_grid`];
     const fields = blobs[`chunk${i}_fields`];
     const bgGrid = blobs[`chunk${i}_bgGrid`];
+    const explored = blobs[`chunk${i}_explored`];
     const wakeTick = blobs[`chunk${i}_wakeTick`];
     if (!grid || !fields || !bgGrid || !wakeTick) continue;
     chunks.push({
@@ -77,6 +79,7 @@ function blobsToChunks(blobs: Record<string, ArrayBuffer>, coords: { cx: number;
       grid: new Uint32Array(grid),
       fields: new Uint8Array(fields),
       bgGrid: new Uint32Array(bgGrid),
+      explored: explored ? new Uint8Array(explored) : new Uint8Array(128 * 128),
       wakeTick: new Uint32Array(wakeTick),
     });
   }
@@ -134,7 +137,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     upgrades: player.upgrades ?? { damage: 0, radius: 0, rate: 0, inventorySize: 0 },
     inventory: player.inventory ?? [],
     currency: player.currency ?? 0,
-    buildMaterials: player.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0 },
+    buildMaterials: player.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0, torch: 0 },
     chunks,
     zoom: meta.zoom,
     savedAt: meta.savedAt ?? 0,
