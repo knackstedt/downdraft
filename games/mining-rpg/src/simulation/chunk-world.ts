@@ -1519,8 +1519,6 @@ export class ChunkWorld {
           grid[idx] = 0;
           fields[fi + FIELD.GRAVITY] = 0;
           fields[fi + FIELD.TEMP] = DEFAULT_TEMP;
-          fields[fi + FIELD.WIND_X] = 0;
-          fields[fi + FIELD.WIND_Y] = 0;
           this.cellDamage[idx] = 0;
           this.clearWakeTick(gx, gy);
         } else {

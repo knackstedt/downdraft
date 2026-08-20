@@ -7,12 +7,13 @@
 // now a deliberate game-specific extension via the extend hook.
 
 import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
-import { writeFileSync } from "node:fs";
 import { createLogger } from "@downdraft/core/util/logger";
+import { writeFileSync } from "node:fs";
 
 const log = createLogger("info");
 
 createDowndraftApp({
+  appId: "downdraft-plugin-tester",
   window: {
     title: "Downdraft Plugin Tester",
     width: 1280,

@@ -11,18 +11,6 @@ import {
 } from "../shared/sim-buffer";
 import { createPlayer, updatePlayer, type PlayerState } from "./player";
 
-// --- Backend selection ---
-// Set USE_WASM=true to use the Rust WASM+SIMD+threads backend instead of the
-// TypeScript SandWorld. The WASM backend is ~2-9× faster depending on core
-// count and material complexity. Both backends expose the same interface so
-// the rest of the worker code is unchanged.
-const USE_WASM = true;
-
-// Union type for the world backend. Both SandWorld (JS) and SandWasmWorld
-// expose the same surface (grid, fields, W, H, frame, step, paint*, ignite*).
-type WorldBackend = SandWorld | import("./sand-wasm").SandWasmWorld;
-type PlayerBackend = PlayerState | import("./sand-wasm").WasmPlayerHandle;
-
 const events = exposeEvents();
 
 // --- Per-layer worker state ---
@@ -31,7 +19,7 @@ const events = exposeEvents();
 // writes only to its own layer's grid + field region (non-overlapping), reads
 // the shared input region, and — for layer 0 only — writes the player + stats
 // regions.
-let world: WorldBackend | null = null;
+let world: SandWorld | null = null;
 let layerIndex = 0;
 let writer: SimBufferWriter | null = null;
 let sabRef: SharedArrayBuffer | null = null;
@@ -46,17 +34,13 @@ let fps = 0;
 let prevMouseX = 0;
 let prevMouseY = 0;
 let wasMouseDown = false;
-let player: PlayerBackend | null = null;
+let player: PlayerState | null = null;
 
 // Cached view of the SAB input region — avoids allocating a new Int32Array
 // on every tick (readInput + player update were each doing this 30×/sec).
 let inputBuf: Int32Array | null = null;
 
-// --- WASM init guard ---
-// initWasm() is idempotent, but we only want to call it once per worker.
-let wasmInitialized = false;
-
-const TICK_MS = 1000 / 30;
+const TICK_MS = 1000 / 60;
 const MAX_STEPS_PER_FRAME = 5;
 let tickAccumulator = 0;
 let speedMultiplier = 1;
@@ -77,23 +61,12 @@ expose({
     // re-clear the shared input region and overwrite other layers' field data
     // in the SAB, racing with workers that are already ticking.
 
-    // --- Backend selection ---
-    if (USE_WASM) {
-      if (!wasmInitialized) {
-        const { initWasm } = await import("./sand-wasm");
-        await initWasm();
-        wasmInitialized = true;
-      }
-      const { SandWasmWorld, createWasmPlayer } = await import("./sand-wasm");
-      world = new SandWasmWorld(gridW, gridH);
-      if (layerIndex === 0) {
-        player = createWasmPlayer(gridW, gridH);
-      }
-    } else {
-      world = new SandWorld(gridW, gridH);
-      if (layerIndex === 0) {
-        player = createPlayer(gridW, gridH);
-      }
+    // --- Backend: TypeScript SandWorld ---
+    world = new SandWorld(gridW, gridH);
+    // Seed each layer's PRNG differently so parallel layers don't correlate.
+    world.reseed(0x9e3779b9 ^ (layerIndex * 0x85ebca6b));
+    if (layerIndex === 0) {
+      player = createPlayer(gridW, gridH);
     }
 
     running = true;
@@ -109,22 +82,9 @@ expose({
   resize(gridW: number, gridH: number): void {
     if (!writer || !sabRef) return;
     writer.setDims(gridW, gridH);
-    if (USE_WASM && world) {
-      // Free old WASM world + player, create new ones
-      (world as import("./sand-wasm").SandWasmWorld).free?.();
-      // Note: dynamic import already cached — re-import is fast
-      import("./sand-wasm").then(({ SandWasmWorld, createWasmPlayer }) => {
-        world = new SandWasmWorld(gridW, gridH);
-        if (layerIndex === 0) {
-          if (player) (player as import("./sand-wasm").WasmPlayerHandle).free?.();
-          player = createWasmPlayer(gridW, gridH);
-        }
-      });
-    } else {
-      world = new SandWorld(gridW, gridH);
-      if (layerIndex === 0) {
-        player = createPlayer(gridW, gridH);
-      }
+    world = new SandWorld(gridW, gridH);
+    if (layerIndex === 0) {
+      player = createPlayer(gridW, gridH);
     }
   },
 
@@ -145,14 +105,7 @@ expose({
 
   clear(): void {
     if (!world) return;
-    if (USE_WASM) {
-      (world as import("./sand-wasm").SandWasmWorld).free?.();
-      import("./sand-wasm").then(({ SandWasmWorld }) => {
-        world = new SandWasmWorld(world!.W, world!.H);
-      });
-    } else {
-      world = new SandWorld(world.W, world.H);
-    }
+    world = new SandWorld(world.W, world.H);
   },
 
   loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): void {
@@ -160,16 +113,7 @@ expose({
     // Recreate world at the new dimensions if needed
     if (world.W !== gridW || world.H !== gridH) {
       writer.setDims(gridW, gridH);
-      if (USE_WASM) {
-        (world as import("./sand-wasm").SandWasmWorld).free?.();
-        // Synchronous re-creation isn't possible with dynamic import here,
-        // but loadGrid is called after init, so the module is already loaded.
-        // Use a direct constructor call via the cached module.
-        // Fallback: create a JS world temporarily (rare path).
-        world = new SandWorld(gridW, gridH);
-      } else {
-        world = new SandWorld(gridW, gridH);
-      }
+      world = new SandWorld(gridW, gridH);
     }
     // Copy saved grid + field data into this layer's world
     world.grid.set(grid.subarray(0, gridW * gridH));
@@ -212,12 +156,7 @@ async function loop(): Promise<void> {
               down: ib[INPUT.DOWN / 4] !== 0,
               jump: ib[INPUT.JUMP / 4] !== 0,
             };
-            if (USE_WASM) {
-              // WASM player: call update() method on the handle
-              (player as import("./sand-wasm").WasmPlayerHandle).update(input, world.grid, world.W, world.H);
-            } else {
-              updatePlayer(player as PlayerState, input, world.grid, world.W, world.H);
-            }
+            updatePlayer(player, input, world.grid, world.W, world.H);
             writer.writePlayerF32(PLAYER.PX, player.x);
             writer.writePlayerF32(PLAYER.PY, player.y);
             writer.writePlayerF32(PLAYER.VX, player.vx);

@@ -300,8 +300,6 @@ function applyStationTick(): void {
         const fi = (y * W + x) * 4;
         fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
         fields[fi + FIELD.TEMP] = DEFAULT_TEMP;
-        fields[fi + FIELD.WIND_X] = 0;
-        fields[fi + FIELD.WIND_Y] = 0;
       }
     }
     stationActive = null;
