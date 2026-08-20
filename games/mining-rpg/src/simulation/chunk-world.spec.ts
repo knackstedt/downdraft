@@ -278,6 +278,61 @@ test("mining liquids does not destroy them", () => {
   expect(matAtRow(w, digX, digY, Material.Water)).toBe(true);
 });
 
+// Regression: the mining ray must originate from the player's horizontal
+// CENTER, not from player.x + PLAYER_W/2. player.x is already the center of
+// the AABB (see mining-player.ts: x0 = floor(px - PLAYER_W/2)). Adding
+// PLAYER_W/2 again shifts the ray origin 1.5 cells right, so a ray aimed
+// "straight down" actually starts right-of-center and hits terrain on the
+// right side of the player at shallow depths.
+//
+// This test places a stone at (centerX+1, mid-body-height) — a cell that a
+// correctly-centered straight-down ray would miss, but a 1.5-right-shifted
+// ray would hit at step 0. It also places a stone in the center column below
+// the feet to confirm mining still works.
+test("mining straight down originates from player center, not offset right", () => {
+  const w = new ChunkWorld();
+  runIdle(w, 1);
+
+  const centerX = Math.floor(w.player.x);
+  const playerTopY = Math.floor(w.player.y);
+
+  // Clear a wide area around the player so no natural terrain interferes.
+  for (let y = playerTopY - 2; y <= playerTopY + 14; y++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      setMatAtWorld(w, centerX + dx, y, Material.Empty);
+    }
+  }
+
+  // Stone A: center column, below the feet — the ray SHOULD hit this.
+  const targetY = playerTopY + 8;
+  setMatAtWorld(w, centerX, targetY, Material.Stone);
+  // Stone B: 1 cell right of center, at mid-body height — a centered ray
+  // going straight down should MISS this, but a +1.5-right-biased ray would
+  // hit it at step 0 (before reaching Stone A).
+  setMatAtWorld(w, centerX + 1, playerTopY + 3, Material.Stone);
+
+  expect(matAtWorld(w, centerX, targetY)).toBe(Material.Stone);
+  expect(matAtWorld(w, centerX + 1, playerTopY + 3)).toBe(Material.Stone);
+
+  // Mine straight down (mouse directly below the player center).
+  // With base rate=3, need ~9 calls for 3 actual hits (damage 10, hardness 30).
+  for (let i = 0; i < 15; i++) {
+    runMine(w, centerX, targetY);
+  }
+
+  // Stone A (center, below feet) must be dislodged — mining works.
+  const aResult = matAtWorld(w, centerX, targetY);
+  expect(aResult === Material.Gravel || aResult === Material.LooseStone)
+    .toBe(true);
+
+  // Stone B (right of center, body height) must NOT be dislodged — the ray
+  // originated from the player center and went straight down, missing it.
+  // With the bug (origin at center+1.5), the ray would hit Stone B at step 0
+  // and never reach Stone A.
+  const bResult = matAtWorld(w, centerX + 1, playerTopY + 3);
+  expect(bResult).toBe(Material.Stone);
+});
+
 // --- Collection ---
 
 test("collect picks up loose ore near player", () => {
