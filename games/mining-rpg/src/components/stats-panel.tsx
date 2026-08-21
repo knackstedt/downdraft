@@ -291,6 +291,23 @@ export function StatsPanel() {
             : stats.totalBarsCrafted}
         </span>
       </div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Gold / Block</span>
+        <span style={{ ...valueStyle, color: "#ffd700" }}>
+          {stats.totalCellsMined > 0
+            ? (stats.totalGoldEarned / stats.totalCellsMined).toFixed(2)
+            : "0.00"}
+        </span>
+      </div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Gold / Hour</span>
+        <span style={{ ...valueStyle, color: "#ffd700" }}>
+          {(() => {
+            const hours = stats.totalTicks / (60 * 3600);
+            return hours > 0.01 ? Math.floor(stats.totalGoldEarned / hours) : stats.totalGoldEarned;
+          })()}
+        </span>
+      </div>
 
       <div style={closeHintStyle}>Press Tab to close</div>
     </div>
