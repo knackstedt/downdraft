@@ -130,15 +130,13 @@ function stickmanSvg(sx: number, sy: number, scale: number, color: string, idleS
     `<line x1="${hipX}" y1="${hipY}" x2="${footRX}" y2="${footRY}" stroke="${color}" stroke-width="${strokeW}" stroke-linecap="round"/>`,
   ];
 
-  // SVG bounds: head top to feet
-  const svgTop = headCy - headR - strokeW;
-  const svgBot = footLY + strokeW;
-  const svgLeft = Math.min(handLX, footLX, headCx - headR) - strokeW;
-  const svgRight = Math.max(handRX, footRX, headCx + headR) + strokeW;
-  const svgW = svgRight - svgLeft;
-  const svgH = svgBot - svgTop;
-
-  return `<svg style="position:absolute;left:${svgLeft}px;top:${svgTop}px;width:${svgW}px;height:${svgH}px;overflow:visible;" xmlns="http://www.w3.org/2000/svg">${lines.join("")}</svg>`;
+  // SVG coordinate system: (0,0) = top-left of the SVG element. We position
+  // the SVG at (0,0) covering the full screen so that SVG coordinates = page
+  // (CSS) coordinates. If we positioned the SVG at (svgLeft, svgTop) instead,
+  // the internal coordinates would be double-offsetted (svgLeft + headCx in
+  // page space), making the stickman appear at ~2x the intended position and
+  // slide at 2x speed when the camera moves.
+  return `<svg style="position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;" xmlns="http://www.w3.org/2000/svg">${lines.join("")}</svg>`;
 }
 
 export function VillageOverlay() {
