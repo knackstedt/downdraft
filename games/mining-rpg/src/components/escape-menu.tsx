@@ -217,7 +217,9 @@ export function EscapeMenu() {
               <div>Deepest Depth: {stats.maxDepthCells}m</div>
               <div>Gold: {currency}</div>
               <div>Deaths: {stats.totalDeaths}</div>
-              <div>Achievements: {unlockedAchievements.size}</div>
+              <div>Blocks Mined: {stats.totalCellsMined}</div>
+              <div>Bars Crafted: {stats.totalBarsCrafted}</div>
+              <div>Achievements: {unlockedAchievements.size}/35</div>
             </div>
             <div style={settingsStyle}>
               <div style={summaryTitleStyle}>Settings</div>
