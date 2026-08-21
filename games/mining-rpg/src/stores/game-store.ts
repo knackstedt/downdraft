@@ -297,6 +297,9 @@ export interface GameState {
   toggleFPS: () => void;
   showHelp: boolean; // whether to show the help/keybindings bar (toggle with H)
   toggleHelp: () => void;
+  showShop: boolean; // whether the shop panel is open (toggle with O, only near signpost)
+  toggleShop: () => void;
+  setShowShop: (show: boolean) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -344,6 +347,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   welcomeBack: null,
   showFPS: true,
   showHelp: false,
+  showShop: false,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -573,4 +577,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   setWelcomeBack: (welcomeBack) => set({ welcomeBack }),
   toggleFPS: () => set((s) => ({ showFPS: !s.showFPS })),
   toggleHelp: () => set((s) => ({ showHelp: !s.showHelp })),
+  toggleShop: () => set((s) => ({ showShop: !s.showShop })),
+  setShowShop: (showShop) => set({ showShop }),
 }));
