@@ -258,6 +258,17 @@ export function HUD() {
           })()}
         </div>
       )}
+      {stats.totalTicks > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+          Play time: {(() => {
+            const secs = Math.floor(stats.totalTicks / 60);
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+          })()}
+        </div>
+      )}
       {buildMode && <div style={{ color: "#ffd700" }}>BUILD MODE — left-click to place (1/2/3/4 to select)</div>}
       <div style={{ color: headlampOn ? "#ffcc66" : "#666" }}>Headlamp: {headlampOn ? "ON" : "OFF"} (L to toggle)</div>
       <div style={{ color: "#888" }}>F: Torch · G: Glowstick · RMB: Bomb</div>
