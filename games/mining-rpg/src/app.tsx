@@ -19,6 +19,7 @@ import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
 import { TitleScreen } from "./components/title-screen";
 import { WelcomeBack } from "./components/welcome-back";
+import { createCraftedItems, createPlayerStats } from "./shared/types";
 import { useGameStore } from "./stores/game-store";
 
 const helpStyle: React.CSSProperties = {
@@ -135,6 +136,22 @@ export default function App() {
       <TitleScreen
         onStart={() => {
           setShowTitleScreen(false);
+        }}
+        onNewGame={async () => {
+          // Delete save and reset the game
+          const { deleteSave } = await import("./stores/save-system");
+          await deleteSave();
+          // Reset all store state
+          const s = useGameStore.getState();
+          s.setStats(createPlayerStats());
+          s.setInventory([]);
+          s.setCurrency(0);
+          s.setUpgrades({ damage: 0, radius: 0, rate: 0, inventorySize: 0 });
+          s.setCraftedItems(createCraftedItems());
+          s.setUnlockedAchievements(new Set());
+          s.setWelcomeBack(null);
+          // Reload the page to restart the game
+          window.location.reload();
         }}
       />
     );
