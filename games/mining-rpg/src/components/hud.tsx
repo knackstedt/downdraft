@@ -140,7 +140,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
@@ -151,6 +151,18 @@ export function HUD() {
   // Hides when full to avoid cluttering the HUD during normal play.
   const oxygenPct = OXYGEN_MAX_TICKS > 0 ? (oxygen / OXYGEN_MAX_TICKS) * 100 : 100;
   const showOxygen = oxygen < OXYGEN_MAX_TICKS;
+
+  // Calculate total sell value (inventory + crafted bars)
+  let sellValue = 0;
+  for (let i = 0; i < inventory.length; i++) {
+    const entry = inventory[i];
+    sellValue += (SELL_PRICES[entry.mat] ?? 0) * entry.count;
+  }
+  const craftedKeys = Object.keys(craftedItems) as CraftedItemId[];
+  for (let i = 0; i < craftedKeys.length; i++) {
+    const id = craftedKeys[i];
+    sellValue += (CRAFTED_SELL_PRICES[id] ?? 0) * craftedItems[id];
+  }
 
   return (
     <div style={containerStyle}>
@@ -190,6 +202,11 @@ export function HUD() {
       <div>Brush: {digRadius} cells</div>
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
+      {sellValue > 0 && (
+        <div style={{ color: "rgba(255,215,0,0.5)", fontSize: 11 }}>
+          Bag value: {sellValue}g (press E to sell)
+        </div>
+      )}
       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
         Upg: DMG {upgrades.damage} | RAD {upgrades.radius} | SPD {upgrades.rate} | INV {upgrades.inventorySize}
       </div>
