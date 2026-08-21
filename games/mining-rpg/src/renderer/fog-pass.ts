@@ -138,8 +138,8 @@ export class FogOfWarPass {
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, u);
   }
 
-  updateCamera(camX: number, camY: number, zoom: number, canvasW: number, canvasH: number, depth: number = 0): void {
-    const u = new Float32Array([camX, camY, zoom, canvasW, canvasH, depth, 0, 0]);
+  updateCamera(camX: number, camY: number, zoom: number, canvasW: number, canvasH: number, depth: number = 0, surfaceLocalY: number = -99999): void {
+    const u = new Float32Array([camX, camY, zoom, canvasW, canvasH, depth, surfaceLocalY, 0]);
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, u);
   }
 

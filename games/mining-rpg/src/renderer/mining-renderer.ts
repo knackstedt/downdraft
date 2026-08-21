@@ -944,10 +944,13 @@ export class MiningRenderer {
 
     // --- Update fog-of-war pass ---
     this.fogPass!.updateGrid(this.gridReader.getExploredGrid());
+    // Pass the surface Y in active-grid local coords so the fog shader can
+    // skip fogging above the surface (sky should always be visible).
     this.fogPass!.updateCamera(
       camLocalX, camLocalY, this.camera.zoom,
       this.canvas.width, this.canvas.height,
       depth,
+      surfaceY - originY,
     );
 
     // --- Update light accumulation pass ---
