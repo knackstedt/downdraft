@@ -121,3 +121,53 @@ export interface WorldConfig {
   activeRadiusChunks: number;
   freezeTicks: number;
 }
+
+/**
+ * Persistent player statistics — tracked across the entire playthrough and
+ * saved with the world. These are cumulative counters that never decrease
+ * (except on world reset). Used for the stats panel and achievement checks.
+ */
+export interface PlayerStats {
+  /** Total ticks the simulation has run (1 tick = 1/60 sec at 60tps). */
+  totalTicks: number;
+  /** Deepest depth reached (in world Y cells below surface). */
+  maxDepthCells: number;
+  /** Total cells mined (dislodged from terrain). */
+  totalCellsMined: number;
+  /** Total items collected (ore + debris). */
+  totalItemsCollected: number;
+  /** Total gold earned from selling. */
+  totalGoldEarned: number;
+  /** Total gold spent (upgrades + build materials). */
+  totalGoldSpent: number;
+  /** Total number of deaths. */
+  totalDeaths: number;
+  /** Total number of bombs thrown. */
+  totalBombsThrown: number;
+  /** Total number of glowsticks thrown. */
+  totalGlowsticksThrown: number;
+  /** Total number of blocks placed (build mode). */
+  totalBlocksPlaced: number;
+  /** Per-material collection counts (material ID → count). */
+  collectedByMaterial: Record<number, number>;
+  /** Death count by cause (Material ID or DeathCause ID → count). */
+  deathsByCause: Record<number, number>;
+}
+
+/** Create a fresh stats object with all counters at zero. */
+export function createPlayerStats(): PlayerStats {
+  return {
+    totalTicks: 0,
+    maxDepthCells: 0,
+    totalCellsMined: 0,
+    totalItemsCollected: 0,
+    totalGoldEarned: 0,
+    totalGoldSpent: 0,
+    totalDeaths: 0,
+    totalBombsThrown: 0,
+    totalGlowsticksThrown: 0,
+    totalBlocksPlaced: 0,
+    collectedByMaterial: {},
+    deathsByCause: {},
+  };
+}

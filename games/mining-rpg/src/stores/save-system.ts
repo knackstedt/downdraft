@@ -16,7 +16,8 @@
 import type { SaveState } from "@downdraft/core";
 import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
 import { WORLD_SEED } from "../shared/constants";
-import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades, SavedGlowstick } from "../shared/types";
+import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerStats, PlayerUpgrades, SavedGlowstick } from "../shared/types";
+import { createPlayerStats } from "../shared/types";
 import type { SavedChunk } from "../simulation/chunk-world";
 
 const SAVE_SLOT = "world";
@@ -38,6 +39,9 @@ export interface SaveData {
   // Camera zoom level at save time (optional for backward compat with saves
   // made before zoom was persisted). Restored by the renderer on load.
   zoom?: number;
+  // Cumulative player statistics (optional for backward compat with saves
+  // made before stats tracking was added). Restored to the game store on load.
+  stats?: PlayerStats;
   savedAt: number;
 }
 
@@ -101,6 +105,7 @@ function buildState(data: SaveData): SaveState {
           inventory: data.inventory,
           currency: data.currency,
           buildMaterials: data.buildMaterials,
+          stats: data.stats,
         },
       },
       chunks: { v: 1, data: { count: data.chunks.length, coords: data.chunks.map((c) => ({ cx: c.cx, cy: c.cy })) } },
@@ -129,7 +134,7 @@ export async function loadWorld(): Promise<SaveData | null> {
   const meta = result.state.components.meta?.data as { version: number; seed: number; savedAt: number; zoom?: number } | undefined;
   const player = result.state.components.player?.data as {
     player: MiningPlayerState; upgrades?: PlayerUpgrades; inventory?: InventoryEntry[];
-    currency?: number; buildMaterials?: BuildMaterials;
+    currency?: number; buildMaterials?: BuildMaterials; stats?: PlayerStats;
   } | undefined;
   const chunksComp = result.state.components.chunks?.data as { count: number; coords: { cx: number; cy: number }[] } | undefined;
   const glowsticksComp = result.state.components.glowsticks?.data as { list: SavedGlowstick[] } | undefined;
@@ -146,6 +151,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     chunks,
     glowsticks: glowsticksComp?.list ?? [],
     zoom: meta.zoom,
+    stats: player.stats ?? createPlayerStats(),
     savedAt: meta.savedAt ?? 0,
   };
 }

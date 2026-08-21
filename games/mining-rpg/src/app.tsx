@@ -7,6 +7,7 @@ import { HUD } from "./components/hud";
 import { InventoryPanel } from "./components/inventory-panel";
 import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
+import { StatsPanel } from "./components/stats-panel";
 import { useGameStore } from "./stores/game-store";
 
 const helpStyle: React.CSSProperties = {
@@ -74,6 +75,11 @@ export default function App() {
           (s.renderer as { resume?: () => void } | null)?.resume?.();
         }
       }
+      // Tab toggles the stats panel (doesn't pause the game)
+      if (e.key === "Tab") {
+        e.preventDefault();
+        useGameStore.getState().toggleStats();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -89,8 +95,9 @@ export default function App() {
       <ChunkDebugOverlay />
       <DeathMenu />
       <EscapeMenu />
+      <StatsPanel />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | E: sell | F2: chunk borders | F3: noclip | ESC: menu | Upgrades at signpost
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | Tab: stats | E: sell | F2: chunk borders | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
       </div>
     </>
