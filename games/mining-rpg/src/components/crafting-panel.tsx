@@ -11,6 +11,7 @@
 // calls the store's craft() method to consume inputs and produce output.
 // ============================================================================
 
+import { Material } from "@downdraft/library-sand";
 import { canCraft, CRAFTING_RECIPES } from "../shared/crafting-recipes";
 import { useGameStore } from "../stores/game-store";
 
@@ -113,12 +114,21 @@ export function CraftingPanel() {
   return (
     <>
       <div style={titleStyle}>Furnace — Smelt Ore into Bars</div>
+      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>
+        Coal: {inventory.find((e) => e.mat === Material.Coal)?.count ?? 0} | Each smelt needs 1 coal
+      </div>
       {CRAFTING_RECIPES.map((recipe, i) => {
         const hasMaterials = canCraft(recipe, inventory);
         const ownedCount = craftedItems[recipe.output] ?? 0;
         const inputSummary = recipe.inputs
           .map((inp) => `${inp.count} ${inp.name}`)
           .join(" + ");
+        // Calculate profit margin (sell price - input ore sell value)
+        let inputSellValue = 0;
+        for (let j = 0; j < recipe.inputs.length; j++) {
+          inputSellValue += (SELL_PRICES[recipe.inputs[j].mat] ?? 0) * recipe.inputs[j].count;
+        }
+        const profit = recipe.sellPrice - inputSellValue;
 
         return (
           <div key={recipe.output} style={rowStyle}>
@@ -126,6 +136,9 @@ export function CraftingPanel() {
             <span style={recipeNameStyle}>{recipe.outputName}</span>
             <span style={inputStyle}>{inputSummary}</span>
             <span style={priceStyle}>{recipe.sellPrice}g</span>
+            <span style={{ ...countStyle, color: profit > 0 ? "#4caf50" : "#f44336", fontSize: 9 }}>
+              {profit > 0 ? `+${profit}` : profit}g
+            </span>
             <span style={countStyle}>({ownedCount})</span>
             <button
               style={hasMaterials ? craftBtnStyle : craftBtnDisabledStyle}
