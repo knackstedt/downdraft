@@ -248,6 +248,10 @@ export class MiningRenderer {
     const dpr = window.devicePixelRatio || 1;
     return { x: screen.x / dpr, y: screen.y / dpr };
   }
+  /** Reset camera zoom to 1x (called from R key). */
+  resetZoom(): void {
+    this.camera.zoom = 1;
+  }
 
   /** Pause the simulation (called from UI menus). */
   pause(): void {

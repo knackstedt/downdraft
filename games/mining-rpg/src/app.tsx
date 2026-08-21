@@ -117,6 +117,11 @@ export default function App() {
         e.preventDefault();
         useGameStore.getState().toggleHUD();
       }
+      // R resets camera zoom to 1x
+      if (e.key === "r" || e.key === "R") {
+        const r = useGameStore.getState().renderer as { resetZoom?: () => void } | null;
+        r?.resetZoom?.();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
