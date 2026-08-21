@@ -168,6 +168,12 @@ export function HUD() {
 
   return (
     <div style={containerStyle}>
+      <style>{`
+        @keyframes oxygenPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
       <div style={{ color: fps == null ? "rgba(255,255,255,0.5)" : fps >= 50 ? "#4caf50" : fps >= 30 ? "#ff9800" : "#f44336" }}>
         FPS: {fps ?? "—"}
       </div>
@@ -179,12 +185,12 @@ export function HUD() {
         <span>{Math.ceil(health)}</span>
       </div>
       {showOxygen && (
-        <div style={healthBarStyle}>
+        <div style={{ ...healthBarStyle, ...(oxygenPct < 20 ? { animation: "oxygenPulse 0.8s ease-in-out infinite" } : {}) }}>
           <span>O2:</span>
           <div style={barOuterStyle}>
             <div style={oxygenBarInnerStyle(oxygenPct)} />
           </div>
-          <span>{Math.ceil(oxygen / 60)}s</span>
+          <span style={{ color: oxygenPct < 20 ? "#ef5350" : "inherit" }}>{Math.ceil(oxygen / 60)}s</span>
         </div>
       )}
       <div style={healthBarStyle}>
