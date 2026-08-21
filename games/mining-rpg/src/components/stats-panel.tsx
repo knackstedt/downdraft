@@ -308,6 +308,20 @@ export function StatsPanel() {
           })()}
         </span>
       </div>
+      {stats.longestSurvivalTicks > 0 && (
+        <div style={rowStyle}>
+          <span style={labelStyle}>Longest Survival</span>
+          <span style={valueStyle}>
+            {(() => {
+              const secs = Math.floor(stats.longestSurvivalTicks / 60);
+              const h = Math.floor(secs / 3600);
+              const m = Math.floor((secs % 3600) / 60);
+              const s = secs % 60;
+              return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+            })()}
+          </span>
+        </div>
+      )}
 
       <div style={closeHintStyle}>Press Tab to close</div>
     </div>
