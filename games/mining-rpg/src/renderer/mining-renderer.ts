@@ -186,6 +186,18 @@ export class MiningRenderer {
   getSignpostPos(): { x: number; y: number } {
     return { x: this.signpostX, y: this.signpostY };
   }
+  /** Grid reader for minimap/overlays that need direct grid access. */
+  getGridReader(): MiningSimBufferReader | null {
+    return this.gridReader;
+  }
+  /** Player position in world coords (for minimap). */
+  getPlayerPos(): { x: number; y: number } {
+    if (!this.workerHost) return { x: 0, y: 0 };
+    return {
+      x: this.workerHost.getPlayerF32(PLAYER.PX),
+      y: this.workerHost.getPlayerF32(PLAYER.PY),
+    };
+  }
 
   /** Pause the simulation (called from UI menus). */
   pause(): void {
