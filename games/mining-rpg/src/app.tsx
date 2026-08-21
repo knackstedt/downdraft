@@ -12,6 +12,7 @@ import { InventoryPanel } from "./components/inventory-panel";
 import { KeyBindingsOverlay } from "./components/key-bindings-overlay";
 import { Minimap } from "./components/minimap";
 import { OreTooltip } from "./components/ore-tooltip";
+import { ParticleEffects } from "./components/particle-effects";
 import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
@@ -145,6 +146,7 @@ export default function App() {
       <OreTooltip />
       <DepthNotification />
       <DangerVignette />
+      <ParticleEffects />
       <div style={helpStyle}>
         WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}

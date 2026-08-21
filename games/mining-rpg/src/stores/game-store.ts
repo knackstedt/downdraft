@@ -269,6 +269,8 @@ export interface GameState {
   setShowTitleScreen: (show: boolean) => void;
   setLastSaveTime: (time: number) => void;
   toggleMinimap: () => void;
+  // Particle effects
+  spawnParticles: (x: number, y: number, color: string, count: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -495,4 +497,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setShowTitleScreen: (showTitleScreen) => set({ showTitleScreen }),
   setLastSaveTime: (lastSaveTime) => set({ lastSaveTime }),
   toggleMinimap: () => set((s) => ({ showMinimap: !s.showMinimap })),
+  spawnParticles: () => {}, // overridden by ParticleEffects component
 }));
