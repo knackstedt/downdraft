@@ -239,7 +239,7 @@ export function HUD() {
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
       {sellValue > 0 && (
         <div style={{ color: "rgba(255,215,0,0.5)", fontSize: 11 }}>
-          Bag value: {sellValue}g (press E to sell)
+          Net worth: {currency + sellValue}g (bag: {sellValue}g)
         </div>
       )}
       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
