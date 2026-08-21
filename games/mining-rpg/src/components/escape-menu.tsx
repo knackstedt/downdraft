@@ -89,10 +89,46 @@ const warningStyle: React.CSSProperties = {
   lineHeight: 1.5,
 };
 
+const saveButtonStyle: React.CSSProperties = {
+  ...buttonBase,
+  color: "#fff",
+  background: "#2a3a4a",
+  borderColor: "#3a5a6a",
+};
+
+const saveStatusStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#8bc34a",
+  textAlign: "center" as const,
+};
+
+const summaryStyle: React.CSSProperties = {
+  marginTop: 8,
+  paddingTop: 12,
+  borderTop: "1px solid rgba(255,255,255,0.1)",
+  fontSize: 12,
+  color: "rgba(255,255,255,0.6)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  textAlign: "center" as const,
+};
+
+const summaryTitleStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: "bold",
+  color: "rgba(255,255,255,0.4)",
+  textTransform: "uppercase" as const,
+  letterSpacing: 1,
+  marginBottom: 4,
+};
+
 export function EscapeMenu() {
-  const { showEscapeMenu, renderer } = useGameStore();
+  const { showEscapeMenu, renderer, stats, currency, unlockedAchievements } = useGameStore();
   const [confirming, setConfirming] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   if (!showEscapeMenu) return null;
 
@@ -100,6 +136,22 @@ export function EscapeMenu() {
     const s = useGameStore.getState();
     s.setShowEscapeMenu(false);
     (renderer as { resume?: () => void } | null)?.resume?.();
+  };
+
+  const handleSaveNow = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveStatus("Saving...");
+    try {
+      const r = renderer as { saveNow?: () => Promise<void> } | null;
+      await r?.saveNow?.();
+      setSaveStatus("Saved!");
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch {
+      setSaveStatus("Save failed!");
+      setTimeout(() => setSaveStatus(null), 3000);
+    }
+    setSaving(false);
   };
 
   const handleReset = async () => {
@@ -112,6 +164,13 @@ export function EscapeMenu() {
     useGameStore.getState().setShowEscapeMenu(false);
   };
 
+  // Format play time from ticks (60tps)
+  const totalSeconds = Math.floor(stats.totalTicks / 60);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const playTime = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+
   return (
     <div style={overlayStyle}>
       <div style={panelStyle}>
@@ -121,9 +180,21 @@ export function EscapeMenu() {
             <button style={resumeButtonStyle} onClick={handleResume}>
               Resume
             </button>
+            <button style={saveButtonStyle} onClick={handleSaveNow} disabled={saving}>
+              {saving ? "Saving..." : "Save Now"}
+            </button>
+            {saveStatus && <div style={saveStatusStyle}>{saveStatus}</div>}
             <button style={resetButtonStyle} onClick={() => setConfirming(true)}>
               Reset World
             </button>
+            <div style={summaryStyle}>
+              <div style={summaryTitleStyle}>Progress Summary</div>
+              <div>Play Time: {playTime}</div>
+              <div>Deepest Depth: {stats.maxDepthCells}m</div>
+              <div>Gold: {currency}</div>
+              <div>Deaths: {stats.totalDeaths}</div>
+              <div>Achievements: {unlockedAchievements.size}</div>
+            </div>
           </>
         ) : (
           <>
