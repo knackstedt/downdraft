@@ -168,7 +168,9 @@ export function HUD() {
 
   return (
     <div style={containerStyle}>
-      <div>FPS: {fps ?? "—"}</div>
+      <div style={{ color: fps == null ? "rgba(255,255,255,0.5)" : fps >= 50 ? "#4caf50" : fps >= 30 ? "#ff9800" : "#f44336" }}>
+        FPS: {fps ?? "—"}
+      </div>
       <div style={healthBarStyle}>
         <span>HP:</span>
         <div style={barOuterStyle}>
