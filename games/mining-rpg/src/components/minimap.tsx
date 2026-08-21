@@ -205,6 +205,18 @@ export function Minimap() {
       // Draw player marker (white dot with outline)
       const playerMx = canvas.width / 2;
       const playerMy = canvas.height / 2;
+
+      // Draw mining radius circle (faint white)
+      const digRadius = store.digRadius ?? 3;
+      const radiusPx = (digRadius / (WORLD_RADIUS * 2)) * canvas.width;
+      if (radiusPx > 1) {
+        ctx.strokeStyle = "rgba(255,255,255,0.2)";
+        ctx.lineWidth = 1 * dpr;
+        ctx.beginPath();
+        ctx.arc(playerMx, playerMy, radiusPx, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       ctx.fillStyle = "#fff";
       ctx.beginPath();
       ctx.arc(playerMx, playerMy, 3 * dpr, 0, Math.PI * 2);
