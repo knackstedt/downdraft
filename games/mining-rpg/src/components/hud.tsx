@@ -142,7 +142,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
@@ -229,6 +229,16 @@ export function HUD() {
       <div style={{ fontSize: 11, color: "rgba(255,215,0,0.5)" }}>
         Achievements: {unlockedAchievements.size}/35 (F4)
       </div>
+      {lastSaveTime > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
+          Last save: {(() => {
+            const ago = Math.floor((Date.now() - lastSaveTime) / 1000);
+            if (ago < 60) return `${ago}s ago`;
+            if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
+            return `${Math.floor(ago / 3600)}h ago`;
+          })()}
+        </div>
+      )}
       {buildMode && <div style={{ color: "#ffd700" }}>BUILD MODE — left-click to place (1/2/3/4 to select)</div>}
       <div style={{ color: headlampOn ? "#ffcc66" : "#666" }}>Headlamp: {headlampOn ? "ON" : "OFF"} (L to toggle)</div>
       <div style={{ color: "#888" }}>F: Torch · G: Glowstick · RMB: Bomb</div>
