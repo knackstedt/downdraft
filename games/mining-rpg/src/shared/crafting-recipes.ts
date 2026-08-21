@@ -30,6 +30,8 @@ export interface CraftingRecipe {
   sellPrice: number;
   /** Description shown in the UI. */
   description: string;
+  /** Category: "smelting" (ore → bar) or "alloy" (bar + bar → alloy bar). */
+  category: "smelting" | "alloy";
 }
 
 // --- Smelting recipes (ore → bar) ---
@@ -48,6 +50,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 14, // 2 tin ore (5 each = 10) + 1 coal (7) = 17 cost, sells for 14... wait
     description: "Smelt 2 Tin Ore + 1 Coal into a Tin Bar",
+    category: "smelting",
   },
   {
     output: "copper-bar",
@@ -60,6 +63,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 22, // 2 copper (8 each = 16) + 1 coal (7) = 23, sells for 22
     description: "Smelt 2 Copper Ore + 1 Coal into a Copper Bar",
+    category: "smelting",
   },
   {
     output: "iron-bar",
@@ -72,6 +76,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 32, // 2 iron (12 each = 24) + 1 coal (7) = 31, sells for 32
     description: "Smelt 2 Iron Ore + 1 Coal into an Iron Bar",
+    category: "smelting",
   },
   {
     output: "bauxite-bar",
@@ -84,6 +89,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 28, // 2 bauxite (10 each = 20) + 1 coal (7) = 27, sells for 28
     description: "Smelt 2 Bauxite Ore + 1 Coal into an Aluminum Bar",
+    category: "smelting",
   },
   {
     output: "silver-bar",
@@ -96,6 +102,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 78, // 2 silver (30 each = 60) + 1 coal (7) = 67, sells for 78
     description: "Smelt 2 Silver Ore + 1 Coal into a Silver Bar",
+    category: "smelting",
   },
   {
     output: "gold-bar",
@@ -108,6 +115,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 128, // 2 gold (50 each = 100) + 1 coal (7) = 107, sells for 128
     description: "Smelt 2 Gold Ore + 1 Coal into a Gold Bar",
+    category: "smelting",
   },
   {
     output: "cobalt-bar",
@@ -120,6 +128,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 205, // 2 cobalt (80 each = 160) + 1 coal (7) = 167, sells for 205
     description: "Smelt 2 Cobalt Ore + 1 Coal into a Cobalt Bar",
+    category: "smelting",
   },
   // --- Alloy recipes (2 base bars → alloy bar) ---
   // Alloys require 2 base bars + 1 coal and sell for a premium over the
@@ -135,6 +144,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 45, // 2 iron (24) + 2 coal (14) = 38, sells for 45
     description: "Forge 2 Iron Ore + 2 Coal into a Steel Bar (high carbon)",
+    category: "alloy",
   },
   {
     output: "bronze-bar",
@@ -148,6 +158,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 20, // 1 copper (8) + 1 tin (5) + 1 coal (7) = 20, sells for 20
     description: "Alloy 1 Copper + 1 Tin Ore + 1 Coal into a Bronze Bar",
+    category: "alloy",
   },
   {
     output: "brass-bar",
@@ -161,6 +172,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     outputCount: 1,
     sellPrice: 25, // 1 copper (8) + 1 bauxite (10) + 1 coal (7) = 25, sells for 25
     description: "Alloy 1 Copper + 1 Bauxite Ore + 1 Coal into a Brass Bar",
+    category: "alloy",
   },
 ];
 
