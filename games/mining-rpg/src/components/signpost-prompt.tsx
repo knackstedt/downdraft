@@ -10,6 +10,7 @@
 
 import { BUILD_MATERIAL_INFO, BUILD_MATERIAL_PRICES, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
+import { CraftingPanel } from "./crafting-panel";
 import { UpgradeShop } from "./upgrade-shop";
 
 const promptStyle: React.CSSProperties = {
@@ -134,6 +135,7 @@ export function SignpostPrompt() {
         );
       })}
       <UpgradeShop />
+      <CraftingPanel />
     </div>
   );
 }

@@ -298,6 +298,8 @@ export class MiningRenderer {
         if (save.unlockedAchievements) {
           store.setUnlockedAchievements(new Set(save.unlockedAchievements));
         }
+        // Restore crafted items (old saves without crafted items get zeroed counts)
+        if (save.craftedItems) store.setCraftedItems(save.craftedItems);
         // Restore camera zoom (clamped to the allowed range; old saves
         // without a zoom field keep the default from makeCamera2D).
         if (typeof save.zoom === "number" && Number.isFinite(save.zoom)) {
@@ -337,7 +339,7 @@ export class MiningRenderer {
       const saveData = await this.workerHost!.getSaveData();
       const store = useGameStore.getState();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], glowsticks: this.glowsticks, zoom: this.camera.zoom, stats: store.stats, unlockedAchievements: [...store.unlockedAchievements], savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], glowsticks: this.glowsticks, zoom: this.camera.zoom, stats: store.stats, unlockedAchievements: [...store.unlockedAchievements], craftedItems: store.craftedItems, savedAt: Date.now() };
       }
       return {
         version: 1,
@@ -352,6 +354,7 @@ export class MiningRenderer {
         zoom: this.camera.zoom,
         stats: store.stats,
         unlockedAchievements: [...store.unlockedAchievements],
+        craftedItems: store.craftedItems,
         savedAt: Date.now(),
       };
     }, deterministic);
@@ -511,6 +514,7 @@ export class MiningRenderer {
     s.setBuildMaterials({ scaffolding: 0, ladder: 0, rope: 0, torch: 0 });
     s.resetStats();
     s.resetAchievements();
+    s.resetCraftedItems();
     this.lastStatsTick = -1;
 
     // Clear bombs + explosions + glowsticks

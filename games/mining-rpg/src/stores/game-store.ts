@@ -2,8 +2,9 @@ import { Material } from "@downdraft/library-sand";
 import { create } from "zustand";
 import { ACHIEVEMENTS, checkAchievements, type Achievement } from "../shared/achievements";
 import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, OXYGEN_MAX_TICKS, SELL_PRICES, upgradePrice, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
-import type { BuildMaterials, InventoryEntry, PlayerStats, PlayerUpgrades } from "../shared/types";
-import { createPlayerStats } from "../shared/types";
+import { canCraft, consumeInputs, CRAFTED_SELL_PRICES, type CraftingRecipe } from "../shared/crafting-recipes";
+import type { BuildMaterials, CraftedItemId, CraftedItems, InventoryEntry, PlayerStats, PlayerUpgrades } from "../shared/types";
+import { createCraftedItems, createPlayerStats } from "../shared/types";
 
 // ============================================================================
 // Death messages — a single object covering all death causes.
@@ -146,6 +147,8 @@ export interface GameState {
   unlockedAchievements: Set<string>; // IDs of unlocked achievements (persisted)
   showAchievements: boolean; // true when the achievements panel is open (toggle with A)
   recentAchievement: Achievement | null; // most recently unlocked (for toast notification)
+  // Crafting
+  craftedItems: CraftedItems; // counts of crafted bars (persisted)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -238,6 +241,22 @@ export interface GameState {
   checkAndUnlockAchievements: () => number;
   /** Reset achievements (called on world reset). */
   resetAchievements: () => void;
+  // Crafting
+  setCraftedItems: (items: CraftedItems) => void;
+  /**
+   * Craft a recipe: consume input materials from inventory, add the output
+   * item to craftedItems. Returns true on success, false if not enough
+   * materials. Does NOT sync to the worker — crafted items are renderer-side
+   * only (they're virtual inventory items, not grid materials).
+   */
+  craft: (recipe: CraftingRecipe) => boolean;
+  /**
+   * Sell all crafted items (bars) for gold. Adds the total value to currency
+   * and clears the crafted items. Returns the amount earned.
+   */
+  sellCraftedItems: () => number;
+  /** Reset crafted items to zero (called on world reset). */
+  resetCraftedItems: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -269,6 +288,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   unlockedAchievements: new Set<string>(),
   showAchievements: false,
   recentAchievement: null,
+  craftedItems: createCraftedItems(),
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -308,8 +328,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         const price = SELL_PRICES[entry.mat] ?? 0;
         total += price * entry.count;
       }
+      // Also sell crafted items (bars)
+      let craftedTotal = 0;
+      const newCrafted = { ...s.craftedItems };
+      for (const [id, count] of Object.entries(newCrafted)) {
+        const price = CRAFTED_SELL_PRICES[id as CraftedItemId] ?? 0;
+        craftedTotal += price * count;
+        (newCrafted as Record<string, number>)[id] = 0;
+      }
+      total += craftedTotal;
       return {
         inventory: [],
+        craftedItems: newCrafted as CraftedItems,
         currency: s.currency + total,
         stats: { ...s.stats, totalGoldEarned: s.stats.totalGoldEarned + total },
       };
@@ -412,4 +442,31 @@ export const useGameStore = create<GameState>((set, get) => ({
     return newlyUnlocked.length;
   },
   resetAchievements: () => set({ unlockedAchievements: new Set<string>(), recentAchievement: null }),
+  // Crafting
+  setCraftedItems: (items) => set({ craftedItems: { ...items } }),
+  craft: (recipe) => {
+    const s = get();
+    if (!canCraft(recipe, s.inventory)) return false;
+    const newInventory = consumeInputs(recipe, s.inventory);
+    const newCrafted = { ...s.craftedItems };
+    newCrafted[recipe.output] = newCrafted[recipe.output] + recipe.outputCount;
+    set({ inventory: newInventory, craftedItems: newCrafted });
+    return true;
+  },
+  sellCraftedItems: () => {
+    const s = get();
+    let total = 0;
+    for (const [id, count] of Object.entries(s.craftedItems)) {
+      const price = CRAFTED_SELL_PRICES[id as CraftedItemId] ?? 0;
+      total += price * count;
+    }
+    if (total === 0) return 0;
+    set({
+      craftedItems: createCraftedItems(),
+      currency: s.currency + total,
+      stats: { ...s.stats, totalGoldEarned: s.stats.totalGoldEarned + total },
+    });
+    return total;
+  },
+  resetCraftedItems: () => set({ craftedItems: createCraftedItems() }),
 }));
