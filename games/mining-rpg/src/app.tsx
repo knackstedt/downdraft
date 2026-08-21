@@ -97,6 +97,13 @@ export default function App() {
         e.preventDefault();
         useGameStore.getState().toggleAchievements();
       }
+      // T teleports to surface (costs gold based on depth)
+      if (e.key === "t" || e.key === "T") {
+        const s = useGameStore.getState();
+        if (s.gameOver || s.paused || s.showEscapeMenu) return;
+        const r = s.renderer as { teleportToSurface?: () => boolean } | null;
+        r?.teleportToSurface?.();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -120,7 +127,7 @@ export default function App() {
       <OreTooltip />
       <DepthNotification />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | H: help | E: sell | F3: noclip | ESC: menu | Upgrades at signpost
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | H: help | E: sell | T: teleport | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
       </div>
     </>

@@ -235,6 +235,25 @@ export class MiningRenderer {
   async saveNow(): Promise<void> {
     await this.autosave?.saveNow();
   }
+  /**
+   * Teleport the player to the surface spawn point. Costs gold based on
+   * current depth (1 gold per 10m). Returns true on success, false if the
+   * player can't afford it or is already at the surface.
+   */
+  teleportToSurface(): boolean {
+    const s = useGameStore.getState();
+    if (s.gameOver || s.paused) return false;
+    const depthMeters = s.depth * 128;
+    if (depthMeters < 10) return false; // already at surface
+    const cost = Math.max(1, Math.floor(depthMeters / 10));
+    if (s.currency < cost) return false;
+    // Deduct gold and teleport
+    s.addCurrency(-cost);
+    s.recordGoldSpent(cost);
+    this.resetInterpolation();
+    this.workerHost?.respawn();
+    return true;
+  }
 
   /** Resume the simulation (called from UI menus). */
   resume(): void {

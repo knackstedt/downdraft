@@ -130,6 +130,7 @@ const CATEGORIES: { title: string; bindings: Binding[] }[] = [
     bindings: [
       { key: "I", desc: "Toggle inventory panel" },
       { key: "E", desc: "Sell all items (at signpost)" },
+      { key: "T", desc: "Teleport to surface (costs gold)" },
     ],
   },
   {
