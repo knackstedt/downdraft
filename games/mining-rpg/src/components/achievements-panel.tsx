@@ -28,6 +28,8 @@ const panelStyle: React.CSSProperties = {
   maxHeight: "80vh",
   overflowY: "auto",
   pointerEvents: "auto",
+  scrollbarWidth: "thin",
+  scrollbarColor: "rgba(255,215,0,0.3) rgba(255,255,255,0.05)",
 };
 
 const titleStyle: React.CSSProperties = {
@@ -155,7 +157,13 @@ export function AchievementsPanel() {
   }
 
   return (
-    <div style={panelStyle}>
+    <div style={panelStyle} className="dd-ach-scroll">
+      <style>{`
+        .dd-ach-scroll::-webkit-scrollbar { width: 8px; }
+        .dd-ach-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
+        .dd-ach-scroll::-webkit-scrollbar-thumb { background: rgba(255,215,0,0.3); border-radius: 4px; }
+        .dd-ach-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,215,0,0.5); }
+      `}</style>
       <div style={titleStyle}>ACHIEVEMENTS</div>
 
       <div style={progressContainerStyle}>
@@ -210,7 +218,7 @@ export function AchievementsPanel() {
         );
       })}
 
-      <div style={closeHintStyle}>Press A to close</div>
+      <div style={closeHintStyle}>Press F4 to close</div>
     </div>
   );
 }
