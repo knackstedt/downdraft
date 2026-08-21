@@ -595,7 +595,8 @@ export const BACKDROP_STATS = {
 // can apply per-type lighting (cave voids catch diffused light, lava is
 // self-emissive, water/oil are tinted, solid walls are modulated by light).
 export const BACKDROP_CELL_TYPE = {
-  CAVE: 0,     // air void — lit by diffused volumetric light
+  CAVE: 0,     // air void (underground) — lit by diffused volumetric light
+  SKY: 32,     // sky void (above surface) — rendered as sky gradient, never lit
   WATER: 64,   // water lake — dark body + blue-tinted diffused light
   OIL: 128,    // oil lake — dark, minimal light
   SOLID: 200,  // solid cave wall — texture modulated by light

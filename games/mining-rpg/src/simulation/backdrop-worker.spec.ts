@@ -126,22 +126,22 @@ test("generateBackdropChunk produces CAVE cells in underground chunks with caves
   expect(found).toBe(true);
 });
 
-test("generateBackdropChunk: above-surface chunk (cy<0) is all CAVE (sky)", () => {
+test("generateBackdropChunk: above-surface chunk (cy<0) is all SKY", () => {
   const chunk = generateBackdropChunk(0, -1, SEED);
-  const caveCount = countCellType(chunk.grid, BACKDROP_CELL_TYPE.CAVE);
-  expect(caveCount).toBe(BACKDROP_CHUNK_W * BACKDROP_CHUNK_H);
+  const skyCount = countCellType(chunk.grid, BACKDROP_CELL_TYPE.SKY);
+  expect(skyCount).toBe(BACKDROP_CHUNK_W * BACKDROP_CHUNK_H);
 });
 
-test("generateBackdropChunk: surface chunk (cy=0) has CAVE cells above surface", () => {
+test("generateBackdropChunk: surface chunk (cy=0) has SKY cells above surface", () => {
   const chunk = generateBackdropChunk(0, 0, SEED);
-  // The top portion should be sky (CAVE), bottom should be solid
+  // The top portion should be sky (SKY), bottom should be solid
   const topRowType = typeAt(chunk.grid, BACKDROP_CHUNK_W / 2, 0);
-  expect(topRowType).toBe(BACKDROP_CELL_TYPE.CAVE);
-  // Bottom row should not be all CAVE (should have solid or cave from generation)
+  expect(topRowType).toBe(BACKDROP_CELL_TYPE.SKY);
+  // Bottom row should not be SKY (should have solid or cave from generation)
   const bottomRowType = typeAt(chunk.grid, BACKDROP_CHUNK_W / 2, BACKDROP_CHUNK_H - 1);
   // At the bottom of the surface chunk, we should be in stone territory
   // (solid wall, possibly carved by caves)
-  expect(bottomRowType).not.toBe(BACKDROP_CELL_TYPE.CAVE);
+  expect(bottomRowType).not.toBe(BACKDROP_CELL_TYPE.SKY);
 });
 
 test("generateBackdropChunk: LAVA cells appear only in deep chunks (cy >= 8)", () => {
@@ -187,6 +187,7 @@ test("generateBackdropChunk: WATER cells appear only in chunks cy 2-6", () => {
 test("generateBackdropChunk: all cells have a valid cell-type alpha", () => {
   const validTypes = new Set<number>([
     BACKDROP_CELL_TYPE.CAVE,
+    BACKDROP_CELL_TYPE.SKY,
     BACKDROP_CELL_TYPE.WATER,
     BACKDROP_CELL_TYPE.OIL,
     BACKDROP_CELL_TYPE.SOLID,

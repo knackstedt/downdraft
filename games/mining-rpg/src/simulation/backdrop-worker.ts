@@ -208,9 +208,9 @@ function carveBackdropLake(
       const effectiveR2 = r2 * (0.7 + distNoise * 0.6);
       if (dx * dx + dy * dy <= effectiveR2) {
         const idx = y * BACKDROP_CHUNK_W + x;
-        // Don't overwrite existing lava lakes (lava is deepest, preserve it)
+        // Don't overwrite lava lakes (deepest, preserve) or sky cells
         const existingAlpha = (grid[idx] >>> 24) & 0xff;
-        if (existingAlpha === BACKDROP_CELL_TYPE.LAVA) continue;
+        if (existingAlpha === BACKDROP_CELL_TYPE.LAVA || existingAlpha === BACKDROP_CELL_TYPE.SKY) continue;
         grid[idx] = packLakeCell(material);
       }
     }
@@ -293,16 +293,16 @@ export function generateBackdropChunk(cx: number, cy: number, seed: number): Bac
       const surfaceY = backdropSurfaceHeightAt(wx, seed);
       for (let ly = 0; ly < BACKDROP_CHUNK_H; ly++) {
         if (ly < surfaceY) {
-          // Sky (void) — dark, lit by ambient in shader
-          grid[ly * BACKDROP_CHUNK_W + lx] = packRGBA(5, 5, 8, BACKDROP_CELL_TYPE.CAVE);
+          // Sky (above surface) — rendered as sky gradient by the shader
+          grid[ly * BACKDROP_CHUNK_W + lx] = packRGBA(5, 5, 8, BACKDROP_CELL_TYPE.SKY);
         }
       }
     }
   }
 
-  // --- Step 3: Above-surface chunks (cy<0) → all sky/void ---
+  // --- Step 3: Above-surface chunks (cy<0) → all sky ---
   if (cy < 0) {
-    grid.fill(packRGBA(5, 5, 8, BACKDROP_CELL_TYPE.CAVE));
+    grid.fill(packRGBA(5, 5, 8, BACKDROP_CELL_TYPE.SKY));
     return chunk;
   }
 
@@ -313,9 +313,9 @@ export function generateBackdropChunk(cx: number, cy: number, seed: number): Bac
       const wy = cy * CHUNK_H + ly;
       if (isBackdropCavity(wx, wy, cy, seed)) {
         const idx = ly * BACKDROP_CHUNK_W + lx;
-        // Don't carve into sky (already CAVE from step 2)
+        // Don't carve into sky (already SKY from step 2) or existing caves
         const existingAlpha = (grid[idx] >>> 24) & 0xff;
-        if (existingAlpha === BACKDROP_CELL_TYPE.CAVE) continue;
+        if (existingAlpha === BACKDROP_CELL_TYPE.SKY || existingAlpha === BACKDROP_CELL_TYPE.CAVE) continue;
         // Cave void — dark, lit by diffused volumetric light in shader
         grid[idx] = packRGBA(5, 5, 8, BACKDROP_CELL_TYPE.CAVE);
       }
