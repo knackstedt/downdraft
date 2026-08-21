@@ -136,11 +136,15 @@ export function Minimap() {
       // World cell range visible on the minimap
       const worldX0 = Math.floor(playerPos.x) - WORLD_RADIUS;
       const worldY0 = Math.floor(playerPos.y) - WORLD_RADIUS;
-      const worldX1 = Math.floor(playerPos.x) + WORLD_RADIUS;
-      const worldY1 = Math.floor(playerPos.y) + WORLD_RADIUS;
 
-      // Map world cells → minimap pixels
-      const cellPx = canvas.width / (WORLD_RADIUS * 2);
+      // Clear imageData to black so out-of-bounds cells don't show stale
+      // pixels from previous frames (the main bug causing the map to look
+      // broken/garbled when the player moves).
+      imageData.data.fill(0);
+      // Set alpha to 255 for all pixels (we write opaque RGB)
+      for (let i = 3; i < imageData.data.length; i += 4) {
+        imageData.data[i] = 255;
+      }
 
       // Sample the grid: for each minimap pixel, find the corresponding world cell
       // and check if it's within the active grid window
