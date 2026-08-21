@@ -96,8 +96,8 @@ const ORE_INFO: Record<number, { name: string; color: string }> = {
   [Material.Stone]: { name: "Stone", color: "#666" },
   [Material.Dirt]: { name: "Dirt", color: "#8b5a2b" },
   [Material.Grass]: { name: "Grass", color: "#4a7c2f" },
-  [Material.Gravel]: { name: "Gravel", color: "#666560" },
-  [Material.LooseStone]: { name: "Loose Stone", color: "#6b6b6e" },
+  [Material.Gravel]: { name: "Gravel", color: "#73737a" },
+  [Material.LooseStone]: { name: "Loose Stone", color: "#73737a" },
   [Material.Sand]: { name: "Sand", color: "#c2b280" },
 };
 
@@ -231,16 +231,15 @@ export function HUD() {
           50% { opacity: 0.4; }
         }
       `}</style>
-      {/* Biome-colored top border accent */}
+      {/* Biome-colored top border accent — crisp solid line */}
       <div style={{
         position: "absolute",
-        top: -2,
+        top: 0,
         left: 0,
         right: 0,
         height: 2,
         background: depthBiomeColor(depthMeters),
-        opacity: 0.5,
-        borderRadius: 2,
+        borderRadius: 0,
       }} />
       <div style={{ color: fps == null ? "rgba(255,255,255,0.5)" : fps >= 50 ? "#4caf50" : fps >= 30 ? "#ff9800" : "#f44336", visibility: showFPS ? "visible" : "hidden" }}>
         FPS: {fps ?? "—"}

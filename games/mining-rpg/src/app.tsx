@@ -37,7 +37,7 @@ const helpStyle: React.CSSProperties = {
 };
 
 export default function App() {
-  const { paused, showEscapeMenu } = useGameStore();
+  const { paused, showEscapeMenu, showHelp } = useGameStore();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -129,6 +129,10 @@ export default function App() {
         e.preventDefault();
         useGameStore.getState().toggleFPS();
       }
+      // H toggles the help/keybindings bar
+      if (e.key === "h" || e.key === "H") {
+        useGameStore.getState().toggleHelp();
+      }
       // F6 manually saves the game
       if (e.key === "F6") {
         e.preventDefault();
@@ -189,10 +193,18 @@ export default function App() {
       <ParticleEffects />
       <ScreenShake />
       <WelcomeBack />
-      <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | R: reset zoom | F3: noclip | F5: FPS | F6: save | F11: hide HUD | ESC: menu | Upgrades at signpost
-        {paused && " | PAUSED"}
-      </div>
+      {showHelp && (
+        <div style={helpStyle}>
+          WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: hide help | E: sell | T: teleport | R: reset zoom | F3: noclip | F5: FPS | F6: save | F11: hide HUD | ESC: menu | Upgrades at signpost
+          {paused && " | PAUSED"}
+        </div>
+      )}
+      {!showHelp && (
+        <div style={{ ...helpStyle, padding: "4px 8px", fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+          Press H for help
+          {paused && " | PAUSED"}
+        </div>
+      )}
     </>
   );
 }

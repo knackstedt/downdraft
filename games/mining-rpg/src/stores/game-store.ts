@@ -295,6 +295,8 @@ export interface GameState {
   setWelcomeBack: (msg: string | null) => void;
   showFPS: boolean; // whether to show the FPS counter
   toggleFPS: () => void;
+  showHelp: boolean; // whether to show the help/keybindings bar (toggle with H)
+  toggleHelp: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -341,6 +343,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   onGround: true,
   welcomeBack: null,
   showFPS: true,
+  showHelp: false,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -569,4 +572,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setOnGround: (onGround) => set({ onGround }),
   setWelcomeBack: (welcomeBack) => set({ welcomeBack }),
   toggleFPS: () => set((s) => ({ showFPS: !s.showFPS })),
+  toggleHelp: () => set((s) => ({ showHelp: !s.showHelp })),
 }));
