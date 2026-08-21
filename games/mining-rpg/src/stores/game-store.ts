@@ -273,6 +273,8 @@ export interface GameState {
   spawnParticles: (x: number, y: number, color: string, count: number) => void;
   spawnFloatingText: (x: number, y: number, text: string, color: string) => void;
   triggerScreenShake: (intensity: number) => void;
+  teleportCooldown: number; // 0-1, 1 = ready, 0 = just used
+  setTeleportCooldown: (v: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -308,6 +310,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   showTitleScreen: true,
   lastSaveTime: 0,
   showMinimap: true,
+  teleportCooldown: 1, // 1 = ready, 0 = on cooldown
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -516,4 +519,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   spawnParticles: () => {}, // overridden by ParticleEffects component
   spawnFloatingText: () => {}, // overridden by ParticleEffects component
   triggerScreenShake: () => {}, // overridden by ScreenShake component
+  setTeleportCooldown: (teleportCooldown) => set({ teleportCooldown }),
 }));

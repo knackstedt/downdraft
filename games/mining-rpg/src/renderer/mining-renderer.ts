@@ -129,6 +129,7 @@ export class MiningRenderer {
   private resizeHandler: (() => void) | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private respawning = false; // suppresses death re-detection until SAB health > 0
+  private lastTeleportTime = 0; // timestamp of last teleport (for cooldown)
   private simReady = false; // false until the worker writes its first frame (prevents false death on init/hot-reload)
   // Signpost position (surface spawn point) — computed once, used for sell proximity
   private readonly signpostX = Math.floor(MAX_CHUNKS_X * CHUNK_W / 2);
@@ -265,6 +266,9 @@ export class MiningRenderer {
   teleportToSurface(): boolean {
     const s = useGameStore.getState();
     if (s.gameOver || s.paused) return false;
+    // Cooldown check (3 seconds)
+    const now = Date.now();
+    if (now - this.lastTeleportTime < 3000) return false;
     const depthMeters = s.depth * 128;
     if (depthMeters < 10) return false; // already at surface
     const cost = Math.max(1, Math.floor(depthMeters / 10));
@@ -276,6 +280,7 @@ export class MiningRenderer {
     // Spawn teleport floating text
     const pos = this.getPlayerScreenPos();
     s.spawnFloatingText(pos.x, pos.y - 30, `Teleport -${cost}g`, "#42a5f5");
+    this.lastTeleportTime = now;
     this.resetInterpolation();
     this.workerHost?.respawn();
     return true;
@@ -787,6 +792,12 @@ export class MiningRenderer {
     }
     // Sync player health + oxygen + depth to store (needed for depth uniform)
     const s = useGameStore.getState();
+    // Update teleport cooldown (3s cooldown)
+    if (this.lastTeleportTime > 0) {
+      const elapsed = Date.now() - this.lastTeleportTime;
+      const cd = Math.min(1, elapsed / 3000);
+      if (s.teleportCooldown !== cd) s.setTeleportCooldown(cd);
+    }
     if (s.health !== health) {
       // Detect damage (health decreased) and spawn floating damage number
       if (health < s.health && !this.respawning) {

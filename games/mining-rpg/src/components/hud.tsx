@@ -142,7 +142,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
@@ -218,6 +218,11 @@ export function HUD() {
       <div style={{ color: depthBiomeColor(depthMeters), fontSize: 11, fontWeight: "bold" }}>
         {depthBiomeName(depthMeters)}
       </div>
+      {depthMeters >= 10 && (
+        <div style={{ fontSize: 10, color: teleportCooldown >= 1 ? "rgba(66,165,245,0.7)" : "rgba(255,255,255,0.3)" }}>
+          T: {teleportCooldown >= 1 ? "Ready" : `${Math.ceil((1 - teleportCooldown) * 3)}s`}
+        </div>
+      )}
       {stats.maxDepthCells > depthMeters ? (
         <div style={{ fontSize: 10, color: "rgba(255,215,0,0.5)" }}>
           Deepest: {stats.maxDepthCells}m
