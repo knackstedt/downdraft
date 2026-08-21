@@ -104,7 +104,10 @@ export function TitleScreen({ onStart }: { onStart: () => void }) {
         <div style={featureItemStyle}>🗺️ Explore with minimap, stats, and depth tracking</div>
       </div>
       <div style={{ marginTop: 30, fontSize: 10, color: "rgba(255,255,255,0.2)" }}>
-        Press H in-game for controls
+        Press H in-game for full controls | WASD to move | Click to dig | ESC to pause
+      </div>
+      <div style={{ position: "absolute", bottom: 12, fontSize: 9, color: "rgba(255,255,255,0.15)" }}>
+        v1.0.0
       </div>
     </div>
   );
