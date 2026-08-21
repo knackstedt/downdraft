@@ -141,6 +141,7 @@ const CATEGORIES: { title: string; bindings: Binding[] }[] = [
       { key: "M", desc: "Toggle minimap" },
       { key: "F11", desc: "Toggle HUD (for screenshots)" },
       { key: "F5", desc: "Toggle FPS counter" },
+      { key: "F6", desc: "Save game now" },
       { key: "H", desc: "Toggle this help screen" },
       { key: "ESC", desc: "Pause menu / settings" },
     ],

@@ -129,6 +129,12 @@ export default function App() {
         e.preventDefault();
         useGameStore.getState().toggleFPS();
       }
+      // F6 manually saves the game
+      if (e.key === "F6") {
+        e.preventDefault();
+        const r = useGameStore.getState().renderer as { saveNow?: () => Promise<void> } | null;
+        r?.saveNow?.();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -184,7 +190,7 @@ export default function App() {
       <ScreenShake />
       <WelcomeBack />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | R: reset zoom | F3: noclip | F5: FPS | F11: hide HUD | ESC: menu | Upgrades at signpost
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | R: reset zoom | F3: noclip | F5: FPS | F6: save | F11: hide HUD | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
       </div>
     </>
