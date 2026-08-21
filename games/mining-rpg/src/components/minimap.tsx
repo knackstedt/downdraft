@@ -225,6 +225,25 @@ export function Minimap() {
         ctx.moveTo(signMx + 3 * dpr, signMy - 3 * dpr);
         ctx.lineTo(signMx - 3 * dpr, signMy + 3 * dpr);
         ctx.stroke();
+      } else {
+        // Signpost is off-screen — draw a direction arrow at the edge
+        // pointing toward the signpost
+        const dx = signpostPos.x - playerPos.x;
+        const dy = signpostPos.y - playerPos.y;
+        const angle = Math.atan2(dy, dx);
+        const edgeR = canvas.width / 2 - 8 * dpr;
+        const arrowX = playerMx + Math.cos(angle) * edgeR;
+        const arrowY = playerMy + Math.sin(angle) * edgeR;
+        ctx.fillStyle = "#ffd700";
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(arrowX + Math.cos(angle) * 5 * dpr, arrowY + Math.sin(angle) * 5 * dpr);
+        ctx.lineTo(arrowX + Math.cos(angle + 2.5) * 4 * dpr, arrowY + Math.sin(angle + 2.5) * 4 * dpr);
+        ctx.lineTo(arrowX + Math.cos(angle - 2.5) * 4 * dpr, arrowY + Math.sin(angle - 2.5) * 4 * dpr);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
       }
 
       raf = requestAnimationFrame(tick);
