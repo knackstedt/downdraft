@@ -99,7 +99,7 @@ export function TitleScreen({ onStart }: { onStart: () => void }) {
       <div style={featuresStyle}>
         <div style={featureItemStyle}>⛏️ Mine 8 ore types across 8 depth biomes</div>
         <div style={featureItemStyle}>🔥 Smelt ore into bars at the surface furnace</div>
-        <div style={featureItemStyle}>🏆 Unlock 30 achievements</div>
+        <div style={featureItemStyle}>🏆 Unlock 35 achievements</div>
         <div style={featureItemStyle}>💎 Upgrade your pickaxe, radius, speed & inventory</div>
         <div style={featureItemStyle}>🗺️ Explore with minimap, stats, and depth tracking</div>
       </div>
