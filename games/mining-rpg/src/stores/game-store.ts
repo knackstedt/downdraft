@@ -151,6 +151,7 @@ export interface GameState {
   craftedItems: CraftedItems; // counts of crafted bars (persisted)
   // Title screen
   showTitleScreen: boolean; // true when the title screen is visible (game start)
+  lastSaveTime: number; // timestamp of last save (0 = never)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -265,6 +266,7 @@ export interface GameState {
   resetCraftedItems: () => void;
   // Title screen
   setShowTitleScreen: (show: boolean) => void;
+  setLastSaveTime: (time: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -298,6 +300,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   recentAchievement: null,
   craftedItems: createCraftedItems(),
   showTitleScreen: true,
+  lastSaveTime: 0,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -487,4 +490,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   resetCraftedItems: () => set({ craftedItems: createCraftedItems() }),
   setShowTitleScreen: (showTitleScreen) => set({ showTitleScreen }),
+  setLastSaveTime: (lastSaveTime) => set({ lastSaveTime }),
 }));

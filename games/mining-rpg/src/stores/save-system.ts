@@ -181,10 +181,16 @@ export class AutosaveManager {
   private interval: ReturnType<typeof setInterval> | null = null;
   private getSaveData: () => Promise<SaveData> | SaveData;
   private deterministic: boolean;
+  private savedCallbacks: Array<() => void> = [];
 
   constructor(getSaveData: () => Promise<SaveData> | SaveData, deterministic: boolean = false) {
     this.getSaveData = getSaveData;
     this.deterministic = deterministic;
+  }
+
+  /** Register a callback to be called after each successful save. */
+  onSaved(cb: () => void): void {
+    this.savedCallbacks.push(cb);
   }
 
   start(): void {
@@ -206,5 +212,8 @@ export class AutosaveManager {
     if (this.deterministic) return;
     const data = await this.getSaveData();
     await saveWorld(data);
+    for (let i = 0; i < this.savedCallbacks.length; i++) {
+      this.savedCallbacks[i]();
+    }
   }
 }

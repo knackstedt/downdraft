@@ -234,6 +234,7 @@ export class MiningRenderer {
   /** Save the world immediately (called from the escape menu "Save Now" button). */
   async saveNow(): Promise<void> {
     await this.autosave?.saveNow();
+    useGameStore.getState().setLastSaveTime(Date.now());
   }
   /**
    * Teleport the player to the surface spawn point. Costs gold based on
@@ -422,6 +423,10 @@ export class MiningRenderer {
         savedAt: Date.now(),
       };
     }, deterministic);
+    // Update lastSaveTime after each autosave
+    this.autosave.onSaved(() => {
+      useGameStore.getState().setLastSaveTime(Date.now());
+    });
     this.autosave.start();
 
     // Handle collected items
