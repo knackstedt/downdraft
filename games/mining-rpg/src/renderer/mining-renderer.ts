@@ -146,6 +146,8 @@ export class MiningRenderer {
   private interpInitialized = false;
   // Stats tracking: last sim tick we recorded (for delta tick counting)
   private lastStatsTick = -1;
+  // Achievement check timer (checks every 1 second, not every frame)
+  private achievementCheckTimer = 0;
   // Camera snap-on-first-frame: the camera starts at (0,0) from makeCamera2D
   // (constructor / hot reload). Without this flag, the first updateCamera call
   // lerps from (0,0) toward the player — visible as a tween from the top-left
@@ -292,6 +294,10 @@ export class MiningRenderer {
         store.setBuildMaterials(save.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0, torch: 0 });
         // Restore stats (old saves without stats get a fresh zeroed stats object)
         if (save.stats) store.setStats(save.stats);
+        // Restore achievements (old saves without achievements get an empty set)
+        if (save.unlockedAchievements) {
+          store.setUnlockedAchievements(new Set(save.unlockedAchievements));
+        }
         // Restore camera zoom (clamped to the allowed range; old saves
         // without a zoom field keep the default from makeCamera2D).
         if (typeof save.zoom === "number" && Number.isFinite(save.zoom)) {
@@ -331,7 +337,7 @@ export class MiningRenderer {
       const saveData = await this.workerHost!.getSaveData();
       const store = useGameStore.getState();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], glowsticks: this.glowsticks, zoom: this.camera.zoom, stats: store.stats, savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], glowsticks: this.glowsticks, zoom: this.camera.zoom, stats: store.stats, unlockedAchievements: [...store.unlockedAchievements], savedAt: Date.now() };
       }
       return {
         version: 1,
@@ -345,6 +351,7 @@ export class MiningRenderer {
         glowsticks: this.glowsticks,
         zoom: this.camera.zoom,
         stats: store.stats,
+        unlockedAchievements: [...store.unlockedAchievements],
         savedAt: Date.now(),
       };
     }, deterministic);
@@ -503,6 +510,7 @@ export class MiningRenderer {
     s.setBuildMode(false);
     s.setBuildMaterials({ scaffolding: 0, ladder: 0, rope: 0, torch: 0 });
     s.resetStats();
+    s.resetAchievements();
     this.lastStatsTick = -1;
 
     // Clear bombs + explosions + glowsticks
@@ -675,6 +683,14 @@ export class MiningRenderer {
         s.recordTicks(tick - lastTick);
       }
       this.lastStatsTick = tick;
+    }
+    // Achievement check — runs every 1 second (not every frame). Checks all
+    // locked achievements against the current game state and unlocks any that
+    // pass their check function. The store sets recentAchievement for the toast.
+    this.achievementCheckTimer += dt;
+    if (this.achievementCheckTimer >= 1) {
+      this.achievementCheckTimer = 0;
+      useGameStore.getState().checkAndUnlockAchievements();
     }
     const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
     if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);

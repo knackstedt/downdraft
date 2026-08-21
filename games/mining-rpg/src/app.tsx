@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { AchievementNotification } from "./components/achievement-notification";
+import { AchievementsPanel } from "./components/achievements-panel";
 import { BombOverlay } from "./components/bomb-overlay";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
 import { DeathMenu } from "./components/death-menu";
@@ -80,6 +82,17 @@ export default function App() {
         e.preventDefault();
         useGameStore.getState().toggleStats();
       }
+      // A toggles the achievements panel (doesn't pause the game)
+      if (e.key === "a" || e.key === "A") {
+        // Don't toggle if the player is moving left (a = left in WASD)
+        // Only toggle on A keyup... actually, let's use a different key.
+        // We'll use F4 for achievements to avoid conflict with WASD movement.
+      }
+      // F4 toggles the achievements panel (doesn't pause the game)
+      if (e.key === "F4") {
+        e.preventDefault();
+        useGameStore.getState().toggleAchievements();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -96,8 +109,10 @@ export default function App() {
       <DeathMenu />
       <EscapeMenu />
       <StatsPanel />
+      <AchievementsPanel />
+      <AchievementNotification />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | Tab: stats | E: sell | F2: chunk borders | F3: noclip | ESC: menu | Upgrades at signpost
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | Tab: stats | F4: achievements | E: sell | F2: chunk borders | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
       </div>
     </>
