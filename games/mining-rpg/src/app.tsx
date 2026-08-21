@@ -184,7 +184,7 @@ export default function App() {
       <ScreenShake />
       <WelcomeBack />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | R: reset zoom | F3: noclip | ESC: menu | Upgrades at signpost
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | R: reset zoom | F3: noclip | F5: FPS | F11: hide HUD | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
       </div>
     </>
