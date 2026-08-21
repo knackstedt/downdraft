@@ -227,7 +227,7 @@ export function HUD() {
         Upg: DMG {upgrades.damage} | RAD {upgrades.radius} | SPD {upgrades.rate} | INV {upgrades.inventorySize}
       </div>
       <div style={{ fontSize: 11, color: "rgba(255,215,0,0.5)" }}>
-        Achievements: {unlockedAchievements.size}/30 (F4)
+        Achievements: {unlockedAchievements.size}/35 (F4)
       </div>
       {buildMode && <div style={{ color: "#ffd700" }}>BUILD MODE — left-click to place (1/2/3/4 to select)</div>}
       <div style={{ color: headlampOn ? "#ffcc66" : "#666" }}>Headlamp: {headlampOn ? "ON" : "OFF"} (L to toggle)</div>

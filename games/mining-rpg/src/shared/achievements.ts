@@ -314,6 +314,50 @@ export const ACHIEVEMENTS: Achievement[] = [
     category: "economy",
     check: (ctx) => ctx.stats.totalTeleports >= 10,
   },
+
+  // --- Wealth milestones ---
+  {
+    id: "gold-1000",
+    name: "First Fortune",
+    description: "Earn 1,000 gold total",
+    icon: "💰",
+    category: "economy",
+    check: (ctx) => ctx.stats.totalGoldEarned >= 1000,
+  },
+  {
+    id: "gold-10000",
+    name: "Prosperous Miner",
+    description: "Earn 10,000 gold total",
+    icon: "💎",
+    category: "economy",
+    check: (ctx) => ctx.stats.totalGoldEarned >= 10000,
+  },
+  {
+    id: "gold-100000",
+    name: "Mining Tycoon",
+    description: "Earn 100,000 gold total",
+    icon: "🏦",
+    category: "economy",
+    check: (ctx) => ctx.stats.totalGoldEarned >= 100000,
+  },
+
+  // --- Build milestones ---
+  {
+    id: "build-100",
+    name: "Builder",
+    description: "Place 100 blocks in build mode",
+    icon: "🧱",
+    category: "discovery",
+    check: (ctx) => ctx.stats.totalBlocksPlaced >= 100,
+  },
+  {
+    id: "build-1000",
+    name: "Architect",
+    description: "Place 1,000 blocks in build mode",
+    icon: "🏗️",
+    category: "discovery",
+    check: (ctx) => ctx.stats.totalBlocksPlaced >= 1000,
+  },
 ];
 
 /** Check all locked achievements and return the IDs of newly unlocked ones. */
