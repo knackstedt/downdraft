@@ -799,6 +799,8 @@ export class MiningRenderer {
           `-${damage}`,
           "#f44336",
         );
+        // Trigger screen shake scaled by damage
+        s.triggerScreenShake(damage);
       }
       s.setHealth(health);
     }
