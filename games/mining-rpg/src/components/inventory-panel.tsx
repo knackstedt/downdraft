@@ -109,11 +109,17 @@ export function InventoryPanel() {
       ) : (
         sorted.map((entry) => {
           const info = MATERIAL_INFO[entry.mat] ?? { name: `Material #${entry.mat}`, color: "#888" };
+          const itemValue = (SELL_PRICES[entry.mat] ?? 0) * entry.count;
           return (
             <div key={entry.mat} style={rowStyle}>
               <span style={swatchStyle(info.color)} />
               <span>{info.name}</span>
               <span style={{ marginLeft: "auto", fontWeight: "bold" }}>{entry.count}</span>
+              {itemValue > 0 && (
+                <span style={{ marginLeft: 8, color: "rgba(255,215,0,0.5)", fontSize: 10 }}>
+                  {itemValue}g
+                </span>
+              )}
             </div>
           );
         })
