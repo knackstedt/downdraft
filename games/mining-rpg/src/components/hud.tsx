@@ -231,6 +231,11 @@ export function HUD() {
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
       {noclip && <div style={{ color: "#ff9800", fontWeight: "bold" }}>NOCLIP ON</div>}
       {headlampOn && <div style={{ color: "#ffd700" }}>Headlamp: ON</div>}
+      {buildMode && (
+        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
+          Build: {BUILD_MATERIAL_INFO[selectedBuild].name} ({buildMaterials[selectedBuild] ?? 0})
+        </div>
+      )}
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
       {sellValue > 0 && (
         <div style={{ color: "rgba(255,215,0,0.5)", fontSize: 11 }}>
