@@ -130,6 +130,10 @@ export class MiningRenderer {
   // Glowstick state (thrown light sources that persist for 1 hour real time)
   private glowsticks: SavedGlowstick[] = [];
   private prevKeyG = false;
+  // Debug toggle (F1): when true, fog-of-war and the lighting/shadow passes are
+  // disabled — the light texture is cleared to full white and the volumetric
+  // texture to black so the scene renders fully lit with no fog overlay.
+  private disableFogAndShadows = false;
   // Player render interpolation: prev = position at the previous sim tick,
   // cur = position at the current sim tick. The rendered player is lerped
   // between them by alpha = renderAccumulator / TICK_MS.
@@ -770,12 +774,36 @@ export class MiningRenderer {
     // --- Render ---
     const commandEncoder = this.device.createCommandEncoder();
 
-    // 1. Light accumulation pass (renders to the light texture)
-    this.lightAccumPass!.render(commandEncoder);
+    if (this.disableFogAndShadows) {
+      // Debug mode (F1): skip the lighting passes and clear the light texture
+      // to full white + the volumetric texture to black so the scene renders
+      // fully lit (finalColor * (1 + 0) = finalColor) with no shadow gradients.
+      const lightClear = commandEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.lightAccumPass!.getLightTextureView()!,
+          clearValue: { r: 1, g: 1, b: 1, a: 1 },
+          loadOp: "clear",
+          storeOp: "store",
+        }],
+      });
+      lightClear.end();
+      const volClear = commandEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: this.volumetricPass!.getVolumetricTextureView()!,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: "clear",
+          storeOp: "store",
+        }],
+      });
+      volClear.end();
+    } else {
+      // 1. Light accumulation pass (renders to the light texture)
+      this.lightAccumPass!.render(commandEncoder);
 
-    // 2. Volumetric light pass (render-pass-based diffusion through air/water/solid)
-    this.volumetricPass!.setGridView(this.gridPass!.getGridView());
-    this.volumetricPass!.compute(commandEncoder);
+      // 2. Volumetric light pass (render-pass-based diffusion through air/water/solid)
+      this.volumetricPass!.setGridView(this.gridPass!.getGridView());
+      this.volumetricPass!.compute(commandEncoder);
+    }
 
     // Wire the light textures into all material passes
     const lightView = this.lightAccumPass!.getLightTextureView();
@@ -808,7 +836,10 @@ export class MiningRenderer {
     this.stickmanPass.render(passEncoder);
     // Fog-of-war overlay last: solid black over unexplored cells, transparent
     // over explored cells (let the light texture do the actual lighting).
-    this.fogPass!.render(passEncoder);
+    // Skipped in debug mode (F1) so the whole map is visible.
+    if (!this.disableFogAndShadows) {
+      this.fogPass!.render(passEncoder);
+    }
 
     passEncoder.end();
     this.device.queue.submit([commandEncoder.finish()]);
@@ -851,6 +882,13 @@ export class MiningRenderer {
     if (this.input.gPressed) {
       this.input.gPressed = false;
       this.tryThrowGlowstick(world.x, world.y);
+    }
+
+    // F1 key edge detection: toggle fog-of-war + shadows (debug)
+    if (this.input.f1Pressed) {
+      this.input.f1Pressed = false;
+      this.disableFogAndShadows = !this.disableFogAndShadows;
+      console.log(`[DownDraft] Fog-of-war + shadows ${this.disableFogAndShadows ? "disabled" : "enabled"} (F1)`);
     }
 
     // Update active bombs (physics + collision + explosion)

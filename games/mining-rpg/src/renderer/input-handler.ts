@@ -28,6 +28,9 @@ export interface MiningInputState {
   fPressed: boolean;
   // Edge-triggered: set true on G keydown, consumed by the renderer each frame.
   gPressed: boolean;
+  // Edge-triggered: set true on F1 keydown, consumed by the renderer each
+  // frame. Toggles fog-of-war + shadows (lighting) off for debugging.
+  f1Pressed: boolean;
 }
 
 export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInputState {
@@ -51,6 +54,7 @@ export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInput
     zoomDelta: 0,
     fPressed: false,
     gPressed: false,
+    f1Pressed: false,
   };
 
   const keyMap: Record<string, keyof MiningInputState> = {
@@ -92,6 +96,11 @@ export function createMiningInputHandler(canvas: HTMLCanvasElement): MiningInput
       e.preventDefault();
     } else if (e.key === "g" || e.key === "G") {
       state.gPressed = true;
+      e.preventDefault();
+    } else if (e.key === "F1") {
+      // Edge-triggered: toggle fog-of-war + shadows. preventDefault stops the
+      // browser from opening its own help overlay.
+      state.f1Pressed = true;
       e.preventDefault();
     }
   });
