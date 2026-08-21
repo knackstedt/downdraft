@@ -273,6 +273,11 @@ export function HUD() {
           Near surface — visit signpost to sell (E)
         </div>
       )}
+      {depthMeters >= 2000 && (
+        <div style={{ color: "rgba(244,67,54,0.5)", fontSize: 10, animation: "healthPulse 1s ease-in-out infinite" }}>
+          ⚠ Danger zone — extreme depth
+        </div>
+      )}
       <div>Depth: {depthMeters}m</div>
       <div style={{ color: depthBiomeColor(depthMeters), fontSize: 11, fontWeight: "bold" }}>
         {depthBiomeName(depthMeters)}
