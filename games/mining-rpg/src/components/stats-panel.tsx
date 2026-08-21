@@ -251,6 +251,22 @@ export function StatsPanel() {
           {stats.totalGoldEarned - stats.totalGoldSpent}
         </span>
       </div>
+      {collectedEntries.length > 0 && (() => {
+        let maxEntry = collectedEntries[0];
+        for (let i = 1; i < collectedEntries.length; i++) {
+          if (collectedEntries[i].count > maxEntry.count) maxEntry = collectedEntries[i];
+        }
+        const info = MATERIAL_INFO[maxEntry.mat] ?? { name: `Material #${maxEntry.mat}`, color: "#888" };
+        return (
+          <div style={rowStyle}>
+            <span style={labelStyle}>Most Collected</span>
+            <span style={{ ...valueStyle, display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={swatchStyle(info.color)} />
+              {info.name} ({maxEntry.count})
+            </span>
+          </div>
+        );
+      })()}
       <div style={rowStyle}>
         <span style={labelStyle}>Gold / Death</span>
         <span style={valueStyle}>
