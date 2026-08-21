@@ -254,7 +254,7 @@ export function HUD() {
       })()}
       {depthMeters >= 10 && (
         <div style={{ fontSize: 10, color: teleportCooldown >= 1 ? "rgba(66,165,245,0.7)" : "rgba(255,255,255,0.3)" }}>
-          T: {teleportCooldown >= 1 ? "Ready" : `${Math.ceil((1 - teleportCooldown) * 3)}s`}
+          T: {teleportCooldown >= 1 ? `Ready (${Math.max(1, Math.floor(depthMeters / 10))}g)` : `${Math.ceil((1 - teleportCooldown) * 3)}s`}
         </div>
       )}
       {stats.maxDepthCells > depthMeters ? (
