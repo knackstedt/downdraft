@@ -264,7 +264,7 @@ export function HUD() {
         <span>{invUsed}/{invMax}</span>
       </div>
       {invPct >= 90 && (
-        <div style={{ color: "#f44336", fontSize: 11, fontWeight: "bold" }}>
+        <div style={{ color: "#f44336", fontSize: 11, fontWeight: "bold", animation: invPct >= 100 ? "healthPulse 0.6s ease-in-out infinite" : "none" }}>
           ⚠ Inventory {invPct >= 100 ? "FULL" : "ALMOST FULL"} — sell at signpost (E) or teleport (T)
         </div>
       )}
