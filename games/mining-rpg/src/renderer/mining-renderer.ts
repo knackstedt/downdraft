@@ -798,6 +798,8 @@ export class MiningRenderer {
       const cd = Math.min(1, elapsed / 3000);
       if (s.teleportCooldown !== cd) s.setTeleportCooldown(cd);
     }
+    // Sync player facing direction
+    if (s.playerFacing !== facing) s.setPlayerFacing(facing);
     if (s.health !== health) {
       // Detect damage (health decreased) and spawn floating damage number
       if (health < s.health && !this.respawning) {

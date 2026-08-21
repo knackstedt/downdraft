@@ -279,6 +279,8 @@ export interface GameState {
   triggerGoldFlash: () => void;
   showHUD: boolean; // HUD visibility (toggle with F11)
   toggleHUD: () => void;
+  playerFacing: number; // 1 = right, -1 = left
+  setPlayerFacing: (f: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -317,6 +319,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   teleportCooldown: 1, // 1 = ready, 0 = on cooldown
   goldFlashTime: 0,
   showHUD: true,
+  playerFacing: 1,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -529,4 +532,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setTeleportCooldown: (teleportCooldown) => set({ teleportCooldown }),
   triggerGoldFlash: () => set({ goldFlashTime: Date.now() }),
   toggleHUD: () => set((s) => ({ showHUD: !s.showHUD })),
+  setPlayerFacing: (playerFacing) => set({ playerFacing }),
 }));
