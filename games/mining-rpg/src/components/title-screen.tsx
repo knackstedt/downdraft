@@ -76,8 +76,9 @@ const featureItemStyle: React.CSSProperties = {
   justifyContent: "center",
 };
 
-export function TitleScreen({ onStart }: { onStart: () => void }) {
+export function TitleScreen({ onStart, onNewGame }: { onStart: () => void; onNewGame?: () => void }) {
   const [hovering, setHovering] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const { stats, currency, welcomeBack } = useGameStore();
   const hasSave = welcomeBack !== null;
 
@@ -119,6 +120,70 @@ export function TitleScreen({ onStart }: { onStart: () => void }) {
               const m = Math.floor((secs % 3600) / 60);
               return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${secs}s`;
             })()}
+          </div>
+        </div>
+      )}
+      {hasSave && onNewGame && !showConfirm && (
+        <button
+          style={{
+            marginTop: 12,
+            padding: "6px 16px",
+            fontSize: 11,
+            fontFamily: "monospace",
+            color: "rgba(255,100,100,0.6)",
+            background: "transparent",
+            border: "1px solid rgba(255,100,100,0.2)",
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
+          onClick={() => setShowConfirm(true)}
+        >
+          Delete Save & Start New
+        </button>
+      )}
+      {showConfirm && (
+        <div style={{
+          marginTop: 12,
+          padding: "12px 20px",
+          background: "rgba(255,0,0,0.1)",
+          border: "1px solid rgba(255,100,100,0.4)",
+          borderRadius: 6,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: 12, color: "rgba(255,100,100,0.8)", marginBottom: 8 }}>
+            Delete all progress? This cannot be undone.
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            <button
+              style={{
+                padding: "4px 12px",
+                fontSize: 11,
+                fontFamily: "monospace",
+                color: "#fff",
+                background: "rgba(255,50,50,0.3)",
+                border: "1px solid rgba(255,50,50,0.5)",
+                borderRadius: 3,
+                cursor: "pointer",
+              }}
+              onClick={() => { onNewGame?.(); setShowConfirm(false); }}
+            >
+              Yes, Delete
+            </button>
+            <button
+              style={{
+                padding: "4px 12px",
+                fontSize: 11,
+                fontFamily: "monospace",
+                color: "rgba(255,255,255,0.6)",
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 3,
+                cursor: "pointer",
+              }}
+              onClick={() => setShowConfirm(false)}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
