@@ -353,13 +353,20 @@ export function HUD() {
       )}
       {(() => {
         let totalCollected = 0;
+        let uniqueMats = 0;
         for (const mat in stats.collectedByMaterial) {
-          totalCollected += stats.collectedByMaterial[mat] ?? 0;
+          const count = stats.collectedByMaterial[mat] ?? 0;
+          if (count > 0) {
+            totalCollected += count;
+            uniqueMats++;
+          }
         }
         return totalCollected > 0 ? (
-          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>
-            Collected: {totalCollected} items
-          </div>
+          <>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>
+              Collected: {totalCollected} items ({uniqueMats} types)
+            </div>
+          </>
         ) : null;
       })()}
       {(() => {
