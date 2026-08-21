@@ -54,6 +54,18 @@ const quipStyle: React.CSSProperties = {
   lineHeight: 1.5,
 };
 
+const deathStatsStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  fontSize: 13,
+  color: "rgba(255,255,255,0.5)",
+  textAlign: "center" as const,
+  padding: "8px 16px",
+  borderTop: "1px solid rgba(255,255,255,0.1)",
+  borderBottom: "1px solid rgba(255,255,255,0.1)",
+};
+
 const respawnButtonStyle: React.CSSProperties = {
   marginTop: 8,
   padding: "10px 32px",
@@ -67,7 +79,7 @@ const respawnButtonStyle: React.CSSProperties = {
 };
 
 export function DeathMenu() {
-  const { gameOver, deathQuip, renderer } = useGameStore();
+  const { gameOver, deathQuip, renderer, stats, depth } = useGameStore();
 
   if (!gameOver) return null;
 
@@ -76,14 +88,24 @@ export function DeathMenu() {
     r?.respawn?.();
   };
 
+  const depthMeters = depth * 128;
+
   return (
     <div style={overlayStyle}>
       <div style={panelStyle}>
         <h1 style={titleStyle}>YOU DIED</h1>
         <p style={quipStyle}>{deathQuip}</p>
+        <div style={deathStatsStyle}>
+          <div>Depth: {depthMeters}m</div>
+          <div>Total Deaths: {stats.totalDeaths}</div>
+          <div>Gold: {stats.totalGoldEarned - stats.totalGoldSpent}g net</div>
+        </div>
         <button style={respawnButtonStyle} onClick={handleRespawn}>
-          Respawn
+          Respawn at Surface
         </button>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+          You keep your upgrades, gold, and inventory
+        </div>
       </div>
     </div>
   );
