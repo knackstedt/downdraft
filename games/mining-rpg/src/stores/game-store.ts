@@ -283,6 +283,8 @@ export interface GameState {
   setPlayerFacing: (f: number) => void;
   playerSpeed: number; // current movement speed in cells/sec
   setPlayerSpeed: (s: number) => void;
+  glowstickCount: number; // active glowsticks in the world
+  setGlowstickCount: (n: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -323,6 +325,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   showHUD: true,
   playerFacing: 1,
   playerSpeed: 0,
+  glowstickCount: 0,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -537,4 +540,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   toggleHUD: () => set((s) => ({ showHUD: !s.showHUD })),
   setPlayerFacing: (playerFacing) => set({ playerFacing }),
   setPlayerSpeed: (playerSpeed) => set({ playerSpeed }),
+  setGlowstickCount: (glowstickCount) => set({ glowstickCount }),
 }));
