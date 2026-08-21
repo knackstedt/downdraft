@@ -341,6 +341,12 @@ export function HUD() {
       <div style={{ fontSize: 11, color: "rgba(255,215,0,0.5)" }}>
         Achievements: {unlockedAchievements.size}/35 (F4)
       </div>
+      <div style={barOuterStyle}>
+        <div style={{
+          ...barInnerStyle((unlockedAchievements.size / 35) * 100),
+          background: "#ffd700",
+        }} />
+      </div>
       <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
         Mined: {stats.totalCellsMined} | Bars: {stats.totalBarsCrafted}
       </div>
