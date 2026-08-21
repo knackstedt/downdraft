@@ -16,7 +16,7 @@
 import type { SaveState } from "@downdraft/core";
 import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
 import { WORLD_SEED } from "../shared/constants";
-import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades } from "../shared/types";
+import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerUpgrades, SavedGlowstick } from "../shared/types";
 import type { SavedChunk } from "../simulation/chunk-world";
 
 const SAVE_SLOT = "world";
@@ -32,6 +32,9 @@ export interface SaveData {
   currency: number;
   buildMaterials: BuildMaterials;
   chunks: SavedChunk[];
+  // Glowsticks (thrown light sources, 1 hour real-time lifetime). Optional
+  // for backward compat with saves made before glowsticks were persisted.
+  glowsticks?: SavedGlowstick[];
   // Camera zoom level at save time (optional for backward compat with saves
   // made before zoom was persisted). Restored by the renderer on load.
   zoom?: number;
@@ -101,6 +104,7 @@ function buildState(data: SaveData): SaveState {
         },
       },
       chunks: { v: 1, data: { count: data.chunks.length, coords: data.chunks.map((c) => ({ cx: c.cx, cy: c.cy })) } },
+      glowsticks: { v: 1, data: { list: data.glowsticks ?? [] } },
     },
     meta: {
       engineVersion: ENGINE_VERSION,
@@ -128,6 +132,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     currency?: number; buildMaterials?: BuildMaterials;
   } | undefined;
   const chunksComp = result.state.components.chunks?.data as { count: number; coords: { cx: number; cy: number }[] } | undefined;
+  const glowsticksComp = result.state.components.glowsticks?.data as { list: SavedGlowstick[] } | undefined;
   if (!meta || !player) return null;
   const chunks = chunksComp && result.blobs ? blobsToChunks(result.blobs, chunksComp.coords) : [];
   return {
@@ -139,6 +144,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     currency: player.currency ?? 0,
     buildMaterials: player.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0, torch: 0 },
     chunks,
+    glowsticks: glowsticksComp?.list ?? [],
     zoom: meta.zoom,
     savedAt: meta.savedAt ?? 0,
   };

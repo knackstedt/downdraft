@@ -300,7 +300,7 @@ export const TORCH_DOUSE_INTERVAL = 10;
 
 // --- Headlamp (renderer-side light that follows the player) ---
 export const HEADLAMP_RADIUS = 40;
-export const HEADLAMP_COLOR: [number, number, number] = [1.0, 0.95, 0.8];
+export const HEADLAMP_COLOR: [number, number, number] = [0.7, 0.85, 1.0];
 export const HEADLAMP_INTENSITY = 1.2;
 
 // --- Torch (placeable build material that emits light) ---
@@ -435,32 +435,70 @@ export const PLAYER = {
 // scrolls slower than the foreground.
 // ============================================================================
 
-// Backdrop chunk dimensions (half the foreground resolution).
-export const BACKDROP_CHUNK_W = CHUNK_W / 2;
-export const BACKDROP_CHUNK_H = CHUNK_H / 2;
+// Backdrop chunk dimensions — full foreground resolution (1:1). Each backdrop
+// cell = 1 foreground cell, so the backdrop matches the foreground pixel-for-pixel.
+// The visual depth separation comes from the dark colors + cave-wall texture,
+// not from reduced resolution.
+export const BACKDROP_CHUNK_W = CHUNK_W;
+export const BACKDROP_CHUNK_H = CHUNK_H;
 
-// Backdrop active grid dimensions (same chunk window as foreground, half-res cells).
+// Backdrop active grid dimensions (same chunk window as foreground, full-res).
 export const BACKDROP_GRID_W = (2 * ACTIVE_RADIUS_CHUNKS + 1) * BACKDROP_CHUNK_W;
 export const BACKDROP_GRID_H = (2 * ACTIVE_RADIUS_CHUNKS + 1) * BACKDROP_CHUNK_H;
 export const BACKDROP_GRID_CELLS = BACKDROP_GRID_W * BACKDROP_GRID_H;
 
-// Backdrop parallax factor (camera offset is multiplied by this).
-export const BACKDROP_PARALLAX = 0.5;
+// Backdrop parallax factor. Set to 1.0 (no parallax) so the backdrop aligns
+// 1:1 with the foreground — the backdrop shows the same world position as the
+// foreground at each screen pixel. This is required for:
+//   - Cave matching: backdrop caves align with foreground caves (same world coords)
+//   - Light sampling: the volumetric/light textures (indexed by foreground local
+//     coords) can be sampled at the same coords as the backdrop grid
+//   - Vertical anchoring: no parallax offset accumulation with depth
+// The half-resolution + dark colors provide the visual depth separation.
+export const BACKDROP_PARALLAX = 1.0;
 
 // Backdrop SAB layout:
 //   grid:   BACKDROP_GRID_W * BACKDROP_GRID_H * 4 bytes (Uint32 per cell — packed color)
-//   stats:  8 bytes (originX, originY — backdrop grid origin in backdrop cell coords)
+//   stats:  16 bytes (originX, originY, version, pad)
+// The version counter is atomically incremented by the worker AFTER writing the
+// grid + origin. The renderer uses a double-check pattern (read version before
+// and after reading the grid) to avoid uploading a partially-written grid.
 export const BACKDROP_GRID_BYTES = BACKDROP_GRID_CELLS * CELL_BYTES;
-export const BACKDROP_STATS_BYTES = 8;
+export const BACKDROP_STATS_BYTES = 16;
 export const BACKDROP_TOTAL_SAB_BYTES = BACKDROP_GRID_BYTES + BACKDROP_STATS_BYTES;
 
 export const BACKDROP_GRID_OFFSET = 0;
 export const BACKDROP_STATS_OFFSET = BACKDROP_GRID_BYTES;
 
 export const BACKDROP_STATS = {
-  ORIGIN_X: 0, // int32 — backdropOriginCx * BACKDROP_CHUNK_W
-  ORIGIN_Y: 4, // int32 — backdropOriginCy * BACKDROP_CHUNK_H
+  ORIGIN_X: 0,  // int32 — backdropOriginCx * BACKDROP_CHUNK_W
+  ORIGIN_Y: 4,  // int32 — backdropOriginCy * BACKDROP_CHUNK_H
+  VERSION: 8,   // int32 — atomically incremented after grid + origin write
+  PAD: 12,      // int32 — padding
 } as const;
+
+// --- Backdrop cell-type encoding (packed in the r32uint grid's alpha byte) ---
+// The backdrop pass is opaque (alpha=255 in the original design), so the
+// alpha byte is repurposed to encode the cell type so the fragment shader
+// can apply per-type lighting (cave voids catch diffused light, lava is
+// self-emissive, water/oil are tinted, solid walls are modulated by light).
+export const BACKDROP_CELL_TYPE = {
+  CAVE: 0,     // air void — lit by diffused volumetric light
+  WATER: 64,   // water lake — dark body + blue-tinted diffused light
+  OIL: 128,    // oil lake — dark, minimal light
+  SOLID: 200,  // solid cave wall — texture modulated by light
+  LAVA: 255,   // lava lake — self-emissive glow + small light contribution
+} as const;
+
+// --- Loose cave-match parameters ---
+// The backdrop uses the SAME worldFbm noise field as the foreground isCavity
+// check (same seed, same scale, same octaves) so caves are in the same areas.
+// A slightly lower threshold makes backdrop caves wider than foreground caves
+// — a superset, not a 1:1 copy. This reads as a parallax slice where caves
+// "bleed" into the distance. Tunable: raise THRESHOLD_DELTA (more negative =
+// wider backdrop caves; 0 = exact 1:1 match).
+export const BACKDROP_CAVE_SEED_OFFSET = 0;
+export const BACKDROP_CAVE_THRESHOLD_DELTA = -0.04;
 
 // ============================================================================
 // Material helpers — shared between chunk-world.ts and mining-player.ts
