@@ -275,6 +275,8 @@ export interface GameState {
   triggerScreenShake: (intensity: number) => void;
   teleportCooldown: number; // 0-1, 1 = ready, 0 = just used
   setTeleportCooldown: (v: number) => void;
+  goldFlashTime: number; // timestamp of last gold gain (for flash effect)
+  triggerGoldFlash: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -311,6 +313,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastSaveTime: 0,
   showMinimap: true,
   teleportCooldown: 1, // 1 = ready, 0 = on cooldown
+  goldFlashTime: 0,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -366,6 +369,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         if (pos) {
           s.spawnFloatingText(pos.x, pos.y - 30, `+${total}g`, "#ffd700");
         }
+        s.triggerGoldFlash();
       }
       return {
         inventory: [],
@@ -520,4 +524,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   spawnFloatingText: () => {}, // overridden by ParticleEffects component
   triggerScreenShake: () => {}, // overridden by ScreenShake component
   setTeleportCooldown: (teleportCooldown) => set({ teleportCooldown }),
+  triggerGoldFlash: () => set({ goldFlashTime: Date.now() }),
 }));
