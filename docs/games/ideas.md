@@ -46,10 +46,3 @@ dells
 13" tall
 
 
-
-
-
-Read the falling sand game implementations here and compare to our current falling sand engine. Identify any performance optimizations or things we could bring into our engine.
-
-/home/knackstedt/Pivot/source/games/fsg
-/home/knackstedt/Pivot/source/dan-ball.jp/javagame/dust2/
