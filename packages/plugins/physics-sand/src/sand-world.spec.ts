@@ -437,13 +437,13 @@ function topMostY(w: SandWorld, mat: number): number {
   return -1;
 }
 
-// --- Gravel + LooseStone tests ---
+// --- Gravel re-settle tests ---
 
 test("gravel falls and settles in a pile", () => {
   const w = new SandWorld(12, 20);
   // Floor
   for (let x = 0; x < 12; x++) w.setCell(x, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
-  // Drop gravel from above
+  // Drop gravel from above (lifetime=0 → never re-settles to Stone)
   for (let y = 0; y < 5; y++) w.setCell(6, y, { mat: Material.Gravel, lifetime: 0, flags: 0 });
   run(w, 60);
   // All gravel should be above the floor
@@ -453,12 +453,12 @@ test("gravel falls and settles in a pile", () => {
   expect(matAt(w, 6, 0)).toBe(Material.Empty);
 });
 
-test("loose stone re-settles to stone after being stationary", () => {
+test("gravel re-settles to stone after being stationary", () => {
   const w = new SandWorld(8, 16);
   // Floor
   for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
-  // Place LooseStone above floor with settle timer
-  w.setCell(4, 14, { mat: Material.LooseStone, lifetime: 5, flags: 0 });
+  // Place Gravel above floor with settle timer
+  w.setCell(4, 14, { mat: Material.Gravel, lifetime: 5, flags: 0 });
   // Enable gravity field (setCell doesn't set fields)
   w.fields[(14 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
 
@@ -471,7 +471,7 @@ test("loose stone re-settles to stone after being stationary", () => {
 test("gravel flowing out from under stone disturbs it (no floating)", () => {
   // Setup: Stone resting on gravel, with empty space to one side.
   // When gravel flows sideways into the empty space, the Stone above
-  // should be disturbed (converted to LooseStone) and fall.
+  // should be disturbed (converted to Gravel) and fall.
   const w = new SandWorld(12, 20);
   // Floor at bottom
   for (let x = 0; x < 12; x++) w.setCell(x, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
@@ -489,26 +489,26 @@ test("gravel flowing out from under stone disturbs it (no floating)", () => {
   run(w, 40);
 
   // The Stone should NOT be floating at y=17 with empty space below.
-  // It should either have fallen or been converted to LooseStone.
+  // It should either have fallen or been converted to Gravel.
   const cellAt17 = matAt(w, 5, 17);
   const cellAt18 = matAt(w, 5, 18);
   // If Stone is still at y=17, there must be something supporting it at y=18
   if (cellAt17 === Material.Stone) {
     expect(cellAt18).not.toBe(Material.Empty);
   }
-  // If it became LooseStone, it should be falling or settled
-  if (cellAt17 === Material.LooseStone) {
+  // If it became Gravel, it should be falling or settled
+  if (cellAt17 === Material.Gravel) {
     // It should have gravity enabled
     expect(w.fields[(17 * 12 + 5) * 4 + FIELD.GRAVITY]).toBe(128);
   }
 });
 
-test("disturbed loose stone settles quickly (2 ticks)", () => {
+test("disturbed gravel settles quickly (2 ticks)", () => {
   const w = new SandWorld(8, 16);
   // Floor
   for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
-  // LooseStone with disturbed settle timer (2)
-  w.setCell(4, 14, { mat: Material.LooseStone, lifetime: 2, flags: 0 });
+  // Gravel with disturbed settle timer (2)
+  w.setCell(4, 14, { mat: Material.Gravel, lifetime: 2, flags: 0 });
   w.fields[(14 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
 
   // After 2 ticks stationary, should re-settle to Stone
@@ -516,38 +516,38 @@ test("disturbed loose stone settles quickly (2 ticks)", () => {
   expect(matAt(w, 4, 14)).toBe(Material.Stone);
 });
 
-test("loose stone that is moving does not re-settle", () => {
+test("gravel that is moving does not re-settle", () => {
   const w = new SandWorld(8, 16);
   // Floor far below
   for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
-  // LooseStone high up with short settle timer — it should fall, not settle
-  w.setCell(4, 0, { mat: Material.LooseStone, lifetime: 2, flags: 0 });
+  // Gravel high up with short settle timer — it should fall, not settle
+  w.setCell(4, 0, { mat: Material.Gravel, lifetime: 2, flags: 0 });
   w.fields[(0 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
 
   // Run a few ticks — it should be falling (not re-settled to Stone mid-air)
   run(w, 3);
-  // Should still be LooseStone (moving, timer doesn't count down)
+  // Should still be Gravel (moving, timer doesn't count down)
   expect(matAt(w, 4, 0)).not.toBe(Material.Stone);
   // Should have moved down
-  let foundLooseStone = false;
+  let foundGravel = false;
   for (let y = 0; y < 16; y++) {
-    if (matAt(w, 4, y) === Material.LooseStone) {
-      foundLooseStone = true;
+    if (matAt(w, 4, y) === Material.Gravel) {
+      foundGravel = true;
       break;
     }
   }
-  expect(foundLooseStone).toBe(true);
+  expect(foundGravel).toBe(true);
 });
 
-test("unsupported loose stone does not re-settle even if friction prevents movement", () => {
-  // Regression: a LooseStone cell with nothing below it should NEVER re-settle
+test("unsupported gravel does not re-settle even if friction prevents movement", () => {
+  // Regression: a Gravel cell with nothing below it should NEVER re-settle
   // to Stone, even if friction/randomness prevents it from moving for several
   // ticks. The settle timer must only count down when the cell is supported.
   const w = new SandWorld(8, 16);
-  // Clear the area below the LooseStone so it's truly unsupported
+  // Clear the area below the Gravel so it's truly unsupported
   for (let y = 5; y < 12; y++) w.setCell(4, y, { mat: Material.Empty, lifetime: 0, flags: 0 });
-  // Place LooseStone floating with empty space below
-  w.setCell(4, 5, { mat: Material.LooseStone, lifetime: 2, flags: 0 });
+  // Place Gravel floating with empty space below
+  w.setCell(4, 5, { mat: Material.Gravel, lifetime: 2, flags: 0 });
   w.fields[(5 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
 
   // Run several ticks — even if friction prevents movement some ticks,
@@ -557,13 +557,13 @@ test("unsupported loose stone does not re-settle even if friction prevents movem
   // Must NOT be Stone at the original floating position (y=5)
   expect(matAt(w, 4, 5)).not.toBe(Material.Stone);
 
-  // The cell should have moved down from y=5. It may still be LooseStone
+  // The cell should have moved down from y=5. It may still be Gravel
   // (still falling) or have landed on the floor and re-settled to Stone.
   // Either way, something should be below y=5.
   let foundBelow = false;
   for (let y = 6; y < 16; y++) {
     const m = matAt(w, 4, y);
-    if (m === Material.LooseStone || m === Material.Stone) {
+    if (m === Material.Gravel || m === Material.Stone) {
       foundBelow = true;
       break;
     }
@@ -571,8 +571,8 @@ test("unsupported loose stone does not re-settle even if friction prevents movem
   expect(foundBelow).toBe(true);
 });
 
-test("loose stone resting on gravel does not re-settle (no floating when gravel is picked up)", () => {
-  // Regression: a LooseStone chunk that lands on top of gravel must NOT
+test("gravel resting on gravel does not re-settle (no floating when gravel is picked up)", () => {
+  // Regression: a Gravel chunk that lands on top of gravel must NOT
   // re-freeze to static Stone. If it did, picking up or flowing away of the
   // gravel below would leave the Stone floating in mid-air (Stone has
   // gravity=0 and never falls). Only stable (static, gravity=0) support —
@@ -586,33 +586,80 @@ test("loose stone resting on gravel does not re-settle (no floating when gravel 
     w.setCell(x, 14, { mat: Material.Gravel, lifetime: 0, flags: 0 });
     w.fields[(14 * 8 + x) * 4 + FIELD.GRAVITY] = 128;
   }
-  // LooseStone sitting directly on the gravel with a short settle timer
-  w.setCell(4, 13, { mat: Material.LooseStone, lifetime: 3, flags: 0 });
+  // Gravel sitting directly on the gravel with a short settle timer
+  w.setCell(4, 13, { mat: Material.Gravel, lifetime: 3, flags: 0 });
   w.fields[(13 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
 
-  // Run well past the settle timer (3 ticks). The LooseStone is stationary
+  // Run well past the settle timer (3 ticks). The Gravel is stationary
   // and "supported" by gravel, but gravel is not stable support, so the
   // timer must NOT count down and the cell must NOT become Stone.
   run(w, 30);
 
-  // The cell at y=13 must still be LooseStone (not re-frozen to Stone).
-  expect(matAt(w, 4, 13)).toBe(Material.LooseStone);
+  // The cell at y=13 must still be Gravel (not re-frozen to Stone).
+  expect(matAt(w, 4, 13)).toBe(Material.Gravel);
 });
 
-test("loose stone resting on static stone re-settles normally", () => {
+test("gravel resting on static stone re-settles normally", () => {
   // Counterpart to the above: when the support below IS static (Stone
-  // bedrock), the settle timer counts down and LooseStone re-freezes to
+  // bedrock), the settle timer counts down and Gravel re-freezes to
   // Stone as before. This confirms the fix only blocks non-static support.
   const w = new SandWorld(8, 16);
   // Static Stone floor (gravity=0)
   for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Stone, lifetime: 0, flags: 0 });
-  // LooseStone on top with a short settle timer
-  w.setCell(4, 14, { mat: Material.LooseStone, lifetime: 3, flags: 0 });
+  // Gravel on top with a short settle timer
+  w.setCell(4, 14, { mat: Material.Gravel, lifetime: 3, flags: 0 });
   w.fields[(14 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
 
   run(w, 10);
   // Should have re-settled to Stone on static support
   expect(matAt(w, 4, 14)).toBe(Material.Stone);
+});
+
+test("legacy LooseStone still re-settles to stone (backwards compat)", () => {
+  // Old saves may contain LooseStone cells. The applyAging path still handles
+  // them so they re-settle to Stone (no new LooseStone is created).
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.LooseStone, lifetime: 5, flags: 0 });
+  w.fields[(14 * 8 + 4) * 4 + FIELD.GRAVITY] = 128;
+  run(w, 20);
+  expect(matAt(w, 4, 14)).toBe(Material.Stone);
+});
+
+test("disturbed stone does not cascade — falling disturbed gravel does not disturb neighbors", () => {
+  // Regression: when gravel flows out from under a Stone column, the bottom
+  // Stone is disturbed → becomes Gravel (lifetime=2). That Gravel falls, but
+  // must NOT disturb the Stone above it. If it did, each falling disturbed
+  // cell would disturb the next Stone up, causing the entire column (and
+  // eventually the whole map) to cascade into Gravel.
+  //
+  // Setup: a tall Stone column resting on a single Gravel cell, which rests
+  // on the floor. To the side is empty space the gravel can flow into.
+  const w = new SandWorld(12, 24);
+  // Floor
+  for (let x = 0; x < 12; x++) w.setCell(x, 23, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Gravel at the bottom of the column (x=5, y=22) — can flow left into x=0..4
+  w.setCell(5, 22, { mat: Material.Gravel, lifetime: 0, flags: 0 });
+  w.fields[(22 * 12 + 5) * 4 + FIELD.GRAVITY] = 128;
+  // Stone column above the gravel (x=5, y=17..21)
+  for (let y = 17; y <= 21; y++) w.setCell(5, y, { mat: Material.Stone, lifetime: 0, flags: 0 });
+
+  // Run the sim — gravel flows sideways, disturbing the Stone at y=21.
+  // That Stone becomes Gravel (lifetime=2) and falls. It must NOT disturb
+  // the Stone at y=20, which must NOT disturb y=19, etc.
+  run(w, 60);
+
+  // Count how many Stone cells remain in the column. The bottom Stone (y=21)
+  // should be disturbed (became Gravel and fell). But the upper stones should
+  // NOT have cascaded — at most 1-2 should be disturbed, not all 5.
+  let remainingStone = 0;
+  for (let y = 17; y <= 21; y++) {
+    if (matAt(w, 5, y) === Material.Stone) remainingStone++;
+  }
+  // At least 3 of the 5 Stone cells should still be Stone (only the bottom
+  // 1-2 should have been disturbed by the initial gravel flow, not the full
+  // cascade).
+  expect(remainingStone).toBeGreaterThanOrEqual(3);
 });
 
 // --- Phase 2: Empty-row skipping + chunk-based active tracking ---

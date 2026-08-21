@@ -21,7 +21,7 @@ import {
     DEFAULT_TEMP,
     FIELD,
     FLAG_UPDATED,
-    LOOSE_STONE_SETTLE_TICKS,
+    GRAVEL_SETTLE_TICKS,
     MAT_FLAGS,
     MAT_GRAVITY_DIR,
     MAT_SOLID,
@@ -238,7 +238,7 @@ export class ChunkWorld {
       // engine's per-frame FLAG_UPDATED clear. Without this, the detached bit
       // is stripped every step() and the renderer never sees it.
       this.activeGrid.preserveFlagsMask = FLAG_DETACHED;
-      // disturbAdjacent() sets FLAG_DETACHED on Stone→LooseStone conversions
+      // disturbAdjacent() sets FLAG_DETACHED on Stone→Gravel conversions
       // so expireWakeTicks can detect disturbed cells in frozen chunks (outer
       // ring) even after applyAging clears FLAG_UPDATED. Without this, disturbed
       // cells in frozen chunks stay frozen and never fall — a regression where
@@ -1005,14 +1005,12 @@ export class ChunkWorld {
             grid[idx] = packed | (FLAG_DETACHED << 16);
             this.markCellUnfrozen(x, y);
           } else if (mat === Material.Stone || mat === Material.Grass) {
-            // Stone/Grass → 60% Gravel (fine, flows+settles) + 40% LooseStone
-            // (coarse, falls then re-settles to Stone). Both are collectible.
+            // Stone/Grass → set gravity field + settle timer so it falls as
+            // Stone (no material conversion). Re-freezes when it lands.
+            // Grass is collectible so the first branch catches it in practice;
+            // kept for parity with explode.
             const shade = (packed >> 16) & 0xff;
-            const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
-            // LooseStone uses the lifetime field as a settle timer; Gravel
-            // has no timer (never re-settles to Stone).
-            const lifetime = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
-            grid[idx] = packCell(newMat, lifetime, shade | FLAG_DETACHED);
+            grid[idx] = (mat & 0xff) | ((GRAVEL_SETTLE_TICKS & 0xff) << 8) | ((shade | FLAG_DETACHED) << 16);
             const fi = idx * 4;
             if (fields[fi + FIELD.GRAVITY] === 0) {
               fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
@@ -1039,11 +1037,10 @@ export class ChunkWorld {
                     // Mark as detached (loosened)
                     grid[aboveIdx] = above | (FLAG_DETACHED << 16);
                   } else if (aboveDef.gravity === 0) {
-                    // Static solid (stone) loosened by cascade → Gravel/LooseStone.
+                    // Static solid (stone) loosened by cascade → set gravity
+                    // field + settle timer so it falls as Stone (no conversion).
                     const shade = (above >> 16) & 0xff;
-                    const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
-                    const lt = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
-                    grid[aboveIdx] = packCell(newMat, lt, shade | FLAG_DETACHED);
+                    grid[aboveIdx] = (aboveMat & 0xff) | ((GRAVEL_SETTLE_TICKS & 0xff) << 8) | ((shade | FLAG_DETACHED) << 16);
                     if (fields[aboveFi + FIELD.GRAVITY] === 0) {
                       fields[aboveFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
                     }
@@ -1694,9 +1691,10 @@ export class ChunkWorld {
    *
    *   - Collectibles (ores, coal, dirt, grass, gravel, loose stone) →
    *     re-enable gravity + FLAG_DETACHED + markCellUnfrozen (falls, collectible).
-   *   - Stone/Grass → Gravel (60%) / LooseStone (40%) with FLAG_DETACHED,
-   *     gravity re-enabled, markCellUnfrozen. (Grass is also collectible so
-   *     the first branch catches it in practice; kept for parity with explode.)
+   *   - Stone/Grass → set gravity field + settle timer so it falls as Stone
+   *     (no material conversion), with FLAG_DETACHED, markCellUnfrozen.
+   *     (Grass is also collectible so the first branch catches it in
+   *     practice; kept for parity with explode.)
    *   - Other solids (Wood, Concrete, …) → cleared to empty, fields reset,
    *     cellDamage + wakeTick cleared.
    */
@@ -1715,10 +1713,9 @@ export class ChunkWorld {
       grid[idx] = packed | (FLAG_DETACHED << 16);
       this.markCellUnfrozen(ax, ay);
     } else if (mat === Material.Stone || mat === Material.Grass) {
-      // Stone/Grass → 60% Gravel + 40% LooseStone (loose, collectible, falls).
-      const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
-      const lt = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
-      grid[idx] = packCell(newMat, lt, shade | FLAG_DETACHED);
+      // Stone/Grass → set gravity field + settle timer so it falls as Stone
+      // (no material conversion). Re-freezes when it lands.
+      grid[idx] = (mat & 0xff) | ((GRAVEL_SETTLE_TICKS & 0xff) << 8) | ((shade | FLAG_DETACHED) << 16);
       if (fields[fi + FIELD.GRAVITY] === 0) {
         fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       }
@@ -1784,7 +1781,10 @@ export class ChunkWorld {
         const mat = packed & 0xff;
         // Only collect loose (unfrozen) particles
         if (!this.isCellUnfrozen(x, y)) continue;
-        if (isCollectible(mat)) {
+        // Collectible materials (ore, dirt, gravel, etc.) OR loosened Stone
+        // (Stone with lifetime > 0 — mined, falling, collectible as stone).
+        const lifetime = (packed >> 8) & 0xff;
+        if (isCollectible(mat) || (mat === Material.Stone && lifetime > 0)) {
           // Check inventory space
           if (currentCount >= maxInv) break;
           grid[idx] = 0; // remove from grid
@@ -2235,7 +2235,7 @@ export class ChunkWorld {
     const r = Math.floor(radius);
 
     // Dislodge foreground cells in a circle (like mining, not destruction):
-    // - Stone → converted to Gravel/LooseStone (loose, collectible, falls)
+    // - Stone → gravity field set + settle timer (falls as Stone, re-freezes on landing)
     // - Ore → re-enable gravity (loosened, collectible)
     // - Other solids (Dirt, Wood, etc.) → cleared to create a hole
     // - Liquids/gases → NOT cleared, just unfrozen so they flow naturally
@@ -2284,10 +2284,9 @@ export class ChunkWorld {
           grid[idx] = packed | (FLAG_DETACHED << 16);
           this.markCellUnfrozen(gx, gy);
         } else if (mat === Material.Stone || mat === Material.Grass) {
-          // Stone/Grass → 60% Gravel + 40% LooseStone (loose, collectible)
-          const newMat = Math.random() < 0.6 ? Material.Gravel : Material.LooseStone;
-          const lt = newMat === Material.LooseStone ? LOOSE_STONE_SETTLE_TICKS : 0;
-          grid[idx] = packCell(newMat, lt, shade | FLAG_DETACHED);
+          // Stone/Grass → set gravity field + settle timer so it falls as
+          // Stone (no material conversion). Re-freezes when it lands.
+          grid[idx] = (mat & 0xff) | ((GRAVEL_SETTLE_TICKS & 0xff) << 8) | ((shade | FLAG_DETACHED) << 16);
           if (fields[fi + FIELD.GRAVITY] === 0) {
             fields[fi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
           }

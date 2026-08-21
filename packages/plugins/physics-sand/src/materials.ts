@@ -251,11 +251,14 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // Gravel: fine crushed stone. Marked solid (so it doesn't displace like a
   // liquid) but has special flow logic in SandWorld.tryMove that lets it
   // spread horizontally like a liquid when unsupported, then settle firmly
-  // in place when supported from below. Never re-settles to Stone.
-  [Material.Gravel]: def(62, "Gravel", [0.40, 0.38, 0.36, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, solid: true, albedo: 0.45, reflectivity: 0.08 }),
-  // LooseStone: coarse stone chunk. Falls like a normal solid, then re-settles
-  // back to Stone after being stationary for a while (handled in applyAging
-  // via the lifetime field as a settle timer).
+  // in place when supported from below. Re-settles to Stone after being
+  // stationary + stably supported for GRAVEL_SETTLE_TICKS (handled in
+  // applyAging via the lifetime field as a settle timer). All mined stone
+  // becomes Gravel.
+  [Material.Gravel]: def(62, "Gravel", [0.45, 0.45, 0.48, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, solid: true, albedo: 0.5, reflectivity: 0.1 }),
+  // LooseStone: legacy coarse stone chunk. No longer created — all stone
+  // debris now becomes Gravel. Kept for backwards compat with old saves that
+  // still contain LooseStone cells; applyAging still re-settles them to Stone.
   [Material.LooseStone]: def(63, "Loose Stone", [0.42, 0.42, 0.45, 1.0], { gravity: 1, gravityDir: 1, density: 2.5, solid: true, albedo: 0.5, reflectivity: 0.1 }),
 
   // --- Mining RPG: gases (toxic, rise) ---

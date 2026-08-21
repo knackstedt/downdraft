@@ -10,6 +10,23 @@ function matAtWorld(world: ChunkWorld, wx: number, wy: number): number {
   return world.activeGrid.grid[ay * ACTIVE_GRID_W + ax] & 0xff;
 }
 
+// Helper: get the full packed cell at world coords
+function packedAtWorld(world: ChunkWorld, wx: number, wy: number): number {
+  const { x: ax, y: ay } = world.worldToActive(wx, wy);
+  if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_W) return 0;
+  return world.activeGrid.grid[ay * ACTIVE_GRID_W + ax];
+}
+
+// Helper: check if a cell is "loosened stone debris" — Stone with lifetime > 0
+// (mined/loosened, can fall). Stone no longer converts to Gravel; it stays
+// Stone and falls when its lifetime field is set as a settle timer.
+function isLoosenedStone(packed: number): boolean {
+  if (packed === 0) return false;
+  const mat = packed & 0xff;
+  const lifetime = (packed >> 8) & 0xff;
+  return mat === Material.Stone && lifetime > 0;
+}
+
 // Helper: set a cell in the active grid at world coords
 function setMatAtWorld(world: ChunkWorld, wx: number, wy: number, mat: number): void {
   const { x: ax, y: ay } = world.worldToActive(wx, wy);
@@ -87,12 +104,11 @@ function matAtRow(world: ChunkWorld, wx: number, wy: number, mat: number): boole
   return false;
 }
 
-// Helper: check if any cell in a 5-wide row at the given Y is stone debris
-// (Gravel or LooseStone — the materials stone converts to when mined)
+// Helper: check if any cell in a 5-wide row at the given Y is loosened stone
+// debris (Stone with lifetime > 0 — mined/loosened, can fall)
 function isStoneDebrisAtRow(world: ChunkWorld, wx: number, wy: number): boolean {
   for (let dx = -2; dx <= 2; dx++) {
-    const m = matAtWorld(world, wx + dx, wy);
-    if (m === Material.Gravel || m === Material.LooseStone) return true;
+    if (isLoosenedStone(packedAtWorld(world, wx + dx, wy))) return true;
   }
   return false;
 }
@@ -175,8 +191,8 @@ test("mining damages stone and eventually dislodges it to gravel/loose stone", (
   runMine(w, digX, digY);
   expect(matAtRow(w, digX, digY, Material.Stone)).toBe(true);
 
-  // After enough hits, stone should be converted to Gravel or LooseStone
-  // (60% chance Gravel, 40% chance LooseStone per cell)
+  // After enough hits, stone should be loosened (Stone with lifetime > 0)
+  // (mined stone stays Stone but gets a settle timer and can fall)
   for (let i = 0; i < 10; i++) {
     runMine(w, digX, digY);
   }
@@ -341,9 +357,9 @@ test("mining straight down originates from player center, not offset right", () 
   }
 
   // Stone A (center, below feet) must be dislodged — mining works.
-  const aResult = matAtWorld(w, centerX, targetY);
-  expect(aResult === Material.Gravel || aResult === Material.LooseStone)
-    .toBe(true);
+  // Stone stays Stone but gets a lifetime (loosened, can fall).
+  const aPacked = packedAtWorld(w, centerX, targetY);
+  expect(isLoosenedStone(aPacked)).toBe(true);
 
   // Stone B (right of center, body height) must NOT be dislodged — the ray
   // originated from the player center and went straight down, missing it.
@@ -699,13 +715,13 @@ test("explosion dislodges stone to gravel/loose stone in radius", () => {
   // Explode at the center
   w.explode(targetX, targetY, 5);
 
-  // Center stone should be dislodged (converted to Gravel/LooseStone, not destroyed)
-  expect(matAtRow(w, targetX, targetY, Material.Stone)).toBe(false);
+  // Center stone should be dislodged (loosened Stone with lifetime > 0,
+  // not destroyed, not cleared to empty)
   expect(isStoneDebrisAtRow(w, targetX, targetY)).toBe(true);
 
-  // Cells within radius should be dislodged too
-  expect(matAtRow(w, targetX + 3, targetY, Material.Stone)).toBe(false);
-  expect(matAtRow(w, targetX, targetY + 3, Material.Stone)).toBe(false);
+  // Cells within radius should be dislodged too (loosened Stone)
+  expect(isLoosenedStone(packedAtWorld(w, targetX + 3, targetY))).toBe(true);
+  expect(isLoosenedStone(packedAtWorld(w, targetX, targetY + 3))).toBe(true);
 
   // Cells outside radius should remain as stone
   expect(matAtRow(w, targetX + 8, targetY, Material.Stone)).toBe(true);
@@ -923,7 +939,7 @@ test("loose ore that falls to a new position is still collectible", async () => 
 });
 
 test("loose stone debris that falls multiple cells is still collectible", async () => {
-  // Regression: stone debris (Gravel/LooseStone from mined stone) falls and
+  // Regression: stone debris (loosened Stone from mined stone) falls and
   // should remain collectible at its landing position.
   const w = new ChunkWorld();
   runIdle(w, 1);
@@ -938,12 +954,12 @@ test("loose stone debris that falls multiple cells is still collectible", async 
   const wallY = py + 3;
   placeStoneWall(w, px, wallY, Material.Stone); // stone to mine
 
-  // Mine the stone until it becomes gravel/loose stone (loose, collectible)
+  // Mine the stone until it becomes loosened (Stone with lifetime > 0, falls)
   for (let i = 0; i < 15; i++) {
     runMine(w, px, wallY);
   }
 
-  // The debris should fall and be collected
+  // The debris should fall and be collected as Stone
   let debrisCollected: { mat: number; count: number } | undefined;
   for (let i = 0; i < 30; i++) {
     const collected = await w.step({
@@ -951,7 +967,7 @@ test("loose stone debris that falls multiple cells is still collectible", async 
       jump: false, mouseDown: false, mouseX: 0, mouseY: 0, digRadius: 3,
     });
     debrisCollected = collected.find(
-      (c) => c.mat === Material.Gravel || c.mat === Material.LooseStone,
+      (c) => c.mat === Material.Stone,
     );
     if (debrisCollected) break;
   }
@@ -997,11 +1013,11 @@ test("structural integrity: a floating island of stone is demolished", () => {
   expect(matAtWorld(w, bx, by)).toBe(Material.Stone);
 
   // Force the integrity check. The block is surrounded by empty space →
-  // unreachable from the border → demolished to Gravel/LooseStone.
+  // unreachable from the border → demolished to loosened Stone (lifetime > 0).
   w.forceIntegrityCheckForTest();
 
-  const m = matAtWorld(w, bx, by);
-  expect(m === Material.Gravel || m === Material.LooseStone).toBe(true);
+  const p = packedAtWorld(w, bx, by);
+  expect(isLoosenedStone(p)).toBe(true);
 });
 
 test("structural integrity: stone connected to the main world is not demolished", () => {
@@ -1074,12 +1090,13 @@ test("structural integrity: check is gated by cadence between edits", () => {
   expect(matAtWorld(w, bx, by)).toBe(Material.Stone);
 
   // Step past the cadence. Now the check runs and demolishes the block.
+  // Demolished stone stays Stone but gets lifetime > 0 (loosened, can fall).
   for (let i = 0; i < 5; i++) {
     runIdle(w, 1);
-    if (matAtWorld(w, bx, by) !== Material.Stone) break;
+    if (isLoosenedStone(packedAtWorld(w, bx, by))) break;
   }
-  const m = matAtWorld(w, bx, by);
-  expect(m === Material.Gravel || m === Material.LooseStone).toBe(true);
+  const p = packedAtWorld(w, bx, by);
+  expect(isLoosenedStone(p)).toBe(true);
 });
 
 test("structural integrity: demolish cap limits cells demolished per check", () => {
@@ -1104,14 +1121,15 @@ test("structural integrity: demolish cap limits cells demolished per check", () 
 
   w.forceIntegrityCheckForTest();
 
-  // Exactly `integrityMaxDemolish` blocks should be demolished; the rest stay
-  // Stone (deferred to the next check).
+  // Exactly `integrityMaxDemolish` blocks should be demolished (loosened —
+  // Stone with lifetime > 0); the rest stay static Stone (lifetime === 0,
+  // deferred to the next check).
   let demolished = 0;
   let remaining = 0;
   for (const [bx, by] of blocks) {
-    const m = matAtWorld(w, bx, by);
-    if (m === Material.Gravel || m === Material.LooseStone) demolished++;
-    else if (m === Material.Stone) remaining++;
+    const p = packedAtWorld(w, bx, by);
+    if (isLoosenedStone(p)) demolished++;
+    else if ((p & 0xff) === Material.Stone) remaining++;
   }
   expect(demolished).toBe(3);
   expect(remaining).toBe(7);

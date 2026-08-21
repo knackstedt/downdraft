@@ -220,7 +220,7 @@ export const DIRT_HARDNESS = 10;
 export const ORE_HARDNESS = 20;
 /** Gravel hardness — easy to clear (fine crushed stone). */
 export const GRAVEL_HARDNESS = 8;
-/** LooseStone hardness — medium (coarse chunk, easier than solid stone). */
+/** LooseStone hardness — legacy (old saves only; no new LooseStone is created). */
 export const LOOSE_STONE_HARDNESS = 15;
 
 /** Max raycast range from player (in cells). */
@@ -237,7 +237,7 @@ export const SELL_PRICES: Record<number, number> = {
   14: 1,   // Dirt
   15: 1,   // Grass
   62: 1,   // Gravel
-  63: 2,   // LooseStone (slightly more valuable than gravel)
+  63: 2,   // LooseStone (legacy — old saves only)
   // Shallow ores (tin, copper, iron, bauxite, coal)
   52: 5,   // TinOre
   53: 8,   // CopperOre
@@ -507,10 +507,10 @@ export const BACKDROP_CAVE_THRESHOLD_DELTA = -0.04;
 
 /**
  * Check if a material is collectible (ore, loose stone/dirt, refined metals).
- * Ores, refined metals, and loose stone debris (Gravel, LooseStone, Dirt,
- * Grass) are collected by proximity. Static Stone itself is NOT collectible —
- * it must be mined first (converted to Gravel/LooseStone via the mining damage
- * system), then the loose debris is collected.
+ * Ores, refined metals, and loose stone debris (Gravel, Dirt, Grass) are
+ * collected by proximity. Static Stone itself is NOT collectible — it must be
+ * mined first (converted to Gravel via the mining damage system), then the
+ * loose debris is collected. LooseStone is included for legacy saves.
  */
 export function isCollectible(mat: number): boolean {
   return (

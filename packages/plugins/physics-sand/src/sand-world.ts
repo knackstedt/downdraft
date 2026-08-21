@@ -33,9 +33,12 @@ function initialLifetime(mat: number): number {
   return MAT_LIFETIME[mat];
 }
 
-/** Ticks a LooseStone cell must remain stationary before re-settling to Stone. */
-export const LOOSE_STONE_SETTLE_TICKS = 60;
-/** Settle ticks used when a LooseStone/Stone is disturbed by adjacent gravel
+/** Ticks a Gravel cell must remain stationary (and stably supported) before
+ *  re-settling to Stone. Long so mined debris stays loose and collectible for
+ *  a while instead of visibly snapping back to solid stone within a second.
+ *  At 60Hz, 600 ticks ≈ 10 seconds. */
+export const GRAVEL_SETTLE_TICKS = 600;
+/** Settle ticks used when a Gravel/Stone is disturbed by adjacent gravel
  *  movement. Short so the cell re-settles quickly if still supported, but
  *  gives it time to start falling if gravel flowed out from under it. */
 export const GRAVEL_DISTURB_SETTLE_TICKS = 2;
@@ -590,7 +593,11 @@ export class SandWorld {
         const i = rowBase + x;
         if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
           const mat = grid[i] & 0xff;
-          if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
+          // Static solids (gravityDir=0) are included if their lifetime field
+          // is non-zero (loosened by mining — lifetime is the settle timer).
+          if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) {
+            if (((grid[i] >> 8) & 0xff) === 0) continue;
+          }
           active[count++] = i;
           if (y < minY) minY = y;
           if (y > maxY) maxY = y;
@@ -641,7 +648,9 @@ export class SandWorld {
         const i = rowBase + x;
         if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
           const mat = grid[i] & 0xff;
-          if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) continue;
+          if (MAT_GRAVITY_DIR[mat] === 0 && !MAT_HAS_REACTIONS[mat]) {
+            if (((grid[i] >> 8) & 0xff) === 0) continue;
+          }
           active[count++] = i;
           if (y < minY) minY = y;
           if (y > maxY) maxY = y;
@@ -674,7 +683,19 @@ export class SandWorld {
 
     // Typed-array lookups instead of MATERIALS[mat]?.property
     const gravityDir = MAT_GRAVITY_DIR[mat];
-    if (gravityDir === 0) return;
+    // Static solids (gravityDir === 0: Stone, Wall, Concrete) are frozen
+    // UNLESS their lifetime field is non-zero (set by mining as a settle
+    // timer). This lets mined Stone fall as Stone — no material conversion.
+    // The lifetime field is repurposed as both the "loosened" flag and the
+    // settle timer: lifetime > 0 = loosened (can fall, will re-freeze when
+    // it lands); lifetime === 0 = frozen static solid.
+    if (gravityDir === 0) {
+      const lifetime = (packed >> 8) & 0xff;
+      if (lifetime === 0) return;
+      // Loosened static solid — fall downward (default direction)
+    } else {
+      // Normal falling material — check gravity field below
+    }
 
     // FuseFire stays put so it can deterministically spread to adjacent fuse
     // cells. Without this, the fire gas floats away before it can propagate.
@@ -692,7 +713,8 @@ export class SandWorld {
     if (gravity <= 0) return;
 
     const matFlags = MAT_FLAGS[mat];
-    const dy = gravityDir;
+    // For loosened static solids (gravityDir=0 but lifetime>0), fall downward.
+    const dy = gravityDir !== 0 ? gravityDir : 1;
     const isLiquid = (matFlags & MAT_LIQUID) !== 0;
     const isGas = (matFlags & MAT_GAS) !== 0;
     const matGravity = MAT_GRAVITY[mat];
@@ -753,7 +775,7 @@ export class SandWorld {
 
     // 1. Try gravity direction
     if (this.trySwap(x, y, x, y + dy, packed, mat, matGravity, isGas)) {
-      if (mat === Material.Gravel) this.disturbAdjacent(x, y);
+      if (mat === Material.Gravel && ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS) this.disturbAdjacent(x, y);
       return;
     }
 
@@ -775,11 +797,11 @@ export class SandWorld {
 
     const dir = this.rng.random() < 0.5 ? -1 : 1;
     if (this.trySwap(x, y, x + dir, y + dy, packed, mat, matGravity, isGas)) {
-      if (mat === Material.Gravel) this.disturbAdjacent(x, y);
+      if (mat === Material.Gravel && ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS) this.disturbAdjacent(x, y);
       return;
     }
     if (this.trySwap(x, y, x - dir, y + dy, packed, mat, matGravity, isGas)) {
-      if (mat === Material.Gravel) this.disturbAdjacent(x, y);
+      if (mat === Material.Gravel && ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS) this.disturbAdjacent(x, y);
       return;
     }
 
@@ -789,13 +811,20 @@ export class SandWorld {
     // downhill), and stops as soon as it's resting on something. This creates
     // realistic pile behavior — gravel spreads into low spots then freezes.
     if (mat === Material.Gravel) {
+      // Only "real" gravel (from mining, lifetime=GRAVEL_SETTLE_TICKS or 0)
+      // disturbs adjacent Stone when it moves. Freshly-disturbed Stone that
+      // became Gravel (lifetime=GRAVEL_DISTURB_SETTLE_TICKS) does NOT disturb
+      // — otherwise each falling disturbed cell would disturb its neighbors,
+      // which would become Gravel, fall, disturb THEIR neighbors, causing an
+      // unbounded cascade of stone destruction across the map.
+      const canDisturb = ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS;
       const flowDir = this.rng.random() < 0.5 ? -1 : 1;
       if (this.tryGravelFlow(x, y, flowDir)) {
-        this.disturbAdjacent(x, y);
+        if (canDisturb) this.disturbAdjacent(x, y);
         return;
       }
       if (this.tryGravelFlow(x, y, -flowDir)) {
-        this.disturbAdjacent(x, y);
+        if (canDisturb) this.disturbAdjacent(x, y);
         return;
       }
       // Gravel is settled (supported below, can't spread) — stop moving.
@@ -950,8 +979,12 @@ export class SandWorld {
         const srcIsSolid = (MAT_FLAGS[srcMat] & MAT_SOLID) !== 0;
         const destIsSolid = (destFlags & MAT_SOLID) !== 0;
         // One must be solid, the other liquid (not solid-solid or liquid-liquid).
-        // Structural barriers (static + dense) are immovable.
-        const destIsBarrier = destIsSolid && MAT_GRAVITY_DIR[destMat] === 0 && MAT_DENSITY[destMat] >= 2.0;
+        // Structural barriers (static + dense) are immovable. A loosened
+        // static solid (lifetime > 0, set by mining) is NOT a barrier — it
+        // can fall, so other cells can sink through it.
+        const destIsBarrier = destIsSolid && MAT_GRAVITY_DIR[destMat] === 0 &&
+          MAT_DENSITY[destMat] >= 2.0 &&
+          ((destPacked >> 8) & 0xff) === 0;
         if (srcIsSolid !== destIsSolid &&
             !destIsBarrier &&
             MAT_DENSITY[srcMat] > MAT_DENSITY[destMat]) {
@@ -1074,15 +1107,19 @@ export class SandWorld {
    * LooseStone cells so they don't float in the air when their support flows
    * away.
    *
-   * - Stone (re-settled or natural) → converted to LooseStone with a short
-   *   settle timer and gravity enabled, so it falls if unsupported.
-   * - LooseStone → settle timer reset to the short disturbed value, gravity
-   *   ensured, so it keeps falling instead of re-settling prematurely.
+   * - Stone (re-settled or natural) → gravity field set + short settle timer
+   *   in the lifetime field, so it falls as Stone if unsupported. No material
+   *   conversion — it stays Stone and re-freezes (gravity cleared) when it
+   *   lands.
+   * - LooseStone (legacy cells from old saves) → settle timer reset to the
+   *   short disturbed value, gravity ensured, so it keeps falling instead of
+   *   re-settling prematurely.
    *
    * The disturbed settle timer is GRAVEL_DISTURB_SETTLE_TICKS (2 ticks). If the
-   * cell is still supported after gravel moves, it re-settles to Stone in 2
-   * ticks. If gravel removed its support, the cell starts falling (FLAG_UPDATED
-   * keeps the timer reset to 2 via applyAging) and won't settle until it lands.
+   * cell is still supported after gravel moves, it re-settles (gravity cleared)
+   * in 2 ticks. If gravel removed its support, the cell starts falling
+   * (FLAG_UPDATED keeps the timer reset to 2 via applyAging) and won't settle
+   * until it lands.
    */
   private disturbAdjacent(x: number, y: number): void {
     const W = this.W, H = this.H;
@@ -1106,12 +1143,12 @@ export class SandWorld {
       const nFi = nIdx * 4;
 
       if (nMat === Material.Stone) {
-        // Convert Stone → LooseStone so it can fall if unsupported
-        const shade = nFlags & SHADE_MASK;
-        this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | extra);
+        // Set gravity field + settle timer so Stone falls as Stone if
+        // unsupported. No material conversion. Re-freezes when it lands.
+        this.grid[nIdx] = (nMat & 0xff) | ((GRAVEL_DISTURB_SETTLE_TICKS & 0xff) << 8) | (((nFlags | extra) & 0xff) << 16);
         this.fields[nFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
       } else if (nMat === Material.LooseStone) {
-        // Reset settle timer to short value, ensure gravity is on
+        // Legacy LooseStone (old saves): reset settle timer to short value
         const shade = nFlags & SHADE_MASK;
         this.grid[nIdx] = packCell(Material.LooseStone, GRAVEL_DISTURB_SETTLE_TICKS, shade | extra);
         this.fields[nFi + FIELD.GRAVITY] = DEFAULT_GRAVITY;
@@ -2391,43 +2428,66 @@ export class SandWorld {
       let lifetime = (packed >> 8) & 0xff;
       let flags = (packed >> 16) & 0xff;
 
-      // LooseStone: re-settle to Stone when stationary AND supported by stable
-      // ground. The lifetime field is a settle timer, set when the stone is
-      // dislodged by mining (LOOSE_STONE_SETTLE_TICKS) or disturbed by adjacent
-      // gravel movement (GRAVEL_DISTURB_SETTLE_TICKS). When the cell moves
-      // (FLAG_UPDATED), the timer keeps its current value. When stationary,
-      // the timer only counts down if the cell is supported from below by a
-      // STABLE (static, gravity=0) material — otherwise it's floating and must
-      // not re-settle (it needs to keep trying to fall). This prevents
-      // LooseStone from freezing mid-air when friction or random chance
-      // prevents it from moving for a few ticks.
+      // Gravel (and legacy LooseStone): re-settle to Stone when stationary AND
+      // supported by stable ground. The lifetime field is a settle timer, set
+      // when the stone is dislodged by mining (GRAVEL_SETTLE_TICKS) or disturbed
+      // by adjacent gravel movement (GRAVEL_DISTURB_SETTLE_TICKS). When the
+      // cell moves (FLAG_UPDATED), the timer keeps its current value. When
+      // stationary, the timer only counts down if the cell is supported from
+      // below by a STABLE (static, gravity=0) material — otherwise it's
+      // floating and must not re-settle (it needs to keep trying to fall).
+      // This prevents Gravel from freezing mid-air when friction or random
+      // chance prevents it from moving for a few ticks.
       //
       // Only static materials (gravityDir === 0: Stone, Wall, Concrete, etc.)
       // count as stable support. Gravel, LooseStone, Dirt, Sand and other
       // gravity-affected materials are NOT stable support: they can flow or
-      // fall away (or be picked up by the player as gravel), which would leave
-      // a re-settled Stone chunk floating in mid-air. Requiring bedrock-level
-      // support ensures LooseStone only re-freezes to Stone once it has truly
+      // fall away (or be picked up by the player), which would leave a
+      // re-settled Stone chunk floating in mid-air. Requiring bedrock-level
+      // support ensures Gravel only re-freezes to Stone once it has truly
       // settled at the bottom.
-      if (mat === Material.LooseStone) {
+      //
+      // LooseStone (mat 63) is kept in the condition for backwards compat with
+      // old saves that still contain LooseStone cells; no new LooseStone is
+      // created — all stone-debris conversions produce Gravel.
+      // Stone (mat 3) is included: when a Stone cell's gravity field is set
+      // (by mining), it falls. When it lands and is stably supported, it
+      // re-freezes (gravity field cleared) — no material conversion needed.
+      if (mat === Material.Gravel || mat === Material.LooseStone || mat === Material.Stone) {
         if (!(flags & FLAG_UPDATED) && lifetime > 0) {
           // Check if supported from below by a stable (static) cell or grid
           // boundary. Falling/flowing materials (gravel, loose stone, dirt,
           // sand, liquids) do NOT count — they can move out from under us.
+          // A Stone cell with a non-zero lifetime (loosened by mining) also
+          // does NOT count — it can fall away.
           const belowIdx = i + this.W;
           let supported: boolean;
           if (belowIdx >= this.grid.length) {
             supported = true; // grid boundary = stable floor
           } else {
             const belowPacked = this.grid[belowIdx];
-            supported = belowPacked !== 0 && MAT_GRAVITY_DIR[belowPacked & 0xff] === 0;
+            if (belowPacked === 0) {
+              supported = false;
+            } else {
+              const belowMat = belowPacked & 0xff;
+              supported = MAT_GRAVITY_DIR[belowMat] === 0 &&
+                ((belowPacked >> 8) & 0xff) === 0;
+            }
           }
           if (supported) {
             lifetime--;
             if (lifetime === 0) {
-              // Re-settle: convert back to Stone (static, no gravity)
+              // Re-settle: convert back to Stone (static, no gravity).
+              // For Gravel/LooseStone: change material to Stone.
+              // For Stone: just clear the lifetime (already Stone, now frozen).
+              // Also clear FLAG_DETACHED so the renderer stops drawing the
+              // warm tint + amber outline, and the cell re-freezes (no longer
+              // collectible / unfrozen). Without this, re-settled stone stays
+              // visually distinct from original stone and gets absorbed into
+              // the player's inventory when walked near.
               mat = Material.Stone;
               lifetime = 0;
+              flags &= ~0x10; // clear FLAG_DETACHED (bit 4 of flags byte)
             }
           }
           // If not stably supported, don't count down — keep trying to fall

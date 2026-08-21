@@ -178,19 +178,23 @@ function countSolidOverlap(grid: Uint32Array, bgGrid: Uint32Array, W: number, H:
 
 /**
  * Check if a cell is "hard" — a solid material that can NEVER fall
- * (MAT_GRAVITY_DIR === 0). These are the materials that cause fall damage
- * when the player lands on them: stone, walls, concrete, scaffolding.
+ * (MAT_GRAVITY_DIR === 0 AND lifetime === 0). These are the materials that
+ * cause fall damage when the player lands on them: stone, walls, concrete,
+ * scaffolding.
  *
  * Materials that CAN fall (grass, dirt, gravel, sand, ore — gravityDir != 0)
  * are "soft" and don't cause fall damage. This includes falling particles:
  * if the player lands on falling grass, the grass has gravityDir=1 so it's
  * treated as soft — no fall damage.
  *
+ * Static solids (Stone, Wall) with a non-zero lifetime (loosened by mining)
+ * are also "soft" — they're falling, so landing on them doesn't hurt.
+ *
  * FLAG_UPDATED/FLAG_DETACHED can't be used because FLAG_UPDATED is cleared
  * at the end of each sim step (before player physics runs), and FLAG_DETACHED
  * is only set by mining/explosion code, not by the sim when a cell loses
- * support and starts falling. MAT_GRAVITY_DIR is a static material property
- * that reliably distinguishes "can fall" from "can never fall."
+ * support and starts falling. MAT_GRAVITY_DIR + lifetime reliably
+ * distinguishes "can fall" from "can never fall."
  */
 function isHardSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: number, x: number, y: number): boolean {
   if (x < 0 || x >= W || y < 0 || y >= H) return true; // out of bounds = wall
@@ -198,9 +202,13 @@ function isHardSolid(grid: Uint32Array, bgGrid: Uint32Array, W: number, H: numbe
   if (packed !== 0) {
     const mat = packed & 0xff;
     const def = MATERIALS[mat];
-    if (def?.solid && MAT_GRAVITY_DIR[mat] === 0) return true;
+    if (def?.solid && MAT_GRAVITY_DIR[mat] === 0) {
+      // Static solid — check if it's been loosened (lifetime > 0)
+      return ((packed >> 8) & 0xff) === 0;
+    }
   }
   // Background grid: scaffolding is solid and static (gravityDir=0).
+  // Background cells don't have lifetimes, so gravityDir=0 alone is sufficient.
   const bgPacked = bgGrid[y * W + x];
   if (bgPacked !== 0) {
     const bgMat = bgPacked & 0xff;
