@@ -79,7 +79,7 @@ const levelDot = (filled: boolean, color: string): React.CSSProperties => ({
 });
 
 export function UpgradeShop() {
-  const { upgrades, currency } = useGameStore();
+  const { upgrades, currency, stats } = useGameStore();
 
   const buy = (configKey: typeof UPGRADE_CONFIG[number]) => {
     const renderer = useGameStore.getState().renderer as
@@ -127,6 +127,9 @@ export function UpgradeShop() {
           </div>
         );
       })}
+      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+        Gold: {currency}g | Invested: {stats.totalGoldSpent}g | Net: {stats.totalGoldEarned - stats.totalGoldSpent}g
+      </div>
     </>
   );
 }
