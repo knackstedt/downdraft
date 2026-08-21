@@ -106,7 +106,15 @@ export function SignpostPrompt() {
 
   return (
     <div style={promptStyle}>
-      <div style={keyHintStyle}>
+      {hasItems && (
+        <style>{`
+          @keyframes sellHintPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+          }
+        `}</style>
+      )}
+      <div style={{ ...keyHintStyle, ...(hasItems ? { animation: "sellHintPulse 1.5s ease-in-out infinite", color: "#ffd700" } : {}) }}>
         {hasItems ? "Press E to sell inventory" : "Inventory empty"}
       </div>
       {hasItems ? (
