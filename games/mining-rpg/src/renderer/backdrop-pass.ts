@@ -153,8 +153,17 @@ export class BackdropPass {
     );
   }
 
-  updateUniforms(): void {
-    const u = new Float32Array([this.gridW, this.gridH, 0, 1.0]);
+  /**
+   * Update the backdrop uniforms. originY is the backdrop grid origin in
+   * backdrop cell coords (from BackdropWorkerHost.getOriginY()). surfaceY is
+   * the foreground surface height in foreground world coords. Both are used
+   * by the shader to compute a depth-aware ambient: worldY = (originY +
+   * coords.y) * 2.
+   *
+   * Called once in init() (with zeros) and then each frame by the renderer.
+   */
+  updateUniforms(originY: number = 0, surfaceY: number = 0): void {
+    const u = new Float32Array([this.gridW, this.gridH, originY, surfaceY]);
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, u);
   }
 

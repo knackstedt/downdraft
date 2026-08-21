@@ -14,6 +14,7 @@ import { GPUDeviceManager } from "@downdraft/core";
 import { Material, MATERIALS } from "@downdraft/library-sand";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, HEADLAMP_COLOR, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
+import type { SavedGlowstick } from "../shared/types";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
 import { surfaceHeightAt } from "../simulation/terrain";
@@ -88,15 +89,6 @@ interface Bomb {
   ticks: number;              // ticks since thrown
 }
 
-interface Glowstick {
-  x: number; y: number;       // world cell coords (float)
-  vx: number; vy: number;     // velocity per tick (0 when settled)
-  ticks: number;              // ticks since thrown
-  settled: boolean;           // true once it hits ground
-  bornAt: number;             // performance.now() when thrown
-  color: [number, number, number]; // random rainbow color
-}
-
 export class MiningRenderer {
   private canvas: HTMLCanvasElement;
   private device: GPUDevice | null = null;
@@ -136,7 +128,7 @@ export class MiningRenderer {
   // Explosion flashes: { x, y, age, maxAge } in world coords
   private explosions: { x: number; y: number; age: number; maxAge: number }[] = [];
   // Glowstick state (thrown light sources that persist for 1 hour real time)
-  private glowsticks: Glowstick[] = [];
+  private glowsticks: SavedGlowstick[] = [];
   private prevKeyG = false;
   // Player render interpolation: prev = position at the previous sim tick,
   // cur = position at the current sim tick. The rendered player is lerped
@@ -297,6 +289,23 @@ export class MiningRenderer {
         if (typeof save.zoom === "number" && Number.isFinite(save.zoom)) {
           this.camera.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, save.zoom));
         }
+        // Restore glowsticks (defensive: filter out malformed entries and
+        // clamp any future-dated bornAt to now so a bad save can't create a
+        // glowstick that never expires). Old saves without glowsticks load
+        // with an empty array.
+        const now = Date.now();
+        this.glowsticks = (save.glowsticks ?? [])
+          .filter((g) => g && typeof g.x === "number" && typeof g.y === "number" && Array.isArray(g.color))
+          .map((g) => ({
+            x: g.x, y: g.y,
+            vx: g.settled ? 0 : (g.vx ?? 0),
+            vy: g.settled ? 0 : (g.vy ?? 0),
+            ticks: g.ticks ?? 0,
+            settled: !!g.settled,
+            bornAt: Math.min(g.bornAt ?? now, now),
+            color: g.color as [number, number, number],
+          }))
+          .slice(0, MAX_GLOWSTICKS);
       }
     } catch (e) {
       console.warn("[MiningRenderer] Failed to load save:", e);
@@ -313,7 +322,7 @@ export class MiningRenderer {
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
       if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], zoom: this.camera.zoom, savedAt: Date.now() };
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], glowsticks: this.glowsticks, zoom: this.camera.zoom, savedAt: Date.now() };
       }
       const store = useGameStore.getState();
       return {
@@ -325,6 +334,7 @@ export class MiningRenderer {
         inventory: store.inventory,
         currency: store.currency,
         chunks: saveData.dirtyChunks,
+        glowsticks: this.glowsticks,
         zoom: this.camera.zoom,
         savedAt: Date.now(),
       };
@@ -685,20 +695,22 @@ export class MiningRenderer {
       depth,
     );
     // Backdrop camera: compute the camera position in BACKDROP-local coords.
-    // The backdrop has its own origin (in backdrop cell coords, at half the
-    // foreground resolution). We convert the world-space camera position to
-    // backdrop-local: world * parallax * 0.5 (half-res + parallax) - bdOrigin.
-    // Using the backdrop's own origin (not the foreground origin) ensures
-    // continuity across chunk boundary crossings — both the camera and the
-    // backdrop grid shift together when the backdrop window updates.
+    // The backdrop is full-res (1 backdrop cell = 1 foreground cell) with
+    // parallax=1.0, so the backdrop camera = foreground camera in local coords.
+    // bdOrigin = originCx * BACKDROP_CHUNK_W = originCx * CHUNK_W = originX,
+    // so bdCam = camera.x - originX = camLocalX (same as foreground).
     const bdOriginX = this.backdropHost.getOriginX();
     const bdOriginY = this.backdropHost.getOriginY();
-    const bdCamX = this.camera.x * BACKDROP_PARALLAX * 0.5 - bdOriginX;
-    const bdCamY = this.camera.y * BACKDROP_PARALLAX * 0.5 - bdOriginY;
+    const bdCamX = this.camera.x * BACKDROP_PARALLAX - bdOriginX;
+    const bdCamY = this.camera.y * BACKDROP_PARALLAX - bdOriginY;
     this.backdropPass.updateCamera(
       bdCamX, bdCamY, this.camera.zoom,
       this.canvas.width, this.canvas.height,
     );
+    // Update backdrop uniforms with origin Y (backdrop cell coords) + surface Y
+    // for depth-aware cave ambient. The shader computes worldY = (originY +
+    // coords.y) * 2 to get the foreground world Y of each backdrop cell.
+    this.backdropPass.updateUniforms(bdOriginY, surfaceY);
 
     // --- Update stickman (in local coords) ---
     this.stickmanPass.update(
@@ -1003,7 +1015,7 @@ export class MiningRenderer {
       vy: (dy / dist) * GLOWSTICK_SPEED - 0.2,
       ticks: 0,
       settled: false,
-      bornAt: performance.now(),
+      bornAt: Date.now(),
       color: rgb,
     });
   }
@@ -1016,9 +1028,9 @@ export class MiningRenderer {
     const bgGrid = this.gridReader?.getBackgroundGrid();
     const originX = this.gridReader?.getStat(STATS.ORIGIN_X) ?? 0;
     const originY = this.gridReader?.getStat(STATS.ORIGIN_Y) ?? 0;
-    const now = performance.now();
+    const now = Date.now();
 
-    const surviving: Glowstick[] = [];
+    const surviving: SavedGlowstick[] = [];
     for (const gs of this.glowsticks) {
       // Expire after 1 hour real time
       if (now - gs.bornAt > GLOWSTICK_LIFETIME_MS) continue;

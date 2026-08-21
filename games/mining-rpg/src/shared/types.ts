@@ -97,6 +97,22 @@ export interface PlayerUpgrades {
   inventorySize: number;
 }
 
+/**
+ * Serializable glowstick state. Glowsticks are thrown light sources that
+ * persist for 1 hour real time (GLOWSTICK_LIFETIME_MS). Persisted in the save
+ * so they survive hot reload / restart. `bornAt` is a wall-clock `Date.now()`
+ * timestamp (NOT `performance.now()`, which resets every reload) so the
+ * lifetime check remains correct across sessions.
+ */
+export interface SavedGlowstick {
+  x: number; y: number;       // world cell coords (float)
+  vx: number; vy: number;     // velocity per tick (0 when settled)
+  ticks: number;              // ticks since thrown
+  settled: boolean;           // true once it hits ground
+  bornAt: number;             // Date.now() when thrown
+  color: [number, number, number]; // random rainbow color (0-1 each)
+}
+
 export interface WorldConfig {
   seed: number;
   chunkW: number;
