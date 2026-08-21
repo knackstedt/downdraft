@@ -33,11 +33,12 @@ struct CameraUniforms {
 @group(0) @binding(4) var volumetricTex: texture_2d<f32>;
 
 fn cellTypeFromAlpha(a: f32) -> u32 {
-  // 0 = cave, 64 = water, 128 = oil, 200 = solid, 255 = lava
-  if (a > 240.0) { return 4u; }  // lava
-  if (a > 160.0) { return 3u; }  // solid
-  if (a > 96.0) { return 2u; }   // oil
-  if (a > 32.0) { return 1u; }   // water
+  // 0 = cave, 32 = sky, 64 = water, 128 = oil, 200 = solid, 255 = lava
+  if (a > 240.0) { return 5u; }  // lava
+  if (a > 160.0) { return 4u; }  // solid
+  if (a > 96.0) { return 3u; }   // oil
+  if (a > 48.0) { return 2u; }   // water
+  if (a > 16.0) { return 1u; }   // sky
   return 0u;                      // cave
 }
 
@@ -57,35 +58,18 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
   let coords = vec2<i32>(i32(cellX), i32(cellY));
 
-  // Compute the foreground world Y of this backdrop cell to check if we're
-  // above the surface (sky) or below (underground). worldY = (originY +
-  // coords.y) * 2 (1 backdrop cell = 2 fg cells, but the backdrop grid is
-  // full-res relative to the active grid, so worldY = originY + coords.y
-  // in backdrop cell coords... actually the renderer passes originY in
-  // backdrop cell coords and the shader computes worldY = (originY +
-  // coords.y) * 2 per the comment in updateUniforms). We use this to draw
-  // a sky gradient above the surface instead of the cave void color.
-  let worldY = (u.originY + f32(coords.y)) * 2.0;
-
-  // Above the surface: render a sky gradient instead of the cave void.
-  // This avoids the "light reflecting off the sky" artifact where the
-  // bright ambient light at depth=0 makes the dark cave-void backdrop
-  // cells glow with a washed-out gray-blue color.
-  if (worldY < u.surfaceY) {
-    // Sky gradient: bright blue at the horizon, fading to lighter blue
-    // higher up. heightAbove = how far above the surface (0 = horizon).
-    let heightAbove = u.surfaceY - worldY;
-    let skyT = clamp(heightAbove / 200.0, 0.0, 1.0);
-    // Horizon: warm light blue (sky meeting terrain). Zenith: deeper blue.
-    let horizon = vec3<f32>(0.45, 0.62, 0.85);
-    let zenith = vec3<f32>(0.25, 0.42, 0.72);
-    let skyColor = mix(horizon, zenith, skyT);
-    // Subtle vertical banding for atmosphere (clouds-ish)
-    let bandNoise = sin(f32(coords.x) * 0.03 + u.originY * 0.01) * 0.02;
-    return vec4<f32>(skyColor + bandNoise, 1.0);
-  }
-
   if (coords.x < 0 || coords.x >= i32(u.gridW) || coords.y < 0 || coords.y >= i32(u.gridH)) {
+    // Out of bounds above the surface: render sky (the backdrop grid doesn't
+    // cover above-surface chunks well, so fill with sky gradient). Use the
+    // world Y to decide sky vs black — if above surface, it's sky.
+    let worldY = (u.originY + f32(coords.y)) * 2.0;
+    if (worldY < u.surfaceY) {
+      let heightAbove = u.surfaceY - worldY;
+      let skyT = clamp(heightAbove / 200.0, 0.0, 1.0);
+      let horizon = vec3<f32>(0.45, 0.62, 0.85);
+      let zenith = vec3<f32>(0.25, 0.42, 0.72);
+      return vec4<f32>(mix(horizon, zenith, skyT), 1.0);
+    }
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
   }
 
@@ -97,6 +81,22 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let a = f32((packed >> 24u) & 0xffu);
   let packedRGB = vec3<f32>(r, g, b);
   let cellType = cellTypeFromAlpha(a);
+
+  // Sky cells: render a sky gradient based on the cell's world Y relative to
+  // the surface. This is per-cell (from the backdrop grid data), so it
+  // follows the actual wavy terrain surface — not a single horizontal line
+  // at the player's X position.
+  if (cellType == 1u) {
+    let worldY = (u.originY + f32(coords.y)) * 2.0;
+    let heightAbove = max(0.0, u.surfaceY - worldY);
+    let skyT = clamp(heightAbove / 200.0, 0.0, 1.0);
+    let horizon = vec3<f32>(0.45, 0.62, 0.85);
+    let zenith = vec3<f32>(0.25, 0.42, 0.72);
+    let skyColor = mix(horizon, zenith, skyT);
+    // Subtle horizontal banding for atmosphere
+    let bandNoise = sin(f32(coords.x) * 0.03) * 0.02;
+    return vec4<f32>(skyColor + bandNoise, 1.0);
+  }
 
   // Sample the light accumulation + volumetric textures.
   // The backdrop grid is full-res (640×640 = ACTIVE_GRID_W×ACTIVE_GRID_H),
@@ -133,13 +133,13 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   if (cellType == 0u) {
     // Cave void: diffused light only — black without light, slight cool tint
     color = dimLighting * vec3<f32>(0.8, 0.85, 0.95);
-  } else if (cellType == 4u) {
+  } else if (cellType == 5u) {
     // Lava: self-emissive (brightened packed color) — always glows
     color = packedRGB * 1.5 + dimLighting * 0.2;
-  } else if (cellType == 1u) {
+  } else if (cellType == 2u) {
     // Water: dark body + blue-tinted diffused light
     color = packedRGB * 0.3 + dimLighting * vec3<f32>(0.5, 0.7, 1.0);
-  } else if (cellType == 2u) {
+  } else if (cellType == 3u) {
     // Oil: dark body + minimal diffused light
     color = packedRGB * 0.4 + dimLighting * 0.2;
   } else {
