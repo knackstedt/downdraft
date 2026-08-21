@@ -71,9 +71,10 @@ export function DepthNotification() {
   const seenBiomes = useRef<Set<number>>(new Set());
   const lastDangerCheck = useRef(0);
 
-  // Biome entry detection
+  // Biome entry detection + depth milestones every 500m
   useEffect(() => {
     const depthMeters = depth * 128;
+    // Check biome entries
     for (let i = BIOMES.length - 1; i >= 0; i--) {
       const biome = BIOMES[i];
       if (depthMeters >= biome.threshold && !seenBiomes.current.has(biome.threshold)) {
@@ -84,9 +85,27 @@ export function DepthNotification() {
           color: biome.color,
           icon: biome.icon,
         });
-        // Clear after 4 seconds (matches the animation duration)
         setTimeout(() => setNotification(null), 4000);
-        break;
+        return;
+      }
+    }
+    // Check 500m milestones (skip if already covered by a biome notification)
+    const milestone = Math.floor(depthMeters / 500) * 500;
+    if (milestone >= 500 && !seenBiomes.current.has(-milestone)) {
+      // Don't show milestone if a biome notification was just shown
+      const isBiomeThreshold = BIOMES.some((b) => b.threshold === milestone);
+      if (!isBiomeThreshold) {
+        seenBiomes.current.add(-milestone);
+        setNotification({
+          title: `${milestone}m DEPTH`,
+          subtitle: "New depth milestone reached!",
+          color: "#42a5f5",
+          icon: "📏",
+        });
+        setTimeout(() => setNotification(null), 4000);
+      } else {
+        // Mark as seen so we don't keep checking
+        seenBiomes.current.add(-milestone);
       }
     }
   }, [depth]);
