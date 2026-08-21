@@ -155,7 +155,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, getMaxInventory, getInventoryCount } = useGameStore();
 
   if (!showHUD) return null;
 
@@ -236,6 +236,11 @@ export function HUD() {
       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
         Facing: {playerFacing > 0 ? "→ East" : "← West"}
       </div>
+      {playerSpeed > 1 && (
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
+          Speed: {playerSpeed.toFixed(1)} c/s
+        </div>
+      )}
       {(() => {
         const prog = depthBiomeProgress(depthMeters);
         return (

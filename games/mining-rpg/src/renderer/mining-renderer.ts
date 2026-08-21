@@ -800,6 +800,9 @@ export class MiningRenderer {
     }
     // Sync player facing direction
     if (s.playerFacing !== facing) s.setPlayerFacing(facing);
+    // Sync player speed (cells/sec = vx * 60 ticks/sec)
+    const speed = Math.sqrt(vx * vx + vy * vy) * 60;
+    if (Math.abs(s.playerSpeed - speed) > 0.5) s.setPlayerSpeed(speed);
     if (s.health !== health) {
       // Detect damage (health decreased) and spawn floating damage number
       if (health < s.health && !this.respawning) {
