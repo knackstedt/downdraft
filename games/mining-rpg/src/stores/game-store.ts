@@ -281,6 +281,8 @@ export interface GameState {
   toggleHUD: () => void;
   playerFacing: number; // 1 = right, -1 = left
   setPlayerFacing: (f: number) => void;
+  playerSpeed: number; // current movement speed in cells/sec
+  setPlayerSpeed: (s: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -320,6 +322,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   goldFlashTime: 0,
   showHUD: true,
   playerFacing: 1,
+  playerSpeed: 0,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -533,4 +536,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   triggerGoldFlash: () => set({ goldFlashTime: Date.now() }),
   toggleHUD: () => set((s) => ({ showHUD: !s.showHUD })),
   setPlayerFacing: (playerFacing) => set({ playerFacing }),
+  setPlayerSpeed: (playerSpeed) => set({ playerSpeed }),
 }));
