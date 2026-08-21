@@ -195,6 +195,11 @@ export function HUD() {
         </div>
         <span>{invUsed}/{invMax}</span>
       </div>
+      {invPct >= 90 && (
+        <div style={{ color: "#f44336", fontSize: 11, fontWeight: "bold" }}>
+          ⚠ Inventory {invPct >= 100 ? "FULL" : "ALMOST FULL"} — sell at signpost (E) or teleport (T)
+        </div>
+      )}
       <div>Depth: {depthMeters}m</div>
       <div style={{ color: depthBiomeColor(depthMeters), fontSize: 11, fontWeight: "bold" }}>
         {depthBiomeName(depthMeters)}
