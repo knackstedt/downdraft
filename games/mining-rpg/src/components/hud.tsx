@@ -229,6 +229,8 @@ export function HUD() {
       ) : null}
       <div>Brush: {digRadius} cells</div>
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
+      {noclip && <div style={{ color: "#ff9800", fontWeight: "bold" }}>NOCLIP ON</div>}
+      {headlampOn && <div style={{ color: "#ffd700" }}>Headlamp: ON</div>}
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
       {sellValue > 0 && (
         <div style={{ color: "rgba(255,215,0,0.5)", fontSize: 11 }}>
