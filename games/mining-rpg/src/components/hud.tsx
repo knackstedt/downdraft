@@ -155,7 +155,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, glowstickCount, getMaxInventory, getInventoryCount } = useGameStore();
 
   if (!showHUD) return null;
 
@@ -321,6 +321,11 @@ export function HUD() {
       {stats.totalDeaths > 0 && (
         <div style={{ fontSize: 9, color: "rgba(244,67,54,0.3)" }}>
           Deaths: {stats.totalDeaths}
+        </div>
+      )}
+      {glowstickCount > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+          Glowsticks: {glowstickCount}/32
         </div>
       )}
       {(() => {

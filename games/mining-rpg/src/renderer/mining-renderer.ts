@@ -803,6 +803,8 @@ export class MiningRenderer {
     // Sync player speed (cells/sec = vx * 60 ticks/sec)
     const speed = Math.sqrt(vx * vx + vy * vy) * 60;
     if (Math.abs(s.playerSpeed - speed) > 0.5) s.setPlayerSpeed(speed);
+    // Sync glowstick count
+    if (s.glowstickCount !== this.glowsticks.length) s.setGlowstickCount(this.glowsticks.length);
     if (s.health !== health) {
       // Detect damage (health decreased) and spawn floating damage number
       if (health < s.health && !this.respawning) {
