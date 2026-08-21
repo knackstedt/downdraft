@@ -131,6 +131,19 @@ function depthBiomeName(depthMeters: number): string {
   return "Mantle";
 }
 
+/** Next biome name and progress (0-1) toward it. */
+function depthBiomeProgress(depthMeters: number): { next: string; pct: number } {
+  const thresholds = [50, 200, 500, 1000, 1500, 2000, 3000, 4000];
+  const names = ["Topsoil Layer", "Shallow Caves", "Deep Caves", "Iron Belt", "Silver Depths", "Gold Zone", "Cobalt Abyss", "Mantle"];
+  for (let i = 0; i < thresholds.length; i++) {
+    if (depthMeters < thresholds[i]) {
+      const prev = i > 0 ? thresholds[i - 1] : 0;
+      return { next: names[i], pct: (depthMeters - prev) / (thresholds[i] - prev) };
+    }
+  }
+  return { next: "Max Depth", pct: 1 };
+}
+
 /** Color for the biome label based on depth. */
 function depthBiomeColor(depthMeters: number): string {
   if (depthMeters < 200) return "#8bc34a";
@@ -218,6 +231,17 @@ export function HUD() {
       <div style={{ color: depthBiomeColor(depthMeters), fontSize: 11, fontWeight: "bold" }}>
         {depthBiomeName(depthMeters)}
       </div>
+      {(() => {
+        const prog = depthBiomeProgress(depthMeters);
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: "rgba(255,255,255,0.35)" }}>
+            <div style={{ width: 60, height: 3, background: "rgba(255,255,255,0.1)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ width: `${prog.pct * 100}%`, height: "100%", background: depthBiomeColor(depthMeters), transition: "width 0.3s" }} />
+            </div>
+            <span>→ {prog.next}</span>
+          </div>
+        );
+      })()}
       {depthMeters >= 10 && (
         <div style={{ fontSize: 10, color: teleportCooldown >= 1 ? "rgba(66,165,245,0.7)" : "rgba(255,255,255,0.3)" }}>
           T: {teleportCooldown >= 1 ? "Ready" : `${Math.ceil((1 - teleportCooldown) * 3)}s`}
