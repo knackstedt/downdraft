@@ -7,6 +7,8 @@
 
 import { Material } from "@downdraft/library-sand";
 import { BUILD_MATERIAL_INFO, type BuildMaterialType } from "../shared/constants";
+import { CRAFTED_ITEM_INFO } from "../shared/crafting-recipes";
+import type { CraftedItemId } from "../shared/types";
 import { useGameStore } from "../stores/game-store";
 
 const panelStyle: React.CSSProperties = {
@@ -74,7 +76,7 @@ const MATERIAL_INFO: Record<number, { name: string; color: string }> = {
 };
 
 export function InventoryPanel() {
-  const { inventory, showInventory, buildMaterials } = useGameStore();
+  const { inventory, showInventory, buildMaterials, craftedItems } = useGameStore();
 
   if (!showInventory) return null;
 
@@ -111,6 +113,23 @@ export function InventoryPanel() {
           </div>
         );
       })}
+      {(Object.keys(craftedItems) as CraftedItemId[]).some((id) => craftedItems[id] > 0) && (
+        <>
+          <div style={{ ...titleStyle, marginTop: 8 }}>Crafted Bars</div>
+          {(Object.keys(craftedItems) as CraftedItemId[])
+            .filter((id) => craftedItems[id] > 0)
+            .map((id) => {
+              const info = CRAFTED_ITEM_INFO[id];
+              return (
+                <div key={id} style={rowStyle}>
+                  <span style={swatchStyle(info.color)} />
+                  <span>{info.name}</span>
+                  <span style={{ marginLeft: "auto", fontWeight: "bold" }}>{craftedItems[id]}</span>
+                </div>
+              );
+            })}
+        </>
+      )}
     </div>
   );
 }

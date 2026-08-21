@@ -16,8 +16,8 @@
 import type { SaveState } from "@downdraft/core";
 import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
 import { WORLD_SEED } from "../shared/constants";
-import type { BuildMaterials, InventoryEntry, MiningPlayerState, PlayerStats, PlayerUpgrades, SavedGlowstick } from "../shared/types";
-import { createPlayerStats } from "../shared/types";
+import type { BuildMaterials, CraftedItems, InventoryEntry, MiningPlayerState, PlayerStats, PlayerUpgrades, SavedGlowstick } from "../shared/types";
+import { createCraftedItems, createPlayerStats } from "../shared/types";
 import type { SavedChunk } from "../simulation/chunk-world";
 
 const SAVE_SLOT = "world";
@@ -45,6 +45,9 @@ export interface SaveData {
   // Unlocked achievement IDs (optional for backward compat). Stored as a
   // string array in the save (Set is not JSON-serializable).
   unlockedAchievements?: string[];
+  // Crafted items (bars) — virtual inventory items not in the grid.
+  // Optional for backward compat with saves made before crafting was added.
+  craftedItems?: CraftedItems;
   savedAt: number;
 }
 
@@ -110,6 +113,7 @@ function buildState(data: SaveData): SaveState {
           buildMaterials: data.buildMaterials,
           stats: data.stats,
           unlockedAchievements: data.unlockedAchievements,
+          craftedItems: data.craftedItems,
         },
       },
       chunks: { v: 1, data: { count: data.chunks.length, coords: data.chunks.map((c) => ({ cx: c.cx, cy: c.cy })) } },
@@ -139,7 +143,7 @@ export async function loadWorld(): Promise<SaveData | null> {
   const player = result.state.components.player?.data as {
     player: MiningPlayerState; upgrades?: PlayerUpgrades; inventory?: InventoryEntry[];
     currency?: number; buildMaterials?: BuildMaterials; stats?: PlayerStats;
-    unlockedAchievements?: string[];
+    unlockedAchievements?: string[]; craftedItems?: CraftedItems;
   } | undefined;
   const chunksComp = result.state.components.chunks?.data as { count: number; coords: { cx: number; cy: number }[] } | undefined;
   const glowsticksComp = result.state.components.glowsticks?.data as { list: SavedGlowstick[] } | undefined;
@@ -158,6 +162,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     zoom: meta.zoom,
     stats: player.stats ?? createPlayerStats(),
     unlockedAchievements: player.unlockedAchievements ?? [],
+    craftedItems: player.craftedItems ?? createCraftedItems(),
     savedAt: meta.savedAt ?? 0,
   };
 }

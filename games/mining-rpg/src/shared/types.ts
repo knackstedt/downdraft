@@ -171,3 +171,40 @@ export function createPlayerStats(): PlayerStats {
     deathsByCause: {},
   };
 }
+
+/**
+ * Crafted item ID — a virtual item that exists only in inventory (not in the
+ * grid). Bars are smelted from ore at the signpost furnace. Each bar sells
+ * for more than the raw ore, creating an economic decision: sell raw ore for
+ * quick gold, or smelt into bars for more gold (but requiring coal + a furnace).
+ */
+export type CraftedItemId =
+  | "tin-bar"
+  | "copper-bar"
+  | "iron-bar"
+  | "bauxite-bar"
+  | "silver-bar"
+  | "gold-bar"
+  | "cobalt-bar"
+  | "steel-bar"    // iron + coal
+  | "bronze-bar"   // copper + tin
+  | "brass-bar";   // copper + bauxite (aluminum)
+
+/** Counts of each crafted item the player owns. Persisted in the save. */
+export type CraftedItems = Record<CraftedItemId, number>;
+
+/** Create a fresh crafted items object with all counts at zero. */
+export function createCraftedItems(): CraftedItems {
+  return {
+    "tin-bar": 0,
+    "copper-bar": 0,
+    "iron-bar": 0,
+    "bauxite-bar": 0,
+    "silver-bar": 0,
+    "gold-bar": 0,
+    "cobalt-bar": 0,
+    "steel-bar": 0,
+    "bronze-bar": 0,
+    "brass-bar": 0,
+  };
+}
