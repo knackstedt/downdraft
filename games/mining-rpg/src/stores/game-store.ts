@@ -152,6 +152,7 @@ export interface GameState {
   // Title screen
   showTitleScreen: boolean; // true when the title screen is visible (game start)
   lastSaveTime: number; // timestamp of last save (0 = never)
+  showMinimap: boolean; // minimap visibility (toggle with M)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -267,6 +268,7 @@ export interface GameState {
   // Title screen
   setShowTitleScreen: (show: boolean) => void;
   setLastSaveTime: (time: number) => void;
+  toggleMinimap: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -301,6 +303,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   craftedItems: createCraftedItems(),
   showTitleScreen: true,
   lastSaveTime: 0,
+  showMinimap: true,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -491,4 +494,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   resetCraftedItems: () => set({ craftedItems: createCraftedItems() }),
   setShowTitleScreen: (showTitleScreen) => set({ showTitleScreen }),
   setLastSaveTime: (lastSaveTime) => set({ lastSaveTime }),
+  toggleMinimap: () => set((s) => ({ showMinimap: !s.showMinimap })),
 }));
