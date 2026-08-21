@@ -217,6 +217,10 @@ export class MiningRenderer {
   getSignpostPos(): { x: number; y: number } {
     return { x: this.signpostX, y: this.signpostY };
   }
+  /** Surface height (world Y) at a given world X — for placing objects on the ground. */
+  getSurfaceHeightAt(wx: number): number {
+    return surfaceHeightAt(wx, WORLD_SEED);
+  }
   /** Grid reader for minimap/overlays that need direct grid access. */
   getGridReader(): MiningSimBufferReader | null {
     return this.gridReader;

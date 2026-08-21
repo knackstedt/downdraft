@@ -158,10 +158,11 @@ export function VillageOverlay() {
             getCamera?: () => Camera2D;
             getSignpostPos?: () => { x: number; y: number };
             getPlayerPos?: () => { x: number; y: number };
+            getSurfaceHeightAt?: (wx: number) => number;
           }
         | null;
 
-      if (container && renderer?.getCamera && renderer?.getSignpostPos && renderer?.getPlayerPos) {
+      if (container && renderer?.getCamera && renderer?.getSignpostPos && renderer?.getPlayerPos && renderer?.getSurfaceHeightAt) {
         const cam = renderer.getCamera();
         const dpr = window.devicePixelRatio || 1;
         const scale = cam.zoom / dpr; // world cells → CSS px
@@ -170,9 +171,27 @@ export function VillageOverlay() {
         frame++;
 
         let html = "";
+        // Only render NPCs when the player is near the surface (within 50 cells
+        // vertically). When the player is deep underground, the NPCs would be
+        // far away with no terrain context around them, looking like floating
+        // stickmen that parallax against the empty background.
+        const playerSurfaceY = renderer.getSurfaceHeightAt(player.x);
+        const playerDepth = Math.abs(player.y - playerSurfaceY);
+        if (playerDepth > 50) {
+          container.innerHTML = "";
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+
         for (const npc of NPCS) {
           const wx = sign.x + npc.offsetX;
-          const wy = sign.y + npc.offsetY; // top of bounding box (like player py)
+          // Use the ACTUAL surface height at this NPC's X position, not the
+          // signpost's Y. The surface has rolling hills (fBm noise), so each
+          // NPC must be placed at its own column's surface height — otherwise
+          // they float above/below the terrain and appear to parallax when
+          // the camera moves vertically.
+          const surfaceYAtNpc = renderer.getSurfaceHeightAt(wx);
+          const wy = surfaceYAtNpc + npc.offsetY; // top of bounding box (like player py)
           const s = worldToScreen(cam, wx, wy);
           const cssX = s.x / dpr;
           const cssY = s.y / dpr;
