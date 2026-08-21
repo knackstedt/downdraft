@@ -185,6 +185,16 @@ export function HUD() {
     setGoldPerMin(total);
   }, [currency]);
 
+  // Session timer
+  const sessionStartRef = useRef(Date.now());
+  const [sessionTime, setSessionTime] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSessionTime(Math.floor((Date.now() - sessionStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   if (!showHUD) return null;
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
@@ -447,6 +457,16 @@ export function HUD() {
             const h = Math.floor(secs / 3600);
             const m = Math.floor((secs % 3600) / 60);
             const s = secs % 60;
+            return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+          })()}
+        </div>
+      )}
+      {sessionTime > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(66,165,245,0.3)" }}>
+          Session: {(() => {
+            const h = Math.floor(sessionTime / 3600);
+            const m = Math.floor((sessionTime % 3600) / 60);
+            const s = sessionTime % 60;
             return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
           })()}
         </div>
