@@ -29,6 +29,8 @@ const panelStyle: React.CSSProperties = {
   maxHeight: "80vh",
   overflowY: "auto",
   pointerEvents: "auto",
+  scrollbarWidth: "thin",
+  scrollbarColor: "rgba(255,255,255,0.2) rgba(255,255,255,0.05)",
 };
 
 const titleStyle: React.CSSProperties = {
@@ -152,7 +154,13 @@ export function StatsPanel() {
     .sort((a, b) => b.count - a.count);
 
   return (
-    <div style={panelStyle}>
+    <div style={panelStyle} className="dd-stats-scroll">
+      <style>{`
+        .dd-stats-scroll::-webkit-scrollbar { width: 8px; }
+        .dd-stats-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
+        .dd-stats-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+        .dd-stats-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35); }
+      `}</style>
       <div style={titleStyle}>STATISTICS</div>
 
       <div style={sectionTitleStyle}>Overview</div>

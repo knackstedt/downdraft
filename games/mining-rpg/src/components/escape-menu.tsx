@@ -8,6 +8,7 @@
 
 import { Material } from "@downdraft/library-sand";
 import { useState } from "react";
+import { ACHIEVEMENTS } from "../shared/achievements";
 import { useGameStore } from "../stores/game-store";
 
 // Material ID → display name
@@ -107,6 +108,13 @@ const saveButtonStyle: React.CSSProperties = {
   color: "#fff",
   background: "#2a3a4a",
   borderColor: "#3a5a6a",
+};
+
+const achievementsButtonStyle: React.CSSProperties = {
+  ...buttonBase,
+  color: "#ffd700",
+  background: "#3a3a1a",
+  borderColor: "#5a5a2a",
 };
 
 const saveStatusStyle: React.CSSProperties = {
@@ -221,6 +229,9 @@ export function EscapeMenu() {
               {saving ? "Saving..." : "Save Now"}
             </button>
             {saveStatus && <div style={saveStatusStyle}>{saveStatus}</div>}
+            <button style={achievementsButtonStyle} onClick={() => useGameStore.getState().toggleAchievements()}>
+              Achievements ({unlockedAchievements.size}/{ACHIEVEMENTS.length})
+            </button>
             <button style={resetButtonStyle} onClick={() => setConfirming(true)}>
               Reset World
             </button>

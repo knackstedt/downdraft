@@ -7,8 +7,8 @@
 // the grid at the mouse position.
 // ============================================================================
 
-import { useEffect, useRef, useState } from "react";
 import { Material } from "@downdraft/library-sand";
+import { useEffect, useRef, useState } from "react";
 import { SELL_PRICES } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
@@ -72,6 +72,11 @@ const MATERIAL_NAMES: Record<number, { name: string; color: string }> = {
 export function OreTooltip() {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; name: string; color: string; price: number } | null>(null);
   const rafRef = useRef(0);
+  // Ref mirror of current tooltip so the rAF loop can read it without being
+  // re-created on every state change (which caused the loop to tear down and
+  // restart constantly, leading to missed/flickering tooltips).
+  const tooltipRef = useRef<typeof tooltip>(null);
+  tooltipRef.current = tooltip;
 
   useEffect(() => {
     const tick = () => {
@@ -82,13 +87,14 @@ export function OreTooltip() {
       } | null;
 
       if (!renderer?.getHoveredCell || !renderer?.getMouseScreenPos) {
+        if (tooltipRef.current) setTooltip(null);
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
 
       // Don't show tooltip when menus are open
       if (store.showEscapeMenu || store.gameOver || store.showInventory || store.showStats || store.showAchievements) {
-        if (tooltip) setTooltip(null);
+        if (tooltipRef.current) setTooltip(null);
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
@@ -97,14 +103,14 @@ export function OreTooltip() {
       const mousePos = renderer.getMouseScreenPos();
 
       if (cell.mat === 0) {
-        if (tooltip) setTooltip(null);
+        if (tooltipRef.current) setTooltip(null);
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
 
       const info = MATERIAL_NAMES[cell.mat];
       if (!info) {
-        if (tooltip) setTooltip(null);
+        if (tooltipRef.current) setTooltip(null);
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
@@ -122,7 +128,7 @@ export function OreTooltip() {
 
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [tooltip]);
+  }, []);
 
   if (!tooltip) return null;
 
