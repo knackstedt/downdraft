@@ -4,10 +4,13 @@ import { AchievementsPanel } from "./components/achievements-panel";
 import { BombOverlay } from "./components/bomb-overlay";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
 import { DeathMenu } from "./components/death-menu";
+import { DepthNotification } from "./components/depth-notification";
 import { EscapeMenu } from "./components/escape-menu";
 import { HUD } from "./components/hud";
 import { InventoryPanel } from "./components/inventory-panel";
+import { KeyBindingsOverlay } from "./components/key-bindings-overlay";
 import { Minimap } from "./components/minimap";
+import { OreTooltip } from "./components/ore-tooltip";
 import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
@@ -115,6 +118,7 @@ export default function App() {
       <AchievementNotification />
       <KeyBindingsOverlay />
       <OreTooltip />
+      <DepthNotification />
       <div style={helpStyle}>
         WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | H: help | E: sell | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
