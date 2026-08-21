@@ -6,8 +6,21 @@
 // terrain, etc.). The simulation is paused while this menu is visible.
 // ============================================================================
 
+import { Material } from "@downdraft/library-sand";
 import { useState } from "react";
 import { useGameStore } from "../stores/game-store";
+
+// Material ID → display name
+const MATERIAL_INFO: Record<number, { name: string }> = {
+  [Material.TinOre]: { name: "Tin Ore" },
+  [Material.CopperOre]: { name: "Copper Ore" },
+  [Material.IronOre]: { name: "Iron Ore" },
+  [Material.BauxiteOre]: { name: "Bauxite Ore" },
+  [Material.SilverOre]: { name: "Silver Ore" },
+  [Material.GoldOre]: { name: "Gold Ore" },
+  [Material.CobaltOre]: { name: "Cobalt Ore" },
+  [Material.Coal]: { name: "Coal" },
+};
 
 const overlayStyle: React.CSSProperties = {
   position: "absolute",
@@ -239,6 +252,19 @@ export function EscapeMenu() {
                     else label = `Cause #${cause}`;
                     return <div key={cause}>{label}: {count}</div>;
                   })}
+                </>
+              )}
+              {Object.keys(stats.collectedByMaterial).length > 0 && (
+                <>
+                  <div style={summaryTitleStyle}>Materials Collected</div>
+                  {Object.entries(stats.collectedByMaterial)
+                    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+                    .slice(0, 8)
+                    .map(([mat, count]) => {
+                      const matNum = Number(mat);
+                      const info = (MATERIAL_INFO as Record<number, { name: string }>)[matNum];
+                      return <div key={mat}>{info?.name ?? `Material #${mat}`}: {count}</div>;
+                    })}
                 </>
               )}
             </div>
