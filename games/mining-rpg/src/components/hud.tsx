@@ -155,7 +155,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, glowstickCount, bombCount, zoom, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, glowstickCount, bombCount, zoom, onGround, getMaxInventory, getInventoryCount } = useGameStore();
 
   if (!showHUD) return null;
 
@@ -249,7 +249,7 @@ export function HUD() {
       </div>
       {playerSpeed > 1 && (
         <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
-          Speed: {playerSpeed.toFixed(1)} c/s
+          Speed: {playerSpeed.toFixed(1)} c/s {onGround ? "" : "(airborne)"}
         </div>
       )}
       {(() => {

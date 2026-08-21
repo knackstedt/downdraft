@@ -289,6 +289,8 @@ export interface GameState {
   setBombCount: (n: number) => void;
   zoom: number; // camera zoom level
   setZoom: (z: number) => void;
+  onGround: boolean; // true if player is standing on ground
+  setOnGround: (v: boolean) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -332,6 +334,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   glowstickCount: 0,
   bombCount: 0,
   zoom: 1,
+  onGround: true,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -549,4 +552,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setGlowstickCount: (glowstickCount) => set({ glowstickCount }),
   setBombCount: (bombCount) => set({ bombCount }),
   setZoom: (zoom) => set({ zoom }),
+  setOnGround: (onGround) => set({ onGround }),
 }));

@@ -809,6 +809,8 @@ export class MiningRenderer {
     if (s.bombCount !== this.bombs.length) s.setBombCount(this.bombs.length);
     // Sync zoom level
     if (s.zoom !== this.camera.zoom) s.setZoom(this.camera.zoom);
+    // Sync on-ground state
+    if (s.onGround !== onGround) s.setOnGround(onGround);
     if (s.health !== health) {
       // Detect damage (health decreased) and spawn floating damage number
       if (health < s.health && !this.respawning) {
