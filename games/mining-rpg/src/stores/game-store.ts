@@ -287,6 +287,8 @@ export interface GameState {
   setGlowstickCount: (n: number) => void;
   bombCount: number; // active bombs in the world
   setBombCount: (n: number) => void;
+  zoom: number; // camera zoom level
+  setZoom: (z: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -329,6 +331,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   playerSpeed: 0,
   glowstickCount: 0,
   bombCount: 0,
+  zoom: 1,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -545,4 +548,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPlayerSpeed: (playerSpeed) => set({ playerSpeed }),
   setGlowstickCount: (glowstickCount) => set({ glowstickCount }),
   setBombCount: (bombCount) => set({ bombCount }),
+  setZoom: (zoom) => set({ zoom }),
 }));
