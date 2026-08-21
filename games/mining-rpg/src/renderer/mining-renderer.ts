@@ -775,7 +775,21 @@ export class MiningRenderer {
     }
     // Sync player health + oxygen + depth to store (needed for depth uniform)
     const s = useGameStore.getState();
-    if (s.health !== health) s.setHealth(health);
+    if (s.health !== health) {
+      // Detect damage (health decreased) and spawn floating damage number
+      if (health < s.health && !this.respawning) {
+        const damage = Math.ceil(s.health - health);
+        const screen = worldToScreen(this.camera, px, py);
+        const dpr = window.devicePixelRatio || 1;
+        s.spawnFloatingText(
+          screen.x / dpr + (Math.random() - 0.5) * 30,
+          screen.y / dpr - 20,
+          `-${damage}`,
+          "#f44336",
+        );
+      }
+      s.setHealth(health);
+    }
     if (s.oxygen !== oxygen) s.setOxygen(oxygen);
     const depth = Math.floor(py / 128);
     if (s.depth !== depth) s.setDepth(depth);
