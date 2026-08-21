@@ -451,16 +451,24 @@ export const useGameStore = create<GameState>((set, get) => ({
       return { stats: { ...s.stats, totalItemsCollected: totalItems, collectedByMaterial } };
     }),
   recordDeath: (cause) =>
-    set((s) => ({
-      stats: {
-        ...s.stats,
-        totalDeaths: s.stats.totalDeaths + 1,
-        deathsByCause: {
-          ...s.stats.deathsByCause,
-          [cause]: (s.stats.deathsByCause[cause] ?? 0) + 1,
+    set((s) => {
+      // Calculate survival time since last death
+      const lastDeathTick = (s as any)._lastDeathTick ?? 0;
+      const survivalTicks = s.stats.totalTicks - lastDeathTick;
+      const longestSurvival = Math.max(s.stats.longestSurvivalTicks, survivalTicks);
+      return {
+        stats: {
+          ...s.stats,
+          totalDeaths: s.stats.totalDeaths + 1,
+          deathsByCause: {
+            ...s.stats.deathsByCause,
+            [cause]: (s.stats.deathsByCause[cause] ?? 0) + 1,
+          },
+          longestSurvivalTicks: longestSurvival,
         },
-      },
-    })),
+        _lastDeathTick: s.stats.totalTicks,
+      } as any;
+    }),
   recordGoldEarned: (amount) =>
     set((s) => ({ stats: { ...s.stats, totalGoldEarned: s.stats.totalGoldEarned + amount } })),
   recordGoldSpent: (amount) =>

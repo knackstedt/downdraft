@@ -156,6 +156,8 @@ export interface PlayerStats {
   collectedByMaterial: Record<number, number>;
   /** Death count by cause (Material ID or DeathCause ID → count). */
   deathsByCause: Record<number, number>;
+  /** Longest survival time between deaths (in ticks). */
+  longestSurvivalTicks: number;
 }
 
 /** Create a fresh stats object with all counters at zero. */
@@ -175,6 +177,7 @@ export function createPlayerStats(): PlayerStats {
     totalTeleports: 0,
     collectedByMaterial: {},
     deathsByCause: {},
+    longestSurvivalTicks: 0,
   };
 }
 
