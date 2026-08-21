@@ -273,6 +273,9 @@ export class MiningRenderer {
     s.addCurrency(-cost);
     s.recordGoldSpent(cost);
     s.recordTeleport();
+    // Spawn teleport floating text
+    const pos = this.getPlayerScreenPos();
+    s.spawnFloatingText(pos.x, pos.y - 30, `Teleport -${cost}g`, "#42a5f5");
     this.resetInterpolation();
     this.workerHost?.respawn();
     return true;
