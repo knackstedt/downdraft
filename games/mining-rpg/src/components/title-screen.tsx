@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { useState } from "react";
+import { useGameStore } from "../stores/game-store";
 
 const overlayStyle: React.CSSProperties = {
   position: "absolute",
@@ -77,6 +78,8 @@ const featureItemStyle: React.CSSProperties = {
 
 export function TitleScreen({ onStart }: { onStart: () => void }) {
   const [hovering, setHovering] = useState(false);
+  const { stats, currency, welcomeBack } = useGameStore();
+  const hasSave = welcomeBack !== null;
 
   return (
     <div style={overlayStyle}>
@@ -96,6 +99,29 @@ export function TitleScreen({ onStart }: { onStart: () => void }) {
       >
         ⛏️ Start Mining
       </button>
+      {hasSave && (
+        <div style={{
+          marginTop: 16,
+          padding: "12px 24px",
+          background: "rgba(255,215,0,0.05)",
+          border: "1px solid rgba(255,215,0,0.2)",
+          borderRadius: 6,
+          fontSize: 11,
+          color: "rgba(255,215,0,0.6)",
+          textAlign: "center",
+        }}>
+          <div style={{ fontWeight: "bold", marginBottom: 4 }}>Save Found</div>
+          <div>Depth: {stats.maxDepthCells}m | Gold: {currency}g | Deaths: {stats.totalDeaths}</div>
+          <div style={{ marginTop: 2, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+            Play time: {(() => {
+              const secs = Math.floor(stats.totalTicks / 60);
+              const h = Math.floor(secs / 3600);
+              const m = Math.floor((secs % 3600) / 60);
+              return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${secs}s`;
+            })()}
+          </div>
+        </div>
+      )}
       <div style={featuresStyle}>
         <div style={featureItemStyle}>⛏️ Mine 8 ore types across 8 depth biomes</div>
         <div style={featureItemStyle}>🔥 Smelt ore into bars at the surface furnace</div>
