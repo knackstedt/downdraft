@@ -352,6 +352,17 @@ export function HUD() {
         </div>
       )}
       {(() => {
+        let totalCollected = 0;
+        for (const mat in stats.collectedByMaterial) {
+          totalCollected += stats.collectedByMaterial[mat] ?? 0;
+        }
+        return totalCollected > 0 ? (
+          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>
+            Collected: {totalCollected} items
+          </div>
+        ) : null;
+      })()}
+      {(() => {
         const totalUpgrades = upgrades.damage + upgrades.radius + upgrades.rate + upgrades.inventorySize;
         return totalUpgrades > 0 ? (
           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
