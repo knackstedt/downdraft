@@ -142,7 +142,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, getMaxInventory, getInventoryCount } = useGameStore();
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
@@ -241,7 +241,14 @@ export function HUD() {
           Build: {BUILD_MATERIAL_INFO[selectedBuild].name} ({buildMaterials[selectedBuild] ?? 0})
         </div>
       )}
-      <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
+      <div style={{
+        color: "#e6c833",
+        ...(Date.now() - goldFlashTime < 500 ? {
+          textShadow: "0 0 8px rgba(255,215,0,0.8)",
+          transform: "scale(1.1)",
+          transition: "transform 0.1s",
+        } : {}),
+      }}>Gold: {currency}</div>
       {sellValue > 0 && (
         <div style={{ color: "rgba(255,215,0,0.5)", fontSize: 11 }}>
           Net worth: {currency + sellValue}g (bag: {sellValue}g)
