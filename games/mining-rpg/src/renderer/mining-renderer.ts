@@ -22,7 +22,7 @@ import { pickDeathQuip, useGameStore } from "../stores/game-store";
 import { AutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
 import { BackgroundGridPass } from "./background-grid-pass";
-import { makeCamera2D, screenToWorld, updateCamera, type Camera2D } from "./camera";
+import { makeCamera2D, screenToWorld, updateCamera, worldToScreen, type Camera2D } from "./camera";
 import { FogOfWarPass } from "./fog-pass";
 import { createMiningInputHandler, type MiningInputState } from "./input-handler";
 import { createExplosionLight, LightAccumPass, type RendererLight } from "./light-accum-pass";
@@ -46,6 +46,18 @@ const MAX_GLOWSTICKS = 32;
 const GLOWSTICK_LIFETIME_MS = 60 * 60 * 1000; // 1 hour real time
 const GLOWSTICK_RADIUS = 25;   // light radius in cells
 const GLOWSTICK_INTENSITY = 1.5;
+
+// --- Particle colors for ore collection bursts ---
+const MAT_PARTICLE_COLORS: Record<number, string> = {
+  10: "#b3b4b8", // TinOre
+  11: "#b87333", // CopperOre
+  12: "#8c7365", // IronOre
+  13: "#bf8066", // BauxiteOre
+  14: "#d9d9e0", // SilverOre
+  15: "#e6c833", // GoldOre
+  16: "#4059cc", // CobaltOre
+  17: "#1a1a1a", // Coal
+};
 
 // --- Zoom constants ---
 // Per keypress step factor; drained from input.zoomDelta each frame.
@@ -437,6 +449,18 @@ export class MiningRenderer {
       }
       if (items.length > 0) {
         store.recordCollected(items);
+        // Spawn particle burst at player's screen position
+        const px = this.workerHost!.getPlayerF32(PLAYER.PX);
+        const py = this.workerHost!.getPlayerF32(PLAYER.PY);
+        const screen = worldToScreen(this.camera, px, py);
+        const dpr = window.devicePixelRatio || 1;
+        const sx = screen.x / dpr;
+        const sy = screen.y / dpr;
+        for (const item of items) {
+          const color = MAT_PARTICLE_COLORS[item.mat] ?? "#ffffff";
+          const count = Math.min(8, item.count);
+          store.spawnParticles(sx, sy, color, count);
+        }
       }
     });
 
@@ -607,6 +631,17 @@ export class MiningRenderer {
       }
       if (items.length > 0) {
         store.recordCollected(items);
+        const px = this.workerHost!.getPlayerF32(PLAYER.PX);
+        const py = this.workerHost!.getPlayerF32(PLAYER.PY);
+        const screen = worldToScreen(this.camera, px, py);
+        const dpr = window.devicePixelRatio || 1;
+        const sx = screen.x / dpr;
+        const sy = screen.y / dpr;
+        for (const item of items) {
+          const color = MAT_PARTICLE_COLORS[item.mat] ?? "#ffffff";
+          const count = Math.min(8, item.count);
+          store.spawnParticles(sx, sy, color, count);
+        }
       }
     });
 
