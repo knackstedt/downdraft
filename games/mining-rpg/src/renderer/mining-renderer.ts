@@ -1186,6 +1186,13 @@ export class MiningRenderer {
         this.workerHost?.explode(bomb.x, bomb.y, BOMB_RADIUS);
         // Add a visual explosion flash
         this.explosions.push({ x: bomb.x, y: bomb.y, age: 0, maxAge: 0.5 });
+        // Screen shake from explosion (stronger if close to player)
+        const px = this.workerHost!.getPlayerF32(PLAYER.PX);
+        const py = this.workerHost!.getPlayerF32(PLAYER.PY);
+        const dist = Math.sqrt((bomb.x - px) ** 2 + (bomb.y - py) ** 2);
+        if (dist < 100) {
+          useGameStore.getState().triggerScreenShake(40 * (1 - dist / 100));
+        }
       } else {
         surviving.push(bomb);
       }
