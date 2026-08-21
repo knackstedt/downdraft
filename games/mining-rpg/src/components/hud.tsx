@@ -12,7 +12,7 @@ import { useGameStore } from "../stores/game-store";
 const containerStyle: React.CSSProperties = {
   position: "absolute",
   top: 8,
-  left: 8,
+  right: 8,
   color: "rgba(255,255,255,0.85)",
   fontFamily: "monospace",
   fontSize: 13,
@@ -24,6 +24,8 @@ const containerStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 4,
+  alignItems: "flex-end",
+  textAlign: "right",
 };
 
 const healthBarStyle: React.CSSProperties = {
@@ -114,6 +116,29 @@ const buildItemStyle = (selected: boolean): React.CSSProperties => ({
   background: selected ? "rgba(255,215,0,0.12)" : "transparent",
 });
 
+/** Depth biome/layer name based on depth in meters. */
+function depthBiomeName(depthMeters: number): string {
+  if (depthMeters < 50) return "Surface";
+  if (depthMeters < 200) return "Topsoil Layer";
+  if (depthMeters < 500) return "Shallow Caves";
+  if (depthMeters < 1000) return "Deep Caves";
+  if (depthMeters < 1500) return "Iron Belt";
+  if (depthMeters < 2000) return "Silver Depths";
+  if (depthMeters < 3000) return "Gold Zone";
+  if (depthMeters < 4000) return "Cobalt Abyss";
+  return "Mantle";
+}
+
+/** Color for the biome label based on depth. */
+function depthBiomeColor(depthMeters: number): string {
+  if (depthMeters < 200) return "#8bc34a";
+  if (depthMeters < 500) return "#ffb74d";
+  if (depthMeters < 1000) return "#ff9800";
+  if (depthMeters < 2000) return "#e57373";
+  if (depthMeters < 3000) return "#ba68c8";
+  return "#7986cb";
+}
+
 export function HUD() {
   const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, getMaxInventory, getInventoryCount } = useGameStore();
 
@@ -158,7 +183,10 @@ export function HUD() {
         </div>
         <span>{invUsed}/{invMax}</span>
       </div>
-      <div>Depth: {depth} chunks ({depthMeters}m)</div>
+      <div>Depth: {depthMeters}m</div>
+      <div style={{ color: depthBiomeColor(depthMeters), fontSize: 11, fontWeight: "bold" }}>
+        {depthBiomeName(depthMeters)}
+      </div>
       <div>Brush: {digRadius} cells</div>
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
