@@ -272,6 +272,7 @@ export interface GameState {
   // Particle effects
   spawnParticles: (x: number, y: number, color: string, count: number) => void;
   spawnFloatingText: (x: number, y: number, text: string, color: string) => void;
+  triggerScreenShake: (intensity: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -514,4 +515,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   toggleMinimap: () => set((s) => ({ showMinimap: !s.showMinimap })),
   spawnParticles: () => {}, // overridden by ParticleEffects component
   spawnFloatingText: () => {}, // overridden by ParticleEffects component
+  triggerScreenShake: () => {}, // overridden by ScreenShake component
 }));
