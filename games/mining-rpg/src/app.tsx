@@ -112,6 +112,11 @@ export default function App() {
       if (e.key === "m" || e.key === "M") {
         useGameStore.getState().toggleMinimap();
       }
+      // F11 toggles HUD visibility (for screenshots)
+      if (e.key === "F11") {
+        e.preventDefault();
+        useGameStore.getState().toggleHUD();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

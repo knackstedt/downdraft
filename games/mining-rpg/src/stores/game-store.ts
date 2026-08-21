@@ -277,6 +277,8 @@ export interface GameState {
   setTeleportCooldown: (v: number) => void;
   goldFlashTime: number; // timestamp of last gold gain (for flash effect)
   triggerGoldFlash: () => void;
+  showHUD: boolean; // HUD visibility (toggle with F11)
+  toggleHUD: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -314,6 +316,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   showMinimap: true,
   teleportCooldown: 1, // 1 = ready, 0 = on cooldown
   goldFlashTime: 0,
+  showHUD: true,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -525,4 +528,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   triggerScreenShake: () => {}, // overridden by ScreenShake component
   setTeleportCooldown: (teleportCooldown) => set({ teleportCooldown }),
   triggerGoldFlash: () => set({ goldFlashTime: Date.now() }),
+  toggleHUD: () => set((s) => ({ showHUD: !s.showHUD })),
 }));

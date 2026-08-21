@@ -155,7 +155,9 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, getMaxInventory, getInventoryCount } = useGameStore();
+
+  if (!showHUD) return null;
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
   const invUsed = getInventoryCount();
