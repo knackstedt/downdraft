@@ -148,6 +148,7 @@ const CATEGORIES: { title: string; bindings: Binding[] }[] = [
     title: "Camera & Lighting",
     bindings: [
       { key: "Mouse wheel", desc: "Zoom in/out" },
+      { key: "R", desc: "Reset zoom to 1x" },
       { key: "L", desc: "Toggle headlamp" },
     ],
   },
