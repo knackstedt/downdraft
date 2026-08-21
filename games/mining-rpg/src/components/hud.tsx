@@ -9,7 +9,7 @@
 // Cumulative statistics are in the StatsPanel (toggle with Tab).
 // ============================================================================
 
-import { OXYGEN_MAX_TICKS } from "../shared/constants";
+import { getBiomeEffect, OXYGEN_MAX_TICKS } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
 const containerStyle: React.CSSProperties = {
@@ -111,6 +111,8 @@ export function HUD() {
   const showOxygen = oxygen < OXYGEN_MAX_TICKS;
   const biomeColor = depthBiomeColor(depthMeters);
   const biomeProg = depthBiomeProgress(depthMeters);
+  const biomeEffect = getBiomeEffect(depthMeters);
+  const hasBiomeEffect = biomeEffect.gravityMul > 1.0 || biomeEffect.heatDmgPerTick > 0 || biomeEffect.oxygenDrainMul > 1.0;
 
   return (
     <div style={containerStyle}>
@@ -186,6 +188,14 @@ export function HUD() {
         </div>
         <span>→ {biomeProg.next}</span>
       </div>
+      {/* Biome effects indicator */}
+      {hasBiomeEffect && (
+        <div style={{ fontSize: 10, color: "rgba(255,152,0,0.6)", display: "flex", flexDirection: "column", gap: 1, marginTop: 2 }}>
+          {biomeEffect.gravityMul > 1.0 && <span>Gravity: {biomeEffect.gravityMul.toFixed(2)}x</span>}
+          {biomeEffect.heatDmgPerTick > 0 && <span style={{ color: "rgba(255,87,34,0.7)" }}>Heat: {biomeEffect.heatDmgPerTick}/tick</span>}
+          {biomeEffect.oxygenDrainMul > 1.0 && <span style={{ color: "rgba(41,182,246,0.6)" }}>Pressure: {biomeEffect.oxygenDrainMul.toFixed(1)}x O2</span>}
+        </div>
+      )}
       {stats.maxDepthCells > depthMeters && (
         <div style={{ fontSize: 10, color: "rgba(255,215,0,0.5)" }}>
           Deepest: {stats.maxDepthCells}m

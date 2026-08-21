@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { MAT_GRAVITY_DIR, Material, MATERIALS } from "@downdraft/library-sand";
-import { CLIMB_SPEED, DeathCause, FALL_DAMAGE_SCALE, FALL_DAMAGE_THRESHOLD, isCollectible, OXYGEN_DROWN_DAMAGE_PER_TICK, OXYGEN_MAX_TICKS, OXYGEN_REGEN_PER_TICK, PLAYER_H, PLAYER_W } from "../shared/constants";
+import { CLIMB_SPEED, DeathCause, FALL_DAMAGE_SCALE, FALL_DAMAGE_THRESHOLD, getBiomeEffect, isCollectible, OXYGEN_DROWN_DAMAGE_PER_TICK, OXYGEN_MAX_TICKS, OXYGEN_REGEN_PER_TICK, PLAYER_H, PLAYER_W } from "../shared/constants";
 import type { MiningPlayerState } from "../shared/types";
 
 export interface MiningPlayerInput {
@@ -289,10 +289,15 @@ export function updateMiningPlayer(
   H: number,
   localX: number,
   localY: number,
+  depthCells: number,
 ): void {
   // Work in local coords
   let px = localX;
   let py = localY;
+
+  // Biome effects based on depth (meters below surface)
+  const depthMeters = depthCells; // 1 cell ≈ 1m
+  const biome = getBiomeEffect(depthMeters);
 
   // --- Noclip (development cheat) ---
   // When active: free flight through terrain. No gravity, no collision, no
@@ -402,7 +407,7 @@ export function updateMiningPlayer(
     // Resting on ground — don't apply gravity
     p.vy = 0;
   } else {
-    p.vy += GRAVITY - buoyancy;
+    p.vy += (GRAVITY - buoyancy) * biome.gravityMul;
   }
   if (inLiquid) p.vy *= 0.92;
   p.vy = Math.min(MAX_FALL, p.vy);
@@ -574,12 +579,27 @@ export function updateMiningPlayer(
     }
   }
 
+  // Biome heat damage — passive damage in the deepest biomes (Silver Depths
+  // and below). Simulates ambient geothermal heat. Only applies when not in
+  // noclip (already returned above) and not already taking contact damage
+  // from lava/fire (which would override this).
+  if (biome.heatDmgPerTick > 0 && p.health > 0) {
+    p.health = Math.max(0, p.health - biome.heatDmgPerTick);
+    // Only set lastDamageMaterial if no contact hazard already set it this
+    // tick (lava/fire take priority). We use Lava as the heat damage cause
+    // since there's no dedicated "heat" death cause.
+    if (p.lastDamageMaterial === 0 || p.lastDamageMaterial === DeathCause.Suffocation) {
+      p.lastDamageMaterial = Material.Lava;
+    }
+  }
+
   // Drowning — oxygen bar ticks down while the player's head is submerged in
   // liquid. Once depleted, the player takes damage per tick until they surface
   // or die. Oxygen regenerates quickly when the head is above liquid.
+  // Biome oxygenDrainMul increases drain rate at depth (water pressure).
   const headSubmerged = isHeadInLiquid(grid, W, H, px, py);
   if (headSubmerged) {
-    p.oxygen = Math.max(0, (p.oxygen ?? OXYGEN_MAX_TICKS) - 1);
+    p.oxygen = Math.max(0, (p.oxygen ?? OXYGEN_MAX_TICKS) - biome.oxygenDrainMul);
     if (p.oxygen === 0) {
       // Out of breath — take drowning damage
       p.health = Math.max(0, p.health - OXYGEN_DROWN_DAMAGE_PER_TICK);

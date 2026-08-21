@@ -1929,7 +1929,10 @@ export class ChunkWorld {
 
     // 8. Update player (in active grid local coords)
     const { x: pax, y: pay } = this.worldToActive(this.player.x, this.player.y);
-    updateMiningPlayer(this.player, input, this.activeGrid.grid, this.backgroundGrid, ACTIVE_GRID_W, ACTIVE_GRID_H, pax, pay);
+    // Depth below surface in cells (for biome effects: gravity, heat, pressure)
+    const surfaceY = surfaceHeightAt(this.player.x, WORLD_SEED);
+    const playerDepthCells = Math.max(0, Math.floor(this.player.y - surfaceY));
+    updateMiningPlayer(this.player, input, this.activeGrid.grid, this.backgroundGrid, ACTIVE_GRID_W, ACTIVE_GRID_H, pax, pay, playerDepthCells);
     this.player.x = this.player.x + this.activeOriginCx * CHUNK_W;
     this.player.y = this.player.y + this.activeOriginCy * CHUNK_H;
 
