@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
+import { useState } from "react";
 import { DeathCause } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
@@ -136,6 +137,7 @@ function formatPlayTime(ticks: number): string {
 
 export function StatsPanel() {
   const { showStats, stats } = useGameStore();
+  const [copied, setCopied] = useState(false);
 
   if (!showStats) return null;
 
@@ -322,6 +324,44 @@ export function StatsPanel() {
           </span>
         </div>
       )}
+
+      <button
+        style={{
+          marginTop: 8,
+          padding: "6px 12px",
+          fontSize: 11,
+          fontFamily: "monospace",
+          color: "rgba(255,255,255,0.6)",
+          background: "rgba(255,255,255,0.05)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 4,
+          cursor: "pointer",
+        }}
+        onClick={() => {
+          const lines = [
+            `=== Mining RPG Stats ===`,
+            `Play Time: ${formatPlayTime(stats.totalTicks)}`,
+            `Max Depth: ${stats.maxDepthCells}m`,
+            `Blocks Mined: ${stats.totalCellsMined}`,
+            `Items Collected: ${stats.totalItemsCollected}`,
+            `Bars Crafted: ${stats.totalBarsCrafted}`,
+            `Gold Earned: ${stats.totalGoldEarned}`,
+            `Gold Spent: ${stats.totalGoldSpent}`,
+            `Deaths: ${stats.totalDeaths}`,
+            `Bombs: ${stats.totalBombsThrown}`,
+            `Glowsticks: ${stats.totalGlowsticksThrown}`,
+            `Blocks Built: ${stats.totalBlocksPlaced}`,
+            `Teleports: ${stats.totalTeleports}`,
+            `Longest Survival: ${formatPlayTime(stats.longestSurvivalTicks)}`,
+          ];
+          navigator.clipboard?.writeText(lines.join("\n")).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          });
+        }}
+      >
+        {copied ? "Copied!" : "Copy Stats to Clipboard"}
+      </button>
 
       <div style={closeHintStyle}>Press Tab to close</div>
     </div>
