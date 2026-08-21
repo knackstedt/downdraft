@@ -118,7 +118,12 @@ export function CraftingPanel() {
       <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>
         Coal: {inventory.find((e) => e.mat === Material.Coal)?.count ?? 0} | Each smelt needs 1 coal
       </div>
-      {CRAFTING_RECIPES.map((recipe, i) => {
+      {/* Smelting recipes */}
+      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 4, textTransform: "uppercase", letterSpacing: 1 }}>
+        Smelting (Ore → Bar)
+      </div>
+      {CRAFTING_RECIPES.filter((r) => r.category === "smelting").map((recipe) => {
+        const i = CRAFTING_RECIPES.indexOf(recipe);
         const hasMaterials = canCraft(recipe, inventory);
         const ownedCount = craftedItems[recipe.output] ?? 0;
         const inputSummary = recipe.inputs
@@ -131,6 +136,49 @@ export function CraftingPanel() {
         }
         const profit = recipe.sellPrice - inputSellValue;
 
+        return (
+          <div key={recipe.output} style={rowStyle}>
+            <span style={swatchStyle(recipe.color)} />
+            <span style={recipeNameStyle}>{recipe.outputName}</span>
+            <span style={inputStyle}>{inputSummary}</span>
+            <span style={priceStyle}>{recipe.sellPrice}g</span>
+            <span style={{ ...countStyle, color: profit > 0 ? "#4caf50" : "#f44336", fontSize: 9 }}>
+              {profit > 0 ? `+${profit}` : profit}g
+            </span>
+            <span style={countStyle}>({ownedCount})</span>
+            <button
+              style={hasMaterials ? craftBtnStyle : craftBtnDisabledStyle}
+              onClick={() => hasMaterials && handleCraft(i, 1)}
+              disabled={!hasMaterials}
+            >
+              Smelt
+            </button>
+            <button
+              style={hasMaterials ? craft10BtnStyle : craftBtnDisabledStyle}
+              onClick={() => hasMaterials && handleCraft(i, 10)}
+              disabled={!hasMaterials}
+            >
+              ×10
+            </button>
+          </div>
+        );
+      })}
+      {/* Alloy recipes */}
+      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 6, textTransform: "uppercase", letterSpacing: 1 }}>
+        Alloys (Bar + Bar → Alloy)
+      </div>
+      {CRAFTING_RECIPES.filter((r) => r.category === "alloy").map((recipe) => {
+        const i = CRAFTING_RECIPES.indexOf(recipe);
+        const hasMaterials = canCraft(recipe, inventory);
+        const ownedCount = craftedItems[recipe.output] ?? 0;
+        const inputSummary = recipe.inputs
+          .map((inp) => `${inp.count} ${inp.name}`)
+          .join(" + ");
+        let inputSellValue = 0;
+        for (let j = 0; j < recipe.inputs.length; j++) {
+          inputSellValue += (SELL_PRICES[recipe.inputs[j].mat] ?? 0) * recipe.inputs[j].count;
+        }
+        const profit = recipe.sellPrice - inputSellValue;
         return (
           <div key={recipe.output} style={rowStyle}>
             <span style={swatchStyle(recipe.color)} />
