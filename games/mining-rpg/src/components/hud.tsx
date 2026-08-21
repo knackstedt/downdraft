@@ -268,6 +268,11 @@ export function HUD() {
           ⚠ Inventory {invPct >= 100 ? "FULL" : "ALMOST FULL"} — sell at signpost (E) or teleport (T)
         </div>
       )}
+      {depthMeters < 50 && invPct > 50 && (
+        <div style={{ color: "rgba(76,175,80,0.6)", fontSize: 10 }}>
+          Near surface — visit signpost to sell (E)
+        </div>
+      )}
       <div>Depth: {depthMeters}m</div>
       <div style={{ color: depthBiomeColor(depthMeters), fontSize: 11, fontWeight: "bold" }}>
         {depthBiomeName(depthMeters)}
