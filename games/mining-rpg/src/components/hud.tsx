@@ -193,6 +193,17 @@ export function HUD() {
           50% { opacity: 0.4; }
         }
       `}</style>
+      {/* Biome-colored top border accent */}
+      <div style={{
+        position: "absolute",
+        top: -2,
+        left: 0,
+        right: 0,
+        height: 2,
+        background: depthBiomeColor(depthMeters),
+        opacity: 0.5,
+        borderRadius: 2,
+      }} />
       <div style={{ color: fps == null ? "rgba(255,255,255,0.5)" : fps >= 50 ? "#4caf50" : fps >= 30 ? "#ff9800" : "#f44336" }}>
         FPS: {fps ?? "—"}
       </div>
