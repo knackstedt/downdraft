@@ -203,6 +203,10 @@ export class MiningRenderer {
   pause(): void {
     this.workerHost?.pause();
   }
+  /** Save the world immediately (called from the escape menu "Save Now" button). */
+  async saveNow(): Promise<void> {
+    await this.autosave?.saveNow();
+  }
 
   /** Resume the simulation (called from UI menus). */
   resume(): void {
