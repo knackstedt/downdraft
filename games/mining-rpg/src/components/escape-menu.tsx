@@ -123,8 +123,32 @@ const summaryTitleStyle: React.CSSProperties = {
   marginBottom: 4,
 };
 
+const settingsStyle: React.CSSProperties = {
+  marginTop: 4,
+  paddingTop: 12,
+  borderTop: "1px solid rgba(255,255,255,0.1)",
+  fontSize: 12,
+  color: "rgba(255,255,255,0.6)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+};
+
+const toggleRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  cursor: "pointer",
+};
+
+const checkboxStyle: React.CSSProperties = {
+  cursor: "pointer",
+  width: 16,
+  height: 16,
+};
+
 export function EscapeMenu() {
-  const { showEscapeMenu, renderer, stats, currency, unlockedAchievements } = useGameStore();
+  const { showEscapeMenu, renderer, stats, currency, unlockedAchievements, headlampOn, noclip, toggleHeadlamp, toggleNoclip } = useGameStore();
   const [confirming, setConfirming] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -194,6 +218,27 @@ export function EscapeMenu() {
               <div>Gold: {currency}</div>
               <div>Deaths: {stats.totalDeaths}</div>
               <div>Achievements: {unlockedAchievements.size}</div>
+            </div>
+            <div style={settingsStyle}>
+              <div style={summaryTitleStyle}>Settings</div>
+              <label style={toggleRowStyle}>
+                <span>Headlamp (L)</span>
+                <input
+                  type="checkbox"
+                  checked={headlampOn}
+                  onChange={() => toggleHeadlamp()}
+                  style={checkboxStyle}
+                />
+              </label>
+              <label style={toggleRowStyle}>
+                <span>Noclip / Fly (F3)</span>
+                <input
+                  type="checkbox"
+                  checked={noclip}
+                  onChange={() => toggleNoclip()}
+                  style={checkboxStyle}
+                />
+              </label>
             </div>
           </>
         ) : (
