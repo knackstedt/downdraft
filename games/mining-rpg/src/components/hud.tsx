@@ -343,6 +343,11 @@ export function HUD() {
           Built: {stats.totalBlocksPlaced} blocks
         </div>
       )}
+      {stats.totalTeleports > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(66,165,245,0.3)" }}>
+          Teleports: {stats.totalTeleports}
+        </div>
+      )}
       {(() => {
         const totalUpgrades = upgrades.damage + upgrades.radius + upgrades.rate + upgrades.inventorySize;
         return totalUpgrades > 0 ? (
