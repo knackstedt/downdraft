@@ -224,6 +224,23 @@ export function EscapeMenu() {
               <div>Blocks Built: {stats.totalBlocksPlaced}</div>
               <div>Teleports: {stats.totalTeleports}</div>
               <div>Achievements: {unlockedAchievements.size}/35</div>
+              {Object.keys(stats.deathsByCause).length > 0 && (
+                <>
+                  <div style={summaryTitleStyle}>Death Causes</div>
+                  {Object.entries(stats.deathsByCause).map(([cause, count]) => {
+                    const causeNum = Number(cause);
+                    let label: string;
+                    if (causeNum === 1000) label = "Suffocation";
+                    else if (causeNum === 1001) label = "Falling";
+                    else if (causeNum === 1002) label = "Drowning";
+                    else if (causeNum === 255) label = "Lava";
+                    else if (causeNum === 254) label = "Fire";
+                    else if (causeNum === 253) label = "Gas";
+                    else label = `Cause #${cause}`;
+                    return <div key={cause}>{label}: {count}</div>;
+                  })}
+                </>
+              )}
             </div>
             <div style={settingsStyle}>
               <div style={summaryTitleStyle}>Settings</div>
