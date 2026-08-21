@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
+import { useEffect, useRef, useState } from "react";
 import { BUILD_MATERIAL_INFO, OXYGEN_MAX_TICKS, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
 import { CRAFTED_SELL_PRICES } from "../shared/crafting-recipes";
 import type { CraftedItemId } from "../shared/types";
@@ -156,6 +157,17 @@ function depthBiomeColor(depthMeters: number): string {
 
 export function HUD() {
   const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, glowstickCount, bombCount, zoom, onGround, showFPS, getMaxInventory, getInventoryCount } = useGameStore();
+  const prevHealthRef = useRef(health);
+  const [healthRegen, setHealthRegen] = useState(false);
+  useEffect(() => {
+    if (health > prevHealthRef.current) {
+      setHealthRegen(true);
+      const t = setTimeout(() => setHealthRegen(false), 1000);
+      prevHealthRef.current = health;
+      return () => clearTimeout(t);
+    }
+    prevHealthRef.current = health;
+  }, [health]);
 
   if (!showHUD) return null;
 
@@ -207,12 +219,12 @@ export function HUD() {
       <div style={{ color: fps == null ? "rgba(255,255,255,0.5)" : fps >= 50 ? "#4caf50" : fps >= 30 ? "#ff9800" : "#f44336", visibility: showFPS ? "visible" : "hidden" }}>
         FPS: {fps ?? "—"}
       </div>
-      <div style={{ ...healthBarStyle, ...(health < 25 ? { animation: "healthPulse 0.6s ease-in-out infinite" } : {}) }}>
+      <div style={{ ...healthBarStyle, ...(health < 25 ? { animation: "healthPulse 0.6s ease-in-out infinite" } : {}), ...(healthRegen ? { boxShadow: "0 0 8px rgba(76,175,80,0.6)" } : {}) }}>
         <span>HP:</span>
         <div style={barOuterStyle}>
           <div style={barInnerStyle(health)} />
         </div>
-        <span style={{ color: health < 25 ? "#f44336" : "inherit" }}>{Math.ceil(health)}</span>
+        <span style={{ color: health < 25 ? "#f44336" : healthRegen ? "#4caf50" : "inherit" }}>{Math.ceil(health)}</span>
       </div>
       {showOxygen && (
         <div style={{ ...healthBarStyle, ...(oxygenPct < 20 ? { animation: "oxygenPulse 0.8s ease-in-out infinite" } : {}) }}>
