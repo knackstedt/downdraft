@@ -238,6 +238,15 @@ export class MiningRenderer {
     if (!this.input) return { x: 0, y: 0 };
     return { x: this.input.mouseX, y: this.input.mouseY };
   }
+  /** Get the player's screen position (CSS pixels) for floating text. */
+  getPlayerScreenPos(): { x: number; y: number } {
+    if (!this.workerHost) return { x: 0, y: 0 };
+    const px = this.workerHost.getPlayerF32(PLAYER.PX);
+    const py = this.workerHost.getPlayerF32(PLAYER.PY);
+    const screen = worldToScreen(this.camera, px, py);
+    const dpr = window.devicePixelRatio || 1;
+    return { x: screen.x / dpr, y: screen.y / dpr };
+  }
 
   /** Pause the simulation (called from UI menus). */
   pause(): void {

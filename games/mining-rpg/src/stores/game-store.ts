@@ -355,6 +355,14 @@ export const useGameStore = create<GameState>((set, get) => ({
         (newCrafted as Record<string, number>)[id] = 0;
       }
       total += craftedTotal;
+      // Spawn floating gold text at player's screen position
+      if (total > 0) {
+        const r = s.renderer as { getPlayerScreenPos?: () => { x: number; y: number } } | null;
+        const pos = r?.getPlayerScreenPos?.();
+        if (pos) {
+          s.spawnFloatingText(pos.x, pos.y - 30, `+${total}g`, "#ffd700");
+        }
+      }
       return {
         inventory: [],
         craftedItems: newCrafted as CraftedItems,
