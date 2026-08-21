@@ -144,7 +144,7 @@ export default function App() {
       <OreTooltip />
       <DepthNotification />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | H: help | E: sell | T: teleport | F3: noclip | ESC: menu | Upgrades at signpost
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
       </div>
     </>
