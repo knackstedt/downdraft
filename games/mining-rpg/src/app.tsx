@@ -14,6 +14,7 @@ import { Minimap } from "./components/minimap";
 import { OreTooltip } from "./components/ore-tooltip";
 import { ParticleEffects } from "./components/particle-effects";
 import { ScreenShake } from "./components/screen-shake";
+import { ShopPanel } from "./components/shop-panel";
 import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
@@ -133,6 +134,11 @@ export default function App() {
       if (e.key === "h" || e.key === "H") {
         useGameStore.getState().toggleHelp();
       }
+      // O toggles the shop panel (only works near the signpost)
+      if (e.key === "o" || e.key === "O") {
+        const s = useGameStore.getState();
+        if (s.nearSignpost) s.toggleShop();
+      }
       // F6 manually saves the game
       if (e.key === "F6") {
         e.preventDefault();
@@ -179,6 +185,7 @@ export default function App() {
       <InventoryPanel />
       <SignpostOverlay />
       <SignpostPrompt />
+      <ShopPanel />
       <BombOverlay />
       <ChunkDebugOverlay />
       <DeathMenu />
@@ -195,7 +202,7 @@ export default function App() {
       <WelcomeBack />
       {showHelp && (
         <div style={helpStyle}>
-          WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: hide help | E: sell | T: teleport | R: reset zoom | F3: noclip | F5: FPS | F6: save | F11: hide HUD | ESC: menu | Upgrades at signpost
+          WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: hide help | E: sell | O: shop | T: teleport | R: reset zoom | F3: noclip | F5: FPS | F6: save | F11: hide HUD | ESC: menu
           {paused && " | PAUSED"}
         </div>
       )}
