@@ -10,6 +10,7 @@
 
 import { BUILD_MATERIAL_INFO, BUILD_MATERIAL_PRICES, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
+import { UpgradeShop } from "./upgrade-shop";
 
 const promptStyle: React.CSSProperties = {
   position: "absolute",
@@ -132,6 +133,7 @@ export function SignpostPrompt() {
           </div>
         );
       })}
+      <UpgradeShop />
     </div>
   );
 }

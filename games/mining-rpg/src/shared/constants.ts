@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
+import type { PlayerUpgrades } from "./types";
 
 // ============================================================================
 // Death causes — unified enum for all death types.
@@ -222,6 +223,78 @@ export const ORE_HARDNESS = 20;
 export const GRAVEL_HARDNESS = 8;
 /** LooseStone hardness — legacy (old saves only; no new LooseStone is created). */
 export const LOOSE_STONE_HARDNESS = 15;
+
+// ============================================================================
+// Upgrade shop — purchasable upgrades at the surface signpost.
+//
+// The player earns gold by selling ore at the signpost, then spends it on
+// permanent upgrades. Each upgrade has a base price that scales linearly
+// with the current level (price = basePrice * (currentLevel + 1)), so each
+// rank costs more than the last — creating a gold sink that scales with
+// progression. Upgrades persist across deaths and saves.
+// ============================================================================
+
+
+/** Configuration for a single upgrade type. */
+export interface UpgradeConfig {
+  /** Key in PlayerUpgrades that this upgrade modifies. */
+  key: keyof PlayerUpgrades;
+  /** Display name shown in the shop UI. */
+  name: string;
+  /** Short description of what each level does. */
+  description: string;
+  /** Base price in gold for level 1. Higher levels cost more (see upgradePrice). */
+  basePrice: number;
+  /** Maximum upgrade level (cannot purchase beyond this). */
+  maxLevel: number;
+  /** Color used for the upgrade icon in the UI. */
+  color: string;
+}
+
+/** All purchasable upgrades, in display order. */
+export const UPGRADE_CONFIG: UpgradeConfig[] = [
+  {
+    key: "damage",
+    name: "Mining Damage",
+    description: "+5 damage per hit",
+    basePrice: 50,
+    maxLevel: 10,
+    color: "#f44336",
+  },
+  {
+    key: "radius",
+    name: "Mining Radius",
+    description: "+1 cell AOE radius",
+    basePrice: 100,
+    maxLevel: 10,
+    color: "#ff9800",
+  },
+  {
+    key: "rate",
+    name: "Mining Speed",
+    description: "-1 tick between hits (faster)",
+    basePrice: 75,
+    maxLevel: 2,
+    color: "#2196f3",
+  },
+  {
+    key: "inventorySize",
+    name: "Inventory Capacity",
+    description: "+125 max items carried",
+    basePrice: 80,
+    maxLevel: 20,
+    color: "#4caf50",
+  },
+];
+
+/**
+ * Calculate the gold price for the NEXT level of an upgrade.
+ * Price scales linearly: level 1 costs basePrice, level 2 costs 2×basePrice, etc.
+ * This makes early upgrades affordable and late upgrades a significant investment.
+ */
+export function upgradePrice(config: UpgradeConfig, currentLevel: number): number {
+  return config.basePrice * (currentLevel + 1);
+}
 
 /** Max raycast range from player (in cells). */
 export const MAX_MINE_RANGE = 30;
