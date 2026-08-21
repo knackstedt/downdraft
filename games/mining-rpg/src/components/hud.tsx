@@ -333,6 +333,11 @@ export function HUD() {
           Bombs: {bombCount} active
         </div>
       )}
+      {(stats.totalBombsThrown > 0 || stats.totalGlowsticksThrown > 0) && (
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>
+          Bombs: {stats.totalBombsThrown} | Sticks: {stats.totalGlowsticksThrown}
+        </div>
+      )}
       {(() => {
         const totalUpgrades = upgrades.damage + upgrades.radius + upgrades.rate + upgrades.inventorySize;
         return totalUpgrades > 0 ? (
