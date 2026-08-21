@@ -110,7 +110,7 @@ export function DepthNotification() {
     }
   }, [depth]);
 
-  // Danger warning detection (low health / low oxygen)
+  // Danger warning detection (low health / low oxygen / lava proximity)
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -141,10 +141,24 @@ export function DepthNotification() {
         setTimeout(() => setNotification(null), 4000);
         return;
       }
+
+      // Lava proximity warning — check depth (lava appears in deep zones)
+      const depthMeters = depth * 128;
+      if (depthMeters > 1500 && health < 50) {
+        lastDangerCheck.current = now;
+        setNotification({
+          title: "⚠️ DANGER ZONE",
+          subtitle: "Deep caves — watch for lava and gas",
+          color: "#ff5722",
+          icon: "🌋",
+        });
+        setTimeout(() => setNotification(null), 4000);
+        return;
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [health, oxygen]);
+  }, [health, oxygen, depth]);
 
   if (!notification) return null;
 
