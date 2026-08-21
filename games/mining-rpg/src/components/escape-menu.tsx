@@ -219,6 +219,10 @@ export function EscapeMenu() {
               <div>Deaths: {stats.totalDeaths}</div>
               <div>Blocks Mined: {stats.totalCellsMined}</div>
               <div>Bars Crafted: {stats.totalBarsCrafted}</div>
+              <div>Bombs Thrown: {stats.totalBombsThrown}</div>
+              <div>Glowsticks: {stats.totalGlowsticksThrown}</div>
+              <div>Blocks Built: {stats.totalBlocksPlaced}</div>
+              <div>Teleports: {stats.totalTeleports}</div>
               <div>Achievements: {unlockedAchievements.size}/35</div>
             </div>
             <div style={settingsStyle}>
