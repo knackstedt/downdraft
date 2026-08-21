@@ -302,6 +302,14 @@ export function HUD() {
           Spent: {stats.totalGoldSpent}g
         </div>
       )}
+      {(() => {
+        const totalUpgrades = upgrades.damage + upgrades.radius + upgrades.rate + upgrades.inventorySize;
+        return totalUpgrades > 0 ? (
+          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+            Upgrades: {totalUpgrades} (D{upgrades.damage} R{upgrades.radius} S{upgrades.rate} I{upgrades.inventorySize})
+          </div>
+        ) : null;
+      })()}
       {lastSaveTime > 0 && (
         <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
           Last save: {(() => {
