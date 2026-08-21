@@ -86,8 +86,11 @@ export function BombOverlay() {
           const r = Math.round(g.color[0] * 255);
           const gr = Math.round(g.color[1] * 255);
           const bl = Math.round(g.color[2] * 255);
-          const size = 6;
-          html += `<div style="position:absolute;left:${cssX - size / 2}px;top:${cssY - size / 2}px;width:${size}px;height:${size}px;border-radius:50%;background:rgb(${r},${gr},${bl});box-shadow:0 0 8px 2px rgba(${r},${gr},${bl},0.8);"></div>`;
+          // Render as a thin stick (vertical capsule) with a colored glow tip
+          const stickH = 10;
+          const stickW = 2;
+          html += `<div style="position:absolute;left:${cssX - stickW / 2}px;top:${cssY - stickH}px;width:${stickW}px;height:${stickH}px;background:linear-gradient(to bottom,rgb(${r},${gr},${bl}) 0%,#3a3a3a 100%);border-radius:1px;box-shadow:0 0 6px 1px rgba(${r},${gr},${bl},0.7);"></div>`;
+          html += `<div style="position:absolute;left:${cssX - 3}px;top:${cssY - stickH - 2}px;width:6px;height:6px;border-radius:50%;background:rgb(${r},${gr},${bl});box-shadow:0 0 8px 3px rgba(${r},${gr},${bl},0.6);"></div>`;
         }
         container.innerHTML = html;
       }

@@ -259,7 +259,7 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // LooseStone: legacy coarse stone chunk. No longer created — all stone
   // debris now becomes Gravel. Kept for backwards compat with old saves that
   // still contain LooseStone cells; applyAging still re-settles them to Stone.
-  [Material.LooseStone]: def(63, "Loose Stone", [0.42, 0.42, 0.45, 1.0], { gravity: 1, gravityDir: 1, density: 2.5, solid: true, albedo: 0.5, reflectivity: 0.1 }),
+  [Material.LooseStone]: def(63, "Loose Stone", [0.45, 0.45, 0.48, 1.0], { gravity: 1, gravityDir: 1, density: 2.5, solid: true, albedo: 0.5, reflectivity: 0.1 }),
 
   // --- Mining RPG: gases (toxic, rise) ---
   [Material.MethaneGas]: def(59, "Methane Gas", [0.75, 0.78, 0.65, 0.35], { gravity: 1, gravityDir: -1, density: 0.07, gas: true, flammable: true, burnTime: 0, lifetime: 200, albedo: 0.1, brightness: 0.5 }),
