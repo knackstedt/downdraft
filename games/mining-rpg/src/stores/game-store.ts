@@ -293,6 +293,8 @@ export interface GameState {
   setOnGround: (v: boolean) => void;
   welcomeBack: string | null; // welcome back message when loading a save
   setWelcomeBack: (msg: string | null) => void;
+  showFPS: boolean; // whether to show the FPS counter
+  toggleFPS: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -338,6 +340,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   zoom: 1,
   onGround: true,
   welcomeBack: null,
+  showFPS: true,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -565,4 +568,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setZoom: (zoom) => set({ zoom }),
   setOnGround: (onGround) => set({ onGround }),
   setWelcomeBack: (welcomeBack) => set({ welcomeBack }),
+  toggleFPS: () => set((s) => ({ showFPS: !s.showFPS })),
 }));

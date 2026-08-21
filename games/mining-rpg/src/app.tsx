@@ -124,6 +124,11 @@ export default function App() {
         const r = useGameStore.getState().renderer as { resetZoom?: () => void } | null;
         r?.resetZoom?.();
       }
+      // F5 toggles FPS counter
+      if (e.key === "F5") {
+        e.preventDefault();
+        useGameStore.getState().toggleFPS();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

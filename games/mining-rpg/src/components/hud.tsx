@@ -155,7 +155,7 @@ function depthBiomeColor(depthMeters: number): string {
 }
 
 export function HUD() {
-  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, glowstickCount, bombCount, zoom, onGround, getMaxInventory, getInventoryCount } = useGameStore();
+  const { fps, health, oxygen, depth, paused, loadedChunks, activeChunks, digRadius, inventory, currency, craftedItems, buildMode, selectedBuild, buildMaterials, noclip, headlampOn, upgrades, stats, unlockedAchievements, lastSaveTime, teleportCooldown, goldFlashTime, showHUD, playerFacing, playerSpeed, glowstickCount, bombCount, zoom, onGround, showFPS, getMaxInventory, getInventoryCount } = useGameStore();
 
   if (!showHUD) return null;
 
@@ -204,7 +204,7 @@ export function HUD() {
         opacity: 0.5,
         borderRadius: 2,
       }} />
-      <div style={{ color: fps == null ? "rgba(255,255,255,0.5)" : fps >= 50 ? "#4caf50" : fps >= 30 ? "#ff9800" : "#f44336" }}>
+      <div style={{ color: fps == null ? "rgba(255,255,255,0.5)" : fps >= 50 ? "#4caf50" : fps >= 30 ? "#ff9800" : "#f44336", visibility: showFPS ? "visible" : "hidden" }}>
         FPS: {fps ?? "—"}
       </div>
       <div style={{ ...healthBarStyle, ...(health < 25 ? { animation: "healthPulse 0.6s ease-in-out infinite" } : {}) }}>
