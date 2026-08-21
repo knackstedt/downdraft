@@ -85,9 +85,25 @@ export function InventoryPanel() {
   const totalItems = inventory.reduce((sum, e) => sum + e.count, 0);
   const buildTypes: BuildMaterialType[] = ["scaffolding", "ladder", "rope"];
 
+  // Calculate total sell value
+  let sellValue = 0;
+  for (let i = 0; i < inventory.length; i++) {
+    sellValue += (SELL_PRICES[inventory[i].mat] ?? 0) * inventory[i].count;
+  }
+  const craftedKeys = Object.keys(craftedItems) as CraftedItemId[];
+  for (let i = 0; i < craftedKeys.length; i++) {
+    sellValue += (CRAFTED_SELL_PRICES[craftedKeys[i]] ?? 0) * craftedItems[craftedKeys[i]];
+  }
+
   return (
     <div style={panelStyle}>
       <div style={titleStyle}>Inventory ({totalItems})</div>
+      {sellValue > 0 && (
+        <div style={{ ...rowStyle, color: "#ffd700", fontWeight: "bold", fontSize: 13 }}>
+          <span>Total Value:</span>
+          <span style={{ marginLeft: "auto" }}>{sellValue}g</span>
+        </div>
+      )}
       {sorted.length === 0 ? (
         <div style={emptyStyle}>Empty — dig some ore!</div>
       ) : (
