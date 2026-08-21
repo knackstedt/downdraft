@@ -145,6 +145,45 @@ export const OXYGEN_MAX_TICKS = TICK_RATE * 10; // 30 seconds of breath
 export const OXYGEN_DROWN_DAMAGE_PER_TICK = .5; // 
 export const OXYGEN_REGEN_PER_TICK = TICK_RATE * 20; // full refill in 60 ticks (~1s)
 
+// ============================================================================
+// Biome effects — gameplay modifiers based on depth (meters below surface).
+//
+// Each biome applies passive effects to the player while they're in it:
+//   - gravityMul: multiplies base gravity (deeper = denser rock = heavier)
+//   - heatDmgPerTick: passive heat damage (only in the deepest biomes)
+//   - oxygenDrainMul: multiplies oxygen drain rate when submerged (pressure)
+//
+// Depth thresholds match the biome names in the HUD/DepthNotification.
+// ============================================================================
+export interface BiomeEffect {
+  name: string;
+  threshold: number; // depth in meters at which this biome starts
+  gravityMul: number;
+  heatDmgPerTick: number;
+  oxygenDrainMul: number;
+}
+
+export const BIOME_EFFECTS: BiomeEffect[] = [
+  { name: "Surface",       threshold: 0,    gravityMul: 1.0,  heatDmgPerTick: 0,    oxygenDrainMul: 1.0 },
+  { name: "Topsoil Layer", threshold: 50,   gravityMul: 1.0,  heatDmgPerTick: 0,    oxygenDrainMul: 1.0 },
+  { name: "Shallow Caves", threshold: 200,  gravityMul: 1.05, heatDmgPerTick: 0,    oxygenDrainMul: 1.1 },
+  { name: "Deep Caves",    threshold: 500,  gravityMul: 1.1,  heatDmgPerTick: 0,    oxygenDrainMul: 1.2 },
+  { name: "Iron Belt",     threshold: 1000, gravityMul: 1.15, heatDmgPerTick: 0,    oxygenDrainMul: 1.3 },
+  { name: "Silver Depths", threshold: 1500, gravityMul: 1.2,  heatDmgPerTick: 0.05, oxygenDrainMul: 1.5 },
+  { name: "Gold Zone",     threshold: 2000, gravityMul: 1.25, heatDmgPerTick: 0.1,  oxygenDrainMul: 1.7 },
+  { name: "Cobalt Abyss",  threshold: 3000, gravityMul: 1.3,  heatDmgPerTick: 0.2,  oxygenDrainMul: 2.0 },
+  { name: "Mantle",        threshold: 4000, gravityMul: 1.4,  heatDmgPerTick: 0.4,  oxygenDrainMul: 2.5 },
+];
+
+/** Get the active biome effect for a given depth (meters below surface). */
+export function getBiomeEffect(depthMeters: number): BiomeEffect {
+  let effect = BIOME_EFFECTS[0];
+  for (let i = 0; i < BIOME_EFFECTS.length; i++) {
+    if (depthMeters >= BIOME_EFFECTS[i].threshold) effect = BIOME_EFFECTS[i];
+  }
+  return effect;
+}
+
 // Freeze duration in ticks. 300 seconds @ 30tps = 9000 ticks.
 export const FREEZE_TICKS = TICK_RATE * 60 * 1;
 
