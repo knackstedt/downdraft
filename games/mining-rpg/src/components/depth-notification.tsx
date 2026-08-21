@@ -66,10 +66,28 @@ const BIOMES: { threshold: number; title: string; subtitle: string; color: strin
 ];
 
 export function DepthNotification() {
-  const { depth, health, oxygen, inventory, nearSignpost, getMaxInventory, getInventoryCount } = useGameStore();
+  const { depth, health, oxygen, inventory, nearSignpost, stats, getMaxInventory, getInventoryCount } = useGameStore();
   const [notification, setNotification] = useState<Notification | null>(null);
   const seenBiomes = useRef<Set<number>>(new Set());
   const lastDangerCheck = useRef(0);
+  const lastMaxDepth = useRef(stats.maxDepthCells);
+
+  // Max depth record notification
+  useEffect(() => {
+    if (stats.maxDepthCells > lastMaxDepth.current && stats.maxDepthCells > 0) {
+      lastMaxDepth.current = stats.maxDepthCells;
+      // Only show if it's a significant milestone (every 100m)
+      if (stats.maxDepthCells % 100 === 0 && stats.maxDepthCells >= 100) {
+        setNotification({
+          title: "🏆 NEW RECORD!",
+          subtitle: `Deepest depth: ${stats.maxDepthCells}m`,
+          color: "#ffd700",
+          icon: "🏆",
+        });
+        setTimeout(() => setNotification(null), 3000);
+      }
+    }
+  }, [stats.maxDepthCells]);
 
   // Biome entry detection + depth milestones every 500m
   useEffect(() => {
