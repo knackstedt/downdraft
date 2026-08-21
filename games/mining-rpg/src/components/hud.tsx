@@ -169,6 +169,22 @@ export function HUD() {
     prevHealthRef.current = health;
   }, [health]);
 
+  // Track gold gained in the last 60 seconds for gold/min display
+  const goldHistoryRef = useRef<{ time: number; amount: number }[]>([]);
+  const [goldPerMin, setGoldPerMin] = useState(0);
+  const prevGoldRef = useRef(currency);
+  useEffect(() => {
+    const now = Date.now();
+    if (currency > prevGoldRef.current) {
+      goldHistoryRef.current.push({ time: now, amount: currency - prevGoldRef.current });
+    }
+    prevGoldRef.current = currency;
+    // Prune entries older than 60 seconds
+    goldHistoryRef.current = goldHistoryRef.current.filter((e) => now - e.time < 60000);
+    const total = goldHistoryRef.current.reduce((sum, e) => sum + e.amount, 0);
+    setGoldPerMin(total);
+  }, [currency]);
+
   if (!showHUD) return null;
 
   const depthMeters = depth * 128; // CHUNK_H = 128 cells, ~1m per cell
@@ -309,6 +325,11 @@ export function HUD() {
           transition: "transform 0.1s",
         } : {}),
       }}>Gold: {currency}</div>
+      {goldPerMin > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(76,175,80,0.5)" }}>
+          +{goldPerMin}g/min
+        </div>
+      )}
       {sellValue > 0 && (
         <div style={{ color: "rgba(255,215,0,0.5)", fontSize: 11 }}>
           Net worth: {currency + sellValue}g (bag: {sellValue}g)
