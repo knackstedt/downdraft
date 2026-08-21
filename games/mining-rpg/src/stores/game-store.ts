@@ -480,6 +480,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     const newInventory = consumeInputs(recipe, s.inventory);
     const newCrafted = { ...s.craftedItems };
     newCrafted[recipe.output] = newCrafted[recipe.output] + recipe.outputCount;
+    // Spawn floating crafting text
+    const r = s.renderer as { getPlayerScreenPos?: () => { x: number; y: number } } | null;
+    const pos = r?.getPlayerScreenPos?.();
+    if (pos) {
+      s.spawnFloatingText(pos.x, pos.y - 30, `+${recipe.outputCount} ${recipe.outputName}`, recipe.color);
+    }
     set({
       inventory: newInventory,
       craftedItems: newCrafted,
