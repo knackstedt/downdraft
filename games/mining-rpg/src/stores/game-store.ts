@@ -149,6 +149,8 @@ export interface GameState {
   recentAchievement: Achievement | null; // most recently unlocked (for toast notification)
   // Crafting
   craftedItems: CraftedItems; // counts of crafted bars (persisted)
+  // Title screen
+  showTitleScreen: boolean; // true when the title screen is visible (game start)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -261,6 +263,8 @@ export interface GameState {
   sellCraftedItems: () => number;
   /** Reset crafted items to zero (called on world reset). */
   resetCraftedItems: () => void;
+  // Title screen
+  setShowTitleScreen: (show: boolean) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -293,6 +297,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   showAchievements: false,
   recentAchievement: null,
   craftedItems: createCraftedItems(),
+  showTitleScreen: true,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -481,4 +486,5 @@ export const useGameStore = create<GameState>((set, get) => ({
     return total;
   },
   resetCraftedItems: () => set({ craftedItems: createCraftedItems() }),
+  setShowTitleScreen: (showTitleScreen) => set({ showTitleScreen }),
 }));

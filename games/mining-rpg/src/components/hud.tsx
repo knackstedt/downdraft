@@ -6,7 +6,9 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
-import { BUILD_MATERIAL_INFO, OXYGEN_MAX_TICKS, type BuildMaterialType } from "../shared/constants";
+import { BUILD_MATERIAL_INFO, OXYGEN_MAX_TICKS, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
+import { CRAFTED_SELL_PRICES } from "../shared/crafting-recipes";
+import type { CraftedItemId } from "../shared/types";
 import { useGameStore } from "../stores/game-store";
 
 const containerStyle: React.CSSProperties = {

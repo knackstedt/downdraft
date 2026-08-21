@@ -14,6 +14,7 @@ import { OreTooltip } from "./components/ore-tooltip";
 import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
+import { TitleScreen } from "./components/title-screen";
 import { useGameStore } from "./stores/game-store";
 
 const helpStyle: React.CSSProperties = {
@@ -108,6 +109,18 @@ export default function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  const { showTitleScreen, setShowTitleScreen } = useGameStore();
+
+  if (showTitleScreen) {
+    return (
+      <TitleScreen
+        onStart={() => {
+          setShowTitleScreen(false);
+        }}
+      />
+    );
+  }
 
   return (
     <>
