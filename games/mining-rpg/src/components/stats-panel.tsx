@@ -244,6 +244,38 @@ export function StatsPanel() {
         </>
       )}
 
+      <div style={sectionTitleStyle}>Efficiency</div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Net Gold</span>
+        <span style={{ ...valueStyle, color: "#ffd700" }}>
+          {stats.totalGoldEarned - stats.totalGoldSpent}
+        </span>
+      </div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Gold / Death</span>
+        <span style={valueStyle}>
+          {stats.totalDeaths > 0
+            ? Math.floor(stats.totalGoldEarned / stats.totalDeaths)
+            : stats.totalGoldEarned}
+        </span>
+      </div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Cells / Death</span>
+        <span style={valueStyle}>
+          {stats.totalDeaths > 0
+            ? Math.floor(stats.totalCellsMined / stats.totalDeaths)
+            : stats.totalCellsMined}
+        </span>
+      </div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Bars / Teleport</span>
+        <span style={valueStyle}>
+          {stats.totalTeleports > 0
+            ? Math.floor(stats.totalBarsCrafted / stats.totalTeleports)
+            : stats.totalBarsCrafted}
+        </span>
+      </div>
+
       <div style={closeHintStyle}>Press Tab to close</div>
     </div>
   );
