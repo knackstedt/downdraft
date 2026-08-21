@@ -206,11 +206,15 @@ export function HUD() {
       <div style={{ color: depthBiomeColor(depthMeters), fontSize: 11, fontWeight: "bold" }}>
         {depthBiomeName(depthMeters)}
       </div>
-      {stats.maxDepthCells > depthMeters && (
+      {stats.maxDepthCells > depthMeters ? (
         <div style={{ fontSize: 10, color: "rgba(255,215,0,0.5)" }}>
           Deepest: {stats.maxDepthCells}m
         </div>
-      )}
+      ) : depthMeters > 10 ? (
+        <div style={{ fontSize: 10, color: "#ffd700", fontWeight: "bold" }}>
+          ★ NEW RECORD!
+        </div>
+      ) : null}
       <div>Brush: {digRadius} cells</div>
       <div>Chunks: {loadedChunks} loaded, {activeChunks} active</div>
       <div style={{ color: "#e6c833" }}>Gold: {currency}</div>
