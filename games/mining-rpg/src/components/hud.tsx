@@ -302,6 +302,11 @@ export function HUD() {
           Spent: {stats.totalGoldSpent}g
         </div>
       )}
+      {stats.totalGoldEarned > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(76,175,80,0.3)" }}>
+          Earned: {stats.totalGoldEarned}g
+        </div>
+      )}
       {(() => {
         const totalUpgrades = upgrades.damage + upgrades.radius + upgrades.rate + upgrades.inventorySize;
         return totalUpgrades > 0 ? (
