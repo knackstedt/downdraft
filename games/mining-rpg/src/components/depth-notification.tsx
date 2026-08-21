@@ -66,7 +66,7 @@ const BIOMES: { threshold: number; title: string; subtitle: string; color: strin
 ];
 
 export function DepthNotification() {
-  const { depth, health, oxygen } = useGameStore();
+  const { depth, health, oxygen, inventory, nearSignpost, getMaxInventory, getInventoryCount } = useGameStore();
   const [notification, setNotification] = useState<Notification | null>(null);
   const seenBiomes = useRef<Set<number>>(new Set());
   const lastDangerCheck = useRef(0);
@@ -110,7 +110,7 @@ export function DepthNotification() {
     }
   }, [depth]);
 
-  // Danger warning detection (low health / low oxygen / lava proximity)
+  // Danger warning detection (low health / low oxygen / lava proximity / inventory full)
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -155,10 +155,25 @@ export function DepthNotification() {
         setTimeout(() => setNotification(null), 4000);
         return;
       }
+
+      // Inventory full reminder (only when not near signpost)
+      const invUsed = getInventoryCount();
+      const invMax = getMaxInventory();
+      if (!nearSignpost && invMax > 0 && invUsed >= invMax * 0.95) {
+        lastDangerCheck.current = now;
+        setNotification({
+          title: "📦 INVENTORY FULL",
+          subtitle: "Return to the surface signpost to sell (E)",
+          color: "#ff9800",
+          icon: "📦",
+        });
+        setTimeout(() => setNotification(null), 5000);
+        return;
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [health, oxygen, depth]);
+  }, [health, oxygen, depth, inventory, nearSignpost, getMaxInventory, getInventoryCount]);
 
   if (!notification) return null;
 
