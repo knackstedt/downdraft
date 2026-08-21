@@ -114,6 +114,7 @@ export default function App() {
       <AchievementsPanel />
       <AchievementNotification />
       <KeyBindingsOverlay />
+      <OreTooltip />
       <div style={helpStyle}>
         WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | H: help | E: sell | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}

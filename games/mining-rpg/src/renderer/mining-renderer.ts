@@ -198,6 +198,34 @@ export class MiningRenderer {
       y: this.workerHost.getPlayerF32(PLAYER.PY),
     };
   }
+  /**
+   * Get the material at the mouse cursor position (for ore tooltips).
+   * Returns { mat, wx, wy } where mat is the material ID at the hovered
+   * cell, or 0 if the cell is air/out of bounds. wx/wy are world cell coords.
+   */
+  getHoveredCell(): { mat: number; wx: number; wy: number } {
+    if (!this.gridReader || !this.input) return { mat: 0, wx: 0, wy: 0 };
+    const dpr = window.devicePixelRatio || 1;
+    const screenX = this.input.mouseX * dpr;
+    const screenY = this.input.mouseY * dpr;
+    const world = screenToWorld(this.camera, screenX, screenY);
+    const wx = Math.floor(world.x);
+    const wy = Math.floor(world.y);
+    const originX = this.gridReader.getStat(STATS.ORIGIN_X);
+    const originY = this.gridReader.getStat(STATS.ORIGIN_Y);
+    const lx = wx - originX;
+    const ly = wy - originY;
+    if (lx < 0 || ly < 0 || lx >= ACTIVE_GRID_W || ly >= ACTIVE_GRID_H) {
+      return { mat: 0, wx, wy };
+    }
+    const grid = this.gridReader.getGrid();
+    return { mat: grid[ly * ACTIVE_GRID_W + lx], wx, wy };
+  }
+  /** Get the mouse screen position (CSS pixels) for tooltip positioning. */
+  getMouseScreenPos(): { x: number; y: number } {
+    if (!this.input) return { x: 0, y: 0 };
+    return { x: this.input.mouseX, y: this.input.mouseY };
+  }
 
   /** Pause the simulation (called from UI menus). */
   pause(): void {
