@@ -155,6 +155,12 @@ expose({
     if (!world) return;
     world.explode(x, y, radius);
   },
+  /** Apply damage to the player from external sources (e.g. enemies). */
+  damagePlayer(amount: number, cause: number): void {
+    if (!world) return;
+    world.player.health = Math.max(0, world.player.health - amount);
+    world.player.lastDamageMaterial = cause;
+  },
   /** Place a torch via raycast from the player toward the target world coords.
    *  Walks from the player center toward the target in 1-cell steps, placing
    *  the torch at the first valid (empty, in-range, not-inside-player) cell. */

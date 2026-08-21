@@ -260,6 +260,7 @@ export function EscapeMenu() {
                     else if (causeNum === 255) label = "Lava";
                     else if (causeNum === 254) label = "Fire";
                     else if (causeNum === 253) label = "Gas";
+                    else if (causeNum === 255) label = "Enemy";
                     else label = `Cause #${cause}`;
                     return <div key={cause}>{label}: {count}</div>;
                   })}

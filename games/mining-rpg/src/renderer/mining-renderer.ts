@@ -47,6 +47,32 @@ const GLOWSTICK_LIFETIME_MS = 60 * 60 * 1000; // 1 hour real time
 const GLOWSTICK_RADIUS = 25;   // light radius in cells
 const GLOWSTICK_INTENSITY = 1.5;
 
+// --- Enemy constants ---
+// Enemies are client-side creatures that spawn in dark caves below a depth
+// threshold. They chase the player through air cells and deal contact damage
+// via the worker's damagePlayer RPC. Killed by bomb explosions or by being
+// mined (clicking on their cell). Different types spawn at different depths.
+interface Enemy {
+  x: number; y: number;     // world cell coords (float)
+  vx: number; vy: number;   // velocity per tick
+  health: number;
+  maxHealth: number;
+  type: EnemyType;
+  damagePerTick: number;    // contact damage
+  speed: number;            // chase speed
+  color: string;            // render color
+  size: number;             // render size in CSS pixels
+  name: string;
+  contactCooldown: number;  // ticks until next damage (prevents every-tick hits)
+}
+
+type EnemyType = "cave-bat" | "rock-golem" | "lava-imp";
+
+const ENEMY_SPAWN_INTERVAL = 600; // ticks between spawn attempts (~10s @ 60tps)
+const ENEMY_SPAWN_DEPTH = 200;    // min depth in meters for enemies
+const MAX_ENEMIES = 12;
+const ENEMY_CONTACT_COOLDOWN = 30; // ticks between contact hits (~0.5s)
+
 // --- Zoom constants ---
 // Per keypress step factor; drained from input.zoomDelta each frame.
 const ZOOM_STEP_FACTOR = 1.2;
@@ -131,6 +157,10 @@ export class MiningRenderer {
   // Glowstick state (thrown light sources that persist for 1 hour real time)
   private glowsticks: SavedGlowstick[] = [];
   private prevKeyG = false;
+  // Enemy state — client-side simple creatures that spawn in dark caves,
+  // chase the player, and deal contact damage. Killed by bombs or mining.
+  private enemies: Enemy[] = [];
+  private enemySpawnTimer = 0;
   // Debug toggle (F1): when true, fog-of-war and the lighting/shadow passes are
   // disabled — the light texture is cleared to full white and the volumetric
   // texture to black so the scene renders fully lit with no fog overlay.
@@ -618,10 +648,12 @@ export class MiningRenderer {
     s.resetCraftedItems();
     this.lastStatsTick = -1;
 
-    // Clear bombs + explosions + glowsticks
+    // Clear bombs + explosions + glowsticks + enemies
     this.bombs = [];
     this.explosions = [];
     this.glowsticks = [];
+    this.enemies = [];
+    this.enemySpawnTimer = 0;
 
     // Suppress death/health detection until the new worker writes its first frame
     this.respawning = true;
@@ -1077,6 +1109,8 @@ export class MiningRenderer {
     this.updateBombs();
     // Update active glowsticks (physics + settle + expire)
     this.updateGlowsticks();
+    // Update enemies (spawn, chase, contact damage, bomb death)
+    this.updateEnemies();
 
     // Sync current inventory to the worker so collect() can enforce max size
     const store = useGameStore.getState();
@@ -1344,6 +1378,178 @@ export class MiningRenderer {
       surviving.push(gs);
     }
     this.glowsticks = surviving;
+  }
+
+  /** Pick an enemy type appropriate for the current depth. */
+  private pickEnemyType(depthMeters: number): EnemyType {
+    if (depthMeters < 500) return "cave-bat";
+    if (depthMeters < 1500) return "rock-golem";
+    return "lava-imp";
+  }
+
+  /** Try to spawn an enemy in a dark cave near the player. */
+  private trySpawnEnemy(): void {
+    if (this.enemies.length >= MAX_ENEMIES) return;
+    if (!this.workerHost || !this.gridReader) return;
+
+    const px = this.workerHost.getPlayerF32(PLAYER.PX);
+    const py = this.workerHost.getPlayerF32(PLAYER.PY);
+    const surfaceY = this.signpostY; // approximate surface
+    const depthMeters = Math.max(0, Math.floor(py - surfaceY));
+    if (depthMeters < ENEMY_SPAWN_DEPTH) return;
+
+    const grid = this.gridReader.getGrid();
+    const originX = this.gridReader.getStat(STATS.ORIGIN_X);
+    const originY = this.gridReader.getStat(STATS.ORIGIN_Y);
+
+    // Try to find a dark air cell within 15-40 cells of the player
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 15 + Math.random() * 25;
+      const wx = Math.floor(px + Math.cos(angle) * dist);
+      const wy = Math.floor(py + Math.sin(angle) * dist);
+      const ax = wx - originX;
+      const ay = wy - originY;
+      if (ax < 1 || ax >= ACTIVE_GRID_W - 1 || ay < 1 || ay >= ACTIVE_GRID_H - 1) continue;
+      const idx = ay * ACTIVE_GRID_W + ax;
+      if (grid[idx] !== 0) continue; // not air
+      // Check it's not too close to another enemy
+      let tooClose = false;
+      for (const e of this.enemies) {
+        if (Math.abs(e.x - wx) < 8 && Math.abs(e.y - wy) < 8) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+
+      const type = this.pickEnemyType(depthMeters);
+      let stats: { health: number; damage: number; speed: number; color: string; size: number; name: string };
+      if (type === "cave-bat") {
+        stats = { health: 15, damage: 0.3, speed: 0.15, color: "#6b4a2a", size: 8, name: "Cave Bat" };
+      } else if (type === "rock-golem") {
+        stats = { health: 40, damage: 0.8, speed: 0.08, color: "#8a7a6a", size: 12, name: "Rock Golem" };
+      } else {
+        stats = { health: 25, damage: 1.2, speed: 0.12, color: "#ff5722", size: 10, name: "Lava Imp" };
+      }
+      this.enemies.push({
+        x: wx, y: wy, vx: 0, vy: 0,
+        health: stats.health, maxHealth: stats.health,
+        type, damagePerTick: stats.damage, speed: stats.speed,
+        color: stats.color, size: stats.size, name: stats.name,
+        contactCooldown: 0,
+      });
+      return; // spawned one, done
+    }
+  }
+
+  /** Update all enemies: spawn, chase player, contact damage, bomb death. */
+  private updateEnemies(): void {
+    if (!this.workerHost) return;
+    const px = this.workerHost.getPlayerF32(PLAYER.PX);
+    const py = this.workerHost.getPlayerF32(PLAYER.PY);
+    const grid = this.gridReader?.getGrid();
+    const originX = this.gridReader?.getStat(STATS.ORIGIN_X) ?? 0;
+    const originY = this.gridReader?.getStat(STATS.ORIGIN_Y) ?? 0;
+
+    // Spawn timer
+    this.enemySpawnTimer++;
+    if (this.enemySpawnTimer >= ENEMY_SPAWN_INTERVAL) {
+      this.enemySpawnTimer = 0;
+      this.trySpawnEnemy();
+    }
+
+    if (this.enemies.length === 0) return;
+
+    const surviving: Enemy[] = [];
+    for (const enemy of this.enemies) {
+      // Check bomb proximity — enemies die in explosions
+      let killedByBomb = false;
+      for (const exp of this.explosions) {
+        const dist = Math.sqrt((enemy.x - exp.x) ** 2 + (enemy.y - exp.y) ** 2);
+        if (dist < BOMB_RADIUS + 2) {
+          killedByBomb = true;
+          break;
+        }
+      }
+      if (killedByBomb) continue;
+
+      // Chase the player — simple direct movement through air cells
+      const dx = px - enemy.x;
+      const dy = py - enemy.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 0.1) {
+        // Apply velocity toward player
+        enemy.vx = (dx / dist) * enemy.speed;
+        enemy.vy = (dy / dist) * enemy.speed;
+      }
+
+      // Gravity for ground enemies (rock-golem), bats/imps float
+      if (enemy.type === "rock-golem") {
+        enemy.vy += 0.02;
+      }
+
+      // Move with collision check against terrain
+      const newX = enemy.x + enemy.vx;
+      const newY = enemy.y + enemy.vy;
+      const ax = Math.floor(newX - originX);
+      const ay = Math.floor(newY - originY);
+      let blocked = false;
+      if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H && grid) {
+        const packed = grid[ay * ACTIVE_GRID_W + ax];
+        if (packed !== 0) {
+          const mat = packed & 0xff;
+          const def = MATERIALS[mat];
+          if (def?.solid) blocked = true;
+        }
+      } else {
+        blocked = true; // out of bounds
+      }
+
+      if (!blocked) {
+        enemy.x = newX;
+        enemy.y = newY;
+      } else {
+        // Try to go around — just move in X or Y only
+        const axX = Math.floor(newX - originX);
+        const ayX = Math.floor(enemy.y - originY);
+        let blockedX = false;
+        if (axX >= 0 && axX < ACTIVE_GRID_W && ayX >= 0 && ayX < ACTIVE_GRID_H && grid) {
+          const packed = grid[ayX * ACTIVE_GRID_W + axX];
+          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) blockedX = true;
+        }
+        if (!blockedX) enemy.x = newX;
+        const axY = Math.floor(enemy.x - originX);
+        const ayY = Math.floor(newY - originY);
+        let blockedY = false;
+        if (axY >= 0 && axY < ACTIVE_GRID_W && ayY >= 0 && ayY < ACTIVE_GRID_H && grid) {
+          const packed = grid[ayY * ACTIVE_GRID_W + axY];
+          if (packed !== 0 && MATERIALS[packed & 0xff]?.solid) blockedY = true;
+        }
+        if (!blockedY) enemy.y = newY;
+      }
+
+      // Despawn if too far from player (> 80 cells)
+      if (dist > 80) continue;
+
+      // Contact damage
+      if (dist < 2.5) {
+        if (enemy.contactCooldown <= 0) {
+          this.workerHost.damagePlayer(enemy.damagePerTick, 255); // 255 = enemy attack
+          enemy.contactCooldown = ENEMY_CONTACT_COOLDOWN;
+        }
+      }
+      if (enemy.contactCooldown > 0) enemy.contactCooldown--;
+
+      surviving.push(enemy);
+    }
+    this.enemies = surviving;
+  }
+
+  /** Get active enemies for rendering (world coords + display info). */
+  getEnemies(): { x: number; y: number; color: string; size: number; health: number; maxHealth: number; name: string }[] {
+    return this.enemies.map((e) => ({
+      x: e.x, y: e.y, color: e.color, size: e.size,
+      health: e.health, maxHealth: e.maxHealth, name: e.name,
+    }));
   }
 
   /** Get active bombs for rendering (world coords). */

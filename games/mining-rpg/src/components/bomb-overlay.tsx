@@ -36,6 +36,16 @@ interface RenderedGlowstick {
   color: [number, number, number];
 }
 
+interface RenderedEnemy {
+  x: number;
+  y: number;
+  color: string;
+  size: number;
+  health: number;
+  maxHealth: number;
+  name: string;
+}
+
 export function BombOverlay() {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -52,6 +62,7 @@ export function BombOverlay() {
             getBombs?: () => RenderedBomb[];
             getExplosions?: () => RenderedExplosion[];
             getGlowsticks?: () => RenderedGlowstick[];
+            getEnemies?: () => RenderedEnemy[];
             getCamera?: () => Camera2D;
           }
         | null;
@@ -61,6 +72,7 @@ export function BombOverlay() {
         const bombs = renderer.getBombs();
         const explosions = renderer.getExplosions();
         const glowsticks = renderer.getGlowsticks?.() ?? [];
+        const enemies = renderer.getEnemies?.() ?? [];
 
         // Build inner HTML for bombs + explosions + glowsticks
         let html = "";
@@ -91,6 +103,20 @@ export function BombOverlay() {
           const stickW = 2;
           html += `<div style="position:absolute;left:${cssX - stickW / 2}px;top:${cssY - stickH}px;width:${stickW}px;height:${stickH}px;background:linear-gradient(to bottom,rgb(${r},${gr},${bl}) 0%,#3a3a3a 100%);border-radius:1px;box-shadow:0 0 6px 1px rgba(${r},${gr},${bl},0.7);"></div>`;
           html += `<div style="position:absolute;left:${cssX - 3}px;top:${cssY - stickH - 2}px;width:6px;height:6px;border-radius:50%;background:rgb(${r},${gr},${bl});box-shadow:0 0 8px 3px rgba(${r},${gr},${bl},0.6);"></div>`;
+        }
+        // Render enemies as colored circles with health bars
+        for (const en of enemies) {
+          const s = worldToScreen(cam, en.x, en.y);
+          const cssX = s.x / dpr;
+          const cssY = s.y / dpr;
+          const sz = en.size;
+          const healthPct = Math.max(0, en.health / en.maxHealth);
+          const healthColor = healthPct > 0.5 ? "#4caf50" : healthPct > 0.25 ? "#ff9800" : "#f44336";
+          // Body
+          html += `<div style="position:absolute;left:${cssX - sz / 2}px;top:${cssY - sz / 2}px;width:${sz}px;height:${sz}px;border-radius:50%;background:${en.color};border:1px solid rgba(0,0,0,0.5);box-shadow:0 0 4px ${en.color}88;"></div>`;
+          // Health bar above
+          html += `<div style="position:absolute;left:${cssX - sz / 2}px;top:${cssY - sz / 2 - 5}px;width:${sz}px;height:2px;background:rgba(0,0,0,0.5);border-radius:1px;"></div>`;
+          html += `<div style="position:absolute;left:${cssX - sz / 2}px;top:${cssY - sz / 2 - 5}px;width:${sz * healthPct}px;height:2px;background:${healthColor};border-radius:1px;"></div>`;
         }
         container.innerHTML = html;
       }
