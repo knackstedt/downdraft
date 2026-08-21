@@ -16,8 +16,8 @@
 // (default 256 cells = 256x256 world cells mapped to ~150x150 pixels).
 // ============================================================================
 
-import { useEffect, useRef } from "react";
 import { Material } from "@downdraft/library-sand";
+import { useEffect, useRef } from "react";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W } from "../shared/constants";
 import type { MiningSimBufferReader } from "../shared/sim-buffer";
 import { useGameStore } from "../stores/game-store";
@@ -245,6 +245,55 @@ export function Minimap() {
     <div style={containerStyle}>
       <canvas ref={canvasRef} style={canvasStyle} />
       <div style={labelStyle}>MAP</div>
+      <DepthIndicator />
     </div>
+  );
+}
+
+// Small depth indicator bar on the side of the minimap
+function DepthIndicator() {
+  const { depth, stats } = useGameStore();
+  const depthMeters = depth * 128;
+  const maxDepthMeters = stats.maxDepthCells;
+
+  // Depth bar shows current depth vs max depth reached
+  const barStyle: React.CSSProperties = {
+    position: "absolute",
+    right: 2,
+    top: 2,
+    bottom: 18,
+    width: 3,
+    background: "rgba(255,255,255,0.1)",
+    borderRadius: 2,
+  };
+
+  const maxDepthMarkerStyle: React.CSSProperties = {
+    position: "absolute",
+    right: -2,
+    width: 7,
+    height: 2,
+    background: "#ffd700",
+    borderRadius: 1,
+    bottom: `${Math.min(100, (maxDepthMeters / 4000) * 100)}%`,
+  };
+
+  const currentDepthMarkerStyle: React.CSSProperties = {
+    position: "absolute",
+    right: -1,
+    width: 5,
+    height: 5,
+    background: "#fff",
+    borderRadius: "50%",
+    bottom: `${Math.min(100, (depthMeters / 4000) * 100)}%`,
+    border: "1px solid #000",
+  };
+
+  return (
+    <>
+      <div style={barStyle}>
+        <div style={maxDepthMarkerStyle} title={`Deepest: ${maxDepthMeters}m`} />
+        <div style={currentDepthMarkerStyle} title={`Current: ${depthMeters}m`} />
+      </div>
+    </>
   );
 }
