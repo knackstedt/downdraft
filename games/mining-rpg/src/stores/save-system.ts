@@ -42,6 +42,9 @@ export interface SaveData {
   // Cumulative player statistics (optional for backward compat with saves
   // made before stats tracking was added). Restored to the game store on load.
   stats?: PlayerStats;
+  // Unlocked achievement IDs (optional for backward compat). Stored as a
+  // string array in the save (Set is not JSON-serializable).
+  unlockedAchievements?: string[];
   savedAt: number;
 }
 
@@ -106,6 +109,7 @@ function buildState(data: SaveData): SaveState {
           currency: data.currency,
           buildMaterials: data.buildMaterials,
           stats: data.stats,
+          unlockedAchievements: data.unlockedAchievements,
         },
       },
       chunks: { v: 1, data: { count: data.chunks.length, coords: data.chunks.map((c) => ({ cx: c.cx, cy: c.cy })) } },
@@ -135,6 +139,7 @@ export async function loadWorld(): Promise<SaveData | null> {
   const player = result.state.components.player?.data as {
     player: MiningPlayerState; upgrades?: PlayerUpgrades; inventory?: InventoryEntry[];
     currency?: number; buildMaterials?: BuildMaterials; stats?: PlayerStats;
+    unlockedAchievements?: string[];
   } | undefined;
   const chunksComp = result.state.components.chunks?.data as { count: number; coords: { cx: number; cy: number }[] } | undefined;
   const glowsticksComp = result.state.components.glowsticks?.data as { list: SavedGlowstick[] } | undefined;
@@ -152,6 +157,7 @@ export async function loadWorld(): Promise<SaveData | null> {
     glowsticks: glowsticksComp?.list ?? [],
     zoom: meta.zoom,
     stats: player.stats ?? createPlayerStats(),
+    unlockedAchievements: player.unlockedAchievements ?? [],
     savedAt: meta.savedAt ?? 0,
   };
 }

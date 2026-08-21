@@ -1,5 +1,6 @@
 import { Material } from "@downdraft/library-sand";
 import { create } from "zustand";
+import { ACHIEVEMENTS, checkAchievements, type Achievement } from "../shared/achievements";
 import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, OXYGEN_MAX_TICKS, SELL_PRICES, upgradePrice, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
 import type { BuildMaterials, InventoryEntry, PlayerStats, PlayerUpgrades } from "../shared/types";
 import { createPlayerStats } from "../shared/types";
@@ -141,6 +142,10 @@ export interface GameState {
   // Statistics
   stats: PlayerStats; // cumulative playthrough statistics (persisted)
   showStats: boolean; // true when the stats panel is open (toggle with Tab)
+  // Achievements
+  unlockedAchievements: Set<string>; // IDs of unlocked achievements (persisted)
+  showAchievements: boolean; // true when the achievements panel is open (toggle with A)
+  recentAchievement: Achievement | null; // most recently unlocked (for toast notification)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -218,6 +223,21 @@ export interface GameState {
   recordTicks: (ticks: number) => void;
   /** Reset all stats to zero (called on world reset). */
   resetStats: () => void;
+  // Achievements
+  setUnlockedAchievements: (ids: Set<string>) => void;
+  setShowAchievements: (show: boolean) => void;
+  toggleAchievements: () => void;
+  /** Clear the recent achievement toast (called after the notification fades). */
+  clearRecentAchievement: () => void;
+  /**
+   * Check all locked achievements against the current game state. Unlocks any
+   * that pass their check function and sets the most recent one as
+   * recentAchievement for the toast notification. Returns the number of newly
+   * unlocked achievements.
+   */
+  checkAndUnlockAchievements: () => number;
+  /** Reset achievements (called on world reset). */
+  resetAchievements: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -246,6 +266,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   headlampOn: true,
   stats: createPlayerStats(),
   showStats: false,
+  unlockedAchievements: new Set<string>(),
+  showAchievements: false,
+  recentAchievement: null,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -371,4 +394,22 @@ export const useGameStore = create<GameState>((set, get) => ({
   recordTicks: (ticks) =>
     set((s) => ({ stats: { ...s.stats, totalTicks: s.stats.totalTicks + ticks } })),
   resetStats: () => set({ stats: createPlayerStats() }),
+  // Achievements
+  setUnlockedAchievements: (ids) => set({ unlockedAchievements: new Set(ids) }),
+  setShowAchievements: (showAchievements) => set({ showAchievements }),
+  toggleAchievements: () => set((s) => ({ showAchievements: !s.showAchievements })),
+  clearRecentAchievement: () => set({ recentAchievement: null }),
+  checkAndUnlockAchievements: () => {
+    const s = get();
+    const ctx = { stats: s.stats, upgrades: s.upgrades, currency: s.currency };
+    const newlyUnlocked = checkAchievements(s.unlockedAchievements, ctx);
+    if (newlyUnlocked.length === 0) return 0;
+    const newSet = new Set(s.unlockedAchievements);
+    for (const id of newlyUnlocked) newSet.add(id);
+    // Set the most recent achievement for the toast notification
+    const recent = ACHIEVEMENTS.find((a) => a.id === newlyUnlocked[newlyUnlocked.length - 1]) ?? null;
+    set({ unlockedAchievements: newSet, recentAchievement: recent });
+    return newlyUnlocked.length;
+  },
+  resetAchievements: () => set({ unlockedAchievements: new Set<string>(), recentAchievement: null }),
 }));
