@@ -297,6 +297,11 @@ export function HUD() {
       <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
         Mined: {stats.totalCellsMined} | Bars: {stats.totalBarsCrafted}
       </div>
+      {stats.totalGoldSpent > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(255,152,0,0.3)" }}>
+          Spent: {stats.totalGoldSpent}g
+        </div>
+      )}
       {lastSaveTime > 0 && (
         <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
           Last save: {(() => {
