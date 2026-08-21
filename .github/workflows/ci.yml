@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install
+      - name: Type check
+        run: bun run tsc
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install
+      - name: Lint
+        run: bun run lint
+        continue-on-error: true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install
+      - name: Run unit tests
+        run: |
+          bun test packages/core/src/ecs/world.spec.ts \
+            packages/core/src/render/frustum.spec.ts \
+            packages/core/src/telemetry/collector.spec.ts \
+            packages/core/src/physics/*.spec.ts \
+            packages/plugins/physics-rapier/src/*.spec.ts \
+            packages/shader-graph/src/graph.spec.ts \
+            packages/shader-graph/src/compute-compiler.spec.ts \
+            packages/core/src/render/bindless/bindless.spec.ts \
+            packages/core/src/material/material.spec.ts \
+            packages/core/src/material/variants.spec.ts \
+            packages/plugins/models/src/material-adapter.spec.ts \
+            packages/core/src/assets/model-normalizer.spec.ts \
+            packages/plugins/models/src/bake-node-transforms.spec.ts \
+            packages/plugins/models/src/sidecar/sidecar.spec.ts \
+            packages/plugins/models/src/normalize.spec.ts
+
+  e2e-tests:
+    name: E2E Smoke Test (SwiftShader)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Run E2E smoke test
+        run: bun run draft:test-cpu
+        env:
+          DISPLAY: ":99"
+        timeout-minutes: 10

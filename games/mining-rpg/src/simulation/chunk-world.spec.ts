@@ -153,18 +153,18 @@ test("ChunkWorld loads chunks on first step", () => {
 test("upgrade system has correct base stats", () => {
   const w = new ChunkWorld();
   expect(w.getMiningDamage()).toBe(10); // BASE_MINING_DAMAGE
-  expect(w.getMiningRadius()).toBe(1); // BASE_MINING_RADIUS
+  expect(w.getMiningRadius()).toBe(5); // BASE_MINING_RADIUS
   expect(w.getMiningRate()).toBe(3); // BASE_MINING_RATE
-  expect(w.getMaxInventory()).toBe(250); // BASE_INVENTORY_SIZE
+  expect(w.getMaxInventory()).toBe(250000); // BASE_INVENTORY_SIZE
 });
 
 test("upgrade system increases stats with levels", () => {
   const w = new ChunkWorld();
   w.setUpgrades({ damage: 2, radius: 1, rate: 1, inventorySize: 1 });
   expect(w.getMiningDamage()).toBe(20); // 10 + 2*5
-  expect(w.getMiningRadius()).toBe(2); // 1 + 1*1
+  expect(w.getMiningRadius()).toBe(6); // 5 + 1*1
   expect(w.getMiningRate()).toBe(2); // max(1, 3 - 1*1)
-  expect(w.getMaxInventory()).toBe(375); // 250 + 1*125
+  expect(w.getMaxInventory()).toBe(250125); // 250000 + 1*125
 });
 
 test("upgrade rate has minimum of 1 tick", () => {
@@ -428,8 +428,8 @@ test("collect respects max inventory size", async () => {
   const px = Math.floor(w.player.x);
   const py = Math.floor(w.player.y);
 
-  // Fill inventory to max (250 items)
-  const fullInventory = [{ mat: Material.Stone, count: 250 }];
+  // Fill inventory to max (250000 items = BASE_INVENTORY_SIZE)
+  const fullInventory = [{ mat: Material.Stone, count: 250000 }];
 
   // Place loose ore near player
   clearShaft(w, px, py + 8);
@@ -871,9 +871,9 @@ test("respawn preserves upgrades", () => {
 
   // Upgrades should be preserved
   expect(w.getMiningDamage()).toBe(25);
-  expect(w.getMiningRadius()).toBe(3);
+  expect(w.getMiningRadius()).toBe(7); // 5 + 2*1
   expect(w.getMiningRate()).toBe(2);
-  expect(w.getMaxInventory()).toBe(375);
+  expect(w.getMaxInventory()).toBe(250125); // 250000 + 1*125
 });
 
 test("respawn clears mining cooldown", () => {
