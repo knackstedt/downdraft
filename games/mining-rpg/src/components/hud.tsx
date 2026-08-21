@@ -411,12 +411,16 @@ export function HUD() {
         ) : null;
       })()}
       {lastSaveTime > 0 && (
-        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>
-          Last save: {(() => {
+        <div style={{ fontSize: 9, color: (() => {
+          const ago = Math.floor((Date.now() - lastSaveTime) / 1000);
+          return ago < 3 ? "#4caf50" : "rgba(255,255,255,0.3)";
+        })() }}>
+          {(() => {
             const ago = Math.floor((Date.now() - lastSaveTime) / 1000);
-            if (ago < 60) return `${ago}s ago`;
-            if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
-            return `${Math.floor(ago / 3600)}h ago`;
+            if (ago < 3) return "Saving...";
+            if (ago < 60) return `Last save: ${ago}s ago`;
+            if (ago < 3600) return `Last save: ${Math.floor(ago / 60)}m ago`;
+            return `Last save: ${Math.floor(ago / 3600)}h ago`;
           })()}
         </div>
       )}
