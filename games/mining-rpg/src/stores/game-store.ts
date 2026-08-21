@@ -291,6 +291,8 @@ export interface GameState {
   setZoom: (z: number) => void;
   onGround: boolean; // true if player is standing on ground
   setOnGround: (v: boolean) => void;
+  welcomeBack: string | null; // welcome back message when loading a save
+  setWelcomeBack: (msg: string | null) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -335,6 +337,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   bombCount: 0,
   zoom: 1,
   onGround: true,
+  welcomeBack: null,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -553,4 +556,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setBombCount: (bombCount) => set({ bombCount }),
   setZoom: (zoom) => set({ zoom }),
   setOnGround: (onGround) => set({ onGround }),
+  setWelcomeBack: (welcomeBack) => set({ welcomeBack }),
 }));
