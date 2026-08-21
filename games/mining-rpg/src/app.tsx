@@ -90,7 +90,7 @@ export default function App() {
       <DeathMenu />
       <EscapeMenu />
       <div style={helpStyle}>
-        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | E: sell | F2: chunk borders | F3: noclip | ESC: menu
+        WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build mode | 1/2/3: select scaffolding/ladder/rope | P: pause | I: inventory | E: sell | F2: chunk borders | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
       </div>
     </>

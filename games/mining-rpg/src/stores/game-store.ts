@@ -1,6 +1,6 @@
 import { Material } from "@downdraft/library-sand";
 import { create } from "zustand";
-import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, OXYGEN_MAX_TICKS, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
+import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, OXYGEN_MAX_TICKS, SELL_PRICES, upgradePrice, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
 import type { BuildMaterials, InventoryEntry, PlayerUpgrades } from "../shared/types";
 
 // ============================================================================
@@ -181,6 +181,13 @@ export interface GameState {
    * of truth and emits the updated counts.
    */
   buyBuildMaterial: (type: BuildMaterialType, qty: number) => boolean;
+  /**
+   * Purchase one level of an upgrade at the signpost shop. Checks currency,
+   * checks max level, deducts gold, and increments the upgrade level. Does NOT
+   * sync to the worker — the caller (renderer) forwards the new upgrades to
+   * the worker via setUpgrades(). Returns true on success.
+   */
+  purchaseUpgrade: (config: UpgradeConfig) => boolean;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -264,6 +271,18 @@ export const useGameStore = create<GameState>((set, get) => ({
     const s = get();
     if (s.currency < price) return false;
     set({ currency: s.currency - price });
+    return true;
+  },
+  purchaseUpgrade: (config) => {
+    const s = get();
+    const currentLevel = s.upgrades[config.key];
+    if (currentLevel >= config.maxLevel) return false;
+    const price = upgradePrice(config, currentLevel);
+    if (s.currency < price) return false;
+    set({
+      currency: s.currency - price,
+      upgrades: { ...s.upgrades, [config.key]: currentLevel + 1 },
+    });
     return true;
   },
 }));

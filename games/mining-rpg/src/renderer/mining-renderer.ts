@@ -12,7 +12,7 @@
 
 import { GPUDeviceManager } from "@downdraft/core";
 import { Material, MATERIALS } from "@downdraft/library-sand";
-import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, HEADLAMP_COLOR, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED } from "../shared/constants";
+import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, HEADLAMP_COLOR, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
 import type { SavedGlowstick } from "../shared/types";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
@@ -1180,10 +1180,23 @@ export class MiningRenderer {
    * is the source of truth for counts; it emits the updated counts back).
    * Returns true on success, false if not enough gold.
    */
-  buyBuildMaterial(type: "scaffolding" | "ladder" | "rope", qty: number): boolean {
+  buyBuildMaterial(type: BuildMaterialType, qty: number): boolean {
     const s = useGameStore.getState();
     if (!s.buyBuildMaterial(type, qty)) return false;
     this.workerHost?.addBuildMaterial(type, qty);
+    return true;
+  }
+
+  /**
+   * Purchase one level of an upgrade at the signpost shop. Checks + deducts
+   * currency (store-side) and syncs the new upgrade levels to the worker
+   * (which uses them for mining damage/radius/rate/inventory calculations).
+   * Returns true on success, false if not enough gold or already maxed.
+   */
+  purchaseUpgrade(config: UpgradeConfig): boolean {
+    const s = useGameStore.getState();
+    if (!s.purchaseUpgrade(config)) return false;
+    this.workerHost?.setUpgrades(useGameStore.getState().upgrades);
     return true;
   }
 }
