@@ -13,6 +13,7 @@ import { KeyBindingsOverlay } from "./components/key-bindings-overlay";
 import { Minimap } from "./components/minimap";
 import { OreTooltip } from "./components/ore-tooltip";
 import { ParticleEffects } from "./components/particle-effects";
+import { ScreenShake } from "./components/screen-shake";
 import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
