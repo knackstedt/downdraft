@@ -250,6 +250,7 @@ export class MiningRenderer {
     // Deduct gold and teleport
     s.addCurrency(-cost);
     s.recordGoldSpent(cost);
+    s.recordTeleport();
     this.resetInterpolation();
     this.workerHost?.respawn();
     return true;

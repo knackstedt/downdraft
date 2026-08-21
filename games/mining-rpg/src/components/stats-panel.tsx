@@ -202,6 +202,14 @@ export function StatsPanel() {
         <span style={labelStyle}>Blocks Placed</span>
         <span style={valueStyle}>{stats.totalBlocksPlaced}</span>
       </div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Bars Crafted</span>
+        <span style={valueStyle}>{stats.totalBarsCrafted}</span>
+      </div>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Teleports Used</span>
+        <span style={valueStyle}>{stats.totalTeleports}</span>
+      </div>
 
       {collectedEntries.length > 0 && (
         <>

@@ -148,6 +148,10 @@ export interface PlayerStats {
   totalGlowsticksThrown: number;
   /** Total number of blocks placed (build mode). */
   totalBlocksPlaced: number;
+  /** Total number of bars crafted (smelted at the furnace). */
+  totalBarsCrafted: number;
+  /** Total number of teleports to surface used. */
+  totalTeleports: number;
   /** Per-material collection counts (material ID → count). */
   collectedByMaterial: Record<number, number>;
   /** Death count by cause (Material ID or DeathCause ID → count). */
@@ -167,6 +171,8 @@ export function createPlayerStats(): PlayerStats {
     totalBombsThrown: 0,
     totalGlowsticksThrown: 0,
     totalBlocksPlaced: 0,
+    totalBarsCrafted: 0,
+    totalTeleports: 0,
     collectedByMaterial: {},
     deathsByCause: {},
   };
