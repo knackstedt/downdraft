@@ -19,6 +19,7 @@ import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
 import { TitleScreen } from "./components/title-screen";
+import { VillageOverlay } from "./components/village-overlay";
 import { WelcomeBack } from "./components/welcome-back";
 import { createCraftedItems, createPlayerStats } from "./shared/types";
 import { useGameStore } from "./stores/game-store";
@@ -185,6 +186,7 @@ export default function App() {
       <InventoryPanel />
       <SignpostOverlay />
       <SignpostPrompt />
+      <VillageOverlay />
       <ShopPanel />
       <BombOverlay />
       <ChunkDebugOverlay />
