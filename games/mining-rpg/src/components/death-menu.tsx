@@ -79,9 +79,20 @@ const respawnButtonStyle: React.CSSProperties = {
 };
 
 export function DeathMenu() {
-  const { gameOver, deathQuip, renderer, stats, depth } = useGameStore();
+  const { gameOver, deathQuip, deathCause, renderer, stats, depth } = useGameStore();
 
   if (!gameOver) return null;
+
+  // Death cause icon
+  const deathIcon = (() => {
+    if (deathCause === 1000) return "🪨"; // Suffocation
+    if (deathCause === 1001) return "📉"; // Falling
+    if (deathCause === 1002) return "🌊"; // Drowning
+    if (deathCause === 255) return "🌋"; // Lava
+    if (deathCause === 254) return "🔥"; // Fire
+    if (deathCause === 253) return "☠️"; // Gas
+    return "💀"; // Unknown
+  })();
 
   const handleRespawn = () => {
     const r = renderer as { respawn?: () => void } | null;
@@ -93,7 +104,7 @@ export function DeathMenu() {
   return (
     <div style={overlayStyle}>
       <div style={panelStyle}>
-        <h1 style={titleStyle}>YOU DIED</h1>
+        <h1 style={titleStyle}>{deathIcon} YOU DIED</h1>
         <p style={quipStyle}>{deathQuip}</p>
         <div style={deathStatsStyle}>
           <div>Depth: {depthMeters}m</div>
