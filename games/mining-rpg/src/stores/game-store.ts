@@ -271,6 +271,7 @@ export interface GameState {
   toggleMinimap: () => void;
   // Particle effects
   spawnParticles: (x: number, y: number, color: string, count: number) => void;
+  spawnFloatingText: (x: number, y: number, text: string, color: string) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -498,4 +499,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setLastSaveTime: (lastSaveTime) => set({ lastSaveTime }),
   toggleMinimap: () => set((s) => ({ showMinimap: !s.showMinimap })),
   spawnParticles: () => {}, // overridden by ParticleEffects component
+  spawnFloatingText: () => {}, // overridden by ParticleEffects component
 }));
