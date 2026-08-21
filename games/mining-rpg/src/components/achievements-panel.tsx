@@ -170,6 +170,23 @@ export function AchievementsPanel() {
         </span>
       </div>
 
+      {/* Category summary */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+        {Array.from(byCategory.entries()).map(([cat, list]) => {
+          const unlocked = list.filter((a) => unlockedAchievements.has(a.id)).length;
+          return (
+            <span key={cat} style={{
+              padding: "2px 6px",
+              borderRadius: 3,
+              background: "rgba(255,255,255,0.05)",
+              textTransform: "capitalize",
+            }}>
+              {cat}: {unlocked}/{list.length}
+            </span>
+          );
+        })}
+      </div>
+
       {CATEGORY_ORDER.map((category) => {
         const achievements = byCategory.get(category);
         if (!achievements || achievements.length === 0) return null;
