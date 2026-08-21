@@ -1,7 +1,8 @@
 import { Material } from "@downdraft/library-sand";
 import { create } from "zustand";
 import { BASE_INVENTORY_SIZE, BUILD_MATERIAL_ID, BUILD_MATERIAL_PRICES, DeathCause, INVENTORY_SIZE_UPGRADE_INCREMENT, OXYGEN_MAX_TICKS, SELL_PRICES, upgradePrice, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
-import type { BuildMaterials, InventoryEntry, PlayerUpgrades } from "../shared/types";
+import type { BuildMaterials, InventoryEntry, PlayerStats, PlayerUpgrades } from "../shared/types";
+import { createPlayerStats } from "../shared/types";
 
 // ============================================================================
 // Death messages — a single object covering all death causes.
@@ -137,6 +138,9 @@ export interface GameState {
   noclip: boolean; // true when noclip (free flight through terrain) is active
   // Lighting
   headlampOn: boolean; // true when the player headlamp is on (toggle with L)
+  // Statistics
+  stats: PlayerStats; // cumulative playthrough statistics (persisted)
+  showStats: boolean; // true when the stats panel is open (toggle with Tab)
 
   setFPS: (fps: number) => void;
   setHealth: (health: number) => void;
@@ -188,6 +192,32 @@ export interface GameState {
    * the worker via setUpgrades(). Returns true on success.
    */
   purchaseUpgrade: (config: UpgradeConfig) => boolean;
+  // Statistics
+  setStats: (stats: PlayerStats) => void;
+  setShowStats: (show: boolean) => void;
+  toggleStats: () => void;
+  /** Record items collected (updates per-material + total counters). */
+  recordCollected: (items: InventoryEntry[]) => void;
+  /** Record a death (increments total + per-cause counter). */
+  recordDeath: (cause: number) => void;
+  /** Record gold earned from selling. */
+  recordGoldEarned: (amount: number) => void;
+  /** Record gold spent (upgrades + build materials). */
+  recordGoldSpent: (amount: number) => void;
+  /** Record a bomb thrown. */
+  recordBombThrown: () => void;
+  /** Record a glowstick thrown. */
+  recordGlowstickThrown: () => void;
+  /** Record blocks placed in build mode. */
+  recordBlocksPlaced: (count: number) => void;
+  /** Record cells mined (dislodged from terrain). */
+  recordCellsMined: (count: number) => void;
+  /** Update max depth if the given depth is deeper than the current record. */
+  recordDepth: (depthCells: number) => void;
+  /** Add ticks to the total play time counter. */
+  recordTicks: (ticks: number) => void;
+  /** Reset all stats to zero (called on world reset). */
+  resetStats: () => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -214,6 +244,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 },
   noclip: false,
   headlampOn: true,
+  stats: createPlayerStats(),
+  showStats: false,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -253,7 +285,11 @@ export const useGameStore = create<GameState>((set, get) => ({
         const price = SELL_PRICES[entry.mat] ?? 0;
         total += price * entry.count;
       }
-      return { inventory: [], currency: s.currency + total };
+      return {
+        inventory: [],
+        currency: s.currency + total,
+        stats: { ...s.stats, totalGoldEarned: s.stats.totalGoldEarned + total },
+      };
     }),
   getMaxInventory: () => BASE_INVENTORY_SIZE + get().upgrades.inventorySize * INVENTORY_SIZE_UPGRADE_INCREMENT,
   getInventoryCount: () => get().inventory.reduce((sum, e) => sum + e.count, 0),
@@ -270,7 +306,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const price = BUILD_MATERIAL_PRICES[type] * qty;
     const s = get();
     if (s.currency < price) return false;
-    set({ currency: s.currency - price });
+    set({
+      currency: s.currency - price,
+      stats: { ...s.stats, totalGoldSpent: s.stats.totalGoldSpent + price },
+    });
     return true;
   },
   purchaseUpgrade: (config) => {
@@ -282,7 +321,54 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({
       currency: s.currency - price,
       upgrades: { ...s.upgrades, [config.key]: currentLevel + 1 },
+      stats: { ...s.stats, totalGoldSpent: s.stats.totalGoldSpent + price },
     });
     return true;
   },
+  // Statistics
+  setStats: (stats) => set({ stats }),
+  setShowStats: (showStats) => set({ showStats }),
+  toggleStats: () => set((s) => ({ showStats: !s.showStats })),
+  recordCollected: (items) =>
+    set((s) => {
+      const collectedByMaterial = { ...s.stats.collectedByMaterial };
+      let totalItems = s.stats.totalItemsCollected;
+      for (const item of items) {
+        collectedByMaterial[item.mat] = (collectedByMaterial[item.mat] ?? 0) + item.count;
+        totalItems += item.count;
+      }
+      return { stats: { ...s.stats, totalItemsCollected: totalItems, collectedByMaterial } };
+    }),
+  recordDeath: (cause) =>
+    set((s) => ({
+      stats: {
+        ...s.stats,
+        totalDeaths: s.stats.totalDeaths + 1,
+        deathsByCause: {
+          ...s.stats.deathsByCause,
+          [cause]: (s.stats.deathsByCause[cause] ?? 0) + 1,
+        },
+      },
+    })),
+  recordGoldEarned: (amount) =>
+    set((s) => ({ stats: { ...s.stats, totalGoldEarned: s.stats.totalGoldEarned + amount } })),
+  recordGoldSpent: (amount) =>
+    set((s) => ({ stats: { ...s.stats, totalGoldSpent: s.stats.totalGoldSpent + amount } })),
+  recordBombThrown: () =>
+    set((s) => ({ stats: { ...s.stats, totalBombsThrown: s.stats.totalBombsThrown + 1 } })),
+  recordGlowstickThrown: () =>
+    set((s) => ({ stats: { ...s.stats, totalGlowsticksThrown: s.stats.totalGlowsticksThrown + 1 } })),
+  recordBlocksPlaced: (count) =>
+    set((s) => ({ stats: { ...s.stats, totalBlocksPlaced: s.stats.totalBlocksPlaced + count } })),
+  recordCellsMined: (count) =>
+    set((s) => ({ stats: { ...s.stats, totalCellsMined: s.stats.totalCellsMined + count } })),
+  recordDepth: (depthCells) =>
+    set((s) =>
+      depthCells > s.stats.maxDepthCells
+        ? { stats: { ...s.stats, maxDepthCells: depthCells } }
+        : {},
+    ),
+  recordTicks: (ticks) =>
+    set((s) => ({ stats: { ...s.stats, totalTicks: s.stats.totalTicks + ticks } })),
+  resetStats: () => set({ stats: createPlayerStats() }),
 }));

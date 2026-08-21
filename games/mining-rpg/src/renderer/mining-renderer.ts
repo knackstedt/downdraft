@@ -144,6 +144,8 @@ export class MiningRenderer {
   private lastTick = -1;
   private renderAccumulator = 0;
   private interpInitialized = false;
+  // Stats tracking: last sim tick we recorded (for delta tick counting)
+  private lastStatsTick = -1;
   // Camera snap-on-first-frame: the camera starts at (0,0) from makeCamera2D
   // (constructor / hot reload). Without this flag, the first updateCamera call
   // lerps from (0,0) toward the player — visible as a tween from the top-left
@@ -288,6 +290,8 @@ export class MiningRenderer {
         if (save.player.health) store.setHealth(save.player.health);
         store.setCurrency(save.currency ?? 0);
         store.setBuildMaterials(save.buildMaterials ?? { scaffolding: 0, ladder: 0, rope: 0, torch: 0 });
+        // Restore stats (old saves without stats get a fresh zeroed stats object)
+        if (save.stats) store.setStats(save.stats);
         // Restore camera zoom (clamped to the allowed range; old saves
         // without a zoom field keep the default from makeCamera2D).
         if (typeof save.zoom === "number" && Number.isFinite(save.zoom)) {
@@ -325,10 +329,10 @@ export class MiningRenderer {
     // --- Set up autosave ---
     this.autosave = new AutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
-      if (!saveData) {
-        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], glowsticks: this.glowsticks, zoom: this.camera.zoom, savedAt: Date.now() };
-      }
       const store = useGameStore.getState();
+      if (!saveData) {
+        return { version: 1, seed: WORLD_SEED, player: { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, animFrame: 0, health: 100, lastDamageMaterial: 0, oxygen: OXYGEN_MAX_TICKS }, upgrades: { damage: 0, radius: 0, rate: 0, inventorySize: 0 }, buildMaterials: { scaffolding: 0, ladder: 0, rope: 0, torch: 0 }, inventory: [], currency: 0, chunks: [], glowsticks: this.glowsticks, zoom: this.camera.zoom, stats: store.stats, savedAt: Date.now() };
+      }
       return {
         version: 1,
         seed: WORLD_SEED,
@@ -340,6 +344,7 @@ export class MiningRenderer {
         chunks: saveData.dirtyChunks,
         glowsticks: this.glowsticks,
         zoom: this.camera.zoom,
+        stats: store.stats,
         savedAt: Date.now(),
       };
     }, deterministic);
@@ -347,8 +352,12 @@ export class MiningRenderer {
 
     // Handle collected items
     this.workerHost.onCollectedItems((items) => {
+      const store = useGameStore.getState();
       for (const item of items) {
-        useGameStore.getState().addToInventory(item.mat, item.count);
+        store.addToInventory(item.mat, item.count);
+      }
+      if (items.length > 0) {
+        store.recordCollected(items);
       }
     });
 
@@ -493,6 +502,8 @@ export class MiningRenderer {
     s.setPaused(false);
     s.setBuildMode(false);
     s.setBuildMaterials({ scaffolding: 0, ladder: 0, rope: 0, torch: 0 });
+    s.resetStats();
+    this.lastStatsTick = -1;
 
     // Clear bombs + explosions + glowsticks
     this.bombs = [];
@@ -509,8 +520,12 @@ export class MiningRenderer {
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
     this.workerHost.onCollectedItems((items) => {
+      const store = useGameStore.getState();
       for (const item of items) {
-        useGameStore.getState().addToInventory(item.mat, item.count);
+        store.addToInventory(item.mat, item.count);
+      }
+      if (items.length > 0) {
+        store.recordCollected(items);
       }
     });
 
@@ -651,6 +666,16 @@ export class MiningRenderer {
     // Cell depth below the surface (for lighting — ambient drops with actual depth)
     const surfaceY = surfaceHeightAt(px, WORLD_SEED);
     const depthCells = Math.max(0, py - surfaceY);
+    // Track stats: max depth + tick count (only when sim is running, not paused)
+    if (!s.paused && !s.gameOver) {
+      s.recordDepth(Math.floor(depthCells));
+      const tick = this.gridReader.getStat(STATS.TICK);
+      const lastTick = this.lastStatsTick;
+      if (lastTick >= 0 && tick > lastTick) {
+        s.recordTicks(tick - lastTick);
+      }
+      this.lastStatsTick = tick;
+    }
     const loadedChunks = this.gridReader.getStat(STATS.LOADED_CHUNKS);
     if (s.loadedChunks !== loadedChunks) s.setLoadedChunks(loadedChunks);
 
@@ -678,6 +703,7 @@ export class MiningRenderer {
       s.setDeathCause(deathCause);
       s.setDeathQuip(pickDeathQuip(deathCause));
       s.setGameOver(true);
+      s.recordDeath(deathCause);
       this.workerHost?.pause();
     }
 
@@ -944,6 +970,7 @@ export class MiningRenderer {
       vy: (dy / dist) * speed - 0.3, // slight upward arc
       ticks: 0,
     });
+    useGameStore.getState().recordBombThrown();
   }
 
   /** Update all active bombs: move, check collision, explode on impact. */
@@ -1056,6 +1083,7 @@ export class MiningRenderer {
       bornAt: Date.now(),
       color: rgb,
     });
+    useGameStore.getState().recordGlowstickThrown();
   }
 
   /** Update all active glowsticks: move with gravity, settle on collision,
