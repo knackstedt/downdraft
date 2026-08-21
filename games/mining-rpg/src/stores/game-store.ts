@@ -218,6 +218,10 @@ export interface GameState {
   recordGlowstickThrown: () => void;
   /** Record blocks placed in build mode. */
   recordBlocksPlaced: (count: number) => void;
+  /** Record bars crafted (smelted at the furnace). */
+  recordBarsCrafted: (count: number) => void;
+  /** Record a teleport to surface. */
+  recordTeleport: () => void;
   /** Record cells mined (dislodged from terrain). */
   recordCellsMined: (count: number) => void;
   /** Update max depth if the given depth is deeper than the current record. */
@@ -413,6 +417,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     set((s) => ({ stats: { ...s.stats, totalGlowsticksThrown: s.stats.totalGlowsticksThrown + 1 } })),
   recordBlocksPlaced: (count) =>
     set((s) => ({ stats: { ...s.stats, totalBlocksPlaced: s.stats.totalBlocksPlaced + count } })),
+  recordBarsCrafted: (count) =>
+    set((s) => ({ stats: { ...s.stats, totalBarsCrafted: s.stats.totalBarsCrafted + count } })),
+  recordTeleport: () =>
+    set((s) => ({ stats: { ...s.stats, totalTeleports: s.stats.totalTeleports + 1 } })),
   recordCellsMined: (count) =>
     set((s) => ({ stats: { ...s.stats, totalCellsMined: s.stats.totalCellsMined + count } })),
   recordDepth: (depthCells) =>
@@ -450,7 +458,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     const newInventory = consumeInputs(recipe, s.inventory);
     const newCrafted = { ...s.craftedItems };
     newCrafted[recipe.output] = newCrafted[recipe.output] + recipe.outputCount;
-    set({ inventory: newInventory, craftedItems: newCrafted });
+    set({
+      inventory: newInventory,
+      craftedItems: newCrafted,
+      stats: { ...s.stats, totalBarsCrafted: s.stats.totalBarsCrafted + recipe.outputCount },
+    });
     return true;
   },
   sellCraftedItems: () => {

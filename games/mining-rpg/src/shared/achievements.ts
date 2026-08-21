@@ -15,8 +15,7 @@
 //   - Upgrade milestones (max out upgrades)
 // ============================================================================
 
-import type { PlayerStats } from "./types";
-import type { PlayerUpgrades } from "./types";
+import type { PlayerStats, PlayerUpgrades } from "./types";
 
 export interface AchievementContext {
   stats: PlayerStats;
@@ -270,6 +269,50 @@ export const ACHIEVEMENTS: Achievement[] = [
     icon: "🎒",
     category: "upgrade",
     check: (ctx) => ctx.upgrades.inventorySize >= 10,
+  },
+
+  // --- Crafting milestones ---
+  {
+    id: "first-bar",
+    name: "First Bar",
+    description: "Smelt your first bar at the furnace",
+    icon: "🔥",
+    category: "collection",
+    check: (ctx) => ctx.stats.totalBarsCrafted >= 1,
+  },
+  {
+    id: "craft-50",
+    name: "Smelter",
+    description: "Craft 50 bars",
+    icon: "🏭",
+    category: "collection",
+    check: (ctx) => ctx.stats.totalBarsCrafted >= 50,
+  },
+  {
+    id: "craft-500",
+    name: "Industrial Forge",
+    description: "Craft 500 bars",
+    icon: "⚒️",
+    category: "collection",
+    check: (ctx) => ctx.stats.totalBarsCrafted >= 500,
+  },
+
+  // --- Teleport milestones ---
+  {
+    id: "first-teleport",
+    name: "Fast Travel",
+    description: "Use the teleport to surface for the first time",
+    icon: "🌀",
+    category: "economy",
+    check: (ctx) => ctx.stats.totalTeleports >= 1,
+  },
+  {
+    id: "teleport-10",
+    name: "Frequent Flyer",
+    description: "Use the teleport 10 times",
+    icon: "✈️",
+    category: "economy",
+    check: (ctx) => ctx.stats.totalTeleports >= 10,
   },
 ];
 
