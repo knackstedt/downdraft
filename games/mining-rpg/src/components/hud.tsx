@@ -338,6 +338,11 @@ export function HUD() {
           Bombs: {stats.totalBombsThrown} | Sticks: {stats.totalGlowsticksThrown}
         </div>
       )}
+      {stats.totalBlocksPlaced > 0 && (
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>
+          Built: {stats.totalBlocksPlaced} blocks
+        </div>
+      )}
       {(() => {
         const totalUpgrades = upgrades.damage + upgrades.radius + upgrades.rate + upgrades.inventorySize;
         return totalUpgrades > 0 ? (
