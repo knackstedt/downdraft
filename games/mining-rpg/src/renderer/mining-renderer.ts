@@ -805,6 +805,8 @@ export class MiningRenderer {
     if (Math.abs(s.playerSpeed - speed) > 0.5) s.setPlayerSpeed(speed);
     // Sync glowstick count
     if (s.glowstickCount !== this.glowsticks.length) s.setGlowstickCount(this.glowsticks.length);
+    // Sync bomb count
+    if (s.bombCount !== this.bombs.length) s.setBombCount(this.bombs.length);
     if (s.health !== health) {
       // Detect damage (health decreased) and spawn floating damage number
       if (health < s.health && !this.respawning) {

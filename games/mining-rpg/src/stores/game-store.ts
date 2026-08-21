@@ -285,6 +285,8 @@ export interface GameState {
   setPlayerSpeed: (s: number) => void;
   glowstickCount: number; // active glowsticks in the world
   setGlowstickCount: (n: number) => void;
+  bombCount: number; // active bombs in the world
+  setBombCount: (n: number) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -326,6 +328,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   playerFacing: 1,
   playerSpeed: 0,
   glowstickCount: 0,
+  bombCount: 0,
 
   setFPS: (fps) => set({ fps }),
   setHealth: (health) => set({ health }),
@@ -541,4 +544,5 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPlayerFacing: (playerFacing) => set({ playerFacing }),
   setPlayerSpeed: (playerSpeed) => set({ playerSpeed }),
   setGlowstickCount: (glowstickCount) => set({ glowstickCount }),
+  setBombCount: (bombCount) => set({ bombCount }),
 }));
