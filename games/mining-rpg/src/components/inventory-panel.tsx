@@ -6,8 +6,8 @@
 // ============================================================================
 
 import { Material } from "@downdraft/library-sand";
-import { BUILD_MATERIAL_INFO, type BuildMaterialType } from "../shared/constants";
-import { CRAFTED_ITEM_INFO } from "../shared/crafting-recipes";
+import { BUILD_MATERIAL_INFO, SELL_PRICES, type BuildMaterialType } from "../shared/constants";
+import { CRAFTED_ITEM_INFO, CRAFTED_SELL_PRICES } from "../shared/crafting-recipes";
 import type { CraftedItemId } from "../shared/types";
 import { useGameStore } from "../stores/game-store";
 
