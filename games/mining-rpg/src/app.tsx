@@ -3,6 +3,7 @@ import { AchievementNotification } from "./components/achievement-notification";
 import { AchievementsPanel } from "./components/achievements-panel";
 import { BombOverlay } from "./components/bomb-overlay";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
+import { DangerVignette } from "./components/danger-vignette";
 import { DeathMenu } from "./components/death-menu";
 import { DepthNotification } from "./components/depth-notification";
 import { EscapeMenu } from "./components/escape-menu";
@@ -143,6 +144,7 @@ export default function App() {
       <KeyBindingsOverlay />
       <OreTooltip />
       <DepthNotification />
+      <DangerVignette />
       <div style={helpStyle}>
         WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}
