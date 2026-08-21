@@ -272,10 +272,14 @@ export function Minimap() {
     };
   }, []);
 
+  const { showMinimap } = useGameStore();
+
+  if (!showMinimap) return null;
+
   return (
     <div style={containerStyle}>
       <canvas ref={canvasRef} style={canvasStyle} />
-      <div style={labelStyle}>MAP</div>
+      <div style={labelStyle}>MAP (M)</div>
       <DepthIndicator />
     </div>
   );

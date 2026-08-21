@@ -105,6 +105,10 @@ export default function App() {
         const r = s.renderer as { teleportToSurface?: () => boolean } | null;
         r?.teleportToSurface?.();
       }
+      // M toggles the minimap
+      if (e.key === "m" || e.key === "M") {
+        useGameStore.getState().toggleMinimap();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

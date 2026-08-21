@@ -138,6 +138,7 @@ const CATEGORIES: { title: string; bindings: Binding[] }[] = [
     bindings: [
       { key: "Tab", desc: "Toggle statistics panel" },
       { key: "F4", desc: "Toggle achievements panel" },
+      { key: "M", desc: "Toggle minimap" },
       { key: "H", desc: "Toggle this help screen" },
       { key: "ESC", desc: "Pause menu / settings" },
     ],
