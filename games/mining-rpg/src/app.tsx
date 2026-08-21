@@ -7,6 +7,7 @@ import { DeathMenu } from "./components/death-menu";
 import { EscapeMenu } from "./components/escape-menu";
 import { HUD } from "./components/hud";
 import { InventoryPanel } from "./components/inventory-panel";
+import { Minimap } from "./components/minimap";
 import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
@@ -101,6 +102,7 @@ export default function App() {
   return (
     <>
       <HUD />
+      <Minimap />
       <InventoryPanel />
       <SignpostOverlay />
       <SignpostPrompt />
