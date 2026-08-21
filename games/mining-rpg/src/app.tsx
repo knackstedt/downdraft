@@ -18,6 +18,7 @@ import { SignpostOverlay } from "./components/signpost-overlay";
 import { SignpostPrompt } from "./components/signpost-prompt";
 import { StatsPanel } from "./components/stats-panel";
 import { TitleScreen } from "./components/title-screen";
+import { WelcomeBack } from "./components/welcome-back";
 import { useGameStore } from "./stores/game-store";
 
 const helpStyle: React.CSSProperties = {
@@ -159,6 +160,7 @@ export default function App() {
       <DangerVignette />
       <ParticleEffects />
       <ScreenShake />
+      <WelcomeBack />
       <div style={helpStyle}>
         WASD/Arrows: move | Space: jump | Left-click: dig | Right-click: bomb | B: build | I: inventory | Tab: stats | F4: achievements | M: map | H: help | E: sell | T: teleport | R: reset zoom | F3: noclip | ESC: menu | Upgrades at signpost
         {paused && " | PAUSED"}

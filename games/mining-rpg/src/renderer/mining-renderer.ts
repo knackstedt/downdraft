@@ -420,6 +420,17 @@ export class MiningRenderer {
             color: g.color as [number, number, number],
           }))
           .slice(0, MAX_GLOWSTICKS);
+        // Show welcome back message
+        const stats = store.stats;
+        const playTimeSecs = Math.floor(stats.totalTicks / 60);
+        const playTimeStr = playTimeSecs > 3600
+          ? `${Math.floor(playTimeSecs / 3600)}h ${Math.floor((playTimeSecs % 3600) / 60)}m`
+          : playTimeSecs > 60
+            ? `${Math.floor(playTimeSecs / 60)}m`
+            : `${playTimeSecs}s`;
+        store.setWelcomeBack(
+          `Welcome back! Depth: ${stats.maxDepthCells}m | Gold: ${save.currency ?? 0}g | Play time: ${playTimeStr} | Deaths: ${stats.totalDeaths}`
+        );
       }
     } catch (e) {
       console.warn("[MiningRenderer] Failed to load save:", e);
