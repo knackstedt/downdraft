@@ -118,6 +118,7 @@ export enum Material {
   Glitch = 103,      // randomly swaps with any neighboring material
   Tar = 104,         // very slow, very dense liquid
   Duplicator = 105,  // static — locks onto the first material that touches it and clones it forever
+  Void = 106,        // static — swallows up any material that touches it (like a black hole)
 }
 
 export const MAX_MATERIAL = 256;
@@ -373,6 +374,12 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // cells. Does not move, does not react otherwise (acid-immune, skipped by
   // antimatter). MAT_HAS_REACTIONS keeps it in the active list.
   [Material.Duplicator]: def(105, "Duplicator", [0.85, 0.85, 0.30, 1.0], { density: 3.0, solid: true, albedo: 0.4, reflectivity: 0.3, brightness: 1.1 }),
+  // Void: a static solid that swallows up any material that touches it.
+  // Any adjacent non-empty, non-wall, non-void, non-duplicator cell is
+  // destroyed (set to empty) each frame. The void itself is permanent —
+  // acid-immune, antimatter barrier, never falls. Visually a deep black
+  // with a faint purple edge so it reads as a "black hole".
+  [Material.Void]: def(106, "Void", [0.02, 0.0, 0.05, 1.0], { density: 5.0, solid: true, albedo: 0.0, reflectivity: 0.0, brightness: 0.3 }),
 };
 
 export function getMaterialColor(mat: Material): [number, number, number, number] {
@@ -471,11 +478,15 @@ function buildMaterialTables(): void {
   // Duplicator is immune to acid — it "does not react otherwise" and must
   // persist to keep cloning. Acid eating it would silently destroy it.
   IS_ACID_IMMUNE[Material.Duplicator] = 1;
+  // Void is immune to acid — it's a permanent fixture that swallows acid
+  // like any other material. Acid can't erode it.
+  IS_ACID_IMMUNE[Material.Void] = 1;
   // Static materials with self-triggered reactions (must stay in active list)
   MAT_HAS_REACTIONS[Material.Ice] = 1; // melts near heat / high temp
   MAT_HAS_REACTIONS[Material.ColdVapor] = 1; // dissipates via lifetime decay
   MAT_HAS_REACTIONS[Material.Mold] = 1; // spreads to food + releases spores when starved
   MAT_HAS_REACTIONS[Material.Duplicator] = 1; // clones locked material into adjacent empty cells
+  MAT_HAS_REACTIONS[Material.Void] = 1; // swallows adjacent materials each frame
 }
 
 buildMaterialTables();

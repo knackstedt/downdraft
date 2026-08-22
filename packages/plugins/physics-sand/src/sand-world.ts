@@ -706,6 +706,11 @@ export class SandWorld {
     if (gravityDir === 0) {
       const lifetime = (packed >> 8) & 0xff;
       if (lifetime === 0) return;
+      // Duplicator stores the locked material id in its lifetime field, but
+      // it must NEVER fall — it's a permanent static solid. Skip the
+      // "loosened static solid" fall path entirely for Duplicator.
+      // Void is also a permanent static solid that must never fall.
+      if (mat === Material.Duplicator || mat === Material.Void) return;
       // Loosened static solid — fall downward (default direction)
     } else {
       // Normal falling material — check gravity field below
@@ -1310,7 +1315,8 @@ export class SandWorld {
             if (nx < wxMin || nx >= wxMax) continue;
             const nMat = grid[ny * W + nx] & 0xff;
             if (nMat !== Material.Empty && nMat !== Material.Antimatter &&
-                nMat !== Material.Wall && nMat !== Material.Duplicator) {
+                nMat !== Material.Wall && nMat !== Material.Duplicator &&
+                nMat !== Material.Void) {
               contactX = nx; contactY = ny; break;
             }
           }
@@ -2230,8 +2236,11 @@ export class SandWorld {
         const locked = lifetime; // 0 = not locked; otherwise = material id
         if (locked === 0) {
           // Not yet locked — scan neighbors for a material to lock onto.
-          // Skip Empty, Wall, other Duplicators, and Antimatter (cloning
-          // antimatter would be catastrophically destructive).
+          // Skip Empty, Wall, other Duplicators, Antimatter (would be
+          // catastrophically destructive), Acid, and Base — the duplicator
+          // should not react with these at all (like Wall). Cloning acid
+          // would spread corrosion through the duplicator; cloning base is
+          // equally undesirable.
           for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
               if (dx === 0 && dy === 0) continue;
@@ -2240,7 +2249,8 @@ export class SandWorld {
               if (nx < wxMin || nx >= wxMax) continue;
               const nMat = grid[ny * W + nx] & 0xff;
               if (nMat !== Material.Empty && nMat !== Material.Wall &&
-                  nMat !== Material.Duplicator && nMat !== Material.Antimatter) {
+                  nMat !== Material.Duplicator && nMat !== Material.Antimatter &&
+                  nMat !== Material.Acid && nMat !== Material.Base) {
                 // Lock onto this material (store its id in the lifetime field).
                 grid[idx] = packCell(Material.Duplicator, nMat, flags & ~FLAG_UPDATED);
                 break;
@@ -2249,9 +2259,9 @@ export class SandWorld {
             if (((grid[idx] >> 8) & 0xff) !== 0) break;
           }
         } else {
-          // Locked — spawn the locked material into an adjacent empty cell.
+          // Locked — spawn the locked material into an adjacent empty cell,
+          // and slowly propagate the lock to adjacent unlocked Duplicators.
           // Low chance per frame so it produces a steady trickle, not a flood.
-          // Spawns into any of the 8 surrounding cells (not just cardinal).
           if (this.rng.random() < 0.15) {
             const DUP_DIRS = [1, 0, -1, 0, 0, 1, 0, -1, 1, 1, -1, -1, 1, -1, -1, 1];
             const di = Math.floor(this.rng.random() * 8) * 2;
@@ -2262,6 +2272,52 @@ export class SandWorld {
                 const spawnMat = locked;
                 grid[ni] = packCell(spawnMat, MAT_LIFETIME[spawnMat], this.rng.randomShade());
               }
+            }
+          }
+          // Propagate lock to adjacent unlocked Duplicators — same low chance
+          // so the lock creeps across a duplicator cluster slowly.
+          if (this.rng.random() < 0.15) {
+            const PROP_DIRS = [1, 0, -1, 0, 0, 1, 0, -1];
+            const di = Math.floor(this.rng.random() * 4) * 2;
+            const nx = x + PROP_DIRS[di], ny = y + PROP_DIRS[di + 1];
+            if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax) {
+              const ni = ny * W + nx;
+              const nPacked = grid[ni];
+              // Only lock an adjacent Duplicator that is NOT yet locked
+              // (lifetime === 0). Don't overwrite an existing lock — a
+              // duplicator that already locked onto a different material
+              // keeps its own lock.
+              if ((nPacked & 0xff) === Material.Duplicator &&
+                  ((nPacked >> 8) & 0xff) === 0) {
+                grid[ni] = packCell(Material.Duplicator, locked, nPacked >> 16 & 0xff);
+              }
+            }
+          }
+        }
+        continue;
+      }
+
+      // --- Void: a static solid that swallows up any material that touches
+      // it. Each frame, every adjacent non-empty cell (except Wall, other
+      // Void, and Duplicator — those are permanent barriers) is destroyed
+      // (set to empty). The void itself is never consumed. Acid-immune,
+      // antimatter barrier, never falls. MAT_HAS_REACTIONS keeps it active. ---
+      if (mat === Material.Void) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
+            const ni = ny * W + nx;
+            const nMat = grid[ni] & 0xff;
+            // Swallow everything except Empty, Wall, Void, Duplicator, and
+            // Antimatter (those are permanent — void doesn't eat itself or
+            // other exotic barriers).
+            if (nMat !== Material.Empty && nMat !== Material.Wall &&
+                nMat !== Material.Void && nMat !== Material.Duplicator &&
+                nMat !== Material.Antimatter) {
+              grid[ni] = 0;
             }
           }
         }
@@ -2424,8 +2480,9 @@ export class SandWorld {
       const px = idx % W;
       const py = (idx / W) | 0;
       const m = grid[idx] & 0xff;
-      // Stop at empty, wall, or duplicator (barriers)
-      if (m === Material.Empty || m === Material.Wall || m === Material.Duplicator) continue;
+      // Stop at empty, wall, duplicator, or void (barriers)
+      if (m === Material.Empty || m === Material.Wall || m === Material.Duplicator ||
+          m === Material.Void) continue;
       cells.push(idx);
       // Push 8 neighbors (only those within write bounds — cross-strip
       // annihilation is handled by the coordinator's boundary cleanup)

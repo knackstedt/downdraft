@@ -26,7 +26,7 @@ const materialNames = [
   "Ethereal Vapor", "Alchemical Slag",
   "Scaffolding", "Ladder", "Rope", "Torch", "Cold Vapor",
   "Acid", "Base",
-  "Obsidian", "Spore", "Mold", "Glitch", "Tar", "Duplicator",
+  "Obsidian", "Spore", "Mold", "Glitch", "Tar", "Duplicator", "Void",
 ];
 
 /** Convert a material's float color [0-1] to a CSS rgb string. */

@@ -1374,3 +1374,121 @@ test("duplicator is immune to acid", () => {
   // Duplicator should survive — acid can't eat it.
   expect(countMat(w, Material.Duplicator)).toBe(1);
 });
+
+test("locked duplicator propagates its lock to adjacent unlocked duplicators", () => {
+  // A row of duplicators: the leftmost is touched by sand and locks onto it.
+  // The lock should slowly spread to the adjacent unlocked duplicators so
+  // they all start cloning sand. Each duplicator has empty space above it
+  // so spawned sand is visible in each column. A wall at (4,16) blocks sand
+  // from flowing right and touching the other duplicators directly — they
+  // can only lock via propagation.
+  const w = new SandWorld(12, 20, { skipStoneFloor: true });
+  // Two-row wall floor
+  for (let x = 0; x < 12; x++) {
+    w.setCell(x, 18, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(x, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  // Row of 4 duplicators at y=17
+  for (let x = 3; x <= 6; x++) w.setCell(x, 17, { mat: Material.Duplicator, lifetime: 0, flags: 0 });
+  // Sand above the leftmost duplicator only
+  w.setCell(3, 16, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  // Wall at (4,16) blocks sand from flowing right to touch other duplicators
+  w.setCell(4, 16, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // (5,16) and (6,16) are empty — duplicators can spawn there
+  // Side walls to contain spawned sand
+  w.setCell(2, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(7, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 600);
+  // All 4 duplicators should still exist.
+  expect(countMat(w, Material.Duplicator)).toBe(4);
+  // Sand should appear in multiple columns above the duplicators (x=3..6),
+  // proving that the lock propagated and multiple duplicators are cloning.
+  let sandColumns = 0;
+  for (let x = 3; x <= 6; x++) {
+    for (let y = 0; y < 17; y++) {
+      if (matAt(w, x, y) === Material.Sand) { sandColumns++; break; }
+    }
+  }
+  expect(sandColumns).toBeGreaterThan(1);
+});
+
+// --- Void tests ---
+
+test("void swallows adjacent materials", () => {
+  // Void surrounded by sand should consume all the sand over time.
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Void in the center, sand all around it
+  w.setCell(4, 14, { mat: Material.Void, lifetime: 0, flags: 0 });
+  w.setCell(3, 14, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  w.setCell(4, 13, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  w.setCell(3, 13, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  w.setCell(5, 13, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 30);
+  // Void should still exist (never consumed).
+  expect(countMat(w, Material.Void)).toBe(1);
+  // All sand adjacent to the void should have been swallowed.
+  // Sand may fall in from above to replace it, but the immediate neighbors
+  // should be gone. Check that at least some sand was consumed (less than 5).
+  expect(countMat(w, Material.Sand)).toBeLessThan(5);
+});
+
+test("void does not swallow wall or other void", () => {
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Two voids side by side, with walls adjacent
+  w.setCell(3, 14, { mat: Material.Void, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Void, lifetime: 0, flags: 0 });
+  w.setCell(2, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 50);
+  // Both voids and both walls should still exist — void doesn't eat itself
+  // or walls.
+  expect(countMat(w, Material.Void)).toBe(2);
+  expect(matAt(w, 2, 14)).toBe(Material.Wall);
+  expect(matAt(w, 5, 14)).toBe(Material.Wall);
+});
+
+test("void does not move (no gravity)", () => {
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  w.setCell(4, 8, { mat: Material.Void, lifetime: 0, flags: 0 });
+  run(w, 40);
+  // Void should not have fallen — still at y=8.
+  expect(matAt(w, 4, 8)).toBe(Material.Void);
+});
+
+test("void is immune to acid", () => {
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Void, lifetime: 0, flags: 0 });
+  w.setCell(3, 14, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  run(w, 100);
+  // Void survives — acid can't eat it. (The acid itself gets swallowed.)
+  expect(countMat(w, Material.Void)).toBe(1);
+});
+
+test("void is an antimatter barrier", () => {
+  // Antimatter enclosed by void + walls can't contact sand on the other side.
+  const w = new SandWorld(12, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 12; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Antimatter fully enclosed
+  w.setCell(3, 14, { mat: Material.Antimatter, lifetime: 0, flags: 0 });
+  w.setCell(2, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(3, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(2, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Void barrier
+  w.setCell(4, 14, { mat: Material.Void, lifetime: 0, flags: 0 });
+  // Sand behind the void
+  for (let x = 5; x <= 8; x++) w.setCell(x, 14, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 20);
+  // Antimatter is enclosed — no contact, stays put.
+  expect(countMat(w, Material.Antimatter)).toBe(1);
+  // Void is a barrier — not annihilated, not consumed.
+  expect(countMat(w, Material.Void)).toBe(1);
+  // Sand is safe behind the void barrier (void may swallow some, but
+  // antimatter can't reach it).
+  expect(countMat(w, Material.Sand)).toBeGreaterThanOrEqual(3);
+});
