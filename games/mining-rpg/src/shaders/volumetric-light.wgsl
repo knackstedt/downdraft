@@ -115,33 +115,28 @@ fn fs_inject(in: VSOut) -> @location(0) vec4<f32> {
   let localX = f32(tx) * 2.0;
   let localY = f32(ty) * 2.0;
 
-  // Ambient is injected per-cell-type without any global surfaceY dependency.
-  // Previously, solid/water cells used a depth-based falloff from a single
-  // global surfaceY (surface height at the player's X). But the surface has
-  // rolling hills — when the player crossed a chunk border, surfaceY shifted,
-  // causing all solid cells to get brighter/darker simultaneously (visible
-  // "light pop" at chunk borders).
-  //
-  // Now: air cells get full sky ambient, which diffuses through solid cells
-  // with solidPropagation. The diffusion naturally provides depth-based
-  // falloff (light gets darker the deeper it penetrates) without needing a
-  // global surfaceY. Solid cells get a small fixed baseline so they're not
-  // pure black even without nearby air cells.
+  // Depth below surface (world Y = originY + localY, surfaceY is in world coords)
+  let worldY = u.originY + localY;
+  let depthCells = max(0.0, worldY - u.surfaceY);
+  let t = min(depthCells / max(u.ambientDepthFalloff, 1.0), 1.0);
+  let ambientStrength = (1.0 - t) * (1.0 - t);
+
   var ambient = vec3<f32>(0.0);
   if (cellType == 0u) {
-    // Air cells: full sky ambient. Sky light pours into all air cells (both
-    // above-ground sky and underground caves) and diffuses into neighboring
-    // solid cells, providing the "sky light reaching into tunnels" effect.
+    // Air cells: full sky ambient regardless of depth. Sky light pours into
+    // all air cells (both above-ground sky and underground caves) and diffuses
+    // into neighboring solid cells. The depth-based falloff only applies to
+    // the direct ambient injected into solid cells below — the diffused light
+    // from air cells provides the "sky light reaching into tunnels" effect.
     ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB);
   } else if (cellType == 1u) {
-    // Water: reduced ambient (water absorbs light)
-    ambient = vec3<f32>(u.ambientR * 0.2, u.ambientG * 0.25, u.ambientB * 0.35);
+    // Water: reduced ambient (deeper water is darker)
+    ambient = vec3<f32>(u.ambientR * 0.4, u.ambientG * 0.5, u.ambientB * 0.7) * ambientStrength * 0.5;
   } else {
-    // Solid: small fixed baseline. The diffusion from air cells provides
-    // the actual depth-based lighting — bright near the surface where air
-    // cells are close, dark deep underground where light can't reach.
+    // Solid: depth-based ambient — bright near the surface, dark deep underground.
+    // The diffusion from air cells provides additional light beyond this baseline.
     let minAmbient = 0.04;
-    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * minAmbient;
+    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * (ambientStrength * 0.6 + minAmbient);
   }
 
   var lightAccum = vec3<f32>(0.0);
