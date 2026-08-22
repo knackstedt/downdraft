@@ -2030,18 +2030,31 @@ export class ChunkWorld {
    */
   scanEmittingLights(): void {
     const grid = this.activeGrid.grid;
-    const { x: paxF, y: payF } = this.worldToActive(this.player.x, this.player.y);
-    const px = Math.floor(paxF);
-    const py = Math.floor(payF);
     const stride = LIGHT_GRID_STRIDE;
     const lights = this.lightList;
     let count = 0;
 
+    // Player position in WORLD coords (for distance sort — lights are stored
+    // in world coords, so the sort must compare world-to-world).
+    const playerWorldX = this.player.x;
+    const playerWorldY = this.player.y;
+
+    // Offset the scan start by the origin modulo stride so the stride grid
+    // is aligned to WORLD coords, not local coords. Without this, crossing a
+    // chunk border shifts the origin by CHUNK_W (128), and since 128 % 12 = 8,
+    // the stride phase shifts completely — lights that were on stride points
+    // before are now between them (invisible), and vice versa. This causes
+    // lights to flicker on/off at every chunk border crossing.
+    const originWorldX = this.activeOriginCx * CHUNK_W;
+    const originWorldY = this.activeOriginCy * CHUNK_H;
+    const startX = (stride - (originWorldX % stride)) % stride;
+    const startY = (stride - (originWorldY % stride)) % stride;
+
     // Sparse scan: sample every stride cells in both dimensions for foreground
     // emitting materials (lava, fire). Torch check uses a finer stride since
     // torches are placed individually and can be at any position.
-    for (let y = 0; y < ACTIVE_GRID_H && count < MAX_WORLD_LIGHTS; y += stride) {
-      for (let x = 0; x < ACTIVE_GRID_W && count < MAX_WORLD_LIGHTS; x += stride) {
+    for (let y = startY; y < ACTIVE_GRID_H && count < MAX_WORLD_LIGHTS; y += stride) {
+      for (let x = startX; x < ACTIVE_GRID_W && count < MAX_WORLD_LIGHTS; x += stride) {
         const idx = y * ACTIVE_GRID_W + x;
         // Check foreground grid for emitting materials
         const packed = grid[idx];
@@ -2094,8 +2107,8 @@ export class ChunkWorld {
       for (let j = i; j < count; j++) {
         const lx = lights[j * LIGHT_STRUCT_FLOATS];
         const ly = lights[j * LIGHT_STRUCT_FLOATS + 1];
-        const ddx = lx - px;
-        const ddy = ly - py;
+        const ddx = lx - playerWorldX;
+        const ddy = ly - playerWorldY;
         const d = ddx * ddx + ddy * ddy;
         if (d < minDist) { minDist = d; minIdx = j; }
       }
