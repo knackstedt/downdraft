@@ -2,8 +2,8 @@ struct Uniforms {
   gridW: f32,
   gridH: f32,
   // Backdrop grid origin Y in backdrop cell coords (originCy * BACKDROP_CHUNK_H).
-  // Used to compute the foreground world Y of a backdrop cell for depth-aware
-  // ambient: worldY = (originY + coords.y) * 2 (1 backdrop cell = 2 fg cells).
+  // The backdrop is full-res (1 backdrop cell = 1 foreground cell), so
+  // worldY = originY + coords.y (no scaling).
   originY: f32,
   // Foreground surface height in foreground world coords. Cave ambient falls
   // off with depth below the surface so caves are lighter near the surface
@@ -62,7 +62,7 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     // Out of bounds above the surface: render sky (the backdrop grid doesn't
     // cover above-surface chunks well, so fill with sky gradient). Use the
     // world Y to decide sky vs black — if above surface, it's sky.
-    let worldY = (u.originY + f32(coords.y)) * 2.0;
+    let worldY = u.originY + f32(coords.y);
     if (worldY < u.surfaceY) {
       let heightAbove = u.surfaceY - worldY;
       let skyT = clamp(heightAbove / 200.0, 0.0, 1.0);
@@ -87,7 +87,7 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   // follows the actual wavy terrain surface — not a single horizontal line
   // at the player's X position.
   if (cellType == 1u) {
-    let worldY = (u.originY + f32(coords.y)) * 2.0;
+    let worldY = u.originY + f32(coords.y);
     let heightAbove = max(0.0, u.surfaceY - worldY);
     let skyT = clamp(heightAbove / 200.0, 0.0, 1.0);
     let horizon = vec3<f32>(0.45, 0.62, 0.85);

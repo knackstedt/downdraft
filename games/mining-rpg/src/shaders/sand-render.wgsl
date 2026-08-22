@@ -77,8 +77,10 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   // Detached cells (loosened by mining) get a stronger warm tint plus a dark
   // amber outline along any edge that borders attached terrain or air. This
   // makes loose material clearly readable against static terrain at any zoom.
+  // Stone (matId == 3) is excluded: it must render identically whether at rest
+  // or falling, so it keeps its base color with no tint or outline.
   var color = matColor.rgb;
-  if (detached) {
+  if (detached && matId != 3u) {
     color = color * 1.2 + vec3<f32>(0.10, 0.05, 0.0);
 
     // Outline: draw a dark amber edge where a detached cell touches a

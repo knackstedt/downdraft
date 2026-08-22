@@ -17,7 +17,7 @@ import { MiningSimBufferReader } from "../shared/sim-buffer";
 import type { SavedGlowstick } from "../shared/types";
 import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
-import { surfaceHeightAt } from "../simulation/terrain";
+import { BASE_SURFACE_Y, surfaceHeightAt } from "../simulation/terrain";
 import { pickDeathQuip, useGameStore } from "../stores/game-store";
 import { AutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
@@ -713,13 +713,39 @@ export class MiningRenderer {
     // --- Write input to worker ---
     this.writeInputToWorker();
 
+    // --- Read active grid origin and upload grid atomically ---
+    // The worker writes the grid BEFORE the origin (see mining-worker.ts).
+    // To avoid a race condition where we upload a new grid but use an old
+    // origin (or vice versa), we read the origin before AND after the grid
+    // upload. If the origin changed, the worker wrote during the upload.
+    // Since the worker writes grid → origin, a new origin means the grid is
+    // also new (already in the SAB). Re-read and re-upload the grid to ensure
+    // the GPU texture matches the new origin.
+    const originXBefore = this.gridReader.getStat(STATS.ORIGIN_X);
+    const originYBefore = this.gridReader.getStat(STATS.ORIGIN_Y);
+
     // --- Read active grid + background grid from SAB and upload to GPU ---
     this.gridPass.updateGrid(this.gridReader.getGrid());
     this.gridPass.updateUniforms();
     this.bgGridPass!.updateGrid(this.gridReader.getBackgroundGrid());
     this.bgGridPass!.updateUniforms();
 
-    // --- Read player state and active grid origin ---
+    let originX = originXBefore;
+    let originY = originYBefore;
+
+    const originXAfter = this.gridReader.getStat(STATS.ORIGIN_X);
+    const originYAfter = this.gridReader.getStat(STATS.ORIGIN_Y);
+    if (originXAfter !== originXBefore || originYAfter !== originYBefore) {
+      // The worker wrote during the upload. The new origin is correct, and
+      // the grid in the SAB is now the new grid (worker writes grid before
+      // origin). Re-upload to ensure the GPU texture matches the new origin.
+      originX = originXAfter;
+      originY = originYAfter;
+      this.gridPass.updateGrid(this.gridReader.getGrid());
+      this.bgGridPass!.updateGrid(this.gridReader.getBackgroundGrid());
+    }
+
+    // --- Read player state ---
     const px = this.workerHost.getPlayerF32(PLAYER.PX);
     const py = this.workerHost.getPlayerF32(PLAYER.PY);
     const facing = this.workerHost.getPlayerI32(PLAYER.FACING);
@@ -730,8 +756,6 @@ export class MiningRenderer {
     const onGround = this.workerHost.getPlayerI32(PLAYER.ON_GROUND) !== 0;
     const vx = this.workerHost.getPlayerF32(PLAYER.VX);
     const vy = this.workerHost.getPlayerF32(PLAYER.VY);
-    const originX = this.gridReader.getStat(STATS.ORIGIN_X);
-    const originY = this.gridReader.getStat(STATS.ORIGIN_Y);
 
     // --- Render-side player position interpolation ---
     // The sim writes a new player position to the SAB at TICK_RATE (30Hz).
@@ -923,11 +947,10 @@ export class MiningRenderer {
       this.canvas.width, this.canvas.height,
       depth,
     );
-    // Backdrop camera: compute the camera position in BACKDROP-local coords.
-    // The backdrop is full-res (1 backdrop cell = 1 foreground cell) with
-    // parallax=1.0, so the backdrop camera = foreground camera in local coords.
-    // bdOrigin = originCx * BACKDROP_CHUNK_W = originCx * CHUNK_W = originX,
-    // so bdCam = camera.x - originX = camLocalX (same as foreground).
+    // Backdrop camera: use the backdrop's stable origin (which is shifted
+    // immediately when the foreground origin changes, so it stays aligned).
+    // The backdrop grid content is also shifted to match, so the camera
+    // and grid are always in sync.
     const bdOriginX = this.backdropHost.getOriginX();
     const bdOriginY = this.backdropHost.getOriginY();
     const bdCamX = this.camera.x * BACKDROP_PARALLAX - bdOriginX;
@@ -936,10 +959,11 @@ export class MiningRenderer {
       bdCamX, bdCamY, this.camera.zoom,
       this.canvas.width, this.canvas.height,
     );
-    // Update backdrop uniforms with origin Y (backdrop cell coords) + surface Y
-    // for depth-aware cave ambient. The shader computes worldY = (originY +
-    // coords.y) * 2 to get the foreground world Y of each backdrop cell.
-    this.backdropPass.updateUniforms(bdOriginY, surfaceY);
+    // Update backdrop uniforms with origin Y + surface Y for sky gradient.
+    // The backdrop is full-res, so worldY = originY + coords.y (no scaling).
+    // Use the base (noise-free) surface Y so the horizon doesn't shift as the
+    // player walks through rolling hills.
+    this.backdropPass.updateUniforms(bdOriginY, BASE_SURFACE_Y);
 
     // --- Update stickman (in local coords) ---
     this.stickmanPass.update(
@@ -1002,7 +1026,11 @@ export class MiningRenderer {
       });
     }
     this.volumetricPass!.updateLights(workerLights, workerLightCount, volRendererLights, originX, originY);
-    this.volumetricPass!.updateUniforms(originX, originY, surfaceY);
+    // Use the base (noise-free) surface Y for volumetric ambient. The actual
+    // surface varies by ±8 cells with terrain noise; using the player's exact
+    // surfaceY would shift ambient strength for ALL solid cells as the player
+    // walks, causing visible flickering in the overworld.
+    this.volumetricPass!.updateUniforms(originX, originY, BASE_SURFACE_Y);
 
     // --- Render ---
     const commandEncoder = this.device.createCommandEncoder();

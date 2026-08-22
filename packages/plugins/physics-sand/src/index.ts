@@ -6,6 +6,8 @@
 // sim types and the SandWorld class from here.
 
 export {
+    FLAG_ANCHORED,
+    FLAG_POPPED,
     FLAG_SPARK,
     FLAG_UPDATED,
     FLAG_UPDATED_BIT,
@@ -37,6 +39,7 @@ export {
 
 export {
     getMaterialColor,
+    IS_COLD,
     IS_FIRE,
     IS_HOT,
     MAT_CLIMBABLE,

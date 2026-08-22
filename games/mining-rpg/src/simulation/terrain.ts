@@ -50,6 +50,15 @@ function surfaceHeightAt(wx: number, seed: number): number {
 }
 
 /**
+ * Base surface height (without terrain noise variation). Used for lighting
+ * calculations where a stable, position-independent reference is needed.
+ * The actual terrain surface varies by ±noiseAmplitude cells around this
+ * value; using the base prevents ambient lighting from flickering as the
+ * player moves horizontally through rolling hills.
+ */
+const BASE_SURFACE_Y = Math.floor(CHUNK_H * SURFACE_CONFIG.surfaceYRatio);
+
+/**
  * Compute the dirt layer thickness at a given world X.
  * Uses an independent noise field (different Y offset) so dirt depth varies
  * per column independently of the surface height, giving a more natural
@@ -551,6 +560,6 @@ export { chunkKey };
 
 // --- Exported helpers for testing ---
 
-    export { dirtDepthAt, generateOreWorms, isCavity, lakeCenterAt, pickOreByDepth, surfaceHeightAt };
+    export { BASE_SURFACE_Y, dirtDepthAt, generateOreWorms, isCavity, lakeCenterAt, pickOreByDepth, surfaceHeightAt };
     export type { LakeEntry, OreEntry };
 

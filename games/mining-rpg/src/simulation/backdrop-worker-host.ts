@@ -17,6 +17,8 @@
 
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import {
+    BACKDROP_CHUNK_H,
+    BACKDROP_CHUNK_W,
     BACKDROP_GRID_H,
     BACKDROP_GRID_OFFSET,
     BACKDROP_GRID_W,
@@ -108,15 +110,74 @@ export class BackdropWorkerHost {
    */
   updateWindowIfNeeded(fgOriginCx: number, fgOriginCy: number): void {
     if (!this.ready || !this.proxy) return;
-    // The backdrop uses the same chunk grid but at half resolution.
-    // Since backdrop chunks are half the size, the same chunk coords map
-    // to the same world area. We use the same origin chunk coords.
     if (fgOriginCx !== this.lastOriginCx || fgOriginCy !== this.lastOriginCy) {
+      const isFirstWindow = this.lastOriginCx === Number.MIN_SAFE_INTEGER;
+      if (!isFirstWindow) {
+        const dxChunks = fgOriginCx - this.lastOriginCx;
+        const dyChunks = fgOriginCy - this.lastOriginCy;
+        this.shiftStableGrid(dxChunks, dyChunks);
+      }
       this.lastOriginCx = fgOriginCx;
       this.lastOriginCy = fgOriginCy;
       this.proxy.proxy.setWindow(fgOriginCx, fgOriginCy).catch(() => {});
+      // Skip refreshStableGrid this frame. The worker just received a new
+      // setWindow and hasn't processed it yet — the SAB still contains data
+      // for the previous window. refreshStableGrid (next frame onward) will
+      // verify the SAB origin matches lastOriginCx/Cy before copying, so
+      // stale data from an older window is never overwritten onto the
+      // shifted grid. The shifted grid stays aligned until the worker catches
+      // up and writes the new window's data.
+      return;
     }
     this.refreshStableGrid();
+  }
+
+  /**
+   * Shift the stable grid by (dxChunks, dyChunks) chunks and update the
+   * stable origin. New edge columns/rows are filled with CAVE (0 = black).
+   * This keeps the backdrop approximately aligned with the foreground while
+   * the worker generates the exact content (takes ~1 frame).
+   */
+  private shiftStableGrid(dxChunks: number, dyChunks: number): void {
+    if (dxChunks === 0 && dyChunks === 0) return;
+    const dx = dxChunks * BACKDROP_CHUNK_W;
+    const dy = dyChunks * BACKDROP_CHUNK_H;
+    const w = BACKDROP_GRID_W;
+    const h = BACKDROP_GRID_H;
+    const grid = this.stableGrid;
+
+    // Vertical shift: new[y] = old[y + dy]
+    if (dy > 0) {
+      for (let y = 0; y < h - dy; y++) {
+        grid.copyWithin(y * w, (y + dy) * w, (y + dy + 1) * w);
+      }
+      grid.fill(0, (h - dy) * w, h * w);
+    } else if (dy < 0) {
+      const ady = -dy;
+      for (let y = h - 1; y >= ady; y--) {
+        grid.copyWithin(y * w, (y - ady) * w, (y - ady + 1) * w);
+      }
+      grid.fill(0, 0, ady * w);
+    }
+
+    // Horizontal shift: new[x] = old[x + dx]
+    if (dx > 0) {
+      for (let y = 0; y < h; y++) {
+        const row = y * w;
+        grid.copyWithin(row, row + dx, row + w);
+        grid.fill(0, row + (w - dx), row + w);
+      }
+    } else if (dx < 0) {
+      const adx = -dx;
+      for (let y = 0; y < h; y++) {
+        const row = y * w;
+        grid.copyWithin(row + adx, row, row + (w - adx));
+        grid.fill(0, row, row + adx);
+      }
+    }
+
+    this.stableOriginX += dx;
+    this.stableOriginY += dy;
   }
 
   /**
@@ -135,10 +196,19 @@ export class BackdropWorkerHost {
     const v1 = Atomics.load(statsI32, 2);
     if (v1 === this.lastUploadedVersion) return; // no new data
 
+    // Read the SAB origin. If it doesn't match the expected origin
+    // (lastOriginCx * BACKDROP_CHUNK_W), the worker hasn't processed the
+    // latest setWindow yet — the SAB contains data for a PREVIOUS window.
+    // Copying it would overwrite the shifted grid with stale data that's
+    // misaligned with the foreground. Skip and wait for the worker to catch up.
+    const sabOriginX = Atomics.load(statsI32, 0);
+    const sabOriginY = Atomics.load(statsI32, 1);
+    const expectedX = this.lastOriginCx * BACKDROP_CHUNK_W;
+    const expectedY = this.lastOriginCy * BACKDROP_CHUNK_H;
+    if (sabOriginX !== expectedX || sabOriginY !== expectedY) return;
+
     // Copy grid + origin from SAB
     this.stableGrid.set(sabGrid);
-    const originX = Atomics.load(statsI32, 0);
-    const originY = Atomics.load(statsI32, 1);
 
     // Read version AFTER copying — if it changed, the worker was writing
     // concurrently; discard this copy and try again next frame.
@@ -146,8 +216,8 @@ export class BackdropWorkerHost {
     if (v1 !== v2) return;
 
     // Version is stable — commit the copy
-    this.stableOriginX = originX;
-    this.stableOriginY = originY;
+    this.stableOriginX = sabOriginX;
+    this.stableOriginY = sabOriginY;
     this.lastUploadedVersion = v1;
   }
 }

@@ -15,6 +15,7 @@ import {
     packCell
 } from "../cell";
 import {
+    IS_COLD,
     IS_FIRE,
     IS_HOT,
     MAT_FLAGS,
@@ -129,6 +130,7 @@ function matchNeighbor(kind: number, value: number, nMat: number): boolean {
     case 3: return IS_FIRE[nMat] !== 0;     // is_fire
     case 4: return nMat !== value;          // not_material
     case 5: return nMat !== Material.Wall;  // not_wall
+    case 6: return IS_COLD[nMat] !== 0;     // is_cold
     default: return false;
   }
 }

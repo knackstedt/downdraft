@@ -35,6 +35,7 @@ export type NeighborMatch =
   | { kind: "material_class"; flag: number }  // MAT_FLAGS bit (e.g. MAT_FLAMMABLE)
   | { kind: "is_hot" }                        // IS_HOT[mat]
   | { kind: "is_fire" }                       // IS_FIRE[mat]
+  | { kind: "is_cold" }                       // IS_COLD[mat] (DryIce, LiquidNitrogen, Ice, Snow)
   | { kind: "not_material"; mat: Material }
   | { kind: "not_wall" };
 

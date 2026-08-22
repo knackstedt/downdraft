@@ -1,4 +1,6 @@
 import {
+    FLAG_ANCHORED,
+    FLAG_POPPED,
     FLAG_SPARK,
     FLAG_UPDATED,
     FLAG_UPDATED_BIT,
@@ -6,11 +8,12 @@ import {
     packCell,
     SHADE_MASK,
     unpack,
-    type Cell,
+    type Cell
 } from "./cell";
 import { DEFAULT_GRAVITY, DEFAULT_TEMP, FIELD } from "./fields";
 import { FluidGrid } from "./fluid-grid";
 import {
+    IS_ACID_IMMUNE,
     IS_FIRE,
     IS_HOT,
     MAT_DENSITY,
@@ -81,8 +84,9 @@ export class SandWorld {
   interlaceEnabled = false;
   // Additional flag bits (in the flags byte, bits 16-23) that consumers want
   // preserved across the per-frame FLAG_UPDATED clear in buildActiveListAndClearFlags.
-  // The physics engine only uses bits 0-3 (shade 0-1, FLAG_UPDATED 2, FLAG_SPARK 3);
-  // bits 4-7 are available for game-specific flags (e.g. mining-rpg's FLAG_DETACHED).
+  // The physics engine only uses bits 0-3 and 5 (shade 0-1, FLAG_UPDATED 2,
+  // FLAG_SPARK 3, FLAG_POPPED 5); bits 4, 6-7 are available for game-specific
+  // flags (e.g. mining-rpg's FLAG_DETACHED at bit 4).
   // Set this mask so those bits survive the clear. Defaults to 0 (no extra bits).
   preserveFlagsMask = 0;
   // Flag bits OR'd into the flags of cells disturbed by disturbAdjacent()
@@ -109,6 +113,9 @@ export class SandWorld {
   // Avoids clobbering the combustion pass's visitedFrame and avoids
   // allocating a Set on every detonation.
   private visitedC4Frame: Uint32Array;
+  // Separate frame-tagged visited array for antimatter annihilation flood-fill.
+  // Avoids clobbering the C4 / combustion visited arrays.
+  private visitedAntimatterFrame: Uint32Array;
 
   // --- Sparse active-cell tracking ---
   // activeCells holds the grid indices of all non-empty cells. activeCount is
@@ -201,6 +208,7 @@ export class SandWorld {
     this.fireSources = new Uint8Array(cells);
     this.visitedFrame = new Uint32Array(cells);
     this.visitedC4Frame = new Uint32Array(cells);
+    this.visitedAntimatterFrame = new Uint32Array(cells);
     this.activeCells = new Uint32Array(cells);
     this.activeCount = 0;
     // Chunk dirty bitmap — 1 byte per chunk (not bit-packed for simplicity).
@@ -558,7 +566,7 @@ export class SandWorld {
     const fields = this.fields;
     const active = this.activeCells;
     const W = this.W, H = this.H;
-    const clearMask = ~((0xff & ~(SHADE_MASK | FLAG_SPARK | this.preserveFlagsMask)) << 16);
+    const clearMask = ~((0xff & ~(SHADE_MASK | FLAG_SPARK | FLAG_ANCHORED | FLAG_POPPED | this.preserveFlagsMask)) << 16);
     const skip = this.skipMask;
     const chunkDirty = this.chunkDirty;
     const numChunksX = this.numChunksX;
@@ -681,6 +689,12 @@ export class SandWorld {
     const flags = (packed >> 16) & 0xff;
     if (flags & FLAG_UPDATED) return;
 
+    // Spark-flagged fire (visual flames emitted by BurningOil) rises straight
+    // up without horizontal drift — the fire should stay above its fuel source
+    // (the BurningOil cell), not scatter sideways. Horizontal wind, impulse,
+    // and gas drift are skipped for these particles.
+    const isSparkFire = mat === Material.Fire && (flags & FLAG_SPARK) !== 0;
+
     // Typed-array lookups instead of MATERIALS[mat]?.property
     const gravityDir = MAT_GRAVITY_DIR[mat];
     // Static solids (gravityDir === 0: Stone, Wall, Concrete) are frozen
@@ -701,6 +715,17 @@ export class SandWorld {
     // cells. Without this, the fire gas floats away before it can propagate.
     if (mat === Material.FuseFire) return;
 
+    // Anchored fire (FLAG_ANCHORED) stays put on the fuel surface (e.g. wax)
+    // so it can keep spreading to adjacent fuel. Without this, the fire gas
+    // rises and drifts away before it can propagate.
+    if (mat === Material.Fire && (flags & FLAG_ANCHORED) !== 0) return;
+
+    // BurningOil flows like a liquid (gravity: 1, density: 0.8). The
+    // burning-oil pass in applyCombustion handles controlled spread to
+    // adjacent oil cells, and visual flames are emitted as separate Fire
+    // particles (FLAG_SPARK) above the BurningOil — those rise straight up
+    // (wind/diagonal movement skipped for spark fire) so they don't scatter
+    // even when the BurningOil itself flows.
     // Inline field reads — avoid 4× bounds-checked method calls per cell.
     // tryMove is only called within [0,W)×[0,H) so bounds checks are redundant.
     const fi = idx * 4;
@@ -722,8 +747,18 @@ export class SandWorld {
     // --- Wind: apply horizontal/vertical force from the fluid grid ---
     // The fluid grid provides float velocities; scale to cell-frame units.
     // A velocity of ~1.0 means "move every frame" (100% chance).
+    // Spark fire (visual flames from BurningOil/fuse) skips wind entirely —
+    // the emit impulse gives it a fixed horizontal component at birth, and
+    // sampling that back here moves it diagonally (up-left/up-right) in a
+    // straight streak for its whole short life. Sparks rise straight up via
+    // gas gravity instead. The upward impulse still pushes neighboring
+    // smoke/gas up via the fluid grid; it just doesn't steer the spark itself.
+    // BurningOil also skips wind — its own spark emission creates upward wind
+    // in the fluid grid above it, which would blow the BurningOil itself
+    // upward off the oil surface. BurningOil flows via gravity only (sinks,
+    // spreads horizontally on the oil surface).
     const windMag = Math.abs(windX) + Math.abs(windY);
-    if (windMag > 0.05) {
+    if (!isSparkFire && mat !== Material.BurningOil && windMag > 0.05) {
       const wdx = windX > 0 ? 1 : windX < 0 ? -1 : 0;
       const wdy = windY > 0 ? 1 : windY < 0 ? -1 : 0;
       // Scale chance with wind magnitude: 1.0 = 100% move chance.
@@ -745,6 +780,8 @@ export class SandWorld {
 
     // Honey: very thick — high friction, barely flows
     if (mat === Material.Honey && isExterior && this.rng.random() < 0.7) return;
+    // Tar: extremely viscous — even higher friction than honey, oozes slowly.
+    if (mat === Material.Tar && isExterior && this.rng.random() < 0.85) return;
 
     // Exterior particles have a chance to skip falling (friction).
     if (isExterior && !isGas) {
@@ -764,7 +801,8 @@ export class SandWorld {
     // Lighter materials (low gravity) get more impulse; denser materials get less.
     // Sand (gravity 1) → full impulse, Water (gravity 2) → half, Lava (gravity 3) → third
     // Gasses (fire/smoke/steam) also get impulse so they drift sideways while rising.
-    if (this.horizontalImpulseChance > 0) {
+    // Spark fire (visual flames from BurningOil) skips this — no horizontal drift.
+    if (this.horizontalImpulseChance > 0 && !isSparkFire) {
       const scaledChance = this.horizontalImpulseChance / Math.max(1, matGravity);
       if (this.rng.random() < scaledChance) {
         const nudgeDir = this.rng.random() < 0.5 ? -1 : 1;
@@ -795,14 +833,19 @@ export class SandWorld {
       }
     }
 
-    const dir = this.rng.random() < 0.5 ? -1 : 1;
-    if (this.trySwap(x, y, x + dir, y + dy, packed, mat, matGravity, isGas)) {
-      if (mat === Material.Gravel && ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS) this.disturbAdjacent(x, y);
-      return;
-    }
-    if (this.trySwap(x, y, x - dir, y + dy, packed, mat, matGravity, isGas)) {
-      if (mat === Material.Gravel && ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS) this.disturbAdjacent(x, y);
-      return;
+    // Diagonal movement (gravity direction + horizontal). Spark fire (visual
+    // flames from BurningOil) skips this — if it can't rise straight up, it
+    // stays put and decays via lifetime rather than sliding sideways.
+    if (!isSparkFire) {
+      const dir = this.rng.random() < 0.5 ? -1 : 1;
+      if (this.trySwap(x, y, x + dir, y + dy, packed, mat, matGravity, isGas)) {
+        if (mat === Material.Gravel && ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS) this.disturbAdjacent(x, y);
+        return;
+      }
+      if (this.trySwap(x, y, x - dir, y + dy, packed, mat, matGravity, isGas)) {
+        if (mat === Material.Gravel && ((packed >> 8) & 0xff) !== GRAVEL_DISTURB_SETTLE_TICKS) this.disturbAdjacent(x, y);
+        return;
+      }
     }
 
     // Gravel: flows horizontally like a liquid when unsupported, but settles
@@ -868,7 +911,7 @@ export class SandWorld {
       if (this.tryDensityFlow(x, y, -flowDir, mat, packed)) return;
     }
 
-    // Gas: wider horizontal drift (up to 3 cells) for organic spread
+    // Gas: wider horizontal drift (up to 3 cells) for organic spread.
     if (isGas) {
       const driftDir = this.rng.random() < 0.5 ? -1 : 1;
       if (this.tryFlow(x, y, driftDir, 3)) return;
@@ -1250,24 +1293,30 @@ export class SandWorld {
       const x = idx % W;
       const y = (idx / W) | 0;
 
-      // --- Antimatter: eliminates any normal neighbor, small explosion ---
+      // --- Antimatter: on contact with any non-empty, non-antimatter,
+      // non-wall, non-duplicator material, annihilates the ENTIRE contiguous
+      // antimatter cluster PLUS all contiguous other material (8-connected
+      // flood-fill through non-empty cells). Wall and Duplicator are barriers
+      // (not annihilated, flood-fill stops at them). Empty cells stop the
+      // flood-fill. A fire explosion marks the contact point. ---
       if (mat === Material.Antimatter) {
-        for (let dy = -1; dy <= 1; dy++) {
+        // Find a contact neighbor (the trigger for annihilation).
+        let contactX = -1, contactY = -1;
+        for (let dy = -1; dy <= 1 && contactX < 0; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
             if (dx === 0 && dy === 0) continue;
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
             if (nx < wxMin || nx >= wxMax) continue;
             const nMat = grid[ny * W + nx] & 0xff;
-            if (nMat !== Material.Empty && nMat !== Material.Antimatter && nMat !== Material.Wall) {
-              // Annihilate both
-              grid[ny * W + nx] = 0;
-              grid[idx] = 0;
-              // Create fire explosion
-              this.explode(x, y, 3);
-              break;
+            if (nMat !== Material.Empty && nMat !== Material.Antimatter &&
+                nMat !== Material.Wall && nMat !== Material.Duplicator) {
+              contactX = nx; contactY = ny; break;
             }
           }
+        }
+        if (contactX >= 0) {
+          this.annihilateAntimatter(x, y, contactX, contactY);
         }
         continue;
       }
@@ -1506,7 +1555,7 @@ export class SandWorld {
         continue;
       }
 
-      // --- Liquid Nitrogen: cools neighbors, evaporates ---
+      // --- Liquid Nitrogen: cools neighbors, slowly evaporates into cold vapor ---
       if (mat === Material.LiquidNitrogen) {
         // Cool down nearby fire/lava
         for (let dy = -1; dy <= 1; dy++) {
@@ -1523,20 +1572,52 @@ export class SandWorld {
             }
           }
         }
-        if (this.rng.random() < 0.01) {
-          grid[idx] = packCell(Material.Steam, 40, this.rng.randomShade());
+        // Slowly evaporate into ColdVapor — a visible white-ish gas that
+        // doesn't rise (cold vapor is denser than air) and dissipates over
+        // ~30 seconds. Low probability so the liquid phase lasts a while
+        // before converting. Previously converted to Steam (which condensed
+        // to Water) or dissipated directly to empty (invisible).
+        if (this.rng.random() < 0.005) {
+          grid[idx] = packCell(Material.ColdVapor, 255, this.rng.randomShade());
         }
         continue;
       }
 
-      // --- Seed: grows into tree on dirt ---
+      // --- Seed: grows into tree on dirt, progressively from the bottom up ---
+      // lifetime === 0: a normal falling seed. When it lands on dirt/grass,
+      //   it plants a Root and spawns a "growing tip" seed above with
+      //   lifetime = trunkHeight.
+      // lifetime > 0: a growing tip. Each frame it places TreeWood at its
+      //   current position and moves one cell up (lifetime - 1). When
+      //   lifetime reaches 1 or the cell above is blocked, it places the
+      //   leaf canopy and is consumed — the tree is fully grown.
       if (mat === Material.Seed) {
+        if (lifetime > 0) {
+          // Growing tip — place TreeWood at current position
+          grid[idx] = packCell(Material.TreeWood, 0, this.rng.randomShade());
+          if (lifetime > 1 && y > 0 && grid[(y - 1) * W + x] === 0) {
+            // Grow one cell higher next frame
+            grid[(y - 1) * W + x] = packCell(Material.Seed, lifetime - 1, this.rng.randomShade());
+          } else {
+            // Reached target height or blocked — grow leaf canopy here
+            this.growCanopy(x, y);
+          }
+          continue;
+        }
+        // Falling seed — check if it landed on dirt/grass
         if (y + 1 < H) {
           const belowMat = grid[(y + 1) * W + x] & 0xff;
           if (belowMat === Material.Dirt || belowMat === Material.Grass) {
             if (this.rng.random() < 0.05) {
-              this.growTree(x, y);
-              continue;
+              // Plant root and start growing upward
+              grid[idx] = packCell(Material.Root, 0, this.rng.randomShade());
+              const trunkHeight = 8 + Math.floor(this.rng.random() * 8);
+              if (y > 0 && grid[(y - 1) * W + x] === 0) {
+                grid[(y - 1) * W + x] = packCell(Material.Seed, trunkHeight, this.rng.randomShade());
+              } else {
+                // Can't grow upward (blocked at base) — just grow a canopy
+                this.growCanopy(x, y);
+              }
             }
           }
         }
@@ -1622,6 +1703,10 @@ export class SandWorld {
 
       // --- Popcorn: pops like fireworks near fire/lava/molten salt or high heat ---
       if (mat === Material.Popcorn) {
+        // Already-popped popcorn (FLAG_POPPED) never pops again — prevents an
+        // infinite creation loop where scattered popcorn re-triggers the pop
+        // reaction and spawns ever more popcorn.
+        if (flags & FLAG_POPPED) continue;
         // Single 8-neighbor scan using IS_HOT lookup table
         let hasHot = temp > 1.3;
         for (let dy = -1; dy <= 1 && !hasHot; dy++) {
@@ -1635,27 +1720,31 @@ export class SandWorld {
           }
         }
         if (hasHot && this.rng.random() < 0.3) {
-          // Fireworks pop: radial impulse + scatter popcorn particles outward
+          // Fireworks pop: radial impulse + scatter popcorn particles outward.
+          // All resulting popcorn (scattered + original) is marked FLAG_POPPED
+          // so it won't pop again — each kernel pops exactly once.
           this.applyImpulse(x, y, 4, 60);
-          // Scatter popcorn particles in random directions
+          // Scatter popcorn particles in random directions (marked FLAG_POPPED)
           const POPCORN_DIRS = [-1, -1, 0, -1, 1, -1, -1, 0, 1, 0, -1, 1, 0, 1, 1, 1];
           for (let di = 0; di < 16; di += 2) {
             if (this.rng.random() < 0.6) {
               const nx = x + POPCORN_DIRS[di], ny = y + POPCORN_DIRS[di + 1];
               if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax && grid[ny * W + nx] === 0) {
-                grid[ny * W + nx] = packCell(Material.Popcorn, 0, this.rng.randomShade());
+                grid[ny * W + nx] = packCell(Material.Popcorn, 0, FLAG_POPPED | this.rng.randomShade());
               }
             }
           }
-          // The original kernel becomes popcorn (already is) — sometimes launches up
+          // Mark the original kernel as popped so it doesn't re-pop next frame.
+          grid[idx] = packCell(Material.Popcorn, 0, (flags & ~FLAG_UPDATED) | FLAG_POPPED);
+          // Sometimes launch a popped popcorn particle upward
           if (this.rng.random() < 0.5 && y > 0 && grid[(y - 1) * W + x] === 0) {
-            grid[(y - 1) * W + x] = packCell(Material.Popcorn, 0, this.rng.randomShade());
+            grid[(y - 1) * W + x] = packCell(Material.Popcorn, 0, FLAG_POPPED | this.rng.randomShade());
           }
         }
         continue;
       }
 
-      // --- Dynamite: detonated by fire or fuse ---
+      // --- Dynamite: detonated by fire or fuse, chain-detonates connected sticks ---
       if (mat === Material.Dynamite) {
         // Single 8-neighbor scan for fire-class + fuse
         let hasFireOrFuse = false;
@@ -1670,8 +1759,10 @@ export class SandWorld {
             if (IS_FIRE[nMat] || nMat === Material.Fuse) { hasFireOrFuse = true; break; }
           }
         }
-        if (hasFireOrFuse && this.rng.random() < 0.2) {
-          this.explode(x, y, 6);
+        // 100% trigger chance — dynamite is unstable, it should detonate
+        // immediately when lit, not sit there for frames while fire spreads.
+        if (hasFireOrFuse) {
+          this.detonateDynamite(x, y);
         }
         continue;
       }
@@ -1695,6 +1786,84 @@ export class SandWorld {
           this.detonateC4(x, y);
         }
         continue;
+      }
+
+      // --- Acid: eats adjacent materials, 50% consumed per eat ---
+      // Each frame, acid scans its 8 neighbors for a non-immune material.
+      // If found, it destroys the neighbor and has a 50% chance of being
+      // consumed itself. This gives a ~2:1 ratio (2 material eaten per 1
+      // acid consumed), so 1000 sand + 1000 acid → ~500 acid remaining.
+      // Acid does NOT eat: Empty, Wall, Acid, Base. Base is handled by the
+      // neutralization reaction (base section below).
+      if (mat === Material.Acid) {
+        // First: check for adjacent Base — neutralization takes priority
+        // (acid + base → salt + steam). Fast reaction — 50% chance per frame.
+        let baseNi = -1;
+        for (let dy = -1; dy <= 1 && baseNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
+            if ((grid[ny * W + nx] & 0xff) === Material.Base) { baseNi = ny * W + nx; break; }
+          }
+        }
+        if (baseNi >= 0 && this.rng.random() < 0.5) {
+          // Neutralization: acid + base → salt + steam
+          grid[idx] = packCell(Material.Salt, 0, this.rng.randomShade());
+          grid[baseNi] = packCell(Material.Steam, 80, this.rng.randomShade());
+          continue;
+        }
+        // Otherwise: eat an adjacent non-immune material
+        if (this.rng.random() < 0.15) {
+          // Pick a random neighbor to eat (avoids eating all 8 at once)
+          const eatDir = Math.floor(this.rng.random() * 8);
+          const EAT_DX = [-1, 0, 1, -1, 1, -1, 0, 1];
+          const EAT_DY = [-1, -1, -1, 0, 0, 1, 1, 1];
+          const nx = x + EAT_DX[eatDir];
+          const ny = y + EAT_DY[eatDir];
+          if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax) {
+            const ni = ny * W + nx;
+            const nMat = grid[ni] & 0xff;
+            if (!IS_ACID_IMMUNE[nMat]) {
+              // Eat the neighbor
+              grid[ni] = 0;
+              // 50% chance the acid is consumed by the reaction
+              if (this.rng.random() < 0.5) {
+                grid[idx] = 0;
+              }
+            }
+          }
+        }
+        continue;
+      }
+
+      // --- Base: neutralizes acid on contact (acid + base → salt + steam) ---
+      // Mirrors the acid-side check so the reaction triggers from either
+      // material's perspective. Without this, if only acid checks for base,
+      // a base cell surrounded by acid might not react if none of the acid
+      // cells happen to scan it this frame.
+      if (mat === Material.Base) {
+        let acidNi = -1;
+        for (let dy = -1; dy <= 1 && acidNi < 0; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            if (nx < wxMin || nx >= wxMax) continue;
+            if ((grid[ny * W + nx] & 0xff) === Material.Acid) { acidNi = ny * W + nx; break; }
+          }
+        }
+        if (acidNi >= 0 && this.rng.random() < 0.5) {
+          // Neutralization: base + acid → steam + salt
+          grid[idx] = packCell(Material.Steam, 80, this.rng.randomShade());
+          grid[acidNi] = packCell(Material.Salt, 0, this.rng.randomShade());
+          continue;
+        }
       }
 
       // --- Flour: dust explosion when suspended near fire ---
@@ -1946,6 +2115,158 @@ export class SandWorld {
           }
         }
       }
+
+      // --- Spore: floating mold spore. Germinates into Mold when adjacent to
+      // a food material (wood/plant/leaf/tree wood/root/grass). The spore is
+      // consumed (becomes Mold at its current position). Otherwise it drifts
+      // as a gas (handled by tryMove) and slowly dissipates via lifetime. ---
+      if (mat === Material.Spore) {
+        let hasFood = false;
+        for (let dy = -1; dy <= 1 && !hasFood; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            const nMat = grid[ny * W + nx] & 0xff;
+            if (nMat === Material.Wood || nMat === Material.Plant || nMat === Material.Leaf ||
+                nMat === Material.TreeWood || nMat === Material.Root || nMat === Material.Grass) {
+              hasFood = true; break;
+            }
+          }
+        }
+        if (hasFood && this.rng.random() < 0.2) {
+          grid[idx] = packCell(Material.Mold, 0, this.rng.randomShade());
+          continue;
+        }
+        continue;
+      }
+
+      // --- Mold: grows on wood/plant/leaf/tree wood/root/grass. Spreads very
+      // slowly to an adjacent food cell (converts it to Mold). When no food
+      // remains adjacent, releases a spore cloud into surrounding empty cells
+      // and dies (clears to empty). Static solid (gravityDir=0) kept in the
+      // active list via MAT_HAS_REACTIONS. ---
+      if (mat === Material.Mold) {
+        // Collect food neighbors + empty/gas neighbors (for spore release).
+        let foodNi = -1;
+        let foodCount = 0;
+        let emptyCount = 0;
+        const MOLD_DIRS = [1, 0, -1, 0, 0, 1, 0, -1, 1, 1, -1, -1, 1, -1, -1, 1];
+        for (let di = 0; di < 16; di += 2) {
+          const nx = x + MOLD_DIRS[di], ny = y + MOLD_DIRS[di + 1];
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < wxMin || nx >= wxMax) continue;
+          const ni = ny * W + nx;
+          const nMat = grid[ni] & 0xff;
+          if (nMat === Material.Wood || nMat === Material.Plant || nMat === Material.Leaf ||
+              nMat === Material.TreeWood || nMat === Material.Root || nMat === Material.Grass) {
+            foodCount++;
+            if (foodNi < 0) foodNi = ni;
+          } else if (nMat === Material.Empty || (MAT_FLAGS[nMat] & MAT_GAS)) {
+            emptyCount++;
+          }
+        }
+        if (foodCount > 0) {
+          // Spread slowly: ~2% chance per frame to convert one food neighbor
+          // to Mold. At 60fps that's ~0.8 seconds per spread step — slow
+          // enough to be visible as creeping growth, fast enough to spread
+          // across a food block in reasonable time.
+          if (foodNi >= 0 && this.rng.random() < 0.02) {
+            grid[foodNi] = packCell(Material.Mold, 0, this.rng.randomShade());
+          }
+        } else if (emptyCount > 0) {
+          // No food left — release a spore cloud and die. Spawn a few Spore
+          // particles into surrounding empty/gas cells, then clear self.
+          for (let di = 0; di < 16; di += 2) {
+            if (this.rng.random() < 0.6) {
+              const nx = x + MOLD_DIRS[di], ny = y + MOLD_DIRS[di + 1];
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+              if (nx < wxMin || nx >= wxMax) continue;
+              const ni = ny * W + nx;
+              const nMat = grid[ni] & 0xff;
+              if (nMat === Material.Empty || (MAT_FLAGS[nMat] & MAT_GAS)) {
+                grid[ni] = packCell(Material.Spore, MAT_LIFETIME[Material.Spore], this.rng.randomShade());
+              }
+            }
+          }
+          grid[idx] = 0;
+        }
+        continue;
+      }
+
+      // --- Glitch: randomly swaps places with a neighboring non-empty cell.
+      // Any non-empty neighbor (any material except Empty) is a valid swap
+      // target. The swapped-in material takes the glitch's old position and
+      // vice versa. Falls like a normal solid when it can't swap. ---
+      if (mat === Material.Glitch) {
+        if (this.rng.random() < 0.3) {
+          // Pick a random 8-direction and swap with whatever is there.
+          const GLITCH_DIRS = [1, 0, -1, 0, 0, 1, 0, -1, 1, 1, -1, -1, 1, -1, -1, 1];
+          const di = Math.floor(this.rng.random() * 8) * 2;
+          const nx = x + GLITCH_DIRS[di], ny = y + GLITCH_DIRS[di + 1];
+          if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax) {
+            const ni = ny * W + nx;
+            const nPacked = grid[ni];
+            if (nPacked !== 0 && !((nPacked >> 16) & FLAG_UPDATED)) {
+              // Swap: glitch moves to neighbor, neighbor moves to glitch's spot.
+              // Both marked FLAG_UPDATED so neither is reprocessed this frame.
+              grid[ni] = packed | FLAG_UPDATED_BIT;
+              grid[idx] = nPacked | FLAG_UPDATED_BIT;
+              continue;
+            }
+          }
+        }
+        continue;
+      }
+
+      // --- Duplicator: static solid that clones the first material to touch
+      // it. The locked material id is stored in the lifetime field
+      // (0 = not yet locked). Each frame, if locked, it spawns the locked
+      // material into an adjacent empty cell. Does not move, does not react
+      // otherwise (acid-immune, skipped by antimatter). ---
+      if (mat === Material.Duplicator) {
+        const locked = lifetime; // 0 = not locked; otherwise = material id
+        if (locked === 0) {
+          // Not yet locked — scan neighbors for a material to lock onto.
+          // Skip Empty, Wall, other Duplicators, and Antimatter (cloning
+          // antimatter would be catastrophically destructive).
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+              if (nx < wxMin || nx >= wxMax) continue;
+              const nMat = grid[ny * W + nx] & 0xff;
+              if (nMat !== Material.Empty && nMat !== Material.Wall &&
+                  nMat !== Material.Duplicator && nMat !== Material.Antimatter) {
+                // Lock onto this material (store its id in the lifetime field).
+                grid[idx] = packCell(Material.Duplicator, nMat, flags & ~FLAG_UPDATED);
+                break;
+              }
+            }
+            if (((grid[idx] >> 8) & 0xff) !== 0) break;
+          }
+        } else {
+          // Locked — spawn the locked material into an adjacent empty cell.
+          // Low chance per frame so it produces a steady trickle, not a flood.
+          // Spawns into any of the 8 surrounding cells (not just cardinal).
+          if (this.rng.random() < 0.15) {
+            const DUP_DIRS = [1, 0, -1, 0, 0, 1, 0, -1, 1, 1, -1, -1, 1, -1, -1, 1];
+            const di = Math.floor(this.rng.random() * 8) * 2;
+            const nx = x + DUP_DIRS[di], ny = y + DUP_DIRS[di + 1];
+            if (nx >= 0 && nx < W && ny >= 0 && ny < H && nx >= wxMin && nx < wxMax) {
+              const ni = ny * W + nx;
+              if (grid[ni] === 0) {
+                const spawnMat = locked;
+                grid[ni] = packCell(spawnMat, MAT_LIFETIME[spawnMat], this.rng.randomShade());
+              }
+            }
+          }
+        }
+        continue;
+      }
     }
   }
 
@@ -2029,8 +2350,9 @@ export class SandWorld {
         if (x < wxMin || x >= wxMax) continue;
         const mat = grid[y * W + x] & 0xff;
         if (mat === Material.Wall) continue;
-        // Don't destroy C4 in the blast — let detonateC4 handle chain reactions
-        if (mat === Material.C4) continue;
+        // Don't destroy C4 or Dynamite in the blast — let detonateC4 /
+        // detonateDynamite handle chain reactions via flood-fill.
+        if (mat === Material.C4 || mat === Material.Dynamite) continue;
         if (dist < radius * radius * 0.3) {
           // Core: fire
           grid[y * W + x] = packCell(Material.Fire, 20, this.rng.randomShade());
@@ -2075,6 +2397,56 @@ export class SandWorld {
     }
   }
 
+  /** Annihilate antimatter: flood-fill all 8-connected non-empty cells from
+   *  the antimatter cluster at (ax, ay) through the contacted material at
+   *  (cx, cy). Destroys every connected non-empty cell except Wall and
+   *  Duplicator (which act as barriers and are left intact). Empty cells
+   *  stop the flood-fill. A fire explosion marks the contact point.
+   *
+   *  This implements "eliminates all contiguous antimatter and all contiguous
+   *  other material, except empty" — the entire connected non-empty region
+   *  touching the antimatter cluster is annihilated. */
+  private annihilateAntimatter(ax: number, ay: number, cx: number, cy: number): void {
+    const W = this.W, H = this.H;
+    const grid = this.grid;
+    const visited = this.visitedAntimatterFrame;
+    const frame = this.frame;
+    const wxMin = this.writeXMin, wxMax = this.writeXMax;
+    // Flood-fill from the antimatter seed cell through all 8-connected
+    // non-empty cells. Wall and Duplicator are barriers (skipped, not
+    // destroyed). Empty cells are not traversed.
+    const stack: number[] = [ay * W + ax];
+    const cells: number[] = [];
+    while (stack.length > 0) {
+      const idx = stack.pop()!;
+      if (visited[idx] === frame) continue;
+      visited[idx] = frame;
+      const px = idx % W;
+      const py = (idx / W) | 0;
+      const m = grid[idx] & 0xff;
+      // Stop at empty, wall, or duplicator (barriers)
+      if (m === Material.Empty || m === Material.Wall || m === Material.Duplicator) continue;
+      cells.push(idx);
+      // Push 8 neighbors (only those within write bounds — cross-strip
+      // annihilation is handled by the coordinator's boundary cleanup)
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = px + dx, ny = py + dy;
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          if (nx < wxMin || nx >= wxMax) continue;
+          stack.push(ny * W + nx);
+        }
+      }
+    }
+    // Annihilate every cell in the connected region.
+    for (let i = 0; i < cells.length; i++) {
+      grid[cells[i]] = 0;
+    }
+    // Fire explosion at the contact point (visual + ignites nearby flammables).
+    this.explode(cx, cy, 3);
+  }
+
   /** Detonate C4 at (cx, cy) and flood-fill all connected C4 for chain reaction */
   private detonateC4(cx: number, cy: number): void {
     const W = this.W, H = this.H;
@@ -2114,28 +2486,67 @@ export class SandWorld {
     }
   }
 
-  /** Grow a tree from a seed at (x, y) on dirt */
-  private growTree(x: number, y: number): void {
+  /** Detonate Dynamite at (cx, cy) and flood-fill all connected Dynamite for
+   *  chain reaction. Collects all 8-connected Dynamite cells, explodes once at
+   *  the center of mass (radius scaled to the cluster size), then consumes all
+   *  cells. Exploding once instead of per-cell avoids massive lag on large
+   *  dynamite clusters. */
+  private detonateDynamite(cx: number, cy: number): void {
+    const W = this.W, H = this.H;
+    const grid = this.grid;
+    const visited = this.visitedC4Frame;
+    const frame = this.frame;
+    const stack: number[] = [cy * W + cx];
+    const dynoCells: number[] = [];
+    while (stack.length > 0) {
+      const idx = stack.pop()!;
+      if (visited[idx] === frame) continue;
+      visited[idx] = frame;
+      const px = idx % W;
+      const py = (idx / W) | 0;
+      if ((grid[idx] & 0xff) !== Material.Dynamite) continue;
+      dynoCells.push(idx);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = px + dx, ny = py + dy;
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+          stack.push(ny * W + nx);
+        }
+      }
+    }
+    if (dynoCells.length === 0) return;
+
+    // Explode once at the center of mass. Radius scales with cluster size
+    // (6 base + 1 per extra stick, capped at 12) so a single big blast
+    // covers the whole cluster — much cheaper than N separate explosions.
+    let sumX = 0, sumY = 0;
+    for (let i = 0; i < dynoCells.length; i++) {
+      sumX += dynoCells[i] % W;
+      sumY += (dynoCells[i] / W) | 0;
+    }
+    const centerX = Math.round(sumX / dynoCells.length);
+    const centerY = Math.round(sumY / dynoCells.length);
+    const radius = Math.min(12, 6 + dynoCells.length - 1);
+    this.explode(centerX, centerY, radius);
+
+    // Consume all dynamite cells — explode() skips them, so we must destroy
+    // them explicitly. Convert to fire so the blast looks right.
+    for (let i = 0; i < dynoCells.length; i++) {
+      grid[dynoCells[i]] = packCell(Material.Fire, 20, this.rng.randomShade());
+    }
+  }
+
+  /** Grow a leaf canopy around (x, y) — the top of the tree trunk.
+   *  Called when the growing seed tip reaches its target height or is blocked. */
+  private growCanopy(x: number, y: number): void {
     const W = this.W, H = this.H;
     const grid = this.grid;
     const wxMin = this.writeXMin, wxMax = this.writeXMax;
-    // Remove seed, place root (same X as source, always in strip)
-    grid[y * W + x] = packCell(Material.Root, 0, this.rng.randomShade());
-    // Grow trunk upward (same X, always in strip)
-    const trunkHeight = 8 + Math.floor(this.rng.random() * 8);
-    let topY = y;
-    for (let i = 1; i <= trunkHeight; i++) {
-      const ty = y - i;
-      if (ty < 0) break;
-      if (grid[ty * W + x] !== 0) break;
-      grid[ty * W + x] = packCell(Material.TreeWood, 0, this.rng.randomShade());
-      topY = ty;
-    }
-    // Grow leaves canopy
     const canopyRadius = 3 + Math.floor(this.rng.random() * 2);
     for (let dy = -canopyRadius; dy <= 0; dy++) {
       for (let dx = -canopyRadius; dx <= canopyRadius; dx++) {
-        const lx = x + dx, ly = topY + dy - canopyRadius;
+        const lx = x + dx, ly = y + dy - canopyRadius;
         if (lx < 0 || lx >= W || ly < 0 || ly >= H) continue;
         if (lx < wxMin || lx >= wxMax) continue;
         const dist = dx * dx + dy * dy;
@@ -2220,7 +2631,14 @@ export class SandWorld {
     for (let a = 0; a < count; a++) {
       const idx = active[a];
       if (!fireSources[idx]) continue;
-      const srcMat = grid[idx] & 0xff;
+      const srcPacked = grid[idx];
+      const srcMat = srcPacked & 0xff;
+      // Spark-flagged fire (visual flames emitted by BurningOil/fuse) does NOT
+      // ignite oil — the burning-oil pass handles controlled oil-to-oil spread.
+      // Without this, the visual flames would ignite adjacent oil in all 8
+      // directions (including diagonals), causing the fire to "burst" outward
+      // instead of creeping slowly from the ignition site.
+      const srcIsSpark = srcMat === Material.Fire && ((srcPacked >> 16) & FLAG_SPARK) !== 0;
       const x = idx % W;
       const y = (idx / W) | 0;
       for (let dy = -1; dy <= 1; dy++) {
@@ -2247,9 +2665,9 @@ export class SandWorld {
             this.explode(nx, ny, 3);
             continue;
           }
-          // Dynamite: chain detonate
+          // Dynamite: chain detonate via flood-fill (same as applySpecialReactions)
           if (nMat === Material.Dynamite) {
-            this.explode(nx, ny, 6);
+            this.detonateDynamite(nx, ny);
             continue;
           }
           const baseChance = srcMat === Material.Lava ? 0.1 : 0.08;
@@ -2259,13 +2677,17 @@ export class SandWorld {
           // flashing instantly. BurningOil→oil spread is handled by the
           // dedicated burning-oil pass below (with decay-linked chance),
           // so skip oil neighbors here when the source is BurningOil.
-          if (srcMat === Material.BurningOil && nMat === Material.Oil) continue;
+          // Spark-flagged fire (visual flames from BurningOil) also skips
+          // oil — only "real" fire sources (lava, regular fire from burning
+          // wood/gunpowder, etc.) can ignite oil via this pass.
+          if ((srcMat === Material.BurningOil || srcIsSpark) && nMat === Material.Oil) continue;
           // Oil needs air exposure to ignite — fire/lava touching buried oil
           // heats it but can't sustain a flame without oxygen.
           if (nMat === Material.Oil && !this.isExposed(nx, ny)) continue;
           const matMult =
             nMat === Material.Rubber ? 0.3 :
             nMat === Material.Oil ? 0.3 :
+            nMat === Material.Wax ? 2.5 :  // wax spreads fire extremely fast
             1.0;
           // Per-cell temperature scales fire spread rate (inline field read)
           const nTemp = fields[ni * 4 + FIELD.TEMP] / 128;
@@ -2277,6 +2699,10 @@ export class SandWorld {
             } else if (nMat === Material.Oil) {
               // Oil → BurningOil (stays put, slow decay, slow spread)
               grid[ni] = packCell(Material.BurningOil, MAT_LIFETIME[Material.BurningOil], this.rng.randomShade());
+            } else if (nMat === Material.Wax) {
+              // Wax burns very slowly — long fire lifetime + FLAG_ANCHORED so
+              // the flame stays put on the wax surface and keeps spreading.
+              grid[ni] = packCell(Material.Fire, 200, FLAG_ANCHORED | this.rng.randomShade());
             } else {
               grid[ni] = packCell(Material.Fire, 30, this.rng.randomShade());
             }
@@ -2309,13 +2735,14 @@ export class SandWorld {
       const mat = packed & 0xff;
       if (mat !== Material.FuseFire) continue;
       const lifetime = (packed >> 8) & 0xff;
-      if (lifetime > FUSE_SPREAD_THRESHOLD || lifetime === 0) continue;
+      if (lifetime === 0) continue;
       const x = idx % W;
       const y = (idx / W) | 0;
 
-      // Emit sparks: small fire particles that fly upward with random spread.
-      // Sparks use Material.Fire (red) so they're visually distinct from the
-      // yellow fuse fire and fly freely (FuseFire is anchored, Fire is not).
+      // Emit sparks every frame — small fire particles that fly upward with
+      // random spread. Sparks use Material.Fire (red) so they're visually
+      // distinct from the yellow fuse fire and fly freely (FuseFire is
+      // anchored, Fire is not).
       for (let s = 0; s < 3; s++) {
         if (this.rng.random() < 0.5) {
           const sx = x + Math.floor(this.rng.random() * 3) - 1;
@@ -2324,14 +2751,17 @@ export class SandWorld {
             // Sparks: very short lifetime, expire to empty (not smoke) so they
             // don't accumulate and suffocate the burn when going upward.
             grid[sy * W + sx] = packCell(Material.Fire, 6, this.rng.randomShade() | FLAG_SPARK);
-            // Give the spark upward velocity + random horizontal drift via the fluid grid
-            const driftX = (this.rng.random() * 7 - 3) * 0.1; // -0.3 to 0.3
-            this.fluid.applyImpulse(sx, sy, 2, driftX, -0.8); // strong upward
+            // Upward impulse only — sparks rise straight up (wind is skipped for
+            // spark fire in tryMove). The impulse still pushes neighboring
+            // smoke/gas upward via the fluid grid. No horizontal drift: a fixed
+            // at-birth drift caused sparks to streak diagonally up-left/up-right.
+            this.fluid.applyImpulse(sx, sy, 2, 0, -0.8); // strong upward
           }
         }
       }
 
-      // Spread to adjacent fuse cells
+      // Spread to adjacent fuse cells only when near end of lifetime
+      if (lifetime > FUSE_SPREAD_THRESHOLD) continue;
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           if (dx === 0 && dy === 0) continue;
@@ -2349,7 +2779,8 @@ export class SandWorld {
     }
 
     // --- Burning oil pass ---
-    // BurningOil stays put on the oil surface. Each frame it:
+    // BurningOil flows like a liquid (gravity: 1, density: 0.8) on the oil
+    // surface. Each frame it:
     //   1. Emits normal Fire particles upward (visual flames that rise and
     //      decay to smoke like regular fire).
     //   2. Slowly spreads to adjacent oil. The spread chance scales with
@@ -2370,17 +2801,31 @@ export class SandWorld {
       const x = idx % W;
       const y = (idx / W) | 0;
 
-      // Emit fire particles upward: normal Fire (not sparks) that rise and
-      // decay to smoke, giving visual flames above the burning oil surface.
+      // Emit fire particles above: visual flames that rise from the burning
+      // oil surface with slight horizontal variation for a natural look.
+      // Marked with FLAG_SPARK so they:
+      //   1. Expire to empty (not smoke) — smoke would accumulate and
+      //      suffocate the burn. The BurningOil itself already produces smoke
+      //      when it decays.
+      //   2. Are skipped by the fire spread pass for oil ignition (see below)
+      //      — the burning-oil pass handles controlled oil-to-oil spread.
+      //      Without this, the visual flames would ignite adjacent oil in all
+      //      directions (including diagonals), causing the fire to "burst"
+      //      instead of creeping slowly outward.
+      //   3. Skip diagonal rising in tryMove (isSparkFire) — they rise straight
+      //      up or drift horizontally via gas drift, but don't shoot off in
+      //      diagonal directions.
       for (let s = 0; s < 2; s++) {
         if (this.rng.random() < 0.4) {
-          const sx = x + Math.floor(this.rng.random() * 3) - 1;
+          const sx = x + Math.floor(this.rng.random() * 3) - 1; // -1, 0, or +1
           const sy = y - 1 - Math.floor(this.rng.random() * 2); // 1-2 cells above
           if (sx >= 0 && sx < W && sy >= 0 && sy < H && sx >= wxMin && sx < wxMax && grid[sy * W + sx] === 0) {
-            grid[sy * W + sx] = packCell(Material.Fire, 20, this.rng.randomShade());
-            // Give the flame upward velocity + random horizontal drift via the fluid grid
-            const driftX = (this.rng.random() * 5 - 2) * 0.1; // -0.2 to 0.2
-            this.fluid.applyImpulse(sx, sy, 2, driftX, -0.5); // upward
+            grid[sy * W + sx] = packCell(Material.Fire, 20, this.rng.randomShade() | FLAG_SPARK);
+            // Upward impulse only — sparks rise straight up (wind is skipped for
+            // spark fire in tryMove). The impulse still pushes neighboring
+            // smoke/gas upward via the fluid grid. No horizontal drift: a fixed
+            // at-birth drift caused sparks to streak diagonally up-left/up-right.
+            this.fluid.applyImpulse(sx, sy, 2, 0, -0.5);
           }
         }
       }
@@ -2434,18 +2879,18 @@ export class SandWorld {
       // by adjacent gravel movement (GRAVEL_DISTURB_SETTLE_TICKS). When the
       // cell moves (FLAG_UPDATED), the timer keeps its current value. When
       // stationary, the timer only counts down if the cell is supported from
-      // below by a STABLE (static, gravity=0) material — otherwise it's
-      // floating and must not re-settle (it needs to keep trying to fall).
-      // This prevents Gravel from freezing mid-air when friction or random
-      // chance prevents it from moving for a few ticks.
+      // below by a STABLE material — otherwise it's floating and must not
+      // re-settle (it needs to keep trying to fall). This prevents Gravel from
+      // freezing mid-air when friction or random chance prevents it from moving
+      // for a few ticks.
       //
-      // Only static materials (gravityDir === 0: Stone, Wall, Concrete, etc.)
-      // count as stable support. Gravel, LooseStone, Dirt, Sand and other
-      // gravity-affected materials are NOT stable support: they can flow or
-      // fall away (or be picked up by the player), which would leave a
-      // re-settled Stone chunk floating in mid-air. Requiring bedrock-level
-      // support ensures Gravel only re-freezes to Stone once it has truly
-      // settled at the bottom.
+      // Stable support = a solid that won't move out from under us:
+      //   - Static solids (gravityDir === 0: Stone, Wall, Concrete) with
+      //     lifetime === 0 (not loosened).
+      //   - Gravity-affected solids (ore, dirt, etc.) at rest: gravity field
+      //     === 0 (not falling) and lifetime === 0 (not loosened/decaying).
+      // Liquids, gases, and loosened/falling cells are NOT stable support —
+      // they can flow or fall away, leaving re-settled stone floating.
       //
       // LooseStone (mat 63) is kept in the condition for backwards compat with
       // old saves that still contain LooseStone cells; no new LooseStone is
@@ -2455,11 +2900,18 @@ export class SandWorld {
       // re-freezes (gravity field cleared) — no material conversion needed.
       if (mat === Material.Gravel || mat === Material.LooseStone || mat === Material.Stone) {
         if (!(flags & FLAG_UPDATED) && lifetime > 0) {
-          // Check if supported from below by a stable (static) cell or grid
-          // boundary. Falling/flowing materials (gravel, loose stone, dirt,
-          // sand, liquids) do NOT count — they can move out from under us.
-          // A Stone cell with a non-zero lifetime (loosened by mining) also
-          // does NOT count — it can fall away.
+          // Check if supported from below by a stable cell or grid boundary.
+          // A cell is stable support if it won't move out from under us:
+          //   - Static solids (gravityDir === 0: Stone, Wall, Concrete) with
+          //     lifetime === 0 (not loosened by mining).
+          //   - Gravity-affected solids (gravityDir !== 0 but solid: ore,
+          //     dirt, etc.) that are at rest — gravity field === 0 (not
+          //     falling) and lifetime === 0 (not loosened/decaying). Ore is
+          //     generated with gravity=0 so it stays embedded until mined;
+          //     without this, stone resting on ore never settles because ore
+          //     has gravityDir=1.
+          // Liquids, gases, and loosened/falling cells do NOT count — they
+          // can move out from under us.
           const belowIdx = i + this.W;
           let supported: boolean;
           if (belowIdx >= this.grid.length) {
@@ -2470,8 +2922,19 @@ export class SandWorld {
               supported = false;
             } else {
               const belowMat = belowPacked & 0xff;
-              supported = MAT_GRAVITY_DIR[belowMat] === 0 &&
-                ((belowPacked >> 8) & 0xff) === 0;
+              const belowLifetime = (belowPacked >> 8) & 0xff;
+              if (MAT_GRAVITY_DIR[belowMat] === 0) {
+                // Static solid — stable if not loosened
+                supported = belowLifetime === 0;
+              } else if (MAT_FLAGS[belowMat] & MAT_SOLID) {
+                // Gravity-affected solid at rest — stable if not falling
+                // (gravity field cleared) and not loosened/decaying.
+                supported = this.fields[belowIdx * 4 + FIELD.GRAVITY] === 0 &&
+                  belowLifetime === 0;
+              } else {
+                // Liquid/gas — never stable support
+                supported = false;
+              }
             }
           }
           if (supported) {
@@ -2502,7 +2965,13 @@ export class SandWorld {
         // Randomized decay: fire/smoke/steam sometimes skip a tick so
         // individual particles last variable amounts of time.
         if (mat === Material.Fire) {
-          if (this.rng.random() < 0.7) lifetime--;
+          // Anchored fire (from wax) decays very slowly so the flame
+          // persists and keeps spreading. Normal fire decays fast.
+          if (flags & FLAG_ANCHORED) {
+            if (this.rng.random() < 0.15) lifetime--;
+          } else {
+            if (this.rng.random() < 0.7) lifetime--;
+          }
         } else if (mat === Material.FuseFire) {
           // FuseFire decays deterministically for consistent burn speed
           lifetime--;
@@ -2516,14 +2985,26 @@ export class SandWorld {
           if (this.rng.random() < 0.75) lifetime--;
         } else if (mat === Material.MagicPowder) {
           if (this.rng.random() < 0.7) lifetime--;
+        } else if (mat === Material.ColdVapor) {
+          // Cold vapor dissipates very slowly — ~30 seconds at 60fps.
+          // lifetime 255 / 0.14 chance ≈ 1800 frames ≈ 30s.
+          if (this.rng.random() < 0.14) lifetime--;
+        } else if (mat === Material.Seed) {
+          // Growing seeds (lifetime > 0) manage their own lifetime in the
+          // seed growth reaction — don't decrement here.
+        } else if (mat === Material.Duplicator) {
+          // Duplicator's lifetime field stores the locked material id (0 = not
+          // locked). It must NOT decay — the lock is permanent. Don't decrement.
         } else {
           lifetime--;
         }
         if (lifetime === 0) {
           if (mat === Material.Fire) {
-            // Sparks expire to empty, not smoke. Sparks are marked with
-            // FLAG_SPARK (bit 3) to distinguish them from regular fire.
-            if (flags & FLAG_SPARK) {
+            // Sparks and anchored fire (wax) expire to empty, not smoke.
+            // Sparks: marked with FLAG_SPARK (bit 3).
+            // Anchored fire: marked with FLAG_ANCHORED (bit 4) — smoke would
+            // accumulate and suffocate the spreading flame.
+            if (flags & (FLAG_SPARK | FLAG_ANCHORED)) {
               grid[i] = 0;
               continue;
             }
@@ -2553,7 +3034,15 @@ export class SandWorld {
             // Expired vapor → empty
             grid[i] = 0;
             continue;
+          } else if (mat === Material.ColdVapor) {
+            // Cold vapor fully dissipated → empty
+            grid[i] = 0;
+            continue;
           } else if (mat === Material.Hydrogen) {
+            grid[i] = 0;
+            continue;
+          } else if (mat === Material.Spore) {
+            // Spore that never germinated dissipates to empty.
             grid[i] = 0;
             continue;
           } else if (mat === Material.Plasma) {

@@ -620,6 +620,60 @@ export class ChunkWorld {
    * current tick's sand step. On rebuild (chunk boundary crossing), the skip
    * mask is rebuilt from scratch via buildSkipMaskOnly().
    */
+
+  /**
+   * Check if a settling cell (Gravel/LooseStone/Stone with lifetime > 0) is
+   * supported from below by a stable material. Mirrors the support check in
+   * SandWorld.applyAging() so we can settle cells at freeze time — frozen
+   * cells are excluded from the active list, so applyAging never runs on them
+   * and their settle timer would never count down.
+   *
+   * Returns:
+   *   "supported"  — cell is resting on stable ground; should be settled.
+   *   "unsupported"— cell is floating; should stay unfrozen to keep falling.
+   *   "not-settling"— cell is not a settling material (no special handling).
+   */
+  private checkSettleOnFreeze(idx: number, packed: number): "supported" | "unsupported" | "not-settling" {
+    const mat = packed & 0xff;
+    if (mat !== Material.Gravel && mat !== Material.LooseStone && mat !== Material.Stone) {
+      return "not-settling";
+    }
+    const lifetime = (packed >> 8) & 0xff;
+    if (lifetime === 0) return "not-settling"; // already settled
+
+    const grid = this.activeGrid.grid;
+    const fields = this.activeGrid.fields;
+    const belowIdx = idx + ACTIVE_GRID_W;
+    if (belowIdx >= grid.length) return "supported"; // grid boundary = stable floor
+    const belowPacked = grid[belowIdx];
+    if (belowPacked === 0) return "unsupported";
+    const belowMat = belowPacked & 0xff;
+    const belowLifetime = (belowPacked >> 8) & 0xff;
+    if (MAT_GRAVITY_DIR[belowMat] === 0) {
+      return belowLifetime === 0 ? "supported" : "unsupported";
+    }
+    if (MAT_FLAGS[belowMat] & MAT_SOLID) {
+      // Gravity-affected solid at rest — stable if not falling and not loosened
+      return (fields[belowIdx * 4 + FIELD.GRAVITY] === 0 && belowLifetime === 0)
+        ? "supported" : "unsupported";
+    }
+    return "unsupported"; // liquid/gas
+  }
+
+  /**
+   * Settle a cell immediately (convert to Stone, clear lifetime + FLAG_DETACHED).
+   * Used when freezing a settling cell that is stably supported — frozen cells
+   * are skipped by applyAging, so we settle here to avoid stuck mid-settle cells.
+   */
+  private settleCellOnFreeze(idx: number, packed: number): number {
+    const shade = (packed >> 16) & 0x03; // preserve shade bits 0-1
+    const newPacked = (Material.Stone & 0xff) | (0 << 8) | (shade << 16);
+    this.activeGrid.grid[idx] = newPacked;
+    // Clear the gravity field — re-frozen Stone has no gravity
+    this.activeGrid.fields[idx * 4 + FIELD.GRAVITY] = 0;
+    return newPacked;
+  }
+
   private updateFreezeState(): void {
     const skip = this.skipMask;
     const grid = this.activeGrid.grid;
@@ -695,13 +749,29 @@ export class ChunkWorld {
               // Frozen — check if a particle moved here this tick
               const ax = offsetX + lx;
               const ay = offsetY + ly;
-              const packed = grid[ay * W + ax];
+              const idx = ay * W + ax;
+              const packed = grid[idx];
               if (packed !== 0) {
                 const flags = (packed >> 16) & 0xff;
                 if ((flags & (FLAG_DETACHED | FLAG_UPDATED)) !== 0) {
                   wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
                   chunk.dirty = true;
                   hasUnfrozen = true;
+                } else {
+                  // Frozen cell with no movement flags — but it might be a
+                  // settling cell (Gravel/LooseStone/Stone with lifetime > 0)
+                  // that was frozen mid-settle (from a save or before the
+                  // expiry-branch fix). Settle it now if supported, or
+                  // re-activate if unsupported so it can fall.
+                  const settle = this.checkSettleOnFreeze(idx, packed);
+                  if (settle === "supported") {
+                    this.settleCellOnFreeze(idx, packed);
+                    chunk.dirty = true;
+                  } else if (settle === "unsupported") {
+                    wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                    chunk.dirty = true;
+                    hasUnfrozen = true;
+                  }
                 }
               }
               continue;
@@ -721,9 +791,29 @@ export class ChunkWorld {
                 hasUnfrozen = true;
               }
             } else {
-              // Expired — re-freeze
-              wakeTick[localIdx] = 0;
-              chunk.dirty = true;
+              // Expired — about to re-freeze. If this is a settling cell
+              // (Gravel/LooseStone/Stone with lifetime > 0), settle it now
+              // if supported (frozen cells are skipped by applyAging, so the
+              // settle timer would never count down). If unsupported, keep
+              // it unfrozen so it can keep falling.
+              const ax = offsetX + lx;
+              const ay = offsetY + ly;
+              const idx = ay * W + ax;
+              const packed = grid[idx];
+              const settle = this.checkSettleOnFreeze(idx, packed);
+              if (settle === "supported") {
+                this.settleCellOnFreeze(idx, packed);
+                wakeTick[localIdx] = 0;
+                chunk.dirty = true;
+              } else if (settle === "unsupported") {
+                wakeTick[localIdx] = this.currentTick + FREEZE_TICKS;
+                chunk.dirty = true;
+                hasUnfrozen = true;
+              } else {
+                // Not a settling cell — re-freeze normally
+                wakeTick[localIdx] = 0;
+                chunk.dirty = true;
+              }
             }
           }
         }
