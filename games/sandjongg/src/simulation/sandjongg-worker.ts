@@ -29,7 +29,7 @@ import { attemptMatch, resetComboState, type MatchEngineState } from "./match-en
 import { findHint } from "./solver";
 
 // --- Gravity overrides for static element materials ---
-// Ice, Plant, and Fireflies have gravityDir=0 (static) in the library defaults.
+// Ice and Plant have gravityDir=0 (static) in the library defaults.
 // In Sandjongg, crumbled tile sand must fall into the pit, so we override only
 // the gravity fields — all other material properties (reactions, flammability,
 // density, etc.) are preserved. These are passed to SandStepPool which forwards
@@ -37,7 +37,6 @@ import { findHint } from "./solver";
 const GRAVITY_OVERRIDES = [
     { mat: Material.Ice,       gravityDir: 1, gravity: 1 },
     { mat: Material.Plant,     gravityDir: 1, gravity: 1 },
-    { mat: Material.Fireflies, gravityDir: 1, gravity: 1 },
 ];
 
 const events = exposeEvents();

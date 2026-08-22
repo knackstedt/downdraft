@@ -57,14 +57,18 @@ export class TileCanvasPass {
     const { boardCols, boardRows } = this.state;
     if (boardCols === 0 || boardRows === 0) return;
     // Reserve top 60% of canvas for board, bottom 40% for sand pit.
-    const boardAreaH = canvasH * 0.6;
+    // The top HUD (level/score/combo/tiles) occupies roughly the top 70px,
+    // so the board area starts below it to avoid overlap.
+    const HUD_TOP_MARGIN = 70;
+    const boardAreaTop = HUD_TOP_MARGIN;
+    const boardAreaH = canvasH * 0.6 - boardAreaTop;
     const maxTileW = canvasW / boardCols;
     const maxTileH = boardAreaH / boardRows;
     this.tilePx = Math.floor(Math.min(maxTileW, maxTileH, 64));
     const boardW = this.tilePx * boardCols;
     const boardH = this.tilePx * boardRows;
     this.boardOffsetX = Math.floor((canvasW - boardW) / 2);
-    this.boardOffsetY = Math.floor((boardAreaH - boardH) / 2) + 8;
+    this.boardOffsetY = Math.floor(boardAreaTop + (boardAreaH - boardH) / 2) + 8;
   }
 
   /** Convert screen pixel coords to tile coords (or null if outside board).
@@ -352,6 +356,110 @@ export class TileCanvasPass {
         }
         ctx.closePath();
         ctx.fill();
+        break;
+      case "oil":
+        // Dark viscous droplet with a sheen highlight.
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - s);
+        ctx.quadraticCurveTo(cx + s, cy, cx + s * 0.5, cy + s * 0.6);
+        ctx.quadraticCurveTo(cx, cy + s, cx - s * 0.5, cy + s * 0.6);
+        ctx.quadraticCurveTo(cx - s, cy, cx, cy - s);
+        ctx.fill();
+        // Sheen highlight (top-left).
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+        ctx.beginPath();
+        ctx.ellipse(cx - s * 0.25, cy - s * 0.25, s * 0.18, s * 0.1, -0.6, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      case "powder":
+        // Cluster of small granular dots.
+        const powderDots = [
+          [-0.4, -0.3, 0.22], [0.3, -0.4, 0.18], [0.45, 0.1, 0.2],
+          [-0.1, 0.1, 0.25], [-0.45, 0.35, 0.16], [0.15, 0.45, 0.18],
+        ];
+        for (const [dx, dy, r] of powderDots) {
+          ctx.beginPath();
+          ctx.arc(cx + dx * s, cy + dy * s, r * s, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      case "dynamite":
+        // Stick of dynamite with a fuse + spark on top.
+        ctx.fillRect(cx - s * 0.25, cy - s * 0.3, s * 0.5, s * 1.0);
+        // Fuse line.
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - s * 0.3);
+        ctx.quadraticCurveTo(cx + s * 0.3, cy - s * 0.6, cx + s * 0.15, cy - s * 0.85);
+        ctx.stroke();
+        // Spark at fuse tip.
+        ctx.beginPath();
+        ctx.arc(cx + s * 0.15, cy - s * 0.85, s * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      case "plasma":
+        // Glowing energy orb with concentric rings.
+        ctx.beginPath();
+        ctx.arc(cx, cy, s * 0.75, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, s * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, s * 0.25, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      case "popcorn":
+        // Fluffy popped kernel — cluster of bumps.
+        const popBumps = [
+          [-0.3, -0.2, 0.4], [0.3, -0.25, 0.38], [0.0, 0.05, 0.45],
+          [-0.35, 0.3, 0.32], [0.35, 0.3, 0.34],
+        ];
+        for (const [dx, dy, r] of popBumps) {
+          ctx.beginPath();
+          ctx.arc(cx + dx * s, cy + dy * s, r * s, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      case "salt":
+        // Crystalline grains — small rotated squares.
+        ctx.lineWidth = 1;
+        const saltCrystals = [
+          [-0.35, -0.3, 0.18], [0.3, -0.35, 0.16], [0.4, 0.2, 0.2],
+          [-0.1, 0.05, 0.22], [-0.3, 0.35, 0.15], [0.1, 0.4, 0.16],
+        ];
+        for (const [dx, dy, r] of saltCrystals) {
+          ctx.save();
+          ctx.translate(cx + dx * s, cy + dy * s);
+          ctx.rotate(Math.PI / 4);
+          ctx.fillRect(-r * s, -r * s, r * s * 2, r * s * 2);
+          ctx.restore();
+        }
+        break;
+      case "frost":
+        // Jagged frost crystal — 6 sharp spikes with side branches.
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(a) * s, cy + Math.sin(a) * s);
+          ctx.stroke();
+          // Jagged side branches.
+          for (const dist of [0.4, 0.7]) {
+            const bx = cx + Math.cos(a) * s * dist;
+            const by = cy + Math.sin(a) * s * dist;
+            ctx.beginPath();
+            ctx.moveTo(bx, by);
+            ctx.lineTo(bx + Math.cos(a + 1.05) * s * 0.22, by + Math.sin(a + 1.05) * s * 0.22);
+            ctx.moveTo(bx, by);
+            ctx.lineTo(bx + Math.cos(a - 1.05) * s * 0.22, by + Math.sin(a - 1.05) * s * 0.22);
+            ctx.stroke();
+          }
+        }
         break;
     }
     ctx.restore();

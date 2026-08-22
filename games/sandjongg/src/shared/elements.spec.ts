@@ -3,14 +3,14 @@ import { describe, expect, it } from "bun:test";
 import { ELEMENTS, elementToMaterial, getElement, NUM_ELEMENTS } from "./elements";
 
 describe("elements", () => {
-  it("has exactly 12 elements", () => {
-    expect(NUM_ELEMENTS).toBe(12);
-    expect(ELEMENTS.length).toBe(12);
+  it("has exactly 18 elements", () => {
+    expect(NUM_ELEMENTS).toBe(18);
+    expect(ELEMENTS.length).toBe(18);
   });
 
-  it("each element has a unique id 0..11", () => {
+  it("each element has a unique id 0..17", () => {
     const ids = ELEMENTS.map((e) => e.id);
-    expect(ids).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(ids).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
   });
 
   it("each element maps to a valid, distinct sand Material", () => {
@@ -21,8 +21,8 @@ describe("elements", () => {
       expect(mat).toBeLessThan(256);
       materials.add(mat);
     }
-    // At least 10 of 12 should be distinct (some elements may share a material family)
-    expect(materials.size).toBeGreaterThanOrEqual(10);
+    // All 18 elements should map to distinct reactive materials
+    expect(materials.size).toBe(18);
   });
 
   it("elementToMaterial returns Empty for invalid ids", () => {
