@@ -49,6 +49,25 @@ async function bootstrap() {
     }
   }
 
+  // --- Display refresh rate → frame rate limiter ---
+  // The limiter only activates when rAF fires faster than the display refresh
+  // rate (e.g. Electron/Ozone without vsync). When vsync works, it's inactive.
+  try {
+    if (downdraft?.onDisplayInfo) {
+      downdraft.onDisplayInfo((data: { refreshRate: number }) => {
+        renderer.setFrameRateLimit(data.refreshRate);
+        solidHost?.setFrameRateLimit(data.refreshRate);
+      });
+    }
+    if (downdraft?.getDisplayInfo) {
+      const info = await downdraft.getDisplayInfo();
+      if (info?.refreshRate > 0) {
+        renderer.setFrameRateLimit(info.refreshRate);
+        solidHost?.setFrameRateLimit(info.refreshRate);
+      }
+    }
+  } catch { /* not available — limiter stays inactive */ }
+
   if (!solidHost) {
     // --- React fallback path ---
     const root = createRoot(getOverlay(0));

@@ -66,6 +66,16 @@ export function getSyncNode(handleId: number, rt: WorkerRuntime): WorkerNode {
   return node;
 }
 
+// No-op style declaration for non-element nodes (text, comment, document).
+// Solid's style() helper calls node.style.setProperty(name, value). If node
+// is a SyncNode (not a SyncElement), node.style would be undefined, causing
+// "Cannot read properties of undefined (reading 'setProperty')". This proxy
+// silently absorbs all style reads/writes.
+const NOOP_STYLE = new Proxy({}, {
+  get() { return ""; },
+  set() { return true; },
+});
+
 export class SyncElement extends WorkerElement {
   constructor(id: number, rt: WorkerRuntime) {
     super(id, rt);
@@ -137,11 +147,19 @@ export class SyncElement extends WorkerElement {
   }
 
   set innerHTML(v: string) {
-    // Must be synchronous — Solid's template() sets innerHTML on a <template>
-    // element, then immediately reads .content.firstChild. If innerHTML is
-    // fire-and-forget, the DOM tree hasn't been built yet when content is
-    // accessed, causing firstChild to return null and breaking all components.
-    this.rt.callSync(ids.OP_ELEMENT_SET_INNER_HTML, this.handleId, [v]);
+    // Fire-and-forget: setInnerHTML doesn't return a value, so we don't need
+    // to block the worker waiting for a reply. The main thread processes ops
+    // in FIFO order from the request ring, so any subsequent callSync (e.g.
+    // getTemplateContent for Solid's template()) will naturally wait for this
+    // setInnerHTML to be applied first — the main thread can't process the
+    // callSync request until it has processed this fire-and-forget request
+    // (they're in the same ring, processed head-to-tail).
+    //
+    // This was the root cause of 1000ms callSync stalls: overlay components
+    // (signpost, village, bomb) set container.innerHTML every frame via
+    // callSync, blocking the worker for up to 1000ms per call when the main
+    // thread didn't drain promptly.
+    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_INNER_HTML, this.handleId, [v]);
   }
 
   /** HTMLTemplateElement.content — returns the template's DocumentFragment.
@@ -239,7 +257,10 @@ export class SyncElement extends WorkerElement {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    // Fire-and-forget: textContent setter doesn't return a value. Same
+    // reasoning as setInnerHTML — FIFO ordering ensures any subsequent
+    // callSync (e.g. getTextNode) sees the updated text.
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get parentNode(): WorkerNode | null {
@@ -339,6 +360,15 @@ export class SyncNode extends WorkerNode {
     super(id, rt);
   }
 
+  /** No-op style declaration for non-element nodes. Solid's style() helper
+   *  calls node.style.setProperty(name, value) during reactivity. If node is
+   *  a text/comment node (SyncNode, not SyncElement), node.style is undefined
+   *  and setProperty crashes with "Cannot read properties of undefined". This
+   *  returns a no-op proxy that silently absorbs all style writes. */
+  get style(): any {
+    return NOOP_STYLE;
+  }
+
   appendChild(child: WorkerNode): WorkerNode {
     this.rt.callFireAndForget(ids.OP_NODE_APPEND_CHILD, this.handleId, [child.handleId]);
     return child;
@@ -365,7 +395,10 @@ export class SyncNode extends WorkerNode {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    // Fire-and-forget: textContent setter doesn't return a value. Same
+    // reasoning as setInnerHTML — FIFO ordering ensures any subsequent
+    // callSync (e.g. getTextNode) sees the updated text.
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get parentNode(): WorkerNode | null {
@@ -474,7 +507,10 @@ export class SyncText extends WorkerText {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    // Fire-and-forget: textContent setter doesn't return a value. Same
+    // reasoning as setInnerHTML — FIFO ordering ensures any subsequent
+    // callSync (e.g. getTextNode) sees the updated text.
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get nodeValue(): string {
@@ -544,7 +580,10 @@ export class SyncComment extends WorkerComment {
   }
 
   set textContent(v: string) {
-    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    // Fire-and-forget: textContent setter doesn't return a value. Same
+    // reasoning as setInnerHTML — FIFO ordering ensures any subsequent
+    // callSync (e.g. getTextNode) sees the updated text.
+    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get nodeValue(): string {
@@ -754,8 +793,27 @@ export class SyncDocument extends WorkerDocument {
 }
 
 export class SyncWindow extends WorkerWindow {
+  // Cached viewport dimensions. These only change on window resize, but
+  // without caching, every access is a blocking callSync round-trip. Multiple
+  // components read these in their rAF loops (5+ per frame), causing severe
+  // latency. We cache the values and invalidate on resize.
+  private _innerWidth = -1;
+  private _innerHeight = -1;
+  private _dpr = -1;
+
   constructor(rt: WorkerRuntime) {
     super(rt);
+    // Register an internal resize listener to invalidate the viewport cache.
+    // The main thread fires resize events into the event ring (coalesced to
+    // one per rAF); the event pump calls our listener, which invalidates the
+    // cache so the next access re-reads from the main thread.
+    this.rt.eventPump.add(HANDLE_WINDOW, "resize", () => {
+      this._innerWidth = -1;
+      this._innerHeight = -1;
+      this._dpr = -1;
+    });
+    // Tell the main thread to register a real DOM resize listener on window.
+    this.rt.callFireAndForget(ids.OP_WINDOW_ADD_EVENT_LISTENER, HANDLE_WINDOW, ["resize"]);
   }
 
   /** The document associated with this window. DOM libraries (e.g. Solid's
@@ -765,14 +823,20 @@ export class SyncWindow extends WorkerWindow {
   }
 
   get innerWidth(): number {
-    return this.rt.callSync(ids.OP_WINDOW_GET_INNER_WIDTH, HANDLE_WINDOW, []).value as number;
+    if (this._innerWidth >= 0) return this._innerWidth;
+    this._innerWidth = this.rt.callSync(ids.OP_WINDOW_GET_INNER_WIDTH, HANDLE_WINDOW, []).value as number;
+    return this._innerWidth;
   }
 
   get innerHeight(): number {
-    return this.rt.callSync(ids.OP_WINDOW_GET_INNER_HEIGHT, HANDLE_WINDOW, []).value as number;
+    if (this._innerHeight >= 0) return this._innerHeight;
+    this._innerHeight = this.rt.callSync(ids.OP_WINDOW_GET_INNER_HEIGHT, HANDLE_WINDOW, []).value as number;
+    return this._innerHeight;
   }
 
   get devicePixelRatio(): number {
-    return this.rt.callSync(ids.OP_WINDOW_GET_DEVICE_PIXEL_RATIO, HANDLE_WINDOW, []).value as number;
+    if (this._dpr >= 0) return this._dpr;
+    this._dpr = this.rt.callSync(ids.OP_WINDOW_GET_DEVICE_PIXEL_RATIO, HANDLE_WINDOW, []).value as number;
+    return this._dpr;
   }
 }

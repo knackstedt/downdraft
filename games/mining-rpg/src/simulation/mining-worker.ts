@@ -282,7 +282,12 @@ async function loop(): Promise<void> {
       fpsTimer = 0;
     }
 
-    setTimeout(loop, 0);
+    // Sleep until the next tick is due instead of spinning with setTimeout(0).
+    // The sim runs at TICK_RATE (60Hz), so each tick is ~16.67ms apart. Without
+    // this delay, setTimeout(loop, 0) creates a busy loop that burns ~50% CPU
+    // even when no sim work is needed (elapsed < TICK_MS).
+    const remaining = TICK_MS - (performance.now() - now);
+    setTimeout(loop, remaining > 0 ? remaining : 0);
   } catch (e) {
     console.error("[mining-worker] Loop error:", e);
     setTimeout(loop, 0);

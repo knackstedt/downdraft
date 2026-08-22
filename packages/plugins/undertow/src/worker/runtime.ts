@@ -198,30 +198,42 @@ export class WorkerRuntime {
   }
 
   // --- requestAnimationFrame ---
-  // The worker's rAF is proxied to the main thread. The call() returns a
-  // Promise that resolves when the main thread's rAF fires. We map the
-  // rAF id to the callback and resolve the promise.
+  // The worker's rAF is proxied to the main thread. To avoid flooding the
+  // SAB IPC bridge with one round-trip per rAF callback (8+ Solid components
+  // each have their own rAF loop), we coalesce ALL pending rAF requests into
+  // a single main-thread rAF. Only one OP_WINDOW_REQUEST_ANIMATION_FRAME is
+  // sent per frame; when the reply arrives, all pending callbacks fire.
+  private rafPending = false;
   requestAnimationFrame(callback: (time: number) => void): number {
     const rafId = ++this.rafIdCounter;
     this.rafCallbacks.set(rafId, callback);
-    // Send the rAF request. The host will reply when the main thread's rAF fires.
-    this.call(ids.OP_WINDOW_REQUEST_ANIMATION_FRAME, 4 /* HANDLE_WINDOW */, []).then((r) => {
-      // The host replied — the main thread's rAF fired. Call the callback.
-      const cb = this.rafCallbacks.get(rafId);
-      if (cb) {
-        this.rafCallbacks.delete(rafId);
-        // Use performance.now() as the timestamp (close enough to the main thread's rAF time).
-        cb(typeof performance !== "undefined" ? performance.now() : Date.now());
+    // If we already have a pending main-thread rAF request, don't send another.
+    // The callback will fire when the existing request's reply arrives.
+    if (this.rafPending) return rafId;
+    this.rafPending = true;
+    this.call(ids.OP_WINDOW_REQUEST_ANIMATION_FRAME, 4 /* HANDLE_WINDOW */, []).then(() => {
+      // Main thread rAF fired — fire ALL pending callbacks, not just this one.
+      this.rafPending = false;
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      // Snapshot the callbacks and clear the map first, so callbacks that
+      // call requestAnimationFrame again during the fire are queued for the
+      // NEXT frame, not the current one.
+      const callbacks = Array.from(this.rafCallbacks.values());
+      this.rafCallbacks.clear();
+      for (const cb of callbacks) {
+        try { cb(now); } catch (e) { console.error("[runtime] rAF callback error:", e); }
       }
     }).catch(() => {
-      this.rafCallbacks.delete(rafId);
+      this.rafPending = false;
+      this.rafCallbacks.clear();
     });
     return rafId;
   }
 
   cancelAnimationFrame(rafId: number): void {
     this.rafCallbacks.delete(rafId);
-    this.call(ids.OP_WINDOW_CANCEL_ANIMATION_FRAME, 4 /* HANDLE_WINDOW */, [rafId]);
+    // No need to send a cancel OP to the main thread — the coalesced
+    // approach means we just don't fire this callback when the reply arrives.
   }
 
   private encodeRequest(reqId: number, opId: number, handle: number, args: ArgValue[]): void {

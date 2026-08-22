@@ -43,7 +43,29 @@ const EVENT_PAYLOAD_EXTRACTORS: Record<string, (e: Event) => Record<string, unkn
 // High-frequency events that should be coalesced — only the latest event is kept.
 // These fire at 60-360Hz and would flood the event ring + block the worker with
 // sync calls. We coalesce by storing the latest event and flushing on rAF.
-const COALESCE_TYPES = new Set(["mousemove", "pointermove", "wheel", "scroll", "resize"]);
+const COALESCE_TYPES = new Set(["wheel", "scroll", "resize"]);
+
+// High-noise events that are blocked entirely — never forwarded to the worker.
+// These fire continuously during mouse/touch interaction (60-360Hz) and no
+// worker-side component needs them. Solid's delegateEvents() registers
+// listeners for all DelegatedEvents on the document, which includes mousemove,
+// pointermove, touchmove, mouseover, mouseout, pointerover, pointerout. Even
+// with coalescing, one per rAF is unnecessary work that adds latency. Blocking
+// them at the dispatcher level means no real DOM listener is registered, so
+// the events never enter the event ring and the worker never processes them.
+const BLOCKED_TYPES = new Set([
+  "mousemove",
+  "pointermove",
+  "touchmove",
+  "mouseover",
+  "mouseout",
+  "pointerover",
+  "pointerout",
+  "mouseenter",
+  "mouseleave",
+  "pointerenter",
+  "pointerleave",
+]);
 
 export class EventDispatcher {
   private readonly host: EventDispatcherHost;
@@ -80,6 +102,11 @@ export class EventDispatcher {
 
   /** Register a real DOM listener for (handle, type). Called by the host on OP_ADD_EVENT_LISTENER. */
   add(handle: number, type: string): void {
+    // Block high-noise events entirely — don't register a real DOM listener.
+    // This prevents mousemove/pointermove/etc. from flooding the event ring
+    // and adding latency to the worker's event processing.
+    if (BLOCKED_TYPES.has(type)) return;
+
     const node = this.host.handleTable.resolve(handle);
     if (!node) return;
 

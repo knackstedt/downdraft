@@ -123,18 +123,33 @@ self.onmessage = async (e: MessageEvent<WorkerInbound>) => {
       render(() => SolidApp(), root);
       console.log("[worker-entry] Render complete, root children:", root?.childNodes?.length ?? 0);
 
-      // Start the rAF loop.
-      // Also start a setInterval fallback — the proxied rAF relies on
-      // Atomics.waitAsync which may not wake the worker reliably in all
-      // Electron/Chromium versions. The setInterval ensures replies + events
-      // are drained even if the rAF callback never fires.
+      // Start the rAF loop + a high-frequency setInterval watchdog.
+      //
+      // The proxied rAF relies on Atomics.waitAsync which may not wake the
+      // worker reliably in all Electron/Chromium versions, and the rAF
+      // round-trip (worker sends OP → main thread schedules rAF → rAF fires
+      // → reply → worker wakes) takes ~2 frames (~32ms). This means events
+      // and store updates would be delayed by up to 32ms even when working
+      // correctly.
+      //
+      // The setInterval watchdog runs every 16ms and does the SAME work as
+      // the rAF tick: drain replies, drain events, and tick the UiStatsSAB
+      // → Solid store. This ensures:
+      //   - Events are processed within 16ms of arriving in the event ring
+      //     (not 32-50ms)
+      //   - The Solid store is updated every 16ms from the UiStatsSAB
+      //   - The rAF loop stays alive even if waitAsync stalls
+      //
+      // tickUiStats() is idempotent — it only writes to the store when a
+      // value actually changed (via !== checks), so calling it from both
+      // the watchdog and rAF is safe.
       rafId = requestAnimationFrame(tick);
       setInterval(() => {
         if (rt) {
           rt.drainReplies();
           rt.eventPump.drain();
+          tickUiStats();
         }
-        tickUiStats();
       }, 16);
 
       // Mark as initialized and drain any messages that arrived during init
