@@ -3,7 +3,7 @@
 //
 // This module sets up global `document`, `window`, `Node`, `Element`, `Text`,
 // `Comment`, `DocumentFragment`, `Event`, `CustomEvent`, `MouseEvent`, etc.
-// so that React (or any DOM library) can run in the worker.
+// so that Solid (or any DOM library) can run in the worker.
 //
 // The polyfill creates WorkerDocument / WorkerWindow instances and patches
 // the wrapNode function so that node handles are wrapped in the correct
@@ -24,7 +24,7 @@ export { wrapSyncNode as wrapNode };
 
 /**
  * Install the DOM polyfill in the worker's global scope.
- * Call this once at worker startup, before loading React.
+ * Call this once at worker startup, before loading Solid (or any DOM library).
  */
 export function installPolyfill(rt: WorkerRuntime): { document: WorkerDocument; window: WorkerWindow } {
   const document = new SyncDocument(rt);
@@ -59,8 +59,8 @@ export function installPolyfill(rt: WorkerRuntime): { document: WorkerDocument; 
   g.WheelEvent = WorkerEventPolyfill;
   g.InputEvent = WorkerEventPolyfill;
 
-  // HTML element constructors — React does `instanceof` checks against these.
-  // All map to SyncElement since we don't distinguish element subtypes.
+  // HTML element constructors — DOM libraries do `instanceof` checks against
+  // these. All map to SyncElement since we don't distinguish element subtypes.
   const htmlTags = [
     "HTMLDivElement", "HTMLSpanElement", "HTMLAnchorElement", "HTMLImageElement",
     "HTMLInputElement", "HTMLButtonElement", "HTMLFormElement", "HTMLSelectElement",
@@ -82,7 +82,7 @@ export function installPolyfill(rt: WorkerRuntime): { document: WorkerDocument; 
     g[tag] = SyncElement;
   }
 
-  // Also set HTML constructors on the window object — React accesses
+  // Also set HTML constructors on the window object — DOM libraries access
   // `window.HTMLIFrameElement` etc. for instanceof checks.
   const w = window as any;
   for (const tag of htmlTags) {
@@ -211,9 +211,10 @@ export function installPolyfill(rt: WorkerRuntime): { document: WorkerDocument; 
 }
 
 /**
- * Minimal Event polyfill. React creates Event objects for synthetic events.
- * In the worker, events arrive via the event pump as WorkerEvent instances.
- * This constructor allows code to create new events for dispatchEvent.
+ * Minimal Event polyfill. DOM libraries create Event objects for synthetic
+ * events. In the worker, events arrive via the event pump as WorkerEvent
+ * instances. This constructor allows code to create new events for
+ * dispatchEvent.
  */
 export class WorkerEventPolyfill {
   readonly type: string;

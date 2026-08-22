@@ -1017,7 +1017,7 @@ export class MiningRenderer {
       volRendererLights.push({
         x: interpPx, y: interpPy,
         color: HEADLAMP_COLOR,
-        intensity: 15.0,
+        intensity: 6.0,
         radius: 20,
       });
     }

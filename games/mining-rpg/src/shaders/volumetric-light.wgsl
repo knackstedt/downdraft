@@ -123,12 +123,12 @@ fn fs_inject(in: VSOut) -> @location(0) vec4<f32> {
 
   var ambient = vec3<f32>(0.0);
   if (cellType == 0u) {
-    // Air cells: full sky ambient regardless of depth. Sky light pours into
-    // all air cells (both above-ground sky and underground caves) and diffuses
-    // into neighboring solid cells. The depth-based falloff only applies to
-    // the direct ambient injected into solid cells below — the diffused light
-    // from air cells provides the "sky light reaching into tunnels" effect.
-    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB);
+    // Air cells: sky ambient with depth falloff from BASE_SURFACE_Y (a stable,
+    // noise-free constant — no chunk-border pop). Near the surface, air cells
+    // get full sky light which diffuses into solid walls. Deep underground,
+    // air cells get near-zero ambient so caves/tunnels are dark — lit only by
+    // the headlamp, torches, and lava. A small floor prevents pure black.
+    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * (ambientStrength * 0.7 + 0.02);
   } else if (cellType == 1u) {
     // Water: reduced ambient (deeper water is darker)
     ambient = vec3<f32>(u.ambientR * 0.4, u.ambientG * 0.5, u.ambientB * 0.7) * ambientStrength * 0.5;
@@ -196,7 +196,11 @@ fn fs_diffuse(in: VSOut) -> @location(0) vec4<f32> {
   let waterTint = vec3<f32>(u.waterAbsorbR, u.waterAbsorbG, u.waterAbsorbB);
   let tintedAvg = select(neighborAvg, neighborAvg * waterTint, cellType == 1u);
 
-  let newVal = mix(selfVal.rgb, tintedAvg, rate);
+  // Per-iteration attenuation so light dies out over distance instead of
+  // conserving energy and spreading indefinitely through connected air. This
+  // bounds the headlamp/torch glow radius so it doesn't flood the entire
+  // tunnel network across chunks.
+  let newVal = mix(selfVal.rgb, tintedAvg, rate) * 0.97;
 
   return vec4<f32>(newVal, selfVal.a);
 }

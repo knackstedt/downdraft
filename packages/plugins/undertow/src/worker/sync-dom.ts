@@ -1,12 +1,13 @@
 // @ts-nocheck — sync methods intentionally narrow Promise<T> return types to T
-// for React's synchronous reconciler. TypeScript can't express this narrowing.
+// for synchronous reconcilers (Solid, React, etc.). TypeScript can't express
+// this narrowing.
 // ============================================================================
 // sync-dom — synchronous DOM class wrappers for the polyfill.
 //
-// React's reconciler calls DOM methods synchronously and expects immediate
-// results (not Promises). These wrappers use rt.callSync() which blocks the
-// worker via Atomics.wait until the main thread drains and replies, then
-// returns the raw value directly.
+// Synchronous DOM libraries (Solid, React, etc.) call DOM methods
+// synchronously and expect immediate results (not Promises). These wrappers
+// use rt.callSync() which blocks the worker via Atomics.wait until the main
+// thread drains and replies, then returns the raw value directly.
 // ============================================================================
 
 import * as ids from "../shared/op-ids";
@@ -21,46 +22,47 @@ import type { WorkerRuntime } from "./runtime";
 
 // ============================================================================
 // Handle cache — ensures the same handle always returns the same JS object.
-// React sets internal properties (internalInstanceKey, internalPropsKey) on
-// DOM element instances. If we create new SyncElement instances for the same
-// handle, React's event delegation can't find the component instance from
-// event.target. This cache ensures identity stability.
+// DOM libraries set internal properties on element instances (React uses
+// __reactFiber/__reactProps, Solid uses _owner/__props etc.). If we create
+// new SyncElement instances for the same handle, the library's event
+// delegation can't find the component instance from event.target. This cache
+// ensures identity stability.
+//
+// The cache is per-runtime (stored on rt.handleCache) so that re-creating
+// the runtime (hot-reload, test isolation) doesn't return stale objects.
 // ============================================================================
-const handleCache: Map<number, WorkerNode | WorkerElement | WorkerText | WorkerComment> = new Map();
 
 /** Get or create a cached SyncElement for the given handle. */
 export function getSyncElement(handleId: number, rt: WorkerRuntime): SyncElement {
-  const cached = handleCache.get(handleId);
+  const cached = rt.handleCache.get(handleId);
   if (cached) {
     // If the cached object is already a SyncElement, return it.
     if (cached instanceof SyncElement) return cached;
     // If it's a SyncNode (e.g. firstChild was called before createElement),
     // we need to upgrade it to a SyncElement so it has setAttribute etc.
-    // IMPORTANT: Copy React's internal properties (__reactFiber, __reactProps,
-    // etc.) from the old SyncNode to the new SyncElement. React sets these
-    // properties on the DOM element instances. If we replace the cached object
-    // without copying them, React's event delegation can't find the fiber for
-    // the element, and onClick/onChange handlers won't fire.
+    // Copy all internal properties (anything starting with __ or _) from the
+    // old node to the new element so the DOM library's event delegation and
+    // property tracking continue to work.
     const el = new SyncElement(handleId, rt);
     for (const key of Object.getOwnPropertyNames(cached)) {
-      if (key.startsWith("__react") || key.startsWith("__eventTag")) {
+      if (key.startsWith("__") || (key.startsWith("_") && !key.startsWith("_"))) {
         (el as any)[key] = (cached as any)[key];
       }
     }
-    handleCache.set(handleId, el);
+    rt.handleCache.set(handleId, el);
     return el;
   }
   const el = new SyncElement(handleId, rt);
-  handleCache.set(handleId, el);
+  rt.handleCache.set(handleId, el);
   return el;
 }
 
 /** Get or create a cached sync node wrapper for the given handle. */
 export function getSyncNode(handleId: number, rt: WorkerRuntime): WorkerNode {
-  const cached = handleCache.get(handleId);
+  const cached = rt.handleCache.get(handleId);
   if (cached) return cached;
   const node = wrapSyncNode(handleId, rt);
-  handleCache.set(handleId, node);
+  rt.handleCache.set(handleId, node);
   return node;
 }
 
@@ -135,7 +137,22 @@ export class SyncElement extends WorkerElement {
   }
 
   set innerHTML(v: string) {
-    this.rt.callFireAndForget(ids.OP_ELEMENT_SET_INNER_HTML, this.handleId, [v]);
+    // Must be synchronous — Solid's template() sets innerHTML on a <template>
+    // element, then immediately reads .content.firstChild. If innerHTML is
+    // fire-and-forget, the DOM tree hasn't been built yet when content is
+    // accessed, causing firstChild to return null and breaking all components.
+    this.rt.callSync(ids.OP_ELEMENT_SET_INNER_HTML, this.handleId, [v]);
+  }
+
+  /** HTMLTemplateElement.content — returns the template's DocumentFragment.
+   *  Solid's template() function uses this to access parsed HTML nodes.
+   *  We cache the node type as DOCUMENT_FRAGMENT_NODE so wrapSyncNode returns
+   *  a SyncNode (DocumentFragment is a Node, not an Element). */
+  get content(): SyncNode | null {
+    const h = this.rt.callSync(ids.OP_ELEMENT_GET_TEMPLATE_CONTENT, this.handleId, []).value as number;
+    if (h === 0) return null;
+    cacheNodeType(h, 11, this.rt); // DOCUMENT_FRAGMENT_NODE
+    return getSyncNode(h, this.rt);
   }
 
   get style(): WorkerCSSStyleDeclaration {
@@ -222,7 +239,7 @@ export class SyncElement extends WorkerElement {
   }
 
   set textContent(v: string) {
-    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get parentNode(): WorkerNode | null {
@@ -296,7 +313,7 @@ export class SyncElement extends WorkerElement {
     const h = r.value as number;
     // Cloned nodes inherit the source's node type — cache it so wrapSyncNode
     // doesn't need a callSync round-trip.
-    cacheNodeType(h, 1); // ELEMENT_NODE (SyncElement.cloneNode)
+    cacheNodeType(h, 1, this.rt); // ELEMENT_NODE (SyncElement.cloneNode)
     return getSyncElement(h, this.rt);
   }
 
@@ -348,7 +365,7 @@ export class SyncNode extends WorkerNode {
   }
 
   set textContent(v: string) {
-    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get parentNode(): WorkerNode | null {
@@ -457,7 +474,7 @@ export class SyncText extends WorkerText {
   }
 
   set textContent(v: string) {
-    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get nodeValue(): string {
@@ -466,6 +483,46 @@ export class SyncText extends WorkerText {
 
   set nodeValue(v: string) {
     this.rt.callFireAndForget(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
+  }
+
+  // --- Sync navigation getters (override async WorkerNode versions) ---
+  // Solid's compiled templates chain firstChild.nextSibling.parentNode etc.
+  // If these return Promises (from WorkerNode), the chain breaks with
+  // "Cannot read properties of undefined (reading 'nextSibling')".
+
+  get parentNode(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_PARENT_NODE, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get firstChild(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_FIRST_CHILD, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get lastChild(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_LAST_CHILD, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get nextSibling(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_NEXT_SIBLING, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get previousSibling(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_PREVIOUS_SIBLING, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get childNodes(): WorkerNode[] {
+    const r = this.rt.callSync(ids.OP_NODE_GET_CHILD_NODES, this.handleId, []);
+    const handles = r.value as number[];
+    return handles.map((h) => getSyncNode(h, this.rt));
+  }
+
+  get nodeType(): number {
+    return 3; // TEXT_NODE
   }
 }
 
@@ -487,7 +544,7 @@ export class SyncComment extends WorkerComment {
   }
 
   set textContent(v: string) {
-    this.rt.callFireAndForget(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
+    this.rt.callSync(ids.OP_NODE_SET_TEXT_CONTENT, this.handleId, [v]);
   }
 
   get nodeValue(): string {
@@ -496,6 +553,42 @@ export class SyncComment extends WorkerComment {
 
   set nodeValue(v: string) {
     this.rt.callFireAndForget(ids.OP_NODE_SET_NODE_VALUE, this.handleId, [v]);
+  }
+
+  // --- Sync navigation getters (override async WorkerNode versions) ---
+  get parentNode(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_PARENT_NODE, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get firstChild(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_FIRST_CHILD, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get lastChild(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_LAST_CHILD, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get nextSibling(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_NEXT_SIBLING, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get previousSibling(): WorkerNode | null {
+    const h = this.rt.callSync(ids.OP_NODE_GET_PREVIOUS_SIBLING, this.handleId, []).value as number;
+    return h === 0 ? null : getSyncNode(h, this.rt);
+  }
+
+  get childNodes(): WorkerNode[] {
+    const r = this.rt.callSync(ids.OP_NODE_GET_CHILD_NODES, this.handleId, []);
+    const handles = r.value as number[];
+    return handles.map((h) => getSyncNode(h, this.rt));
+  }
+
+  get nodeType(): number {
+    return 8; // COMMENT_NODE
   }
 }
 
@@ -533,30 +626,32 @@ export class SyncCSSStyleDeclaration extends WorkerCSSStyleDeclaration {
 
 // Cache: handle → node type. Populated by createElement/createTextNode/etc.
 // and by wrapSyncNode when it has to query. This avoids a callSync round-trip
-// for every uncached node during React reconciliation (which would add seconds
-// of latency when opening menus).
-const nodeTypeCache: Map<number, number> = new Map();
+// for every uncached node during DOM library reconciliation (which would add
+// seconds of latency when opening menus).
+// Per-runtime (stored on rt.nodeTypeCache) for isolation across re-creations.
 
 /** Cache the node type for a handle (used by SyncDocument methods). */
-export function cacheNodeType(handleId: number, nodeType: number): void {
-  nodeTypeCache.set(handleId, nodeType);
+export function cacheNodeType(handleId: number, nodeType: number, rt?: WorkerRuntime): void {
+  if (rt) {
+    rt.nodeTypeCache.set(handleId, nodeType);
+  }
 }
 
 export function wrapSyncNode(handleId: number, rt: WorkerRuntime): WorkerNode {
   // Check the node type cache first — createElement/createTextNode/etc.
   // populate this, avoiding a callSync round-trip.
-  const cachedType = nodeTypeCache.get(handleId);
+  const cachedType = rt.nodeTypeCache.get(handleId);
   if (cachedType !== undefined) {
     if (cachedType === 1) return new SyncElement(handleId, rt); // ELEMENT_NODE
     if (cachedType === 3) return new SyncText(handleId, rt);    // TEXT_NODE
     if (cachedType === 8) return new SyncComment(handleId, rt); // COMMENT_NODE
     return new SyncNode(handleId, rt);
   }
-  // Default to SyncElement — the vast majority of DOM nodes React creates
-  // and traverses are element nodes. Text/comment nodes are created via
-  // createTextNode/createComment which populate the cache. If this is wrong
-  // (e.g. a text node returned by firstChild), the nodeType getter will
-  // still return the correct value lazily.
+  // Default to SyncElement — the vast majority of DOM nodes that DOM
+  // libraries create and traverse are element nodes. Text/comment nodes are
+  // created via createTextNode/createComment which populate the cache. If
+  // this is wrong (e.g. a text node returned by firstChild), the nodeType
+  // getter will still return the correct value lazily.
   // This avoids a callSync round-trip for every uncached node, which was
   // adding several seconds of latency when opening menus.
   return new SyncElement(handleId, rt);
@@ -570,35 +665,35 @@ export class SyncDocument extends WorkerDocument {
   createElement(tag: string): WorkerElement {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_ELEMENT, HANDLE_DOCUMENT, [tag]);
     const h = r.value as number;
-    cacheNodeType(h, 1); // ELEMENT_NODE
+    cacheNodeType(h, 1, this.rt); // ELEMENT_NODE
     return getSyncElement(h, this.rt);
   }
 
   createElementNS(ns: string, tag: string): WorkerElement {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_ELEMENT_NS, HANDLE_DOCUMENT, [ns, tag]);
     const h = r.value as number;
-    cacheNodeType(h, 1); // ELEMENT_NODE
+    cacheNodeType(h, 1, this.rt); // ELEMENT_NODE
     return getSyncElement(h, this.rt);
   }
 
   createTextNode(text: string): WorkerText {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_TEXT_NODE, HANDLE_DOCUMENT, [text]);
     const h = r.value as number;
-    cacheNodeType(h, 3); // TEXT_NODE
+    cacheNodeType(h, 3, this.rt); // TEXT_NODE
     return new SyncText(h, this.rt);
   }
 
   createComment(text: string): WorkerComment {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_COMMENT, HANDLE_DOCUMENT, [text]);
     const h = r.value as number;
-    cacheNodeType(h, 8); // COMMENT_NODE
+    cacheNodeType(h, 8, this.rt); // COMMENT_NODE
     return new SyncComment(h, this.rt);
   }
 
   createDocumentFragment(): WorkerNode {
     const r = this.rt.callSync(ids.OP_DOCUMENT_CREATE_DOCUMENT_FRAGMENT, HANDLE_DOCUMENT, []);
     const h = r.value as number;
-    cacheNodeType(h, 11); // DOCUMENT_FRAGMENT_NODE
+    cacheNodeType(h, 11, this.rt); // DOCUMENT_FRAGMENT_NODE
     return new SyncNode(h, this.rt);
   }
 
@@ -641,7 +736,8 @@ export class SyncDocument extends WorkerDocument {
     return this.rt.window;
   }
 
-  // React attaches event listeners to the document (e.g. selectionchange)
+  // DOM libraries attach event listeners to the document (e.g. Solid's
+  // delegated events, React's selectionchange).
   addEventListener(type: string, listener: any): void {
     this.rt.eventPump.add(HANDLE_DOCUMENT, type, listener);
     this.rt.callFireAndForget(ids.OP_ADD_EVENT_LISTENER, HANDLE_DOCUMENT, [type]);
@@ -660,6 +756,12 @@ export class SyncDocument extends WorkerDocument {
 export class SyncWindow extends WorkerWindow {
   constructor(rt: WorkerRuntime) {
     super(rt);
+  }
+
+  /** The document associated with this window. DOM libraries (e.g. Solid's
+   *  delegateEvents) access `window.document` as a default parameter. */
+  get document(): WorkerDocument {
+    return this.rt.document;
   }
 
   get innerWidth(): number {

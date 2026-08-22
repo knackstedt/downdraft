@@ -98,10 +98,10 @@ function makeMockDevice(): {
 describe("VolumetricLightPass", () => {
   describe("DEFAULT_VOLUMETRIC_LIGHT_CONFIG", () => {
     it("has expected defaults", () => {
-      expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.iterations).toBe(24);
-      expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.airPropagation).toBe(1);
+      expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.iterations).toBe(16);
+      expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.airPropagation).toBe(0.85);
       expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.waterPropagation).toBe(0.8);
-      expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.solidPropagation).toBe(0.6);
+      expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.solidPropagation).toBe(0.2);
       expect(DEFAULT_VOLUMETRIC_LIGHT_CONFIG.ambientDepthFalloff).toBe(40);
     });
 

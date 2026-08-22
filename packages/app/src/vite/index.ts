@@ -34,10 +34,30 @@ export interface DowndraftViteConfigOptions {
   mainAliases?: Array<{ find: string | RegExp; replacement: string }>;
   /** Additional renderer aliases to merge. */
   rendererAliases?: Array<{ find: string | RegExp; replacement: string }>;
+  /** Additional packages to exclude from Vite's dep pre-bundling (optimizeDeps.exclude).
+   *  Useful when resolve.alias remaps a package to a specific file and the
+   *  pre-bundler would otherwise resolve it via export conditions. */
+  optimizeDepsExclude?: string[];
+  /** Additional packages to include in Vite's dep pre-bundling (optimizeDeps.include).
+   *  Use this to force pre-bundling of specific entry points (e.g. when
+   *  resolve.alias remaps a package to a non-default file). */
+  optimizeDepsInclude?: string[];
+  /** Additional esbuild plugins for Vite's dep pre-bundling (optimizeDeps.esbuildOptions.plugins).
+   *  Use this to override how esbuild resolves specific packages during pre-bundling. */
+  optimizeDepsEsbuildPlugins?: any[];
+  /** Export conditions for esbuild's dep pre-bundling (optimizeDeps.esbuildOptions.conditions).
+   *  Use this to override which export condition is used when pre-bundling packages
+   *  that have multiple export targets (e.g. solid-js has "worker" and "browser"). */
+  optimizeDepsEsbuildConditions?: string[];
   /** Additional main-process vite plugins. */
   mainPlugins?: any[];
   /** Additional renderer vite plugins. */
   rendererPlugins?: any[];
+  /** Additional vite plugins applied only to worker bundles (renderer.worker.plugins). */
+  workerPlugins?: any[];
+  /** Additional Rollup entry inputs for the renderer build (e.g. separate worker chunks).
+   *  Each entry is { name: string, path: string } where path is relative to root. */
+  extraRollupInputs?: Array<{ name: string; path: string }>;
   /** Hot-reload sim paths (defaults to to-the-ocean's set if game name matches). */
   simPaths?: string[];
   /** Hot-reload renderer paths. */
@@ -297,6 +317,12 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     },
     renderer: {
       root: rendererRoot,
+      server: {
+        headers: {
+          "Cross-Origin-Opener-Policy": "same-origin",
+          "Cross-Origin-Embedder-Policy": "require-corp",
+        },
+      },
       resolve: {
         alias: rendererAliasEntries,
         // Force a single copy of React in the bundle. With bun's symlinked
@@ -307,6 +333,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       },
       worker: {
         format: "es",
+        // Vite 6 requires worker.plugins to be a function that returns an
+        // array of plugins, not an array directly.
+        plugins: (() => options.workerPlugins ?? []) as any,
       },
       // Exclude @bokuweb/zstd-wasm from dep pre-bundling. The package loads
       // its WASM via `new URL("./zstd.wasm", import.meta.url)`, which esbuild's
@@ -317,7 +346,12 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       // Excluding it lets Vite serve the original module with the correct
       // import.meta.url pointing into node_modules.
       optimizeDeps: {
-        exclude: ["@bokuweb/zstd-wasm"],
+        exclude: ["@bokuweb/zstd-wasm", ...(options.optimizeDepsExclude ?? [])],
+        include: [...(options.optimizeDepsInclude ?? [])],
+        esbuildOptions: {
+          plugins: [...(options.optimizeDepsEsbuildPlugins ?? [])],
+          conditions: options.optimizeDepsEsbuildConditions,
+        },
       },
       build: {
         outDir: "dist/renderer",
@@ -325,12 +359,18 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         rollupOptions: {
           input: {
             index: resolve(rendererRoot, "index.html"),
+            ...(Object.fromEntries(
+              (options.extraRollupInputs ?? []).map((e) => [e.name, resolve(rendererRoot, e.path)]),
+            )),
           },
         },
       } as any,
       plugins: [
         ...(htmlOpts ? [downdraftHtmlPlugin(htmlOpts)] : []),
-        react(),
+        // Exclude src/solid/** from the React plugin so it doesn't inject
+        // React Refresh code (which references `window`) into the Solid worker
+        // chunk. The Solid plugin (added via rendererPlugins) handles those files.
+        react({ exclude: "**/src/solid/**" }),
         hotReloadPlugin({
           simPaths,
           rendererPaths,

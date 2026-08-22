@@ -163,10 +163,6 @@ export class MainThreadHost {
       this.armRequestWait();
     } finally {
       this.draining = false;
-      const elapsed = performance.now() - t0;
-      if (elapsed > 20 || count > 50) {
-        console.log(`[host] drain: ${elapsed.toFixed(1)}ms count=${count} armed=${this.requestWaitArmed}`);
-      }
     }
   }
 

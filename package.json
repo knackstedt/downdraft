@@ -15,7 +15,7 @@
     "test:e2e": "bun test tests/e2e/to-the-ocean-smoke.spec.ts",
     "test:e2e:headless": "DOWNDRAFT_GPU=swiftshader bun test tests/e2e/to-the-ocean-smoke.spec.ts",
     "test:e2e:local": "bun test tests/e2e/to-the-ocean-smoke.spec.ts",
-    "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p games/mining-rpg/src/solid/tsconfig.json --noEmit",
     "tsc:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "lint": "oxlint",
     "postinstall": "node node_modules/electron/install.js"
@@ -36,6 +36,10 @@
     "games/mining-rpg/plugins/*",
     "games/alchemy",
     "games/alchemy/plugins/*",
+    "games/blockheads",
+    "games/blockheads/plugins/*",
+    "games/sandjongg",
+    "games/sandjongg/plugins/*",
     "examples/plugin-tester"
   ],
   "devDependencies": {

@@ -17,5 +17,5 @@ release
 # Asset cache (downloaded from blob store)
 .downdraft-cache
 
-# Playwright MCP runtime artifacts
-.playwright-mcp/
+# E2E test artifacts (screenshots, logs)
+tests/e2e/artifacts/

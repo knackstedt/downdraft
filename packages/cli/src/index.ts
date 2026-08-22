@@ -61,6 +61,8 @@ Test options:
   --renderer <gpu|cpu>  WebGPU backend: cpu=SwiftShader (default), gpu=hardware
   --headed            Show the window instead of running headless
   --no-deterministic  Disable fixed seed / render loop pause
+  --build             Build the game with electron-vite before testing (tests the packaged app)
+  --build-only        Only test the built app (skip dev server; requires prior build)
 `);
       process.exit(1);
   }

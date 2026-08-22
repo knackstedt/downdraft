@@ -4,10 +4,18 @@
 // (clientX, clientY, key, etc.) as plain properties.
 // ============================================================================
 
+import type { WorkerRuntime } from "../runtime";
+
 export interface WorkerEventInit {
   type: string;
   targetHandle: number;
   payload: Record<string, unknown>;
+}
+
+/** Injected by the event pump to avoid a circular dependency on sync-dom. */
+let _getSyncElement: ((handle: number, rt: WorkerRuntime) => any) | null = null;
+export function setSyncElementResolver(fn: (handle: number, rt: WorkerRuntime) => any): void {
+  _getSyncElement = fn;
 }
 
 export class WorkerEvent {
@@ -18,6 +26,8 @@ export class WorkerEvent {
   target: any = null;
   /** The element the listener was registered on (currentTarget during bubble). */
   currentTarget: any = null;
+  /** The worker runtime, set by the event pump for composedPath resolution. */
+  rt: WorkerRuntime | null = null;
 
   constructor(init: WorkerEventInit) {
     this.type = init.type;
@@ -55,10 +65,21 @@ export class WorkerEvent {
     // Same as above.
   }
 
-  /** React 18 may call composedPath() to find the event target in shadow DOM.
-   *  We don't have shadow DOM, so return [target, currentTarget] (or just [target]). */
-  composedPath(): EventTarget[] {
-    return this.target ? [this.target] : [];
+  /** Returns the full ancestor chain from target to document. The path is
+   *  pre-collected on the main thread in the EventDispatcher and included in
+   *  the event payload, so this is zero-cost (no sync SAB calls). Solid's
+   *  eventHandler uses composedPath() to walk the tree and find delegated
+   *  handlers — without this, each parentNode access would be a blocking SAB
+   *  round-trip, making clicks extremely laggy. */
+  composedPath(): any[] {
+    const handles = this.payload._composedPath as number[] | undefined;
+    if (!handles || handles.length === 0 || !_getSyncElement || !this.rt) {
+      return this.target ? [this.target] : [];
+    }
+    // Map handles to cached SyncElements. getSyncElement is a cache lookup —
+    // no SAB call. Handle 0 means the node has no undertow handle (e.g. the
+    // real document); skip it.
+    return handles.filter((h) => h > 0).map((h) => _getSyncElement!(h, this.rt!));
   }
 
   /** React 18 may check isTrusted. Synthetic events from the event ring are

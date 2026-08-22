@@ -1,15 +1,17 @@
 // ============================================================================
 // undertow — public API
 //
-// ⚠️ SHELVED — not in use by any game. See ../SHELVED.md for the known
-// stability and latency flaws that are not yet solved before un-shelving.
-//
 // A lock-free DOM proxy that moves arbitrary client UI code into a Web Worker
 // via a resizable SharedArrayBuffer + Atomics. The worker owns the JS object
 // graph (integer handles); every DOM call becomes a fixed-shape op record in
 // a request ring; the main thread drains it and writes replies to a reply
 // ring; events flow back through a separate event ring. Hot-path layout reads
 // are served from a dedicated LayoutChannel SAB (zero-copy, no round-trip).
+//
+// Designed for fine-grained DOM libraries (SolidJS, etc.) whose steady-state
+// updates touch only the nodes bound to changed signals — minimizing the
+// number of fire-and-forget ops per update. See ../STATUS.md for the current
+// status and which shelved flaws have been addressed.
 //
 // Usage (main side):
 //   const host = new MainThreadHost({ document, window });
@@ -47,10 +49,10 @@ export { WorkerNode } from "./worker/dom/node";
 export { WorkerComment, WorkerText } from "./worker/dom/text";
 export { WorkerWindow } from "./worker/dom/window";
 
-// Worker DOM polyfill (installs globals for React etc.)
+// Worker DOM polyfill (installs globals for Solid, React, etc.)
 export { installPolyfill, WorkerEventPolyfill } from "./worker/polyfill";
 
-// Sync DOM classes (for React's synchronous reconciler)
+// Sync DOM classes (for synchronous reconcilers — Solid, React, etc.)
 export { SyncComment, SyncDocument, SyncElement, SyncNode, SyncText, SyncWindow, wrapSyncNode } from "./worker/sync-dom";
 
 // SAB infrastructure

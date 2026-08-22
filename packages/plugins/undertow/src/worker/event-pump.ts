@@ -14,9 +14,13 @@ import type { EventRing } from "../sab/event-ring";
 import type { StringPool } from "../sab/string-pool";
 import { decodePayload } from "../shared/payload-codec";
 import { EVENT_HANDLE_OFF, EVENT_PAYLOADLEN_OFF, EVENT_PAYLOADOFF_OFF, EVENT_TYPEATOM_OFF } from "../shared/protocol";
-import { WorkerEvent } from "./dom/event";
+import { setSyncElementResolver, WorkerEvent } from "./dom/event";
 import type { WorkerRuntime } from "./runtime";
 import { getSyncElement } from "./sync-dom";
+
+// Inject the sync element resolver so WorkerEvent.composedPath() can map
+// handles to cached SyncElements without a circular dependency.
+setSyncElementResolver(getSyncElement);
 
 /** Interface the runtime exposes to the pump (breaks the circular import). */
 export interface EventPumpRuntime {
@@ -97,6 +101,7 @@ export class EventPump {
       }
 
       const event = new WorkerEvent({ type, targetHandle: handle, payload });
+      event.rt = this.rt as unknown as WorkerRuntime;
       const targetHandle = (payload._targetHandle as number) ?? handle;
       event.target = getSyncElement(targetHandle > 0 ? targetHandle : handle, this.rt as unknown as WorkerRuntime);
 
@@ -117,6 +122,12 @@ export class EventPump {
     if (!byType) return;
     const set = byType.get(type);
     if (!set) return;
+    // Set currentTarget to the node the listener was registered on.
+    // Solid's eventHandler captures e.currentTarget as oriCurrentTarget and
+    // uses it to know when to stop walking the composed path
+    // (node.parentNode === oriCurrentTarget → break). Without this, the loop
+    // never breaks and walks past the document, or breaks too early.
+    event.currentTarget = this.rt.document;
     for (const listener of set) {
       try {
         listener(event);

@@ -100,6 +100,17 @@ export class EventDispatcher {
       const target = e.target as any;
       const targetHandle = target?._undertowHandle ?? 0;
       payload._targetHandle = targetHandle;
+      // Collect the full ancestor chain (handles) so the worker's
+      // composedPath() can return the complete path without sync calls.
+      // Solid's event delegation walks the composed path to find handlers;
+      // without this, each parentNode access is a blocking SAB round-trip.
+      const path: number[] = [];
+      let n: Node | null = e.target as Node;
+      while (n) {
+        path.push((n as any)?._undertowHandle ?? 0);
+        n = n.parentNode;
+      }
+      payload._composedPath = path;
       // Call the user-gesture callback for click events — this runs within
       // the browser's user gesture context, so it can call requestPointerLock()
       // which requires a user gesture. The worker round-trip would lose this context.

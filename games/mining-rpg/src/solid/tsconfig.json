@@ -1,0 +1,26 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["vite/client", "@webgpu/types"],
+    "noEmit": true,
+    "paths": {
+      "undertow": ["../../../../packages/plugins/undertow/src/index.ts"],
+      "undertow/*": ["../../../../packages/plugins/undertow/src/*"],
+      "@downdraft/core/*": ["../../../../packages/core/src/*"],
+      "@downdraft/core": ["../../../../packages/core/src/index.ts"],
+      "@downdraft/library-sand": ["../../../../packages/plugins/physics-sand/src/index.ts"],
+      "@downdraft/library-sand/*": ["../../../../packages/plugins/physics-sand/src/*"],
+      "@downdraft/library-persistence": ["../../../../packages/plugins/persistence/src/index.ts"],
+      "@downdraft/library-persistence/*": ["../../../../packages/plugins/persistence/src/*"],
+      "@downdraft/plugin-devtools": ["../../../../packages/plugins/devtools/src/index.ts"],
+      "@downdraft/plugin-devtools/*": ["../../../../packages/plugins/devtools/src/*"],
+      "@downdraft/app/renderer": ["../../../../packages/app/src/renderer/index.ts"],
+      "@mining-rpg/shared/*": ["../shared/*"]
+    }
+  },
+  "include": ["./**/*", "../shared/**/*"],
+  "exclude": ["**/*.spec.ts"]
+}

@@ -11,22 +11,22 @@
 
 import * as ids from "./op-ids";
 import {
-  boolResult,
-  errorResult,
-  f64Result,
-  handleResult,
-  i32Result,
-  registerOp,
-  stringResult,
-  voidResult,
-  type ArgValue,
-  type DecodedArgs,
-  type MainExecCtx,
-  type Result,
+    boolResult,
+    errorResult,
+    f64Result,
+    handleResult,
+    i32Result,
+    registerOp,
+    stringResult,
+    voidResult,
+    type ArgValue,
+    type DecodedArgs,
+    type MainExecCtx,
+    type Result,
 } from "./op-table";
 import { encodePayload } from "./payload-codec";
 import {
-  ArgKind,
+    ArgKind,
 } from "./protocol";
 
 // --- helpers ---
@@ -39,6 +39,19 @@ function argHandle(args: DecodedArgs, i: number): number {
   const v = args.values[i];
   // Handles flow as numbers (the worker sends the raw integer).
   return typeof v === "number" ? v : 0;
+}
+
+// Type guards that use nodeType instead of instanceof — the polyfill may
+// overwrite globalThis.Element/HTMLElement with worker-side classes, which
+// would cause instanceof checks to fail on real DOM nodes from happy-dom.
+function isElement(node: Node | null): node is Element {
+  return node != null && node.nodeType === 1;
+}
+function isHTMLElement(node: Node | null): node is HTMLElement {
+  return node != null && node.nodeType === 1;
+}
+function isDocument(node: Node | null): node is Document {
+  return node != null && node.nodeType === 9;
 }
 
 // --- Document ops ---
@@ -198,7 +211,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom, ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("setAttribute: not an element");
+    if (!isElement(node)) return errorResult("setAttribute: not an element");
     const name = argString(args, 0);
     const value = argString(args, 1);
     try {
@@ -218,7 +231,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("getAttribute: not an element");
+    if (!isElement(node)) return errorResult("getAttribute: not an element");
     const v = node.getAttribute(argString(args, 0));
     if (v == null) return stringResult(ctx.internString(""));
     return stringResult(ctx.internString(v));
@@ -233,7 +246,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("removeAttribute: not an element");
+    if (!isElement(node)) return errorResult("removeAttribute: not an element");
     node.removeAttribute(argString(args, 0));
     return voidResult();
   },
@@ -247,7 +260,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: ArgKind.Bool,
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("hasAttribute: not an element");
+    if (!isElement(node)) return errorResult("hasAttribute: not an element");
     return boolResult(node.hasAttribute(argString(args, 0)));
   },
 });
@@ -260,7 +273,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("tagName: not an element");
+    if (!isElement(node)) return errorResult("tagName: not an element");
     return stringResult(ctx.internString(node.tagName));
   },
 });
@@ -273,7 +286,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("id: not an element");
+    if (!isElement(node)) return errorResult("id: not an element");
     return stringResult(ctx.internString(node.id));
   },
 });
@@ -286,7 +299,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("id: not an element");
+    if (!isElement(node)) return errorResult("id: not an element");
     node.id = argString(args, 0);
     return voidResult();
   },
@@ -300,7 +313,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("className: not an element");
+    if (!isElement(node)) return errorResult("className: not an element");
     return stringResult(ctx.internString(node.className));
   },
 });
@@ -313,7 +326,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("className: not an element");
+    if (!isElement(node)) return errorResult("className: not an element");
     node.className = argString(args, 0);
     return voidResult();
   },
@@ -327,7 +340,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("classList.add: not an element");
+    if (!isElement(node)) return errorResult("classList.add: not an element");
     node.classList.add(argString(args, 0));
     return voidResult();
   },
@@ -341,7 +354,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("classList.remove: not an element");
+    if (!isElement(node)) return errorResult("classList.remove: not an element");
     node.classList.remove(argString(args, 0));
     return voidResult();
   },
@@ -355,7 +368,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: ArgKind.Bool,
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("classList.toggle: not an element");
+    if (!isElement(node)) return errorResult("classList.toggle: not an element");
     return boolResult(node.classList.toggle(argString(args, 0)));
   },
 });
@@ -368,7 +381,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: ArgKind.Bool,
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("classList.contains: not an element");
+    if (!isElement(node)) return errorResult("classList.contains: not an element");
     return boolResult(node.classList.contains(argString(args, 0)));
   },
 });
@@ -381,7 +394,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("innerHTML: not an element");
+    if (!isElement(node)) return errorResult("innerHTML: not an element");
     return stringResult(ctx.internString(node.innerHTML));
   },
 });
@@ -394,7 +407,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("innerHTML: not an element");
+    if (!isElement(node)) return errorResult("innerHTML: not an element");
     node.innerHTML = argString(args, 0);
     return voidResult();
   },
@@ -408,7 +421,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "handle",
   exec: (ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("querySelector: not an element");
+    if (!isElement(node)) return errorResult("querySelector: not an element");
     const el = node.querySelector(argString(args, 0));
     if (!el) return handleResult(0);
     return handleResult(ctx.allocHandle(el));
@@ -423,7 +436,7 @@ registerOp({
   argSpec: [],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof HTMLElement)) return errorResult("focus: not an HTMLElement");
+    if (!isHTMLElement(node)) return errorResult("focus: not an HTMLElement");
     node.focus();
     return voidResult();
   },
@@ -437,7 +450,7 @@ registerOp({
   argSpec: [],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof HTMLElement)) return errorResult("blur: not an HTMLElement");
+    if (!isHTMLElement(node)) return errorResult("blur: not an HTMLElement");
     node.blur();
     return voidResult();
   },
@@ -564,7 +577,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.F64,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("clientWidth: not an element");
+    if (!isElement(node)) return errorResult("clientWidth: not an element");
     return f64Result((node as Element).clientWidth);
   },
 });
@@ -577,7 +590,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.F64,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("clientHeight: not an element");
+    if (!isElement(node)) return errorResult("clientHeight: not an element");
     return f64Result((node as Element).clientHeight);
   },
 });
@@ -590,7 +603,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.PayloadRef,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("getBoundingClientRect: not an element");
+    if (!isElement(node)) return errorResult("getBoundingClientRect: not an element");
     const r = (node as Element).getBoundingClientRect();
     const encoded = encodePayload({ x: r.x, y: r.y, width: r.width, height: r.height, top: r.top, left: r.left, bottom: r.bottom, right: r.right });
     return { kind: ArgKind.PayloadRef, bytes: encoded };
@@ -1018,7 +1031,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom, ArgKind.StringAtom, ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("setAttributeNS: not an element");
+    if (!isElement(node)) return errorResult("setAttributeNS: not an element");
     (node as Element).setAttributeNS(argString(args, 0), argString(args, 1), argString(args, 2));
     return voidResult();
   },
@@ -1032,7 +1045,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom, ArgKind.StringAtom],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("getAttributeNS: not an element");
+    if (!isElement(node)) return errorResult("getAttributeNS: not an element");
     const v = (node as Element).getAttributeNS(argString(args, 0), argString(args, 1));
     return stringResult(ctx.internString(v ?? ""));
   },
@@ -1046,7 +1059,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom, ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("removeAttributeNS: not an element");
+    if (!isElement(node)) return errorResult("removeAttributeNS: not an element");
     (node as Element).removeAttributeNS(argString(args, 0), argString(args, 1));
     return voidResult();
   },
@@ -1060,7 +1073,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom, ArgKind.StringAtom],
   resultSpec: ArgKind.Bool,
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return boolResult(false);
+    if (!isElement(node)) return boolResult(false);
     return boolResult((node as Element).hasAttributeNS(argString(args, 0), argString(args, 1)));
   },
 });
@@ -1073,7 +1086,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return stringResult(ctx.internString(""));
+    if (!isElement(node)) return stringResult(ctx.internString(""));
     const v = (node as HTMLElement).style.getPropertyValue(argString(args, 0));
     return stringResult(ctx.internString(v));
   },
@@ -1087,7 +1100,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom, ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("style.setProperty: not an element");
+    if (!isElement(node)) return errorResult("style.setProperty: not an element");
     (node as HTMLElement).style.setProperty(argString(args, 0), argString(args, 1));
     return voidResult();
   },
@@ -1101,7 +1114,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return stringResult(ctx.internString(""));
+    if (!isElement(node)) return stringResult(ctx.internString(""));
     return stringResult(ctx.internString((node as HTMLElement).style.cssText));
   },
 });
@@ -1114,7 +1127,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("style.cssText: not an element");
+    if (!isElement(node)) return errorResult("style.cssText: not an element");
     (node as HTMLElement).style.cssText = argString(args, 0);
     return voidResult();
   },
@@ -1128,7 +1141,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.StringAtom,
   exec: (ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return stringResult(ctx.internString(""));
+    if (!isElement(node)) return stringResult(ctx.internString(""));
     return stringResult(ctx.internString((node as Element).outerHTML));
   },
 });
@@ -1141,7 +1154,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: ArgKind.PayloadRef,
   exec: (ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return { kind: ArgKind.PayloadRef, bytes: encodePayload([] as ArgValue[]) };
+    if (!isElement(node)) return { kind: ArgKind.PayloadRef, bytes: encodePayload([] as ArgValue[]) };
     const els = (node as Element).querySelectorAll(argString(args, 0));
     const handles = Array.from(els).map((e) => ctx.allocHandle(e));
     return { kind: ArgKind.PayloadRef, bytes: encodePayload(handles as ArgValue[]) };
@@ -1156,7 +1169,7 @@ registerOp({
   argSpec: [],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("click: not an element");
+    if (!isElement(node)) return errorResult("click: not an element");
     (node as HTMLElement).click();
     return voidResult();
   },
@@ -1170,7 +1183,7 @@ registerOp({
   argSpec: [ArgKind.Bool],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("scrollIntoView: not an element");
+    if (!isElement(node)) return errorResult("scrollIntoView: not an element");
     (node as Element).scrollIntoView(args.values[0] as boolean);
     return voidResult();
   },
@@ -1184,7 +1197,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.F64,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return f64Result(0);
+    if (!isElement(node)) return f64Result(0);
     return f64Result((node as HTMLElement).offsetWidth);
   },
 });
@@ -1197,7 +1210,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.F64,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return f64Result(0);
+    if (!isElement(node)) return f64Result(0);
     return f64Result((node as HTMLElement).offsetHeight);
   },
 });
@@ -1210,7 +1223,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.F64,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return f64Result(0);
+    if (!isElement(node)) return f64Result(0);
     return f64Result((node as Element).scrollTop);
   },
 });
@@ -1223,7 +1236,7 @@ registerOp({
   argSpec: [ArgKind.F64],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("scrollTop: not an element");
+    if (!isElement(node)) return errorResult("scrollTop: not an element");
     (node as Element).scrollTop = args.values[0] as number;
     return voidResult();
   },
@@ -1237,7 +1250,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.F64,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return f64Result(0);
+    if (!isElement(node)) return f64Result(0);
     return f64Result((node as Element).scrollLeft);
   },
 });
@@ -1250,7 +1263,7 @@ registerOp({
   argSpec: [ArgKind.F64],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("scrollLeft: not an element");
+    if (!isElement(node)) return errorResult("scrollLeft: not an element");
     (node as Element).scrollLeft = args.values[0] as number;
     return voidResult();
   },
@@ -1264,7 +1277,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.F64,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return f64Result(0);
+    if (!isElement(node)) return f64Result(0);
     return f64Result((node as Element).scrollHeight);
   },
 });
@@ -1277,7 +1290,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.PayloadRef,
   exec: (ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return { kind: ArgKind.PayloadRef, bytes: encodePayload([] as ArgValue[]) };
+    if (!isElement(node)) return { kind: ArgKind.PayloadRef, bytes: encodePayload([] as ArgValue[]) };
     const handles = Array.from((node as Element).children).map((e) => ctx.allocHandle(e));
     return { kind: ArgKind.PayloadRef, bytes: encodePayload(handles as ArgValue[]) };
   },
@@ -1291,7 +1304,7 @@ registerOp({
   argSpec: [],
   resultSpec: ArgKind.I32,
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return i32Result(0);
+    if (!isElement(node)) return i32Result(0);
     return i32Result((node as Element).childElementCount);
   },
 });
@@ -1304,7 +1317,7 @@ registerOp({
   argSpec: [],
   resultSpec: "void",
   exec: (_ctx: MainExecCtx, node: Node | null): Result => {
-    if (!node || !(node instanceof Element)) return errorResult("remove: not an element");
+    if (!isElement(node)) return errorResult("remove: not an element");
     (node as Element).remove();
     return voidResult();
   },
@@ -1318,7 +1331,7 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: "handle",
   exec: (ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return handleResult(0);
+    if (!isElement(node)) return handleResult(0);
     const el = (node as Element).closest(argString(args, 0));
     return handleResult(el ? ctx.allocHandle(el) : 0);
   },
@@ -1332,8 +1345,26 @@ registerOp({
   argSpec: [ArgKind.StringAtom],
   resultSpec: ArgKind.Bool,
   exec: (_ctx: MainExecCtx, node: Node | null, args: DecodedArgs): Result => {
-    if (!node || !(node instanceof Element)) return boolResult(false);
+    if (!isElement(node)) return boolResult(false);
     return boolResult((node as Element).matches(argString(args, 0)));
+  },
+});
+
+// --- Template element content ---
+
+registerOp({
+  id: ids.OP_ELEMENT_GET_TEMPLATE_CONTENT,
+  name: "HTMLTemplateElement.content",
+  kind: "getter",
+  target: "element",
+  argSpec: [],
+  resultSpec: "handle",
+  exec: (ctx: MainExecCtx, node: Node | null): Result => {
+    if (!node) return handleResult(0);
+    const el = node as any;
+    // .content is only on HTMLTemplateElement; return 0 for non-template elements
+    if (typeof el.content === "undefined") return handleResult(0);
+    return handleResult(ctx.allocHandle(el.content));
   },
 });
 
@@ -1376,7 +1407,7 @@ registerOp({
   resultSpec: ArgKind.PayloadRef,
   exec: (ctx: MainExecCtx, _node: Node | null, args: DecodedArgs): Result => {
     const el = ctx.resolveHandle(args.values[0] as number);
-    if (!el || !(el instanceof Element)) return { kind: ArgKind.PayloadRef, bytes: encodePayload({} as ArgValue) };
+    if (!isElement(el)) return { kind: ArgKind.PayloadRef, bytes: encodePayload({} as ArgValue) };
     const style = ctx.window.getComputedStyle(el as Element);
     // Extract a snapshot of common CSS properties.
     const snapshot: Record<string, string> = {};
