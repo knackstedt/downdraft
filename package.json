@@ -36,8 +36,8 @@
     "games/mining-rpg/plugins/*",
     "games/alchemy",
     "games/alchemy/plugins/*",
-    "games/blockheads",
-    "games/blockheads/plugins/*",
+    "games/overburden",
+    "games/overburden/plugins/*",
     "games/sandjongg",
     "games/sandjongg/plugins/*",
     "examples/plugin-tester"
