@@ -16,6 +16,17 @@ const materialNames = [
   "Liquid Nitrogen", "Plasma", "Nanobots", "Magic Powder", "Glitter",
   "Popcorn", "Rubber", "Root", "Brine", "Molten Salt", "Concrete", "Tree Wood",
   "Fuse Fire", "Burning Oil",
+  "Tin Ore", "Copper Ore", "Iron Ore", "Bauxite Ore", "Silver Ore", "Gold Ore", "Cobalt Ore",
+  "Methane Gas", "Sulfur Gas", "Coal", "Gravel", "Loose Stone",
+  "Ice", "Ether", "Blood", "Syrup", "Nightshade Extract", "Troll Blood",
+  "Liquid Shadow", "Love Essence", "Hate Essence", "Dream Mist", "Void Essence",
+  "Sulfur", "Ground Eye of Newt", "Ground Bat Wing", "Bone Dust", "Iron Filings",
+  "Moonstone Dust", "Crystal Dust", "Mushroom Spores", "Dragon Scale", "Phoenix Feather",
+  "Unicorn Horn", "Mandrake Root", "Spider Silk", "Grave Dust", "Star Shard", "Time Sand",
+  "Ethereal Vapor", "Alchemical Slag",
+  "Scaffolding", "Ladder", "Rope", "Torch", "Cold Vapor",
+  "Acid", "Base",
+  "Obsidian", "Spore", "Mold", "Glitch", "Tar", "Duplicator",
 ];
 
 /** Convert a material's float color [0-1] to a CSS rgb string. */
