@@ -1,6 +1,6 @@
+import type { BodyDesc, ColliderDesc, Entity, PhysicsRealmConfig } from "@downdraft/core";
 import { RapierPhysicsBackend } from "@downdraft/plugin-physics-rapier";
-import type { BodyDesc, ColliderDesc, PhysicsRealmConfig, Entity } from "@downdraft/core";
-import { describe, expect, it, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 
 // ============================================================================
 // Helper: Create a simple entity
@@ -91,15 +91,15 @@ describe("RapierPhysicsBackend", () => {
     it("should create a body and return a handle", () => {
       const handle = physics.createBody(realmId, makeDynamicBody([0, 10, 0]), makeEntity(0));
       expect(handle.realmId).toBe(realmId);
-      expect(handle.bodyId).toBe(1);
+      expect(handle.id).toBe(1);
       expect(handle.entity.index).toBe(0);
     });
 
     it("should create multiple bodies with incrementing IDs", () => {
       const h1 = physics.createBody(realmId, makeDynamicBody(), makeEntity(0));
       const h2 = physics.createBody(realmId, makeDynamicBody(), makeEntity(1));
-      expect(h1.bodyId).toBe(1);
-      expect(h2.bodyId).toBe(2);
+      expect(h1.id).toBe(1);
+      expect(h2.id).toBe(2);
     });
 
     it("should destroy a body", () => {
@@ -443,7 +443,7 @@ describe("RapierPhysicsBackend", () => {
     });
 
     it("should have version", () => {
-      expect(physics.version).toBe("0.1.0");
+      expect(physics.version).toBe("0.2.0");
     });
   });
 });
