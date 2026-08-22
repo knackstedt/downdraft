@@ -1,0 +1,32 @@
+import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
+
+const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
+
+createDowndraftApp({
+  appId: "downdraft-overburden",
+  window: {
+    title: "Overburden",
+    width: 1280,
+    height: 720,
+    minWidth: 800,
+    minHeight: 600,
+    backgroundColor: "#1a1a2e",
+    placement: "remember",
+    stateFile: "overburden-window-state.json",
+    webPreferences: {
+      webgpu: true,
+      sharedTexture: true,
+    },
+  },
+  switches: webGpuSwitches(),
+  features: {
+    saves: { engineVersion: "0.1.0" },
+    osr: false,
+    mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
+    devtools: true,
+    gpuInfo: true,
+    consoleForwarding: true,
+    errorDialog: !deterministic,
+    windowStatePersistence: !deterministic,
+  },
+});
