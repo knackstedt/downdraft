@@ -1,0 +1,281 @@
+// ============================================================================
+// Overburden — block world (chunked 6-plane grid with active grid streaming)
+//
+// Adapted from mining-rpg's ChunkWorld pattern:
+// - Chunks of 64×64 blocks, stored in a Map keyed by "cx,cy"
+// - Active grid: (2*R+1) × (2*R+1) chunks centered on the focused blockhead
+// - Only active chunks are simulated + rendered
+// - When the focused blockhead crosses a chunk boundary, the active grid rebuilds
+// ============================================================================
+
+import {
+    ACTIVE_GRID_CELLS,
+    ACTIVE_GRID_CHUNKS,
+    ACTIVE_GRID_H,
+    ACTIVE_GRID_RADIUS,
+    ACTIVE_GRID_W,
+    CHUNK_H,
+    CHUNK_W,
+    CHUNKS_X, CHUNKS_Y, WORLD_W
+} from "../shared/constants";
+import type { Chunk } from "../shared/types";
+import { createChunk, getBlock, setBlock as setChunkBlock } from "./chunk";
+import { generateChunk } from "./terrain-gen";
+
+function chunkKey(cx: number, cy: number): string {
+  return `${cx},${cy}`;
+}
+
+export class BlockWorld {
+  private chunks = new Map<string, Chunk>();
+  readonly seed: number;
+  currentTick = 0;
+
+  // Active grid origin (top-left chunk coordinates)
+  private activeOriginCx = 0;
+  private activeOriginCy = 0;
+  private prevOriginCx = 0;
+  private prevOriginCy = 0;
+  needsRebuild = true;
+
+  // Active grid data (contiguous arrays for sim + render)
+  // These are the authoritative copies during simulation; synced back to chunks on rebuild.
+  activeForeground: Uint16Array;
+  activeBackground: Uint16Array;
+  activeLight: Uint8Array;
+  activeExplored: Uint8Array;
+
+  // Focus position (world coords of the focused blockhead)
+  private focusX = WORLD_W / 2;
+  private focusY = 700;
+
+  constructor(seed: number) {
+    this.seed = seed;
+    this.activeForeground = new Uint16Array(ACTIVE_GRID_CELLS);
+    this.activeBackground = new Uint16Array(ACTIVE_GRID_CELLS);
+    this.activeLight = new Uint8Array(ACTIVE_GRID_CELLS);
+    this.activeExplored = new Uint8Array(ACTIVE_GRID_CELLS);
+  }
+
+  // --- Coordinate conversion ---
+  worldToChunk(wx: number, wy: number): { cx: number; cy: number } {
+    // Wrap X horizontally (cylinder world)
+    const cx = ((Math.floor(wx / CHUNK_W) % CHUNKS_X) + CHUNKS_X) % CHUNKS_X;
+    const cy = Math.floor(wy / CHUNK_H);
+    return { cx, cy };
+  }
+
+  worldToActive(wx: number, wy: number): { x: number; y: number } {
+    const ax = wx - this.activeOriginCx * CHUNK_W;
+    const ay = wy - this.activeOriginCy * CHUNK_H;
+    return { x: ax, y: ay };
+  }
+
+  activeToWorld(ax: number, ay: number): { x: number; y: number } {
+    return {
+      x: ax + this.activeOriginCx * CHUNK_W,
+      y: ay + this.activeOriginCy * CHUNK_H,
+    };
+  }
+
+  // --- Chunk management ---
+  getChunk(cx: number, cy: number): Chunk | undefined {
+    return this.chunks.get(chunkKey(cx, cy));
+  }
+
+  ensureChunk(cx: number, cy: number): Chunk {
+    const key = chunkKey(cx, cy);
+    let chunk = this.chunks.get(key);
+    if (!chunk) {
+      chunk = createChunk(cx, cy);
+      this.chunks.set(key, chunk);
+    }
+    if (!chunk.generated) {
+      generateChunk(chunk, this.seed);
+      chunk.generated = true;
+    }
+    return chunk;
+  }
+
+  // --- Block access (world coordinates) ---
+  getBlockAt(wx: number, wy: number): number {
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    const chunk = this.getChunk(cx, cy);
+    if (!chunk) return 0; // air for unloaded chunks
+    const lx = wx - cx * CHUNK_W;
+    const ly = wy - cy * CHUNK_H;
+    return getBlock(chunk, lx, ly);
+  }
+
+  setBlockAt(wx: number, wy: number, blockId: number): void {
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    const chunk = this.ensureChunk(cx, cy);
+    const lx = wx - cx * CHUNK_W;
+    const ly = wy - cy * CHUNK_H;
+    setChunkBlock(chunk, lx, ly, blockId);
+    // Also update the active grid if this chunk is in the active grid
+    const ax = wx - this.activeOriginCx * CHUNK_W;
+    const ay = wy - this.activeOriginCy * CHUNK_H;
+    if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
+      this.activeForeground[ay * ACTIVE_GRID_W + ax] = blockId;
+    }
+  }
+
+  // --- Active grid management ---
+  setFocus(wx: number, wy: number): void {
+    this.focusX = wx;
+    this.focusY = wy;
+  }
+
+  checkRebuild(): void {
+    const { cx, cy } = this.worldToChunk(this.focusX, this.focusY);
+    const newOriginCx = cx - ACTIVE_GRID_RADIUS;
+    const newOriginCy = Math.max(0, Math.min(CHUNKS_Y - ACTIVE_GRID_CHUNKS, cy - ACTIVE_GRID_RADIUS));
+    if (newOriginCx !== this.activeOriginCx || newOriginCy !== this.activeOriginCy) {
+      this.needsRebuild = true;
+    }
+  }
+
+  rebuildActiveGrid(): void {
+    // 1. Sync old active grid back to chunks
+    if (this.prevOriginCx !== this.activeOriginCx || this.prevOriginCy !== this.activeOriginCy) {
+      this.syncActiveToChunks(this.prevOriginCx, this.prevOriginCy);
+    }
+
+    // 2. Compute new origin
+    const { cx, cy } = this.worldToChunk(this.focusX, this.focusY);
+    this.activeOriginCx = ((cx - ACTIVE_GRID_RADIUS) % CHUNKS_X + CHUNKS_X) % CHUNKS_X;
+    this.activeOriginCy = Math.max(0, Math.min(CHUNKS_Y - ACTIVE_GRID_CHUNKS, cy - ACTIVE_GRID_RADIUS));
+    this.prevOriginCx = this.activeOriginCx;
+    this.prevOriginCy = this.activeOriginCy;
+
+    // 3. Clear active grid
+    this.activeForeground.fill(0);
+    this.activeBackground.fill(0);
+    this.activeLight.fill(0);
+    this.activeExplored.fill(0);
+
+    // 4. Copy chunks into active grid
+    for (let icy = 0; icy < ACTIVE_GRID_CHUNKS; icy++) {
+      for (let icx = 0; icx < ACTIVE_GRID_CHUNKS; icx++) {
+        const cx = (this.activeOriginCx + icx) % CHUNKS_X;
+        const cy = this.activeOriginCy + icy;
+        if (cy < 0 || cy >= CHUNKS_Y) continue;
+        const chunk = this.ensureChunk(cx, cy);
+        chunk.active = true;
+
+        const activeOffset = icy * CHUNK_H * ACTIVE_GRID_W + icx * CHUNK_W;
+        for (let ly = 0; ly < CHUNK_H; ly++) {
+          const srcOffset = ly * CHUNK_W;
+          const dstOffset = activeOffset + ly * ACTIVE_GRID_W;
+          this.activeForeground.set(
+            chunk.foreground.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          this.activeBackground.set(
+            chunk.background.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          this.activeLight.set(
+            chunk.light.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          this.activeExplored.set(
+            chunk.explored.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+        }
+      }
+    }
+
+    this.needsRebuild = false;
+  }
+
+  private syncActiveToChunks(originCx: number, originCy: number): void {
+    for (let icy = 0; icy < ACTIVE_GRID_CHUNKS; icy++) {
+      for (let icx = 0; icx < ACTIVE_GRID_CHUNKS; icx++) {
+        const cx = (originCx + icx) % CHUNKS_X;
+        const cy = originCy + icy;
+        if (cy < 0 || cy >= CHUNKS_Y) continue;
+        const chunk = this.getChunk(cx, cy);
+        if (!chunk || !chunk.dirty) continue;
+
+        const activeOffset = icy * CHUNK_H * ACTIVE_GRID_W + icx * CHUNK_W;
+        for (let ly = 0; ly < CHUNK_H; ly++) {
+          const dstOffset = ly * CHUNK_W;
+          const srcOffset = activeOffset + ly * ACTIVE_GRID_W;
+          chunk.foreground.set(
+            this.activeForeground.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          chunk.background.set(
+            this.activeBackground.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          chunk.light.set(
+            this.activeLight.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          chunk.explored.set(
+            this.activeExplored.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+        }
+        chunk.dirty = false;
+      }
+    }
+  }
+
+  // --- Active grid block access (for sim + render) ---
+  getActiveBlock(ax: number, ay: number): number {
+    if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return 0;
+    return this.activeForeground[ay * ACTIVE_GRID_W + ax];
+  }
+
+  setActiveBlock(ax: number, ay: number, blockId: number): void {
+    if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return;
+    this.activeForeground[ay * ACTIVE_GRID_W + ax] = blockId;
+    // Mark the corresponding chunk as dirty
+    const wx = ax + this.activeOriginCx * CHUNK_W;
+    const wy = ay + this.activeOriginCy * CHUNK_H;
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    const chunk = this.getChunk(cx, cy);
+    if (chunk) chunk.dirty = true;
+  }
+
+  getActiveBackground(ax: number, ay: number): number {
+    if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return 0;
+    return this.activeBackground[ay * ACTIVE_GRID_W + ax];
+  }
+
+  getActiveLight(ax: number, ay: number): number {
+    if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return 0;
+    return this.activeLight[ay * ACTIVE_GRID_W + ax];
+  }
+
+  // --- Active grid origin accessors ---
+  getActiveOriginCx(): number {
+    return this.activeOriginCx;
+  }
+
+  getActiveOriginCy(): number {
+    return this.activeOriginCy;
+  }
+
+  // --- Stats ---
+  getStats() {
+    let loaded = 0;
+    let active = 0;
+    for (const chunk of this.chunks.values()) {
+      loaded++;
+      if (chunk.active) active++;
+    }
+    return {
+      tick: this.currentTick,
+      loadedChunks: loaded,
+      activeChunks: active,
+      frozenChunks: 0,
+      blockheadCount: 0,
+    };
+  }
+}
