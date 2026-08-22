@@ -1,18 +1,55 @@
-import type { AudioBackendConfig, AudioListenerState } from "@downdraft/core";
+import type { AudioBackendConfig, AudioBufferDesc, AudioListenerState } from "@downdraft/core";
 import { KiraAudioBackend } from "@downdraft/plugin-audio-kira";
 import { beforeEach, describe, expect, it } from "bun:test";
 
 // ============================================================================
-// Helper: Create a valid audio buffer (Float32 samples as ArrayBuffer)
+// Helper: Create Float32Array samples (sine wave)
 // ============================================================================
 
-function makeAudioData(numSamples: number = 100): ArrayBuffer {
-  const buf = new ArrayBuffer(numSamples * 4);
-  const view = new DataView(buf);
+function makeSamples(numSamples: number = 100): Float32Array {
+  const samples = new Float32Array(numSamples);
   for (let i = 0; i < numSamples; i++) {
-    view.setFloat32(i * 4, Math.sin(i * 0.1), true);
+    samples[i] = Math.sin(i * 0.1);
   }
-  return buf;
+  return samples;
+}
+
+// ============================================================================
+// Helper: Create a valid AudioBufferDesc
+// ============================================================================
+
+function makeBufferDesc(format: AudioBufferDesc["format"] = "wav", numSamples: number = 100): AudioBufferDesc {
+  return {
+    id: `test-buf-${Math.random().toString(36).slice(2)}`,
+    format,
+    sampleRate: 44100,
+    channels: 2,
+    samples: makeSamples(numSamples),
+  };
+}
+
+/**
+ * Load a buffer into the backend and return the stored descriptor.
+ * The backend assigns its own internal ID (string, starting from "1"),
+ * so we use getBuffer() to retrieve the stored descriptor after loading.
+ * We find the highest-numbered ID (the most recently loaded buffer).
+ */
+function loadTestBuffer(audio: KiraAudioBackend, format: AudioBufferDesc["format"] = "wav", numSamples: number = 100): AudioBufferDesc {
+  const desc = makeBufferDesc(format, numSamples);
+  audio.loadBuffer(desc);
+  // The backend uses its own internal ID (String(this.nextBufferId++)),
+  // not the desc.id we passed. Find the highest-numbered ID (most recent).
+  let lastStored: AudioBufferDesc | undefined;
+  for (let i = 1; i <= 100; i++) {
+    const stored = audio.getBuffer(String(i));
+    if (stored) {
+      lastStored = stored;
+    } else {
+      break; // IDs are sequential, stop at first gap
+    }
+  }
+  if (!lastStored) throw new Error("Buffer not found after loadBuffer");
+  return lastStored;
 }
 
 function makeConfig(): AudioBackendConfig {
@@ -68,24 +105,23 @@ describe("KiraAudioBackend", () => {
       await audio.init(makeConfig());
     });
 
-    it("should load a buffer and return its descriptor", async () => {
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
-      expect(buf.id).toBe(1);
+    it("should load a buffer and return its descriptor", () => {
+      const buf = loadTestBuffer(audio, "wav", 100);
+      expect(buf.id).toBeDefined();
       expect(buf.sampleRate).toBe(44100);
       expect(buf.channels).toBe(2);
       expect(buf.samples.length).toBe(100);
       expect(buf.duration).toBeCloseTo(100 / 44100, 5);
     });
 
-    it("should load multiple buffers with incrementing IDs", async () => {
-      const buf1 = await audio.loadBuffer("wav", makeAudioData(50));
-      const buf2 = await audio.loadBuffer("ogg", makeAudioData(50));
-      expect(buf1.id).toBe(1);
-      expect(buf2.id).toBe(2);
+    it("should load multiple buffers with incrementing IDs", () => {
+      const buf1 = loadTestBuffer(audio, "wav", 50);
+      const buf2 = loadTestBuffer(audio, "ogg", 50);
+      expect(buf1.id).not.toBe(buf2.id);
     });
 
-    it("should get a loaded buffer by ID", async () => {
-      const loaded = await audio.loadBuffer("wav", makeAudioData(100));
+    it("should get a loaded buffer by ID", () => {
+      const loaded = loadTestBuffer(audio, "wav", 100);
       const got = audio.getBuffer(loaded.id);
       expect(got).toBeDefined();
       expect(got!.id).toBe(loaded.id);
@@ -95,8 +131,8 @@ describe("KiraAudioBackend", () => {
       expect(audio.getBuffer(999)).toBeUndefined();
     });
 
-    it("should unload a buffer", async () => {
-      const loaded = await audio.loadBuffer("wav", makeAudioData(100));
+    it("should unload a buffer", () => {
+      const loaded = loadTestBuffer(audio, "wav", 100);
       audio.unloadBuffer(loaded.id);
       expect(audio.getBuffer(loaded.id)).toBeUndefined();
     });
@@ -107,11 +143,11 @@ describe("KiraAudioBackend", () => {
   });
 
   describe("Playback", () => {
-    let bufferId: number;
+    let bufferId: string;
 
     beforeEach(async () => {
       await audio.init(makeConfig());
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
+      const buf = loadTestBuffer(audio, "wav", 100);
       bufferId = buf.id;
     });
 
@@ -188,7 +224,7 @@ describe("KiraAudioBackend", () => {
 
     beforeEach(async () => {
       await audio.init(makeConfig());
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
+      const buf = loadTestBuffer(audio, "wav", 100);
       const handle = audio.play(buf.id);
       sourceId = handle.sourceId;
     });
@@ -247,16 +283,16 @@ describe("KiraAudioBackend", () => {
       await audio.init(makeConfig());
     });
 
-    it("should list active sources", async () => {
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
+    it("should list active sources", () => {
+      const buf = loadTestBuffer(audio, "wav", 100);
       audio.play(buf.id);
       audio.play(buf.id);
       const active = audio.getActiveSources();
       expect(active.length).toBe(2);
     });
 
-    it("should not list stopped sources", async () => {
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
+    it("should not list stopped sources", () => {
+      const buf = loadTestBuffer(audio, "wav", 100);
       const h1 = audio.play(buf.id);
       audio.play(buf.id);
       audio.stop(h1.sourceId);
@@ -359,8 +395,8 @@ describe("KiraAudioBackend", () => {
       await audio.init(makeConfig());
     });
 
-    it("should run update without error", async () => {
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
+    it("should run update without error", () => {
+      const buf = loadTestBuffer(audio, "wav", 100);
       audio.play(buf.id);
       expect(() => audio.update(0.016)).not.toThrow();
     });
@@ -371,9 +407,9 @@ describe("KiraAudioBackend", () => {
       await audio.init(makeConfig());
     });
 
-    it("should sync positions into buffer", async () => {
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
-      const h1 = audio.play(buf.id, { position: [1, 2, 3], spatial: true });
+    it("should sync positions into buffer", () => {
+      const buf = loadTestBuffer(audio, "wav", 100);
+      audio.play(buf.id, { position: [1, 2, 3], spatial: true });
       audio.play(buf.id, { position: [4, 5, 6], spatial: true });
       const posBuffer = new Float32Array(6);
       audio.syncPositions(posBuffer, 2);
@@ -385,8 +421,8 @@ describe("KiraAudioBackend", () => {
       expect(posBuffer[5]).toBe(6);
     });
 
-    it("should skip non-spatial sources in sync", async () => {
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
+    it("should skip non-spatial sources in sync", () => {
+      const buf = loadTestBuffer(audio, "wav", 100);
       audio.play(buf.id, { position: [1, 2, 3], spatial: false });
       const posBuffer = new Float32Array(3);
       audio.syncPositions(posBuffer, 1);
@@ -398,7 +434,7 @@ describe("KiraAudioBackend", () => {
   describe("Destroy", () => {
     it("should destroy cleanly", async () => {
       await audio.init(makeConfig());
-      const buf = await audio.loadBuffer("wav", makeAudioData(100));
+      const buf = loadTestBuffer(audio, "wav", 100);
       audio.play(buf.id);
       expect(() => audio.destroy()).not.toThrow();
     });

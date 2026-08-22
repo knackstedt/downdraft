@@ -12,6 +12,38 @@ import { WeatherBlend, WeatherType } from "@downdraft/library-weather";
 import { describe, expect, it, vi } from "bun:test";
 
 // ============================================================================
+// WebGPU usage flags — not available in Bun's test environment
+// ============================================================================
+
+const _g = globalThis as unknown as Record<string, unknown>;
+if (!_g.GPUBufferUsage) {
+  _g.GPUBufferUsage = {
+    MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
+    INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
+    INDIRECT: 256, QUERY_RESOLVE: 512,
+  };
+}
+if (!_g.GPUShaderStage) {
+  _g.GPUShaderStage = { VERTEX: 0x20, FRAGMENT: 0x10, COMPUTE: 0x04 };
+}
+
+// ============================================================================
+// Mock GPUDevice — for LightSystem tests that call init()
+// ============================================================================
+
+function makeMockDevice(): GPUDevice {
+  return {
+    createBuffer: vi.fn(() => ({ destroy: vi.fn() })),
+    createBindGroupLayout: vi.fn(() => ({})),
+    createBindGroup: vi.fn(() => ({})),
+    createShaderModule: vi.fn(() => ({})),
+    createRenderPipeline: vi.fn(() => ({})),
+    createPipelineLayout: vi.fn(() => ({})),
+    queue: { writeBuffer: vi.fn() },
+  } as unknown as GPUDevice;
+}
+
+// ============================================================================
 // Mock Backend Factory (matches pattern from systems-backend-agnostic.spec.ts)
 // ============================================================================
 
@@ -429,7 +461,7 @@ describe("LightingSystem", () => {
 describe("LightSystem — light management", () => {
   it("should construct with mock backend", () => {
     const backend = createMockBackend();
-    expect(() => new LightSystem(null, backend)).not.toThrow();
+    expect(() => new LightSystem(makeMockDevice(), backend)).not.toThrow();
   });
 
   it("should export correct max light constants", () => {
@@ -439,48 +471,50 @@ describe("LightSystem — light management", () => {
 
   it("should init and create storage buffer", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
-    expect(backend.createBuffer).toHaveBeenCalled();
+    expect(device.createBuffer).toHaveBeenCalled();
   });
 
   it("should return bind group after init", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     expect(ls.getLightBindGroup()).not.toBeNull();
   });
 
   it("should return bind group layout after init", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     expect(ls.getLightBindGroupLayout()).not.toBeNull();
   });
 
   it("should return null bind group before init", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     expect(ls.getLightBindGroup()).toBeNull();
   });
 
   it("should beginFrame by resetting light counts", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
     ls.addPointLight([0, 0, 0], [1, 1, 1], 1.0, 10);
     ls.beginFrame();
     // After beginFrame, adding should start from 0 again
     ls.addPointLight([1, 1, 1], [1, 0, 0], 2.0, 5);
     // Upload should only have 1 light
-    (backend.queue as any).writeBuffer.mockClear();
+    (device.queue as any).writeBuffer.mockClear();
     ls.upload([0, 0, 0]);
-    expect((backend.queue as any).writeBuffer).toHaveBeenCalled();
+    expect((device.queue as any).writeBuffer).toHaveBeenCalled();
   });
 
   it("should add point lights up to MAX_POINT_LIGHTS", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.beginFrame();
     for (let i = 0; i < MAX_POINT_LIGHTS; i++) {
@@ -494,7 +528,7 @@ describe("LightSystem — light management", () => {
 
   it("should add spot lights up to MAX_SPOT_LIGHTS", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.beginFrame();
     for (let i = 0; i < MAX_SPOT_LIGHTS; i++) {
@@ -507,7 +541,7 @@ describe("LightSystem — light management", () => {
 
   it("should reuse pooled light objects across frames", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.beginFrame();
     ls.addPointLight([0, 0, 0], [1, 1, 1], 1.0, 10);
@@ -519,24 +553,26 @@ describe("LightSystem — light management", () => {
 
   it("should upload without errors after adding lights", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
     ls.beginFrame();
     ls.addPointLight([5, 3, 2], [1, 0.5, 0.2], 2.5, 15);
     ls.addSpotLight([0, 10, 0], [0, -1, 0], [0.8, 0.8, 1], 3.0, 20, 0.95, 0.8);
-    (backend.queue as any).writeBuffer.mockClear();
+    (device.queue as any).writeBuffer.mockClear();
     ls.upload([0, 0, 0]);
-    expect((backend.queue as any).writeBuffer).toHaveBeenCalled();
+    expect((device.queue as any).writeBuffer).toHaveBeenCalled();
   });
 
   it("should not upload when not initialized", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     // Don't call init()
     ls.beginFrame();
     ls.addPointLight([0, 0, 0], [1, 1, 1], 1.0, 10);
     expect(() => ls.upload([0, 0, 0])).not.toThrow();
-    expect((backend.queue as any).writeBuffer).not.toHaveBeenCalled();
+    expect((device.queue as any).writeBuffer).not.toHaveBeenCalled();
   });
 });
 
@@ -547,22 +583,23 @@ describe("LightSystem — light management", () => {
 describe("LightSystem — culling and sorting", () => {
   it("should cull lights beyond their radius + margin", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
     ls.beginFrame();
     // Near light (within radius + 300 margin)
     ls.addPointLight([50, 0, 0], [1, 1, 1], 1.0, 100);
     // Far light (beyond radius + 300 margin)
     ls.addPointLight([10000, 0, 0], [1, 1, 1], 1.0, 10);
-    (backend.queue as any).writeBuffer.mockClear();
+    (device.queue as any).writeBuffer.mockClear();
     ls.upload([0, 0, 0]);
     // Should have written buffer (with at least the near light)
-    expect((backend.queue as any).writeBuffer).toHaveBeenCalled();
+    expect((device.queue as any).writeBuffer).toHaveBeenCalled();
   });
 
   it("should sort point lights by distance to camera (nearest first)", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.beginFrame();
     ls.addPointLight([100, 0, 0], [1, 0, 0], 1.0, 200); // far
@@ -574,7 +611,7 @@ describe("LightSystem — culling and sorting", () => {
 
   it("should cull spot lights beyond their radius + margin", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.beginFrame();
     ls.addSpotLight([50, 0, 0], [0, -1, 0], [1, 1, 1], 1.0, 100, 0.9, 0.7);
@@ -584,7 +621,7 @@ describe("LightSystem — culling and sorting", () => {
 
   it("should handle all lights being culled", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.beginFrame();
     ls.addPointLight([10000, 0, 0], [1, 1, 1], 1.0, 10);
@@ -594,13 +631,14 @@ describe("LightSystem — culling and sorting", () => {
 
   it("should handle zero lights in upload", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
     ls.beginFrame();
-    (backend.queue as any).writeBuffer.mockClear();
+    (device.queue as any).writeBuffer.mockClear();
     ls.upload([0, 0, 0]);
     // Should still write the header (zeroed)
-    expect((backend.queue as any).writeBuffer).toHaveBeenCalled();
+    expect((device.queue as any).writeBuffer).toHaveBeenCalled();
   });
 });
 
@@ -611,39 +649,42 @@ describe("LightSystem — culling and sorting", () => {
 describe("LightSystem — debug gizmos", () => {
   it("should init debug gizmos without errors", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     expect(() => ls.initDebugGizmos("bgra8unorm")).not.toThrow();
   });
 
   it("should create render pipeline for debug gizmos", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
     ls.initDebugGizmos("bgra8unorm");
-    expect(backend.createRenderPipeline).toHaveBeenCalled();
+    expect(device.createRenderPipeline).toHaveBeenCalled();
   });
 
   it("should create shader module for debug gizmos", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
     ls.initDebugGizmos("bgra8unorm");
-    expect(backend.createShaderModule).toHaveBeenCalled();
+    expect(device.createShaderModule).toHaveBeenCalled();
   });
 
   it("should create vertex, index, instance, and uniform buffers", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
     ls.initDebugGizmos("bgra8unorm");
     // init() creates 1 buffer (storage), debug creates 4 more
-    expect((backend.createBuffer as any).mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect((device.createBuffer as any).mock.calls.length).toBeGreaterThanOrEqual(5);
   });
 
   it("should not render debug gizmos when showDebugGizmos is false", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.initDebugGizmos("bgra8unorm");
     ls.showDebugGizmos = false;
@@ -664,7 +705,7 @@ describe("LightSystem — debug gizmos", () => {
 
   it("should render debug gizmos when showDebugGizmos is true", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.initDebugGizmos("bgra8unorm");
     ls.showDebugGizmos = true;
@@ -689,7 +730,7 @@ describe("LightSystem — debug gizmos", () => {
 
   it("should not render debug gizmos before initDebugGizmos", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.init();
     ls.showDebugGizmos = true;
 
@@ -715,10 +756,11 @@ describe("LightSystem — debug gizmos", () => {
 describe("LightSystem — buffer layout", () => {
   it("should allocate buffer with correct size for header + point + spot lights", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
 
-    const bufDesc = (backend.createBuffer as any).mock.calls[0][0];
+    const bufDesc = (device.createBuffer as any).mock.calls[0][0];
     // Header: 4 floats (16 bytes)
     // PointLights: MAX_POINT_LIGHTS * 8 floats (32 * 32 = 1024 bytes)
     // SpotLights: MAX_SPOT_LIGHTS * 16 floats (8 * 64 = 512 bytes)
@@ -728,19 +770,21 @@ describe("LightSystem — buffer layout", () => {
 
   it("should use STORAGE | COPY_DST usage flags", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
 
-    const bufDesc = (backend.createBuffer as any).mock.calls[0][0];
+    const bufDesc = (device.createBuffer as any).mock.calls[0][0];
     expect(bufDesc.usage).toBe(0x80 | 0x08);
   });
 
   it("should use read-only-storage buffer type in bind group layout", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
 
-    const layoutDesc = (backend.createBindGroupLayout as any).mock.calls[0][0];
+    const layoutDesc = (device.createBindGroupLayout as any).mock.calls[0][0];
     expect(layoutDesc.entries[0].buffer.type).toBe("read-only-storage");
   });
 });
@@ -751,18 +795,7 @@ describe("LightSystem — buffer layout", () => {
 
 describe("LightSystem — WebGPU device path", () => {
   it("should init with GPUDevice when provided", () => {
-    (globalThis as any).GPUBufferUsage = { STORAGE: 0x80, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, UNIFORM: 0x40 };
-    (globalThis as any).GPUShaderStage = { VERTEX: 0x20, FRAGMENT: 0x10, COMPUTE: 0x04 };
-
-    const mockDevice = {
-      createBuffer: vi.fn(() => ({ destroy: vi.fn() })),
-      createBindGroupLayout: vi.fn(() => ({})),
-      createBindGroup: vi.fn(() => ({})),
-      createShaderModule: vi.fn(() => ({})),
-      createRenderPipeline: vi.fn(() => ({})),
-      createPipelineLayout: vi.fn(() => ({})),
-      queue: { writeBuffer: vi.fn() },
-    } as unknown as GPUDevice;
+    const mockDevice = makeMockDevice();
 
     const ls = new LightSystem(mockDevice, null);
     ls.init();
@@ -770,32 +803,15 @@ describe("LightSystem — WebGPU device path", () => {
     expect(mockDevice.createBuffer).toHaveBeenCalled();
     expect(mockDevice.createBindGroupLayout).toHaveBeenCalled();
     expect(mockDevice.createBindGroup).toHaveBeenCalled();
-
-    delete (globalThis as any).GPUBufferUsage;
-    delete (globalThis as any).GPUShaderStage;
   });
 
   it("should init debug gizmos with GPUDevice", () => {
-    (globalThis as any).GPUBufferUsage = { STORAGE: 0x80, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, UNIFORM: 0x40 };
-    (globalThis as any).GPUShaderStage = { VERTEX: 0x20, FRAGMENT: 0x10, COMPUTE: 0x04 };
-
-    const mockDevice = {
-      createBuffer: vi.fn(() => ({ destroy: vi.fn() })),
-      createBindGroupLayout: vi.fn(() => ({})),
-      createBindGroup: vi.fn(() => ({})),
-      createShaderModule: vi.fn(() => ({})),
-      createRenderPipeline: vi.fn(() => ({})),
-      createPipelineLayout: vi.fn(() => ({})),
-      queue: { writeBuffer: vi.fn() },
-    } as unknown as GPUDevice;
+    const mockDevice = makeMockDevice();
 
     const ls = new LightSystem(mockDevice, null);
     ls.init();
     expect(() => ls.initDebugGizmos("bgra8unorm")).not.toThrow();
     expect(mockDevice.createRenderPipeline).toHaveBeenCalled();
-
-    delete (globalThis as any).GPUBufferUsage;
-    delete (globalThis as any).GPUShaderStage;
   });
 });
 
@@ -806,7 +822,7 @@ describe("LightSystem — WebGPU device path", () => {
 describe("Integration: LightingSystem + LightSystem", () => {
   it("LightSystem should inherit lighting params from LightingSystem", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     const params = ls.getLightingParams(0.5, WeatherType.Clear, 1.0);
     expect(params.sunIntensity).toBeGreaterThan(0);
     expect(params.ambient).toBeGreaterThan(0);
@@ -814,7 +830,7 @@ describe("Integration: LightingSystem + LightSystem", () => {
 
   it("LightSystem should update weather blend", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const ls = new LightSystem(makeMockDevice(), backend);
     ls.updateWeatherBlend(WeatherType.Storm, 1.0);
     const params = ls.getLightingParams(0.5, WeatherType.Storm, 1.0);
     expect(params.sunIntensity).toBeLessThan(
@@ -824,7 +840,8 @@ describe("Integration: LightingSystem + LightSystem", () => {
 
   it("LightSystem should handle full frame cycle", () => {
     const backend = createMockBackend();
-    const ls = new LightSystem(null, backend);
+    const device = makeMockDevice();
+    const ls = new LightSystem(device, backend);
     ls.init();
 
     // Frame 1
@@ -840,6 +857,6 @@ describe("Integration: LightingSystem + LightSystem", () => {
     ls.upload([0, 0, 0]);
 
     // Both frames should have written to the buffer
-    expect((backend.queue as any).writeBuffer.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect((device.queue as any).writeBuffer.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });
