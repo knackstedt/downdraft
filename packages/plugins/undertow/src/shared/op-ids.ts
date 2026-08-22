@@ -124,5 +124,6 @@ export const OP_ELEMENT_AFTER = 134;
 export const OP_ELEMENT_REPLACE_WITH = 135;
 export const OP_ELEMENT_CLOSEST = 136;
 export const OP_ELEMENT_MATCHES = 137;
+export const OP_ELEMENT_GET_TEMPLATE_CONTENT = 138; // HTMLTemplateElement.content
 
 export const OP_ID_MAX = 255;

@@ -15,6 +15,13 @@ interface TestArgs {
   deterministic: boolean;
   headed: boolean;
   verbose: boolean;
+  /** When true, build the game with electron-vite before running tests.
+   *  The harness then launches the built app (dist/main/index.cjs) instead
+   *  of the dev server. */
+  build: boolean;
+  /** When true, skip the dev server entirely — only run against a pre-built app.
+   *  Requires the game to have been built already. */
+  buildOnly: boolean;
 }
 
 function parseArgs(args: string[]): TestArgs {
@@ -26,6 +33,8 @@ function parseArgs(args: string[]): TestArgs {
     deterministic: true,
     headed: false,
     verbose: args.includes("--verbose") || args.includes("-v"),
+    build: false,
+    buildOnly: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -46,6 +55,11 @@ function parseArgs(args: string[]): TestArgs {
       opts.deterministic = false;
     } else if (arg === "--headed") {
       opts.headed = true;
+    } else if (arg === "--build") {
+      opts.build = true;
+    } else if (arg === "--build-only") {
+      opts.buildOnly = true;
+      opts.build = true; // build-only implies build
     }
   }
 
@@ -62,6 +76,43 @@ function hasXvfb(): boolean {
     return false;
   }
 }
+
+/**
+ * Build the game with electron-vite before running tests.
+ * Returns true if the build succeeded, false otherwise.
+ */
+function buildGame(root: string, game: string): boolean {
+  const configPath = resolve(root, "games", game, "electron.vite.config.ts");
+  if (!existsSync(configPath)) {
+    log.error("test", `No electron.vite.config.ts found for game "${game}" at ${configPath}`);
+    return false;
+  }
+  log.info("test", `Building game "${game}" with electron-vite...`);
+  try {
+    const result = spawnSync("npx", ["electron-vite", "build", "--config", configPath], {
+      cwd: root,
+      stdio: "inherit",
+    });
+    if (result.status !== 0) {
+      log.error("test", `Build failed with exit code ${result.status}`);
+      return false;
+    }
+    // Verify the build output exists
+    const distMain = resolve(root, "dist", "main", "index.cjs");
+    if (!existsSync(distMain)) {
+      log.error("test", `Build completed but dist/main/index.cjs not found at ${distMain}`);
+      return false;
+    }
+    log.info("test", "Build succeeded.");
+    return true;
+  } catch (e) {
+    log.error("test", `Build failed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+// Use spawnSync for the build step (blocking — we need it done before tests)
+import { spawnSync } from "child_process";
 
 export async function runTest(args: string[]): Promise<void> {
   const opts = parseArgs(args);
@@ -83,7 +134,16 @@ export async function runTest(args: string[]): Promise<void> {
   log.info("test", `  Renderer:      ${opts.renderer === "cpu" ? "SwiftShader (software)" : "hardware GPU"}`);
   log.info("test", `  Deterministic: ${opts.deterministic}`);
   log.info("test", `  Headed:        ${opts.headed}`);
+  log.info("test", `  Mode:          ${opts.build ? "built" : "dev"}${opts.buildOnly ? " (build-only)" : ""}`);
   log.info("test", "");
+
+  // If --build or --build-only is specified, build the game first.
+  if (opts.build) {
+    const buildOk = buildGame(ROOT, opts.game);
+    if (!buildOk) {
+      process.exit(1);
+    }
+  }
 
   const env: Record<string, string> = {
     ...process.env,
@@ -103,6 +163,10 @@ export async function runTest(args: string[]): Promise<void> {
   if (opts.headed) {
     // Show the window instead of running headless.
     env.DOWNDRAFT_HEADED = "1";
+  }
+  // Tell the harness to launch the built app instead of the dev server.
+  if (opts.build) {
+    env.DOWNDRAFT_TEST_BUILT = "1";
   }
 
   // Critical: Electron must NOT run as Node.js.

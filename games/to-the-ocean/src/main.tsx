@@ -31,9 +31,9 @@ import "./styles/globals.css";
 
 async function bootstrap() {
   // React UI runs on the main thread directly.
-  // (The undertow worker-DOM plugin has been shelved — see
-  // packages/plugins/undertow/SHELVED.md for the known stability and
-  // latency flaws that are not yet solved.)
+  // (The undertow worker-DOM plugin was previously shelved — see
+  // packages/plugins/undertow/STATUS.md for the current status. It has
+  // been revived for the mining-rpg Solid-in-worker integration.)
   const root = createRoot(document.getElementById("root")!);
   root.render(
     <React.StrictMode>

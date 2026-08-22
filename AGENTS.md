@@ -57,6 +57,68 @@ createDowndraftApp({
 });
 ```
 
+## Process management & debugging games
+
+### Killing game processes — never use generic `pkill electron`
+
+**NEVER run `pkill -9 electron`, `pkill -f electron`, `killall electron`, or any other generic Electron-killing command.** The user's machine may have other Electron apps running (VS Code, Slack, Discord, other games, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
+
+Each game runs as an Electron process launched with `DOWNDRAFT_GAME=<game>` in its environment (dev mode: `bun run dev` from the repo root; built mode: `npx electron .` from `games/<game>`). To kill a specific game instance, target **that game only**:
+
+- **Match the `DOWNDRAFT_GAME` env var** (visible in `/proc/<pid>/environ` on Linux):
+  ```bash
+  # Kill only the to-the-ocean game process and its children
+  for pid in $(grep -l 'DOWNDRAFT_GAME=to-the-ocean' /proc/*/environ 2>/dev/null | cut -d/ -f3); do
+    kill -TERM "$pid" 2>/dev/null
+  done
+  ```
+- **Match the specific game path / cwd** if you launched it from a known directory:
+  ```bash
+  pkill -9 -f 'games/to-the-ocean'
+  # or, for a dev run from the repo root:
+  pkill -9 -f 'DOWNDRAFT_GAME=to-the-ocean'
+  ```
+- **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (default 9876 for dev, 9976 for `draft test`):
+  ```bash
+  fuser -k 9876/tcp   # kills whatever is bound to the game's MCP port
+  ```
+
+Prefer `kill -TERM` first (lets the game clean up storage locks via `cleanupStaleStorage()` and `requestSingleInstanceLock()`); only escalate to `kill -9` if the process doesn't exit within a few seconds. If you launched the game yourself (via `bun run dev`, `draft test`, or the e2e harness), prefer terminating the parent shell/process you spawned rather than hunting for the Electron child.
+
+### Debugging games — do NOT use a browser / Playwright
+
+**Do NOT use a browser (Chrome, Playwright, `browser_preview`, the `devin/mcp-playwright` MCP server, or any other web browser tool) to debug or drive Downdraft games.** The games are Electron + WebGPU apps that rely on:
+
+- Pointer lock and raw input events (browsers block or interfere with these).
+- Offscreen rendering (OSR) and Chromium-specific GPU switches (`webGpuSwitches()`).
+- Per-game `--user-data-dir` isolation (see "Per-game storage isolation" above).
+- Worker threads, SharedArrayBuffer, COOP/COEP headers set in `window.ts`.
+- `window.downdraft` preload bridge APIs that only exist inside the Electron preload context.
+
+A plain browser cannot reproduce any of this, and Playwright driving a browser will not exercise the real game code paths. The `devin/mcp-playwright` MCP server is for general web pages, **not** for Downdraft games.
+
+**Instead, use the in-game MCP automation harness and `draft test`:**
+
+1. **`bun run draft:test-cpu`** (or `bun run draft:test`) — the canonical way to launch and exercise a game headlessly. It boots the real Electron app with `DOWNDRAFT_DETERMINISTIC=1`, waits for the MCP HTTP endpoint, and runs the e2e spec. See "Running the smoke test" below for the full CLI flag reference.
+2. **The `ocean` MCP server** (configured in `.devin/mcp_config.json` via the stdio→HTTP bridge at `.devin/mcp-stdio-bridge.mjs`) — once a game is running with `MCP_PORT=<port>`, this exposes the game's automation tools directly to your MCP client. **List the tools first with `mcp_list_tools` before calling any of them** — never guess tool names or argument schemas. The currently registered tools (see `games/to-the-ocean/src/mcp/automation-tools.ts`) include:
+   - `inject_input` / `clear_injected_input` — hold keys/mouse/wheel for N frames.
+   - `dispatch_key` / `dispatch_click` — fire real DOM events on the main thread (full input pipeline).
+   - `get_player_state` / `get_world_state` / `get_ui_state` — read simulation/UI state.
+   - `wait_for_condition` — poll a JS predicate against player/world state with timeout.
+   - `capture_screenshot` — return the WebGPU canvas (+ DOM overlay) as base64 PNG.
+   - `set_test_state` — set weather, time of day, sim speed, respawn, render-loop control.
+   - `get_element_bounds` / `get_element_style` / `inspect_dom` — inspect main-thread DOM for CSS/layout debugging.
+3. **Console error capture** — the e2e harness (`tests/e2e/harness.ts`) captures the game process's stdout/stderr and exposes `game.getConsoleErrors()`. When debugging, grep the captured log for `Uncaught|TypeError|ReferenceError|WrongDocumentError|is not a function|is not defined` (see "E2E test verification — checking for JS errors" below).
+
+The typical debug loop is:
+```bash
+# 1. Launch the game with deterministic mode + a known MCP port
+DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 bun run dev &
+# 2. Call ocean MCP tools (inject_input, get_player_state, capture_screenshot, ...)
+#    to drive the game and inspect state.
+# 3. When done, kill ONLY this game instance (see "Killing game processes" above).
+```
+
 ## Plugin registration patterns
 
 The engine supports two registration patterns:
@@ -100,8 +162,17 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
 - `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
 - `bun run draft:test -- --headed` — same but shows the Electron window (useful for debugging).
+- `bun run draft:test -- --game blockheads` — run the blockheads e2e smoke test.
+- `bun run draft:test -- --game sandjongg` — run the sandjongg e2e smoke test.
+- `bun run draft:test -- --build` — build the game with electron-vite first, then test the packaged app (production-build mode).
+- `bun run draft:test -- --build-only` — only test the pre-built app (skip dev server; requires prior `electron-vite build`).
 - `bun run test:e2e` — legacy: runs the spec directly via `bun test` (bypasses the CLI).
 - `bun run tsc:e2e` — type-checks e2e test files against `tsconfig.e2e.json`.
+- `bun test examples/plugin-tester/src/*.spec.ts` — run all plugin-tester specs (488 tests across 11 files: audio-kira, lighting, marching-cubes, navmesh, networking, physics-rapier, water, weather, mcp, engine, test-scene).
+- `bun test examples/plugin-tester/src/audio-kira-test.spec.ts` — KiraAudioBackend specs (47 tests).
+- `bun test examples/plugin-tester/src/lighting-test.spec.ts` — LightingSystem + LightSystem specs (73 tests, uses mock GPUDevice).
+- `bun test examples/plugin-tester/src/marching-cubes-test.spec.ts` — Marching cubes mesh extraction specs (51 tests).
+- `bun test examples/plugin-tester/src/physics-rapier-test.spec.ts` — RapierPhysicsBackend specs (JS fallback mode).
 
 ### E2E test environment variables
 
@@ -454,8 +525,10 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `--headed` — Show the Electron window instead of running headless. Sets `DOWNDRAFT_HEADED=1`.
 - `--game <name>` — Game to test (default: `to-the-ocean`). Resolves spec to `tests/e2e/<game>-smoke.spec.ts`.
 - `--spec <path>` — Override the spec file path.
-- `--port <n>` — MCP port (default: 9976).
+- `--port <n>` — MCP port (default: 9976). If omitted, the harness auto-allocates a free port.
 - `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
+- `--build` — Build the game with `electron-vite build` before testing, then test the packaged app from `dist/main/index.cjs`. Catches production-only bugs.
+- `--build-only` — Only test the built app (skip dev server; requires prior `electron-vite build`).
 
 **Environment variables (set automatically by `draft test`):**
 - `DOWNDRAFT_GPU=swiftshader|hardware` — selects the WebGPU backend via `webGpuSwitches()`.
@@ -472,6 +545,14 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `bun run test:e2e:local` — same, no env override (uses hardware GPU by default).
 
 `tests/e2e/harness.ts` launches `bun run dev` with `DOWNDRAFT_GAME=to-the-ocean`, waits for the MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
+
+**Build mode:** Pass `--build` to `draft test` to build the game with `electron-vite build` first, then test the packaged app from `dist/main/index.cjs` instead of the dev server. This catches production-only bugs (e.g. minification issues, missing assets, tree-shaking problems). Use `--build-only` to skip the dev server entirely (requires a prior build). The harness detects built mode via the `DOWNDRAFT_TEST_BUILT=1` env var.
+
+**Dynamic ports:** The harness auto-allocates a free MCP port starting from 9976, enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port`). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
+
+**Process cleanup:** The harness kills the entire process group (bun + Electron + Vite) on test completion, preventing orphaned Electron processes. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
+
+**Retry logic:** The harness `callToolWithRetry()` method retries MCP operations on transport errors (connection refused, timeouts) with exponential backoff. Tool-level errors (isError: true) are not retried.
 
 ### E2E test verification — checking for JS errors
 
@@ -498,7 +579,7 @@ Common false positives to filter out: Chromium storage errors (`ERROR:components
 
 ### E2E test gotchas
 
-- **MCP port conflicts**: If a previous test run didn't clean up, port 9977 may still be in use. Kill with `fuser -k 9977/tcp; pkill -9 -f electron` before running.
+- **MCP port conflicts**: If a previous test run didn't clean up, port 9977 may still be in use. Free it with `fuser -k 9977/tcp`, then kill **only the specific game instance** as described in "Killing game processes" above — do NOT use a generic `pkill -9 -f electron` (it will kill unrelated Electron apps).
 - **Save store hangs in test environments**: `createSaveStore()` can hang when OPFS is not available (SwiftShader/headless). The MCP harness (`setupTtolMcp`) must be registered BEFORE the save store init so e2e tests can connect. The harness's `dispatch_key` / `get_ui_state` tools only need the renderer + store, not the sim SAB.
 - **Undertow worker event pump**: The worker's `onKey` handler reads `useGameStore.getState()` to decide which action to dispatch. Store-syncs from the main thread are async (throttled to ~16ms), so the worker may read stale state. The store bridge applies optimistic updates for toggle actions and skips syncing toggle state keys for 200ms after an optimistic update to prevent stale overwrites.
 - **`requestPointerLock()` returns a Promise in newer Chrome**: The Promise can reject with `WrongDocumentError` if the canvas was detached or during ESC cooldown. Always `.catch()` the return value to avoid uncaught rejections.

@@ -70,6 +70,12 @@ export class WorkerRuntime {
   private drainingEvents = false;
   private rafIdCounter = 0;
   private readonly rafCallbacks: Map<number, (time: number) => void> = new Map();
+  /** Per-runtime handle cache — ensures the same handle always returns the same
+   *  JS object. Must be per-runtime (not module-level) so that re-creating the
+   *  runtime (e.g. hot-reload, test isolation) doesn't return stale objects. */
+  readonly handleCache: Map<number, any> = new Map();
+  /** Per-runtime node type cache — avoids a callSync round-trip for nodeType. */
+  readonly nodeTypeCache: Map<number, number> = new Map();
 
   constructor(sab: SharedArrayBuffer) {
     if (!validateDomSab(sab)) {

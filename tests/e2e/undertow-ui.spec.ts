@@ -9,7 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { launchGame, sleep, type GameProcess } from "./harness";
 
-const MCP_PORT = 9977;
+const MCP_PORT = parseInt(process.env.MCP_PORT ?? "9977", 10);
 
 async function dispatchKey(game: GameProcess, key: string, code?: string, type: "keydown" | "keyup" = "keydown"): Promise<void> {
   await game.mcpClient.callTool("dispatch_key", { key, code: code ?? key, type });

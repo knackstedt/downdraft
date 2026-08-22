@@ -6,35 +6,16 @@
 // ============================================================================
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { launchGame, saveBase64Png, sleep, type GameProcess } from "./harness";
+import {
+  captureAndSaveScreenshot,
+  launchGame,
+  parseJsonContent,
+  sleep,
+  type GameProcess,
+  type McpToolResult,
+} from "./harness";
 
-const MCP_PORT = 9976;
-const SCREENSHOT_DIR = join(import.meta.dir, "../../.playwright-mcp");
-
-function ensureDir(path: string): void {
-  const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-}
-
-interface McpToolResult {
-  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
-  isError?: boolean;
-}
-
-function parseJsonContent(result: unknown): Record<string, unknown> {
-  const r = result as McpToolResult;
-  const text = r.content?.[0]?.text ?? "";
-  if (r.isError) {
-    throw new Error(`MCP tool returned an error: ${text}`);
-  }
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    throw new Error(`MCP tool returned non-JSON text (isError=${r.isError ?? false}): ${(e as Error).message} | text=${text.slice(0, 200)}`);
-  }
-}
+const MCP_PORT = parseInt(process.env.MCP_PORT ?? "9976", 10);
 
 describe("sandjongg MCP automation smoke", () => {
   let game: GameProcess | null = null;
@@ -65,21 +46,10 @@ describe("sandjongg MCP automation smoke", () => {
   it("captures a non-empty screenshot", async () => {
     await sleep(2000);
 
-    const result = (await game!.mcpClient.callTool("capture_screenshot", {})) as McpToolResult;
+    const meta = await captureAndSaveScreenshot(game!, "sandjongg-smoke.png", true);
 
-    const textPart = result.content.find((c) => c.type === "text");
-    const meta = textPart?.text ? (parseJsonContent(result) as { width?: number; height?: number }) : {};
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
-
-    const image = result.content.find((c) => c.type === "image");
-    expect(image).toBeDefined();
-    expect(image!.data).toBeDefined();
-    expect(image!.data!.length).toBeGreaterThan(100);
-
-    const path = join(SCREENSHOT_DIR, "sandjongg-smoke.png");
-    ensureDir(path);
-    await saveBase64Png(image!.data!, path);
   }, 30000);
 
   it("reports game state with tiles on the board", async () => {

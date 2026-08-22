@@ -62,6 +62,19 @@ jobs:
             packages/plugins/models/src/sidecar/sidecar.spec.ts \
             packages/plugins/models/src/normalize.spec.ts
 
+  plugin-tests:
+    name: Plugin Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install
+      - name: Run plugin-tester specs
+        run: bun test examples/plugin-tester/src/*.spec.ts
+
   e2e-tests:
     name: E2E Smoke Test (SwiftShader)
     runs-on: ubuntu-latest
@@ -74,8 +87,25 @@ jobs:
         run: bun install
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
-      - name: Run E2E smoke test
+      - name: Run to-the-ocean E2E smoke test
         run: bun run draft:test-cpu
         env:
           DISPLAY: ":99"
         timeout-minutes: 10
+      - name: Run blockheads E2E smoke test
+        run: bun run draft:test-cpu -- --game blockheads
+        env:
+          DISPLAY: ":99"
+        timeout-minutes: 10
+      - name: Run sandjongg E2E smoke test
+        run: bun run draft:test-cpu -- --game sandjongg
+        env:
+          DISPLAY: ":99"
+        timeout-minutes: 10
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: tests/e2e/artifacts/
+          if-no-files-found: ignore

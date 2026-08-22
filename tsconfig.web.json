@@ -278,6 +278,8 @@
     "games/*/src/main.ts",
     "games/*/src/preload.ts",
     "games/*/electron.vite.config.ts",
+    "games/mining-rpg/src/solid/**/*.tsx",
+    "games/mining-rpg/src/solid/worker-entry.ts",
     "examples/*/src/main.ts",
     "examples/*/src/preload.ts",
     "examples/*/electron.vite.config.ts"

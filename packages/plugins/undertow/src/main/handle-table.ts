@@ -29,6 +29,12 @@ export class HandleTable {
     this.nodes.set(HANDLE_HTML, document.documentElement);
     this.nodes.set(HANDLE_HEAD, document.head);
     this.nodes.set(HANDLE_BODY, document.body);
+    // Tag the reserved DOM nodes with their handles so the EventDispatcher
+    // can find them when walking e.target.parentNode chain for composedPath.
+    try { (document as any)._undertowHandle = HANDLE_DOCUMENT; } catch { /* read-only */ }
+    try { (document.documentElement as any)._undertowHandle = HANDLE_HTML; } catch { /* read-only */ }
+    try { (document.head as any)._undertowHandle = HANDLE_HEAD; } catch { /* read-only */ }
+    try { (document.body as any)._undertowHandle = HANDLE_BODY; } catch { /* read-only */ }
   }
 
   /** Allocate a handle for a real DOM node. Returns the integer handle. */

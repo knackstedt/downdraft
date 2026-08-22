@@ -5,39 +5,15 @@
 // ============================================================================
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { launchGame, saveBase64Png, sleep, type GameProcess } from "./harness";
+import {
+    captureAndSaveScreenshot,
+    launchGame,
+    parseJsonContent,
+    sleep,
+    type GameProcess
+} from "./harness";
 
-const MCP_PORT = 9976;
-const SCREENSHOT_DIR = join(import.meta.dir, "../../.playwright-mcp");
-
-function ensureDir(path: string): void {
-  const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-}
-
-// MCP tool results are { content: [...], isError?: boolean }. When a tool
-// returns an error, content[0].text is a plain message (NOT JSON). Parsing it
-// blindly yields a confusing "Unexpected identifier" SyntaxError. This helper
-// surfaces tool errors as clear assertion failures instead.
-interface McpToolResult {
-  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
-  isError?: boolean;
-}
-
-function parseJsonContent(result: unknown): Record<string, unknown> {
-  const r = result as McpToolResult;
-  const text = r.content?.[0]?.text ?? "";
-  if (r.isError) {
-    throw new Error(`MCP tool returned an error: ${text}`);
-  }
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    throw new Error(`MCP tool returned non-JSON text (isError=${r.isError ?? false}): ${(e as Error).message} | text=${text.slice(0, 200)}`);
-  }
-}
+const MCP_PORT = parseInt(process.env.MCP_PORT ?? "9976", 10);
 
 describe("to-the-ocean MCP automation smoke", () => {
   let game: GameProcess | null = null;
@@ -126,25 +102,14 @@ describe("to-the-ocean MCP automation smoke", () => {
     await sleep(500);
 
     // Default: fullPage=true — captures canvas + DOM overlay via Electron.
-    const result = (await game!.mcpClient.callTool("capture_screenshot", {})) as McpToolResult;
+    const meta = await captureAndSaveScreenshot(game!, "ttol-smoke.png", true);
 
-    const textPart = result.content.find((c) => c.type === "text");
-    const meta = textPart?.text ? (parseJsonContent(result) as { width?: number; height?: number; fullPage?: boolean }) : {};
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
     // The screenshot should be a full-page capture (canvas + overlay), not
     // a canvas-only fallback. If this fails, the Electron bridge's
     // capturePage() is not wired up or returned an empty image.
     expect(meta.fullPage).toBe(true);
-
-    const image = result.content.find((c) => c.type === "image");
-    expect(image).toBeDefined();
-    expect(image!.data).toBeDefined();
-    expect(image!.data!.length).toBeGreaterThan(100);
-
-    const path = join(SCREENSHOT_DIR, "ttol-smoke.png");
-    ensureDir(path);
-    await saveBase64Png(image!.data!, path);
   }, 30000);
 
   it("clears injected input without error", async () => {

@@ -13,6 +13,10 @@
     "@downdraft/ui": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "solid-js": "1.9.14",
     "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "vite-plugin-solid": "2.11.14"
   }
 }

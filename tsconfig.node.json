@@ -288,6 +288,7 @@
     "games/*/src/shared/plugin-interfaces.ts",
     "electron.vite.config.ts",
     "games/*/electron.vite.config.ts",
+    "games/*/vite-options.ts",
     "games/*/src/main.ts",
     "games/*/src/preload.ts",
     "examples/*/electron.vite.config.ts",
