@@ -3,8 +3,9 @@
 // point so the player can see where to go to sell their inventory.
 //
 // Reads the signpost world position from the renderer and converts to screen
-// coords using the camera transform. The signpost is drawn as a DOM element
-// (a wooden post with a "SELL" sign) that stays anchored to the world position.
+// coords using the camera transform. The signpost is drawn as DOM elements
+// (a wooden post with a "SELL" sign) that scale with the camera zoom —
+// matching the NPCs and player stickman which are all in world-space units.
 // ============================================================================
 
 import { useEffect, useRef } from "react";
@@ -18,6 +19,13 @@ const overlayStyle: React.CSSProperties = {
   zIndex: 11,
   overflow: "hidden",
 };
+
+// Signpost dimensions in world cells (not pixels). These scale with zoom
+// so the signpost stays proportional to the terrain and NPCs.
+const POST_HEIGHT_CELLS = 5;   // post sticks 5 cells above the surface
+const POST_WIDTH_CELLS = 0.5;
+const SIGN_W_CELLS = 6;
+const SIGN_H_CELLS = 2.5;
 
 export function SignpostOverlay() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -38,6 +46,7 @@ export function SignpostOverlay() {
         const cam = renderer.getCamera();
         const pos = renderer.getSignpostPos();
         const dpr = window.devicePixelRatio || 1;
+        const scale = cam.zoom / dpr; // world cells → CSS px
         const screen = worldToScreen(cam, pos.x, pos.y);
         const cssX = screen.x / dpr;
         const cssY = screen.y / dpr;
@@ -49,17 +58,20 @@ export function SignpostOverlay() {
           cssY > -margin && cssY < window.innerHeight + margin;
 
         if (onScreen) {
-          // Signpost: a wooden post with a "SELL" sign board on top.
-          // The post bottom is anchored at the surface Y.
-          const postHeight = 40;
-          const signW = 50;
-          const signH = 20;
-          const postTop = cssY - postHeight;
+          // Scale dimensions by zoom
+          const postH = POST_HEIGHT_CELLS * scale;
+          const postW = Math.max(1, POST_WIDTH_CELLS * scale);
+          const signW = SIGN_W_CELLS * scale;
+          const signH = SIGN_H_CELLS * scale;
+          const postTop = cssY - postH;
+          const fontSize = Math.max(7, Math.min(16, signH * 0.55));
+          const borderWidth = Math.max(1, 1.5 * scale * 0.3);
+
           container.innerHTML = `
-            <div style="position:absolute;left:${cssX - 2}px;top:${postTop}px;width:4px;height:${postHeight}px;background:linear-gradient(to bottom,#6b4226,#4a2d1a);border-radius:1px;"></div>
-            <div style="position:absolute;left:${cssX - signW / 2}px;top:${postTop - signH - 2}px;width:${signW}px;height:${signH}px;background:#8b5a2b;border:1.5px solid #5a3a1a;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:11px;font-weight:bold;color:#ffd700;text-shadow:0 0 3px rgba(0,0,0,0.8);">SELL</div>
-            <div style="position:absolute;left:${cssX - signW / 2}px;top:${postTop}px;width:4px;height:4px;background:#4a2d1a;"></div>
-            <div style="position:absolute;left:${cssX + signW / 2 - 4}px;top:${postTop}px;width:4px;height:4px;background:#4a2d1a;"></div>
+            <div style="position:absolute;left:${cssX - postW / 2}px;top:${postTop}px;width:${postW}px;height:${postH}px;background:linear-gradient(to bottom,#6b4226,#4a2d1a);border-radius:${Math.max(1, scale * 0.2)}px;"></div>
+            <div style="position:absolute;left:${cssX - signW / 2}px;top:${postTop - signH - 2}px;width:${signW}px;height:${signH}px;background:#8b5a2b;border:${borderWidth}px solid #5a3a1a;border-radius:${Math.max(1, scale * 0.4)}px;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:${fontSize}px;font-weight:bold;color:#ffd700;text-shadow:0 0 3px rgba(0,0,0,0.8);">SELL</div>
+            <div style="position:absolute;left:${cssX - signW / 2}px;top:${postTop}px;width:${Math.max(2, postW * 1.5)}px;height:${Math.max(2, postW * 1.5)}px;background:#4a2d1a;"></div>
+            <div style="position:absolute;left:${cssX + signW / 2 - Math.max(2, postW * 1.5)}px;top:${postTop}px;width:${Math.max(2, postW * 1.5)}px;height:${Math.max(2, postW * 1.5)}px;background:#4a2d1a;"></div>
           `;
         } else {
           // Off-screen: render a directional arrow pointing toward the signpost
