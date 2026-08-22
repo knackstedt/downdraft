@@ -113,17 +113,17 @@ test("fire rises through smoke (gas-to-gas displacement, not suffocated)", () =>
   expect(topFire).toBeLessThan(bottomSmoke);
 });
 
-test("lava + water → steam + stone (applyReactions)", () => {
+test("lava + water → steam + obsidian (applyReactions)", () => {
   const w = new SandWorld(8, 16);
   w.setCell(4, 10, { mat: Material.Lava, lifetime: 0, flags: 0 });
   w.setCell(4, 11, { mat: Material.Water, lifetime: 0, flags: 0 });
   run(w, 5);
-  // Lava should turn to stone and water to steam (reaction may take a frame).
+  // Lava rapidly quenched by water produces obsidian (volcanic glass) + steam.
   const lava = countMat(w, Material.Lava);
-  const stone = countMat(w, Material.Stone);
+  const obsidian = countMat(w, Material.Obsidian);
   const steam = countMat(w, Material.Steam);
   // At least one conversion happened.
-  expect(stone).toBeGreaterThan(0);
+  expect(obsidian).toBeGreaterThan(0);
   expect(steam + (lava === 0 ? 1 : 0)).toBeGreaterThan(0);
 });
 
@@ -324,6 +324,82 @@ test("reusable buffers are sized to the grid (no out-of-bounds in combustion)", 
   // Should not throw.
   run(w, 200);
   expect(w.frame).toBe(200);
+});
+
+test("burning oil flows like a liquid and spreads slowly to adjacent oil", () => {
+  // BurningOil is a liquid (gravity: 1, density: 0.8) and should flow like
+  // one — sinking/spreading across the oil pool. The burning-oil pass in
+  // applyCombustion handles controlled spread to adjacent oil cells, so the
+  // fire creeps outward even as the BurningOil itself flows. Visual flames
+  // (FLAG_SPARK fire particles) rise straight up and don't scatter.
+  const w = new SandWorld(20, 20, { skipStoneFloor: true });
+  // Flat oil pool on a stone floor
+  for (let x = 4; x < 16; x++) {
+    w.setCell(x, 15, { mat: Material.Oil, lifetime: 0, flags: 0 });
+    w.setCell(x, 16, { mat: Material.Oil, lifetime: 0, flags: 0 });
+  }
+  for (let x = 0; x < 20; x++) {
+    for (let y = 17; y < 20; y++) {
+      w.setCell(x, y, { mat: Material.Stone, lifetime: 0, flags: 0 });
+    }
+  }
+  // Place BurningOil directly on the oil surface at the center
+  w.setCell(10, 15, { mat: Material.BurningOil, lifetime: 60, flags: 0 });
+  run(w, 100);
+
+  // BurningOil should still exist — it hasn't all decayed yet.
+  const burningPositions: { x: number; y: number }[] = [];
+  for (let y = 0; y < 20; y++) {
+    for (let x = 0; x < 20; x++) {
+      if (matAt(w, x, y) === Material.BurningOil) burningPositions.push({ x, y });
+    }
+  }
+  expect(burningPositions.length).toBeGreaterThan(0);
+  // The fire should have spread to adjacent oil cells (more BurningOil than
+  // the single cell we started with). The spread is slow + chance-based, so
+  // after 100 frames we expect at least a few new BurningOil cells.
+  expect(burningPositions.length).toBeGreaterThan(1);
+});
+
+test("burning oil visual flames do not ignite oil", () => {
+  // Regression: Fire particles emitted by the burning-oil pass are marked with
+  // FLAG_SPARK so the fire spread pass skips them for oil ignition. Without
+  // this, the visual flames would ignite adjacent oil in all 8 directions
+  // (including diagonals), causing the fire to "burst" outward instead of
+  // creeping slowly from the ignition site.
+  const w = new SandWorld(20, 20, { skipStoneFloor: true });
+  // Two separate oil pools with a wall between them (oil flows to fill gaps,
+  // so a wall is needed to truly separate the pools)
+  for (let x = 2; x < 9; x++) {
+    w.setCell(x, 15, { mat: Material.Oil, lifetime: 0, flags: 0 });
+  }
+  for (let x = 12; x < 18; x++) {
+    w.setCell(x, 15, { mat: Material.Oil, lifetime: 0, flags: 0 });
+  }
+  // Wall separator between the pools
+  for (let y = 15; y < 20; y++) {
+    w.setCell(10, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  for (let x = 0; x < 20; x++) {
+    for (let y = 16; y < 20; y++) {
+      w.setCell(x, y, { mat: Material.Stone, lifetime: 0, flags: 0 });
+    }
+  }
+  // Place BurningOil on the left pool
+  w.setCell(5, 15, { mat: Material.BurningOil, lifetime: 60, flags: 0 });
+  run(w, 200);
+
+  // The right pool (x=12..17) should still have oil — the visual flames
+  // from the left pool's BurningOil should NOT have ignited it across the gap.
+  let rightOilCount = 0;
+  for (let x = 12; x < 18; x++) {
+    if (matAt(w, x, 15) === Material.Oil) rightOilCount++;
+  }
+  expect(rightOilCount).toBeGreaterThan(0);
+  // No BurningOil should have appeared in the right pool
+  for (let x = 12; x < 18; x++) {
+    expect(matAt(w, x, 15)).not.toBe(Material.BurningOil);
+  }
 });
 
 test("fluid grid velocity decays toward 0", () => {
@@ -734,4 +810,567 @@ test("interlace mode processes alternating rows", () => {
   }
   // Interlaced sand should be higher up (less movement)
   expect(sandY).toBeLessThanOrEqual(sandY2);
+});
+
+// --- Popcorn tests ---
+
+test("popcorn popping does not create an infinite creation loop", () => {
+  // Regression: popping popcorn used to scatter NEW unpopped popcorn particles
+  // into empty cells. Those particles were themselves near the heat source, so
+  // they popped too, scattering even more popcorn — an infinite creation loop
+  // that filled the entire grid. With FLAG_POPPED, each kernel pops exactly
+  // once and all resulting popcorn (scattered + original) is marked so it
+  // won't re-pop.
+  const w = new SandWorld(16, 20);
+  // Floor
+  for (let x = 0; x < 16; x++) w.setCell(x, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // A few popcorn kernels in the center
+  for (let x = 7; x <= 8; x++) w.setCell(x, 10, { mat: Material.Popcorn, lifetime: 0, flags: 0 });
+  // Set temperature field high everywhere to trigger popping (temp > 1.3)
+  for (let i = 0; i < w.fields.length; i += 4) {
+    w.fields[i + FIELD.TEMP] = 200; // 200/128 ≈ 1.56 > 1.3
+  }
+  run(w, 300);
+  // Count total popcorn. 2 kernels, each pops once, scattering at most ~9
+  // particles (8 neighbors + 1 upward launch). Total should be bounded.
+  // With the bug, popcorn would grow to fill hundreds of cells.
+  const popcornCount = countMat(w, Material.Popcorn);
+  expect(popcornCount).toBeLessThanOrEqual(25);
+  // Popcorn should still exist (it did pop, creating scattered particles)
+  expect(popcornCount).toBeGreaterThanOrEqual(1);
+});
+
+test("popped popcorn is marked with FLAG_POPPED and won't re-pop", () => {
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 10, { mat: Material.Popcorn, lifetime: 0, flags: 0 });
+  // High temperature to trigger popping
+  for (let i = 0; i < w.fields.length; i += 4) {
+    w.fields[i + FIELD.TEMP] = 200;
+  }
+  run(w, 50);
+  // Every remaining popcorn cell should have FLAG_POPPED set (0x20)
+  for (let i = 0; i < w.grid.length; i++) {
+    if ((w.grid[i] & 0xff) === Material.Popcorn) {
+      expect((w.grid[i] >> 16) & 0x20).toBe(0x20);
+    }
+  }
+});
+
+// --- Liquid Nitrogen / Dry Ice dissipation tests ---
+
+test("liquid nitrogen evaporates to cold vapor without producing water", () => {
+  // Liquid nitrogen slowly evaporates into ColdVapor (a visible white gas
+  // that doesn't rise and dissipates over ~30 seconds). It must NOT produce
+  // Water or Steam — previously it converted to Steam which condensed to Water.
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  for (let x = 3; x <= 4; x++) w.setCell(x, 14, { mat: Material.LiquidNitrogen, lifetime: 0, flags: 0 });
+  run(w, 2000);
+  // All liquid nitrogen should have evaporated (0.5% chance/frame → gone
+  // well before 2000 frames). No water or steam should have been produced.
+  expect(countMat(w, Material.LiquidNitrogen)).toBe(0);
+  expect(countMat(w, Material.Water)).toBe(0);
+  expect(countMat(w, Material.Steam)).toBe(0);
+});
+
+test("cold vapor doesn't rise and dissipates over time", () => {
+  // ColdVapor is static (gravityDir=0) — it stays where it forms and slowly
+  // dissipates. It should NOT rise like smoke/steam, and should eventually
+  // disappear entirely.
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Place cold vapor directly
+  w.setCell(4, 14, { mat: Material.ColdVapor, lifetime: 255, flags: 0 });
+  run(w, 20);
+  // After 20 steps, cold vapor should still exist (dissipates slowly ~30s)
+  expect(countMat(w, Material.ColdVapor)).toBe(1);
+  // It should NOT have risen — still at y=14 (or lower if it somehow moved,
+  // but it's static so it should stay exactly at y=14)
+  expect(matAt(w, 4, 14)).toBe(Material.ColdVapor);
+  // Run much longer — should eventually fully dissipate
+  run(w, 3000);
+  expect(countMat(w, Material.ColdVapor)).toBe(0);
+});
+
+test("dry ice dissipates without producing water", () => {
+  // Counterpart: dry ice sublimates into smoke (which expires to empty), never
+  // producing water. (Dry ice sublimation requires the cell above to be empty,
+  // so a single cell in a narrow column may get stuck if smoke accumulates —
+  // we only assert the no-water property, which is the point of the test.)
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.DryIce, lifetime: 0, flags: 0 });
+  run(w, 500);
+  expect(countMat(w, Material.Water)).toBe(0);
+});
+
+// --- Dynamite chain reaction test ---
+
+test("dynamite chain-detonates all connected sticks", () => {
+  // Regression: dynamite didn't reliably chain-react. explode() destroyed
+  // adjacent dynamite cells (converting them to fire/smoke) before they could
+  // detonate, and the 20% per-frame trigger chance meant fire often decayed
+  // before igniting the next stick. Now detonateDynamite flood-fills all
+  // connected dynamite (like detonateC4) and explodes each.
+  const w = new SandWorld(16, 20, { skipStoneFloor: true });
+  // Floor
+  for (let x = 0; x < 16; x++) w.setCell(x, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // A row of 5 connected dynamite sticks
+  for (let x = 5; x <= 9; x++) w.setCell(x, 18, { mat: Material.Dynamite, lifetime: 0, flags: 0 });
+  // Fire next to the leftmost stick, fully trapped with walls so it can't
+  // rise or drift diagonally away before detonation triggers.
+  w.setCell(4, 18, { mat: Material.Fire, lifetime: 255, flags: 0 });
+  w.setCell(3, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(5, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(3, 18, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 100);
+  // All 5 dynamite sticks should have detonated — none should remain.
+  expect(countMat(w, Material.Dynamite)).toBe(0);
+});
+
+// --- Seed progressive growth test ---
+
+test("seed grows tree progressively from the bottom up", () => {
+  // The seed should grow a tree one cell at a time from the bottom up, not
+  // place the entire tree in a single frame. After a few steps, the trunk
+  // should be partially grown (not full height). After enough steps, the
+  // full tree with leaves should be present.
+  const w = new SandWorld(12, 32, { skipStoneFloor: true });
+  // Dirt floor
+  for (let x = 0; x < 12; x++) w.setCell(x, 31, { mat: Material.Dirt, lifetime: 0, flags: 0 });
+  // Seed resting on dirt
+  w.setCell(6, 30, { mat: Material.Seed, lifetime: 0, flags: 0 });
+
+  // Run a few steps — the seed should plant and start growing.
+  // Use enough steps for the 5% plant chance to trigger.
+  run(w, 100);
+
+  // After planting, the root should exist at the base (y=30)
+  expect(matAt(w, 6, 30)).toBe(Material.Root);
+
+  // After 100 steps, the trunk should be growing but might not be done yet.
+  // Count TreeWood cells — should be > 0 but potentially < full height (8-15).
+  const treeWoodCount = countMat(w, Material.TreeWood);
+  expect(treeWoodCount).toBeGreaterThan(0);
+
+  // Run more steps to let the tree finish growing
+  run(w, 100);
+
+  // After full growth, the tree should have a substantial trunk and leaves
+  const finalTreeWood = countMat(w, Material.TreeWood);
+  const leaves = countMat(w, Material.Leaf);
+  expect(finalTreeWood).toBeGreaterThanOrEqual(5);
+  expect(leaves).toBeGreaterThan(0);
+  // No growing seeds should remain (lifetime > 0 seeds)
+  let growingSeeds = 0;
+  for (let i = 0; i < w.grid.length; i++) {
+    if ((w.grid[i] & 0xff) === Material.Seed && ((w.grid[i] >> 8) & 0xff) > 0) growingSeeds++;
+  }
+  expect(growingSeeds).toBe(0);
+});
+
+// --- Acid / Base tests ---
+
+test("acid eats adjacent materials and is consumed ~50% per eat", () => {
+  // 1000 sand + 1000 acid should leave ~500 acid. We use a smaller grid but
+  // verify the ratio: acid eats a neighbor, 50% chance the acid is consumed.
+  // So ~2 material eaten per 1 acid consumed → ~50% acid remains.
+  const w = new SandWorld(20, 20, { skipStoneFloor: true });
+  // Floor
+  for (let x = 0; x < 20; x++) w.setCell(x, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Fill a layer of sand with acid on top — acid flows down and eats sand
+  for (let x = 0; x < 20; x++) {
+    w.setCell(x, 17, { mat: Material.Sand, lifetime: 0, flags: 0 });
+    w.setCell(x, 18, { mat: Material.Sand, lifetime: 0, flags: 0 });
+    w.setCell(x, 16, { mat: Material.Acid, lifetime: 0, flags: 0 });
+    w.setCell(x, 15, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  }
+  const initialAcid = countMat(w, Material.Acid);
+  const initialSand = countMat(w, Material.Sand);
+  expect(initialAcid).toBe(40);
+  expect(initialSand).toBe(40);
+  // Run enough steps for the acid to eat through all the sand
+  run(w, 3000);
+  const finalAcid = countMat(w, Material.Acid);
+  const finalSand = countMat(w, Material.Sand);
+  // All sand should be eaten (acid is denser, sinks through, eats it all)
+  expect(finalSand).toBe(0);
+  // Acid should be roughly halved — 40 acid eats 40 sand, consuming ~20 acid
+  // → ~20 remaining. Allow a wide band (10-30) due to RNG variance.
+  expect(finalAcid).toBeGreaterThan(8);
+  expect(finalAcid).toBeLessThan(32);
+});
+
+test("acid does not eat Wall", () => {
+  const w = new SandWorld(8, 16);
+  // Wall floor
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Acid on top of wall
+  for (let x = 3; x <= 4; x++) w.setCell(x, 14, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  run(w, 500);
+  // Wall should be untouched
+  for (let x = 0; x < 8; x++) {
+    expect(matAt(w, x, 15)).toBe(Material.Wall);
+  }
+});
+
+test("acid + base neutralizes to salt and steam", () => {
+  // 1 acid + 1 base → 1 salt + 1 steam. Both reactants are consumed.
+  // Contained in a narrow pit so the liquids can't flow apart before reacting.
+  const w = new SandWorld(8, 16);
+  // Pit: walls on sides and bottom
+  w.setCell(3, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(2, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(2, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(5, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Acid and base stacked in the pit (acid on top, base on bottom)
+  w.setCell(3, 14, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Base, lifetime: 0, flags: 0 });
+  // Run just a few steps — the reaction triggers quickly (75% chance/frame
+  // from both sides checking). Steam is transient (condenses to water) so
+  // we check it early before it dissipates.
+  run(w, 5);
+  // Both acid and base should be consumed
+  expect(countMat(w, Material.Acid)).toBe(0);
+  expect(countMat(w, Material.Base)).toBe(0);
+  // Salt should have been produced (permanent)
+  expect(countMat(w, Material.Salt)).toBeGreaterThan(0);
+  // Steam should have been produced (may condense to water later, but
+  // within 5 steps it should still exist)
+  expect(countMat(w, Material.Steam) + countMat(w, Material.Water)).toBeGreaterThan(0);
+});
+
+test("acid + base equal quantities fully neutralize", () => {
+  // Equal amounts of acid and base should fully neutralize — no leftover
+  // acid or base (all consumed by the 1:1 reaction). Acid is denser (1.2)
+  // than base (1.1), so stacked in a narrow column the acid sinks through
+  // the base, ensuring constant contact until all react.
+  const w = new SandWorld(8, 20);
+  // Narrow 1-wide column with walls on sides and bottom
+  for (let y = 10; y <= 19; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  w.setCell(4, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // 4 base at bottom, 4 acid on top. Acid (denser) sinks through base,
+  // constantly swapping and reacting at the boundary.
+  for (let y = 15; y <= 18; y++) w.setCell(4, y, { mat: Material.Base, lifetime: 0, flags: 0 });
+  for (let y = 11; y <= 14; y++) w.setCell(4, y, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  run(w, 3000);
+  // Both should be fully consumed (1:1 reaction, equal quantities)
+  expect(countMat(w, Material.Acid)).toBe(0);
+  expect(countMat(w, Material.Base)).toBe(0);
+  // Salt should remain (steam dissipates over time)
+  expect(countMat(w, Material.Salt)).toBeGreaterThan(0);
+});
+
+// --- Fuse fire spark emission test ---
+
+test("fuse fire emits sparks throughout its lifetime", () => {
+  // Regression: sparks were only emitted during the last 3 frames of the
+  // 15-frame lifetime. Now sparks emit every frame.
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Fuse row with a fire at one end to ignite it
+  for (let x = 3; x <= 5; x++) w.setCell(x, 14, { mat: Material.Fuse, lifetime: 0, flags: 0 });
+  w.setCell(2, 14, { mat: Material.Fire, lifetime: 255, flags: 0 });
+  // Walls above the fire to trap it so it ignites the fuse
+  w.setCell(2, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(1, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 30);
+  // FuseFire should have been created and should have emitted sparks (Fire
+  // particles above the fuse). Check that at least some fire particles
+  // appeared above the fuse row (y < 14).
+  let fireAbove = 0;
+  for (let y = 0; y < 14; y++) {
+    for (let x = 0; x < 8; x++) {
+      if (matAt(w, x, y) === Material.Fire) fireAbove++;
+    }
+  }
+  expect(fireAbove).toBeGreaterThan(0);
+});
+
+// --- Wax slow burn test ---
+
+test("wax burns slowly and spreads to adjacent wax", () => {
+  // Wax should burn much longer than normal fire and reliably spread to
+  // adjacent wax cells. Previously wax caught fire like any flammable solid
+  // (Fire lifetime=30, ~0.5s) and went out before spreading.
+  const w = new SandWorld(12, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 12; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Row of wax
+  for (let x = 4; x <= 7; x++) w.setCell(x, 14, { mat: Material.Wax, lifetime: 0, flags: 0 });
+  // Fire next to the leftmost wax, fully trapped with walls so it can't
+  // drift away before igniting the wax.
+  w.setCell(3, 14, { mat: Material.Fire, lifetime: 255, flags: 0 });
+  w.setCell(2, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(3, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(2, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 30);
+  // After 30 steps, fire should have spread to multiple wax cells (high
+  // spread multiplier 2.5). At least 2 wax cells should be on fire.
+  let fireOnWaxRow = 0;
+  for (let x = 4; x <= 7; x++) {
+    if (matAt(w, x, 14) === Material.Fire) fireOnWaxRow++;
+  }
+  expect(fireOnWaxRow).toBeGreaterThanOrEqual(2);
+  // The fire should still be burning after 100 more steps (slow decay).
+  // Normal fire (lifetime 30, 70% decay) would be gone in ~43 frames.
+  run(w, 100);
+  let fireStillBurning = 0;
+  for (let x = 3; x <= 7; x++) {
+    if (matAt(w, x, 14) === Material.Fire) fireStillBurning++;
+  }
+  expect(fireStillBurning).toBeGreaterThan(0);
+});
+
+// --- Dynamite single explosion test ---
+
+test("dynamite detonates immediately and consumes all connected sticks", () => {
+  // Dynamite should detonate immediately (100% trigger) when lit, and all
+  // connected sticks should be consumed in a single chain detonation.
+  const w = new SandWorld(16, 20, { skipStoneFloor: true });
+  for (let x = 0; x < 16; x++) w.setCell(x, 19, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // 5 connected dynamite sticks
+  for (let x = 5; x <= 9; x++) w.setCell(x, 18, { mat: Material.Dynamite, lifetime: 0, flags: 0 });
+  // Fire next to the leftmost stick, trapped
+  w.setCell(4, 18, { mat: Material.Fire, lifetime: 255, flags: 0 });
+  w.setCell(3, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(5, 17, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(3, 18, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Run just a few steps — 100% trigger means it should detonate immediately
+  run(w, 10);
+  // All dynamite should be consumed
+  expect(countMat(w, Material.Dynamite)).toBe(0);
+});
+
+// --- New materials: ice contact-freezing, obsidian, spore/mold, antimatter
+//     flood-fill, glitch, tar, duplicator ---
+
+test("water freezes to ice on contact with dry ice", () => {
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Water, lifetime: 0, flags: 0 });
+  w.setCell(3, 14, { mat: Material.DryIce, lifetime: 0, flags: 0 });
+  run(w, 60);
+  // Water should have frozen into ice (25% chance/frame on contact).
+  expect(countMat(w, Material.Ice)).toBeGreaterThan(0);
+});
+
+test("water freezes to ice on contact with liquid nitrogen", () => {
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Water, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.LiquidNitrogen, lifetime: 0, flags: 0 });
+  run(w, 60);
+  expect(countMat(w, Material.Ice)).toBeGreaterThan(0);
+});
+
+test("lava quenched by dry ice becomes obsidian", () => {
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Lava, lifetime: 0, flags: 0 });
+  w.setCell(3, 14, { mat: Material.DryIce, lifetime: 0, flags: 0 });
+  run(w, 60);
+  // Lava touching a cold solid (dry ice) should quench to obsidian.
+  expect(countMat(w, Material.Obsidian)).toBeGreaterThan(0);
+  expect(countMat(w, Material.Lava)).toBe(0);
+});
+
+test("obsidian is a static solid that does not fall", () => {
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  // Place obsidian floating in mid-air
+  w.setCell(4, 8, { mat: Material.Obsidian, lifetime: 0, flags: 0 });
+  run(w, 40);
+  // Obsidian should not have fallen — still at y=8
+  expect(matAt(w, 4, 8)).toBe(Material.Obsidian);
+});
+
+test("spore germinates into mold on contact with wood", () => {
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Wood block with a spore adjacent. Use enough wood that the mold has
+  // food to sustain itself after germination (mold dies when no food is left).
+  for (let x = 3; x <= 6; x++) w.setCell(x, 14, { mat: Material.Wood, lifetime: 0, flags: 0 });
+  w.setCell(5, 13, { mat: Material.Spore, lifetime: 240, flags: 0 });
+  // Contain the spore so it can't drift away before germinating
+  w.setCell(5, 12, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(6, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 120);
+  // The spore should have germinated into mold (20% chance/frame on contact).
+  expect(countMat(w, Material.Mold)).toBeGreaterThan(0);
+});
+
+test("mold spreads to adjacent wood and consumes it", () => {
+  const w = new SandWorld(12, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 12; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Row of wood with mold in the middle (food on both sides)
+  for (let x = 3; x <= 8; x++) w.setCell(x, 14, { mat: Material.Wood, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Mold, lifetime: 0, flags: 0 });
+  // Walls above to prevent spore drift from interfering
+  for (let x = 2; x <= 9; x++) w.setCell(x, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Run enough frames for spreading (2% chance → ~1 spread per 50 frames)
+  // but not so many that all wood is consumed and the mold dies.
+  run(w, 50);
+  // Mold should have spread: more than the initial 1 mold cell, and wood
+  // should have been consumed (less than the initial 6 wood cells).
+  expect(countMat(w, Material.Mold)).toBeGreaterThan(1);
+  expect(countMat(w, Material.Wood)).toBeLessThan(6);
+});
+
+test("mold releases spores when it runs out of food", () => {
+  // A single mold cell with no food adjacent should emit spores and die.
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Mold, lifetime: 0, flags: 0 });
+  run(w, 60);
+  // The mold should have died (no food) and released spores.
+  expect(countMat(w, Material.Mold)).toBe(0);
+  expect(countMat(w, Material.Spore)).toBeGreaterThan(0);
+});
+
+test("antimatter annihilates contiguous antimatter and contacted material", () => {
+  // A cluster of 3 antimatter cells touching a sand block. On contact, the
+  // entire antimatter cluster + the contiguous sand should be annihilated.
+  const w = new SandWorld(12, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 12; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // 3 antimatter cells in a row
+  w.setCell(3, 14, { mat: Material.Antimatter, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Antimatter, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Antimatter, lifetime: 0, flags: 0 });
+  // Sand block touching the antimatter at x=6
+  for (let x = 6; x <= 9; x++) w.setCell(x, 14, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 10);
+  // All antimatter should be gone (annihilated).
+  expect(countMat(w, Material.Antimatter)).toBe(0);
+  // The contiguous sand (x=6..9) should also be annihilated.
+  expect(countMat(w, Material.Sand)).toBe(0);
+});
+
+test("antimatter does not annihilate through walls", () => {
+  // Wall separates antimatter from sand. The antimatter has no contact, so
+  // nothing should be annihilated.
+  const w = new SandWorld(12, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 12; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(3, 14, { mat: Material.Antimatter, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  for (let x = 5; x <= 8; x++) w.setCell(x, 14, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 20);
+  // Antimatter has no non-wall neighbor to contact → stays put.
+  expect(countMat(w, Material.Antimatter)).toBe(1);
+  // Sand on the other side of the wall is safe.
+  expect(countMat(w, Material.Sand)).toBe(4);
+});
+
+test("antimatter does not annihilate duplicator (barrier)", () => {
+  // Duplicator is a barrier — antimatter flood-fill stops at it and does not
+  // reach materials on the other side. The duplicator itself is never
+  // annihilated. (The antimatter may still be destroyed if the duplicator
+  // clones material into cells adjacent to it — that's correct behavior.
+  // Here we isolate the antimatter from the duplicator's spawn area.)
+  const w = new SandWorld(12, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 12; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Antimatter fully enclosed in walls so nothing can touch it
+  w.setCell(3, 14, { mat: Material.Antimatter, lifetime: 0, flags: 0 });
+  w.setCell(2, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(3, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(2, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  // Duplicator barrier
+  w.setCell(4, 14, { mat: Material.Duplicator, lifetime: 0, flags: 0 });
+  // Sand behind the duplicator
+  for (let x = 5; x <= 8; x++) w.setCell(x, 14, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  run(w, 20);
+  // Antimatter is enclosed — no contact, so it stays.
+  expect(countMat(w, Material.Antimatter)).toBe(1);
+  // Duplicator is a barrier — not annihilated, not consumed.
+  expect(countMat(w, Material.Duplicator)).toBe(1);
+  // Sand is safe behind the duplicator barrier (the duplicator may clone
+  // extra sand into adjacent empty cells, so count may exceed 4).
+  expect(countMat(w, Material.Sand)).toBeGreaterThanOrEqual(4);
+});
+
+test("glitch randomly swaps with neighboring material", () => {
+  // Glitch next to sand should eventually swap places with it.
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Glitch, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  // Contain so they can't drift apart
+  w.setCell(3, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(6, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(5, 13, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 60);
+  // After enough frames, the glitch (30% swap chance) should have swapped
+  // with the sand at least once. The glitch should no longer be at x=4, or
+  // the sand should no longer be at x=5 (they traded places).
+  const glitchAt4 = matAt(w, 4, 14) === Material.Glitch;
+  const sandAt5 = matAt(w, 5, 14) === Material.Sand;
+  expect(!(glitchAt4 && sandAt5)).toBe(true);
+  // Both cells should still be occupied (glitch + sand, just swapped).
+  expect(countMat(w, Material.Glitch)).toBe(1);
+  expect(countMat(w, Material.Sand)).toBe(1);
+});
+
+test("tar is a very slow dense liquid that sinks through water", () => {
+  // Tar (density 2.0) should sink through water (density 1.0).
+  const w = new SandWorld(8, 16);
+  for (let y = 8; y <= 11; y++) {
+    w.setCell(3, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+    w.setCell(5, y, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  }
+  for (let y = 9; y <= 11; y++) w.setCell(4, y, { mat: Material.Water, lifetime: 0, flags: 0 });
+  w.setCell(4, 8, { mat: Material.Tar, lifetime: 0, flags: 0 });
+  run(w, 400);
+  // Tar should end up below the water (denser sinks).
+  const tarY = topMostY(w, Material.Tar);
+  const waterY = topMostY(w, Material.Water);
+  expect(tarY).toBeGreaterThan(waterY); // tar is lower (larger y)
+});
+
+test("duplicator locks onto and clones the first material that touches it", () => {
+  // Duplicator touched by sand should start spawning sand into adjacent
+  // empty cells. The duplicator itself does not move or get consumed.
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Duplicator, lifetime: 0, flags: 0 });
+  // Sand above the duplicator (will fall and touch it)
+  w.setCell(4, 12, { mat: Material.Sand, lifetime: 0, flags: 0 });
+  // Walls around the duplicator so spawned sand stays nearby
+  w.setCell(3, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  run(w, 300);
+  // Duplicator should still exist (not consumed).
+  expect(countMat(w, Material.Duplicator)).toBe(1);
+  // It should have locked onto sand and cloned it — many sand cells now.
+  // The original sand + cloned sand should exceed the initial 1.
+  expect(countMat(w, Material.Sand)).toBeGreaterThan(1);
+});
+
+test("duplicator does not move (no gravity)", () => {
+  const w = new SandWorld(8, 16, { skipStoneFloor: true });
+  // Place duplicator floating in mid-air with nothing touching it
+  w.setCell(4, 8, { mat: Material.Duplicator, lifetime: 0, flags: 0 });
+  run(w, 40);
+  // Duplicator should not have fallen — still at y=8.
+  expect(matAt(w, 4, 8)).toBe(Material.Duplicator);
+});
+
+test("duplicator is immune to acid", () => {
+  const w = new SandWorld(8, 16);
+  for (let x = 0; x < 8; x++) w.setCell(x, 15, { mat: Material.Wall, lifetime: 0, flags: 0 });
+  w.setCell(4, 14, { mat: Material.Duplicator, lifetime: 0, flags: 0 });
+  w.setCell(3, 14, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  w.setCell(5, 14, { mat: Material.Acid, lifetime: 0, flags: 0 });
+  run(w, 500);
+  // Duplicator should survive — acid can't eat it.
+  expect(countMat(w, Material.Duplicator)).toBe(1);
 });

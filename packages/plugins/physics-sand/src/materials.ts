@@ -51,7 +51,7 @@ export enum Material {
   Concrete = 48,      // hardened concrete
   TreeWood = 49,      // wood grown from seed (same behavior as wood)
   FuseFire = 50,      // yellow fuse fire (separate from normal red fire)
-  BurningOil = 51,    // slow-burning oil fire (stays put, controlled decay/spread)
+  BurningOil = 51,    // slow-burning oil fire (flows like liquid, controlled decay/spread)
   // --- Mining RPG ores (solid, become falling particles when dug) ---
   TinOre = 52,
   CopperOre = 53,
@@ -107,6 +107,17 @@ export enum Material {
   Ladder = 94,       // wooden ladder — non-solid, climbable
   Rope = 95,         // fiber rope — non-solid, climbable
   Torch = 96,        // placeable torch — static, emits light (mining-rpg)
+  ColdVapor = 97,    // cold white vapor from liquid nitrogen — static, dissipates slowly
+  // --- Chemistry: acid + base ---
+  Acid = 98,         // corrosive liquid — eats adjacent materials, 50% consumed per eat
+  Base = 99,         // alkaline liquid — neutralizes acid → salt + steam
+  // --- Phase-change + exotic materials ---
+  Obsidian = 100,    // volcanic glass — lava quenched by water/cold (static solid)
+  Spore = 101,       // floating mold spore — drifts as a gas, germinates into Mold on wood/plant/leaf
+  Mold = 102,        // grows on wood/plant/leaf, consumes them, releases a spore cloud when starved
+  Glitch = 103,      // randomly swaps with any neighboring material
+  Tar = 104,         // very slow, very dense liquid
+  Duplicator = 105,  // static — locks onto the first material that touches it and clones it forever
 }
 
 export const MAX_MATERIAL = 256;
@@ -316,6 +327,52 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // orange light (handled by the mining-rpg lighting system, not physics).
   // Non-flammable so it doesn't burn away. Bright color so it's visible.
   [Material.Torch]: def(96, "Torch", [0.9, 0.5, 0.2, 1.0], { density: 0.4, albedo: 0.6, brightness: 1.5 }),
+  // ColdVapor: visible white vapor produced when liquid nitrogen evaporates.
+  // Static (gravityDir=0) so it doesn't rise — cold vapor is denser than air
+  // and pools near the ground. MAT_HAS_REACTIONS keeps it in the active list
+  // so applyAging can slowly dissipate it (~30 seconds at 60fps).
+  [Material.ColdVapor]: def(97, "Cold Vapor", [0.85, 0.85, 0.9, 0.5], { density: 0.8, gas: true, lifetime: 255, albedo: 0.3, brightness: 0.7 }),
+  // Acid: corrosive liquid. Flows like water (density 1.2, slightly denser).
+  // Eats adjacent materials — each eat destroys the neighbor and has a 50%
+  // chance of consuming the acid particle too. So 1000 sand + 1000 acid →
+  // ~500 acid remaining. Does NOT eat Wall, Acid, Base, or Empty.
+  // Base neutralizes it (acid + base → salt + steam).
+  [Material.Acid]: def(98, "Acid", [0.55, 0.95, 0.25, 0.85], { gravity: 2, gravityDir: 1, density: 1.2, liquid: true, albedo: 0.2, reflectivity: 0.4, brightness: 1.0 }),
+  // Base: alkaline liquid. Flows like water (density 1.1). Reacts with acid
+  // on contact — 1 base + 1 acid → 1 salt + 1 steam (neutralization).
+  [Material.Base]: def(99, "Base", [0.85, 0.75, 0.95, 0.85], { gravity: 2, gravityDir: 1, density: 1.1, liquid: true, albedo: 0.2, reflectivity: 0.4, brightness: 0.9 }),
+
+  // --- Phase-change + exotic materials ---
+  // Obsidian: volcanic glass. Produced when lava is quenched rapidly by
+  // water, dry ice, liquid nitrogen, ice, or snow. Static solid, denser than
+  // stone, non-flammable. Distinct from Stone (the slow-cooling byproduct of
+  // the legacy lava+water rule, now repurposed to obsidian for rapid quench).
+  [Material.Obsidian]: def(100, "Obsidian", [0.06, 0.05, 0.08, 1.0], { density: 2.6, solid: true, albedo: 0.15, reflectivity: 0.25, brightness: 0.7 }),
+  // Spore: floating mold spore. A light gas that drifts upward and lingers.
+  // When it touches wood/plant/leaf/tree wood/root/grass it germinates into
+  // Mold (the spore is consumed). Long lifetime so it can travel far before
+  // landing on a food source; dissipates to empty if it never finds one.
+  [Material.Spore]: def(101, "Spore", [0.55, 0.62, 0.35, 0.7], { gravity: 0.5, gravityDir: -1, density: 0.05, gas: true, lifetime: 240, albedo: 0.3, brightness: 0.9 }),
+  // Mold: grows on wood/plant/leaf/tree wood/root/grass. Static solid that
+  // spreads very slowly to adjacent food cells, consuming them. When no food
+  // remains adjacent, it releases a cloud of Spore into surrounding empty
+  // space and dies (clears to empty). MAT_HAS_REACTIONS keeps it in the
+  // active list even though gravityDir=0.
+  [Material.Mold]: def(102, "Mold", [0.35, 0.42, 0.22, 1.0], { density: 0.4, solid: true, albedo: 0.3, brightness: 0.8 }),
+  // Glitch: a corrupted cell that randomly swaps places with any neighboring
+  // non-empty material. Falls like a normal solid when it can't swap.
+  // Visually a harsh magenta/cyan so it reads as "broken".
+  [Material.Glitch]: def(103, "Glitch", [0.95, 0.05, 0.75, 1.0], { gravity: 1, gravityDir: 1, density: 1.0, solid: true, albedo: 0.2, reflectivity: 0.1, brightness: 1.2 }),
+  // Tar: a very slow, very dense liquid. Sinks through water and most
+  // liquids. High friction (handled in tryMove, like honey) so it barely
+  // flows — oozes rather than pours.
+  [Material.Tar]: def(104, "Tar", [0.07, 0.06, 0.05, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, liquid: true, flammable: true, burnTime: 200, albedo: 0.1, reflectivity: 0.15, brightness: 0.5 }),
+  // Duplicator: a static solid that clones the first material to touch it.
+  // The locked material id is stored in the lifetime field (0 = not yet
+  // locked). Each frame it spawns the locked material into adjacent empty
+  // cells. Does not move, does not react otherwise (acid-immune, skipped by
+  // antimatter). MAT_HAS_REACTIONS keeps it in the active list.
+  [Material.Duplicator]: def(105, "Duplicator", [0.85, 0.85, 0.30, 1.0], { density: 3.0, solid: true, albedo: 0.4, reflectivity: 0.3, brightness: 1.1 }),
 };
 
 export function getMaterialColor(mat: Material): [number, number, number, number] {
@@ -357,8 +414,14 @@ export const MAT_LIFETIME = new Uint8Array(MAX_MATERIAL);
 // Lookup tables for common multi-material neighbor checks.
 // IS_HOT: fire-class + lava + molten salt + plasma (materials that melt snow, boil water, etc.)
 // IS_FIRE: fire-class only (Fire, FuseFire, BurningOil)
+// IS_ACID_IMMUNE: materials that acid cannot eat (Wall, Acid, Base, Empty)
 export const IS_HOT = new Uint8Array(MAX_MATERIAL);
 export const IS_FIRE = new Uint8Array(MAX_MATERIAL);
+export const IS_ACID_IMMUNE = new Uint8Array(MAX_MATERIAL);
+/** Cold materials: actively cool their surroundings. Freeze water → ice,
+ *  quench lava → obsidian. DryIce and LiquidNitrogen are active coolants;
+ *  Ice and Snow are cold solids that also quench lava on contact. */
+export const IS_COLD = new Uint8Array(MAX_MATERIAL);
 /** Static materials (gravityDir=0) that still have self-triggered reactions
  *  (rule-engine rules or applySpecialReactions handlers). These must remain
  *  in the active list even though they can't move — excluding them would
@@ -394,8 +457,25 @@ function buildMaterialTables(): void {
   IS_FIRE[Material.Fire] = 1;
   IS_FIRE[Material.FuseFire] = 1;
   IS_FIRE[Material.BurningOil] = 1;
+  // Cold materials: freeze water on contact, quench lava → obsidian.
+  // Only active coolants (DryIce, LiquidNitrogen) are listed here. Ice and
+  // Snow are frozen water — they melt from lava's heat (handled by the
+  // snow/ice + hot reaction) rather than quenching it to obsidian.
+  IS_COLD[Material.DryIce] = 1;
+  IS_COLD[Material.LiquidNitrogen] = 1;
+  // Acid-immune: acid cannot eat these materials
+  IS_ACID_IMMUNE[Material.Empty] = 1;
+  IS_ACID_IMMUNE[Material.Wall] = 1;
+  IS_ACID_IMMUNE[Material.Acid] = 1;
+  IS_ACID_IMMUNE[Material.Base] = 1;
+  // Duplicator is immune to acid — it "does not react otherwise" and must
+  // persist to keep cloning. Acid eating it would silently destroy it.
+  IS_ACID_IMMUNE[Material.Duplicator] = 1;
   // Static materials with self-triggered reactions (must stay in active list)
   MAT_HAS_REACTIONS[Material.Ice] = 1; // melts near heat / high temp
+  MAT_HAS_REACTIONS[Material.ColdVapor] = 1; // dissipates via lifetime decay
+  MAT_HAS_REACTIONS[Material.Mold] = 1; // spreads to food + releases spores when starved
+  MAT_HAS_REACTIONS[Material.Duplicator] = 1; // clones locked material into adjacent empty cells
 }
 
 buildMaterialTables();

@@ -156,9 +156,8 @@ export class BackdropPass {
   /**
    * Update the backdrop uniforms. originY is the backdrop grid origin in
    * backdrop cell coords (from BackdropWorkerHost.getOriginY()). surfaceY is
-   * the foreground surface height in foreground world coords. Both are used
-   * by the shader to compute a depth-aware ambient: worldY = (originY +
-   * coords.y) * 2.
+   * the foreground surface height in foreground world coords. The backdrop
+   * is full-res (1 backdrop cell = 1 fg cell), so worldY = originY + coords.y.
    *
    * Called once in init() (with zeros) and then each frame by the renderer.
    */

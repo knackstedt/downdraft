@@ -10,19 +10,20 @@
 // that's not easily expressed as simple rules.
 // ============================================================================
 
-import { IS_FIRE, IS_HOT, MAT_FLAMMABLE, MAT_FLAGS, Material } from "../materials";
+import { IS_FIRE, IS_HOT, MAT_FLAGS, MAT_FLAMMABLE, Material } from "../materials";
 import { DIR, type ReactionRule } from "./rule-types";
 
 export const builtinRules: ReactionRule[] = [
   // --- Water reactions ---
-  // Water + Lava → Steam + Stone (highest priority)
+  // Water + Lava → Steam + Obsidian (highest priority). Rapid quenching of
+  // lava by water produces volcanic glass (obsidian) rather than plain stone.
   {
     material: Material.Water,
     priority: -10,
     requireNeighbors: [{ directions: DIR.ALL_8, match: { kind: "material", mat: Material.Lava } }],
     actions: [
       { type: "transform_self", mat: Material.Steam, lifetime: 120 },
-      { type: "transform_neighbor", mat: Material.Stone, match: { kind: "material", mat: Material.Lava } },
+      { type: "transform_neighbor", mat: Material.Obsidian, match: { kind: "material", mat: Material.Lava } },
     ],
   },
   // Water + Fire → Steam + Smoke (chance-based, extinguishes flame)
@@ -52,7 +53,17 @@ export const builtinRules: ReactionRule[] = [
     requireNeighbors: [{ directions: DIR.ALL_8, match: { kind: "material", mat: Material.Plant } }],
     actions: [{ type: "transform_self", mat: Material.Plant }],
   },
-  // Water + low temp → Ice (freezing)
+  // Water + cold neighbor (dry ice / liquid nitrogen) → Ice (contact freezing).
+  // Higher priority and much higher chance than the ambient-cold rule below —
+  // direct contact with an active coolant freezes water quickly.
+  {
+    material: Material.Water,
+    priority: -2,
+    chance: 0.25,
+    requireNeighbors: [{ directions: DIR.ALL_8, match: { kind: "is_cold" } }],
+    actions: [{ type: "transform_self", mat: Material.Ice }],
+  },
+  // Water + low ambient temp → Ice (freezing)
   {
     material: Material.Water,
     priority: -1,
@@ -103,7 +114,19 @@ export const builtinRules: ReactionRule[] = [
     chance: 0.02, // simplified — original scales with temp
     actions: [{ type: "transform_self", mat: Material.Water }],
   },
+
+  // --- Lava + cold neighbor → Obsidian (rapid quench by dry ice / LN2 / ice / snow) ---
+  // Water contact is handled by the water-side rule above (water + lava →
+  // steam + obsidian). This handles lava touching a cold solid directly.
+  {
+    material: Material.Lava,
+    priority: -10,
+    chance: 0.3,
+    requireNeighbors: [{ directions: DIR.ALL_8, match: { kind: "is_cold" } }],
+    actions: [{ type: "transform_self", mat: Material.Obsidian }],
+  },
 ];
 
 // Re-export material flags for the rule engine
-export { IS_FIRE, IS_HOT, MAT_FLAMMABLE, MAT_FLAGS };
+export { IS_FIRE, IS_HOT, MAT_FLAGS, MAT_FLAMMABLE };
+

@@ -19,7 +19,7 @@ export interface CompiledRule {
   neighborCount: number;
   // For each neighbor requirement:
   neighborDirs: Uint8Array;     // DIR bitmask
-  neighborMatchKind: Uint8Array; // 0=material, 1=class, 2=is_hot, 3=is_fire, 4=not_material, 5=not_wall
+  neighborMatchKind: Uint8Array; // 0=material, 1=class, 2=is_hot, 3=is_fire, 4=not_material, 5=not_wall, 6=is_cold
   neighborMatchValue: Uint32Array; // material id or flag bit
   neighborMinCount: Uint8Array;
   // Actions (flat arrays)
@@ -93,6 +93,7 @@ function compileRule(rule: ReactionRule): CompiledRule {
       case "material_class": neighborMatchKind[i] = 1; neighborMatchValue[i] = req.match.flag; break;
       case "is_hot": neighborMatchKind[i] = 2; break;
       case "is_fire": neighborMatchKind[i] = 3; break;
+      case "is_cold": neighborMatchKind[i] = 6; break;
       case "not_material": neighborMatchKind[i] = 4; neighborMatchValue[i] = req.match.mat; break;
       case "not_wall": neighborMatchKind[i] = 5; break;
     }
@@ -154,6 +155,7 @@ function setMatch(
     case "material_class": kinds[i] = 1; values[i] = match.flag; break;
     case "is_hot": kinds[i] = 2; break;
     case "is_fire": kinds[i] = 3; break;
+    case "is_cold": kinds[i] = 6; break;
     case "not_material": kinds[i] = 4; values[i] = match.mat; break;
     case "not_wall": kinds[i] = 5; break;
   }
