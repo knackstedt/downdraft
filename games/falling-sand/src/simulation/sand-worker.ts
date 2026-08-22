@@ -1,5 +1,5 @@
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
-import { SandWorld } from "@downdraft/library-sand";
+import { SandStepPool, SandWorld } from "@downdraft/library-sand";
 import {
     INPUT,
     INPUT_BYTES,
@@ -19,7 +19,16 @@ const events = exposeEvents();
 // writes only to its own layer's grid + field region (non-overlapping), reads
 // the shared input region, and — for layer 0 only — writes the player + stats
 // regions.
-let world: SandWorld | null = null;
+//
+// Multi-threaded sand physics: instead of a single SandWorld stepping on this
+// worker's thread, we use a SandStepPool that splits the grid into N vertical
+// strips processed by N nested sand-step workers sharing a SAB-backed grid.
+// This mirrors mining-rpg's ChunkWorld integration (commit af3e63c). The
+// boundaryWorld (pool.getBoundaryWorld()) is the coordinator's SAB-backed
+// SandWorld with full-grid write bounds — used for painting, player physics,
+// boundary cleanup, and copying the grid to the sim-buffer SAB for rendering.
+let pool: SandStepPool | null = null;
+let world: SandWorld | null = null;  // = pool.getBoundaryWorld()
 let layerIndex = 0;
 let writer: SimBufferWriter | null = null;
 let sabRef: SharedArrayBuffer | null = null;
@@ -46,6 +55,18 @@ let tickAccumulator = 0;
 let speedMultiplier = 1;
 // When true, the loop runs exactly one tick then re-pauses (for the Step button).
 let stepOnce = false;
+// Guards the loop during resize: when false, the loop exits without scheduling
+// the next iteration. resize() sets this to false, waits for any in-flight
+// pool.step() to finish, then recreates the pool and restarts the loop.
+let loopActive = true;
+// True while awaiting pool.step() — used by resize() to wait for the step to
+// finish before shutting down the pool (which would orphan the await).
+let stepInProgress = false;
+
+// Number of strip-workers for multi-threaded sand physics.
+// Leave one core for this coordinator worker + the renderer/main thread.
+// Falls back to single-threaded (1 strip-worker) on low-core machines.
+const NUM_SAND_WORKERS = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
 
 expose({
   async init(sab: SharedArrayBuffer, gridW: number, gridH: number, layer: number): Promise<void> {
@@ -61,9 +82,19 @@ expose({
     // re-clear the shared input region and overwrite other layers' field data
     // in the SAB, racing with workers that are already ticking.
 
-    // --- Backend: TypeScript SandWorld ---
-    world = new SandWorld(gridW, gridH);
-    // Seed each layer's PRNG differently so parallel layers don't correlate.
+    // --- Backend: multi-threaded SandStepPool ---
+    // The pool allocates its own SAB for the grid + fields + skip mask +
+    // histogram, shared with N nested sand-step workers. The boundaryWorld
+    // is the coordinator's SAB-backed SandWorld (full-grid write bounds).
+    pool = new SandStepPool({
+      W: gridW,
+      H: gridH,
+      numWorkers: NUM_SAND_WORKERS,
+    });
+    await pool.init();
+    world = pool.getBoundaryWorld();
+    // Seed the boundary world's PRNG (used for painting, ignite, player).
+    // Strip-workers seed themselves in their init.
     world.reseed(0x9e3779b9 ^ (layerIndex * 0x85ebca6b));
     if (layerIndex === 0) {
       player = createPlayer(gridW, gridH);
@@ -79,18 +110,21 @@ expose({
     loop();
   },
 
-  resize(gridW: number, gridH: number): void {
-    if (!writer || !sabRef) return;
-    writer.setDims(gridW, gridH);
-    world = new SandWorld(gridW, gridH);
-    if (layerIndex === 0) {
-      player = createPlayer(gridW, gridH);
-    }
+  async resize(gridW: number, gridH: number): Promise<void> {
+    await doResize(gridW, gridH);
   },
 
   pause(): void { paused = true; },
   resume(): void { paused = false; lastTick = performance.now(); },
-  shutdown(): void { running = false; },
+  shutdown(): void {
+    running = false;
+    loopActive = false;
+    if (pool) {
+      pool.shutdown();
+      pool = null;
+    }
+    world = null;
+  },
 
   setSpeed(speed: number): void {
     speedMultiplier = Math.max(0, speed);
@@ -105,17 +139,26 @@ expose({
 
   clear(): void {
     if (!world) return;
-    world = new SandWorld(world.W, world.H);
+    // Clear the SAB-backed grid + reset fields to defaults. The grid is shared
+    // with strip-workers, so clearing here is visible to all workers on the
+    // next step.
+    world.grid.fill(0);
+    const cells = world.W * world.H;
+    for (let i = 0; i < cells * 4; i += 4) {
+      world.fields[i] = 128;     // DEFAULT_GRAVITY
+      world.fields[i + 1] = 128; // DEFAULT_TEMP
+    }
   },
 
-  loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): void {
-    if (!writer || !world) return;
-    // Recreate world at the new dimensions if needed
+  async loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void> {
+    if (!writer || !world || !pool) return;
+    // Recreate pool at the new dimensions if needed. doResize handles the
+    // loopActive guard + pool shutdown/recreation safely.
     if (world.W !== gridW || world.H !== gridH) {
-      writer.setDims(gridW, gridH);
-      world = new SandWorld(gridW, gridH);
+      await doResize(gridW, gridH);
     }
-    // Copy saved grid + field data into this layer's world
+    // Copy saved grid + field data into the SAB-backed world (shared with
+    // strip-workers). The data is visible to all workers on the next step.
     world.grid.set(grid.subarray(0, gridW * gridH));
     world.fields.set(fields.subarray(0, gridW * gridH * 4));
   },
@@ -125,8 +168,50 @@ expose({
   },
 });
 
+/**
+ * Safely recreate the SandStepPool at new dimensions. Stops the loop, waits
+ * for any in-flight pool.step() to finish, shuts down the old pool, creates
+ * a new one, and restarts the loop. Used by both resize() and loadGrid().
+ */
+async function doResize(gridW: number, gridH: number): Promise<void> {
+  if (!writer || !sabRef) return;
+  // Stop the loop to prevent a race between pool.step() and pool.shutdown().
+  // If the loop is in await pool.step() and we terminate the workers, the
+  // promise never resolves and the loop hangs.
+  loopActive = false;
+  // Wait for any in-flight step to complete (max ~50ms). If it doesn't
+  // finish in time, we proceed — the old pool's workers get terminated and
+  // the old loop's await hangs harmlessly (we start a fresh loop below).
+  for (let i = 0; i < 50 && stepInProgress; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1));
+  }
+  stepInProgress = false;
+
+  writer.setDims(gridW, gridH);
+  // Shut down the old pool and create a new one at the new dimensions.
+  if (pool) {
+    pool.shutdown();
+  }
+  pool = new SandStepPool({
+    W: gridW,
+    H: gridH,
+    numWorkers: NUM_SAND_WORKERS,
+  });
+  await pool.init();
+  world = pool.getBoundaryWorld();
+  world.reseed(0x9e3779b9 ^ (layerIndex * 0x85ebca6b));
+  if (layerIndex === 0) {
+    player = createPlayer(gridW, gridH);
+  }
+
+  // Restart the loop.
+  loopActive = true;
+  lastTick = performance.now();
+  loop();
+}
+
 async function loop(): Promise<void> {
-  if (!running || !world || !writer || !sabRef) return;
+  if (!loopActive || !running || !world || !writer || !sabRef || !pool) return;
 
   try {
     const now = performance.now();
@@ -141,7 +226,21 @@ async function loop(): Promise<void> {
         const maxSteps = stepOnce ? 1 : MAX_STEPS_PER_FRAME;
         while (tickAccumulator >= 1 && steps < maxSteps) {
           readInput();
-          world.step();
+          // Multi-threaded step: dispatch to strip-workers + boundary cleanup.
+          // The pool shares the SAB-backed grid with workers. The async step
+          // resolves when all workers finish + boundary cleanup is done.
+          // Capture the pool reference so we can detect if resize() replaced
+          // it while we were awaiting (resize shuts down the old pool).
+          const stepPool: SandStepPool | null = pool;
+          if (!stepPool) break;
+          stepInProgress = true;
+          await stepPool.step(world.frame);
+          stepInProgress = false;
+          // If resize() replaced the pool during the await, exit — the new
+          // pool's loop was already started by resize().
+          if (pool !== stepPool || !loopActive) return;
+          // Increment the frame counter (normally done by SandWorld.step()).
+          world.frame++;
           writer.writeGrid(world.grid, layerIndex);
           writer.writeFieldGrid(world.fields, layerIndex);
 
@@ -205,11 +304,11 @@ async function loop(): Promise<void> {
     console.error(`[SandWorker L${layerIndex}] loop error:`, err);
   }
 
-  setTimeout(loop, 0);
+  if (loopActive) setTimeout(loop, 0);
 }
 
 function readInput(): void {
-  if (!world || !sabRef || !inputBuf) return;
+  if (!world || !sabRef || !inputBuf || !pool) return;
 
   const ib = inputBuf;
 
@@ -224,14 +323,19 @@ function readInput(): void {
   const fieldValue = ib[INPUT.FIELD_VALUE / 4];
   const impulseChance = ib[INPUT.IMPULSE_CHANCE / 4] / 1000;
   const impulseStrength = ib[INPUT.IMPULSE_STRENGTH / 4] / 1000;
-  const activeLayer = ib[INPUT.ACTIVE_LAYER / 4];
 
-  // Apply impulse settings to this worker's world
-  world.horizontalImpulseChance = impulseChance;
-  world.horizontalImpulseStrength = impulseStrength;
+  // Sync impulse settings to the pool (forwards to all strip-workers + the
+  // boundary world on the next step). This replaces setting fields directly
+  // on the world — strip-workers need the config via the step message.
+  pool.updateConfig({
+    horizontalImpulseChance: impulseChance,
+    horizontalImpulseStrength: impulseStrength,
+  });
 
-  // Paint only on the active layer — each worker checks if it's the chosen one.
-  if (mouseDown && activeLayer === layerIndex) {
+  // Paint on the boundary world (SAB-backed grid shared with strip-workers).
+  // With a single layer, layerIndex is always 0 and the active-layer check
+  // is always true — paint unconditionally when mouse is down.
+  if (mouseDown) {
     if (!wasMouseDown) {
       prevMouseX = mouseX;
       prevMouseY = mouseY;
@@ -241,9 +345,8 @@ function readInput(): void {
     } else {
       world.paintLine(prevMouseX, prevMouseY, mouseX, mouseY, selectedMat, brushRadius);
     }
-    // console.log(`[SandWorker L${layerIndex}] PAINT mat=${selectedMat} at (${mouseX},${mouseY}) r=${brushRadius} mode=${brushMode}`);
   }
-  // Right-click ignite: every worker ignites its own layer.
+  // Right-click ignite.
   if (mouseRight) {
     world.igniteLine(prevMouseX, prevMouseY, mouseX, mouseY, 3);
   }

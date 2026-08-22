@@ -3,7 +3,7 @@ import { MATERIALS } from "@downdraft/library-sand";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGameStore, type FieldType } from "./stores/game-store";
 import {
-    deleteSave, listSaves, loadGame, saveGame,
+  deleteSave, listSaves, loadGame, saveGame,
 } from "./stores/save-system";
 
 const materialNames = [
@@ -201,7 +201,7 @@ export default function App() {
   const {
     fps, selectedMaterial, health, paused, settings, showSettings,
     brushMode, fieldType, fieldGravity, fieldTemperature, fieldWindX, fieldWindY,
-    showFieldOverlay, activeLayer, renderer, saves, showSaves, inspector, brushRadius,
+    showFieldOverlay, renderer, saves, showSaves, inspector, brushRadius,
   } = useGameStore();
   const setSettings = useGameStore((s) => s.setSettings);
   const setShowSettings = useGameStore((s) => s.setShowSettings);
@@ -212,7 +212,6 @@ export default function App() {
   const setFieldWindX = useGameStore((s) => s.setFieldWindX);
   const setFieldWindY = useGameStore((s) => s.setFieldWindY);
   const setShowFieldOverlay = useGameStore((s) => s.setShowFieldOverlay);
-  const setActiveLayer = useGameStore((s) => s.setActiveLayer);
   const setSaves = useGameStore((s) => s.setSaves);
   const setShowSaves = useGameStore((s) => s.setShowSaves);
   const setBrushRadius = useGameStore((s) => s.setBrushRadius);
@@ -343,18 +342,6 @@ export default function App() {
             style={brushMode === "field" ? activeBtnStyle : btnStyle}
             onClick={() => setBrushMode("field")}
           >Field</button>
-        </div>
-
-        {/* Layer selector */}
-        <div style={{ marginTop: 4, display: "flex", gap: 4 }}>
-          <button
-            style={activeLayer === 0 ? activeBtnStyle : btnStyle}
-            onClick={() => setActiveLayer(0)}
-          >Layer 0 (back)</button>
-          <button
-            style={activeLayer === 1 ? activeBtnStyle : btnStyle}
-            onClick={() => setActiveLayer(1)}
-          >Layer 1 (front)</button>
         </div>
 
         {brushMode === "material" ? (
