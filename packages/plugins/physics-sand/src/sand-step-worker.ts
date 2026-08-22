@@ -14,7 +14,23 @@
 //   - Atomics.wait/postMessage handshake for low-latency dispatch.
 // ============================================================================
 
-import { SandWorld } from "./sand-world";
+import { MAT_GRAVITY, MAT_GRAVITY_DIR, SandWorld } from "./sand-world";
+
+// --- Gravity overrides for static materials ---
+// Games can pass `gravityOverrides` in the init message to patch the gravity
+// lookup tables for materials that are static by default (gravityDir=0) but
+// need to fall in the game's context (e.g. Sandjongg's Ice/Plant/Fireflies).
+// This runs in the sand-step worker thread, which has its own module instance
+// separate from the game worker.
+let gravityOverrides: { mat: number; gravityDir: number; gravity: number }[] | null = null;
+
+function applyGravityOverrides(): void {
+  if (!gravityOverrides) return;
+  for (const o of gravityOverrides) {
+    MAT_GRAVITY_DIR[o.mat] = o.gravityDir;
+    if (o.gravity !== 0) MAT_GRAVITY[o.mat] = o.gravity;
+  }
+}
 
 let world: SandWorld | null = null;
 let stripStartX = 0;
@@ -24,6 +40,12 @@ self.onmessage = (e: MessageEvent) => {
   const msg = e.data;
   switch (msg.type) {
     case "init": {
+      // Apply gravity overrides before creating the SandWorld so the patched
+      // tables are used from the first step.
+      if (msg.gravityOverrides) {
+        gravityOverrides = msg.gravityOverrides;
+        applyGravityOverrides();
+      }
       world = new SandWorld(msg.W, msg.H, {
         sab: msg.sab,
         gridOffset: msg.gridOffset,

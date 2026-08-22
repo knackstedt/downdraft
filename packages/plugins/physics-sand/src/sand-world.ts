@@ -31,6 +31,7 @@ import {
 import { PARTICLE_TYPES, ParticleSystem } from "./particles";
 import { SandRNG } from "./rng";
 import { RuleEngine } from "./rules/rule-engine";
+export { MAT_GRAVITY, MAT_GRAVITY_DIR } from "./materials";
 
 function initialLifetime(mat: number): number {
   return MAT_LIFETIME[mat];
