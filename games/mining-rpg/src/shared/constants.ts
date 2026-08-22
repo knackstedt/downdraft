@@ -363,7 +363,7 @@ export const SELL_PRICES: Record<number, number> = {
 };
 
 // Radius (in cells) around the spawn point where the signpost sell zone is active.
-export const SIGNPOST_RADIUS = 15;
+export const SIGNPOST_RADIUS = 6;
 
 // Active grid dimensions derived from chunk size + active radius.
 export const ACTIVE_GRID_W = (2 * ACTIVE_RADIUS_CHUNKS + 1) * CHUNK_W;
@@ -451,9 +451,9 @@ export const DEFAULT_VOLUMETRIC_LIGHT_CONFIG: VolumetricLightConfig = {
   iterations: 24,
   airPropagation: 1,
   waterPropagation: .8,
-  solidPropagation: .5,
+  solidPropagation: .55,
   waterAbsorption: [0.92, 0.96, 1.0], // slight blue-green absorption per iteration
-  ambientSurface: [0.75, 0.75, 0.70],
+  ambientSurface: [1.0, 1.0, 0.95],
   ambientDepthFalloff: 40,
 };
 

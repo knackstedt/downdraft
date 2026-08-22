@@ -234,13 +234,13 @@ export class LightAccumPass {
    *  lights (headlamp, torches, lava) are the only visibility source. */
   updateAmbient(depthCells: number): void {
     // depthCells = actual cells below the surface (not chunk depth)
-    // 0 cells: bright daylight (0.75, 0.75, 0.70)
-    // 20 cells: moderate (0.25) — dim, can see shapes
+    // 0 cells: bright daylight (1.0, 1.0, 0.95)
+    // 20 cells: moderate — dim, can see shapes
     // 40+ cells: pure black (0.0) — need lights to see anything
     const t = Math.min(depthCells / 40, 1.0);
-    const r = 0.75 * (1 - t) * (1 - t);
-    const g = 0.75 * (1 - t) * (1 - t);
-    const b = 0.70 * (1 - t) * (1 - t);
+    const r = 1.0 * (1 - t) * (1 - t);
+    const g = 1.0 * (1 - t) * (1 - t);
+    const b = 0.95 * (1 - t) * (1 - t);
     this.device.queue.writeBuffer(this.ambientBuffer!, 0, new Float32Array([r, g, b, 1.0]));
   }
 
