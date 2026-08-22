@@ -287,7 +287,6 @@ export class FallingSandRenderer {
     this.workerHost.writeImpulseStrength(s.settings.horizontalImpulseStrength);
     this.workerHost.writeBrushMode(s.brushMode === "field" ? 1 : 0);
     this.workerHost.writeShowFields(s.showFieldOverlay);
-    this.workerHost.writeActiveLayer(s.activeLayer);
 
     // Player input
     this.workerHost.writePlayerInput(
@@ -323,8 +322,7 @@ export class FallingSandRenderer {
       const gx = Math.floor((this.input.mouseX / this.canvas.width) * this.gridW);
       const gy = Math.floor((this.input.mouseY / this.canvas.height) * this.gridH);
       if (gx >= 0 && gx < this.gridW && gy >= 0 && gy < this.gridH) {
-        const layer = useGameStore.getState().activeLayer;
-        const grid = this.gridReader.getGrid(layer);
+        const grid = this.gridReader.getGrid(0);
         const packed = grid[gy * this.gridW + gx];
         const mat = packed & 0xff;
         if (mat > 0) {
@@ -347,7 +345,6 @@ export class FallingSandRenderer {
 
     const gx = Math.floor((this.input.mouseX / this.canvas.width) * this.gridW);
     const gy = Math.floor((this.input.mouseY / this.canvas.height) * this.gridH);
-    const layer = useGameStore.getState().activeLayer;
 
     if (gx < 0 || gx >= this.gridW || gy < 0 || gy >= this.gridH) {
       const cur = useGameStore.getState().inspector;
@@ -357,8 +354,8 @@ export class FallingSandRenderer {
       return;
     }
 
-    const grid = this.gridReader.getGrid(layer);
-    const fields = this.gridReader.getFieldGrid(layer);
+    const grid = this.gridReader.getGrid(0);
+    const fields = this.gridReader.getFieldGrid(0);
     const packed = grid[gy * this.gridW + gx];
     const mat = packed & 0xff;
     const lifetime = (packed >> 8) & 0xff;
@@ -378,7 +375,7 @@ export class FallingSandRenderer {
     const matName = MATERIALS[mat]?.name ?? "Unknown";
 
     useGameStore.getState().setInspector({
-      gx, gy, layer,
+      gx, gy, layer: 0,
       mat, matName, lifetime, shade,
       gravity, gravityMult: gravity / 128,
       temperature, temperatureMult: temperature / 128,

@@ -175,10 +175,6 @@ export class SandWorkerHost {
     this.writer.writeInput(INPUT.SHOW_FIELDS, show ? 1 : 0);
   }
 
-  writeActiveLayer(layer: number): void {
-    this.writer.writeInput(INPUT.ACTIVE_LAYER, layer);
-  }
-
   writePlayerInput(left: boolean, right: boolean, up: boolean, down: boolean, jump: boolean): void {
     this.writer.writeInput(INPUT.LEFT, left ? 1 : 0);
     this.writer.writeInput(INPUT.RIGHT, right ? 1 : 0);

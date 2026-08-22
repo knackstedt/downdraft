@@ -18,7 +18,7 @@ import { MAX_GRID_H, MAX_GRID_W } from "./constants";
 // --- Layout ---
 
 const LAYOUT: GridSimBufferLayout = {
-  numLayers: 2,
+  numLayers: 1,
   maxGridW: MAX_GRID_W,
   maxGridH: MAX_GRID_H,
   inputBytes: 128,
@@ -28,7 +28,7 @@ const LAYOUT: GridSimBufferLayout = {
 
 export const OFFSETS: GridSimBufferOffsets = computeGridSimOffsets(LAYOUT);
 
-export const NUM_LAYERS = 2;
+export const NUM_LAYERS = 1;
 export const MAX_GRID_BYTES = OFFSETS.gridBytes;
 export const MAX_FIELD_BYTES = OFFSETS.fieldBytes;
 export const LAYER_BYTES = OFFSETS.layerBytes;
