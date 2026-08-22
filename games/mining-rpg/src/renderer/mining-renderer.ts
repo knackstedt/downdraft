@@ -746,6 +746,11 @@ export class MiningRenderer {
     }
 
     // --- Read player state ---
+    // Read the tick BEFORE the player position. The sim writes position →
+    // tick (mining-worker.ts:250-263), so if the tick just changed, the
+    // position we read right after is from the new tick. Reading tick first
+    // avoids a race where we get a new tick but stale position.
+    const tick = this.gridReader.getStat(STATS.TICK);
     const px = this.workerHost.getPlayerF32(PLAYER.PX);
     const py = this.workerHost.getPlayerF32(PLAYER.PY);
     const facing = this.workerHost.getPlayerI32(PLAYER.FACING);
@@ -764,7 +769,6 @@ export class MiningRenderer {
     // tick — visible as "teleportation" when zoomed in. We track the
     // previous and current sim-tick positions and lerp between them using a
     // wall-clock accumulator, so the rendered player moves smoothly.
-    const tick = this.gridReader.getStat(STATS.TICK);
     if (tick !== this.lastTick) {
       if (this.interpInitialized) {
         this.prevPx = this.curPx;

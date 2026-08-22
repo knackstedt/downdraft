@@ -107,6 +107,12 @@
       "@downdraft/library-entities/*": [
         "./packages/plugins/entities/src/*"
       ],
+      "@downdraft/library-stickman": [
+        "./packages/plugins/stickman/src/index.ts"
+      ],
+      "@downdraft/library-stickman/*": [
+        "./packages/plugins/stickman/src/*"
+      ],
       "@downdraft/plugin-models": [
         "./packages/plugins/models/src/index.ts"
       ],

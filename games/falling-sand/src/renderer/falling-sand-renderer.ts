@@ -1,12 +1,18 @@
 import { GPUDeviceManager } from "@downdraft/core";
 import { MATERIALS } from "@downdraft/library-sand";
 import { computeGridDims } from "../shared/constants";
-import { FIELD, NUM_LAYERS, PLAYER, SimBufferReader } from "../shared/sim-buffer";
+import { FIELD, NUM_LAYERS, PLAYER, SimBufferReader, STATS } from "../shared/sim-buffer";
 import { SandWorkerHost } from "../simulation/sand-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
 import { StickmanPass } from "./stickman-pass";
+
+// Sim tick rate (must match sand-worker.ts TICK_MS = 1000/60).
+const TICK_MS = 1000 / 60;
+// If the player moves more than this many cells in one tick, snap instead of
+// lerping (respawn / teleport). Normal max speed is 0.6 cells/tick.
+const TELEPORT_SNAP_R2 = 10 * 10;
 
 export class FallingSandRenderer {
   private canvas: HTMLCanvasElement;
@@ -32,6 +38,20 @@ export class FallingSandRenderer {
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private prevMouseMiddle = false;
   private inspectorTimer = 0;
+
+  // --- Player render interpolation ---
+  // The sim writes a new player position to the SAB at 60Hz, but the sim tick
+  // and render frame aren't synchronized. Without interpolation the player
+  // snaps forward in irregular steps — visible as "teleporting". We track the
+  // previous and current sim-tick positions and lerp between them using a
+  // wall-clock accumulator for smooth display-framerate movement.
+  private prevPx = 0;
+  private prevPy = 0;
+  private curPx = 0;
+  private curPy = 0;
+  private lastTick = -1;
+  private renderAccumulator = 0;
+  private interpInitialized = false;
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
     this.canvas = canvas;
@@ -197,19 +217,53 @@ export class FallingSandRenderer {
     }
     this.gridPass.updateUniforms();
 
-    // Update stickman uniforms from shared buffer
+    // Update stickman uniforms from shared buffer, with render-side
+    // position interpolation for smooth movement.
     if (this.stickmanPass && this.workerHost) {
+      const px = this.workerHost.getPlayerF32(PLAYER.PX);
+      const py = this.workerHost.getPlayerF32(PLAYER.PY);
       const pHealth = this.workerHost.getPlayerI32(PLAYER.HEALTH);
       const pOnGround = this.workerHost.getPlayerI32(PLAYER.ON_GROUND) !== 0;
+      const pFacing = this.workerHost.getPlayerI32(PLAYER.FACING);
+      const pAnimFrame = this.workerHost.getPlayerI32(PLAYER.ANIM_FRAME);
+      const pVx = this.workerHost.getPlayerF32(PLAYER.VX);
+      const pVy = this.workerHost.getPlayerF32(PLAYER.VY);
+
+      // --- Interpolation: track prev/cur sim-tick positions, lerp by
+      // wall-clock accumulator so the rendered player moves smoothly at
+      // the display framerate even though the sim ticks at 60Hz. ---
+      const tick = this.gridReader.getStat(STATS.TICK);
+      if (tick !== this.lastTick) {
+        if (this.interpInitialized) {
+          this.prevPx = this.curPx;
+          this.prevPy = this.curPy;
+          this.curPx = px;
+          this.curPy = py;
+          // Teleport detection: snap if the position jumped too far.
+          const ddx = this.curPx - this.prevPx;
+          const ddy = this.curPy - this.prevPy;
+          if (ddx * ddx + ddy * ddy > TELEPORT_SNAP_R2) {
+            this.prevPx = this.curPx;
+            this.prevPy = this.curPy;
+          }
+        } else {
+          this.prevPx = px;
+          this.prevPy = py;
+          this.curPx = px;
+          this.curPy = py;
+          this.interpInitialized = true;
+        }
+        this.lastTick = tick;
+        this.renderAccumulator = 0;
+      }
+      this.renderAccumulator = Math.min(TICK_MS, this.renderAccumulator + dt * 1000);
+      const alpha = this.renderAccumulator / TICK_MS;
+      const interpPx = this.prevPx + (this.curPx - this.prevPx) * alpha;
+      const interpPy = this.prevPy + (this.curPy - this.prevPy) * alpha;
+
       this.stickmanPass.update(
-        this.workerHost.getPlayerF32(PLAYER.PX),
-        this.workerHost.getPlayerF32(PLAYER.PY),
-        this.workerHost.getPlayerI32(PLAYER.FACING),
-        this.workerHost.getPlayerI32(PLAYER.ANIM_FRAME),
-        pHealth,
-        pOnGround,
-        this.workerHost.getPlayerF32(PLAYER.VX),
-        this.workerHost.getPlayerF32(PLAYER.VY),
+        interpPx, interpPy, pFacing, pAnimFrame,
+        pHealth, pOnGround, pVx, pVy,
       );
       // Sync player health to store
       const s = useGameStore.getState();
