@@ -123,12 +123,20 @@ fn fs_inject(in: VSOut) -> @location(0) vec4<f32> {
 
   var ambient = vec3<f32>(0.0);
   if (cellType == 0u) {
-    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * ambientStrength;
+    // Air cells: full sky ambient regardless of depth. Sky light pours into
+    // all air cells (both above-ground sky and underground caves) and diffuses
+    // into neighboring solid cells. The depth-based falloff only applies to
+    // the direct ambient injected into solid cells below — the diffused light
+    // from air cells provides the "sky light reaching into tunnels" effect.
+    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB);
   } else if (cellType == 1u) {
+    // Water: reduced ambient (deeper water is darker)
     ambient = vec3<f32>(u.ambientR * 0.4, u.ambientG * 0.5, u.ambientB * 0.7) * ambientStrength * 0.5;
   } else {
+    // Solid: depth-based ambient — bright near the surface, dark deep underground.
+    // The diffusion from air cells provides additional light beyond this baseline.
     let minAmbient = 0.02;
-    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * (ambientStrength * 0.15 + minAmbient);
+    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * (ambientStrength * 0.3 + minAmbient);
   }
 
   var lightAccum = vec3<f32>(0.0);

@@ -682,6 +682,11 @@ export class MiningRenderer {
     this.backdropHost = new BackdropWorkerHost();
     await this.backdropHost.start();
 
+    // Resume the worker — it starts paused (see mining-worker.ts init) to
+    // prevent simulating at the default spawn before save data is loaded.
+    // resetWorld deletes the save, so there's nothing to load — resume now.
+    this.workerHost.resume();
+
     // Restart autosave
     if (this.autosave) {
       this.autosave.start();
@@ -944,13 +949,15 @@ export class MiningRenderer {
 
     // --- Update fog-of-war pass ---
     this.fogPass!.updateGrid(this.gridReader.getExploredGrid());
-    // Pass the surface Y in active-grid local coords so the fog shader can
-    // skip fogging above the surface (sky should always be visible).
+    // Pass the grid texture view so the fog shader can check if a cell is air
+    // (matId==0) and skip fogging it — this makes the fog boundary follow the
+    // actual terrain surface per-cell, not a single global surfaceY that shifts
+    // as the player moves horizontally.
+    this.fogPass!.setGridView(this.gridPass.getGridView());
     this.fogPass!.updateCamera(
       camLocalX, camLocalY, this.camera.zoom,
       this.canvas.width, this.canvas.height,
       depth,
-      surfaceY - originY,
     );
 
     // --- Update light accumulation pass ---

@@ -21,14 +21,13 @@ struct CameraUniforms {
   canvasW: f32,
   canvasH: f32,
   depth: f32,
-  // Surface Y in active-grid local coords (surfaceY - originY). Cells above
-  // this Y are sky and should never be fogged (the sky is always visible).
-  surfaceLocalY: f32,
+  pad1: f32,
 };
 
 @group(0) @binding(0) var exploredTex: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> u: Uniforms;
 @group(0) @binding(2) var<uniform> cam: CameraUniforms;
+@group(0) @binding(3) var gridTex: texture_2d<u32>;
 
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
@@ -37,15 +36,24 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let cellX = (screenPx.x - cam.canvasW * 0.5) / cam.zoom + cam.camX;
   let cellY = (screenPx.y - cam.canvasH * 0.5) / cam.zoom + cam.camY;
 
-  // Above the surface = sky. Never fog the sky — it should always be visible
-  // as the backdrop sky gradient. Without this, the fog-of-war covers the
-  // sky with black at the edges of the explored area, making the surface
-  // look like a dark ceiling instead of open sky.
-  if (cellY < cam.surfaceLocalY) {
+  let coords = vec2<i32>(i32(cellX), i32(cellY));
+
+  // Check the grid texture: if the cell is air (matId == 0), it's sky or an
+  // empty cave — don't fog it. This is per-cell (from the actual grid data),
+  // so the fog boundary follows the real terrain surface and doesn't shift
+  // as the player moves horizontally (unlike using a single global surfaceY).
+  if (coords.x >= 0 && coords.x < i32(u.gridW) && coords.y >= 0 && coords.y < i32(u.gridH)) {
+    let packed = textureLoad(gridTex, coords, 0).r;
+    let matId = packed & 0xffu;
+    if (matId == 0u) {
+      // Air cell — no fog (sky or explored cave air is always visible)
+      return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+  } else if (cellY < 0) {
+    // Out of bounds above the grid — treat as sky (no fog)
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
 
-  let coords = vec2<i32>(i32(cellX), i32(cellY));
   if (coords.x < 0 || coords.x >= i32(u.gridW) || coords.y < 0 || coords.y >= i32(u.gridH)) {
     // Out of bounds = unexplored (solid black)
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
