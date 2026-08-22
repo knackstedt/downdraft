@@ -111,17 +111,17 @@ test("fire rises through smoke (gas-to-gas displacement, not suffocated)", () =>
   expect(topFire).toBeLessThan(bottomSmoke);
 });
 
-test("lava + water → steam + stone (applyReactions)", () => {
+test("lava + water → steam + obsidian (applyReactions)", () => {
   const w = new SandWorld(8, 16);
   w.setCell(4, 10, { mat: Material.Lava, lifetime: 0, flags: 0 });
   w.setCell(4, 11, { mat: Material.Water, lifetime: 0, flags: 0 });
   run(w, 5);
-  // Lava should turn to stone and water to steam (reaction may take a frame).
+  // Lava rapidly quenched by water produces obsidian (volcanic glass) + steam.
   const lava = countMat(w, Material.Lava);
-  const stone = countMat(w, Material.Stone);
+  const obsidian = countMat(w, Material.Obsidian);
   const steam = countMat(w, Material.Steam);
   // At least one conversion happened.
-  expect(stone).toBeGreaterThan(0);
+  expect(obsidian).toBeGreaterThan(0);
   expect(steam + (lava === 0 ? 1 : 0)).toBeGreaterThan(0);
 });
 
