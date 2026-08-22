@@ -32,7 +32,7 @@ describe("worker: sand-spawn coordinates", () => {
   });
 
   it("crumble events carry the correct sand material for each element", () => {
-    for (let el = 0; el < 12; el++) {
+    for (let el = 0; el < 18; el++) {
       const b = new TileBoard(6, 6);
       b.place(0, 0, el);
       b.place(1, 0, el);
@@ -46,7 +46,7 @@ describe("worker: sand-spawn coordinates", () => {
   });
 
   it("crumble sand material is never Empty or Wall", () => {
-    for (let el = 0; el < 12; el++) {
+    for (let el = 0; el < 18; el++) {
       const mat = elementToMaterial(el);
       expect(mat).not.toBe(Material.Empty);
       expect(mat).not.toBe(Material.Wall);

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useGameStore } from "./stores/game-store";
 
 export default function App() {
@@ -17,9 +17,21 @@ export default function App() {
   const toggleHelp = useGameStore((s) => s.toggleHelp);
   const setPaused = useGameStore((s) => s.setPaused);
 
+  // Track whether the game has ever reported a non-zero tile count.
+  // This prevents the auto-advance from firing before the renderer/worker
+  // have initialized and written tilesLeft to the SAB. Without this guard,
+  // the store starts with tilesLeft=0, the useEffect fires immediately,
+  // and if renderer.init() takes >2s the timer fires requestNewGame before
+  // the worker has ever reported tiles — causing a stuck _pendingNewGame
+  // flag that triggers repeated level advances on every setTilesLeft call.
+  const hasSeenTiles = useRef(false);
+  if (tilesLeft > 0) hasSeenTiles.current = true;
+
   // Auto-advance to next level when board is cleared.
+  // Only fire after the game has initialized (hasSeenTiles) so we don't
+  // auto-advance through empty levels during startup.
   useEffect(() => {
-    if (tilesLeft === 0 && level > 0) {
+    if (tilesLeft === 0 && level > 0 && hasSeenTiles.current) {
       // Board cleared — wait a moment for sand to fall, then advance.
       const timer = setTimeout(() => {
         requestNewGame(level + 1);
