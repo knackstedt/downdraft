@@ -254,7 +254,9 @@ export class MiningRenderer {
       return { mat: 0, wx, wy };
     }
     const grid = this.gridReader.getGrid();
-    return { mat: grid[ly * ACTIVE_GRID_W + lx], wx, wy };
+    const packed = grid[ly * ACTIVE_GRID_W + lx];
+    const mat = packed & 0xff; // material ID is lowest 8 bits
+    return { mat, wx, wy };
   }
   /** Get the mouse screen position (CSS pixels) for tooltip positioning. */
   getMouseScreenPos(): { x: number; y: number } {
