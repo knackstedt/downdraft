@@ -130,6 +130,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/library-weather\//, replacement: resolve(repoRoot, "packages/plugins/weather/src") + "/" },
     { find: /^@downdraft\/library-entities$/, replacement: resolve(repoRoot, "packages/plugins/entities/src/index.ts") },
     { find: /^@downdraft\/library-entities\//, replacement: resolve(repoRoot, "packages/plugins/entities/src") + "/" },
+    { find: /^@downdraft\/library-stickman$/, replacement: resolve(repoRoot, "packages/plugins/stickman/src/index.ts") },
+    { find: /^@downdraft\/library-stickman\//, replacement: resolve(repoRoot, "packages/plugins/stickman/src") + "/" },
     { find: /^@downdraft\/plugin-models$/, replacement: resolve(repoRoot, "packages/plugins/models/src/index.ts") },
     { find: /^@downdraft\/plugin-models\//, replacement: resolve(repoRoot, "packages/plugins/models/src") + "/" },
     { find: /^@downdraft\/plugin-devtools$/, replacement: resolve(repoRoot, "packages/plugins/devtools/src/index.ts") },

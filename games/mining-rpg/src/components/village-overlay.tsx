@@ -8,6 +8,16 @@
 // approaches, each NPC displays a speech bubble with dialogue.
 // ============================================================================
 
+import {
+    ARM_LEN,
+    HEAD_CY,
+    HEAD_R,
+    HIP_Y,
+    LEG_LEN,
+    NECK_Y,
+    PLAYER_H,
+    SHOULDER_Y,
+} from "@downdraft/library-stickman";
 import { useEffect, useRef } from "react";
 import { worldToScreen, type Camera2D } from "../renderer/camera";
 import { useGameStore } from "../stores/game-store";
@@ -29,9 +39,9 @@ interface NPC {
 }
 
 // NPCs are positioned so their feet rest on the surface. The stickman's
-// top (py) is 7 cells above the feet (PLAYER_H = 7), so offsetY = -7
-// places the top at surfaceY - 7, with feet at surfaceY.
-const NPC_TOP_OFFSET = -7; // py = surfaceY + NPC_TOP_OFFSET
+// top (py) is PLAYER_H cells above the feet, so offsetY = -PLAYER_H
+// places the top at surfaceY - PLAYER_H, with feet at surfaceY.
+const NPC_TOP_OFFSET = -PLAYER_H; // py = surfaceY + NPC_TOP_OFFSET
 
 const NPCS: NPC[] = [
   {
@@ -66,23 +76,16 @@ const NPCS: NPC[] = [
 
 const NPC_INTERACT_RADIUS = 8; // cells
 
-// Stickman proportions in world cells, matching stickman.wgsl.
-// topY = py (top of bounding box). cx = center X.
-//   head center: (cx, topY + 1.0), radius 0.8
-//   neck:        (cx, topY + 1.8)
-//   shoulder:    (cx, topY + 2.2)
-//   hip:         (cx, topY + 4.5)
-//   handL:       (cx + swing, topY + 3.7)   [armTopY + armLen = 2.2 + 1.5]
-//   handR:       (cx - swing, topY + 3.7)
-//   footL:       (cx + swing, topY + 6.5)   [hipY + legLen = 4.5 + 2.0]
-//   footR:       (cx - swing, topY + 6.5)
-const HEAD_CY = 1.0;
-const HEAD_R = 0.8;
-const NECK_Y = 1.8;
-const SHOULDER_Y = 2.2;
-const HIP_Y = 4.5;
-const ARM_LEN = 1.5;
-const LEG_LEN = 2.0;
+// Stickman proportions in world cells, imported from @downdraft/library-stickman
+// (single source of truth shared with the WGSL player shader).
+//   head center: (cx, topY + HEAD_CY), radius HEAD_R
+//   neck:        (cx, topY + NECK_Y)
+//   shoulder:    (cx, topY + SHOULDER_Y)
+//   hip:         (cx, topY + HIP_Y)
+//   handL:       (cx + swing, topY + SHOULDER_Y + ARM_LEN)
+//   handR:       (cx - swing, topY + SHOULDER_Y + ARM_LEN)
+//   footL:       (cx + swing, topY + HIP_Y + LEG_LEN)
+//   footR:       (cx - swing, topY + HIP_Y + LEG_LEN)
 
 /** Build an SVG stickman string at the given screen position + scale.
  *  `sx`/`sy` are the screen coords (CSS px) of the NPC's top (py).

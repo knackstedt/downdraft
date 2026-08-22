@@ -8,6 +8,7 @@
     "@downdraft/core": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",
     "@downdraft/library-sand": "workspace:*",
+    "@downdraft/library-stickman": "workspace:*",
     "@downdraft/plugin-devtools": "workspace:*",
     "@downdraft/shader-graph": "workspace:*",
     "@downdraft/ui": "workspace:*",
