@@ -18,7 +18,7 @@
 // much cheaper than the full O(W*H) step.
 // ============================================================================
 
-import { SandWorld } from "./sand-world";
+import { MAT_GRAVITY, MAT_GRAVITY_DIR, SandWorld } from "./sand-world";
 
 export interface SandStepPoolOptions {
   W: number;
@@ -33,6 +33,9 @@ export interface SandStepPoolOptions {
   // Game-specific config forwarded to each worker's SandWorld.
   preserveFlagsMask?: number;
   disturbedFlags?: number;
+  // Gravity overrides for materials that are static by default (gravityDir=0)
+  // but need to fall in the game's context. Patched in each sand-step worker.
+  gravityOverrides?: { mat: number; gravityDir: number; gravity: number }[];
   // Worker script URL (the sand-step-worker.ts compiled output).
   // If not provided, defaults to resolving sand-step-worker.ts relative to
   // this module via import.meta.url (works with Vite's worker bundling).
@@ -55,6 +58,7 @@ export class SandStepPool {
   private boundaryWorld: SandWorld;
   private workerUrl: string;
   private initialized = false;
+  private gravityOverrides: { mat: number; gravityDir: number; gravity: number }[] | undefined;
   // Rebalance throttle: only rebalance every N steps to avoid overhead.
   private stepCount = 0;
   private readonly REBALANCE_INTERVAL = 8;
@@ -95,6 +99,14 @@ export class SandStepPool {
     });
     if (opts.preserveFlagsMask !== undefined) this.boundaryWorld.preserveFlagsMask = opts.preserveFlagsMask;
     if (opts.disturbedFlags !== undefined) this.boundaryWorld.disturbedFlags = opts.disturbedFlags;
+    // Apply gravity overrides to the coordinator's boundary world too.
+    if (opts.gravityOverrides) {
+      this.gravityOverrides = opts.gravityOverrides;
+      for (const o of opts.gravityOverrides) {
+        MAT_GRAVITY_DIR[o.mat] = o.gravityDir;
+        if (o.gravity !== 0) MAT_GRAVITY[o.mat] = o.gravity;
+      }
+    }
     // Default worker URL: resolve relative to this module (Vite handles this).
     this.workerUrl = opts.workerUrl ?? new URL("./sand-step-worker.ts", import.meta.url).href;
   }
@@ -187,6 +199,7 @@ export class SandStepPool {
           stripEndX: strip.endX,
           preserveFlagsMask: this.boundaryWorld.preserveFlagsMask,
           disturbedFlags: this.boundaryWorld.disturbedFlags,
+          gravityOverrides: this.gravityOverrides,
         });
       }));
     }
