@@ -454,8 +454,17 @@ export function tickUiStats(): void {
   // which signals are read by components, so setting a field that no component
   // reads is a no-op. But we still avoid redundant writes for cleanliness.
   if (gameStore.fps !== data.fps) setGameStore("fps", data.fps);
-  if (gameStore.health !== data.health) setGameStore("health", data.health);
-  if (gameStore.oxygen !== data.oxygen) setGameStore("oxygen", data.oxygen);
+  // Guard health/oxygen/gameOver with simReady: before the sim writes its
+  // first frame, the SAB is zero-initialized (health=0, oxygen=0, gameOver=0).
+  // Writing those zeros to the store would trigger the DangerVignette (red
+  // flash for low health, blue flash for low oxygen) even though the player
+  // is at full health. Skip until the sim is actually running.
+  if (data.simReady && data.tick > 0) {
+    if (gameStore.health !== data.health) setGameStore("health", data.health);
+    if (gameStore.oxygen !== data.oxygen) setGameStore("oxygen", data.oxygen);
+    if (gameStore.gameOver !== data.gameOver) setGameStore("gameOver", data.gameOver);
+    if (gameStore.deathCause !== data.deathCause) setGameStore("deathCause", data.deathCause);
+  }
   if (gameStore.depth !== data.depth) setGameStore("depth", data.depth);
   if (gameStore.loadedChunks !== data.loadedChunks) setGameStore("loadedChunks", data.loadedChunks);
   if (gameStore.activeChunks !== data.activeChunks) setGameStore("activeChunks", data.activeChunks);
@@ -467,8 +476,6 @@ export function tickUiStats(): void {
   if (gameStore.bombCount !== data.bombCount) setGameStore("bombCount", data.bombCount);
   if (gameStore.zoom !== data.zoom) setGameStore("zoom", data.zoom);
   if (gameStore.teleportCooldown !== data.teleportCooldown) setGameStore("teleportCooldown", data.teleportCooldown);
-  if (gameStore.gameOver !== data.gameOver) setGameStore("gameOver", data.gameOver);
-  if (gameStore.deathCause !== data.deathCause) setGameStore("deathCause", data.deathCause);
   // Record depth + ticks (only when sim is running)
   if (!data.gameOver && !gameStore.paused) {
     // Depth in cells below surface — approximate using depth in chunks * 128

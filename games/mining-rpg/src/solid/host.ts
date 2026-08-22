@@ -17,6 +17,7 @@
 
 import { MainThreadHost } from "undertow";
 import type { MiningRenderer } from "../renderer/mining-renderer";
+import { PLAYER, STATS } from "../shared/constants";
 import type { useGameStore } from "../stores/game-store";
 import type { RendererSnapshotEvent, WorkerToMainAction } from "./bridge-protocol";
 import { MINIMAP_SIZE } from "./stores/game-store";
@@ -199,10 +200,11 @@ export class SolidHost {
   }
 
   /** Per-frame tick: drain undertow, write UiStatsSAB, post renderer snapshot. */
+  private targetFrameTime = 0;
   private tick(): void {
     if (this.disposed) return;
 
-    // 1. Drain undertow DOM op requests from the worker
+    // Always drain DOM ops promptly (low cost, keeps UI responsive)
     this.domHost?.drain();
 
     // 2. Write per-frame scalars to the UiStatsSAB
@@ -210,26 +212,26 @@ export class SolidHost {
     const playerPos = r.getPlayerPos();
     const cam = r.getCamera();
     const grid = r.getGridReader();
-    const tick = grid?.getStat(/* STATS.TICK */ 0) ?? 0;
+    const tick = grid?.getStat(STATS.TICK) ?? 0;
     const origin = r.getActiveGridOrigin();
     const hovered = r.getHoveredCell();
     const mouse = r.getMouseScreenPos();
 
     writeUiStats(this.uiStatsSab, {
       fps: r.getFPS(),
-      health: this.readPlayerI32(/* PLAYER.HEALTH */ 3),
-      oxygen: this.readPlayerI32(/* PLAYER.OXYGEN */ 8),
+      health: this.readPlayerI32(PLAYER.HEALTH),
+      oxygen: this.readPlayerI32(PLAYER.OXYGEN),
       depth: Math.floor(playerPos.y / 128),
-      loadedChunks: grid?.getStat(/* STATS.LOADED_CHUNKS */ 4) ?? 0,
-      activeChunks: grid?.getStat(/* STATS.ACTIVE_CHUNKS */ 5) ?? 0,
+      loadedChunks: grid?.getStat(STATS.LOADED_CHUNKS) ?? 0,
+      activeChunks: grid?.getStat(STATS.LOADED_CHUNKS) ?? 0,
       nearSignpost: this.reactStore.getState().nearSignpost,
-      onGround: this.readPlayerI32(/* PLAYER.ON_GROUND */ 6) !== 0,
-      playerFacing: this.readPlayerI32(/* PLAYER.FACING */ 7),
+      onGround: this.readPlayerI32(PLAYER.ON_GROUND) !== 0,
+      playerFacing: this.readPlayerI32(PLAYER.FACING),
       playerX: playerPos.x,
       playerY: playerPos.y,
-      playerVx: 0,
-      playerVy: 0,
-      deathCause: this.readPlayerI32(/* PLAYER.LAST_DAMAGE_MATERIAL */ 9),
+      playerVx: this.readPlayerF32(PLAYER.VX),
+      playerVy: this.readPlayerF32(PLAYER.VY),
+      deathCause: this.readPlayerI32(PLAYER.DEATH_CAUSE),
       simReady: tick > 0,
       tick,
       gameOver: this.reactStore.getState().gameOver,
@@ -247,6 +249,13 @@ export class SolidHost {
       this.renderMinimap();
       this.postRendererSnapshot(cam, playerPos, origin, hovered, mouse);
     }
+
+    // 4. Drain again — the worker may have pushed DOM ops (fire-and-forget
+    // setProperty/setAttribute calls from Solid reactivity) while we were
+    // writing the UiStatsSAB and minimap. Draining again here ensures those
+    // ops are applied to the real DOM in the SAME frame rather than waiting
+    // for the next frame or the armRequestWait MessageChannel macrotask.
+    this.domHost?.drain();
 
     this.rafId = requestAnimationFrame(() => this.tick());
   }
@@ -453,12 +462,20 @@ export class SolidHost {
     this.worker?.postMessage(msg);
   }
 
+  /** Set the frame rate limit from the display refresh rate. */
+  setFrameRateLimit(refreshRate: number): void {
+    this.targetFrameTime = refreshRate > 0 ? 1000 / refreshRate : 0;
+    if (this.targetFrameTime <= 0) this.limiterActive = false;
+  }
+
   /** Dispose: terminate worker, cancel rAF, dispose undertow host. */
   dispose(): void {
     this.disposed = true;
+    clearTimeout(this.rafId);
     cancelAnimationFrame(this.rafId);
     this.worker?.terminate();
     this.worker = null;
+    this.domHost?.dispose();
     this.domHost = null;
   }
 }

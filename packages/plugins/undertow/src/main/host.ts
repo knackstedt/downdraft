@@ -80,10 +80,16 @@ export class MainThreadHost {
   private rafCounter = 0;
   private readonly pendingRaf: Map<number, number> = new Map();
   private readonly cancelledRaf: Set<number> = new Set();
+  private rafScheduled = false; // coalesced rAF: only one real rAF pending at a time
   private readonly layoutTracked: Set<number> = new Set();
   private layoutWriter: { track(h: number): unknown; untrack(h: number): unknown } | null = null;
   private readonly win: Window;
   private readonly doc: Document;
+  /** High-frequency drain interval — ensures the request ring is drained every
+   *  4ms regardless of rAF or waitAsync timing. This is the reliable fallback
+   *  that prevents 1000ms callSync stalls when waitAsync+MessageChannel is
+   *  starved by main-thread work. */
+  private drainIntervalId: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: MainThreadHostOptions = {}) {
     this.sab = allocateDomSab(options);
@@ -129,6 +135,21 @@ export class MainThreadHost {
 
     // Arm the initial async wait so we drain immediately on the first request.
     this.armRequestWait();
+
+    // High-frequency drain interval — a reliable fallback that doesn't depend
+    // on rAF (which can be starved by GPU work) or waitAsync+MessageChannel
+    // (which is a macrotask that can be delayed by other event loop work).
+    // 4ms ensures any callSync from the worker gets a reply within ~4ms,
+    // preventing the 1000ms Atomics.wait timeout.
+    this.drainIntervalId = setInterval(() => this.drain(), 4);
+  }
+
+  /** Stop the drain interval and clean up. Call when the host is no longer needed. */
+  dispose(): void {
+    if (this.drainIntervalId !== null) {
+      clearInterval(this.drainIntervalId);
+      this.drainIntervalId = null;
+    }
   }
 
   /** Drain all queued requests, dispatch, write replies. Call on raf/notify.
@@ -181,6 +202,19 @@ export class MainThreadHost {
       this.drainChannel.port1.onmessage = () => {
         this.drain();
       };
+    }
+    // Check if there are already pending requests in the ring (pushed during
+    // drain() after the last tryPop, or during the batch-limit yield). If so,
+    // don't wait — immediately schedule a drain. Without this check, the seq
+    // has already been bumped by the pending request's publish(), so waitAsync
+    // would wait for the NEXT change (missing the already-queued request).
+    // This was the root cause of 1000ms callSync stalls: the worker's
+    // Atomics.notify fires before armRequestWait is armed, the seq is already
+    // at the new value, and waitAsync(newSeq) doesn't resolve until timeout.
+    if (this.reqRing.tryPop() !== null) {
+      this.requestWaitArmed = false;
+      this.drainChannel.port2.postMessage(null);
+      return;
     }
     const seq = this.reqRing.getSeq();
     this.reqRing.waitAsync(seq, 5000).then((changed) => {
@@ -240,16 +274,26 @@ export class MainThreadHost {
       return;
     }
 
-    // rAF — the host manages a callback table. The worker sends a request,
-    // the host registers a real rAF, and when it fires, the host enqueues
-    // an event with type "__raf" so the worker's event pump can dispatch it.
+    // rAF — coalesced: the host uses a single shared rAF to reply to ALL
+    // pending worker rAF requests at once. This prevents a busy loop where
+    // the worker requests rAF → host registers real rAF → rAF fires →
+    // worker callback runs → worker requests another rAF → repeat at
+    // hundreds of fps when Electron's rAF isn't vsync-throttled.
     if (opId === ids.OP_WINDOW_REQUEST_ANIMATION_FRAME) {
       const rafId = ++this.rafCounter;
       this.pendingRaf.set(reqId, rafId);
-      this.win.requestAnimationFrame(() => {
-        // Write a reply with the rAF id so the worker's call() resolves.
-        this.writeReply(reqId, { kind: ArgKind.I32, value: rafId });
-      });
+      // Only register a real rAF if one isn't already pending.
+      if (!this.rafScheduled) {
+        this.rafScheduled = true;
+        this.win.requestAnimationFrame(() => {
+          this.rafScheduled = false;
+          // Reply to ALL pending rAF requests at once.
+          for (const [pendingReqId, pendingRafId] of this.pendingRaf) {
+            this.writeReply(pendingReqId, { kind: ArgKind.I32, value: pendingRafId });
+          }
+          this.pendingRaf.clear();
+        });
+      }
       return;
     }
     if (opId === ids.OP_WINDOW_CANCEL_ANIMATION_FRAME) {
