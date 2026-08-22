@@ -982,7 +982,10 @@ export class MiningRenderer {
     // Inject only into air/water cells (shader handles this) so light follows
     // tunnel geometry instead of being a flat circle.
     const volRendererLights: VolRendererLight[] = [];
-    if (useGameStore.getState().headlampOn) {
+    // Headlamp only activates underground — above ground the sky ambient
+    // provides plenty of light, and the headlamp circle looks odd against
+    // the bright sky.
+    if (useGameStore.getState().headlampOn && depthCells > 0) {
       volRendererLights.push({
         x: interpPx, y: interpPy,
         color: HEADLAMP_COLOR,
