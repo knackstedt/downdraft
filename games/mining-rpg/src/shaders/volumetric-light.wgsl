@@ -135,8 +135,8 @@ fn fs_inject(in: VSOut) -> @location(0) vec4<f32> {
   } else {
     // Solid: depth-based ambient — bright near the surface, dark deep underground.
     // The diffusion from air cells provides additional light beyond this baseline.
-    let minAmbient = 0.03;
-    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * (ambientStrength * 0.5 + minAmbient);
+    let minAmbient = 0.04;
+    ambient = vec3<f32>(u.ambientR, u.ambientG, u.ambientB) * (ambientStrength * 0.6 + minAmbient);
   }
 
   var lightAccum = vec3<f32>(0.0);
