@@ -451,7 +451,7 @@ export const DEFAULT_VOLUMETRIC_LIGHT_CONFIG: VolumetricLightConfig = {
   iterations: 24,
   airPropagation: 1,
   waterPropagation: .8,
-  solidPropagation: .4,
+  solidPropagation: .5,
   waterAbsorption: [0.92, 0.96, 1.0], // slight blue-green absorption per iteration
   ambientSurface: [0.75, 0.75, 0.70],
   ambientDepthFalloff: 40,

@@ -20,6 +20,7 @@ export class FogOfWarPass {
   private cameraBuffer: GPUBuffer | null = null;
   private exploredTexture: GPUTexture | null = null;
   private exploredView: GPUTextureView | null = null;
+  private gridView: GPUTextureView | null = null;
   gridW: number;
   gridH: number;
 
@@ -48,6 +49,7 @@ export class FogOfWarPass {
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
       ],
     });
 
@@ -91,14 +93,39 @@ export class FogOfWarPass {
 
   private createBindGroup(): void {
     if (!this.bindGroupLayout || !this.exploredView || !this.uniformBuffer || !this.cameraBuffer) return;
+    // Grid texture view may be null on init — use a 1x1 dummy if needed.
+    // The shader checks for matId==0 (air) to skip fogging sky cells.
+    if (!this.gridView) {
+      // Create a 1x1 dummy uint texture (air cell) so the bind group is valid
+      const dummy = this.device.createTexture({
+        size: [1, 1],
+        format: "r32uint",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      this.device.queue.writeTexture(
+        { texture: dummy },
+        new Uint32Array([0]),
+        { bytesPerRow: 4, rowsPerImage: 1 },
+        [1, 1],
+      );
+      this.gridView = dummy.createView();
+    }
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: this.exploredView },
         { binding: 1, resource: { buffer: this.uniformBuffer } },
         { binding: 2, resource: { buffer: this.cameraBuffer } },
+        { binding: 3, resource: this.gridView },
       ],
     });
+  }
+
+  /** Set the grid texture view (from SandGridPass) — called each frame by the renderer. */
+  setGridView(view: GPUTextureView | null): void {
+    if (this.gridView === view) return;
+    this.gridView = view;
+    this.createBindGroup();
   }
 
   /** Upload the explored grid data (Uint8Array, 1 byte/cell) to the GPU texture.
@@ -138,8 +165,8 @@ export class FogOfWarPass {
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, u);
   }
 
-  updateCamera(camX: number, camY: number, zoom: number, canvasW: number, canvasH: number, depth: number = 0, surfaceLocalY: number = -99999): void {
-    const u = new Float32Array([camX, camY, zoom, canvasW, canvasH, depth, surfaceLocalY, 0]);
+  updateCamera(camX: number, camY: number, zoom: number, canvasW: number, canvasH: number, depth: number = 0): void {
+    const u = new Float32Array([camX, camY, zoom, canvasW, canvasH, depth, 0, 0]);
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, u);
   }
 
