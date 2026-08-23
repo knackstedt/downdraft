@@ -184,7 +184,7 @@ export class StickmanPass {
 
   /**
    * 3D version: render the box through the 3D view-projection matrix.
-   * The box is 1 wide × 2 tall × 1 deep, positioned at (px, py) in world coords.
+   * The box is BH_W wide × BH_H tall × 1 deep, positioned at (px, py).
    * The box is placed at layer 2 (Z=-1..0) so the player appears between
    * the two foreground layers (layer 1 at Z=0, layer 2 at Z=-1).
    */
@@ -196,14 +196,17 @@ export class StickmanPass {
   ): void {
     if (!this.vertexBuffer || !this.uniformBuffer) return;
 
-    // Build box vertices at (px, py) with size 1×2×1.
-    // The box spans Z=-1..0 (layer 2) so the player walks between
-    // the foreground front (Z=0) and foreground back (Z=-1).
+    // Build box vertices at (px, py) with size BH_W × BH_H × 1.
+    // Center the player horizontally within the block cell so it looks
+    // natural regardless of the narrower width.
+    const PLAYER_W = 0.7;
+    const PLAYER_H = 1.95;
+    const xOffset = (1 - PLAYER_W) / 2; // center within the 1-wide cell
     const verts = new Float32Array(36 * 3);
     for (let i = 0; i < 36; i++) {
-      verts[i * 3]     = px + BOX_VERTS[i * 3];          // X: px + localX
-      verts[i * 3 + 1] = py + BOX_VERTS[i * 3 + 1] * 2;   // Y: py + localY * 2 (2 tall)
-      verts[i * 3 + 2] = BOX_VERTS[i * 3 + 2] - 1.0;      // Z: localZ - 1 (−1..0, layer 2)
+      verts[i * 3]     = px + xOffset + BOX_VERTS[i * 3] * PLAYER_W;  // X: centered + scaled
+      verts[i * 3 + 1] = py + BOX_VERTS[i * 3 + 1] * PLAYER_H;         // Y: scaled to height
+      verts[i * 3 + 2] = BOX_VERTS[i * 3 + 2] - 1.0;                   // Z: localZ - 1 (−1..0, layer 2)
     }
     this.device.queue.writeBuffer(this.vertexBuffer, 0, verts as unknown as BufferSource);
 

@@ -11,6 +11,7 @@ import {
     ACTIVE_GRID_H, ACTIVE_GRID_W,
     BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LADDER, BLOCK_ROPE,
     BLOCK_SAND, BLOCK_SCAFFOLDING, BLOCK_STONE, BLOCK_TORCH, BLOCK_WOOD,
+    CHUNK_H, CHUNK_W, TICK_MS,
 } from "../shared/constants";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
@@ -61,10 +62,21 @@ export class BlockheadsRenderer {
   // Camera
   camera: Camera;
 
-  // Smoothed blockhead render position (interpolates between sim ticks)
-  private smoothBhX = 0;
-  private smoothBhY = 0;
-  private smoothBhInit = false;
+  // Tick-based interpolation for smooth rendering at display framerate.
+  // The sim writes positions at 30Hz; we lerp between prev and cur sim
+  // positions using the wall-clock time since the last tick arrived.
+  // Everything is tracked in WORLD coords (active-grid pos + origin *
+  // CHUNK_W) so chunk-boundary crossings don't cause jumps.
+  private prevWorldX = 0;
+  private prevWorldY = 0;
+  private curWorldX = 0;
+  private curWorldY = 0;
+  private lastTick = -1;
+  private tickArrivalTime = 0; // wall-clock ms when we first saw the current tick
+  private interpInit = false;
+  // Interpolated world position (computed each frame from prev/cur + alpha)
+  private interpWorldX = 0;
+  private interpWorldY = 0;
 
   // Sim worker
   workerHost: BlockheadsWorkerHost | null = null;
@@ -315,44 +327,96 @@ export class BlockheadsRenderer {
     const now = performance.now();
     const elapsed = now - this.lastTime;
     this.lastTime = now;
-    const dt = Math.min(elapsed, 100) / 1000; // seconds, capped
 
     // Process input → SAB
     this.updateInput();
 
-    // Smooth the blockhead's rendered position. The sim updates at 30Hz but
-    // rendering can run at 300fps, so without interpolation the player and
-    // camera stutter (same position for ~10 frames, then a jump).
-    // Use frame-rate-independent exponential smoothing:
-    //   lerp = 1 - exp(-rate * dt)
-    // rate=15 means convergence to ~95% in 200ms regardless of fps.
-    const smoothRate = 15.0;
-    const smoothLerp = 1 - Math.exp(-smoothRate * dt);
+    // --- Tick-based interpolation (world coords) ---
+    // The sim writes positions at 30Hz. We lerp between the previous and
+    // current sim-tick positions using the wall-clock time since the last
+    // tick arrived. This is more accurate than an accumulator because it
+    // doesn't lose precision when a new tick arrives between render frames.
+    // Everything is tracked in WORLD coords (active-grid pos + origin *
+    // CHUNK_W) so chunk-boundary crossings are continuous.
     if (this.simReader) {
       const bhCount = this.simReader.getBlockheadCount();
       if (bhCount > 0) {
         const bh = this.simReader.getBlockhead(0);
-        const targetX = bh[0];
-        const targetY = bh[1];
-        if (!this.smoothBhInit) {
-          this.smoothBhX = targetX;
-          this.smoothBhY = targetY;
-          this.smoothBhInit = true;
+        const tick = this.simReader.getTick();
+        const originCx = this.simReader.getOriginCx();
+        const originCy = this.simReader.getOriginCy();
+        // Convert active-grid position to world position
+        const worldX = bh[0] + originCx * CHUNK_W;
+        const worldY = bh[1] + originCy * CHUNK_H;
+
+        if (tick !== this.lastTick) {
+          if (this.interpInit) {
+            this.prevWorldX = this.curWorldX;
+            this.prevWorldY = this.curWorldY;
+            this.curWorldX = worldX;
+            this.curWorldY = worldY;
+            // Teleport detection: if the world position jumped too far
+            // for normal movement, snap instead of lerping.
+            const ddx = this.curWorldX - this.prevWorldX;
+            const ddy = this.curWorldY - this.prevWorldY;
+            if (ddx * ddx + ddy * ddy > 256) { // >16 blocks
+              this.prevWorldX = this.curWorldX;
+              this.prevWorldY = this.curWorldY;
+            }
+          } else {
+            this.prevWorldX = worldX;
+            this.prevWorldY = worldY;
+            this.curWorldX = worldX;
+            this.curWorldY = worldY;
+            this.interpInit = true;
+          }
+          this.lastTick = tick;
+          this.tickArrivalTime = now;
+        }
+        // Compute alpha from wall-clock time since the tick arrived.
+        // Allow extrapolation past alpha=1.0 (up to 1.5) using the per-tick
+        // velocity. This keeps motion smooth when the sim runs slightly late
+        // (setTimeout jitter) — without it, the player would "stop" for a few
+        // frames while waiting for the next tick, causing micro-stutters.
+        const timeSinceTick = now - this.tickArrivalTime;
+        const alpha = Math.min(1.5, Math.max(0, timeSinceTick / TICK_MS));
+        if (alpha <= 1) {
+          this.interpWorldX = this.prevWorldX + (this.curWorldX - this.prevWorldX) * alpha;
+          this.interpWorldY = this.prevWorldY + (this.curWorldY - this.prevWorldY) * alpha;
         } else {
-          this.smoothBhX += (targetX - this.smoothBhX) * smoothLerp;
-          this.smoothBhY += (targetY - this.smoothBhY) * smoothLerp;
+          // Extrapolate: continue at the same velocity past the current tick
+          const vx = this.curWorldX - this.prevWorldX;
+          const vy = this.curWorldY - this.prevWorldY;
+          this.interpWorldX = this.curWorldX + vx * (alpha - 1);
+          this.interpWorldY = this.curWorldY + vy * (alpha - 1);
         }
       }
     }
 
-    // Camera follows the smoothed blockhead position (same smoothing rate)
+    // --- Camera follows the interpolated world position ---
+    // Camera is tracked in world coords (continuous across chunk boundaries).
+    // Convert to active-grid coords when setting this.camera.x/y.
+    // No smoothing — the interpolated position is already smooth (tick-based
+    // lerp), so camera smoothing would only add lag and rubber-banding.
     if (this.simReader && !this.camera.isPanning()) {
       const bhCount = this.simReader.getBlockheadCount();
       if (bhCount > 0) {
-        const targetX = this.smoothBhX + 0.5; // center of 1-wide body
-        const targetY = this.smoothBhY + 1.0; // center of 2-tall body
-        this.camera.x += (targetX - this.camera.x) * smoothLerp;
-        this.camera.y += (targetY - this.camera.y) * smoothLerp;
+        // Camera target: visual center of the player in world coords.
+        // The player box spans Z=-1..0 (center at Z=-0.5). The 3D camera
+        // targets Z=0 with a 20° pitch, so objects at lower Z appear
+        // higher on screen. Compensate by shifting the target Y down by
+        // zOffset * tan(pitchAngle) so the player appears at screen center.
+        const PITCH_RAD = 20 * Math.PI / 180;
+        const PLAYER_Z_CENTER = -0.5;
+        const yCompensation = -PLAYER_Z_CENTER * Math.tan(PITCH_RAD); // ~0.182
+        const camWorldX = this.interpWorldX + 0.5;
+        const camWorldY = this.interpWorldY + 0.975 + yCompensation;
+
+        // Convert camera world coords → active-grid coords for rendering
+        const originCx = this.simReader.getOriginCx();
+        const originCy = this.simReader.getOriginCy();
+        this.camera.x = camWorldX - originCx * CHUNK_W;
+        this.camera.y = camWorldY - originCy * CHUNK_H;
       }
     }
 
@@ -399,8 +463,13 @@ export class BlockheadsRenderer {
       const bhCount = this.simReader.getBlockheadCount();
       if (bhCount > 0) {
         const bh = this.simReader.getBlockhead(0);
+        // Convert interpolated world position → active-grid coords for rendering
+        const originCx = this.simReader.getOriginCx();
+        const originCy = this.simReader.getOriginCy();
+        const localX = this.interpWorldX - originCx * CHUNK_W;
+        const localY = this.interpWorldY - originCy * CHUNK_H;
         this.stickmanPass.update3D(
-          this.smoothBhX, this.smoothBhY,
+          localX, localY,
           bh[4], // facing
           bh[6], // animFrame
           this.blockGridPass.getViewProj(),

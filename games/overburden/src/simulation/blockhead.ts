@@ -35,7 +35,7 @@ const NOCLIP_SPEED = 3.0;
 // The blockhead is 1 block wide and 1.95 blocks tall — slightly under 2 so
 // it fits through 2-block-high gaps without intermittent collision from
 // floating-point rounding. The visual box is still rendered at 2 tall.
-export const BH_W = 1;
+export const BH_W = 0.7;
 export const BH_H = 1.95;
 
 // --- Input structure (read from SAB each tick) ---

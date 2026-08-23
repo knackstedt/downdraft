@@ -34,8 +34,6 @@ export class BlockWorld {
   // Active grid origin (top-left chunk coordinates)
   private activeOriginCx = 0;
   private activeOriginCy = 0;
-  private prevOriginCx = 0;
-  private prevOriginCy = 0;
   needsRebuild = true;
 
   // Active grid data (contiguous arrays for sim + render)
@@ -140,17 +138,18 @@ export class BlockWorld {
   }
 
   rebuildActiveGrid(): void {
-    // 1. Sync old active grid back to chunks
-    if (this.prevOriginCx !== this.activeOriginCx || this.prevOriginCy !== this.activeOriginCy) {
-      this.syncActiveToChunks(this.prevOriginCx, this.prevOriginCy);
-    }
+    // 1. Sync the current active grid back to chunks BEFORE computing the
+    //    new origin. The active grid is the authoritative copy during sim —
+    //    mining, placing, fluid flow, light propagation all modify it
+    //    directly. If we don't save it back, those changes are lost when we
+    //    clear + reload from chunk data.
+    //    Use the CURRENT activeOrigin (still the old origin at this point).
+    this.syncActiveToChunks(this.activeOriginCx, this.activeOriginCy);
 
     // 2. Compute new origin
     const { cx, cy } = this.worldToChunk(this.focusX, this.focusY);
     this.activeOriginCx = ((cx - ACTIVE_GRID_RADIUS) % CHUNKS_X + CHUNKS_X) % CHUNKS_X;
     this.activeOriginCy = Math.max(0, Math.min(CHUNKS_Y - ACTIVE_GRID_CHUNKS, cy - ACTIVE_GRID_RADIUS));
-    this.prevOriginCx = this.activeOriginCx;
-    this.prevOriginCy = this.activeOriginCy;
 
     // 3. Clear active grid
     this.activeForeground.fill(0);
@@ -201,7 +200,11 @@ export class BlockWorld {
         const cy = originCy + icy;
         if (cy < 0 || cy >= CHUNKS_Y) continue;
         const chunk = this.getChunk(cx, cy);
-        if (!chunk || !chunk.dirty) continue;
+        if (!chunk) continue;
+        // Always sync back — the active grid is the authoritative copy
+        // during simulation. Fluid flow, light propagation, and other sim
+        // systems modify the active grid directly without marking chunks
+        // dirty, so skipping non-dirty chunks would lose those changes.
 
         const activeOffset = icy * CHUNK_H * ACTIVE_GRID_W + icx * CHUNK_W;
         for (let ly = 0; ly < CHUNK_H; ly++) {
