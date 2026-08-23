@@ -14,6 +14,9 @@ import {
     BLOCK_AIR, BLOCK_LEAVES, BLOCK_WOOD,
     SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
+import { Inventory } from "../shared/inventory";
+import { getItemForBlock } from "../shared/items";
+import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
 import {
     SimBufferWriter,
 } from "../shared/sim-buffer";
@@ -30,6 +33,7 @@ import {
 } from "./blockhead";
 import { initFluidSim, stepFluidSim } from "./fluid-sim";
 import { stepLightSim } from "./light-sim";
+import { createTask, executeTask, type Task, type TaskType } from "./task-queue";
 
 const events = exposeEvents();
 
@@ -50,8 +54,21 @@ const TICK_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 5;
 let tickAccumulator = 0;
 
+// --- Deterministic pseudo-random for drop rolls (no Math.random in sim) ---
+function pseudoRandom(x: number, y: number, tick: number, salt: string): number {
+  let h = 2166136261 ^ x;
+  h = Math.imul(h, 16777619) ^ y;
+  h = Math.imul(h, 16777619) ^ tick;
+  for (let i = 0; i < salt.length; i++) {
+    h = Math.imul(h, 16777619) ^ salt.charCodeAt(i);
+  }
+  // Normalize to [0, 1)
+  return ((h >>> 0) % 100000) / 100000;
+}
+
 // --- Blockhead state ---
 let blockheads: BlockheadState[] = [];
+let inventories: Inventory[] = [];
 let input: BlockheadInput = createDefaultInput();
 let inputInt32: Int32Array | null = null;
 let inputF32: Float32Array | null = null;
@@ -61,6 +78,9 @@ let inputF32: Float32Array | null = null;
 const mineDamage = new Map<number, number>();
 let mineTarget: { x: number; y: number; blockId: number } | null = null;
 let mineCooldown = 0;
+
+// --- Task queue (per-blockhead) ---
+const taskQueues: Task[][] = [];
 
 expose({
   async init(sab: SharedArrayBuffer): Promise<void> {
@@ -140,6 +160,15 @@ expose({
     bh.id = 0;
     blockheads = [bh];
 
+    // Starting inventory — a few torches + ladders so the player can light
+    // underground and climb back out of shallow holes immediately.
+    const inv = new Inventory();
+    inv.add("torch", 8);
+    inv.add("ladder", 8);
+    inventories = [inv];
+    taskQueues.length = 0;
+    taskQueues.push([]);
+
     // Write initial SAB state so the renderer has valid data on the first frame
     if (world && writer) {
       writer.writeGrid(world);
@@ -210,6 +239,68 @@ expose({
       tick: stats.tick,
     };
   },
+
+  // --- Inventory + crafting ---
+  getInventory(bhIndex: number = 0): { itemId: string; count: number }[] {
+    const inv = inventories[bhIndex];
+    return inv ? inv.snapshot() : [];
+  },
+
+  craft(recipeId: string, bhIndex: number = 0): { ok: boolean; error?: string } {
+    const recipe = getRecipe(recipeId);
+    if (!recipe) return { ok: false, error: `Unknown recipe: ${recipeId}` };
+    const inv = inventories[bhIndex];
+    if (!inv) return { ok: false, error: "No inventory for that blockhead" };
+    // Station check: for now, "hand" recipes always work; workbench/furnace
+    // require the blockhead to be adjacent to the station block. We don't have
+    // station blocks in the registry yet, so allow hand recipes only.
+    if (recipe.station !== "hand") {
+      return { ok: false, error: `Recipe requires a ${recipe.station} (not yet implemented)` };
+    }
+    if (!inv.hasIngredients(recipe.inputs)) {
+      return { ok: false, error: "Insufficient ingredients" };
+    }
+    inv.applyRecipe(recipe);
+    return { ok: true };
+  },
+
+  getRecipes(station?: CraftStation): { id: string; name: string; station: CraftStation }[] {
+    const list = station ? recipesForStation(station) : recipesForStation("hand");
+    return list.map((r) => ({ id: r.id, name: r.name, station: r.station }));
+  },
+
+  // Give an item (creative mode / testing). Bypasses inventory limits.
+  giveItem(itemId: string, count: number = 1, bhIndex: number = 0): { ok: boolean } {
+    const inv = inventories[bhIndex];
+    if (!inv) return { ok: false };
+    inv.add(itemId, count);
+    return { ok: true };
+  },
+
+  // --- Task queue ---
+  queueTask(type: TaskType, targetX: number, targetY: number, blockId: number = 0, bhIndex: number = 0): { ok: boolean; taskId: number } {
+    const queue = taskQueues[bhIndex];
+    if (!queue) return { ok: false, taskId: -1 };
+    const task = createTask(type, targetX, targetY, blockId);
+    queue.push(task);
+    return { ok: true, taskId: task.id };
+  },
+
+  getTasks(bhIndex: number = 0): { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string }[] {
+    const queue = taskQueues[bhIndex];
+    if (!queue) return [];
+    return queue.map((t) => ({
+      id: t.id, type: t.type, targetX: t.targetX, targetY: t.targetY,
+      blockId: t.blockId ?? 0, status: t.status,
+    }));
+  },
+
+  clearTasks(bhIndex: number = 0): { ok: boolean } {
+    const queue = taskQueues[bhIndex];
+    if (!queue) return { ok: false };
+    queue.length = 0;
+    return { ok: true };
+  },
 });
 
 // --- Read input from SAB ---
@@ -272,7 +363,14 @@ function processMining(dt: number): void {
   const ax = input.mineX - world.getActiveOriginCx() * 64;
   const ay = input.mineY - world.getActiveOriginCy() * 64;
 
-  const target = getMineTarget(bh, ax, ay, world.activeForeground);
+  // Auto-target: if there's a foreground block at the click position, mine it.
+  // If the foreground is air but there's a background block, mine the background.
+  // This lets the player click on what they see — no manual layer toggle needed.
+  const fgTarget = getMineTarget(bh, ax, ay, world.activeForeground);
+  const bgTarget = getMineTarget(bh, ax, ay, world.activeBackground);
+  const target = fgTarget ?? bgTarget;
+  const miningBackground = !fgTarget && !!bgTarget;
+
   if (!target) {
     mineTarget = null;
     return;
@@ -300,7 +398,23 @@ function processMining(dt: number): void {
 
     // When damage exceeds hardness, break the block
     if (dmg >= hardness) {
-      world.setActiveBlock(target.x, target.y, BLOCK_AIR);
+      if (miningBackground) {
+        world.setActiveBackground(target.x, target.y, BLOCK_AIR);
+      } else {
+        world.setActiveBlock(target.x, target.y, BLOCK_AIR);
+      }
+      // Add drops to the blockhead's inventory
+      const inv = inventories[0];
+      if (inv) {
+        for (const drop of def.drops) {
+          // Deterministic drop roll based on block coords + tick so e2e tests
+          // are reproducible (no Math.random).
+          const roll = pseudoRandom(target.x, target.y, tickCount, drop.itemId);
+          if (roll <= drop.chance) {
+            inv.add(drop.itemId, drop.count);
+          }
+        }
+      }
       mineDamage.delete(key);
       mineTarget = null;
     }
@@ -331,6 +445,13 @@ function processPlacing(): void {
 
   // Only place on empty cells
   if (world.getActiveBlock(ax, ay) !== BLOCK_AIR) return;
+
+  // Consume the corresponding item from inventory (if a placeable block)
+  const itemId = getItemForBlock(input.placeBlockId);
+  const inv = inventories[0];
+  if (itemId && inv) {
+    if (!inv.remove(itemId, 1)) return; // no item → can't place
+  }
 
   // Place the block
   world.setActiveBlock(ax, ay, input.placeBlockId);
@@ -384,8 +505,47 @@ async function loop(): Promise<void> {
         while (tickAccumulator >= 1 && steps < maxSteps) {
           if (!world) break;
 
-          // Read input from SAB
+          // Read input from SAB (direct control)
           readInput();
+
+          // If the task queue has an active task, override input with the
+          // task's synthetic input (autonomous blockhead execution).
+          const queue = taskQueues[0];
+          if (queue && queue.length > 0) {
+            const task = queue[0];
+            // Remove completed/failed tasks from the front
+            if (task.status === "done" || task.status === "failed") {
+              queue.shift();
+            }
+            if (queue.length > 0) {
+              const current = queue[0];
+              const taskInput = executeTask(
+                blockheads[0], current, world.activeForeground,
+                world.getActiveOriginCx(), world.getActiveOriginCy(),
+                1 / TICK_RATE,
+              );
+              if (taskInput) {
+                // Override direct input with task input
+                input.left = taskInput.left;
+                input.right = taskInput.right;
+                input.up = taskInput.up;
+                input.down = taskInput.down;
+                input.jump = taskInput.jump;
+                input.noclip = false; // never noclip during tasks
+                input.mineX = taskInput.mineX;
+                input.mineY = taskInput.mineY;
+                input.placeX = taskInput.placeX;
+                input.placeY = taskInput.placeY;
+                input.placeBlockId = taskInput.placeBlockId;
+              }
+              // If executeTask returned null but task isn't done/failed,
+              // it means "use direct input" (e.g. MOVE_TO arrived). The task
+              // status was set to done, so it'll be shifted next tick.
+              if (current.status === "done" || current.status === "failed") {
+                queue.shift();
+              }
+            }
+          }
 
           // Rebuild active grid if the focus has crossed a chunk boundary
           updateFocus();

@@ -9,7 +9,8 @@
 import { GPUDeviceManager } from "@downdraft/core";
 import {
     ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_STONE, BLOCK_WOOD,
+    BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LADDER, BLOCK_ROPE,
+    BLOCK_SAND, BLOCK_SCAFFOLDING, BLOCK_STONE, BLOCK_TORCH, BLOCK_WOOD,
 } from "../shared/constants";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
@@ -22,17 +23,19 @@ import { invert, rayToZ0, unprojectScreen } from "./matrix";
 import { SkyPass } from "./sky-pass";
 import { StickmanPass } from "./stickman-pass";
 
-// Hotbar block IDs (selectable with number keys 1-9)
+// Hotbar block IDs (selectable with number keys 1-9).
+// Each slot maps to a placeable block; placing consumes the matching item
+// from the blockhead's inventory (handled in the sim worker).
 const HOTBAR_BLOCKS = [
   BLOCK_DIRT,
   BLOCK_GRASS,
   BLOCK_STONE,
   BLOCK_WOOD,
-  BLOCK_AIR, // slot 5: empty
-  BLOCK_AIR,
-  BLOCK_AIR,
-  BLOCK_AIR,
-  BLOCK_AIR,
+  BLOCK_SAND,
+  BLOCK_TORCH,
+  BLOCK_LADDER,
+  BLOCK_ROPE,
+  BLOCK_SCAFFOLDING,
 ];
 
 export class BlockheadsRenderer {
@@ -44,6 +47,7 @@ export class BlockheadsRenderer {
   private running = false;
   private raf = 0;
   private lastTime = 0;
+  private debugNoShadows = false;
   private frameCount = 0;
   private fps = 0;
   private fpsTimer = 0;
@@ -89,6 +93,30 @@ export class BlockheadsRenderer {
 
   getSimReader(): SimBufferReader | null {
     return this.simReader;
+  }
+
+  getWorkerHost(): BlockheadsWorkerHost | null {
+    return this.workerHost;
+  }
+
+  /** Expose camera for debug overlays (chunk grid, etc.). */
+  getCamera(): Camera {
+    return this.camera;
+  }
+
+  /** Active grid origin + size in active-grid coords (for debug overlay). */
+  getActiveGridOrigin(): { x: number; y: number; w: number; h: number } {
+    return { x: 0, y: 0, w: ACTIVE_GRID_W, h: ACTIVE_GRID_H };
+  }
+
+  /** Toggle debug mode: disables fog-of-war + shadow darkening (F1). */
+  setDebugNoShadows(enabled: boolean): void {
+    this.debugNoShadows = enabled;
+    this.blockGridPass?.setDebugNoShadows(enabled);
+  }
+
+  getDebugNoShadows(): boolean {
+    return this.debugNoShadows;
   }
 
   async init(): Promise<boolean> {

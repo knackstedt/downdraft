@@ -11,24 +11,45 @@ export interface BlockheadUIState {
   environment: number;
 }
 
+export interface InventorySlotUI {
+  itemId: string;
+  count: number;
+}
+
+export interface RecipeUI {
+  id: string;
+  name: string;
+  station: string;
+}
+
 interface GameState {
   // UI state
   showTitleScreen: boolean;
   paused: boolean;
   fps: number;
+  showCraftPanel: boolean;
+  showInventoryPanel: boolean;
   // Blockhead state (updated by polling SAB from the UI)
   blockhead: BlockheadUIState;
   // Selected hotbar slot
   selectedSlot: number;
+  // Inventory (polled from worker via RPC)
+  inventory: InventorySlotUI[];
+  // Available recipes (hand-craftable)
+  recipes: RecipeUI[];
   // Renderer reference (set by main.tsx after init)
   renderer: BlockheadsRenderer | null;
   // Actions
   setShowTitleScreen: (show: boolean) => void;
   setPaused: (paused: boolean) => void;
   setFps: (fps: number) => void;
+  setShowCraftPanel: (show: boolean) => void;
+  setShowInventoryPanel: (show: boolean) => void;
   setRenderer: (renderer: BlockheadsRenderer | null) => void;
   setBlockhead: (bh: BlockheadUIState) => void;
   setSelectedSlot: (slot: number) => void;
+  setInventory: (inv: InventorySlotUI[]) => void;
+  setRecipes: (recipes: RecipeUI[]) => void;
 }
 
 const defaultBh: BlockheadUIState = {
@@ -44,13 +65,21 @@ export const useGameStore = create<GameState>((set) => ({
   showTitleScreen: true,
   paused: false,
   fps: 0,
+  showCraftPanel: false,
+  showInventoryPanel: false,
   blockhead: defaultBh,
   selectedSlot: 0,
+  inventory: [],
+  recipes: [],
   renderer: null,
   setShowTitleScreen: (show) => set({ showTitleScreen: show }),
   setPaused: (paused) => set({ paused }),
   setFps: (fps) => set({ fps }),
+  setShowCraftPanel: (show) => set({ showCraftPanel: show }),
+  setShowInventoryPanel: (show) => set({ showInventoryPanel: show }),
   setRenderer: (renderer) => set({ renderer }),
   setBlockhead: (bh) => set({ blockhead: bh }),
   setSelectedSlot: (slot) => set({ selectedSlot: slot }),
+  setInventory: (inventory) => set({ inventory }),
+  setRecipes: (recipes) => set({ recipes }),
 }));
