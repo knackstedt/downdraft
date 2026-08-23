@@ -130,12 +130,18 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   var color = blockColor * faceShade * lightMul * bevel;
 
-  // Background blocks (Z < -1) are progressively darker based on depth.
-  // 4-layer system: Z=0 (layer 1, full bright), Z=-1 (layer 2, 80%),
-  // Z=-2 (layer 3, 55%), Z=-3 (layer 4, 40%).
+  // Background blocks (Z < 0) are progressively darker based on depth.
+  // 4-layer system: Z=0 (layer 1, full bright), Z=-1 (layer 2, 85%),
+  // Z=-2 (layer 3, 70%), Z=-3 (layer 4, 55%).
   if (in.instanceZ < 0.0) {
-    let depth = -in.instanceZ; // 1, 2, or 3
-    color *= 0.8 / depth;
+    let d = -in.instanceZ;
+    var depthFactor = 0.55; // default: Z=-3 (layer 4, back wall)
+    if (d < 1.5) {
+      depthFactor = 0.85;  // Z=-1 (layer 2)
+    } else if (d < 2.5) {
+      depthFactor = 0.70;  // Z=-2 (layer 3, background)
+    }
+    color *= depthFactor;
   }
 
   // Mining crack overlay

@@ -75,13 +75,11 @@ const FACE_TOP    = 1 << 3; // -Y
 const FACE_FRONT  = 1 << 4; // +Z
 const FACE_BACK   = 1 << 5; // -Z
 
-// Depth layering: 4-layer system on a 1,2,3,4 scale.
+// Depth layering: 4-layer system.
 //   Layer 1 (Z= 0): foreground front  ← closest to camera
 //   Layer 2 (Z=-1): foreground back   ← player walks here
-//   Layer 3 (Z=-2): background front  ← trees
-//   Layer 4 (Z=-3): background back   ← back wall
-// Foreground blocks are double-rendered at Z=0 and Z=-1 for depth.
-// Background blocks are double-rendered at Z=-2 and Z=-3 for depth.
+//   Layer 3 (Z=-2): background (trees + terrain) ← behind player
+//   Layer 4 (Z=-3): back wall (deep background)   ← farthest
 const FG_Z_LAYERS = [0, -1];
 const BG_Z_LAYERS = [-2, -3];
 const NUM_FG_LAYERS = FG_Z_LAYERS.length;
@@ -92,7 +90,7 @@ export class BlockGridPass3D {
   private format: GPUTextureFormat;
   private depthFormat: GPUTextureFormat;
   private pipeline: GPURenderPipeline | null = null;
-  private bgPipeline: GPURenderPipeline | null = null; // background blocks: always pass depth
+  private bgPipeline: GPURenderPipeline | null = null; // background: depth-tested cubes
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private cameraBuffer: GPUBuffer | null = null;
@@ -113,7 +111,9 @@ export class BlockGridPass3D {
   // Scratch instance data (rebuilt each frame)
   private instanceData: Float32Array;
   private fgInstanceCount = 0;  // foreground instances (depth-tested)
-  private bgInstanceCount = 0;  // background instances (always drawn, no depth write)
+  private bgWallInstanceCount = 0;  // back wall instances (Z=-3, drawn first)
+  private bgTreeInstanceCount = 0;  // tree instances (Z=-2, drawn after back wall)
+  private bgInstanceCount = 0;  // total background (back wall + trees)
   private instanceCount = 0;    // total (for buffer sizing)
 
   // Scratch light/explored upload buffers (padded to 256-byte rows)
@@ -247,14 +247,13 @@ export class BlockGridPass3D {
       },
     });
 
-    // Background pipeline: proper depth testing + writing.
-    // Background blocks are drawn first (before foreground), so they
-    // write depth. This allows tree blocks (Z=-2) to properly occlude
-    // back wall blocks (Z=-3), eliminating internal face artifacts.
-    // Foreground blocks (Z=0, Z=-1) are drawn after and are closer,
-    // so they pass the depth test and overwrite background where needed.
-    // Background is still visible through the perspective gap at the top
-    // of foreground blocks (where there are no foreground blocks to occlude).
+    // Background pipeline: no depth test — always render.
+    // The background is painted first (back wall, then trees), then the
+    // foreground is drawn on top with depth testing. This ensures the
+    // back wall is always visible behind the foreground (like a wallpaper),
+    // which is the standard 2.5D approach. Without this, the back wall at
+    // Z=-3 would be almost completely occluded by foreground blocks at Z=0
+    // due to the 20° pitch angle leaving only a tiny perspective gap.
     this.bgPipeline = this.device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {
@@ -400,32 +399,29 @@ export class BlockGridPass3D {
     this.fgInstanceCount = idx;
 
     // --- Background blocks ---
-    // Layer 3 (Z=-2): trees (wood, leaves) — rendered at this depth only.
-    // Layer 4 (Z=-3): back wall (everything else in the background grid).
-    // This prevents trees from appearing at both depths (which looked like
-    // a 5th layer) and keeps the 4-layer system clean.
-    // Render deepest first (Z=-3) so painter's algorithm stacks correctly.
+    // Layer 4 (Z=-3): back wall — all background blocks EXCEPT trees.
+    // Layer 3 (Z=-2): main background — all background blocks (trees + terrain).
+    // Render deepest first (layer 4) so painter's algorithm stacks correctly.
 
-    // Layer 4: back wall (all background blocks EXCEPT trees) at Z=-3
+    // Layer 4: back wall (terrain only, no trees) at Z=-3
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const cellIdx = y * W + x;
         const packedBg = background[cellIdx];
         const blockId = packedBg & 0xFF;
         if (blockId === 0) continue;
-        // Skip tree blocks — they go on layer 3
         if (blockId === BLOCK_WOOD || blockId === BLOCK_LEAVES) continue;
 
         let faceMask = 0;
         faceMask |= FACE_FRONT;
-        // Only cull faces if the neighbor is ALSO a back wall block (same
-        // depth, Z=-3). Tree blocks are at Z=-2 (different depth) so they
-        // don't occlude back wall faces — depth testing handles that.
-        const isBackWall = (v: number) => v !== 0 && v !== BLOCK_WOOD && v !== BLOCK_LEAVES;
-        if (y <= 0 || !isBackWall(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
-        if (y >= H - 1 || !isBackWall(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
-        if (x >= W - 1 || !isBackWall(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
-        if (x <= 0 || !isBackWall(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+        // Only cull faces against other layer-4 blocks (non-tree background).
+        // Trees are in layer 3 (Z=-2), not layer 4 (Z=-3), so they don't occlude
+        // back wall faces — depth testing handles inter-layer occlusion.
+        const isWall = (v: number) => v !== 0 && v !== BLOCK_WOOD && v !== BLOCK_LEAVES;
+        if (y <= 0 || !isWall(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
+        if (y >= H - 1 || !isWall(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+        if (x >= W - 1 || !isWall(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+        if (x <= 0 || !isWall(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
         data[idx * 5 + 0] = x;
         data[idx * 5 + 1] = y;
@@ -435,27 +431,23 @@ export class BlockGridPass3D {
         idx++;
       }
     }
+    this.bgWallInstanceCount = idx - this.fgInstanceCount;
 
-    // Layer 3: trees (wood, leaves) at Z=-2
+    // Layer 3: all background blocks (trees + terrain) at Z=-2
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const cellIdx = y * W + x;
         const packedBg = background[cellIdx];
         const blockId = packedBg & 0xFF;
         if (blockId === 0) continue;
-        // Only render tree blocks at this depth
-        if (blockId !== BLOCK_WOOD && blockId !== BLOCK_LEAVES) continue;
 
         let faceMask = 0;
         faceMask |= FACE_FRONT;
-        // Only cull faces if the neighbor is ALSO a tree block (same depth,
-        // Z=-2). Back wall blocks are at Z=-3 (different depth) so they
-        // don't occlude tree faces — depth testing handles that.
-        const isTree = (v: number) => v === BLOCK_WOOD || v === BLOCK_LEAVES;
-        if (y <= 0 || !isTree(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
-        if (y >= H - 1 || !isTree(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
-        if (x >= W - 1 || !isTree(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
-        if (x <= 0 || !isTree(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+        const isSolid = (v: number) => v !== 0;
+        if (y <= 0 || !isSolid(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
+        if (y >= H - 1 || !isSolid(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+        if (x >= W - 1 || !isSolid(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+        if (x <= 0 || !isSolid(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
         data[idx * 5 + 0] = x;
         data[idx * 5 + 1] = y;
@@ -465,6 +457,7 @@ export class BlockGridPass3D {
         idx++;
       }
     }
+    this.bgTreeInstanceCount = idx - this.fgInstanceCount - this.bgWallInstanceCount;
     this.bgInstanceCount = idx - this.fgInstanceCount;
     this.instanceCount = idx;
 
@@ -477,6 +470,16 @@ export class BlockGridPass3D {
         idx * 5 * 4, // only upload used portion
       );
     }
+  }
+
+  /** Debug: get instance counts for diagnostics. */
+  getInstanceCounts(): { fg: number; bgWall: number; bgTree: number; total: number } {
+    return {
+      fg: this.fgInstanceCount,
+      bgWall: this.bgWallInstanceCount,
+      bgTree: this.bgTreeInstanceCount,
+      total: this.instanceCount,
+    };
   }
 
   /** Enable/disable debug no-shadows mode (F1). When enabled, light + explored
@@ -608,17 +611,23 @@ export class BlockGridPass3D {
     pass.setVertexBuffer(0, this.cubeVertexBuffer);
     pass.setIndexBuffer(this.cubeIndexBuffer, "uint16");
 
-    // Draw background blocks first (always passes depth, no depth write).
-    // Use vertex buffer offset to point to the background portion of the
-    // instance buffer (foreground data comes first, background after).
-    if (this.bgPipeline && this.bgInstanceCount > 0) {
+    // 1. Draw layer 4 (Z=-3) — back wall, depth-tested.
+    if (this.bgPipeline && this.bgWallInstanceCount > 0) {
       pass.setPipeline(this.bgPipeline);
       pass.setVertexBuffer(1, this.instanceBuffer, this.fgInstanceCount * INSTANCE_STRIDE);
-      pass.drawIndexed(CUBE_INDICES.length, this.bgInstanceCount);
+      pass.drawIndexed(CUBE_INDICES.length, this.bgWallInstanceCount);
     }
 
-    // Draw foreground blocks (depth-tested, writes depth).
-    // Foreground instances start at offset 0 in the instance buffer.
+    // 2. Draw layer 3 (Z=-2) — main background, depth-tested.
+    if (this.bgPipeline && this.bgTreeInstanceCount > 0) {
+      pass.setPipeline(this.bgPipeline);
+      pass.setVertexBuffer(1, this.instanceBuffer,
+        (this.fgInstanceCount + this.bgWallInstanceCount) * INSTANCE_STRIDE);
+      pass.drawIndexed(CUBE_INDICES.length, this.bgTreeInstanceCount);
+    }
+
+    // 3. Draw foreground (Z=0, Z=-1) — depth-tested, writes depth.
+    //    Closest to camera; overwrites background where they overlap.
     if (this.fgInstanceCount > 0) {
       pass.setPipeline(this.pipeline);
       pass.setVertexBuffer(1, this.instanceBuffer, 0);

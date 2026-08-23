@@ -24,6 +24,7 @@ import {
 import { invert, rayToZ0, unprojectScreen } from "./matrix";
 import { SkyPass } from "./sky-pass";
 import { StickmanPass } from "./stickman-pass";
+import { TaskMarkerPass, type MarkerData } from "./task-marker-pass";
 
 // Default hotbar block IDs (selectable with number keys 1-9).
 // Each slot maps to a placeable block; placing consumes the matching item
@@ -61,12 +62,19 @@ export class BlockheadsRenderer {
   private hotbarBlocks: number[] = [...DEFAULT_HOTBAR_BLOCKS];
 
   // Render passes
-  private blockGridPass: BlockGridPass3D | null = null;
+  blockGridPass: BlockGridPass3D | null = null;
   private stickmanPass: StickmanPass | null = null;
   private skyPass: SkyPass | null = null;
+  private taskMarkerPass: TaskMarkerPass | null = null;
 
   // Camera
   camera: Camera;
+  // When detached, the camera position is tracked in world coords so that
+  // chunk-origin shifts don't cause the camera to teleport. Each frame we
+  // convert the world-coord position to active-grid coords for rendering.
+  private camWorldX = 0;
+  private camWorldY = 0;
+  private camWorldInit = false;
 
   // Tick-based interpolation for smooth rendering at display framerate.
   // The sim writes positions at 30Hz; we lerp between prev and cur sim
@@ -91,6 +99,9 @@ export class BlockheadsRenderer {
 
   // Input
   private input: BlockheadsInputState | null = null;
+
+  // Queued task markers (in active-grid coords) for visual feedback
+  taskMarkers: { gridX: number; gridY: number; action: "mine" | "move" }[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -120,6 +131,12 @@ export class BlockheadsRenderer {
   /** Set task mode (click to queue tasks instead of direct mining/placing). */
   setTaskMode(enabled: boolean): void {
     if (this.input) this.input.taskMode = enabled;
+    if (!enabled) {
+      // Re-attach camera to player when exiting task mode
+      this.camera.detached = false;
+      this.camera.endPan();
+      this.camWorldInit = false; // will be re-initialized from player position
+    }
   }
 
   /**
@@ -209,6 +226,9 @@ export class BlockheadsRenderer {
 
     this.skyPass = new SkyPass(this.device, this.format);
     this.skyPass.init();
+
+    this.taskMarkerPass = new TaskMarkerPass(this.device, this.format);
+    this.taskMarkerPass.init();
 
     // Start the sim worker
     this.workerHost = new BlockheadsWorkerHost();
@@ -356,6 +376,7 @@ export class BlockheadsRenderer {
     }
     this.stickmanPass?.destroy();
     this.skyPass?.destroy();
+    this.taskMarkerPass?.destroy();
     await this.workerHost?.shutdown();
   }
 
@@ -363,11 +384,51 @@ export class BlockheadsRenderer {
     if (!this.input || !this.simReader) return;
 
     // Handle zoom — dynamic zoom with scroll wheel.
-    // Each zoom step multiplies/divides by a factor for smooth zoom.
     if (this.input.zoomDelta !== 0) {
       const factor = this.input.zoomDelta > 0 ? 1.2 : 1 / 1.2;
-      this.camera.zoom = Math.max(Camera.MIN_ZOOM, Math.min(Camera.MAX_ZOOM, this.camera.zoom * factor));
+      this.camera.zoomAt(this.input.mouseX, this.input.mouseY, factor);
       this.input.zoomDelta = 0;
+    }
+
+    // Handle camera panning (middle-mouse drag).
+    // Panning detaches the camera from the player. The camera stays
+    // detached after releasing the mouse until the user re-attaches it.
+    if (this.input.panning) {
+      if (!this.camera.isPanning()) {
+        // Initialize pan from current world position
+        const ocx = this.simReader.getOriginCx();
+        const ocy = this.simReader.getOriginCy();
+        this.camera.startPan(this.input.panStartX, this.input.panStartY);
+        this.camera.detached = true;
+      }
+      this.camera.updatePan(this.input.mouseX, this.input.mouseY);
+      // Sync world position from active-grid position after pan update
+      const ocx = this.simReader.getOriginCx();
+      const ocy = this.simReader.getOriginCy();
+      this.camWorldX = this.camera.x + ocx * CHUNK_W;
+      this.camWorldY = this.camera.y + ocy * CHUNK_H;
+      this.camWorldInit = true;
+    } else if (this.camera.isPanning()) {
+      this.camera.endPan();
+    }
+
+    // In detached mode, WASD moves the camera instead of the player.
+    if (this.camera.detached && !this.input.panning) {
+      const panSpeed = 8 / this.camera.zoom;
+      let dx = 0, dy = 0;
+      if (this.input.left) dx -= panSpeed;
+      if (this.input.right) dx += panSpeed;
+      if (this.input.up) dy -= panSpeed;
+      if (this.input.down) dy += panSpeed;
+      if (dx !== 0 || dy !== 0) {
+        // Move in world coords so origin shifts don't cause jumps
+        this.camWorldX += dx;
+        this.camWorldY += dy;
+        const ocx = this.simReader.getOriginCx();
+        const ocy = this.simReader.getOriginCy();
+        this.camera.x = this.camWorldX - ocx * CHUNK_W;
+        this.camera.y = this.camWorldY - ocy * CHUNK_H;
+      }
     }
 
     // Convert mouse screen coords to active-grid coords using 3D ray-cast.
@@ -390,10 +451,9 @@ export class BlockheadsRenderer {
       grid = this.camera.screenToGrid(this.input.mouseX, this.input.mouseY);
     }
 
-    // --- Task mode: clicks queue tasks instead of direct mining/placing ---
+    // --- Task mode: handle clicks to queue tasks ---
     if (this.input.taskMode && this.input.taskClickPending) {
       this.input.taskClickPending = false;
-      // Convert click screen coords to grid coords
       let clickGrid: { x: number; y: number };
       if (vp) {
         const invVP = invert(vp);
@@ -415,28 +475,33 @@ export class BlockheadsRenderer {
       const originCy = this.simReader.getOriginCy();
       const worldX = Math.floor(clickGrid.x + originCx * 64);
       const worldY = Math.floor(clickGrid.y + originCy * 64);
+      const action: "mine" | "move" = this.input.taskClickButton === 2 ? "move" : "mine";
+      const markerGX = Math.floor(clickGrid.x);
+      const markerGY = Math.floor(clickGrid.y);
+
+      // Queue the task — the worker is the sole authority on duplicates.
+      // The marker sync interval (in app.tsx) will pick up the new task
+      // from getTasks() and add a marker for it.
       const host = this.workerHost;
       if (host) {
-        if (this.input.taskClickButton === 0) {
-          // Left click → MINE_BLOCK task
-          host.queueTask("MINE_BLOCK", { targetX: worldX, targetY: worldY }, 0);
-        } else if (this.input.taskClickButton === 2) {
-          // Right click → MOVE_TO task
-          host.queueTask("MOVE_TO", { targetX: worldX, targetY: worldY }, 0);
-        }
+        const taskType = action === "mine" ? "MINE_BLOCK" : "MOVE_TO";
+        host.queueTask(taskType, { targetX: worldX, targetY: worldY }, 0);
       }
     }
 
     // In task mode, suppress direct mining/placing input
     if (this.input.taskMode) {
       // Write only movement input to SAB (no mining/placing)
+      // When camera is detached, WASD moves the camera (not the player),
+      // so suppress movement input to the worker.
       const inp = this.simReader.inputInt32;
       const inpF = this.simReader.inputF32;
-      inp[0] = this.input.left ? 1 : 0;
-      inp[1] = this.input.right ? 1 : 0;
-      inp[2] = this.input.up ? 1 : 0;
-      inp[3] = this.input.down ? 1 : 0;
-      inp[4] = this.input.jump ? 1 : 0;
+      const movementActive = this.camera.detached ? 0 : 1;
+      inp[0] = (this.input.left ? 1 : 0) * movementActive;
+      inp[1] = (this.input.right ? 1 : 0) * movementActive;
+      inp[2] = (this.input.up ? 1 : 0) * movementActive;
+      inp[3] = (this.input.down ? 1 : 0) * movementActive;
+      inp[4] = (this.input.jump ? 1 : 0) * movementActive;
       inp[5] = this.input.noclip ? 1 : 0;
       inp[6] = 0; // no mining in task mode
       inp[7] = 0; // no placing in task mode
@@ -459,11 +524,14 @@ export class BlockheadsRenderer {
     const originCy = this.simReader.getOriginCy();
     const worldX = grid.x + originCx * 64;
     const worldY = grid.y + originCy * 64;
-    inp[0] = this.input.left ? 1 : 0;
-    inp[1] = this.input.right ? 1 : 0;
-    inp[2] = this.input.up ? 1 : 0;
-    inp[3] = this.input.down ? 1 : 0;
-    inp[4] = this.input.jump ? 1 : 0;
+    // When camera is detached, WASD moves the camera (handled above),
+    // so suppress movement input to the worker.
+    const movementActive = this.camera.detached ? 0 : 1;
+    inp[0] = (this.input.left ? 1 : 0) * movementActive;
+    inp[1] = (this.input.right ? 1 : 0) * movementActive;
+    inp[2] = (this.input.up ? 1 : 0) * movementActive;
+    inp[3] = (this.input.down ? 1 : 0) * movementActive;
+    inp[4] = (this.input.jump ? 1 : 0) * movementActive;
     inp[5] = this.input.noclip ? 1 : 0;
     inp[6] = this.input.mouseDown ? 1 : 0;  // mine active
     inp[7] = (this.input.mouseRight && placeBlockId !== BLOCK_AIR) ? 1 : 0;  // place active
@@ -556,30 +624,41 @@ export class BlockheadsRenderer {
       }
     }
 
-    // --- Camera follows the interpolated world position ---
-    // Camera is tracked in world coords (continuous across chunk boundaries).
-    // Convert to active-grid coords when setting this.camera.x/y.
-    // No smoothing — the interpolated position is already smooth (tick-based
-    // lerp), so camera smoothing would only add lag and rubber-banding.
-    if (this.simReader && !this.camera.isPanning()) {
-      const bhCount = this.simReader.getBlockheadCount();
-      if (bhCount > 0) {
-        // Camera target: visual center of the player in world coords.
-        // The player box spans Z=-1..0 (center at Z=-0.5). The 3D camera
-        // targets Z=0 with a 20° pitch, so objects at lower Z appear
-        // higher on screen. Compensate by shifting the target Y down by
-        // zOffset * tan(pitchAngle) so the player appears at screen center.
-        const PITCH_RAD = 20 * Math.PI / 180;
-        const PLAYER_Z_CENTER = -0.5;
-        const yCompensation = -PLAYER_Z_CENTER * Math.tan(PITCH_RAD); // ~0.182
-        const camWorldX = this.interpWorldX + 0.5;
-        const camWorldY = this.interpWorldY + 0.975 + yCompensation;
+    // --- Camera position ---
+    // When attached: camera follows the interpolated player world position.
+    // When detached: camera stays at a fixed world position (tracked in world
+    // coords so chunk-origin shifts don't cause teleportation). Each frame
+    // we convert the world position to active-grid coords for rendering.
+    if (this.simReader) {
+      const originCx = this.simReader.getOriginCx();
+      const originCy = this.simReader.getOriginCy();
 
-        // Convert camera world coords → active-grid coords for rendering
-        const originCx = this.simReader.getOriginCx();
-        const originCy = this.simReader.getOriginCy();
-        this.camera.x = camWorldX - originCx * CHUNK_W;
-        this.camera.y = camWorldY - originCy * CHUNK_H;
+      if (!this.camera.detached) {
+        // Attached: follow the player
+        const bhCount = this.simReader.getBlockheadCount();
+        if (bhCount > 0) {
+          const PITCH_RAD = 20 * Math.PI / 180;
+          const PLAYER_Z_CENTER = -0.5;
+          const yCompensation = -PLAYER_Z_CENTER * Math.tan(PITCH_RAD);
+          this.camWorldX = this.interpWorldX + 0.5;
+          this.camWorldY = this.interpWorldY + 0.975 + yCompensation;
+          this.camera.x = this.camWorldX - originCx * CHUNK_W;
+          this.camera.y = this.camWorldY - originCy * CHUNK_H;
+          this.camWorldInit = true;
+        }
+      } else {
+        // Detached: keep the camera at its fixed world position.
+        // Initialize the world position on first detach (or if not yet set).
+        if (!this.camWorldInit) {
+          this.camWorldX = this.camera.x + originCx * CHUNK_W;
+          this.camWorldY = this.camera.y + originCy * CHUNK_H;
+          this.camWorldInit = true;
+        }
+        // Convert world position → active-grid coords using current origin.
+        // This keeps the camera at the same world position even when the
+        // chunk origin shifts (player crosses a boundary).
+        this.camera.x = this.camWorldX - originCx * CHUNK_W;
+        this.camera.y = this.camWorldY - originCy * CHUNK_H;
       }
     }
 
@@ -649,6 +728,21 @@ export class BlockheadsRenderer {
       this.skyPass.update(this.camera.canvasW, this.camera.canvasH, daylight);
     }
 
+    // Update task markers (convert active-grid markers to render data)
+    if (this.taskMarkerPass && this.blockGridPass) {
+      const markerData: MarkerData[] = this.taskMarkers.map((m) => ({
+        gridX: m.gridX,
+        gridY: m.gridY,
+        color: m.action === "mine" ? [0.91, 0.30, 0.24] : [0.20, 0.60, 0.86],
+      }));
+      this.taskMarkerPass.update(
+        this.blockGridPass.getViewProj(),
+        this.camera.canvasW,
+        this.camera.canvasH,
+        markerData,
+      );
+    }
+
     // Render with depth buffer for 3D occlusion.
     // Wrapped in try/catch because canvas resize (e.g. DevTools toggling)
     // can invalidate the WebGPU surface, causing getCurrentTexture() to
@@ -688,6 +782,8 @@ export class BlockheadsRenderer {
       if (this.simReader && this.simReader.getBlockheadCount() > 0) {
         this.stickmanPass?.render(pass);
       }
+      // Render task markers on top (no depth, alpha blended)
+      this.taskMarkerPass?.render(pass);
       pass.end();
       this.device.queue.submit([encoder.finish()]);
     } catch (err) {

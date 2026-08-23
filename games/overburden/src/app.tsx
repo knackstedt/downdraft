@@ -208,6 +208,7 @@ function AttributeBar({ label, value, color }: { label: string; value: number; c
 
 function Hud() {
   const { fps, paused, blockhead, selectedSlot, inventory, showCraftPanel, showInventoryPanel, showTaskQueue, taskMode, selectedStation, recipes } = useGameStore();
+  const [cameraDetached, setCameraDetached] = useState(false);
   const [debugNoShadows, setDebugNoShadows] = useState(false);
 
   // F1 toggles shadow/fog disable (debug). F2 is handled by ChunkDebugOverlay.
@@ -232,6 +233,16 @@ function Hud() {
     const { renderer } = useGameStore.getState();
     if (renderer) renderer.setTaskMode(taskMode);
   }, [taskMode]);
+
+  // Poll camera detached state for HUD indicator
+  useEffect(() => {
+    const { renderer } = useGameStore.getState();
+    if (!renderer) return;
+    const interval = setInterval(() => {
+      setCameraDetached(renderer.camera.detached);
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
 
   // Build a quick lookup of item counts from the inventory
   const invCount = (itemId: string): number => {
@@ -270,6 +281,7 @@ function Hud() {
         {paused && <span style={{ color: "yellow", marginLeft: 8 }}>PAUSED</span>}
         {debugNoShadows && <span style={{ color: "#e74c3c", marginLeft: 8 }}>NOSHADOW</span>}
         {taskMode && <span style={{ color: "#f39c12", marginLeft: 8, fontWeight: "bold" }}>TASK MODE (T)</span>}
+        {cameraDetached && <span style={{ color: "#9b59b6", marginLeft: 8, fontWeight: "bold" }}>CAM DETACHED (F)</span>}
       </div>
       <ChunkDebugOverlay />
 
@@ -709,7 +721,35 @@ export default function App() {
       }
     }, 250);
 
-    return () => clearInterval(interval);
+    // Sync task markers with the actual task queue — rebuild from the
+    // worker's task list so completed/shifted tasks disappear and all
+    // queued tasks show markers.
+    const markerInterval = setInterval(() => {
+      const h = renderer.getWorkerHost();
+      if (h) {
+        h.getTasks(0).then((tasks) => {
+          const reader = renderer.getSimReader();
+          if (!reader) return;
+          const originCx = reader.getOriginCx();
+          const originCy = reader.getOriginCy();
+          // Rebuild markers from the task queue (world coords → active-grid)
+          // Only show MINE_BLOCK and MOVE_TO tasks (other types don't have
+          // meaningful grid positions).
+          renderer.taskMarkers = tasks
+            .filter((t) => t.type === "MINE_BLOCK" || t.type === "MOVE_TO")
+            .map((t) => ({
+              gridX: t.targetX - originCx * 64,
+              gridY: t.targetY - originCy * 64,
+              action: (t.type === "MINE_BLOCK" ? "mine" : "move") as "mine" | "move",
+            }));
+        });
+      }
+    }, 200);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(markerInterval);
+    };
   }, [showTitleScreen]);
 
   useEffect(() => {
@@ -738,7 +778,27 @@ export default function App() {
         s.setShowTaskQueue(!s.showTaskQueue);
       } else if (e.key === "t" || e.key === "T") {
         // T toggles task mode (click to queue tasks)
-        s.setTaskMode(!s.taskMode);
+        const newMode = !s.taskMode;
+        s.setTaskMode(newMode);
+        // Clear task markers when exiting task mode
+        if (!newMode) {
+          const { renderer } = useGameStore.getState();
+          if (renderer) renderer.taskMarkers.length = 0;
+        }
+      } else if (e.key === "f" || e.key === "F") {
+        // F toggles camera detach/attach
+        const { renderer } = useGameStore.getState();
+        if (renderer) {
+          const cam = renderer.camera;
+          if (cam.detached) {
+            // Re-attach: camera will follow player again
+            cam.detached = false;
+            cam.endPan();
+          } else {
+            // Detach: camera stays where it is, WASD will move it
+            cam.detached = true;
+          }
+        }
       }
     };
     window.addEventListener("keydown", handler);

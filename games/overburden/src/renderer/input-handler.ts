@@ -37,6 +37,11 @@ export interface BlockheadsInputState {
   taskClickButton: number; // 0 = left (mine), 2 = right (move)
   taskClickX: number; // screen pixels
   taskClickY: number; // screen pixels
+
+  // Camera panning (middle-mouse drag, or arrow keys in task mode)
+  panning: boolean;
+  panStartX: number;
+  panStartY: number;
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
@@ -59,6 +64,9 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     taskClickButton: 0,
     taskClickX: 0,
     taskClickY: 0,
+    panning: false,
+    panStartX: 0,
+    panStartY: 0,
   };
 
   const keyMap: Record<string, keyof BlockheadsInputState> = {
@@ -115,7 +123,15 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
 
   canvas.addEventListener("mousedown", (e) => {
     if (state.taskMode) {
-      // In task mode, capture the click for task queuing instead of direct control
+      // Middle-click (button 1) starts panning in task mode
+      if (e.button === 1) {
+        state.panning = true;
+        state.panStartX = e.clientX;
+        state.panStartY = e.clientY;
+        e.preventDefault();
+        return;
+      }
+      // Left/right click → queue task
       const rect = canvas.getBoundingClientRect();
       state.taskClickPending = true;
       state.taskClickButton = e.button;
@@ -125,11 +141,19 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     }
     if (e.button === 0) state.mouseDown = true;
     if (e.button === 2) state.mouseRight = true;
+    // Middle-click panning in normal mode too
+    if (e.button === 1) {
+      state.panning = true;
+      state.panStartX = e.clientX;
+      state.panStartY = e.clientY;
+      e.preventDefault();
+    }
   });
 
   window.addEventListener("mouseup", (e) => {
     if (e.button === 0) state.mouseDown = false;
     if (e.button === 2) state.mouseRight = false;
+    if (e.button === 1) state.panning = false;
   });
 
   canvas.addEventListener("mousemove", (e) => {
