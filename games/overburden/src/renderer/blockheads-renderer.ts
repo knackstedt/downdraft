@@ -53,6 +53,11 @@ export class BlockheadsRenderer {
   private raf = 0;
   private lastTime = 0;
   private lastSimTick = -1;
+  // Cached origin (read atomically with the tick to avoid race conditions
+  // where the worker updates the origin between camera positioning and
+  // grid rebuild — which would cause a 1-frame flash on chunk boundaries).
+  private cachedOriginCx = 0;
+  private cachedOriginCy = 0;
   private debugNoShadows = false;
   private frameCount = 0;
   private fps = 0;
@@ -574,18 +579,23 @@ export class BlockheadsRenderer {
     // doesn't lose precision when a new tick arrives between render frames.
     // Everything is tracked in WORLD coords (active-grid pos + origin *
     // CHUNK_W) so chunk-boundary crossings are continuous.
+    // Read the tick FIRST and cache the origin atomically — this prevents
+    // race conditions where the worker updates the SAB between reads.
     if (this.simReader) {
-      const bhCount = this.simReader.getBlockheadCount();
-      if (bhCount > 0) {
-        const bh = this.simReader.getBlockhead(0);
-        const tick = this.simReader.getTick();
-        const originCx = this.simReader.getOriginCx();
-        const originCy = this.simReader.getOriginCy();
-        // Convert active-grid position to world position
-        const worldX = bh[0] + originCx * CHUNK_W;
-        const worldY = bh[1] + originCy * CHUNK_H;
+      const tick = this.simReader.getTick();
+      if (tick !== this.lastTick) {
+        // Tick changed: read origin + bh position together (consistent snapshot)
+        this.cachedOriginCx = this.simReader.getOriginCx();
+        this.cachedOriginCy = this.simReader.getOriginCy();
+        this.lastTick = tick;
+        this.tickArrivalTime = now;
 
-        if (tick !== this.lastTick) {
+        const bhCount = this.simReader.getBlockheadCount();
+        if (bhCount > 0) {
+          const bh = this.simReader.getBlockhead(0);
+          const worldX = bh[0] + this.cachedOriginCx * CHUNK_W;
+          const worldY = bh[1] + this.cachedOriginCy * CHUNK_H;
+
           if (this.interpInit) {
             this.prevWorldX = this.curWorldX;
             this.prevWorldY = this.curWorldY;
@@ -606,26 +616,24 @@ export class BlockheadsRenderer {
             this.curWorldY = worldY;
             this.interpInit = true;
           }
-          this.lastTick = tick;
-          this.tickArrivalTime = now;
         }
-        // Compute alpha from wall-clock time since the tick arrived.
-        // Allow extrapolation past alpha=1.0 (up to 1.5) using the per-tick
-        // velocity. This keeps motion smooth when the sim runs slightly late
-        // (setTimeout jitter) — without it, the player would "stop" for a few
-        // frames while waiting for the next tick, causing micro-stutters.
-        const timeSinceTick = now - this.tickArrivalTime;
-        const alpha = Math.min(1.5, Math.max(0, timeSinceTick / TICK_MS));
-        if (alpha <= 1) {
-          this.interpWorldX = this.prevWorldX + (this.curWorldX - this.prevWorldX) * alpha;
-          this.interpWorldY = this.prevWorldY + (this.curWorldY - this.prevWorldY) * alpha;
-        } else {
-          // Extrapolate: continue at the same velocity past the current tick
-          const vx = this.curWorldX - this.prevWorldX;
-          const vy = this.curWorldY - this.prevWorldY;
-          this.interpWorldX = this.curWorldX + vx * (alpha - 1);
-          this.interpWorldY = this.curWorldY + vy * (alpha - 1);
-        }
+      }
+      // Compute alpha from wall-clock time since the tick arrived.
+      // Allow extrapolation past alpha=1.0 (up to 1.5) using the per-tick
+      // velocity. This keeps motion smooth when the sim runs slightly late
+      // (setTimeout jitter) — without it, the player would "stop" for a few
+      // frames while waiting for the next tick, causing micro-stutters.
+      const timeSinceTick = now - this.tickArrivalTime;
+      const alpha = Math.min(1.5, Math.max(0, timeSinceTick / TICK_MS));
+      if (alpha <= 1) {
+        this.interpWorldX = this.prevWorldX + (this.curWorldX - this.prevWorldX) * alpha;
+        this.interpWorldY = this.prevWorldY + (this.curWorldY - this.prevWorldY) * alpha;
+      } else {
+        // Extrapolate: continue at the same velocity past the current tick
+        const vx = this.curWorldX - this.prevWorldX;
+        const vy = this.curWorldY - this.prevWorldY;
+        this.interpWorldX = this.curWorldX + vx * (alpha - 1);
+        this.interpWorldY = this.curWorldY + vy * (alpha - 1);
       }
     }
 
@@ -635,8 +643,10 @@ export class BlockheadsRenderer {
     // coords so chunk-origin shifts don't cause teleportation). Each frame
     // we convert the world position to active-grid coords for rendering.
     if (this.simReader) {
-      const originCx = this.simReader.getOriginCx();
-      const originCy = this.simReader.getOriginCy();
+      // Use cached origin (read atomically with the tick) to avoid
+      // race conditions with the worker updating the SAB mid-frame.
+      const originCx = this.cachedOriginCx;
+      const originCy = this.cachedOriginCy;
 
       if (!this.camera.detached) {
         // Attached: follow the player
@@ -692,6 +702,11 @@ export class BlockheadsRenderer {
       }
     }
 
+    // Origin for texture stability (uses cached origin to stay consistent
+    // with the grid data).
+    const originX = this.cachedOriginCx * CHUNK_W;
+    const originY = this.cachedOriginCy * CHUNK_H;
+
     // Ensure depth texture matches canvas size (device pixels, not CSS)
     this.blockGridPass.ensureDepthTexture(this.canvas.width, this.canvas.height);
 
@@ -699,8 +714,6 @@ export class BlockheadsRenderer {
     const mineX = this.simReader ? this.simReader.getMineX() : -1;
     const mineY = this.simReader ? this.simReader.getMineY() : -1;
     const mineDamage = this.simReader ? this.simReader.getMineDamage() : 0;
-    const originX = this.simReader ? this.simReader.getOriginCx() * CHUNK_W : 0;
-    const originY = this.simReader ? this.simReader.getOriginCy() * CHUNK_H : 0;
     this.blockGridPass.updateCamera(
       this.camera.x,
       this.camera.y,
@@ -721,10 +734,9 @@ export class BlockheadsRenderer {
       if (bhCount > 0) {
         const bh = this.simReader.getBlockhead(0);
         // Convert interpolated world position → active-grid coords for rendering
-        const originCx = this.simReader.getOriginCx();
-        const originCy = this.simReader.getOriginCy();
-        const localX = this.interpWorldX - originCx * CHUNK_W;
-        const localY = this.interpWorldY - originCy * CHUNK_H;
+        // Use cached origin for consistency with the grid data.
+        const localX = this.interpWorldX - this.cachedOriginCx * CHUNK_W;
+        const localY = this.interpWorldY - this.cachedOriginCy * CHUNK_H;
         this.stickmanPass.update3D(
           localX, localY,
           bh[4], // facing
