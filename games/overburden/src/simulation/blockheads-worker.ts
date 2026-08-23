@@ -11,7 +11,7 @@ import { getBlockDef } from "../shared/block-registry";
 import {
     ACTIVE_GRID_H,
     ACTIVE_GRID_W,
-    BLOCK_AIR, BLOCK_LEAVES, BLOCK_WOOD,
+    BLOCK_AIR,
     SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
 import { Inventory } from "../shared/inventory";
@@ -21,6 +21,7 @@ import {
     SimBufferWriter,
 } from "../shared/sim-buffer";
 import { getStationByBlock, getStationByType } from "../shared/stations";
+import { isTreeBlock, isWoodBlock } from "../shared/tree-species";
 import type { BlockheadState } from "../shared/types";
 import {
     animStateToCode,
@@ -32,10 +33,12 @@ import {
     createBlockhead, createDefaultInput, getMineTarget, updateBlockhead,
     type BlockheadInput
 } from "./blockhead";
-import { loadAllChunks, saveDirtyChunks } from "./chunk-storage";
+import { deleteSave, loadAllChunks, saveDirtyChunks } from "./chunk-storage";
 import { initFluidSim, stepFluidSim } from "./fluid-sim";
 import { recomputeLight } from "./light-sim";
 import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
+import { fellTree } from "./tree-fell";
+import { stepVineGrowth } from "./vine-sim";
 
 const events = exposeEvents();
 
@@ -50,6 +53,7 @@ let frameCount = 0;
 let fpsTimer = 0;
 let fps = 0;
 let lastSaveTime = 0;
+let autoSaveInFlight = false; // guards against overlapping auto-saves
 const SAVE_INTERVAL_MS = 5000; // save dirty chunks every 5 seconds
 let speedMultiplier = 1;
 let stepOnce = false;
@@ -291,6 +295,137 @@ function stepStations(dt: number): void {
   }
 }
 
+/**
+ * Set up a fresh world + blockhead + inventory.
+ *
+ * Called from `init` (first boot, optionally loading saved chunks from OPFS)
+ * and from `resetGame` (wipe everything, no saved chunks).
+ *
+ * Assumes `writer` / `inputInt32` / `inputF32` are already initialised.
+ * Resets all per-game state (blockheads, inventories, task queues, station
+ * states, mining damage, tick/frame counters, light dirty flag).
+ */
+async function setupWorld(loadSavedChunks: boolean): Promise<void> {
+  // Create the world with a fixed seed for now (will be configurable later)
+  const seed = 99999;
+  world = new BlockWorld(seed);
+
+  if (loadSavedChunks) {
+    // Load saved chunks from OPFS (restores mining/placing changes)
+    const savedChunks = await loadAllChunks();
+    if (savedChunks.size > 0) {
+      world.savedChunks = savedChunks;
+      console.log(`[blockheads-worker] Loaded ${savedChunks.size} saved chunks from OPFS`);
+    }
+  }
+
+  // Initial focus at world center, surface level
+  world.setFocus(WORLD_W / 2, SURFACE_Y);
+  world.checkRebuild();
+  world.rebuildActiveGrid();
+  // Mark light dirty so the first frame computes the initial light field.
+  lightDirty = true;
+
+  // Initialize fluid simulation
+  initFluidSim(world.activeForeground);
+
+  // Reset all per-game state
+  blockheads = [];
+  inventories = [];
+  input = createDefaultInput();
+  mineDamage.clear();
+  mineTarget = null;
+  mineCooldown = 0;
+  taskQueues.length = 0;
+  stationStates.clear();
+  nextJobId = 1;
+  tickCount = 0;
+  frameCount = 0;
+  speedMultiplier = 1;
+  lastLightDaylight = -1;
+
+  // Create the first blockhead at the surface.
+  // Scan X positions near the center to find a spawn point that:
+  // 1. Has solid ground (not wood/leaves/water)
+  // 2. Has clear space above the ground for the blockhead body (3 wide × 7 tall)
+  let bhX = -1;
+  let surfaceGridY = Math.floor(ACTIVE_GRID_H / 2) - 10; // fallback
+  const centerX = Math.floor(ACTIVE_GRID_W / 2);
+  // Search outward from center, trying each X position
+  for (let offset = 0; offset < 80 && bhX < 0; offset++) {
+    for (const x of [centerX + offset, centerX - offset]) {
+      if (x < 2 || x > ACTIVE_GRID_W - 3) continue;
+      // Find ground surface at this X (first solid non-tree block from top)
+      let groundY = -1;
+      for (let y = 0; y < ACTIVE_GRID_H; y++) {
+        const blockId = world.activeForeground[y * ACTIVE_GRID_W + x] & 0xFF;
+        if (blockId === BLOCK_AIR || blockId === 0) continue;
+        const def = getBlockDef(blockId);
+        if (!def || def.category !== "solid") continue;
+        if (isTreeBlock(blockId)) continue;
+        groundY = y;
+        break;
+      }
+      if (groundY < 0) continue;
+      // Check that the spawn area (x..x+BH_W-1, groundY-BH_H..groundY-1) is clear
+      const spawnTop = groundY - BH_H;
+      let clear = true;
+      for (let cy = spawnTop; cy < groundY && clear; cy++) {
+        if (cy < 0) { clear = false; break; }
+        for (let cx = x; cx < x + BH_W && clear; cx++) {
+          const blockId = world.activeForeground[cy * ACTIVE_GRID_W + cx] & 0xFF;
+          const def = getBlockDef(blockId);
+          if (def && def.category === "solid") {
+            clear = false; // blocked by a solid block (tree, etc.)
+          }
+        }
+      }
+      if (clear) {
+        bhX = x;
+        surfaceGridY = spawnTop;
+        break;
+      }
+    }
+  }
+  if (bhX < 0) {
+    // Fallback: use center and hope for the best
+    bhX = centerX;
+    // Force-clear the spawn area by removing any solid blocks
+    for (let cy = surfaceGridY; cy < surfaceGridY + BH_H; cy++) {
+      if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
+      for (let cx = bhX; cx < bhX + BH_W; cx++) {
+        if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
+        world.activeForeground[cy * ACTIVE_GRID_W + cx] = BLOCK_AIR;
+      }
+    }
+  }
+  const bh = createBlockhead(bhX, surfaceGridY);
+  bh.id = 0;
+  blockheads = [bh];
+
+  // Starting inventory — a few torches + ladders so the player can light
+  // underground and climb back out of shallow holes immediately.
+  const inv = new Inventory();
+  inv.add("torch", 8);
+  inv.add("ladder", 8);
+  inventories = [inv];
+  taskQueues.length = 0;
+  taskQueues.push([]);
+
+  // Write initial SAB state so the renderer has valid data on the first frame
+  if (world && writer) {
+    writer.writeGrid(world);
+    writeBlockheads();
+    writer.writeHeader(
+      0,
+      world.getActiveOriginCx(),
+      world.getActiveOriginCy(),
+      blockheads.length,
+      15, // full daylight at start
+    );
+  }
+}
+
 expose({
   async init(sab: SharedArrayBuffer): Promise<void> {
     sabRef = sab;
@@ -298,113 +433,48 @@ expose({
     inputInt32 = writer.inputInt32;
     inputF32 = writer.inputF32;
 
-    // Create the world with a fixed seed for now (will be configurable later)
-    const seed = 99999;
-    world = new BlockWorld(seed);
-
-    // Load saved chunks from OPFS (restores mining/placing changes)
-    const savedChunks = await loadAllChunks();
-    if (savedChunks.size > 0) {
-      world.savedChunks = savedChunks;
-      console.log(`[blockheads-worker] Loaded ${savedChunks.size} saved chunks from OPFS`);
-    }
-
-    // Initial focus at world center, surface level
-    world.setFocus(WORLD_W / 2, SURFACE_Y);
-    world.checkRebuild();
-    world.rebuildActiveGrid();
-    // Mark light dirty so the first frame computes the initial light field.
-    lightDirty = true;
-
-    // Initialize fluid simulation
-    initFluidSim(world.activeForeground);
-
-    // Create the first blockhead at the surface.
-    // Scan X positions near the center to find a spawn point that:
-    // 1. Has solid ground (not wood/leaves/water)
-    // 2. Has clear space above the ground for the blockhead body (3 wide × 7 tall)
-    let bhX = -1;
-    let surfaceGridY = Math.floor(ACTIVE_GRID_H / 2) - 10; // fallback
-    const centerX = Math.floor(ACTIVE_GRID_W / 2);
-    // Search outward from center, trying each X position
-    for (let offset = 0; offset < 80 && bhX < 0; offset++) {
-      for (const x of [centerX + offset, centerX - offset]) {
-        if (x < 2 || x > ACTIVE_GRID_W - 3) continue;
-        // Find ground surface at this X (first solid non-tree block from top)
-        let groundY = -1;
-        for (let y = 0; y < ACTIVE_GRID_H; y++) {
-          const blockId = world.activeForeground[y * ACTIVE_GRID_W + x] & 0xFF;
-          if (blockId === BLOCK_AIR || blockId === 0) continue;
-          const def = getBlockDef(blockId);
-          if (!def || def.category !== "solid") continue;
-          if (blockId === BLOCK_WOOD || blockId === BLOCK_LEAVES) continue;
-          groundY = y;
-          break;
-        }
-        if (groundY < 0) continue;
-        // Check that the spawn area (x..x+BH_W-1, groundY-BH_H..groundY-1) is clear
-        const spawnTop = groundY - BH_H;
-        let clear = true;
-        for (let cy = spawnTop; cy < groundY && clear; cy++) {
-          if (cy < 0) { clear = false; break; }
-          for (let cx = x; cx < x + BH_W && clear; cx++) {
-            const blockId = world.activeForeground[cy * ACTIVE_GRID_W + cx] & 0xFF;
-            const def = getBlockDef(blockId);
-            if (def && def.category === "solid") {
-              clear = false; // blocked by a solid block (tree, etc.)
-            }
-          }
-        }
-        if (clear) {
-          bhX = x;
-          surfaceGridY = spawnTop;
-          break;
-        }
-      }
-    }
-    if (bhX < 0) {
-      // Fallback: use center and hope for the best
-      bhX = centerX;
-      // Force-clear the spawn area by removing any solid blocks
-      for (let cy = surfaceGridY; cy < surfaceGridY + BH_H; cy++) {
-        if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
-        for (let cx = bhX; cx < bhX + BH_W; cx++) {
-          if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
-          world.activeForeground[cy * ACTIVE_GRID_W + cx] = BLOCK_AIR;
-        }
-      }
-    }
-    const bh = createBlockhead(bhX, surfaceGridY);
-    bh.id = 0;
-    blockheads = [bh];
-
-    // Starting inventory — a few torches + ladders so the player can light
-    // underground and climb back out of shallow holes immediately.
-    const inv = new Inventory();
-    inv.add("torch", 8);
-    inv.add("ladder", 8);
-    inventories = [inv];
-    taskQueues.length = 0;
-    taskQueues.push([]);
-
-    // Write initial SAB state so the renderer has valid data on the first frame
-    if (world && writer) {
-      writer.writeGrid(world);
-      writeBlockheads();
-      writer.writeHeader(
-        0,
-        world.getActiveOriginCx(),
-        world.getActiveOriginCy(),
-        blockheads.length,
-        15, // full daylight at start
-      );
-    }
+    await setupWorld(true);
 
     running = true;
     paused = false;
     lastTick = performance.now();
     events.emit("ready", {});
     loop();
+  },
+
+  /**
+   * Reset the whole game: delete the OPFS save, re-create the world from
+   * scratch (no saved chunks), reset the blockhead + inventory + task queues,
+   * and write fresh state to the SAB. The render loop keeps running.
+   */
+  async resetGame(): Promise<{ ok: boolean; error?: string }> {
+    // Pause the sim while we tear down + rebuild
+    const wasRunning = running;
+    paused = true;
+
+    // Delete the OPFS save so the next boot starts fresh too
+    try {
+      await deleteSave();
+    } catch (e) {
+      console.warn("[blockheads-worker] resetGame: deleteSave failed:", e);
+      // Continue anyway — we can still reset the in-memory state
+    }
+
+    // Rebuild the world from scratch (no saved chunks)
+    try {
+      await setupWorld(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[blockheads-worker] resetGame: setupWorld failed:", e);
+      return { ok: false, error: msg };
+    }
+
+    // Resume
+    running = wasRunning;
+    paused = false;
+    lastTick = performance.now();
+    tickAccumulator = 0;
+    return { ok: true };
   },
 
   pause(): void {
@@ -873,6 +943,39 @@ function processMining(dt: number): void {
 
     // When damage exceeds hardness, break the block
     if (dmg >= hardness) {
+      // Tree felling: if the player mined a wood block in the background
+      // (a tree trunk), cut down the entire tree — all connected wood +
+      // leaf blocks in the background, plus any vines climbing the tree.
+      // Each removed block drops its items as if mined individually.
+      if (miningBackground && isWoodBlock(target.blockId)) {
+        const felled = fellTree(
+          world.activeBackground, ACTIVE_GRID_W, ACTIVE_GRID_H,
+          target.x, target.y,
+        );
+        const inv = inventories[0];
+        for (const cell of felled) {
+          const cellDef = getBlockDef(cell.blockId);
+          if (!cellDef) continue;
+          world.setActiveBackground(cell.x, cell.y, BLOCK_AIR);
+          // Drop items for each felled block (deterministic rolls)
+          if (inv) {
+            for (const drop of cellDef.drops) {
+              const roll = pseudoRandom(cell.x, cell.y, tickCount, drop.itemId);
+              if (roll <= drop.chance) {
+                inv.add(drop.itemId, drop.count);
+              }
+            }
+          }
+        }
+        lightDirty = true;
+        mineDamage.delete(key);
+        mineTarget = null;
+        // Stop mining — the whole tree is gone, no block to continue on.
+        input.mineX = -1;
+        input.mineY = -1;
+        return;
+      }
+
       if (miningBackground) {
         world.setActiveBackground(target.x, target.y, BLOCK_AIR);
       } else {
@@ -1151,6 +1254,16 @@ async function loop(): Promise<void> {
           // Step fluid simulation (CA water/lava flow)
           stepFluidSim(world.activeForeground, world.currentTick);
 
+          // Step vine growth (vines climb trees/walls/trellis over time).
+          // Runs every VINE_GROWTH_INTERVAL ticks; marks light dirty if any
+          // vine extended into a new cell.
+          if (stepVineGrowth(
+            world.activeForeground, world.activeBackground,
+            world.currentTick, ACTIVE_GRID_W, ACTIVE_GRID_H,
+          )) {
+            lightDirty = true;
+          }
+
           // Day/night cycle: 10-minute day (18000 ticks at 30tps).
           // Daylight follows a sine wave: starts at noon (full daylight),
           // transitions to night, then back to day.
@@ -1224,12 +1337,21 @@ async function loop(): Promise<void> {
       fpsTimer = 0;
     }
 
-    // Periodically save dirty chunks to OPFS
-    if (world && now - lastSaveTime >= SAVE_INTERVAL_MS) {
+    // Periodically save dirty chunks to OPFS.
+    // Guard against overlapping saves: if the previous save hasn't finished
+    // yet (OPFS can be slow), skip this cycle rather than risk two writes
+    // racing — the last writer would win and could drop chunks the other
+    // write had already persisted.
+    if (world && !autoSaveInFlight && now - lastSaveTime >= SAVE_INTERVAL_MS) {
       lastSaveTime = now;
-      saveDirtyChunks(world.allChunks()).catch((e) => {
-        console.warn("[blockheads-worker] Auto-save failed:", e);
-      });
+      autoSaveInFlight = true;
+      saveDirtyChunks(world.allChunks())
+        .catch((e) => {
+          console.warn("[blockheads-worker] Auto-save failed:", e);
+        })
+        .finally(() => {
+          autoSaveInFlight = false;
+        });
     }
 
     setTimeout(loop, 0);

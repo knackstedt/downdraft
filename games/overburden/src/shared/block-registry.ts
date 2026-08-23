@@ -34,6 +34,9 @@ import {
     BLOCK_TIN_ORE,
     BLOCK_TOOL_BENCH,
     BLOCK_TORCH,
+    BLOCK_TRELLIS,
+    BLOCK_VINE_GRAPE,
+    BLOCK_VINE_KIWI,
     BLOCK_WATER,
     BLOCK_WOOD,
     BLOCK_WOODWORK_BENCH,
@@ -45,8 +48,9 @@ import {
     MASK_LIGHT_EMIT,
     MASK_LIQUID, MASK_MINEABLE,
     MASK_PLACEABLE_BG,
-    MASK_SOLID,
+    MASK_SOLID
 } from "./constants";
+import { TREE_SPECIES } from "./tree-species";
 import type { BlockDef } from "./types";
 
 // --- Block definitions ---
@@ -327,12 +331,115 @@ const DEFS: BlockDef[] = [
     placeable: true, backwallProjection: false,
     isStation: false,
   },
+
+  // --- Trellis (placeable support for vines, layer 1) ---
+  {
+    id: BLOCK_TRELLIS, name: "Trellis", category: "special",
+    hardness: 2, color: [170, 130, 80], textureVariant: 32,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
+    fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "trellis", count: 1, chance: 1 }],
+    placeable: true, backwallProjection: false,
+    isStation: false,
+  },
+
+  // --- Vines (climbable, grow on trees/walls/trellis) ---
+  {
+    id: BLOCK_VINE_KIWI, name: "Kiwi Vine", category: "special",
+    hardness: 1, color: [90, 130, 60], textureVariant: 33,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
+    fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "kiwi", count: 1, chance: 0.06 }],
+    placeable: true, backwallProjection: false,
+    isStation: false,
+  },
+  {
+    id: BLOCK_VINE_GRAPE, name: "Grape Vine", category: "special",
+    hardness: 1, color: [110, 90, 130], textureVariant: 34,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
+    fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "grape", count: 1, chance: 0.08 }],
+    placeable: true, backwallProjection: false,
+    isStation: false,
+  },
 ];
+
+// --- Per-species wood + leaf block definitions ---
+// Generated from TREE_SPECIES so each species gets a distinct palette color.
+// Wood blocks all drop the generic "wood" item (which places BLOCK_WOOD);
+// the species distinction is visual at generation time. Leaf blocks drop
+// their species' fruit (with chance) + a stick.
+let _textureVariant = 35;
+const SPECIES_DEFS: BlockDef[] = [];
+for (const sp of TREE_SPECIES) {
+  // Wood: brownish, varies slightly per species.
+  const woodDef: BlockDef = {
+    id: sp.woodBlock, name: `${sp.name} Wood`, category: "solid",
+    hardness: 8, color: spWoodColor(sp.id), textureVariant: _textureVariant++,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
+    fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "wood", count: 1, chance: 1 }],
+    placeable: false, backwallProjection: true,
+    isStation: false,
+  };
+  // Leaves: species-tinted green (cherry = pink blossoms, spruce = dark, etc.).
+  const leafDrops = sp.fruitItem
+    ? [
+        { itemId: sp.fruitItem, count: 1, chance: sp.fruitChance },
+        { itemId: "stick", count: 1, chance: 0.5 },
+      ]
+    : [{ itemId: "stick", count: 1, chance: 0.5 }];
+  const leafDef: BlockDef = {
+    id: sp.leafBlock, name: `${sp.name} Leaves`, category: "solid",
+    hardness: 2, color: spLeafColor(sp.id), textureVariant: _textureVariant++,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
+    fuelValue: 1, liquidFlow: 0, drops: leafDrops,
+    placeable: false, backwallProjection: false,
+    isStation: false,
+  };
+  SPECIES_DEFS.push(woodDef, leafDef);
+}
+
+/** Per-species wood color (RGB 0-255). */
+function spWoodColor(id: string): [number, number, number] {
+  switch (id) {
+    case "coconut": return [120, 90, 60];
+    case "maple": return [150, 110, 70];
+    case "orange": return [145, 105, 65];
+    case "apple": return [140, 100, 60];
+    case "lemon": return [150, 120, 70];
+    case "lime": return [135, 115, 65];
+    case "banana": return [130, 140, 70]; // greenish pseudo-stem
+    case "spruce": return [90, 70, 50]; // dark
+    case "pear": return [145, 115, 75];
+    case "cherry": return [160, 110, 80];
+    case "pomegranate": return [130, 95, 60];
+    case "walnut": return [100, 75, 55]; // dark
+    case "hazelnut": return [150, 115, 80];
+    default: return [140, 100, 60];
+  }
+}
+
+/** Per-species leaf color (RGB 0-255). */
+function spLeafColor(id: string): [number, number, number] {
+  switch (id) {
+    case "coconut": return [50, 120, 70]; // palm fronds
+    case "maple": return [70, 140, 55];
+    case "orange": return [60, 135, 50];
+    case "apple": return [65, 130, 55];
+    case "lemon": return [70, 145, 60];
+    case "lime": return [80, 160, 65];
+    case "banana": return [90, 150, 60];
+    case "spruce": return [35, 80, 45]; // dark needles
+    case "pear": return [60, 125, 60];
+    case "cherry": return [230, 170, 200]; // pink blossoms
+    case "pomegranate": return [75, 130, 55];
+    case "walnut": return [55, 110, 50];
+    case "hazelnut": return [80, 135, 60];
+    default: return [60, 130, 50];
+  }
+}
 
 // --- Lookup tables ---
 const byId = new Map<number, BlockDef>();
 const byName = new Map<string, BlockDef>();
-for (const def of DEFS) {
+for (const def of [...DEFS, ...SPECIES_DEFS]) {
   byId.set(def.id, def);
   byName.set(def.name, def);
 }
@@ -346,7 +453,7 @@ export function getBlockByName(name: string): BlockDef | undefined {
 }
 
 export function getAllBlocks(): BlockDef[] {
-  return DEFS;
+  return [...DEFS, ...SPECIES_DEFS];
 }
 
 // --- Mask computation ---
@@ -371,7 +478,7 @@ export function computeMask(def: BlockDef): number {
 
 // Precomputed mask table (indexed by block ID)
 const maskTable = new Uint16Array(256);
-for (const def of DEFS) {
+for (const def of [...DEFS, ...SPECIES_DEFS]) {
   maskTable[def.id] = computeMask(def);
 }
 
@@ -383,7 +490,7 @@ export function getBlockMask(id: number): number {
 // Returns a Uint8Array of RGBA colors indexed by block ID (256 blocks × 4 bytes).
 export function getBlockPalette(): Uint8Array {
   const palette = new Uint8Array(256 * 4); // RGBA per block (0-255)
-  for (const def of DEFS) {
+  for (const def of [...DEFS, ...SPECIES_DEFS]) {
     const offset = def.id * 4;
     palette[offset] = def.color[0];
     palette[offset + 1] = def.color[1];

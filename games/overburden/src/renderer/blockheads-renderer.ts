@@ -10,13 +10,14 @@ import { GPUDeviceManager } from "@downdraft/core";
 import { getBlockDef } from "../shared/block-registry";
 import {
     ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LADDER, BLOCK_LEAVES,
+    BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LADDER,
     BLOCK_ROPE, BLOCK_SAND, BLOCK_SCAFFOLDING, BLOCK_STONE, BLOCK_TORCH,
     BLOCK_WOOD,
     CHUNK_H, CHUNK_W, TICK_MS
 } from "../shared/constants";
 import { getItemDef } from "../shared/items";
 import { SimBufferReader } from "../shared/sim-buffer";
+import { isTreeBlock } from "../shared/tree-species";
 import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
 import { BlockGridPass3D } from "./block-grid-pass-3d";
 import { Camera } from "./camera";
@@ -388,6 +389,37 @@ export class BlockheadsRenderer {
     await this.workerHost?.shutdown();
   }
 
+  /**
+   * Reset the whole game: tell the worker to delete the OPFS save and
+   * re-create the world from scratch, then reset renderer-side state
+   * (camera, task markers, interpolation, hotbar) so the view snaps back
+   * to the fresh spawn point.
+   */
+  async resetGame(): Promise<{ ok: boolean; error?: string }> {
+    if (!this.workerHost) return { ok: false, error: "Worker not started" };
+    const result = await this.workerHost.resetGame();
+    if (!result.ok) return result;
+
+    // Reset renderer-side state to match the fresh world
+    this.taskMarkers.length = 0;
+    this.hotbarBlocks = [...DEFAULT_HOTBAR_BLOCKS];
+    this.lastSimTick = -1;
+    this.cachedOriginCx = 0;
+    this.cachedOriginCy = 0;
+    this.camWorldInit = false;
+    this.interpInit = false;
+    this.lastTick = -1;
+    // Re-center camera on the spawn point (active grid center, surface level)
+    this.camera.detached = false;
+    this.camera.endPan();
+    this.camera.setCenter(ACTIVE_GRID_W / 2, ACTIVE_GRID_H / 2);
+    // Reset input state (clear any held keys / mouse buttons)
+    if (this.input) {
+      this.input.taskMode = false;
+    }
+    return { ok: true };
+  }
+
   private updateInput(): void {
     if (!this.input || !this.simReader) return;
 
@@ -496,7 +528,7 @@ export class BlockheadsRenderer {
         const fgId = this.simReader.foreground[cellIdx] & 0xFF;
         const bgId = this.simReader.background[cellIdx] & 0xFF;
         // Layer 4 (back wall) excludes trees — they render only in layer 3.
-        const bgWallId = (bgId === BLOCK_WOOD || bgId === BLOCK_LEAVES) ? BLOCK_AIR : bgId;
+        const bgWallId = isTreeBlock(bgId) ? BLOCK_AIR : bgId;
         const summarize = (id: number) => {
           if (id === BLOCK_AIR) return null;
           const d = getBlockDef(id);

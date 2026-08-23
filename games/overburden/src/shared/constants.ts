@@ -75,6 +75,48 @@ export const BLOCK_TAILOR_BENCH = 31;
 export const BLOCK_COMPOST_BIN = 32;
 export const BLOCK_BED = 33;
 
+// --- Trellis + vines (placeable / climbable) ---
+// Trellis is a foreground support block that vines climb on (layer 1).
+// Vines grow in either plane: background (climbing trees, layer 3) or
+// foreground (climbing walls layer 2 / trellis layer 1).
+export const BLOCK_TRELLIS = 34;
+export const BLOCK_VINE_KIWI = 35;
+export const BLOCK_VINE_GRAPE = 36;
+
+// --- Tree species: wood blocks (trunk) ---
+// One wood block per tree species so each renders with its own palette color.
+// Kiwi & grape are vines (not trees) — they have no wood block.
+export const BLOCK_WOOD_COCONUT = 37;
+export const BLOCK_WOOD_MAPLE = 38;
+export const BLOCK_WOOD_ORANGE = 39;
+export const BLOCK_WOOD_APPLE = 40;
+export const BLOCK_WOOD_LEMON = 41;
+export const BLOCK_WOOD_LIME = 42;
+export const BLOCK_WOOD_BANANA = 43;
+export const BLOCK_WOOD_SPRUCE = 44;
+export const BLOCK_WOOD_PEAR = 45;
+export const BLOCK_WOOD_CHERRY = 46;
+export const BLOCK_WOOD_POMEGRANATE = 47;
+export const BLOCK_WOOD_WALNUT = 48;
+export const BLOCK_WOOD_HAZELNUT = 49;
+
+// --- Tree species: leaf blocks (canopy) ---
+// One leaf block per tree species. Distinct colors (e.g. cherry blossoms
+// are pink, spruce needles are dark green) make species visually distinct.
+export const BLOCK_LEAF_COCONUT = 50;
+export const BLOCK_LEAF_MAPLE = 51;
+export const BLOCK_LEAF_ORANGE = 52;
+export const BLOCK_LEAF_APPLE = 53;
+export const BLOCK_LEAF_LEMON = 54;
+export const BLOCK_LEAF_LIME = 55;
+export const BLOCK_LEAF_BANANA = 56;
+export const BLOCK_LEAF_SPRUCE = 57;
+export const BLOCK_LEAF_PEAR = 58;
+export const BLOCK_LEAF_CHERRY = 59;
+export const BLOCK_LEAF_POMEGRANATE = 60;
+export const BLOCK_LEAF_WALNUT = 61;
+export const BLOCK_LEAF_HAZELNUT = 62;
+
 // --- Mask flags (bitfield for the mask plane) ---
 export const MASK_SOLID = 1 << 0; // blocks movement
 export const MASK_CLIMBABLE = 1 << 1; // ladder, rope — allows vertical movement

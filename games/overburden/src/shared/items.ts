@@ -30,9 +30,12 @@ import {
     BLOCK_TAILOR_BENCH,
     BLOCK_TOOL_BENCH,
     BLOCK_TORCH,
+    BLOCK_TRELLIS,
+    BLOCK_VINE_GRAPE,
+    BLOCK_VINE_KIWI,
     BLOCK_WOOD,
     BLOCK_WOODWORK_BENCH,
-    BLOCK_WORKBENCH,
+    BLOCK_WORKBENCH
 } from "./constants";
 
 export type ItemCategory = "block" | "material" | "tool" | "food";
@@ -70,6 +73,9 @@ const DEFS: ItemDef[] = [
   { id: "rope", name: "Rope", category: "block", placeBlock: BLOCK_ROPE, maxStack: 64 },
   { id: "scaffolding", name: "Scaffolding", category: "block", placeBlock: BLOCK_SCAFFOLDING, maxStack: 64 },
   { id: "torch", name: "Torch", category: "block", placeBlock: BLOCK_TORCH, maxStack: 64 },
+  { id: "trellis", name: "Trellis", category: "block", placeBlock: BLOCK_TRELLIS, maxStack: 64 },
+  { id: "vine_kiwi", name: "Kiwi Vine", category: "block", placeBlock: BLOCK_VINE_KIWI, maxStack: 64 },
+  { id: "vine_grape", name: "Grape Vine", category: "block", placeBlock: BLOCK_VINE_GRAPE, maxStack: 64 },
 
   // --- Station items (placeable, maxStack 1) ---
   { id: "workbench", name: "Workbench", category: "block", placeBlock: BLOCK_WORKBENCH, maxStack: 1 },
@@ -123,6 +129,18 @@ const DEFS: ItemDef[] = [
 
   // --- Food ---
   { id: "apple", name: "Apple", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 10 },
+  { id: "coconut", name: "Coconut", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 12 },
+  { id: "orange", name: "Orange", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 10 },
+  { id: "lemon", name: "Lemon", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
+  { id: "lime", name: "Lime", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
+  { id: "banana", name: "Banana", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 12 },
+  { id: "pear", name: "Pear", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 10 },
+  { id: "cherry", name: "Cherry", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 6 },
+  { id: "pomegranate", name: "Pomegranate", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 14 },
+  { id: "walnut", name: "Walnut", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
+  { id: "hazelnut", name: "Hazelnut", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
+  { id: "kiwi", name: "Kiwi", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 10 },
+  { id: "grape", name: "Grape", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
   { id: "raw_meat", name: "Raw Meat", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 5 },
   { id: "cooked_meat", name: "Cooked Meat", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 25 },
   { id: "bread", name: "Bread", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 20 },
