@@ -88,6 +88,7 @@ function isSolid(packed: number): boolean {
  * @param bh        Blockhead state (position is in active-grid coords)
  * @param task      Current task
  * @param fg        Active grid foreground
+ * @param bg        Active grid background
  * @param originCx  Active grid origin chunk X (for world↔active coord conversion)
  * @param originCy  Active grid origin chunk Y
  * @param dt        Delta time (seconds)
@@ -97,6 +98,7 @@ export function executeTask(
   bh: BlockheadState,
   task: Task,
   fg: Uint16Array,
+  bg: Uint16Array,
   originCx: number,
   originCy: number,
   dt: number,
@@ -224,8 +226,9 @@ export function executeTask(
       task.status = "failed";
       return null;
     }
-    const blockId = getBlockFromPacked(fg[ty * ACTIVE_GRID_W + tx]);
-    if (blockId === BLOCK_AIR) {
+    const fgBlock = getBlockFromPacked(fg[ty * ACTIVE_GRID_W + tx]);
+    const bgBlock = getBlockFromPacked(bg[ty * ACTIVE_GRID_W + tx]);
+    if (fgBlock === BLOCK_AIR && bgBlock === BLOCK_AIR) {
       task.status = "done";
       return null;
     }

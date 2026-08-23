@@ -1020,7 +1020,7 @@ async function loop(): Promise<void> {
             if (queue.length > 0) {
               const current = queue[0];
               const taskInput = executeTask(
-                blockheads[0], current, world.activeForeground,
+                blockheads[0], current, world.activeForeground, world.activeBackground,
                 world.getActiveOriginCx(), world.getActiveOriginCy(),
                 1 / TICK_RATE,
               );

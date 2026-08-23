@@ -19,10 +19,10 @@ struct Uniforms {
 struct Marker {
   gridX : f32,
   gridY : f32,
+  z : f32,
   colorR : f32,
   colorG : f32,
   colorB : f32,
-  _pad : f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -47,7 +47,7 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
     vec4f(1.0, 1.0, 1.0, 1.0),
   );
   let c = corners[vi];
-  let worldPos = vec4f(marker.gridX + c.x, marker.gridY + c.y, 0.05, 1.0);
+  let worldPos = vec4f(marker.gridX + c.x, marker.gridY + c.y, marker.z, 1.0);
   var out : VsOut;
   out.pos = uniforms.viewProj * worldPos;
   out.color = vec3f(marker.colorR, marker.colorG, marker.colorB);
@@ -78,6 +78,7 @@ const MARKER_STRIDE = 6 * 4;
 export interface MarkerData {
   gridX: number;
   gridY: number;
+  z: number;
   color: [number, number, number];
 }
 
@@ -171,10 +172,10 @@ export class TaskMarkerPass {
       const m = markers[i];
       data[i * 6 + 0] = m.gridX;
       data[i * 6 + 1] = m.gridY;
-      data[i * 6 + 2] = m.color[0];
-      data[i * 6 + 3] = m.color[1];
-      data[i * 6 + 4] = m.color[2];
-      data[i * 6 + 5] = 0;
+      data[i * 6 + 2] = m.z;
+      data[i * 6 + 3] = m.color[0];
+      data[i * 6 + 4] = m.color[1];
+      data[i * 6 + 5] = m.color[2];
     }
     this.device.queue.writeBuffer(this.markerBuffer, 0, data);
     this.markerCount = count;

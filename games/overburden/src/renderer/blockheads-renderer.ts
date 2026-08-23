@@ -730,11 +730,28 @@ export class BlockheadsRenderer {
 
     // Update task markers (convert active-grid markers to render data)
     if (this.taskMarkerPass && this.blockGridPass) {
-      const markerData: MarkerData[] = this.taskMarkers.map((m) => ({
-        gridX: m.gridX,
-        gridY: m.gridY,
-        color: m.action === "mine" ? [0.91, 0.30, 0.24] : [0.20, 0.60, 0.86],
-      }));
+      const W = ACTIVE_GRID_W;
+      const fg = this.simReader?.foreground;
+      const bg = this.simReader?.background;
+      const markerData: MarkerData[] = this.taskMarkers.map((m) => {
+        // Place marker in front of whatever layer has content at this cell.
+        // Cube front face is at Z+1 (local Z=1), so marker goes at Z+1.05.
+        let z = -0.95; // default: in front of layer 3 (Z=-2, front face at Z=-1)
+        if (fg) {
+          const idx = m.gridY * W + m.gridX;
+          if (idx >= 0 && idx < fg.length && (fg[idx] & 0xFF) !== 0) {
+            z = 1.05; // in front of layer 1 (Z=0, front face at Z=1)
+          } else if (bg && (bg[idx] & 0xFF) !== 0) {
+            z = -0.95; // in front of layer 3 (Z=-2, front face at Z=-1)
+          }
+        }
+        return {
+          gridX: m.gridX,
+          gridY: m.gridY,
+          z,
+          color: m.action === "mine" ? [0.91, 0.30, 0.24] : [0.20, 0.60, 0.86],
+        };
+      });
       this.taskMarkerPass.update(
         this.blockGridPass.getViewProj(),
         this.camera.canvasW,
