@@ -13,15 +13,19 @@ import { fbm2D, hash2, valueNoise2D } from "@downdraft/core";
 import {
     BLOCK_AIR, BLOCK_BEDROCK, BLOCK_CLAY, BLOCK_COAL_ORE, BLOCK_COPPER_ORE,
     BLOCK_DIRT, BLOCK_GOLD_ORE, BLOCK_GRASS, BLOCK_GRAVEL, BLOCK_IRON_ORE,
-    BLOCK_LAVA, BLOCK_LEAVES, BLOCK_SAND,
+    BLOCK_LAVA, BLOCK_SAND,
     BLOCK_STONE,
     BLOCK_TIME_CRYSTAL,
     BLOCK_TIN_ORE,
-    BLOCK_WATER, BLOCK_WOOD,
+    BLOCK_WATER,
     CHUNK_H,
     CHUNK_W,
     MAGMA_Y, SEA_LEVEL, SURFACE_Y, WORLD_H
 } from "../shared/constants";
+import {
+    isTreeBlock, makeTaggedBlock,
+    pickTreeSpecies, pickVineSpecies, VINE_SPECIES,
+} from "../shared/tree-species";
 import type { Chunk } from "../shared/types";
 import { cellIndex } from "./chunk";
 import { setFlow } from "./fluid-sim";
@@ -74,10 +78,24 @@ function oreAt(wx: number, wy: number, seed: number): number {
 }
 
 // --- Tree generation ---
-// Simple trees on the surface. Returns true if a tree trunk starts here.
+// Returns true if a tree trunk starts at this surface cell. 5% chance,
+// only near the surface band. Species is picked separately (deterministic
+// per cell via hash2) so each tree gets one of the 13 species.
 function treeAt(wx: number, wy: number, seed: number): boolean {
   if (wy < SURFACE_Y - 20 || wy > SURFACE_Y + 20) return false;
   return hash2(wx, wy, seed + 999) < 0.05; // 5% chance for more trees
+}
+
+// --- Vine generation ---
+// Vines (kiwi, grape) climb on trees. A vine spawns at the base of a tree
+// with ~12% probability and climbs up the trunk in adjacent empty background
+// cells. Returns the vine block ID to plant at the base, or 0 for none.
+function vineAtBase(wx: number, wy: number, seed: number): number {
+  if (hash2(wx, wy, seed + 7777) < 0.12) {
+    const r = hash2(wx, wy, seed + 8888);
+    return pickVineSpecies(r).block;
+  }
+  return 0;
 }
 
 // --- Main generation ---
@@ -181,6 +199,9 @@ export function generateChunk(chunk: Chunk, seed: number): void {
   // --- Trees ---
   // Plant trees on the surface in the BACKGROUND layer (layer 3).
   // Trees are behind the player (layer 2) but in front of the back wall (layer 4).
+  // Each tree is one of 13 species, each with its own wood + leaf block IDs and
+  // a distinct canopy shape. Vines (kiwi, grape) may spawn at a tree's base and
+  // climb up the trunk in adjacent empty background cells.
   for (let ly = 0; ly < CHUNK_H; ly++) {
     for (let lx = 0; lx < CHUNK_W; lx++) {
       const wx = baseWx + lx;
@@ -191,26 +212,58 @@ export function generateChunk(chunk: Chunk, seed: number): void {
       if (chunk.foreground[idx] !== BLOCK_GRASS) continue;
       if (!treeAt(wx, wy, seed)) continue;
 
-      // Plant a tree in the BACKGROUND: trunk (wood) + canopy (leaves)
-      const trunkHeight = 4 + Math.floor(hash2(wx, wy, seed + 111) * 4); // 4-7 blocks
+      // Pick a species deterministically for this cell.
+      const species = pickTreeSpecies(hash2(wx, wy, seed + 333));
+      const trunkHeight = species.trunkMin +
+        Math.floor(hash2(wx, wy, seed + 111) * (species.trunkMax - species.trunkMin + 1));
+
+      // Per-tree group tag: stored in the upper 8 bits of the background
+      // Uint16 so fellTree flood-fill stays within this tree only. Derived
+      // from the trunk base world coords; never 0 (0 = untagged/old save).
+      // Two adjacent trees always have different wx (≥1 apart), and the
+      // hash mixes wx + wy so even same-X-different-Y trees differ. Trees
+      // 256 blocks apart could collide, but their canopies can't touch.
+      let treeTag = (Math.imul(wx, 31) + Math.imul(wy, 17)) & 0xFF;
+      if (treeTag === 0) treeTag = 1;
+
+      // Trunk: wood blocks growing upward in the background plane.
+      let trunkTopLy = ly;
       for (let h = 1; h <= trunkHeight; h++) {
         const treeY = ly - h;
         if (treeY < 0) break; // tree goes into chunk above (skip for now)
         const treeIdx = cellIndex(lx, treeY);
         if (chunk.background[treeIdx] === BLOCK_AIR) {
-          chunk.background[treeIdx] = BLOCK_WOOD;
+          chunk.background[treeIdx] = makeTaggedBlock(species.woodBlock, treeTag);
+          trunkTopLy = treeY;
         }
       }
-      // Canopy: leaves in a 3×3 blob on top
-      const canopyY = ly - trunkHeight - 1;
-      for (let dy = 0; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const lx2 = lx + dx;
-          const ly2 = canopyY + dy;
-          if (lx2 < 0 || lx2 >= CHUNK_W || ly2 < 0 || ly2 >= CHUNK_H) continue;
-          const leafIdx = cellIndex(lx2, ly2);
-          if (chunk.background[leafIdx] === BLOCK_AIR) {
-            chunk.background[leafIdx] = BLOCK_LEAVES;
+
+      // Canopy: species-specific shape (places leaves into empty bg cells).
+      species.placeCanopy(chunk, lx, ly, trunkTopLy, trunkHeight, species.leafBlock, treeTag);
+
+      // Maybe spawn a vine at the base that climbs up the trunk.
+      const vineBlock = vineAtBase(wx, wy, seed);
+      if (vineBlock !== 0) {
+        const vineSp = VINE_SPECIES.find((v) => v.block === vineBlock)!;
+        // Climb in the background plane, in the empty cell to one side of the
+        // trunk (alternate sides per height so the vine hugs the trunk).
+        const side = hash2(wx, wy, seed + 555) < 0.5 ? -1 : 1;
+        for (let h = 1; h <= vineSp.maxHeight; h++) {
+          const vy = ly - h;
+          if (vy < 0) break;
+          // Alternate the side so the vine weaves up the trunk.
+          const vx = lx + (h % 2 === 0 ? side : -side);
+          if (vx < 0 || vx >= CHUNK_W) continue;
+          const vIdx = cellIndex(vx, vy);
+          // Only grow into empty background cells that are adjacent to the
+          // trunk (the tree's wood) — i.e. the vine is climbing the tree.
+          const trunkIdx = cellIndex(lx, vy);
+          if (chunk.background[vIdx] === BLOCK_AIR &&
+              isTreeBlock(chunk.background[trunkIdx])) {
+            chunk.background[vIdx] = makeTaggedBlock(vineBlock, treeTag);
+          } else if (chunk.background[vIdx] === BLOCK_AIR) {
+            // Trunk ended above — stop climbing (no more support).
+            break;
           }
         }
       }

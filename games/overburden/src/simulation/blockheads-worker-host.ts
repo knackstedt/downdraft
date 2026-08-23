@@ -36,6 +36,7 @@ type TaskOpts = {
 
 type BlockheadsWorkerApi = {
   init(sab: SharedArrayBuffer): Promise<void>;
+  resetGame(): Promise<{ ok: boolean; error?: string }>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   shutdown(): Promise<void>;
@@ -105,6 +106,16 @@ export class BlockheadsWorkerHost {
     });
 
     await this.proxy.proxy.init(this.sab);
+  }
+
+  /**
+   * Reset the whole game: delete the OPFS save, re-create the world from
+   * scratch, reset the blockhead + inventory + task queues. The worker
+   * stays alive — only the simulation state is rebuilt.
+   */
+  async resetGame(): Promise<{ ok: boolean; error?: string }> {
+    if (!this.proxy) return { ok: false, error: "Worker not started" };
+    return this.proxy.proxy.resetGame();
   }
 
   async pause(): Promise<void> {

@@ -206,6 +206,190 @@ function AttributeBar({ label, value, color }: { label: string; value: number; c
   );
 }
 
+// --- Pause menu (with Reset Game option) ---
+const pauseOverlayStyle: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "rgba(0,0,0,0.7)",
+  pointerEvents: "auto",
+  zIndex: 60,
+};
+
+const pausePanelStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+  padding: 24,
+  background: "rgba(20,22,35,0.95)",
+  borderRadius: 8,
+  border: "1px solid rgba(79,195,247,0.3)",
+  fontFamily: "monospace",
+  color: "white",
+  minWidth: 280,
+};
+
+const pauseTitleStyle: React.CSSProperties = {
+  fontSize: 24,
+  fontWeight: "bold",
+  color: "rgba(79,195,247,1)",
+  textAlign: "center",
+  marginBottom: 8,
+};
+
+const pauseButtonBase: React.CSSProperties = {
+  padding: "10px 24px",
+  fontSize: 14,
+  fontFamily: "monospace",
+  color: "white",
+  border: "2px solid rgba(79,195,247,0.5)",
+  borderRadius: 6,
+  cursor: "pointer",
+  transition: "background 0.2s",
+  textAlign: "center",
+};
+
+const pauseButtonStyle: React.CSSProperties = {
+  ...pauseButtonBase,
+  background: "rgba(79,195,247,0.2)",
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  ...pauseButtonBase,
+  background: "rgba(231,76,60,0.2)",
+  borderColor: "rgba(231,76,60,0.5)",
+};
+
+const pauseHintStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: "rgba(255,255,255,0.4)",
+  textAlign: "center",
+  marginTop: 4,
+};
+
+const confirmTextStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "rgba(255,255,255,0.8)",
+  textAlign: "center",
+  lineHeight: 1.5,
+};
+
+function PauseMenu() {
+  const setPaused = useGameStore((s) => s.setPaused);
+  const setTaskMode = useGameStore((s) => s.setTaskMode);
+  const setShowCraftPanel = useGameStore((s) => s.setShowCraftPanel);
+  const setShowInventoryPanel = useGameStore((s) => s.setShowInventoryPanel);
+  const setShowTaskQueue = useGameStore((s) => s.setShowTaskQueue);
+  const setSelectedStation = useGameStore((s) => s.setSelectedStation);
+  const setNotification = useGameStore((s) => s.setNotification);
+  const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  const handleReset = async () => {
+    const { renderer } = useGameStore.getState();
+    if (!renderer) return;
+    setResetting(true);
+    setResetError(null);
+    try {
+      const result = await renderer.resetGame();
+      if (result.ok) {
+        // Clear localStorage inventory save
+        try { localStorage.removeItem("overburden:inventory"); } catch { /* ignore */ }
+        // Reset all UI state to match the fresh world
+        setTaskMode(false);
+        setShowCraftPanel(false);
+        setShowInventoryPanel(false);
+        setShowTaskQueue(false);
+        setSelectedStation(null);
+        setNotification("Game reset — fresh world generated!");
+        // Re-fetch hand-craftable recipes for the new world
+        const host = renderer.getWorkerHost();
+        if (host) {
+          host.getRecipes("hand").then((recipes) => {
+            useGameStore.getState().setRecipes(recipes);
+          });
+          // Refresh inventory from the worker (should be the starting torches + ladders)
+          host.getInventory(0).then((inv) => {
+            useGameStore.getState().setInventory(inv);
+            renderer.setHotbarFromInventory(inv);
+          });
+        }
+        // Resume the game
+        setPaused(false);
+        setConfirming(false);
+      } else {
+        setResetError(result.error ?? "Reset failed");
+      }
+    } catch (e) {
+      setResetError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <div style={pauseOverlayStyle}>
+      <div style={pausePanelStyle} onClick={(e) => e.stopPropagation()}>
+        <div style={pauseTitleStyle}>Paused</div>
+        {!confirming ? (
+          <>
+            <button
+              style={pauseButtonStyle}
+              onClick={() => setPaused(false)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,195,247,0.35)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(79,195,247,0.2)"; }}
+            >
+              Resume
+            </button>
+            <button
+              style={dangerButtonStyle}
+              onClick={() => setConfirming(true)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(231,76,60,0.35)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(231,76,60,0.2)"; }}
+            >
+              Reset Game
+            </button>
+            <div style={pauseHintStyle}>Esc to resume</div>
+          </>
+        ) : (
+          <>
+            <div style={confirmTextStyle}>
+              Are you sure? This will permanently delete your world, inventory,
+              and all progress. A fresh world will be generated.
+            </div>
+            {resetError && (
+              <div style={{ ...confirmTextStyle, color: "rgba(231,76,60,1)" }}>
+                Error: {resetError}
+              </div>
+            )}
+            <button
+              style={dangerButtonStyle}
+              disabled={resetting}
+              onClick={handleReset}
+              onMouseEnter={(e) => { if (!resetting) e.currentTarget.style.background = "rgba(231,76,60,0.35)"; }}
+              onMouseLeave={(e) => { if (!resetting) e.currentTarget.style.background = "rgba(231,76,60,0.2)"; }}
+            >
+              {resetting ? "Resetting..." : "Yes, Reset Everything"}
+            </button>
+            <button
+              style={pauseButtonStyle}
+              disabled={resetting}
+              onClick={() => { setConfirming(false); setResetError(null); }}
+              onMouseEnter={(e) => { if (!resetting) e.currentTarget.style.background = "rgba(79,195,247,0.35)"; }}
+              onMouseLeave={(e) => { if (!resetting) e.currentTarget.style.background = "rgba(79,195,247,0.2)"; }}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Hud() {
   // Selectors: each component only re-renders when its slice changes.
   // Without selectors, any store update (e.g. setFps every 500ms) would
@@ -222,6 +406,7 @@ function Hud() {
   const selectedStation = useGameStore((s) => s.selectedStation);
   const recipes = useGameStore((s) => s.recipes);
   const notification = useGameStore((s) => s.notification);
+  const deterministic = useGameStore((s) => s.deterministic);
   const [cameraDetached, setCameraDetached] = useState(false);
   const [debugNoShadows, setDebugNoShadows] = useState(false);
   const [debugInspect, setDebugInspect] = useState(false);
@@ -343,6 +528,9 @@ function Hud() {
 
       {/* Task queue display (toggle with Q) */}
       {showTaskQueue && <TaskQueueDisplay />}
+
+      {/* Pause menu (Esc) — includes Reset Game option */}
+      {paused && !deterministic && <PauseMenu />}
 
       {/* Notification toast */}
       {notification && (

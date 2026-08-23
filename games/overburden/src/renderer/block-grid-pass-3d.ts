@@ -10,8 +10,8 @@ import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw";
 import { getBlockPalette } from "../shared/block-registry";
 import {
     ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_LEAVES, BLOCK_WOOD,
 } from "../shared/constants";
+import { isTreeBlock } from "../shared/tree-species";
 import { lookAt, multiply, perspective, type Mat4 } from "./matrix";
 
 // --- Cube geometry ---
@@ -452,14 +452,14 @@ export class BlockGridPass3D {
         const packedBg = background[cellIdx];
         const blockId = packedBg & 0xFF;
         if (blockId === 0) continue;
-        if (blockId === BLOCK_WOOD || blockId === BLOCK_LEAVES) continue;
+        if (isTreeBlock(blockId)) continue;
 
         let faceMask = 0;
         faceMask |= FACE_FRONT;
         // Only cull faces against other layer-4 blocks (non-tree background).
         // Trees are in layer 3 (Z=-2), not layer 4 (Z=-3), so they don't occlude
         // back wall faces — depth testing handles inter-layer occlusion.
-        const isWall = (v: number) => v !== 0 && v !== BLOCK_WOOD && v !== BLOCK_LEAVES;
+        const isWall = (v: number) => v !== 0 && !isTreeBlock(v);
         if (y <= 0 || !isWall(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
         if (y >= H - 1 || !isWall(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
         if (x >= W - 1 || !isWall(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;

@@ -327,7 +327,7 @@ fn shouldBlend(a: u32, b: u32) -> bool {
   if (isOreBlock(a) && b == BLK_STONE) { return true; }
   if (isOreBlock(b) && a == BLK_STONE) { return true; }
   // Dirt/stone, grass/dirt, sand/stone, gravel/stone, clay/sand,
-  // clay/stone, clay/gravel, sand/dirt, sand/grass
+  // clay/stone, clay/gravel, sand/dirt, sand/grass, clay/dirt
   if (a == BLK_DIRT && b == BLK_STONE) { return true; }
   if (a == BLK_STONE && b == BLK_DIRT) { return true; }
   if (a == BLK_GRASS && b == BLK_DIRT) { return true; }
@@ -345,11 +345,13 @@ fn shouldBlend(a: u32, b: u32) -> bool {
   if (a == BLK_STONE && b == BLK_CLAY) { return true; }
   if (a == BLK_CLAY && b == BLK_GRAVEL) { return true; }
   if (a == BLK_GRAVEL && b == BLK_CLAY) { return true; }
-  // Sand/dirt, sand/grass
+  // Sand/dirt, sand/grass, clay/dirt
   if (a == BLK_SAND && b == BLK_DIRT) { return true; }
   if (a == BLK_DIRT && b == BLK_SAND) { return true; }
   if (a == BLK_SAND && b == BLK_GRASS) { return true; }
   if (a == BLK_GRASS && b == BLK_SAND) { return true; }
+  if (a == BLK_CLAY && b == BLK_DIRT) { return true; }
+  if (a == BLK_DIRT && b == BLK_CLAY) { return true; }
   // Wood/leaves
   if (a == BLK_WOOD && b == BLK_LEAVES) { return true; }
   if (a == BLK_LEAVES && b == BLK_WOOD) { return true; }
