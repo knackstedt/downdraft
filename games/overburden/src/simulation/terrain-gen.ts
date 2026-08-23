@@ -20,7 +20,7 @@ import {
     BLOCK_WATER, BLOCK_WOOD,
     CHUNK_H,
     CHUNK_W,
-    MAGMA_Y, SEA_LEVEL, SURFACE_Y, WORLD_W
+    MAGMA_Y, SEA_LEVEL, SURFACE_Y, WORLD_H
 } from "../shared/constants";
 import type { Chunk } from "../shared/types";
 import { cellIndex } from "./chunk";
@@ -102,6 +102,8 @@ export function generateChunk(chunk: Chunk, seed: number): void {
         if (wy > SEA_LEVEL) {
           foreground = setFlow(BLOCK_WATER, 7); // full water
         }
+        // Background matches foreground above surface (air/water)
+        // so the back wall doesn't fill the sky.
       } else if (wy === surfaceY) {
         // Surface block: grass (or sand near water)
         if (surfaceY >= SEA_LEVEL - 3 && surfaceY <= SEA_LEVEL + 3) {
@@ -110,7 +112,7 @@ export function generateChunk(chunk: Chunk, seed: number): void {
           background = BLOCK_SAND;
         } else {
           foreground = BLOCK_GRASS;
-          background = BLOCK_DIRT; // backwall behind surface
+          background = BLOCK_GRASS; // background matches foreground
         }
       } else if (wy < surfaceY + dirtDepthAt(wx, seed)) {
         // Dirt layer
@@ -123,27 +125,33 @@ export function generateChunk(chunk: Chunk, seed: number): void {
           if (wy > SEA_LEVEL) {
             foreground = setFlow(BLOCK_WATER, 7);
           }
+          // Background behind caves: stone (so you see the cave wall behind)
+          background = BLOCK_STONE;
         } else {
           const ore = oreAt(wx, wy, seed);
           if (ore !== 0) {
             foreground = ore;
+            // Background behind ores: stone (the host rock)
+            background = BLOCK_STONE;
           } else {
             // Occasional gravel pockets
             if (valueNoise2D(wx * 0.1, wy * 0.1, seed + 700) > 0.8) {
               foreground = BLOCK_GRAVEL;
+              background = BLOCK_GRAVEL;
             } else if (valueNoise2D(wx * 0.15, wy * 0.15, seed + 800) > 0.85) {
               foreground = BLOCK_CLAY;
+              background = BLOCK_CLAY;
             } else {
               foreground = BLOCK_STONE;
+              background = BLOCK_STONE;
             }
           }
         }
-        background = BLOCK_STONE;
       } else if (wy < MAGMA_Y) {
         // Deep stone (near magma)
         foreground = BLOCK_STONE;
         background = BLOCK_STONE;
-      } else if (wy < WORLD_W - 5) {
+      } else if (wy < WORLD_H - 5) {
         // Magma layer
         foreground = setFlow(BLOCK_LAVA, 7);
         background = BLOCK_STONE;
@@ -171,24 +179,26 @@ export function generateChunk(chunk: Chunk, seed: number): void {
   }
 
   // --- Trees ---
-  // Plant trees on the surface after the base terrain is generated.
+  // Plant trees on the surface in the BACKGROUND layer (layer 3).
+  // Trees are behind the player (layer 2) but in front of the back wall (layer 4).
   for (let ly = 0; ly < CHUNK_H; ly++) {
     for (let lx = 0; lx < CHUNK_W; lx++) {
       const wx = baseWx + lx;
       const wy = baseWy + ly;
       const idx = cellIndex(lx, ly);
 
+      // Trees grow on grass in the foreground (the surface block)
       if (chunk.foreground[idx] !== BLOCK_GRASS) continue;
       if (!treeAt(wx, wy, seed)) continue;
 
-      // Plant a tree: trunk (wood) + canopy (leaves)
+      // Plant a tree in the BACKGROUND: trunk (wood) + canopy (leaves)
       const trunkHeight = 4 + Math.floor(hash2(wx, wy, seed + 111) * 4); // 4-7 blocks
       for (let h = 1; h <= trunkHeight; h++) {
         const treeY = ly - h;
         if (treeY < 0) break; // tree goes into chunk above (skip for now)
         const treeIdx = cellIndex(lx, treeY);
-        if (chunk.foreground[treeIdx] === BLOCK_AIR) {
-          chunk.foreground[treeIdx] = BLOCK_WOOD;
+        if (chunk.background[treeIdx] === BLOCK_AIR) {
+          chunk.background[treeIdx] = BLOCK_WOOD;
         }
       }
       // Canopy: leaves in a 3×3 blob on top
@@ -199,8 +209,8 @@ export function generateChunk(chunk: Chunk, seed: number): void {
           const ly2 = canopyY + dy;
           if (lx2 < 0 || lx2 >= CHUNK_W || ly2 < 0 || ly2 >= CHUNK_H) continue;
           const leafIdx = cellIndex(lx2, ly2);
-          if (chunk.foreground[leafIdx] === BLOCK_AIR) {
-            chunk.foreground[leafIdx] = BLOCK_LEAVES;
+          if (chunk.background[leafIdx] === BLOCK_AIR) {
+            chunk.background[leafIdx] = BLOCK_LEAVES;
           }
         }
       }

@@ -129,7 +129,10 @@ export class BlockWorld {
 
   checkRebuild(): void {
     const { cx, cy } = this.worldToChunk(this.focusX, this.focusY);
-    const newOriginCx = cx - ACTIVE_GRID_RADIUS;
+    // Wrap originCx the same way rebuildActiveGrid does, so the comparison
+    // doesn't falsely trigger a rebuild when the player wraps around the
+    // cylinder world (which would cause a teleport).
+    const newOriginCx = ((cx - ACTIVE_GRID_RADIUS) % CHUNKS_X + CHUNKS_X) % CHUNKS_X;
     const newOriginCy = Math.max(0, Math.min(CHUNKS_Y - ACTIVE_GRID_CHUNKS, cy - ACTIVE_GRID_RADIUS));
     if (newOriginCx !== this.activeOriginCx || newOriginCy !== this.activeOriginCy) {
       this.needsRebuild = true;
@@ -246,6 +249,17 @@ export class BlockWorld {
   getActiveBackground(ax: number, ay: number): number {
     if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return 0;
     return this.activeBackground[ay * ACTIVE_GRID_W + ax];
+  }
+
+  setActiveBackground(ax: number, ay: number, blockId: number): void {
+    if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return;
+    this.activeBackground[ay * ACTIVE_GRID_W + ax] = blockId;
+    // Mark the corresponding chunk as dirty
+    const wx = ax + this.activeOriginCx * CHUNK_W;
+    const wy = ay + this.activeOriginCy * CHUNK_H;
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    const chunk = this.getChunk(cx, cy);
+    if (chunk) chunk.dirty = true;
   }
 
   getActiveLight(ax: number, ay: number): number {

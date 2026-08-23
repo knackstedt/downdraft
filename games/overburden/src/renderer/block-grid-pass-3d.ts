@@ -10,6 +10,7 @@ import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw";
 import { getBlockPalette } from "../shared/block-registry";
 import {
     ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W,
+    BLOCK_LEAVES, BLOCK_WOOD,
 } from "../shared/constants";
 import { lookAt, multiply, perspective, type Mat4 } from "./matrix";
 
@@ -74,10 +75,16 @@ const FACE_TOP    = 1 << 3; // -Y
 const FACE_FRONT  = 1 << 4; // +Z
 const FACE_BACK   = 1 << 5; // -Z
 
-// Depth layering: foreground at Z=0, background rendered at 3 depths
-// to create a 4-deep visual stack (foreground + 3 backwall layers).
-const FG_Z = 0;
-const BG_Z_LAYERS = [-1.0, -2.0, -3.0]; // 3 background layers
+// Depth layering: 4-layer system on a 1,2,3,4 scale.
+//   Layer 1 (Z= 0): foreground front  ← closest to camera
+//   Layer 2 (Z=-1): foreground back   ← player walks here
+//   Layer 3 (Z=-2): background front  ← trees
+//   Layer 4 (Z=-3): background back   ← back wall
+// Foreground blocks are double-rendered at Z=0 and Z=-1 for depth.
+// Background blocks are double-rendered at Z=-2 and Z=-3 for depth.
+const FG_Z_LAYERS = [0, -1];
+const BG_Z_LAYERS = [-2, -3];
+const NUM_FG_LAYERS = FG_Z_LAYERS.length;
 const NUM_BG_LAYERS = BG_Z_LAYERS.length;
 
 export class BlockGridPass3D {
@@ -117,6 +124,11 @@ export class BlockGridPass3D {
   // Cached view-projection matrix
   private viewProj: Mat4 = new Float32Array(16);
 
+  // Debug: when true, disable fog-of-war + shadow darkening (F1).
+  // The light texture is cleared to full white and the explored texture
+  // to full white, so the shader renders everything fully lit with no fog.
+  private debugNoShadows = false;
+
   // Tracked depth texture size
   private depthW = 0;
   private depthH = 0;
@@ -127,8 +139,8 @@ export class BlockGridPass3D {
     this.depthFormat = depthFormat;
     this.gridW = ACTIVE_GRID_W;
     this.gridH = ACTIVE_GRID_H;
-    // Max instances = all cells (fg + bg). In practice much fewer.
-    this.instanceData = new Float32Array(ACTIVE_GRID_CELLS * (1 + NUM_BG_LAYERS) * 5);
+    // Max instances = all cells (fg double-rendered + bg double-rendered).
+    this.instanceData = new Float32Array(ACTIVE_GRID_CELLS * (NUM_FG_LAYERS + NUM_BG_LAYERS) * 5);
     this.paddedRowBytes = Math.ceil(ACTIVE_GRID_W / 256) * 256;
     this.paddedLight = new Uint8Array(this.paddedRowBytes * ACTIVE_GRID_H);
     this.paddedExplored = new Uint8Array(this.paddedRowBytes * ACTIVE_GRID_H);
@@ -343,60 +355,34 @@ export class BlockGridPass3D {
     const W = this.gridW;
     const H = this.gridH;
 
-    // --- Foreground blocks (Z = 0) ---
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const cellIdx = y * W + x;
-        const packedFg = foreground[cellIdx];
-        const blockId = packedFg & 0xFF; // strip flow bits
-        if (blockId === 0) continue;
-
-        // Compute face visibility mask
-        let faceMask = 0;
-        // Right (+X): visible if block to the right is air
-        if (x >= W - 1 || (foreground[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
-        // Left (-X): visible if block to the left is air
-        if (x <= 0 || (foreground[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
-        // Bottom (+Y): visible if block below is air
-        if (y >= H - 1 || (foreground[(y + 1) * W + x] & 0xFF) === 0) faceMask |= FACE_BOTTOM;
-        // Top (-Y): visible if block above is air
-        if (y <= 0 || (foreground[(y - 1) * W + x] & 0xFF) === 0) faceMask |= FACE_TOP;
-        // Front (+Z): always visible (facing camera)
-        faceMask |= FACE_FRONT;
-        // Back (-Z): visible if no background block
-        if ((background[cellIdx] & 0xFF) === 0) faceMask |= FACE_BACK;
-
-        // Write instance data: pos(x, y, z) + data(blockId, faceMask)
-        data[idx * 5 + 0] = x;
-        data[idx * 5 + 1] = y;
-        data[idx * 5 + 2] = FG_Z;
-        data[idx * 5 + 3] = blockId;
-        data[idx * 5 + 4] = faceMask;
-        idx++;
-      }
-    }
-    this.fgInstanceCount = idx;
-
-    // --- Background blocks (rendered at 3 Z depths for 4-layer depth) ---
-    // Render ALL background blocks at 3 different Z positions (-3, -2, -1).
-    // Deepest first so the painter's algorithm (depthCompare="always") stacks
-    // correctly: closer layers overwrite deeper ones where they overlap.
-    // Each layer is progressively darker (handled in the shader via instanceZ).
-    for (let layer = NUM_BG_LAYERS - 1; layer >= 0; layer--) {
-      const layerZ = BG_Z_LAYERS[layer];
+    // --- Foreground blocks (rendered at 2 Z depths: Z=0 and Z=-1) ---
+    // Layer 1 (Z=0): front face visible. Layer 2 (Z=-1): back face visible.
+    // Both layers show top/bottom/side faces based on neighbors.
+    for (let layer = 0; layer < NUM_FG_LAYERS; layer++) {
+      const layerZ = FG_Z_LAYERS[layer];
       for (let y = 0; y < H; y++) {
         for (let x = 0; x < W; x++) {
           const cellIdx = y * W + x;
-          const packedBg = background[cellIdx];
-          const blockId = packedBg & 0xFF;
+          const packedFg = foreground[cellIdx];
+          const blockId = packedFg & 0xFF;
           if (blockId === 0) continue;
 
-          // Render front + top faces for each background layer.
           let faceMask = 0;
-          faceMask |= FACE_FRONT;
-          faceMask |= FACE_TOP;
-          if (x >= W - 1 || (background[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
-          if (x <= 0 || (background[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
+          if (x >= W - 1 || (foreground[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
+          if (x <= 0 || (foreground[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
+          if (y >= H - 1 || (foreground[(y + 1) * W + x] & 0xFF) === 0) faceMask |= FACE_BOTTOM;
+          if (y <= 0 || (foreground[(y - 1) * W + x] & 0xFF) === 0) faceMask |= FACE_TOP;
+
+          if (layer === 0) {
+            // Front layer (Z=0): show front face (facing camera)
+            faceMask |= FACE_FRONT;
+          } else {
+            // Back layer (Z=-1): show back face (facing away from camera, into the world)
+            // Only show back face if there's no background block behind it
+            if ((background[cellIdx] & 0xFF) === 0) faceMask |= FACE_BACK;
+            // Also show front face for the back layer (so you see the interior)
+            faceMask |= FACE_FRONT;
+          }
 
           data[idx * 5 + 0] = x;
           data[idx * 5 + 1] = y;
@@ -405,6 +391,64 @@ export class BlockGridPass3D {
           data[idx * 5 + 4] = faceMask;
           idx++;
         }
+      }
+    }
+    this.fgInstanceCount = idx;
+
+    // --- Background blocks ---
+    // Layer 3 (Z=-2): trees (wood, leaves) — rendered at this depth only.
+    // Layer 4 (Z=-3): back wall (everything else in the background grid).
+    // This prevents trees from appearing at both depths (which looked like
+    // a 5th layer) and keeps the 4-layer system clean.
+    // Render deepest first (Z=-3) so painter's algorithm stacks correctly.
+
+    // Layer 4: back wall (all background blocks EXCEPT trees) at Z=-3
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const cellIdx = y * W + x;
+        const packedBg = background[cellIdx];
+        const blockId = packedBg & 0xFF;
+        if (blockId === 0) continue;
+        // Skip tree blocks — they go on layer 3
+        if (blockId === BLOCK_WOOD || blockId === BLOCK_LEAVES) continue;
+
+        let faceMask = 0;
+        faceMask |= FACE_FRONT;
+        faceMask |= FACE_TOP;
+        if (x >= W - 1 || (background[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
+        if (x <= 0 || (background[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
+
+        data[idx * 5 + 0] = x;
+        data[idx * 5 + 1] = y;
+        data[idx * 5 + 2] = BG_Z_LAYERS[1]; // Z=-3 (layer 4)
+        data[idx * 5 + 3] = blockId;
+        data[idx * 5 + 4] = faceMask;
+        idx++;
+      }
+    }
+
+    // Layer 3: trees (wood, leaves) at Z=-2
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const cellIdx = y * W + x;
+        const packedBg = background[cellIdx];
+        const blockId = packedBg & 0xFF;
+        if (blockId === 0) continue;
+        // Only render tree blocks at this depth
+        if (blockId !== BLOCK_WOOD && blockId !== BLOCK_LEAVES) continue;
+
+        let faceMask = 0;
+        faceMask |= FACE_FRONT;
+        faceMask |= FACE_TOP;
+        if (x >= W - 1 || (background[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
+        if (x <= 0 || (background[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
+
+        data[idx * 5 + 0] = x;
+        data[idx * 5 + 1] = y;
+        data[idx * 5 + 2] = BG_Z_LAYERS[0]; // Z=-2 (layer 3)
+        data[idx * 5 + 3] = blockId;
+        data[idx * 5 + 4] = faceMask;
+        idx++;
       }
     }
     this.bgInstanceCount = idx - this.fgInstanceCount;
@@ -421,8 +465,26 @@ export class BlockGridPass3D {
     }
   }
 
+  /** Enable/disable debug no-shadows mode (F1). When enabled, light + explored
+   *  textures are filled with full-white so everything renders fully lit. */
+  setDebugNoShadows(enabled: boolean): void {
+    this.debugNoShadows = enabled;
+  }
+
   updateLight(grid: Uint8Array): void {
     if (!this.lightTexture) return;
+
+    if (this.debugNoShadows) {
+      // Debug mode: fill light texture with full white (15 = max light)
+      this.paddedLight.fill(15);
+      this.device.queue.writeTexture(
+        { texture: this.lightTexture },
+        this.paddedLight.buffer as BufferSource,
+        { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.gridH },
+        [this.gridW, this.gridH],
+      );
+      return;
+    }
 
     // Copy into padded buffer
     for (let y = 0; y < this.gridH; y++) {
@@ -437,20 +499,23 @@ export class BlockGridPass3D {
       { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.gridH },
       [this.gridW, this.gridH],
     );
-
-    // Also update light levels in instance data
-    // We need to re-read the light grid and update the lightLevel field
-    // in the instance data. But we don't have the instance positions here.
-    // Instead, the shader samples the light texture directly.
-    // Wait — the shader uses instanceData.z for light, not the texture.
-    // Let me change the approach: the shader should sample the light texture
-    // at the block's grid position instead of using per-instance light.
-    // Actually, let me just pass the light texture and sample it in the shader.
-    // I'll update the shader to sample light at the block's grid position.
   }
 
   updateExplored(grid: Uint8Array): void {
     if (!this.exploredTexture) return;
+
+    if (this.debugNoShadows) {
+      // Debug mode: fill explored texture with full white (everything visible)
+      this.paddedExplored.fill(1);
+      this.device.queue.writeTexture(
+        { texture: this.exploredTexture },
+        this.paddedExplored.buffer as BufferSource,
+        { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.gridH },
+        [this.gridW, this.gridH],
+      );
+      return;
+    }
+
     for (let y = 0; y < this.gridH; y++) {
       this.paddedExplored.set(
         grid.subarray(y * this.gridW, (y + 1) * this.gridW),

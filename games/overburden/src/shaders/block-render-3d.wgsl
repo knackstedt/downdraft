@@ -130,11 +130,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   var color = blockColor * faceShade * lightMul * bevel;
 
-  // Background blocks (Z < 0) are progressively darker based on depth.
-  // Layer Z=-1: 60%, Z=-2: 45%, Z=-3: 33% — creates visible depth gradient.
+  // Background blocks (Z < -1) are progressively darker based on depth.
+  // 4-layer system: Z=0 (layer 1, full bright), Z=-1 (layer 2, 80%),
+  // Z=-2 (layer 3, 55%), Z=-3 (layer 4, 40%).
   if (in.instanceZ < 0.0) {
     let depth = -in.instanceZ; // 1, 2, or 3
-    color *= 0.6 / depth;
+    color *= 0.8 / depth;
   }
 
   // Mining crack overlay
