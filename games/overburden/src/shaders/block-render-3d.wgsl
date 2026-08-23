@@ -34,6 +34,8 @@ struct Camera {
 @group(0) @binding(1) var paletteTex: texture_2d<f32>;    // block palette (256×1)
 @group(0) @binding(2) var lightTex: texture_2d<f32>;      // light levels (0-1)
 @group(0) @binding(3) var exploredTex: texture_2d<f32>;   // fog of war (0 or 1)
+@group(0) @binding(4) var fgGridTex: texture_2d<f32>;     // foreground block IDs (r8unorm, 0-1)
+@group(0) @binding(5) var bgGridTex: texture_2d<f32>;     // background block IDs (r8unorm, 0-1)
 
 // Vertex attributes (cube geometry)
 struct VertexInput {
@@ -46,7 +48,6 @@ struct VertexInput {
 struct InstanceInput {
   @location(3) instancePos: vec3<f32>,  // world position (x, y, z)
   @location(4) instanceData: vec2<f32>,  // x=blockId, y=faceMask
-  @location(7) neighborIds: vec4<f32>,   // (left, right, top, bottom) block IDs
 };
 
 struct VSOut {
@@ -58,7 +59,6 @@ struct VSOut {
   @location(4) @interpolate(flat) gridCoords: vec2<i32>,
   @location(5) localPos: vec3<f32>,
   @location(6) @interpolate(flat) instanceZ: f32,
-  @location(7) @interpolate(flat) neighborIds: vec4<f32>,
 };
 
 @vertex
@@ -86,7 +86,6 @@ fn vs_main(v: VertexInput, inst: InstanceInput) -> VSOut {
   out.gridCoords = vec2<i32>(i32(inst.instancePos.x), i32(inst.instancePos.y));
   out.localPos = v.localPos;
   out.instanceZ = inst.instancePos.z;
-  out.neighborIds = inst.neighborIds;
   return out;
 }
 
@@ -126,6 +125,39 @@ fn faceUV(faceId: f32, lp: vec3<f32>) -> vec2<f32> {
     // +Z / -Z front/back: use X and Y
     return vec2<f32>(lp.x, lp.y);
   }
+}
+
+// Compute the fragment's 2D grid position for bilinear light sampling.
+// Each face spans one grid cell; the position within the face (localPos)
+// determines where in the cell the fragment is, so we can interpolate
+// light between neighboring cells for smooth transitions.
+//   Front/back (±Z): both X and Y vary → full bilinear
+//   Side (±X): only Y varies → bilinear in Y
+//   Top/bottom (±Y): only X varies → bilinear in X
+fn gridPosForLight(faceId: f32, gridCoords: vec2<i32>, lp: vec3<f32>) -> vec2<f32> {
+  if (faceId < 0.5 || faceId < 1.5) {
+    // ±X side faces: X fixed at block edge, Y varies
+    return vec2<f32>(f32(gridCoords.x), f32(gridCoords.y) + lp.y);
+  } else if (faceId < 2.5 || faceId < 3.5) {
+    // ±Y top/bottom: Y fixed at block edge, X varies
+    return vec2<f32>(f32(gridCoords.x) + lp.x, f32(gridCoords.y));
+  } else {
+    // ±Z front/back: both vary
+    return vec2<f32>(f32(gridCoords.x) + lp.x, f32(gridCoords.y) + lp.y);
+  }
+}
+
+// Bilinear-interpolated light sample at a fractional grid position.
+// textureLoad returns 0 for out-of-bounds coords (dark), which is correct
+// for cells outside the active grid.
+fn bilinearLight(pos: vec2<f32>) -> vec3<f32> {
+  let p = vec2<i32>(i32(pos.x), i32(pos.y));
+  let f = vec2<f32>(fract(pos.x), fract(pos.y));
+  let c00 = textureLoad(lightTex, p, 0).rgb;
+  let c10 = textureLoad(lightTex, vec2<i32>(p.x + 1, p.y), 0).rgb;
+  let c01 = textureLoad(lightTex, vec2<i32>(p.x, p.y + 1), 0).rgb;
+  let c11 = textureLoad(lightTex, vec2<i32>(p.x + 1, p.y + 1), 0).rgb;
+  return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
 }
 
 // Block IDs (must match constants.ts)
@@ -282,15 +314,20 @@ fn isOreBlock(id: u32) -> bool {
          id == BLK_IRON_ORE || id == BLK_GOLD_ORE;
 }
 
-// Check if two block types should blend at their shared edge
+// Check if two block types should blend at their shared edge.
+// Directional: only the block with the higher ID blends toward the lower.
+// This ensures exactly one side of each boundary does the blending — the
+// other side stays solid, eliminating the seam where two blend zones overlap.
 fn shouldBlend(a: u32, b: u32) -> bool {
   if (a == b) { return false; }
   if (b == 0u) { return false; }
+  if (a <= b) { return false; } // only the higher-ID block blends
   if (!isNaturalBlock(a) || !isNaturalBlock(b)) { return false; }
   // Ore blends with stone (ore embedded in stone)
   if (isOreBlock(a) && b == BLK_STONE) { return true; }
   if (isOreBlock(b) && a == BLK_STONE) { return true; }
-  // Dirt/stone, grass/dirt, sand/stone, gravel/stone, clay/sand
+  // Dirt/stone, grass/dirt, sand/stone, gravel/stone, clay/sand,
+  // clay/stone, clay/gravel, sand/dirt, sand/grass
   if (a == BLK_DIRT && b == BLK_STONE) { return true; }
   if (a == BLK_STONE && b == BLK_DIRT) { return true; }
   if (a == BLK_GRASS && b == BLK_DIRT) { return true; }
@@ -303,6 +340,16 @@ fn shouldBlend(a: u32, b: u32) -> bool {
   if (a == BLK_SAND && b == BLK_CLAY) { return true; }
   if (a == BLK_DIRT && b == BLK_GRAVEL) { return true; }
   if (a == BLK_GRAVEL && b == BLK_DIRT) { return true; }
+  // Clay/stone, clay/gravel
+  if (a == BLK_CLAY && b == BLK_STONE) { return true; }
+  if (a == BLK_STONE && b == BLK_CLAY) { return true; }
+  if (a == BLK_CLAY && b == BLK_GRAVEL) { return true; }
+  if (a == BLK_GRAVEL && b == BLK_CLAY) { return true; }
+  // Sand/dirt, sand/grass
+  if (a == BLK_SAND && b == BLK_DIRT) { return true; }
+  if (a == BLK_DIRT && b == BLK_SAND) { return true; }
+  if (a == BLK_SAND && b == BLK_GRASS) { return true; }
+  if (a == BLK_GRASS && b == BLK_SAND) { return true; }
   // Wood/leaves
   if (a == BLK_WOOD && b == BLK_LEAVES) { return true; }
   if (a == BLK_LEAVES && b == BLK_WOOD) { return true; }
@@ -319,14 +366,17 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     discard;
   }
 
-  // Sample light + explored at the block's grid position
-  let lightRaw = textureLoad(lightTex, in.gridCoords, 0).r;
-  let lightLevel = min(lightRaw * 17.0, 1.0); // 0-15 → 0-1
+  // Sample light + explored at the block's grid position.
+  // Light is RGBA8: RGB = volumetric light color (0-1), A = pad.
+  // Bilinear-interpolate the light across cell boundaries for smooth
+  // gradients (no hard square light edges).
+  let lightGridPos = gridPosForLight(in.faceId, in.gridCoords, in.localPos);
+  let lightColor = bilinearLight(lightGridPos);
   let explored = textureLoad(exploredTex, in.gridCoords, 0).r;
 
-  // Fog of war: unexplored cells are dark
+  // Fog of war: unexplored cells are pure black
   if (explored == 0.0) {
-    return vec4<f32>(0.03, 0.03, 0.06, 1.0);
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
   }
 
   // Sample block color from palette
@@ -337,7 +387,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // block's color toward the neighbor's color using blocky noise. This matches
   // the game's pixel-art aesthetic — no smooth gradients.
   //
-  // neighborIds: (left, right, top, bottom) — block IDs of the 4 grid neighbors.
+  // Neighbor IDs are sampled from the grid textures (fgGridTex/bgGridTex)
+  // at gridCoords ± 1. The correct texture is selected by instanceZ:
+  //   Z >= -1 → foreground grid, Z < -1 → background grid.
+  // r8unorm stores values 0-1, so multiply by 255 to get the block ID.
+  //
   // localPos [0,1]³: lp.x=left/right, lp.y=top/bottom (Y-down), lp.z=front/back
   //
   // Edge→neighbor mapping per face:
@@ -346,10 +400,23 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   //   Top/bottom (faceId 2/3): lp.x→left/right (2 edges; lp.z has no grid neighbor)
   let BLEND_WIDTH = 0.3; // how far the dither zone extends from the edge
   let lp = in.localPos;
-  let nL = u32(in.neighborIds.x);
-  let nR = u32(in.neighborIds.y);
-  let nT = u32(in.neighborIds.z);
-  let nB = u32(in.neighborIds.w);
+
+  // Sample neighbor block IDs from the appropriate grid texture.
+  // Sample both textures and select by instanceZ (can't select() on bindings).
+  let gc = in.gridCoords;
+  let isFg = in.instanceZ >= -1.0;
+  let fgL = textureLoad(fgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0;
+  let fgR = textureLoad(fgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0;
+  let fgT = textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0;
+  let fgB = textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0;
+  let bgL = textureLoad(bgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0;
+  let bgR = textureLoad(bgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0;
+  let bgT = textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0;
+  let bgB = textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0;
+  let nL = u32(select(bgL, fgL, isFg));
+  let nR = u32(select(bgR, fgR, isFg));
+  let nT = u32(select(bgT, fgT, isFg));
+  let nB = u32(select(bgB, fgB, isFg));
 
   // World-aligned UV for stable noise across chunk boundaries
   let wpos = vec2<f32>(f32(in.gridCoords.x) + cam.originX, f32(in.gridCoords.y) + cam.originY);
@@ -442,7 +509,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Apply blend: hard switch between own and neighbor color (pixel-art style)
   let finalBlockColor = mix(blockColor, blendColor, blendMask);
 
-  // Procedural texture multiplier
+  // Procedural texture multiplier — use the current block's texture only.
+  // The texture noise is world-aligned (continuous across blocks), so the
+  // pattern is the same regardless of which block ID computes it. Switching
+  // texMul between block types creates a brightness discontinuity at the
+  // dither boundary because different block types have different multiplier
+  // ranges. Keeping a single texMul avoids this seam.
   let texMul = blockTexture(blockId, in.gridCoords, in.faceId, in.localPos);
 
   // Face-dependent shading (2.5D depth illusion)
@@ -462,8 +534,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     faceShade = 0.4;   // back (darkest, usually not visible)
   }
 
-  // Light level with ambient minimum
-  let lightMul = max(lightLevel, 0.25);
+  // Volumetric colored light — no ambient floor.
+  // Only actual light sources (sky, torches, emitters) illuminate cells.
+  // Unlit explored cells are pure black (indistinguishable from fog-of-war).
+  let lightMul = lightColor;
 
   // Edge bevel: slightly lighten edges of each face for a 3D beveled look.
   // Skip bevel when showing a blended neighbor color — the neighbor block has

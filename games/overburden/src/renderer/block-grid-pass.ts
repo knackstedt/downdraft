@@ -34,8 +34,8 @@ export class BlockGridPass {
   private packedGrid: Uint32Array;
   private paddedLight: Uint8Array;
   private paddedExplored: Uint8Array;
-  private paddedLightRowBytes: number;
-  private paddedExploredRowBytes: number;
+  private paddedLightRowBytes: number; // RGBA8 light (4 bytes/pixel, 256-aligned)
+  private paddedExploredRowBytes: number; // R8 explored (1 byte/pixel, 256-aligned)
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -43,9 +43,10 @@ export class BlockGridPass {
     this.gridW = ACTIVE_GRID_W;
     this.gridH = ACTIVE_GRID_H;
     this.packedGrid = new Uint32Array(ACTIVE_GRID_W * ACTIVE_GRID_H);
-    // r8unorm: 1 byte per pixel. bytesPerRow must be multiple of 256.
-    this.paddedLightRowBytes = Math.ceil(ACTIVE_GRID_W / 256) * 256;
-    this.paddedExploredRowBytes = this.paddedLightRowBytes;
+    // Light: rgba8unorm (4 bytes/pixel). Explored: r8unorm (1 byte/pixel).
+    // bytesPerRow must be multiple of 256 for WebGPU texture uploads.
+    this.paddedLightRowBytes = Math.ceil((ACTIVE_GRID_W * 4) / 256) * 256;
+    this.paddedExploredRowBytes = Math.ceil(ACTIVE_GRID_W / 256) * 256;
     this.paddedLight = new Uint8Array(this.paddedLightRowBytes * ACTIVE_GRID_H);
     this.paddedExplored = new Uint8Array(this.paddedExploredRowBytes * ACTIVE_GRID_H);
   }
@@ -122,10 +123,10 @@ export class BlockGridPass {
     });
     this.gridView = this.gridTexture.createView();
 
-    // Light texture (r8unorm — light levels 0-15 normalized to 0-1)
+    // Light texture (rgba8unorm — RGB volumetric light color + A pad)
     this.lightTexture = this.device.createTexture({
       size: [this.gridW, this.gridH],
-      format: "r8unorm",
+      format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     this.lightView = this.lightTexture.createView();
@@ -173,10 +174,12 @@ export class BlockGridPass {
 
   updateLight(grid: Uint8Array): void {
     if (!this.lightTexture) return;
-    // Copy into padded buffer (bytesPerRow must be multiple of 256 for WebGPU)
+    // Copy RGBA8 rows into padded buffer (bytesPerRow must be 256-aligned).
+    // grid is RGBA8: 4 bytes/cell, row length = gridW * 4.
+    const srcRowBytes = this.gridW * 4;
     for (let y = 0; y < this.gridH; y++) {
       this.paddedLight.set(
-        grid.subarray(y * this.gridW, (y + 1) * this.gridW),
+        grid.subarray(y * srcRowBytes, (y + 1) * srcRowBytes),
         y * this.paddedLightRowBytes,
       );
     }

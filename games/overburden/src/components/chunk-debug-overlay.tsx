@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from "react";
-import { CHUNK_H, CHUNK_W, ACTIVE_GRID_W, ACTIVE_GRID_H } from "../shared/constants";
+import { CHUNK_H, CHUNK_W } from "../shared/constants";
 import { useGameStore } from "../stores/game-store";
 
 const canvasStyle: React.CSSProperties = {
@@ -44,27 +44,24 @@ export function ChunkDebugOverlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
 
-  // F2 toggles the overlay. Stored in a ref so the rAF loop reads the
-  // current value without re-subscribing each toggle.
-  const visibleRef = useRef(false);
-  visibleRef.current = visible;
-
+  // F2 toggles the overlay.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F2") {
         e.preventDefault();
-        setVisible((v) => {
-          const next = !v;
-          visibleRef.current = next;
-          return next;
-        });
+        setVisible((v) => !v);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // The rAF loop only runs while visible. When hidden, no rAF is scheduled,
+  // so the 2D canvas layer is never dirtied — this avoids a per-frame DOM
+  // commit (Commit + PrePaint + Layerize) that would otherwise saturate the
+  // GPU process and cause dropped frames at 360Hz.
   useEffect(() => {
+    if (!visible) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -83,12 +80,6 @@ export function ChunkDebugOverlay() {
       if (canvas.width !== pxW || canvas.height !== pxH) {
         canvas.width = pxW;
         canvas.height = pxH;
-      }
-
-      if (!visibleRef.current) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        raf = requestAnimationFrame(tick);
-        return;
       }
 
       const store = useGameStore.getState();
@@ -158,8 +149,14 @@ export function ChunkDebugOverlay() {
     return () => {
       running = false;
       cancelAnimationFrame(raf);
+      // Clear the canvas on unmount/hide so no stale drawing remains.
+      const c = canvasRef.current;
+      if (c) {
+        const cx = c.getContext("2d");
+        cx?.clearRect(0, 0, c.width, c.height);
+      }
     };
-  }, []);
+  }, [visible]);
 
   return <canvas ref={canvasRef} style={canvasStyle} />;
 }

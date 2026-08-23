@@ -42,6 +42,15 @@ export interface BlockheadsInputState {
   panning: boolean;
   panStartX: number;
   panStartY: number;
+
+  // Debug cell inspect (toggle with F6): when active, a left-click logs the
+  // block data for all 4 render depth layers at the clicked cell.
+  debugInspect: boolean;
+  // Pending inspect click (set by mousedown when debugInspect is on, consumed
+  // once by the renderer so it logs exactly once per click).
+  inspectClickPending: boolean;
+  inspectClickX: number; // screen pixels
+  inspectClickY: number; // screen pixels
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
@@ -67,6 +76,10 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     panning: false,
     panStartX: 0,
     panStartY: 0,
+    debugInspect: false,
+    inspectClickPending: false,
+    inspectClickX: 0,
+    inspectClickY: 0,
   };
 
   const keyMap: Record<string, keyof BlockheadsInputState> = {
@@ -111,6 +124,12 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
       state.noclip = !state.noclip;
       e.preventDefault();
     }
+    // Debug cell inspect toggle (F6)
+    else if (e.key === "F6") {
+      state.debugInspect = !state.debugInspect;
+      console.log(`[Overburden] Cell inspect ${state.debugInspect ? "enabled" : "disabled"} (F6) — click a cell to log its 4 render layers`);
+      e.preventDefault();
+    }
   });
 
   window.addEventListener("keyup", (e) => {
@@ -122,6 +141,15 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
   });
 
   canvas.addEventListener("mousedown", (e) => {
+    // Debug cell inspect: left-click logs the 4 render layers at the cell.
+    // Handled before task-mode/mining so it works in every mode; it only
+    // logs and doesn't suppress the normal click behavior.
+    if (state.debugInspect && e.button === 0) {
+      const rect = canvas.getBoundingClientRect();
+      state.inspectClickPending = true;
+      state.inspectClickX = e.clientX - rect.left;
+      state.inspectClickY = e.clientY - rect.top;
+    }
     if (state.taskMode) {
       // Middle-click (button 1) starts panning in task mode
       if (e.button === 1) {

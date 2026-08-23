@@ -7,11 +7,13 @@
 // ============================================================================
 
 import { GPUDeviceManager } from "@downdraft/core";
+import { getBlockDef } from "../shared/block-registry";
 import {
     ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LADDER, BLOCK_ROPE,
-    BLOCK_SAND, BLOCK_SCAFFOLDING, BLOCK_STONE, BLOCK_TORCH, BLOCK_WOOD,
-    CHUNK_H, CHUNK_W, TICK_MS,
+    BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LADDER, BLOCK_LEAVES,
+    BLOCK_ROPE, BLOCK_SAND, BLOCK_SCAFFOLDING, BLOCK_STONE, BLOCK_TORCH,
+    BLOCK_WOOD,
+    CHUNK_H, CHUNK_W, TICK_MS
 } from "../shared/constants";
 import { getItemDef } from "../shared/items";
 import { SimBufferReader } from "../shared/sim-buffer";
@@ -455,6 +457,75 @@ export class BlockheadsRenderer {
       }
     } else {
       grid = this.camera.screenToGrid(this.input.mouseX, this.input.mouseY);
+    }
+
+    // --- Debug cell inspect (F6): log the 4 render depth layers at the clicked cell ---
+    // Layers mirror block-grid-pass-3d.ts's 4-layer depth system:
+    //   Layer 1 (Z= 0): foreground front   ← from `foreground`
+    //   Layer 2 (Z=-1): foreground back    ← from `foreground` (same cell)
+    //   Layer 3 (Z=-2): background main    ← from `background` (trees + terrain)
+    //   Layer 4 (Z=-3): back wall          ← from `background`, excluding trees (wood/leaves)
+    // Each entry is a slim summary (kind + basic metadata) or null for air/empty.
+    if (this.input.inspectClickPending) {
+      this.input.inspectClickPending = false;
+      let inspectGrid: { x: number; y: number };
+      if (vp) {
+        const invVP = invert(vp);
+        if (invVP) {
+          const ray = unprojectScreen(
+            this.input.inspectClickX, this.input.inspectClickY,
+            this.camera.canvasW, this.camera.canvasH,
+            invVP,
+          );
+          const hit = rayToZ0(ray.origin, ray.dir);
+          inspectGrid = hit ?? { x: this.camera.x, y: this.camera.y };
+        } else {
+          inspectGrid = this.camera.screenToGrid(this.input.inspectClickX, this.input.inspectClickY);
+        }
+      } else {
+        inspectGrid = this.camera.screenToGrid(this.input.inspectClickX, this.input.inspectClickY);
+      }
+      const ax = Math.floor(inspectGrid.x);
+      const ay = Math.floor(inspectGrid.y);
+      const ocx = this.simReader.getOriginCx();
+      const ocy = this.simReader.getOriginCy();
+      const worldX = ax + ocx * CHUNK_W;
+      const worldY = ay + ocy * CHUNK_H;
+      if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
+        const cellIdx = ay * ACTIVE_GRID_W + ax;
+        const fgId = this.simReader.foreground[cellIdx] & 0xFF;
+        const bgId = this.simReader.background[cellIdx] & 0xFF;
+        // Layer 4 (back wall) excludes trees — they render only in layer 3.
+        const bgWallId = (bgId === BLOCK_WOOD || bgId === BLOCK_LEAVES) ? BLOCK_AIR : bgId;
+        const summarize = (id: number) => {
+          if (id === BLOCK_AIR) return null;
+          const d = getBlockDef(id);
+          if (!d) return null;
+          return {
+            kind: d.name,
+            category: d.category,
+            hardness: d.hardness,
+            color: d.color,
+            lightEmit: d.lightEmit,
+            climbable: d.climbable,
+            flammable: d.flammable,
+            liquidFlow: d.liquidFlow,
+            isStation: d.isStation,
+          };
+        };
+        const layers = [
+          summarize(fgId),     // layer 1: foreground front
+          summarize(fgId),     // layer 2: foreground back (same cell)
+          summarize(bgId),     // layer 3: background main
+          summarize(bgWallId), // layer 4: back wall (no trees)
+        ];
+        console.log(
+          `[Overburden] cell inspect @ active(${ax},${ay}) world(${worldX},${worldY})`,
+          layers,
+        );
+      } else {
+        console.log(`[Overburden] cell inspect @ active(${ax},${ay}) — out of active grid bounds`);
+      }
     }
 
     // --- Task mode: handle clicks to queue tasks ---

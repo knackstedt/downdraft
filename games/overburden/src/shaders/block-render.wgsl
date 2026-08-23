@@ -91,13 +91,21 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   let effectiveBgId = select(parallaxBgId, bgId, parallaxBgId == 0u);
 
   // Sample light + explored
-  let lightRaw = textureLoad(lightTex, coords, 0).r;
-  let lightLevel = min(lightRaw * 17.0, 1.0);
+  // Light is RGBA8: RGB = volumetric light color (0-1), A = pad.
+  // Bilinear-interpolate the light across cell boundaries for smooth gradients.
+  let lightPos = vec2<f32>(cellX, cellY);
+  let lightP = vec2<i32>(i32(cellX), i32(cellY));
+  let lightF = vec2<f32>(fract(cellX), fract(cellY));
+  let lc00 = textureLoad(lightTex, lightP, 0).rgb;
+  let lc10 = textureLoad(lightTex, vec2<i32>(lightP.x + 1, lightP.y), 0).rgb;
+  let lc01 = textureLoad(lightTex, vec2<i32>(lightP.x, lightP.y + 1), 0).rgb;
+  let lc11 = textureLoad(lightTex, vec2<i32>(lightP.x + 1, lightP.y + 1), 0).rgb;
+  let lightColor = mix(mix(lc00, lc10, lightF.x), mix(lc01, lc11, lightF.x), lightF.y);
   let explored = textureLoad(exploredTex, coords, 0).r;
 
-  // Fog of war: unexplored cells are dark blue
+  // Fog of war: unexplored cells are pure black
   if (explored == 0.0) {
-    return vec4<f32>(0.03, 0.03, 0.06, 1.0);
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
   }
 
   // If both fg and bg are air, transparent (sky shows through)
@@ -105,8 +113,9 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
 
-  // Light multiplier with ambient minimum
-  let lightMul = max(lightLevel, 0.25);
+  // Volumetric colored light — no ambient floor.
+  // Only actual light sources (sky, torches, emitters) illuminate cells.
+  let lightMul = lightColor;
 
   // --- Background plane (2.5D depth) ---
   var color = vec3<f32>(0.0);

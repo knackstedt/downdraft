@@ -126,7 +126,9 @@ const sectionLabelStyle: React.CSSProperties = {
 };
 
 export function StationPanel({ ax, ay }: { ax: number; ay: number }) {
-  const { renderer, setSelectedStation, inventory } = useGameStore();
+  const renderer = useGameStore((s) => s.renderer);
+  const setSelectedStation = useGameStore((s) => s.setSelectedStation);
+  const inventory = useGameStore((s) => s.inventory);
   const [queue, setQueue] = useState<CraftQueueSummary>({ fuel: 0, activeJob: null, queue: [] });
   const [status, setStatus] = useState<string>("");
 

@@ -55,14 +55,14 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_AIR, name: "Air", category: "gas",
     hardness: 0, color: [0, 0, 0], textureVariant: 0,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [], placeable: false, backwallProjection: false,
     isStation: false,
   },
   {
     id: BLOCK_DIRT, name: "Dirt", category: "solid",
     hardness: 5, color: [120, 80, 50], textureVariant: 0,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "dirt", count: 1, chance: 1 }],
     placeable: true, backwallProjection: true,
     isStation: false,
@@ -70,7 +70,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_GRASS, name: "Grass", category: "solid",
     hardness: 5, color: [80, 160, 60], textureVariant: 1,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "dirt", count: 1, chance: 1 }],
     placeable: true, backwallProjection: true,
     isStation: false,
@@ -78,7 +78,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_STONE, name: "Stone", category: "solid",
     hardness: 15, color: [128, 128, 128], textureVariant: 2,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "stone", count: 1, chance: 1 }],
     placeable: true, backwallProjection: true,
     isStation: false,
@@ -86,7 +86,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_SAND, name: "Sand", category: "solid",
     hardness: 3, color: [220, 200, 140], textureVariant: 3,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "sand", count: 1, chance: 1 }],
     placeable: true, backwallProjection: true,
     isStation: false,
@@ -94,14 +94,14 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_WATER, name: "Water", category: "liquid",
     hardness: 0, color: [60, 120, 200], textureVariant: 4,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 7, drops: [], placeable: false, backwallProjection: false,
     isStation: false,
   },
   {
     id: BLOCK_WOOD, name: "Wood", category: "solid",
     hardness: 8, color: [140, 100, 60], textureVariant: 5,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "wood", count: 1, chance: 1 }],
     placeable: true, backwallProjection: true,
     isStation: false,
@@ -109,7 +109,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_LEAVES, name: "Leaves", category: "solid",
     hardness: 2, color: [60, 130, 50], textureVariant: 6,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "stick", count: 1, chance: 0.5 }],
     placeable: false, backwallProjection: false,
     isStation: false,
@@ -117,7 +117,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_COAL_ORE, name: "Coal Ore", category: "solid",
     hardness: 20, color: [50, 50, 50], textureVariant: 7,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 3, liquidFlow: 0, drops: [{ itemId: "coal", count: 1, chance: 1 }],
     placeable: false, backwallProjection: false,
     isStation: false,
@@ -125,7 +125,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_COPPER_ORE, name: "Copper Ore", category: "solid",
     hardness: 25, color: [180, 120, 70], textureVariant: 8,
-    lightEmit: 0, conductive: true, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: true, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "copper_ore", count: 1, chance: 1 }],
     placeable: false, backwallProjection: false,
     isStation: false,
@@ -133,7 +133,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_TIN_ORE, name: "Tin Ore", category: "solid",
     hardness: 25, color: [200, 200, 210], textureVariant: 9,
-    lightEmit: 0, conductive: true, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: true, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "tin_ore", count: 1, chance: 1 }],
     placeable: false, backwallProjection: false,
     isStation: false,
@@ -141,7 +141,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_IRON_ORE, name: "Iron Ore", category: "solid",
     hardness: 30, color: [160, 140, 120], textureVariant: 10,
-    lightEmit: 0, conductive: true, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: true, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "iron_ore", count: 1, chance: 1 }],
     placeable: false, backwallProjection: false,
     isStation: false,
@@ -149,7 +149,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_GOLD_ORE, name: "Gold Ore", category: "solid",
     hardness: 35, color: [220, 200, 80], textureVariant: 11,
-    lightEmit: 0, conductive: true, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: true, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "gold_ore", count: 1, chance: 1 }],
     placeable: false, backwallProjection: false,
     isStation: false,
@@ -157,21 +157,21 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_BEDROCK, name: "Bedrock", category: "solid",
     hardness: 100, color: [40, 40, 50], textureVariant: 12,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [], placeable: false, backwallProjection: true,
     isStation: false,
   },
   {
     id: BLOCK_LAVA, name: "Lava", category: "liquid",
     hardness: 0, color: [220, 80, 20], textureVariant: 13,
-    lightEmit: 15, conductive: false, climbable: false, flammable: false,
+    lightEmit: 15, lightColor: [255, 100, 20], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 3, drops: [], placeable: false, backwallProjection: false,
     isStation: false,
   },
   {
     id: BLOCK_TORCH, name: "Torch", category: "special",
     hardness: 1, color: [240, 200, 80], textureVariant: 14,
-    lightEmit: 14, conductive: false, climbable: false, flammable: false,
+    lightEmit: 14, lightColor: [255, 180, 80], conductive: false, climbable: false, flammable: false,
     fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "torch", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: false,
@@ -179,7 +179,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_LADDER, name: "Ladder", category: "special",
     hardness: 2, color: [180, 140, 80], textureVariant: 15,
-    lightEmit: 0, conductive: false, climbable: true, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
     fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "ladder", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: false,
@@ -187,7 +187,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_ROPE, name: "Rope", category: "special",
     hardness: 1, color: [200, 180, 120], textureVariant: 16,
-    lightEmit: 0, conductive: false, climbable: true, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "rope", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: false,
@@ -195,7 +195,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_SCAFFOLDING, name: "Scaffolding", category: "special",
     hardness: 1, color: [160, 130, 90], textureVariant: 17,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "scaffolding", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: false,
@@ -203,7 +203,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_TIME_CRYSTAL, name: "Crystal Ore", category: "solid",
     hardness: 40, color: [180, 220, 255], textureVariant: 18,
-    lightEmit: 8, conductive: false, climbable: false, flammable: false,
+    lightEmit: 8, lightColor: [180, 220, 255], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "crystal", count: 1, chance: 1 }],
     placeable: false, backwallProjection: false,
     isStation: false,
@@ -211,7 +211,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_CLAY, name: "Clay", category: "solid",
     hardness: 5, color: [180, 160, 150], textureVariant: 19,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "clay", count: 1, chance: 1 }],
     placeable: true, backwallProjection: true,
     isStation: false,
@@ -219,7 +219,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_GRAVEL, name: "Gravel", category: "solid",
     hardness: 4, color: [140, 135, 130], textureVariant: 20,
-    lightEmit: 0, conductive: false, climbable: false, flammable: false,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [
       { itemId: "gravel", count: 1, chance: 1 },
       { itemId: "flint", count: 1, chance: 0.3 },
@@ -232,7 +232,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_WORKBENCH, name: "Workbench", category: "special",
     hardness: 8, color: [160, 110, 70], textureVariant: 21,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "workbench", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "workbench",
@@ -240,7 +240,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_CRAFT_BENCH, name: "Craft Bench", category: "special",
     hardness: 8, color: [170, 120, 80], textureVariant: 22,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "craft_bench", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "craft_bench",
@@ -248,7 +248,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_TOOL_BENCH, name: "Tool Bench", category: "special",
     hardness: 8, color: [150, 100, 60], textureVariant: 23,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "tool_bench", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "tool_bench",
@@ -256,7 +256,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_WOODWORK_BENCH, name: "Woodwork Bench", category: "special",
     hardness: 8, color: [130, 90, 50], textureVariant: 24,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "woodwork_bench", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "woodwork_bench",
@@ -264,7 +264,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_CAMPFIRE, name: "Campfire", category: "special",
     hardness: 5, color: [200, 100, 40], textureVariant: 25,
-    lightEmit: 14, conductive: false, climbable: false, flammable: false,
+    lightEmit: 14, lightColor: [255, 160, 60], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "campfire", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "campfire",
@@ -272,7 +272,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_KILN, name: "Kiln", category: "special",
     hardness: 15, color: [180, 140, 100], textureVariant: 26,
-    lightEmit: 6, conductive: false, climbable: false, flammable: false,
+    lightEmit: 6, lightColor: [255, 140, 60], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "kiln", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "kiln",
@@ -280,7 +280,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_FURNACE, name: "Furnace", category: "special",
     hardness: 15, color: [100, 100, 110], textureVariant: 27,
-    lightEmit: 8, conductive: false, climbable: false, flammable: false,
+    lightEmit: 8, lightColor: [255, 120, 40], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "furnace", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "furnace",
@@ -288,7 +288,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_METALWORK_BENCH, name: "Metalwork Bench", category: "special",
     hardness: 12, color: [120, 120, 140], textureVariant: 28,
-    lightEmit: 6, conductive: false, climbable: false, flammable: false,
+    lightEmit: 6, lightColor: [255, 130, 50], conductive: false, climbable: false, flammable: false,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "metalwork_bench", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "metalwork_bench",
@@ -296,7 +296,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_BUILDER_BENCH, name: "Builder's Bench", category: "special",
     hardness: 8, color: [160, 140, 100], textureVariant: 29,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "builder_bench", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "builder_bench",
@@ -304,7 +304,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_TAILOR_BENCH, name: "Tailor's Bench", category: "special",
     hardness: 8, color: [180, 160, 120], textureVariant: 30,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 2, liquidFlow: 0, drops: [{ itemId: "tailor_bench", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "tailor_bench",
@@ -312,7 +312,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_COMPOST_BIN, name: "Compost Bin", category: "special",
     hardness: 6, color: [100, 80, 50], textureVariant: 31,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "compost_bin", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: true, stationType: "compost_bin",
@@ -322,7 +322,7 @@ const DEFS: BlockDef[] = [
   {
     id: BLOCK_BED, name: "Bed", category: "special",
     hardness: 2, color: [200, 180, 200], textureVariant: 21,
-    lightEmit: 0, conductive: false, climbable: false, flammable: true,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "bed", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: false,

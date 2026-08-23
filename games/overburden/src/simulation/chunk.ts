@@ -2,7 +2,7 @@
 // Overburden — chunk data structure
 // ============================================================================
 
-import { CHUNK_CELLS, CHUNK_W, CHUNK_H } from "../shared/constants";
+import { CHUNK_CELLS, CHUNK_W } from "../shared/constants";
 import type { Chunk } from "../shared/types";
 
 export function createChunk(cx: number, cy: number): Chunk {
@@ -13,7 +13,7 @@ export function createChunk(cx: number, cy: number): Chunk {
     background: new Uint16Array(CHUNK_CELLS),
     mask: new Uint8Array(CHUNK_CELLS),
     vfx: new Uint32Array(CHUNK_CELLS),
-    light: new Uint8Array(CHUNK_CELLS),
+    light: new Uint8Array(4 * CHUNK_CELLS), // RGBA8 per cell
     explored: new Uint8Array(CHUNK_CELLS),
     generated: false,
     active: false,
