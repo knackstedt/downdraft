@@ -21,6 +21,7 @@ import { isTreeBlock } from "../shared/tree-species";
 import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
 import { BlockGridPass3D } from "./block-grid-pass-3d";
 import { Camera } from "./camera";
+import { DropPass, type DropRenderData } from "./drop-pass";
 import {
     createInputHandler, type BlockheadsInputState,
 } from "./input-handler";
@@ -75,6 +76,7 @@ export class BlockheadsRenderer {
   private stickmanPass: StickmanPass | null = null;
   private skyPass: SkyPass | null = null;
   private taskMarkerPass: TaskMarkerPass | null = null;
+  private dropPass: DropPass | null = null;
 
   // Camera
   camera: Camera;
@@ -239,6 +241,9 @@ export class BlockheadsRenderer {
     this.taskMarkerPass = new TaskMarkerPass(this.device, this.format);
     this.taskMarkerPass.init();
 
+    this.dropPass = new DropPass(this.device, this.format);
+    this.dropPass.init();
+
     // Start the sim worker
     this.workerHost = new BlockheadsWorkerHost();
     this.simReader = new SimBufferReader(this.workerHost.getSimBuffer() as ArrayBufferLike);
@@ -386,6 +391,7 @@ export class BlockheadsRenderer {
     this.stickmanPass?.destroy();
     this.skyPass?.destroy();
     this.taskMarkerPass?.destroy();
+    this.dropPass?.destroy();
     await this.workerHost?.shutdown();
   }
 
@@ -403,6 +409,10 @@ export class BlockheadsRenderer {
     // Reset renderer-side state to match the fresh world
     this.taskMarkers.length = 0;
     this.hotbarBlocks = [...DEFAULT_HOTBAR_BLOCKS];
+    // Clear drops display (worker already cleared the drop array)
+    if (this.dropPass && this.blockGridPass) {
+      this.dropPass.update(this.blockGridPass.getViewProj(), this.camera.canvasW, this.camera.canvasH, []);
+    }
     this.lastSimTick = -1;
     this.cachedOriginCx = 0;
     this.cachedOriginCy = 0;
@@ -890,6 +900,37 @@ export class BlockheadsRenderer {
       );
     }
 
+    // Update drop pass (read drop entities from SAB)
+    if (this.dropPass && this.blockGridPass && this.simReader) {
+      const dropCount = this.simReader.getDropCount();
+      if (dropCount > 0) {
+        const dropData: DropRenderData[] = [];
+        for (let i = 0; i < dropCount && i < 128; i++) {
+          const off = i * 8; // DROP_STRIDE = 8
+          dropData.push({
+            x: this.simReader.drops[off + 0],
+            y: this.simReader.drops[off + 1],
+            spin: this.simReader.drops[off + 4],
+            itemCode: this.simReader.drops[off + 6],
+          });
+        }
+        this.dropPass.update(
+          this.blockGridPass.getViewProj(),
+          this.camera.canvasW,
+          this.camera.canvasH,
+          dropData,
+        );
+      } else {
+        // No drops — update with empty array to clear
+        this.dropPass.update(
+          this.blockGridPass.getViewProj(),
+          this.camera.canvasW,
+          this.camera.canvasH,
+          [],
+        );
+      }
+    }
+
     // Render with depth buffer for 3D occlusion.
     // Wrapped in try/catch because canvas resize (e.g. DevTools toggling)
     // can invalidate the WebGPU surface, causing getCurrentTexture() to
@@ -931,6 +972,8 @@ export class BlockheadsRenderer {
       }
       // Render task markers on top (no depth, alpha blended)
       this.taskMarkerPass?.render(pass);
+      // Render world drops (spinning item quads, no depth, on top)
+      this.dropPass?.render(pass);
       pass.end();
       this.device.queue.submit([encoder.finish()]);
     } catch (err) {

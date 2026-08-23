@@ -117,7 +117,61 @@ export const BLOCK_LEAF_POMEGRANATE = 60;
 export const BLOCK_LEAF_WALNUT = 61;
 export const BLOCK_LEAF_HAZELNUT = 62;
 
-// --- Mask flags (bitfield for the mask plane) ---
+// --- Farming blocks ---
+// Farmland: tilled soil that crops grow on. No collision (special category).
+export const BLOCK_FARMLAND = 63;
+// Compost farmland: enriched farmland for mushrooms. No collision.
+export const BLOCK_COMPOST_FARMLAND = 64;
+
+// Crop growth stages: each crop has 4 stage blocks (seed → sprout → growing → mature).
+// All crop blocks are "special" category (no collision), rendered as 2D palette colors.
+// Mining a mature crop drops food + seeds; mining an immature crop drops only the seed.
+export const BLOCK_CROP_SEED_TOMATO = 65;
+export const BLOCK_CROP_SPROUT_TOMATO = 66;
+export const BLOCK_CROP_GROWING_TOMATO = 67;
+export const BLOCK_CROP_MATURE_TOMATO = 68;
+
+export const BLOCK_CROP_SEED_CARROT = 69;
+export const BLOCK_CROP_SPROUT_CARROT = 70;
+export const BLOCK_CROP_GROWING_CARROT = 71;
+export const BLOCK_CROP_MATURE_CARROT = 72;
+
+export const BLOCK_CROP_SEED_POTATO = 73;
+export const BLOCK_CROP_SPROUT_POTATO = 74;
+export const BLOCK_CROP_GROWING_POTATO = 75;
+export const BLOCK_CROP_MATURE_POTATO = 76;
+
+export const BLOCK_CROP_SEED_CORN = 77;
+export const BLOCK_CROP_SPROUT_CORN = 78;
+export const BLOCK_CROP_GROWING_CORN = 79;
+export const BLOCK_CROP_MATURE_CORN = 80;
+
+export const BLOCK_CROP_SEED_PUMPKIN = 81;
+export const BLOCK_CROP_SPROUT_PUMPKIN = 82;
+export const BLOCK_CROP_GROWING_PUMPKIN = 83;
+export const BLOCK_CROP_MATURE_PUMPKIN = 84;
+
+export const BLOCK_CROP_SEED_WHEAT = 85;
+export const BLOCK_CROP_SPROUT_WHEAT = 86;
+export const BLOCK_CROP_GROWING_WHEAT = 87;
+export const BLOCK_CROP_MATURE_WHEAT = 88;
+
+export const BLOCK_CROP_SEED_BROWN_MUSHROOM = 89;
+export const BLOCK_CROP_SPROUT_BROWN_MUSHROOM = 90;
+export const BLOCK_CROP_GROWING_BROWN_MUSHROOM = 91;
+export const BLOCK_CROP_MATURE_BROWN_MUSHROOM = 92;
+
+export const BLOCK_CROP_SEED_RED_MUSHROOM = 93;
+export const BLOCK_CROP_SPROUT_RED_MUSHROOM = 94;
+export const BLOCK_CROP_GROWING_RED_MUSHROOM = 95;
+export const BLOCK_CROP_MATURE_RED_MUSHROOM = 96;
+
+// Wild forageable blocks (single mature block, no growth stages — they regrow
+// after harvest on a timer). Spawned during terrain gen on grass.
+export const BLOCK_WILD_BERRY_BUSH = 97;
+export const BLOCK_WILD_MUSHROOM = 98;
+
+// Mask flags (bitfield for the mask plane) ---
 export const MASK_SOLID = 1 << 0; // blocks movement
 export const MASK_CLIMBABLE = 1 << 1; // ladder, rope — allows vertical movement
 export const MASK_LIQUID = 1 << 2; // water, lava — slows movement, drains air

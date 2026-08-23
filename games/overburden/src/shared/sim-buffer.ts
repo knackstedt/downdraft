@@ -18,16 +18,15 @@ import { BH_STRIDE, MAX_BLOCKHEADS } from "./types";
 // Region          Size (bytes)     Description
 // ---------------------------------------------------------------
 // HEADER          48               tick, originCx, originCy, blockheadCount,
-//                                  daylight, mineX, mineY, mineDamage
+//                                  daylight, mineX, mineY, mineDamage,
+//                                  selectedSlot, dropCount
 // GRID_FOREGROUND 2 * AG_CELLS     Uint16Array — foreground blocks
 // GRID_BACKGROUND 2 * AG_CELLS     Uint16Array — background blocks
 // GRID_LIGHT      4 * AG_CELLS     Uint8Array — RGBA8 light (R,G,B,A per cell)
 // GRID_EXPLORED   1 * AG_CELLS     Uint8Array — fog of war
 // BLOCKHEADS      4 * BH_STRIDE * MAX_BLOCKHEADS  Float32Array — blockhead state
+// DROPS           4 * DROP_STRIDE * MAX_DROPS     Float32Array — world drop items
 // INPUT           128              Int32Array + Float32Array — input from renderer
-//
-// Total: ~48 + 2*200704 + 2*200704 + 200704 + 200704 + 4*16*32 + 128
-//      = ~1,206,448 bytes (~1.2MB)
 
 export const HEADER_SIZE = 48;
 export const GRID_FG_OFFSET = HEADER_SIZE;
@@ -40,7 +39,15 @@ export const GRID_EXPLORED_OFFSET = GRID_LIGHT_OFFSET + GRID_LIGHT_SIZE;
 export const GRID_EXPLORED_SIZE = ACTIVE_GRID_CELLS;
 export const BLOCKHEADS_OFFSET = GRID_EXPLORED_OFFSET + GRID_EXPLORED_SIZE;
 export const BLOCKHEADS_SIZE = 4 * BH_STRIDE * MAX_BLOCKHEADS;
-export const INPUT_OFFSET = BLOCKHEADS_OFFSET + BLOCKHEADS_SIZE;
+
+// --- Drop entities (world drops that spin + can be picked up) ---
+// Per drop: x, y, vx, vy, spin, spinSpeed, itemCode, lifetime = 8 floats
+export const DROP_STRIDE = 8;
+export const MAX_DROPS = 128;
+export const DROPS_OFFSET = BLOCKHEADS_OFFSET + BLOCKHEADS_SIZE;
+export const DROPS_SIZE = 4 * DROP_STRIDE * MAX_DROPS;
+
+export const INPUT_OFFSET = DROPS_OFFSET + DROPS_SIZE;
 export const INPUT_SIZE = 128; // 32 Int32s or 32 Float32s
 
 export const SAB_SIZE =
@@ -50,6 +57,7 @@ export const SAB_SIZE =
   GRID_LIGHT_SIZE +
   GRID_EXPLORED_SIZE +
   BLOCKHEADS_SIZE +
+  DROPS_SIZE +
   INPUT_SIZE;
 
 // --- Input field offsets (within the 128-byte input region) ---
@@ -83,6 +91,7 @@ export const HDR_MINE_X = 28;     // Int32 — mining target X (-1 = none)
 export const HDR_MINE_Y = 32;     // Int32 — mining target Y (-1 = none)
 export const HDR_MINE_DAMAGE = 36; // Float32 — mining damage progress (0-1)
 export const HDR_SELECTED_SLOT = 40; // Int32 — selected hotbar slot
+export const HDR_DROP_COUNT = 44;    // Uint32 — number of active drop entities
 
 // --- Writer (sim worker side) ---
 export class SimBufferWriter {
@@ -93,6 +102,7 @@ export class SimBufferWriter {
   readonly light: Uint8Array;
   readonly explored: Uint8Array;
   readonly blockheads: Float32Array;
+  readonly drops: Float32Array;
   readonly inputInt32: Int32Array;
   readonly inputF32: Float32Array;
 
@@ -104,6 +114,7 @@ export class SimBufferWriter {
     this.light = new Uint8Array(sab, GRID_LIGHT_OFFSET, 4 * ACTIVE_GRID_CELLS);
     this.explored = new Uint8Array(sab, GRID_EXPLORED_OFFSET, ACTIVE_GRID_CELLS);
     this.blockheads = new Float32Array(sab, BLOCKHEADS_OFFSET, BH_STRIDE * MAX_BLOCKHEADS);
+    this.drops = new Float32Array(sab, DROPS_OFFSET, DROP_STRIDE * MAX_DROPS);
     this.inputInt32 = new Int32Array(sab, INPUT_OFFSET, INPUT_SIZE / 4);
     this.inputF32 = new Float32Array(sab, INPUT_OFFSET, INPUT_SIZE / 4);
   }
@@ -111,6 +122,7 @@ export class SimBufferWriter {
   writeHeader(
     tick: number, originCx: number, originCy: number, bhCount: number,
     daylight: number, mineX: number = -1, mineY: number = -1, mineDamage: number = 0,
+    selectedSlot: number = 0, dropCount: number = 0,
   ): void {
     const view = new DataView(this.buffer, 0, HEADER_SIZE);
     view.setUint32(HDR_TICK, tick, true);
@@ -123,6 +135,16 @@ export class SimBufferWriter {
     view.setInt32(HDR_MINE_X, mineX, true);
     view.setInt32(HDR_MINE_Y, mineY, true);
     view.setFloat32(HDR_MINE_DAMAGE, mineDamage, true);
+    view.setInt32(HDR_SELECTED_SLOT, selectedSlot, true);
+    view.setUint32(HDR_DROP_COUNT, dropCount, true);
+  }
+
+  /** Write drop entity data to the SAB. `data` is a flat Float32Array of DROP_STRIDE * count floats. */
+  writeDrops(data: Float32Array, count: number): void {
+    const n = Math.min(count, MAX_DROPS);
+    this.drops.set(data.subarray(0, n * DROP_STRIDE));
+    const view = new DataView(this.buffer, 0, HEADER_SIZE);
+    view.setUint32(HDR_DROP_COUNT, n, true);
   }
 
   writeGrid(world: {
@@ -178,6 +200,7 @@ export class SimBufferReader {
   readonly light: Uint8Array;
   readonly explored: Uint8Array;
   readonly blockheads: Float32Array;
+  readonly drops: Float32Array;
   readonly inputInt32: Int32Array;
   readonly inputF32: Float32Array;
 
@@ -188,6 +211,7 @@ export class SimBufferReader {
     this.light = new Uint8Array(buffer, GRID_LIGHT_OFFSET, 4 * ACTIVE_GRID_CELLS);
     this.explored = new Uint8Array(buffer, GRID_EXPLORED_OFFSET, ACTIVE_GRID_CELLS);
     this.blockheads = new Float32Array(buffer, BLOCKHEADS_OFFSET, BH_STRIDE * MAX_BLOCKHEADS);
+    this.drops = new Float32Array(buffer, DROPS_OFFSET, DROP_STRIDE * MAX_DROPS);
     this.inputInt32 = new Int32Array(buffer, INPUT_OFFSET, INPUT_SIZE / 4);
     this.inputF32 = new Float32Array(buffer, INPUT_OFFSET, INPUT_SIZE / 4);
   }
@@ -230,6 +254,10 @@ export class SimBufferReader {
 
   getMineDamage(): number {
     return new DataView(this.buffer, 0, HEADER_SIZE).getFloat32(HDR_MINE_DAMAGE, true);
+  }
+
+  getDropCount(): number {
+    return new DataView(this.buffer, 0, HEADER_SIZE).getUint32(HDR_DROP_COUNT, true);
   }
 
   /** Read blockhead state at index i. Returns a flat Float32Array slice. */

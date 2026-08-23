@@ -14,6 +14,8 @@ import {
     BLOCK_AIR,
     SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
+import { isCropBlock, isWildCropBlock } from "../shared/crops";
+import { decodeDropItem, encodeDropItem } from "../shared/drop-registry";
 import { Inventory } from "../shared/inventory";
 import { getItemDef, getItemForBlock } from "../shared/items";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
@@ -21,7 +23,7 @@ import {
     SimBufferWriter,
 } from "../shared/sim-buffer";
 import { getStationByBlock, getStationByType } from "../shared/stations";
-import { isTreeBlock, isWoodBlock } from "../shared/tree-species";
+import { isLeafBlock, isTreeBlock, isWoodBlock } from "../shared/tree-species";
 import type { BlockheadState } from "../shared/types";
 import {
     animStateToCode,
@@ -34,8 +36,10 @@ import {
     type BlockheadInput
 } from "./blockhead";
 import { deleteSave, loadAllChunks, saveDirtyChunks } from "./chunk-storage";
+import { clearCropTracking, recordCropPlant, recordWildHarvest, stepCropGrowth } from "./crop-growth";
 import { initFluidSim, stepFluidSim } from "./fluid-sim";
 import { recomputeLight } from "./light-sim";
+import { getSeason } from "./season-system";
 import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
 import { fellTree } from "./tree-fell";
 import { stepVineGrowth } from "./vine-sim";
@@ -129,6 +133,157 @@ const VFX_QUEUE_LEN_SHIFT = 24;
 
 function stationKey(ax: number, ay: number): string {
   return `${ax},${ay}`;
+}
+
+// --- Drop entities (world drops that spin + can be picked up) ---
+interface DropEntity {
+  x: number;       // active grid X (float, sub-block)
+  y: number;       // active grid Y (float)
+  vx: number;      // velocity X (blocks/tick)
+  vy: number;      // velocity Y (blocks/tick)
+  spin: number;    // current rotation angle (radians)
+  spinSpeed: number; // radians per second
+  itemCode: number;  // encoded item ID (from drop-registry)
+  count: number;     // stack size
+  lifetime: number;  // seconds remaining before despawn
+  onGround: boolean;
+}
+
+const drops: DropEntity[] = [];
+const MAX_DROPS = 128;
+const DROP_LIFETIME = 120; // 2 minutes before despawn
+const DROP_GRAVITY = 0.03;
+const DROP_MAX_FALL = 1.5;
+const DROP_FRICTION = 0.8;
+const PICKUP_RADIUS = 1.2; // blocks from blockhead center
+const PICKUP_DELAY = 0.5;  // seconds before a fresh drop can be picked up
+
+/** Spawn a drop entity at the given active-grid position with a small random pop velocity. */
+function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): void {
+  if (drops.length >= MAX_DROPS) {
+    // Drop limit reached — merge into inventory directly as fallback
+    const inv = inventories[0];
+    if (inv) inv.add(itemId, count);
+    return;
+  }
+  const code = encodeDropItem(itemId);
+  if (code === 0) {
+    // Unknown item — add to inventory directly
+    const inv = inventories[0];
+    if (inv) inv.add(itemId, count);
+    return;
+  }
+  // Pop velocity: slight upward + horizontal spread (deterministic from position)
+  const angle = pseudoRandom(gx | 0, gy | 0, tickCount, "drop-angle") * Math.PI * 2;
+  const speed = 0.05 + pseudoRandom(gx | 0, gy | 0, tickCount, "drop-speed") * 0.08;
+  drops.push({
+    x: gx + 0.5,
+    y: gy + 0.5,
+    vx: Math.cos(angle) * speed,
+    vy: -Math.abs(Math.sin(angle) * speed) - 0.08, // always pops upward
+    spin: pseudoRandom(gx | 0, gy | 0, tickCount, "drop-spin") * Math.PI * 2,
+    spinSpeed: 2 + pseudoRandom(gx | 0, gy | 0, tickCount, "drop-spinspeed") * 3,
+    itemCode: code,
+    count,
+    lifetime: DROP_LIFETIME,
+    onGround: false,
+  });
+}
+
+/** Update drop physics + check pickup by the blockhead. Called each tick. */
+function updateDrops(dt: number): void {
+  if (!world) return;
+  const bh = blockheads[0];
+  const bhCx = bh ? bh.x + BH_W * 0.5 : -999;
+  const bhCy = bh ? bh.y + BH_H * 0.5 : -999;
+  const inv = inventories[0];
+
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i];
+    d.lifetime -= dt;
+    if (d.lifetime <= 0) {
+      drops.splice(i, 1);
+      continue;
+    }
+
+    // Physics: gravity + collision with solid foreground blocks
+    if (!d.onGround) {
+      d.vy += DROP_GRAVITY;
+      if (d.vy > DROP_MAX_FALL) d.vy = DROP_MAX_FALL;
+    } else {
+      d.vy = 0;
+    }
+
+    // Horizontal movement with friction
+    d.x += d.vx;
+    d.vx *= DROP_FRICTION;
+    if (Math.abs(d.vx) < 0.001) d.vx = 0;
+
+    // Vertical movement + ground collision
+    const newY = d.y + d.vy;
+    // Check if the cell below the drop's new position is solid
+    const checkX = Math.floor(d.x);
+    const checkY = Math.floor(newY + 0.3); // check slightly below center
+    if (checkX >= 0 && checkX < ACTIVE_GRID_W && checkY >= 0 && checkY < ACTIVE_GRID_H) {
+      const blockId = world.activeForeground[checkY * ACTIVE_GRID_W + checkX] & 0xFF;
+      const def = getBlockDef(blockId);
+      if (def && def.category === "solid") {
+        // Land on top of the block
+        d.y = checkY - 0.5;
+        d.vy = 0;
+        d.onGround = true;
+      } else {
+        d.y = newY;
+        d.onGround = false;
+      }
+    } else {
+      d.y = newY;
+      d.onGround = false;
+    }
+
+    // Keep drop in bounds
+    if (d.x < 0) { d.x = 0; d.vx = Math.abs(d.vx); }
+    if (d.x >= ACTIVE_GRID_W) { d.x = ACTIVE_GRID_W - 0.01; d.vx = -Math.abs(d.vx); }
+    if (d.y < 0) { d.y = 0; d.vy = 0; d.onGround = true; }
+    if (d.y >= ACTIVE_GRID_H) { d.y = ACTIVE_GRID_H - 0.01; d.vy = 0; }
+
+    // Spin
+    d.spin += d.spinSpeed * dt;
+
+    // Pickup: check distance to blockhead center (only after pickup delay)
+    if (bh && inv && d.lifetime < DROP_LIFETIME - PICKUP_DELAY) {
+      const dx = d.x - bhCx;
+      const dy = d.y - bhCy;
+      if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
+        // Decode item and add to inventory
+        const itemId = decodeDropItem(d.itemCode);
+        if (itemId) {
+          inv.add(itemId, d.count);
+        }
+        drops.splice(i, 1);
+      }
+    }
+  }
+}
+
+/** Write drop entities to the SAB for the renderer. */
+function writeDropsToSab(): void {
+  if (!writer) return;
+  const count = Math.min(drops.length, MAX_DROPS);
+  const data = new Float32Array(MAX_DROPS * 8);
+  for (let i = 0; i < count; i++) {
+    const d = drops[i];
+    const off = i * 8;
+    data[off + 0] = d.x;
+    data[off + 1] = d.y;
+    data[off + 2] = d.vx;
+    data[off + 3] = d.vy;
+    data[off + 4] = d.spin;
+    data[off + 5] = d.spinSpeed;
+    data[off + 6] = d.itemCode;
+    data[off + 7] = d.lifetime;
+  }
+  writer.writeDrops(data, count);
 }
 
 function getOrCreateStationState(ax: number, ay: number): StationState | null {
@@ -338,6 +493,7 @@ async function setupWorld(loadSavedChunks: boolean): Promise<void> {
   mineCooldown = 0;
   taskQueues.length = 0;
   stationStates.clear();
+  drops.length = 0;
   nextJobId = 1;
   tickCount = 0;
   frameCount = 0;
@@ -946,23 +1102,42 @@ function processMining(dt: number): void {
       // Tree felling: if the player mined a wood block in the background
       // (a tree trunk), cut down the entire tree — all connected wood +
       // leaf blocks in the background, plus any vines climbing the tree.
-      // Each removed block drops its items as if mined individually.
+      // Wood blocks spawn spinning wood drops; leaf blocks have a 30%
+      // chance to spawn a stick drop.
       if (miningBackground && isWoodBlock(target.blockId)) {
         const felled = fellTree(
           world.activeBackground, ACTIVE_GRID_W, ACTIVE_GRID_H,
           target.x, target.y,
         );
-        const inv = inventories[0];
         for (const cell of felled) {
           const cellDef = getBlockDef(cell.blockId);
           if (!cellDef) continue;
           world.setActiveBackground(cell.x, cell.y, BLOCK_AIR);
-          // Drop items for each felled block (deterministic rolls)
-          if (inv) {
+          // Wood blocks → spawn wood drops (spinning world items)
+          if (isWoodBlock(cell.blockId)) {
+            spawnDrop(cell.x, cell.y, "wood", 1);
+          }
+          // Leaf blocks → 30% chance to spawn a stick drop
+          if (isLeafBlock(cell.blockId)) {
+            const stickRoll = pseudoRandom(cell.x, cell.y, tickCount, "stick-drop");
+            if (stickRoll <= 0.3) {
+              spawnDrop(cell.x, cell.y, "stick", 1);
+            }
+            // Fruit drops (species-specific) → also spawn as world drops
+            for (const drop of cellDef.drops) {
+              if (drop.itemId === "stick") continue; // already handled above
+              const roll = pseudoRandom(cell.x, cell.y, tickCount, drop.itemId);
+              if (roll <= drop.chance) {
+                spawnDrop(cell.x, cell.y, drop.itemId, drop.count);
+              }
+            }
+          }
+          // Vine blocks → drop vine item
+          if (!isWoodBlock(cell.blockId) && !isLeafBlock(cell.blockId)) {
             for (const drop of cellDef.drops) {
               const roll = pseudoRandom(cell.x, cell.y, tickCount, drop.itemId);
               if (roll <= drop.chance) {
-                inv.add(drop.itemId, drop.count);
+                spawnDrop(cell.x, cell.y, drop.itemId, drop.count);
               }
             }
           }
@@ -983,15 +1158,36 @@ function processMining(dt: number): void {
       }
       // Block removed → light field must be recomputed.
       lightDirty = true;
-      // Add drops to the blockhead's inventory
-      const inv = inventories[0];
-      if (inv) {
+
+      // Wild crop harvested: record harvest tick for regrow timer.
+      if (isWildCropBlock(target.blockId)) {
+        recordWildHarvest(target.x, target.y, world.currentTick);
+      }
+      // Leaf blocks mined individually: 30% chance to spawn a stick drop
+      // (as a spinning world item), plus any fruit drops.
+      if (isLeafBlock(target.blockId)) {
+        const stickRoll = pseudoRandom(target.x, target.y, tickCount, "stick-drop");
+        if (stickRoll <= 0.3) {
+          spawnDrop(target.x, target.y, "stick", 1);
+        }
         for (const drop of def.drops) {
-          // Deterministic drop roll based on block coords + tick so e2e tests
-          // are reproducible (no Math.random).
+          if (drop.itemId === "stick") continue; // handled above with 30% chance
           const roll = pseudoRandom(target.x, target.y, tickCount, drop.itemId);
           if (roll <= drop.chance) {
-            inv.add(drop.itemId, drop.count);
+            spawnDrop(target.x, target.y, drop.itemId, drop.count);
+          }
+        }
+      } else {
+        // All other blocks: add drops directly to inventory (existing behavior)
+        const inv = inventories[0];
+        if (inv) {
+          for (const drop of def.drops) {
+            // Deterministic drop roll based on block coords + tick so e2e tests
+            // are reproducible (no Math.random).
+            const roll = pseudoRandom(target.x, target.y, tickCount, drop.itemId);
+            if (roll <= drop.chance) {
+              inv.add(drop.itemId, drop.count);
+            }
           }
         }
       }
@@ -1050,6 +1246,11 @@ function processPlacing(): void {
   world.setActiveBlock(ax, ay, input.placeBlockId);
   // Block added → light field must be recomputed.
   lightDirty = true;
+
+  // If a seed/spore was planted, record the plant tick for crop growth timing.
+  if (isCropBlock(input.placeBlockId)) {
+    recordCropPlant(ax, ay, world.currentTick);
+  }
 }
 
 // --- Process task effects (EAT, SLEEP) ---
@@ -1211,6 +1412,8 @@ async function loop(): Promise<void> {
             initFluidSim(world.activeForeground);
             // Clear station state cache (will be re-read from vfx on next access)
             stationStates.clear();
+            // Clear crop tracking (ages are in active-grid coords, which shifted)
+            clearCropTracking();
             // Invalidate all task path caches (grid shifted)
             for (const queue of taskQueues) {
               for (const task of queue) {
@@ -1242,6 +1445,9 @@ async function loop(): Promise<void> {
           processMining(dt);
           processPlacing();
 
+          // Update world drops (physics + pickup by blockhead)
+          updateDrops(dt);
+
           // Step stations (fuel depletion, craft queue advancement)
           stepStations(dt);
 
@@ -1260,6 +1466,17 @@ async function loop(): Promise<void> {
           if (stepVineGrowth(
             world.activeForeground, world.activeBackground,
             world.currentTick, ACTIVE_GRID_W, ACTIVE_GRID_H,
+          )) {
+            lightDirty = true;
+          }
+
+          // Step crop growth (crops advance through stages, mushrooms spread,
+          // wild crops regrow, winter kills cold-sensitive crops).
+          if (stepCropGrowth(
+            world.activeForeground, world.activeBackground,
+            world.activeLight, world.currentTick,
+            getSeason(world.currentTick),
+            ACTIVE_GRID_W, ACTIVE_GRID_H,
           )) {
             lightDirty = true;
           }
@@ -1315,6 +1532,7 @@ async function loop(): Promise<void> {
 
           writer.writeGrid(world);
           writeBlockheads();
+          writeDropsToSab();
           writer.writeHeader(
             tickCount,
             world.getActiveOriginCx(),

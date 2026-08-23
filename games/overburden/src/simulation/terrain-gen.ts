@@ -22,6 +22,7 @@ import {
     CHUNK_W,
     MAGMA_Y, SEA_LEVEL, SURFACE_Y, WORLD_H
 } from "../shared/constants";
+import { WILD_CROPS } from "../shared/crops";
 import {
     isTreeBlock, makeTaggedBlock,
     pickTreeSpecies, pickVineSpecies, VINE_SPECIES,
@@ -265,6 +266,35 @@ export function generateChunk(chunk: Chunk, seed: number): void {
             // Trunk ended above — stop climbing (no more support).
             break;
           }
+        }
+      }
+    }
+  }
+
+  // Wild crops (berry bushes, wild mushrooms) spawn on grass cells above
+  // the surface. Each wild crop type has a spawn chance per grass cell.
+  // Wild mushrooms spawn in darker areas (caves, under trees); berry bushes
+  // spawn in open grass. They're single mature blocks that regrow after harvest.
+  for (let ly = 0; ly < CHUNK_H; ly++) {
+    for (let lx = 0; lx < CHUNK_W; lx++) {
+      const wx = baseWx + lx;
+      const wy = baseWy + ly;
+      const idx = cellIndex(lx, ly);
+      // Wild crops only grow on grass in the foreground, with air above.
+      if (chunk.foreground[idx] !== BLOCK_GRASS) continue;
+      const aboveIdx = ly > 0 ? cellIndex(lx, ly - 1) : -1;
+      if (aboveIdx >= 0 && (chunk.foreground[aboveIdx] & 0xFF) !== BLOCK_AIR) continue;
+      // Don't spawn on top of a tree trunk (background has wood at this cell).
+      if (isTreeBlock(chunk.background[idx])) continue;
+
+      for (const wc of WILD_CROPS) {
+        const roll = hash2(wx, wy, seed + 999 + wc.blockId);
+        if (roll < wc.spawnChance) {
+          // Place the wild crop in the foreground, one block above the grass.
+          if (aboveIdx >= 0) {
+            chunk.foreground[aboveIdx] = wc.blockId;
+          }
+          break; // only one wild crop per cell
         }
       }
     }
