@@ -14,9 +14,9 @@
 
 import { getBlockMask } from "../shared/block-registry";
 import {
-    ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_AIR, BLOCK_LAVA, BLOCK_WATER,
-    MASK_CLIMBABLE, MASK_LIQUID, MASK_SOLID,
+  ACTIVE_GRID_H, ACTIVE_GRID_W,
+  BLOCK_AIR, BLOCK_LAVA, BLOCK_WATER,
+  MASK_CLIMBABLE, MASK_LIQUID, MASK_SOLID,
 } from "../shared/constants";
 import type { BlockheadAnimState, BlockheadState } from "../shared/types";
 import { getBlockFromPacked } from "./fluid-sim";
@@ -88,6 +88,12 @@ export function createBlockhead(worldX: number, worldY: number): BlockheadState 
     air: 100,
     animState: "idle",
     animTime: 0,
+    mantleActive: false,
+    mantleTime: 0,
+    mantleFromX: 0,
+    mantleFromY: 0,
+    mantleToX: 0,
+    mantleToY: 0,
   };
 }
 
@@ -211,11 +217,15 @@ function touchesDamaging(x: number, y: number, fg: Uint16Array): boolean {
 function hasWallAt(x: number, y: number, fg: Uint16Array, side: number): boolean {
   const y0 = Math.floor(y);
   const y1 = Math.floor(y + BH_H - 0.001);
+  // Check the column immediately adjacent to the blockhead's AABB edge.
+  // AABB spans [x, x+BH_W). The adjacent column is:
+  //   left:  floor(x) - 1   (column just left of the AABB's left edge)
+  //   right: floor(x+BH_W-0.001) + 1  (column just right of the AABB's right edge)
   let wallX: number;
   if (side < 0) {
-    wallX = Math.floor(x - 0.01);
+    wallX = Math.floor(x) - 1;
   } else {
-    wallX = Math.floor(x + BH_W + 0.01);
+    wallX = Math.floor(x + BH_W - 0.001) + 1;
   }
   if (wallX < 0 || wallX >= ACTIVE_GRID_W) return false;
   for (let cy = y0; cy <= y1; cy++) {
@@ -288,9 +298,11 @@ function canMantle(x: number, y: number, fg: Uint16Array, side: number): boolean
 
   let wallX: number;
   if (side < 0) {
-    wallX = Math.floor(x - 0.01);
+    // Left wall: column at the blockhead's left edge
+    wallX = Math.floor(x) - 1;
   } else {
-    wallX = Math.floor(x + BH_W + 0.01);
+    // Right wall: column at the blockhead's right edge
+    wallX = Math.floor(x + BH_W - 0.001) + 1;
   }
   if (wallX < 0 || wallX >= ACTIVE_GRID_W) return false;
 
@@ -351,6 +363,37 @@ export function updateBlockhead(
     bh.y += bh.vy;
     bh.onGround = false;
     bh.animState = "fall";
+    bh.animTime += dt;
+    return;
+  }
+
+  // --- Mantle animation (smooth vault onto ledge) ---
+  // When mantleActive, the blockhead is smoothly interpolating from
+  // (mantleFromX, mantleFromY) to (mantleToX, mantleToY). Physics is
+  // suspended during the mantle. The animation takes ~150ms.
+  if (bh.mantleActive) {
+    const MANTLE_DURATION = 0.6; // seconds
+    bh.mantleTime += dt / MANTLE_DURATION;
+    if (bh.mantleTime >= 1) {
+      // Mantle complete — snap to target
+      bh.x = bh.mantleToX;
+      bh.y = bh.mantleToY;
+      bh.vx = 0;
+      bh.vy = 0;
+      bh.onGround = true;
+      bh.mantleActive = false;
+      bh.animState = "idle";
+    } else {
+      // Ease the interpolation (ease-out for a natural landing)
+      const t = bh.mantleTime;
+      const eased = 1 - (1 - t) * (1 - t); // ease-out quad
+      bh.x = bh.mantleFromX + (bh.mantleToX - bh.mantleFromX) * eased;
+      bh.y = bh.mantleFromY + (bh.mantleToY - bh.mantleFromY) * eased;
+      bh.vx = 0;
+      bh.vy = 0;
+      bh.onGround = false;
+      bh.animState = "climb";
+    }
     bh.animTime += dt;
     return;
   }
@@ -419,6 +462,14 @@ export function updateBlockhead(
 
   // --- Vertical movement ---
   // Priority: ladder > wall climbing > back wall climbing > swimming > gravity
+  //
+  // Wall climbing activates automatically when the blockhead is pressing
+  // horizontally into a wall (or pressing up) while airborne. This makes
+  // wall climbing feel natural — just walk into a wall and you start climbing.
+  const pressingLeftWall = input.left && wallLeft;
+  const pressingRightWall = input.right && wallRight;
+  const pressingIntoWall = pressingLeftWall || pressingRightWall;
+
   if (onLadder) {
     // Climbing (ladder/rope): suspend gravity, allow up/down
     bh.vy = 0;
@@ -435,13 +486,13 @@ export function updateBlockhead(
       bh.vy += GRAVITY * 0.3;
       if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
     }
-  } else if (input.up && (wallLeft || wallRight) && !bh.onGround) {
-    // Wall climbing: pressing up while against a solid wall (not on ground).
-    // Climb at WALL_CLIMB_SPEED. Slow gravity if not pressing up.
+  } else if ((pressingIntoWall || input.up) && (wallLeft || wallRight) && !bh.onGround) {
+    // Wall climbing: pressing into a wall (or pressing up) while against a
+    // solid wall and airborne. Climb at WALL_CLIMB_SPEED.
     bh.vy = -WALL_CLIMB_SPEED;
-  } else if (input.up && onBackWall && !bh.onGround) {
-    // Back wall climbing: pressing up with a background wall behind.
-    // Slower than foreground wall climbing.
+  } else if ((pressingIntoWall || input.up) && onBackWall && !wallLeft && !wallRight && !bh.onGround) {
+    // Back wall climbing: pressing into a wall (or pressing up) with a
+    // background wall behind, and no foreground wall. Slower than foreground.
     bh.vy = -BG_WALL_CLIMB_SPEED;
   } else if ((wallLeft || wallRight || onBackWall) && !bh.onGround && bh.vy > 0) {
     // Sliding down a wall: reduced fall speed (grip)
@@ -468,6 +519,19 @@ export function updateBlockhead(
       bh.x = newX;
       bh.y -= 1;
     } else {
+      // Snap flush against the wall instead of leaving a gap.
+      // Move in small increments until we're touching the wall.
+      if (stepX > 0) {
+        // Moving right: snap so right edge (x+BH_W) is at the wall column boundary
+        const wallCol = Math.floor(bh.x + BH_W - 0.001) + 1;
+        const flushX = wallCol - BH_W;
+        if (!boxHitsSolid(flushX, bh.y, fg)) bh.x = flushX;
+      } else if (stepX < 0) {
+        // Moving left: snap so left edge (x) is at the wall column boundary
+        const wallCol = Math.floor(bh.x) - 1;
+        const flushX = wallCol + 1;
+        if (!boxHitsSolid(flushX, bh.y, fg)) bh.x = flushX;
+      }
       bh.vx = 0;
     }
   }
@@ -497,41 +561,44 @@ export function updateBlockhead(
 
   // --- Mantle (vault over wall top) ---
   // When the blockhead was wall-climbing and has reached the top of the wall
-  // (no longer adjacent to a wall, but there's a ledge to stand on), boost
-  // the blockhead up and over onto the ledge.
-  if (!bh.onGround && input.up && !onLadder && !inLiquid) {
+  // (no longer adjacent to a wall, but there's a ledge to stand on), initiate
+  // a smooth mantle animation that vaults the blockhead onto the ledge.
+  // Activates when pressing into a wall (horizontal) or pressing up.
+  // Prioritize the direction the player is pressing.
+  if (!bh.onGround && (pressingIntoWall || input.up) && !onLadder && !inLiquid) {
     const mantleLeft = canMantle(bh.x, bh.y, fg, -1);
     const mantleRight = canMantle(bh.x, bh.y, fg, +1);
-    if (mantleRight) {
-      // Move up to stand on the ledge, then shift right onto it
+    // Choose direction: prefer the side the player is pressing toward
+    const tryRightFirst = input.right || (!input.left && mantleRight && !mantleLeft);
+    const tryLeftFirst = input.left || (!input.right && mantleLeft && !mantleRight);
+    let chosenSide: number = 0;
+    if (tryRightFirst && mantleRight) chosenSide = +1;
+    else if (tryLeftFirst && mantleLeft) chosenSide = -1;
+    else if (mantleRight) chosenSide = +1;
+    else if (mantleLeft) chosenSide = -1;
+
+    if (chosenSide !== 0) {
       const ledgeY = Math.floor(bh.y);
-      const wallX = Math.floor(bh.x + BH_W + 0.01);
-      // Snap head to the ledge level (feet on top of the wall)
+      const wallX = chosenSide < 0
+        ? Math.floor(bh.x) - 1
+        : Math.floor(bh.x + BH_W - 0.001) + 1;
       const targetY = ledgeY - BH_H + 0.001;
       if (!boxHitsSolid(wallX, targetY, fg)) {
-        bh.y = targetY;
-        bh.x = wallX;
+        bh.mantleActive = true;
+        bh.mantleTime = 0;
+        bh.mantleFromX = bh.x;
+        bh.mantleFromY = bh.y;
+        bh.mantleToX = wallX;
+        bh.mantleToY = targetY;
         bh.vy = 0;
         bh.vx = 0;
-        bh.onGround = true;
-      }
-    } else if (mantleLeft) {
-      const ledgeY = Math.floor(bh.y);
-      const wallX = Math.floor(bh.x - 0.01);
-      const targetY = ledgeY - BH_H + 0.001;
-      if (!boxHitsSolid(wallX, targetY, fg)) {
-        bh.y = targetY;
-        bh.x = wallX;
-        bh.vy = 0;
-        bh.vx = 0;
-        bh.onGround = true;
       }
     }
   }
 
   // --- Animation state ---
   const moving = Math.abs(bh.vx) > 0.05;
-  const wallClimbing = !bh.onGround && input.up && (wallLeft || wallRight || onBackWall);
+  const wallClimbing = !bh.onGround && (pressingIntoWall || input.up) && (wallLeft || wallRight || onBackWall);
   if (onLadder && (input.up || input.down)) {
     bh.animState = "climb";
   } else if (wallClimbing) {

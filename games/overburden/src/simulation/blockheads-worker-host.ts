@@ -39,6 +39,7 @@ type BlockheadsWorkerApi = {
   pause(): Promise<void>;
   resume(): Promise<void>;
   shutdown(): Promise<void>;
+  saveNow(): Promise<number>;
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
@@ -128,6 +129,11 @@ export class BlockheadsWorkerHost {
     this.worker = null;
     this.proxy = null;
     this.ready = false;
+  }
+
+  async saveNow(): Promise<number> {
+    if (!this.proxy) return 0;
+    return this.proxy.proxy.saveNow();
   }
 
   async setFocus(x: number, y: number): Promise<void> {

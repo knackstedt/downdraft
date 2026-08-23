@@ -46,6 +46,7 @@ struct VertexInput {
 struct InstanceInput {
   @location(3) instancePos: vec3<f32>,  // world position (x, y, z)
   @location(4) instanceData: vec2<f32>,  // x=blockId, y=faceMask
+  @location(7) neighborIds: vec4<f32>,   // (left, right, top, bottom) block IDs
 };
 
 struct VSOut {
@@ -57,6 +58,7 @@ struct VSOut {
   @location(4) @interpolate(flat) gridCoords: vec2<i32>,
   @location(5) localPos: vec3<f32>,
   @location(6) @interpolate(flat) instanceZ: f32,
+  @location(7) @interpolate(flat) neighborIds: vec4<f32>,
 };
 
 @vertex
@@ -84,6 +86,7 @@ fn vs_main(v: VertexInput, inst: InstanceInput) -> VSOut {
   out.gridCoords = vec2<i32>(i32(inst.instancePos.x), i32(inst.instancePos.y));
   out.localPos = v.localPos;
   out.instanceZ = inst.instancePos.z;
+  out.neighborIds = inst.neighborIds;
   return out;
 }
 
@@ -264,6 +267,51 @@ fn blockTexture(blockId: u32, gridCoords: vec2<i32>, faceId: f32, lp: vec3<f32>)
   return 0.9 + n * 0.15;
 }
 
+// --- Edge blending helpers ---
+// Check if a block ID is a natural terrain block (eligible for edge blending)
+fn isNaturalBlock(id: u32) -> bool {
+  return id == BLK_DIRT || id == BLK_GRASS || id == BLK_STONE ||
+         id == BLK_SAND || id == BLK_WOOD || id == BLK_LEAVES ||
+         id == BLK_COAL_ORE || id == BLK_COPPER_ORE || id == BLK_TIN_ORE ||
+         id == BLK_IRON_ORE || id == BLK_GOLD_ORE || id == BLK_BEDROCK ||
+         id == BLK_CLAY || id == BLK_GRAVEL;
+}
+
+fn isOreBlock(id: u32) -> bool {
+  return id == BLK_COAL_ORE || id == BLK_COPPER_ORE || id == BLK_TIN_ORE ||
+         id == BLK_IRON_ORE || id == BLK_GOLD_ORE;
+}
+
+// Check if two block types should blend at their shared edge
+fn shouldBlend(a: u32, b: u32) -> bool {
+  if (a == b) { return false; }
+  if (b == 0u) { return false; }
+  if (!isNaturalBlock(a) || !isNaturalBlock(b)) { return false; }
+  // Ore blends with stone (ore embedded in stone)
+  if (isOreBlock(a) && b == BLK_STONE) { return true; }
+  if (isOreBlock(b) && a == BLK_STONE) { return true; }
+  // Dirt/stone, grass/dirt, sand/stone, gravel/stone, clay/sand
+  if (a == BLK_DIRT && b == BLK_STONE) { return true; }
+  if (a == BLK_STONE && b == BLK_DIRT) { return true; }
+  if (a == BLK_GRASS && b == BLK_DIRT) { return true; }
+  if (a == BLK_DIRT && b == BLK_GRASS) { return true; }
+  if (a == BLK_SAND && b == BLK_STONE) { return true; }
+  if (a == BLK_STONE && b == BLK_SAND) { return true; }
+  if (a == BLK_GRAVEL && b == BLK_STONE) { return true; }
+  if (a == BLK_STONE && b == BLK_GRAVEL) { return true; }
+  if (a == BLK_CLAY && b == BLK_SAND) { return true; }
+  if (a == BLK_SAND && b == BLK_CLAY) { return true; }
+  if (a == BLK_DIRT && b == BLK_GRAVEL) { return true; }
+  if (a == BLK_GRAVEL && b == BLK_DIRT) { return true; }
+  // Wood/leaves
+  if (a == BLK_WOOD && b == BLK_LEAVES) { return true; }
+  if (a == BLK_LEAVES && b == BLK_WOOD) { return true; }
+  // Grass/stone (grass over stone)
+  if (a == BLK_GRASS && b == BLK_STONE) { return true; }
+  if (a == BLK_STONE && b == BLK_GRASS) { return true; }
+  return false;
+}
+
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let blockId = u32(in.blockId);
@@ -283,6 +331,116 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   // Sample block color from palette
   let blockColor = textureLoad(paletteTex, vec2<i32>(i32(blockId), 0), 0).rgb;
+
+  // --- Edge blending: noise-dithered transitions between adjacent block types ---
+  // Near face edges that border a different block type, dither the current
+  // block's color toward the neighbor's color using blocky noise. This matches
+  // the game's pixel-art aesthetic — no smooth gradients.
+  //
+  // neighborIds: (left, right, top, bottom) — block IDs of the 4 grid neighbors.
+  // localPos [0,1]³: lp.x=left/right, lp.y=top/bottom (Y-down), lp.z=front/back
+  //
+  // Edge→neighbor mapping per face:
+  //   Front/back (faceId 4/5): lp.x→left/right, lp.y→top/bottom (all 4 edges)
+  //   Side (faceId 0/1):       lp.y→top/bottom (2 edges; lp.z has no grid neighbor)
+  //   Top/bottom (faceId 2/3): lp.x→left/right (2 edges; lp.z has no grid neighbor)
+  let BLEND_WIDTH = 0.3; // how far the dither zone extends from the edge
+  let lp = in.localPos;
+  let nL = u32(in.neighborIds.x);
+  let nR = u32(in.neighborIds.y);
+  let nT = u32(in.neighborIds.z);
+  let nB = u32(in.neighborIds.w);
+
+  // World-aligned UV for stable noise across chunk boundaries
+  let wpos = vec2<f32>(f32(in.gridCoords.x) + cam.originX, f32(in.gridCoords.y) + cam.originY);
+  let fuv = faceUV(in.faceId, lp);
+  let noiseUV = wpos + fuv;
+
+  // Blocky noise for dithering (quantized to 6×6 sub-blocks per face)
+  let noiseVal = hash21(floor(noiseUV * 6.0));
+
+  // Track the dominant blend: the edge with the smallest distance that passes
+  // the dither test. blendColor/blendMask are set by the winning edge.
+  var blendColor = blockColor;
+  var blendMask = 0.0; // 0 = own color, 1 = neighbor color
+  var blendEdgeDist = 1.0;
+
+  // Determine which edges to check based on face type
+  // Dither threshold: t=1 at edge (always neighbor), t=0 at BLEND_WIDTH (always own)
+  if (in.faceId < 0.5 || in.faceId < 1.5) {
+    // +X / -X side faces: top (lp.y=0) and bottom (lp.y=1) edges
+    if (shouldBlend(blockId, nT)) {
+      let ed = lp.y;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nT), 0), 0).rgb;
+      }
+    }
+    if (shouldBlend(blockId, nB)) {
+      let ed = 1.0 - lp.y;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nB), 0), 0).rgb;
+      }
+    }
+  } else if (in.faceId < 2.5 || in.faceId < 3.5) {
+    // +Y / -Y top/bottom faces: left (lp.x=0) and right (lp.x=1) edges
+    if (shouldBlend(blockId, nL)) {
+      let ed = lp.x;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nL), 0), 0).rgb;
+      }
+    }
+    if (shouldBlend(blockId, nR)) {
+      let ed = 1.0 - lp.x;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nR), 0), 0).rgb;
+      }
+    }
+  } else {
+    // +Z / -Z front/back faces: all 4 edges
+    if (shouldBlend(blockId, nL)) {
+      let ed = lp.x;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nL), 0), 0).rgb;
+      }
+    }
+    if (shouldBlend(blockId, nR)) {
+      let ed = 1.0 - lp.x;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nR), 0), 0).rgb;
+      }
+    }
+    if (shouldBlend(blockId, nT)) {
+      let ed = lp.y;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nT), 0), 0).rgb;
+      }
+    }
+    if (shouldBlend(blockId, nB)) {
+      let ed = 1.0 - lp.y;
+      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+        blendMask = 1.0; blendEdgeDist = ed;
+        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nB), 0), 0).rgb;
+      }
+    }
+  }
+
+  // Apply blend: hard switch between own and neighbor color (pixel-art style)
+  let finalBlockColor = mix(blockColor, blendColor, blendMask);
 
   // Procedural texture multiplier
   let texMul = blockTexture(blockId, in.gridCoords, in.faceId, in.localPos);
@@ -307,14 +465,15 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Light level with ambient minimum
   let lightMul = max(lightLevel, 0.25);
 
-  // Edge bevel: slightly lighten edges of each face for a 3D beveled look
-  let lp = in.localPos;
+  // Edge bevel: slightly lighten edges of each face for a 3D beveled look.
+  // Skip bevel when showing a blended neighbor color — the neighbor block has
+  // its own bevel, and doubling up creates a visible bright line at the seam.
   let edgeDist = min(min(lp.x, 1.0 - lp.x), min(lp.y, 1.0 - lp.y));
   let edgeDistZ = min(lp.z, 1.0 - lp.z);
   let minEdge = min(edgeDist, edgeDistZ);
-  let bevel = 1.0 + 0.08 * step(minEdge, 0.08);
+  let bevel = 1.0 + 0.08 * step(minEdge, 0.08) * (1.0 - blendMask);
 
-  var color = blockColor * texMul * faceShade * lightMul * bevel;
+  var color = finalBlockColor * texMul * faceShade * lightMul * bevel;
 
   // Background blocks (Z < 0) are progressively darker based on depth.
   // 4-layer system: Z=0 (layer 1, full bright), Z=-1 (layer 2, 85%),

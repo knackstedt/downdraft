@@ -32,6 +32,7 @@ import {
     createBlockhead, createDefaultInput, getMineTarget, updateBlockhead,
     type BlockheadInput
 } from "./blockhead";
+import { loadAllChunks, saveDirtyChunks } from "./chunk-storage";
 import { initFluidSim, stepFluidSim } from "./fluid-sim";
 import { stepLightSim } from "./light-sim";
 import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
@@ -48,6 +49,8 @@ let tickCount = 0;
 let frameCount = 0;
 let fpsTimer = 0;
 let fps = 0;
+let lastSaveTime = 0;
+const SAVE_INTERVAL_MS = 5000; // save dirty chunks every 5 seconds
 let speedMultiplier = 1;
 let stepOnce = false;
 
@@ -292,6 +295,13 @@ expose({
     const seed = 99999;
     world = new BlockWorld(seed);
 
+    // Load saved chunks from OPFS (restores mining/placing changes)
+    const savedChunks = await loadAllChunks();
+    if (savedChunks.size > 0) {
+      world.savedChunks = savedChunks;
+      console.log(`[blockheads-worker] Loaded ${savedChunks.size} saved chunks from OPFS`);
+    }
+
     // Initial focus at world center, surface level
     world.setFocus(WORLD_W / 2, SURFACE_Y);
     world.checkRebuild();
@@ -396,8 +406,16 @@ expose({
     lastTick = performance.now();
     tickAccumulator = 0;
   },
-  shutdown(): void {
+  async shutdown(): Promise<void> {
+    // Save dirty chunks before shutting down
+    if (world) {
+      await saveDirtyChunks(world.allChunks());
+    }
     running = false;
+  },
+  async saveNow(): Promise<number> {
+    if (!world) return 0;
+    return saveDirtyChunks(world.allChunks());
   },
   setSpeed(speed: number): void {
     speedMultiplier = Math.max(0, speed);
@@ -1177,6 +1195,14 @@ async function loop(): Promise<void> {
       fps = Math.round((frameCount * 1000) / fpsTimer);
       frameCount = 0;
       fpsTimer = 0;
+    }
+
+    // Periodically save dirty chunks to OPFS
+    if (world && now - lastSaveTime >= SAVE_INTERVAL_MS) {
+      lastSaveTime = now;
+      saveDirtyChunks(world.allChunks()).catch((e) => {
+        console.warn("[blockheads-worker] Auto-save failed:", e);
+      });
     }
 
     setTimeout(loop, 0);

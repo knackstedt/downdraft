@@ -28,6 +28,9 @@ function chunkKey(cx: number, cy: number): string {
 
 export class BlockWorld {
   private chunks = new Map<string, Chunk>();
+  // Pre-loaded saved chunks (restored from OPFS on init). When ensureChunk
+  // creates a new chunk, it checks here first before generating from seed.
+  savedChunks: Map<string, Chunk> = new Map();
   readonly seed: number;
   currentTick = 0;
 
@@ -87,7 +90,14 @@ export class BlockWorld {
     const key = chunkKey(cx, cy);
     let chunk = this.chunks.get(key);
     if (!chunk) {
-      chunk = createChunk(cx, cy);
+      // Check saved chunks first (restored from OPFS on init)
+      const saved = this.savedChunks.get(key);
+      if (saved) {
+        chunk = saved;
+        this.savedChunks.delete(key);
+      } else {
+        chunk = createChunk(cx, cy);
+      }
       this.chunks.set(key, chunk);
     }
     if (!chunk.generated) {
@@ -238,9 +248,16 @@ export class BlockWorld {
             dstOffset,
           );
         }
-        chunk.dirty = false;
+        // Mark chunk dirty so it gets saved to OPFS (the active grid is
+        // the authoritative copy — any changes during sim need to persist).
+        chunk.dirty = true;
       }
     }
+  }
+
+  /** Iterate all loaded chunks (for saving dirty chunks to OPFS). */
+  *allChunks(): IterableIterator<Chunk> {
+    yield* this.chunks.values();
   }
 
   // --- Active grid block access (for sim + render) ---

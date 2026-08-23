@@ -13,6 +13,7 @@ export interface BlockDef {
   color: [number, number, number]; // RGB 0-255 (palette color)
   textureVariant: number; // 0-31, indexes into texture atlas
   lightEmit: number; // 0-15 (torches, lava, glow)
+  lightColor: [number, number, number]; // RGB 0-255 (emitter color; [0,0,0] for non-emitters)
   conductive: boolean; // passes electricity
   climbable: boolean; // ladder, rope
   flammable: boolean;
@@ -90,6 +91,13 @@ export interface BlockheadState {
   // Animation:
   animState: BlockheadAnimState;
   animTime: number; // seconds in current animation
+  // Mantle state: when active, the blockhead is smoothly vaulting onto a ledge
+  mantleActive: boolean;
+  mantleTime: number;     // 0..1 progress
+  mantleFromX: number;
+  mantleFromY: number;
+  mantleToX: number;
+  mantleToY: number;
   // Inventory + tasks are stored separately (not in SAB)
 }
 
