@@ -26,13 +26,13 @@
 // for a block game).
 // ============================================================================
 
-import { BLOCK_AIR, BLOCK_COMPOST_FARMLAND, BLOCK_FARMLAND } from "../shared/constants";
+import { BLOCK_AIR, BLOCK_COMPOST_FARMLAND, BLOCK_FARMLAND, BLOCK_GRASS } from "../shared/constants";
 import {
     getCropByBlock,
-    isCropBlock, isWildCropBlock,
-    WILD_CROPS,
-    type Season,
+    isCropBlock,
+    type Season
 } from "../shared/crops";
+import { pseudoRandom } from "../shared/pseudo-random";
 
 // Run crop growth every N ticks (~2s at 30tps).
 const CROP_GROWTH_INTERVAL = 60;
@@ -44,16 +44,17 @@ const WINTER_KILL_CHANCE = 0.3;
 /** Tracks when each crop cell was planted (active grid coords "x,y" → tick). */
 const cropPlantTick = new Map<string, number>();
 
-/** Tracks wild crop harvest time for regrow ("x,y" → tick when harvested). */
-const wildHarvestTick = new Map<string, number>();
+/** Tracks wild crop harvest info for regrow ("x,y" → { tick, blockId, regrowTicks }). */
+interface WildHarvestEntry {
+  tick: number;
+  blockId: number;
+  regrowTicks: number;
+}
+const wildHarvest = new Map<string, WildHarvestEntry>();
 
 /** Deterministic roll in [0,1) from (x, y, tick, salt). */
 function cropRoll(x: number, y: number, tick: number, salt: number): number {
-  let h = 2166136261 ^ x;
-  h = Math.imul(h, 16777619) ^ y;
-  h = Math.imul(h, 16777619) ^ tick;
-  h = Math.imul(h, 16777619) ^ salt;
-  return ((h >>> 0) % 100000) / 100000;
+  return pseudoRandom(x, y, tick, salt);
 }
 
 /** Record that a crop was planted at active-grid (x, y) at the given tick. */
@@ -62,14 +63,14 @@ export function recordCropPlant(x: number, y: number, tick: number): void {
 }
 
 /** Record that a wild crop was harvested at (x, y) at the given tick. */
-export function recordWildHarvest(x: number, y: number, tick: number): void {
-  wildHarvestTick.set(`${x},${y}`, tick);
+export function recordWildHarvest(x: number, y: number, tick: number, blockId: number, regrowTicks: number): void {
+  wildHarvest.set(`${x},${y}`, { tick, blockId, regrowTicks });
 }
 
 /** Clear all crop tracking (called when active grid rebuilds). */
 export function clearCropTracking(): void {
   cropPlantTick.clear();
-  wildHarvestTick.clear();
+  wildHarvest.clear();
 }
 
 /**
@@ -116,10 +117,13 @@ export function stepCropGrowth(
           // Mushroom spreading
           if (crop.canSpread && crop.isMushroom) {
             if (cropRoll(x, y, tick, crop.id.charCodeAt(0)) < MUSHROOM_SPREAD_CHANCE) {
-              const spreadDirs = [[0, -1], [1, 0], [-1, 0], [0, 1]];
+              // Spread left, right, or down — NOT up. The "up" direction is
+              // impossible because the cell below (x, y-1) is (x, y) which is
+              // the mushroom itself, never compost farmland.
+              const spreadDirs = [[1, 0], [-1, 0], [0, 1]];
               // Use a very different salt for the direction roll so it doesn't
               // correlate with the spread-chance roll.
-              const dir = spreadDirs[Math.floor(cropRoll(x, y, tick, 0x5EA5) * 4)];
+              const dir = spreadDirs[Math.floor(cropRoll(x, y, tick, 0x5EA5) * 3)];
               const nx = x + dir[0];
               const ny = y + dir[1];
               if (nx >= 0 && nx < W && ny >= 0 && ny < H) {
@@ -170,19 +174,14 @@ export function stepCropGrowth(
           changes.push({ x, y, newBlock: crop.stages[stage + 1] });
         }
       }
-
-      // --- Wild crop regrow ---
-      if (isWildCropBlock(blockId)) {
-        // Wild crops don't have growth stages — they're either present or
-        // absent. Regrow is handled by checking harvested cells (below).
-        // But if a wild crop block exists, it's already grown.
-      }
     }
   }
 
   // Check for wild crop regrow: cells that were harvested and have
-  // grass/farmland below should regrow after regrowTicks.
-  for (const [key, harvestTick] of wildHarvestTick) {
+  // grass/farmland below should regrow the same wild crop type after its
+  // regrowTicks. The harvested blockId is stored in the tracking entry so
+  // the correct species regrows (not just the first in WILD_CROPS order).
+  for (const [key, entry] of wildHarvest) {
     const parts = key.split(",");
     const x = parseInt(parts[0]);
     const y = parseInt(parts[1]);
@@ -190,22 +189,17 @@ export function stepCropGrowth(
     const idx = y * W + x;
     if ((fg[idx] & 0xFF) !== BLOCK_AIR) {
       // Cell is occupied — remove from tracking.
-      wildHarvestTick.delete(key);
+      wildHarvest.delete(key);
       continue;
     }
-    // Find which wild crop was here — we use a deterministic pick based on
-    // position so the same wild crop type regrows that was harvested.
     const belowY = y + 1;
     if (belowY >= H) continue;
     const below = fg[belowY * W + x] & 0xFF;
-    if (below !== 2 && below !== BLOCK_FARMLAND) continue; // grass or farmland
-    const tickAge = tick - harvestTick;
-    for (const wc of WILD_CROPS) {
-      if (tickAge >= wc.regrowTicks) {
-        wildRegrows.push({ x, y, block: wc.blockId });
-        wildHarvestTick.delete(key);
-        break;
-      }
+    if (below !== BLOCK_GRASS && below !== BLOCK_FARMLAND) continue;
+    const tickAge = tick - entry.tick;
+    if (tickAge >= entry.regrowTicks) {
+      wildRegrows.push({ x, y, block: entry.blockId });
+      wildHarvest.delete(key);
     }
   }
 

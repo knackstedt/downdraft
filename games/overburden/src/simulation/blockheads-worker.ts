@@ -14,10 +14,11 @@ import {
     BLOCK_AIR,
     SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
-import { isCropBlock, isWildCropBlock } from "../shared/crops";
-import { decodeDropItem, DROP_SEED, encodeDropItem } from "../shared/drop-registry";
+import { getWildCropByBlock, isCropBlock, isWildCropBlock } from "../shared/crops";
+import { decodeDropItem, encodeDropItem } from "../shared/drop-registry";
 import { Inventory } from "../shared/inventory";
 import { getItemDef, getItemForBlock } from "../shared/items";
+import { pseudoRandom } from "../shared/pseudo-random";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
 import {
     SimBufferWriter,
@@ -79,18 +80,6 @@ let lastTreeDay = -1;
 const TICK_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 5;
 let tickAccumulator = 0;
-
-// --- Deterministic pseudo-random for drop rolls (no Math.random in sim) ---
-function pseudoRandom(x: number, y: number, tick: number, salt: string): number {
-  let h = 2166136261 ^ x;
-  h = Math.imul(h, 16777619) ^ y;
-  h = Math.imul(h, 16777619) ^ tick;
-  for (let i = 0; i < salt.length; i++) {
-    h = Math.imul(h, 16777619) ^ salt.charCodeAt(i);
-  }
-  // Normalize to [0, 1)
-  return ((h >>> 0) % 100000) / 100000;
-}
 
 // --- Blockhead state ---
 let blockheads: BlockheadState[] = [];
@@ -204,40 +193,6 @@ function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): v
     lifetime: DROP_LIFETIME,
     onGround: false,
     kind: 0, speciesIdx: 0, age: 0, fallen: false,
-  });
-}
-
-/** Spawn a tree fruit as a spinning 2D drop entity on a leaf cell. */
-function spawnTreeFruit(gx: number, gy: number, itemCode: number): void {
-  if (drops.length >= MAX_DROPS) return;
-  drops.push({
-    x: gx + 0.5,
-    y: gy + 0.5,
-    vx: 0, vy: 0,
-    spin: pseudoRandom(gx, gy, tickCount, "fruit-spin") * Math.PI * 2,
-    spinSpeed: 1.5 + pseudoRandom(gx, gy, tickCount, "fruit-spinspeed") * 2,
-    itemCode,
-    count: 1,
-    lifetime: Infinity, // fruits despawn by age, not lifetime
-    onGround: true, // stationary on tree (no gravity until it falls)
-    kind: 1, speciesIdx: 0, age: 0, fallen: false,
-  });
-}
-
-/** Spawn a tree seed as a spinning 2D drop entity on a leaf cell. */
-function spawnTreeSeed(gx: number, gy: number, speciesIdx: number): void {
-  if (drops.length >= MAX_DROPS) return;
-  drops.push({
-    x: gx + 0.5,
-    y: gy + 0.5,
-    vx: 0, vy: 0,
-    spin: pseudoRandom(gx, gy, tickCount, "seed-spin") * Math.PI * 2,
-    spinSpeed: 1.5 + pseudoRandom(gx, gy, tickCount, "seed-spinspeed") * 2,
-    itemCode: DROP_SEED,
-    count: 1,
-    lifetime: Infinity, // seeds despawn by age, not lifetime
-    onGround: true, // stationary on tree (no gravity until it falls)
-    kind: 2, speciesIdx, age: 0, fallen: false,
   });
 }
 
@@ -1241,9 +1196,12 @@ function processMining(dt: number): void {
       // Block removed → light field must be recomputed.
       lightDirty = true;
 
-      // Wild crop harvested: record harvest tick for regrow timer.
+      // Wild crop harvested: record harvest info for regrow timer.
       if (isWildCropBlock(target.blockId)) {
-        recordWildHarvest(target.x, target.y, world.currentTick);
+        const wc = getWildCropByBlock(target.blockId);
+        if (wc) {
+          recordWildHarvest(target.x, target.y, world.currentTick, wc.blockId, wc.regrowTicks);
+        }
       }
       // Leaf blocks mined individually: 30% chance to spawn a stick drop
       // (as a spinning world item), plus any fruit drops.
@@ -1590,14 +1548,15 @@ async function loop(): Promise<void> {
 
           // Tree life-cycle: runs once per in-game day (18000 ticks).
           // Spawns fruit + seeds on leaves (as spinning 2D drop entities),
-          // ages/falls/scatters them, and grows saplings. Gated by lastTreeDay
-          // so it only runs once per day.
+          // ages/falls/scatters them, and grows saplings (paused in winter).
+          // Gated by lastTreeDay so it only runs once per day.
           const currentDay = Math.floor(tickCount / 18000);
           if (currentDay !== lastTreeDay) {
             lastTreeDay = currentDay;
             if (stepTreeDaily(
               world.activeForeground, world.activeBackground,
-              world.activeVfx, tickCount, ACTIVE_GRID_W, ACTIVE_GRID_H,
+              world.activeVfx, tickCount, getSeason(world.currentTick),
+              ACTIVE_GRID_W, ACTIVE_GRID_H,
               drops, world,
             )) {
               lightDirty = true;

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { BlockheadsRenderer } from "../renderer/blockheads-renderer";
+import type { Season } from "../shared/crops";
 
 // Blockhead attribute state (mirrored from SAB for UI display)
 export interface BlockheadUIState {
@@ -46,6 +47,10 @@ interface GameState {
   recipes: RecipeUI[];
   // Notification toast (auto-dismisses after a few seconds)
   notification: string | null;
+  // Current season + day info (polled from SAB tick)
+  season: Season;
+  dayInSeason: number;
+  year: number;
   // Renderer reference (set by main.tsx after init)
   renderer: BlockheadsRenderer | null;
   // Actions
@@ -64,6 +69,7 @@ interface GameState {
   setInventory: (inv: InventorySlotUI[]) => void;
   setRecipes: (recipes: RecipeUI[]) => void;
   setNotification: (msg: string | null) => void;
+  setSeasonInfo: (season: Season, dayInSeason: number, year: number) => void;
 }
 
 const defaultBh: BlockheadUIState = {
@@ -90,6 +96,9 @@ export const useGameStore = create<GameState>((set) => ({
   inventory: [],
   recipes: [],
   notification: null,
+  season: "spring",
+  dayInSeason: 0,
+  year: 0,
   renderer: null,
   setShowTitleScreen: (show) => set({ showTitleScreen: show }),
   setPaused: (paused) => set({ paused }),
@@ -106,4 +115,5 @@ export const useGameStore = create<GameState>((set) => ({
   setInventory: (inventory) => set({ inventory }),
   setRecipes: (recipes) => set({ recipes }),
   setNotification: (msg) => set({ notification: msg }),
+  setSeasonInfo: (season, dayInSeason, year) => set({ season, dayInSeason, year }),
 }));

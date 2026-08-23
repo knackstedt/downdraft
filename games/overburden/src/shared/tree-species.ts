@@ -378,10 +378,13 @@ export function pickTreeSpecies(r: number): TreeSpecies {
 
 // --- Species lookup helpers (for tree life-cycle sim) ---
 
+/** Precomputed map: leaf block ID → TreeSpecies (O(1) lookup). */
+const LEAF_TO_SPECIES = new Map<number, TreeSpecies>();
+for (const s of TREE_SPECIES) LEAF_TO_SPECIES.set(s.leafBlock, s);
+
 /** Lookup a tree species by its leaf block ID. */
 export function getSpeciesByLeafBlock(blockId: number): TreeSpecies | undefined {
-  const b = blockId & 0xFF;
-  return TREE_SPECIES.find((s) => s.leafBlock === b);
+  return LEAF_TO_SPECIES.get(blockId & 0xFF);
 }
 
 /** Get the species at a given index in TREE_SPECIES (for vfx encoding). */

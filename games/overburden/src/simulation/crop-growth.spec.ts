@@ -5,9 +5,10 @@ import {
     BLOCK_CROP_MATURE_BROWN_MUSHROOM,
     BLOCK_CROP_MATURE_TOMATO, BLOCK_CROP_SEED_BROWN_MUSHROOM,
     BLOCK_CROP_SEED_TOMATO, BLOCK_CROP_SPROUT_TOMATO,
-    BLOCK_GRASS
+    BLOCK_GRASS,
+    BLOCK_WILD_BERRY_BUSH, BLOCK_WILD_MUSHROOM,
 } from "../shared/constants";
-import { getCropById } from "../shared/crops";
+import { getCropById, getWildCropByBlock } from "../shared/crops";
 import {
     clearCropTracking,
     recordCropPlant, recordWildHarvest,
@@ -187,7 +188,7 @@ describe("crop-growth", () => {
 
   it("clearCropTracking resets all tracking", () => {
     recordCropPlant(1, 2, 100);
-    recordWildHarvest(3, 4, 200);
+    recordWildHarvest(3, 4, 200, BLOCK_WILD_BERRY_BUSH, 6000);
     clearCropTracking();
     // After clearing, a crop planted at tick 100 should now be treated as
     // freshly planted at whatever tick we pass to stepCropGrowth.
@@ -198,5 +199,47 @@ describe("crop-growth", () => {
     // shouldn't have grown yet (tomato stage 0 needs 600 ticks).
     const changed = stepCropGrowth(g.fg, g.bg, g.light, 60, "spring", W, H);
     expect(changed).toBe(false);
+  });
+
+  it("wild berry bush regrows as the same type after harvest", () => {
+    clearCropTracking();
+    const g = makeGrid();
+    const x = 5, y = 5;
+    // Grass below the harvested cell
+    g.fg[(y + 1) * W + x] = BLOCK_GRASS;
+    const wc = getWildCropByBlock(BLOCK_WILD_BERRY_BUSH)!;
+    recordWildHarvest(x, y, 0, BLOCK_WILD_BERRY_BUSH, wc.regrowTicks);
+    // Advance past regrowTicks (6000) — should regrow as berry bush
+    const tick = Math.ceil(wc.regrowTicks / 60) * 60;
+    stepCropGrowth(g.fg, g.bg, g.light, tick, "spring", W, H);
+    expect(g.fg[y * W + x]).toBe(BLOCK_WILD_BERRY_BUSH);
+  });
+
+  it("wild mushroom regrows as the same type (not berry bush) after harvest", () => {
+    clearCropTracking();
+    const g = makeGrid();
+    const x = 5, y = 5;
+    g.fg[(y + 1) * W + x] = BLOCK_GRASS;
+    const wc = getWildCropByBlock(BLOCK_WILD_MUSHROOM)!;
+    recordWildHarvest(x, y, 0, BLOCK_WILD_MUSHROOM, wc.regrowTicks);
+    // Mushroom regrows at 4000 ticks (faster than berry bush 6000)
+    const tick = Math.ceil(wc.regrowTicks / 60) * 60;
+    stepCropGrowth(g.fg, g.bg, g.light, tick, "spring", W, H);
+    // Must be a mushroom, NOT a berry bush (the old bug regrew the wrong type)
+    expect(g.fg[y * W + x]).toBe(BLOCK_WILD_MUSHROOM);
+    expect(g.fg[y * W + x]).not.toBe(BLOCK_WILD_BERRY_BUSH);
+  });
+
+  it("wild crop does not regrow before its regrowTicks", () => {
+    clearCropTracking();
+    const g = makeGrid();
+    const x = 5, y = 5;
+    g.fg[(y + 1) * W + x] = BLOCK_GRASS;
+    const wc = getWildCropByBlock(BLOCK_WILD_BERRY_BUSH)!;
+    recordWildHarvest(x, y, 0, BLOCK_WILD_BERRY_BUSH, wc.regrowTicks);
+    // Advance to just before regrowTicks
+    const tick = Math.ceil((wc.regrowTicks - 60) / 60) * 60;
+    stepCropGrowth(g.fg, g.bg, g.light, tick, "spring", W, H);
+    expect(g.fg[y * W + x]).toBe(BLOCK_AIR); // not yet regrown
   });
 });
