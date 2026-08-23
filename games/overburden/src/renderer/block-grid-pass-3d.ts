@@ -65,7 +65,7 @@ const CUBE_INDICES = new Uint16Array([
 ]);
 
 const VERT_STRIDE = 7 * 4; // 7 floats per vertex
-const INSTANCE_STRIDE = 9 * 4; // 9 floats per instance (vec3 pos + vec2 data + vec4 neighborIds)
+const INSTANCE_STRIDE = 5 * 4; // 5 floats per instance (vec3 pos + vec2 data)
 
 // Face mask bits (must match shader)
 const FACE_RIGHT  = 1 << 0; // +X
@@ -103,6 +103,12 @@ export class BlockGridPass3D {
   private lightView: GPUTextureView | null = null;
   private exploredTexture: GPUTexture | null = null;
   private exploredView: GPUTextureView | null = null;
+  // Grid textures: block IDs uploaded as r8unorm so the shader can sample
+  // neighbor IDs directly (avoids computing them per-cell in JS).
+  private fgGridTexture: GPUTexture | null = null;
+  private fgGridView: GPUTextureView | null = null;
+  private bgGridTexture: GPUTexture | null = null;
+  private bgGridView: GPUTextureView | null = null;
   private depthTexture: GPUTexture | null = null;
 
   gridW: number;
@@ -117,9 +123,15 @@ export class BlockGridPass3D {
   private instanceCount = 0;    // total (for buffer sizing)
 
   // Scratch light/explored upload buffers (padded to 256-byte rows)
+  // Light is RGBA8 (4 bytes/pixel); explored is R8 (1 byte/pixel).
   private paddedLight: Uint8Array;
   private paddedExplored: Uint8Array;
-  private paddedRowBytes: number;
+  private paddedLightRowBytes: number; // bytes per row for RGBA8 light (256-aligned)
+  private paddedExploredRowBytes: number; // bytes per row for R8 explored (256-aligned)
+  // Scratch grid upload buffers (block IDs as R8, padded to 256-byte rows)
+  private paddedFgGrid: Uint8Array;
+  private paddedBgGrid: Uint8Array;
+  private paddedGridRowBytes: number; // bytes per row for R8 grid (256-aligned)
 
   // Cached view-projection matrix
   private viewProj: Mat4 = new Float32Array(16);
@@ -140,10 +152,17 @@ export class BlockGridPass3D {
     this.gridW = ACTIVE_GRID_W;
     this.gridH = ACTIVE_GRID_H;
     // Max instances = all cells (fg double-rendered + bg double-rendered).
-    this.instanceData = new Float32Array(ACTIVE_GRID_CELLS * (NUM_FG_LAYERS + NUM_BG_LAYERS) * 9);
-    this.paddedRowBytes = Math.ceil(ACTIVE_GRID_W / 256) * 256;
-    this.paddedLight = new Uint8Array(this.paddedRowBytes * ACTIVE_GRID_H);
-    this.paddedExplored = new Uint8Array(this.paddedRowBytes * ACTIVE_GRID_H);
+    this.instanceData = new Float32Array(ACTIVE_GRID_CELLS * (NUM_FG_LAYERS + NUM_BG_LAYERS) * 5);
+    // Light: RGBA8 (4 bytes/pixel) → bytesPerRow must be multiple of 256.
+    this.paddedLightRowBytes = Math.ceil((ACTIVE_GRID_W * 4) / 256) * 256;
+    // Explored: R8 (1 byte/pixel) → bytesPerRow must be multiple of 256.
+    this.paddedExploredRowBytes = Math.ceil(ACTIVE_GRID_W / 256) * 256;
+    this.paddedLight = new Uint8Array(this.paddedLightRowBytes * ACTIVE_GRID_H);
+    this.paddedExplored = new Uint8Array(this.paddedExploredRowBytes * ACTIVE_GRID_H);
+    // Grid textures: R8 (1 byte/pixel), same alignment as explored.
+    this.paddedGridRowBytes = this.paddedExploredRowBytes;
+    this.paddedFgGrid = new Uint8Array(this.paddedGridRowBytes * ACTIVE_GRID_H);
+    this.paddedBgGrid = new Uint8Array(this.paddedGridRowBytes * ACTIVE_GRID_H);
   }
 
   init(): void {
@@ -199,6 +218,8 @@ export class BlockGridPass3D {
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // palette
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // light
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // explored
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // fgGrid
+        { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // bgGrid
       ],
     });
 
@@ -227,7 +248,6 @@ export class BlockGridPass3D {
             attributes: [
               { shaderLocation: 3, offset: 0, format: "float32x3" },  // instancePos
               { shaderLocation: 4, offset: 12, format: "float32x2" }, // instanceData (blockId, faceMask)
-              { shaderLocation: 7, offset: 20, format: "float32x4" }, // neighborIds (left, right, top, bottom)
             ],
           },
         ],
@@ -275,7 +295,6 @@ export class BlockGridPass3D {
             attributes: [
               { shaderLocation: 3, offset: 0, format: "float32x3" },
               { shaderLocation: 4, offset: 12, format: "float32x2" },
-              { shaderLocation: 7, offset: 20, format: "float32x4" },
             ],
           },
         ],
@@ -300,10 +319,10 @@ export class BlockGridPass3D {
   }
 
   private createTextures(): void {
-    // Light texture (r8unorm)
+    // Light texture (rgba8unorm — RGB light color + A pad)
     this.lightTexture = this.device.createTexture({
       size: [this.gridW, this.gridH],
-      format: "r8unorm",
+      format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     this.lightView = this.lightTexture.createView();
@@ -315,11 +334,26 @@ export class BlockGridPass3D {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     this.exploredView = this.exploredTexture.createView();
+
+    // Grid textures: block IDs as r8unorm (shader samples neighbors directly)
+    this.fgGridTexture = this.device.createTexture({
+      size: [this.gridW, this.gridH],
+      format: "r8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.fgGridView = this.fgGridTexture.createView();
+
+    this.bgGridTexture = this.device.createTexture({
+      size: [this.gridW, this.gridH],
+      format: "r8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.bgGridView = this.bgGridTexture.createView();
   }
 
   private createBindGroup(): void {
     if (!this.bindGroupLayout || !this.cameraBuffer || !this.paletteView ||
-        !this.lightView || !this.exploredView) return;
+        !this.lightView || !this.exploredView || !this.fgGridView || !this.bgGridView) return;
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
@@ -327,6 +361,8 @@ export class BlockGridPass3D {
         { binding: 1, resource: this.paletteView },
         { binding: 2, resource: this.lightView },
         { binding: 3, resource: this.exploredView },
+        { binding: 4, resource: this.fgGridView },
+        { binding: 5, resource: this.bgGridView },
       ],
     });
   }
@@ -353,12 +389,16 @@ export class BlockGridPass3D {
     return this.viewProj;
   }
 
-  /** Build instance data from the grid. Called each frame. */
+  /** Build instance data from the grid. Called each sim tick (30Hz). */
   updateGrid(foreground: Uint16Array, background: Uint16Array): void {
     let idx = 0;
     const data = this.instanceData;
     const W = this.gridW;
     const H = this.gridH;
+
+    // Upload block IDs as textures so the shader can sample neighbor IDs
+    // directly (avoids 4 per-cell neighbor lookups in JS).
+    this.uploadGridTextures(foreground, background);
 
     // --- Foreground blocks (rendered at 2 Z depths: Z=0 and Z=-1) ---
     // Layer 1 (Z=0): front face visible. Layer 2 (Z=-1): back face visible.
@@ -389,21 +429,11 @@ export class BlockGridPass3D {
             faceMask |= FACE_FRONT;
           }
 
-          // Neighbor block IDs for edge blending (left, right, top, bottom)
-          const nLeft  = x > 0     ? (foreground[y * W + (x - 1)] & 0xFF) : 0;
-          const nRight = x < W - 1 ? (foreground[y * W + (x + 1)] & 0xFF) : 0;
-          const nTop   = y > 0     ? (foreground[(y - 1) * W + x] & 0xFF) : 0;
-          const nBot   = y < H - 1 ? (foreground[(y + 1) * W + x] & 0xFF) : 0;
-
-          data[idx * 9 + 0] = x;
-          data[idx * 9 + 1] = y;
-          data[idx * 9 + 2] = layerZ;
-          data[idx * 9 + 3] = blockId;
-          data[idx * 9 + 4] = faceMask;
-          data[idx * 9 + 5] = nLeft;
-          data[idx * 9 + 6] = nRight;
-          data[idx * 9 + 7] = nTop;
-          data[idx * 9 + 8] = nBot;
+          data[idx * 5 + 0] = x;
+          data[idx * 5 + 1] = y;
+          data[idx * 5 + 2] = layerZ;
+          data[idx * 5 + 3] = blockId;
+          data[idx * 5 + 4] = faceMask;
           idx++;
         }
       }
@@ -435,21 +465,11 @@ export class BlockGridPass3D {
         if (x >= W - 1 || !isWall(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
         if (x <= 0 || !isWall(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
-        // Neighbor IDs from background layer for edge blending
-        const nLeft  = x > 0     ? (background[y * W + (x - 1)] & 0xFF) : 0;
-        const nRight = x < W - 1 ? (background[y * W + (x + 1)] & 0xFF) : 0;
-        const nTop   = y > 0     ? (background[(y - 1) * W + x] & 0xFF) : 0;
-        const nBot   = y < H - 1 ? (background[(y + 1) * W + x] & 0xFF) : 0;
-
-        data[idx * 9 + 0] = x;
-        data[idx * 9 + 1] = y;
-        data[idx * 9 + 2] = BG_Z_LAYERS[1]; // Z=-3 (layer 4)
-        data[idx * 9 + 3] = blockId;
-        data[idx * 9 + 4] = faceMask;
-        data[idx * 9 + 5] = nLeft;
-        data[idx * 9 + 6] = nRight;
-        data[idx * 9 + 7] = nTop;
-        data[idx * 9 + 8] = nBot;
+        data[idx * 5 + 0] = x;
+        data[idx * 5 + 1] = y;
+        data[idx * 5 + 2] = BG_Z_LAYERS[1]; // Z=-3 (layer 4)
+        data[idx * 5 + 3] = blockId;
+        data[idx * 5 + 4] = faceMask;
         idx++;
       }
     }
@@ -471,21 +491,11 @@ export class BlockGridPass3D {
         if (x >= W - 1 || !isSolid(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
         if (x <= 0 || !isSolid(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
-        // Neighbor IDs from background layer for edge blending
-        const nLeft  = x > 0     ? (background[y * W + (x - 1)] & 0xFF) : 0;
-        const nRight = x < W - 1 ? (background[y * W + (x + 1)] & 0xFF) : 0;
-        const nTop   = y > 0     ? (background[(y - 1) * W + x] & 0xFF) : 0;
-        const nBot   = y < H - 1 ? (background[(y + 1) * W + x] & 0xFF) : 0;
-
-        data[idx * 9 + 0] = x;
-        data[idx * 9 + 1] = y;
-        data[idx * 9 + 2] = BG_Z_LAYERS[0]; // Z=-2 (layer 3)
-        data[idx * 9 + 3] = blockId;
-        data[idx * 9 + 4] = faceMask;
-        data[idx * 9 + 5] = nLeft;
-        data[idx * 9 + 6] = nRight;
-        data[idx * 9 + 7] = nTop;
-        data[idx * 9 + 8] = nBot;
+        data[idx * 5 + 0] = x;
+        data[idx * 5 + 1] = y;
+        data[idx * 5 + 2] = BG_Z_LAYERS[0]; // Z=-2 (layer 3)
+        data[idx * 5 + 3] = blockId;
+        data[idx * 5 + 4] = faceMask;
         idx++;
       }
     }
@@ -499,9 +509,39 @@ export class BlockGridPass3D {
         this.instanceBuffer!, 0,
         data.buffer as BufferSource,
         0,
-        idx * 9 * 4, // only upload used portion
+        idx * 5 * 4, // only upload used portion
       );
     }
+  }
+
+  /** Upload fg/bg block IDs as r8unorm textures for shader-side neighbor lookup. */
+  private uploadGridTextures(foreground: Uint16Array, background: Uint16Array): void {
+    const W = this.gridW;
+    const H = this.gridH;
+    const rowBytes = this.paddedGridRowBytes;
+
+    // Extract block IDs (low byte) into padded buffers
+    for (let y = 0; y < H; y++) {
+      const srcOff = y * W;
+      const dstOff = y * rowBytes;
+      for (let x = 0; x < W; x++) {
+        this.paddedFgGrid[dstOff + x] = foreground[srcOff + x] & 0xFF;
+        this.paddedBgGrid[dstOff + x] = background[srcOff + x] & 0xFF;
+      }
+    }
+
+    this.device.queue.writeTexture(
+      { texture: this.fgGridTexture! },
+      this.paddedFgGrid.buffer as BufferSource,
+      { bytesPerRow: rowBytes, rowsPerImage: H },
+      [W, H],
+    );
+    this.device.queue.writeTexture(
+      { texture: this.bgGridTexture! },
+      this.paddedBgGrid.buffer as BufferSource,
+      { bytesPerRow: rowBytes, rowsPerImage: H },
+      [W, H],
+    );
   }
 
   /** Debug: get instance counts for diagnostics. */
@@ -524,28 +564,30 @@ export class BlockGridPass3D {
     if (!this.lightTexture) return;
 
     if (this.debugNoShadows) {
-      // Debug mode: fill light texture with full white (15 = max light)
-      this.paddedLight.fill(15);
+      // Debug mode: fill light texture with full white (RGBA = 255,255,255,255)
+      this.paddedLight.fill(255);
       this.device.queue.writeTexture(
         { texture: this.lightTexture },
         this.paddedLight.buffer as BufferSource,
-        { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.gridH },
+        { bytesPerRow: this.paddedLightRowBytes, rowsPerImage: this.gridH },
         [this.gridW, this.gridH],
       );
       return;
     }
 
-    // Copy into padded buffer
+    // Copy RGBA8 rows into padded buffer (bytesPerRow must be 256-aligned).
+    // grid is RGBA8: 4 bytes/cell, row length = gridW * 4.
+    const srcRowBytes = this.gridW * 4;
     for (let y = 0; y < this.gridH; y++) {
       this.paddedLight.set(
-        grid.subarray(y * this.gridW, (y + 1) * this.gridW),
-        y * this.paddedRowBytes,
+        grid.subarray(y * srcRowBytes, (y + 1) * srcRowBytes),
+        y * this.paddedLightRowBytes,
       );
     }
     this.device.queue.writeTexture(
       { texture: this.lightTexture },
       this.paddedLight.buffer as BufferSource,
-      { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.gridH },
+      { bytesPerRow: this.paddedLightRowBytes, rowsPerImage: this.gridH },
       [this.gridW, this.gridH],
     );
   }
@@ -559,7 +601,7 @@ export class BlockGridPass3D {
       this.device.queue.writeTexture(
         { texture: this.exploredTexture },
         this.paddedExplored.buffer as BufferSource,
-        { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.gridH },
+        { bytesPerRow: this.paddedExploredRowBytes, rowsPerImage: this.gridH },
         [this.gridW, this.gridH],
       );
       return;
@@ -568,13 +610,13 @@ export class BlockGridPass3D {
     for (let y = 0; y < this.gridH; y++) {
       this.paddedExplored.set(
         grid.subarray(y * this.gridW, (y + 1) * this.gridW),
-        y * this.paddedRowBytes,
+        y * this.paddedExploredRowBytes,
       );
     }
     this.device.queue.writeTexture(
       { texture: this.exploredTexture },
       this.paddedExplored.buffer as BufferSource,
-      { bytesPerRow: this.paddedRowBytes, rowsPerImage: this.gridH },
+      { bytesPerRow: this.paddedExploredRowBytes, rowsPerImage: this.gridH },
       [this.gridW, this.gridH],
     );
   }

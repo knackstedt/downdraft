@@ -21,7 +21,7 @@ import { BH_STRIDE, MAX_BLOCKHEADS } from "./types";
 //                                  daylight, mineX, mineY, mineDamage
 // GRID_FOREGROUND 2 * AG_CELLS     Uint16Array — foreground blocks
 // GRID_BACKGROUND 2 * AG_CELLS     Uint16Array — background blocks
-// GRID_LIGHT      1 * AG_CELLS     Uint8Array — light levels
+// GRID_LIGHT      4 * AG_CELLS     Uint8Array — RGBA8 light (R,G,B,A per cell)
 // GRID_EXPLORED   1 * AG_CELLS     Uint8Array — fog of war
 // BLOCKHEADS      4 * BH_STRIDE * MAX_BLOCKHEADS  Float32Array — blockhead state
 // INPUT           128              Int32Array + Float32Array — input from renderer
@@ -35,7 +35,7 @@ export const GRID_FG_SIZE = 2 * ACTIVE_GRID_CELLS;
 export const GRID_BG_OFFSET = GRID_FG_OFFSET + GRID_FG_SIZE;
 export const GRID_BG_SIZE = 2 * ACTIVE_GRID_CELLS;
 export const GRID_LIGHT_OFFSET = GRID_BG_OFFSET + GRID_BG_SIZE;
-export const GRID_LIGHT_SIZE = ACTIVE_GRID_CELLS;
+export const GRID_LIGHT_SIZE = 4 * ACTIVE_GRID_CELLS; // RGBA8 per cell
 export const GRID_EXPLORED_OFFSET = GRID_LIGHT_OFFSET + GRID_LIGHT_SIZE;
 export const GRID_EXPLORED_SIZE = ACTIVE_GRID_CELLS;
 export const BLOCKHEADS_OFFSET = GRID_EXPLORED_OFFSET + GRID_EXPLORED_SIZE;
@@ -101,7 +101,7 @@ export class SimBufferWriter {
     this.header = new Uint8Array(sab, 0, HEADER_SIZE);
     this.foreground = new Uint16Array(sab, GRID_FG_OFFSET, ACTIVE_GRID_CELLS);
     this.background = new Uint16Array(sab, GRID_BG_OFFSET, ACTIVE_GRID_CELLS);
-    this.light = new Uint8Array(sab, GRID_LIGHT_OFFSET, ACTIVE_GRID_CELLS);
+    this.light = new Uint8Array(sab, GRID_LIGHT_OFFSET, 4 * ACTIVE_GRID_CELLS);
     this.explored = new Uint8Array(sab, GRID_EXPLORED_OFFSET, ACTIVE_GRID_CELLS);
     this.blockheads = new Float32Array(sab, BLOCKHEADS_OFFSET, BH_STRIDE * MAX_BLOCKHEADS);
     this.inputInt32 = new Int32Array(sab, INPUT_OFFSET, INPUT_SIZE / 4);
@@ -185,7 +185,7 @@ export class SimBufferReader {
     this.buffer = buffer;
     this.foreground = new Uint16Array(buffer, GRID_FG_OFFSET, ACTIVE_GRID_CELLS);
     this.background = new Uint16Array(buffer, GRID_BG_OFFSET, ACTIVE_GRID_CELLS);
-    this.light = new Uint8Array(buffer, GRID_LIGHT_OFFSET, ACTIVE_GRID_CELLS);
+    this.light = new Uint8Array(buffer, GRID_LIGHT_OFFSET, 4 * ACTIVE_GRID_CELLS);
     this.explored = new Uint8Array(buffer, GRID_EXPLORED_OFFSET, ACTIVE_GRID_CELLS);
     this.blockheads = new Float32Array(buffer, BLOCKHEADS_OFFSET, BH_STRIDE * MAX_BLOCKHEADS);
     this.inputInt32 = new Int32Array(buffer, INPUT_OFFSET, INPUT_SIZE / 4);

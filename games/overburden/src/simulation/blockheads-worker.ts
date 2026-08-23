@@ -34,7 +34,7 @@ import {
 } from "./blockhead";
 import { loadAllChunks, saveDirtyChunks } from "./chunk-storage";
 import { initFluidSim, stepFluidSim } from "./fluid-sim";
-import { stepLightSim } from "./light-sim";
+import { recomputeLight } from "./light-sim";
 import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
 
 const events = exposeEvents();
@@ -53,6 +53,13 @@ let lastSaveTime = 0;
 const SAVE_INTERVAL_MS = 5000; // save dirty chunks every 5 seconds
 let speedMultiplier = 1;
 let stepOnce = false;
+
+// --- Light recompute (event-driven, not per-tick) ---
+// Set to true whenever the grid changes (block edit, emitter change, active
+// grid rebuild) or the daylight integer changes. The recompute runs once per
+// frame at most, only when something actually changed.
+let lightDirty = true;
+let lastLightDaylight = -1;
 
 const TICK_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 5;
@@ -306,6 +313,8 @@ expose({
     world.setFocus(WORLD_W / 2, SURFACE_Y);
     world.checkRebuild();
     world.rebuildActiveGrid();
+    // Mark light dirty so the first frame computes the initial light field.
+    lightDirty = true;
 
     // Initialize fluid simulation
     initFluidSim(world.activeForeground);
@@ -869,6 +878,8 @@ function processMining(dt: number): void {
       } else {
         world.setActiveBlock(target.x, target.y, BLOCK_AIR);
       }
+      // Block removed → light field must be recomputed.
+      lightDirty = true;
       // Add drops to the blockhead's inventory
       const inv = inventories[0];
       if (inv) {
@@ -934,6 +945,8 @@ function processPlacing(): void {
 
   // Place the block
   world.setActiveBlock(ax, ay, input.placeBlockId);
+  // Block added → light field must be recomputed.
+  lightDirty = true;
 }
 
 // --- Process task effects (EAT, SLEEP) ---
@@ -1112,6 +1125,8 @@ async function loop(): Promise<void> {
               bh.x = Math.max(0, Math.min(ACTIVE_GRID_W - BH_W, bh.x));
               bh.y = Math.max(0, Math.min(ACTIVE_GRID_H - BH_H, bh.y));
             }
+            // Active grid rebuilt → light field must be recomputed.
+            lightDirty = true;
           }
 
           // Step blockhead physics
@@ -1136,14 +1151,17 @@ async function loop(): Promise<void> {
           // Step fluid simulation (CA water/lava flow)
           stepFluidSim(world.activeForeground, world.currentTick);
 
-          // Step light propagation (daylight + emitters)
           // Day/night cycle: 10-minute day (18000 ticks at 30tps).
           // Daylight follows a sine wave: starts at noon (full daylight),
           // transitions to night, then back to day.
+          // Light propagation is event-driven (not per-tick): mark the field
+          // dirty when the daylight integer changes so it recomputes once.
           const dayPhase = (tickCount % 18000) / 18000; // 0..1
           const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5; // 0..1, starts at 1
           const daylight = Math.round(daylightF * 15);
-          stepLightSim(world.activeForeground, world.activeLight, daylight);
+          if (daylight !== lastLightDaylight) {
+            lightDirty = true;
+          }
 
           // Step the simulation tick
           world.currentTick++;
@@ -1160,6 +1178,15 @@ async function loop(): Promise<void> {
           const dayPhase = (tickCount % 18000) / 18000;
           const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5;
           const daylight = Math.round(daylightF * 15);
+
+          // Recompute the light field if anything changed since last frame
+          // (block edit, emitter change, active-grid rebuild, or daylight
+          // integer change). Runs at most once per frame, only when dirty.
+          if (lightDirty) {
+            recomputeLight(world.activeForeground, world.activeLight, daylight);
+            lightDirty = false;
+            lastLightDaylight = daylight;
+          }
 
           // Compute mining VFX data for the header
           let mineX = -1, mineY = -1, mineDamageF = 0;

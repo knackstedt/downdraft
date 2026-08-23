@@ -207,9 +207,24 @@ function AttributeBar({ label, value, color }: { label: string; value: number; c
 }
 
 function Hud() {
-  const { fps, paused, blockhead, selectedSlot, inventory, showCraftPanel, showInventoryPanel, showTaskQueue, taskMode, selectedStation, recipes, notification } = useGameStore();
+  // Selectors: each component only re-renders when its slice changes.
+  // Without selectors, any store update (e.g. setFps every 500ms) would
+  // re-render the entire HUD subtree, blocking the 360Hz rAF loop.
+  const fps = useGameStore((s) => s.fps);
+  const paused = useGameStore((s) => s.paused);
+  const blockhead = useGameStore((s) => s.blockhead);
+  const selectedSlot = useGameStore((s) => s.selectedSlot);
+  const inventory = useGameStore((s) => s.inventory);
+  const showCraftPanel = useGameStore((s) => s.showCraftPanel);
+  const showInventoryPanel = useGameStore((s) => s.showInventoryPanel);
+  const showTaskQueue = useGameStore((s) => s.showTaskQueue);
+  const taskMode = useGameStore((s) => s.taskMode);
+  const selectedStation = useGameStore((s) => s.selectedStation);
+  const recipes = useGameStore((s) => s.recipes);
+  const notification = useGameStore((s) => s.notification);
   const [cameraDetached, setCameraDetached] = useState(false);
   const [debugNoShadows, setDebugNoShadows] = useState(false);
+  const [debugInspect, setDebugInspect] = useState(false);
 
   // Auto-dismiss notification after 4 seconds
   useEffect(() => {
@@ -253,12 +268,14 @@ function Hud() {
     if (renderer) renderer.setTaskMode(taskMode);
   }, [taskMode]);
 
-  // Poll camera detached state for HUD indicator
+  // Poll camera detached state + debug flags for HUD indicator
   useEffect(() => {
     const { renderer } = useGameStore.getState();
     if (!renderer) return;
     const interval = setInterval(() => {
       setCameraDetached(renderer.camera.detached);
+      const inp = renderer.getInput();
+      setDebugInspect(!!inp?.debugInspect);
     }, 100);
     return () => clearInterval(interval);
   }, []);
@@ -299,6 +316,7 @@ function Hud() {
         FPS: {fps}
         {paused && <span style={{ color: "yellow", marginLeft: 8 }}>PAUSED</span>}
         {debugNoShadows && <span style={{ color: "#e74c3c", marginLeft: 8 }}>NOSHADOW</span>}
+        {debugInspect && <span style={{ color: "#1abc9c", marginLeft: 8, fontWeight: "bold" }}>INSPECT (F6)</span>}
         {taskMode && <span style={{ color: "#f39c12", marginLeft: 8, fontWeight: "bold" }}>TASK MODE (T)</span>}
         {cameraDetached && <span style={{ color: "#9b59b6", marginLeft: 8, fontWeight: "bold" }}>CAM DETACHED (F)</span>}
       </div>
@@ -422,7 +440,7 @@ const craftRowStyle: React.CSSProperties = {
 };
 
 function CraftPanel({ recipes, inventory }: { recipes: { id: string; name: string; station: string }[]; inventory: { itemId: string; count: number }[] }) {
-  const { renderer } = useGameStore();
+  const renderer = useGameStore((s) => s.renderer);
   const [status, setStatus] = useState<string>("");
 
   const invCount = (itemId: string): number => {
@@ -559,7 +577,9 @@ const CATEGORY_COLORS: Record<ItemCategory, [number, number, number]> = {
 };
 
 function InventoryPanel({ recipes, inventory }: { recipes: { id: string; name: string; station: string }[]; inventory: { itemId: string; count: number }[] }) {
-  const { renderer, setShowInventoryPanel, setShowCraftPanel } = useGameStore();
+  const renderer = useGameStore((s) => s.renderer);
+  const setShowInventoryPanel = useGameStore((s) => s.setShowInventoryPanel);
+  const setShowCraftPanel = useGameStore((s) => s.setShowCraftPanel);
   const [status, setStatus] = useState<string>("");
 
   const invCount = (itemId: string): number => {
@@ -676,7 +696,8 @@ function InventoryPanel({ recipes, inventory }: { recipes: { id: string; name: s
 }
 
 export default function App() {
-  const { showTitleScreen, setShowTitleScreen } = useGameStore();
+  const showTitleScreen = useGameStore((s) => s.showTitleScreen);
+  const setShowTitleScreen = useGameStore((s) => s.setShowTitleScreen);
 
   // Poll blockhead state from SAB + inventory from worker, update the store
   useEffect(() => {
@@ -724,25 +745,52 @@ export default function App() {
       const count = reader.getBlockheadCount();
       if (count > 0) {
         const bh = reader.getBlockhead(0);
-        useGameStore.getState().setBlockhead({
-          health: bh[7],
-          hunger: bh[8],
-          energy: bh[9],
-          air: bh[10],
-          happiness: bh[11],
-          environment: bh[12],
-        });
+        // Only update the store if a value actually changed — avoids
+        // triggering a React re-render (and blocking the rAF loop) every
+        // poll when the data is identical.
+        const prev = useGameStore.getState().blockhead;
+        if (
+          prev.health !== bh[7] || prev.hunger !== bh[8] ||
+          prev.energy !== bh[9] || prev.air !== bh[10] ||
+          prev.happiness !== bh[11] || prev.environment !== bh[12]
+        ) {
+          useGameStore.getState().setBlockhead({
+            health: bh[7],
+            hunger: bh[8],
+            energy: bh[9],
+            air: bh[10],
+            happiness: bh[11],
+            environment: bh[12],
+          });
+        }
       }
       // Sync selected slot from input
       const input = renderer.getInput();
       if (input) {
-        useGameStore.getState().setSelectedSlot(input.selectedSlot);
+        const prevSlot = useGameStore.getState().selectedSlot;
+        if (prevSlot !== input.selectedSlot) {
+          useGameStore.getState().setSelectedSlot(input.selectedSlot);
+        }
       }
       // Poll inventory from the worker (async RPC)
       const h = renderer.getWorkerHost();
       if (h) {
         h.getInventory(0).then((inv) => {
-          useGameStore.getState().setInventory(inv);
+          // Only update the store if the inventory actually changed.
+          // The worker returns a fresh array each call, so compare by value.
+          const prevInv = useGameStore.getState().inventory;
+          let changed = prevInv.length !== inv.length;
+          if (!changed) {
+            for (let i = 0; i < inv.length; i++) {
+              if (prevInv[i].itemId !== inv[i].itemId || prevInv[i].count !== inv[i].count) {
+                changed = true;
+                break;
+              }
+            }
+          }
+          if (changed) {
+            useGameStore.getState().setInventory(inv);
+          }
           // Update the renderer's hotbar from the inventory
           renderer.setHotbarFromInventory(inv);
           // --- Save inventory to localStorage on change ---
@@ -869,7 +917,7 @@ export default function App() {
           Start Game
         </button>
         <div style={helpStyle}>
-          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: craft | T: task mode | Q: task queue | F1: no-shadows | F2: chunk grid | F3: noclip | ESC: pause
+          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: craft | T: task mode | Q: task queue | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
         </div>
       </div>
     );

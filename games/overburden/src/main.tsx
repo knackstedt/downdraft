@@ -32,7 +32,10 @@ async function bootstrap(): Promise<void> {
 
   // FPS polling for the UI
   const fpsInterval = setInterval(() => {
-    useGameStore.getState().setFps(renderer.getFPS());
+    const fps = renderer.getFPS();
+    if (useGameStore.getState().fps !== fps) {
+      useGameStore.getState().setFps(fps);
+    }
   }, 500);
 
   renderer.start();

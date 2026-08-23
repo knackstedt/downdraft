@@ -61,7 +61,7 @@ const statusColors: Record<string, string> = {
 };
 
 export function TaskQueueDisplay() {
-  const { renderer } = useGameStore();
+  const renderer = useGameStore((s) => s.renderer);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
 
   useEffect(() => {

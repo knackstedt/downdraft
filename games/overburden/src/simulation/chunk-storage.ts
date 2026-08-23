@@ -12,7 +12,7 @@
 //     [background: CHUNK_CELLS * 2 bytes]
 //     [mask:      CHUNK_CELLS * 1 byte]
 //     [vfx:       CHUNK_CELLS * 4 bytes]
-//     [light:     CHUNK_CELLS * 1 byte]
+//     [light:     CHUNK_CELLS * 4 bytes]  (RGBA8 per cell)
 //     [explored:  CHUNK_CELLS * 1 byte]
 //
 // The worker calls loadAll() on init to restore saved chunks, and saveDirty()
@@ -24,11 +24,11 @@ import type { Chunk } from "../shared/types";
 import { createChunk } from "./chunk";
 
 const SAVE_MAGIC = 0x4f424353; // "OBCS" = OverBurden Chunk Save
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2; // v2: light plane is RGBA8 (4 bytes/cell), not 1 byte/cell
 const HEADER_BYTES = 12; // magic(4) + version(4) + count(4)
 const CHUNK_HEADER_BYTES = 8; // cx(4) + cy(4)
-// Per-chunk payload: fg(2*CELLS) + bg(2*CELLS) + mask(1*CELLS) + vfx(4*CELLS) + light(1*CELLS) + explored(1*CELLS)
-const CHUNK_PAYLOAD_BYTES = (2 + 2 + 1 + 4 + 1 + 1) * CHUNK_CELLS;
+// Per-chunk payload: fg(2*CELLS) + bg(2*CELLS) + mask(1*CELLS) + vfx(4*CELLS) + light(4*CELLS) + explored(1*CELLS)
+const CHUNK_PAYLOAD_BYTES = (2 + 2 + 1 + 4 + 4 + 1) * CHUNK_CELLS;
 const CHUNK_RECORD_BYTES = CHUNK_HEADER_BYTES + CHUNK_PAYLOAD_BYTES;
 
 const SAVE_FILE_NAME = "overburden-chunks.bin";
@@ -79,8 +79,8 @@ export async function loadAllChunks(): Promise<Map<string, Chunk>> {
       off += CHUNK_CELLS;
       new Uint8Array(chunk.vfx.buffer).set(view.subarray(off, off + CHUNK_CELLS * 4), 0);
       off += CHUNK_CELLS * 4;
-      chunk.light.set(view.subarray(off, off + CHUNK_CELLS), 0);
-      off += CHUNK_CELLS;
+      chunk.light.set(view.subarray(off, off + CHUNK_CELLS * 4), 0);
+      off += CHUNK_CELLS * 4;
       chunk.explored.set(view.subarray(off, off + CHUNK_CELLS), 0);
 
       chunk.generated = true;
@@ -134,7 +134,7 @@ export async function saveDirtyChunks(chunks: Iterable<Chunk>): Promise<number> 
       view.set(new Uint8Array(chunk.vfx.buffer), off);
       off += CHUNK_CELLS * 4;
       view.set(chunk.light, off);
-      off += CHUNK_CELLS;
+      off += CHUNK_CELLS * 4;
       view.set(chunk.explored, off);
     }
 

@@ -64,7 +64,7 @@ export interface Chunk {
   background: Uint16Array; // backwall block ID (0=none)
   mask: Uint8Array; // bit flags (MASK_SOLID | MASK_CLIMBABLE | ...)
   vfx: Uint32Array; // packed particle/effect data
-  light: Uint8Array; // per-cell light level (0-15)
+  light: Uint8Array; // per-cell RGBA8 light (R,G,B,A per cell; 4 * CHUNK_CELLS bytes)
   explored: Uint8Array; // 1 = explored by blockhead (fog of war)
   // Metadata:
   generated: boolean; // has terrain been generated for this chunk?

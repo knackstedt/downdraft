@@ -55,7 +55,7 @@ export class BlockWorld {
     this.seed = seed;
     this.activeForeground = new Uint16Array(ACTIVE_GRID_CELLS);
     this.activeBackground = new Uint16Array(ACTIVE_GRID_CELLS);
-    this.activeLight = new Uint8Array(ACTIVE_GRID_CELLS);
+    this.activeLight = new Uint8Array(4 * ACTIVE_GRID_CELLS); // RGBA8 per cell
     this.activeExplored = new Uint8Array(ACTIVE_GRID_CELLS);
     this.activeVfx = new Uint32Array(ACTIVE_GRID_CELLS);
   }
@@ -180,6 +180,8 @@ export class BlockWorld {
         chunk.active = true;
 
         const activeOffset = icy * CHUNK_H * ACTIVE_GRID_W + icx * CHUNK_W;
+        // Light is RGBA8 (4 bytes/cell); other planes are 1 element/cell.
+        const lightActiveOffset = activeOffset * 4;
         for (let ly = 0; ly < CHUNK_H; ly++) {
           const srcOffset = ly * CHUNK_W;
           const dstOffset = activeOffset + ly * ACTIVE_GRID_W;
@@ -192,8 +194,8 @@ export class BlockWorld {
             dstOffset,
           );
           this.activeLight.set(
-            chunk.light.subarray(srcOffset, srcOffset + CHUNK_W),
-            dstOffset,
+            chunk.light.subarray(srcOffset * 4, (srcOffset + CHUNK_W) * 4),
+            lightActiveOffset + ly * ACTIVE_GRID_W * 4,
           );
           this.activeExplored.set(
             chunk.explored.subarray(srcOffset, srcOffset + CHUNK_W),
@@ -224,6 +226,8 @@ export class BlockWorld {
         // dirty, so skipping non-dirty chunks would lose those changes.
 
         const activeOffset = icy * CHUNK_H * ACTIVE_GRID_W + icx * CHUNK_W;
+        // Light is RGBA8 (4 bytes/cell); other planes are 1 element/cell.
+        const lightActiveOffset = activeOffset * 4;
         for (let ly = 0; ly < CHUNK_H; ly++) {
           const dstOffset = ly * CHUNK_W;
           const srcOffset = activeOffset + ly * ACTIVE_GRID_W;
@@ -236,8 +240,8 @@ export class BlockWorld {
             dstOffset,
           );
           chunk.light.set(
-            this.activeLight.subarray(srcOffset, srcOffset + CHUNK_W),
-            dstOffset,
+            this.activeLight.subarray(srcOffset * 4, (srcOffset + CHUNK_W) * 4),
+            dstOffset * 4,
           );
           chunk.explored.set(
             this.activeExplored.subarray(srcOffset, srcOffset + CHUNK_W),
