@@ -4,8 +4,6 @@ export interface HotReloadPluginOptions {
   simPaths: string[];
   rendererPaths: string[];
   excludePaths?: string[];
-  shaderExts: string[];
-  assetExts: string[];
 }
 
 interface HotReloadPayload {
@@ -15,7 +13,7 @@ interface HotReloadPayload {
 }
 
 export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
-  const { simPaths, rendererPaths, excludePaths = [], shaderExts, assetExts } = options;
+  const { simPaths, rendererPaths, excludePaths = [] } = options;
 
   // Debounce: track last event time per category to coalesce bursts
   const lastEventTime: Record<string, number> = {};
@@ -32,10 +30,6 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
     // Normalize to forward slashes
     const normalized = filePath.replace(/\\/g, "/");
     return patterns.some((p) => normalized.includes(p));
-  }
-
-  function matchesExt(filePath: string, exts: string[]): boolean {
-    return exts.some((ext) => filePath.endsWith(ext));
   }
 
   function sendEvent(
@@ -103,25 +97,8 @@ export function hotReloadPlugin(options: HotReloadPluginOptions): Plugin {
         return [];
       }
 
-      // Shaders → MaterialHotReloader
-      if (matchesExt(filePath, shaderExts)) {
-        sendEvent(ctx.server, "shader:hot-reload", {
-          file: filePath,
-          timestamp,
-        });
-        return [];
-      }
-
-      // Assets → MaterialHotReloader
-      if (matchesExt(filePath, assetExts)) {
-        sendEvent(ctx.server, "asset:hot-reload", {
-          file: filePath,
-          timestamp,
-        });
-        return [];
-      }
-
-      // Let Vite handle normally (React Fast Refresh, CSS HMR, etc.)
+      // Let Vite handle normally (React Fast Refresh, CSS HMR, ?raw shader
+      // HMR via the wgslHmrPlugin, asset HMR, etc.)
       return undefined;
     },
   };

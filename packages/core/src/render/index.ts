@@ -150,6 +150,8 @@ export { ViewportLayout, viewportRectToPixels } from "./viewport";
 export type { ViewportMode, ViewportRect } from "./viewport";
 export { VisionTest, VisionTestSuite } from "./vision-test";
 export type { DiffResult, PixelMatchOptions, PixelScanResult, VisionTestResult } from "./vision-test";
+export { wgslHotReload } from "./wgsl-hmr";
+export type { WgslReloadFn } from "./wgsl-hmr";
 
 // Decal passes (from mesh section in original barrel)
 export { computeDecalProjectionMatrix, computeDecalViewMatrix, createDecalMesh } from "./passes/decal-mesh";
