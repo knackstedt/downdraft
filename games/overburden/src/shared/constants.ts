@@ -171,6 +171,14 @@ export const BLOCK_CROP_MATURE_RED_MUSHROOM = 96;
 export const BLOCK_WILD_BERRY_BUSH = 97;
 export const BLOCK_WILD_MUSHROOM = 98;
 
+// --- Tree life-cycle blocks ---
+// Saplings are young trees that live in the background plane (like adult
+// trees) and grow upward into wood + leaves. The species is encoded in the
+// vfx plane (bits 0-3 = species index into TREE_SPECIES).
+// Fruits and seeds are NOT blocks — they're spinning 2D world drop entities
+// rendered by DropPass, living on tree leaves and falling to the ground.
+export const BLOCK_SAPLING = 99;
+
 // Mask flags (bitfield for the mask plane) ---
 export const MASK_SOLID = 1 << 0; // blocks movement
 export const MASK_CLIMBABLE = 1 << 1; // ladder, rope — allows vertical movement

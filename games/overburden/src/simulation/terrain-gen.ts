@@ -240,7 +240,7 @@ export function generateChunk(chunk: Chunk, seed: number): void {
       }
 
       // Canopy: species-specific shape (places leaves into empty bg cells).
-      species.placeCanopy(chunk, lx, ly, trunkTopLy, trunkHeight, species.leafBlock, treeTag);
+      species.placeCanopy(chunk.background, CHUNK_W, CHUNK_H, lx, ly, trunkTopLy, trunkHeight, species.leafBlock, treeTag);
 
       // Maybe spawn a vine at the base that climbs up the trunk.
       const vineBlock = vineAtBase(wx, wy, seed);

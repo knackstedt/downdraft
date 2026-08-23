@@ -1,0 +1,295 @@
+// ============================================================================
+// Overburden — tree life-cycle simulation
+//
+// Daily simulation of fruit, seeds, and sapling growth:
+//   - Fruiting trees spawn fruit with 10% chance per leaf per day. Fruit lives
+//     2 days on the tree, then falls to the ground and despawns after 1 day.
+//   - All trees spawn seeds with 3% chance per leaf per day. Seeds stay on the
+//     tree 7 days, then fall and scatter ±seedScatterRange blocks left/right.
+//     Fallen seeds stay on the ground 1 day, then plant a sapling (if valid
+//     ground) or despawn.
+//   - Saplings grow 1 wood block/day upward + expand their canopy each day
+//     (trunk + canopy simultaneously). When the trunk reaches the target
+//     height, the sapling matures into a normal tree.
+//
+// Fruits and seeds are spinning 2D world drop entities (rendered by DropPass),
+// NOT foreground blocks. They hang on tree leaves, then fall via the drop
+// physics system. Fruit is pick-uppable by proximity (the drop pickup system
+// handles this). Seeds are NOT pick-uppable — they auto-plant when they land
+// on valid ground.
+//
+// Saplings are background blocks (like adult trees) that grow into wood +
+// leaves. The species is encoded in the vfx plane.
+//
+// All RNG is deterministic via pseudoRandom(x, y, day, salt) so e2e tests are
+// reproducible. The daily scan runs once per in-game day (18000 ticks).
+// ============================================================================
+
+import { getBlockDef } from "../shared/block-registry";
+import { BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_SAPLING } from "../shared/constants";
+import { encodeDropItem } from "../shared/drop-registry";
+import {
+    getSpeciesByIndex,
+    getSpeciesByLeafBlock,
+    getSpeciesIndex,
+    isLeafBlock,
+    isSaplingBlock,
+} from "../shared/tree-species";
+
+// --- vfx encoding (saplings only) ---
+// Sapling blocks: bits 0-3 = species index, bits 4-7 = target trunk height,
+//   bits 8-11 = current trunk height, bits 12-19 = days elapsed.
+// (Fruits and seeds no longer use vfx — they're drop entities with their own
+// state fields on DropEntity.)
+
+const SAPLING_SPECIES_MASK = 0xF;
+const SAPLING_TARGET_SHIFT = 4;
+const SAPLING_TARGET_MASK = 0xF;
+const SAPLING_CURRENT_SHIFT = 8;
+const SAPLING_CURRENT_MASK = 0xF;
+const SAPLING_DAYS_SHIFT = 12;
+const SAPLING_DAYS_MASK = 0xFF;
+
+function packSaplingVfx(speciesIdx: number, targetH: number, currentH: number, days: number): number {
+  return (speciesIdx & SAPLING_SPECIES_MASK) |
+    ((targetH & SAPLING_TARGET_MASK) << SAPLING_TARGET_SHIFT) |
+    ((currentH & SAPLING_CURRENT_MASK) << SAPLING_CURRENT_SHIFT) |
+    ((days & SAPLING_DAYS_MASK) << SAPLING_DAYS_SHIFT);
+}
+
+function unpackSaplingVfx(v: number): { speciesIdx: number; targetH: number; currentH: number; days: number } {
+  return {
+    speciesIdx: v & SAPLING_SPECIES_MASK,
+    targetH: (v >> SAPLING_TARGET_SHIFT) & SAPLING_TARGET_MASK,
+    currentH: (v >> SAPLING_CURRENT_SHIFT) & SAPLING_CURRENT_MASK,
+    days: (v >> SAPLING_DAYS_SHIFT) & SAPLING_DAYS_MASK,
+  };
+}
+
+// --- Deterministic pseudo-random (FNV-1a hash) ---
+function pseudoRandom(x: number, y: number, day: number, salt: string): number {
+  let h = 2166136261 ^ x;
+  h = Math.imul(h, 16777619) ^ y;
+  h = Math.imul(h, 16777619) ^ day;
+  for (let i = 0; i < salt.length; i++) {
+    h = Math.imul(h, 16777619) ^ salt.charCodeAt(i);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+// --- Ground validation ---
+function isValidGround(blockId: number): boolean {
+  const b = blockId & 0xFF;
+  return b === BLOCK_GRASS || b === BLOCK_DIRT;
+}
+
+// --- Is a foreground cell solid (blocks falling)? ---
+function isSolidFg(blockId: number): boolean {
+  const b = blockId & 0xFF;
+  if (b === BLOCK_AIR) return false;
+  const def = getBlockDef(b);
+  return !!def && def.category === "solid";
+}
+
+// --- Drop entity interface (matches DropEntity in blockheads-worker.ts) ---
+export interface TreeDropEntity {
+  x: number; y: number; vx: number; vy: number;
+  spin: number; spinSpeed: number; itemCode: number;
+  count: number; lifetime: number; onGround: boolean;
+  kind: number; speciesIdx: number; age: number; fallen: boolean;
+}
+
+// --- Block world interface (minimal subset of BlockWorld needed) ---
+export interface TreeBlockWorld {
+  activeForeground: Uint16Array;
+  activeBackground: Uint16Array;
+  activeVfx: Uint32Array;
+  setActiveBackground(ax: number, ay: number, blockId: number): void;
+  setActiveVfx(ax: number, ay: number, value: number): void;
+}
+
+// ============================================================================
+// stepTreeDaily — run the daily tree life-cycle simulation
+// ============================================================================
+// Scans the active grid once per in-game day. Does three things:
+// 1. Spawns fruit + seed drop entities on background leaf blocks
+// 2. Ages existing fruit/seed drop entities (fall, scatter, despawn, plant)
+// 3. Grows saplings (background blocks)
+//
+// @param fg     active foreground plane (Uint16Array, W * H cells)
+// @param bg     active background plane (same size)
+// @param vfx    active vfx plane (Uint32Array, same size — sapling state)
+// @param tick   current sim tick (used for deterministic RNG via day number)
+// @param W      grid width (ACTIVE_GRID_W)
+// @param H      grid height (ACTIVE_GRID_H)
+// @param drops  drop entity array (fruits/seeds are added/removed here)
+// @param world  BlockWorld (for setting sapling blocks + vfx)
+// @returns true if any blocks changed (caller marks light dirty)
+// ============================================================================
+export function stepTreeDaily(
+  fg: Uint16Array,
+  bg: Uint16Array,
+  vfx: Uint32Array,
+  tick: number,
+  W: number,
+  H: number,
+  drops: TreeDropEntity[],
+  world: TreeBlockWorld,
+): boolean {
+  const day = Math.floor(tick / 18000);
+  let changed = false;
+
+  // Helper: check if a drop entity already exists at a cell (fruit/seed)
+  const hasDropAt = (x: number, y: number): boolean => {
+    for (const d of drops) {
+      if (d.kind > 0 && Math.floor(d.x) === x && Math.floor(d.y) === y) return true;
+    }
+    return false;
+  };
+
+  // --- Phase 1: Scan background leaf blocks for fruit + seed spawning ---
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      const bgBlock = bg[idx] & 0xFF;
+      if (!isLeafBlock(bgBlock)) continue;
+
+      const species = getSpeciesByLeafBlock(bgBlock);
+      if (!species) continue;
+      const speciesIdx = getSpeciesIndex(species);
+
+      // Fruit spawn: 10% chance per leaf per day (only for fruiting species)
+      if (species.fruitItem !== undefined) {
+        const roll = pseudoRandom(x, y, day, "fruit");
+        if (roll <= 0.10 && !hasDropAt(x, y) && drops.length < 512) {
+          const code = encodeDropItem(species.fruitItem);
+          if (code > 0) {
+            drops.push({
+              x: x + 0.5, y: y + 0.5, vx: 0, vy: 0,
+              spin: pseudoRandom(x, y, day, "fruit-spin") * Math.PI * 2,
+              spinSpeed: 1.5 + pseudoRandom(x, y, day, "fruit-spinspeed") * 2,
+              itemCode: code, count: 1, lifetime: Infinity,
+              onGround: true, kind: 1, speciesIdx: 0, age: 0, fallen: false,
+            });
+          }
+        }
+      }
+
+      // Seed spawn: 3% chance per leaf per day (all species)
+      const seedRoll = pseudoRandom(x, y, day, "seed");
+      if (seedRoll <= 0.03 && !hasDropAt(x, y) && drops.length < 512) {
+        drops.push({
+          x: x + 0.5, y: y + 0.5, vx: 0, vy: 0,
+          spin: pseudoRandom(x, y, day, "seed-spin") * Math.PI * 2,
+          spinSpeed: 1.5 + pseudoRandom(x, y, day, "seed-spinspeed") * 2,
+          itemCode: 33, // DROP_SEED
+          count: 1, lifetime: Infinity,
+          onGround: true, kind: 2, speciesIdx, age: 0, fallen: false,
+        });
+      }
+    }
+  }
+
+  // --- Phase 2: Age + fall/scatter/despawn/plant fruit + seed drops ---
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i];
+    if (d.kind === 0) continue; // skip regular drops
+
+    d.age++;
+
+    if (d.kind === 1) {
+      // Fruit: fall at age 2, despawn at age 3 (2 on tree + 1 on ground)
+      if (!d.fallen && d.age >= 2) {
+        d.fallen = true;
+        d.onGround = false; // start falling via physics
+      } else if (d.fallen && d.age >= 3) {
+        // Despawn after 1 day on the ground
+        drops.splice(i, 1);
+      }
+    } else if (d.kind === 2) {
+      // Seed: fall + scatter at age 7, plant/despawn at age 8
+      if (!d.fallen && d.age >= 7) {
+        d.fallen = true;
+        d.onGround = false; // start falling via physics
+        // Scatter: pick random X offset and teleport horizontally
+        const species = getSpeciesByIndex(d.speciesIdx);
+        const range = species.seedScatterRange;
+        const scatterRoll = pseudoRandom(Math.floor(d.x), Math.floor(d.y), day, "scatter");
+        const offsetX = Math.floor(scatterRoll * (2 * range + 1)) - range;
+        d.x = Math.max(0, Math.min(W - 0.01, d.x + offsetX));
+      } else if (d.fallen && d.age >= 8) {
+        // Plant or despawn: check ground below
+        const gx = Math.floor(d.x);
+        const gy = Math.floor(d.y);
+        const belowY = gy + 1;
+        const groundBlock = (belowY < H) ? fg[belowY * W + gx] : BLOCK_AIR;
+        if (isValidGround(groundBlock)) {
+          // Plant a sapling in the background at (gx, gy) if it's air
+          if ((bg[gy * W + gx] & 0xFF) === BLOCK_AIR) {
+            const species = getSpeciesByIndex(d.speciesIdx);
+            const heightRoll = pseudoRandom(gx, gy, day, "saplingHeight");
+            const targetH = species.trunkMin +
+              Math.floor(heightRoll * (species.trunkMax - species.trunkMin + 1));
+            world.setActiveBackground(gx, gy, BLOCK_SAPLING);
+            world.setActiveVfx(gx, gy, packSaplingVfx(d.speciesIdx, targetH, 0, 0));
+            changed = true;
+          }
+        }
+        // Remove the seed regardless (planted or couldn't plant)
+        drops.splice(i, 1);
+      }
+    }
+  }
+
+  // --- Phase 3: Grow saplings (background) ---
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      const bgBlock = bg[idx] & 0xFF;
+      if (!isSaplingBlock(bgBlock)) continue;
+
+      const v = vfx[idx];
+      const { speciesIdx, targetH, currentH, days } = unpackSaplingVfx(v);
+      const species = getSpeciesByIndex(speciesIdx);
+      const newDays = days + 1;
+      let newCurrentH = currentH;
+
+      // Grow trunk: +1 wood block/day upward until reaching targetH.
+      // The trunk can overwrite leaf blocks in its path (the canopy may have
+      // placed leaves where the trunk will grow — the trunk grows through).
+      if (currentH < targetH) {
+        const trunkY = y - currentH - 1; // grow upward (y decreases)
+        if (trunkY >= 0) {
+          const trunkCell = bg[trunkY * W + x] & 0xFF;
+          if (trunkCell === BLOCK_AIR || isLeafBlock(trunkCell)) {
+            world.setActiveBackground(x, trunkY, species.woodBlock);
+            newCurrentH = currentH + 1;
+            changed = true;
+          }
+        }
+      }
+
+      // Grow canopy: re-run placeCanopy for the current trunk height.
+      // tryPlaceLeaf only places into BLOCK_AIR cells, so existing leaves
+      // aren't overwritten — new canopy cells are added as the trunk grows.
+      const trunkTopLy = y - newCurrentH;
+      if (trunkTopLy >= 0) {
+        species.placeCanopy(bg, W, H, x, y, trunkTopLy, newCurrentH, species.leafBlock, 0);
+      }
+
+      // Check maturation: trunk reached target height
+      if (newCurrentH >= targetH) {
+        // Convert sapling block to the species' wood block (base becomes trunk base)
+        world.setActiveBackground(x, y, species.woodBlock);
+        world.setActiveVfx(x, y, 0);
+        changed = true;
+      } else {
+        // Update sapling vfx with new growth state
+        world.setActiveVfx(x, y, packSaplingVfx(speciesIdx, targetH, newCurrentH, newDays));
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
