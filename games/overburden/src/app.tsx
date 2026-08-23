@@ -237,6 +237,16 @@ function Hud() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // Save chunks to OPFS on page unload (best-effort, fire-and-forget)
+  useEffect(() => {
+    const handler = () => {
+      const { renderer } = useGameStore.getState();
+      renderer?.getWorkerHost()?.saveNow().catch(() => {});
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
   // Sync taskMode from store → renderer
   useEffect(() => {
     const { renderer } = useGameStore.getState();
@@ -845,7 +855,7 @@ export default function App() {
     return (
       <div style={titleStyle}>
         <div style={titleTextStyle}>Overburden</div>
-        <div style={subtitleStyle}>A 2.5D sandbox survival port — powered by downdraft</div>
+        <div style={subtitleStyle}>A 2.5D successor of The Blockheads — powered by downdraft</div>
         <button
           style={startButtonStyle}
           onClick={() => setShowTitleScreen(false)}

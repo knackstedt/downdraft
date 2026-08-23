@@ -65,7 +65,7 @@ const CUBE_INDICES = new Uint16Array([
 ]);
 
 const VERT_STRIDE = 7 * 4; // 7 floats per vertex
-const INSTANCE_STRIDE = 5 * 4; // 5 floats per instance (vec3 pos + vec2 data)
+const INSTANCE_STRIDE = 9 * 4; // 9 floats per instance (vec3 pos + vec2 data + vec4 neighborIds)
 
 // Face mask bits (must match shader)
 const FACE_RIGHT  = 1 << 0; // +X
@@ -140,7 +140,7 @@ export class BlockGridPass3D {
     this.gridW = ACTIVE_GRID_W;
     this.gridH = ACTIVE_GRID_H;
     // Max instances = all cells (fg double-rendered + bg double-rendered).
-    this.instanceData = new Float32Array(ACTIVE_GRID_CELLS * (NUM_FG_LAYERS + NUM_BG_LAYERS) * 5);
+    this.instanceData = new Float32Array(ACTIVE_GRID_CELLS * (NUM_FG_LAYERS + NUM_BG_LAYERS) * 9);
     this.paddedRowBytes = Math.ceil(ACTIVE_GRID_W / 256) * 256;
     this.paddedLight = new Uint8Array(this.paddedRowBytes * ACTIVE_GRID_H);
     this.paddedExplored = new Uint8Array(this.paddedRowBytes * ACTIVE_GRID_H);
@@ -227,6 +227,7 @@ export class BlockGridPass3D {
             attributes: [
               { shaderLocation: 3, offset: 0, format: "float32x3" },  // instancePos
               { shaderLocation: 4, offset: 12, format: "float32x2" }, // instanceData (blockId, faceMask)
+              { shaderLocation: 7, offset: 20, format: "float32x4" }, // neighborIds (left, right, top, bottom)
             ],
           },
         ],
@@ -274,6 +275,7 @@ export class BlockGridPass3D {
             attributes: [
               { shaderLocation: 3, offset: 0, format: "float32x3" },
               { shaderLocation: 4, offset: 12, format: "float32x2" },
+              { shaderLocation: 7, offset: 20, format: "float32x4" },
             ],
           },
         ],
@@ -387,11 +389,21 @@ export class BlockGridPass3D {
             faceMask |= FACE_FRONT;
           }
 
-          data[idx * 5 + 0] = x;
-          data[idx * 5 + 1] = y;
-          data[idx * 5 + 2] = layerZ;
-          data[idx * 5 + 3] = blockId;
-          data[idx * 5 + 4] = faceMask;
+          // Neighbor block IDs for edge blending (left, right, top, bottom)
+          const nLeft  = x > 0     ? (foreground[y * W + (x - 1)] & 0xFF) : 0;
+          const nRight = x < W - 1 ? (foreground[y * W + (x + 1)] & 0xFF) : 0;
+          const nTop   = y > 0     ? (foreground[(y - 1) * W + x] & 0xFF) : 0;
+          const nBot   = y < H - 1 ? (foreground[(y + 1) * W + x] & 0xFF) : 0;
+
+          data[idx * 9 + 0] = x;
+          data[idx * 9 + 1] = y;
+          data[idx * 9 + 2] = layerZ;
+          data[idx * 9 + 3] = blockId;
+          data[idx * 9 + 4] = faceMask;
+          data[idx * 9 + 5] = nLeft;
+          data[idx * 9 + 6] = nRight;
+          data[idx * 9 + 7] = nTop;
+          data[idx * 9 + 8] = nBot;
           idx++;
         }
       }
@@ -423,11 +435,21 @@ export class BlockGridPass3D {
         if (x >= W - 1 || !isWall(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
         if (x <= 0 || !isWall(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
-        data[idx * 5 + 0] = x;
-        data[idx * 5 + 1] = y;
-        data[idx * 5 + 2] = BG_Z_LAYERS[1]; // Z=-3 (layer 4)
-        data[idx * 5 + 3] = blockId;
-        data[idx * 5 + 4] = faceMask;
+        // Neighbor IDs from background layer for edge blending
+        const nLeft  = x > 0     ? (background[y * W + (x - 1)] & 0xFF) : 0;
+        const nRight = x < W - 1 ? (background[y * W + (x + 1)] & 0xFF) : 0;
+        const nTop   = y > 0     ? (background[(y - 1) * W + x] & 0xFF) : 0;
+        const nBot   = y < H - 1 ? (background[(y + 1) * W + x] & 0xFF) : 0;
+
+        data[idx * 9 + 0] = x;
+        data[idx * 9 + 1] = y;
+        data[idx * 9 + 2] = BG_Z_LAYERS[1]; // Z=-3 (layer 4)
+        data[idx * 9 + 3] = blockId;
+        data[idx * 9 + 4] = faceMask;
+        data[idx * 9 + 5] = nLeft;
+        data[idx * 9 + 6] = nRight;
+        data[idx * 9 + 7] = nTop;
+        data[idx * 9 + 8] = nBot;
         idx++;
       }
     }
@@ -449,11 +471,21 @@ export class BlockGridPass3D {
         if (x >= W - 1 || !isSolid(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
         if (x <= 0 || !isSolid(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
-        data[idx * 5 + 0] = x;
-        data[idx * 5 + 1] = y;
-        data[idx * 5 + 2] = BG_Z_LAYERS[0]; // Z=-2 (layer 3)
-        data[idx * 5 + 3] = blockId;
-        data[idx * 5 + 4] = faceMask;
+        // Neighbor IDs from background layer for edge blending
+        const nLeft  = x > 0     ? (background[y * W + (x - 1)] & 0xFF) : 0;
+        const nRight = x < W - 1 ? (background[y * W + (x + 1)] & 0xFF) : 0;
+        const nTop   = y > 0     ? (background[(y - 1) * W + x] & 0xFF) : 0;
+        const nBot   = y < H - 1 ? (background[(y + 1) * W + x] & 0xFF) : 0;
+
+        data[idx * 9 + 0] = x;
+        data[idx * 9 + 1] = y;
+        data[idx * 9 + 2] = BG_Z_LAYERS[0]; // Z=-2 (layer 3)
+        data[idx * 9 + 3] = blockId;
+        data[idx * 9 + 4] = faceMask;
+        data[idx * 9 + 5] = nLeft;
+        data[idx * 9 + 6] = nRight;
+        data[idx * 9 + 7] = nTop;
+        data[idx * 9 + 8] = nBot;
         idx++;
       }
     }
@@ -467,7 +499,7 @@ export class BlockGridPass3D {
         this.instanceBuffer!, 0,
         data.buffer as BufferSource,
         0,
-        idx * 5 * 4, // only upload used portion
+        idx * 9 * 4, // only upload used portion
       );
     }
   }

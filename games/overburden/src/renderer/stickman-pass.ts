@@ -197,14 +197,13 @@ export class StickmanPass {
     if (!this.vertexBuffer || !this.uniformBuffer) return;
 
     // Build box vertices at (px, py) with size BH_W × BH_H × 1.
-    // Center the player horizontally within the block cell so it looks
-    // natural regardless of the narrower width.
+    // The visual box matches the collision AABB exactly: [px, px+BH_W] × [py, py+BH_H].
+    // No centering offset — the collision box starts at bh.x (left-aligned).
     const PLAYER_W = 0.7;
     const PLAYER_H = 1.95;
-    const xOffset = (1 - PLAYER_W) / 2; // center within the 1-wide cell
     const verts = new Float32Array(36 * 3);
     for (let i = 0; i < 36; i++) {
-      verts[i * 3]     = px + xOffset + BOX_VERTS[i * 3] * PLAYER_W;  // X: centered + scaled
+      verts[i * 3]     = px + BOX_VERTS[i * 3] * PLAYER_W;             // X: left-aligned with collision
       verts[i * 3 + 1] = py + BOX_VERTS[i * 3 + 1] * PLAYER_H;         // Y: scaled to height
       verts[i * 3 + 2] = BOX_VERTS[i * 3 + 2] - 1.0;                   // Z: localZ - 1 (−1..0, layer 2)
     }
