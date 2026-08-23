@@ -12,7 +12,7 @@ import { createSimBuffer, SimBufferReader } from "../shared/sim-buffer";
 import type { TaskType } from "./task-queue";
 
 type InventorySlot = { itemId: string; count: number };
-type TaskSummary = { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string };
+type TaskSummary = { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string; failReason?: string };
 
 type CraftJobSummary = {
   id: number; recipeId: string; recipeName: string;
@@ -61,6 +61,7 @@ type BlockheadsWorkerApi = {
   queueTask(type: TaskType, opts: TaskOpts, bhIndex?: number): Promise<{ ok: boolean; taskId: number; duplicate: boolean }>;
   getTasks(bhIndex?: number): Promise<TaskSummary[]>;
   clearTasks(bhIndex?: number): Promise<{ ok: boolean }>;
+  cancelTask(type: TaskType, targetX: number, targetY: number, bhIndex?: number): Promise<{ ok: boolean }>;
 };
 
 export class BlockheadsWorkerHost {
@@ -198,5 +199,9 @@ export class BlockheadsWorkerHost {
 
   async clearTasks(bhIndex: number = 0): Promise<{ ok: boolean }> {
     return await this.proxy?.proxy.clearTasks(bhIndex) ?? { ok: false };
+  }
+
+  async cancelTask(type: TaskType, targetX: number, targetY: number, bhIndex: number = 0): Promise<{ ok: boolean }> {
+    return await this.proxy?.proxy.cancelTask(type, targetX, targetY, bhIndex) ?? { ok: false };
   }
 }

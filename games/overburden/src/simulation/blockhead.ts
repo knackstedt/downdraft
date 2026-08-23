@@ -6,6 +6,9 @@
 // - Gravity, friction, acceleration, jump
 // - Climbable blocks (ladder/rope) suspend gravity + enable vertical movement
 // - Liquid blocks slow movement + drain air bar
+// - Wall climbing: press up against a solid wall to climb slowly
+// - Back wall climbing: press up near a background wall to climb even slower
+// - Crawling: move horizontally through 1-block-high gaps at reduced speed
 // - 6 attribute bars: health, happiness, hunger, energy, environment, air
 // ============================================================================
 
@@ -30,6 +33,11 @@ const CLIMB_SPEED = 0.25;
 const SWIM_SPEED = 0.18;
 const LIQUID_DRAG = 0.7;
 const NOCLIP_SPEED = 3.0;
+// "Monkey" movement: wall climbing, back wall climbing, crawling
+const WALL_CLIMB_SPEED = 0.12;   // climbing a solid foreground wall (slow)
+const BG_WALL_CLIMB_SPEED = 0.06; // climbing a background wall (slower)
+const CRAWL_SPEED = 0.15;         // crawling through 1-high gaps
+const CRAWL_ACCEL = 0.04;
 
 // --- Blockhead dimensions (in blocks) ---
 // The blockhead is 1 block wide and 1.95 blocks tall — slightly under 2 so
@@ -195,13 +203,137 @@ function touchesDamaging(x: number, y: number, fg: Uint16Array): boolean {
   return false;
 }
 
+/**
+ * Check if there's a solid wall adjacent to the blockhead on the given side.
+ * side: -1 = left wall, +1 = right wall.
+ * Checks the column of blocks immediately next to the blockhead's AABB.
+ */
+function hasWallAt(x: number, y: number, fg: Uint16Array, side: number): boolean {
+  const y0 = Math.floor(y);
+  const y1 = Math.floor(y + BH_H - 0.001);
+  let wallX: number;
+  if (side < 0) {
+    wallX = Math.floor(x - 0.01);
+  } else {
+    wallX = Math.floor(x + BH_W + 0.01);
+  }
+  if (wallX < 0 || wallX >= ACTIVE_GRID_W) return false;
+  for (let cy = y0; cy <= y1; cy++) {
+    if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
+    if (isSolidBlock(fg[cy * ACTIVE_GRID_W + wallX])) return true;
+  }
+  return false;
+}
+
+/**
+ * Check if there's a background block (backwall) at the blockhead's position.
+ * Any non-air background block counts as a climbable back wall.
+ */
+function hasBackWall(x: number, y: number, bg: Uint16Array): boolean {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = Math.floor(x + BH_W - 0.001);
+  const y1 = Math.floor(y + BH_H - 0.001);
+  for (let cy = y0; cy <= y1; cy++) {
+    if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
+    for (let cx = x0; cx <= x1; cx++) {
+      if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
+      if ((bg[cy * ACTIVE_GRID_W + cx] & 0xFF) !== BLOCK_AIR) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if the blockhead is in a crawling situation: there's a solid block
+ * directly above (ceiling at 1 block high) and solid ground below.
+ */
+function isCrawling(x: number, y: number, fg: Uint16Array): boolean {
+  // Ceiling: check if there's a solid block at y-1 (just above head)
+  const x0 = Math.floor(x);
+  const x1 = Math.floor(x + BH_W - 0.001);
+  const ceilY = Math.floor(y - 0.01);
+  if (ceilY < 0 || ceilY >= ACTIVE_GRID_H) return false;
+  for (let cx = x0; cx <= x1; cx++) {
+    if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
+    if (isSolidBlock(fg[ceilY * ACTIVE_GRID_W + cx])) {
+      // Also need ground below to be crawling (not falling)
+      const groundY = Math.floor(y + BH_H + 0.01);
+      if (groundY >= 0 && groundY < ACTIVE_GRID_H) {
+        for (let gx = x0; gx <= x1; gx++) {
+          if (gx < 0 || gx >= ACTIVE_GRID_W) continue;
+          if (isSolidBlock(fg[groundY * ACTIVE_GRID_W + gx])) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if the blockhead can mantle onto a ledge on the given side.
+ * side: -1 = mantle left, +1 = mantle right.
+ *
+ * Mantle condition: the blockhead's head is at or just below the top of a
+ * wall, and there's a solid surface to stand on at the top, with air above it.
+ * This lets the blockhead vault over the top of a wall when climbing.
+ */
+function canMantle(x: number, y: number, fg: Uint16Array, side: number): boolean {
+  // The blockhead's head is at y (top of AABB). The wall top is the first
+  // non-solid cell above the wall. We need:
+  // 1. A solid block at the wall column, at the blockhead's foot level or below
+  // 2. Air at the blockhead's head level on the wall side (the top of the wall)
+  // 3. A solid surface one cell below the head on the wall side (the ledge)
+  // 4. Air above that (room to stand — blockhead is 2 tall)
+
+  let wallX: number;
+  if (side < 0) {
+    wallX = Math.floor(x - 0.01);
+  } else {
+    wallX = Math.floor(x + BH_W + 0.01);
+  }
+  if (wallX < 0 || wallX >= ACTIVE_GRID_W) return false;
+
+  // Head row (top of blockhead AABB)
+  const headY = Math.floor(y);
+  // Foot row (bottom of blockhead AABB)
+  const footY = Math.floor(y + BH_H - 0.001);
+
+  if (headY < 0 || headY >= ACTIVE_GRID_H) return false;
+  if (footY < 0 || footY >= ACTIVE_GRID_H) return false;
+
+  // The cell at head level on the wall side must be air (we've climbed above the wall top)
+  if (isSolidBlock(fg[headY * ACTIVE_GRID_W + wallX])) return false;
+
+  // The cell below head level on the wall side must be solid (the ledge to stand on)
+  const ledgeY = headY;
+  if (ledgeY + 1 >= ACTIVE_GRID_H) return false;
+  if (!isSolidBlock(fg[(ledgeY + 1) * ACTIVE_GRID_W + wallX])) return false;
+
+  // There must be room to stand (2 cells of air above the ledge)
+  // headY is already air (checked above). Check headY-1 too.
+  if (headY - 1 >= 0 && isSolidBlock(fg[(headY - 1) * ACTIVE_GRID_W + wallX])) return false;
+
+  // The blockhead must have been climbing a wall below (there's a solid block
+  // at or below the foot level on the wall side)
+  let hasWallBelow = false;
+  for (let cy = footY; cy <= Math.min(footY + 1, ACTIVE_GRID_H - 1); cy++) {
+    if (isSolidBlock(fg[cy * ACTIVE_GRID_W + wallX])) {
+      hasWallBelow = true;
+      break;
+    }
+  }
+  return hasWallBelow;
+}
+
 // --- Main physics update ---
 // Coordinates: bh.x/bh.y are in active-grid space (0..ACTIVE_GRID_W).
-// The fg array is the active grid foreground.
+// The fg array is the active grid foreground; bg is the background layer.
 export function updateBlockhead(
   bh: BlockheadState,
   input: BlockheadInput,
   fg: Uint16Array,
+  bg: Uint16Array,
   dt: number,
 ): void {
   const ax = bh.x;
@@ -230,6 +362,15 @@ export function updateBlockhead(
   const onLadder = climbCount > 0;
   const headSubmerged = isHeadInLiquid(ax, ay, fg);
 
+  // "Monkey" movement detection:
+  // - wallLeft/wallRight: solid foreground wall adjacent to the blockhead
+  // - onBackWall: background block present at the blockhead's position
+  // - crawling: in a 1-block-high gap (ceiling above, ground below)
+  const wallLeft = hasWallAt(ax, ay, fg, -1);
+  const wallRight = hasWallAt(ax, ay, fg, +1);
+  const onBackWall = hasBackWall(ax, ay, bg);
+  const crawling = isCrawling(ax, ay, fg);
+
   // --- Damage ---
   if (touchesDamaging(ax, ay, fg)) {
     bh.health -= 2;
@@ -252,6 +393,10 @@ export function updateBlockhead(
   if (inLiquid) {
     accel *= LIQUID_DRAG;
     maxSpd *= SWIM_SPEED / MAX_SPEED;
+  } else if (crawling) {
+    // Crawling through a 1-high gap: reduced speed
+    accel = CRAWL_ACCEL;
+    maxSpd = CRAWL_SPEED;
   }
 
   if (input.left) {
@@ -273,8 +418,9 @@ export function updateBlockhead(
   bh.vx = Math.max(-maxSpd, Math.min(maxSpd, bh.vx));
 
   // --- Vertical movement ---
-  // Climbing (ladder/rope): suspend gravity, allow up/down
+  // Priority: ladder > wall climbing > back wall climbing > swimming > gravity
   if (onLadder) {
+    // Climbing (ladder/rope): suspend gravity, allow up/down
     bh.vy = 0;
     if (input.up) bh.vy = -CLIMB_SPEED;
     if (input.down) bh.vy = CLIMB_SPEED;
@@ -289,6 +435,18 @@ export function updateBlockhead(
       bh.vy += GRAVITY * 0.3;
       if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
     }
+  } else if (input.up && (wallLeft || wallRight) && !bh.onGround) {
+    // Wall climbing: pressing up while against a solid wall (not on ground).
+    // Climb at WALL_CLIMB_SPEED. Slow gravity if not pressing up.
+    bh.vy = -WALL_CLIMB_SPEED;
+  } else if (input.up && onBackWall && !bh.onGround) {
+    // Back wall climbing: pressing up with a background wall behind.
+    // Slower than foreground wall climbing.
+    bh.vy = -BG_WALL_CLIMB_SPEED;
+  } else if ((wallLeft || wallRight || onBackWall) && !bh.onGround && bh.vy > 0) {
+    // Sliding down a wall: reduced fall speed (grip)
+    bh.vy += GRAVITY * 0.4;
+    if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
   } else {
     // Normal gravity
     if (input.jump && bh.onGround) {
@@ -337,14 +495,53 @@ export function updateBlockhead(
   }
   bh.onGround = landed;
 
+  // --- Mantle (vault over wall top) ---
+  // When the blockhead was wall-climbing and has reached the top of the wall
+  // (no longer adjacent to a wall, but there's a ledge to stand on), boost
+  // the blockhead up and over onto the ledge.
+  if (!bh.onGround && input.up && !onLadder && !inLiquid) {
+    const mantleLeft = canMantle(bh.x, bh.y, fg, -1);
+    const mantleRight = canMantle(bh.x, bh.y, fg, +1);
+    if (mantleRight) {
+      // Move up to stand on the ledge, then shift right onto it
+      const ledgeY = Math.floor(bh.y);
+      const wallX = Math.floor(bh.x + BH_W + 0.01);
+      // Snap head to the ledge level (feet on top of the wall)
+      const targetY = ledgeY - BH_H + 0.001;
+      if (!boxHitsSolid(wallX, targetY, fg)) {
+        bh.y = targetY;
+        bh.x = wallX;
+        bh.vy = 0;
+        bh.vx = 0;
+        bh.onGround = true;
+      }
+    } else if (mantleLeft) {
+      const ledgeY = Math.floor(bh.y);
+      const wallX = Math.floor(bh.x - 0.01);
+      const targetY = ledgeY - BH_H + 0.001;
+      if (!boxHitsSolid(wallX, targetY, fg)) {
+        bh.y = targetY;
+        bh.x = wallX;
+        bh.vy = 0;
+        bh.vx = 0;
+        bh.onGround = true;
+      }
+    }
+  }
+
   // --- Animation state ---
   const moving = Math.abs(bh.vx) > 0.05;
+  const wallClimbing = !bh.onGround && input.up && (wallLeft || wallRight || onBackWall);
   if (onLadder && (input.up || input.down)) {
+    bh.animState = "climb";
+  } else if (wallClimbing) {
     bh.animState = "climb";
   } else if (inLiquid) {
     bh.animState = "swim";
   } else if (!bh.onGround) {
     bh.animState = "fall";
+  } else if (crawling && moving) {
+    bh.animState = "walk";
   } else if (moving) {
     bh.animState = "walk";
   } else {

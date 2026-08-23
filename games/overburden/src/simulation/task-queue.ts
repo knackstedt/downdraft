@@ -39,9 +39,15 @@ export interface Task {
   stationAy?: number;
   itemId?: string; // for EAT, COLLECT_ITEM
   status: TaskStatus;
+  failReason?: string;
+  // Which layer to mine: "fg" or "bg". Set on first execution.
+  mineLayer?: "fg" | "bg";
   // Path cache (active grid coords)
   path?: PathNode[] | null;
   pathIndex?: number;
+  // Stuck detection: track time spent moving without progress
+  stuckTimer?: number;
+  lastDist?: number;
 }
 
 let nextTaskId = 1;
@@ -145,7 +151,7 @@ export function executeTask(
     }
     // Need to path to the station
     task.status = "moving";
-    return pathToAndWalk(bh, task, sx, sy, fg);
+    return pathToAndWalk(bh, task, sx, sy, fg, bg);
   }
 
   // --- SLEEP: path to bed, then sleep (energy restore handled by worker) ---
@@ -173,7 +179,7 @@ export function executeTask(
       return null; // no movement needed while sleeping
     }
     task.status = "moving";
-    return pathToAndWalk(bh, task, sx, sy, fg);
+    return pathToAndWalk(bh, task, sx, sy, fg, bg);
   }
 
   // --- COLLECT_ITEM: path to location, then done (stub for now) ---
@@ -191,7 +197,7 @@ export function executeTask(
       return null;
     }
     task.status = "moving";
-    return pathToAndWalk(bh, task, targetAx, targetAy, fg);
+    return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
   }
 
   // --- Bounds check for movement-based tasks ---
@@ -206,9 +212,34 @@ export function executeTask(
   const dy = targetAy - bhCy;
   const distX = Math.abs(dx);
   const distY = Math.abs(dy);
+  const dist = Math.sqrt(dx * dx + dy * dy);
 
   const isAdjacent = distX < 2.0 && distY < 2.5;
   const isAtTarget = distX < 1.0 && distY < 1.5;
+
+  // --- Stuck detection ---
+  // If the blockhead is moving but not getting closer to the target for
+  // STUCK_TIMEOUT seconds, mark the task as failed with a "stuck" reason.
+  const STUCK_TIMEOUT = 5.0;
+  if (task.status === "moving") {
+    const lastDist = task.lastDist ?? dist;
+    if (dist < lastDist + 0.1) {
+      // Not making progress (within 0.1 block tolerance)
+      task.stuckTimer = (task.stuckTimer ?? 0) + dt;
+    } else {
+      // Making progress — reset timer
+      task.stuckTimer = 0;
+    }
+    task.lastDist = dist;
+    if ((task.stuckTimer ?? 0) >= STUCK_TIMEOUT) {
+      task.status = "failed";
+      task.failReason = "stuck";
+      return null;
+    }
+  } else {
+    task.stuckTimer = 0;
+    task.lastDist = dist;
+  }
 
   if (task.type === "MOVE_TO") {
     if (isAtTarget) {
@@ -216,7 +247,7 @@ export function executeTask(
       return null;
     }
     task.status = "moving";
-    return pathToAndWalk(bh, task, targetAx, targetAy, fg);
+    return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
   }
 
   if (task.type === "MINE_BLOCK") {
@@ -228,14 +259,35 @@ export function executeTask(
     }
     const fgBlock = getBlockFromPacked(fg[ty * ACTIVE_GRID_W + tx]);
     const bgBlock = getBlockFromPacked(bg[ty * ACTIVE_GRID_W + tx]);
-    if (fgBlock === BLOCK_AIR && bgBlock === BLOCK_AIR) {
+
+    // Determine target layer on first execution: if fg has a block, mine fg.
+    // If only bg has a block, mine bg. Stick with that layer for the task's
+    // lifetime so mining fg doesn't cascade into mining bg.
+    if (task.mineLayer === undefined) {
+      if (fgBlock !== BLOCK_AIR) {
+        task.mineLayer = "fg";
+      } else if (bgBlock !== BLOCK_AIR) {
+        task.mineLayer = "bg";
+      } else {
+        // Both air — nothing to mine
+        task.status = "done";
+        return null;
+      }
+    }
+
+    // Check if the target layer's block is gone
+    if (task.mineLayer === "fg" && fgBlock === BLOCK_AIR) {
+      task.status = "done";
+      return null;
+    }
+    if (task.mineLayer === "bg" && bgBlock === BLOCK_AIR) {
       task.status = "done";
       return null;
     }
 
     if (!isAdjacent) {
       task.status = "moving";
-      return pathToAndWalk(bh, task, targetAx, targetAy, fg);
+      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
     }
 
     task.status = "executing";
@@ -251,7 +303,7 @@ export function executeTask(
   if (task.type === "PLACE_BLOCK") {
     if (!isAdjacent) {
       task.status = "moving";
-      return pathToAndWalk(bh, task, targetAx, targetAy, fg);
+      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
     }
 
     task.status = "executing";
@@ -291,7 +343,7 @@ export function executeTask(
 
     if (!isAdjacent) {
       task.status = "moving";
-      return pathToAndWalk(bh, task, targetAx, targetAy, fg);
+      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
     }
 
     task.status = "executing";
@@ -318,12 +370,13 @@ function pathToAndWalk(
   targetAx: number,
   targetAy: number,
   fg: Uint16Array,
+  bg: Uint16Array,
 ): BlockheadInput {
   // Find or reuse path
   if (task.path === undefined || task.path === null) {
     const sx = Math.floor(bh.x + 0.5);
     const sy = Math.floor(bh.y + 1.0);
-    task.path = findPath(fg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
+    task.path = findPath(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
     task.pathIndex = 0;
     if (task.path === null) {
       // No path found — fall back to greedy walk

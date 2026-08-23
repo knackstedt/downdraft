@@ -207,9 +207,18 @@ function AttributeBar({ label, value, color }: { label: string; value: number; c
 }
 
 function Hud() {
-  const { fps, paused, blockhead, selectedSlot, inventory, showCraftPanel, showInventoryPanel, showTaskQueue, taskMode, selectedStation, recipes } = useGameStore();
+  const { fps, paused, blockhead, selectedSlot, inventory, showCraftPanel, showInventoryPanel, showTaskQueue, taskMode, selectedStation, recipes, notification } = useGameStore();
   const [cameraDetached, setCameraDetached] = useState(false);
   const [debugNoShadows, setDebugNoShadows] = useState(false);
+
+  // Auto-dismiss notification after 4 seconds
+  useEffect(() => {
+    if (!notification) return;
+    const timer = setTimeout(() => {
+      useGameStore.getState().setNotification(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [notification]);
 
   // F1 toggles shadow/fog disable (debug). F2 is handled by ChunkDebugOverlay.
   useEffect(() => {
@@ -306,6 +315,28 @@ function Hud() {
 
       {/* Task queue display (toggle with Q) */}
       {showTaskQueue && <TaskQueueDisplay />}
+
+      {/* Notification toast */}
+      {notification && (
+        <div style={{
+          position: "absolute",
+          top: "60px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: "rgba(180, 40, 30, 0.9)",
+          color: "white",
+          padding: "10px 20px",
+          borderRadius: "6px",
+          fontSize: "14px",
+          fontFamily: "sans-serif",
+          fontWeight: "bold",
+          pointerEvents: "none",
+          zIndex: 200,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+        }}>
+          {notification}
+        </div>
+      )}
 
       {/* Hotbar — dynamic from inventory */}
       <div style={hotbarContainerStyle}>
@@ -732,6 +763,11 @@ export default function App() {
           if (!reader) return;
           const originCx = reader.getOriginCx();
           const originCy = reader.getOriginCy();
+          // Check for failed tasks and show a notification
+          const failed = tasks.find((t) => t.status === "failed" && t.failReason === "stuck");
+          if (failed) {
+            useGameStore.getState().setNotification("Blockhead is stuck — can't reach the target!");
+          }
           // Rebuild markers from the task queue (world coords → active-grid)
           // Only show MINE_BLOCK and MOVE_TO tasks (other types don't have
           // meaningful grid positions).

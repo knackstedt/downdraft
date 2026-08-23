@@ -44,6 +44,8 @@ interface GameState {
   inventory: InventorySlotUI[];
   // Available recipes (hand-craftable)
   recipes: RecipeUI[];
+  // Notification toast (auto-dismisses after a few seconds)
+  notification: string | null;
   // Renderer reference (set by main.tsx after init)
   renderer: BlockheadsRenderer | null;
   // Actions
@@ -61,6 +63,7 @@ interface GameState {
   setSelectedSlot: (slot: number) => void;
   setInventory: (inv: InventorySlotUI[]) => void;
   setRecipes: (recipes: RecipeUI[]) => void;
+  setNotification: (msg: string | null) => void;
 }
 
 const defaultBh: BlockheadUIState = {
@@ -86,6 +89,7 @@ export const useGameStore = create<GameState>((set) => ({
   selectedSlot: 0,
   inventory: [],
   recipes: [],
+  notification: null,
   renderer: null,
   setShowTitleScreen: (show) => set({ showTitleScreen: show }),
   setPaused: (paused) => set({ paused }),
@@ -101,4 +105,5 @@ export const useGameStore = create<GameState>((set) => ({
   setSelectedSlot: (slot) => set({ selectedSlot: slot }),
   setInventory: (inventory) => set({ inventory }),
   setRecipes: (recipes) => set({ recipes }),
+  setNotification: (msg) => set({ notification: msg }),
 }));

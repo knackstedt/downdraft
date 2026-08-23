@@ -148,7 +148,7 @@ export class BlockGridPass3D {
 
   init(): void {
     // Camera uniform buffer (viewProj matrix + camera params)
-    // 16 floats for matrix + 12 floats for params = 28 floats = 112 bytes
+    // 16 floats for matrix + 12 floats for params + originX + originY + pad = 31 floats
     // Pad to 128 bytes (multiple of 16)
     this.cameraBuffer = this.device.createBuffer({
       size: 128,
@@ -556,10 +556,10 @@ export class BlockGridPass3D {
     camX: number, camY: number, zoom: number,
     canvasW: number, canvasH: number, daylight: number,
     mineX: number = -1, mineY: number = -1, mineDamage: number = 0,
+    originX: number = 0, originY: number = 0,
   ): void {
-    // Camera pitch angle (radians). ~20° gives a 2.5D perspective
-    // that shows block tops and front faces clearly.
-    const pitchAngle = 20 * Math.PI / 180;
+    // Camera pitch angle (radians). 0° = dead-on, facing the block grid straight on.
+    const pitchAngle = 0;
 
     // Camera distance based on zoom: visible_height = 2 * d * tan(fov/2)
     // We want canvasH/zoom cells visible vertically at the target plane.
@@ -585,7 +585,9 @@ export class BlockGridPass3D {
     this.viewProj = multiply(proj, view);
 
     // Write camera uniform buffer
-    // Layout: viewProj (16 floats) + camPos (3) + zoom (1) + canvasW (1) + canvasH (1) + daylight (1) + mineX (1) + mineY (1) + mineDamage (1) + pad (1) = 28 floats
+    // Layout: viewProj (16 floats) + camPos (3) + zoom (1) + canvasW (1) + canvasH (1)
+    //         + daylight (1) + mineX (1) + mineY (1) + mineDamage (1) + pad (1)
+    //         + originX (1) + originY (1) + pad2 (2) = 32 floats = 128 bytes
     const u = new Float32Array(32); // 128 bytes / 4
     u.set(this.viewProj, 0);
     u[16] = eye[0];
@@ -599,6 +601,11 @@ export class BlockGridPass3D {
     u[24] = mineY;
     u[25] = mineDamage;
     u[26] = 0; // pad
+    u[27] = originX;
+    u[28] = originY;
+    u[29] = 0; // pad
+    u[30] = 0; // pad
+    u[31] = 0; // pad
     this.device.queue.writeBuffer(this.cameraBuffer!, 0, u);
   }
 
