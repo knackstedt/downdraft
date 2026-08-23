@@ -12,9 +12,11 @@ import {
     BLOCK_CLAY,
     BLOCK_COAL_ORE,
     BLOCK_COMPOST_BIN,
+    BLOCK_COMPOST_FARMLAND,
     BLOCK_COPPER_ORE,
     BLOCK_CRAFT_BENCH,
     BLOCK_DIRT,
+    BLOCK_FARMLAND,
     BLOCK_FURNACE,
     BLOCK_GOLD_ORE,
     BLOCK_GRASS,
@@ -50,6 +52,7 @@ import {
     MASK_PLACEABLE_BG,
     MASK_SOLID
 } from "./constants";
+import { CROPS, WILD_CROPS } from "./crops";
 import { TREE_SPECIES } from "./tree-species";
 import type { BlockDef } from "./types";
 
@@ -359,6 +362,24 @@ const DEFS: BlockDef[] = [
     placeable: true, backwallProjection: false,
     isStation: false,
   },
+
+  // --- Farmland (tilled soil, no collision) ---
+  {
+    id: BLOCK_FARMLAND, name: "Farmland", category: "special",
+    hardness: 1, color: [100, 65, 35], textureVariant: 35,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
+    fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "dirt", count: 1, chance: 1 }],
+    placeable: true, backwallProjection: false,
+    isStation: false,
+  },
+  {
+    id: BLOCK_COMPOST_FARMLAND, name: "Compost Farmland", category: "special",
+    hardness: 1, color: [70, 50, 25], textureVariant: 36,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
+    fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "dirt", count: 1, chance: 1 }],
+    placeable: true, backwallProjection: false,
+    isStation: false,
+  },
 ];
 
 // --- Per-species wood + leaf block definitions ---
@@ -394,6 +415,61 @@ for (const sp of TREE_SPECIES) {
     isStation: false,
   };
   SPECIES_DEFS.push(woodDef, leafDef);
+}
+
+// --- Crop block definitions (generated from CROPS registry) ---
+// Each crop has 4 stage blocks. All are "special" category (no collision),
+// rendered as 2D palette colors. Mature crops drop food + seeds; immature
+// crops drop only the seed. Seeds are not placeable by the player directly
+// (planting is handled by the crop-growth system via seed items).
+let _cropTextureVariant = 37;
+const CROP_DEFS: BlockDef[] = [];
+for (const crop of Object.values(CROPS)) {
+  for (let stage = 0; stage < 4; stage++) {
+    const stageNames = ["Seed", "Sprout", "Growing", "Mature"];
+    const isMature = stage === 3;
+    const drops = isMature
+      ? [
+          { itemId: crop.foodItem, count: crop.foodYield, chance: 1 },
+          { itemId: crop.seedItem, count: crop.seedYield, chance: 1 },
+        ]
+      : [{ itemId: crop.seedItem, count: 1, chance: 1 }];
+    CROP_DEFS.push({
+      id: crop.stages[stage],
+      name: `${crop.name} ${stageNames[stage]}`,
+      category: "special",
+      hardness: 1,
+      color: crop.colors[stage],
+      textureVariant: _cropTextureVariant++,
+      lightEmit: 0, lightColor: [0, 0, 0],
+      conductive: false, climbable: false, flammable: !crop.isMushroom,
+      fuelValue: 0, liquidFlow: 0,
+      drops,
+      placeable: false, // seeds are planted via the crop system, not placed directly
+      backwallProjection: false,
+      isStation: false,
+    });
+  }
+}
+
+// --- Wild crop block definitions (single mature block, regrows after harvest) ---
+const WILD_DEFS: BlockDef[] = [];
+for (const wc of WILD_CROPS) {
+  WILD_DEFS.push({
+    id: wc.blockId,
+    name: wc.name,
+    category: "special",
+    hardness: 1,
+    color: wc.color,
+    textureVariant: _cropTextureVariant++,
+    lightEmit: 0, lightColor: [0, 0, 0],
+    conductive: false, climbable: false, flammable: !wc.isMushroom,
+    fuelValue: 0, liquidFlow: 0,
+    drops: [{ itemId: wc.foodItem, count: 1, chance: 1 }],
+    placeable: false, // wild crops are spawned by terrain gen, not placed by player
+    backwallProjection: false,
+    isStation: false,
+  });
 }
 
 /** Per-species wood color (RGB 0-255). */
@@ -439,7 +515,7 @@ function spLeafColor(id: string): [number, number, number] {
 // --- Lookup tables ---
 const byId = new Map<number, BlockDef>();
 const byName = new Map<string, BlockDef>();
-for (const def of [...DEFS, ...SPECIES_DEFS]) {
+for (const def of [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
   byId.set(def.id, def);
   byName.set(def.name, def);
 }
@@ -453,7 +529,7 @@ export function getBlockByName(name: string): BlockDef | undefined {
 }
 
 export function getAllBlocks(): BlockDef[] {
-  return [...DEFS, ...SPECIES_DEFS];
+  return [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS];
 }
 
 // --- Mask computation ---
@@ -478,7 +554,7 @@ export function computeMask(def: BlockDef): number {
 
 // Precomputed mask table (indexed by block ID)
 const maskTable = new Uint16Array(256);
-for (const def of [...DEFS, ...SPECIES_DEFS]) {
+for (const def of [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
   maskTable[def.id] = computeMask(def);
 }
 
@@ -490,7 +566,7 @@ export function getBlockMask(id: number): number {
 // Returns a Uint8Array of RGBA colors indexed by block ID (256 blocks × 4 bytes).
 export function getBlockPalette(): Uint8Array {
   const palette = new Uint8Array(256 * 4); // RGBA per block (0-255)
-  for (const def of [...DEFS, ...SPECIES_DEFS]) {
+  for (const def of [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
     const offset = def.id * 4;
     palette[offset] = def.color[0];
     palette[offset + 1] = def.color[1];

@@ -15,8 +15,18 @@ import {
     BLOCK_CAMPFIRE,
     BLOCK_CLAY,
     BLOCK_COMPOST_BIN,
+    BLOCK_COMPOST_FARMLAND,
     BLOCK_CRAFT_BENCH,
+    BLOCK_CROP_SEED_BROWN_MUSHROOM,
+    BLOCK_CROP_SEED_CARROT,
+    BLOCK_CROP_SEED_CORN,
+    BLOCK_CROP_SEED_POTATO,
+    BLOCK_CROP_SEED_PUMPKIN,
+    BLOCK_CROP_SEED_RED_MUSHROOM,
+    BLOCK_CROP_SEED_TOMATO,
+    BLOCK_CROP_SEED_WHEAT,
     BLOCK_DIRT,
+    BLOCK_FARMLAND,
     BLOCK_FURNACE,
     BLOCK_GRASS,
     BLOCK_GRAVEL,
@@ -35,7 +45,7 @@ import {
     BLOCK_VINE_KIWI,
     BLOCK_WOOD,
     BLOCK_WOODWORK_BENCH,
-    BLOCK_WORKBENCH
+    BLOCK_WORKBENCH,
 } from "./constants";
 
 export type ItemCategory = "block" | "material" | "tool" | "food";
@@ -144,6 +154,32 @@ const DEFS: ItemDef[] = [
   { id: "raw_meat", name: "Raw Meat", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 5 },
   { id: "cooked_meat", name: "Cooked Meat", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 25 },
   { id: "bread", name: "Bread", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 20 },
+
+  // --- Farmland items (placeable) ---
+  { id: "farmland", name: "Farmland", category: "block", placeBlock: BLOCK_FARMLAND, maxStack: 64 },
+  { id: "compost_farmland", name: "Compost Farmland", category: "block", placeBlock: BLOCK_COMPOST_FARMLAND, maxStack: 64 },
+
+  // --- Seeds (placeable — placing a seed on farmland plants the crop) ---
+  { id: "seed_tomato", name: "Tomato Seeds", category: "material", placeBlock: BLOCK_CROP_SEED_TOMATO, maxStack: 64 },
+  { id: "seed_carrot", name: "Carrot Seeds", category: "material", placeBlock: BLOCK_CROP_SEED_CARROT, maxStack: 64 },
+  { id: "seed_potato", name: "Potato Seeds", category: "material", placeBlock: BLOCK_CROP_SEED_POTATO, maxStack: 64 },
+  { id: "seed_corn", name: "Corn Seeds", category: "material", placeBlock: BLOCK_CROP_SEED_CORN, maxStack: 64 },
+  { id: "seed_pumpkin", name: "Pumpkin Seeds", category: "material", placeBlock: BLOCK_CROP_SEED_PUMPKIN, maxStack: 64 },
+  { id: "seed_wheat", name: "Wheat Seeds", category: "material", placeBlock: BLOCK_CROP_SEED_WHEAT, maxStack: 64 },
+  { id: "spore_brown_mushroom", name: "Brown Mushroom Spores", category: "material", placeBlock: BLOCK_CROP_SEED_BROWN_MUSHROOM, maxStack: 64 },
+  { id: "spore_red_mushroom", name: "Red Mushroom Spores", category: "material", placeBlock: BLOCK_CROP_SEED_RED_MUSHROOM, maxStack: 64 },
+
+  // --- Crop foods ---
+  { id: "tomato", name: "Tomato", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 10 },
+  { id: "carrot", name: "Carrot", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
+  { id: "potato", name: "Potato", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 12 },
+  { id: "corn", name: "Corn", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 14 },
+  { id: "pumpkin", name: "Pumpkin", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 18 },
+  { id: "wheat", name: "Wheat", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
+  { id: "brown_mushroom", name: "Brown Mushroom", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 6 },
+  { id: "red_mushroom", name: "Red Mushroom", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 8 },
+  { id: "berries", name: "Berries", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 6 },
+  { id: "wild_mushroom", name: "Wild Mushroom", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 5 },
 ];
 
 const byId = new Map<string, ItemDef>();
