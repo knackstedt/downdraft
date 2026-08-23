@@ -44,6 +44,7 @@ export const DROP_WALNUT = 29;
 export const DROP_HAZELNUT = 30;
 export const DROP_KIWI = 31;
 export const DROP_GRAPE = 32;
+export const DROP_SEED = 33; // tree seed (spinning 2D drop on tree leaves)
 
 const ITEM_TO_CODE = new Map<string, number>([
   ["wood", DROP_WOOD],
@@ -115,6 +116,7 @@ const MATERIAL_COLORS: Record<number, [number, number, number]> = {
   [DROP_HAZELNUT]: [160, 120, 70],
   [DROP_KIWI]: [100, 140, 50],
   [DROP_GRAPE]: [130, 80, 160],
+  [DROP_SEED]: [120, 90, 50], // brown
 };
 
 /** Get the display color (RGB 0-255) for a drop item code. */

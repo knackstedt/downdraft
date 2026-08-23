@@ -29,6 +29,7 @@ import {
     BLOCK_METALWORK_BENCH,
     BLOCK_ROPE,
     BLOCK_SAND,
+    BLOCK_SAPLING,
     BLOCK_SCAFFOLDING,
     BLOCK_STONE,
     BLOCK_TAILOR_BENCH,
@@ -417,6 +418,22 @@ for (const sp of TREE_SPECIES) {
   SPECIES_DEFS.push(woodDef, leafDef);
 }
 
+// --- Sapling block definition ---
+// Saplings are young trees that live in the background plane (like adult
+// trees) and grow upward into wood + leaves. The species is encoded in the
+// vfx plane. Non-solid (category "special") and not placeable by the player.
+// Fruits and seeds are NOT blocks — they're spinning 2D world drop entities.
+const TREE_LIFECYCLE_DEFS: BlockDef[] = [
+  {
+    id: BLOCK_SAPLING, name: "Sapling", category: "special",
+    hardness: 1, color: [100, 140, 70], textureVariant: _textureVariant++,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
+    fuelValue: 0, liquidFlow: 0, drops: [],
+    placeable: false, backwallProjection: false,
+    isStation: false,
+  },
+];
+
 // --- Crop block definitions (generated from CROPS registry) ---
 // Each crop has 4 stage blocks. All are "special" category (no collision),
 // rendered as 2D palette colors. Mature crops drop food + seeds; immature
@@ -515,7 +532,7 @@ function spLeafColor(id: string): [number, number, number] {
 // --- Lookup tables ---
 const byId = new Map<number, BlockDef>();
 const byName = new Map<string, BlockDef>();
-for (const def of [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
+for (const def of [...DEFS, ...SPECIES_DEFS, ...TREE_LIFECYCLE_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
   byId.set(def.id, def);
   byName.set(def.name, def);
 }
@@ -529,7 +546,7 @@ export function getBlockByName(name: string): BlockDef | undefined {
 }
 
 export function getAllBlocks(): BlockDef[] {
-  return [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS];
+  return [...DEFS, ...SPECIES_DEFS, ...TREE_LIFECYCLE_DEFS, ...CROP_DEFS, ...WILD_DEFS];
 }
 
 // --- Mask computation ---
@@ -554,7 +571,7 @@ export function computeMask(def: BlockDef): number {
 
 // Precomputed mask table (indexed by block ID)
 const maskTable = new Uint16Array(256);
-for (const def of [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
+for (const def of [...DEFS, ...SPECIES_DEFS, ...TREE_LIFECYCLE_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
   maskTable[def.id] = computeMask(def);
 }
 
@@ -566,7 +583,7 @@ export function getBlockMask(id: number): number {
 // Returns a Uint8Array of RGBA colors indexed by block ID (256 blocks × 4 bytes).
 export function getBlockPalette(): Uint8Array {
   const palette = new Uint8Array(256 * 4); // RGBA per block (0-255)
-  for (const def of [...DEFS, ...SPECIES_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
+  for (const def of [...DEFS, ...SPECIES_DEFS, ...TREE_LIFECYCLE_DEFS, ...CROP_DEFS, ...WILD_DEFS]) {
     const offset = def.id * 4;
     palette[offset] = def.color[0];
     palette[offset + 1] = def.color[1];

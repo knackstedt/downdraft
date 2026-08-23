@@ -15,7 +15,7 @@ import {
     SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
 import { isCropBlock, isWildCropBlock } from "../shared/crops";
-import { decodeDropItem, encodeDropItem } from "../shared/drop-registry";
+import { decodeDropItem, DROP_SEED, encodeDropItem } from "../shared/drop-registry";
 import { Inventory } from "../shared/inventory";
 import { getItemDef, getItemForBlock } from "../shared/items";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
@@ -42,6 +42,7 @@ import { recomputeLight } from "./light-sim";
 import { getSeason } from "./season-system";
 import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
 import { fellTree } from "./tree-fell";
+import { stepTreeDaily } from "./tree-sim";
 import { stepVineGrowth } from "./vine-sim";
 
 const events = exposeEvents();
@@ -68,6 +69,12 @@ let stepOnce = false;
 // frame at most, only when something actually changed.
 let lightDirty = true;
 let lastLightDaylight = -1;
+
+// --- Tree life-cycle (daily) ---
+// Tracks the last in-game day the tree sim ran, so stepTreeDaily runs once
+// per day (18000 ticks). Reset to -1 on active grid rebuild so the sim runs
+// on the first day tick after a rebuild.
+let lastTreeDay = -1;
 
 const TICK_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 5;
@@ -136,6 +143,10 @@ function stationKey(ax: number, ay: number): string {
 }
 
 // --- Drop entities (world drops that spin + can be picked up) ---
+// DropEntity is used for both regular world drops (mining products) and tree
+// life-cycle entities (fruits + seeds). Tree fruits/seeds use kind=1/2 and
+// are managed by stepTreeDaily (age-based, not lifetime-based). They render
+// as spinning 2D quads via DropPass, just like regular drops.
 interface DropEntity {
   x: number;       // active grid X (float, sub-block)
   y: number;       // active grid Y (float)
@@ -145,12 +156,17 @@ interface DropEntity {
   spinSpeed: number; // radians per second
   itemCode: number;  // encoded item ID (from drop-registry)
   count: number;     // stack size
-  lifetime: number;  // seconds remaining before despawn
+  lifetime: number;  // seconds remaining before despawn (regular drops only)
   onGround: boolean;
+  // Tree life-cycle fields (kind > 0):
+  kind: number;      // 0 = normal drop, 1 = fruit, 2 = seed
+  speciesIdx: number; // species index (for seeds → sapling planting)
+  age: number;       // age in days (incremented by stepTreeDaily)
+  fallen: boolean;   // false = on tree, true = falling/on ground
 }
 
 const drops: DropEntity[] = [];
-const MAX_DROPS = 128;
+const MAX_DROPS = 512;
 const DROP_LIFETIME = 120; // 2 minutes before despawn
 const DROP_GRAVITY = 0.03;
 const DROP_MAX_FALL = 1.5;
@@ -187,6 +203,41 @@ function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): v
     count,
     lifetime: DROP_LIFETIME,
     onGround: false,
+    kind: 0, speciesIdx: 0, age: 0, fallen: false,
+  });
+}
+
+/** Spawn a tree fruit as a spinning 2D drop entity on a leaf cell. */
+function spawnTreeFruit(gx: number, gy: number, itemCode: number): void {
+  if (drops.length >= MAX_DROPS) return;
+  drops.push({
+    x: gx + 0.5,
+    y: gy + 0.5,
+    vx: 0, vy: 0,
+    spin: pseudoRandom(gx, gy, tickCount, "fruit-spin") * Math.PI * 2,
+    spinSpeed: 1.5 + pseudoRandom(gx, gy, tickCount, "fruit-spinspeed") * 2,
+    itemCode,
+    count: 1,
+    lifetime: Infinity, // fruits despawn by age, not lifetime
+    onGround: true, // stationary on tree (no gravity until it falls)
+    kind: 1, speciesIdx: 0, age: 0, fallen: false,
+  });
+}
+
+/** Spawn a tree seed as a spinning 2D drop entity on a leaf cell. */
+function spawnTreeSeed(gx: number, gy: number, speciesIdx: number): void {
+  if (drops.length >= MAX_DROPS) return;
+  drops.push({
+    x: gx + 0.5,
+    y: gy + 0.5,
+    vx: 0, vy: 0,
+    spin: pseudoRandom(gx, gy, tickCount, "seed-spin") * Math.PI * 2,
+    spinSpeed: 1.5 + pseudoRandom(gx, gy, tickCount, "seed-spinspeed") * 2,
+    itemCode: DROP_SEED,
+    count: 1,
+    lifetime: Infinity, // seeds despawn by age, not lifetime
+    onGround: true, // stationary on tree (no gravity until it falls)
+    kind: 2, speciesIdx, age: 0, fallen: false,
   });
 }
 
@@ -200,13 +251,18 @@ function updateDrops(dt: number): void {
 
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i];
-    d.lifetime -= dt;
-    if (d.lifetime <= 0) {
-      drops.splice(i, 1);
-      continue;
+
+    // Tree fruits/seeds: skip lifetime-based despawn (managed by stepTreeDaily)
+    if (d.kind === 0) {
+      d.lifetime -= dt;
+      if (d.lifetime <= 0) {
+        drops.splice(i, 1);
+        continue;
+      }
     }
 
     // Physics: gravity + collision with solid foreground blocks
+    // Tree fruits/seeds on the tree (onGround=true, fallen=false) are stationary
     if (!d.onGround) {
       d.vy += DROP_GRAVITY;
       if (d.vy > DROP_MAX_FALL) d.vy = DROP_MAX_FALL;
@@ -250,17 +306,21 @@ function updateDrops(dt: number): void {
     // Spin
     d.spin += d.spinSpeed * dt;
 
-    // Pickup: check distance to blockhead center (only after pickup delay)
-    if (bh && inv && d.lifetime < DROP_LIFETIME - PICKUP_DELAY) {
-      const dx = d.x - bhCx;
-      const dy = d.y - bhCy;
-      if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
-        // Decode item and add to inventory
-        const itemId = decodeDropItem(d.itemCode);
-        if (itemId) {
-          inv.add(itemId, d.count);
+    // Pickup: fruits (kind=1) are pick-uppable by proximity (no pickup delay).
+    // Regular drops (kind=0) use the pickup delay. Seeds (kind=2) are NOT pick-uppable.
+    if (bh && inv && d.kind !== 2) {
+      const canPickup = d.kind === 1 || d.lifetime < DROP_LIFETIME - PICKUP_DELAY;
+      if (canPickup) {
+        const dx = d.x - bhCx;
+        const dy = d.y - bhCy;
+        if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
+          // Decode item and add to inventory
+          const itemId = decodeDropItem(d.itemCode);
+          if (itemId) {
+            inv.add(itemId, d.count);
+          }
+          drops.splice(i, 1);
         }
-        drops.splice(i, 1);
       }
     }
   }
@@ -499,6 +559,7 @@ async function setupWorld(loadSavedChunks: boolean): Promise<void> {
   frameCount = 0;
   speedMultiplier = 1;
   lastLightDaylight = -1;
+  lastTreeDay = -1;
 
   // Create the first blockhead at the surface.
   // Scan X positions near the center to find a spawn point that:
@@ -1142,6 +1203,27 @@ function processMining(dt: number): void {
             }
           }
         }
+
+        // Remove fruit/seed drop entities at each felled tree cell.
+        // Fruit on the tree → spawn as a regular world drop (player can pick it up).
+        // Seeds on the tree → just remove (seeds aren't pick-uppable).
+        for (const cell of felled) {
+          for (let di = drops.length - 1; di >= 0; di--) {
+            const d = drops[di];
+            if (d.kind === 0) continue; // skip regular drops
+            const dx = d.x - (cell.x + 0.5);
+            const dy = d.y - (cell.y + 0.5);
+            if (Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0) {
+              if (d.kind === 1) {
+                // Fruit → spawn as a regular drop so the player can pick it up
+                const itemId = decodeDropItem(d.itemCode);
+                if (itemId) spawnDrop(cell.x, cell.y, itemId, 1);
+              }
+              // Seed → just remove
+              drops.splice(di, 1);
+            }
+          }
+        }
         lightDirty = true;
         mineDamage.delete(key);
         mineTarget = null;
@@ -1414,6 +1496,9 @@ async function loop(): Promise<void> {
             stationStates.clear();
             // Clear crop tracking (ages are in active-grid coords, which shifted)
             clearCropTracking();
+            // Reset tree life-cycle day counter so the daily sim runs on the
+            // first day tick after the rebuild (vfx state is restored from chunks).
+            lastTreeDay = -1;
             // Invalidate all task path caches (grid shifted)
             for (const queue of taskQueues) {
               for (const task of queue) {
@@ -1430,6 +1515,16 @@ async function loop(): Promise<void> {
               // Clamp to valid range
               bh.x = Math.max(0, Math.min(ACTIVE_GRID_W - BH_W, bh.x));
               bh.y = Math.max(0, Math.min(ACTIVE_GRID_H - BH_H, bh.y));
+            }
+            // Remap drop positions (fruits/seeds/drops) to new active grid coords
+            for (let di = drops.length - 1; di >= 0; di--) {
+              const d = drops[di];
+              d.x = d.x - dx;
+              d.y = d.y - dy;
+              // Remove drops that are now out of bounds
+              if (d.x < 0 || d.x >= ACTIVE_GRID_W || d.y < 0 || d.y >= ACTIVE_GRID_H) {
+                drops.splice(di, 1);
+              }
             }
             // Active grid rebuilt → light field must be recomputed.
             lightDirty = true;
@@ -1491,6 +1586,22 @@ async function loop(): Promise<void> {
           const daylight = Math.round(daylightF * 15);
           if (daylight !== lastLightDaylight) {
             lightDirty = true;
+          }
+
+          // Tree life-cycle: runs once per in-game day (18000 ticks).
+          // Spawns fruit + seeds on leaves (as spinning 2D drop entities),
+          // ages/falls/scatters them, and grows saplings. Gated by lastTreeDay
+          // so it only runs once per day.
+          const currentDay = Math.floor(tickCount / 18000);
+          if (currentDay !== lastTreeDay) {
+            lastTreeDay = currentDay;
+            if (stepTreeDaily(
+              world.activeForeground, world.activeBackground,
+              world.activeVfx, tickCount, ACTIVE_GRID_W, ACTIVE_GRID_H,
+              drops, world,
+            )) {
+              lightDirty = true;
+            }
           }
 
           // Step the simulation tick
