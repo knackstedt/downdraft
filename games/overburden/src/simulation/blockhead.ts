@@ -20,14 +20,14 @@ import { getBlockFromPacked } from "./fluid-sim";
 
 // --- Physics constants ---
 const GRAVITY = 0.04;
-const MOVE_ACCEL = 0.12;
-const MAX_SPEED = 0.6;
+const MOVE_ACCEL = 0.08;
+const MAX_SPEED = 0.35;
 const FRICTION = 0.85;
-const JUMP_FORCE = 0.9;
+const JUMP_FORCE = 0.225;
 const MAX_FALL = 2.5;
 const COLLISION_STEP = 0.9;
-const CLIMB_SPEED = 0.35;
-const SWIM_SPEED = 0.25;
+const CLIMB_SPEED = 0.25;
+const SWIM_SPEED = 0.18;
 const LIQUID_DRAG = 0.7;
 const NOCLIP_SPEED = 3.0;
 

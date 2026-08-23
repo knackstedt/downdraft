@@ -58,7 +58,7 @@ type BlockheadsWorkerApi = {
   rushCraft(stationAx: number, stationAy: number, jobId: number, bhIndex?: number): Promise<{ ok: boolean; error?: string }>;
   abortCraft(stationAx: number, stationAy: number, jobId: number): Promise<{ ok: boolean }>;
   // Task queue
-  queueTask(type: TaskType, opts: TaskOpts, bhIndex?: number): Promise<{ ok: boolean; taskId: number }>;
+  queueTask(type: TaskType, opts: TaskOpts, bhIndex?: number): Promise<{ ok: boolean; taskId: number; duplicate: boolean }>;
   getTasks(bhIndex?: number): Promise<TaskSummary[]>;
   clearTasks(bhIndex?: number): Promise<{ ok: boolean }>;
 };
@@ -188,8 +188,8 @@ export class BlockheadsWorkerHost {
   }
 
   // --- Task queue ---
-  async queueTask(type: TaskType, opts: TaskOpts, bhIndex: number = 0): Promise<{ ok: boolean; taskId: number }> {
-    return await this.proxy?.proxy.queueTask(type, opts, bhIndex) ?? { ok: false, taskId: -1 };
+  async queueTask(type: TaskType, opts: TaskOpts, bhIndex: number = 0): Promise<{ ok: boolean; taskId: number; duplicate: boolean }> {
+    return await this.proxy?.proxy.queueTask(type, opts, bhIndex) ?? { ok: false, taskId: -1, duplicate: false };
   }
 
   async getTasks(bhIndex: number = 0): Promise<TaskSummary[]> {

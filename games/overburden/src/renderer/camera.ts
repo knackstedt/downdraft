@@ -15,6 +15,11 @@ export class Camera {
   canvasW: number;
   canvasH: number;
 
+  // Detached mode: camera doesn't follow the player. Toggled by the user
+  // (e.g. pressing a key or middle-clicking). When detached, WASD moves
+  // the camera instead of the player.
+  detached = false;
+
   // Pan state (middle/right mouse drag)
   private panning = false;
   private panStartX = 0;
@@ -69,6 +74,20 @@ export class Camera {
 
   isPanning(): boolean {
     return this.panning;
+  }
+
+  /** Move the camera by a delta in grid coordinates (for WASD in detached mode). */
+  move(dx: number, dy: number): void {
+    this.x += dx;
+    this.y += dy;
+  }
+
+  /** Re-center on a position and re-attach to the player. */
+  reattach(x: number, y: number): void {
+    this.x = x;
+    this.y = y;
+    this.detached = false;
+    this.panning = false;
   }
 
   zoomAt(screenX: number, screenY: number, factor: number): void {

@@ -701,12 +701,26 @@ expose({
     recipeId?: string;
     stationAx?: number; stationAy?: number;
     itemId?: string;
-  }, bhIndex: number = 0): { ok: boolean; taskId: number } {
+  }, bhIndex: number = 0): { ok: boolean; taskId: number; duplicate: boolean } {
     const queue = taskQueues[bhIndex];
-    if (!queue) return { ok: false, taskId: -1 };
+    if (!queue) return { ok: false, taskId: -1, duplicate: false };
+    // Limit queue size — reject new tasks if too many pending (don't pop old ones)
+    const MAX_TASKS = 100;
+    if (queue.length >= MAX_TASKS) {
+      return { ok: false, taskId: -1, duplicate: false };
+    }
+    // Prevent duplicate tasks: same type + same target coords
+    const tx = opts.targetX ?? 0;
+    const ty = opts.targetY ?? 0;
+    const isDuplicate = queue.some(
+      (t) => t.type === type && t.targetX === tx && t.targetY === ty,
+    );
+    if (isDuplicate) {
+      return { ok: false, taskId: -1, duplicate: true };
+    }
     const task = createTask(type, opts);
     queue.push(task);
-    return { ok: true, taskId: task.id };
+    return { ok: true, taskId: task.id, duplicate: false };
   },
 
   getTasks(bhIndex: number = 0): { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string }[] {
