@@ -14,6 +14,26 @@ import type { TaskType } from "./task-queue";
 type InventorySlot = { itemId: string; count: number };
 type TaskSummary = { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string };
 
+type CraftJobSummary = {
+  id: number; recipeId: string; recipeName: string;
+  progress: number; elapsed: number; craftTime: number;
+  bhIndex: number; status: string;
+};
+
+type CraftQueueSummary = {
+  fuel: number;
+  activeJob: CraftJobSummary | null;
+  queue: { id: number; recipeId: string; recipeName: string; bhIndex: number; status: string }[];
+};
+
+type TaskOpts = {
+  targetX?: number; targetY?: number;
+  blockId?: number;
+  recipeId?: string;
+  stationAx?: number; stationAy?: number;
+  itemId?: string;
+};
+
 type BlockheadsWorkerApi = {
   init(sab: SharedArrayBuffer): Promise<void>;
   pause(): Promise<void>;
@@ -28,11 +48,17 @@ type BlockheadsWorkerApi = {
   getWorldStats(): Promise<{ loadedChunks: number; activeChunks: number; tick: number }>;
   // Inventory + crafting
   getInventory(bhIndex?: number): Promise<InventorySlot[]>;
-  craft(recipeId: string, bhIndex?: number): Promise<{ ok: boolean; error?: string }>;
+  craft(recipeId: string, stationAx?: number, stationAy?: number, bhIndex?: number): Promise<{ ok: boolean; error?: string; jobId?: number }>;
   getRecipes(station?: CraftStation): Promise<{ id: string; name: string; station: CraftStation }[]>;
   giveItem(itemId: string, count?: number, bhIndex?: number): Promise<{ ok: boolean }>;
+  setInventory(slots: InventorySlot[], bhIndex?: number): Promise<{ ok: boolean }>;
+  // Station crafting
+  getCraftQueue(stationAx: number, stationAy: number): Promise<CraftQueueSummary>;
+  addFuel(stationAx: number, stationAy: number, itemId: string, count?: number, bhIndex?: number): Promise<{ ok: boolean; error?: string }>;
+  rushCraft(stationAx: number, stationAy: number, jobId: number, bhIndex?: number): Promise<{ ok: boolean; error?: string }>;
+  abortCraft(stationAx: number, stationAy: number, jobId: number): Promise<{ ok: boolean }>;
   // Task queue
-  queueTask(type: TaskType, targetX: number, targetY: number, blockId: number, bhIndex: number): Promise<{ ok: boolean; taskId: number }>;
+  queueTask(type: TaskType, opts: TaskOpts, bhIndex?: number): Promise<{ ok: boolean; taskId: number }>;
   getTasks(bhIndex?: number): Promise<TaskSummary[]>;
   clearTasks(bhIndex?: number): Promise<{ ok: boolean }>;
 };
@@ -128,8 +154,8 @@ export class BlockheadsWorkerHost {
     return await this.proxy?.proxy.getInventory(bhIndex) ?? [];
   }
 
-  async craft(recipeId: string, bhIndex: number = 0): Promise<{ ok: boolean; error?: string }> {
-    return await this.proxy?.proxy.craft(recipeId, bhIndex) ?? { ok: false, error: "Worker not ready" };
+  async craft(recipeId: string, stationAx: number = -1, stationAy: number = -1, bhIndex: number = 0): Promise<{ ok: boolean; error?: string; jobId?: number }> {
+    return await this.proxy?.proxy.craft(recipeId, stationAx, stationAy, bhIndex) ?? { ok: false, error: "Worker not ready" };
   }
 
   async getRecipes(station?: CraftStation): Promise<{ id: string; name: string; station: CraftStation }[]> {
@@ -140,9 +166,30 @@ export class BlockheadsWorkerHost {
     return await this.proxy?.proxy.giveItem(itemId, count, bhIndex) ?? { ok: false };
   }
 
+  async setInventory(slots: InventorySlot[], bhIndex: number = 0): Promise<{ ok: boolean }> {
+    return await this.proxy?.proxy.setInventory(slots, bhIndex) ?? { ok: false };
+  }
+
+  // --- Station crafting ---
+  async getCraftQueue(stationAx: number, stationAy: number): Promise<CraftQueueSummary> {
+    return await this.proxy?.proxy.getCraftQueue(stationAx, stationAy) ?? { fuel: 0, activeJob: null, queue: [] };
+  }
+
+  async addFuel(stationAx: number, stationAy: number, itemId: string, count: number = 1, bhIndex: number = 0): Promise<{ ok: boolean; error?: string }> {
+    return await this.proxy?.proxy.addFuel(stationAx, stationAy, itemId, count, bhIndex) ?? { ok: false, error: "Worker not ready" };
+  }
+
+  async rushCraft(stationAx: number, stationAy: number, jobId: number, bhIndex: number = 0): Promise<{ ok: boolean; error?: string }> {
+    return await this.proxy?.proxy.rushCraft(stationAx, stationAy, jobId, bhIndex) ?? { ok: false, error: "Worker not ready" };
+  }
+
+  async abortCraft(stationAx: number, stationAy: number, jobId: number): Promise<{ ok: boolean }> {
+    return await this.proxy?.proxy.abortCraft(stationAx, stationAy, jobId) ?? { ok: false };
+  }
+
   // --- Task queue ---
-  async queueTask(type: TaskType, targetX: number, targetY: number, blockId: number = 0, bhIndex: number = 0): Promise<{ ok: boolean; taskId: number }> {
-    return await this.proxy?.proxy.queueTask(type, targetX, targetY, blockId, bhIndex) ?? { ok: false, taskId: -1 };
+  async queueTask(type: TaskType, opts: TaskOpts, bhIndex: number = 0): Promise<{ ok: boolean; taskId: number }> {
+    return await this.proxy?.proxy.queueTask(type, opts, bhIndex) ?? { ok: false, taskId: -1 };
   }
 
   async getTasks(bhIndex: number = 0): Promise<TaskSummary[]> {

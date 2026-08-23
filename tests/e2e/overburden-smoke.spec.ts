@@ -47,6 +47,11 @@ describe("overburden MCP automation smoke", () => {
     expect(names.has("get_inventory")).toBe(true);
     expect(names.has("craft")).toBe(true);
     expect(names.has("give_item")).toBe(true);
+    // Station crafting
+    expect(names.has("get_craft_queue")).toBe(true);
+    expect(names.has("add_fuel")).toBe(true);
+    expect(names.has("rush_craft")).toBe(true);
+    expect(names.has("abort_craft")).toBe(true);
     // Task queue
     expect(names.has("queue_task")).toBe(true);
     expect(names.has("get_tasks")).toBe(true);

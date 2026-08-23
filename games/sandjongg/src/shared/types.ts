@@ -72,14 +72,6 @@ export interface LevelSpec {
   tileCount: number;
 }
 
-/** Score state persisted in saves. */
-export interface ScoreState {
-  level: number;
-  score: number;
-  combo: number;
-  highScore: number;
-}
-
 /** Serialized board for saves. */
 export interface SerializedBoard {
   cols: number;

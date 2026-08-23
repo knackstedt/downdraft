@@ -23,6 +23,8 @@ export interface TileCanvasState {
   pathAnim: { path: Path; startTime: number; element: number } | null;
   /** Active crumble animations. */
   crumbleAnims: { col: number; row: number; element: number; startTime: number }[];
+  /** Active failed-match animations (red flash). */
+  failAnims: { col: number; row: number; layer: number; startTime: number }[];
 }
 
 export class TileCanvasPass {
@@ -47,6 +49,7 @@ export class TileCanvasPass {
       hint: null,
       pathAnim: null,
       crumbleAnims: [],
+      failAnims: [],
     };
   }
 
@@ -101,12 +104,18 @@ export class TileCanvasPass {
   /** Main draw call — called every frame by the renderer. */
   draw(): void {
     const ctx = this.ctx;
-    const { boardElements, boardCols, boardRows, boardLayers, selected, hint, pathAnim, crumbleAnims } = this.state;
+    const { boardElements, boardCols, boardRows, boardLayers, selected, hint, pathAnim, crumbleAnims, failAnims } = this.state;
     const now = performance.now();
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     if (boardCols === 0 || boardRows === 0) return;
+
+    // Determine the selected tile's element for same-element highlighting.
+    let selectedElement = -1;
+    if (selected) {
+      selectedElement = boardElements[(selected.col + selected.row * boardCols) * MAX_LAYERS + selected.layer];
+    }
 
     // No board background — let the WebGPU sand canvas show through.
     // Draw tiles layer by layer (bottom to top), with a pseudo-3D offset
@@ -147,6 +156,18 @@ export class TileCanvasPass {
 
           // Element glyph.
           this.drawGlyph(ctx, elDef.glyph, x + size / 2, y + size / 2, size * 0.6, elDef.glyphColor);
+
+          // Same-element highlight: when a tile is selected, subtly outline
+          // all other tiles of the same element to help find matches.
+          if (selected && selectedElement >= 0 && el === selectedElement &&
+              !(selected.col === c && selected.row === r && selected.layer === layer)) {
+            const pulse = 0.3 + 0.2 * Math.sin(now / 300);
+            ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(x + 1, y + 1, size, size, 4);
+            ctx.stroke();
+          }
 
           // Selection highlight.
           if (selected && selected.col === c && selected.row === r && selected.layer === layer) {
@@ -205,6 +226,28 @@ export class TileCanvasPass {
       const y = this.boardOffsetY + a.row * this.tilePx;
       const size = this.tilePx - 2;
       ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
+      ctx.beginPath();
+      ctx.roundRect(x + 1, y + 1, size, size, 4);
+      ctx.fill();
+      return true;
+    });
+
+    // Draw failed-match animations (red flash + fade).
+    this.state.failAnims = failAnims.filter((a) => {
+      const elapsed = now - a.startTime;
+      const duration = 300;
+      if (elapsed >= duration) return false;
+      const alpha = 1 - elapsed / duration;
+      const offset = a.layer * layerOffset;
+      const x = this.boardOffsetX + a.col * this.tilePx - offset;
+      const y = this.boardOffsetY + a.row * this.tilePx - offset;
+      const size = this.tilePx - 2;
+      ctx.strokeStyle = `rgba(255, 60, 60, ${alpha})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.roundRect(x + 1, y + 1, size, size, 4);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255, 60, 60, ${alpha * 0.3})`;
       ctx.beginPath();
       ctx.roundRect(x + 1, y + 1, size, size, 4);
       ctx.fill();

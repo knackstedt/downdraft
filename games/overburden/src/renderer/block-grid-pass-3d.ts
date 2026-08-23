@@ -247,10 +247,14 @@ export class BlockGridPass3D {
       },
     });
 
-    // Background pipeline: always pass depth, don't write depth.
-    // This ensures background blocks are drawn first and visible through
-    // the perspective gap above foreground blocks. The foreground pipeline
-    // (above) then draws on top with proper depth testing.
+    // Background pipeline: proper depth testing + writing.
+    // Background blocks are drawn first (before foreground), so they
+    // write depth. This allows tree blocks (Z=-2) to properly occlude
+    // back wall blocks (Z=-3), eliminating internal face artifacts.
+    // Foreground blocks (Z=0, Z=-1) are drawn after and are closer,
+    // so they pass the depth test and overwrite background where needed.
+    // Background is still visible through the perspective gap at the top
+    // of foreground blocks (where there are no foreground blocks to occlude).
     this.bgPipeline = this.device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: {
@@ -286,8 +290,8 @@ export class BlockGridPass3D {
       },
       depthStencil: {
         format: this.depthFormat,
-        depthWriteEnabled: false, // don't write depth — foreground will overwrite
-        depthCompare: "always",   // always draw, even if behind something
+        depthWriteEnabled: true,
+        depthCompare: "less",
       },
     });
 
@@ -414,9 +418,14 @@ export class BlockGridPass3D {
 
         let faceMask = 0;
         faceMask |= FACE_FRONT;
-        faceMask |= FACE_TOP;
-        if (x >= W - 1 || (background[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
-        if (x <= 0 || (background[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
+        // Only cull faces if the neighbor is ALSO a back wall block (same
+        // depth, Z=-3). Tree blocks are at Z=-2 (different depth) so they
+        // don't occlude back wall faces — depth testing handles that.
+        const isBackWall = (v: number) => v !== 0 && v !== BLOCK_WOOD && v !== BLOCK_LEAVES;
+        if (y <= 0 || !isBackWall(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
+        if (y >= H - 1 || !isBackWall(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+        if (x >= W - 1 || !isBackWall(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+        if (x <= 0 || !isBackWall(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
         data[idx * 5 + 0] = x;
         data[idx * 5 + 1] = y;
@@ -439,9 +448,14 @@ export class BlockGridPass3D {
 
         let faceMask = 0;
         faceMask |= FACE_FRONT;
-        faceMask |= FACE_TOP;
-        if (x >= W - 1 || (background[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
-        if (x <= 0 || (background[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
+        // Only cull faces if the neighbor is ALSO a tree block (same depth,
+        // Z=-2). Back wall blocks are at Z=-3 (different depth) so they
+        // don't occlude tree faces — depth testing handles that.
+        const isTree = (v: number) => v === BLOCK_WOOD || v === BLOCK_LEAVES;
+        if (y <= 0 || !isTree(background[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
+        if (y >= H - 1 || !isTree(background[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+        if (x >= W - 1 || !isTree(background[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+        if (x <= 0 || !isTree(background[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
 
         data[idx * 5 + 0] = x;
         data[idx * 5 + 1] = y;

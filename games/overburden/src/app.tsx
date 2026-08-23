@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
+import { StationPanel } from "./components/station-panel";
+import { TaskQueueDisplay } from "./components/task-queue-display";
 import { getAllItems, getItemDef, type ItemCategory } from "./shared/items";
 import { useGameStore } from "./stores/game-store";
 
@@ -105,7 +107,7 @@ const barBgStyle: React.CSSProperties = {
 
 const hotbarContainerStyle: React.CSSProperties = {
   position: "absolute",
-  bottom: 16,
+  bottom: 32,
   left: "50%",
   transform: "translateX(-50%)",
   display: "flex",
@@ -116,8 +118,8 @@ const hotbarContainerStyle: React.CSSProperties = {
 };
 
 const hotbarSlotStyle = (selected: boolean): React.CSSProperties => ({
-  width: 40,
-  height: 40,
+  width: 44,
+  height: 44,
   position: "relative",
   display: "flex",
   alignItems: "center",
@@ -127,7 +129,29 @@ const hotbarSlotStyle = (selected: boolean): React.CSSProperties => ({
   background: selected ? "rgba(79,195,247,0.3)" : "rgba(255,255,255,0.05)",
   border: selected ? "2px solid rgba(79,195,247,0.8)" : "1px solid rgba(255,255,255,0.1)",
   borderRadius: 4,
+  cursor: "pointer",
 });
+
+const hotbarSlotNumStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 1,
+  left: 3,
+  fontSize: 8,
+  color: "rgba(255,255,255,0.4)",
+  pointerEvents: "none",
+};
+
+const hotbarSlotLabelStyle: React.CSSProperties = {
+  position: "absolute",
+  bottom: -14,
+  left: "50%",
+  transform: "translateX(-50%)",
+  fontSize: 8,
+  whiteSpace: "nowrap",
+  color: "rgba(255,255,255,0.6)",
+  textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+  pointerEvents: "none",
+};
 
 // Hotbar slot definitions: item ID + display color.
 // Must match HOTBAR_BLOCKS in blockheads-renderer.ts.
@@ -143,6 +167,33 @@ const HOTBAR_SLOTS: { itemId: string; color: [number, number, number] }[] = [
   { itemId: "scaffolding", color: [160, 130, 90] },
 ];
 
+// Color map for all placeable items (for dynamic hotbar display)
+const ITEM_COLORS: Record<string, [number, number, number]> = {
+  dirt: [120, 80, 50],
+  grass: [80, 160, 60],
+  stone: [128, 128, 128],
+  sand: [220, 200, 140],
+  wood: [140, 100, 60],
+  clay: [180, 100, 80],
+  gravel: [120, 110, 100],
+  ladder: [180, 140, 80],
+  rope: [200, 180, 120],
+  scaffolding: [160, 130, 90],
+  torch: [240, 200, 80],
+  workbench: [140, 100, 60],
+  craft_bench: [130, 90, 50],
+  tool_bench: [120, 100, 70],
+  woodwork_bench: [150, 110, 70],
+  campfire: [200, 100, 40],
+  kiln: [170, 80, 50],
+  furnace: [100, 100, 110],
+  metalwork_bench: [90, 90, 100],
+  builder_bench: [110, 90, 60],
+  tailor_bench: [160, 120, 90],
+  compost_bin: [100, 130, 60],
+  bed: [180, 120, 100],
+};
+
 function AttributeBar({ label, value, color }: { label: string; value: number; color: string }) {
   const pct = Math.max(0, Math.min(100, value));
   return (
@@ -156,7 +207,7 @@ function AttributeBar({ label, value, color }: { label: string; value: number; c
 }
 
 function Hud() {
-  const { fps, paused, blockhead, selectedSlot, inventory, showCraftPanel, showInventoryPanel, recipes } = useGameStore();
+  const { fps, paused, blockhead, selectedSlot, inventory, showCraftPanel, showInventoryPanel, showTaskQueue, taskMode, selectedStation, recipes } = useGameStore();
   const [debugNoShadows, setDebugNoShadows] = useState(false);
 
   // F1 toggles shadow/fog disable (debug). F2 is handled by ChunkDebugOverlay.
@@ -176,11 +227,41 @@ function Hud() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // Sync taskMode from store → renderer
+  useEffect(() => {
+    const { renderer } = useGameStore.getState();
+    if (renderer) renderer.setTaskMode(taskMode);
+  }, [taskMode]);
+
   // Build a quick lookup of item counts from the inventory
   const invCount = (itemId: string): number => {
     const slot = inventory.find((s) => s.itemId === itemId);
     return slot ? slot.count : 0;
   };
+
+  // Build dynamic hotbar slots from inventory (placeable items first, then defaults)
+  const hotbarSlots: ({ itemId: string; color: [number, number, number] } | null)[] = useMemo(() => {
+    const slots: ({ itemId: string; color: [number, number, number] } | null)[] = new Array(9).fill(null);
+    let idx = 0;
+    // Fill from placeable inventory items
+    for (const slot of inventory) {
+      if (idx >= 9) break;
+      if (slot.count <= 0) continue;
+      const def = getItemDef(slot.itemId);
+      if (def && def.placeBlock > 0) {
+        slots[idx] = { itemId: slot.itemId, color: ITEM_COLORS[slot.itemId] ?? [128, 128, 128] };
+        idx++;
+      }
+    }
+    // Fill remaining with default hotbar items
+    for (let i = idx; i < 9; i++) {
+      const defaultSlot = HOTBAR_SLOTS[i];
+      if (defaultSlot) {
+        slots[i] = defaultSlot;
+      }
+    }
+    return slots;
+  }, [inventory]);
 
   return (
     <div style={hudContainerStyle}>
@@ -188,6 +269,7 @@ function Hud() {
         FPS: {fps}
         {paused && <span style={{ color: "yellow", marginLeft: 8 }}>PAUSED</span>}
         {debugNoShadows && <span style={{ color: "#e74c3c", marginLeft: 8 }}>NOSHADOW</span>}
+        {taskMode && <span style={{ color: "#f39c12", marginLeft: 8, fontWeight: "bold" }}>TASK MODE (T)</span>}
       </div>
       <ChunkDebugOverlay />
 
@@ -207,20 +289,34 @@ function Hud() {
       {/* Standalone crafting panel (toggle with C) — only when inventory panel is closed */}
       {showCraftPanel && !showInventoryPanel && <CraftPanel recipes={recipes} inventory={inventory} />}
 
-      {/* Hotbar */}
+      {/* Station panel (shown when a station is selected) */}
+      {selectedStation && <StationPanel ax={selectedStation.ax} ay={selectedStation.ay} />}
+
+      {/* Task queue display (toggle with Q) */}
+      {showTaskQueue && <TaskQueueDisplay />}
+
+      {/* Hotbar — dynamic from inventory */}
       <div style={hotbarContainerStyle}>
-        {HOTBAR_SLOTS.map((slot, i) => {
-          const count = invCount(slot.itemId);
+        {hotbarSlots.map((slot, i) => {
+          const count = slot ? invCount(slot.itemId) : 0;
           const has = count > 0;
+          const itemName = slot ? (getItemDef(slot.itemId)?.name ?? slot.itemId) : "";
           return (
-            <div key={i} style={hotbarSlotStyle(selectedSlot === i)}>
-              <div style={{
-                width: 28,
-                height: 28,
-                background: `rgb(${slot.color[0]}, ${slot.color[1]}, ${slot.color[2]})`,
-                borderRadius: 2,
-                opacity: has ? 1 : 0.25,
-              }} />
+            <div
+              key={i}
+              style={hotbarSlotStyle(selectedSlot === i)}
+              title={slot ? `${itemName}${count > 0 ? ` (${count})` : ""}` : "Empty"}
+            >
+              <span style={hotbarSlotNumStyle}>{i + 1}</span>
+              {slot && (
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  background: `rgb(${slot.color[0]}, ${slot.color[1]}, ${slot.color[2]})`,
+                  borderRadius: 2,
+                  opacity: has ? 1 : 0.25,
+                }} />
+              )}
               <span style={{
                 position: "absolute",
                 bottom: 0,
@@ -229,6 +325,9 @@ function Hud() {
                 color: has ? "white" : "rgba(255,255,255,0.3)",
                 textShadow: "0 1px 2px rgba(0,0,0,0.8)",
               }}>{count > 0 ? count : ""}</span>
+              {slot && (
+                <span style={hotbarSlotLabelStyle}>{itemName}</span>
+              )}
             </div>
           );
         })}
@@ -540,6 +639,32 @@ export default function App() {
       });
     }
 
+    // --- Load saved inventory from localStorage on game start ---
+    // Skip in deterministic mode (e2e tests need fresh state)
+    const INVENTORY_SAVE_KEY = "overburden:inventory";
+    if (!useGameStore.getState().deterministic) {
+      try {
+        const saved = localStorage.getItem(INVENTORY_SAVE_KEY);
+        if (saved && host) {
+          const slots = JSON.parse(saved) as { itemId: string; count: number }[];
+          if (Array.isArray(slots) && slots.length > 0) {
+            host.setInventory(slots, 0).then(() => {
+              // Refresh the store after loading
+              host.getInventory(0).then((inv) => {
+                useGameStore.getState().setInventory(inv);
+                renderer.setHotbarFromInventory(inv);
+              });
+            });
+          }
+        }
+      } catch {
+        // localStorage might not be available or JSON corrupted — ignore
+      }
+    }
+
+    // Track last saved inventory to avoid redundant localStorage writes
+    let lastSavedJson = "";
+
     const interval = setInterval(() => {
       const reader = renderer.getSimReader();
       if (!reader) return;
@@ -565,6 +690,21 @@ export default function App() {
       if (h) {
         h.getInventory(0).then((inv) => {
           useGameStore.getState().setInventory(inv);
+          // Update the renderer's hotbar from the inventory
+          renderer.setHotbarFromInventory(inv);
+          // --- Save inventory to localStorage on change ---
+          // Skip in deterministic mode (e2e tests)
+          if (!useGameStore.getState().deterministic) {
+            try {
+              const json = JSON.stringify(inv);
+              if (json !== lastSavedJson) {
+                lastSavedJson = json;
+                localStorage.setItem(INVENTORY_SAVE_KEY, json);
+              }
+            } catch {
+              // localStorage might not be available — ignore
+            }
+          }
         });
       }
     }, 250);
@@ -593,6 +733,12 @@ export default function App() {
         // C toggles the standalone craft panel (hidden when inventory is open)
         if (s.showInventoryPanel) return;
         s.setShowCraftPanel(!s.showCraftPanel);
+      } else if (e.key === "q" || e.key === "Q") {
+        // Q toggles the task queue display
+        s.setShowTaskQueue(!s.showTaskQueue);
+      } else if (e.key === "t" || e.key === "T") {
+        // T toggles task mode (click to queue tasks)
+        s.setTaskMode(!s.taskMode);
       }
     };
     window.addEventListener("keydown", handler);
@@ -617,7 +763,7 @@ export default function App() {
           Start Game
         </button>
         <div style={helpStyle}>
-          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: craft | F1: no-shadows | F2: chunk grid | F3: noclip | ESC: pause
+          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: craft | T: task mode | Q: task queue | F1: no-shadows | F2: chunk grid | F3: noclip | ESC: pause
         </div>
       </div>
     );

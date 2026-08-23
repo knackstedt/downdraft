@@ -21,9 +21,29 @@ export interface BlockDef {
   drops: BlockDrop[];
   placeable: boolean; // can player place this block?
   backwallProjection: boolean; // does this block project a backwall behind it?
+  isStation: boolean; // is this a crafting surface?
+  stationType?: CraftStation; // linked recipe station (if isStation)
 }
 
 export type BlockCategory = "solid" | "liquid" | "gas" | "backwall" | "special";
+
+// --- Crafting station types ---
+// Defined here (not in recipes.ts) to avoid a circular import:
+// block-registry.ts imports types.ts for BlockDef, and BlockDef.stationType
+// references CraftStation. recipes.ts re-exports this from types.ts.
+export type CraftStation =
+  | "hand"
+  | "workbench"
+  | "craft_bench"
+  | "tool_bench"
+  | "woodwork_bench"
+  | "campfire"
+  | "kiln"
+  | "furnace"
+  | "metalwork_bench"
+  | "builder_bench"
+  | "tailor_bench"
+  | "compost_bin";
 
 export interface BlockDrop {
   itemId: string;

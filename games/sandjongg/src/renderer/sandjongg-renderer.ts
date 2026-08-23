@@ -120,8 +120,17 @@ export class SandjonggRenderer {
         useGameStore.getState()._setPendingShuffle(false);
       }
       if (s._pendingNewGame) {
+        // Distinguish advance (keep score) from restart (reset score).
+        // The store sets _pendingNewGameLevel to the target level.
+        // requestNewGame = restart (resets score); requestAdvance = next level (keeps score).
+        // The app.tsx auto-advance calls requestAdvance directly, so this path
+        // is only for the toolbar "Restart" button which uses requestNewGame.
         this.workerHost?.requestNewGame(s._pendingNewGameLevel);
         useGameStore.getState()._setPendingNewGame(0);
+      }
+      if (s._pendingAdvance) {
+        this.workerHost?.requestAdvance(s._pendingAdvanceLevel);
+        useGameStore.getState()._setPendingAdvance(0);
       }
       if (s._pendingClearSand) {
         this.workerHost?.requestClearSand();
@@ -148,14 +157,15 @@ export class SandjonggRenderer {
         this.workerHost?.requestShuffle();
       }
       if (e.key === "n" || e.key === "N") {
+        // Restart the current level (resets score, matching the toolbar button label).
         const s = useGameStore.getState();
-        this.workerHost?.requestNewGame(s.level + 1);
+        this.workerHost?.requestNewGame(s.level);
       }
     };
     window.addEventListener("keydown", this.keydownHandler);
 
-    // Listen for worker events (match results, hints).
-    this.workerHost["proxy"]?.onEvents((kind: string, data?: unknown) => {
+    // Listen for worker events (match results, hints, dead-ends).
+    this.workerHost.onEvents((kind: string, data?: unknown) => {
       if (kind === "matched" && this.tilePass && data) {
         const d = data as { score: number; combo: number; path: { points: { col: number; row: number; layer: number }[]; turns: number }; element?: number };
         // Trigger path animation.
@@ -188,7 +198,35 @@ export class SandjonggRenderer {
         }, 3000);
       }
       if (kind === "noHint") {
-        // No valid moves — could auto-shuffle or show message.
+        // No valid moves — show a toast and auto-shuffle.
+        const store = useGameStore.getState();
+        store.showToast("No moves available — shuffling...", 2000);
+        this.workerHost?.requestShuffle();
+      }
+      if (kind === "matchFailed" && this.tilePass && data) {
+        const d = data as { reason: string; a: { col: number; row: number; layer: number }; b: { col: number; row: number; layer: number } };
+        // Red flash on the two tiles that failed to match.
+        this.tilePass.state.failAnims.push(
+          { col: d.a.col, row: d.a.row, layer: d.a.layer, startTime: performance.now() },
+          { col: d.b.col, row: d.b.row, layer: d.b.layer, startTime: performance.now() },
+        );
+        // Show a brief reason toast.
+        const reasonText: Record<string, string> = {
+          "different-element": "Different elements!",
+          "no-path": "No path (max 2 turns)!",
+          "not-selectable": "Tile is blocked!",
+          "different-layer": "Tiles on different layers!",
+          "same-tile": "Same tile!",
+          "no-tile": "No tile there!",
+        };
+        const msg = reasonText[d.reason] ?? "No match!";
+        useGameStore.getState().showToast(msg, 1500);
+      }
+      if (kind === "deadEnd") {
+        // Board has no valid moves — auto-shuffle with a toast.
+        const store = useGameStore.getState();
+        store.showToast("No moves left — shuffling board...", 2000);
+        this.workerHost?.requestShuffle();
       }
     });
 

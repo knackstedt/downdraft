@@ -213,8 +213,8 @@ function createAutomationTools(ctx: {
               text: JSON.stringify({
                 score: stats?.score ?? 0,
                 level: stats?.level ?? 1,
-                combo: 0,
-                tilesLeft: 0,
+                combo: stats?.combo ?? 0,
+                tilesLeft: stats?.tilesLeft ?? 0,
                 boardCols: cols,
                 boardRows: rows,
                 boardLayers: layers,

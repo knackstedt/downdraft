@@ -29,6 +29,14 @@ export interface BlockheadsInputState {
 
   // Accumulated zoom steps since last frame
   zoomDelta: number;
+
+  // Task mode (toggle with T): clicks queue tasks instead of direct mining/placing
+  taskMode: boolean;
+  // Pending task click (set by mousedown in task mode, consumed by renderer)
+  taskClickPending: boolean;
+  taskClickButton: number; // 0 = left (mine), 2 = right (move)
+  taskClickX: number; // screen pixels
+  taskClickY: number; // screen pixels
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
@@ -46,6 +54,11 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     mouseRight: false,
     selectedSlot: 0,
     zoomDelta: 0,
+    taskMode: false,
+    taskClickPending: false,
+    taskClickButton: 0,
+    taskClickX: 0,
+    taskClickY: 0,
   };
 
   const keyMap: Record<string, keyof BlockheadsInputState> = {
@@ -101,6 +114,15 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
   });
 
   canvas.addEventListener("mousedown", (e) => {
+    if (state.taskMode) {
+      // In task mode, capture the click for task queuing instead of direct control
+      const rect = canvas.getBoundingClientRect();
+      state.taskClickPending = true;
+      state.taskClickButton = e.button;
+      state.taskClickX = e.clientX - rect.left;
+      state.taskClickY = e.clientY - rect.top;
+      return;
+    }
     if (e.button === 0) state.mouseDown = true;
     if (e.button === 2) state.mouseRight = true;
   });

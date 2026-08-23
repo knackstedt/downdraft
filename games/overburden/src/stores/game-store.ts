@@ -29,6 +29,13 @@ interface GameState {
   fps: number;
   showCraftPanel: boolean;
   showInventoryPanel: boolean;
+  showTaskQueue: boolean;
+  // Task mode (click to queue tasks instead of direct mining/placing)
+  taskMode: boolean;
+  // Deterministic mode (e2e test environment) — disables persistence
+  deterministic: boolean;
+  // Selected station (for station panel UI)
+  selectedStation: { ax: number; ay: number } | null;
   // Blockhead state (updated by polling SAB from the UI)
   blockhead: BlockheadUIState;
   // Selected hotbar slot
@@ -45,6 +52,10 @@ interface GameState {
   setFps: (fps: number) => void;
   setShowCraftPanel: (show: boolean) => void;
   setShowInventoryPanel: (show: boolean) => void;
+  setShowTaskQueue: (show: boolean) => void;
+  setTaskMode: (mode: boolean) => void;
+  setDeterministic: (det: boolean) => void;
+  setSelectedStation: (station: { ax: number; ay: number } | null) => void;
   setRenderer: (renderer: BlockheadsRenderer | null) => void;
   setBlockhead: (bh: BlockheadUIState) => void;
   setSelectedSlot: (slot: number) => void;
@@ -67,6 +78,10 @@ export const useGameStore = create<GameState>((set) => ({
   fps: 0,
   showCraftPanel: false,
   showInventoryPanel: false,
+  showTaskQueue: false,
+  taskMode: false,
+  deterministic: false,
+  selectedStation: null,
   blockhead: defaultBh,
   selectedSlot: 0,
   inventory: [],
@@ -77,6 +92,10 @@ export const useGameStore = create<GameState>((set) => ({
   setFps: (fps) => set({ fps }),
   setShowCraftPanel: (show) => set({ showCraftPanel: show }),
   setShowInventoryPanel: (show) => set({ showInventoryPanel: show }),
+  setShowTaskQueue: (show) => set({ showTaskQueue: show }),
+  setTaskMode: (mode) => set({ taskMode: mode }),
+  setDeterministic: (det) => set({ deterministic: det }),
+  setSelectedStation: (station) => set({ selectedStation: station }),
   setRenderer: (renderer) => set({ renderer }),
   setBlockhead: (bh) => set({ blockhead: bh }),
   setSelectedSlot: (slot) => set({ selectedSlot: slot }),
