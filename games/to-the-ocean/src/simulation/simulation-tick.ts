@@ -1,24 +1,26 @@
 // Tick orchestration — extracted from Simulation.ts
 
+import { InputBufferReader, PLR_FLAG } from "@downdraft/core";
 import { WeatherSystem } from "@downdraft/library-weather";
 import { SIM_TICK_DT } from "../shared/constants";
-import { InputBufferReader } from "@downdraft/core";
 import {
     collectShoreSources,
     type ShoreSource,
 } from "../shared/shore-damping";
-import { PLR_FLAG } from "@downdraft/core";
-import { SimToMainMessage } from "../shared/types";
+import { BiomeType, EntityType, SimToMainMessage } from "../shared/types";
 import { BoatCellSystem } from "./boat/boat-cell-system";
 import { BoatSystem } from "./boat/boat-system";
+import { PlaceableSystem } from "./building/placeable-system";
 import { MarketSystem } from "./economy/market-system";
 import { SimEcsWorld } from "./ecs/sim-ecs-world";
+import { PLANT_DATA_SLOTS, PlantSystem } from "./farming/plant-system";
 import { FishingSystem } from "./fishing/fishing-system";
 import { GameModeManager } from "./gamemode/game-mode-manager";
 import { processSpoilage } from "./inventory/inventory-system";
 import { PlayerMoveRequest, RapierPhysicsSystem } from "./physics/rapier-physics-system";
 import { PlayerManager } from "./player/player-manager";
 import { ProgressionTree } from "./progression/progression-tree";
+import { SeasonSystem } from "./season/season-system";
 import type { SimEntity, SimPlayer } from "./simulation";
 import {
     broadcastShipHoldUpdate,
@@ -37,6 +39,7 @@ import {
 import { SurvivalBiomeAdapter, SurvivalSystem } from "./survival/survival-system";
 import { TerrainSystem } from "./terrain/terrain-system";
 import { ToolSystem } from "./tools/tool-system";
+import { BiomeSystem } from "./world/biome-system";
 import { ChunkManager } from "./world/chunk-manager";
 import { IslandManager } from "./world/island-manager";
 import { PortSystem } from "./world/port-system";
@@ -53,6 +56,10 @@ export interface SimulationTickAccess extends SimulationBufferWriterAccess, Simu
   marketSystem: MarketSystem;
   survivalSystem: SurvivalSystem;
   survivalBiomeAdapter: SurvivalBiomeAdapter;
+  seasonSystem: SeasonSystem;
+  plantSystem: PlantSystem;
+  placeableSystem: PlaceableSystem;
+  biomeSystem: BiomeSystem;
   fishingSystem: FishingSystem;
   progressionTree: ProgressionTree;
   toolSystem: ToolSystem;
@@ -95,6 +102,9 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   sim.timeOfDay += dt / (sim.gameModeManager.rules.dayDuration as number);
   if (sim.timeOfDay >= 1) sim.timeOfDay -= 1;
 
+  // Advance season clock from total elapsed sim time
+  sim.seasonSystem.tick(sim.simTime);
+
   // Check for night skip (all sleeping players)
   checkNightSkip(sim);
 
@@ -113,11 +123,18 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   );
   sim.portSystem.updatePorts(nearbyPorts);
 
-  // Spawn/despawn island entities based on loaded chunks
+  // Spawn/despawn island entities based on loaded chunks (also spawns wild
+  // forageable bushes/mushrooms on newly discovered islands).
   sim.islandManager.tick(
     (type: any, opts: any) => sim.spawnEntity(type, opts),
     (id: number) => sim.removeEntity(id),
     playerX, playerZ,
+    {
+      spawnEntity: (type, opts) => sim.spawnEntity(type, opts),
+      registerPlant: (entityId, cropId, biome, isWild, initialStage) => {
+        sim.plantSystem.plant(entityId, cropId, { isWild, biome, initialStage });
+      },
+    },
   );
   const t2 = performance.now();
   sysTimes.push({ name: "ports+islands", ms: t2 - t1 });
@@ -261,6 +278,33 @@ export async function tick(sim: SimulationTickAccess, dt: number = SIM_TICK_DT):
   sysTimes.push({ name: "wildlife", ms: t9 - t8 });
   sim.marketSystem.tick(dt);
   sim.survivalSystem.tick(dt, sim.players, sim.playerCount, sim.timeOfDay, sim.weatherSystem, sim.survivalBiomeAdapter);
+
+  // Plants: growth, water, season stress, mushroom spreading, bush regrow.
+  sim.plantSystem.tick(
+    {
+      dt,
+      biomeAt: (x, z) => sim.biomeSystem.getBiomeAt(x, z) as BiomeType,
+      coldStress: (tol, cold, sheltered) => sim.seasonSystem.getColdStress(tol, cold, sheltered),
+      heatStress: (tol, hot, sheltered) => sim.seasonSystem.getHeatStress(tol, hot, sheltered),
+      isSheltered: (_planterInstanceId) => false, // TODO: roof/indoors check via boat-cell system
+      spawnPlant: (cropId, x, y, z, isWild) => {
+        const newId = sim.spawnEntity(EntityType.Plant, {
+          position: { x, y, z },
+          data: new Float32Array(PLANT_DATA_SLOTS),
+        });
+        if (!newId) return 0;
+        sim.plantSystem.plant(newId, cropId, { isWild });
+        return newId;
+      },
+      removeEntity: (id) => sim.removeEntity(id),
+    },
+    sim.entities,
+    sim.entityCount,
+  );
+  // Flush dead plants.
+  const deadPlants = sim.plantSystem.drainDead();
+  for (const deadId of deadPlants) sim.removeEntity(deadId);
+
   const t10 = performance.now();
   sysTimes.push({ name: "market+animals+plants+pets+survival", ms: t10 - t9 });
 

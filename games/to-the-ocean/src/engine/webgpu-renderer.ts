@@ -5,22 +5,22 @@
 // ============================================================================
 
 import type { TextureHandle } from "@downdraft/core";
-import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, FrameGraph, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, LayoutEngine, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PostProcessStack, DebugOverlay as ProfilingOverlay, RenderPass, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
+import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, ENT, FrameGraph, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, InputBufferWriter, LayoutEngine, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PLR, PostProcessStack, DebugOverlay as ProfilingOverlay, RenderPass, SimBufferReader, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { LightSystem } from "@downdraft/library-lighting";
 import { PixelationSystem } from "@downdraft/library-postfx";
 import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
 import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/plugin-models";
+import { WATER_GRID_SAB as WATER_GRID, WaterBufferReader } from "@downdraft/plugin-water";
 import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/plugin-weatherfx";
-import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import { BOAT_CELL_WORLD_SIZE, BOAT_LAYER_HEIGHT, BoatCellType, ISLAND_DATA, PORT_DATA } from "@shared/constants";
-import { InputBufferWriter } from "@downdraft/core";
-import { ENT, PLR, SimBufferReader } from "@downdraft/core";
+import { getCropByEncodedHash } from "@shared/data/crops";
 import { generateIslandBlobs } from "@shared/terrain";
 import { CameraMode, EntityFlags, EntityType, PortSize, WeatherType } from "@shared/types";
-import { WATER_GRID_SAB as WATER_GRID, WaterBufferReader } from "@downdraft/plugin-water";
+import { PLANT_DATA } from "@sim/farming/plant-system";
+import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { CameraSystem, type CameraState } from "./camera-system";
 import { GameDebugOverlayData, GameLabelProvider, GameRaycastProvider, GameSceneSyncProvider, getRayDirection, getRayOrigin } from "./debug-providers";
 import { EntityRenderer } from "./entity-renderer";
@@ -1070,6 +1070,28 @@ export class WebGPURenderer implements IRendererStateProvider {
         if (dsq <= rd * rd) { portMeta = { chunkX: es.u32[ENT.CHUNK_X], chunkZ: es.u32[ENT.CHUNK_Z], biome: es.f32[ENT.DATA + 5] }; }
       }
       if (EntityRenderer.isInstancedType(type)) {
+        // Plants: derive a visual scale from the crop's growth-stage height so
+        // the instanced cube grows from a seed nub to a mature plant. Dead
+        // plants (alive=0) are skipped so they vanish promptly.
+        if (type === EntityType.Plant) {
+          const alive = es.f32[ENT.DATA + PLANT_DATA.ALIVE] ?? 1;
+          if (alive <= 0) continue;
+          const stage = Math.min(3, Math.max(0, Math.floor(es.f32[ENT.DATA + PLANT_DATA.STAGE] ?? 0)));
+          const encodedCrop = es.f32[ENT.DATA + PLANT_DATA.CROP_ID] ?? 0;
+          const crop = getCropByEncodedHash(encodedCrop);
+          const stress = Math.min(1, Math.max(0, es.f32[ENT.DATA + PLANT_DATA.STRESS] ?? 0));
+          if (crop) {
+            const vis = crop.visuals[stage];
+            // Scale the unit cube to the plant's bounding box (height x foliage).
+            // Use the larger of height and 2*foliageRadius so the cube encloses the plant.
+            const plantScale = Math.max(vis.height, vis.foliageRadius * 2) * 0.5;
+            // Wilting: shrink slightly with stress.
+            const wilt = 1 - stress * 0.3;
+            this.entityRenderer!.writeInstanceData(ePos, plantScale * wilt, eRot, type, ef);
+            if (this.entityRenderer!.isHitboxVisible()) { this.entityRenderer!.writeInstancedHitbox(ePos, plantScale, eRot); }
+            continue;
+          }
+        }
         this.entityRenderer!.writeInstanceData(ePos, scale, eRot, type, ef);
         if (this.entityRenderer!.isHitboxVisible()) { this.entityRenderer!.writeInstancedHitbox(ePos, scale, eRot); }
       } else {

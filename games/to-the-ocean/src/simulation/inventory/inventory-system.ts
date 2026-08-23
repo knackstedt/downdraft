@@ -1,6 +1,5 @@
-import { ItemStack, InventorySlot, ItemDef, StorageType } from "../../shared/types";
 import { getItem } from "../../shared/data/items";
-import { PLAYER_INV_WIDTH, PLAYER_INV_HEIGHT } from "../../shared/constants";
+import { ItemStack } from "../../shared/types";
 
 export interface InventoryGrid {
   width: number;
@@ -141,6 +140,32 @@ export function removeItem(grid: InventoryGrid, x: number, y: number, quantity: 
   }
 
   return { itemId: stack.itemId, quantity: toRemove };
+}
+
+/**
+ * Remove the first stack of `itemId` from the grid, decrementing `quantity`
+ * units. Returns the number actually removed (0 if none found). Used by the
+ * planting flow to consume a seed from anywhere in the inventory.
+ */
+export function removeFirstOf(grid: InventoryGrid, itemId: string, quantity: number = 1): number {
+  let remaining = quantity;
+  for (let y = 0; y < grid.height && remaining > 0; y++) {
+    for (let x = 0; x < grid.width && remaining > 0; x++) {
+      const stack = grid.slots[y][x];
+      if (!stack || stack.itemId !== itemId) continue;
+      const root = findStackRoot(grid, x, y);
+      if (!root || root.x !== x || root.y !== y) continue; // only act on root cell
+      const def = getItem(stack.itemId);
+      if (!def) continue;
+      const toRemove = Math.min(remaining, stack.quantity);
+      stack.quantity -= toRemove;
+      remaining -= toRemove;
+      if (stack.quantity <= 0) {
+        clearAt(grid, root.x, root.y, def.width, def.height);
+      }
+    }
+  }
+  return quantity - remaining;
 }
 
 export function moveItem(grid: InventoryGrid, fromX: number, fromY: number, toX: number, toY: number): boolean {

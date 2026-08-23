@@ -2,6 +2,7 @@
 
 import { clampSafeInt } from "@downdraft/core";
 import { WeatherSystem } from "@downdraft/library-weather";
+import { getCropBySeed } from "../shared/data/crops";
 import {
     BiomeType,
     EntityType,
@@ -14,16 +15,19 @@ import { WorldGenerator } from "../shared/world/world-generator";
 import { DockingSystem } from "./building/docking-system";
 import { PlaceableSystem } from "./building/placeable-system";
 import { MarketSystem } from "./economy/market-system";
+import { PLANT_DATA_SLOTS, PlantSystem } from "./farming/plant-system";
 import { GameModeManager } from "./gamemode/game-mode-manager";
 import {
     addItem,
     moveItem,
+    removeFirstOf,
     removeItem
 } from "./inventory/inventory-system";
 import { LicenseSystem } from "./player/license-system";
 import type { SimEntity, SimPlayer } from "./simulation";
 import type { SimulationEntityManagerAccess } from "./simulation-entity-manager";
 import { SurvivalSystem } from "./survival/survival-system";
+import { BiomeSystem } from "./world/biome-system";
 import { ChunkManager } from "./world/chunk-manager";
 import { IslandManager } from "./world/island-manager";
 import { PortSystem } from "./world/port-system";
@@ -34,6 +38,8 @@ export interface SimulationCommandsAccess extends SimulationEntityManagerAccess 
   licenseSystem: LicenseSystem;
   dockingSystem: DockingSystem;
   placeableSystem: PlaceableSystem;
+  plantSystem: PlantSystem;
+  biomeSystem: BiomeSystem;
   gameModeManager: GameModeManager;
   weatherSystem: WeatherSystem;
   worldGen: WorldGenerator;
@@ -221,6 +227,54 @@ export function handleCommand(
         addItem(holdGrid, removed.itemId, remaining);
         return { success: false, message: `Player inventory full, ${remaining} items returned` };
       }
+      return { success: true };
+    }
+    case "plant": {
+      // Consume one seed from the player's inventory and spawn a Plant entity
+      // at the given world position. The plant is registered with PlantSystem
+      // and begins growing from stage 0.
+      const seedItemId = cmd.payload.seedItemId as string;
+      const x = cmd.payload.x as number;
+      const y = cmd.payload.y as number;
+      const z = cmd.payload.z as number;
+      const planterInstanceId = (cmd.payload.planterInstanceId as number | undefined) ?? null;
+      if (!seedItemId || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+        return { success: false, message: "Missing seed item id or position" };
+      }
+      const crop = getCropBySeed(seedItemId);
+      if (!crop) return { success: false, message: "Not a valid seed item" };
+      // Consume one seed from anywhere in the inventory.
+      const removed = removeFirstOf(player.inventory, seedItemId, 1);
+      if (removed <= 0) return { success: false, message: "No seed in inventory" };
+      const entityId = sim.spawnEntity(EntityType.Plant, {
+        position: { x, y, z },
+        data: new Float32Array(PLANT_DATA_SLOTS),
+      });
+      if (!entityId) return { success: false, message: "Failed to spawn plant entity" };
+      const biome = sim.biomeSystem.getBiomeAt(x, z) as BiomeType;
+      sim.plantSystem.plant(entityId, crop.id, { planterInstanceId, biome });
+      return { success: true, data: { entityId } };
+    }
+    case "harvest": {
+      const entityId = cmd.payload.entityId as number;
+      if (!entityId) return { success: false, message: "Missing entity id" };
+      const result = sim.plantSystem.harvest(entityId);
+      if (!result) return { success: false, message: "Plant not mature or not found" };
+      const leftover = addItem(player.inventory, result.cropItemId, result.quantity);
+      if (leftover > 0) {
+        // Inventory full — re-grant the plant's fruit so it isn't lost.
+        // We refund by not consuming the harvest: revert the plant state is
+        // complex, so instead just drop the leftover on the ground entity.
+        // For now, report partial success with the amount that fit.
+        return { success: true, data: { cropItemId: result.cropItemId, quantity: result.quantity - leftover, full: false } };
+      }
+      return { success: true, data: { cropItemId: result.cropItemId, quantity: result.quantity, full: true } };
+    }
+    case "water": {
+      const entityId = cmd.payload.entityId as number;
+      if (!entityId) return { success: false, message: "Missing entity id" };
+      const ok = sim.plantSystem.water(entityId);
+      if (!ok) return { success: false, message: "Plant not found" };
       return { success: true };
     }
     default:

@@ -37,7 +37,6 @@ import { createEcsCameraSystem } from "./ecs-camera-system";
 import { createEcsDockingSystem } from "./ecs-docking-system";
 import { createEcsPetSystem } from "./ecs-pet-system";
 import { createEcsPirateSystem, shutdownEcsPirates } from "./ecs-pirate-system";
-import { createEcsPlantSystem } from "./ecs-plant-system";
 import { createEcsStructureIntegritySystem } from "./ecs-structure-integrity-system";
 
 type TransformData = ReturnType<typeof SimTransform.create>;
@@ -125,10 +124,10 @@ export class SimEcsWorld {
       () => createEcsAnchorSystem(this.ships),
       (mod) => (mod as { createEcsAnchorSystem: typeof createEcsAnchorSystem }).createEcsAnchorSystem(this.ships),
     );
-    this.addEcsSystem("ecs-plant-system",
-      () => createEcsPlantSystem(this.plants),
-      (mod) => (mod as { createEcsPlantSystem: typeof createEcsPlantSystem }).createEcsPlantSystem(this.plants),
-    );
+    // Note: ecs-plant-system is intentionally NOT registered. Plant growth is
+    // driven by the array-based PlantSystem (simulation/farming/plant-system.ts)
+    // from the main tick, which is the source of truth. The ECS query `plants`
+    // is still used by the debug system.
     this.addEcsSystem("ecs-pet-system",
       () => createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth),
       (mod) => (mod as { createEcsPetSystem: typeof createEcsPetSystem }).createEcsPetSystem(this.pets, this.players, this.wildlifeWithHealth),
