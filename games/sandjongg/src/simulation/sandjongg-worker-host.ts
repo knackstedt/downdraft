@@ -4,6 +4,7 @@
 
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import { allocateSimBuffer, INPUT, OFFSETS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
+import type { SerializedBoard } from "../shared/types";
 
 type SandjonggWorkerApi = {
   init(sab: SharedArrayBuffer, gridW: number, gridH: number): Promise<void>;
@@ -14,9 +15,12 @@ type SandjonggWorkerApi = {
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
   newGame(level: number): Promise<void>;
-  getStats(): Promise<{ fps: number; tick: number; frame: number; score: number; level: number }>;
+  advanceLevel(level: number): Promise<void>;
+  getStats(): Promise<{ fps: number; tick: number; frame: number; score: number; level: number; combo: number; tilesLeft: number }>;
   loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void>;
   loadBoard(cols: number, rows: number, elements: Int32Array, layers?: number): Promise<void>;
+  getBoardState(): Promise<SerializedBoard | null>;
+  loadBoardState(data: SerializedBoard): Promise<void>;
 };
 
 export class SandjonggWorkerHost {
@@ -41,6 +45,11 @@ export class SandjonggWorkerHost {
   getSimBuffer(): SharedArrayBuffer { return this.sab; }
   getReader(): SimBufferReader { return this.reader; }
   isReady(): boolean { return this.ready; }
+
+  /** Subscribe to worker events (matched, hint, noHint, matchFailed, deadEnd). */
+  onEvents(handler: (kind: string, data?: unknown) => void): void {
+    this.proxy?.onEvents(handler);
+  }
 
   async start(): Promise<void> {
     const workerUrl = new URL("./sandjongg-worker.ts", import.meta.url);
@@ -83,6 +92,7 @@ export class SandjonggWorkerHost {
   setSpeed(speed: number): void { this.proxy?.proxy.setSpeed(speed).catch(() => {}); }
   step(): void { this.proxy?.proxy.step().catch(() => {}); }
   newGame(level: number): void { this.proxy?.proxy.newGame(level).catch(() => {}); }
+  advanceLevel(level: number): void { this.proxy?.proxy.advanceLevel(level).catch(() => {}); }
 
   // --- Actions (written to SAB input region, processed by worker loop) ---
   requestMatch(aCol: number, aRow: number, aLayer: number, bCol: number, bRow: number, bLayer: number): void {
@@ -101,9 +111,13 @@ export class SandjonggWorkerHost {
     this.writer.writeInput(INPUT.NEW_LEVEL, level);
     this.writer.writeInput(INPUT.ACTION, 4);
   }
+  requestAdvance(level: number): void {
+    this.writer.writeInput(INPUT.NEW_LEVEL, level);
+    this.writer.writeInput(INPUT.ACTION, 6);
+  }
   requestClearSand(): void { this.writer.writeInput(INPUT.ACTION, 5); }
 
-  async getStats(): Promise<{ fps: number; tick: number; frame: number; score: number; level: number } | null> {
+  async getStats(): Promise<{ fps: number; tick: number; frame: number; score: number; level: number; combo: number; tilesLeft: number } | null> {
     try { return await this.proxy?.proxy.getStats() ?? null; }
     catch { return null; }
   }
@@ -120,5 +134,14 @@ export class SandjonggWorkerHost {
 
   loadBoard(cols: number, rows: number, elements: Int32Array, layers: number = 1): void {
     this.proxy?.proxy.loadBoard(cols, rows, elements, layers).catch(() => {});
+  }
+
+  async getBoardState(): Promise<SerializedBoard | null> {
+    try { return await this.proxy?.proxy.getBoardState() ?? null; }
+    catch { return null; }
+  }
+
+  async loadBoardState(data: SerializedBoard): Promise<void> {
+    await this.proxy?.proxy.loadBoardState(data);
   }
 }

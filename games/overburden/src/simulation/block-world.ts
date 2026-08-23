@@ -42,6 +42,7 @@ export class BlockWorld {
   activeBackground: Uint16Array;
   activeLight: Uint8Array;
   activeExplored: Uint8Array;
+  activeVfx: Uint32Array; // station state (fuel, craft queue) + particle effects
 
   // Focus position (world coords of the focused blockhead)
   private focusX = WORLD_W / 2;
@@ -53,6 +54,7 @@ export class BlockWorld {
     this.activeBackground = new Uint16Array(ACTIVE_GRID_CELLS);
     this.activeLight = new Uint8Array(ACTIVE_GRID_CELLS);
     this.activeExplored = new Uint8Array(ACTIVE_GRID_CELLS);
+    this.activeVfx = new Uint32Array(ACTIVE_GRID_CELLS);
   }
 
   // --- Coordinate conversion ---
@@ -156,6 +158,7 @@ export class BlockWorld {
     this.activeBackground.fill(0);
     this.activeLight.fill(0);
     this.activeExplored.fill(0);
+    this.activeVfx.fill(0);
 
     // 4. Copy chunks into active grid
     for (let icy = 0; icy < ACTIVE_GRID_CHUNKS; icy++) {
@@ -184,6 +187,10 @@ export class BlockWorld {
           );
           this.activeExplored.set(
             chunk.explored.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          this.activeVfx.set(
+            chunk.vfx.subarray(srcOffset, srcOffset + CHUNK_W),
             dstOffset,
           );
         }
@@ -224,6 +231,10 @@ export class BlockWorld {
           );
           chunk.explored.set(
             this.activeExplored.subarray(srcOffset, srcOffset + CHUNK_W),
+            dstOffset,
+          );
+          chunk.vfx.set(
+            this.activeVfx.subarray(srcOffset, srcOffset + CHUNK_W),
             dstOffset,
           );
         }
@@ -268,6 +279,22 @@ export class BlockWorld {
   getActiveLight(ax: number, ay: number): number {
     if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return 0;
     return this.activeLight[ay * ACTIVE_GRID_W + ax];
+  }
+
+  getActiveVfx(ax: number, ay: number): number {
+    if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return 0;
+    return this.activeVfx[ay * ACTIVE_GRID_W + ax];
+  }
+
+  setActiveVfx(ax: number, ay: number, value: number): void {
+    if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return;
+    this.activeVfx[ay * ACTIVE_GRID_W + ax] = value;
+    // Mark the corresponding chunk as dirty
+    const wx = ax + this.activeOriginCx * CHUNK_W;
+    const wy = ay + this.activeOriginCy * CHUNK_H;
+    const { cx, cy } = this.worldToChunk(wx, wy);
+    const chunk = this.getChunk(cx, cy);
+    if (chunk) chunk.dirty = true;
   }
 
   // --- Active grid origin accessors ---

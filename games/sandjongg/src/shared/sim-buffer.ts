@@ -64,7 +64,7 @@ export const INPUT = {
   MOUSE_Y: 4,
   CLICKED_COL: 8,      // tile col of click (-1 = no click)
   CLICKED_ROW: 12,     // tile row of click (-1 = no click)
-  ACTION: 16,          // 0=none, 1=match, 2=hint, 3=shuffle, 4=newGame, 5=clear
+  ACTION: 16,          // 0=none, 1=match, 2=hint, 3=shuffle, 4=newGame, 5=clear, 6=advance
   SELECTED_COL: 20,    // currently selected tile col (-1 = none)
   SELECTED_ROW: 24,    // currently selected tile row (-1 = none)
   MATCH_A_COL: 28,     // for action=match: first tile col
@@ -88,7 +88,6 @@ export const STATS = {
   COMBO: 16,
   LEVEL: 20,
   TILES_LEFT: 24,
-  BOARD_COLS: 28,
 } as const;
 
 // --- Board region layout ---

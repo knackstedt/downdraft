@@ -10,17 +10,29 @@
 // ============================================================================
 
 import {
-  BLOCK_CLAY,
-  BLOCK_DIRT,
-  BLOCK_GRAVEL,
-  BLOCK_GRASS,
-  BLOCK_LADDER,
-  BLOCK_ROPE,
-  BLOCK_SAND,
-  BLOCK_SCAFFOLDING,
-  BLOCK_STONE,
-  BLOCK_TORCH,
-  BLOCK_WOOD,
+    BLOCK_BED,
+    BLOCK_BUILDER_BENCH,
+    BLOCK_CAMPFIRE,
+    BLOCK_CLAY,
+    BLOCK_COMPOST_BIN,
+    BLOCK_CRAFT_BENCH,
+    BLOCK_DIRT,
+    BLOCK_FURNACE,
+    BLOCK_GRASS,
+    BLOCK_GRAVEL,
+    BLOCK_KILN,
+    BLOCK_LADDER,
+    BLOCK_METALWORK_BENCH,
+    BLOCK_ROPE,
+    BLOCK_SAND,
+    BLOCK_SCAFFOLDING,
+    BLOCK_STONE,
+    BLOCK_TAILOR_BENCH,
+    BLOCK_TOOL_BENCH,
+    BLOCK_TORCH,
+    BLOCK_WOOD,
+    BLOCK_WOODWORK_BENCH,
+    BLOCK_WORKBENCH,
 } from "./constants";
 
 export type ItemCategory = "block" | "material" | "tool" | "food";
@@ -41,6 +53,8 @@ export interface ItemDef {
     /** Whether this tool can mine blocks that require a tool (e.g. stone needs a pickaxe). */
     required: boolean;
   };
+  /** Food: hunger restored when eaten. 0 for non-food items. */
+  hungerRestore?: number;
 }
 
 const DEFS: ItemDef[] = [
@@ -57,10 +71,26 @@ const DEFS: ItemDef[] = [
   { id: "scaffolding", name: "Scaffolding", category: "block", placeBlock: BLOCK_SCAFFOLDING, maxStack: 64 },
   { id: "torch", name: "Torch", category: "block", placeBlock: BLOCK_TORCH, maxStack: 64 },
 
+  // --- Station items (placeable, maxStack 1) ---
+  { id: "workbench", name: "Workbench", category: "block", placeBlock: BLOCK_WORKBENCH, maxStack: 1 },
+  { id: "craft_bench", name: "Craft Bench", category: "block", placeBlock: BLOCK_CRAFT_BENCH, maxStack: 1 },
+  { id: "tool_bench", name: "Tool Bench", category: "block", placeBlock: BLOCK_TOOL_BENCH, maxStack: 1 },
+  { id: "woodwork_bench", name: "Woodwork Bench", category: "block", placeBlock: BLOCK_WOODWORK_BENCH, maxStack: 1 },
+  { id: "campfire", name: "Campfire", category: "block", placeBlock: BLOCK_CAMPFIRE, maxStack: 1 },
+  { id: "kiln", name: "Kiln", category: "block", placeBlock: BLOCK_KILN, maxStack: 1 },
+  { id: "furnace", name: "Furnace", category: "block", placeBlock: BLOCK_FURNACE, maxStack: 1 },
+  { id: "metalwork_bench", name: "Metalwork Bench", category: "block", placeBlock: BLOCK_METALWORK_BENCH, maxStack: 1 },
+  { id: "builder_bench", name: "Builder's Bench", category: "block", placeBlock: BLOCK_BUILDER_BENCH, maxStack: 1 },
+  { id: "tailor_bench", name: "Tailor's Bench", category: "block", placeBlock: BLOCK_TAILOR_BENCH, maxStack: 1 },
+  { id: "compost_bin", name: "Compost Bin", category: "block", placeBlock: BLOCK_COMPOST_BIN, maxStack: 1 },
+  { id: "bed", name: "Bed", category: "block", placeBlock: BLOCK_BED, maxStack: 1 },
+
   // --- Material items (crafting intermediates, not placeable) ---
   { id: "stick", name: "Stick", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "planks", name: "Planks", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "coal", name: "Coal", category: "material", placeBlock: 0, maxStack: 64 },
+  { id: "flint", name: "Flint", category: "material", placeBlock: 0, maxStack: 64 },
+  { id: "charcoal", name: "Charcoal", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "copper_ore", name: "Copper Ore", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "tin_ore", name: "Tin Ore", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "iron_ore", name: "Iron Ore", category: "material", placeBlock: 0, maxStack: 64 },
@@ -70,17 +100,32 @@ const DEFS: ItemDef[] = [
   { id: "bronze_ingot", name: "Bronze Ingot", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "iron_ingot", name: "Iron Ingot", category: "material", placeBlock: 0, maxStack: 64 },
   { id: "gold_ingot", name: "Gold Ingot", category: "material", placeBlock: 0, maxStack: 64 },
-  { id: "time_crystal", name: "Time Crystal", category: "material", placeBlock: 0, maxStack: 16 },
+  { id: "steel_ingot", name: "Steel Ingot", category: "material", placeBlock: 0, maxStack: 64 },
+  { id: "crystal", name: "Crystal", category: "material", placeBlock: 0, maxStack: 16 },
 
   // --- Tools ---
+  { id: "flint_pickaxe", name: "Flint Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 1.0, required: true } },
+  { id: "flint_axe", name: "Flint Axe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "axe", speed: 1.0, required: false } },
+  { id: "flint_shovel", name: "Flint Shovel", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "shovel", speed: 1.0, required: false } },
   { id: "wood_pickaxe", name: "Wood Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 1.5, required: true } },
-  { id: "stone_pickaxe", name: "Stone Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 2.5, required: true } },
   { id: "wood_axe", name: "Wood Axe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "axe", speed: 1.5, required: false } },
-  { id: "stone_axe", name: "Stone Axe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "axe", speed: 2.5, required: false } },
   { id: "wood_shovel", name: "Wood Shovel", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "shovel", speed: 1.5, required: false } },
+  { id: "stone_pickaxe", name: "Stone Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 2.5, required: true } },
+  { id: "stone_axe", name: "Stone Axe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "axe", speed: 2.5, required: false } },
+  { id: "stone_shovel", name: "Stone Shovel", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "shovel", speed: 2.5, required: false } },
+  { id: "copper_pickaxe", name: "Copper Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 3.0, required: true } },
+  { id: "copper_axe", name: "Copper Axe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "axe", speed: 3.0, required: false } },
+  { id: "tin_pickaxe", name: "Tin Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 3.5, required: true } },
+  { id: "bronze_pickaxe", name: "Bronze Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 4.0, required: true } },
+  { id: "bronze_axe", name: "Bronze Axe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "axe", speed: 4.0, required: false } },
+  { id: "iron_pickaxe", name: "Iron Pickaxe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "pickaxe", speed: 5.0, required: true } },
+  { id: "iron_axe", name: "Iron Axe", category: "tool", placeBlock: 0, maxStack: 1, tool: { type: "axe", speed: 5.0, required: false } },
 
   // --- Food ---
-  { id: "apple", name: "Apple", category: "food", placeBlock: 0, maxStack: 16 },
+  { id: "apple", name: "Apple", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 10 },
+  { id: "raw_meat", name: "Raw Meat", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 5 },
+  { id: "cooked_meat", name: "Cooked Meat", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 25 },
+  { id: "bread", name: "Bread", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 20 },
 ];
 
 const byId = new Map<string, ItemDef>();

@@ -55,6 +55,7 @@ async function bootstrap(): Promise<void> {
 
   // In deterministic mode, auto-start the game (skip title screen) for e2e tests.
   if (deterministic) {
+    useGameStore.getState().setDeterministic(true);
     useGameStore.getState().setShowTitleScreen(false);
   }
 }

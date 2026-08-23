@@ -419,11 +419,13 @@ function createAutomationTools(ctx: {
     {
       def: {
         name: "craft",
-        description: "Craft an item using a recipe. Only hand-craftable recipes are currently supported (no workbench/furnace blocks yet).",
+        description: "Craft an item using a recipe. Hand recipes are instant. Station recipes require stationAx/stationAy (active grid coords of the station block) or the blockhead being adjacent to the right station. Returns { ok, jobId? }.",
         inputSchema: {
           type: "object",
           properties: {
-            recipeId: { type: "string", description: "Recipe ID (e.g. 'planks_from_wood', 'torch_from_coal_stick', 'wood_pickaxe')" },
+            recipeId: { type: "string", description: "Recipe ID (e.g. 'planks_from_wood', 'workbench_item', 'copper_ingot')" },
+            stationAx: { type: "number", description: "Station active-grid X (for station recipes). If omitted, searches for adjacent station.", default: -1 },
+            stationAy: { type: "number", description: "Station active-grid Y (for station recipes). If omitted, searches for adjacent station.", default: -1 },
             playerIndex: { type: "number", default: 0 },
           },
           required: ["recipeId"],
@@ -434,7 +436,132 @@ function createAutomationTools(ctx: {
         if (!renderer) return errorResult("Renderer not initialized");
         const host = renderer.getWorkerHost();
         if (!host) return errorResult("Worker host not available");
-        const result = await host.craft(params.recipeId as string, (params.playerIndex as number) ?? 0);
+        const result = await host.craft(
+          params.recipeId as string,
+          (params.stationAx as number) ?? -1,
+          (params.stationAy as number) ?? -1,
+          (params.playerIndex as number) ?? 0,
+        );
+        return jsonResult(result);
+      },
+    },
+
+    // --- get_craft_queue ---
+    {
+      def: {
+        name: "get_craft_queue",
+        description: "Read the craft queue + fuel state for a station block at the given active-grid coords. Returns { fuel, activeJob, queue }.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            stationAx: { type: "number", description: "Station active-grid X coordinate" },
+            stationAy: { type: "number", description: "Station active-grid Y coordinate" },
+          },
+          required: ["stationAx", "stationAy"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const result = await host.getCraftQueue(
+          params.stationAx as number,
+          params.stationAy as number,
+        );
+        return jsonResult(result);
+      },
+    },
+
+    // --- add_fuel ---
+    {
+      def: {
+        name: "add_fuel",
+        description: "Add fuel to a station (campfire, kiln, furnace, metalwork bench). Consumes the item from the blockhead's inventory.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            stationAx: { type: "number", description: "Station active-grid X coordinate" },
+            stationAy: { type: "number", description: "Station active-grid Y coordinate" },
+            itemId: { type: "string", description: "Fuel item ID (e.g. 'wood', 'coal', 'stick', 'charcoal')" },
+            count: { type: "number", default: 1 },
+            playerIndex: { type: "number", default: 0 },
+          },
+          required: ["stationAx", "stationAy", "itemId"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const result = await host.addFuel(
+          params.stationAx as number,
+          params.stationAy as number,
+          params.itemId as string,
+          (params.count as number) ?? 1,
+          (params.playerIndex as number) ?? 0,
+        );
+        return jsonResult(result);
+      },
+    },
+
+    // --- rush_craft ---
+    {
+      def: {
+        name: "rush_craft",
+        description: "Rush a craft job to instant completion using crystals. Cost = ceil(remainingSeconds / 20) crystals.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            stationAx: { type: "number", description: "Station active-grid X coordinate" },
+            stationAy: { type: "number", description: "Station active-grid Y coordinate" },
+            jobId: { type: "number", description: "Job ID to rush" },
+            playerIndex: { type: "number", default: 0 },
+          },
+          required: ["stationAx", "stationAy", "jobId"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const result = await host.rushCraft(
+          params.stationAx as number,
+          params.stationAy as number,
+          params.jobId as number,
+          (params.playerIndex as number) ?? 0,
+        );
+        return jsonResult(result);
+      },
+    },
+
+    // --- abort_craft ---
+    {
+      def: {
+        name: "abort_craft",
+        description: "Abort a craft job. If the job was active, returns unused ingredients (fuel already burned is lost). If queued, just removes it.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            stationAx: { type: "number", description: "Station active-grid X coordinate" },
+            stationAy: { type: "number", description: "Station active-grid Y coordinate" },
+            jobId: { type: "number", description: "Job ID to abort" },
+          },
+          required: ["stationAx", "stationAy", "jobId"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const result = await host.abortCraft(
+          params.stationAx as number,
+          params.stationAy as number,
+          params.jobId as number,
+        );
         return jsonResult(result);
       },
     },
@@ -472,17 +599,21 @@ function createAutomationTools(ctx: {
     {
       def: {
         name: "queue_task",
-        description: "Queue an autonomous task for the blockhead to execute. Tasks: MOVE_TO (walk to world coords), MINE_BLOCK (walk adjacent + mine block at coords), PLACE_BLOCK (walk adjacent + place block). The blockhead executes tasks autonomously, overriding direct input.",
+        description: "Queue an autonomous task for the blockhead to execute. Tasks: MOVE_TO (walk to world coords), MINE_BLOCK (walk adjacent + mine), PLACE_BLOCK (walk adjacent + place), CHOP_TREE (walk adjacent + chop wood), CRAFT_AT (walk to station + queue craft), COLLECT_ITEM (walk to location), EAT (consume food), SLEEP (walk to bed + sleep). Uses A* pathfinding with cylinder wrap.",
         inputSchema: {
           type: "object",
           properties: {
-            type: { type: "string", enum: ["MOVE_TO", "MINE_BLOCK", "PLACE_BLOCK"] },
+            type: { type: "string", enum: ["MOVE_TO", "MINE_BLOCK", "PLACE_BLOCK", "CHOP_TREE", "CRAFT_AT", "COLLECT_ITEM", "EAT", "SLEEP"] },
             targetX: { type: "number", description: "Target world X coordinate (block coords)" },
             targetY: { type: "number", description: "Target world Y coordinate (block coords)" },
             blockId: { type: "number", description: "Block ID to place (for PLACE_BLOCK)", default: 0 },
+            recipeId: { type: "string", description: "Recipe ID (for CRAFT_AT)" },
+            stationAx: { type: "number", description: "Station active-grid X (for CRAFT_AT)" },
+            stationAy: { type: "number", description: "Station active-grid Y (for CRAFT_AT)" },
+            itemId: { type: "string", description: "Item ID (for EAT, COLLECT_ITEM)" },
             playerIndex: { type: "number", default: 0 },
           },
-          required: ["type", "targetX", "targetY"],
+          required: ["type"],
         },
       },
       handler: async (params: Record<string, unknown>) => {
@@ -490,11 +621,17 @@ function createAutomationTools(ctx: {
         if (!renderer) return errorResult("Renderer not initialized");
         const host = renderer.getWorkerHost();
         if (!host) return errorResult("Worker host not available");
+        const opts: Record<string, unknown> = {};
+        if (params.targetX !== undefined) opts.targetX = params.targetX;
+        if (params.targetY !== undefined) opts.targetY = params.targetY;
+        if (params.blockId !== undefined) opts.blockId = params.blockId;
+        if (params.recipeId !== undefined) opts.recipeId = params.recipeId;
+        if (params.stationAx !== undefined) opts.stationAx = params.stationAx;
+        if (params.stationAy !== undefined) opts.stationAy = params.stationAy;
+        if (params.itemId !== undefined) opts.itemId = params.itemId;
         const result = await host.queueTask(
-          params.type as "MOVE_TO" | "MINE_BLOCK" | "PLACE_BLOCK",
-          params.targetX as number,
-          params.targetY as number,
-          (params.blockId as number) ?? 0,
+          params.type as "MOVE_TO" | "MINE_BLOCK" | "PLACE_BLOCK" | "CHOP_TREE" | "CRAFT_AT" | "COLLECT_ITEM" | "EAT" | "SLEEP",
+          opts,
           (params.playerIndex as number) ?? 0,
         );
         return jsonResult(result);

@@ -22,11 +22,11 @@ import {
     STATS,
     SimBufferWriter,
 } from "../shared/sim-buffer";
-import type { CrumbleEvent } from "../shared/types";
+import type { CrumbleEvent, SerializedBoard } from "../shared/types";
 import { TileBoard } from "./board";
 import { generateLevel } from "./level-generator";
 import { attemptMatch, resetComboState, type MatchEngineState } from "./match-engine";
-import { findHint } from "./solver";
+import { findHint, hasAnyMatch, isSolvable } from "./solver";
 
 // --- Gravity overrides for static element materials ---
 // Ice and Plant have gravityDir=0 (static) in the library defaults.
@@ -140,8 +140,16 @@ expose({
     startLevel(levelNum, Math.floor(Math.random() * 0x7fffffff));
   },
 
-  getStats(): { fps: number; tick: number; frame: number; score: number; level: number } {
-    return { fps, tick: tickCount, frame: frameCount, score, level };
+  /** Advance to the next level WITHOUT resetting the score. */
+  advanceLevel(levelNum: number): void {
+    level = levelNum;
+    // Keep score; only reset combo state.
+    matchState = resetComboState();
+    startLevel(levelNum, Math.floor(Math.random() * 0x7fffffff));
+  },
+
+  getStats(): { fps: number; tick: number; frame: number; score: number; level: number; combo: number; tilesLeft: number } {
+    return { fps, tick: tickCount, frame: frameCount, score, level, combo: matchState.combo, tilesLeft: board?.remainingCount() ?? 0 };
   },
 
   async loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void> {
@@ -166,6 +174,25 @@ expose({
       }
     }
     writeBoardToSAB();
+  },
+
+  /** Return the serialized board state for saving. */
+  getBoardState(): SerializedBoard | null {
+    if (!board) return null;
+    return board.serialize();
+  },
+
+  /** Restore a serialized board state (for loading a save). */
+  loadBoardState(data: SerializedBoard): void {
+    board = TileBoard.deserialize(data);
+    boardCols = board.cols;
+    boardRows = board.rows;
+    // Recompute board origin within the sand grid.
+    const boardSandW = boardCols * TILE_CELL_SIZE;
+    boardOriginSandCol = Math.floor((sandW - boardSandW) / 2);
+    boardOriginSandRow = WALL_THICKNESS + 1;
+    writeBoardToSAB();
+    writeStats();
   },
 });
 
@@ -246,7 +273,6 @@ function writeStats(): void {
   writer.writeStat(STATS.COMBO, matchState.combo);
   writer.writeStat(STATS.LEVEL, level);
   writer.writeStat(STATS.TILES_LEFT, board?.remainingCount() ?? 0);
-  writer.writeStat(STATS.BOARD_COLS, boardCols);
 }
 
 // --- Input processing ---
@@ -277,8 +303,14 @@ function processInput(): void {
       writeBoardToSAB();
       writeStats();
       events.emit("matched", { score: result.score, combo: result.combo, path: result.path });
+      // Check for dead-end after the match.
+      if (board && !board.isCleared()) {
+        if (!hasAnyMatch(board)) {
+          events.emit("deadEnd", {});
+        }
+      }
     } else {
-      events.emit("matchFailed", { reason: result.reason });
+      events.emit("matchFailed", { reason: result.reason, a: { col: aCol, row: aRow, layer: aLayer }, b: { col: bCol, row: bRow, layer: bLayer } });
     }
   } else if (action === 2) {
     // Hint
@@ -289,13 +321,21 @@ function processInput(): void {
       events.emit("noHint", {});
     }
   } else if (action === 3) {
-    // Shuffle — redistribute remaining tiles.
-    shuffleBoard();
+    // Shuffle — redistribute remaining tiles, ensuring the result is solvable.
+    shuffleBoardSafe();
     writeBoardToSAB();
     writeStats();
   } else if (action === 4) {
-    // New game
+    // New game (restart) — resets score.
     const newLevel = ib[INPUT.NEW_LEVEL / 4] || level + 1;
+    score = 0;
+    matchState = resetComboState();
+    startLevel(newLevel, Math.floor(Math.random() * 0x7fffffff));
+    writeStats();
+  } else if (action === 6) {
+    // Advance to next level — keeps score, resets combo.
+    const newLevel = ib[INPUT.NEW_LEVEL / 4] || level + 1;
+    matchState = resetComboState();
     startLevel(newLevel, Math.floor(Math.random() * 0x7fffffff));
     writeStats();
   } else if (action === 5) {
@@ -335,6 +375,39 @@ function shuffleBoard(): void {
   for (const p of positions) board.remove(p.col, p.row, p.layer);
   for (let i = 0; i < positions.length; i++) {
     board.place(positions[i].col, positions[i].row, elements[i], positions[i].layer);
+  }
+}
+
+/**
+ * Shuffle the board, retrying until the result is solvable (or at least has
+ * a valid move). For small boards we check full solvability via isSolvable;
+ * for large boards (>40 tiles) we only check hasAnyMatch to avoid expensive
+ * solver runs. Falls back to the pre-shuffle state if no good shuffle is found.
+ */
+function shuffleBoardSafe(): void {
+  if (!board) return;
+  const tiles = board.allTiles();
+  if (tiles.length < 2) return;
+
+  // Snapshot the current board so we can revert if all shuffles are bad.
+  const snapshot = board.serialize();
+
+  const checkSolvable = tiles.length <= 40;
+  const maxAttempts = 10;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    shuffleBoard();
+    if (checkSolvable) {
+      if (isSolvable(board)) return; // good shuffle
+    } else {
+      if (hasAnyMatch(board)) return; // at least one move available
+    }
+  }
+
+  // All shuffles failed — revert to the pre-shuffle state.
+  const restored = TileBoard.deserialize(snapshot);
+  // Copy restored tiles back into the live board.
+  for (let i = 0; i < board.tiles.length; i++) {
+    board.tiles[i] = restored.tiles[i];
   }
 }
 

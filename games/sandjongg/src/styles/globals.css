@@ -214,3 +214,26 @@ canvas {
   font-size: 16px;
   color: #ccccee;
 }
+
+/* --- Toast notification --- */
+.sandjongg-toast {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 24px;
+  background: rgba(180, 40, 40, 0.9);
+  border: 1px solid rgba(255, 100, 100, 0.5);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 160;
+  animation: sandjongg-toast-fade 0.3s ease-out;
+}
+
+@keyframes sandjongg-toast-fade {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

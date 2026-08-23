@@ -15,11 +15,12 @@ import {
     SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
 import { Inventory } from "../shared/inventory";
-import { getItemForBlock } from "../shared/items";
+import { getItemDef, getItemForBlock } from "../shared/items";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
 import {
     SimBufferWriter,
 } from "../shared/sim-buffer";
+import { getStationByBlock, getStationByType } from "../shared/stations";
 import type { BlockheadState } from "../shared/types";
 import {
     animStateToCode,
@@ -33,7 +34,7 @@ import {
 } from "./blockhead";
 import { initFluidSim, stepFluidSim } from "./fluid-sim";
 import { stepLightSim } from "./light-sim";
-import { createTask, executeTask, type Task, type TaskType } from "./task-queue";
+import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
 
 const events = exposeEvents();
 
@@ -81,6 +82,204 @@ let mineCooldown = 0;
 
 // --- Task queue (per-blockhead) ---
 const taskQueues: Task[][] = [];
+
+// --- Station state (fuel + craft queue, persisted in chunk vfx) ---
+interface CraftJob {
+  id: number;
+  recipeId: string;
+  bhIndex: number;
+  elapsed: number;     // seconds
+  status: "pending" | "working" | "done" | "aborted";
+}
+
+interface StationState {
+  fuel: number;        // 0-10 (current fuel slots filled)
+  fuelFraction: number; // 0-1 (partial fuel slot, for smooth depletion)
+  queue: CraftJob[];
+  activeJob: CraftJob | null;
+}
+
+const stationStates = new Map<string, StationState>(); // key = "ax,ay"
+let nextJobId = 1;
+
+// VFX packing for station state persistence:
+// Bits 0-7:   fuel level (0-10)
+// Bits 8-15:  activeJob recipeId index (0=none, 1+=index into recipe table)
+// Bits 16-23: activeJob elapsed seconds (0-255, capped)
+// Bits 24-31: queue length (0-8)
+const VFX_FUEL_MASK = 0xFF;
+const VFX_FUEL_SHIFT = 0;
+const VFX_RECIPE_SHIFT = 8;
+const VFX_ELAPSED_SHIFT = 16;
+const VFX_QUEUE_LEN_SHIFT = 24;
+
+function stationKey(ax: number, ay: number): string {
+  return `${ax},${ay}`;
+}
+
+function getOrCreateStationState(ax: number, ay: number): StationState | null {
+  if (!world) return null;
+  const blockId = world.getActiveBlock(ax, ay) & 0xFF;
+  const def = getBlockDef(blockId);
+  if (!def || !def.isStation) return null;
+  const key = stationKey(ax, ay);
+  let state = stationStates.get(key);
+  if (!state) {
+    // Try to restore from vfx
+    const packed = world.getActiveVfx(ax, ay);
+    state = {
+      fuel: packed & VFX_FUEL_MASK,
+      fuelFraction: 0,
+      queue: [],
+      activeJob: null,
+    };
+    stationStates.set(key, state);
+  }
+  return state;
+}
+
+function packStationState(state: StationState, ax: number, ay: number): void {
+  if (!world) return;
+  const fuel = Math.min(255, Math.round(state.fuel));
+  const recipeIdx = state.activeJob ? 1 : 0; // simplified: just flag active
+  const elapsed = state.activeJob ? Math.min(255, Math.round(state.activeJob.elapsed)) : 0;
+  const queueLen = Math.min(255, state.queue.length);
+  const packed =
+    (fuel << VFX_FUEL_SHIFT) |
+    (recipeIdx << VFX_RECIPE_SHIFT) |
+    (elapsed << VFX_ELAPSED_SHIFT) |
+    (queueLen << VFX_QUEUE_LEN_SHIFT);
+  world.setActiveVfx(ax, ay, packed);
+}
+
+/** Find a station of the given type adjacent to the blockhead. */
+function findAdjacentStation(bh: BlockheadState, station: CraftStation): { x: number; y: number } | null {
+  if (!world) return null;
+  const stationDef = getStationByType(station);
+  if (!stationDef) return null;
+  const bhCx = Math.floor(bh.x + BH_W / 2);
+  const bhCy = Math.floor(bh.y + BH_H / 2);
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const ax = bhCx + dx;
+      const ay = bhCy + dy;
+      if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) continue;
+      if ((world.getActiveBlock(ax, ay) & 0xFF) === stationDef.blockId) {
+        return { x: ax, y: ay };
+      }
+    }
+  }
+  return null;
+}
+
+/** Check if a cell has support (adjacent solid or background backwall). */
+function hasSupport(ax: number, ay: number): boolean {
+  if (!world) return false;
+  // Check adjacent cells for solid blocks
+  const neighbors = [
+    [ax - 1, ay], [ax + 1, ay], [ax, ay - 1], [ax, ay + 1],
+  ];
+  for (const [nx, ny] of neighbors) {
+    if (nx < 0 || nx >= ACTIVE_GRID_W || ny < 0 || ny >= ACTIVE_GRID_H) continue;
+    const blockId = world.getActiveBlock(nx, ny) & 0xFF;
+    const def = getBlockDef(blockId);
+    if (def && def.category === "solid") return true;
+  }
+  // Check for backwall behind
+  const bg = world.getActiveBackground(ax, ay) & 0xFF;
+  if (bg !== BLOCK_AIR) {
+    const def = getBlockDef(bg);
+    if (def && (def.category === "backwall" || def.category === "solid")) return true;
+  }
+  return false;
+}
+
+/** Step all stations: deplete fuel, advance active craft, start queued crafts. */
+function stepStations(dt: number): void {
+  if (!world) return;
+  for (const [key, state] of stationStates) {
+    const [axStr, ayStr] = key.split(",");
+    const ax = parseInt(axStr, 10);
+    const ay = parseInt(ayStr, 10);
+    // Verify station still exists
+    const blockId = world.getActiveBlock(ax, ay) & 0xFF;
+    const def = getBlockDef(blockId);
+    if (!def || !def.isStation) {
+      stationStates.delete(key);
+      continue;
+    }
+    const stationDef = getStationByBlock(blockId);
+    if (!stationDef) continue;
+
+    // Advance active job
+    if (state.activeJob) {
+      const recipe = getRecipe(state.activeJob.recipeId);
+      if (!recipe) {
+        state.activeJob.status = "aborted";
+        state.activeJob = null;
+        continue;
+      }
+      // Check fuel for fueled stations
+      if (stationDef.fueled && state.fuel <= 0 && state.fuelFraction <= 0) {
+        // No fuel — pause (no progress)
+        state.activeJob.status = "pending"; // waiting for fuel
+        continue;
+      }
+      state.activeJob.status = "working";
+      state.activeJob.elapsed += dt;
+
+      // Deplete fuel for fueled stations
+      if (stationDef.fueled) {
+        state.fuelFraction -= dt / stationDef.fuelBurnTime;
+        while (state.fuelFraction <= 0 && state.fuel > 0) {
+          state.fuel--;
+          state.fuelFraction += 1;
+        }
+        if (state.fuel < 0) state.fuel = 0;
+      }
+
+      // Check completion
+      if (state.activeJob.elapsed >= recipe.craftTime) {
+        // Add outputs to the blockhead's inventory
+        const inv = inventories[state.activeJob.bhIndex];
+        if (inv) {
+          for (const out of recipe.outputs) {
+            inv.add(out.itemId, out.count);
+          }
+        }
+        state.activeJob.status = "done";
+        state.activeJob = null;
+      }
+    }
+
+    // Start next queued job if no active job
+    if (!state.activeJob && state.queue.length > 0) {
+      const job = state.queue.shift()!;
+      const recipe = getRecipe(job.recipeId);
+      if (!recipe) {
+        job.status = "aborted";
+        continue;
+      }
+      const inv = inventories[job.bhIndex];
+      if (!inv) {
+        job.status = "aborted";
+        continue;
+      }
+      // Validate ingredients (consume on job start)
+      if (!inv.hasIngredients(recipe.inputs)) {
+        job.status = "aborted";
+        continue;
+      }
+      inv.applyRecipe(recipe);
+      job.status = "working";
+      job.elapsed = 0;
+      state.activeJob = job;
+    }
+
+    // Persist state to vfx
+    packStationState(state, ax, ay);
+  }
+}
 
 expose({
   async init(sab: SharedArrayBuffer): Promise<void> {
@@ -246,27 +445,236 @@ expose({
     return inv ? inv.snapshot() : [];
   },
 
-  craft(recipeId: string, bhIndex: number = 0): { ok: boolean; error?: string } {
+  craft(recipeId: string, stationAx: number = -1, stationAy: number = -1, bhIndex: number = 0): { ok: boolean; error?: string; jobId?: number } {
     const recipe = getRecipe(recipeId);
     if (!recipe) return { ok: false, error: `Unknown recipe: ${recipeId}` };
     const inv = inventories[bhIndex];
     if (!inv) return { ok: false, error: "No inventory for that blockhead" };
-    // Station check: for now, "hand" recipes always work; workbench/furnace
-    // require the blockhead to be adjacent to the station block. We don't have
-    // station blocks in the registry yet, so allow hand recipes only.
-    if (recipe.station !== "hand") {
-      return { ok: false, error: `Recipe requires a ${recipe.station} (not yet implemented)` };
+
+    // Hand recipes: instant craft (backward compatibility)
+    if (recipe.station === "hand") {
+      if (!inv.hasIngredients(recipe.inputs)) {
+        return { ok: false, error: "Insufficient ingredients" };
+      }
+      inv.applyRecipe(recipe);
+      return { ok: true };
     }
+
+    // Station recipes: find the station and queue the craft
+    if (!world) return { ok: false, error: "World not initialized" };
+
+    // If station coords provided, use them; otherwise search for adjacent station
+    let ax = stationAx;
+    let ay = stationAy;
+    if (ax < 0 || ay < 0) {
+      const bh = blockheads[bhIndex];
+      if (!bh) return { ok: false, error: "No blockhead" };
+      const found = findAdjacentStation(bh, recipe.station);
+      if (!found) return { ok: false, error: `No ${recipe.station} nearby` };
+      ax = found.x;
+      ay = found.y;
+    }
+
+    // Verify station block at coords
+    const blockId = world.getActiveBlock(ax, ay) & 0xFF;
+    const def = getBlockDef(blockId);
+    if (!def || !def.isStation) {
+      return { ok: false, error: "No station at that location" };
+    }
+    const stationDef = getStationByBlock(blockId);
+    if (!stationDef || stationDef.station !== recipe.station) {
+      return { ok: false, error: `Wrong station type for recipe` };
+    }
+
+    // Verify blockhead adjacency to the station
+    const bh = blockheads[bhIndex];
+    if (bh) {
+      const bhCx = Math.floor(bh.x + BH_W / 2);
+      const bhCy = Math.floor(bh.y + BH_H / 2);
+      const distX = Math.abs(ax - bhCx);
+      const distY = Math.abs(ay - bhCy);
+      if (distX > 2 || distY > 2) {
+        return { ok: false, error: "Blockhead not adjacent to station" };
+      }
+    }
+
+    // Check fuel for fueled stations
+    const state = getOrCreateStationState(ax, ay);
+    if (!state) return { ok: false, error: "Failed to get station state" };
+    if (stationDef.fueled && state.fuel <= 0 && state.fuelFraction <= 0) {
+      return { ok: false, error: "Station needs fuel" };
+    }
+
+    // Check ingredients (don't consume yet — consumed on job start)
     if (!inv.hasIngredients(recipe.inputs)) {
       return { ok: false, error: "Insufficient ingredients" };
     }
-    inv.applyRecipe(recipe);
-    return { ok: true };
+
+    // Queue the job
+    const job: CraftJob = {
+      id: nextJobId++,
+      recipeId,
+      bhIndex,
+      elapsed: 0,
+      status: "pending",
+    };
+    state.queue.push(job);
+    packStationState(state, ax, ay);
+    return { ok: true, jobId: job.id };
   },
 
   getRecipes(station?: CraftStation): { id: string; name: string; station: CraftStation }[] {
     const list = station ? recipesForStation(station) : recipesForStation("hand");
     return list.map((r) => ({ id: r.id, name: r.name, station: r.station }));
+  },
+
+  // Get the craft queue + fuel state for a station
+  getCraftQueue(stationAx: number, stationAy: number): {
+    fuel: number;
+    activeJob: { id: number; recipeId: string; recipeName: string; progress: number; elapsed: number; craftTime: number; bhIndex: number; status: string } | null;
+    queue: { id: number; recipeId: string; recipeName: string; bhIndex: number; status: string }[];
+  } {
+    if (!world) return { fuel: 0, activeJob: null, queue: [] };
+    const state = getOrCreateStationState(stationAx, stationAy);
+    if (!state) return { fuel: 0, activeJob: null, queue: [] };
+    const activeJob = state.activeJob ? (() => {
+      const r = getRecipe(state.activeJob!.recipeId);
+      return {
+        id: state.activeJob!.id,
+        recipeId: state.activeJob!.recipeId,
+        recipeName: r?.name ?? state.activeJob!.recipeId,
+        progress: r ? Math.min(1, state.activeJob!.elapsed / r.craftTime) : 0,
+        elapsed: state.activeJob!.elapsed,
+        craftTime: r?.craftTime ?? 0,
+        bhIndex: state.activeJob!.bhIndex,
+        status: state.activeJob!.status,
+      };
+    })() : null;
+    const queue = state.queue.map((j) => {
+      const r = getRecipe(j.recipeId);
+      return {
+        id: j.id,
+        recipeId: j.recipeId,
+        recipeName: r?.name ?? j.recipeId,
+        bhIndex: j.bhIndex,
+        status: j.status,
+      };
+    });
+    return { fuel: state.fuel, activeJob, queue };
+  },
+
+  // Add fuel to a station
+  addFuel(stationAx: number, stationAy: number, itemId: string, count: number = 1, bhIndex: number = 0): { ok: boolean; error?: string } {
+    if (!world) return { ok: false, error: "World not initialized" };
+    const blockId = world.getActiveBlock(stationAx, stationAy) & 0xFF;
+    const def = getBlockDef(blockId);
+    if (!def || !def.isStation) return { ok: false, error: "No station at that location" };
+    const stationDef = getStationByBlock(blockId);
+    if (!stationDef || !stationDef.fueled) return { ok: false, error: "That station doesn't use fuel" };
+
+    const itemDef = getItemDef(itemId);
+    if (!itemDef) return { ok: false, error: "Unknown item" };
+    // Check fuel value — look up the block def for the item's placeBlock
+    let fuelValue = 0;
+    if (itemDef.placeBlock > 0) {
+      const blockDef = getBlockDef(itemDef.placeBlock);
+      fuelValue = blockDef?.fuelValue ?? 0;
+    } else {
+      // For material items like coal/charcoal, check if they have a known fuel value
+      // via a lookup. For now, hardcode common fuel items.
+      if (itemId === "coal") fuelValue = 5;
+      else if (itemId === "charcoal") fuelValue = 3;
+      else if (itemId === "stick") fuelValue = 1;
+    }
+    if (fuelValue <= 0) return { ok: false, error: "That item is not fuel" };
+    if (!stationDef.acceptsFuel.includes(fuelValue)) {
+      return { ok: false, error: "That fuel is not accepted by this station" };
+    }
+
+    const inv = inventories[bhIndex];
+    if (!inv) return { ok: false, error: "No inventory" };
+    if (!inv.remove(itemId, count)) return { ok: false, error: "Not enough items" };
+
+    const state = getOrCreateStationState(stationAx, stationAy);
+    if (!state) return { ok: false, error: "Failed to get station state" };
+    state.fuel = Math.min(stationDef.fuelSlots, state.fuel + fuelValue * count);
+    packStationState(state, stationAx, stationAy);
+    return { ok: true };
+  },
+
+  // Rush a craft job with crystals
+  rushCraft(stationAx: number, stationAy: number, jobId: number, bhIndex: number = 0): { ok: boolean; error?: string } {
+    if (!world) return { ok: false, error: "World not initialized" };
+    const state = getOrCreateStationState(stationAx, stationAy);
+    if (!state) return { ok: false, error: "No station at that location" };
+    const job = state.activeJob;
+    if (!job || job.id !== jobId) {
+      // Check queue
+      const qIdx = state.queue.findIndex((j) => j.id === jobId);
+      if (qIdx < 0) return { ok: false, error: "Job not found" };
+      // Rush from queue: instantly complete (no time has elapsed)
+      const recipe = getRecipe(state.queue[qIdx].recipeId);
+      if (!recipe) return { ok: false, error: "Recipe not found" };
+      const inv = inventories[state.queue[qIdx].bhIndex];
+      if (!inv) return { ok: false, error: "No inventory" };
+      if (!inv.hasIngredients(recipe.inputs)) {
+        state.queue[qIdx].status = "aborted";
+        state.queue.splice(qIdx, 1);
+        return { ok: false, error: "Insufficient ingredients" };
+      }
+      inv.applyRecipe(recipe);
+      for (const out of recipe.outputs) inv.add(out.itemId, out.count);
+      state.queue.splice(qIdx, 1);
+      return { ok: true };
+    }
+    const recipe = getRecipe(job.recipeId);
+    if (!recipe) return { ok: false, error: "Recipe not found" };
+    const remaining = recipe.craftTime - job.elapsed;
+    const cost = Math.max(1, Math.ceil(remaining / 20));
+    const inv = inventories[bhIndex];
+    if (!inv) return { ok: false, error: "No inventory" };
+    if (!inv.remove("crystal", cost)) return { ok: false, error: `Need ${cost} crystals to rush` };
+    // Complete the job
+    for (const out of recipe.outputs) inv.add(out.itemId, out.count);
+    job.status = "done";
+    state.activeJob = null;
+    packStationState(state, stationAx, stationAy);
+    return { ok: true };
+  },
+
+  // Abort a craft job
+  abortCraft(stationAx: number, stationAy: number, jobId: number): { ok: boolean } {
+    if (!world) return { ok: false };
+    const state = getOrCreateStationState(stationAx, stationAy);
+    if (!state) return { ok: false };
+    // Check active job
+    if (state.activeJob && state.activeJob.id === jobId) {
+      // Return unused ingredients (fuel already burned is lost)
+      const recipe = getRecipe(state.activeJob.recipeId);
+      if (recipe) {
+        const inv = inventories[state.activeJob.bhIndex];
+        if (inv) {
+          for (const inp of recipe.inputs) {
+            inv.add(inp.itemId, inp.count);
+          }
+        }
+      }
+      state.activeJob.status = "aborted";
+      state.activeJob = null;
+      packStationState(state, stationAx, stationAy);
+      return { ok: true };
+    }
+    // Check queue
+    const qIdx = state.queue.findIndex((j) => j.id === jobId);
+    if (qIdx >= 0) {
+      const job = state.queue[qIdx];
+      // Ingredients haven't been consumed yet (consumed on job start)
+      job.status = "aborted";
+      state.queue.splice(qIdx, 1);
+      packStationState(state, stationAx, stationAy);
+      return { ok: true };
+    }
+    return { ok: false };
   },
 
   // Give an item (creative mode / testing). Bypasses inventory limits.
@@ -277,11 +685,26 @@ expose({
     return { ok: true };
   },
 
+  // Set inventory from a snapshot (used for save/load persistence).
+  // Replaces the entire inventory for the given blockhead.
+  setInventory(slots: { itemId: string; count: number }[], bhIndex: number = 0): { ok: boolean } {
+    const inv = inventories[bhIndex];
+    if (!inv) return { ok: false };
+    inv.loadSnapshot(slots);
+    return { ok: true };
+  },
+
   // --- Task queue ---
-  queueTask(type: TaskType, targetX: number, targetY: number, blockId: number = 0, bhIndex: number = 0): { ok: boolean; taskId: number } {
+  queueTask(type: TaskType, opts: {
+    targetX?: number; targetY?: number;
+    blockId?: number;
+    recipeId?: string;
+    stationAx?: number; stationAy?: number;
+    itemId?: string;
+  }, bhIndex: number = 0): { ok: boolean; taskId: number } {
     const queue = taskQueues[bhIndex];
     if (!queue) return { ok: false, taskId: -1 };
-    const task = createTask(type, targetX, targetY, blockId);
+    const task = createTask(type, opts);
     queue.push(task);
     return { ok: true, taskId: task.id };
   },
@@ -446,6 +869,12 @@ function processPlacing(): void {
   // Only place on empty cells
   if (world.getActiveBlock(ax, ay) !== BLOCK_AIR) return;
 
+  // Station placement: require support (adjacent solid or backwall)
+  const placeDef = getBlockDef(input.placeBlockId);
+  if (placeDef?.isStation) {
+    if (!hasSupport(ax, ay)) return;
+  }
+
   // Consume the corresponding item from inventory (if a placeable block)
   const itemId = getItemForBlock(input.placeBlockId);
   const inv = inventories[0];
@@ -455,6 +884,41 @@ function processPlacing(): void {
 
   // Place the block
   world.setActiveBlock(ax, ay, input.placeBlockId);
+}
+
+// --- Process task effects (EAT, SLEEP) ---
+// These task types don't generate movement input but have side effects.
+function processTaskEffects(dt: number): void {
+  for (let bi = 0; bi < taskQueues.length; bi++) {
+    const queue = taskQueues[bi];
+    if (!queue || queue.length === 0) continue;
+    const task = queue[0];
+    const bh = blockheads[bi];
+    if (!bh) continue;
+
+    if (task.type === "EAT" && task.status === "done") {
+      // Consume food and restore hunger
+      const itemDef = task.itemId ? getItemDef(task.itemId) : undefined;
+      if (itemDef && itemDef.category === "food" && itemDef.hungerRestore) {
+        const inv = inventories[bi];
+        if (inv && inv.remove(task.itemId!, 1)) {
+          bh.hunger = Math.min(100, bh.hunger + itemDef.hungerRestore);
+        }
+      }
+      queue.shift();
+    }
+
+    if (task.type === "SLEEP" && task.status === "executing") {
+      // Restore energy while sleeping
+      bh.animState = "sleep";
+      bh.energy = Math.min(100, bh.energy + 5 * dt);
+      if (bh.energy >= 100) {
+        task.status = "done";
+        bh.animState = "idle";
+        queue.shift();
+      }
+    }
+  }
 }
 
 // --- Update focus to follow the blockhead ---
@@ -513,6 +977,28 @@ async function loop(): Promise<void> {
           const queue = taskQueues[0];
           if (queue && queue.length > 0) {
             const task = queue[0];
+            // Handle CRAFT_AT task completion: queue the craft at the station
+            if (task.type === "CRAFT_AT" && task.status === "done" && task.recipeId) {
+              if (task.stationAx !== undefined && task.stationAy !== undefined) {
+                // Queue the craft at the station (ingredients consumed on job start)
+                const recipe = getRecipe(task.recipeId);
+                if (recipe) {
+                  const state = getOrCreateStationState(task.stationAx, task.stationAy);
+                  if (state) {
+                    const job: CraftJob = {
+                      id: nextJobId++,
+                      recipeId: task.recipeId,
+                      bhIndex: 0,
+                      elapsed: 0,
+                      status: "pending",
+                    };
+                    state.queue.push(job);
+                    packStationState(state, task.stationAx, task.stationAy);
+                  }
+                }
+              }
+              queue.shift();
+            }
             // Remove completed/failed tasks from the front
             if (task.status === "done" || task.status === "failed") {
               queue.shift();
@@ -557,6 +1043,14 @@ async function loop(): Promise<void> {
             world.rebuildActiveGrid();
             // Re-initialize fluid sim for the new active grid
             initFluidSim(world.activeForeground);
+            // Clear station state cache (will be re-read from vfx on next access)
+            stationStates.clear();
+            // Invalidate all task path caches (grid shifted)
+            for (const queue of taskQueues) {
+              for (const task of queue) {
+                invalidatePath(task);
+              }
+            }
             // Remap blockhead position from old active grid coords to new ones.
             // The world shifted by (newOrigin - oldOrigin) * CHUNK_W blocks.
             const dx = (world.getActiveOriginCx() - oldOriginCx) * 64;
@@ -579,6 +1073,12 @@ async function loop(): Promise<void> {
           // Process mining + placing
           processMining(dt);
           processPlacing();
+
+          // Step stations (fuel depletion, craft queue advancement)
+          stepStations(dt);
+
+          // Process task effects (EAT, SLEEP)
+          processTaskEffects(dt);
 
           // Update fog of war: mark cells near blockhead as explored
           updateExplored();

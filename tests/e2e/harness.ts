@@ -495,6 +495,9 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     DOWNDRAFT_GAME: game,
     MCP_PORT: String(port),
     MCP_TIMEOUT_MS: "120000",
+    // Set deterministic mode flag so the renderer can detect test environment
+    // (disables persistence, auto-starts game, pauses render loop).
+    ...(opts.deterministic ? { DOWNDRAFT_DETERMINISTIC: "1" } : {}),
     // Respect DOWNDRAFT_GPU from the parent env (set by `draft test --renderer=...`).
     // Only fall back to swiftshader if neither the env nor opts specify a GPU mode.
     ...(opts.gpu ? { DOWNDRAFT_GPU: opts.gpu } : {}),

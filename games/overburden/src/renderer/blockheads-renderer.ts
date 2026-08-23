@@ -13,6 +13,7 @@ import {
     BLOCK_SAND, BLOCK_SCAFFOLDING, BLOCK_STONE, BLOCK_TORCH, BLOCK_WOOD,
     CHUNK_H, CHUNK_W, TICK_MS,
 } from "../shared/constants";
+import { getItemDef } from "../shared/items";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
 import { BlockGridPass3D } from "./block-grid-pass-3d";
@@ -24,10 +25,12 @@ import { invert, rayToZ0, unprojectScreen } from "./matrix";
 import { SkyPass } from "./sky-pass";
 import { StickmanPass } from "./stickman-pass";
 
-// Hotbar block IDs (selectable with number keys 1-9).
+// Default hotbar block IDs (selectable with number keys 1-9).
 // Each slot maps to a placeable block; placing consumes the matching item
 // from the blockhead's inventory (handled in the sim worker).
-const HOTBAR_BLOCKS = [
+// This is the fallback; the actual hotbar is updated dynamically from the
+// inventory via setHotbarFromInventory().
+const DEFAULT_HOTBAR_BLOCKS = [
   BLOCK_DIRT,
   BLOCK_GRASS,
   BLOCK_STONE,
@@ -53,6 +56,9 @@ export class BlockheadsRenderer {
   private fps = 0;
   private fpsTimer = 0;
   private inputInterval = 0; // separate interval for input processing (works even when render loop is paused)
+
+  // Hotbar: dynamic array of block IDs (updated from inventory)
+  private hotbarBlocks: number[] = [...DEFAULT_HOTBAR_BLOCKS];
 
   // Render passes
   private blockGridPass: BlockGridPass3D | null = null;
@@ -111,6 +117,43 @@ export class BlockheadsRenderer {
     return this.workerHost;
   }
 
+  /** Set task mode (click to queue tasks instead of direct mining/placing). */
+  setTaskMode(enabled: boolean): void {
+    if (this.input) this.input.taskMode = enabled;
+  }
+
+  /**
+   * Update the hotbar from the inventory snapshot.
+   * Builds a 9-slot array of block IDs from the first 9 placeable items
+   * in the inventory. Slots that have no item are set to BLOCK_AIR.
+   * Preserves default blocks for items that aren't in the inventory yet
+   * (so the hotbar isn't empty at game start before inventory loads).
+   */
+  setHotbarFromInventory(inventory: { itemId: string; count: number }[]): void {
+    const slots: number[] = new Array(9).fill(BLOCK_AIR);
+    let idx = 0;
+    // First, fill from placeable inventory items
+    for (const slot of inventory) {
+      if (idx >= 9) break;
+      if (slot.count <= 0) continue;
+      const def = getItemDef(slot.itemId);
+      if (def && def.placeBlock > 0) {
+        slots[idx] = def.placeBlock;
+        idx++;
+      }
+    }
+    // If fewer than 9 placeable items, fill remaining with defaults
+    for (let i = idx; i < 9; i++) {
+      slots[i] = DEFAULT_HOTBAR_BLOCKS[i] ?? BLOCK_AIR;
+    }
+    this.hotbarBlocks = slots;
+  }
+
+  /** Get the current hotbar block IDs (for UI display). */
+  getHotbarBlocks(): number[] {
+    return this.hotbarBlocks;
+  }
+
   /** Expose camera for debug overlays (chunk grid, etc.). */
   getCamera(): Camera {
     return this.camera;
@@ -134,6 +177,12 @@ export class BlockheadsRenderer {
   async init(): Promise<boolean> {
     this.device = await this.deviceManager.requestDevice();
     if (!this.device) return false;
+
+    // Register a device-lost handler so we can log the reason and
+    // attempt to keep the app alive (skip frames until recovery).
+    this.deviceManager.onDeviceLost((info) => {
+      console.error(`[Renderer] GPU device lost: ${info.message}. Will skip frames until context recovers.`);
+    });
 
     // Resize canvas BEFORE configuring the WebGPU context
     this.resizeCanvas();
@@ -178,6 +227,34 @@ export class BlockheadsRenderer {
     // Listen for window resize
     window.addEventListener("resize", this.resizeHandler);
 
+    // ResizeObserver catches DevTools panel toggling and other container
+    // size changes that don't fire a window resize event.
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(() => {
+        this.resizeCanvas();
+        const dpr = window.devicePixelRatio || 1;
+        this.camera.resize(this.canvas.width / dpr, this.canvas.height / dpr);
+        // Reconfigure the WebGPU context after canvas size change.
+        if (this.context && this.device) {
+          try {
+            this.context.configure({
+              device: this.device,
+              format: this.format,
+              alphaMode: "opaque",
+            });
+          } catch {
+            // Context might be invalid during rapid resize — ignore
+          }
+        }
+      });
+      this.resizeObserver.observe(this.canvas);
+      // Also observe the canvas's parent element in case the canvas itself
+      // has a fixed size but the parent shrinks (DevTools docking)
+      if (this.canvas.parentElement) {
+        this.resizeObserver.observe(this.canvas.parentElement);
+      }
+    }
+
     return true;
   }
 
@@ -185,19 +262,45 @@ export class BlockheadsRenderer {
     this.resizeCanvas();
     const dpr = window.devicePixelRatio || 1;
     this.camera.resize(this.canvas.width / dpr, this.canvas.height / dpr);
+    // Reconfigure the WebGPU context after canvas size change.
+    // This is critical: without reconfiguration, getCurrentTexture() can
+    // return a texture sized to the old canvas, causing a GPU crash when
+    // the render pass tries to write to it.
+    if (this.context && this.device) {
+      try {
+        this.context.configure({
+          device: this.device,
+          format: this.format,
+          alphaMode: "opaque",
+        });
+      } catch {
+        // Context might be invalid during rapid resize — ignore
+      }
+    }
   };
 
+  /** ResizeObserver callback — catches DevTools panel toggling and container changes. */
+  private resizeObserver: ResizeObserver | null = null;
+
   private resizeCanvas(): void {
+    // The canvas CSS size is controlled by the framework's base CSS
+    // (width: 100vw; height: 100vh), which correctly shrinks when DevTools
+    // is docked. We must NOT override canvas.style.width/height — that would
+    // pin it to a fixed pixel size that doesn't update when the viewport
+    // changes. Instead, we only set the drawing buffer (canvas.width/height)
+    // to match the CSS size × DPR.
+    const cssW = this.canvas.clientWidth || window.innerWidth;
+    const cssH = this.canvas.clientHeight || window.innerHeight;
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.floor(window.innerWidth * dpr);
-    const h = Math.floor(window.innerHeight * dpr);
+    const w = Math.floor(cssW * dpr);
+    const h = Math.floor(cssH * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
     }
-    // Ensure the canvas CSS size matches the window (not the device-pixel size)
-    this.canvas.style.width = window.innerWidth + "px";
-    this.canvas.style.height = window.innerHeight + "px";
+    // Do NOT set canvas.style.width/height — the CSS 100vw/100vh handles it.
+    // Setting a fixed px value here would prevent the canvas from shrinking
+    // when DevTools is docked.
   }
 
   start(): void {
@@ -247,6 +350,10 @@ export class BlockheadsRenderer {
     if (this.inputInterval) clearInterval(this.inputInterval);
     this.inputInterval = 0;
     window.removeEventListener("resize", this.resizeHandler);
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
     this.stickmanPass?.destroy();
     this.skyPass?.destroy();
     await this.workerHost?.shutdown();
@@ -263,16 +370,7 @@ export class BlockheadsRenderer {
       this.input.zoomDelta = 0;
     }
 
-    // Handle mouse pan (middle button or right button when not placing)
-    // Right-click is used for placing, so only pan with middle button
-    // (The canvas mousedown handler in input-handler.ts doesn't handle middle,
-    //  so we handle it here directly)
-    // Actually, let's handle pan in the renderer directly:
-
     // Convert mouse screen coords to active-grid coords using 3D ray-cast.
-    // The 3D perspective camera makes the old 2D orthographic formula
-    // completely wrong, so we unproject through the view-projection matrix
-    // and intersect the resulting ray with the Z=0 plane.
     let grid: { x: number; y: number };
     const vp = this.blockGridPass?.getViewProj();
     if (vp) {
@@ -292,8 +390,66 @@ export class BlockheadsRenderer {
       grid = this.camera.screenToGrid(this.input.mouseX, this.input.mouseY);
     }
 
+    // --- Task mode: clicks queue tasks instead of direct mining/placing ---
+    if (this.input.taskMode && this.input.taskClickPending) {
+      this.input.taskClickPending = false;
+      // Convert click screen coords to grid coords
+      let clickGrid: { x: number; y: number };
+      if (vp) {
+        const invVP = invert(vp);
+        if (invVP) {
+          const ray = unprojectScreen(
+            this.input.taskClickX, this.input.taskClickY,
+            this.camera.canvasW, this.camera.canvasH,
+            invVP,
+          );
+          const hit = rayToZ0(ray.origin, ray.dir);
+          clickGrid = hit ?? { x: this.camera.x, y: this.camera.y };
+        } else {
+          clickGrid = this.camera.screenToGrid(this.input.taskClickX, this.input.taskClickY);
+        }
+      } else {
+        clickGrid = this.camera.screenToGrid(this.input.taskClickX, this.input.taskClickY);
+      }
+      const originCx = this.simReader.getOriginCx();
+      const originCy = this.simReader.getOriginCy();
+      const worldX = Math.floor(clickGrid.x + originCx * 64);
+      const worldY = Math.floor(clickGrid.y + originCy * 64);
+      const host = this.workerHost;
+      if (host) {
+        if (this.input.taskClickButton === 0) {
+          // Left click → MINE_BLOCK task
+          host.queueTask("MINE_BLOCK", { targetX: worldX, targetY: worldY }, 0);
+        } else if (this.input.taskClickButton === 2) {
+          // Right click → MOVE_TO task
+          host.queueTask("MOVE_TO", { targetX: worldX, targetY: worldY }, 0);
+        }
+      }
+    }
+
+    // In task mode, suppress direct mining/placing input
+    if (this.input.taskMode) {
+      // Write only movement input to SAB (no mining/placing)
+      const inp = this.simReader.inputInt32;
+      const inpF = this.simReader.inputF32;
+      inp[0] = this.input.left ? 1 : 0;
+      inp[1] = this.input.right ? 1 : 0;
+      inp[2] = this.input.up ? 1 : 0;
+      inp[3] = this.input.down ? 1 : 0;
+      inp[4] = this.input.jump ? 1 : 0;
+      inp[5] = this.input.noclip ? 1 : 0;
+      inp[6] = 0; // no mining in task mode
+      inp[7] = 0; // no placing in task mode
+      inpF[8] = -1; inpF[9] = -1;
+      inpF[10] = -1; inpF[11] = -1;
+      inp[12] = 0;
+      inpF[13] = this.camera.x;
+      inpF[14] = this.camera.y;
+      return;
+    }
+
     // Determine placing block from hotbar
-    const placeBlockId = HOTBAR_BLOCKS[this.input.selectedSlot] ?? BLOCK_AIR;
+    const placeBlockId = this.hotbarBlocks[this.input.selectedSlot] ?? BLOCK_AIR;
 
     // Write input to SAB
     const inp = this.simReader.inputInt32;
@@ -323,6 +479,13 @@ export class BlockheadsRenderer {
 
   private loop = (): void => {
     if (!this.running || !this.device || !this.context || !this.blockGridPass) return;
+
+    // Skip rendering if the GPU device was lost (e.g. during DevTools resize).
+    // The device.lost handler will log the error; we just bail out gracefully.
+    if (this.deviceManager.isDeviceLost()) {
+      this.raf = requestAnimationFrame(this.loop);
+      return;
+    }
 
     const now = performance.now();
     const elapsed = now - this.lastTime;
@@ -486,36 +649,53 @@ export class BlockheadsRenderer {
       this.skyPass.update(this.camera.canvasW, this.camera.canvasH, daylight);
     }
 
-    // Render with depth buffer for 3D occlusion
-    const encoder = this.device.createCommandEncoder();
-    const view = this.context.getCurrentTexture().createView();
-    const depthView = this.blockGridPass.getDepthTextureView();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view,
-          clearValue: { r: 0.1, g: 0.1, b: 0.18, a: 1.0 },
-          loadOp: "clear" as GPULoadOp,
-          storeOp: "store" as GPUStoreOp,
-        },
-      ],
-      depthStencilAttachment: depthView ? {
-        view: depthView,
-        depthClearValue: 1.0,
-        depthLoadOp: "clear" as GPULoadOp,
-        depthStoreOp: "store" as GPUStoreOp,
-      } : undefined,
-    });
-    // Render sky first (full-screen background, no depth)
-    this.skyPass?.render(pass);
-    // Render 3D block grid (with depth testing)
-    this.blockGridPass.render(pass);
-    // Render stickman on top (with depth testing)
-    if (this.simReader && this.simReader.getBlockheadCount() > 0) {
-      this.stickmanPass?.render(pass);
+    // Render with depth buffer for 3D occlusion.
+    // Wrapped in try/catch because canvas resize (e.g. DevTools toggling)
+    // can invalidate the WebGPU surface, causing getCurrentTexture() to
+    // throw or the render pass to fail. We skip the frame gracefully
+    // instead of crashing the GPU device.
+    try {
+      const encoder = this.device.createCommandEncoder();
+      const currentTexture = this.context.getCurrentTexture();
+      if (!currentTexture) {
+        // Surface not ready (e.g. mid-resize) — skip this frame
+        this.raf = requestAnimationFrame(this.loop);
+        return;
+      }
+      const view = currentTexture.createView();
+      const depthView = this.blockGridPass.getDepthTextureView();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view,
+            clearValue: { r: 0.1, g: 0.1, b: 0.18, a: 1.0 },
+            loadOp: "clear" as GPULoadOp,
+            storeOp: "store" as GPUStoreOp,
+          },
+        ],
+        depthStencilAttachment: depthView ? {
+          view: depthView,
+          depthClearValue: 1.0,
+          depthLoadOp: "clear" as GPULoadOp,
+          depthStoreOp: "store" as GPUStoreOp,
+        } : undefined,
+      });
+      // Render sky first (full-screen background, no depth)
+      this.skyPass?.render(pass);
+      // Render 3D block grid (with depth testing)
+      this.blockGridPass.render(pass);
+      // Render stickman on top (with depth testing)
+      if (this.simReader && this.simReader.getBlockheadCount() > 0) {
+        this.stickmanPass?.render(pass);
+      }
+      pass.end();
+      this.device.queue.submit([encoder.finish()]);
+    } catch (err) {
+      // Canvas resize or surface invalidation — skip this frame.
+      // The ResizeObserver will fire and reconfigure things; the next
+      // frame should render normally.
+      console.warn(`[Renderer] Frame skipped (surface invalid): ${(err as Error).message}`);
     }
-    pass.end();
-    this.device.queue.submit([encoder.finish()]);
 
     // FPS tracking
     this.frameCount++;

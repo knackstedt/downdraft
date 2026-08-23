@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import App from "./app";
 import { setupSandjonggMcp } from "./mcp/setup";
 import { SandjonggRenderer } from "./renderer/sandjongg-renderer";
-import { autosave, loadAutosave } from "./save-system";
+import { autosave, decodeFields, decodeGrid, loadAutosave, loadHighScore, saveHighScore } from "./save-system";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
@@ -96,6 +96,12 @@ async function bootstrap() {
     useGameStore.getState().setFPS(renderer.getFPS());
   }, 500);
 
+  // Load high score from localStorage.
+  if (!deterministic) {
+    const hs = loadHighScore();
+    if (hs > 0) useGameStore.getState().setHighScore(hs);
+  }
+
   // Autoload (after the render loop is running, with a 5s timeout).
   if (!deterministic) {
     try {
@@ -104,17 +110,21 @@ async function bootstrap() {
         new Promise<null>((r) => setTimeout(() => r(null), 5000)),
       ]);
       if (saved) {
-        await renderer.loadSave(
-          new Uint32Array(saved.grid),
-          new Uint8Array(saved.fields),
-          saved.gridW,
-          saved.gridH,
-        );
+        const grid = decodeGrid(saved);
+        const fields = decodeFields(saved);
+        await renderer.loadSave(grid, fields, saved.gridW, saved.gridH);
+        // Restore board state if present (mid-level progress).
+        if (saved.board) {
+          await renderer.getWorkerHost()?.loadBoardState(saved.board);
+        }
         useGameStore.getState().loadFullState({
           score: saved.score,
           level: saved.level,
           combo: saved.combo,
         });
+        if (saved.highScore > 0) {
+          useGameStore.getState().setHighScore(saved.highScore);
+        }
         console.log("[autosave] Restored last session");
       }
     } catch (e) {
@@ -122,17 +132,27 @@ async function bootstrap() {
     }
   }
 
-  // Autosave
+  // Autosave — only when state has changed (throttled).
   if (!deterministic) {
+    let lastSaveHash = "";
     setInterval(async () => {
       try {
-        const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
         const s = useGameStore.getState();
+        if (s.paused) return; // skip while paused
+        const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
+        const board = await renderer.getWorkerHost()?.getBoardState();
+        // Simple change detection: hash score + level + tilesLeft + board tile count.
+        const hash = `${s.score}:${s.level}:${s.tilesLeft}:${board?.tiles.length ?? 0}`;
+        if (hash === lastSaveHash) return; // nothing changed
+        lastSaveHash = hash;
+        // Persist high score separately.
+        if (s.highScore > 0) saveHighScore(s.highScore);
         await autosave(gridW, gridH, grid, fields, {
           score: s.score,
           level: s.level,
           combo: s.combo,
-        });
+          highScore: s.highScore,
+        }, board ?? null);
       } catch (e) {
         console.warn("[autosave] Failed to save:", e);
       }

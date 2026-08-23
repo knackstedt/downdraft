@@ -61,6 +61,20 @@ export const BLOCK_TIME_CRYSTAL = 19;
 export const BLOCK_CLAY = 20;
 export const BLOCK_GRAVEL = 21;
 
+// --- Station + utility blocks ---
+export const BLOCK_WORKBENCH = 22;
+export const BLOCK_CRAFT_BENCH = 23;
+export const BLOCK_TOOL_BENCH = 24;
+export const BLOCK_WOODWORK_BENCH = 25;
+export const BLOCK_CAMPFIRE = 26;
+export const BLOCK_KILN = 27;
+export const BLOCK_FURNACE = 28;
+export const BLOCK_METALWORK_BENCH = 29;
+export const BLOCK_BUILDER_BENCH = 30;
+export const BLOCK_TAILOR_BENCH = 31;
+export const BLOCK_COMPOST_BIN = 32;
+export const BLOCK_BED = 33;
+
 // --- Mask flags (bitfield for the mask plane) ---
 export const MASK_SOLID = 1 << 0; // blocks movement
 export const MASK_CLIMBABLE = 1 << 1; // ladder, rope — allows vertical movement
