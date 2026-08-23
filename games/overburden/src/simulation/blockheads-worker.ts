@@ -723,12 +723,12 @@ expose({
     return { ok: true, taskId: task.id, duplicate: false };
   },
 
-  getTasks(bhIndex: number = 0): { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string }[] {
+  getTasks(bhIndex: number = 0): { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string; failReason?: string }[] {
     const queue = taskQueues[bhIndex];
     if (!queue) return [];
     return queue.map((t) => ({
       id: t.id, type: t.type, targetX: t.targetX, targetY: t.targetY,
-      blockId: t.blockId ?? 0, status: t.status,
+      blockId: t.blockId ?? 0, status: t.status, failReason: t.failReason,
     }));
   },
 
@@ -736,6 +736,17 @@ expose({
     const queue = taskQueues[bhIndex];
     if (!queue) return { ok: false };
     queue.length = 0;
+    return { ok: true };
+  },
+
+  cancelTask(type: TaskType, targetX: number, targetY: number, bhIndex: number = 0): { ok: boolean } {
+    const queue = taskQueues[bhIndex];
+    if (!queue) return { ok: false };
+    const idx = queue.findIndex(
+      (t) => t.type === type && t.targetX === targetX && t.targetY === targetY,
+    );
+    if (idx < 0) return { ok: false };
+    queue.splice(idx, 1);
     return { ok: true };
   },
 });
@@ -854,6 +865,13 @@ function processMining(dt: number): void {
       }
       mineDamage.delete(key);
       mineTarget = null;
+      // Stop mining after breaking a foreground block — don't fall through
+      // to the background on the next tick. The player must click again to
+      // mine the background layer.
+      if (!miningBackground) {
+        input.mineX = -1;
+        input.mineY = -1;
+      }
     }
   }
 }
@@ -1081,7 +1099,7 @@ async function loop(): Promise<void> {
           // Step blockhead physics
           const dt = 1 / TICK_RATE;
           for (const bh of blockheads) {
-            updateBlockhead(bh, input, world.activeForeground, dt);
+            updateBlockhead(bh, input, world.activeForeground, world.activeBackground, dt);
           }
 
           // Process mining + placing

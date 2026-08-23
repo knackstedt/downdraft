@@ -52,6 +52,7 @@ export class BlockheadsRenderer {
   private running = false;
   private raf = 0;
   private lastTime = 0;
+  private lastSimTick = -1;
   private debugNoShadows = false;
   private frameCount = 0;
   private fps = 0;
@@ -479,13 +480,17 @@ export class BlockheadsRenderer {
       const markerGX = Math.floor(clickGrid.x);
       const markerGY = Math.floor(clickGrid.y);
 
-      // Queue the task — the worker is the sole authority on duplicates.
-      // The marker sync interval (in app.tsx) will pick up the new task
-      // from getTasks() and add a marker for it.
+      // Toggle: if a task already exists at this position, cancel it.
+      // Otherwise, queue a new one. The marker sync interval (in app.tsx)
+      // will pick up the change from getTasks().
       const host = this.workerHost;
       if (host) {
         const taskType = action === "mine" ? "MINE_BLOCK" : "MOVE_TO";
-        host.queueTask(taskType, { targetX: worldX, targetY: worldY }, 0);
+        host.queueTask(taskType, { targetX: worldX, targetY: worldY }, 0).then((result) => {
+          if (result.duplicate) {
+            host.cancelTask(taskType, worldX, worldY, 0);
+          }
+        });
       }
     }
 
@@ -674,11 +679,17 @@ export class BlockheadsRenderer {
     const daylight = this.simReader ? this.simReader.getDaylight() : 15;
     const daylightNorm = daylight / 15; // 0..1 for shader
 
-    // Upload grid data from SAB (builds 3D instance data)
+    // Upload grid data from SAB (builds 3D instance data).
+    // Skip when the sim tick hasn't advanced — the SAB data is unchanged
+    // between sim ticks (30Hz), so we only need to rebuild on new ticks.
     if (this.simReader) {
-      this.blockGridPass.updateGrid(this.simReader.foreground, this.simReader.background);
-      this.blockGridPass.updateLight(this.simReader.light);
-      this.blockGridPass.updateExplored(this.simReader.explored);
+      const tick = this.simReader.getTick();
+      if (tick !== this.lastSimTick) {
+        this.lastSimTick = tick;
+        this.blockGridPass.updateGrid(this.simReader.foreground, this.simReader.background);
+        this.blockGridPass.updateLight(this.simReader.light);
+        this.blockGridPass.updateExplored(this.simReader.explored);
+      }
     }
 
     // Ensure depth texture matches canvas size (device pixels, not CSS)
@@ -688,6 +699,8 @@ export class BlockheadsRenderer {
     const mineX = this.simReader ? this.simReader.getMineX() : -1;
     const mineY = this.simReader ? this.simReader.getMineY() : -1;
     const mineDamage = this.simReader ? this.simReader.getMineDamage() : 0;
+    const originX = this.simReader ? this.simReader.getOriginCx() * CHUNK_W : 0;
+    const originY = this.simReader ? this.simReader.getOriginCy() * CHUNK_H : 0;
     this.blockGridPass.updateCamera(
       this.camera.x,
       this.camera.y,
@@ -698,6 +711,8 @@ export class BlockheadsRenderer {
       mineX,
       mineY,
       mineDamage,
+      originX,
+      originY,
     );
 
     // Update stickman pass with 3D perspective (use smoothed position)

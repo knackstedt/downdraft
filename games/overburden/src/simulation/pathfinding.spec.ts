@@ -11,6 +11,11 @@ function makeAirGrid(): Uint16Array {
   return new Uint16Array(ACTIVE_GRID_W * ACTIVE_GRID_H).fill(BLOCK_AIR);
 }
 
+// Helper: create a background grid filled with air
+function makeAirBg(): Uint16Array {
+  return new Uint16Array(ACTIVE_GRID_W * ACTIVE_GRID_H).fill(BLOCK_AIR);
+}
+
 // Helper: set a solid block at (x, y)
 function setSolid(fg: Uint16Array, x: number, y: number): void {
   fg[y * ACTIVE_GRID_W + x] = BLOCK_STONE;
@@ -19,7 +24,7 @@ function setSolid(fg: Uint16Array, x: number, y: number): void {
 describe("pathfinding", () => {
   it("finds a straight-line path with no obstacles", () => {
     const fg = makeAirGrid();
-    const path = findPath(fg, 100, 100, 105, 100, false);
+    const path = findPath(fg, makeAirBg(), 100, 100, 105, 100, false);
     expect(path).not.toBeNull();
     expect(path!.length).toBeGreaterThan(0);
     // Last node should be at the goal
@@ -32,7 +37,7 @@ describe("pathfinding", () => {
     const fg = makeAirGrid();
     // Place a 1-block wall at (102, 100)
     setSolid(fg, 102, 100);
-    const path = findPath(fg, 100, 100, 105, 100, false);
+    const path = findPath(fg, makeAirBg(), 100, 100, 105, 100, false);
     expect(path).not.toBeNull();
     // Path should go around (over) the wall
     const last = path![path!.length - 1];
@@ -46,7 +51,7 @@ describe("pathfinding", () => {
     setSolid(fg, 102, 99);
     setSolid(fg, 102, 100);
     setSolid(fg, 102, 101);
-    const path = findPath(fg, 100, 100, 105, 100, false);
+    const path = findPath(fg, makeAirBg(), 100, 100, 105, 100, false);
     expect(path).not.toBeNull();
     const last = path![path!.length - 1];
     expect(last.x).toBe(105);
@@ -63,7 +68,7 @@ describe("pathfinding", () => {
     // Also block the diagonal escape (since blockhead is 2 tall, need to block above too)
     setSolid(fg, 99, 98);
     setSolid(fg, 101, 98);
-    const path = findPath(fg, 100, 100, 200, 100, false);
+    const path = findPath(fg, makeAirBg(), 100, 100, 200, 100, false);
     expect(path).toBeNull();
   });
 
@@ -71,7 +76,7 @@ describe("pathfinding", () => {
     const fg = makeAirGrid();
     // Start near the right edge, goal near the left edge
     // With wrap, the path should go right (wrapping around) instead of left (long way)
-    const path = findPath(fg, ACTIVE_GRID_W - 5, 100, 5, 100, true);
+    const path = findPath(fg, makeAirBg(), ACTIVE_GRID_W - 5, 100, 5, 100, true);
     expect(path).not.toBeNull();
     const last = path![path!.length - 1];
     expect(last.x).toBe(5);
@@ -80,15 +85,15 @@ describe("pathfinding", () => {
 
   it("returns empty array when start === goal", () => {
     const fg = makeAirGrid();
-    const path = findPath(fg, 100, 100, 100, 100, false);
+    const path = findPath(fg, makeAirBg(), 100, 100, 100, 100, false);
     expect(path).toEqual([]);
   });
 
   it("is deterministic — same input gives same path", () => {
     const fg = makeAirGrid();
     setSolid(fg, 102, 100);
-    const path1 = findPath(fg, 100, 100, 105, 100, false);
-    const path2 = findPath(fg, 100, 100, 105, 100, false);
+    const path1 = findPath(fg, makeAirBg(), 100, 100, 105, 100, false);
+    const path2 = findPath(fg, makeAirBg(), 100, 100, 105, 100, false);
     expect(path1).toEqual(path2);
   });
 
@@ -101,7 +106,7 @@ describe("pathfinding", () => {
       setSolid(fg, x, 102); // floor
     }
     setSolid(fg, 102, 101); // 1-block step up
-    const path = findPath(fg, 100, 101, 104, 100, false);
+    const path = findPath(fg, makeAirBg(), 100, 101, 104, 100, false);
     expect(path).not.toBeNull();
     const last = path![path!.length - 1];
     expect(last.x).toBe(104);
