@@ -72,6 +72,20 @@ const fpsStyle: React.CSSProperties = {
   borderRadius: 4,
 };
 
+// Season display colors + icons for the HUD
+const SEASON_COLORS: Record<string, string> = {
+  spring: "#7fcf6f",
+  summer: "#f0e060",
+  autumn: "#e09040",
+  winter: "#a0c0e0",
+};
+const SEASON_ICONS: Record<string, string> = {
+  spring: "\u2698", // flower
+  summer: "\u2600", // sun
+  autumn: "\u2668", // leaf-like
+  winter: "\u2744", // snowflake
+};
+
 const barsContainerStyle: React.CSSProperties = {
   position: "absolute",
   top: 8,
@@ -395,6 +409,9 @@ function Hud() {
   // Without selectors, any store update (e.g. setFps every 500ms) would
   // re-render the entire HUD subtree, blocking the 360Hz rAF loop.
   const fps = useGameStore((s) => s.fps);
+  const season = useGameStore((s) => s.season);
+  const dayInSeason = useGameStore((s) => s.dayInSeason);
+  const year = useGameStore((s) => s.year);
   const paused = useGameStore((s) => s.paused);
   const blockhead = useGameStore((s) => s.blockhead);
   const selectedSlot = useGameStore((s) => s.selectedSlot);
@@ -499,6 +516,9 @@ function Hud() {
     <div style={hudContainerStyle}>
       <div style={fpsStyle}>
         FPS: {fps}
+        <span style={{ marginLeft: 8, color: SEASON_COLORS[season] }}>
+          {SEASON_ICONS[season]} {season[0].toUpperCase() + season.slice(1)} Y{year + 1} D{dayInSeason + 1}
+        </span>
         {paused && <span style={{ color: "yellow", marginLeft: 8 }}>PAUSED</span>}
         {debugNoShadows && <span style={{ color: "#e74c3c", marginLeft: 8 }}>NOSHADOW</span>}
         {debugInspect && <span style={{ color: "#1abc9c", marginLeft: 8, fontWeight: "bold" }}>INSPECT (F6)</span>}

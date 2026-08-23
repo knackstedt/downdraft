@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import App from "./app";
 import { setupBlockheadsMcp } from "./mcp/setup";
 import { BlockheadsRenderer } from "./renderer/blockheads-renderer";
+import { getSeasonInfo } from "./simulation/season-system";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
@@ -30,11 +31,21 @@ async function bootstrap(): Promise<void> {
   // Register MCP automation tools (capture_screenshot for e2e tests)
   setupBlockheadsMcp(() => useGameStore.getState().renderer as BlockheadsRenderer | null);
 
-  // FPS polling for the UI
+  // FPS + season polling for the UI
   const fpsInterval = setInterval(() => {
     const fps = renderer.getFPS();
     if (useGameStore.getState().fps !== fps) {
       useGameStore.getState().setFps(fps);
+    }
+    // Poll the current season from the sim tick (deterministic from tick count)
+    const simReader = renderer.getSimReader();
+    if (simReader) {
+      const tick = simReader.getTick();
+      const info = getSeasonInfo(tick);
+      const prev = useGameStore.getState();
+      if (prev.season !== info.season || prev.dayInSeason !== info.dayInSeason || prev.year !== info.year) {
+        useGameStore.getState().setSeasonInfo(info.season, info.dayInSeason, info.year);
+      }
     }
   }, 500);
 

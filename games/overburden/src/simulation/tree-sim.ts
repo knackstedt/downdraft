@@ -27,13 +27,16 @@
 
 import { getBlockDef } from "../shared/block-registry";
 import { BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_SAPLING } from "../shared/constants";
+import type { Season } from "../shared/crops";
 import { encodeDropItem } from "../shared/drop-registry";
+import { pseudoRandom } from "../shared/pseudo-random";
 import {
     getSpeciesByIndex,
     getSpeciesByLeafBlock,
     getSpeciesIndex,
     isLeafBlock,
     isSaplingBlock,
+    makeTaggedBlock,
 } from "../shared/tree-species";
 
 // --- vfx encoding (saplings only) ---
@@ -66,17 +69,6 @@ function unpackSaplingVfx(v: number): { speciesIdx: number; targetH: number; cur
   };
 }
 
-// --- Deterministic pseudo-random (FNV-1a hash) ---
-function pseudoRandom(x: number, y: number, day: number, salt: string): number {
-  let h = 2166136261 ^ x;
-  h = Math.imul(h, 16777619) ^ y;
-  h = Math.imul(h, 16777619) ^ day;
-  for (let i = 0; i < salt.length; i++) {
-    h = Math.imul(h, 16777619) ^ salt.charCodeAt(i);
-  }
-  return ((h >>> 0) % 100000) / 100000;
-}
-
 // --- Ground validation ---
 function isValidGround(blockId: number): boolean {
   const b = blockId & 0xFF;
@@ -104,8 +96,25 @@ export interface TreeBlockWorld {
   activeForeground: Uint16Array;
   activeBackground: Uint16Array;
   activeVfx: Uint32Array;
+  /** Active grid origin in chunk coords (for computing world-coord tree tags). */
+  getActiveOriginCx(): number;
+  getActiveOriginCy(): number;
   setActiveBackground(ax: number, ay: number, blockId: number): void;
   setActiveVfx(ax: number, ay: number, value: number): void;
+}
+
+// --- Tree tag computation (matches terrain-gen.ts logic) ---
+// The tag is stored in the upper 8 bits of the background Uint16 so felling
+// flood-fill stays within one tree. Sapling-grown trees must use a non-zero
+// tag derived from world coords, just like terrain-gen trees, so they don't
+// fall back to the tag-0 "fell everything" path.
+const CHUNK_W = 64;
+const CHUNK_H = 64;
+
+function computeTreeTag(worldX: number, worldY: number): number {
+  let tag = (Math.imul(worldX, 31) + Math.imul(worldY, 17)) & 0xFF;
+  if (tag === 0) tag = 1; // 0 = untagged/old-save fallback, never use it
+  return tag;
 }
 
 // ============================================================================
@@ -114,12 +123,17 @@ export interface TreeBlockWorld {
 // Scans the active grid once per in-game day. Does three things:
 // 1. Spawns fruit + seed drop entities on background leaf blocks
 // 2. Ages existing fruit/seed drop entities (fall, scatter, despawn, plant)
-// 3. Grows saplings (background blocks)
+// 3. Grows saplings (background blocks) — paused in winter
+//
+// Sapling-grown trees are tagged with a per-tree group ID (stored in the
+// upper 8 bits of the background Uint16) computed from world coords, so
+// felling flood-fill stays within one tree — just like terrain-gen trees.
 //
 // @param fg     active foreground plane (Uint16Array, W * H cells)
 // @param bg     active background plane (same size)
 // @param vfx    active vfx plane (Uint32Array, same size — sapling state)
 // @param tick   current sim tick (used for deterministic RNG via day number)
+// @param season current season (sapling growth pauses in winter)
 // @param W      grid width (ACTIVE_GRID_W)
 // @param H      grid height (ACTIVE_GRID_H)
 // @param drops  drop entity array (fruits/seeds are added/removed here)
@@ -131,6 +145,7 @@ export function stepTreeDaily(
   bg: Uint16Array,
   vfx: Uint32Array,
   tick: number,
+  season: Season,
   W: number,
   H: number,
   drops: TreeDropEntity[],
@@ -139,13 +154,13 @@ export function stepTreeDaily(
   const day = Math.floor(tick / 18000);
   let changed = false;
 
-  // Helper: check if a drop entity already exists at a cell (fruit/seed)
-  const hasDropAt = (x: number, y: number): boolean => {
-    for (const d of drops) {
-      if (d.kind > 0 && Math.floor(d.x) === x && Math.floor(d.y) === y) return true;
-    }
-    return false;
-  };
+  // Build a Set of occupied leaf cells (for O(1) "has drop at" checks).
+  // Only tree drops (kind > 0) are relevant; regular world drops don't
+  // block fruit/seed spawning.
+  const occupiedCells = new Set<number>();
+  for (const d of drops) {
+    if (d.kind > 0) occupiedCells.add(Math.floor(d.y) * W + Math.floor(d.x));
+  }
 
   // --- Phase 1: Scan background leaf blocks for fruit + seed spawning ---
   for (let y = 0; y < H; y++) {
@@ -161,7 +176,7 @@ export function stepTreeDaily(
       // Fruit spawn: 10% chance per leaf per day (only for fruiting species)
       if (species.fruitItem !== undefined) {
         const roll = pseudoRandom(x, y, day, "fruit");
-        if (roll <= 0.10 && !hasDropAt(x, y) && drops.length < 512) {
+        if (roll <= 0.10 && !occupiedCells.has(idx) && drops.length < 512) {
           const code = encodeDropItem(species.fruitItem);
           if (code > 0) {
             drops.push({
@@ -171,13 +186,14 @@ export function stepTreeDaily(
               itemCode: code, count: 1, lifetime: Infinity,
               onGround: true, kind: 1, speciesIdx: 0, age: 0, fallen: false,
             });
+            occupiedCells.add(idx);
           }
         }
       }
 
       // Seed spawn: 3% chance per leaf per day (all species)
       const seedRoll = pseudoRandom(x, y, day, "seed");
-      if (seedRoll <= 0.03 && !hasDropAt(x, y) && drops.length < 512) {
+      if (seedRoll <= 0.03 && !occupiedCells.has(idx) && drops.length < 512) {
         drops.push({
           x: x + 0.5, y: y + 0.5, vx: 0, vy: 0,
           spin: pseudoRandom(x, y, day, "seed-spin") * Math.PI * 2,
@@ -186,6 +202,7 @@ export function stepTreeDaily(
           count: 1, lifetime: Infinity,
           onGround: true, kind: 2, speciesIdx, age: 0, fallen: false,
         });
+        occupiedCells.add(idx);
       }
     }
   }
@@ -242,6 +259,9 @@ export function stepTreeDaily(
   }
 
   // --- Phase 3: Grow saplings (background) ---
+  // Sapling growth pauses in winter (consistent with crop growth pausing
+  // outside its growSeasons). Existing fruit/seeds still age (Phase 2).
+  const canGrow = season !== "winter";
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const idx = y * W + x;
@@ -254,15 +274,21 @@ export function stepTreeDaily(
       const newDays = days + 1;
       let newCurrentH = currentH;
 
+      // Compute the tree tag from the sapling's world coords so that
+      // sapling-grown wood + leaves are grouped for felling.
+      const worldX = x + world.getActiveOriginCx() * CHUNK_W;
+      const worldY = y + world.getActiveOriginCy() * CHUNK_H;
+      const treeTag = computeTreeTag(worldX, worldY);
+
       // Grow trunk: +1 wood block/day upward until reaching targetH.
       // The trunk can overwrite leaf blocks in its path (the canopy may have
       // placed leaves where the trunk will grow — the trunk grows through).
-      if (currentH < targetH) {
+      if (canGrow && currentH < targetH) {
         const trunkY = y - currentH - 1; // grow upward (y decreases)
         if (trunkY >= 0) {
           const trunkCell = bg[trunkY * W + x] & 0xFF;
           if (trunkCell === BLOCK_AIR || isLeafBlock(trunkCell)) {
-            world.setActiveBackground(x, trunkY, species.woodBlock);
+            world.setActiveBackground(x, trunkY, makeTaggedBlock(species.woodBlock, treeTag));
             newCurrentH = currentH + 1;
             changed = true;
           }
@@ -272,15 +298,20 @@ export function stepTreeDaily(
       // Grow canopy: re-run placeCanopy for the current trunk height.
       // tryPlaceLeaf only places into BLOCK_AIR cells, so existing leaves
       // aren't overwritten — new canopy cells are added as the trunk grows.
-      const trunkTopLy = y - newCurrentH;
-      if (trunkTopLy >= 0) {
-        species.placeCanopy(bg, W, H, x, y, trunkTopLy, newCurrentH, species.leafBlock, 0);
+      if (canGrow) {
+        const trunkTopLy = y - newCurrentH;
+        if (trunkTopLy >= 0) {
+          species.placeCanopy(bg, W, H, x, y, trunkTopLy, newCurrentH, species.leafBlock, treeTag);
+        }
       }
 
-      // Check maturation: trunk reached target height
-      if (newCurrentH >= targetH) {
+      // Check maturation: trunk reached target height, OR the trunk can't
+      // grow any further (hit the grid ceiling) — mature at current height
+      // so the sapling doesn't stay stuck forever.
+      const hitCeiling = currentH < targetH && (y - currentH - 1) < 0;
+      if (newCurrentH >= targetH || hitCeiling) {
         // Convert sapling block to the species' wood block (base becomes trunk base)
-        world.setActiveBackground(x, y, species.woodBlock);
+        world.setActiveBackground(x, y, makeTaggedBlock(species.woodBlock, treeTag));
         world.setActiveVfx(x, y, 0);
         changed = true;
       } else {

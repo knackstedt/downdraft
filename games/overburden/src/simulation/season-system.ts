@@ -10,11 +10,11 @@
 // count, so it's deterministic and requires no save/load.
 // ============================================================================
 
-import type { Season } from "../shared/crops";
 import { TICK_RATE } from "../shared/constants";
+import type { Season } from "../shared/crops";
 
-/** Ticks per game day (18000 at 30tps = 10 minutes real time). */
-export const DAY_TICKS = 18000;
+/** Ticks per game day (10 minutes real time at 30tps = 18000). */
+export const DAY_TICKS = TICK_RATE * 600;
 /** Ticks per season (4 game days = 72000 ticks = 40 minutes real time). */
 export const SEASON_TICKS = DAY_TICKS * 4;
 /** Ticks per year (4 seasons = 288000 ticks = ~2.7 hours real time). */
