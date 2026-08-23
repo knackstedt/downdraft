@@ -728,16 +728,8 @@ async function bootstrap() {
       window.location.reload();
     });
 
-    import.meta.hot.on("shader:hot-reload", (data: { file: string }) => {
-      console.log(`%c[HMR] Shader changed: ${data.file}`, "color: green");
-      // MaterialHotReloader not yet wired into WebGPURenderer — will log for now
-      console.warn("[HMR] Shader hot-reload not yet wired — requires MaterialHotReloader integration");
-    });
-
-    import.meta.hot.on("asset:hot-reload", (data: { file: string }) => {
-      console.log(`%c[HMR] Asset changed: ${data.file}`, "color: green");
-      console.warn("[HMR] Asset hot-reload not yet wired — requires MaterialHotReloader integration");
-    });
+    // Shader (`*.wgsl`) and asset hot-reload are handled by the wgslHmrPlugin
+    // via the wgslHotReload registry — no custom WebSocket events needed here.
   }
 
   // Hitbox line width

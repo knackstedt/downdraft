@@ -17,6 +17,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "path";
 import { hotReloadPlugin } from "../../../core/src/vite/hot-reload-plugin";
+import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
 
 export interface DowndraftViteConfigOptions {
@@ -371,12 +372,15 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
         // React Refresh code (which references `window`) into the Solid worker
         // chunk. The Solid plugin (added via rendererPlugins) handles those files.
         react({ exclude: "**/src/solid/**" }),
+        // WGSL `?raw` HMR boundary — must run before Vite's asset plugin so
+        // `*.wgsl?raw` modules become HMR boundaries (fine-grained shader
+        // reload via wgslHotReload, full page reload fallback). Applies to
+        // all games and CLI templates automatically via this factory.
+        wgslHmrPlugin(repoRoot),
         hotReloadPlugin({
           simPaths,
           rendererPaths,
           excludePaths,
-          shaderExts: [".wgsl"],
-          assetExts: [".glb", ".png", ".jpg", ".jpeg", ".webp"],
         }),
         ...(options.rendererPlugins ?? []),
       ],
