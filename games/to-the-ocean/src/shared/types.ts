@@ -502,7 +502,10 @@ export type SimCommandType =
   | "inventory_move"
   | "ship_hold_move"
   | "transfer_to_ship"
-  | "transfer_from_ship";
+  | "transfer_from_ship"
+  | "plant"
+  | "harvest"
+  | "water";
 
 export interface SimCommand {
   type: SimCommandType;

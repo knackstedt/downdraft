@@ -2,7 +2,7 @@
 // Item Definitions — all items in the game
 // ============================================================================
 
-import { ItemDef, ItemCategory, BiomeType } from "../types";
+import { BiomeType, ItemCategory, ItemDef } from "../types";
 
 export const ITEMS: Record<string, ItemDef> = {
   // --- Fish ---
@@ -77,11 +77,67 @@ export const ITEMS: Record<string, ItemDef> = {
   coconut: { id: "coconut", name: "Coconut", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 5, rarity: 0, description: "Restores 15 hunger, 20 thirst" },
   fresh_water: { id: "fresh_water", name: "Fresh Water", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 5, rarity: 0, description: "Restores 30 thirst" },
   blubber: { id: "blubber", name: "Blubber", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 10, value: 15, rarity: 1, description: "Restores 40 hunger. Very fatty." },
+  rice: { id: "rice", name: "Rice", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 50, value: 5, rarity: 0, spoilRate: 0.006, description: "Restores 12 hunger. A staple grain." },
 
-  // --- Seeds ---
+  // --- Crops (vegetables, fruits, grains, gourds, stalks, berries, mushrooms) ---
+  // Vegetables — perishable, restore moderate hunger.
+  cabbage: { id: "cabbage", name: "Cabbage", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 6, rarity: 0, spoilRate: 0.012, description: "Restores 18 hunger" },
+  potato: { id: "potato", name: "Potato", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 5, rarity: 0, spoilRate: 0.006, description: "Restores 20 hunger. Keeps well." },
+  carrot: { id: "carrot", name: "Carrot", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 5, rarity: 0, spoilRate: 0.008, description: "Restores 15 hunger, 5 thirst" },
+  beet: { id: "beet", name: "Beet", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 6, rarity: 0, spoilRate: 0.008, description: "Restores 16 hunger" },
+  turnip: { id: "turnip", name: "Turnip", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 5, rarity: 0, spoilRate: 0.008, description: "Restores 15 hunger" },
+  onion: { id: "onion", name: "Onion", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 6, rarity: 0, spoilRate: 0.005, description: "Restores 14 hunger. Keeps well." },
+  broccoli: { id: "broccoli", name: "Broccoli", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 8, rarity: 1, spoilRate: 0.014, description: "Restores 22 hunger" },
+  tomato: { id: "tomato", name: "Tomato", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 7, rarity: 0, spoilRate: 0.015, description: "Restores 16 hunger, 8 thirst" },
+  pepper: { id: "pepper", name: "Pepper", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 8, rarity: 1, spoilRate: 0.012, description: "Restores 14 hunger. Spicy." },
+  // Gourds & large fruits — higher yield, slow growth.
+  pumpkin: { id: "pumpkin", name: "Pumpkin", category: ItemCategory.Consumable, width: 2, height: 2, maxStack: 10, value: 18, rarity: 1, spoilRate: 0.006, description: "Restores 35 hunger. Keeps well." },
+  watermelon: { id: "watermelon", name: "Watermelon", category: ItemCategory.Consumable, width: 2, height: 2, maxStack: 10, value: 20, rarity: 1, spoilRate: 0.01, description: "Restores 25 hunger, 30 thirst" },
+  // Grains & stalks — non-perishable, low hunger raw (meant for cooking/crafting).
+  corn: { id: "corn", name: "Corn", category: ItemCategory.Consumable, width: 1, height: 2, maxStack: 30, value: 7, rarity: 0, spoilRate: 0.006, description: "Restores 18 hunger" },
+  wheat: { id: "wheat", name: "Wheat", category: ItemCategory.Consumable, width: 1, height: 2, maxStack: 50, value: 4, rarity: 0, description: "Restores 8 hunger. Mill into flour." },
+  sugar_cane: { id: "sugar_cane", name: "Sugar Cane", category: ItemCategory.Consumable, width: 1, height: 2, maxStack: 30, value: 6, rarity: 0, spoilRate: 0.01, description: "Restores 6 hunger, 12 thirst. Sweet." },
+  coffee: { id: "coffee", name: "Coffee Beans", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 12, rarity: 1, spoilRate: 0.003, description: "Restores 5 hunger. Brew to restore energy." },
+  // Berries — perishable, small hunger, also thirst. Foraged from bushes or grown.
+  strawberry: { id: "strawberry", name: "Strawberry", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 9, rarity: 1, spoilRate: 0.02, description: "Restores 10 hunger, 10 thirst" },
+  blueberry: { id: "blueberry", name: "Blueberry", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 8, rarity: 1, spoilRate: 0.02, description: "Restores 8 hunger, 8 thirst" },
+  blackberry: { id: "blackberry", name: "Blackberry", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 8, rarity: 1, spoilRate: 0.02, description: "Restores 9 hunger, 7 thirst" },
+  raspberry: { id: "raspberry", name: "Raspberry", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 30, value: 9, rarity: 1, spoilRate: 0.02, description: "Restores 9 hunger, 9 thirst" },
+  // Mushrooms — perishable, foraged or grown on compost/planter. Mild hunger, some rarity.
+  blue_mushroom: { id: "blue_mushroom", name: "Blue Mushroom", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 14, rarity: 2, spoilRate: 0.012, description: "Restores 12 hunger, 6 thirst. Slightly luminescent." },
+  red_mushroom: { id: "red_mushroom", name: "Red Mushroom", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 16, rarity: 2, spoilRate: 0.012, description: "Restores 14 hunger. Handle with care." },
+  brown_mushroom: { id: "brown_mushroom", name: "Brown Mushroom", category: ItemCategory.Consumable, width: 1, height: 1, maxStack: 20, value: 10, rarity: 1, spoilRate: 0.012, description: "Restores 16 hunger. Earthy and filling." },
+
+  // --- Seeds & Spores ---
   tomato_seed: { id: "tomato_seed", name: "Tomato Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 5, rarity: 0 },
   kelp_seed: { id: "kelp_seed", name: "Kelp Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 8, rarity: 1 },
   rice_seed: { id: "rice_seed", name: "Rice Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 5, rarity: 0 },
+  // Vegetable seeds
+  cabbage_seed: { id: "cabbage_seed", name: "Cabbage Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 4, rarity: 0 },
+  potato_seed: { id: "potato_seed", name: "Potato Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 4, rarity: 0 },
+  carrot_seed: { id: "carrot_seed", name: "Carrot Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 4, rarity: 0 },
+  beet_seed: { id: "beet_seed", name: "Beet Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 4, rarity: 0 },
+  turnip_seed: { id: "turnip_seed", name: "Turnip Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 4, rarity: 0 },
+  onion_seed: { id: "onion_seed", name: "Onion Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 4, rarity: 0 },
+  broccoli_seed: { id: "broccoli_seed", name: "Broccoli Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 6, rarity: 1 },
+  pepper_seed: { id: "pepper_seed", name: "Pepper Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 6, rarity: 1 },
+  // Gourd & fruit seeds
+  pumpkin_seed: { id: "pumpkin_seed", name: "Pumpkin Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 8, rarity: 1 },
+  watermelon_seed: { id: "watermelon_seed", name: "Watermelon Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 8, rarity: 1 },
+  // Grain & stalk seeds
+  corn_seed: { id: "corn_seed", name: "Corn Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 5, rarity: 0 },
+  wheat_seed: { id: "wheat_seed", name: "Wheat Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 3, rarity: 0 },
+  sugar_cane_seed: { id: "sugar_cane_seed", name: "Sugar Cane Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 5, rarity: 0 },
+  coffee_seed: { id: "coffee_seed", name: "Coffee Bean (Seed)", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 10, rarity: 1 },
+  // Berry bush seeds (grow into persistent bushes)
+  strawberry_seed: { id: "strawberry_seed", name: "Strawberry Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 7, rarity: 1 },
+  blueberry_seed: { id: "blueberry_seed", name: "Blueberry Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 7, rarity: 1 },
+  blackberry_seed: { id: "blackberry_seed", name: "Blackberry Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 7, rarity: 1 },
+  raspberry_seed: { id: "raspberry_seed", name: "Raspberry Seed", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 7, rarity: 1 },
+  // Mushroom spores (planted on planter/compost; spread when mature)
+  blue_mushroom_spore: { id: "blue_mushroom_spore", name: "Blue Mushroom Spore", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 12, rarity: 2 },
+  red_mushroom_spore: { id: "red_mushroom_spore", name: "Red Mushroom Spore", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 14, rarity: 2 },
+  brown_mushroom_spore: { id: "brown_mushroom_spore", name: "Brown Mushroom Spore", category: ItemCategory.Seed, width: 1, height: 1, maxStack: 50, value: 8, rarity: 1 },
 
   // --- Placeables ---
   bed_basic: { id: "bed_basic", name: "Basic Bed", category: ItemCategory.Placeable, width: 2, height: 2, maxStack: 5, value: 30, rarity: 0 },

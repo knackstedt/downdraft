@@ -2,12 +2,12 @@
 // Simulation — main orchestrator for all game systems
 // ============================================================================
 
+import { InputBufferReader, PLR_FLAG, SimBufferWriter } from "@downdraft/core";
+import { WaterBufferWriter } from "@downdraft/plugin-water";
 import {
     MAX_ENTITIES,
     SIM_TICK_DT
 } from "../shared/constants";
-import { InputBufferReader } from "@downdraft/core";
-import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
 import {
     BiomeType,
     CameraMode,
@@ -19,15 +19,14 @@ import {
     SimToMainMessage,
     WorldCommand
 } from "../shared/types";
-import { WaterBufferWriter } from "@downdraft/plugin-water";
 
 import type { ISimulation } from "@downdraft/core";
 import type { JobScheduler } from "@downdraft/core/ecs/job-system";
 import { WeatherSystem } from "@downdraft/library-weather";
+import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
 import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
 import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/library-collision";
 import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/library-wildlife";
-import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import {
     BOAT_CELL_WORLD_SIZE,
@@ -74,6 +73,7 @@ import { StructureIntegrity } from "./physics/structure-integrity";
 import { LicenseSystem } from "./player/license-system";
 import { PlayerManager } from "./player/player-manager";
 import { ProgressionTree } from "./progression/progression-tree";
+import { SeasonSystem } from "./season/season-system";
 import { SurvivalBiomeAdapter, SurvivalSystem } from "./survival/survival-system";
 import { TerrainSystem } from "./terrain/terrain-system";
 import { ToolSystem } from "./tools/tool-system";
@@ -125,6 +125,7 @@ export class Simulation implements ISimulation {
   public animalSystem: AnimalSystem;
   public plantSystem: PlantSystem;
   public petSystem: PetSystem;
+  public seasonSystem: SeasonSystem;
   public survivalSystem: SurvivalSystem;
   public survivalBiomeAdapter: SurvivalBiomeAdapter;
   public dockingSystem: DockingSystem;
@@ -208,6 +209,7 @@ export class Simulation implements ISimulation {
     this.animalSystem = new AnimalSystem();
     this.plantSystem = new PlantSystem();
     this.petSystem = new PetSystem();
+    this.seasonSystem = new SeasonSystem({ dayDurationSeconds: (this.rules.dayDuration as number) ?? 1200 });
     this.survivalBiomeAdapter = new SurvivalBiomeAdapter(this.chunkManager, this.biomeSystem);
     this.survivalSystem = new SurvivalSystem(this.rules);
     this.dockingSystem = new DockingSystem();
@@ -615,6 +617,10 @@ export class Simulation implements ISimulation {
           items: serializeGrid(grid),
         })),
       },
+      plants: {
+        v: 1,
+        data: this.plantSystem.serialize(),
+      },
       freecam: {
         v: 1,
         data: freecamData,
@@ -656,6 +662,7 @@ export class Simulation implements ISimulation {
       boatDesigns: parsed.boats?.data?.boatDesigns ?? [],
       boatPresets: parsed.boats?.data?.boatPresets ?? {},
       shipInventories: parsed.inventory?.data ?? [],
+      plants: parsed.plants?.data ?? [],
       freecamData: parsed.freecam?.data ?? {},
     } : parsed;
 
@@ -751,6 +758,11 @@ export class Simulation implements ISimulation {
           this.shipInventories.set(shipId, deserializeGrid(entry.items, BOAT_HOLD_INV_WIDTH, BOAT_HOLD_INV_HEIGHT));
         }
       }
+    }
+
+    // Restore plant state (crop growth/water/stress for EntityType.Plant entities)
+    if (Array.isArray(state.plants)) {
+      this.plantSystem.deserialize(state.plants);
     }
 
     // Restore boat cell grids from saved presets
