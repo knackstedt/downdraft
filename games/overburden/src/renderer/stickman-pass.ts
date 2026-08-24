@@ -89,6 +89,9 @@ export class StickmanPass {
   private bindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private vertexBuffer: GPUBuffer | null = null;
+  // Preallocated uniform + vertex arrays (avoid per-frame allocation)
+  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(UNIFORM_FLOATS);
+  private _verts: Float32Array<ArrayBuffer> = new Float32Array(36 * 3);
 
   constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth24plus") {
     this.device = device;
@@ -160,8 +163,8 @@ export class StickmanPass {
   ): void {
     if (!this.vertexBuffer || !this.uniformBuffer) return;
 
-    // Build box vertices at (px, py) with size 1×2×1
-    const verts = new Float32Array(36 * 3);
+    // Build box vertices at (px, py) with size 1×2×1 (reuse preallocated buffer)
+    const verts = this._verts;
     for (let i = 0; i < 36; i++) {
       verts[i * 3]     = px + BOX_VERTS[i * 3];        // X: px + localX
       verts[i * 3 + 1] = py + BOX_VERTS[i * 3 + 1] * 2; // Y: py + localY * 2 (2 tall)
@@ -196,12 +199,12 @@ export class StickmanPass {
   ): void {
     if (!this.vertexBuffer || !this.uniformBuffer) return;
 
-    // Build box vertices at (px, py) with size BH_W × BH_H × 1.
+    // Build box vertices at (px, py) with size BH_W × BH_H × 1 (reuse preallocated buffer).
     // The visual box matches the collision AABB exactly: [px, px+BH_W] × [py, py+BH_H].
     // No centering offset — the collision box starts at bh.x (left-aligned).
     const PLAYER_W = 0.7;
     const PLAYER_H = 1.95;
-    const verts = new Float32Array(36 * 3);
+    const verts = this._verts;
     for (let i = 0; i < 36; i++) {
       verts[i * 3]     = px + BOX_VERTS[i * 3] * PLAYER_W;             // X: left-aligned with collision
       verts[i * 3 + 1] = py + BOX_VERTS[i * 3 + 1] * PLAYER_H;         // Y: scaled to height
@@ -230,7 +233,7 @@ export class StickmanPass {
       b = 0.0;
     }
 
-    const data = new Float32Array(UNIFORM_FLOATS);
+    const data = this._uniform;
     // viewProj (column-major, 16 floats)
     for (let i = 0; i < 16; i++) data[i] = viewProj[i];
     // color (vec4)

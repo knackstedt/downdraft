@@ -498,10 +498,11 @@ export function updateBlockhead(
     }
   } else if (!bh.onGround && (wallLeft || wallRight || onBackWall)) {
     // On a wall (foreground or background) while airborne.
-    // With stamina: climb up (pressing up/into wall) or hold position.
+    // With stamina: climb up, climb down, or hold position.
     // Without stamina: slide down with grip.
     if (bh.energy > 0) {
       const wantsClimbUp = pressingIntoWall || input.up;
+      const wantsClimbDown = input.down && !pressingIntoWall;
       if (wantsClimbUp && (wallLeft || wallRight)) {
         // Wall climbing up a solid foreground wall
         bh.vy = -WALL_CLIMB_SPEED;
@@ -510,8 +511,14 @@ export function updateBlockhead(
         // Back wall climbing up (background wall only)
         bh.vy = -BG_WALL_CLIMB_SPEED;
         climbingStaminaDrain = WALL_CLIMB_STAMINA;
+      } else if (wantsClimbDown) {
+        // Climbing down a wall/back wall — gravity assists, so this is
+        // faster than climbing up and drains less stamina (just holding on).
+        const downSpeed = (wallLeft || wallRight) ? WALL_CLIMB_SPEED * 1.5 : BG_WALL_CLIMB_SPEED * 1.5;
+        bh.vy = downSpeed;
+        climbingStaminaDrain = WALL_HOLD_STAMINA;
       } else {
-        // Holding position on wall — not pressing up, but has grip.
+        // Holding position on wall — not pressing up or down, but has grip.
         // Prevents sliding while stamina remains.
         bh.vy = 0;
         climbingStaminaDrain = WALL_HOLD_STAMINA;

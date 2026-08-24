@@ -81,6 +81,61 @@ export function multiply(a: Mat4, b: Mat4): Mat4 {
   return out;
 }
 
+/** Multiply two matrices in-place: out = a × b (column-major). No allocation. */
+export function multiplyIP(out: Mat4, a: Mat4, b: Mat4): void {
+  for (let col = 0; col < 4; col++) {
+    for (let row = 0; row < 4; row++) {
+      out[col * 4 + row] =
+        a[0 * 4 + row] * b[col * 4 + 0] +
+        a[1 * 4 + row] * b[col * 4 + 1] +
+        a[2 * 4 + row] * b[col * 4 + 2] +
+        a[3 * 4 + row] * b[col * 4 + 3];
+    }
+  }
+}
+
+/** Perspective projection in-place (no allocation). */
+export function perspectiveIP(out: Mat4, fovY: number, aspect: number, near: number, far: number): void {
+  const f = 1.0 / Math.tan(fovY / 2);
+  const range = far - near;
+  out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+  out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+  out[8] = 0; out[9] = 0; out[10] = far / range; out[11] = 1;
+  out[12] = 0; out[13] = 0; out[14] = -(far * near) / range; out[15] = 0;
+}
+
+/** Look-at view matrix in-place (no allocation). */
+export function lookAtIP(
+  out: Mat4,
+  eye: [number, number, number],
+  target: [number, number, number],
+  up: [number, number, number],
+): void {
+  const fx = target[0] - eye[0];
+  const fy = target[1] - eye[1];
+  const fz = target[2] - eye[2];
+  const fl = Math.hypot(fx, fy, fz) || 1;
+  const f0 = fx / fl, f1 = fy / fl, f2 = fz / fl;
+
+  const rx = up[1] * f2 - up[2] * f1;
+  const ry = up[2] * f0 - up[0] * f2;
+  const rz = up[0] * f1 - up[1] * f0;
+  const rl = Math.hypot(rx, ry, rz) || 1;
+  const r0 = rx / rl, r1 = ry / rl, r2 = rz / rl;
+
+  const u0 = f1 * r2 - f2 * r1;
+  const u1 = f2 * r0 - f0 * r2;
+  const u2 = f0 * r1 - f1 * r0;
+
+  out[0] = r0; out[1] = u0; out[2] = f0; out[3] = 0;
+  out[4] = r1; out[5] = u1; out[6] = f1; out[7] = 0;
+  out[8] = r2; out[9] = u2; out[10] = f2; out[11] = 0;
+  out[12] = -(r0 * eye[0] + r1 * eye[1] + r2 * eye[2]);
+  out[13] = -(u0 * eye[0] + u1 * eye[1] + u2 * eye[2]);
+  out[14] = -(f0 * eye[0] + f1 * eye[1] + f2 * eye[2]);
+  out[15] = 1;
+}
+
 /** Transform a vec3 by a mat4 (w=1, perspective divide). Returns [x, y, z, w]. */
 export function transform(m: Mat4, v: [number, number, number]): [number, number, number, number] {
   return [

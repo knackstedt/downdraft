@@ -90,6 +90,9 @@ export class TaskMarkerPass {
   private markerBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private markerCount = 0;
+  // Preallocated buffers (avoid per-frame allocation)
+  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(20);
+  private _markerData: Float32Array<ArrayBuffer> = new Float32Array(MAX_MARKERS * 6);
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -153,21 +156,11 @@ export class TaskMarkerPass {
     });
   }
 
-  update(viewProj: Float32Array, canvasW: number, canvasH: number, markers: MarkerData[]): void {
-    if (!this.uniformBuffer || !this.markerBuffer) return;
-
-    // Write uniforms
-    const u = new Float32Array(20); // 16 (mat4) + 4
-    u.set(viewProj, 0);
-    u[16] = canvasW;
-    u[17] = canvasH;
-    u[18] = Math.min(markers.length, MAX_MARKERS);
-    u[19] = 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
-
-    // Write marker data
+  /** Update marker instance data — call only when markers change. */
+  updateInstances(markers: MarkerData[]): void {
+    if (!this.markerBuffer) return;
     const count = Math.min(markers.length, MAX_MARKERS);
-    const data = new Float32Array(MAX_MARKERS * 6);
+    const data = this._markerData;
     for (let i = 0; i < count; i++) {
       const m = markers[i];
       data[i * 6 + 0] = m.gridX;
@@ -177,8 +170,27 @@ export class TaskMarkerPass {
       data[i * 6 + 4] = m.color[1];
       data[i * 6 + 5] = m.color[2];
     }
-    this.device.queue.writeBuffer(this.markerBuffer, 0, data);
+    if (count > 0) {
+      this.device.queue.writeBuffer(
+        this.markerBuffer, 0,
+        data.buffer,
+        data.byteOffset,
+        count * 6 * 4,
+      );
+    }
     this.markerCount = count;
+  }
+
+  /** Update camera uniforms — call every frame. */
+  updateCamera(viewProj: Float32Array, canvasW: number, canvasH: number): void {
+    if (!this.uniformBuffer) return;
+    const u = this._uniform; // 16 (mat4) + 4
+    u.set(viewProj, 0);
+    u[16] = canvasW;
+    u[17] = canvasH;
+    u[18] = this.markerCount;
+    u[19] = 0;
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
   }
 
   render(pass: GPURenderPassEncoder): void {

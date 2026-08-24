@@ -48,6 +48,8 @@ export class SkyPass {
   private pipeline: GPURenderPipeline | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  // Preallocated uniform array (avoid per-frame allocation)
+  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(12);
 
   constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth24plus") {
     this.device = device;
@@ -142,7 +144,7 @@ export class SkyPass {
       botB = dayBottom[2];
     }
 
-    const data = new Float32Array(12);
+    const data = this._uniform;
     data[0] = topR;
     data[1] = topG;
     data[2] = topB;
