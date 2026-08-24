@@ -190,7 +190,14 @@ function build(): void {
   }
 
   // --- Atomically publish (release) ---
-  writer.publishBuild(tick, fgInstanceCount, bgWallInstanceCount, bgTreeInstanceCount);
+  // The origin is published alongside the build tick so the renderer can use
+  // an origin that always matches the grid data on the GPU (eliminating the
+  // chunk-boundary flash where the sim SAB origin advances before the
+  // grid-builder has published the matching grid data).
+  writer.publishBuild(
+    tick, fgInstanceCount, bgWallInstanceCount, bgTreeInstanceCount,
+    simReader.getOriginCx(), simReader.getOriginCy(),
+  );
   lastBuiltTick = tick;
 }
 

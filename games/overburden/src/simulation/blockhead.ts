@@ -467,18 +467,27 @@ export function updateBlockhead(
   // --- Vertical movement ---
   // Priority: ladder > swimming > wall climbing > gravity
   //
-  // Wall climbing ONLY activates when the blockhead is airborne (has jumped)
-  // AND pressing up while adjacent to a wall or back wall. This prevents the
-  // blockhead from sticking to walls when walking off edges and makes downward
-  // navigation easy — just stop pressing up and you fall normally.
+  // Wall climbing activates when the blockhead is airborne (has jumped) and:
+  //  - Pressing up while adjacent to any wall or back wall, OR
+  //  - Pressing into a FOREGROUND wall (same layer as the player).
+  // Back walls (background layer) only trigger on input.up — this prevents
+  // the blockhead from sticking to the ubiquitous back walls when walking
+  // off edges, while still allowing intentional climbing by pressing up.
+  // Foreground walls are only present when you jump into them, so pressing
+  // toward them to climb feels natural.
+  //
+  // To descend: stop pressing up / into the wall and you fall normally.
   //
   // Exception: when mining (AI), hold position on the wall to work on the
   // target block without climbing past it or falling.
   //
-  // Stamina: wall climbing and holding drain energy. When energy reaches 0,
-  // the blockhead can no longer climb and slides down the wall at reduced
-  // speed (grip). Ladders/ropes don't drain stamina (they're easy to climb).
+  // Stamina: wall climbing drains energy. When energy reaches 0, the
+  // blockhead slides down the wall at reduced speed (grip). Ladders/ropes
+  // don't drain stamina (they're easy to climb).
   const isMining = input.mineX >= 0;
+  const pressingLeftWall = input.left && wallLeft;
+  const pressingRightWall = input.right && wallRight;
+  const pressingIntoFgWall = pressingLeftWall || pressingRightWall;
   let climbingStaminaDrain = 0; // energy/sec to drain this tick
 
   if (onLadder) {
@@ -503,8 +512,10 @@ export function updateBlockhead(
       // AI mining: hold position on wall to work on the target block.
       bh.vy = 0;
       climbingStaminaDrain = WALL_HOLD_STAMINA;
-    } else if (input.up && bh.energy > 0) {
-      // Wall climbing up — only when the player jumps and presses up.
+    } else if (bh.energy > 0 && (input.up || pressingIntoFgWall)) {
+      // Wall climbing up.
+      // Foreground wall: triggered by pressing up OR pressing into the wall.
+      // Back wall: triggered only by pressing up (prevents accidental sticking).
       if (wallLeft || wallRight) {
         bh.vy = -WALL_CLIMB_SPEED;
         climbingStaminaDrain = WALL_CLIMB_STAMINA;
@@ -517,7 +528,7 @@ export function updateBlockhead(
       bh.vy += GRAVITY * 0.4;
       if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
     } else {
-      // Not pressing up — fall normally (no sticking to walls)
+      // Not pressing up or into a foreground wall — fall normally.
       bh.vy += GRAVITY;
       if (bh.vy > MAX_FALL) bh.vy = MAX_FALL;
     }
@@ -586,12 +597,12 @@ export function updateBlockhead(
   // When the blockhead was wall-climbing and has reached the top of the wall
   // (no longer adjacent to a wall, but there's a ledge to stand on), initiate
   // a smooth mantle animation that vaults the blockhead onto the ledge.
-  // Activates when pressing up (the only way to wall-climb now).
+  // Activates when pressing up or pressing into a foreground wall.
   // Prioritize the direction the player is pressing.
   // Skip mantling while mining or placing — the blockhead should hold its
   // climbing position to work on the target block, not vault onto it.
   const isPlacing = input.placeX >= 0;
-  if (!bh.onGround && input.up && !onLadder && !inLiquid
+  if (!bh.onGround && (input.up || pressingIntoFgWall) && !onLadder && !inLiquid
       && !isMining && !isPlacing) {
     const mantleLeft = canMantle(bh.x, bh.y, fg, -1);
     const mantleRight = canMantle(bh.x, bh.y, fg, +1);
@@ -625,10 +636,11 @@ export function updateBlockhead(
 
   // --- Animation state ---
   const moving = Math.abs(bh.vx) > 0.05;
-  // Show climb animation only when actively climbing (pressing up) or
-  // holding position to mine — not just when adjacent to a wall.
+  // Show climb animation only when actively climbing (pressing up or into a
+  // foreground wall) or holding position to mine — not just when adjacent
+  // to a wall.
   const wallClimbing = !bh.onGround && (wallLeft || wallRight || onBackWall)
-    && bh.energy > 0 && (input.up || isMining);
+    && bh.energy > 0 && (input.up || pressingIntoFgWall || isMining);
   if (onLadder && (input.up || input.down)) {
     bh.animState = "climb";
   } else if (wallClimbing) {

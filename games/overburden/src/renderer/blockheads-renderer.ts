@@ -60,11 +60,24 @@ export class BlockheadsRenderer {
   private running = false;
   private raf = 0;
   private lastTime = 0;
-  // Cached origin (read atomically with the tick to avoid race conditions
-  // where the worker updates the origin between camera positioning and
-  // grid rebuild — which would cause a 1-frame flash on chunk boundaries).
+  // Cached sim-SAB origin (read atomically with the sim tick). Used ONLY for
+  // computing the player's continuous world position from the blockhead's
+  // active-grid coords in the sim SAB. The blockhead position in the sim SAB
+  // is relative to the sim SAB origin, so this is the correct origin for
+  // world-position interpolation.
   private cachedOriginCx = 0;
   private cachedOriginCy = 0;
+  // Render-SAB origin (read alongside the render build tick). This is the
+  // origin that matches the grid data currently on the GPU. Used for all
+  // world→active-grid conversions (camera, shader texture origin, stickman
+  // local position, input raycast→world). Using the render origin instead of
+  // the sim origin eliminates the chunk-boundary flash: when the sim origin
+  // advances (player crossed a boundary) but the grid-builder hasn't
+  // published the matching grid data yet, the camera stays at the old
+  // active-grid position — matching the old grid data on the GPU — instead
+  // of jumping one chunk ahead.
+  private renderOriginCx = 0;
+  private renderOriginCy = 0;
   private debugNoShadows = false;
   private frameCount = 0;
   private fps = 0;
@@ -482,6 +495,8 @@ export class BlockheadsRenderer {
     this.lastMarkerBuildTick = RENDER_TICK_SENTINEL;
     this.cachedOriginCx = 0;
     this.cachedOriginCy = 0;
+    this.renderOriginCx = 0;
+    this.renderOriginCy = 0;
     this.camWorldInit = false;
     this.interpInit = false;
     this.lastTick = -1;
@@ -588,20 +603,18 @@ export class BlockheadsRenderer {
     // Handle camera panning (middle-mouse drag).
     // Panning detaches the camera from the player. The camera stays
     // detached after releasing the mouse until the user re-attaches it.
+    // Uses the render origin (matches the grid data on the GPU) for
+    // world↔active-grid conversion so panning stays consistent with
+    // what the user sees.
     if (this.input.panning) {
       if (!this.camera.isPanning()) {
-        // Initialize pan from current world position
-        const ocx = this.simReader.getOriginCx();
-        const ocy = this.simReader.getOriginCy();
         this.camera.startPan(this.input.panStartX, this.input.panStartY);
         this.camera.detached = true;
       }
       this.camera.updatePan(this.input.mouseX, this.input.mouseY);
       // Sync world position from active-grid position after pan update
-      const ocx = this.simReader.getOriginCx();
-      const ocy = this.simReader.getOriginCy();
-      this.camWorldX = this.camera.x + ocx * CHUNK_W;
-      this.camWorldY = this.camera.y + ocy * CHUNK_H;
+      this.camWorldX = this.camera.x + this.renderOriginCx * CHUNK_W;
+      this.camWorldY = this.camera.y + this.renderOriginCy * CHUNK_H;
       this.camWorldInit = true;
     } else if (this.camera.isPanning()) {
       this.camera.endPan();
@@ -619,10 +632,8 @@ export class BlockheadsRenderer {
         // Move in world coords so origin shifts don't cause jumps
         this.camWorldX += dx;
         this.camWorldY += dy;
-        const ocx = this.simReader.getOriginCx();
-        const ocy = this.simReader.getOriginCy();
-        this.camera.x = this.camWorldX - ocx * CHUNK_W;
-        this.camera.y = this.camWorldY - ocy * CHUNK_H;
+        this.camera.x = this.camWorldX - this.renderOriginCx * CHUNK_W;
+        this.camera.y = this.camWorldY - this.renderOriginCy * CHUNK_H;
       }
     }
   }
@@ -661,10 +672,8 @@ export class BlockheadsRenderer {
       const inspectGrid = this.screenToGrid3D(this.input.inspectClickX, this.input.inspectClickY);
       const ax = Math.floor(inspectGrid.x);
       const ay = Math.floor(inspectGrid.y);
-      const ocx = this.simReader.getOriginCx();
-      const ocy = this.simReader.getOriginCy();
-      const worldX = ax + ocx * CHUNK_W;
-      const worldY = ay + ocy * CHUNK_H;
+      const worldX = ax + this.renderOriginCx * CHUNK_W;
+      const worldY = ay + this.renderOriginCy * CHUNK_H;
       if (ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H) {
         const cellIdx = ay * ACTIVE_GRID_W + ax;
         const fgId = this.simReader.foreground[cellIdx] & 0xFF;
@@ -720,10 +729,8 @@ export class BlockheadsRenderer {
     if (this.input.taskMode && this.input.taskClickPending) {
       this.input.taskClickPending = false;
       const clickGrid = this.screenToGrid3D(this.input.taskClickX, this.input.taskClickY);
-      const originCx = this.simReader.getOriginCx();
-      const originCy = this.simReader.getOriginCy();
-      const worldX = Math.floor(clickGrid.x + originCx * 64);
-      const worldY = Math.floor(clickGrid.y + originCy * 64);
+      const worldX = Math.floor(clickGrid.x + this.renderOriginCx * 64);
+      const worldY = Math.floor(clickGrid.y + this.renderOriginCy * 64);
       const action: "mine" | "move" = this.input.taskClickButton === 2 ? "move" : "mine";
       const markerGX = Math.floor(clickGrid.x);
       const markerGY = Math.floor(clickGrid.y);
@@ -769,11 +776,13 @@ export class BlockheadsRenderer {
     // Write input to SAB
     const inp = this.simReader.inputInt32;
     const inpF = this.simReader.inputF32;
-    // Convert active grid coords to world coords for the worker
-    const originCx = this.simReader.getOriginCx();
-    const originCy = this.simReader.getOriginCy();
-    const worldX = grid.x + originCx * 64;
-    const worldY = grid.y + originCy * 64;
+    // Convert active grid coords to world coords for the worker.
+    // Uses the render origin (matches the grid data the user sees) so
+    // mining/placing targets the cell the user clicked on, even during
+    // the brief window where the sim origin has advanced but the
+    // grid-builder hasn't published the matching grid data yet.
+    const worldX = grid.x + this.renderOriginCx * 64;
+    const worldY = grid.y + this.renderOriginCy * 64;
     // When camera is detached, WASD moves the camera (handled above),
     // so suppress movement input to the worker.
     const movementActive = this.camera.detached ? 0 : 1;
@@ -808,6 +817,36 @@ export class BlockheadsRenderer {
     const now = performance.now();
     const elapsed = now - this.lastTime;
     this.lastTime = now;
+
+    // --- Render SAB: check for new grid-builder build + cache render origin ---
+    // This MUST happen before processCameraInput() and camera positioning so
+    // that renderOriginCx/Cy (the origin matching the grid data on the GPU) is
+    // available for all world→active-grid conversions this frame. The grid
+    // data upload (writeTexture/writeBuffer) is also queued here — it just
+    // copies into the GPU command queue, so doing it early is fine.
+    //
+    // Using the render origin (not the sim SAB origin) for camera/shader/
+    // stickman/input positioning eliminates the chunk-boundary flash: when
+    // the sim origin advances (player crossed a boundary) but the
+    // grid-builder hasn't published the matching grid data yet, the camera
+    // stays at the old active-grid position — matching the old grid data on
+    // the GPU — instead of jumping one chunk ahead.
+    if (this.gridBuilderHost) {
+      const renderReader = this.gridBuilderHost.getReader();
+      const buildTick = renderReader.getBuildTick();
+      if (buildTick !== this.lastBuildTick) {
+        this.lastBuildTick = buildTick;
+        // Cache the render origin (matches the grid data in this build).
+        // Safe to read after getBuildTick() returned an advanced tick — the
+        // atomic tick load (acquire) orders these reads after the writer's
+        // release store.
+        this.renderOriginCx = renderReader.getOriginCx();
+        this.renderOriginCy = renderReader.getOriginCy();
+        this.blockGridPass.updateGridFromBuffer(renderReader);
+        this.blockGridPass.updateLightFromBuffer(renderReader);
+        this.blockGridPass.updateExploredFromBuffer(renderReader);
+      }
+    }
 
     // Process camera-related input (zoom, pan, detached WASD) early so the
     // camera position + viewProj matrix reflect the current frame's input
@@ -884,11 +923,12 @@ export class BlockheadsRenderer {
     // When detached: camera stays at a fixed world position (tracked in world
     // coords so chunk-origin shifts don't cause teleportation). Each frame
     // we convert the world position to active-grid coords for rendering.
+    // Uses the render origin (matches the grid data on the GPU) so the
+    // camera stays aligned with the displayed grid during chunk-boundary
+    // crossings.
     if (this.simReader) {
-      // Use cached origin (read atomically with the tick) to avoid
-      // race conditions with the worker updating the SAB mid-frame.
-      const originCx = this.cachedOriginCx;
-      const originCy = this.cachedOriginCy;
+      const originCx = this.renderOriginCx;
+      const originCy = this.renderOriginCy;
 
       if (!this.camera.detached) {
         // Attached: follow the player
@@ -931,26 +971,12 @@ export class BlockheadsRenderer {
     const daylight = this.simReader ? this.simReader.getDaylight() : 15;
     const daylightNorm = daylight / 15; // 0..1 for shader
 
-    // Upload grid data from the render SAB (pre-built by the grid-builder
-    // worker). The worker continuously builds instance data + padded textures
-    // off the main thread; we just check if a new build is ready and upload
-    // it to the GPU. This eliminates the ~10ms O(W×H) instance-building loop
-    // that previously ran on the main thread every sim tick.
-    if (this.gridBuilderHost) {
-      const renderReader = this.gridBuilderHost.getReader();
-      const buildTick = renderReader.getBuildTick();
-      if (buildTick !== this.lastBuildTick) {
-        this.lastBuildTick = buildTick;
-        this.blockGridPass.updateGridFromBuffer(renderReader);
-        this.blockGridPass.updateLightFromBuffer(renderReader);
-        this.blockGridPass.updateExploredFromBuffer(renderReader);
-      }
-    }
-
-    // Origin for texture stability (uses cached origin to stay consistent
-    // with the grid data).
-    const originX = this.cachedOriginCx * CHUNK_W;
-    const originY = this.cachedOriginCy * CHUNK_H;
+    // Origin for texture stability (uses the render origin to stay consistent
+    // with the grid data on the GPU — the shader adds this to gridCoords to
+    // produce world-aligned UVs for stable procedural texturing across
+    // chunk-boundary crossings).
+    const originX = this.renderOriginCx * CHUNK_W;
+    const originY = this.renderOriginCy * CHUNK_H;
 
     // Ensure depth texture matches canvas size (device pixels, not CSS)
     this.blockGridPass.ensureDepthTexture(this.canvas.width, this.canvas.height);
@@ -986,10 +1012,13 @@ export class BlockheadsRenderer {
       const bhCount = this.simReader.getBlockheadCount();
       if (bhCount > 0) {
         const bh = this.simReader.getBlockhead(0);
-        // Convert interpolated world position → active-grid coords for rendering
-        // Use cached origin for consistency with the grid data.
-        const localX = this.interpWorldX - this.cachedOriginCx * CHUNK_W;
-        const localY = this.interpWorldY - this.cachedOriginCy * CHUNK_H;
+        // Convert interpolated world position → active-grid coords for rendering.
+        // Uses the render origin (matches the grid data on the GPU) so the
+        // stickman stays aligned with the terrain during chunk-boundary
+        // crossings. The world position itself comes from the sim SAB origin
+        // (cachedOriginCx/Cy) — see the interpolation block above.
+        const localX = this.interpWorldX - this.renderOriginCx * CHUNK_W;
+        const localY = this.interpWorldY - this.renderOriginCy * CHUNK_H;
         this.stickmanPass.update3D(
           localX, localY,
           bh[4], // facing

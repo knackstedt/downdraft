@@ -14,9 +14,9 @@
 //
 // Fruits and seeds are spinning 2D world drop entities (rendered by DropPass),
 // NOT foreground blocks. They hang on tree leaves, then fall via the drop
-// physics system. Fruit is pick-uppable by proximity (the drop pickup system
-// handles this). Seeds are NOT pick-uppable — they auto-plant when they land
-// on valid ground.
+// physics system. Both fruit and seeds are pick-uppable by proximity (the
+// drop pickup system handles this). Seeds that aren't picked up auto-plant
+// when they land on valid ground.
 //
 // Saplings are background blocks (like adult trees) that grow into wood +
 // leaves. The species is encoded in the vfx plane.
@@ -53,7 +53,7 @@ const SAPLING_CURRENT_MASK = 0xF;
 const SAPLING_DAYS_SHIFT = 12;
 const SAPLING_DAYS_MASK = 0xFF;
 
-function packSaplingVfx(speciesIdx: number, targetH: number, currentH: number, days: number): number {
+export function packSaplingVfx(speciesIdx: number, targetH: number, currentH: number, days: number): number {
   return (speciesIdx & SAPLING_SPECIES_MASK) |
     ((targetH & SAPLING_TARGET_MASK) << SAPLING_TARGET_SHIFT) |
     ((currentH & SAPLING_CURRENT_MASK) << SAPLING_CURRENT_SHIFT) |

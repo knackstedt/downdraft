@@ -35,6 +35,7 @@ import {
     BLOCK_METALWORK_BENCH,
     BLOCK_ROPE,
     BLOCK_SAND,
+    BLOCK_SAPLING,
     BLOCK_SCAFFOLDING,
     BLOCK_STONE,
     BLOCK_TAILOR_BENCH,
@@ -45,7 +46,7 @@ import {
     BLOCK_VINE_KIWI,
     BLOCK_WOOD,
     BLOCK_WOODWORK_BENCH,
-    BLOCK_WORKBENCH,
+    BLOCK_WORKBENCH
 } from "./constants";
 
 export type ItemCategory = "block" | "material" | "tool" | "food";
@@ -168,6 +169,11 @@ const DEFS: ItemDef[] = [
   { id: "seed_wheat", name: "Wheat Seeds", category: "material", placeBlock: BLOCK_CROP_SEED_WHEAT, maxStack: 64 },
   { id: "spore_brown_mushroom", name: "Brown Mushroom Spores", category: "material", placeBlock: BLOCK_CROP_SEED_BROWN_MUSHROOM, maxStack: 64 },
   { id: "spore_red_mushroom", name: "Red Mushroom Spores", category: "material", placeBlock: BLOCK_CROP_SEED_RED_MUSHROOM, maxStack: 64 },
+
+  // --- Tree seed (placeable — placing on grass/dirt plants a sapling) ---
+  // Picked up from tree seed drops. A random species is chosen when planted
+  // (the species of the source tree is not preserved through the inventory).
+  { id: "seed", name: "Tree Seed", category: "material", placeBlock: BLOCK_SAPLING, maxStack: 64 },
 
   // --- Crop foods ---
   { id: "tomato", name: "Tomato", category: "food", placeBlock: 0, maxStack: 16, hungerRestore: 10 },
