@@ -16,9 +16,6 @@
 
 
 # Ideas for demo games
-- physics sim
-- simple fishing game
-- simple plinko game
 - gang beasts style physics game (water, sand, etc)
 - spider solitaire (+w/ falling sand animation?)
 
