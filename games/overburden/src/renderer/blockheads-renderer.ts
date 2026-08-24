@@ -15,17 +15,19 @@ import {
     BLOCK_WOOD,
     CHUNK_H, CHUNK_W, TICK_MS
 } from "../shared/constants";
+import { isCropBlock, isWildCropBlock } from "../shared/crops";
 import { getItemDef } from "../shared/items";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { isTreeBlock } from "../shared/tree-species";
 import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
 import { BlockGridPass3D } from "./block-grid-pass-3d";
 import { Camera } from "./camera";
+import { CropSpritePass } from "./crop-sprite-pass";
 import { DropPass, type DropRenderData } from "./drop-pass";
 import {
     createInputHandler, type BlockheadsInputState,
 } from "./input-handler";
-import { invert, rayToZ0, unprojectScreen } from "./matrix";
+import { invert, raycastGridSlab, rayToZ0, unprojectScreen } from "./matrix";
 import { SkyPass } from "./sky-pass";
 import { StickmanPass } from "./stickman-pass";
 import { TaskMarkerPass, type MarkerData } from "./task-marker-pass";
@@ -77,6 +79,7 @@ export class BlockheadsRenderer {
   private skyPass: SkyPass | null = null;
   private taskMarkerPass: TaskMarkerPass | null = null;
   private dropPass: DropPass | null = null;
+  private cropSpritePass: CropSpritePass | null = null;
 
   // Camera
   camera: Camera;
@@ -244,6 +247,9 @@ export class BlockheadsRenderer {
     this.dropPass = new DropPass(this.device, this.format);
     this.dropPass.init();
 
+    this.cropSpritePass = new CropSpritePass(this.device, this.format);
+    this.cropSpritePass.init();
+
     // Start the sim worker
     this.workerHost = new BlockheadsWorkerHost();
     this.simReader = new SimBufferReader(this.workerHost.getSimBuffer() as ArrayBufferLike);
@@ -392,6 +398,7 @@ export class BlockheadsRenderer {
     this.skyPass?.destroy();
     this.taskMarkerPass?.destroy();
     this.dropPass?.destroy();
+    this.cropSpritePass?.destroy();
     await this.workerHost?.shutdown();
   }
 
@@ -413,6 +420,13 @@ export class BlockheadsRenderer {
     if (this.dropPass && this.blockGridPass) {
       this.dropPass.update(this.blockGridPass.getViewProj(), this.camera.canvasW, this.camera.canvasH, []);
     }
+    // Clear crop sprites (worker already reset the grid)
+    if (this.cropSpritePass && this.blockGridPass) {
+      this.cropSpritePass.update(
+        this.blockGridPass.getViewProj(), this.camera.canvasW, this.camera.canvasH,
+        new Uint16Array(0), 0, 0,
+      );
+    }
     this.lastSimTick = -1;
     this.cachedOriginCx = 0;
     this.cachedOriginCy = 0;
@@ -430,7 +444,85 @@ export class BlockheadsRenderer {
     return { ok: true };
   }
 
-  private updateInput(): void {
+  /**
+   * Convert screen pixel coords to active-grid coords using a 3D raycast
+   * against the actual rendered cube geometry.
+   *
+   * The scene has four depth layers (front→back):
+   *   FG front  Z=[ 0,  1]  ← foreground grid
+   *   FG back   Z=[-1,  0]  ← foreground grid (same cell, rendered at Z=-1)
+   *   BG main   Z=[-2, -1]  ← background grid (trees + terrain)
+   *   BG wall   Z=[-3, -2]  ← background grid (terrain only, no trees)
+   *
+   * A naive Z=1 plane intersection only works for the FG front face. When the
+   * foreground is empty, the user sees background blocks at Z=-1 (front face
+   * of BG main). The perspective shift between Z=1 and Z=-1 is ~2× larger
+   * than between Z=0 and Z=1, so the Z=1 fallback selects a cell that's off
+   * by 1+ cells near screen edges.
+   *
+   * This method marches a 2D DDA through the FG slab (Z=[1, -1]) first, then
+   * the BG slab (Z=[-1, -3]), returning the first solid cube hit. If nothing
+   * is hit (clicking empty space for placement), it falls back to the Z=1
+   * plane intersection.
+   */
+  private screenToGrid3D(screenX: number, screenY: number): { x: number; y: number } {
+    const vp = this.blockGridPass?.getViewProj();
+    if (!vp) return this.camera.screenToGrid(screenX, screenY);
+    const invVP = invert(vp);
+    if (!invVP) return this.camera.screenToGrid(screenX, screenY);
+
+    const ray = unprojectScreen(
+      screenX, screenY,
+      this.camera.canvasW, this.camera.canvasH,
+      invVP,
+    );
+
+    const fg = this.simReader!.foreground;
+    const bg = this.simReader!.background;
+
+    // Crops/wild crops are rendered as 2D sprites, not cubes — exclude them
+    // from the solid test so clicking a crop falls through to the plane.
+    const isFgSolid = (cx: number, cy: number) => {
+      const id = fg[cy * ACTIVE_GRID_W + cx] & 0xFF;
+      return id !== BLOCK_AIR && !isCropBlock(id) && !isWildCropBlock(id);
+    };
+    // Background: trees ARE solid cubes in the BG main layer (Z=-2).
+    const isBgSolid = (cx: number, cy: number) => {
+      const id = bg[cy * ACTIVE_GRID_W + cx] & 0xFF;
+      return id !== BLOCK_AIR && !isCropBlock(id) && !isWildCropBlock(id);
+    };
+
+    // 1) Foreground slab: Z=[1, -1] (front face at Z=1, back face at Z=-1)
+    const fgHit = raycastGridSlab(
+      ray.origin, ray.dir,
+      1.0, -1.0,
+      ACTIVE_GRID_W, ACTIVE_GRID_H,
+      isFgSolid,
+    );
+    if (fgHit) return fgHit;
+
+    // 2) Background slab: Z=[-1, -3] (front face at Z=-1, back face at Z=-3)
+    const bgHit = raycastGridSlab(
+      ray.origin, ray.dir,
+      -1.0, -3.0,
+      ACTIVE_GRID_W, ACTIVE_GRID_H,
+      isBgSolid,
+    );
+    if (bgHit) return bgHit;
+
+    // 3) Nothing hit — fall back to Z=1 plane for placement in empty space
+    const plane = rayToZ0(ray.origin, ray.dir);
+    return plane ?? { x: this.camera.x, y: this.camera.y };
+  }
+
+  /**
+   * Process camera-related input (zoom, pan, detached WASD movement).
+   * Called early in the frame, BEFORE the camera position is updated from
+   * the interpolated player position and BEFORE updateCamera() computes the
+   * view-projection matrix. This ensures the viewProj reflects the current
+   * frame's camera state when the raycast runs.
+   */
+  private processCameraInput(): void {
     if (!this.input || !this.simReader) return;
 
     // Handle zoom — dynamic zoom with scroll wheel.
@@ -480,26 +572,14 @@ export class BlockheadsRenderer {
         this.camera.y = this.camWorldY - ocy * CHUNK_H;
       }
     }
+  }
+
+  private updateInput(): void {
+    if (!this.input || !this.simReader) return;
 
     // Convert mouse screen coords to active-grid coords using 3D ray-cast.
     let grid: { x: number; y: number };
-    const vp = this.blockGridPass?.getViewProj();
-    if (vp) {
-      const invVP = invert(vp);
-      if (invVP) {
-        const ray = unprojectScreen(
-          this.input.mouseX, this.input.mouseY,
-          this.camera.canvasW, this.camera.canvasH,
-          invVP,
-        );
-        const hit = rayToZ0(ray.origin, ray.dir);
-        grid = hit ?? { x: this.camera.x, y: this.camera.y };
-      } else {
-        grid = this.camera.screenToGrid(this.input.mouseX, this.input.mouseY);
-      }
-    } else {
-      grid = this.camera.screenToGrid(this.input.mouseX, this.input.mouseY);
-    }
+    grid = this.screenToGrid3D(this.input.mouseX, this.input.mouseY);
 
     // --- Debug cell inspect (F6): log the 4 render depth layers at the clicked cell ---
     // Layers mirror block-grid-pass-3d.ts's 4-layer depth system:
@@ -510,23 +590,7 @@ export class BlockheadsRenderer {
     // Each entry is a slim summary (kind + basic metadata) or null for air/empty.
     if (this.input.inspectClickPending) {
       this.input.inspectClickPending = false;
-      let inspectGrid: { x: number; y: number };
-      if (vp) {
-        const invVP = invert(vp);
-        if (invVP) {
-          const ray = unprojectScreen(
-            this.input.inspectClickX, this.input.inspectClickY,
-            this.camera.canvasW, this.camera.canvasH,
-            invVP,
-          );
-          const hit = rayToZ0(ray.origin, ray.dir);
-          inspectGrid = hit ?? { x: this.camera.x, y: this.camera.y };
-        } else {
-          inspectGrid = this.camera.screenToGrid(this.input.inspectClickX, this.input.inspectClickY);
-        }
-      } else {
-        inspectGrid = this.camera.screenToGrid(this.input.inspectClickX, this.input.inspectClickY);
-      }
+      const inspectGrid = this.screenToGrid3D(this.input.inspectClickX, this.input.inspectClickY);
       const ax = Math.floor(inspectGrid.x);
       const ay = Math.floor(inspectGrid.y);
       const ocx = this.simReader.getOriginCx();
@@ -573,23 +637,7 @@ export class BlockheadsRenderer {
     // --- Task mode: handle clicks to queue tasks ---
     if (this.input.taskMode && this.input.taskClickPending) {
       this.input.taskClickPending = false;
-      let clickGrid: { x: number; y: number };
-      if (vp) {
-        const invVP = invert(vp);
-        if (invVP) {
-          const ray = unprojectScreen(
-            this.input.taskClickX, this.input.taskClickY,
-            this.camera.canvasW, this.camera.canvasH,
-            invVP,
-          );
-          const hit = rayToZ0(ray.origin, ray.dir);
-          clickGrid = hit ?? { x: this.camera.x, y: this.camera.y };
-        } else {
-          clickGrid = this.camera.screenToGrid(this.input.taskClickX, this.input.taskClickY);
-        }
-      } else {
-        clickGrid = this.camera.screenToGrid(this.input.taskClickX, this.input.taskClickY);
-      }
+      const clickGrid = this.screenToGrid3D(this.input.taskClickX, this.input.taskClickY);
       const originCx = this.simReader.getOriginCx();
       const originCy = this.simReader.getOriginCy();
       const worldX = Math.floor(clickGrid.x + originCx * 64);
@@ -682,8 +730,10 @@ export class BlockheadsRenderer {
     const elapsed = now - this.lastTime;
     this.lastTime = now;
 
-    // Process input → SAB
-    this.updateInput();
+    // Process camera-related input (zoom, pan, detached WASD) early so the
+    // camera position + viewProj matrix reflect the current frame's input
+    // when the raycast runs later.
+    this.processCameraInput();
 
     // --- Tick-based interpolation (world coords) ---
     // The sim writes positions at 30Hz. We lerp between the previous and
@@ -841,6 +891,14 @@ export class BlockheadsRenderer {
       originY,
     );
 
+    // Process input → SAB (raycast + write mine/place coords).
+    // Called AFTER updateCamera() so the raycast uses the current frame's
+    // viewProj matrix — not the previous frame's stale one. This eliminates
+    // the one-frame offset between what the user sees and where the click
+    // lands, which was most noticeable near screen edges where perspective
+    // amplifies the delta.
+    this.updateInput();
+
     // Update stickman pass with 3D perspective (use smoothed position)
     if (this.simReader && this.stickmanPass) {
       const bhCount = this.simReader.getBlockheadCount();
@@ -931,6 +989,18 @@ export class BlockheadsRenderer {
       }
     }
 
+    // Update crop sprite pass (scan foreground grid for crop/wild blocks)
+    if (this.cropSpritePass && this.blockGridPass && this.simReader) {
+      this.cropSpritePass.update(
+        this.blockGridPass.getViewProj(),
+        this.camera.canvasW,
+        this.camera.canvasH,
+        this.simReader.foreground,
+        ACTIVE_GRID_W,
+        ACTIVE_GRID_H,
+      );
+    }
+
     // Render with depth buffer for 3D occlusion.
     // Wrapped in try/catch because canvas resize (e.g. DevTools toggling)
     // can invalidate the WebGPU surface, causing getCurrentTexture() to
@@ -972,6 +1042,8 @@ export class BlockheadsRenderer {
       }
       // Render task markers on top (no depth, alpha blended)
       this.taskMarkerPass?.render(pass);
+      // Render crop sprites (2D billboarded quads, no depth, on top of terrain)
+      this.cropSpritePass?.render(pass);
       // Render world drops (spinning item quads, no depth, on top)
       this.dropPass?.render(pass);
       pass.end();

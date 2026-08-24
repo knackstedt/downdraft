@@ -212,6 +212,18 @@ export class BlockWorld {
     this.needsRebuild = false;
   }
 
+  /**
+   * Sync the current active grid back to chunk storage, using the CURRENT
+   * active origin. This must be called before saving dirty chunks to OPFS,
+   * because mining/placing/fluid/light/explored all modify the active grid
+   * directly — the chunk arrays stay stale until this sync runs. Without it,
+   * saves write pre-edit chunk data and the player's changes are lost on
+   * reload (unless a chunk-boundary rebuild happened to sync first).
+   */
+  syncActiveForSave(): void {
+    this.syncActiveToChunks(this.activeOriginCx, this.activeOriginCy);
+  }
+
   private syncActiveToChunks(originCx: number, originCy: number): void {
     for (let icy = 0; icy < ACTIVE_GRID_CHUNKS; icy++) {
       for (let icx = 0; icx < ACTIVE_GRID_CHUNKS; icx++) {

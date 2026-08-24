@@ -66,8 +66,11 @@ let stepOnce = false;
 
 // --- Light recompute (event-driven, not per-tick) ---
 // Set to true whenever the grid changes (block edit, emitter change, active
-// grid rebuild) or the daylight integer changes. The recompute runs once per
+// grid rebuild) or the daylight level changes. The recompute runs once per
 // frame at most, only when something actually changed.
+// `lastLightDaylight` tracks the smooth (unrounded) daylight value used for
+// the last recompute, so the light field transitions continuously instead of
+// stepping through 16 integer levels.
 let lightDirty = true;
 let lastLightDaylight = -1;
 
@@ -660,12 +663,14 @@ expose({
   async shutdown(): Promise<void> {
     // Save dirty chunks before shutting down
     if (world) {
+      world.syncActiveForSave();
       await saveDirtyChunks(world.allChunks());
     }
     running = false;
   },
   async saveNow(): Promise<number> {
     if (!world) return 0;
+    world.syncActiveForSave();
     return saveDirtyChunks(world.allChunks());
   },
   setSpeed(speed: number): void {
@@ -1538,11 +1543,13 @@ async function loop(): Promise<void> {
           // Daylight follows a sine wave: starts at noon (full daylight),
           // transitions to night, then back to day.
           // Light propagation is event-driven (not per-tick): mark the field
-          // dirty when the daylight integer changes so it recomputes once.
+          // dirty when the smooth daylight changes so the light field
+          // recomputes with continuous brightness (no integer stepping).
           const dayPhase = (tickCount % 18000) / 18000; // 0..1
           const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5; // 0..1, starts at 1
-          const daylight = Math.round(daylightF * 15);
-          if (daylight !== lastLightDaylight) {
+          const daylightSmooth = daylightF * 15;
+          const daylight = Math.round(daylightSmooth);
+          if (Math.abs(daylightSmooth - lastLightDaylight) > 0.01) {
             lightDirty = true;
           }
 
@@ -1574,18 +1581,26 @@ async function loop(): Promise<void> {
 
         // Write to SAB once per frame
         if (steps > 0 && world && writer) {
-          // Compute current daylight for the header
+          // Compute current daylight for the header.
+          // `daylight` is the integer 0-15 level used by the per-cell light
+          // simulation (Minecraft-style light levels must be integers).
+          // `daylightSmooth` is the unrounded 0-15 value written to the SAB
+          // header so the sky pass can interpolate colors continuously
+          // instead of snapping between 16 discrete states.
           const dayPhase = (tickCount % 18000) / 18000;
           const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5;
-          const daylight = Math.round(daylightF * 15);
+          const daylightSmooth = daylightF * 15;
+          const daylight = Math.round(daylightSmooth);
 
           // Recompute the light field if anything changed since last frame
           // (block edit, emitter change, active-grid rebuild, or daylight
-          // integer change). Runs at most once per frame, only when dirty.
+          // change). Runs at most once per frame, only when dirty.
+          // Uses the smooth (unrounded) daylight so sky-light brightness
+          // transitions continuously instead of stepping through 16 levels.
           if (lightDirty) {
-            recomputeLight(world.activeForeground, world.activeLight, daylight);
+            recomputeLight(world.activeForeground, world.activeLight, daylightSmooth);
             lightDirty = false;
-            lastLightDaylight = daylight;
+            lastLightDaylight = daylightSmooth;
           }
 
           // Compute mining VFX data for the header
@@ -1608,7 +1623,7 @@ async function loop(): Promise<void> {
             world.getActiveOriginCx(),
             world.getActiveOriginCy(),
             blockheads.length,
-            daylight,
+            daylightSmooth,
             mineX,
             mineY,
             mineDamageF,
@@ -1633,6 +1648,11 @@ async function loop(): Promise<void> {
     if (world && !autoSaveInFlight && now - lastSaveTime >= SAVE_INTERVAL_MS) {
       lastSaveTime = now;
       autoSaveInFlight = true;
+      // Sync the active grid back to chunks before saving — mining/placing/
+      // fluid/light/explored all modify the active grid directly, and the
+      // chunk arrays stay stale until a rebuild. Without this sync, saves
+      // write pre-edit chunk data and changes are lost on reload.
+      world.syncActiveForSave();
       saveDirtyChunks(world.allChunks())
         .catch((e) => {
           console.warn("[blockheads-worker] Auto-save failed:", e);
