@@ -170,6 +170,29 @@ function isSupported(fg: Uint16Array, bg: Uint16Array, x: number, y: number): bo
 }
 
 /**
+ * Check if a cell is supported ONLY by a back wall (background block) — no
+ * foreground ground below, no ladder, no adjacent foreground wall, no liquid.
+ * These cells are climbable but slow and stamina-draining. The pathfinder
+ * should charge a high cost for routing through them to prefer ground routes
+ * and avoid climbing trees/walls unnecessarily.
+ */
+function isBackWallOnlySupported(fg: Uint16Array, bg: Uint16Array, x: number, y: number): boolean {
+  // If there's foreground ground below, it's not back-wall-only
+  if (y + 1 < ACTIVE_GRID_H && isSolid(fg[(y + 1) * ACTIVE_GRID_W + x])) return false;
+  // If there's a liquid, it's not back-wall-only
+  if (isLiquid(fg[y * ACTIVE_GRID_W + x])) return false;
+  // If at the bottom of the grid, it's not back-wall-only
+  if (y + 1 >= ACTIVE_GRID_H) return false;
+  // Check what kind of climbing support is available
+  const cell = fg[y * ACTIVE_GRID_W + x];
+  const def = getBlockDef(getBlockFromPacked(cell));
+  if (def?.climbable) return false; // ladder/rope — not back-wall-only
+  if (hasWallAdjacent(fg, x, y)) return false; // foreground wall — not back-wall-only
+  // Only back wall support remains
+  return hasBgBlock(bg, x, y);
+}
+
+/**
  * Compute where the blockhead lands if it falls from cell (x, y).
  * Falls downward through walkable cells until reaching a supported cell.
  * Checks 2-tall clearance (feet at cy, head at cy-1) during the fall.
@@ -190,6 +213,39 @@ function computeFallLanding(fg: Uint16Array, bg: Uint16Array, x: number, y: numb
     cy++;
   }
   return -1;
+}
+
+/**
+ * Check if the blockhead can jump from (x0, y0) to (x1, y1-1) — a diagonal
+ * up move representing jump + horizontal movement. This is used to cross
+ * 2-block-wide holes and step up 1-block ledges without routing through
+ * unsupported intermediate cells.
+ *
+ * Conditions:
+ * - The blockhead is supported at (x0, y0) (on ground)
+ * - The cell above the blockhead (x0, y0-1) is walkable (room to jump)
+ * - The target cell (x1, y1-1) is walkable
+ * - The cell above the target (x1, y1-2) is walkable (room to stand)
+ * - The target is supported (ground at x1, y1)
+ */
+function canJumpUp(
+  fg: Uint16Array, bg: Uint16Array,
+  x0: number, y0: number, x1: number,
+): boolean {
+  if (x1 < 0 || x1 >= ACTIVE_GRID_W) return false;
+  const ty = y0 - 1; // target Y (1 block up)
+  if (ty < 0) return false;
+  // Target cell must be walkable
+  if (!isWalkable(fg[ty * ACTIVE_GRID_W + x1])) return false;
+  // Room to stand at target (head cell walkable, or climbing)
+  if (ty - 1 >= 0 && !isWalkable(fg[(ty - 1) * ACTIVE_GRID_W + x1])) {
+    if (!canClimbAt(fg, bg, x1, ty)) return false;
+  }
+  // Target must be supported (ground below, or climbing)
+  if (!isSupported(fg, bg, x1, ty)) return false;
+  // Room to jump from current (head cell above current must be walkable)
+  if (y0 - 1 >= 0 && !isWalkable(fg[(y0 - 1) * ACTIVE_GRID_W + x0])) return false;
+  return true;
 }
 
 /**
@@ -415,6 +471,23 @@ function findPathMultiGoal(
     if (cy - 1 >= 0) expandNeighbor(fg, bg, cx, cy, cx, cy - 1, current, currentG, goalCoords, wrap);
     // Down (step down — always allowed if walkable, may fall)
     if (cy + 1 < ACTIVE_GRID_H) expandNeighbor(fg, bg, cx, cy, cx, cy + 1, current, currentG, goalCoords, wrap);
+
+    // Jump-move (diagonal up): jump + horizontal movement to cross 2-block
+    // holes and step up 1-block ledges. Only from supported cells (on ground).
+    if (isSupported(fg, bg, cx, cy)) {
+      // Jump up-left
+      let jx = cx - 1;
+      if (jx < 0) jx = wrap ? ACTIVE_GRID_W - 1 : -1;
+      if (jx >= 0 && canJumpUp(fg, bg, cx, cy, jx)) {
+        expandJumpNeighbor(fg, bg, cx, cy, jx, cy - 1, current, currentG, goalCoords, wrap);
+      }
+      // Jump up-right
+      jx = cx + 1;
+      if (jx >= ACTIVE_GRID_W) jx = wrap ? 0 : -1;
+      if (jx >= 0 && canJumpUp(fg, bg, cx, cy, jx)) {
+        expandJumpNeighbor(fg, bg, cx, cy, jx, cy - 1, current, currentG, goalCoords, wrap);
+      }
+    }
   }
 
   return null; // no path
@@ -456,7 +529,13 @@ function expandNeighbor(
   const nIdx = ny * ACTIVE_GRID_W + nx;
   if (closed[nIdx]) return;
 
-  // Cost: 1 for horizontal/walk/fall, 3 for wall/back-wall climbing (up)
+  // Cost model:
+  // - 1 for walking on ground / falling / ladder climbing
+  // - 3 for foreground wall climbing (up)
+  // - 10 for back-wall-only climbing (up or horizontal) — slow, stamina-draining,
+  //   and should only be used when there's no ground route (e.g. reaching a
+  //   tree leaf). Without this, the pathfinder routes through tree trunks
+  //   instead of around them.
   const isVertical = nx === cx;
   let cost = 1;
   if (isVertical && ny < cy) {
@@ -465,9 +544,51 @@ function expandNeighbor(
     const def = getBlockDef(getBlockFromPacked(cell));
     const isLadder = def?.climbable ?? false;
     if (!isLadder) {
-      // Wall or back wall climbing — higher cost (slower movement)
-      cost = 3;
+      // Check if this is back-wall-only (no foreground wall, no ground)
+      if (isBackWallOnlySupported(fg, bg, nx, ny)) {
+        cost = 10; // back-wall climbing — very expensive
+      } else {
+        cost = 3; // foreground wall climbing
+      }
     }
+  } else if (!isVertical && !isUp) {
+    // Horizontal movement through a back-wall-only-supported cell (e.g.
+    // traversing along a tree trunk) — expensive to discourage tree routes.
+    if (isBackWallOnlySupported(fg, bg, nx, ny)) {
+      cost = 8;
+    }
+  }
+  const tentativeG = currentG + cost;
+  if (tentativeG < gScore[nIdx]) {
+    gScore[nIdx] = tentativeG;
+    cameFrom[nIdx] = currentIdx;
+    const f = tentativeG + minHeuristic(nx, ny, goalCoords, wrap);
+    heapPush(nIdx, f);
+  }
+}
+
+/**
+ * Expand a jump-move neighbor (diagonal up: x±1, y-1). The canJumpUp check
+ * was already done by the caller. Cost is 2 (slightly more than walking,
+ * less than wall climbing) — represents a jump + horizontal move.
+ */
+function expandJumpNeighbor(
+  fg: Uint16Array,
+  bg: Uint16Array,
+  cx: number, cy: number,
+  nx: number, ny: number,
+  currentIdx: number,
+  currentG: number,
+  goalCoords: PathNode[],
+  wrap: boolean,
+): void {
+  const nIdx = ny * ACTIVE_GRID_W + nx;
+  if (closed[nIdx]) return;
+  // Check if the target is back-wall-only supported (e.g. jumping onto a
+  // tree trunk) — charge extra to discourage tree routes.
+  let cost = 2;
+  if (isBackWallOnlySupported(fg, bg, nx, ny)) {
+    cost = 10;
   }
   const tentativeG = currentG + cost;
   if (tentativeG < gScore[nIdx]) {

@@ -292,4 +292,164 @@ describe("pathfinding", () => {
     const path = findPathToAdjacent(fg, makeAirBg(), 104, 109, 105, 109, false);
     expect(path).toEqual([]);
   });
+
+  // --- Tree avoidance: pathfinder should prefer ground routes over tree routes ---
+
+  it("prefers ground route around a tree instead of climbing through it", () => {
+    // A tree trunk in the background at x=105, y=100..109. The foreground
+    // is air at the trunk position. The ground floor is at y=110.
+    // The blockhead needs to go from (100, 109) to (110, 109) — straight
+    // line on the ground. The pathfinder should route AROUND the tree
+    // (along the ground) not THROUGH it (climbing up and over).
+    const fg = makeAirGrid();
+    const bg = makeAirBg();
+    setFloor(fg, 95, 115, 110); // continuous ground floor
+    // Tree trunk in background at x=105, y=100..109
+    for (let y = 100; y <= 109; y++) {
+      bg[y * ACTIVE_GRID_W + 105] = BLOCK_WOOD;
+    }
+    // Tree leaves in background at y=99
+    bg[99 * ACTIVE_GRID_W + 105] = BLOCK_LEAVES;
+    bg[99 * ACTIVE_GRID_W + 104] = BLOCK_LEAVES;
+    bg[99 * ACTIVE_GRID_W + 106] = BLOCK_LEAVES;
+
+    // Blockhead at (100, 109), target at (110, 109) — both on the ground
+    const path = findPath(fg, bg, 100, 109, 110, 109, false);
+    expect(path).not.toBeNull();
+    // The path should stay at y=109 (ground level) — not go up to y=99
+    // (tree top). If the path goes through the tree, it would have nodes
+    // at y < 109.
+    for (const node of path!) {
+      expect(node.y).toBe(109); // stays on the ground
+    }
+  });
+
+  it("still routes through a tree when the target is in the tree", () => {
+    // Same tree as above, but the target is a leaf at (105, 99).
+    // The pathfinder should route up the tree to reach the leaf.
+    const fg = makeAirGrid();
+    const bg = makeAirBg();
+    setFloor(fg, 95, 115, 110);
+    for (let y = 100; y <= 109; y++) {
+      bg[y * ACTIVE_GRID_W + 105] = BLOCK_WOOD;
+    }
+    bg[99 * ACTIVE_GRID_W + 105] = BLOCK_LEAVES;
+    bg[99 * ACTIVE_GRID_W + 104] = BLOCK_LEAVES;
+    bg[99 * ACTIVE_GRID_W + 106] = BLOCK_LEAVES;
+
+    // Target: the leaf at (105, 99) in the background
+    const path = findPathToAdjacent(fg, bg, 100, 109, 105, 99, false);
+    expect(path).not.toBeNull();
+    // The path should go up (y < 109) to reach the leaf
+    const last = path![path!.length - 1];
+    const distX = Math.abs(last.x - 105);
+    const distY = Math.abs(last.y - 99);
+    expect(distX <= 1 && distY <= 1).toBe(true);
+  });
+
+  // --- Cliff descent: pathfinder should route off cliffs ---
+
+  it("finds a path down a cliff (fall off edge to lower floor)", () => {
+    // Upper cliff: floor at y=102, x=95..100. Lower floor at y=110, x=95..110.
+    // Blockhead on upper cliff at (100, 101). Target on lower floor at (100, 109).
+    // The blockhead must walk off the right edge of the cliff and fall.
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 100, 102); // upper cliff (ends at x=100)
+    setFloor(fg, 95, 110, 110); // lower floor
+    // Blockhead at (100, 101) on the cliff edge, target at (100, 109) below
+    const path = findPath(fg, makeAirBg(), 100, 101, 100, 109, false);
+    expect(path).not.toBeNull();
+    const last = path![path!.length - 1];
+    expect(last.x).toBe(100);
+    expect(last.y).toBe(109);
+  });
+
+  it("finds a path down a cliff when target is directly below the edge", () => {
+    // Cliff edge at x=100. Blockhead at (98, 101) on the cliff.
+    // Target at (100, 109) — directly below the cliff edge.
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 100, 102); // upper cliff
+    setFloor(fg, 95, 110, 110); // lower floor
+    const path = findPath(fg, makeAirBg(), 98, 101, 100, 109, false);
+    expect(path).not.toBeNull();
+    const last = path![path!.length - 1];
+    expect(last.x).toBe(100);
+    expect(last.y).toBe(109);
+  });
+
+  // --- 2-block hole crossing (jump-move) ---
+
+  it("crosses a 2-block-wide hole in the floor", () => {
+    // Ground floor at y=110 with a 2-block-wide hole at x=105,106.
+    // Bottom of hole at y=111 (solid). Blockhead at (100, 109), target at (110, 109).
+    // The blockhead must either fall in and climb out, or jump across.
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 115, 110); // full floor
+    // Cut a 2-block hole at x=105,106
+    fg[110 * ACTIVE_GRID_W + 105] = BLOCK_AIR;
+    fg[110 * ACTIVE_GRID_W + 106] = BLOCK_AIR;
+    // Bottom of hole (floor at y=111)
+    setFloor(fg, 105, 106, 111);
+    const path = findPath(fg, makeAirBg(), 100, 109, 110, 109, false);
+    expect(path).not.toBeNull();
+    const last = path![path!.length - 1];
+    expect(last.x).toBe(110);
+    expect(last.y).toBe(109);
+  });
+
+  it("crosses a 2-block-wide, 2-block-deep hole in the floor", () => {
+    // Ground floor at y=110 with a 2-block hole at x=105,106.
+    // Bottom of hole at y=112 (2 blocks deep). Blockhead at (100, 109), target at (110, 109).
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 115, 110);
+    fg[110 * ACTIVE_GRID_W + 105] = BLOCK_AIR;
+    fg[110 * ACTIVE_GRID_W + 106] = BLOCK_AIR;
+    fg[111 * ACTIVE_GRID_W + 105] = BLOCK_AIR;
+    fg[111 * ACTIVE_GRID_W + 106] = BLOCK_AIR;
+    setFloor(fg, 105, 106, 112); // bottom of 2-deep hole
+    const path = findPath(fg, makeAirBg(), 100, 109, 110, 109, false);
+    expect(path).not.toBeNull();
+    const last = path![path!.length - 1];
+    expect(last.x).toBe(110);
+    expect(last.y).toBe(109);
+  });
+
+  it("does not route through unsupported cells when crossing a hole", () => {
+    // 2-block hole. The path should NOT include nodes at y=109 above the hole
+    // (unsupported — no ground below). It should either jump across or go
+    // through the bottom of the hole.
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 115, 110);
+    fg[110 * ACTIVE_GRID_W + 105] = BLOCK_AIR;
+    fg[110 * ACTIVE_GRID_W + 106] = BLOCK_AIR;
+    setFloor(fg, 105, 106, 111);
+    const path = findPath(fg, makeAirBg(), 100, 109, 110, 109, false);
+    expect(path).not.toBeNull();
+    // No path node should be at y=109 for x=105 or x=106 (above the hole,
+    // unsupported). Either the path jumps over or goes through the bottom.
+    for (const node of path!) {
+      if (node.x === 105 || node.x === 106) {
+        // Must be at the bottom of the hole (y=110), not at y=109 (unsupported)
+        expect(node.y).not.toBe(109);
+      }
+    }
+  });
+
+  it("finds a path to the bottom of a hole from the top", () => {
+    // Blockhead at the top of a hole, target at the bottom.
+    // Ground at y=110, hole at x=105 (1-block wide, 3-block deep).
+    // Bottom at y=113.
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 115, 110);
+    for (let y = 110; y <= 112; y++) {
+      fg[y * ACTIVE_GRID_W + 105] = BLOCK_AIR;
+    }
+    setFloor(fg, 105, 105, 113); // bottom of hole
+    // Blockhead at (104, 109) next to the hole, target at (105, 112) at the bottom
+    const path = findPath(fg, makeAirBg(), 104, 109, 105, 112, false);
+    expect(path).not.toBeNull();
+    const last = path![path!.length - 1];
+    expect(last.x).toBe(105);
+    expect(last.y).toBe(112);
+  });
 });

@@ -118,6 +118,74 @@ function computeTreeTag(worldX: number, worldY: number): number {
 }
 
 // ============================================================================
+// forceFruitSpawnTick — roll the fruit-spawn dice for all fruit-capable leaves
+// ============================================================================
+// Scans the active grid's background leaf blocks and spawns fruit drop entities
+// with the same 10% chance per leaf as the daily tick, but uses a distinct RNG
+// salt ("force-fruit") so the roll is independent of the daily tick. This is
+// triggered by the F7 debug keybind to immediately populate trees with fruit
+// without waiting for the next daily tick.
+//
+// Only fruiting species (fruitItem !== undefined) are considered. Seeds and
+// sapling growth are NOT triggered — this is fruit-only.
+//
+// @param bg     active background plane (same size)
+// @param tick   current sim tick (used for deterministic RNG)
+// @param W      grid width (ACTIVE_GRID_W)
+// @param H      grid height (ACTIVE_GRID_H)
+// @param drops  drop entity array (fruits are added here)
+// @returns the number of fruit drops spawned
+// ============================================================================
+export function forceFruitSpawnTick(
+  bg: Uint16Array,
+  tick: number,
+  W: number,
+  H: number,
+  drops: TreeDropEntity[],
+): number {
+  let spawned = 0;
+
+  // Build a Set of occupied leaf cells (for O(1) "has drop at" checks).
+  const occupiedCells = new Set<number>();
+  for (const d of drops) {
+    if (d.kind > 0) occupiedCells.add(Math.floor(d.y) * W + Math.floor(d.x));
+  }
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = y * W + x;
+      const bgBlock = bg[idx] & 0xFF;
+      if (!isLeafBlock(bgBlock)) continue;
+
+      const species = getSpeciesByLeafBlock(bgBlock);
+      if (!species || species.fruitItem === undefined) continue;
+
+      // 10% chance per leaf per tick. Uses `tick` (not `day`) as the RNG seed
+      // so each F7 press rolls fresh dice — different leaves pass each time.
+      // The occupiedCells check prevents spawning on leaves that already have
+      // fruit, so multiple presses progressively fill up the tree.
+      const roll = pseudoRandom(x, y, tick, "force-fruit");
+      if (roll <= 0.10 && !occupiedCells.has(idx) && drops.length < 512) {
+        const code = encodeDropItem(species.fruitItem);
+        if (code > 0) {
+          drops.push({
+            x: x + 0.5, y: y + 0.5, vx: 0, vy: 0,
+            spin: pseudoRandom(x, y, tick, "force-fruit-spin") * Math.PI * 2,
+            spinSpeed: 1.5 + pseudoRandom(x, y, tick, "force-fruit-spinspeed") * 2,
+            itemCode: code, count: 1, lifetime: Infinity,
+            onGround: true, kind: 1, speciesIdx: 0, age: 0, fallen: false,
+          });
+          occupiedCells.add(idx);
+          spawned++;
+        }
+      }
+    }
+  }
+
+  return spawned;
+}
+
+// ============================================================================
 // stepTreeDaily — run the daily tree life-cycle simulation
 // ============================================================================
 // Scans the active grid once per in-game day. Does three things:

@@ -43,7 +43,7 @@ export const BLOCKHEADS_SIZE = 4 * BH_STRIDE * MAX_BLOCKHEADS;
 // --- Drop entities (world drops that spin + can be picked up) ---
 // Per drop: x, y, vx, vy, spin, spinSpeed, itemCode, lifetime = 8 floats
 export const DROP_STRIDE = 8;
-export const MAX_DROPS = 128;
+export const MAX_DROPS = 512;
 export const DROPS_OFFSET = BLOCKHEADS_OFFSET + BLOCKHEADS_SIZE;
 export const DROPS_SIZE = 4 * DROP_STRIDE * MAX_DROPS;
 

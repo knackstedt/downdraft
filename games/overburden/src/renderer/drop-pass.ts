@@ -126,7 +126,7 @@ struct VsOut {
   @location(1) edgeDist : f32,
 };
 
-const QUAD_SIZE = 0.4;
+const QUAD_SIZE = 0.6;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsOut {
@@ -139,7 +139,9 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
   );
   let c = corners[vi];
 
-  // Spin: scale X by cos(spin) to simulate Y-axis rotation
+  // Spin: scale X by cos(spin) to simulate Y-axis rotation.
+  // The quad naturally narrows to zero width at 90° and reappears flipped —
+  // this is the correct visual for a spinning item.
   let cosA = cos(drop.spin);
   let rotX = c.x * cosA;
 
@@ -162,7 +164,7 @@ fn fs_main(in : VsOut) -> @location(0) vec4f {
 }
 `;
 
-const MAX_DROP_INSTANCES = 128;
+const MAX_DROP_INSTANCES = 512;
 // Per instance: x, y, spin, r, g, b, pad, pad = 8 floats
 const DROP_INSTANCE_STRIDE = 8;
 
