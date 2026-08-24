@@ -51,6 +51,11 @@ export interface BlockheadsInputState {
   inspectClickPending: boolean;
   inspectClickX: number; // screen pixels
   inspectClickY: number; // screen pixels
+
+  // Debug force fruit spawn (F7): when pressed, rolls the fruit-spawn dice
+  // for all fruit-capable leaf blocks immediately. Consumed once by the
+  // renderer which calls workerHost.forceFruitSpawn().
+  forceFruitSpawnPending: boolean;
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
@@ -80,6 +85,7 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     inspectClickPending: false,
     inspectClickX: 0,
     inspectClickY: 0,
+    forceFruitSpawnPending: false,
   };
 
   const keyMap: Record<string, keyof BlockheadsInputState> = {
@@ -128,6 +134,12 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     else if (e.key === "F6") {
       state.debugInspect = !state.debugInspect;
       console.log(`[Overburden] Cell inspect ${state.debugInspect ? "enabled" : "disabled"} (F6) — click a cell to log its 4 render layers`);
+      e.preventDefault();
+    }
+    // Debug force fruit spawn (F7): roll the fruit-spawn dice for all
+    // fruit-capable leaves immediately (without waiting for the daily tick).
+    else if (e.key === "F7") {
+      state.forceFruitSpawnPending = true;
       e.preventDefault();
     }
   });

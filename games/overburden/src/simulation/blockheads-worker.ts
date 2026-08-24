@@ -21,6 +21,7 @@ import { getItemDef, getItemForBlock } from "../shared/items";
 import { pseudoRandom } from "../shared/pseudo-random";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
 import {
+    MAX_DROPS as SAB_MAX_DROPS,
     SimBufferWriter,
 } from "../shared/sim-buffer";
 import { getStationByBlock, getStationByType } from "../shared/stations";
@@ -43,7 +44,7 @@ import { recomputeLight } from "./light-sim";
 import { getSeason } from "./season-system";
 import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
 import { fellTree } from "./tree-fell";
-import { stepTreeDaily } from "./tree-sim";
+import { forceFruitSpawnTick, stepTreeDaily } from "./tree-sim";
 import { stepVineGrowth } from "./vine-sim";
 
 const events = exposeEvents();
@@ -219,8 +220,27 @@ function updateDrops(dt: number): void {
       }
     }
 
+    // Tree fruits/seeds that haven't fallen yet are stationary on the tree.
+    // They hang motionless (no physics) until stepTreeDaily sets fallen=true.
+    // Without this, the ground-collision check below would find no solid
+    // foreground block (trees are in the background), set onGround=false, and
+    // the fruit would immediately fall through the world.
+    if (d.kind > 0 && !d.fallen) {
+      d.spin += d.spinSpeed * dt;
+      // Pickup: fruits (kind=1) are pick-uppable by proximity (no pickup delay).
+      if (bh && inv && d.kind === 1) {
+        const dx = d.x - bhCx;
+        const dy = d.y - bhCy;
+        if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
+          const itemId = decodeDropItem(d.itemCode);
+          if (itemId) inv.add(itemId, d.count);
+          drops.splice(i, 1);
+        }
+      }
+      continue; // skip physics entirely
+    }
+
     // Physics: gravity + collision with solid foreground blocks
-    // Tree fruits/seeds on the tree (onGround=true, fallen=false) are stationary
     if (!d.onGround) {
       d.vy += DROP_GRAVITY;
       if (d.vy > DROP_MAX_FALL) d.vy = DROP_MAX_FALL;
@@ -287,8 +307,10 @@ function updateDrops(dt: number): void {
 /** Write drop entities to the SAB for the renderer. */
 function writeDropsToSab(): void {
   if (!writer) return;
-  const count = Math.min(drops.length, MAX_DROPS);
-  const data = new Float32Array(MAX_DROPS * 8);
+  // The SAB has a fixed-size drop region (SAB_MAX_DROPS = 512). The worker
+  // can hold up to 512 drops, all of which fit in the SAB.
+  const count = Math.min(drops.length, SAB_MAX_DROPS);
+  const data = new Float32Array(SAB_MAX_DROPS * 8);
   for (let i = 0; i < count; i++) {
     const d = drops[i];
     const off = i * 8;
@@ -681,6 +703,21 @@ expose({
     paused = false;
     lastTick = performance.now();
     tickAccumulator = 0;
+  },
+
+  // Debug: force a fruit spawn tick (F7 keybind). Rolls the fruit-spawn dice
+  // for all fruit-capable leaf blocks immediately, without waiting for the
+  // daily tick. Returns the number of fruit drops spawned.
+  forceFruitSpawn(): number {
+    if (!world) return 0;
+    const spawned = forceFruitSpawnTick(
+      world.activeBackground, tickCount,
+      ACTIVE_GRID_W, ACTIVE_GRID_H, drops,
+    );
+    // Write drops to SAB immediately so they appear even if the sim loop
+    // hasn't ticked yet (e.g. paused or between frames).
+    writeDropsToSab();
+    return spawned;
   },
 
   getStats(): { fps: number; tick: number; frame: number } {
@@ -1627,6 +1664,8 @@ async function loop(): Promise<void> {
             mineX,
             mineY,
             mineDamageF,
+            0, // selectedSlot (renderer-managed)
+            Math.min(drops.length, SAB_MAX_DROPS),
           );
         }
       }

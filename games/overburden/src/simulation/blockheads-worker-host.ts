@@ -43,6 +43,7 @@ type BlockheadsWorkerApi = {
   saveNow(): Promise<number>;
   setSpeed(speed: number): Promise<void>;
   step(): Promise<void>;
+  forceFruitSpawn(): Promise<number>;
   getStats(): Promise<{ fps: number; tick: number; frame: number }>;
   setFocus(x: number, y: number): Promise<void>;
   setBlock(x: number, y: number, blockId: number): Promise<void>;
@@ -128,6 +129,10 @@ export class BlockheadsWorkerHost {
 
   async setSpeed(speed: number): Promise<void> {
     await this.proxy?.proxy.setSpeed(speed);
+  }
+
+  async forceFruitSpawn(): Promise<number> {
+    return await this.proxy?.proxy.forceFruitSpawn() ?? 0;
   }
 
   async shutdown(): Promise<void> {

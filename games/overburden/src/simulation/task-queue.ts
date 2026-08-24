@@ -434,6 +434,49 @@ export function executeTask(
   return null;
 }
 
+/** Type of movement needed to reach the next path node. */
+type MoveType = "walk" | "jump" | "fall" | "climb" | "step-up";
+
+/**
+ * Classify the movement needed to go from the blockhead's current position
+ * to the next path node, based on the relative position and the previous
+ * path node (to detect jump-moves across gaps).
+ */
+function classifyMove(
+  bh: BlockheadState,
+  prevNode: PathNode | null,
+  node: PathNode,
+): MoveType {
+  const bhCx = bh.x + 0.5;
+  const bhCy = bh.y + 1.0;
+  const dx = node.x - bhCx;
+  const dy = node.y - bhCy;
+
+  // Target is above
+  if (dy < -0.5) {
+    // If the horizontal distance is > 1.5, it's a jump-move (diagonal up)
+    if (Math.abs(dx) > 1.5) return "jump";
+    // If 1 block up and close horizontally, it's a step-up
+    if (dy > -1.5) return "step-up";
+    // Higher than 1 block — wall/back-wall climbing
+    return "climb";
+  }
+
+  // Target is below
+  if (dy > 1.5) {
+    // If the horizontal distance is > 1.5, it's a fall + horizontal move
+    if (Math.abs(dx) > 1.5) return "fall";
+    // Directly below — fall off edge
+    return "fall";
+  }
+
+  // Target is roughly same height
+  // If horizontal distance is > 1.5, it's a jump-move across a gap
+  if (Math.abs(dx) > 1.5) return "jump";
+
+  return "walk";
+}
+
 /**
  * Path to a target using A*, then walk along the path.
  * Caches the path on the task; re-paths only if no path exists.
@@ -463,7 +506,7 @@ function pathToAndWalk(
       // No path found — fall back to greedy walk
       const dx = targetAx - (bh.x + 0.5);
       const dy = targetAy - (bh.y + 1.0);
-      return walkToward(bh, dx, dy, fg, bg);
+      return walkToward(bh, dx, dy, fg, bg, "walk", null);
     }
   }
 
@@ -473,7 +516,7 @@ function pathToAndWalk(
     // Should not happen (path was set above), but guard for type safety
     const dx = targetAx - (bh.x + 0.5);
     const dy = targetAy - (bh.y + 1.0);
-    return walkToward(bh, dx, dy, fg, bg);
+    return walkToward(bh, dx, dy, fg, bg, "walk", null);
   }
   let idx = task.pathIndex ?? 0;
 
@@ -494,48 +537,190 @@ function pathToAndWalk(
     // Reached end of path — walk directly to target
     const dx = targetAx - (bh.x + 0.5);
     const dy = targetAy - (bh.y + 1.0);
-    return walkToward(bh, dx, dy, fg, bg);
+    return walkToward(bh, dx, dy, fg, bg, "walk", null);
+  }
+
+  // --- Path drift detection ---
+  // If the blockhead has drifted significantly from the current path node
+  // (e.g., fell into a hole when it was supposed to jump across), invalidate
+  // the path and re-path from the current position. This prevents the
+  // blockhead from getting stuck trying to reach an unreachable path node.
+  const currentNode = path[idx];
+  const driftDx = currentNode.x - (bh.x + 0.5);
+  const driftDy = currentNode.y - (bh.y + 1.0);
+  const driftDist = Math.sqrt(driftDx * driftDx + driftDy * driftDy);
+  if (driftDist > 4.0 && idx > 0) {
+    // Drifted too far from the path — invalidate and re-path
+    task.path = undefined;
+    task.pathIndex = undefined;
+    return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg, adjacent);
   }
 
   // Walk toward the current path node
   const node = path[idx];
+  const prevNode = idx > 0 ? path[idx - 1] : null;
+  const moveType = classifyMove(bh, prevNode, node);
   const dx = node.x - (bh.x + 0.5);
   const dy = node.y - (bh.y + 1.0);
-  return walkToward(bh, dx, dy, fg, bg);
+  return walkToward(bh, dx, dy, fg, bg, moveType, node);
 }
 
 /**
  * Generate movement input to walk toward a target delta.
- * Greedy: move horizontally, jump when blocked by a 1-block obstacle.
- * Also initiates wall climbing when the target is above and a wall is adjacent.
+ * Uses the moveType to determine the right combination of horizontal,
+ * vertical, and jump inputs for the specific movement (walk, jump across
+ * gaps, fall off edges, climb walls, step up ledges).
+ *
+ * @param moveType    Type of movement needed (classified from path context)
+ * @param targetNode  The path node being walked toward (null for greedy fallback)
  */
-function walkToward(bh: BlockheadState, dx: number, dy: number, fg: Uint16Array, bg: Uint16Array): BlockheadInput {
+function walkToward(
+  bh: BlockheadState,
+  dx: number, dy: number,
+  fg: Uint16Array, bg: Uint16Array,
+  moveType: MoveType,
+  targetNode: PathNode | null,
+): BlockheadInput {
   const input: BlockheadInput = {
     left: false, right: false, up: false, down: false,
     jump: false, noclip: false,
     mineX: -1, mineY: -1, placeX: -1, placeY: -1, placeBlockId: 0,
   };
 
-  // --- Stabilization before climbing ---
-  // When the blockhead needs to climb (target above) and is on the ground,
-  // wait for horizontal velocity to near-zero before jumping. Without this,
-  // residual walking momentum carries the blockhead past the trunk/wall,
-  // causing it to lose contact with the background block and fall.
-  if (dy < -0.5 && bh.onGround && Math.abs(bh.vx) > 0.08) {
-    // Cancel horizontal input to let friction stop the blockhead.
-    // Still press up to indicate climb intent (no-op on ground, but
-    // prevents the stuck timer from firing since the blockhead will
-    // start climbing as soon as it stabilizes).
-    input.left = false;
-    input.right = false;
-    input.jump = false;
-    input.up = true;
+  // --- Jump-move: jump across a gap or up a ledge ---
+  // The blockhead needs to jump + move horizontally to reach a node that's
+  // 2+ blocks away horizontally. Jump while moving toward the node.
+  if (moveType === "jump") {
+    if (bh.onGround) {
+      input.jump = true;
+      if (dx > 0) input.right = true;
+      else if (dx < 0) input.left = true;
+    } else {
+      // Airborne — keep moving toward the target
+      if (dx > 0.3) input.right = true;
+      else if (dx < -0.3) input.left = true;
+    }
     return input;
   }
 
-  // Horizontal movement
-  // When climbing (airborne, target above), use a wider dead zone to avoid
-  // overcorrecting horizontally and drifting off the trunk/wall.
+  // --- Fall-move: walk off an edge to fall to a lower level ---
+  // The blockhead is on ground and needs to get to a lower level. Walk
+  // toward the gap direction (toward the target node's X) to get off
+  // the edge so gravity can pull it down.
+  if (moveType === "fall") {
+    if (bh.onGround) {
+      // Walk toward the target node's X to get off the edge
+      if (dx > 0.1) input.right = true;
+      else if (dx < -0.1) input.left = true;
+      else {
+        // Target is directly below — check which side has a gap
+        const footY = Math.floor(bh.y + 0.5);
+        const checkY = footY + 1;
+        const rightX = Math.floor(bh.x + BH_W + 0.5);
+        const leftX = Math.floor(bh.x - 0.5);
+        let rightGap = false;
+        let leftGap = false;
+        if (rightX >= 0 && rightX < ACTIVE_GRID_W && checkY >= 0 && checkY < ACTIVE_GRID_H) {
+          rightGap = !isSolid(fg[checkY * ACTIVE_GRID_W + rightX]);
+        }
+        if (leftX >= 0 && leftX < ACTIVE_GRID_W && checkY >= 0 && checkY < ACTIVE_GRID_H) {
+          leftGap = !isSolid(fg[checkY * ACTIVE_GRID_W + leftX]);
+        }
+        if (rightGap && !leftGap) input.right = true;
+        else if (leftGap && !rightGap) input.left = true;
+        else if (bh.facing > 0) input.right = true;
+        else input.left = true;
+      }
+    } else {
+      // Airborne — falling, just press down (helps with swim/climb on landing)
+      input.down = true;
+      if (dx > 0.3) input.right = true;
+      else if (dx < -0.3) input.left = true;
+    }
+    return input;
+  }
+
+  // --- Climb: wall or back-wall climbing to reach a higher node ---
+  if (moveType === "climb") {
+    // Stabilization: wait for horizontal velocity to near-zero before jumping
+    if (bh.onGround && Math.abs(bh.vx) > 0.08) {
+      input.up = true;
+      return input;
+    }
+
+    if (bh.onGround) {
+      // Need to jump to become airborne, then press into wall + up
+      input.jump = true;
+      input.up = true;
+
+      // Look for foreground walls to climb
+      const footY = Math.floor(bh.y + 0.5);
+      const headY = Math.floor(bh.y - 0.5);
+      const facingWallX = bh.facing > 0
+        ? Math.floor(bh.x + BH_W + 0.5)
+        : Math.floor(bh.x - 0.5);
+      const oppositeWallX = bh.facing > 0
+        ? Math.floor(bh.x - 0.5)
+        : Math.floor(bh.x + BH_W + 0.5);
+
+      let foundWall = false;
+      for (const wallX of [facingWallX, oppositeWallX]) {
+        if (wallX < 0 || wallX >= ACTIVE_GRID_W) continue;
+        if (footY < 0 || footY >= ACTIVE_GRID_H) continue;
+        const wallAtFeet = isSolid(fg[footY * ACTIVE_GRID_W + wallX]);
+        const wallAtHead = headY >= 0 && isSolid(fg[headY * ACTIVE_GRID_W + wallX]);
+        if (wallAtFeet || wallAtHead) {
+          if (wallX > bh.x + BH_W / 2) input.right = true;
+          else input.left = true;
+          foundWall = true;
+          break;
+        }
+      }
+
+      // Back wall climbing: check all AABB cells for background blocks
+      if (!foundWall) {
+        const x0 = Math.floor(bh.x);
+        const x1 = Math.floor(bh.x + BH_W - 0.001);
+        const y0 = Math.floor(bh.y);
+        const y1 = Math.floor(bh.y + BH_H - 0.001);
+        for (let cy = y0; cy <= y1; cy++) {
+          if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
+          for (let cx = x0; cx <= x1; cx++) {
+            if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
+            if ((bg[cy * ACTIVE_GRID_W + cx] & 0xFF) !== BLOCK_AIR) {
+              foundWall = true;
+              break;
+            }
+          }
+          if (foundWall) break;
+        }
+      }
+    } else {
+      // Airborne — press up + toward wall to maintain climb
+      input.up = true;
+      // Use a wider dead zone to avoid overcorrecting
+      if (dx > 0.6) input.right = true;
+      else if (dx < -0.6) input.left = true;
+    }
+    return input;
+  }
+
+  // --- Step-up: walk into a wall for auto-step (1-block climb) ---
+  if (moveType === "step-up") {
+    if (bh.onGround) {
+      // Walk toward the target — physics auto-step handles the 1-block climb
+      if (dx > 0.1) input.right = true;
+      else if (dx < -0.1) input.left = true;
+    } else {
+      // Airborne after auto-step — keep moving toward target
+      if (dx > 0.3) input.right = true;
+      else if (dx < -0.3) input.left = true;
+    }
+    return input;
+  }
+
+  // --- Walk: normal horizontal movement (default) ---
+  // When climbing (airborne, target above), use a wider dead zone.
   const horizThreshold = (!bh.onGround && dy < -0.5) ? 0.6 : 0.3;
   if (dx > horizThreshold) {
     input.right = true;
@@ -557,66 +742,10 @@ function walkToward(bh: BlockheadState, dx: number, dy: number, fg: Uint16Array,
     }
   }
 
-  // Vertical movement: if target is significantly above and we're on ground,
-  // jump. If on a climbable block, press up.
-  if (dy < -1.5 && bh.onGround) {
-    input.jump = true;
-  }
-  if (dy < -0.5) {
-    input.up = true;
-  }
-  if (dy > 1.5) {
-    input.down = true;
-  }
-
-  // Wall climbing initiation: if the target is above and we're on ground but
-  // haven't jumped yet, look for adjacent walls to climb. The blockhead must
-  // jump to become airborne, then press into the wall + up to wall-climb.
-  if (dy < -0.5 && bh.onGround && !input.jump) {
-    const footY = Math.floor(bh.y + 0.5);
-    const headY = Math.floor(bh.y - 0.5);
-    // Check wall in the blockhead's facing direction first
-    const facingWallX = bh.facing > 0
-      ? Math.floor(bh.x + BH_W + 0.5)
-      : Math.floor(bh.x - 0.5);
-    const oppositeWallX = bh.facing > 0
-      ? Math.floor(bh.x - 0.5)
-      : Math.floor(bh.x + BH_W + 0.5);
-    for (const wallX of [facingWallX, oppositeWallX]) {
-      if (wallX < 0 || wallX >= ACTIVE_GRID_W) continue;
-      if (footY < 0 || footY >= ACTIVE_GRID_H) continue;
-      const wallAtFeet = isSolid(fg[footY * ACTIVE_GRID_W + wallX]);
-      const wallAtHead = headY >= 0 && isSolid(fg[headY * ACTIVE_GRID_W + wallX]);
-      if (wallAtFeet || wallAtHead) {
-        input.jump = true;
-        if (wallX > bh.x + BH_W / 2) input.right = true;
-        else input.left = true;
-        break;
-      }
-    }
-    // Back wall climbing: if no foreground wall, check for a background block
-    // at any cell overlapping the blockhead's AABB (matching the physics
-    // code's hasBackWall check). The blockhead is BH_W wide and ~2 tall, so
-    // the AABB can span multiple columns — checking only the center cell
-    // misses the trunk when the blockhead is slightly off-center.
-    if (!input.jump) {
-      const x0 = Math.floor(bh.x);
-      const x1 = Math.floor(bh.x + BH_W - 0.001);
-      const y0 = Math.floor(bh.y);
-      const y1 = Math.floor(bh.y + BH_H - 0.001);
-      for (let cy = y0; cy <= y1; cy++) {
-        if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
-        for (let cx = x0; cx <= x1; cx++) {
-          if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
-          if ((bg[cy * ACTIVE_GRID_W + cx] & 0xFF) !== BLOCK_AIR) {
-            input.jump = true;
-            break;
-          }
-        }
-        if (input.jump) break;
-      }
-    }
-  }
+  // Vertical assist for walk moves
+  if (dy < -1.5 && bh.onGround) input.jump = true;
+  if (dy < -0.5) input.up = true;
+  if (dy > 1.5) input.down = true;
 
   return input;
 }

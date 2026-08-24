@@ -634,6 +634,20 @@ export class BlockheadsRenderer {
       }
     }
 
+    // --- Debug force fruit spawn (F7): roll the fruit-spawn dice for all
+    // fruit-capable leaf blocks immediately via the sim worker. ---
+    if (this.input.forceFruitSpawnPending) {
+      this.input.forceFruitSpawnPending = false;
+      const host = this.workerHost;
+      if (host) {
+        host.forceFruitSpawn().then((count) => {
+          console.log(`[Overburden] Force fruit spawn (F7): ${count} fruit${count === 1 ? "" : "s"} spawned`);
+        }).catch((e) => {
+          console.error("[Overburden] Force fruit spawn (F7) failed:", e);
+        });
+      }
+    }
+
     // --- Task mode: handle clicks to queue tasks ---
     if (this.input.taskMode && this.input.taskClickPending) {
       this.input.taskClickPending = false;
@@ -963,7 +977,7 @@ export class BlockheadsRenderer {
       const dropCount = this.simReader.getDropCount();
       if (dropCount > 0) {
         const dropData: DropRenderData[] = [];
-        for (let i = 0; i < dropCount && i < 128; i++) {
+        for (let i = 0; i < dropCount && i < 512; i++) {
           const off = i * 8; // DROP_STRIDE = 8
           dropData.push({
             x: this.simReader.drops[off + 0],
