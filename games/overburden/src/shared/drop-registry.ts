@@ -96,8 +96,57 @@ export function decodeDropItem(code: number): string | null {
   return CODE_TO_ITEM.get(code | 0) ?? null;
 }
 
+// --- Fruit spritesheet mapping ---
+// The fruit spritesheet (fruit-spritesheet.png) is a grid of 16x16px sprites.
+// 38 columns × 6 rows (608×96px). Each fruit maps to a (column, row) pair.
+// Row 0 = first row (top). All fruits use row 0 except coconut (row 1).
+//
+// Column layout (left to right):
+//  0: red apple     1: green apple    2: golden apple   3: grapes
+//  4: white grapes  5: red grapes     6: green banana   7: banana
+//  8: brown banana  9: orange        10: pear          11: pineapple
+// 12: peach        13: pomegranate   14: cherry        15: black cherry
+// 16: blueberries  17: lime          18: lemon         19: kiwi
+// 20: starfruit    21: dragonfruit   22: coconut       23: tomato
+// 24: unknown      25: eggplant      26: watermelon    27: strawberry
+// 28: green pepper 29: yellow pepper 30: red pepper    31: green bell pepper
+// 32: yellow bell  33: red bell      34: pumpkin       35: raspberry
+// 36: black raspberry 37: avacado
+
+export interface FruitSprite {
+  col: number;
+  row: number;
+}
+
+const FRUIT_SPRITES: Record<number, FruitSprite> = {
+  [DROP_APPLE]: { col: 0, row: 0 },        // red apple
+  [DROP_ORANGE]: { col: 9, row: 0 },       // orange
+  [DROP_LEMON]: { col: 18, row: 0 },       // lemon
+  [DROP_LIME]: { col: 17, row: 0 },        // lime
+  [DROP_BANANA]: { col: 7, row: 0 },       // banana
+  [DROP_PEAR]: { col: 10, row: 0 },        // pear
+  [DROP_CHERRY]: { col: 14, row: 0 },      // cherry
+  [DROP_POMEGRANATE]: { col: 13, row: 0 }, // pomegranate
+  [DROP_COCONUT]: { col: 22, row: 1 },     // coconut (3rd row, index 1)
+  [DROP_WALNUT]: { col: 24, row: 0 },      // unknown (no walnut sprite)
+  [DROP_HAZELNUT]: { col: 24, row: 0 },    // unknown (no hazelnut sprite)
+  [DROP_KIWI]: { col: 19, row: 0 },        // kiwi
+  [DROP_GRAPE]: { col: 3, row: 0 },        // grapes
+};
+
+/** Spritesheet dimensions (pixels). */
+export const SPRITESHEET_TILE_PX = 16;
+export const SPRITESHEET_COLS = 38;
+export const SPRITESHEET_ROWS = 6;
+
+/** Look up the spritesheet cell for a fruit drop code. Returns null if no sprite. */
+export function getFruitSprite(code: number): FruitSprite | null {
+  return FRUIT_SPRITES[code | 0] ?? null;
+}
+
 // --- Display colors (RGB 0-255) ---
 // For block items, use the block's palette color. For materials, use a distinct color.
+// Fruit colors are used as fallback when the spritesheet texture isn't loaded yet.
 const MATERIAL_COLORS: Record<number, [number, number, number]> = {
   [DROP_STICK]: [180, 140, 80],
   [DROP_COAL]: [50, 50, 50],
