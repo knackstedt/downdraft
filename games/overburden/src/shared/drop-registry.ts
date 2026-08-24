@@ -79,6 +79,7 @@ const ITEM_TO_CODE = new Map<string, number>([
   ["hazelnut", DROP_HAZELNUT],
   ["kiwi", DROP_KIWI],
   ["grape", DROP_GRAPE],
+  ["seed", DROP_SEED],
 ]);
 
 const CODE_TO_ITEM = new Map<number, string>();

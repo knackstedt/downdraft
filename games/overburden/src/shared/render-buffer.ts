@@ -45,6 +45,13 @@ export const RENDER_HEADER_FG_COUNT = 4;    // Uint32 — foreground instance co
 export const RENDER_HEADER_BG_WALL_COUNT = 8; // Uint32 — back-wall instance count
 export const RENDER_HEADER_BG_TREE_COUNT = 12; // Uint32 — tree instance count
 export const RENDER_HEADER_TOTAL_COUNT = 16; // Uint32 — total instance count
+// Origin of the active grid this build corresponds to (Int32). The renderer
+// uses THIS origin (not the sim SAB origin) for camera/shader/stickman/input
+// positioning so it always matches the grid data currently on the GPU. This
+// eliminates the chunk-boundary flash caused by the sim SAB origin advancing
+// before the grid-builder has published the matching grid data.
+export const RENDER_HEADER_ORIGIN_CX = 20;  // Int32 — active grid origin chunk X
+export const RENDER_HEADER_ORIGIN_CY = 24;  // Int32 — active grid origin chunk Y
 
 export const INSTANCE_DATA_OFFSET = RENDER_HEADER_SIZE;
 export const INSTANCE_DATA_SIZE = 4 * INSTANCE_STRIDE * MAX_INSTANCES;
@@ -79,6 +86,7 @@ export const RENDER_TICK_SENTINEL = 0xFFFFFFFF;
 export class RenderBufferWriter {
   readonly buffer: SharedArrayBuffer;
   readonly header: Uint32Array;
+  readonly headerI32: Int32Array;
   readonly instanceData: Float32Array;
   readonly paddedFgGrid: Uint8Array;
   readonly paddedBgGrid: Uint8Array;
@@ -88,6 +96,7 @@ export class RenderBufferWriter {
   constructor(sab: SharedArrayBuffer) {
     this.buffer = sab;
     this.header = new Uint32Array(sab, 0, RENDER_HEADER_SIZE / 4);
+    this.headerI32 = new Int32Array(sab, 0, RENDER_HEADER_SIZE / 4);
     this.instanceData = new Float32Array(sab, INSTANCE_DATA_OFFSET, INSTANCE_STRIDE * MAX_INSTANCES);
     this.paddedFgGrid = new Uint8Array(sab, PADDED_FG_GRID_OFFSET, PADDED_FG_GRID_SIZE);
     this.paddedBgGrid = new Uint8Array(sab, PADDED_BG_GRID_OFFSET, PADDED_BG_GRID_SIZE);
@@ -98,12 +107,21 @@ export class RenderBufferWriter {
     Atomics.store(this.header, RENDER_HEADER_TICK / 4, RENDER_TICK_SENTINEL);
   }
 
-  /** Atomically publish the build tick (release). Call AFTER all data is written. */
-  publishBuild(tick: number, fgCount: number, bgWallCount: number, bgTreeCount: number): void {
+  /**
+   * Atomically publish the build tick (release). Call AFTER all data is written.
+   * The origin is written before the tick store so the renderer (which acquires
+   * via the tick load) always sees an origin consistent with the grid data.
+   */
+  publishBuild(
+    tick: number, fgCount: number, bgWallCount: number, bgTreeCount: number,
+    originCx: number, originCy: number,
+  ): void {
     this.header[RENDER_HEADER_FG_COUNT / 4] = fgCount;
     this.header[RENDER_HEADER_BG_WALL_COUNT / 4] = bgWallCount;
     this.header[RENDER_HEADER_BG_TREE_COUNT / 4] = bgTreeCount;
     this.header[RENDER_HEADER_TOTAL_COUNT / 4] = fgCount + bgWallCount + bgTreeCount;
+    this.headerI32[RENDER_HEADER_ORIGIN_CX / 4] = originCx;
+    this.headerI32[RENDER_HEADER_ORIGIN_CY / 4] = originCy;
     // Write tick last with release ordering so the renderer sees all data.
     Atomics.store(this.header, RENDER_HEADER_TICK / 4, tick);
   }
@@ -113,6 +131,7 @@ export class RenderBufferWriter {
 export class RenderBufferReader {
   readonly buffer: ArrayBufferLike;
   readonly header: Uint32Array;
+  readonly headerI32: Int32Array;
   readonly instanceData: Float32Array;
   readonly paddedFgGrid: Uint8Array;
   readonly paddedBgGrid: Uint8Array;
@@ -122,6 +141,7 @@ export class RenderBufferReader {
   constructor(buffer: ArrayBufferLike) {
     this.buffer = buffer;
     this.header = new Uint32Array(buffer, 0, RENDER_HEADER_SIZE / 4);
+    this.headerI32 = new Int32Array(buffer, 0, RENDER_HEADER_SIZE / 4);
     this.instanceData = new Float32Array(buffer, INSTANCE_DATA_OFFSET, INSTANCE_STRIDE * MAX_INSTANCES);
     this.paddedFgGrid = new Uint8Array(buffer, PADDED_FG_GRID_OFFSET, PADDED_FG_GRID_SIZE);
     this.paddedBgGrid = new Uint8Array(buffer, PADDED_BG_GRID_OFFSET, PADDED_BG_GRID_SIZE);
@@ -148,6 +168,19 @@ export class RenderBufferReader {
 
   getTotalCount(): number {
     return Atomics.load(this.header, RENDER_HEADER_TOTAL_COUNT / 4);
+  }
+
+  /**
+   * Read the active-grid origin this build corresponds to. Safe to read after
+   * getBuildTick() returned an advanced tick (the acquire load orders the
+   * origin reads after the worker's release store).
+   */
+  getOriginCx(): number {
+    return this.headerI32[RENDER_HEADER_ORIGIN_CX / 4];
+  }
+
+  getOriginCy(): number {
+    return this.headerI32[RENDER_HEADER_ORIGIN_CY / 4];
   }
 }
 

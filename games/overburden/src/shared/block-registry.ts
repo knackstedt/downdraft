@@ -421,8 +421,10 @@ for (const sp of TREE_SPECIES) {
 // --- Sapling block definition ---
 // Saplings are young trees that live in the background plane (like adult
 // trees) and grow upward into wood + leaves. The species is encoded in the
-// vfx plane. Non-solid (category "special") and not placeable by the player.
-// Fruits and seeds are NOT blocks — they're spinning 2D world drop entities.
+// vfx plane. Non-solid (category "special"). Planted by the "seed" item
+// (which places BLOCK_SAPLING in the background + sets vfx) or auto-planted
+// by fallen tree seeds. Fruits and seeds are NOT blocks — they're spinning
+// 2D world drop entities.
 const TREE_LIFECYCLE_DEFS: BlockDef[] = [
   {
     id: BLOCK_SAPLING, name: "Sapling", category: "special",

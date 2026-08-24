@@ -12,6 +12,9 @@ import {
     ACTIVE_GRID_H,
     ACTIVE_GRID_W,
     BLOCK_AIR,
+    BLOCK_DIRT,
+    BLOCK_GRASS,
+    BLOCK_SAPLING,
     SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
 import { getWildCropByBlock, isCropBlock, isWildCropBlock } from "../shared/crops";
@@ -25,7 +28,7 @@ import {
     SimBufferWriter,
 } from "../shared/sim-buffer";
 import { getStationByBlock, getStationByType } from "../shared/stations";
-import { isLeafBlock, isTreeBlock, isWoodBlock } from "../shared/tree-species";
+import { getSpeciesIndex, isLeafBlock, isTreeBlock, isWoodBlock, pickTreeSpecies } from "../shared/tree-species";
 import type { BlockheadState } from "../shared/types";
 import {
     animStateToCode,
@@ -44,7 +47,7 @@ import { recomputeLight } from "./light-sim";
 import { getSeason } from "./season-system";
 import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
 import { fellTree } from "./tree-fell";
-import { forceFruitSpawnTick, stepTreeDaily } from "./tree-sim";
+import { forceFruitSpawnTick, packSaplingVfx, stepTreeDaily } from "./tree-sim";
 import { stepVineGrowth } from "./vine-sim";
 
 const events = exposeEvents();
@@ -238,8 +241,9 @@ function updateDrops(dt: number): void {
     // the fruit would immediately fall through the world.
     if (d.kind > 0 && !d.fallen) {
       d.spin += d.spinSpeed * dt;
-      // Pickup: fruits (kind=1) are pick-uppable by proximity (no pickup delay).
-      if (bh && inv && d.kind === 1) {
+      // Pickup: fruits (kind=1) and seeds (kind=2) are pick-uppable by
+      // proximity while on the tree (no pickup delay).
+      if (bh && inv && (d.kind === 1 || d.kind === 2)) {
         const dx = d.x - bhCx;
         const dy = d.y - bhCy;
         if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
@@ -295,10 +299,10 @@ function updateDrops(dt: number): void {
     // Spin
     d.spin += d.spinSpeed * dt;
 
-    // Pickup: fruits (kind=1) are pick-uppable by proximity (no pickup delay).
-    // Regular drops (kind=0) use the pickup delay. Seeds (kind=2) are NOT pick-uppable.
-    if (bh && inv && d.kind !== 2) {
-      const canPickup = d.kind === 1 || d.lifetime < DROP_LIFETIME - PICKUP_DELAY;
+    // Pickup: fruits (kind=1) and seeds (kind=2) are pick-uppable by
+    // proximity (no pickup delay). Regular drops (kind=0) use the pickup delay.
+    if (bh && inv) {
+      const canPickup = d.kind === 1 || d.kind === 2 || d.lifetime < DROP_LIFETIME - PICKUP_DELAY;
       if (canPickup) {
         const dx = d.x - bhCx;
         const dy = d.y - bhCy;
@@ -1214,8 +1218,8 @@ function processMining(dt: number): void {
         }
 
         // Remove fruit/seed drop entities at each felled tree cell.
-        // Fruit on the tree → spawn as a regular world drop (player can pick it up).
-        // Seeds on the tree → just remove (seeds aren't pick-uppable).
+        // Fruit and seeds on the tree → spawn as regular world drops so the
+        // player can pick them up.
         for (const cell of felled) {
           for (let di = drops.length - 1; di >= 0; di--) {
             const d = drops[di];
@@ -1223,12 +1227,11 @@ function processMining(dt: number): void {
             const dx = d.x - (cell.x + 0.5);
             const dy = d.y - (cell.y + 0.5);
             if (Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0) {
-              if (d.kind === 1) {
-                // Fruit → spawn as a regular drop so the player can pick it up
+              if (d.kind === 1 || d.kind === 2) {
+                // Fruit/seed → spawn as a regular drop so the player can pick it up
                 const itemId = decodeDropItem(d.itemCode);
                 if (itemId) spawnDrop(cell.x, cell.y, itemId, 1);
               }
-              // Seed → just remove
               drops.splice(di, 1);
             }
           }
@@ -1320,6 +1323,31 @@ function processPlacing(): void {
   const bhY0 = Math.floor(bh.y);
   const bhY1 = Math.floor(bh.y + BH_H - 0.001);
   if (ax >= bhX0 && ax <= bhX1 && ay >= bhY0 && ay <= bhY1) return;
+
+  // --- Tree seed → plant a sapling in the BACKGROUND plane ---
+  // Saplings are background blocks (like adult trees) with species + target
+  // height encoded in the vfx plane. They require grass/dirt directly below
+  // (in the foreground) and an empty background cell. A random species is
+  // chosen (the source tree's species isn't preserved through the inventory).
+  if (input.placeBlockId === BLOCK_SAPLING) {
+    if (world.getActiveBackground(ax, ay) !== BLOCK_AIR) return;
+    const below = ay + 1;
+    if (below >= ACTIVE_GRID_H) return;
+    const groundId = world.getActiveBlock(ax, below) & 0xFF;
+    if (groundId !== BLOCK_GRASS && groundId !== BLOCK_DIRT) return;
+    // Validate first, then consume the seed from inventory.
+    const inv = inventories[0];
+    if (!inv || !inv.remove("seed", 1)) return; // no seed → can't plant
+    const species = pickTreeSpecies(pseudoRandom(ax, ay, tickCount, "plant-species"));
+    const speciesIdx = getSpeciesIndex(species);
+    const heightRoll = pseudoRandom(ax, ay, tickCount, "plant-saplingHeight");
+    const targetH = species.trunkMin +
+      Math.floor(heightRoll * (species.trunkMax - species.trunkMin + 1));
+    world.setActiveBackground(ax, ay, BLOCK_SAPLING);
+    world.setActiveVfx(ax, ay, packSaplingVfx(speciesIdx, targetH, 0, 0));
+    lightDirty = true;
+    return;
+  }
 
   // Only place on empty cells
   if (world.getActiveBlock(ax, ay) !== BLOCK_AIR) return;
@@ -1509,9 +1537,16 @@ async function loop(): Promise<void> {
             stationStates.clear();
             // Clear crop tracking (ages are in active-grid coords, which shifted)
             clearCropTracking();
-            // Reset tree life-cycle day counter so the daily sim runs on the
-            // first day tick after the rebuild (vfx state is restored from chunks).
-            lastTreeDay = -1;
+            // NOTE: do NOT reset lastTreeDay here. The tree daily sim is gated
+            // by the actual in-game day number (currentDay !== lastTreeDay), so
+            // it already runs exactly once per day. Resetting lastTreeDay to -1
+            // on every chunk crossing would trigger a bonus daily tick that:
+            //   1. Ages all existing fruit/seed drops by +1 (causing them to
+            //      fall/despawn prematurely — "drop the ones already on trees")
+            //   2. Spawns new fruit/seeds on newly-loaded leaves (which have no
+            //      drops since drops aren't saved to chunks)
+            // Sapling vfx (species + heights + days) IS saved to chunks, so
+            // saplings grow naturally on the next real day boundary.
             // Invalidate all task path caches (grid shifted)
             for (const queue of taskQueues) {
               for (const task of queue) {
