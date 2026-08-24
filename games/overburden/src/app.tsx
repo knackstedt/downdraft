@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
 import { StationPanel } from "./components/station-panel";
 import { TaskQueueDisplay } from "./components/task-queue-display";
@@ -404,38 +404,25 @@ function PauseMenu() {
   );
 }
 
-function Hud() {
-  // Selectors: each component only re-renders when its slice changes.
-  // Without selectors, any store update (e.g. setFps every 500ms) would
-  // re-render the entire HUD subtree, blocking the 360Hz rAF loop.
+// ============================================================================
+// HUD sub-components — each subscribes to only the store slices it needs.
+// This prevents a single slice change (e.g. fps every 500ms) from
+// re-rendering the entire HUD tree (attribute bars, hotbar, panels, etc.).
+// ============================================================================
+
+// --- FPS / season / debug indicator bar ---
+// Re-renders when: fps, season, dayInSeason, year, paused, taskMode change
+// (every 500ms for fps/season, rarely for the rest).
+const FpsBar = memo(function FpsBar() {
   const fps = useGameStore((s) => s.fps);
   const season = useGameStore((s) => s.season);
   const dayInSeason = useGameStore((s) => s.dayInSeason);
   const year = useGameStore((s) => s.year);
   const paused = useGameStore((s) => s.paused);
-  const blockhead = useGameStore((s) => s.blockhead);
-  const selectedSlot = useGameStore((s) => s.selectedSlot);
-  const inventory = useGameStore((s) => s.inventory);
-  const showCraftPanel = useGameStore((s) => s.showCraftPanel);
-  const showInventoryPanel = useGameStore((s) => s.showInventoryPanel);
-  const showTaskQueue = useGameStore((s) => s.showTaskQueue);
   const taskMode = useGameStore((s) => s.taskMode);
-  const selectedStation = useGameStore((s) => s.selectedStation);
-  const recipes = useGameStore((s) => s.recipes);
-  const notification = useGameStore((s) => s.notification);
-  const deterministic = useGameStore((s) => s.deterministic);
   const [cameraDetached, setCameraDetached] = useState(false);
   const [debugNoShadows, setDebugNoShadows] = useState(false);
   const [debugInspect, setDebugInspect] = useState(false);
-
-  // Auto-dismiss notification after 4 seconds
-  useEffect(() => {
-    if (!notification) return;
-    const timer = setTimeout(() => {
-      useGameStore.getState().setNotification(null);
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, [notification]);
 
   // F1 toggles shadow/fog disable (debug). F2 is handled by ChunkDebugOverlay.
   useEffect(() => {
@@ -454,22 +441,6 @@ function Hud() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Save chunks to OPFS on page unload (best-effort, fire-and-forget)
-  useEffect(() => {
-    const handler = () => {
-      const { renderer } = useGameStore.getState();
-      renderer?.getWorkerHost()?.saveNow().catch(() => {});
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, []);
-
-  // Sync taskMode from store → renderer
-  useEffect(() => {
-    const { renderer } = useGameStore.getState();
-    if (renderer) renderer.setTaskMode(taskMode);
-  }, [taskMode]);
-
   // Poll camera detached state + debug flags for HUD indicator
   useEffect(() => {
     const { renderer } = useGameStore.getState();
@@ -482,7 +453,44 @@ function Hud() {
     return () => clearInterval(interval);
   }, []);
 
-  // Build a quick lookup of item counts from the inventory
+  return (
+    <div style={fpsStyle}>
+      FPS: {fps}
+      <span style={{ marginLeft: 8, color: SEASON_COLORS[season] }}>
+        {SEASON_ICONS[season]} {season[0].toUpperCase() + season.slice(1)} Y{year + 1} D{dayInSeason + 1}
+      </span>
+      {paused && <span style={{ color: "yellow", marginLeft: 8 }}>PAUSED</span>}
+      {debugNoShadows && <span style={{ color: "#e74c3c", marginLeft: 8 }}>NOSHADOW</span>}
+      {debugInspect && <span style={{ color: "#1abc9c", marginLeft: 8, fontWeight: "bold" }}>INSPECT (F6)</span>}
+      {taskMode && <span style={{ color: "#f39c12", marginLeft: 8, fontWeight: "bold" }}>TASK MODE (T)</span>}
+      {cameraDetached && <span style={{ color: "#9b59b6", marginLeft: 8, fontWeight: "bold" }}>CAM DETACHED (F)</span>}
+    </div>
+  );
+});
+
+// --- Attribute bars (HP, Food, Energy, Air, Happy, Env) ---
+// Re-renders only when blockhead stats change (polled every 250ms, but
+// only updates the store when a value actually changes).
+const AttributeBars = memo(function AttributeBars() {
+  const blockhead = useGameStore((s) => s.blockhead);
+  return (
+    <div style={barsContainerStyle}>
+      <AttributeBar label="HP" value={blockhead.health} color="#e74c3c" />
+      <AttributeBar label="Food" value={blockhead.hunger} color="#e67e22" />
+      <AttributeBar label="Energy" value={blockhead.energy} color="#f1c40f" />
+      <AttributeBar label="Air" value={blockhead.air} color="#3498db" />
+      <AttributeBar label="Happy" value={blockhead.happiness} color="#2ecc71" />
+      <AttributeBar label="Env" value={blockhead.environment} color="#9b59b6" />
+    </div>
+  );
+});
+
+// --- Hotbar (dynamic from inventory) ---
+// Re-renders only when inventory or selectedSlot changes.
+const Hotbar = memo(function Hotbar() {
+  const inventory = useGameStore((s) => s.inventory);
+  const selectedSlot = useGameStore((s) => s.selectedSlot);
+
   const invCount = (itemId: string): number => {
     const slot = inventory.find((s) => s.itemId === itemId);
     return slot ? slot.count : 0;
@@ -492,7 +500,6 @@ function Hud() {
   const hotbarSlots: ({ itemId: string; color: [number, number, number] } | null)[] = useMemo(() => {
     const slots: ({ itemId: string; color: [number, number, number] } | null)[] = new Array(9).fill(null);
     let idx = 0;
-    // Fill from placeable inventory items
     for (const slot of inventory) {
       if (idx >= 9) break;
       if (slot.count <= 0) continue;
@@ -502,7 +509,6 @@ function Hud() {
         idx++;
       }
     }
-    // Fill remaining with default hotbar items
     for (let i = idx; i < 9; i++) {
       const defaultSlot = HOTBAR_SLOTS[i];
       if (defaultSlot) {
@@ -513,30 +519,96 @@ function Hud() {
   }, [inventory]);
 
   return (
-    <div style={hudContainerStyle}>
-      <div style={fpsStyle}>
-        FPS: {fps}
-        <span style={{ marginLeft: 8, color: SEASON_COLORS[season] }}>
-          {SEASON_ICONS[season]} {season[0].toUpperCase() + season.slice(1)} Y{year + 1} D{dayInSeason + 1}
-        </span>
-        {paused && <span style={{ color: "yellow", marginLeft: 8 }}>PAUSED</span>}
-        {debugNoShadows && <span style={{ color: "#e74c3c", marginLeft: 8 }}>NOSHADOW</span>}
-        {debugInspect && <span style={{ color: "#1abc9c", marginLeft: 8, fontWeight: "bold" }}>INSPECT (F6)</span>}
-        {taskMode && <span style={{ color: "#f39c12", marginLeft: 8, fontWeight: "bold" }}>TASK MODE (T)</span>}
-        {cameraDetached && <span style={{ color: "#9b59b6", marginLeft: 8, fontWeight: "bold" }}>CAM DETACHED (F)</span>}
-      </div>
-      <ChunkDebugOverlay />
+    <div style={hotbarContainerStyle}>
+      {hotbarSlots.map((slot, i) => {
+        const count = slot ? invCount(slot.itemId) : 0;
+        const has = count > 0;
+        const itemName = slot ? (getItemDef(slot.itemId)?.name ?? slot.itemId) : "";
+        return (
+          <div
+            key={i}
+            style={hotbarSlotStyle(selectedSlot === i)}
+            title={slot ? `${itemName}${count > 0 ? ` (${count})` : ""}` : "Empty"}
+          >
+            <span style={hotbarSlotNumStyle}>{i + 1}</span>
+            {slot && (
+              <div style={{
+                width: 28,
+                height: 28,
+                background: `rgb(${slot.color[0]}, ${slot.color[1]}, ${slot.color[2]})`,
+                borderRadius: 2,
+                opacity: has ? 1 : 0.25,
+              }} />
+            )}
+            <span style={{
+              position: "absolute",
+              bottom: 0,
+              right: 2,
+              fontSize: 9,
+              color: has ? "white" : "rgba(255,255,255,0.3)",
+              textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+            }}>{count > 0 ? count : ""}</span>
+            {slot && (
+              <span style={hotbarSlotLabelStyle}>{itemName}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
 
-      {/* Attribute bars */}
-      <div style={barsContainerStyle}>
-        <AttributeBar label="HP" value={blockhead.health} color="#e74c3c" />
-        <AttributeBar label="Food" value={blockhead.hunger} color="#e67e22" />
-        <AttributeBar label="Energy" value={blockhead.energy} color="#f1c40f" />
-        <AttributeBar label="Air" value={blockhead.air} color="#3498db" />
-        <AttributeBar label="Happy" value={blockhead.happiness} color="#2ecc71" />
-        <AttributeBar label="Env" value={blockhead.environment} color="#9b59b6" />
-      </div>
+// --- Notification toast ---
+// Re-renders only when notification changes (rare — user actions / errors).
+const NotificationToast = memo(function NotificationToast() {
+  const notification = useGameStore((s) => s.notification);
 
+  // Auto-dismiss notification after 4 seconds
+  useEffect(() => {
+    if (!notification) return;
+    const timer = setTimeout(() => {
+      useGameStore.getState().setNotification(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [notification]);
+
+  if (!notification) return null;
+  return (
+    <div style={{
+      position: "absolute",
+      top: "60px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "rgba(180, 40, 30, 0.9)",
+      color: "white",
+      padding: "10px 20px",
+      borderRadius: "6px",
+      fontSize: "14px",
+      fontFamily: "sans-serif",
+      fontWeight: "bold",
+      pointerEvents: "none",
+      zIndex: 200,
+      boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+    }}>
+      {notification}
+    </div>
+  );
+});
+
+// --- Panels (inventory, craft, station, task queue, pause menu) ---
+// Re-renders only when panel visibility flags or their data change.
+const PanelRouter = memo(function PanelRouter() {
+  const showCraftPanel = useGameStore((s) => s.showCraftPanel);
+  const showInventoryPanel = useGameStore((s) => s.showInventoryPanel);
+  const showTaskQueue = useGameStore((s) => s.showTaskQueue);
+  const selectedStation = useGameStore((s) => s.selectedStation);
+  const recipes = useGameStore((s) => s.recipes);
+  const inventory = useGameStore((s) => s.inventory);
+  const paused = useGameStore((s) => s.paused);
+  const deterministic = useGameStore((s) => s.deterministic);
+
+  return (
+    <>
       {/* Inventory panel (toggle with I) — includes crafting inline */}
       {showInventoryPanel && <InventoryPanel recipes={recipes} inventory={inventory} />}
 
@@ -551,66 +623,42 @@ function Hud() {
 
       {/* Pause menu (Esc) — includes Reset Game option */}
       {paused && !deterministic && <PauseMenu />}
+    </>
+  );
+});
 
-      {/* Notification toast */}
-      {notification && (
-        <div style={{
-          position: "absolute",
-          top: "60px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          background: "rgba(180, 40, 30, 0.9)",
-          color: "white",
-          padding: "10px 20px",
-          borderRadius: "6px",
-          fontSize: "14px",
-          fontFamily: "sans-serif",
-          fontWeight: "bold",
-          pointerEvents: "none",
-          zIndex: 200,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-        }}>
-          {notification}
-        </div>
-      )}
+function Hud() {
+  // Hud is now a thin shell — it subscribes to NO store slices, so it
+  // never re-renders after mount. Each child subscribes to only the
+  // slices it needs, so e.g. an FPS update (every 500ms) re-renders
+  // only FpsBar, not the hotbar or attribute bars.
 
-      {/* Hotbar — dynamic from inventory */}
-      <div style={hotbarContainerStyle}>
-        {hotbarSlots.map((slot, i) => {
-          const count = slot ? invCount(slot.itemId) : 0;
-          const has = count > 0;
-          const itemName = slot ? (getItemDef(slot.itemId)?.name ?? slot.itemId) : "";
-          return (
-            <div
-              key={i}
-              style={hotbarSlotStyle(selectedSlot === i)}
-              title={slot ? `${itemName}${count > 0 ? ` (${count})` : ""}` : "Empty"}
-            >
-              <span style={hotbarSlotNumStyle}>{i + 1}</span>
-              {slot && (
-                <div style={{
-                  width: 28,
-                  height: 28,
-                  background: `rgb(${slot.color[0]}, ${slot.color[1]}, ${slot.color[2]})`,
-                  borderRadius: 2,
-                  opacity: has ? 1 : 0.25,
-                }} />
-              )}
-              <span style={{
-                position: "absolute",
-                bottom: 0,
-                right: 2,
-                fontSize: 9,
-                color: has ? "white" : "rgba(255,255,255,0.3)",
-                textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-              }}>{count > 0 ? count : ""}</span>
-              {slot && (
-                <span style={hotbarSlotLabelStyle}>{itemName}</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+  // Sync taskMode from store → renderer (lives here because it's a
+  // global side-effect, not tied to any visual sub-component).
+  const taskMode = useGameStore((s) => s.taskMode);
+  useEffect(() => {
+    const { renderer } = useGameStore.getState();
+    if (renderer) renderer.setTaskMode(taskMode);
+  }, [taskMode]);
+
+  // Save chunks to OPFS on page unload (best-effort, fire-and-forget)
+  useEffect(() => {
+    const handler = () => {
+      const { renderer } = useGameStore.getState();
+      renderer?.getWorkerHost()?.saveNow().catch(() => {});
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
+  return (
+    <div style={hudContainerStyle}>
+      <FpsBar />
+      <ChunkDebugOverlay />
+      <AttributeBars />
+      <PanelRouter />
+      <NotificationToast />
+      <Hotbar />
     </div>
   );
 }
