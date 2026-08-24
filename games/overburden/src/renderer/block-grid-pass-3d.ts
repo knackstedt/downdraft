@@ -11,6 +11,7 @@ import { getBlockPalette } from "../shared/block-registry";
 import {
     ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W,
 } from "../shared/constants";
+import { isCropBlock, isWildCropBlock } from "../shared/crops";
 import { isTreeBlock } from "../shared/tree-species";
 import { lookAt, multiply, perspective, type Mat4 } from "./matrix";
 
@@ -411,6 +412,9 @@ export class BlockGridPass3D {
           const packedFg = foreground[cellIdx];
           const blockId = packedFg & 0xFF;
           if (blockId === 0) continue;
+          // Crop + wild forageable blocks are rendered as 2D sprites by
+          // CropSpritePass, not as 3D cubes here.
+          if (isCropBlock(blockId) || isWildCropBlock(blockId)) continue;
 
           let faceMask = 0;
           if (x >= W - 1 || (foreground[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;

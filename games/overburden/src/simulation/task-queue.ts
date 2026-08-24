@@ -18,8 +18,9 @@ import {
 } from "../shared/constants";
 import type { BlockheadState } from "../shared/types";
 import type { BlockheadInput } from "./blockhead";
+import { BH_H, BH_W } from "./blockhead";
 import { getBlockFromPacked } from "./fluid-sim";
-import { findPath, type PathNode } from "./pathfinding";
+import { findPath, findPathToAdjacent, type PathNode } from "./pathfinding";
 
 export type TaskType =
   | "MOVE_TO" | "MINE_BLOCK" | "PLACE_BLOCK"
@@ -84,6 +85,72 @@ function isSolid(packed: number): boolean {
   if (id === BLOCK_AIR) return false;
   const def = getBlockDef(id);
   return def?.category === "solid";
+}
+
+/**
+ * Generate movement input to maintain a climb (hold position on a wall or
+ * back wall) while the blockhead is airborne. Used when the blockhead needs
+ * to stay in place to mine or place a block while climbing.
+ *
+ * Returns partial input with `up` set, and `left`/`right` set toward the
+ * nearest foreground wall if one is adjacent. If no wall or back wall is
+ * nearby, returns empty input (the blockhead will fall).
+ */
+function climbHoldInput(bh: BlockheadState, fg: Uint16Array, bg: Uint16Array): {
+  left: boolean; right: boolean; up: boolean;
+} {
+  if (bh.onGround) return { left: false, right: false, up: false };
+
+  const footY = Math.floor(bh.y + 0.5);
+  const headY = Math.floor(bh.y - 0.5);
+  const wallLeftX = Math.floor(bh.x - 0.5);
+  const wallRightX = Math.floor(bh.x + BH_W + 0.5);
+
+  let hasWallLeft = false;
+  let hasWallRight = false;
+  if (wallLeftX >= 0 && footY >= 0 && footY < ACTIVE_GRID_H) {
+    hasWallLeft = isSolid(fg[footY * ACTIVE_GRID_W + wallLeftX])
+      || (headY >= 0 && isSolid(fg[headY * ACTIVE_GRID_W + wallLeftX]));
+  }
+  if (wallRightX >= 0 && wallRightX < ACTIVE_GRID_W && footY >= 0 && footY < ACTIVE_GRID_H) {
+    hasWallRight = isSolid(fg[footY * ACTIVE_GRID_W + wallRightX])
+      || (headY >= 0 && isSolid(fg[headY * ACTIVE_GRID_W + wallRightX]));
+  }
+
+  // Check for back wall at the blockhead's position — scan all cells
+  // overlapping the AABB (blockhead is BH_W wide, ~2 tall). The physics
+  // code's hasBackWall does the same; checking only the center cell misses
+  // the trunk when the blockhead is slightly off-center.
+  let hasBackWall = false;
+  {
+    const x0 = Math.floor(bh.x);
+    const x1 = Math.floor(bh.x + BH_W - 0.001);
+    const y0 = Math.floor(bh.y);
+    const y1 = Math.floor(bh.y + BH_H - 0.001);
+    for (let cy = y0; cy <= y1; cy++) {
+      if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
+      for (let cx = x0; cx <= x1; cx++) {
+        if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
+        if ((bg[cy * ACTIVE_GRID_W + cx] & 0xFF) !== BLOCK_AIR) {
+          hasBackWall = true;
+          break;
+        }
+      }
+      if (hasBackWall) break;
+    }
+  }
+
+  if (!hasWallLeft && !hasWallRight && !hasBackWall) {
+    return { left: false, right: false, up: false };
+  }
+
+  // Press up to maintain climb. Press toward a foreground wall if one is
+  // adjacent (needed for wall-climbing physics to activate).
+  return {
+    up: true,
+    left: hasWallLeft && !hasWallRight,
+    right: hasWallRight && !hasWallLeft,
+  };
 }
 
 /**
@@ -287,12 +354,15 @@ export function executeTask(
 
     if (!isAdjacent) {
       task.status = "moving";
-      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
+      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg, true);
     }
 
     task.status = "executing";
+    // While mining, maintain climbing position if airborne (press up/toward
+    // wall so the blockhead doesn't fall off while working on the block).
+    const climb = climbHoldInput(bh, fg, bg);
     const input: BlockheadInput = {
-      left: false, right: false, up: false, down: false,
+      left: climb.left, right: climb.right, up: climb.up, down: false,
       jump: false, noclip: false,
       mineX: task.targetX, mineY: task.targetY,
       placeX: -1, placeY: -1, placeBlockId: 0,
@@ -303,7 +373,7 @@ export function executeTask(
   if (task.type === "PLACE_BLOCK") {
     if (!isAdjacent) {
       task.status = "moving";
-      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
+      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg, true);
     }
 
     task.status = "executing";
@@ -332,8 +402,9 @@ export function executeTask(
     if (fgBlock === BLOCK_AIR) {
       // Could be in background — the worker handles that
       task.status = "executing";
+      const climb = climbHoldInput(bh, fg, bg);
       const input: BlockheadInput = {
-        left: false, right: false, up: false, down: false,
+        left: climb.left, right: climb.right, up: climb.up, down: false,
         jump: false, noclip: false,
         mineX: task.targetX, mineY: task.targetY,
         placeX: -1, placeY: -1, placeBlockId: 0,
@@ -343,17 +414,20 @@ export function executeTask(
 
     if (!isAdjacent) {
       task.status = "moving";
-      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg);
+      return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg, true);
     }
 
     task.status = "executing";
-    const input: BlockheadInput = {
-      left: false, right: false, up: false, down: false,
-      jump: false, noclip: false,
-      mineX: task.targetX, mineY: task.targetY,
-      placeX: -1, placeY: -1, placeBlockId: 0,
-    };
-    return input;
+    {
+      const climb = climbHoldInput(bh, fg, bg);
+      const input: BlockheadInput = {
+        left: climb.left, right: climb.right, up: climb.up, down: false,
+        jump: false, noclip: false,
+        mineX: task.targetX, mineY: task.targetY,
+        placeX: -1, placeY: -1, placeBlockId: 0,
+      };
+      return input;
+    }
   }
 
   task.status = "failed";
@@ -363,6 +437,8 @@ export function executeTask(
 /**
  * Path to a target using A*, then walk along the path.
  * Caches the path on the task; re-paths only if no path exists.
+ * @param adjacent  If true, path to a standable cell adjacent to the target
+ *                  (for mining/placing where the target cell is solid).
  */
 function pathToAndWalk(
   bh: BlockheadState,
@@ -371,23 +447,34 @@ function pathToAndWalk(
   targetAy: number,
   fg: Uint16Array,
   bg: Uint16Array,
+  adjacent: boolean = false,
 ): BlockheadInput {
   // Find or reuse path
   if (task.path === undefined || task.path === null) {
     const sx = Math.floor(bh.x + 0.5);
     const sy = Math.floor(bh.y + 1.0);
-    task.path = findPath(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
+    if (adjacent) {
+      task.path = findPathToAdjacent(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
+    } else {
+      task.path = findPath(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
+    }
     task.pathIndex = 0;
     if (task.path === null) {
       // No path found — fall back to greedy walk
       const dx = targetAx - (bh.x + 0.5);
       const dy = targetAy - (bh.y + 1.0);
-      return walkToward(bh, dx, dy, fg);
+      return walkToward(bh, dx, dy, fg, bg);
     }
   }
 
   // Walk along the path
   const path = task.path;
+  if (!path) {
+    // Should not happen (path was set above), but guard for type safety
+    const dx = targetAx - (bh.x + 0.5);
+    const dy = targetAy - (bh.y + 1.0);
+    return walkToward(bh, dx, dy, fg, bg);
+  }
   let idx = task.pathIndex ?? 0;
 
   // Skip nodes we've already reached
@@ -407,29 +494,50 @@ function pathToAndWalk(
     // Reached end of path — walk directly to target
     const dx = targetAx - (bh.x + 0.5);
     const dy = targetAy - (bh.y + 1.0);
-    return walkToward(bh, dx, dy, fg);
+    return walkToward(bh, dx, dy, fg, bg);
   }
 
   // Walk toward the current path node
   const node = path[idx];
   const dx = node.x - (bh.x + 0.5);
   const dy = node.y - (bh.y + 1.0);
-  return walkToward(bh, dx, dy, fg);
+  return walkToward(bh, dx, dy, fg, bg);
 }
 
 /**
  * Generate movement input to walk toward a target delta.
  * Greedy: move horizontally, jump when blocked by a 1-block obstacle.
+ * Also initiates wall climbing when the target is above and a wall is adjacent.
  */
-function walkToward(bh: BlockheadState, dx: number, dy: number, fg: Uint16Array): BlockheadInput {
+function walkToward(bh: BlockheadState, dx: number, dy: number, fg: Uint16Array, bg: Uint16Array): BlockheadInput {
   const input: BlockheadInput = {
     left: false, right: false, up: false, down: false,
     jump: false, noclip: false,
     mineX: -1, mineY: -1, placeX: -1, placeY: -1, placeBlockId: 0,
   };
 
+  // --- Stabilization before climbing ---
+  // When the blockhead needs to climb (target above) and is on the ground,
+  // wait for horizontal velocity to near-zero before jumping. Without this,
+  // residual walking momentum carries the blockhead past the trunk/wall,
+  // causing it to lose contact with the background block and fall.
+  if (dy < -0.5 && bh.onGround && Math.abs(bh.vx) > 0.08) {
+    // Cancel horizontal input to let friction stop the blockhead.
+    // Still press up to indicate climb intent (no-op on ground, but
+    // prevents the stuck timer from firing since the blockhead will
+    // start climbing as soon as it stabilizes).
+    input.left = false;
+    input.right = false;
+    input.jump = false;
+    input.up = true;
+    return input;
+  }
+
   // Horizontal movement
-  if (dx > 0.3) {
+  // When climbing (airborne, target above), use a wider dead zone to avoid
+  // overcorrecting horizontally and drifting off the trunk/wall.
+  const horizThreshold = (!bh.onGround && dy < -0.5) ? 0.6 : 0.3;
+  if (dx > horizThreshold) {
     input.right = true;
     const aheadX = Math.floor(bh.x + 1.5);
     const footY = Math.floor(bh.y + 0.5);
@@ -438,7 +546,7 @@ function walkToward(bh: BlockheadState, dx: number, dy: number, fg: Uint16Array)
         input.jump = true;
       }
     }
-  } else if (dx < -0.3) {
+  } else if (dx < -horizThreshold) {
     input.left = true;
     const aheadX = Math.floor(bh.x - 0.5);
     const footY = Math.floor(bh.y + 0.5);
@@ -459,6 +567,55 @@ function walkToward(bh: BlockheadState, dx: number, dy: number, fg: Uint16Array)
   }
   if (dy > 1.5) {
     input.down = true;
+  }
+
+  // Wall climbing initiation: if the target is above and we're on ground but
+  // haven't jumped yet, look for adjacent walls to climb. The blockhead must
+  // jump to become airborne, then press into the wall + up to wall-climb.
+  if (dy < -0.5 && bh.onGround && !input.jump) {
+    const footY = Math.floor(bh.y + 0.5);
+    const headY = Math.floor(bh.y - 0.5);
+    // Check wall in the blockhead's facing direction first
+    const facingWallX = bh.facing > 0
+      ? Math.floor(bh.x + BH_W + 0.5)
+      : Math.floor(bh.x - 0.5);
+    const oppositeWallX = bh.facing > 0
+      ? Math.floor(bh.x - 0.5)
+      : Math.floor(bh.x + BH_W + 0.5);
+    for (const wallX of [facingWallX, oppositeWallX]) {
+      if (wallX < 0 || wallX >= ACTIVE_GRID_W) continue;
+      if (footY < 0 || footY >= ACTIVE_GRID_H) continue;
+      const wallAtFeet = isSolid(fg[footY * ACTIVE_GRID_W + wallX]);
+      const wallAtHead = headY >= 0 && isSolid(fg[headY * ACTIVE_GRID_W + wallX]);
+      if (wallAtFeet || wallAtHead) {
+        input.jump = true;
+        if (wallX > bh.x + BH_W / 2) input.right = true;
+        else input.left = true;
+        break;
+      }
+    }
+    // Back wall climbing: if no foreground wall, check for a background block
+    // at any cell overlapping the blockhead's AABB (matching the physics
+    // code's hasBackWall check). The blockhead is BH_W wide and ~2 tall, so
+    // the AABB can span multiple columns — checking only the center cell
+    // misses the trunk when the blockhead is slightly off-center.
+    if (!input.jump) {
+      const x0 = Math.floor(bh.x);
+      const x1 = Math.floor(bh.x + BH_W - 0.001);
+      const y0 = Math.floor(bh.y);
+      const y1 = Math.floor(bh.y + BH_H - 0.001);
+      for (let cy = y0; cy <= y1; cy++) {
+        if (cy < 0 || cy >= ACTIVE_GRID_H) continue;
+        for (let cx = x0; cx <= x1; cx++) {
+          if (cx < 0 || cx >= ACTIVE_GRID_W) continue;
+          if ((bg[cy * ACTIVE_GRID_W + cx] & 0xFF) !== BLOCK_AIR) {
+            input.jump = true;
+            break;
+          }
+        }
+        if (input.jump) break;
+      }
+    }
   }
 
   return input;

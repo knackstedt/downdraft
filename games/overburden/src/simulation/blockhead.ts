@@ -14,9 +14,9 @@
 
 import { getBlockMask } from "../shared/block-registry";
 import {
-  ACTIVE_GRID_H, ACTIVE_GRID_W,
-  BLOCK_AIR, BLOCK_LAVA, BLOCK_WATER,
-  MASK_CLIMBABLE, MASK_LIQUID, MASK_SOLID,
+    ACTIVE_GRID_H, ACTIVE_GRID_W,
+    BLOCK_AIR, BLOCK_LAVA, BLOCK_WATER,
+    MASK_CLIMBABLE, MASK_LIQUID, MASK_SOLID,
 } from "../shared/constants";
 import type { BlockheadAnimState, BlockheadState } from "../shared/types";
 import { getBlockFromPacked } from "./fluid-sim";
@@ -38,6 +38,10 @@ const WALL_CLIMB_SPEED = 0.12;   // climbing a solid foreground wall (slow)
 const BG_WALL_CLIMB_SPEED = 0.06; // climbing a background wall (slower)
 const CRAWL_SPEED = 0.15;         // crawling through 1-high gaps
 const CRAWL_ACCEL = 0.04;
+// Stamina (energy) drain while climbing. When energy reaches 0, the blockhead
+// can no longer climb or hold onto walls and falls/slides instead.
+const WALL_CLIMB_STAMINA = 0.8;  // energy/sec while actively climbing up
+const WALL_HOLD_STAMINA = 0.4;   // energy/sec while holding position on a wall
 
 // --- Blockhead dimensions (in blocks) ---
 // The blockhead is 1 block wide and 1.95 blocks tall — slightly under 2 so
@@ -466,12 +470,18 @@ export function updateBlockhead(
   // Wall climbing activates automatically when the blockhead is pressing
   // horizontally into a wall (or pressing up) while airborne. This makes
   // wall climbing feel natural — just walk into a wall and you start climbing.
+  //
+  // Stamina: wall climbing and holding position on a wall drain energy. When
+  // energy reaches 0, the blockhead can no longer climb or hold and slides
+  // down the wall at reduced speed (grip), then falls normally once away from
+  // the wall. Ladders/ropes don't drain stamina (they're easy to climb).
   const pressingLeftWall = input.left && wallLeft;
   const pressingRightWall = input.right && wallRight;
   const pressingIntoWall = pressingLeftWall || pressingRightWall;
+  let climbingStaminaDrain = 0; // energy/sec to drain this tick
 
   if (onLadder) {
-    // Climbing (ladder/rope): suspend gravity, allow up/down
+    // Climbing (ladder/rope): suspend gravity, allow up/down. No stamina drain.
     bh.vy = 0;
     if (input.up) bh.vy = -CLIMB_SPEED;
     if (input.down) bh.vy = CLIMB_SPEED;
@@ -486,18 +496,31 @@ export function updateBlockhead(
       bh.vy += GRAVITY * 0.3;
       if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
     }
-  } else if ((pressingIntoWall || input.up) && (wallLeft || wallRight) && !bh.onGround) {
-    // Wall climbing: pressing into a wall (or pressing up) while against a
-    // solid wall and airborne. Climb at WALL_CLIMB_SPEED.
-    bh.vy = -WALL_CLIMB_SPEED;
-  } else if ((pressingIntoWall || input.up) && onBackWall && !wallLeft && !wallRight && !bh.onGround) {
-    // Back wall climbing: pressing into a wall (or pressing up) with a
-    // background wall behind, and no foreground wall. Slower than foreground.
-    bh.vy = -BG_WALL_CLIMB_SPEED;
-  } else if ((wallLeft || wallRight || onBackWall) && !bh.onGround && bh.vy > 0) {
-    // Sliding down a wall: reduced fall speed (grip)
-    bh.vy += GRAVITY * 0.4;
-    if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
+  } else if (!bh.onGround && (wallLeft || wallRight || onBackWall)) {
+    // On a wall (foreground or background) while airborne.
+    // With stamina: climb up (pressing up/into wall) or hold position.
+    // Without stamina: slide down with grip.
+    if (bh.energy > 0) {
+      const wantsClimbUp = pressingIntoWall || input.up;
+      if (wantsClimbUp && (wallLeft || wallRight)) {
+        // Wall climbing up a solid foreground wall
+        bh.vy = -WALL_CLIMB_SPEED;
+        climbingStaminaDrain = WALL_CLIMB_STAMINA;
+      } else if (wantsClimbUp && onBackWall && !wallLeft && !wallRight) {
+        // Back wall climbing up (background wall only)
+        bh.vy = -BG_WALL_CLIMB_SPEED;
+        climbingStaminaDrain = WALL_CLIMB_STAMINA;
+      } else {
+        // Holding position on wall — not pressing up, but has grip.
+        // Prevents sliding while stamina remains.
+        bh.vy = 0;
+        climbingStaminaDrain = WALL_HOLD_STAMINA;
+      }
+    } else {
+      // No stamina — slide down with grip (reduced fall speed)
+      bh.vy += GRAVITY * 0.4;
+      if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
+    }
   } else {
     // Normal gravity
     if (input.jump && bh.onGround) {
@@ -565,7 +588,12 @@ export function updateBlockhead(
   // a smooth mantle animation that vaults the blockhead onto the ledge.
   // Activates when pressing into a wall (horizontal) or pressing up.
   // Prioritize the direction the player is pressing.
-  if (!bh.onGround && (pressingIntoWall || input.up) && !onLadder && !inLiquid) {
+  // Skip mantling while mining or placing — the blockhead should hold its
+  // climbing position to work on the target block, not vault onto it.
+  const isMining = input.mineX >= 0;
+  const isPlacing = input.placeX >= 0;
+  if (!bh.onGround && (pressingIntoWall || input.up) && !onLadder && !inLiquid
+      && !isMining && !isPlacing) {
     const mantleLeft = canMantle(bh.x, bh.y, fg, -1);
     const mantleRight = canMantle(bh.x, bh.y, fg, +1);
     // Choose direction: prefer the side the player is pressing toward
@@ -598,7 +626,8 @@ export function updateBlockhead(
 
   // --- Animation state ---
   const moving = Math.abs(bh.vx) > 0.05;
-  const wallClimbing = !bh.onGround && (pressingIntoWall || input.up) && (wallLeft || wallRight || onBackWall);
+  // Show climb animation while on a wall (climbing up or holding position)
+  const wallClimbing = !bh.onGround && (wallLeft || wallRight || onBackWall) && bh.energy > 0;
   if (onLadder && (input.up || input.down)) {
     bh.animState = "climb";
   } else if (wallClimbing) {
@@ -619,6 +648,8 @@ export function updateBlockhead(
   // --- Attribute decay (slow) ---
   bh.hunger -= 0.002;
   bh.energy -= 0.001;
+  // Stamina drain from climbing (computed in the vertical movement section)
+  bh.energy -= climbingStaminaDrain * dt;
   if (bh.hunger <= 0) {
     bh.hunger = 0;
     bh.health -= 0.1;

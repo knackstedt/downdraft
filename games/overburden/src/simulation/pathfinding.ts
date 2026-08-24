@@ -8,6 +8,9 @@
 // - Walk horizontally (normal)
 // - Step up 1 block (auto-jump) if cell above is clear
 // - Step down 1 block freely
+// - Fall: walking off a ledge or stepping into an unsupported cell causes the
+//   blockhead to fall to the landing cell (gravity modeling). Fall edges are
+//   directed (down-only) and the landing is the first supported cell below.
 // - Climb climbable cells (ladder/rope) vertically
 // - Wall climb: move up when adjacent to a solid foreground wall
 // - Back wall climb: move up when there's a background block at the cell
@@ -143,6 +146,52 @@ function canClimbAt(fg: Uint16Array, bg: Uint16Array, x: number, y: number): boo
   return false;
 }
 
+/** Check if a cell contains a liquid block (water/lava). */
+function isLiquid(packed: number): boolean {
+  const def = getBlockDef(getBlockFromPacked(packed));
+  return def?.category === "liquid";
+}
+
+/**
+ * Check if the blockhead can stay at cell (x, y) without falling.
+ * True if: solid ground below, climbing (wall/ladder/backwall), swimming
+ * (liquid), or at the bottom of the grid.
+ */
+function isSupported(fg: Uint16Array, bg: Uint16Array, x: number, y: number): boolean {
+  // Ground below (solid block at y+1)
+  if (y + 1 < ACTIVE_GRID_H && isSolid(fg[(y + 1) * ACTIVE_GRID_W + x])) return true;
+  // Climbing (ladder, adjacent wall, back wall)
+  if (canClimbAt(fg, bg, x, y)) return true;
+  // Swimming (liquid cell — buoyancy counteracts gravity)
+  if (isLiquid(fg[y * ACTIVE_GRID_W + x])) return true;
+  // Bottom of grid (can't fall further)
+  if (y + 1 >= ACTIVE_GRID_H) return true;
+  return false;
+}
+
+/**
+ * Compute where the blockhead lands if it falls from cell (x, y).
+ * Falls downward through walkable cells until reaching a supported cell.
+ * Checks 2-tall clearance (feet at cy, head at cy-1) during the fall.
+ * @returns Landing Y, or -1 if the fall is blocked (hit a solid block or
+ *          fell out of the grid).
+ */
+function computeFallLanding(fg: Uint16Array, bg: Uint16Array, x: number, y: number): number {
+  let cy = y;
+  while (cy < ACTIVE_GRID_H) {
+    // Feet cell must be walkable
+    if (!isWalkable(fg[cy * ACTIVE_GRID_W + x])) return -1;
+    // Head cell (cy-1) must be walkable, unless climbing
+    if (cy >= 1 && !isWalkable(fg[(cy - 1) * ACTIVE_GRID_W + x])) {
+      if (!canClimbAt(fg, bg, x, cy)) return -1;
+    }
+    // Can the blockhead stay here?
+    if (isSupported(fg, bg, x, cy)) return cy;
+    cy++;
+  }
+  return -1;
+}
+
 /**
  * Check if the blockhead can step from (x0,y0) to (x1,y1).
  * Handles: normal walk, auto-jump, crawl (1-high gaps), wall climb.
@@ -237,6 +286,92 @@ export function findPath(
 
   if (startIdx === goalIdx) return [];
 
+  const goalSet = new Set<number>([goalIdx]);
+  const goalCoords: PathNode[] = [{ x: gx, y: gy }];
+
+  return findPathMultiGoal(fg, bg, sx, sy, goalSet, goalCoords, wrap);
+}
+
+/**
+ * Find a path to any standable cell adjacent to a target block at
+ * (targetX, targetY). Used for mining/placing tasks where the target cell
+ * itself is solid (not walkable) — the blockhead must stand next to it.
+ *
+ * @returns Array of PathNode from start (exclusive) to the best adjacent
+ *          goal cell (inclusive), or null if no path found.
+ */
+export function findPathToAdjacent(
+  fg: Uint16Array,
+  bg: Uint16Array,
+  startX: number,
+  startY: number,
+  targetX: number,
+  targetY: number,
+  wrap: boolean = true,
+): PathNode[] | null {
+  const sx = Math.max(0, Math.min(ACTIVE_GRID_W - 1, startX));
+  const sy = Math.max(0, Math.min(ACTIVE_GRID_H - 1, startY));
+  const tx = Math.max(0, Math.min(ACTIVE_GRID_W - 1, targetX));
+  const ty = Math.max(0, Math.min(ACTIVE_GRID_H - 1, targetY));
+
+  // Collect all standable cells adjacent to the target block, plus the
+  // target cell itself if the foreground is walkable (for background mining
+  // — e.g. tree leaves/wood in the background layer where the foreground
+  // is air and the blockhead can stand at the target position).
+  const goalSet = new Set<number>();
+  const goalCoords: PathNode[] = [];
+  const startIdx = sy * ACTIVE_GRID_W + sx;
+
+  // Helper: validate and add a candidate goal cell
+  function addGoalCandidate(cx: number, cy: number): void {
+    if (cx < 0 || cx >= ACTIVE_GRID_W || cy < 0 || cy >= ACTIVE_GRID_H) return;
+    const idx = cy * ACTIVE_GRID_W + cx;
+    // Must be walkable (foreground is air/liquid/climbable)
+    if (!isWalkable(fg[cy * ACTIVE_GRID_W + cx])) return;
+    // Headroom (cell above must be walkable, unless climbing)
+    if (cy >= 1 && !isWalkable(fg[(cy - 1) * ACTIVE_GRID_W + cx])) {
+      if (!canClimbAt(fg, bg, cx, cy)) return;
+    }
+    // Must be supported (can stand here without falling)
+    if (!isSupported(fg, bg, cx, cy)) return;
+    goalSet.add(idx);
+    goalCoords.push({ x: cx, y: cy });
+  }
+
+  // The target cell itself — valid when the foreground is walkable (e.g.
+  // the target block is in the background layer, like tree leaves/wood).
+  addGoalCandidate(tx, ty);
+
+  // 4 direct neighbors + 4 diagonals (blockhead is 2 tall, can reach
+  // diagonally-adjacent targets within the isAdjacent tolerance)
+  addGoalCandidate(tx - 1, ty); addGoalCandidate(tx + 1, ty);
+  addGoalCandidate(tx, ty - 1); addGoalCandidate(tx, ty + 1);
+  addGoalCandidate(tx - 1, ty - 1); addGoalCandidate(tx + 1, ty - 1);
+  addGoalCandidate(tx - 1, ty + 1); addGoalCandidate(tx + 1, ty + 1);
+
+  if (goalSet.size === 0) return null;
+
+  return findPathMultiGoal(fg, bg, sx, sy, goalSet, goalCoords, wrap);
+}
+
+/**
+ * Multi-goal A* core. Finds a path from (sx, sy) to any of the goal cells in
+ * goalSet. Uses the minimum heuristic to any goal for the A* estimate.
+ */
+function findPathMultiGoal(
+  fg: Uint16Array,
+  bg: Uint16Array,
+  sx: number,
+  sy: number,
+  goalSet: Set<number>,
+  goalCoords: PathNode[],
+  wrap: boolean,
+): PathNode[] | null {
+  const startIdx = sy * ACTIVE_GRID_W + sx;
+
+  // If start is already a goal, return empty path
+  if (goalSet.has(startIdx)) return [];
+
   // Reset visited tracking
   cameFrom.fill(-1);
   closed.fill(0);
@@ -246,14 +381,15 @@ export function findPath(
   let nodesExpanded = 0;
 
   gScore[startIdx] = 0;
-  if (!heapPush(startIdx, heuristic(sx, sy, gx, gy, wrap))) return null;
+  const h0 = minHeuristic(sx, sy, goalCoords, wrap);
+  if (!heapPush(startIdx, h0)) return null;
 
   while (heapSize > 0) {
     const current = heapPop();
     if (current < 0) break;
 
-    if (current === goalIdx) {
-      // Reconstruct path
+    if (goalSet.has(current)) {
+      // Reached a goal — reconstruct path
       return reconstructPath(cameFrom, current, sx, sy);
     }
 
@@ -270,18 +406,28 @@ export function findPath(
     // Left
     let nx = cx - 1;
     if (nx < 0) nx = wrap ? ACTIVE_GRID_W - 1 : -1;
-    if (nx >= 0) expandNeighbor(fg, bg, cx, cy, nx, cy, current, currentG, gx, gy, wrap);
+    if (nx >= 0) expandNeighbor(fg, bg, cx, cy, nx, cy, current, currentG, goalCoords, wrap);
     // Right
     nx = cx + 1;
     if (nx >= ACTIVE_GRID_W) nx = wrap ? 0 : -1;
-    if (nx >= 0) expandNeighbor(fg, bg, cx, cy, nx, cy, current, currentG, gx, gy, wrap);
+    if (nx >= 0) expandNeighbor(fg, bg, cx, cy, nx, cy, current, currentG, goalCoords, wrap);
     // Up (step up — requires jump or wall climb)
-    if (cy - 1 >= 0) expandNeighbor(fg, bg, cx, cy, cx, cy - 1, current, currentG, gx, gy, wrap);
-    // Down (step down — always allowed if walkable)
-    if (cy + 1 < ACTIVE_GRID_H) expandNeighbor(fg, bg, cx, cy, cx, cy + 1, current, currentG, gx, gy, wrap);
+    if (cy - 1 >= 0) expandNeighbor(fg, bg, cx, cy, cx, cy - 1, current, currentG, goalCoords, wrap);
+    // Down (step down — always allowed if walkable, may fall)
+    if (cy + 1 < ACTIVE_GRID_H) expandNeighbor(fg, bg, cx, cy, cx, cy + 1, current, currentG, goalCoords, wrap);
   }
 
   return null; // no path
+}
+
+/** Minimum Manhattan distance (with wrap) from (x, y) to any goal. */
+function minHeuristic(x: number, y: number, goals: PathNode[], wrap: boolean): number {
+  let min = Infinity;
+  for (const g of goals) {
+    const h = heuristic(x, y, g.x, g.y, wrap);
+    if (h < min) min = h;
+  }
+  return min;
 }
 
 function expandNeighbor(
@@ -291,18 +437,30 @@ function expandNeighbor(
   nx: number, ny: number,
   currentIdx: number,
   currentG: number,
-  gx: number, gy: number,
+  goalCoords: PathNode[],
   wrap: boolean,
 ): void {
   if (!canStep(fg, bg, cx, cy, nx, ny)) return;
+
+  // Gravity modeling: if the move is horizontal or downward and the target
+  // cell is not supported, the blockhead falls to the landing cell.
+  const isUp = nx === cx && ny < cy;
+  if (!isUp) {
+    if (!isSupported(fg, bg, nx, ny)) {
+      const landingY = computeFallLanding(fg, bg, nx, ny);
+      if (landingY < 0) return; // can't fall there — invalid move
+      ny = landingY;
+    }
+  }
+
   const nIdx = ny * ACTIVE_GRID_W + nx;
   if (closed[nIdx]) return;
-  // Cost: 1 for horizontal, 1 for vertical (uniform cost)
-  // Wall climbing is slower, so cost more to prefer walking routes
+
+  // Cost: 1 for horizontal/walk/fall, 3 for wall/back-wall climbing (up)
   const isVertical = nx === cx;
   let cost = 1;
-  if (isVertical) {
-    // Check if this is a wall climb (no ladder, just wall or back wall)
+  if (isVertical && ny < cy) {
+    // Moving up — check if wall/back-wall climbing (not ladder)
     const cell = fg[ny * ACTIVE_GRID_W + nx];
     const def = getBlockDef(getBlockFromPacked(cell));
     const isLadder = def?.climbable ?? false;
@@ -315,7 +473,7 @@ function expandNeighbor(
   if (tentativeG < gScore[nIdx]) {
     gScore[nIdx] = tentativeG;
     cameFrom[nIdx] = currentIdx;
-    const f = tentativeG + heuristic(nx, ny, gx, gy, wrap);
+    const f = tentativeG + minHeuristic(nx, ny, goalCoords, wrap);
     heapPush(nIdx, f);
   }
 }
