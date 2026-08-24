@@ -167,19 +167,30 @@ const DROP_FRICTION = 0.8;
 const PICKUP_RADIUS = 1.2; // blocks from blockhead center
 const PICKUP_DELAY = 0.5;  // seconds before a fresh drop can be picked up
 
+// --- Pickup notification accumulator ---
+// Pickups are recorded here each tick, then flushed once per frame as a
+// single "pickups" event to the host (see the per-frame flush in the loop).
+// Batching per-frame (not per-tick) collapses bursts (e.g. mining a vein)
+// into one tiny event regardless of how many ticks ran.
+const tickPickups = new Map<string, number>();
+function recordPickup(itemId: string, count: number): void {
+  if (count <= 0 || !itemId) return;
+  tickPickups.set(itemId, (tickPickups.get(itemId) ?? 0) + count);
+}
+
 /** Spawn a drop entity at the given active-grid position with a small random pop velocity. */
 function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): void {
   if (drops.length >= MAX_DROPS) {
     // Drop limit reached — merge into inventory directly as fallback
     const inv = inventories[0];
-    if (inv) inv.add(itemId, count);
+    if (inv) { inv.add(itemId, count); recordPickup(itemId, count); }
     return;
   }
   const code = encodeDropItem(itemId);
   if (code === 0) {
     // Unknown item — add to inventory directly
     const inv = inventories[0];
-    if (inv) inv.add(itemId, count);
+    if (inv) { inv.add(itemId, count); recordPickup(itemId, count); }
     return;
   }
   // Pop velocity: slight upward + horizontal spread (deterministic from position)
@@ -233,7 +244,7 @@ function updateDrops(dt: number): void {
         const dy = d.y - bhCy;
         if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
           const itemId = decodeDropItem(d.itemCode);
-          if (itemId) inv.add(itemId, d.count);
+          if (itemId) { inv.add(itemId, d.count); recordPickup(itemId, d.count); }
           drops.splice(i, 1);
         }
       }
@@ -296,6 +307,7 @@ function updateDrops(dt: number): void {
           const itemId = decodeDropItem(d.itemCode);
           if (itemId) {
             inv.add(itemId, d.count);
+            recordPickup(itemId, d.count);
           }
           drops.splice(i, 1);
         }
@@ -1269,6 +1281,7 @@ function processMining(dt: number): void {
             const roll = pseudoRandom(target.x, target.y, tickCount, drop.itemId);
             if (roll <= drop.chance) {
               inv.add(drop.itemId, drop.count);
+              recordPickup(drop.itemId, drop.count);
             }
           }
         }
@@ -1615,6 +1628,15 @@ async function loop(): Promise<void> {
           tickAccumulator -= 1;
         }
         stepOnce = false;
+
+        // Flush pickup notifications once per frame (batched across all ticks
+        // that ran this frame). Emits a single tiny event regardless of how
+        // many pickups occurred — keeps the worker→host channel quiet even
+        // during a 500-block mining burst.
+        if (tickPickups.size > 0) {
+          events.emit("pickups", Object.fromEntries(tickPickups));
+          tickPickups.clear();
+        }
 
         // Write to SAB once per frame
         if (steps > 0 && world && writer) {

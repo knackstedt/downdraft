@@ -92,9 +92,11 @@ function isSolid(packed: number): boolean {
  * back wall) while the blockhead is airborne. Used when the blockhead needs
  * to stay in place to mine or place a block while climbing.
  *
- * Returns partial input with `up` set, and `left`/`right` set toward the
- * nearest foreground wall if one is adjacent. If no wall or back wall is
- * nearby, returns empty input (the blockhead will fall).
+ * Returns partial input with `up` set (so the physics code recognizes a
+ * climbing context), and `left`/`right` set toward the nearest foreground
+ * wall to stay close. The actual holding is done by the physics code's
+ * mining exception (when mineX >= 0, vy is zeroed). If no wall or back wall
+ * is nearby, returns empty input (the blockhead will fall).
  */
 function climbHoldInput(bh: BlockheadState, fg: Uint16Array, bg: Uint16Array): {
   left: boolean; right: boolean; up: boolean;
@@ -144,8 +146,9 @@ function climbHoldInput(bh: BlockheadState, fg: Uint16Array, bg: Uint16Array): {
     return { left: false, right: false, up: false };
   }
 
-  // Press up to maintain climb. Press toward a foreground wall if one is
-  // adjacent (needed for wall-climbing physics to activate).
+  // Press up so the physics code recognizes a climbing context. Press toward
+  // a foreground wall to stay close (keeps the blockhead adjacent for the
+  // mining hold). The mining exception in physics zeroes vy when mineX >= 0.
   return {
     up: true,
     left: hasWallLeft && !hasWallRight,
@@ -744,7 +747,6 @@ function walkToward(
 
   // Vertical assist for walk moves
   if (dy < -1.5 && bh.onGround) input.jump = true;
-  if (dy < -0.5) input.up = true;
   if (dy > 1.5) input.down = true;
 
   return input;
