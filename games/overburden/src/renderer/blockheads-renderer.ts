@@ -246,6 +246,9 @@ export class BlockheadsRenderer {
 
     this.dropPass = new DropPass(this.device, this.format);
     this.dropPass.init();
+    // Async-load the fruit spritesheet (non-blocking; falls back to solid
+    // colors until the texture is ready).
+    this.dropPass.loadFruitTexture();
 
     this.cropSpritePass = new CropSpritePass(this.device, this.format);
     this.cropSpritePass.init();

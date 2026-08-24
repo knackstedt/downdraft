@@ -1,18 +1,26 @@
 // ============================================================================
 // DropPass — renders world drop items as 2D spinning quads
 //
-// Each drop is a small flat quad (0.4×0.4 blocks) that spins around the
-// vertical (Y) axis. The quad is positioned at the drop's active-grid
-// coordinates and rendered through the same 3D view-projection matrix as
-// the block grid, so it stays aligned with the world at any camera angle.
+// Each drop is a small flat quad that spins around the vertical (Y) axis.
+// The quad is positioned at the drop's active-grid coordinates and rendered
+// through the same 3D view-projection matrix as the block grid, so it stays
+// aligned with the world at any camera angle.
+//
+// Two rendering modes:
+//   - Textured: fruit drops use a 16x16 sprite from fruit-spritesheet.png.
+//     The sprite is sampled with alpha blending for transparent edges.
+//   - Solid color: non-fruit drops (wood, stone, etc.) use a flat color from
+//     the drop registry.
 //
 // The spin creates a pseudo-3D "billboard" effect: as the quad rotates, it
-// narrows and widens, mimicking a spinning item. The fragment shader draws
-// a simple colored square with a subtle border so the item is visible at
-// any rotation angle.
+// narrows and widens, mimicking a spinning item.
 // ============================================================================
 
-import { getDropColor } from "../shared/drop-registry";
+import fruitSpritesheetUrl from "../assets/fruit-spritesheet.png";
+import {
+    getDropColor, getFruitSprite,
+    SPRITESHEET_COLS, SPRITESHEET_ROWS, SPRITESHEET_TILE_PX,
+} from "../shared/drop-registry";
 import { type Mat4 } from "./matrix";
 
 const DROP_WGSL = `
@@ -21,32 +29,38 @@ struct Uniforms {
   canvasW : f32,
   canvasH : f32,
   dropCount : f32,
-  _pad : f32,
+  hasTexture : f32,
 };
 
-struct Drop {
+struct DropInstance {
   x : f32,
   y : f32,
-  _vx : f32,
-  _vy : f32,
   spin : f32,
-  _spinSpeed : f32,
-  itemCode : f32,
-  _lifetime : f32,
+  uOffset : f32,   // >= 0 = textured (UV offset in atlas), < 0 = solid color
+  vOffset : f32,
+  r : f32,         // solid color (used when uOffset < 0)
+  g : f32,
+  b : f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
-@group(0) @binding(1) var<storage, read> drops : array<Drop>;
+@group(0) @binding(1) var<storage, read> drops : array<DropInstance>;
+@group(0) @binding(2) var fruitSampler : sampler;
+@group(0) @binding(3) var fruitTexture : texture_2d<f32>;
 
 struct VsOut {
   @builtin(position) pos : vec4f,
   @location(0) color : vec3f,
-  @location(1) edgeDist : f32,
+  @location(1) uv : vec2f,
+  @location(2) isTextured : f32,
+  @location(3) edgeDist : f32,
 };
 
-// Quad corners (unit square 0..1, centered at 0.5)
-// Triangle strip: bottom-left, bottom-right, top-left, top-right
-const QUAD_SIZE = 0.4; // blocks
+const QUAD_SIZE = 0.6; // blocks
+
+// Spritesheet UV dimensions (each sprite is 16px in a 608x96 texture)
+const SPRITE_U = 16.0 / 608.0;
+const SPRITE_V = 16.0 / 96.0;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsOut {
@@ -59,89 +73,7 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
   );
   let c = corners[vi];
 
-  // Spin: rotate the quad around the Y axis. In a 2.5D top-down perspective,
-  // this means scaling the X dimension by cos(spin) to simulate rotation.
-  let cosA = cos(drop.spin);
-  let rotX = c.x * cosA;
-
-  // Position the quad at the drop's location, centered on the cell
-  let worldX = drop.x + rotX * QUAD_SIZE;
-  let worldY = drop.y + c.y * QUAD_SIZE;
-  // Place at Z=-0.5 (between foreground and background, in front of layer 3)
-  let worldZ = -0.5;
-
-  var out : VsOut;
-  out.pos = uniforms.viewProj * vec4f(worldX, worldY, worldZ, 1.0);
-  // Pass color based on item code (looked up on CPU side and packed)
-  // We encode color in the drop's itemCode as an index into a color table
-  // on the CPU. Here we just pass a placeholder; the actual color is set
-  // via a per-instance color buffer. But to keep it simple, we pass the
-  // item code and look up color in the fragment shader via a color array.
-  out.color = vec3f(1.0, 1.0, 1.0); // placeholder, overridden by instance color
-  // Edge distance for border effect (0 = center, 1 = edge)
-  out.edgeDist = max(abs(c.x), abs(c.y)) * 2.0;
-  return out;
-}
-
-@fragment
-fn fs_main(in : VsOut) -> @location(0) vec4f {
-  // Simple solid color with a subtle border darkening
-  let border = smoothstep(0.85, 1.0, in.edgeDist);
-  let col = in.color * (1.0 - border * 0.4);
-  return vec4f(col, 1.0);
-}
-`;
-
-// We need per-instance colors. Instead of a separate buffer, we'll use a
-// combined storage buffer that includes color data alongside position data.
-// To keep the SAB layout simple, the renderer reads drop data from the SAB
-// and builds a combined buffer here with colors resolved from the drop registry.
-
-const DROP_WGSL_COLORED = `
-struct Uniforms {
-  viewProj : mat4x4f,
-  canvasW : f32,
-  canvasH : f32,
-  dropCount : f32,
-  _pad : f32,
-};
-
-struct DropInstance {
-  x : f32,
-  y : f32,
-  spin : f32,
-  r : f32,
-  g : f32,
-  b : f32,
-  _pad1 : f32,
-  _pad2 : f32,
-};
-
-@group(0) @binding(0) var<uniform> uniforms : Uniforms;
-@group(0) @binding(1) var<storage, read> drops : array<DropInstance>;
-
-struct VsOut {
-  @builtin(position) pos : vec4f,
-  @location(0) color : vec3f,
-  @location(1) edgeDist : f32,
-};
-
-const QUAD_SIZE = 0.6;
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsOut {
-  let drop = drops[ii];
-  let corners = array<vec2f, 4>(
-    vec2f(-0.5, -0.5),
-    vec2f( 0.5, -0.5),
-    vec2f(-0.5,  0.5),
-    vec2f( 0.5,  0.5),
-  );
-  let c = corners[vi];
-
   // Spin: scale X by cos(spin) to simulate Y-axis rotation.
-  // The quad naturally narrows to zero width at 90° and reappears flipped —
-  // this is the correct visual for a spinning item.
   let cosA = cos(drop.spin);
   let rotX = c.x * cosA;
 
@@ -153,19 +85,43 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
   out.pos = uniforms.viewProj * vec4f(worldX, worldY, worldZ, 1.0);
   out.color = vec3f(drop.r, drop.g, drop.b);
   out.edgeDist = max(abs(c.x), abs(c.y)) * 2.0;
+
+  // UV: map corner (-0.5..0.5) to (0..1) within the sprite cell.
+  // For textured drops, offset by the sprite's UV in the atlas.
+  let cornerU = c.x + 0.5;
+  let cornerV = c.y + 0.5;
+  if (drop.uOffset >= 0.0) {
+    out.uv = vec2f(drop.uOffset + cornerU * SPRITE_U, drop.vOffset + cornerV * SPRITE_V);
+    out.isTextured = 1.0;
+  } else {
+    out.uv = vec2f(0.0, 0.0);
+    out.isTextured = 0.0;
+  }
+
   return out;
 }
 
 @fragment
 fn fs_main(in : VsOut) -> @location(0) vec4f {
   let border = smoothstep(0.85, 1.0, in.edgeDist);
-  let col = in.color * (1.0 - border * 0.4);
-  return vec4f(col, 1.0);
+
+  // Always sample the texture (textureSample requires uniform control flow,
+  // so we use textureSampleLevel with LOD 0 which has no such restriction).
+  // For non-textured drops, the sample result is simply ignored.
+  let texColor = textureSampleLevel(fruitTexture, fruitSampler, in.uv, 0.0);
+
+  // Mix between textured and solid color based on the isTextured flag.
+  // Use select() for branchless blending — avoids non-uniform control flow.
+  let texFrag = vec4f(texColor.rgb * (1.0 - border * 0.3), texColor.a);
+  let solidFrag = vec4f(in.color * (1.0 - border * 0.4), 1.0);
+
+  let useTextured = min(in.isTextured, uniforms.hasTexture);
+  return mix(solidFrag, texFrag, step(0.5, useTextured));
 }
 `;
 
 const MAX_DROP_INSTANCES = 512;
-// Per instance: x, y, spin, r, g, b, pad, pad = 8 floats
+// Per instance: x, y, spin, uOffset, vOffset, r, g, b = 8 floats
 const DROP_INSTANCE_STRIDE = 8;
 
 export interface DropRenderData {
@@ -182,19 +138,52 @@ export class DropPass {
   private uniformBuffer: GPUBuffer | null = null;
   private instanceBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private fruitTexture: GPUTexture | null = null;
+  private sampler: GPUSampler | null = null;
   private dropCount = 0;
+  private textureLoaded = false;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
     this.format = format;
   }
 
-  init(): void {
-    const shader = this.device.createShaderModule({ code: DROP_WGSL_COLORED });
+  /** Async-load the fruit spritesheet. Safe to call after init(). */
+  async loadFruitTexture(): Promise<void> {
+    if (this.textureLoaded) return;
+    try {
+      const response = await fetch(fruitSpritesheetUrl);
+      const blob = await response.blob();
+      const bitmap = await createImageBitmap(blob);
+      const texture = this.device.createTexture({
+        size: [bitmap.width, bitmap.height],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.device.queue.copyExternalImageToTexture(
+        { source: bitmap },
+        { texture },
+        [bitmap.width, bitmap.height],
+      );
+      this.fruitTexture = texture;
+      this.sampler = this.device.createSampler({
+        magFilter: "nearest",
+        minFilter: "nearest",
+      });
+      this.textureLoaded = true;
+      // Rebuild bind group now that the texture exists
+      this.buildBindGroup();
+    } catch (e) {
+      console.warn("[DropPass] Failed to load fruit spritesheet:", e);
+    }
+  }
 
-    // Uniform buffer: mat4x4 (64 bytes) + 4 floats (16 bytes) = 80 bytes
+  init(): void {
+    const shader = this.device.createShaderModule({ code: DROP_WGSL });
+
+    // Uniform buffer: mat4x4 (64 bytes) + 5 floats (20 bytes) = 84 → round to 96
     this.uniformBuffer = this.device.createBuffer({
-      size: 80,
+      size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -204,23 +193,30 @@ export class DropPass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const bindGroupLayout = this.device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-      ],
+    // Create a placeholder texture (1x1 transparent) so the bind group is
+    // always valid, even before the real texture loads.
+    this.fruitTexture = this.device.createTexture({
+      size: [1, 1],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    const transparent = new Uint8Array([0, 0, 0, 0]);
+    this.device.queue.writeTexture(
+      { texture: this.fruitTexture },
+      transparent,
+      { bytesPerRow: 4 },
+      [1, 1],
+    );
+
+    this.sampler = this.device.createSampler({
+      magFilter: "nearest",
+      minFilter: "nearest",
     });
 
-    this.bindGroup = this.device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: this.instanceBuffer } },
-      ],
-    });
+    this.buildBindGroup();
 
     const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [bindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayout],
     });
 
     this.pipeline = this.device.createRenderPipeline({
@@ -229,7 +225,21 @@ export class DropPass {
       fragment: {
         module: shader,
         entryPoint: "fs_main",
-        targets: [{ format: this.format }],
+        targets: [{
+          format: this.format,
+          blend: {
+            color: {
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+            alpha: {
+              srcFactor: "one",
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+            },
+          },
+        }],
       },
       primitive: { topology: "triangle-strip" },
       depthStencil: {
@@ -240,34 +250,75 @@ export class DropPass {
     });
   }
 
+  private bindGroupLayout: GPUBindGroupLayout | null = null;
+
+  private buildBindGroup(): void {
+    if (!this.uniformBuffer || !this.instanceBuffer || !this.fruitTexture || !this.sampler) return;
+
+    if (!this.bindGroupLayout) {
+      this.bindGroupLayout = this.device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+          { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+          { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+        ],
+      });
+    }
+
+    this.bindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: this.instanceBuffer } },
+        { binding: 2, resource: this.sampler },
+        { binding: 3, resource: this.fruitTexture.createView() },
+      ],
+    });
+  }
+
   update(viewProj: Mat4, canvasW: number, canvasH: number, dropData: DropRenderData[]): void {
     if (!this.uniformBuffer || !this.instanceBuffer) return;
 
     // Write uniforms
-    const u = new Float32Array(20); // 16 (mat4) + 4
+    const u = new Float32Array(21); // 16 (mat4) + 5
     u.set(viewProj, 0);
     u[16] = canvasW;
     u[17] = canvasH;
     u[18] = Math.min(dropData.length, MAX_DROP_INSTANCES);
-    u[19] = 0;
+    u[19] = this.textureLoaded ? 1 : 0;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
 
-    // Build instance data with resolved colors
+    // Build instance data
     const count = Math.min(dropData.length, MAX_DROP_INSTANCES);
     const data = new Float32Array(MAX_DROP_INSTANCES * DROP_INSTANCE_STRIDE);
     for (let i = 0; i < count; i++) {
       const d = dropData[i];
-      const color = getDropColor(d.itemCode);
       const off = i * DROP_INSTANCE_STRIDE;
       data[off + 0] = d.x;
       data[off + 1] = d.y;
       data[off + 2] = d.spin;
-      // Normalize color to 0..1
-      data[off + 3] = color[0] / 255;
-      data[off + 4] = color[1] / 255;
-      data[off + 5] = color[2] / 255;
-      data[off + 6] = 0;
-      data[off + 7] = 0;
+
+      // Check if this drop has a fruit sprite
+      const sprite = getFruitSprite(d.itemCode);
+      if (sprite) {
+        // Textured: compute UV offset in the atlas
+        data[off + 3] = sprite.col * SPRITESHEET_TILE_PX / (SPRITESHEET_COLS * SPRITESHEET_TILE_PX);
+        data[off + 4] = sprite.row * SPRITESHEET_TILE_PX / (SPRITESHEET_ROWS * SPRITESHEET_TILE_PX);
+        // Color is unused for textured drops, but set it as fallback
+        const color = getDropColor(d.itemCode);
+        data[off + 5] = color[0] / 255;
+        data[off + 6] = color[1] / 255;
+        data[off + 7] = color[2] / 255;
+      } else {
+        // Solid color: uOffset = -1 (sentinel for "not textured")
+        data[off + 3] = -1;
+        data[off + 4] = 0;
+        const color = getDropColor(d.itemCode);
+        data[off + 5] = color[0] / 255;
+        data[off + 6] = color[1] / 255;
+        data[off + 7] = color[2] / 255;
+      }
     }
     this.device.queue.writeBuffer(this.instanceBuffer, 0, data);
     this.dropCount = count;
@@ -283,5 +334,6 @@ export class DropPass {
   destroy(): void {
     this.uniformBuffer?.destroy();
     this.instanceBuffer?.destroy();
+    this.fruitTexture?.destroy();
   }
 }
