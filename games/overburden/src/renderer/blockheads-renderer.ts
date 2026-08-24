@@ -17,9 +17,11 @@ import {
 } from "../shared/constants";
 import { isCropBlock, isWildCropBlock } from "../shared/crops";
 import { getItemDef } from "../shared/items";
+import { RENDER_TICK_SENTINEL } from "../shared/render-buffer";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { isTreeBlock } from "../shared/tree-species";
 import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
+import { GridBuilderWorkerHost } from "../simulation/grid-builder-worker-host";
 import { BlockGridPass3D } from "./block-grid-pass-3d";
 import { Camera } from "./camera";
 import { CropSpritePass } from "./crop-sprite-pass";
@@ -58,7 +60,6 @@ export class BlockheadsRenderer {
   private running = false;
   private raf = 0;
   private lastTime = 0;
-  private lastSimTick = -1;
   // Cached origin (read atomically with the tick to avoid race conditions
   // where the worker updates the origin between camera positioning and
   // grid rebuild — which would cause a 1-frame flash on chunk boundaries).
@@ -110,6 +111,12 @@ export class BlockheadsRenderer {
   workerHost: BlockheadsWorkerHost | null = null;
   private simReader: SimBufferReader | null = null;
   private simReady = false;
+
+  // Grid-builder worker — offloads instance data + texture padding to a
+  // dedicated worker. The renderer reads pre-built data from the render SAB
+  // and uploads it to the GPU without any JS loops on the main thread.
+  private gridBuilderHost: GridBuilderWorkerHost | null = null;
+  private lastBuildTick = RENDER_TICK_SENTINEL;
 
   // Input
   private input: BlockheadsInputState | null = null;
@@ -259,6 +266,12 @@ export class BlockheadsRenderer {
     await this.workerHost.start();
     this.simReady = this.workerHost.isReady();
 
+    // Start the grid-builder worker — offloads instance data + texture
+    // padding from the render thread. It reads the sim SAB and writes
+    // pre-built data to the render SAB.
+    this.gridBuilderHost = new GridBuilderWorkerHost();
+    await this.gridBuilderHost.start(this.workerHost.getSimBuffer());
+
     // Set initial camera to center of active grid, at surface level.
     // The active grid is centered at SURFACE_Y in world coords, so the surface
     // is at active grid Y = ACTIVE_GRID_H/2 = 224.
@@ -402,6 +415,9 @@ export class BlockheadsRenderer {
     this.taskMarkerPass?.destroy();
     this.dropPass?.destroy();
     this.cropSpritePass?.destroy();
+    await this.gridBuilderHost?.shutdown();
+    this.gridBuilderHost = null;
+    this.lastBuildTick = RENDER_TICK_SENTINEL;
     await this.workerHost?.shutdown();
   }
 
@@ -430,7 +446,7 @@ export class BlockheadsRenderer {
         new Uint16Array(0), 0, 0,
       );
     }
-    this.lastSimTick = -1;
+    this.lastBuildTick = RENDER_TICK_SENTINEL; // force re-upload on next frame
     this.cachedOriginCx = 0;
     this.cachedOriginCy = 0;
     this.camWorldInit = false;
@@ -869,16 +885,19 @@ export class BlockheadsRenderer {
     const daylight = this.simReader ? this.simReader.getDaylight() : 15;
     const daylightNorm = daylight / 15; // 0..1 for shader
 
-    // Upload grid data from SAB (builds 3D instance data).
-    // Skip when the sim tick hasn't advanced — the SAB data is unchanged
-    // between sim ticks (30Hz), so we only need to rebuild on new ticks.
-    if (this.simReader) {
-      const tick = this.simReader.getTick();
-      if (tick !== this.lastSimTick) {
-        this.lastSimTick = tick;
-        this.blockGridPass.updateGrid(this.simReader.foreground, this.simReader.background);
-        this.blockGridPass.updateLight(this.simReader.light);
-        this.blockGridPass.updateExplored(this.simReader.explored);
+    // Upload grid data from the render SAB (pre-built by the grid-builder
+    // worker). The worker continuously builds instance data + padded textures
+    // off the main thread; we just check if a new build is ready and upload
+    // it to the GPU. This eliminates the ~10ms O(W×H) instance-building loop
+    // that previously ran on the main thread every sim tick.
+    if (this.gridBuilderHost) {
+      const renderReader = this.gridBuilderHost.getReader();
+      const buildTick = renderReader.getBuildTick();
+      if (buildTick !== this.lastBuildTick) {
+        this.lastBuildTick = buildTick;
+        this.blockGridPass.updateGridFromBuffer(renderReader);
+        this.blockGridPass.updateLightFromBuffer(renderReader);
+        this.blockGridPass.updateExploredFromBuffer(renderReader);
       }
     }
 
