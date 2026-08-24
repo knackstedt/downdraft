@@ -23,6 +23,24 @@ export interface RecipeUI {
   station: string;
 }
 
+// --- Pickup notification toasts ---
+// One toast per distinct item picked up. Same-item pickups refresh the
+// existing toast (count += n, ts = now) instead of stacking. Toasts auto-
+// prune after PICKUP_TTL_MS via the 250ms poll in app.tsx. The stack is
+// capped at PICKUP_MAX_TOASTS (oldest evicted) to avoid flooding the HUD
+// during a multi-item burst.
+export interface PickupToast {
+  id: number;
+  itemId: string;
+  count: number;
+  ts: number;
+}
+
+export const PICKUP_TTL_MS = 3000;
+export const PICKUP_MAX_TOASTS = 6;
+
+let pickupIdCounter = 0;
+
 interface GameState {
   // UI state
   showTitleScreen: boolean;
@@ -47,6 +65,8 @@ interface GameState {
   recipes: RecipeUI[];
   // Notification toast (auto-dismisses after a few seconds)
   notification: string | null;
+  // Pickup notification toasts (capped, auto-pruning)
+  pickups: PickupToast[];
   // Current season + day info (polled from SAB tick)
   season: Season;
   dayInSeason: number;
@@ -69,6 +89,8 @@ interface GameState {
   setInventory: (inv: InventorySlotUI[]) => void;
   setRecipes: (recipes: RecipeUI[]) => void;
   setNotification: (msg: string | null) => void;
+  addPickups: (entries: Record<string, number>) => void;
+  prunePickups: (now: number) => void;
   setSeasonInfo: (season: Season, dayInSeason: number, year: number) => void;
 }
 
@@ -96,6 +118,7 @@ export const useGameStore = create<GameState>((set) => ({
   inventory: [],
   recipes: [],
   notification: null,
+  pickups: [],
   season: "spring",
   dayInSeason: 0,
   year: 0,
@@ -115,5 +138,31 @@ export const useGameStore = create<GameState>((set) => ({
   setInventory: (inventory) => set({ inventory }),
   setRecipes: (recipes) => set({ recipes }),
   setNotification: (msg) => set({ notification: msg }),
+  addPickups: (entries) => set((s) => {
+    const now = Date.now();
+    const next = s.pickups.slice();
+    for (const [itemId, n] of Object.entries(entries)) {
+      if (n <= 0) continue;
+      const existing = next.find((t) => t.itemId === itemId);
+      if (existing) {
+        existing.count += n;
+        existing.ts = now;
+      } else {
+        next.push({ id: ++pickupIdCounter, itemId, count: n, ts: now });
+      }
+    }
+    // Cap the stack: evict the oldest (lowest ts) when over the limit.
+    if (next.length > PICKUP_MAX_TOASTS) {
+      next.sort((a, b) => b.ts - a.ts);
+      next.length = PICKUP_MAX_TOASTS;
+    }
+    return { pickups: next };
+  }),
+  prunePickups: (now) => set((s) => {
+    const cutoff = now - PICKUP_TTL_MS;
+    const next = s.pickups.filter((t) => t.ts >= cutoff);
+    if (next.length === s.pickups.length) return s; // no change → no re-render
+    return { pickups: next };
+  }),
   setSeasonInfo: (season, dayInSeason, year) => set({ season, dayInSeason, year }),
 }));

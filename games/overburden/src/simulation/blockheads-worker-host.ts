@@ -73,6 +73,7 @@ export class BlockheadsWorkerHost {
   private proxy: WorkerProxy<BlockheadsWorkerApi> | null = null;
   private worker: Worker | null = null;
   private ready = false;
+  private pickupListener: ((data: Record<string, number>) => void) | null = null;
 
   constructor() {
     this.sab = createSimBuffer();
@@ -91,6 +92,16 @@ export class BlockheadsWorkerHost {
     return this.ready;
   }
 
+  /**
+   * Register a listener for batched pickup notifications from the worker.
+   * The worker emits a single "pickups" event per frame when items are
+   * picked up (mined block drops, world-drop pickups, fruit pickups), with
+   * a payload of { itemId: count, ... }. Call this once after start().
+   */
+  onPickups(cb: (data: Record<string, number>) => void): void {
+    this.pickupListener = cb;
+  }
+
   async start(): Promise<void> {
     const workerUrl = new URL("./blockheads-worker.ts", import.meta.url);
     this.worker = new Worker(workerUrl, { type: "module" });
@@ -100,9 +111,11 @@ export class BlockheadsWorkerHost {
       console.error("[BlockheadsWorkerHost] Worker error:", e.message);
     };
 
-    this.proxy.onEvents((kind: string) => {
+    this.proxy.onEvents((kind: string, data: any) => {
       if (kind === "ready") {
         this.ready = true;
+      } else if (kind === "pickups" && this.pickupListener && data) {
+        this.pickupListener(data as Record<string, number>);
       }
     });
 

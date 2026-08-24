@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
 import { StationPanel } from "./components/station-panel";
 import { TaskQueueDisplay } from "./components/task-queue-display";
+import { encodeDropItem, getDropColor } from "./shared/drop-registry";
 import { getAllItems, getItemDef, type ItemCategory } from "./shared/items";
 import { useGameStore } from "./stores/game-store";
 
@@ -219,6 +220,89 @@ function AttributeBar({ label, value, color }: { label: string; value: number; c
     </div>
   );
 }
+
+// --- Pickup notification toasts ---
+// Color fallback for harvest foods not in the drop registry.
+const FOOD_COLORS: Record<string, [number, number, number]> = {
+  berries: [180, 40, 60],
+  wild_mushroom: [140, 110, 70],
+  raw_meat: [200, 120, 120],
+  cooked_meat: [160, 90, 50],
+  bread: [220, 190, 120],
+  tomato: [220, 80, 50],
+  carrot: [220, 140, 40],
+  potato: [200, 170, 110],
+  corn: [240, 220, 80],
+  pumpkin: [220, 130, 40],
+  wheat: [220, 200, 110],
+  brown_mushroom: [140, 110, 70],
+  red_mushroom: [180, 60, 50],
+};
+
+/** Resolve a display color (RGB 0-255) for any item id, for toast swatches. */
+function getItemColor(itemId: string): [number, number, number] {
+  const blockColor = ITEM_COLORS[itemId];
+  if (blockColor) return blockColor;
+  const code = encodeDropItem(itemId);
+  if (code !== 0) return getDropColor(code);
+  const foodColor = FOOD_COLORS[itemId];
+  if (foodColor) return foodColor;
+  return [128, 128, 128];
+}
+
+const pickupStackStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 120,
+  right: 8,
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  pointerEvents: "none",
+  zIndex: 20,
+  fontFamily: "monospace",
+};
+
+const pickupToastStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "4px 8px",
+  background: "rgba(0,0,0,0.55)",
+  borderRadius: 4,
+  color: "white",
+  fontSize: 12,
+  fontWeight: "bold",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+};
+
+const pickupSwatchStyle = (color: [number, number, number]): React.CSSProperties => ({
+  width: 14,
+  height: 14,
+  background: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
+  borderRadius: 2,
+  flexShrink: 0,
+  border: "1px solid rgba(255,255,255,0.2)",
+});
+
+const PickupNotifications = memo(function PickupNotifications() {
+  const pickups = useGameStore((s) => s.pickups);
+  if (pickups.length === 0) return null;
+  return (
+    <div style={pickupStackStyle}>
+      {pickups.map((t) => {
+        const name = getItemDef(t.itemId)?.name ?? t.itemId;
+        const color = getItemColor(t.itemId);
+        return (
+          <div key={t.id} style={pickupToastStyle}>
+            <div style={pickupSwatchStyle(color)} />
+            <span>{"\u00d7"}{t.count}</span>
+            <span style={{ fontWeight: "normal", opacity: 0.85 }}>{name}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
 
 // --- Pause menu (with Reset Game option) ---
 const pauseOverlayStyle: React.CSSProperties = {
@@ -658,6 +742,7 @@ function Hud() {
       <AttributeBars />
       <PanelRouter />
       <NotificationToast />
+      <PickupNotifications />
       <Hotbar />
     </div>
   );
@@ -967,6 +1052,9 @@ export default function App() {
       host.getRecipes("hand").then((recipes) => {
         useGameStore.getState().setRecipes(recipes);
       });
+      // Register the pickup notification listener — the worker emits a
+      // single batched "pickups" event per frame when items are picked up.
+      host.onPickups((data) => useGameStore.getState().addPickups(data));
     }
 
     // --- Load saved inventory from localStorage on game start ---
@@ -998,6 +1086,8 @@ export default function App() {
     const interval = setInterval(() => {
       const reader = renderer.getSimReader();
       if (!reader) return;
+      // Prune expired pickup toasts (no new timer — reuses this 250ms poll)
+      useGameStore.getState().prunePickups(Date.now());
       const count = reader.getBlockheadCount();
       if (count > 0) {
         const bh = reader.getBlockhead(0);
