@@ -466,7 +466,8 @@ export class BlockheadsRenderer {
     this.cachedDropData = [];
     this.lastDropTick = RENDER_TICK_SENTINEL;
     if (this.dropPass && this.blockGridPass) {
-      this.dropPass.update(this.blockGridPass.getViewProj(), this.camera.canvasW, this.camera.canvasH, []);
+      this.dropPass.updateInstances([]);
+      this.dropPass.updateCamera(this.blockGridPass.getViewProj(), this.camera.canvasW, this.camera.canvasH);
     }
     // Clear crop sprites (worker already reset the grid)
     if (this.cropSpritePass && this.blockGridPass) {
@@ -1007,10 +1008,9 @@ export class BlockheadsRenderer {
       this.skyPass.update(this.camera.canvasW, this.camera.canvasH, daylight);
     }
 
-    // Update task markers — only rebuild render data when markers change
+    // Update task markers — only rebuild instance data when markers change
     // or the grid build tick advances (z-position depends on grid content).
-    // The markers array is updated externally (~200ms); without caching,
-    // .map() creates a new array + N objects every frame (GC pressure).
+    // Camera uniforms update every frame (separate call, only writes 80 bytes).
     if (this.taskMarkerPass && this.blockGridPass) {
       if (this.markerDataDirty || this.lastBuildTick !== this.lastMarkerBuildTick) {
         this.lastMarkerBuildTick = this.lastBuildTick;
@@ -1037,18 +1037,18 @@ export class BlockheadsRenderer {
             color: m.action === "mine" ? [0.91, 0.30, 0.24] : [0.20, 0.60, 0.86],
           };
         });
+        this.taskMarkerPass.updateInstances(this.cachedMarkerData);
       }
-      this.taskMarkerPass.update(
+      this.taskMarkerPass.updateCamera(
         this.blockGridPass.getViewProj(),
         this.camera.canvasW,
         this.camera.canvasH,
-        this.cachedMarkerData,
       );
     }
 
-    // Update drop pass — only rebuild drop data when sim tick changes
+    // Update drop pass — only rebuild instance data when sim tick changes
     // (drops move at 30Hz, not render framerate). Camera uniforms update
-    // every frame via dropPass.update().
+    // every frame (separate call, only writes 84 bytes).
     if (this.dropPass && this.blockGridPass && this.simReader) {
       if (this.lastBuildTick !== this.lastDropTick) {
         this.lastDropTick = this.lastBuildTick;
@@ -1067,12 +1067,12 @@ export class BlockheadsRenderer {
         } else {
           this.cachedDropData = [];
         }
+        this.dropPass.updateInstances(this.cachedDropData);
       }
-      this.dropPass.update(
+      this.dropPass.updateCamera(
         this.blockGridPass.getViewProj(),
         this.camera.canvasW,
         this.camera.canvasH,
-        this.cachedDropData,
       );
     }
 

@@ -19,7 +19,7 @@ import {
     RenderBufferReader,
 } from "../shared/render-buffer";
 import { isTreeBlock } from "../shared/tree-species";
-import { lookAt, multiply, perspective, type Mat4 } from "./matrix";
+import { lookAtIP, multiplyIP, perspectiveIP, type Mat4 } from "./matrix";
 
 // --- Cube geometry ---
 // 6 faces × 4 vertices = 24 vertices. Each vertex: localPos(3) + normal(3) + faceId(1) = 7 floats.
@@ -142,6 +142,11 @@ export class BlockGridPass3D {
 
   // Cached view-projection matrix
   private viewProj: Mat4 = new Float32Array(16);
+  // Preallocated scratch matrices (avoid per-frame allocation in updateCamera)
+  private _projScratch: Mat4 = new Float32Array(16);
+  private _viewScratch: Mat4 = new Float32Array(16);
+  // Preallocated camera uniform buffer (32 floats = 128 bytes)
+  private _cameraUniform: Float32Array<ArrayBuffer> = new Float32Array(32);
 
   // Debug: when true, disable fog-of-war + shadow darkening (F1).
   // The light texture is cleared to full white and the explored texture
@@ -755,20 +760,20 @@ export class BlockGridPass3D {
     const target: [number, number, number] = [camX, camY, 0];
     const up: [number, number, number] = [0, -1, 0]; // world Y goes down, so "up" is -Y
 
-    // Compute view-projection matrix
+    // Compute view-projection matrix (in-place, no allocation)
     const aspect = canvasW / canvasH;
     const near = 0.1;
     const far = distance * 3 + 100;
 
-    const proj = perspective(fov, aspect, near, far);
-    const view = lookAt(eye, target, up);
-    this.viewProj = multiply(proj, view);
+    perspectiveIP(this._projScratch, fov, aspect, near, far);
+    lookAtIP(this._viewScratch, eye, target, up);
+    multiplyIP(this.viewProj, this._projScratch, this._viewScratch);
 
-    // Write camera uniform buffer
+    // Write camera uniform buffer (reuse preallocated array)
     // Layout: viewProj (16 floats) + camPos (3) + zoom (1) + canvasW (1) + canvasH (1)
     //         + daylight (1) + mineX (1) + mineY (1) + mineDamage (1) + pad (1)
     //         + originX (1) + originY (1) + pad2 (2) = 32 floats = 128 bytes
-    const u = new Float32Array(32); // 128 bytes / 4
+    const u = this._cameraUniform;
     u.set(this.viewProj, 0);
     u[16] = eye[0];
     u[17] = eye[1];

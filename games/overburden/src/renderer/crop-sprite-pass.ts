@@ -103,6 +103,9 @@ export class CropSpritePass {
   private instanceBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private cropCount = 0;
+  // Preallocated uniform + instance arrays (avoid per-frame allocation)
+  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(20);
+  private _instanceData: Float32Array<ArrayBuffer> = new Float32Array(MAX_CROP_INSTANCES * CROP_INSTANCE_STRIDE);
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -177,7 +180,8 @@ export class CropSpritePass {
     if (!this.instanceBuffer) return;
 
     // Build instance data by scanning the foreground grid for crop/wild blocks
-    const data = new Float32Array(MAX_CROP_INSTANCES * CROP_INSTANCE_STRIDE);
+    // (reuse preallocated buffer — only upload the active portion)
+    const data = this._instanceData;
     let count = 0;
 
     for (let y = 0; y < H && count < MAX_CROP_INSTANCES; y++) {
@@ -218,7 +222,15 @@ export class CropSpritePass {
       }
     }
 
-    this.device.queue.writeBuffer(this.instanceBuffer, 0, data);
+    // Only upload the active portion (not the full MAX_CROP_INSTANCES buffer)
+    if (count > 0) {
+      this.device.queue.writeBuffer(
+        this.instanceBuffer, 0,
+        data.buffer,
+        data.byteOffset,
+        count * CROP_INSTANCE_STRIDE * 4,
+      );
+    }
     this.cropCount = count;
   }
 
@@ -232,7 +244,7 @@ export class CropSpritePass {
     canvasH: number,
   ): void {
     if (!this.uniformBuffer) return;
-    const u = new Float32Array(20); // 16 (mat4) + 4
+    const u = this._uniform; // 16 (mat4) + 4
     u.set(viewProj, 0);
     u[16] = canvasW;
     u[17] = canvasH;

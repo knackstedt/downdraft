@@ -142,6 +142,9 @@ export class DropPass {
   private sampler: GPUSampler | null = null;
   private dropCount = 0;
   private textureLoaded = false;
+  // Preallocated buffers (avoid per-frame allocation)
+  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(21);
+  private _instanceData: Float32Array<ArrayBuffer> = new Float32Array(MAX_DROP_INSTANCES * DROP_INSTANCE_STRIDE);
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
@@ -277,21 +280,11 @@ export class DropPass {
     });
   }
 
-  update(viewProj: Mat4, canvasW: number, canvasH: number, dropData: DropRenderData[]): void {
-    if (!this.uniformBuffer || !this.instanceBuffer) return;
-
-    // Write uniforms
-    const u = new Float32Array(21); // 16 (mat4) + 5
-    u.set(viewProj, 0);
-    u[16] = canvasW;
-    u[17] = canvasH;
-    u[18] = Math.min(dropData.length, MAX_DROP_INSTANCES);
-    u[19] = this.textureLoaded ? 1 : 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
-
-    // Build instance data
+  /** Update instance data — call only when drop data changes (sim tick). */
+  updateInstances(dropData: DropRenderData[]): void {
+    if (!this.instanceBuffer) return;
     const count = Math.min(dropData.length, MAX_DROP_INSTANCES);
-    const data = new Float32Array(MAX_DROP_INSTANCES * DROP_INSTANCE_STRIDE);
+    const data = this._instanceData;
     for (let i = 0; i < count; i++) {
       const d = dropData[i];
       const off = i * DROP_INSTANCE_STRIDE;
@@ -320,8 +313,28 @@ export class DropPass {
         data[off + 7] = color[2] / 255;
       }
     }
-    this.device.queue.writeBuffer(this.instanceBuffer, 0, data);
+    // Only upload the active portion (not the full MAX_DROP_INSTANCES buffer)
+    if (count > 0) {
+      this.device.queue.writeBuffer(
+        this.instanceBuffer, 0,
+        data.buffer,
+        data.byteOffset,
+        count * DROP_INSTANCE_STRIDE * 4,
+      );
+    }
     this.dropCount = count;
+  }
+
+  /** Update camera uniforms — call every frame. */
+  updateCamera(viewProj: Mat4, canvasW: number, canvasH: number): void {
+    if (!this.uniformBuffer) return;
+    const u = this._uniform; // 16 (mat4) + 5
+    u.set(viewProj, 0);
+    u[16] = canvasW;
+    u[17] = canvasH;
+    u[18] = this.dropCount;
+    u[19] = this.textureLoaded ? 1 : 0;
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
   }
 
   render(pass: GPURenderPassEncoder): void {
