@@ -15,7 +15,7 @@ import {
     BLOCK_WOOD,
     CHUNK_H, CHUNK_W, TICK_MS
 } from "../shared/constants";
-import { isCropBlock, isWildCropBlock } from "../shared/crops";
+import { CROP_LOOKUP } from "../shared/crops";
 import { getItemDef } from "../shared/items";
 import { RENDER_TICK_SENTINEL } from "../shared/render-buffer";
 import { SimBufferReader } from "../shared/sim-buffer";
@@ -117,6 +117,7 @@ export class BlockheadsRenderer {
   // and uploads it to the GPU without any JS loops on the main thread.
   private gridBuilderHost: GridBuilderWorkerHost | null = null;
   private lastBuildTick = RENDER_TICK_SENTINEL;
+  private lastCropTick = RENDER_TICK_SENTINEL;
 
   // Input
   private input: BlockheadsInputState | null = null;
@@ -418,6 +419,7 @@ export class BlockheadsRenderer {
     await this.gridBuilderHost?.shutdown();
     this.gridBuilderHost = null;
     this.lastBuildTick = RENDER_TICK_SENTINEL;
+    this.lastCropTick = RENDER_TICK_SENTINEL;
     await this.workerHost?.shutdown();
   }
 
@@ -441,12 +443,13 @@ export class BlockheadsRenderer {
     }
     // Clear crop sprites (worker already reset the grid)
     if (this.cropSpritePass && this.blockGridPass) {
-      this.cropSpritePass.update(
+      this.cropSpritePass.updateInstances(new Uint16Array(0), 0, 0);
+      this.cropSpritePass.updateCamera(
         this.blockGridPass.getViewProj(), this.camera.canvasW, this.camera.canvasH,
-        new Uint16Array(0), 0, 0,
       );
     }
     this.lastBuildTick = RENDER_TICK_SENTINEL; // force re-upload on next frame
+    this.lastCropTick = RENDER_TICK_SENTINEL;
     this.cachedOriginCx = 0;
     this.cachedOriginCy = 0;
     this.camWorldInit = false;
@@ -501,14 +504,15 @@ export class BlockheadsRenderer {
 
     // Crops/wild crops are rendered as 2D sprites, not cubes — exclude them
     // from the solid test so clicking a crop falls through to the plane.
+    // Uses CROP_LOOKUP (Uint8Array) for O(1) check instead of Set.has().
     const isFgSolid = (cx: number, cy: number) => {
       const id = fg[cy * ACTIVE_GRID_W + cx] & 0xFF;
-      return id !== BLOCK_AIR && !isCropBlock(id) && !isWildCropBlock(id);
+      return id !== BLOCK_AIR && CROP_LOOKUP[id] === 0;
     };
     // Background: trees ARE solid cubes in the BG main layer (Z=-2).
     const isBgSolid = (cx: number, cy: number) => {
       const id = bg[cy * ACTIVE_GRID_W + cx] & 0xFF;
-      return id !== BLOCK_AIR && !isCropBlock(id) && !isWildCropBlock(id);
+      return id !== BLOCK_AIR && CROP_LOOKUP[id] === 0;
     };
 
     // 1) Foreground slab: Z=[1, -1] (front face at Z=1, back face at Z=-1)
@@ -1025,15 +1029,21 @@ export class BlockheadsRenderer {
       }
     }
 
-    // Update crop sprite pass (scan foreground grid for crop/wild blocks)
+    // Update crop sprite pass — instance scan only when sim tick changes
+    // (foreground grid is unchanged between ticks), camera uniforms every frame.
     if (this.cropSpritePass && this.blockGridPass && this.simReader) {
-      this.cropSpritePass.update(
+      if (this.lastBuildTick !== this.lastCropTick) {
+        this.lastCropTick = this.lastBuildTick;
+        this.cropSpritePass.updateInstances(
+          this.simReader.foreground,
+          ACTIVE_GRID_W,
+          ACTIVE_GRID_H,
+        );
+      }
+      this.cropSpritePass.updateCamera(
         this.blockGridPass.getViewProj(),
         this.camera.canvasW,
         this.camera.canvasH,
-        this.simReader.foreground,
-        ACTIVE_GRID_W,
-        ACTIVE_GRID_H,
       );
     }
 

@@ -11,21 +11,21 @@
 // ============================================================================
 
 import {
-  BLOCK_COMPOST_FARMLAND,
-  BLOCK_FARMLAND,
-  BLOCK_CROP_MATURE_BROWN_MUSHROOM, BLOCK_CROP_MATURE_CARROT, BLOCK_CROP_MATURE_CORN,
-  BLOCK_CROP_MATURE_POTATO, BLOCK_CROP_MATURE_PUMPKIN, BLOCK_CROP_MATURE_RED_MUSHROOM,
-  BLOCK_CROP_MATURE_TOMATO, BLOCK_CROP_MATURE_WHEAT,
-  BLOCK_CROP_SEED_BROWN_MUSHROOM, BLOCK_CROP_SEED_CARROT, BLOCK_CROP_SEED_CORN,
-  BLOCK_CROP_SEED_POTATO, BLOCK_CROP_SEED_PUMPKIN, BLOCK_CROP_SEED_RED_MUSHROOM,
-  BLOCK_CROP_SEED_TOMATO, BLOCK_CROP_SEED_WHEAT,
-  BLOCK_CROP_SPROUT_BROWN_MUSHROOM, BLOCK_CROP_SPROUT_CARROT, BLOCK_CROP_SPROUT_CORN,
-  BLOCK_CROP_SPROUT_POTATO, BLOCK_CROP_SPROUT_PUMPKIN, BLOCK_CROP_SPROUT_RED_MUSHROOM,
-  BLOCK_CROP_SPROUT_TOMATO, BLOCK_CROP_SPROUT_WHEAT,
-  BLOCK_CROP_GROWING_BROWN_MUSHROOM, BLOCK_CROP_GROWING_CARROT, BLOCK_CROP_GROWING_CORN,
-  BLOCK_CROP_GROWING_POTATO, BLOCK_CROP_GROWING_PUMPKIN, BLOCK_CROP_GROWING_RED_MUSHROOM,
-  BLOCK_CROP_GROWING_TOMATO, BLOCK_CROP_GROWING_WHEAT,
-  BLOCK_WILD_BERRY_BUSH, BLOCK_WILD_MUSHROOM,
+    BLOCK_COMPOST_FARMLAND,
+    BLOCK_CROP_GROWING_BROWN_MUSHROOM, BLOCK_CROP_GROWING_CARROT, BLOCK_CROP_GROWING_CORN,
+    BLOCK_CROP_GROWING_POTATO, BLOCK_CROP_GROWING_PUMPKIN, BLOCK_CROP_GROWING_RED_MUSHROOM,
+    BLOCK_CROP_GROWING_TOMATO, BLOCK_CROP_GROWING_WHEAT,
+    BLOCK_CROP_MATURE_BROWN_MUSHROOM, BLOCK_CROP_MATURE_CARROT, BLOCK_CROP_MATURE_CORN,
+    BLOCK_CROP_MATURE_POTATO, BLOCK_CROP_MATURE_PUMPKIN, BLOCK_CROP_MATURE_RED_MUSHROOM,
+    BLOCK_CROP_MATURE_TOMATO, BLOCK_CROP_MATURE_WHEAT,
+    BLOCK_CROP_SEED_BROWN_MUSHROOM, BLOCK_CROP_SEED_CARROT, BLOCK_CROP_SEED_CORN,
+    BLOCK_CROP_SEED_POTATO, BLOCK_CROP_SEED_PUMPKIN, BLOCK_CROP_SEED_RED_MUSHROOM,
+    BLOCK_CROP_SEED_TOMATO, BLOCK_CROP_SEED_WHEAT,
+    BLOCK_CROP_SPROUT_BROWN_MUSHROOM, BLOCK_CROP_SPROUT_CARROT, BLOCK_CROP_SPROUT_CORN,
+    BLOCK_CROP_SPROUT_POTATO, BLOCK_CROP_SPROUT_PUMPKIN, BLOCK_CROP_SPROUT_RED_MUSHROOM,
+    BLOCK_CROP_SPROUT_TOMATO, BLOCK_CROP_SPROUT_WHEAT,
+    BLOCK_FARMLAND,
+    BLOCK_WILD_BERRY_BUSH, BLOCK_WILD_MUSHROOM,
 } from "./constants";
 
 export type Season = "spring" | "summer" | "autumn" | "winter";
@@ -178,6 +178,20 @@ for (const crop of Object.values(CROPS)) {
 const WILD_BY_BLOCK = new Map<number, WildCropDef>();
 for (const wc of WILD_CROPS) WILD_BY_BLOCK.set(wc.blockId, wc);
 
+/**
+ * Precomputed O(1) lookup table for hot-path render/sim checks.
+ * Index = block ID (0-255). Value: 0 = not crop, 1 = crop, 2 = wild crop.
+ * Used by isCropBlock/isWildCropBlock to avoid Set.has() overhead in
+ * per-cell loops (raycast, grid scan, instance building).
+ */
+export const CROP_LOOKUP = new Uint8Array(256);
+for (const blockId of BLOCK_TO_CROP.keys()) {
+  if (blockId < 256) CROP_LOOKUP[blockId] = 1;
+}
+for (const blockId of WILD_BY_BLOCK.keys()) {
+  if (blockId < 256) CROP_LOOKUP[blockId] = 2;
+}
+
 export function getCropByBlock(blockId: number): { crop: CropDef; stage: number } | null {
   return BLOCK_TO_CROP.get(blockId) ?? null;
 }
@@ -192,12 +206,12 @@ export function getWildCropByBlock(blockId: number): WildCropDef | null {
 
 /** Is this block any crop stage (seed through mature)? */
 export function isCropBlock(blockId: number): boolean {
-  return BLOCK_TO_CROP.has(blockId);
+  return CROP_LOOKUP[blockId] === 1;
 }
 
 /** Is this block a wild forageable? */
 export function isWildCropBlock(blockId: number): boolean {
-  return WILD_BY_BLOCK.has(blockId);
+  return CROP_LOOKUP[blockId] === 2;
 }
 
 /** Is this block a mature crop (harvestable)? */

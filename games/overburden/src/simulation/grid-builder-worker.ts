@@ -18,7 +18,7 @@ import {
     ACTIVE_GRID_H,
     ACTIVE_GRID_W,
 } from "../shared/constants";
-import { isCropBlock, isWildCropBlock } from "../shared/crops";
+import { CROP_LOOKUP } from "../shared/crops";
 import {
     PADDED_EXPLORED_ROW_BYTES,
     PADDED_GRID_ROW_BYTES,
@@ -89,7 +89,7 @@ function build(): void {
         if (blockId === 0) continue;
         // Crop + wild forageable blocks are rendered as 2D sprites by
         // CropSpritePass, not as 3D cubes here.
-        if (isCropBlock(blockId) || isWildCropBlock(blockId)) continue;
+        if (CROP_LOOKUP[blockId] !== 0) continue;
 
         let faceMask = 0;
         if (x >= W - 1 || (foreground[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;

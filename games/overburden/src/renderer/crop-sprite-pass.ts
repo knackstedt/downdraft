@@ -18,8 +18,7 @@
 //   - Wild crops render at full size (0.85)
 // ============================================================================
 
-import { getBlockDef } from "../shared/block-registry";
-import { getCropByBlock, getWildCropByBlock, isCropBlock, isWildCropBlock } from "../shared/crops";
+import { CROP_LOOKUP, getCropByBlock, getWildCropByBlock } from "../shared/crops";
 import { type Mat4 } from "./matrix";
 
 const CROP_WGSL = `
@@ -163,28 +162,19 @@ export class CropSpritePass {
 
   /**
    * Scan the foreground grid for crop/wild blocks and build instance data.
+   * Only call when the sim tick has advanced — the foreground grid is
+   * unchanged between ticks (30Hz), so scanning it every render frame
+   * (60-360Hz) is wasted work.
    * @param foreground  active foreground plane (Uint16Array)
    * @param W           grid width
    * @param H           grid height
    */
-  update(
-    viewProj: Mat4,
-    canvasW: number,
-    canvasH: number,
+  updateInstances(
     foreground: Uint16Array,
     W: number,
     H: number,
   ): void {
-    if (!this.uniformBuffer || !this.instanceBuffer) return;
-
-    // Write uniforms
-    const u = new Float32Array(20); // 16 (mat4) + 4
-    u.set(viewProj, 0);
-    u[16] = canvasW;
-    u[17] = canvasH;
-    u[18] = 0; // count, set below
-    u[19] = 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
+    if (!this.instanceBuffer) return;
 
     // Build instance data by scanning the foreground grid for crop/wild blocks
     const data = new Float32Array(MAX_CROP_INSTANCES * CROP_INSTANCE_STRIDE);
@@ -195,21 +185,23 @@ export class CropSpritePass {
         const blockId = foreground[y * W + x] & 0xFF;
         if (blockId === 0) continue;
 
+        // Fast O(1) lookup instead of Set.has()
+        const cropType = CROP_LOOKUP[blockId];
+        if (cropType === 0) continue;
+
         let size: number;
         let color: [number, number, number];
 
-        if (isCropBlock(blockId)) {
+        if (cropType === 1) {
           const entry = getCropByBlock(blockId);
           if (!entry) continue;
           size = STAGE_SIZES[entry.stage];
           color = entry.crop.colors[entry.stage];
-        } else if (isWildCropBlock(blockId)) {
+        } else {
           const wc = getWildCropByBlock(blockId);
           if (!wc) continue;
           size = WILD_SIZE;
           color = wc.color;
-        } else {
-          continue;
         }
 
         const off = count * CROP_INSTANCE_STRIDE;
@@ -228,9 +220,24 @@ export class CropSpritePass {
 
     this.device.queue.writeBuffer(this.instanceBuffer, 0, data);
     this.cropCount = count;
+  }
 
-    // Update count in uniforms
-    u[18] = count;
+  /**
+   * Update camera uniforms (viewProj + canvas size). Call every frame —
+   * the camera moves continuously, independent of sim tick changes.
+   */
+  updateCamera(
+    viewProj: Mat4,
+    canvasW: number,
+    canvasH: number,
+  ): void {
+    if (!this.uniformBuffer) return;
+    const u = new Float32Array(20); // 16 (mat4) + 4
+    u.set(viewProj, 0);
+    u[16] = canvasW;
+    u[17] = canvasH;
+    u[18] = this.cropCount;
+    u[19] = 0;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
   }
 
