@@ -216,7 +216,44 @@ function computeFallLanding(fg: Uint16Array, bg: Uint16Array, x: number, y: numb
 }
 
 /**
- * Check if the blockhead can jump from (x0, y0) to (x1, y1-1) — a diagonal
+ * Check if the blockhead can jump from (x0, y0) to (x1, y0) — a horizontal
+ * jump across a 1-block gap (2 cells horizontally) at the same height.
+ * This is used to cross 1-block-wide pits without falling in.
+ *
+ * Conditions:
+ * - The blockhead is supported at (x0, y0) (on ground)
+ * - The cell above the blockhead (x0, y0-1) is walkable (room to jump)
+ * - The intermediate cell (x0±1, y0) is walkable (air — the gap)
+ * - The target cell (x1, y0) is walkable
+ * - The cell above the target (x1, y0-1) is walkable (room to land)
+ * - The target is supported (ground at x1, y0+1)
+ */
+function canJumpAcross(
+  fg: Uint16Array, bg: Uint16Array,
+  x0: number, y0: number, x1: number,
+): boolean {
+  if (x1 < 0 || x1 >= ACTIVE_GRID_W) return false;
+  if (Math.abs(x1 - x0) !== 2) return false; // only 2-cell horizontal jumps
+  const midX = x0 + (x1 > x0 ? 1 : -1);
+  // Room to jump from current
+  if (y0 - 1 >= 0 && !isWalkable(fg[(y0 - 1) * ACTIVE_GRID_W + x0])) return false;
+  // Gap cell must be walkable (air)
+  if (!isWalkable(fg[y0 * ACTIVE_GRID_W + midX])) return false;
+  // Gap cell above must be walkable (room to pass through)
+  if (y0 - 1 >= 0 && !isWalkable(fg[(y0 - 1) * ACTIVE_GRID_W + midX])) return false;
+  // Target cell must be walkable
+  if (!isWalkable(fg[y0 * ACTIVE_GRID_W + x1])) return false;
+  // Room to land at target (head cell walkable, or climbing)
+  if (y0 - 1 >= 0 && !isWalkable(fg[(y0 - 1) * ACTIVE_GRID_W + x1])) {
+    if (!canClimbAt(fg, bg, x1, y0)) return false;
+  }
+  // Target must be supported (ground below)
+  if (!isSupported(fg, bg, x1, y0)) return false;
+  return true;
+}
+
+/**
+ * Check if the blockhead can jump from (x0, y0) to (x1, y0-1) — a diagonal
  * up move representing jump + horizontal movement. This is used to cross
  * 2-block-wide holes and step up 1-block ledges without routing through
  * unsupported intermediate cells.
@@ -224,9 +261,9 @@ function computeFallLanding(fg: Uint16Array, bg: Uint16Array, x: number, y: numb
  * Conditions:
  * - The blockhead is supported at (x0, y0) (on ground)
  * - The cell above the blockhead (x0, y0-1) is walkable (room to jump)
- * - The target cell (x1, y1-1) is walkable
- * - The cell above the target (x1, y1-2) is walkable (room to stand)
- * - The target is supported (ground at x1, y1)
+ * - The target cell (x1, y0-1) is walkable
+ * - The cell above the target (x1, y0-2) is walkable (room to stand)
+ * - The target is supported (ground at x1, y0)
  */
 function canJumpUp(
   fg: Uint16Array, bg: Uint16Array,
@@ -487,6 +524,20 @@ function findPathMultiGoal(
       if (jx >= 0 && canJumpUp(fg, bg, cx, cy, jx)) {
         expandJumpNeighbor(fg, bg, cx, cy, jx, cy - 1, current, currentG, goalCoords, wrap);
       }
+
+      // Horizontal jump (jump across a 1-block gap at same height)
+      // Jump 2 cells left
+      let hx = cx - 2;
+      if (hx < 0) hx = wrap ? ACTIVE_GRID_W + hx : -1;
+      if (hx >= 0 && canJumpAcross(fg, bg, cx, cy, hx)) {
+        expandJumpNeighbor(fg, bg, cx, cy, hx, cy, current, currentG, goalCoords, wrap);
+      }
+      // Jump 2 cells right
+      hx = cx + 2;
+      if (hx >= ACTIVE_GRID_W) hx = wrap ? hx - ACTIVE_GRID_W : -1;
+      if (hx >= 0 && canJumpAcross(fg, bg, cx, cy, hx)) {
+        expandJumpNeighbor(fg, bg, cx, cy, hx, cy, current, currentG, goalCoords, wrap);
+      }
     }
   }
 
@@ -517,6 +568,8 @@ function expandNeighbor(
 
   // Gravity modeling: if the move is horizontal or downward and the target
   // cell is not supported, the blockhead falls to the landing cell.
+  // For upward moves, the target must also be supported (or climbable) —
+  // otherwise the blockhead would immediately fall back down after moving up.
   const isUp = nx === cx && ny < cy;
   if (!isUp) {
     if (!isSupported(fg, bg, nx, ny)) {
@@ -524,6 +577,12 @@ function expandNeighbor(
       if (landingY < 0) return; // can't fall there — invalid move
       ny = landingY;
     }
+  } else {
+    // Upward move: reject if the target is not supported (no ground, no
+    // wall, no back wall, no ladder). Without this, the pathfinder routes
+    // through unsupported cells above pits — the blockhead moves up but
+    // immediately falls back, getting stuck.
+    if (!isSupported(fg, bg, nx, ny)) return;
   }
 
   const nIdx = ny * ACTIVE_GRID_W + nx;

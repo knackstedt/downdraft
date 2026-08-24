@@ -150,9 +150,21 @@ fn gridPosForLight(faceId: f32, gridCoords: vec2<i32>, lp: vec3<f32>) -> vec2<f3
 // Bilinear-interpolated light sample at a fractional grid position.
 // textureLoad returns 0 for out-of-bounds coords (dark), which is correct
 // for cells outside the active grid.
+//
+// Light values are stored per-cell and conceptually represent the cell
+// CENTER (cell C at world position C + 0.5). Shift the sample position by
+// -0.5 before flooring so bilinear interpolation is symmetric: a block's
+// left edge mixes light[C-1] and light[C] equally, and its right edge
+// mixes light[C] and light[C+1] equally. Without this shift, light[C]
+// bleeds onto block (C-1)'s far edge but not block (C+1)'s near edge,
+// causing an asymmetric bias — e.g. in a 1-wide vertical tunnel the sky
+// light favors the left wall and extends an extra cell below.
+// floor (not i32) is used because the -0.5 shift can produce negative
+// coords at the grid edge; i32() truncates toward zero, fract() uses floor.
 fn bilinearLight(pos: vec2<f32>) -> vec3<f32> {
-  let p = vec2<i32>(i32(pos.x), i32(pos.y));
-  let f = vec2<f32>(fract(pos.x), fract(pos.y));
+  let sp = pos - vec2<f32>(0.5, 0.5);
+  let p = vec2<i32>(i32(floor(sp.x)), i32(floor(sp.y)));
+  let f = vec2<f32>(fract(sp.x), fract(sp.y));
   let c00 = textureLoad(lightTex, p, 0).rgb;
   let c10 = textureLoad(lightTex, vec2<i32>(p.x + 1, p.y), 0).rgb;
   let c01 = textureLoad(lightTex, vec2<i32>(p.x, p.y + 1), 0).rgb;

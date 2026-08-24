@@ -12,6 +12,12 @@ import {
     ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W,
 } from "../shared/constants";
 import { isCropBlock, isWildCropBlock } from "../shared/crops";
+import {
+    PADDED_EXPLORED_ROW_BYTES,
+    PADDED_GRID_ROW_BYTES,
+    PADDED_LIGHT_ROW_BYTES,
+    RenderBufferReader,
+} from "../shared/render-buffer";
 import { isTreeBlock } from "../shared/tree-species";
 import { lookAt, multiply, perspective, type Mat4 } from "./matrix";
 
@@ -516,6 +522,102 @@ export class BlockGridPass3D {
         idx * 5 * 4, // only upload used portion
       );
     }
+  }
+
+  /**
+   * Upload pre-built instance data + padded textures from the render SAB.
+   * This is the worker-accelerated path: the grid-builder worker has already
+   * done the O(W×H) instance building + texture padding off the main thread.
+   * The main thread only does GPU uploads (writeBuffer + writeTexture) — no
+   * JS loops.
+   */
+  updateGridFromBuffer(reader: RenderBufferReader): void {
+    const fgCount = reader.getFgCount();
+    const bgWallCount = reader.getBgWallCount();
+    const bgTreeCount = reader.getBgTreeCount();
+    const totalCount = reader.getTotalCount();
+
+    this.fgInstanceCount = fgCount;
+    this.bgWallInstanceCount = bgWallCount;
+    this.bgTreeInstanceCount = bgTreeCount;
+    this.bgInstanceCount = bgWallCount + bgTreeCount;
+    this.instanceCount = totalCount;
+
+    // Upload instance data (only the used portion).
+    // NOTE: reader.instanceData is a view into the render SAB, so we must
+    // pass byteOffset as the source offset — not 0 (which would read the
+    // SAB header instead of the instance data region).
+    if (totalCount > 0) {
+      this.device.queue.writeBuffer(
+        this.instanceBuffer!, 0,
+        reader.instanceData.buffer as BufferSource,
+        reader.instanceData.byteOffset,
+        totalCount * 5 * 4,
+      );
+    }
+
+    // Upload pre-padded grid textures (fg + bg block IDs as R8).
+    // Same byteOffset fix: the views are into the render SAB, not standalone.
+    this.device.queue.writeTexture(
+      { texture: this.fgGridTexture! },
+      reader.paddedFgGrid.buffer as BufferSource,
+      { offset: reader.paddedFgGrid.byteOffset, bytesPerRow: PADDED_GRID_ROW_BYTES, rowsPerImage: this.gridH },
+      [this.gridW, this.gridH],
+    );
+    this.device.queue.writeTexture(
+      { texture: this.bgGridTexture! },
+      reader.paddedBgGrid.buffer as BufferSource,
+      { offset: reader.paddedBgGrid.byteOffset, bytesPerRow: PADDED_GRID_ROW_BYTES, rowsPerImage: this.gridH },
+      [this.gridW, this.gridH],
+    );
+  }
+
+  /**
+   * Upload pre-padded light texture from the render SAB.
+   * Worker-accelerated: no row-by-row padding loop on the main thread.
+   */
+  updateLightFromBuffer(reader: RenderBufferReader): void {
+    if (!this.lightTexture) return;
+    if (this.debugNoShadows) {
+      this.paddedLight.fill(255);
+      this.device.queue.writeTexture(
+        { texture: this.lightTexture },
+        this.paddedLight.buffer as BufferSource,
+        { bytesPerRow: this.paddedLightRowBytes, rowsPerImage: this.gridH },
+        [this.gridW, this.gridH],
+      );
+      return;
+    }
+    this.device.queue.writeTexture(
+      { texture: this.lightTexture },
+      reader.paddedLight.buffer as BufferSource,
+      { offset: reader.paddedLight.byteOffset, bytesPerRow: PADDED_LIGHT_ROW_BYTES, rowsPerImage: this.gridH },
+      [this.gridW, this.gridH],
+    );
+  }
+
+  /**
+   * Upload pre-padded explored texture from the render SAB.
+   * Worker-accelerated: no row-by-row padding loop on the main thread.
+   */
+  updateExploredFromBuffer(reader: RenderBufferReader): void {
+    if (!this.exploredTexture) return;
+    if (this.debugNoShadows) {
+      this.paddedExplored.fill(1);
+      this.device.queue.writeTexture(
+        { texture: this.exploredTexture },
+        this.paddedExplored.buffer as BufferSource,
+        { bytesPerRow: this.paddedExploredRowBytes, rowsPerImage: this.gridH },
+        [this.gridW, this.gridH],
+      );
+      return;
+    }
+    this.device.queue.writeTexture(
+      { texture: this.exploredTexture },
+      reader.paddedExplored.buffer as BufferSource,
+      { offset: reader.paddedExplored.byteOffset, bytesPerRow: PADDED_EXPLORED_ROW_BYTES, rowsPerImage: this.gridH },
+      [this.gridW, this.gridH],
+    );
   }
 
   /** Upload fg/bg block IDs as r8unorm textures for shader-side neighbor lookup. */

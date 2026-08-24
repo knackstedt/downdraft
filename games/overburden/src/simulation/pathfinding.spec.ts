@@ -108,11 +108,14 @@ describe("pathfinding", () => {
 
   it("can step up a 1-block step", () => {
     const fg = makeAirGrid();
-    // Floor at y=102, step at y=101 (x=102)
+    // Floor at y=102, step at y=101 (x=102..104)
     for (let x = 98; x < 108; x++) {
       setSolid(fg, x, 102);
     }
-    setSolid(fg, 102, 101); // 1-block step up
+    // 1-block-high step extending from x=102 to x=104
+    for (let x = 102; x <= 104; x++) {
+      setSolid(fg, x, 101);
+    }
     const path = findPath(fg, makeAirBg(), 100, 101, 104, 100, false);
     expect(path).not.toBeNull();
     const last = path![path!.length - 1];
@@ -451,5 +454,37 @@ describe("pathfinding", () => {
     const last = path![path!.length - 1];
     expect(last.x).toBe(105);
     expect(last.y).toBe(112);
+  });
+
+  it("jumps across a 1-block-wide pit without falling in", () => {
+    // Ground floor at y=110 with a 1-block-wide pit at x=105.
+    // No bottom (open pit). Blockhead at (100, 109), target at (110, 109).
+    // The blockhead must jump across the 1-block gap.
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 115, 110);
+    fg[110 * ACTIVE_GRID_W + 105] = BLOCK_AIR; // 1-block pit (no bottom)
+    const path = findPath(fg, makeAirBg(), 100, 109, 110, 109, false);
+    expect(path).not.toBeNull();
+    const last = path![path!.length - 1];
+    expect(last.x).toBe(110);
+    expect(last.y).toBe(109);
+    // The path should NOT include a node at x=105 (the pit — unsupported)
+    for (const node of path!) {
+      expect(node.x).not.toBe(105);
+    }
+  });
+
+  it("jumps across a 1-block pit and does not route through the pit cell", () => {
+    // 1-block pit at x=105. The path should jump from (104,109) to (106,109)
+    // without going through (105,109) or (105,110).
+    const fg = makeAirGrid();
+    setFloor(fg, 95, 115, 110);
+    fg[110 * ACTIVE_GRID_W + 105] = BLOCK_AIR;
+    const path = findPath(fg, makeAirBg(), 103, 109, 107, 109, false);
+    expect(path).not.toBeNull();
+    // No node at x=105 (the pit)
+    for (const node of path!) {
+      expect(node.x).not.toBe(105);
+    }
   });
 });
