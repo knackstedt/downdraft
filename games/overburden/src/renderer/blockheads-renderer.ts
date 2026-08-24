@@ -118,12 +118,29 @@ export class BlockheadsRenderer {
   private gridBuilderHost: GridBuilderWorkerHost | null = null;
   private lastBuildTick = RENDER_TICK_SENTINEL;
   private lastCropTick = RENDER_TICK_SENTINEL;
+  // Cached drop render data — only rebuilt when sim tick changes (30Hz),
+  // not every render frame (60-360Hz). Avoids per-frame array + object
+  // allocation in the drop loop.
+  private cachedDropData: DropRenderData[] = [];
+  private lastDropTick = RENDER_TICK_SENTINEL;
 
   // Input
   private input: BlockheadsInputState | null = null;
 
-  // Queued task markers (in active-grid coords) for visual feedback
-  taskMarkers: { gridX: number; gridY: number; action: "mine" | "move" }[] = [];
+  // Queued task markers (in active-grid coords) for visual feedback.
+  // Use the setter so the render data cache is invalidated.
+  private _taskMarkers: { gridX: number; gridY: number; action: "mine" | "move" }[] = [];
+  get taskMarkers(): { gridX: number; gridY: number; action: "mine" | "move" }[] {
+    return this._taskMarkers;
+  }
+  set taskMarkers(v: { gridX: number; gridY: number; action: "mine" | "move" }[]) {
+    this._taskMarkers = v;
+    this.markerDataDirty = true;
+  }
+  // Cached marker render data — only rebuilt when markers or build tick changes
+  private cachedMarkerData: MarkerData[] = [];
+  private markerDataDirty = true;
+  private lastMarkerBuildTick = RENDER_TICK_SENTINEL;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -367,8 +384,13 @@ export class BlockheadsRenderer {
     // Start a separate input processing interval so input keeps flowing
     // to the sim worker even when the render loop is paused (deterministic mode).
     // The worker runs its own loop and needs fresh input every frame.
+    // In normal mode, the rAF loop already calls updateInput() every frame,
+    // so the interval skips to avoid double raycasts (matrix invert + DDA).
     if (!this.inputInterval) {
-      this.inputInterval = setInterval(() => this.updateInput(), 16) as unknown as number;
+      this.inputInterval = setInterval(() => {
+        if (this.running) return; // rAF loop handles it
+        this.updateInput();
+      }, 16) as unknown as number;
     }
   }
 
@@ -420,6 +442,8 @@ export class BlockheadsRenderer {
     this.gridBuilderHost = null;
     this.lastBuildTick = RENDER_TICK_SENTINEL;
     this.lastCropTick = RENDER_TICK_SENTINEL;
+    this.lastDropTick = RENDER_TICK_SENTINEL;
+    this.lastMarkerBuildTick = RENDER_TICK_SENTINEL;
     await this.workerHost?.shutdown();
   }
 
@@ -435,9 +459,12 @@ export class BlockheadsRenderer {
     if (!result.ok) return result;
 
     // Reset renderer-side state to match the fresh world
-    this.taskMarkers.length = 0;
+    this._taskMarkers.length = 0;
+    this.markerDataDirty = true;
     this.hotbarBlocks = [...DEFAULT_HOTBAR_BLOCKS];
     // Clear drops display (worker already cleared the drop array)
+    this.cachedDropData = [];
+    this.lastDropTick = RENDER_TICK_SENTINEL;
     if (this.dropPass && this.blockGridPass) {
       this.dropPass.update(this.blockGridPass.getViewProj(), this.camera.canvasW, this.camera.canvasH, []);
     }
@@ -450,6 +477,8 @@ export class BlockheadsRenderer {
     }
     this.lastBuildTick = RENDER_TICK_SENTINEL; // force re-upload on next frame
     this.lastCropTick = RENDER_TICK_SENTINEL;
+    this.lastDropTick = RENDER_TICK_SENTINEL;
+    this.lastMarkerBuildTick = RENDER_TICK_SENTINEL;
     this.cachedOriginCx = 0;
     this.cachedOriginCy = 0;
     this.camWorldInit = false;
@@ -600,9 +629,24 @@ export class BlockheadsRenderer {
   private updateInput(): void {
     if (!this.input || !this.simReader) return;
 
-    // Convert mouse screen coords to active-grid coords using 3D ray-cast.
+    // Only raycast when a mouse button is held (mining/placing) or a
+    // click is pending (task mode, inspect, etc). The raycast is
+    // expensive (4×4 matrix invert + DDA grid march) and the result
+    // is only needed for mining/placing — the worker ignores the
+    // coords when inp[6] (mine) and inp[7] (place) are both 0.
+    const placeBlockId = this.hotbarBlocks[this.input.selectedSlot] ?? BLOCK_AIR;
+    const needsRaycast = this.input.mouseDown ||
+                        (this.input.mouseRight && placeBlockId !== BLOCK_AIR) ||
+                        this.input.inspectClickPending ||
+                        this.input.forceFruitSpawnPending ||
+                        (this.input.taskMode && this.input.taskClickPending);
+
     let grid: { x: number; y: number };
-    grid = this.screenToGrid3D(this.input.mouseX, this.input.mouseY);
+    if (needsRaycast) {
+      grid = this.screenToGrid3D(this.input.mouseX, this.input.mouseY);
+    } else {
+      grid = { x: -1, y: -1 }; // dummy — worker ignores when no button is down
+    }
 
     // --- Debug cell inspect (F6): log the 4 render depth layers at the clicked cell ---
     // Layers mirror block-grid-pass-3d.ts's 4-layer depth system:
@@ -720,9 +764,6 @@ export class BlockheadsRenderer {
       inpF[14] = this.camera.y;
       return;
     }
-
-    // Determine placing block from hotbar
-    const placeBlockId = this.hotbarBlocks[this.input.selectedSlot] ?? BLOCK_AIR;
 
     // Write input to SAB
     const inp = this.simReader.inputInt32;
@@ -966,67 +1007,73 @@ export class BlockheadsRenderer {
       this.skyPass.update(this.camera.canvasW, this.camera.canvasH, daylight);
     }
 
-    // Update task markers (convert active-grid markers to render data)
+    // Update task markers — only rebuild render data when markers change
+    // or the grid build tick advances (z-position depends on grid content).
+    // The markers array is updated externally (~200ms); without caching,
+    // .map() creates a new array + N objects every frame (GC pressure).
     if (this.taskMarkerPass && this.blockGridPass) {
-      const W = ACTIVE_GRID_W;
-      const fg = this.simReader?.foreground;
-      const bg = this.simReader?.background;
-      const markerData: MarkerData[] = this.taskMarkers.map((m) => {
-        // Place marker in front of whatever layer has content at this cell.
-        // Cube front face is at Z+1 (local Z=1), so marker goes at Z+1.05.
-        let z = -0.95; // default: in front of layer 3 (Z=-2, front face at Z=-1)
-        if (fg) {
-          const idx = m.gridY * W + m.gridX;
-          if (idx >= 0 && idx < fg.length && (fg[idx] & 0xFF) !== 0) {
-            z = 1.05; // in front of layer 1 (Z=0, front face at Z=1)
-          } else if (bg && (bg[idx] & 0xFF) !== 0) {
-            z = -0.95; // in front of layer 3 (Z=-2, front face at Z=-1)
+      if (this.markerDataDirty || this.lastBuildTick !== this.lastMarkerBuildTick) {
+        this.lastMarkerBuildTick = this.lastBuildTick;
+        this.markerDataDirty = false;
+        const W = ACTIVE_GRID_W;
+        const fg = this.simReader?.foreground;
+        const bg = this.simReader?.background;
+        this.cachedMarkerData = this.taskMarkers.map((m) => {
+          // Place marker in front of whatever layer has content at this cell.
+          // Cube front face is at Z+1 (local Z=1), so marker goes at Z+1.05.
+          let z = -0.95; // default: in front of layer 3 (Z=-2, front face at Z=-1)
+          if (fg) {
+            const idx = m.gridY * W + m.gridX;
+            if (idx >= 0 && idx < fg.length && (fg[idx] & 0xFF) !== 0) {
+              z = 1.05; // in front of layer 1 (Z=0, front face at Z=1)
+            } else if (bg && (bg[idx] & 0xFF) !== 0) {
+              z = -0.95; // in front of layer 3 (Z=-2, front face at Z=-1)
+            }
           }
-        }
-        return {
-          gridX: m.gridX,
-          gridY: m.gridY,
-          z,
-          color: m.action === "mine" ? [0.91, 0.30, 0.24] : [0.20, 0.60, 0.86],
-        };
-      });
+          return {
+            gridX: m.gridX,
+            gridY: m.gridY,
+            z,
+            color: m.action === "mine" ? [0.91, 0.30, 0.24] : [0.20, 0.60, 0.86],
+          };
+        });
+      }
       this.taskMarkerPass.update(
         this.blockGridPass.getViewProj(),
         this.camera.canvasW,
         this.camera.canvasH,
-        markerData,
+        this.cachedMarkerData,
       );
     }
 
-    // Update drop pass (read drop entities from SAB)
+    // Update drop pass — only rebuild drop data when sim tick changes
+    // (drops move at 30Hz, not render framerate). Camera uniforms update
+    // every frame via dropPass.update().
     if (this.dropPass && this.blockGridPass && this.simReader) {
-      const dropCount = this.simReader.getDropCount();
-      if (dropCount > 0) {
-        const dropData: DropRenderData[] = [];
-        for (let i = 0; i < dropCount && i < 512; i++) {
-          const off = i * 8; // DROP_STRIDE = 8
-          dropData.push({
-            x: this.simReader.drops[off + 0],
-            y: this.simReader.drops[off + 1],
-            spin: this.simReader.drops[off + 4],
-            itemCode: this.simReader.drops[off + 6],
-          });
+      if (this.lastBuildTick !== this.lastDropTick) {
+        this.lastDropTick = this.lastBuildTick;
+        const dropCount = this.simReader.getDropCount();
+        if (dropCount > 0) {
+          this.cachedDropData = [];
+          for (let i = 0; i < dropCount && i < 512; i++) {
+            const off = i * 8; // DROP_STRIDE = 8
+            this.cachedDropData.push({
+              x: this.simReader.drops[off + 0],
+              y: this.simReader.drops[off + 1],
+              spin: this.simReader.drops[off + 4],
+              itemCode: this.simReader.drops[off + 6],
+            });
+          }
+        } else {
+          this.cachedDropData = [];
         }
-        this.dropPass.update(
-          this.blockGridPass.getViewProj(),
-          this.camera.canvasW,
-          this.camera.canvasH,
-          dropData,
-        );
-      } else {
-        // No drops — update with empty array to clear
-        this.dropPass.update(
-          this.blockGridPass.getViewProj(),
-          this.camera.canvasW,
-          this.camera.canvasH,
-          [],
-        );
       }
+      this.dropPass.update(
+        this.blockGridPass.getViewProj(),
+        this.camera.canvasW,
+        this.camera.canvasH,
+        this.cachedDropData,
+      );
     }
 
     // Update crop sprite pass — instance scan only when sim tick changes

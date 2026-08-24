@@ -324,16 +324,16 @@ function canStep(
   }
 
   if (isHorizontal) {
-    // Horizontal movement: normally need 2 cells walkable (blockhead is 2 tall)
+    // Horizontal movement: need 2 cells walkable (blockhead is 2 tall).
+    // The head cell (y1-1) must be walkable (air/liquid/climbable/non-solid).
+    // If the head cell is solid, the blockhead can't fit — no crawling.
     const aboveOk = y1 - 1 < 0 || isWalkable(fg[(y1 - 1) * ACTIVE_GRID_W + x1]);
-    if (aboveOk) return true;
-    // Crawling: if only 1 cell is walkable (ceiling above), allow crawling
-    // if the current cell also has a ceiling (we're already crawling)
-    // or if we can transition into a crawl
-    return true; // allow crawl — physics will slow the blockhead down
+    return aboveOk;
   }
 
-  return true;
+  // Diagonal move: need both target and head cell walkable
+  const headOk = y1 - 1 < 0 || isWalkable(fg[(y1 - 1) * ACTIVE_GRID_W + x1]);
+  return headOk;
 }
 
 /** Manhattan distance with optional cylinder wrap on X. */

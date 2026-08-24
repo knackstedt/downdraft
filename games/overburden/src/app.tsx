@@ -1133,7 +1133,7 @@ export default function App() {
         // Clear task markers when exiting task mode
         if (!newMode) {
           const { renderer } = useGameStore.getState();
-          if (renderer) renderer.taskMarkers.length = 0;
+          if (renderer) renderer.taskMarkers = [];
         }
       } else if (e.key === "f" || e.key === "F") {
         // F toggles camera detach/attach
