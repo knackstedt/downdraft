@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
+import { MapOverview } from "./components/map-overview";
 import { StationPanel } from "./components/station-panel";
 import { TaskQueueDisplay } from "./components/task-queue-display";
 import { encodeDropItem, getDropColor } from "./shared/drop-registry";
@@ -724,6 +725,7 @@ function Hud() {
     <div style={hudContainerStyle}>
       <FpsBar />
       <ChunkDebugOverlay />
+      <MapOverview />
       <AttributeBars />
       <PanelRouter />
       <NotificationToast />
@@ -1497,7 +1499,7 @@ export default function App() {
           Start Game
         </button>
         <div style={helpStyle}>
-          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: craft | T: task mode | Q: task queue | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
+          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: craft | T: task mode | Q: task queue | M: map (click map to walk) | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
         </div>
       </div>
     );

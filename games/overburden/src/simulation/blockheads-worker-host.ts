@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import { decodeMapRegion, type MapRegionData } from "../shared/map-buffer";
 import type { CraftStation } from "../shared/recipes";
 import { createSimBuffer, SimBufferReader } from "../shared/sim-buffer";
 import type { TaskType } from "./task-queue";
@@ -66,6 +67,8 @@ type BlockheadsWorkerApi = {
   getTasks(bhIndex?: number): Promise<TaskSummary[]>;
   clearTasks(bhIndex?: number): Promise<{ ok: boolean }>;
   cancelTask(type: TaskType, targetX: number, targetY: number, bhIndex?: number): Promise<{ ok: boolean }>;
+  // Map region snapshot (encoded ArrayBuffer — see shared/map-buffer.ts)
+  getMapRegion(centerCx: number): Promise<ArrayBuffer>;
 };
 
 export class BlockheadsWorkerHost {
@@ -246,5 +249,18 @@ export class BlockheadsWorkerHost {
 
   async cancelTask(type: TaskType, targetX: number, targetY: number, bhIndex: number = 0): Promise<{ ok: boolean }> {
     return await this.proxy?.proxy.cancelTask(type, targetX, targetY, bhIndex) ?? { ok: false };
+  }
+
+  /**
+   * Request a downsampled map region snapshot centered on chunk column
+   * `centerCx`. Returns a decoded MapRegionData, or null if the worker is
+   * not ready or the response is malformed. The worker encodes the region
+   * into a single ArrayBuffer (see shared/map-buffer.ts) which is structured-
+   * cloned across the worker boundary.
+   */
+  async getMapRegion(centerCx: number): Promise<MapRegionData | null> {
+    const buf = await this.proxy?.proxy.getMapRegion(centerCx);
+    if (!buf) return null;
+    return decodeMapRegion(buf);
   }
 }

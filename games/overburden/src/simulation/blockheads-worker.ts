@@ -9,36 +9,37 @@
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import { getBlockDef } from "../shared/block-registry";
 import {
-    ACTIVE_GRID_H,
-    ACTIVE_GRID_W,
-    BLOCK_AIR,
-    BLOCK_DIRT,
-    BLOCK_GRASS,
-    BLOCK_SAPLING,
-    SURFACE_Y, TICK_RATE, WORLD_W
+  ACTIVE_GRID_H,
+  ACTIVE_GRID_W,
+  BLOCK_AIR,
+  BLOCK_DIRT,
+  BLOCK_GRASS,
+  BLOCK_SAPLING,
+  SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
 import { getWildCropByBlock, isCropBlock, isWildCropBlock } from "../shared/crops";
 import { decodeDropItem, encodeDropItem } from "../shared/drop-registry";
 import { Inventory } from "../shared/inventory";
 import { getItemDef, getItemForBlock } from "../shared/items";
+import { encodeMapRegion } from "../shared/map-buffer";
 import { pseudoRandom } from "../shared/pseudo-random";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
 import {
-    MAX_DROPS as SAB_MAX_DROPS,
-    SimBufferWriter,
+  MAX_DROPS as SAB_MAX_DROPS,
+  SimBufferWriter,
 } from "../shared/sim-buffer";
 import { getStationByBlock, getStationByType } from "../shared/stations";
 import { getSpeciesIndex, isLeafBlock, isTreeBlock, isWoodBlock, pickTreeSpecies } from "../shared/tree-species";
 import type { BlockheadState } from "../shared/types";
 import {
-    animStateToCode,
-    BH_STRIDE
+  animStateToCode,
+  BH_STRIDE
 } from "../shared/types";
 import { BlockWorld } from "./block-world";
 import {
-    BH_H, BH_W,
-    createBlockhead, createDefaultInput, getMineTarget, updateBlockhead,
-    type BlockheadInput
+  BH_H, BH_W,
+  createBlockhead, createDefaultInput, getMineTarget, updateBlockhead,
+  type BlockheadInput
 } from "./blockhead";
 import { deleteSave, loadAllChunks, saveDirtyChunks } from "./chunk-storage";
 import { clearCropTracking, recordCropPlant, recordWildHarvest, stepCropGrowth } from "./crop-growth";
@@ -1118,6 +1119,19 @@ expose({
     if (idx < 0) return { ok: false };
     queue.splice(idx, 1);
     return { ok: true };
+  },
+
+  // --- Map region snapshot (for zoomed-out map mode) ---
+  // Returns an encoded ArrayBuffer (see shared/map-buffer.ts) containing a
+  // downsampled thumbnail of the explored world around centerCx. The host
+  // decodes it via decodeMapRegion().
+  getMapRegion(centerCx: number): ArrayBuffer {
+    if (!world) return encodeMapRegion({
+      cx0: 0, cols: 0, rows: 0,
+      blockIds: new Uint16Array(0), explored: new Uint8Array(0), stations: [],
+    });
+    const region = world.getMapRegion(centerCx);
+    return encodeMapRegion(region);
   },
 });
 

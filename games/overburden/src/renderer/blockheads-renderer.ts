@@ -15,6 +15,7 @@ import {
 } from "../shared/constants";
 import { CROP_LOOKUP } from "../shared/crops";
 import { getItemDef } from "../shared/items";
+import type { MapRegionData } from "../shared/map-buffer";
 import { RENDER_TICK_SENTINEL } from "../shared/render-buffer";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { isTreeBlock } from "../shared/tree-species";
@@ -151,6 +152,20 @@ export class BlockheadsRenderer {
   private markerDataDirty = true;
   private lastMarkerBuildTick = RENDER_TICK_SENTINEL;
 
+  // --- Map mode (zoomed-out overview) ---
+  // Cached map region snapshot (downsampled explored chunks + stations).
+  // Refreshed periodically from the worker via getMapRegion(). The map
+  // overlay (components/map-overview.tsx) reads this via getMapRegionData().
+  private mapRegion: MapRegionData | null = null;
+  private mapRegionDirty = false;
+  private mapRegionTimer = 0; // setInterval handle
+  private mapRegionFetching = false;
+  // Last game-canvas opacity we wrote (avoids per-frame style writes).
+  private lastCanvasOpacity = 1;
+  // Stashed zoom level for the M-key map toggle (restored on toggle-back / Esc).
+  private stashedZoom = 0;
+  private inMapToggleMode = false;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.camera = new Camera(canvas.width, canvas.height);
@@ -235,6 +250,122 @@ export class BlockheadsRenderer {
   /** Active grid origin + size in active-grid coords (for debug overlay). */
   getActiveGridOrigin(): { x: number; y: number; w: number; h: number } {
     return { x: 0, y: 0, w: ACTIVE_GRID_W, h: ACTIVE_GRID_H };
+  }
+
+  /** Render origin chunk coords (for world↔active-grid conversion in overlays). */
+  getRenderOrigin(): { cx: number; cy: number } {
+    return { cx: this.renderOriginCx, cy: this.renderOriginCy };
+  }
+
+  /** Interpolated player world position (for the map overlay marker). */
+  getPlayerWorld(): { x: number; y: number } {
+    return { x: this.interpWorldX, y: this.interpWorldY };
+  }
+
+  /** Player facing direction (1 = right, -1 = left) for the map marker. */
+  getPlayerFacing(): number {
+    if (!this.simReader) return 1;
+    return this.simReader.blockheads[4] > 0 ? 1 : -1;
+  }
+
+  /**
+   * Task markers in WORLD coords (converted from the active-grid coords
+   * stored in _taskMarkers using the render origin). The map overlay draws
+   * these so task targets remain visible when zoomed out.
+   */
+  getTaskMarkersWorld(): { wx: number; wy: number; action: "mine" | "move" }[] {
+    const ox = this.renderOriginCx * CHUNK_W;
+    const oy = this.renderOriginCy * CHUNK_H;
+    return this._taskMarkers.map((m) => ({
+      wx: m.gridX + ox,
+      wy: m.gridY + oy,
+      action: m.action,
+    }));
+  }
+
+  /** Map-mode opacity in [0,1] (delegates to camera.getMapOpacity()). */
+  getMapOpacity(): number {
+    return this.camera.getMapOpacity();
+  }
+
+  /** Cached map region snapshot (null if not yet fetched). */
+  getMapRegionData(): MapRegionData | null {
+    return this.mapRegion;
+  }
+
+  /** True when the map region has been updated since the last read. */
+  isMapRegionDirty(): boolean {
+    return this.mapRegionDirty;
+  }
+
+  /** Clear the dirty flag (call after consuming the region data). */
+  clearMapRegionDirty(): void {
+    this.mapRegionDirty = false;
+  }
+
+  /**
+   * Kick off an async map-region fetch from the worker. No-op if a fetch is
+   * already in flight or the worker isn't ready. The result is cached in
+   * this.mapRegion and the dirty flag is set.
+   */
+  refreshMapRegion(): void {
+    if (this.mapRegionFetching || !this.workerHost) return;
+    this.mapRegionFetching = true;
+    const centerCx = Math.floor(this.interpWorldX / CHUNK_W);
+    this.workerHost.getMapRegion(centerCx)
+      .then((region) => {
+        if (region) {
+          this.mapRegion = region;
+          this.mapRegionDirty = true;
+        }
+      })
+      .catch((e) => {
+        console.warn("[Renderer] getMapRegion failed:", e);
+      })
+      .finally(() => {
+        this.mapRegionFetching = false;
+      });
+  }
+
+  /**
+   * M-key handler: snap between full map view and the previous zoom level.
+   * When entering map mode, stash the current zoom and set it to MIN_ZOOM
+   * (full region), recenter on the player, and detach the camera so it
+   * doesn't snap back. When leaving, restore the stashed zoom + reattach.
+   */
+  toggleMapMode(): void {
+    if (this.inMapToggleMode) {
+      this.exitMapMode();
+      return;
+    }
+    // Enter map mode.
+    this.stashedZoom = this.camera.zoom;
+    this.inMapToggleMode = true;
+    // Recenter on the player in world coords, then convert to active-grid.
+    this.camWorldX = this.interpWorldX + 0.5;
+    this.camWorldY = this.interpWorldY + 0.975;
+    this.camWorldInit = true;
+    this.camera.x = this.camWorldX - this.renderOriginCx * CHUNK_W;
+    this.camera.y = this.camWorldY - this.renderOriginCy * CHUNK_H;
+    this.camera.detached = true;
+    this.camera.zoom = Camera.MIN_ZOOM;
+    // Force an immediate region refresh so the map shows current data.
+    this.refreshMapRegion();
+  }
+
+  /**
+   * Esc handler: exit map mode if active (restore stashed zoom + reattach
+   * camera to the player). No-op if not in map-toggle mode, so Esc still
+   * works as the pause hotkey in normal play.
+   */
+  exitMapMode(): void {
+    if (!this.inMapToggleMode) return;
+    this.camera.zoom = this.stashedZoom || 96;
+    this.camera.reattach(
+      this.interpWorldX - this.renderOriginCx * CHUNK_W,
+      this.interpWorldY - this.renderOriginCy * CHUNK_H,
+    );
+    this.inMapToggleMode = false;
   }
 
   /** Toggle debug mode: disables fog-of-war + shadow darkening (F1). */
@@ -333,6 +464,10 @@ export class BlockheadsRenderer {
       const gender = this.toggleCharacterGender();
       console.log(`[Overburden] Character gender: ${gender}`);
     };
+    // Wire M-key map toggle: snap to full map (min zoom) or restore.
+    this.input.onToggleMap = () => this.toggleMapMode();
+    // Wire Esc: exit map mode if active (no-op otherwise).
+    this.input.onExitMap = () => this.exitMapMode();
 
     // Listen for window resize
     window.addEventListener("resize", this.resizeHandler);
@@ -364,6 +499,12 @@ export class BlockheadsRenderer {
         this.resizeObserver.observe(this.canvas.parentElement);
       }
     }
+
+    // Map-region poll: refresh the cached map snapshot every 2s so the
+    // zoomed-out overview stays current as the player explores. The fetch
+    // is async and no-op if the worker isn't ready; the overlay reads the
+    // cache via getMapRegionData().
+    this.mapRegionTimer = setInterval(() => this.refreshMapRegion(), 2000) as unknown as number;
 
     return true;
   }
@@ -464,6 +605,8 @@ export class BlockheadsRenderer {
     this.raf = 0;
     if (this.inputInterval) clearInterval(this.inputInterval);
     this.inputInterval = 0;
+    if (this.mapRegionTimer) clearInterval(this.mapRegionTimer);
+    this.mapRegionTimer = 0;
     window.removeEventListener("resize", this.resizeHandler);
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -932,6 +1075,17 @@ export class BlockheadsRenderer {
     const now = performance.now();
     const elapsed = now - this.lastTime;
     this.lastTime = now;
+
+    // --- Map-mode cross-fade ---
+    // As the camera zooms out past MAP_FADE_START, fade the 3D canvas out so
+    // the 2D map overlay (components/map-overview.tsx) becomes visible. Only
+    // write the style when it changes to avoid per-frame DOM commits.
+    const mapOpacity = this.camera.getMapOpacity();
+    const targetCanvasOpacity = 1 - mapOpacity;
+    if (targetCanvasOpacity !== this.lastCanvasOpacity) {
+      this.canvas.style.opacity = String(targetCanvasOpacity);
+      this.lastCanvasOpacity = targetCanvasOpacity;
+    }
 
     // --- Render SAB: check for new grid-builder build + cache render origin ---
     // This MUST happen before processCameraInput() and camera positioning so
