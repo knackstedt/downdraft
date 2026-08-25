@@ -203,6 +203,9 @@
       "@downdraft/app/renderer": [
         "./packages/app/src/renderer/index.ts"
       ],
+      "@downdraft/app/build": [
+        "./packages/app/src/build/index.ts"
+      ],
       "@to-the-ocean/library-boats": [
         "./games/to-the-ocean/plugins/boats/src/index.ts"
       ],
@@ -277,6 +280,7 @@
     "packages/app/src/shared/**/*",
     "packages/app/src/renderer/**/*",
     "packages/app/src/vite/**/*",
+    "packages/app/src/build/**/*",
     "packages/app/src/index.ts",
     "packages/core/src/**/*.ts",
     "packages/mcp/src/**/*.ts",
@@ -289,6 +293,7 @@
     "electron.vite.config.ts",
     "games/*/electron.vite.config.ts",
     "games/*/vite-options.ts",
+    "games/*/build.config.ts",
     "games/*/src/main.ts",
     "games/*/src/preload.ts",
     "examples/*/electron.vite.config.ts",
