@@ -12,6 +12,9 @@
 export { OpfsSaveStore } from "./opfs-save-store";
 export type { OpfsSaveStoreOptions } from "./opfs-save-store";
 
+export { AutosaveManager } from "./autosave-manager";
+export type { AutosaveManagerOptions } from "./autosave-manager";
+
 export { IndexedDBSaveStore } from "./indexeddb-save-store";
 export type { IndexedDBSaveStoreOptions } from "./indexeddb-save-store";
 

@@ -46,6 +46,24 @@ export interface GameRendererConfig {
   };
   /** Max number of cached depth textures (per resolution). Older entries are evicted. Default: 3. */
   depthTextureCacheSize?: number;
+  /**
+   * Renderer mode:
+   * - "3d" (default): Camera-based rendering with viewports. Each viewport
+   *   requires camera info from onViewport callback or renderer plugins.
+   * - "2d": No camera required. A default orthographic camera is used.
+   *   The onViewport callback can return null (the default camera is used).
+   *   Render passes receive a full-screen viewport with an identity-like
+   *   camera. Depth texture is still provided but may be ignored by 2D passes.
+   *   Set viewportCount to 0 and use the afterFrame callback for fully custom
+   *   2D rendering (the FrameGraph viewport loop is skipped entirely).
+   */
+  mode?: "2d" | "3d";
+  /**
+   * Clear color for the canvas when viewportCount is 0 (2D mode with custom
+   * rendering in afterFrame). Default: { r: 0, g: 0, b: 0, a: 1 }.
+   * If null, the canvas is not cleared (the afterFrame callback must clear it).
+   */
+  clearColor?: GPUColor | null;
 }
 
 export interface FrameCallbacks {
@@ -105,6 +123,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
   private depthFormat: GPUTextureFormat = "depth32float";
   private msaaSampleCount: number = 1;
+  private mode: "2d" | "3d" = "3d";
 
   // Infrastructure
   private deviceManager: GPUDeviceManager;
@@ -188,6 +207,7 @@ export class GameRenderer implements CanvasResizeHandler {
     this.depthFormat = config.depthFormat ?? "depth32float";
     this.msaaSampleCount = config.msaaSampleCount ?? 1;
     this.depthTextureCacheSize = config.depthTextureCacheSize ?? 3;
+    this.mode = config.mode ?? "3d";
     this.deviceManager = new GPUDeviceManager();
     this.inputManager = new InputManager(canvas);
     this.frameGraph = new FrameGraph();
@@ -530,6 +550,22 @@ export class GameRenderer implements CanvasResizeHandler {
     // (reduces CPU→GPU sync points from 3+ per frame to 1).
     const frameCommandBuffers: GPUCommandBuffer[] = [];
     if (!gpuError) {
+      // 2D mode with viewportCount=0: clear the canvas if a clearColor is
+      // configured, then let the afterFrame callback do custom rendering.
+      if (this.viewportCount === 0 && this.device && this.context && this.config.clearColor !== null) {
+        const clearEncoder = this.device.createCommandEncoder();
+        const clearPass = clearEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.context.getCurrentTexture().createView(),
+            clearValue: this.config.clearColor ?? { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: "clear" as GPULoadOp,
+            storeOp: "store" as GPUStoreOp,
+          }],
+        });
+        clearPass.end();
+        frameCommandBuffers.push(clearEncoder.finish());
+      }
+
       for (let v = 0; v < this.viewportCount; v++) {
         const cb = this.renderViewport(v, dt, offscreen);
         if (cb) frameCommandBuffers.push(cb);
@@ -575,6 +611,16 @@ export class GameRenderer implements CanvasResizeHandler {
     // Submit all command buffers for this frame in a single queue.submit() call
     if (frameCommandBuffers.length > 0) {
       this.device!.queue.submit(frameCommandBuffers);
+    }
+
+    // Read GPU timer results asynchronously (1-frame latency).
+    // Must be called AFTER queue.submit() — readGpuTimers() calls mapAsync on
+    // the read buffer, and a mapped/mapping-pending buffer cannot be used in a
+    // submitted command buffer (the copy-to-readBuffer was encoded above).
+    if (this.gpuProfiler) {
+      this.gpuProfiler.readGpuTimers().then(() => {
+        // Results available for next frame
+      }).catch(() => {});
     }
 
     // Record telemetry
@@ -654,6 +700,23 @@ export class GameRenderer implements CanvasResizeHandler {
       if (camState) {
         camInfo = { camera: camState, viewport };
       }
+    }
+    // 2D mode: if no camera info was provided, use a default orthographic
+    // camera that covers the full viewport. This allows 2D-only renderers
+    // (sand games, tile games) to use GameRenderer without a camera system.
+    if (!camInfo && this.mode === "2d") {
+      camInfo = {
+        camera: {
+          position: [0, 0, 1],
+          target: [0, 0, 0],
+          up: [0, 1, 0],
+          fov: 90,
+          near: 0.1,
+          far: 100,
+          aspect: viewport.w / viewport.h,
+        },
+        viewport,
+      };
     }
     if (!camInfo) return null;
 
@@ -742,16 +805,15 @@ export class GameRenderer implements CanvasResizeHandler {
 
     this.frameGraph.execute(ctx);
 
-    // Resolve GPU timestamp queries on first viewport
+    // Resolve GPU timestamp queries on first viewport.
+    // NOTE: readGpuTimers() (which calls mapAsync on the read buffer) must NOT
+    // be called here — the command buffer containing the copy-to-readBuffer
+    // hasn't been submitted yet. Calling mapAsync before submit puts the buffer
+    // in a mapped-pending state, and the subsequent queue.submit() fails with
+    // "Buffer used in submit while mapped." readGpuTimers() is called after
+    // submit in renderFrame().
     if (isFirst) {
       this.gpuProfiler!.resolveGpuTimers(encoder);
-    }
-
-    // Read GPU timer results asynchronously (1-frame latency)
-    if (isFirst) {
-      this.gpuProfiler!.readGpuTimers().then(() => {
-        // Results available for next frame
-      }).catch(() => {});
     }
 
     return encoder.finish();

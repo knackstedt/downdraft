@@ -9,6 +9,9 @@
 export { FileSaveStore } from "./file-save-store";
 export type { FileSaveStoreOptions } from "./file-save-store";
 
+export { AutosaveManager } from "./autosave-manager";
+export type { AutosaveManagerOptions } from "./autosave-manager";
+
 export { OpfsSaveStore } from "./opfs-save-store";
 export type { OpfsSaveStoreOptions } from "./opfs-save-store";
 
