@@ -8,7 +8,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "dist": "electron-builder",
+    "dist": "draft dist",
     "test": "echo 'run bun test <path>.spec.ts for unit tests, or bun run draft:test / draft:test-cpu for e2e' && exit 0",
     "draft:test": "draft test --renderer=gpu",
     "draft:test-cpu": "draft test --renderer=cpu",

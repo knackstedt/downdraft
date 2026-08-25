@@ -1,12 +1,12 @@
   "version": "<%= it.version %>",<% if (it.description) { %>
   "description": "<%= it.description %>",<% } %><% if (it.author) { %>
-  "author": "<%= it.author %>",<% } %>
+  "author": { "name": "<%= it.author %>" },<% } %>
   "type": "module",
   "scripts": {
     "dev": "draft dev",
     "build": "draft build",
     "export": "draft export",
-    "dist": "electron-vite build && electron-builder",
+    "dist": "electron-vite build && draft dist",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "test": "npm test",

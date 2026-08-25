@@ -26,6 +26,9 @@ async function main() {
     case "build":
       await build(process.argv.slice(3));
       break;
+    case "dist":
+      await dist(process.argv.slice(3));
+      break;
     case "export":
       await exportGame(process.argv.slice(3));
       break;
@@ -45,6 +48,7 @@ Commands:
   dev [options]     Start dev server with HMR
   debug [options]   Run engine in debug mode with profiling/visualization
   build [options]   Build for target platform
+  dist [options]    Package a game for distribution via electron-builder
   export [options]  Package for distribution
   assets <cmd>      Manage remote asset packs (pull, push, list, init, add)
   test [options]    Run e2e tests via MCP automation (SwiftShader + deterministic by default)
@@ -63,6 +67,12 @@ Test options:
   --no-deterministic  Disable fixed seed / render loop pause
   --build             Build the game with electron-vite before testing (tests the packaged app)
   --build-only        Only test the built app (skip dev server; requires prior build)
+
+Dist options:
+  --game <name>       Game to package (default: DOWNDRAFT_GAME or to-the-ocean)
+  --target <plat>     Target platform: win, linux, mac, or all (default: all)
+  --config <path>     Explicit path to a build.config.ts / config file
+  --project-dir <p>   Override the project directory (default: repo root)
 `);
       process.exit(1);
   }

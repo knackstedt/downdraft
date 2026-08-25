@@ -58,7 +58,7 @@ describe("CLI new — minimal template", () => {
     expect(pkg.scripts.dev).toBe("draft dev");
     expect(pkg.scripts.build).toBe("draft build");
     expect(pkg.scripts.export).toBe("draft export");
-    expect(pkg.scripts.dist).toBe("electron-vite build && electron-builder");
+    expect(pkg.scripts.dist).toBe("electron-vite build && draft dist");
     expect(pkg.scripts.typecheck).toBe("tsc --noEmit");
     expect(pkg.scripts.lint).toBe("oxlint");
     expect(pkg.scripts.test).toBe("npm test");
@@ -79,6 +79,33 @@ describe("CLI new — minimal template", () => {
     expect(pkg.build.linux.target).toContain("flatpak");
     expect(pkg.build.deb.depends).toContain("libgtk-3-0");
     expect(pkg.build.flatpak.base).toBe("org.electronjs.Electron2.BaseApp");
+  });
+
+  it("should include copyright + author object when --author is provided", async () => {
+    // Re-scaffold with --author and --description into a fresh dir.
+    const authorDir = join(tmpdir(), "downdraft-cli-test-author");
+    try { rmSync(authorDir, { recursive: true, force: true }); } catch {}
+    mkdirSync(authorDir, { recursive: true });
+    process.chdir(tmpdir());
+    await newProject([
+      authorDir,
+      "--template=minimal",
+      "--name=my-game",
+      "--author=Jane Developer",
+      "--description=A test game",
+    ]);
+
+    const pkg = JSON.parse(readFileSync(join(authorDir, "package.json"), "utf-8"));
+    // author is written as an object so electron-builder's AppInfo.companyName
+    // (which reads metadata.author.name) resolves correctly.
+    expect(pkg.author).toEqual({ name: "Jane Developer" });
+    expect(pkg.description).toBe("A test game");
+    // copyright is derived from author + current year in the build config.
+    expect(pkg.build.copyright).toBeDefined();
+    expect(pkg.build.copyright).toContain("Jane Developer");
+    expect(pkg.build.copyright).toContain("Copyright");
+
+    try { rmSync(authorDir, { recursive: true, force: true }); } catch {}
   });
 
   it("should include builder devDependencies", async () => {
@@ -222,6 +249,20 @@ describe("CLI new — full template", () => {
     expect(existsSync(join(TEST_DIR, ".vscode", "tasks.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "tsconfig.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "electron.vite.config.ts"))).toBe(true);
+    // full template includes a build.config.ts for branded packaging via `draft dist`.
+    expect(existsSync(join(TEST_DIR, "build.config.ts"))).toBe(true);
+  });
+
+  it("should use draft dist in the full template dist script", async () => {
+    const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
+    expect(pkg.scripts.dist).toBe("electron-vite build && draft dist");
+  });
+
+  it("should reference createDowndraftBuilderConfig in build.config.ts", async () => {
+    const cfg = readFileSync(join(TEST_DIR, "build.config.ts"), "utf-8");
+    expect(cfg).toContain("createDowndraftBuilderConfig");
+    expect(cfg).toContain("@downdraft/app/build");
+    expect(cfg).toContain("full-game");
   });
 
   it("should include all plugin dependencies", async () => {

@@ -179,6 +179,9 @@
       "@downdraft/app/renderer": [
         "./packages/app/src/renderer/index.ts"
       ],
+      "@downdraft/app/build": [
+        "./packages/app/src/build/index.ts"
+      ],
       "@downdraft/app/shared": [
         "./packages/app/src/shared/index.ts"
       ],

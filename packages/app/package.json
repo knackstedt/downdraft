@@ -27,6 +27,10 @@
     "./vite": {
       "types": "./src/vite/index.ts",
       "import": "./src/vite/index.ts"
+    },
+    "./build": {
+      "types": "./src/build/index.ts",
+      "import": "./src/build/index.ts"
     }
   },
   "dependencies": {

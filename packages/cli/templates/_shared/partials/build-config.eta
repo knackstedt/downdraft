@@ -1,6 +1,7 @@
   "build": {
     "appId": "com.<%= it.name %>.game",
-    "productName": "<%= titleCase(it.name) %>",
+    "productName": "<%= titleCase(it.name) %>",<% if (it.author) { %>
+    "copyright": "Copyright © <%= new Date().getFullYear() %> <%= it.author %>",<% } %>
     "directories": {
       "output": "release"
     },

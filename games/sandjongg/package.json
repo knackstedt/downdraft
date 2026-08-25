@@ -1,6 +1,9 @@
 {
   "name": "sandjongg",
   "version": "0.1.0",
+  "productName": "Sandjongg",
+  "description": "A mahjong solitaire game built on the Downdraft Engine.",
+  "author": "Andrew G. Knackstedt",
   "private": true,
   "type": "module",
   "dependencies": {
