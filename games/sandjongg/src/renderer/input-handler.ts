@@ -1,11 +1,23 @@
 // ============================================================================
 // Input handler — pointer events on the tile canvas overlay.
+//
+// Left click (button 0) selects/matches tiles. Right-drag (button 2) or
+// middle-drag (button 1) pans the view when the board is larger than the
+// viewport. Pan deltas are accumulated and consumed by the renderer each frame.
 // ============================================================================
 
 export interface InputHandler {
   mouseX: number;
   mouseY: number;
-  hasClick: boolean;    // true when a new click occurred (consumed by renderer)
+  /** True when a new left-button click occurred (consumed by the renderer). */
+  hasClick: boolean;
+  /** Accumulated pan delta (canvas px) since the last consumePanDelta() call. */
+  panDeltaX: number;
+  panDeltaY: number;
+  /** True while a pan drag is in progress. */
+  isPanning: boolean;
+  /** Read and reset the accumulated pan delta. */
+  consumePanDelta(): { dx: number; dy: number };
   destroy(): void;
 }
 
@@ -14,6 +26,16 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputHandler {
     mouseX: 0,
     mouseY: 0,
     hasClick: false,
+    panDeltaX: 0,
+    panDeltaY: 0,
+    isPanning: false,
+    consumePanDelta() {
+      const dx = state.panDeltaX;
+      const dy = state.panDeltaY;
+      state.panDeltaX = 0;
+      state.panDeltaY = 0;
+      return { dx, dy };
+    },
     destroy() {},
   };
 
@@ -26,26 +48,60 @@ export function createInputHandler(canvas: HTMLCanvasElement): InputHandler {
     };
   };
 
-  const onPointerMove = (e: PointerEvent): void => {
-    const pos = getCanvasPos(e);
-    state.mouseX = pos.x;
-    state.mouseY = pos.y;
-  };
+  // Right-drag (button 2) and middle-drag (button 1) pan the view.
+  const isPanButton = (e: PointerEvent): boolean => e.button === 1 || e.button === 2;
 
   const onPointerDown = (e: PointerEvent): void => {
     const pos = getCanvasPos(e);
     state.mouseX = pos.x;
     state.mouseY = pos.y;
-    state.hasClick = true;
+    if (isPanButton(e)) {
+      state.isPanning = true;
+      // Prevent the canvas from losing pointer capture mid-drag.
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      e.preventDefault();
+    } else if (e.button === 0) {
+      state.hasClick = true;
+    }
   };
+
+  const onPointerMove = (e: PointerEvent): void => {
+    const pos = getCanvasPos(e);
+    if (state.isPanning) {
+      const dpr = window.devicePixelRatio || 1;
+      state.panDeltaX += (e as any).movementX * dpr;
+      state.panDeltaY += (e as any).movementY * dpr;
+    }
+    state.mouseX = pos.x;
+    state.mouseY = pos.y;
+  };
+
+  const endPan = (e: PointerEvent): void => {
+    if (state.isPanning) {
+      state.isPanning = false;
+      try { canvas.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    }
+  };
+
+  const onPointerUp = (e: PointerEvent): void => endPan(e);
+  const onPointerCancel = (e: PointerEvent): void => endPan(e);
+
+  // Suppress the browser context menu so right-drag can pan freely.
+  const onContextMenu = (e: MouseEvent): void => { e.preventDefault(); };
 
   canvas.style.pointerEvents = "auto";
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerCancel);
+  canvas.addEventListener("contextmenu", onContextMenu);
 
   state.destroy = () => {
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerdown", onPointerDown);
+    canvas.removeEventListener("pointerup", onPointerUp);
+    canvas.removeEventListener("pointercancel", onPointerCancel);
+    canvas.removeEventListener("contextmenu", onContextMenu);
   };
 
   return state;

@@ -1,5 +1,5 @@
-import { downdraft, getCanvas, getOverlay } from "@downdraft/app/renderer";
-import { createSimStatsPanelExtension, createSimStatsProvider, initDevTools } from "@downdraft/plugin-devtools";
+import { bootstrapGame, downdraft, getOverlay } from "@downdraft/app/renderer";
+import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/plugin-devtools";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
@@ -17,103 +17,104 @@ import "./styles/globals.css";
 // @ts-ignore — solid/host.ts is in the solid tsconfig project, not web
 import { SolidHost } from "./solid/host";
 
-async function bootstrap() {
-  const canvas = getCanvas(0);
-  const deterministic = downdraft?.deterministic === true;
+let solidHost: SolidHost | null = null;
 
-  const renderer = new MiningRenderer(canvas, deterministic);
-  const ok = await renderer.init();
-  if (!ok) {
-    console.error("MiningRenderer init failed");
-    // TEMP: Allow bypassing GPU init for browser preview testing
-    if (!location.search.includes("nogpu")) return;
-  }
+bootstrapGame({
+  // --- Renderer ---
+  createRenderer: (canvas) => {
+    const deterministic = downdraft?.deterministic === true;
+    return new MiningRenderer(canvas, deterministic);
+  },
+  initRenderer: (renderer) => renderer.init(),
+  onRendererInit: (renderer) => {
+    useGameStore.getState().setRenderer(renderer);
 
-  useGameStore.getState().setRenderer(renderer);
+    // --- UI mode: Solid-in-worker (default) or React fallback ---
+    const useReactUI = (globalThis as any).__USE_REACT_UI === true;
 
-  // --- UI mode: Solid-in-worker (default) or React fallback ---
-  // Set USE_REACT_UI=1 in the environment to fall back to the React UI.
-  const useReactUI = (globalThis as any).__USE_REACT_UI === true;
-  let solidHost: SolidHost | null = null;
-
-  if (!useReactUI) {
-    // --- Solid-in-worker path ---
-    try {
-      solidHost = new SolidHost({ renderer, reactStore: useGameStore });
-      await solidHost.start();
-      console.log("[main] Solid-in-worker UI started");
-    } catch (e) {
-      console.error("[main] Solid UI failed, falling back to React:", e);
-      solidHost?.dispose();
-      solidHost = null;
-    }
-  }
-
-  // --- Display refresh rate → frame rate limiter ---
-  // The limiter only activates when rAF fires faster than the display refresh
-  // rate (e.g. Electron/Ozone without vsync). When vsync works, it's inactive.
-  try {
-    if (downdraft?.onDisplayInfo) {
-      downdraft.onDisplayInfo((data: { refreshRate: number }) => {
-        renderer.setFrameRateLimit(data.refreshRate);
-        solidHost?.setFrameRateLimit(data.refreshRate);
-      });
-    }
-    if (downdraft?.getDisplayInfo) {
-      const info = await downdraft.getDisplayInfo();
-      if (info?.refreshRate > 0) {
-        renderer.setFrameRateLimit(info.refreshRate);
-        solidHost?.setFrameRateLimit(info.refreshRate);
+    if (!useReactUI) {
+      // --- Solid-in-worker path ---
+      try {
+        solidHost = new SolidHost({ renderer, reactStore: useGameStore });
+        solidHost.start().then(() => {
+          console.log("[main] Solid-in-worker UI started");
+        }).catch((e) => {
+          console.error("[main] Solid UI failed, falling back to React:", e);
+          solidHost?.dispose();
+          solidHost = null;
+          // Fall back to React
+          const root = createRoot(getOverlay(0));
+          root.render(
+            <React.StrictMode>
+              <App />
+            </React.StrictMode>,
+          );
+        });
+      } catch (e) {
+        console.error("[main] Solid UI failed, falling back to React:", e);
+        solidHost?.dispose();
+        solidHost = null;
+        const root = createRoot(getOverlay(0));
+        root.render(
+          <React.StrictMode>
+            <App />
+          </React.StrictMode>,
+        );
       }
     }
-  } catch { /* not available — limiter stays inactive */ }
+  },
 
-  if (!solidHost) {
-    // --- React fallback path ---
-    const root = createRoot(getOverlay(0));
-    root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>,
-    );
-  }
+  // --- UI (React fallback — only mounted if Solid failed) ---
+  // mountUI is only called if we didn't mount Solid. We handle this in
+  // onRendererInit above, so we skip mountUI here.
+  // NOTE: If USE_REACT_UI is set, we need mountUI. We use a conditional.
+  mountUI: (overlay) => {
+    if ((globalThis as any).__USE_REACT_UI === true) {
+      const root = createRoot(overlay);
+      root.render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>,
+      );
+    }
+    // Otherwise: Solid UI was mounted in onRendererInit, skip.
+  },
 
-  // --- DevTools: one-line wiring via initDevTools() ---
-  const simStatsProvider = createSimStatsProvider({
-    getWorkerHost: () => renderer.getWorkerHost(),
-    getStorePaused: () => useGameStore.getState().paused,
-    setStorePaused: (paused) => useGameStore.getState().setPaused(paused),
-    getExtra: () => {
-      const host = renderer.getWorkerHost();
-      const store = useGameStore.getState();
-      const player = host ? {
-        px: host.getPlayerF32(PLAYER.PX),
-        py: host.getPlayerF32(PLAYER.PY),
-        vx: host.getPlayerF32(PLAYER.VX),
-        vy: host.getPlayerF32(PLAYER.VY),
-        health: host.getPlayerI32(PLAYER.HEALTH),
-        onGround: host.getPlayerI32(PLAYER.ON_GROUND) !== 0,
-        facing: host.getPlayerI32(PLAYER.FACING),
-      } : null;
-      return {
-        depth: store.depth,
-        loadedChunks: store.loadedChunks,
-        activeChunks: store.activeChunks,
-        frozenChunks: store.loadedChunks - store.activeChunks,
-        terrainSeed: WORLD_SEED,
-        renderFPS: renderer.getFPS(),
-        inventoryCount: store.inventory.reduce((sum, e) => sum + e.count, 0),
-        inventoryTypes: store.inventory.length,
-        player,
-      };
-    },
-  });
-  await initDevTools(renderer, {
-    simStatsProvider,
+  // --- DevTools ---
+  devtools: {
+    createSimStatsProvider: (renderer) => createSimStatsProvider({
+      getWorkerHost: () => renderer.getWorkerHost(),
+      getStorePaused: () => useGameStore.getState().paused,
+      setStorePaused: (paused) => useGameStore.getState().setPaused(paused),
+      getExtra: () => {
+        const host = renderer.getWorkerHost();
+        const store = useGameStore.getState();
+        const player = host ? {
+          px: host.getPlayerF32(PLAYER.PX),
+          py: host.getPlayerF32(PLAYER.PY),
+          vx: host.getPlayerF32(PLAYER.VX),
+          vy: host.getPlayerF32(PLAYER.VY),
+          health: host.getPlayerI32(PLAYER.HEALTH),
+          onGround: host.getPlayerI32(PLAYER.ON_GROUND) !== 0,
+          facing: host.getPlayerI32(PLAYER.FACING),
+        } : null;
+        return {
+          depth: store.depth,
+          loadedChunks: store.loadedChunks,
+          activeChunks: store.activeChunks,
+          frozenChunks: store.loadedChunks - store.activeChunks,
+          terrainSeed: WORLD_SEED,
+          renderFPS: renderer.getFPS(),
+          inventoryCount: store.inventory.reduce((sum, e) => sum + e.count, 0),
+          inventoryTypes: store.inventory.length,
+          player,
+        };
+      },
+    }),
     panels: [
       createSimStatsPanelExtension({
         extraRows: (stats) => {
-          const extra = stats.extra;
+          const extra = stats.extra as any;
           if (!extra) return [];
           const rows: [string, string][] = [
             ["Depth", String(extra.depth ?? "—")],
@@ -139,24 +140,24 @@ async function bootstrap() {
         },
       }),
     ],
-  });
+  },
 
-  const fpsInterval = setInterval(() => {
-    useGameStore.getState().setFPS(renderer.getFPS());
-  }, 500);
+  // --- Display info → frame rate limiter ---
+  onDisplayInfo: (refreshRate) => {
+    const renderer = useGameStore.getState().renderer as MiningRenderer | null;
+    if (renderer) renderer.setFrameRateLimit(refreshRate);
+    solidHost?.setFrameRateLimit(refreshRate);
+  },
 
-  renderer.start();
+  // --- FPS polling ---
+  onFpsUpdate: (fps) => useGameStore.getState().setFPS(fps),
 
-  // Hot reload: dispose the old renderer + solid host before re-running bootstrap.
-  if (import.meta.hot) {
-    import.meta.hot.dispose(async () => {
-      clearInterval(fpsInterval);
-      solidHost?.dispose();
-      await renderer.stop();
-    });
-  }
-}
-
-bootstrap().catch((e) => {
+  // --- Hot reload ---
+  onHotReloadDispose: async () => {
+    solidHost?.dispose();
+    const renderer = useGameStore.getState().renderer as MiningRenderer | null;
+    if (renderer) await renderer.stop();
+  },
+}).catch((e) => {
   console.error("[main] Fatal:", e);
 });

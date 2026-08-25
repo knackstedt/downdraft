@@ -3,7 +3,7 @@
 // Exposes capture_screenshot + match_tiles tools for e2e tests.
 // ============================================================================
 
-import { downdraft } from "@downdraft/app/renderer";
+import { createMcpHarness, downdraft } from "@downdraft/app/renderer";
 import type { SandjonggRenderer } from "../renderer/sandjongg-renderer";
 
 interface ToolDef {
@@ -362,61 +362,65 @@ function createAutomationTools(ctx: {
         };
       },
     },
+    {
+      def: {
+        name: "get_sand_state",
+        description:
+          "Read the sand grid from the SAB and report non-empty cell positions, materials, and bounding box. Used to verify sand physics (gravity/falling) are working.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      handler: async () => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const snap = renderer.snapshotGrid();
+        const grid = snap.grid;
+        const W = snap.gridW;
+        const H = snap.gridH;
+        let count = 0;
+        let minY = H, maxY = 0;
+        let minX = W, maxX = 0;
+        const samples: Array<{ x: number; y: number; mat: number }> = [];
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const v = grid[y * W + x];
+            if (v !== 0) {
+              const mat = v & 0xff;
+              // Exclude Wall (26) and Stone (3) — those are static pit walls/floor.
+              if (mat === 26 || mat === 3) continue;
+              count++;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (samples.length < 20) {
+                samples.push({ x, y, mat });
+              }
+            }
+          }
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                gridW: W,
+                gridH: H,
+                nonEmptyCount: count,
+                bounds: count > 0 ? { minX, minY, maxX, maxY } : null,
+                samples,
+              }, null, 2),
+            },
+          ],
+        };
+      },
+    },
   ];
 }
 
 export function setupSandjonggMcp(renderer: () => SandjonggRenderer | null): void {
   const tools = createAutomationTools({ renderer });
-
-  const handleRequest = async (req: McpRequest): Promise<McpResponse> => {
-    const { id, method, params = {} } = req;
-    try {
-      if (method === "initialize") {
-        return {
-          id,
-          result: {
-            protocolVersion: "2024-11-05",
-            capabilities: { tools: {}, resources: {}, prompts: {} },
-            serverInfo: { name: "downdraft-sandjongg-automation", version: "0.1.0" },
-          },
-        };
-      }
-      if (method === "tools/list") {
-        return {
-          id,
-          result: {
-            tools: tools.map((t) => ({
-              name: t.def.name,
-              description: t.def.description,
-              inputSchema: t.def.inputSchema,
-            })),
-          },
-        };
-      }
-      if (method === "tools/call") {
-        const name = params.name as string;
-        const args = (params.arguments as Record<string, unknown>) ?? {};
-        const tool = tools.find((t) => t.def.name === name);
-        if (!tool) {
-          return { id, error: { code: -32602, message: `Unknown tool: ${name}` } };
-        }
-        const result = await tool.handler(args);
-        return { id, result };
-      }
-      if (method === "shutdown") {
-        return { id, result: {} };
-      }
-      return { id, error: { code: -32601, message: `Method not found: ${method}` } };
-    } catch (e) {
-      return { id, error: { code: -32603, message: (e as Error).message } };
-    }
-  };
-
-  if (!downdraft?.isAvailable || typeof downdraft.onMcpRequest !== "function") {
-    downdraft?.log?.("warn", "[MCP] Electron bridge or onMcpRequest not available; automation harness disabled");
-    return;
-  }
-
-  downdraft.onMcpRequest(async (request) => handleRequest(request as McpRequest));
-  downdraft.log("info", `[MCP] Sandjongg automation harness registered; tools: ${tools.map((t) => t.def.name).join(", ")}`);
+  createMcpHarness({
+    serverName: "downdraft-sandjongg-automation",
+    tools,
+  });
 }

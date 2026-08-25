@@ -106,7 +106,7 @@ describe("match-engine", () => {
 
   it("crumble events carry correct sand coordinates", () => {
     const b = new TileBoard(6, 6);
-    b.place(2, 3, 5, LAYER); // Ice
+    b.place(2, 3, 5, LAYER); // Mercury
     b.place(4, 3, 5, LAYER);
     const state = resetComboState();
     const originCol = 10;

@@ -1,4 +1,4 @@
-import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
+import { createSimWorker } from "@downdraft/core";
 import { DEFAULT_GRAVITY, DEFAULT_TEMP, FIELD, Material, SandWorld } from "@downdraft/library-sand";
 import { CAULDRON_WALL_THICKNESS } from "../shared/constants";
 import {
@@ -14,168 +14,95 @@ import { computeHistogram, initCauldron } from "./cauldron";
 // --- Worker state ---
 let world: SandWorld | null = null;
 let writer: SimBufferWriter | null = null;
-let sabRef: SharedArrayBuffer | null = null;
-let running = false;
-let paused = false;
-let lastTick = 0;
-let tickCount = 0;
-let frameCount = 0;
-let fpsTimer = 0;
-let fps = 0;
+let inputBuf: Int32Array | null = null;
+let histogram: Uint32Array | null = null;
 
 let wasMouseDown = false;
-
-// Cached input view
-let inputBuf: Int32Array | null = null;
-
-// Mixture histogram (reused buffer)
-let histogram: Uint32Array | null = null;
 
 // Station state
 let stationActive: "heat" | "cool" | "settle" | null = null;
 let stationTicksRemaining = 0;
 let stationTotalTicks = 0;
 
-const events = exposeEvents();
+createSimWorker({
+  fixedDt: 1 / 30,
+  maxStepsPerFrame: 5,
 
-const TICK_MS = 1000 / 30;
-const MAX_STEPS_PER_FRAME = 5;
-let tickAccumulator = 0;
-let speedMultiplier = 1;
-let stepOnce = false;
-
-expose({
-  async init(sab: SharedArrayBuffer, gridW: number, gridH: number): Promise<void> {
-    sabRef = sab;
+  onInit(sab: SharedArrayBuffer, _control, gridW: number, gridH: number): void {
     writer = new SimBufferWriter(sab, OFFSETS, gridW, gridH);
     inputBuf = new Int32Array(sab, INPUT_OFFSET, INPUT_BYTES / 4);
     histogram = new Uint32Array(256);
 
     world = new SandWorld(gridW, gridH);
-    // Override the stone floor with a cauldron (walled interior)
     initCauldron(world.grid, world.fields, gridW, gridH);
 
-    running = true;
-    paused = false;
-    lastTick = performance.now();
     wasMouseDown = false;
-    events.emit("ready", {});
-    loop();
   },
 
-  resize(gridW: number, gridH: number): void {
-    if (!writer || !sabRef) return;
+  onTick(_dt: number, _ctx): void {
+    if (!world || !writer) return;
+
+    readInput();
+    applyStationTick();
+    world.step();
+    writer.writeGrid(world.grid);
+    writer.writeFieldGrid(world.fields);
+    if (histogram) {
+      computeHistogram(world.grid, world.W, world.H, histogram);
+      writer.writeMixtureHistogram(histogram);
+    }
+  },
+
+  onAfterTicks(ctx): void {
+    if (!writer) return;
+    writer.writeStat(STATS.TICK, ctx.tickCount);
+    writer.writeStat(STATS.FRAME, ctx.frameCount);
+    writer.writeStat(STATS.FPS, ctx.fps);
+  },
+
+  onResize(gridW: number, gridH: number): void {
+    if (!writer || !world) return;
     writer.setDims(gridW, gridH);
     world = new SandWorld(gridW, gridH);
     initCauldron(world.grid, world.fields, gridW, gridH);
   },
 
-  pause(): void { paused = true; },
-  resume(): void { paused = false; lastTick = performance.now(); },
-  shutdown(): void { running = false; },
+  extraApi: {
+    clear(): void {
+      if (!world) return;
+      initCauldron(world.grid, world.fields, world.W, world.H);
+    },
 
-  setSpeed(speed: number): void {
-    speedMultiplier = Math.max(0, speed);
-  },
+    loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): void {
+      if (!writer || !world) return;
+      if (world.W !== gridW || world.H !== gridH) {
+        writer.setDims(gridW, gridH);
+        world = new SandWorld(gridW, gridH);
+      }
+      world.grid.set(grid.subarray(0, gridW * gridH));
+      world.fields.set(fields.subarray(0, gridW * gridH * 4));
+    },
 
-  step(): void {
-    stepOnce = true;
-    paused = false;
-    lastTick = performance.now();
-  },
+    // --- Station actions ---
+    runStation(station: "heat" | "cool" | "settle", durationTicks: number): void {
+      if (!world) return;
+      stationActive = station;
+      stationTicksRemaining = durationTicks;
+      stationTotalTicks = durationTicks;
+    },
 
-  clear(): void {
-    if (!world) return;
-    initCauldron(world.grid, world.fields, world.W, world.H);
-  },
+    cancelStation(): void {
+      stationActive = null;
+      stationTicksRemaining = 0;
+    },
 
-  loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): void {
-    if (!writer || !world) return;
-    if (world.W !== gridW || world.H !== gridH) {
-      writer.setDims(gridW, gridH);
-      world = new SandWorld(gridW, gridH);
-    }
-    world.grid.set(grid.subarray(0, gridW * gridH));
-    world.fields.set(fields.subarray(0, gridW * gridH * 4));
-  },
-
-  getStats(): { fps: number; tick: number; frame: number } {
-    return { fps, tick: tickCount, frame: frameCount };
-  },
-
-  // --- Station actions ---
-  runStation(station: "heat" | "cool" | "settle", durationTicks: number): void {
-    if (!world) return;
-    stationActive = station;
-    stationTicksRemaining = durationTicks;
-    stationTotalTicks = durationTicks;
-  },
-
-  cancelStation(): void {
-    stationActive = null;
-    stationTicksRemaining = 0;
-  },
-
-  getStationState(): { station: string | null; progress: number } {
-    if (!stationActive) return { station: null, progress: 0 };
-    const elapsed = stationTotalTicks - stationTicksRemaining;
-    return { station: stationActive, progress: elapsed / stationTotalTicks };
+    getStationState(): { station: string | null; progress: number } {
+      if (!stationActive) return { station: null, progress: 0 };
+      const elapsed = stationTotalTicks - stationTicksRemaining;
+      return { station: stationActive, progress: elapsed / stationTotalTicks };
+    },
   },
 });
-
-async function loop(): Promise<void> {
-  if (!running || !world || !writer || !sabRef) return;
-
-  try {
-    const now = performance.now();
-    const elapsed = now - lastTick;
-
-    if (elapsed >= TICK_MS) {
-      lastTick = now - (elapsed % TICK_MS);
-      tickAccumulator += (elapsed / TICK_MS) * speedMultiplier;
-
-      if (!paused || stepOnce) {
-        let steps = 0;
-        const maxSteps = stepOnce ? 1 : MAX_STEPS_PER_FRAME;
-        while (tickAccumulator >= 1 && steps < maxSteps) {
-          readInput();
-          applyStationTick();
-          world.step();
-          writer.writeGrid(world.grid);
-          writer.writeFieldGrid(world.fields);
-          if (histogram) {
-            computeHistogram(world.grid, world.W, world.H, histogram);
-            writer.writeMixtureHistogram(histogram);
-          }
-          writer.writeStat(STATS.TICK, tickCount);
-          writer.writeStat(STATS.FRAME, frameCount);
-          tickCount++;
-          tickAccumulator -= 1;
-          steps++;
-        }
-        if (stepOnce) {
-          stepOnce = false;
-          paused = true;
-        }
-        frameCount++;
-      }
-    }
-
-    // FPS tracking
-    fpsTimer += elapsed;
-    if (fpsTimer >= 1000) {
-      fps = Math.round((frameCount * 1000) / fpsTimer);
-      writer.writeStat(STATS.FPS, fps);
-      frameCount = 0;
-      fpsTimer = 0;
-    }
-
-    setTimeout(loop, 0);
-  } catch (e) {
-    console.error("[alchemy-worker] loop error:", e);
-    setTimeout(loop, 100);
-  }
-}
 
 function readInput(): void {
   if (!world || !inputBuf) return;

@@ -118,6 +118,16 @@ export function levelShape(level: number): BoardShape {
   return ALL_SHAPES[(level - 1) % ALL_SHAPES.length];
 }
 
+export interface GenerateLevelOptions {
+  /** When true, avoid placing the same element in orthogonally-adjacent cells
+   *  (4-neighbour). Best-effort: relaxed if no element fits to avoid stalling. */
+  noAdjacentSame?: boolean;
+  /** Override board columns (0 = use level-based scaling). */
+  cols?: number;
+  /** Override board rows (0 = use level-based scaling). */
+  rows?: number;
+}
+
 /**
  * Generate a solvable board for a given level using reverse construction.
  *
@@ -131,16 +141,20 @@ export function levelShape(level: number): BoardShape {
  * cells), we fall back to verifying with isSolvable and regenerating with a
  * different seed if needed.
  */
-export function generateLevel(level: number, seed: number): { board: TileBoard; spec: LevelSpec } {
+export function generateLevel(
+  level: number,
+  seed: number,
+  opts: GenerateLevelOptions = {},
+): { board: TileBoard; spec: LevelSpec } {
   const maxAttempts = 20;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const rng = makeRng(seed + attempt * 0x9e3779b9);
-    const result = tryGenerate(level, rng);
+    const result = tryGenerate(level, rng, opts);
     if (result !== null) return result;
   }
   // Fallback: simple rectangle that's guaranteed solvable.
   const rng = makeRng(seed);
-  const result = tryGenerate(1, rng);
+  const result = tryGenerate(1, rng, {});
   if (result !== null) return result;
   // Ultimate fallback: empty board (should never happen).
   const { cols, rows } = levelDims(level);
@@ -150,11 +164,30 @@ export function generateLevel(level: number, seed: number): { board: TileBoard; 
   };
 }
 
-function tryGenerate(level: number, rng: () => number): { board: TileBoard; spec: LevelSpec } | null {
+/** True if an orthogonal neighbour of (col,row,layer) already holds `element`. */
+function hasAdjacentSame(board: TileBoard, col: number, row: number, layer: number, element: number): boolean {
+  const neighbours = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (const [dx, dy] of neighbours) {
+    const t = board.at(col + dx, row + dy, layer);
+    if (t !== null && t.element === element) return true;
+  }
+  return false;
+}
+
+function tryGenerate(
+  level: number,
+  rng: () => number,
+  opts: GenerateLevelOptions,
+): { board: TileBoard; spec: LevelSpec } | null {
   const shape = levelShape(level);
-  const { cols, rows } = levelDims(level);
+  const dims = (opts.cols && opts.cols > 0 && opts.rows && opts.rows > 0)
+    ? { cols: opts.cols, rows: opts.rows }
+    : levelDims(level);
+  const cols = Math.min(MAX_COLS, dims.cols);
+  const rows = Math.min(MAX_ROWS, dims.rows);
   const numLayers = levelLayers(level);
   const mask = shapeMask(shape, cols, rows);
+  const noAdjacent = !!opts.noAdjacentSame;
 
   // Collect all filled cell positions.
   const filledCells: { col: number; row: number }[] = [];
@@ -207,7 +240,26 @@ function tryGenerate(level: number, rng: () => number): { board: TileBoard; spec
 
       for (const i1 of shuffledFirst) {
         const cell1 = remaining[i1];
-        const element = Math.floor(rng() * NUM_ELEMENTS);
+        // Pick an element. When the no-adjacent constraint is active, try each
+        // element in a shuffled order and pick the first that doesn't create an
+        // orthogonal same-element neighbour at either cell of the pair. If none
+        // qualify, relax to a random element so generation doesn't stall.
+        let element = Math.floor(rng() * NUM_ELEMENTS);
+        if (noAdjacent) {
+          const order = shuffleIndices(NUM_ELEMENTS, rng);
+          let chosen = -1;
+          for (const el of order) {
+            // Check cell1 against existing neighbours; cell2 is still empty so
+            // only cell1's neighbours matter here, but we also avoid cell1 and
+            // cell2 being orthogonally adjacent with the same element after both
+            // are placed — checked below before committing.
+            if (!hasAdjacentSame(board, cell1.col, cell1.row, layer, el)) {
+              chosen = el;
+              break;
+            }
+          }
+          element = chosen >= 0 ? chosen : element;
+        }
 
         const shuffledSecond = shuffleIndices(remaining.length, rng);
         for (const i2 of shuffledSecond) {
@@ -215,6 +267,15 @@ function tryGenerate(level: number, rng: () => number): { board: TileBoard; spec
           const cell2 = remaining[i2];
           const path = findPath(board, cell1.col, cell1.row, cell2.col, cell2.row, layer);
           if (path !== null) {
+            // Enforce the no-adjacent constraint for cell2 as well, and that the
+            // two cells of the pair aren't orthogonally adjacent (which would
+            // place the same element side-by-side). If violated, skip this cell2
+            // and try another — the outer loop will retry with a new cell1.
+            if (noAdjacent) {
+              if (hasAdjacentSame(board, cell2.col, cell2.row, layer, element)) continue;
+              const areAdjacent = Math.abs(cell1.col - cell2.col) + Math.abs(cell1.row - cell2.row) === 1;
+              if (areAdjacent) continue;
+            }
             board.place(cell1.col, cell1.row, element, layer);
             board.place(cell2.col, cell2.row, element, layer);
             remaining.splice(Math.max(i1, i2), 1);

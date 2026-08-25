@@ -6,7 +6,7 @@
 // + blockhead characters each frame.
 // ============================================================================
 
-import { GPUDeviceManager } from "@downdraft/core";
+import { GameRenderer } from "@downdraft/core";
 import { getBlockDef } from "../shared/block-registry";
 import {
     ACTIVE_GRID_H, ACTIVE_GRID_W,
@@ -39,15 +39,7 @@ import { TaskMarkerPass, type MarkerData } from "./task-marker-pass";
 // map to BLOCK_AIR. Updated from the inventory via setHotbarFromInventory().
 const EMPTY_HOTBAR: number[] = new Array(9).fill(BLOCK_AIR);
 
-export class BlockheadsRenderer {
-  private canvas: HTMLCanvasElement;
-  private deviceManager = new GPUDeviceManager();
-  private device: GPUDevice | null = null;
-  private context: GPUCanvasContext | null = null;
-  private format: GPUTextureFormat = "bgra8unorm";
-  private running = false;
-  private raf = 0;
-  private lastTime = 0;
+export class BlockheadsRenderer extends GameRenderer {
   // Cached sim-SAB origin (read atomically with the sim tick). Used ONLY for
   // computing the player's continuous world position from the blockhead's
   // active-grid coords in the sim SAB. The blockhead position in the sim SAB
@@ -67,10 +59,11 @@ export class BlockheadsRenderer {
   private renderOriginCx = 0;
   private renderOriginCy = 0;
   private debugNoShadows = false;
-  private frameCount = 0;
-  private fps = 0;
-  private fpsTimer = 0;
   private inputInterval = 0; // separate interval for input processing (works even when render loop is paused)
+  // Tracks whether the rAF render loop is active (set by start/stop).
+  // Used by the input interval to skip updateInput() when the rAF loop
+  // already calls it every frame.
+  private _rendering = false;
 
   // Hotbar: block IDs for the first 9 inventory slots (updated from inventory)
   private hotbarBlocks: number[] = [...EMPTY_HOTBAR];
@@ -167,16 +160,21 @@ export class BlockheadsRenderer {
   private inMapToggleMode = false;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+    super(canvas, {
+      mode: "2d",
+      clearColor: { r: 0.1, g: 0.1, b: 0.18, a: 1.0 },
+    });
+    // 2D mode with viewportCount=0: we do custom rendering in afterFrame
+    this.setViewportCount(0);
     this.camera = new Camera(canvas.width, canvas.height);
   }
 
   getFPS(): number {
-    return this.fps;
+    return super.getFPS();
   }
 
   getCanvas(): HTMLCanvasElement {
-    return this.canvas;
+    return super.getCanvas();
   }
 
   getInput(): BlockheadsInputState | null {
@@ -379,43 +377,30 @@ export class BlockheadsRenderer {
   }
 
   async init(): Promise<boolean> {
-    this.device = await this.deviceManager.requestDevice();
-    if (!this.device) return false;
+    const ok = await super.init();
+    if (!ok) return false;
 
-    // Register a device-lost handler so we can log the reason and
-    // attempt to keep the app alive (skip frames until recovery).
-    this.deviceManager.onDeviceLost((info) => {
-      console.error(`[Renderer] GPU device lost: ${info.message}. Will skip frames until context recovers.`);
-    });
+    const device = this.getDevice()!;
+    const format = this.getFormat();
+    const canvas = this.getCanvas();
 
-    // Resize canvas BEFORE configuring the WebGPU context
-    this.resizeCanvas();
     // Camera uses CSS pixel dimensions (not device pixels) so zoom=96
     // means 96 CSS pixels per block regardless of devicePixelRatio.
     const dpr = window.devicePixelRatio || 1;
-    this.camera.resize(this.canvas.width / dpr, this.canvas.height / dpr);
-
-    this.context = this.canvas.getContext("webgpu") as GPUCanvasContext | null;
-    if (!this.context) return false;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "opaque",
-    });
+    this.camera.resize(canvas.width / dpr, canvas.height / dpr);
 
     // Create render passes (3D block grid with depth buffer)
-    this.blockGridPass = new BlockGridPass3D(this.device, this.format);
+    this.blockGridPass = new BlockGridPass3D(device, format);
     this.blockGridPass.init();
 
-    this.stickmanPass = new StickmanPass(this.device, this.format);
+    this.stickmanPass = new StickmanPass(device, format);
     this.stickmanPass.init();
 
     // Initialize the character pass (rigged FBX models via ModelRenderer).
     // Non-blocking: if this fails, we fall back to the stickman box.
     this.characterPass = new CharacterPass();
     try {
-      await this.characterPass.init(this.device, this.format);
+      await this.characterPass.init(device, format);
       await this.characterPass.loadGender("male");
       await this.characterPass.loadGender("female");
       this.characterPass.setGender("male");
@@ -425,19 +410,19 @@ export class BlockheadsRenderer {
       this.characterPass = null;
     }
 
-    this.skyPass = new SkyPass(this.device, this.format);
+    this.skyPass = new SkyPass(device, format);
     this.skyPass.init();
 
-    this.taskMarkerPass = new TaskMarkerPass(this.device, this.format);
+    this.taskMarkerPass = new TaskMarkerPass(device, format);
     this.taskMarkerPass.init();
 
-    this.dropPass = new DropPass(this.device, this.format);
+    this.dropPass = new DropPass(device, format);
     this.dropPass.init();
     // Async-load the fruit spritesheet (non-blocking; falls back to solid
     // colors until the texture is ready).
     this.dropPass.loadFruitTexture();
 
-    this.cropSpritePass = new CropSpritePass(this.device, this.format);
+    this.cropSpritePass = new CropSpritePass(device, format);
     this.cropSpritePass.init();
 
     // Start the sim worker
@@ -450,7 +435,7 @@ export class BlockheadsRenderer {
     // padding from the render thread. It reads the sim SAB and writes
     // pre-built data to the render SAB.
     this.gridBuilderHost = new GridBuilderWorkerHost();
-    await this.gridBuilderHost.start(this.workerHost.getSimBuffer());
+    await this.gridBuilderHost.startWithSimSab(this.workerHost.getSimBuffer());
 
     // Set initial camera to center of active grid, at surface level.
     // The active grid is centered at SURFACE_Y in world coords, so the surface
@@ -458,7 +443,7 @@ export class BlockheadsRenderer {
     this.camera.setCenter(ACTIVE_GRID_W / 2, ACTIVE_GRID_H / 2);
 
     // Set up input handlers
-    this.input = createInputHandler(this.canvas);
+    this.input = createInputHandler(canvas);
     // Wire the C-key gender toggle to the character pass + game store
     this.input.onToggleGender = () => {
       const gender = this.toggleCharacterGender();
@@ -469,95 +454,30 @@ export class BlockheadsRenderer {
     // Wire Esc: exit map mode if active (no-op otherwise).
     this.input.onExitMap = () => this.exitMapMode();
 
-    // Listen for window resize
-    window.addEventListener("resize", this.resizeHandler);
-
-    // ResizeObserver catches DevTools panel toggling and other container
-    // size changes that don't fire a window resize event.
-    if (typeof ResizeObserver !== "undefined") {
-      this.resizeObserver = new ResizeObserver(() => {
-        this.resizeCanvas();
-        const dpr = window.devicePixelRatio || 1;
-        this.camera.resize(this.canvas.width / dpr, this.canvas.height / dpr);
-        // Reconfigure the WebGPU context after canvas size change.
-        if (this.context && this.device) {
-          try {
-            this.context.configure({
-              device: this.device,
-              format: this.format,
-              alphaMode: "opaque",
-            });
-          } catch {
-            // Context might be invalid during rapid resize — ignore
-          }
-        }
-      });
-      this.resizeObserver.observe(this.canvas);
-      // Also observe the canvas's parent element in case the canvas itself
-      // has a fixed size but the parent shrinks (DevTools docking)
-      if (this.canvas.parentElement) {
-        this.resizeObserver.observe(this.canvas.parentElement);
-      }
-    }
-
     // Map-region poll: refresh the cached map snapshot every 2s so the
     // zoomed-out overview stays current as the player explores. The fetch
     // is async and no-op if the worker isn't ready; the overlay reads the
     // cache via getMapRegionData().
     this.mapRegionTimer = setInterval(() => this.refreshMapRegion(), 2000) as unknown as number;
 
+    // Wire the afterFrame callback for custom 2D rendering
+    this.setCallbacks({
+      afterFrame: (dt: number) => this.drawFrame(dt),
+      onResize: () => this.handleResize(),
+    });
+
     return true;
   }
 
-  private resizeHandler = (): void => {
-    this.resizeCanvas();
+  private handleResize(): void {
+    const canvas = this.getCanvas();
     const dpr = window.devicePixelRatio || 1;
-    this.camera.resize(this.canvas.width / dpr, this.canvas.height / dpr);
-    // Reconfigure the WebGPU context after canvas size change.
-    // This is critical: without reconfiguration, getCurrentTexture() can
-    // return a texture sized to the old canvas, causing a GPU crash when
-    // the render pass tries to write to it.
-    if (this.context && this.device) {
-      try {
-        this.context.configure({
-          device: this.device,
-          format: this.format,
-          alphaMode: "opaque",
-        });
-      } catch {
-        // Context might be invalid during rapid resize — ignore
-      }
-    }
-  };
-
-  /** ResizeObserver callback — catches DevTools panel toggling and container changes. */
-  private resizeObserver: ResizeObserver | null = null;
-
-  private resizeCanvas(): void {
-    // The canvas CSS size is controlled by the framework's base CSS
-    // (width: 100vw; height: 100vh), which correctly shrinks when DevTools
-    // is docked. We must NOT override canvas.style.width/height — that would
-    // pin it to a fixed pixel size that doesn't update when the viewport
-    // changes. Instead, we only set the drawing buffer (canvas.width/height)
-    // to match the CSS size × DPR.
-    const cssW = this.canvas.clientWidth || window.innerWidth;
-    const cssH = this.canvas.clientHeight || window.innerHeight;
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.floor(cssW * dpr);
-    const h = Math.floor(cssH * dpr);
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
-    }
-    // Do NOT set canvas.style.width/height — the CSS 100vw/100vh handles it.
-    // Setting a fixed px value here would prevent the canvas from shrinking
-    // when DevTools is docked.
+    this.camera.resize(canvas.width / dpr, canvas.height / dpr);
   }
 
   start(): void {
-    this.running = true;
-    this.lastTime = performance.now();
-    this.loop();
+    this._rendering = true;
+    super.start();
     // Start a separate input processing interval so input keeps flowing
     // to the sim worker even when the render loop is paused (deterministic mode).
     // The worker runs its own loop and needs fresh input every frame.
@@ -565,53 +485,47 @@ export class BlockheadsRenderer {
     // so the interval skips to avoid double raycasts (matrix invert + DDA).
     if (!this.inputInterval) {
       this.inputInterval = setInterval(() => {
-        if (this.running) return; // rAF loop handles it
+        if (this._rendering) return; // rAF loop handles it
         this.updateInput();
       }, 16) as unknown as number;
     }
   }
 
   stop(): void {
-    this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
+    this._rendering = false;
+    super.stop();
     // NOTE: do NOT clear the input interval here — the sim worker still needs
     // input even when rendering is paused (deterministic mode).
   }
 
   renderOneFrame(): void {
-    if (this.running) return;
-    if (!this.device || !this.context || !this.blockGridPass) return;
-    this.lastTime = performance.now();
-    this.running = true;
-    this.loop();
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
-    this.running = false;
+    if (this._rendering) return;
+    const device = this.getDevice();
+    const context = this.getContext();
+    if (!device || !context || !this.blockGridPass) return;
+    // Render a single frame on demand (deterministic mode). We call
+    // drawFrame() directly with a zero dt — the sim state is already
+    // advanced by the worker; we just need to render the current state.
+    this.drawFrame(0);
   }
 
   async captureScreenshot(): Promise<Blob | null> {
-    if (!this.running) {
+    if (!this._rendering) {
       this.renderOneFrame();
     }
+    const canvas = this.getCanvas();
     return new Promise((resolve) => {
-      this.canvas.toBlob((blob) => resolve(blob), "image/png");
+      canvas.toBlob((blob) => resolve(blob), "image/png");
     });
   }
 
   async shutdown(): Promise<void> {
-    this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
+    super.stop();
+    this._rendering = false;
     if (this.inputInterval) clearInterval(this.inputInterval);
     this.inputInterval = 0;
     if (this.mapRegionTimer) clearInterval(this.mapRegionTimer);
     this.mapRegionTimer = 0;
-    window.removeEventListener("resize", this.resizeHandler);
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect();
-      this.resizeObserver = null;
-    }
     this.stickmanPass?.destroy();
     this.characterPass?.destroy();
     this.characterPass = null;
@@ -626,6 +540,7 @@ export class BlockheadsRenderer {
     this.lastDropTick = RENDER_TICK_SENTINEL;
     this.lastMarkerBuildTick = RENDER_TICK_SENTINEL;
     await this.workerHost?.shutdown();
+    this.destroy();
   }
 
   /**
@@ -1062,19 +977,13 @@ export class BlockheadsRenderer {
     inpF[14] = this.camera.y;
   }
 
-  private loop = (): void => {
-    if (!this.running || !this.device || !this.context || !this.blockGridPass) return;
-
-    // Skip rendering if the GPU device was lost (e.g. during DevTools resize).
-    // The device.lost handler will log the error; we just bail out gracefully.
-    if (this.deviceManager.isDeviceLost()) {
-      this.raf = requestAnimationFrame(this.loop);
-      return;
-    }
+  private drawFrame(dt: number): void {
+    const device = this.getDevice();
+    const context = this.getContext();
+    const canvas = this.getCanvas();
+    if (!device || !context || !this.blockGridPass) return;
 
     const now = performance.now();
-    const elapsed = now - this.lastTime;
-    this.lastTime = now;
 
     // --- Map-mode cross-fade ---
     // As the camera zooms out past MAP_FADE_START, fade the 3D canvas out so
@@ -1083,7 +992,7 @@ export class BlockheadsRenderer {
     const mapOpacity = this.camera.getMapOpacity();
     const targetCanvasOpacity = 1 - mapOpacity;
     if (targetCanvasOpacity !== this.lastCanvasOpacity) {
-      this.canvas.style.opacity = String(targetCanvasOpacity);
+      canvas.style.opacity = String(targetCanvasOpacity);
       this.lastCanvasOpacity = targetCanvasOpacity;
     }
 
@@ -1230,8 +1139,8 @@ export class BlockheadsRenderer {
 
     // Update canvas size if needed (camera uses CSS pixels)
     const dpr = window.devicePixelRatio || 1;
-    const w = this.canvas.width / dpr;
-    const h = this.canvas.height / dpr;
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
     if (this.camera.canvasW !== w || this.camera.canvasH !== h) {
       this.camera.resize(w, h);
     }
@@ -1248,7 +1157,7 @@ export class BlockheadsRenderer {
     const originY = this.renderOriginCy * CHUNK_H;
 
     // Ensure depth texture matches canvas size (device pixels, not CSS)
-    this.blockGridPass.ensureDepthTexture(this.canvas.width, this.canvas.height);
+    this.blockGridPass.ensureDepthTexture(canvas.width, canvas.height);
 
     // Update 3D camera uniforms + mining VFX
     const mineX = this.simReader ? this.simReader.getMineX() : -1;
@@ -1411,11 +1320,10 @@ export class BlockheadsRenderer {
     // throw or the render pass to fail. We skip the frame gracefully
     // instead of crashing the GPU device.
     try {
-      const encoder = this.device.createCommandEncoder();
-      const currentTexture = this.context.getCurrentTexture();
+      const encoder = device.createCommandEncoder();
+      const currentTexture = context.getCurrentTexture();
       if (!currentTexture) {
         // Surface not ready (e.g. mid-resize) — skip this frame
-        this.raf = requestAnimationFrame(this.loop);
         return;
       }
       const view = currentTexture.createView();
@@ -1460,23 +1368,12 @@ export class BlockheadsRenderer {
       // Render world drops (spinning item quads, no depth, on top)
       this.dropPass?.render(pass);
       pass.end();
-      this.device.queue.submit([encoder.finish()]);
+      device.queue.submit([encoder.finish()]);
     } catch (err) {
       // Canvas resize or surface invalidation — skip this frame.
       // The ResizeObserver will fire and reconfigure things; the next
       // frame should render normally.
       console.warn(`[Renderer] Frame skipped (surface invalid): ${(err as Error).message}`);
     }
-
-    // FPS tracking
-    this.frameCount++;
-    this.fpsTimer += elapsed;
-    if (this.fpsTimer >= 1000) {
-      this.fps = Math.round((this.frameCount * 1000) / this.fpsTimer);
-      this.frameCount = 0;
-      this.fpsTimer = 0;
-    }
-
-    this.raf = requestAnimationFrame(this.loop);
-  };
+  }
 }

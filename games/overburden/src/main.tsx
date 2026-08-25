@@ -1,4 +1,4 @@
-import { downdraft, getCanvas, getOverlay } from "@downdraft/app/renderer";
+import { bootstrapGame } from "@downdraft/app/renderer";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
@@ -8,37 +8,35 @@ import { getSeasonInfo } from "./simulation/season-system";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
-async function bootstrap(): Promise<void> {
-  const root = createRoot(getOverlay(0));
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
-  );
+bootstrapGame({
+  // --- UI (React) ---
+  mountUI: (overlay) => {
+    const root = createRoot(overlay);
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>,
+    );
+  },
 
-  const canvas = getCanvas(0);
-  const deterministic = downdraft?.deterministic === true;
+  // --- Renderer ---
+  createRenderer: (canvas) => new BlockheadsRenderer(canvas),
+  initRenderer: (renderer) => renderer.init(),
+  onRendererInit: (renderer) => {
+    useGameStore.getState().setRenderer(renderer);
+  },
 
-  const renderer = new BlockheadsRenderer(canvas);
-  const ok = await renderer.init();
-  if (!ok) {
-    console.error("BlockheadsRenderer init failed");
-    return;
-  }
+  // --- MCP ---
+  mcp: () => setupBlockheadsMcp(() => useGameStore.getState().renderer as BlockheadsRenderer | null),
 
-  useGameStore.getState().setRenderer(renderer);
-
-  // Register MCP automation tools (capture_screenshot for e2e tests)
-  setupBlockheadsMcp(() => useGameStore.getState().renderer as BlockheadsRenderer | null);
-
-  // FPS + season polling for the UI
-  const fpsInterval = setInterval(() => {
-    const fps = renderer.getFPS();
+  // --- FPS + season polling ---
+  onFpsUpdate: (fps) => {
     if (useGameStore.getState().fps !== fps) {
       useGameStore.getState().setFps(fps);
     }
     // Poll the current season from the sim tick (deterministic from tick count)
-    const simReader = renderer.getSimReader();
+    const renderer = useGameStore.getState().renderer as BlockheadsRenderer | null;
+    const simReader = renderer?.getSimReader();
     if (simReader) {
       const tick = simReader.getTick();
       const info = getSeasonInfo(tick);
@@ -47,33 +45,24 @@ async function bootstrap(): Promise<void> {
         useGameStore.getState().setSeasonInfo(info.season, info.dayInSeason, info.year);
       }
     }
-  }, 500);
+  },
 
-  renderer.start();
+  // --- Hot reload ---
+  onHotReloadDispose: async () => {
+    const renderer = useGameStore.getState().renderer as BlockheadsRenderer | null;
+    if (renderer) await renderer.shutdown();
+  },
 
-  // In deterministic mode, pause the render loop. The simulation still ticks;
-  // frames are only rendered on demand via captureScreenshot / renderOneFrame.
-  // This saves CPU when running under SwiftShader software WebGPU.
-  if (deterministic) {
+  // --- Deterministic mode: pause render loop + skip title screen ---
+  onDeterministic: (renderer) => {
+    // Pause the render loop. The simulation still ticks; frames are only
+    // rendered on demand via captureScreenshot / renderOneFrame.
+    // This saves CPU when running under SwiftShader software WebGPU.
     renderer.stop();
     console.log("[Renderer] Deterministic mode: render loop paused (on-demand rendering only)");
-  }
-
-  // Hot reload: dispose the old renderer before re-running bootstrap.
-  if (import.meta.hot) {
-    import.meta.hot.dispose(async () => {
-      clearInterval(fpsInterval);
-      await renderer.shutdown();
-    });
-  }
-
-  // In deterministic mode, auto-start the game (skip title screen) for e2e tests.
-  if (deterministic) {
     useGameStore.getState().setDeterministic(true);
     useGameStore.getState().setShowTitleScreen(false);
-  }
-}
-
-bootstrap().catch((e) => {
+  },
+}).catch((e) => {
   console.error("[main] Fatal:", e);
 });

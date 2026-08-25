@@ -1,9 +1,38 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState } from "react";
+import { COMBO_WINDOW_MS, MAX_COLS, MAX_ROWS } from "./shared/constants";
 import { useGameStore } from "./stores/game-store";
+
+/** Combo stat + countdown bar. Isolated in its own component so the per-frame
+ *  rAF tick only re-renders this tiny subtree, not the entire App overlay. */
+const ComboTimer = memo(function ComboTimer() {
+  const combo = useGameStore((s) => s.combo);
+  const lastMatchTime = useGameStore((s) => s.lastMatchTime);
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (combo <= 0 || lastMatchTime <= 0) { setNow(0); return; }
+    let raf = 0;
+    const tick = () => { setNow(performance.now()); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [combo, lastMatchTime]);
+  const remaining = (combo > 0 && lastMatchTime > 0)
+    ? Math.max(0, Math.min(1, (COMBO_WINDOW_MS - (now - lastMatchTime)) / COMBO_WINDOW_MS))
+    : 0;
+  return (
+    <div className="sandjongg-stat combo">
+      <span className="label">Combo</span>
+      <span className="value">x{combo}</span>
+      {combo > 0 && (
+        <div className="sandjongg-combo-bar" aria-hidden="true">
+          <div className="sandjongg-combo-bar-fill" style={{ width: `${remaining * 100}%` }} />
+        </div>
+      )}
+    </div>
+  );
+});
 
 export default function App() {
   const score = useGameStore((s) => s.score);
-  const combo = useGameStore((s) => s.combo);
   const level = useGameStore((s) => s.level);
   const tilesLeft = useGameStore((s) => s.tilesLeft);
   const highScore = useGameStore((s) => s.highScore);
@@ -18,6 +47,17 @@ export default function App() {
   const requestClearSand = useGameStore((s) => s.requestClearSand);
   const toggleHelp = useGameStore((s) => s.toggleHelp);
   const setPaused = useGameStore((s) => s.setPaused);
+
+  const showSettings = useGameStore((s) => s.showSettings);
+  const toggleSettings = useGameStore((s) => s.toggleSettings);
+  const noAdjacentSame = useGameStore((s) => s.noAdjacentSame);
+  const toggleNoAdjacentSame = useGameStore((s) => s.toggleNoAdjacentSame);
+  const customCols = useGameStore((s) => s.customCols);
+  const customRows = useGameStore((s) => s.customRows);
+  const setCustomDims = useGameStore((s) => s.setCustomDims);
+
+  const debugMode = useGameStore((s) => s.debugMode);
+  const debugTile = useGameStore((s) => s.debugTile);
 
   // Track whether the game has ever reported a non-zero tile count.
   // This prevents the auto-advance from firing before the renderer/worker
@@ -43,6 +83,22 @@ export default function App() {
     }
   }, [tilesLeft, level]);
 
+  // Safety net: if tilesLeft is still 0 after 6s (advance didn't take effect),
+  // retry the advance. This handles edge cases where the SAB action was lost
+  // or the worker was busy during the first request.
+  useEffect(() => {
+    if (tilesLeft === 0 && level > 0 && hasSeenTiles.current) {
+      const timer = setTimeout(() => {
+        const s = useGameStore.getState();
+        if (s.tilesLeft === 0) {
+          console.warn("[sandjongg] auto-advance retry: tilesLeft still 0 after 6s");
+          s.requestAdvance(s.level + 1);
+        }
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [tilesLeft, level]);
+
   return (
     <div className="sandjongg-overlay">
       {/* Top HUD */}
@@ -59,10 +115,7 @@ export default function App() {
           <span className="label">Best</span>
           <span className="value">{highScore.toLocaleString()}</span>
         </div>
-        <div className="sandjongg-stat combo">
-          <span className="label">Combo</span>
-          <span className="value">x{combo}</span>
-        </div>
+        <ComboTimer />
         <div className="sandjongg-stat">
           <span className="label">Tiles</span>
           <span className="value">{tilesLeft}</span>
@@ -91,6 +144,13 @@ export default function App() {
           Clear Pit
         </button>
         <button
+          onClick={() => toggleNoAdjacentSame()}
+          title="Prevent identical tiles spawning side-by-side (auto-on after level 10)"
+          className={noAdjacentSame ? "sandjongg-btn-active" : ""}
+        >
+          No-Adjacent
+        </button>
+        <button
           onClick={() => {
             const r = useGameStore.getState().renderer;
             if (paused) { r?.getWorkerHost()?.resume(); setPaused(false); }
@@ -100,8 +160,18 @@ export default function App() {
         >
           {paused ? "Resume" : "Pause"}
         </button>
+        <button onClick={toggleSettings} title="Board settings">
+          Settings
+        </button>
         <button onClick={toggleHelp} title="Help">
           Help
+        </button>
+        <button
+          onClick={() => useGameStore.getState().toggleDebugMode()}
+          title="Debug mode (`) — click tiles to inspect"
+          className={debugMode ? "sandjongg-btn-active" : ""}
+        >
+          Debug
         </button>
       </div>
 
@@ -149,6 +219,123 @@ export default function App() {
         <div className="sandjongg-level-cleared">
           <h2>Level {level} Cleared!</h2>
           <p>Advancing to level {level + 1}...</p>
+        </div>
+      )}
+
+      {/* Settings panel — custom board dimensions + panning hint */}
+      {showSettings && (
+        <div className="sandjongg-help" onClick={toggleSettings}>
+          <div className="sandjongg-help-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Board Settings</h2>
+            <p>
+              Choose a custom board size. Larger boards may not fit the screen —
+              <b> right-drag</b> or <b>middle-drag</b> to pan the view.
+            </p>
+
+            <label className="sandjongg-field">
+              <input
+                type="checkbox"
+                checked={customCols === 0 && customRows === 0}
+                onChange={(e) => {
+                  if (e.target.checked) setCustomDims(0, 0);
+                }}
+              />
+              Auto size (scales with level)
+            </label>
+
+            <div className="sandjongg-slider-row">
+              <label>Columns: <b>{customCols === 0 ? "auto" : customCols}</b></label>
+              <input
+                type="range"
+                min={8}
+                max={MAX_COLS}
+                step={2}
+                value={customCols === 0 ? 16 : customCols}
+                disabled={customCols === 0 && customRows === 0}
+                onChange={(e) => setCustomDims(parseInt(e.target.value, 10), customRows === 0 ? 12 : customRows)}
+              />
+            </div>
+
+            <div className="sandjongg-slider-row">
+              <label>Rows: <b>{customRows === 0 ? "auto" : customRows}</b></label>
+              <input
+                type="range"
+                min={6}
+                max={MAX_ROWS}
+                step={2}
+                value={customRows === 0 ? 12 : customRows}
+                disabled={customCols === 0 && customRows === 0}
+                onChange={(e) => setCustomDims(customCols === 0 ? 16 : customCols, parseInt(e.target.value, 10))}
+              />
+            </div>
+
+            <p className="sandjongg-hint">
+              No-Adjacent is {noAdjacentSame ? "ON" : "OFF"} (auto-on after level 10).
+              Changing the size regenerates the current level.
+            </p>
+
+            <button onClick={toggleSettings}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Debug mode panel — toggle with backtick (`) key.
+          Click any tile to inspect its element, material, position, and neighbors. */}
+      {debugMode && (
+        <div className="sandjongg-debug-panel">
+          <div className="sandjongg-debug-header">
+            <span>DEBUG</span>
+            <button className="sandjongg-debug-close" onClick={() => useGameStore.getState().toggleDebugMode()}>×</button>
+          </div>
+          {debugTile ? (
+            <div className="sandjongg-debug-body">
+              <div className="sandjongg-debug-row">
+                <span className="sandjongg-debug-swatch" style={{ background: debugTile.elementColor }} />
+                <b>{debugTile.elementName}</b>
+                <span className="sandjongg-debug-mono">#{debugTile.element}</span>
+              </div>
+              <div className="sandjongg-debug-row">
+                <span>Position</span>
+                <span className="sandjongg-debug-mono">
+                  col={debugTile.col} row={debugTile.row} layer={debugTile.layer}
+                </span>
+              </div>
+              <div className="sandjongg-debug-row">
+                <span>Topmost</span>
+                <span>{debugTile.isTopmost ? "yes (selectable)" : "no (covered)"}</span>
+              </div>
+              <div className="sandjongg-debug-row">
+                <span>Glyph</span>
+                <span className="sandjongg-debug-mono">{debugTile.glyph}</span>
+              </div>
+              <div className="sandjongg-debug-row">
+                <span>Sand material</span>
+                <span className="sandjongg-debug-mono">
+                  {debugTile.sandMaterialName} (id={debugTile.sandMaterialId})
+                </span>
+              </div>
+              <div className="sandjongg-debug-row">
+                <span>Screen rect</span>
+                <span className="sandjongg-debug-mono">
+                  {Math.round(debugTile.screenX)},{Math.round(debugTile.screenY)} {Math.round(debugTile.screenW)}×{Math.round(debugTile.screenH)}
+                </span>
+              </div>
+              <div className="sandjongg-debug-row">
+                <span>Sand rect</span>
+                <span className="sandjongg-debug-mono">
+                  {debugTile.sandCol.toFixed(1)},{debugTile.sandRow.toFixed(1)} {debugTile.sandW.toFixed(1)}×{debugTile.sandH.toFixed(1)}
+                </span>
+              </div>
+              <div className="sandjongg-debug-row">
+                <span>Neighbors (N/S/E/W)</span>
+                <span className="sandjongg-debug-mono">
+                  {debugTile.neighbors.n}/{debugTile.neighbors.s}/{debugTile.neighbors.e}/{debugTile.neighbors.w}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="sandjongg-debug-empty">Click a tile to inspect it.</div>
+          )}
         </div>
       )}
     </div>

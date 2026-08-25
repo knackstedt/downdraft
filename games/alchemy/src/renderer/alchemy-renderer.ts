@@ -1,4 +1,4 @@
-import { GPUDeviceManager } from "@downdraft/core";
+import { GameRenderer } from "@downdraft/core";
 import { computeGridDims } from "../shared/constants";
 import { SimBufferReader } from "../shared/sim-buffer";
 import { AlchemyWorkerHost } from "../simulation/alchemy-worker-host";
@@ -6,34 +6,27 @@ import { useGameStore } from "../stores/game-store";
 import { createInputHandler } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
 
-export class AlchemyRenderer {
-  private canvas: HTMLCanvasElement;
-  private device: GPUDevice | null = null;
-  private deviceManager = new GPUDeviceManager();
-  private context: GPUCanvasContext | null = null;
-  private format: GPUTextureFormat = "bgra8unorm";
+export class AlchemyRenderer extends GameRenderer {
   private gridPass: SandGridPass | null = null;
   private input: ReturnType<typeof createInputHandler> | null = null;
   private workerHost: AlchemyWorkerHost | null = null;
   private gridReader: SimBufferReader | null = null;
   private gridW = 0;
   private gridH = 0;
-  private running = false;
-  private raf = 0;
-  private lastTime = 0;
-  private frameCount = 0;
-  private fps = 0;
-  private fpsTimer = 0;
-  private resizeHandler: (() => void) | null = null;
   private storeUnsub: (() => void) | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+    super(canvas, {
+      mode: "2d",
+      clearColor: { r: 0.04, g: 0.04, b: 0.07, a: 1 },
+    });
+    // 2D mode with viewportCount=0: we do custom rendering in afterFrame
+    this.setViewportCount(0);
   }
 
-  getFPS(): number { return this.fps; }
-  getCanvas(): HTMLCanvasElement { return this.canvas; }
+  getFPS(): number { return super.getFPS(); }
+  getCanvas(): HTMLCanvasElement { return super.getCanvas(); }
   getGridW(): number { return this.gridW; }
   getGridH(): number { return this.gridH; }
   getWorkerHost(): AlchemyWorkerHost | null { return this.workerHost; }
@@ -64,26 +57,18 @@ export class AlchemyRenderer {
   }
 
   async init(): Promise<boolean> {
-    this.device = await this.deviceManager.requestDevice();
-    if (!this.device) return false;
-    this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
-    if (!this.context) return false;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "opaque",
-    });
+    const ok = await super.init();
+    if (!ok) return false;
 
-    this.input = createInputHandler(this.canvas);
+    const device = this.getDevice()!;
+    const format = this.getFormat();
+    const canvas = this.getCanvas();
 
-    this.resizeCanvas();
-    const dims = computeGridDims(this.canvas.width, this.canvas.height);
+    this.input = createInputHandler(canvas);
+
+    const dims = computeGridDims(canvas.width, canvas.height);
     this.gridW = dims.w;
     this.gridH = dims.h;
-
-    this.resizeHandler = () => this.handleResize();
-    window.addEventListener("resize", this.resizeHandler);
 
     this.input.selectedMaterial = useGameStore.getState().selectedIngredient;
     this.input.brushRadius = useGameStore.getState().brushRadius;
@@ -94,7 +79,7 @@ export class AlchemyRenderer {
       }
     });
 
-    this.gridPass = new SandGridPass(this.device, this.format, this.gridW, this.gridH);
+    this.gridPass = new SandGridPass(device, format, this.gridW, this.gridH);
     this.gridPass.init();
 
     this.workerHost = new AlchemyWorkerHost(this.gridW, this.gridH);
@@ -115,23 +100,19 @@ export class AlchemyRenderer {
     };
     window.addEventListener("keydown", this.keydownHandler);
 
+    // Wire the afterFrame callback for custom 2D rendering
+    this.setCallbacks({
+      afterFrame: () => this.renderGrid(),
+      onResize: () => this.handleResize(),
+    });
+
     return true;
   }
 
-  private resizeCanvas(): void {
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.floor(window.innerWidth * dpr);
-    const h = Math.floor(window.innerHeight * dpr);
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
-    }
-  }
-
   private handleResize(): void {
-    if (!this.device || !this.gridPass || !this.workerHost) return;
-    this.resizeCanvas();
-    const dims = computeGridDims(this.canvas.width, this.canvas.height);
+    if (!this.gridPass || !this.workerHost) return;
+    const canvas = this.getCanvas();
+    const dims = computeGridDims(canvas.width, canvas.height);
     if (dims.w === this.gridW && dims.h === this.gridH) {
       return;
     }
@@ -141,33 +122,18 @@ export class AlchemyRenderer {
     this.workerHost.resize(this.gridW, this.gridH);
   }
 
-  start(): void {
-    if (this.running) return;
-    this.running = true;
-    this.lastTime = performance.now();
-    this.raf = requestAnimationFrame((t) => this.frame(t));
-  }
-
   stop(): void {
-    this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
+    super.stop();
     this.workerHost?.stop();
-    if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.storeUnsub) this.storeUnsub();
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
+    this.destroy();
   }
 
-  private frame(time: number): void {
-    if (!this.running || !this.device || !this.context || !this.input || !this.gridReader || !this.gridPass) return;
-    const dt = Math.min(0.1, (time - this.lastTime) / 1000);
-    this.lastTime = time;
-    this.frameCount++;
-    this.fpsTimer += dt;
-    if (this.fpsTimer >= 1) {
-      this.fps = this.frameCount;
-      this.frameCount = 0;
-      this.fpsTimer = 0;
-    }
+  private renderGrid(): void {
+    const device = this.getDevice();
+    const context = this.getContext();
+    if (!device || !context || !this.input || !this.gridReader || !this.gridPass) return;
 
     this.writeInputToWorker();
     this.updateMixture();
@@ -175,10 +141,10 @@ export class AlchemyRenderer {
     this.gridPass.updateGrid(this.gridReader.getGrid());
     this.gridPass.updateUniforms();
 
-    const commandEncoder = this.device.createCommandEncoder();
+    const commandEncoder = device.createCommandEncoder();
     const pass = commandEncoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
+        view: context.getCurrentTexture().createView(),
         clearValue: { r: 0.04, g: 0.04, b: 0.07, a: 1 },
         loadOp: "clear",
         storeOp: "store",
@@ -186,9 +152,7 @@ export class AlchemyRenderer {
     });
     this.gridPass.render(pass);
     pass.end();
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    this.raf = requestAnimationFrame((t) => this.frame(t));
+    device.queue.submit([commandEncoder.finish()]);
   }
 
   private writeInputToWorker(): void {

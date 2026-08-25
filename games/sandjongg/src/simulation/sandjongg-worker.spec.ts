@@ -15,7 +15,7 @@ import { attemptMatch, resetComboState } from "./match-engine";
 describe("worker: sand-spawn coordinates", () => {
   it("crumble events map tile coords to sand grid coords correctly", () => {
     const b = new TileBoard(6, 6);
-    b.place(2, 3, 5); // Ice
+    b.place(2, 3, 5); // Mercury
     b.place(4, 3, 5);
     const state = resetComboState();
     const originCol = 10;

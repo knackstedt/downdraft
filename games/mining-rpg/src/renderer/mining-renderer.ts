@@ -10,7 +10,7 @@
 //   5. Render stickman pass (player sprite)
 // ============================================================================
 
-import { GPUDeviceManager } from "@downdraft/core";
+import { GameRenderer } from "@downdraft/core";
 import { Material, MATERIALS } from "@downdraft/library-sand";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, BACKDROP_PARALLAX, CHUNK_H, CHUNK_W, HEADLAMP_COLOR, MAX_CHUNKS_X, OXYGEN_MAX_TICKS, PLAYER, SIGNPOST_RADIUS, STATS, TICK_RATE, WORLD_SEED, type BuildMaterialType, type UpgradeConfig } from "../shared/constants";
 import { MiningSimBufferReader } from "../shared/sim-buffer";
@@ -19,7 +19,7 @@ import { BackdropWorkerHost } from "../simulation/backdrop-worker-host";
 import { MiningWorkerHost } from "../simulation/mining-worker-host";
 import { BASE_SURFACE_Y, surfaceHeightAt } from "../simulation/terrain";
 import { pickDeathQuip, useGameStore } from "../stores/game-store";
-import { AutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
+import { AutosaveManager, createAutosaveManager, deleteSave, loadWorld } from "../stores/save-system";
 import { BackdropPass } from "./backdrop-pass";
 import { BackgroundGridPass } from "./background-grid-pass";
 import { makeCamera2D, screenToWorld, updateCamera, worldToScreen, type Camera2D } from "./camera";
@@ -115,12 +115,7 @@ interface Bomb {
   ticks: number;              // ticks since thrown
 }
 
-export class MiningRenderer {
-  private canvas: HTMLCanvasElement;
-  private device: GPUDevice | null = null;
-  private deviceManager = new GPUDeviceManager();
-  private context: GPUCanvasContext | null = null;
-  private format: GPUTextureFormat = "bgra8unorm";
+export class MiningRenderer extends GameRenderer {
   private gridPass: SandGridPass | null = null;
   private bgGridPass: BackgroundGridPass | null = null;
   private backdropPass: BackdropPass | null = null;
@@ -134,17 +129,6 @@ export class MiningRenderer {
   private gridReader: MiningSimBufferReader | null = null;
   private autosave: AutosaveManager | null = null;
   private camera: Camera2D;
-  private running = false;
-  private raf = 0;
-  private lastTime = 0;
-  private frameCount = 0;
-  private fps = 0;
-  private fpsTimer = 0;
-  // Frame rate limiter — 0 = unlimited (run at native display refresh rate).
-  // Set by setFrameRateLimit() only when the display refresh rate is known
-  // AND rAF isn't vsync-throttled. Default is unlimited.
-  private targetFrameTime = 0;
-  private lastRenderTime = 0;
   // Dirty-tracking — skip rendering when nothing changed (player idle).
   // Tracks the last-rendered state; if nothing changed, we skip grid uploads
   // + render passes entirely and just re-present the last frame.
@@ -159,7 +143,6 @@ export class MiningRenderer {
   private lastRenderedGlowsticks = 0;
   private lastRenderedHeadlamp = false;
   private forceDirty = true; // first frame must always render
-  private resizeHandler: (() => void) | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private respawning = false; // suppresses death re-detection until SAB health > 0
   private lastTeleportTime = 0; // timestamp of last teleport (for cooldown)
@@ -205,18 +188,19 @@ export class MiningRenderer {
   private cameraInitialized = false;
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
-    this.canvas = canvas;
+    super(canvas, {
+      mode: "2d",
+      clearColor: { r: 0, g: 0, b: 0, a: 1 },
+    });
+    // 2D mode with viewportCount=0: we do custom rendering in afterFrame
+    this.setViewportCount(0);
     this.camera = makeCamera2D(canvas.width, canvas.height, { zoom: 4, x: 0, y: 0 });
     // Compute signpost Y from terrain (surface height at spawn X)
     this.signpostY = surfaceHeightAt(this.signpostX, WORLD_SEED);
   }
 
-  getFPS(): number {
-    return this.fps;
-  }
-  getCanvas(): HTMLCanvasElement {
-    return this.canvas;
-  }
+  getFPS(): number { return super.getFPS(); }
+  getCanvas(): HTMLCanvasElement { return super.getCanvas(); }
   getWorkerHost(): MiningWorkerHost | null {
     return this.workerHost;
   }
@@ -339,61 +323,52 @@ export class MiningRenderer {
   }
 
   async init(): Promise<boolean> {
-    this.device = await this.deviceManager.requestDevice();
-    if (!this.device) return false;
+    const ok = await super.init();
+    if (!ok) return false;
+
+    const device = this.getDevice()!;
+    const format = this.getFormat();
+    const canvas = this.getCanvas();
 
     // Handle GPU device loss — disable the volumetric compute pass (the most
     // likely culprit for TDR crashes) so the game can attempt to continue
     // with just the LightAccumPass lighting.
-    this.device.lost.then((info: GPUDeviceLostInfo) => {
+    device.lost.then((info: GPUDeviceLostInfo) => {
       console.error(`[DownDraft] GPU device lost: ${info.message}`);
       if (this.volumetricPass) {
         this.volumetricPass.disabled = true;
       }
     });
 
-    this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
-    if (!this.context) return false;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "opaque",
-    });
+    this.input = createMiningInputHandler(canvas);
 
-    this.input = createMiningInputHandler(this.canvas);
+    this.camera = makeCamera2D(canvas.width, canvas.height, { zoom: 4, x: 0, y: 0 });
 
-    this.resizeCanvas();
-    this.camera = makeCamera2D(this.canvas.width, this.canvas.height, { zoom: 4, x: 0, y: 0 });
-
-    this.resizeHandler = () => this.handleResize();
-    window.addEventListener("resize", this.resizeHandler);
-
-    this.gridPass = new SandGridPass(this.device, this.format, ACTIVE_GRID_W, ACTIVE_GRID_H);
-    this.gridPass.init(this.canvas.width, this.canvas.height);
+    this.gridPass = new SandGridPass(device, format, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.gridPass.init(canvas.width, canvas.height);
 
     // Background grid pass — renders build materials (scaffolding/ladders/ropes)
     // with material-specific shape masks, between the backdrop and foreground.
-    this.bgGridPass = new BackgroundGridPass(this.device, this.format, ACTIVE_GRID_W, ACTIVE_GRID_H);
-    this.bgGridPass.init(this.canvas.width, this.canvas.height);
+    this.bgGridPass = new BackgroundGridPass(device, format, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.bgGridPass.init(canvas.width, canvas.height);
 
     // Backdrop pass (rendered behind the foreground with parallax)
-    this.backdropPass = new BackdropPass(this.device, this.format);
+    this.backdropPass = new BackdropPass(device, format);
     this.backdropPass.init();
 
-    this.stickmanPass = new StickmanPass(this.device, this.format);
+    this.stickmanPass = new StickmanPass(device, format);
     this.stickmanPass.init();
 
     // Fog-of-war pass: renders solid black over unexplored cells, transparent
     // over explored cells. The light texture (below) provides the actual
     // lighting for explored cells — dim ambient underground, bright near lights.
-    this.fogPass = new FogOfWarPass(this.device, this.format, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.fogPass = new FogOfWarPass(device, format, ACTIVE_GRID_W, ACTIVE_GRID_H);
     this.fogPass.init();
 
     // Light accumulation pass (renders to a half-res light texture).
     // Provides per-cell colored lighting: ambient (sky light that drops with
     // depth) + dynamic lights (headlamp, torches, lava, explosions).
-    this.lightAccumPass = new LightAccumPass(this.device);
+    this.lightAccumPass = new LightAccumPass(device);
     this.lightAccumPass.init(ACTIVE_GRID_W, ACTIVE_GRID_H);
 
     // Volumetric light pass (render-pass-based diffusion through air/water/solid).
@@ -402,7 +377,7 @@ export class MiningRenderer {
     // (lava, torches, glowsticks) through cells with per-medium attenuation so
     // caves are visualized with light flooding through air tunnels and dimming
     // in water. Augments LightAccumPass, which keeps sharp nearby lights.
-    this.volumetricPass = new VolumetricLightPass(this.device);
+    this.volumetricPass = new VolumetricLightPass(device);
     this.volumetricPass.init(ACTIVE_GRID_W, ACTIVE_GRID_H);
 
     this.workerHost = new MiningWorkerHost();
@@ -487,7 +462,7 @@ export class MiningRenderer {
     this.workerHost.resume();
 
     // --- Set up autosave ---
-    this.autosave = new AutosaveManager(async () => {
+    this.autosave = createAutosaveManager(async () => {
       const saveData = await this.workerHost!.getSaveData();
       const store = useGameStore.getState();
       if (!saveData) {
@@ -548,24 +523,20 @@ export class MiningRenderer {
     };
     window.addEventListener("keydown", this.keydownHandler);
 
+    // Wire the afterFrame callback for custom 2D rendering
+    this.setCallbacks({
+      afterFrame: (dt) => this.drawFrame(dt),
+      onResize: () => this.handleResize(),
+    });
+
     return true;
   }
 
-  private resizeCanvas(): void {
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.floor(window.innerWidth * dpr);
-    const h = Math.floor(window.innerHeight * dpr);
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
-    }
-  }
-
   private handleResize(): void {
-    if (!this.device || !this.gridPass) return;
-    this.resizeCanvas();
-    this.camera.width = this.canvas.width;
-    this.camera.height = this.canvas.height;
+    if (!this.gridPass) return;
+    const canvas = this.getCanvas();
+    this.camera.width = canvas.width;
+    this.camera.height = canvas.height;
     this.forceDirty = true;
   }
 
@@ -583,25 +554,14 @@ export class MiningRenderer {
     this.curPy = 0;
   }
 
-  start(): void {
-    if (this.running) return;
-    this.running = true;
-    this.lastTime = performance.now();
-    this.raf = requestAnimationFrame((t) => this.frame(t));
-  }
-
-  /** Set the frame rate limit from the display refresh rate. The limiter only
-   *  activates when rAF fires faster than this (e.g. Electron/Ozone without
-   *  vsync). When vsync is working, the limiter stays inactive. */
+  /** Set the frame rate limit from the display refresh rate. GameRenderer
+   *  manages the limiter state — this delegates to the base class. */
   setFrameRateLimit(refreshRate: number): void {
-    this.targetFrameTime = refreshRate > 0 ? 1000 / refreshRate : 0;
-    if (this.targetFrameTime <= 0) this.limiterActive = false;
+    super.setFrameRateLimit(refreshRate);
   }
 
   async stop(): Promise<void> {
-    this.running = false;
-    clearTimeout(this.raf);
-    cancelAnimationFrame(this.raf);
+    super.stop();
     // Final save before shutdown
     if (this.autosave) {
       try { await this.autosave.saveNow(); } catch {}
@@ -615,8 +575,8 @@ export class MiningRenderer {
     this.fogPass?.destroy();
     this.lightAccumPass?.destroy();
     this.volumetricPass?.destroy();
-    if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
+    this.destroy();
   }
 
   /**
@@ -724,20 +684,13 @@ export class MiningRenderer {
     }
   }
 
-  private frame(time: number): void {
-    if (!this.running || !this.device || !this.context || !this.input || !this.gridReader ||
+  private drawFrame(dt: number): void {
+    const device = this.getDevice();
+    const context = this.getContext();
+    const canvas = this.getCanvas();
+    if (!device || !context || !this.input || !this.gridReader ||
         !this.gridPass || !this.backdropPass || !this.stickmanPass || !this.workerHost ||
         !this.backdropHost || !this.lightAccumPass || !this.volumetricPass) return;
-
-    const dt = Math.min(0.1, (time - this.lastTime) / 1000);
-    this.lastTime = time;
-    this.frameCount++;
-    this.fpsTimer += dt;
-    if (this.fpsTimer >= 1) {
-      this.fps = this.frameCount;
-      this.frameCount = 0;
-      this.fpsTimer = 0;
-    }
 
     // --- Write input to worker ---
     this.writeInputToWorker();
@@ -970,14 +923,14 @@ export class MiningRenderer {
 
     this.gridPass.updateCamera(
       camLocalX, camLocalY, this.camera.zoom,
-      this.canvas.width, this.canvas.height,
+      canvas.width, canvas.height,
       depth,
     );
     // Background grid uses the same camera as the foreground (same resolution,
     // same world-space position — the bg grid is at the same active-grid coords).
     this.bgGridPass!.updateCamera(
       camLocalX, camLocalY, this.camera.zoom,
-      this.canvas.width, this.canvas.height,
+      canvas.width, canvas.height,
       depth,
     );
     // Backdrop camera: use the backdrop's stable origin (which is shifted
@@ -990,7 +943,7 @@ export class MiningRenderer {
     const bdCamY = this.camera.y * BACKDROP_PARALLAX - bdOriginY;
     this.backdropPass.updateCamera(
       bdCamX, bdCamY, this.camera.zoom,
-      this.canvas.width, this.canvas.height,
+      canvas.width, canvas.height,
     );
     // Update backdrop uniforms with origin Y + surface Y for sky gradient.
     // The backdrop is full-res, so worldY = originY + coords.y (no scaling).
@@ -1002,7 +955,7 @@ export class MiningRenderer {
     this.stickmanPass.update(
       localPx, localPy, facing, animFrame,
       camLocalX, camLocalY, this.camera.zoom,
-      this.canvas.width, this.canvas.height,
+      canvas.width, canvas.height,
       health, onGround, vx, vy,
     );
 
@@ -1015,7 +968,7 @@ export class MiningRenderer {
     this.fogPass!.setGridView(this.gridPass.getGridView());
     this.fogPass!.updateCamera(
       camLocalX, camLocalY, this.camera.zoom,
-      this.canvas.width, this.canvas.height,
+      canvas.width, canvas.height,
       depth,
     );
 
@@ -1083,8 +1036,8 @@ export class MiningRenderer {
       headlampOn !== this.lastRenderedHeadlamp;
 
     if (!dirty) {
-      // Nothing changed — skip all render work, just schedule the next frame.
-      this.raf = requestAnimationFrame((t) => this.frame(t));
+      // Nothing changed — skip all render work. GameRenderer handles the
+      // next rAF cycle.
       return;
     }
 
@@ -1102,7 +1055,7 @@ export class MiningRenderer {
     this.lastRenderedHeadlamp = headlampOn;
 
     // --- Render ---
-    const commandEncoder = this.device.createCommandEncoder();
+    const commandEncoder = device.createCommandEncoder();
 
     if (this.disableFogAndShadows) {
       // Debug mode (F1): skip the lighting passes and clear the light texture
@@ -1150,7 +1103,7 @@ export class MiningRenderer {
     // 2. Main scene pass (renders to the canvas)
     const passEncoder = commandEncoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
+        view: context.getCurrentTexture().createView(),
         clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1.0 },
         loadOp: "clear",
         storeOp: "store",
@@ -1172,9 +1125,7 @@ export class MiningRenderer {
     }
 
     passEncoder.end();
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    this.raf = requestAnimationFrame((t) => this.frame(t));
+    device.queue.submit([commandEncoder.finish()]);
   }
 
   private writeInputToWorker(): void {

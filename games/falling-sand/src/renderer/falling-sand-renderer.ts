@@ -1,4 +1,4 @@
-import { GPUDeviceManager } from "@downdraft/core";
+import { GameRenderer } from "@downdraft/core";
 import { MATERIALS } from "@downdraft/library-sand";
 import { computeGridDims } from "../shared/constants";
 import { FIELD, NUM_LAYERS, PLAYER, SimBufferReader, STATS } from "../shared/sim-buffer";
@@ -14,12 +14,7 @@ const TICK_MS = 1000 / 60;
 // lerping (respawn / teleport). Normal max speed is 0.6 cells/tick.
 const TELEPORT_SNAP_R2 = 10 * 10;
 
-export class FallingSandRenderer {
-  private canvas: HTMLCanvasElement;
-  private device: GPUDevice | null = null;
-  private deviceManager = new GPUDeviceManager();
-  private context: GPUCanvasContext | null = null;
-  private format: GPUTextureFormat = "bgra8unorm";
+export class FallingSandRenderer extends GameRenderer {
   private gridPass: SandGridPass | null = null;
   private stickmanPass: StickmanPass | null = null;
   private input: ReturnType<typeof createInputHandler> | null = null;
@@ -27,24 +22,12 @@ export class FallingSandRenderer {
   private gridReader: SimBufferReader | null = null;
   private gridW = 0;
   private gridH = 0;
-  private running = false;
-  private raf = 0;
-  private lastTime = 0;
-  private frameCount = 0;
-  private fps = 0;
-  private fpsTimer = 0;
-  private resizeHandler: (() => void) | null = null;
   private storeUnsub: (() => void) | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private prevMouseMiddle = false;
   private inspectorTimer = 0;
 
   // --- Player render interpolation ---
-  // The sim writes a new player position to the SAB at 60Hz, but the sim tick
-  // and render frame aren't synchronized. Without interpolation the player
-  // snaps forward in irregular steps — visible as "teleporting". We track the
-  // previous and current sim-tick positions and lerp between them using a
-  // wall-clock accumulator for smooth display-framerate movement.
   private prevPx = 0;
   private prevPy = 0;
   private curPx = 0;
@@ -54,17 +37,19 @@ export class FallingSandRenderer {
   private interpInitialized = false;
 
   constructor(canvas: HTMLCanvasElement, _deterministic: boolean) {
-    this.canvas = canvas;
+    super(canvas, {
+      mode: "2d",
+      clearColor: { r: 0, g: 0, b: 0, a: 1 },
+    });
+    this.setViewportCount(0);
   }
 
-  getFPS(): number { return this.fps; }
-
-  getCanvas(): HTMLCanvasElement { return this.canvas; }
+  getFPS(): number { return super.getFPS(); }
+  getCanvas(): HTMLCanvasElement { return super.getCanvas(); }
   getGridW(): number { return this.gridW; }
   getGridH(): number { return this.gridH; }
   getWorkerHost(): SandWorkerHost | null { return this.workerHost; }
 
-  /** Snapshot all layer grids + fields from the SAB for saving. */
   snapshotGrids(): { grids: Uint32Array[]; fields: Uint8Array[]; gridW: number; gridH: number } {
     if (!this.gridReader) return { grids: [], fields: [], gridW: 0, gridH: 0 };
     const grids: Uint32Array[] = [];
@@ -82,36 +67,28 @@ export class FallingSandRenderer {
 
   async loadSave(grids: Uint32Array[], fields: Uint8Array[], gridW: number, gridH: number): Promise<void> {
     if (!this.workerHost || !this.gridPass) return;
-    // If grid dimensions changed, resize the renderer too
+    const canvas = this.getCanvas();
     if (gridW !== this.gridW || gridH !== this.gridH) {
       this.gridW = gridW;
       this.gridH = gridH;
-      this.gridPass.resize(gridW, gridH, this.canvas.width, this.canvas.height);
+      this.gridPass.resize(gridW, gridH, canvas.width, canvas.height);
     }
     await this.workerHost.loadGrids(grids, fields, gridW, gridH);
   }
 
   async init(): Promise<boolean> {
-    this.device = await this.deviceManager.requestDevice();
-    if (!this.device) return false;
-    this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
-    if (!this.context) return false;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "opaque",
-    });
+    const ok = await super.init();
+    if (!ok) return false;
 
-    this.input = createInputHandler(this.canvas);
+    const device = this.getDevice()!;
+    const format = this.getFormat();
+    const canvas = this.getCanvas();
 
-    this.resizeCanvas();
-    const dims = computeGridDims(this.canvas.width, this.canvas.height);
+    this.input = createInputHandler(canvas);
+
+    const dims = computeGridDims(canvas.width, canvas.height);
     this.gridW = dims.w;
     this.gridH = dims.h;
-
-    this.resizeHandler = () => this.handleResize();
-    window.addEventListener("resize", this.resizeHandler);
 
     this.input.selectedMaterial = useGameStore.getState().selectedMaterial;
     this.input.brushRadius = useGameStore.getState().brushRadius;
@@ -122,17 +99,16 @@ export class FallingSandRenderer {
       }
     });
 
-    this.gridPass = new SandGridPass(this.device, this.format, this.gridW, this.gridH, NUM_LAYERS);
-    this.gridPass.init(this.canvas.width, this.canvas.height);
+    this.gridPass = new SandGridPass(device, format, this.gridW, this.gridH, NUM_LAYERS);
+    this.gridPass.init(canvas.width, canvas.height);
 
-    this.stickmanPass = new StickmanPass(this.device, this.format, this.gridW, this.gridH);
+    this.stickmanPass = new StickmanPass(device, format, this.gridW, this.gridH);
     this.stickmanPass.init();
 
     this.workerHost = new SandWorkerHost(this.gridW, this.gridH);
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
 
-    // P key toggles pause (syncs with DevTools Sim tab)
     this.keydownHandler = (e: KeyboardEvent) => {
       if (e.key === "p" || e.key === "P") {
         const s = useGameStore.getState();
@@ -147,78 +123,53 @@ export class FallingSandRenderer {
     };
     window.addEventListener("keydown", this.keydownHandler);
 
+    this.setCallbacks({
+      afterFrame: (dt) => this.drawFrame(dt),
+      onResize: () => this.handleResize(),
+    });
+
     return true;
   }
 
-  private resizeCanvas(): void {
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.floor(window.innerWidth * dpr);
-    const h = Math.floor(window.innerHeight * dpr);
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
-    }
-  }
-
   private handleResize(): void {
-    if (!this.device || !this.gridPass || !this.workerHost) return;
-    this.resizeCanvas();
-
-    const dims = computeGridDims(this.canvas.width, this.canvas.height);
+    if (!this.gridPass || !this.workerHost) return;
+    const canvas = this.getCanvas();
+    const dims = computeGridDims(canvas.width, canvas.height);
     if (dims.w === this.gridW && dims.h === this.gridH) {
-      // Canvas size changed but grid dims didn't — still need to recreate layer targets
-      this.gridPass.resize(this.gridW, this.gridH, this.canvas.width, this.canvas.height);
+      this.gridPass.resize(this.gridW, this.gridH, canvas.width, canvas.height);
       return;
     }
-
     this.gridW = dims.w;
     this.gridH = dims.h;
-    this.gridPass.resize(this.gridW, this.gridH, this.canvas.width, this.canvas.height);
+    this.gridPass.resize(this.gridW, this.gridH, canvas.width, canvas.height);
     this.stickmanPass?.resize(this.gridW, this.gridH);
     this.workerHost.resize(this.gridW, this.gridH);
   }
 
-  start(): void {
-    if (this.running) return;
-    this.running = true;
-    this.lastTime = performance.now();
-    this.raf = requestAnimationFrame((t) => this.frame(t));
-  }
-
   stop(): void {
-    this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
+    super.stop();
     this.workerHost?.stop();
     this.stickmanPass?.destroy();
-    if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.storeUnsub) this.storeUnsub();
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
+    this.destroy();
   }
 
-  private frame(time: number): void {
-    if (!this.running || !this.device || !this.context || !this.input || !this.gridReader || !this.gridPass) return;
-    const dt = Math.min(0.1, (time - this.lastTime) / 1000);
-    this.lastTime = time;
-    this.frameCount++;
-    this.fpsTimer += dt;
-    if (this.fpsTimer >= 1) {
-      this.fps = this.frameCount;
-      this.frameCount = 0;
-      this.fpsTimer = 0;
-    }
+  private drawFrame(dt: number): void {
+    const device = this.getDevice();
+    const context = this.getContext();
+    const canvas = this.getCanvas();
+    if (!device || !context || !this.input || !this.gridReader || !this.gridPass) return;
 
     this.writeInputToWorker();
     this.handlePicker();
     this.updateInspector(dt);
 
-    // Update all layer grids
     for (let i = 0; i < NUM_LAYERS; i++) {
       this.gridPass.updateGrid(i, this.gridReader.getGrid(i));
     }
     this.gridPass.updateUniforms();
 
-    // Update stickman uniforms from shared buffer, with render-side
-    // position interpolation for smooth movement.
     if (this.stickmanPass && this.workerHost) {
       const px = this.workerHost.getPlayerF32(PLAYER.PX);
       const py = this.workerHost.getPlayerF32(PLAYER.PY);
@@ -229,9 +180,6 @@ export class FallingSandRenderer {
       const pVx = this.workerHost.getPlayerF32(PLAYER.VX);
       const pVy = this.workerHost.getPlayerF32(PLAYER.VY);
 
-      // --- Interpolation: track prev/cur sim-tick positions, lerp by
-      // wall-clock accumulator so the rendered player moves smoothly at
-      // the display framerate even though the sim ticks at 60Hz. ---
       const tick = this.gridReader.getStat(STATS.TICK);
       if (tick !== this.lastTick) {
         if (this.interpInitialized) {
@@ -239,7 +187,6 @@ export class FallingSandRenderer {
           this.prevPy = this.curPy;
           this.curPx = px;
           this.curPy = py;
-          // Teleport detection: snap if the position jumped too far.
           const ddx = this.curPx - this.prevPx;
           const ddy = this.curPy - this.prevPy;
           if (ddx * ddx + ddy * ddy > TELEPORT_SNAP_R2) {
@@ -265,15 +212,12 @@ export class FallingSandRenderer {
         interpPx, interpPy, pFacing, pAnimFrame,
         pHealth, pOnGround, pVx, pVy,
       );
-      // Sync player health to store
       const s = useGameStore.getState();
       if (s.health !== pHealth) s.setHealth(pHealth);
     }
 
-    const commandEncoder = this.device.createCommandEncoder();
+    const commandEncoder = device.createCommandEncoder();
 
-    // Phase 1: Render each layer (except the frontmost) to its offscreen target.
-    // These offscreen targets are sampled by the next layer for reflections.
     for (let layer = 0; layer < NUM_LAYERS - 1; layer++) {
       const offscreenView = this.gridPass.getOffscreenView(layer)!;
       const offscreenPass = commandEncoder.beginRenderPass({
@@ -288,10 +232,7 @@ export class FallingSandRenderer {
       offscreenPass.end();
     }
 
-    // Phase 2: Render all layers to the canvas (back to front).
-    // Layer 0 clears the canvas; subsequent layers load and alpha-blend on top.
-    // Each layer samples the previous layer's offscreen target for reflections.
-    const cv = this.context.getCurrentTexture().createView();
+    const cv = context.getCurrentTexture().createView();
     for (let layer = 0; layer < NUM_LAYERS; layer++) {
       const isFirst = layer === 0;
       const canvasPass = commandEncoder.beginRenderPass({
@@ -306,7 +247,6 @@ export class FallingSandRenderer {
       canvasPass.end();
     }
 
-    // Phase 3: Render stickman player on top of all layers
     if (this.stickmanPass) {
       const stickmanPass = commandEncoder.beginRenderPass({
         colorAttachments: [{
@@ -319,16 +259,14 @@ export class FallingSandRenderer {
       stickmanPass.end();
     }
 
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    this.raf = requestAnimationFrame((t) => this.frame(t));
+    device.queue.submit([commandEncoder.finish()]);
   }
 
   private writeInputToWorker(): void {
     if (!this.input || !this.workerHost) return;
-
-    const gx = Math.floor((this.input.mouseX / this.canvas.width) * this.gridW);
-    const gy = Math.floor((this.input.mouseY / this.canvas.height) * this.gridH);
+    const canvas = this.getCanvas();
+    const gx = Math.floor((this.input.mouseX / canvas.width) * this.gridW);
+    const gy = Math.floor((this.input.mouseY / canvas.height) * this.gridH);
 
     this.workerHost.writeMouseDown(this.input.mouseDown);
     this.workerHost.writeMouseRight(this.input.mouseRight);
@@ -342,7 +280,6 @@ export class FallingSandRenderer {
     this.workerHost.writeBrushMode(s.brushMode === "field" ? 1 : 0);
     this.workerHost.writeShowFields(s.showFieldOverlay);
 
-    // Player input
     this.workerHost.writePlayerInput(
       this.input.left, this.input.right, this.input.up, this.input.down, this.input.jump
     );
@@ -358,8 +295,6 @@ export class FallingSandRenderer {
           this.workerHost.writeFieldType(FIELD_TEMP);
           this.workerHost.writeFieldValue(s.fieldTemperature);
           break;
-        // windX/windY field painting is no longer supported — wind is now
-        // handled by the coarse-grid FluidGrid, not per-cell fields.
         case "windX":
         case "windY":
           break;
@@ -367,14 +302,13 @@ export class FallingSandRenderer {
     }
   }
 
-  /** Middle-click picker: read the material under the cursor and select it. */
   private handlePicker(): void {
     if (!this.input || !this.gridReader) return;
+    const canvas = this.getCanvas();
     const middle = this.input.mouseMiddle;
-    // Detect rising edge (click moment)
     if (middle && !this.prevMouseMiddle) {
-      const gx = Math.floor((this.input.mouseX / this.canvas.width) * this.gridW);
-      const gy = Math.floor((this.input.mouseY / this.canvas.height) * this.gridH);
+      const gx = Math.floor((this.input.mouseX / canvas.width) * this.gridW);
+      const gy = Math.floor((this.input.mouseY / canvas.height) * this.gridH);
       if (gx >= 0 && gx < this.gridW && gy >= 0 && gy < this.gridH) {
         const grid = this.gridReader.getGrid(0);
         const packed = grid[gy * this.gridW + gx];
@@ -387,18 +321,15 @@ export class FallingSandRenderer {
     this.prevMouseMiddle = middle;
   }
 
-  /**
-   * Live cell inspector: reads cell + field data at the cursor position and
-   * updates the store. Throttled to ~15fps to avoid excessive React re-renders.
-   */
   private updateInspector(dt: number): void {
     if (!this.input || !this.gridReader) return;
+    const canvas = this.getCanvas();
     this.inspectorTimer += dt;
-    if (this.inspectorTimer < 0.066) return; // ~15fps
+    if (this.inspectorTimer < 0.066) return;
     this.inspectorTimer = 0;
 
-    const gx = Math.floor((this.input.mouseX / this.canvas.width) * this.gridW);
-    const gy = Math.floor((this.input.mouseY / this.canvas.height) * this.gridH);
+    const gx = Math.floor((this.input.mouseX / canvas.width) * this.gridW);
+    const gy = Math.floor((this.input.mouseY / canvas.height) * this.gridH);
 
     if (gx < 0 || gx >= this.gridW || gy < 0 || gy >= this.gridH) {
       const cur = useGameStore.getState().inspector;
@@ -419,8 +350,6 @@ export class FallingSandRenderer {
     const fi = (gy * this.gridW + gx) * 4;
     const gravity = fields[fi + FIELD.GRAVITY];
     const temperature = fields[fi + FIELD.TEMP];
-    // Wind is now handled by the coarse-grid FluidGrid (not per-cell fields).
-    // The inspector shows 0 for wind until fluid grid data is exposed via SAB.
     const windX = 0;
     const windY = 0;
     const windMag = 0;

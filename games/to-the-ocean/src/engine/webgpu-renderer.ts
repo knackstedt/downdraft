@@ -5,7 +5,7 @@
 // ============================================================================
 
 import type { TextureHandle } from "@downdraft/core";
-import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, CanvasResizeWatcher, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, ENT, FrameGraph, Frustum, GCController, GPUProfiler, GPUResourceTracker, IBLSystem, InputBufferWriter, LayoutEngine, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PLR, PostProcessStack, DebugOverlay as ProfilingOverlay, RenderPass, SimBufferReader, SkyDomePass, TelemetryCollector, TerrainPass, TrackedRenderPass, UIInputRouter, UIRenderer, UIRoot, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
+import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry, DEPTH_FORMAT, calculateViewProjInto as engineCalculateViewProjInto, ENT, Frustum, GameRenderer, GCController, GPUProfiler, IBLSystem, InputBufferWriter, MSAA_SAMPLE_COUNT, PassType, PBRSystem, PLR, PostProcessStack, RenderPass, SimBufferReader, SkyDomePass, TerrainPass, TrackedRenderPass, UnderwaterFogPass, WaterPass, type FrameGraphBuilder, type GCControllerConfig, type GCControllerStats, type IRendererStateProvider, type RenderContext } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
 import { LightSystem } from "@downdraft/library-lighting";
 import { PixelationSystem } from "@downdraft/library-postfx";
@@ -66,11 +66,7 @@ interface LightingParams {
   fogColor: [number, number, number];
 }
 
-export class WebGPURenderer implements IRendererStateProvider {
-  private canvas: HTMLCanvasElement;
-  private device: GPUDevice | null = null;
-  private context: GPUCanvasContext | null = null;
-  private format: GPUTextureFormat = "bgra8unorm";
+export class WebGPURenderer extends GameRenderer implements IRendererStateProvider {
   private simReader: SimBufferReader | null = null;
   private waterReader: WaterBufferReader | null = null;
   private inputWriter: InputBufferWriter | null = null;
@@ -102,27 +98,17 @@ export class WebGPURenderer implements IRendererStateProvider {
   private debugOverlayData: GameDebugOverlayData | null = null;
   private debugRaycast: DebugRaycast | null = null;
 
-  private uiRenderer: UIRenderer | null = null;
-  private uiRoot: UIRoot | null = null;
-  private uiLayoutEngine: LayoutEngine | null = null;
-  private uiInputRouter: UIInputRouter | null = null;
-
   private osrManager: OSRManager | null = null;
   private _osrCursorResetTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private telemetryCollector: TelemetryCollector | null = null;
   private gcController: GCController | null = null;
-  private profilingOverlay: ProfilingOverlay | null = null;
-  private frameDrawCalls: number = 0;
-  private frameTriangles: number = 0;
-  private gpuProfiler: GPUProfiler | null = null;
-  private gpuResourceTracker: GPUResourceTracker | null = null;
+  private _frameDrawCalls: number = 0;
+  private _frameTriangles: number = 0;
 
   // Frame graph — single orchestration path for the per-viewport render passes.
-  private frameGraph: FrameGraph | null = null;
   private graphColorHandle: TextureHandle | null = null;
   private graphDepthHandle: TextureHandle | null = null;
-  private graphCompiled = false;
+  private _graphCompiled = false;
 
   private preBakeDone: boolean = false;
 
@@ -138,21 +124,21 @@ export class WebGPURenderer implements IRendererStateProvider {
   private skyLastTime: number = 0;
   private readonly skyWeatherTransitionDuration: number = 30.0;
 
-  private lastResourceStatsTime = 0;
-  private static readonly RESOURCE_STATS_INTERVAL = 1000;
+  private _lastResourceStatsTime = 0;
+  private static readonly RES_STATS_INTERVAL = 1000;
 
   onInputProcessed: (() => void) | null = null;
 
-  private running = false;
+  private _running = false;
   private rafHandle = 0;
-  private lastTime = 0;
+  private _lastTime = 0;
   /** FPS limit for test mode (0 = unlimited, uses rAF). When > 0, uses setTimeout. */
   private targetFPS = 0;
   private renderTimer = 0;
-  private frameCount = 0;
-  private fpsTimer = 0;
+  private _frameCount = 0;
+  private _fpsTimer = 0;
   private lastDebugLog = 0;
-  private elapsedTime = 0;
+  private _elapsedTime = 0;
 
   private wakeArray = new Float32Array(16 * 6);
   private shoreArray = new Float32Array(128 * 4);
@@ -204,30 +190,25 @@ export class WebGPURenderer implements IRendererStateProvider {
     aspect: 1,
   };
 
-  private targetFrameTime = 0;
-  private rafInterval = 0;
-  private rafSum = 0;
-  private rafCount = 0;
-  private lastRafTime = 0;
-  private frameAccum = 0;
-  private limiterActive = false;
-
-  private viewportCount = 1;
-  private viewports: { x: number; y: number; w: number; h: number }[] = [];
-
-  private resizeWatcher: CanvasResizeWatcher | null = null;
+  private _targetFrameTime = 0;
+  private _rafInterval = 0;
+  private _rafSum = 0;
+  private _rafCount = 0;
+  private _lastRafTime = 0;
+  private _frameAccum = 0;
+  private _limiterActive = false;
 
   private inputHandler: RendererInputHandler;
   private sceneSync: SceneSync;
   private accessors: RendererAccessors;
 
-  private deviceLost = false;
+  private _deviceLost = false;
   private lastInvalidLog = 0;
   private simWasValid = false;
   private lastSimSequence = 0;
   private frustum = new Frustum();
 
-  private depthTextures = new Map<string, { texture: GPUTexture; view: GPUTextureView }>();
+  private _depthTextures = new Map<string, { texture: GPUTexture; view: GPUTextureView }>();
   private cachedSurfaceView: GPUTextureView | null = null;
   private cachedSurfaceFrame = -1;
   private surfaceFrameCounter = 0;
@@ -235,105 +216,56 @@ export class WebGPURenderer implements IRendererStateProvider {
   private boatEntityIdToSlot = new Map<number, number>();
 
   constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+    super(canvas, { mode: "3d", enableProfilingOverlay: true });
     this.inputHandler = new RendererInputHandler(canvas);
     this.sceneSync = new SceneSync();
     this.accessors = new RendererAccessors();
-    this.updateViewports(1);
-    this.resizeWatcher = new CanvasResizeWatcher(canvas, {
-      onResize: (cssW, cssH, dpr) => {
-        const w = Math.round(cssW * dpr);
-        const h = Math.round(cssH * dpr);
-        if (this.canvas.width !== w || this.canvas.height !== h) {
-          this.canvas.width = w;
-          this.canvas.height = h;
-          // Destroy stale depth textures so the cache doesn't leak VRAM on resize.
-          for (const entry of this.depthTextures.values()) { entry.texture.destroy(); }
-          this.depthTextures.clear();
-          this.cachedSurfaceView = null;
-          this.updateViewports(this.viewportCount);
-          this.accessors.updateUIScreenSize();
-        }
-      },
-    });
+  }
+
+  onResize(cssWidth: number, cssHeight: number, dpr: number): void {
+    super.onResize(cssWidth, cssHeight, dpr);
+    // Destroy stale depth textures so the cache doesn't leak VRAM on resize.
+    for (const entry of this._depthTextures.values()) { entry.texture.destroy(); }
+    this._depthTextures.clear();
+    this.cachedSurfaceView = null;
+    this.updateAccessorReferences();
   }
 
   handleDprChange(scaleFactor: number): void {
-    this.resizeWatcher?.setDpr(scaleFactor);
+    // Trigger a resize with the new DPR — GameRenderer's onResize will update
+    // canvas dimensions and viewport layout.
+    const canvas = this.getCanvas();
+    this.onResize(canvas.clientWidth, canvas.clientHeight, scaleFactor);
   }
 
   async init(): Promise<boolean> {
-    if (!navigator.gpu) {
-      console.error("[WebGPU] WebGPU not supported — this game requires WebGPU");
-      return false;
-    }
+    const ok = await super.init();
+    if (!ok) return false;
 
     try {
-      let adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-      if (!adapter) {
-        console.warn("No high-performance GPU adapter, trying low-power...");
-        adapter = await navigator.gpu.requestAdapter({ powerPreference: "low-power" });
-      }
-      if (!adapter) {
-        console.warn("No low-power adapter, trying any...");
-        adapter = await navigator.gpu.requestAdapter({});
-      }
-      if (!adapter) {
-        console.error("No GPU adapter found — check GPU drivers and /dev/dri permissions");
-        console.error("Try: sudo usermod -aG video,render $USER && reboot");
-        return false;
-      }
+      const device = this.getDevice()!;
+      const format = this.getFormat();
+      const canvas = this.getCanvas();
 
-      const requiredFeatures: GPUFeatureName[] = [];
-      if (adapter.features.has("timestamp-query")) {
-        requiredFeatures.push("timestamp-query");
-      }
-      if (adapter.features.has("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName)) {
-        requiredFeatures.push("chromium-experimental-timestamp-query-inside-passes" as GPUFeatureName);
-      }
-      this.device = await adapter.requestDevice({ requiredFeatures });
+      // Track device loss for our own render loop (GameRenderer also handles
+      // this and reloads the page, but we need to stop rendering immediately).
+      device.lost.then(() => { this._deviceLost = true; });
 
-      this.gpuResourceTracker = new GPUResourceTracker();
-      this.gpuResourceTracker.wrapDevice(this.device);
-
-      const adapterInfo = adapter.info ?? null;
-      this.context = this.canvas.getContext("webgpu")!;
-      this.format = navigator.gpu.getPreferredCanvasFormat();
-      this.gpuProfiler = new GPUProfiler();
-      this.gpuProfiler.init(this.device, adapterInfo, this.format, 32);
-      this.frameGraph = new FrameGraph();
-      console.log("[WebGPU] GPU timer pool supported:", this.gpuProfiler.isGpuTimerSupported(),
-        "features:", Array.from(this.device.features));
-
-      this.device.lost.then((info: GPUDeviceLostInfo) => {
-        this.deviceLost = true;
-        console.error(`[RENDERER] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
-        setTimeout(() => {
-          console.warn("[RENDERER] Attempting page reload for GPU recovery...");
-          window.location.reload();
-        }, 2000);
-      });
-      this.context.configure({
-        device: this.device,
-        format: this.format,
-        alphaMode: "premultiplied",
-      });
-
-      this.waterPass = new WaterPass(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat, MSAA_SAMPLE_COUNT);
-      this.skyDomePass = new SkyDomePass(this.device, this.format, 1);
-      this.terrainPass = new TerrainPass(this.device, this.format, 1);
-      this.entityRenderer = new EntityRenderer(this.device, this.format);
+      this.waterPass = new WaterPass(device, format, DEPTH_FORMAT as GPUTextureFormat, MSAA_SAMPLE_COUNT);
+      this.skyDomePass = new SkyDomePass(device, format, 1);
+      this.terrainPass = new TerrainPass(device, format, 1);
+      this.entityRenderer = new EntityRenderer(device, format);
       this.cameraSystem = new CameraSystem();
-      this.lightingSystem = new LightSystem(this.device);
-      this.particleSystem = new ParticleSystem(this.device, this.format);
+      this.lightingSystem = new LightSystem(device);
+      this.particleSystem = new ParticleSystem(device, format);
 
-      this.waterPass.prepare(this.device);
-      this.skyDomePass.prepare(this.device);
-      this.terrainPass.prepare(this.device);
+      this.waterPass.prepare(device);
+      this.skyDomePass.prepare(device);
+      this.terrainPass.prepare(device);
       this.lightingSystem.init();
-      this.pbrSystem = new PBRSystem(this.device);
+      this.pbrSystem = new PBRSystem(device);
       this.pbrSystem.init();
-      this.iblSystem = new IBLSystem(this.device, { faceSize: 256, recaptureInterval: 120 });
+      this.iblSystem = new IBLSystem(device, { faceSize: 256, recaptureInterval: 120 });
       this.iblSystem.setBRDFLUT(this.pbrSystem.brdfLUT!);
       this.iblSystem.init();
 
@@ -341,10 +273,10 @@ export class WebGPURenderer implements IRendererStateProvider {
       // material SSBO + one bind group set once per frame. Must be created
       // before entityRenderer.init() so the bindless bind group layout can be
       // included in the entity pipeline layouts (@group(3)).
-      this.bindlessRegistry = new BindlessTextureRegistry(this.device);
-      this.bindlessMaterialManager = new BindlessMaterialManager(this.device);
+      this.bindlessRegistry = new BindlessTextureRegistry(device);
+      this.bindlessMaterialManager = new BindlessMaterialManager(device);
       this.bindlessFrameBindings = new BindlessFrameBindings(
-        this.device,
+        device,
         this.bindlessRegistry,
         this.bindlessMaterialManager,
       );
@@ -369,28 +301,12 @@ export class WebGPURenderer implements IRendererStateProvider {
       await this.terrainMeshPool.init();
       this.entityRenderer.setTerrainMeshPool(this.terrainMeshPool);
       this.waterPass.setLightBindGroup(this.lightingSystem.getLightBindGroup()!);
-      this.lightingSystem.initDebugGizmos(this.format);
+      this.lightingSystem.initDebugGizmos(format);
 
-      this.uiRenderer = new UIRenderer(this.format);
-      this.uiRenderer.prepare(this.device);
-      this.uiRenderer.setScreenSize(this.canvas.width, this.canvas.height);
-      this.uiRoot = new UIRoot(this.canvas.width, this.canvas.height);
-      this.uiLayoutEngine = new LayoutEngine();
-      this.uiLayoutEngine.setTextCache(this.uiRenderer.getTextCache());
-      this.uiInputRouter = new UIInputRouter();
-      this.uiInputRouter.setRoot(this.uiRoot);
-
-      this.telemetryCollector = new TelemetryCollector(true);
+      // UI system, telemetry, profiling overlay, and GPU profiler are managed
+      // by GameRenderer (super.init()). Wire the inherited UI input router
+      // into the game's input handler.
       this.gcController = new GCController("renderer");
-      const dpr = window.devicePixelRatio || 1;
-      this.profilingOverlay = new ProfilingOverlay(this.telemetryCollector, {
-        position: "top-left",
-        updateIntervalMs: 100,
-        fontSize: Math.round(16 * dpr),
-        showGpuTime: false,
-        showPercentiles: false,
-      });
-      this.profilingOverlay.setScreenSize(this.canvas.width, this.canvas.height);
 
       if (this.boatReader) {
         this.entityRenderer.setBoatBufferReader(this.boatReader);
@@ -501,19 +417,19 @@ export class WebGPURenderer implements IRendererStateProvider {
 
       await this.particleSystem.init();
 
-      this.pixelationSystem = new PixelationSystem(this.device, this.format);
+      this.pixelationSystem = new PixelationSystem(device, format);
       this.pixelationSystem.init();
 
-      this.postProcessStack = new PostProcessStack(this.device, this.format, { depthFormat: DEPTH_FORMAT });
+      this.postProcessStack = new PostProcessStack(device, format, { depthFormat: DEPTH_FORMAT });
       this.postProcessStack.init();
 
-      this.underwaterFogPass = new UnderwaterFogPass(this.device, this.format);
-      this.underwaterFogPass.prepare(this.device);
+      this.underwaterFogPass = new UnderwaterFogPass(device, format);
+      this.underwaterFogPass.prepare(device);
 
-      this.cloudSystem = new CloudSystem(this.device, this.format, new GameCloudMeshProvider());
+      this.cloudSystem = new CloudSystem(device, format, new GameCloudMeshProvider());
       await this.cloudSystem.init();
 
-      this.modelRenderer = new ModelRenderer(this.device, this.format);
+      this.modelRenderer = new ModelRenderer(device, format);
       this.modelRenderer.setBindlessDeps({
         registry: this.bindlessRegistry,
         materialManager: this.bindlessMaterialManager,
@@ -521,12 +437,12 @@ export class WebGPURenderer implements IRendererStateProvider {
       });
       await this.modelRenderer.init();
 
-      this.transformGizmo = new TransformGizmo(this.device, this.format);
+      this.transformGizmo = new TransformGizmo(device, format);
       await this.transformGizmo.init();
 
-      this.labelOverlay = new LabelOverlay(this.canvas);
-      this.debugOverlay = new DebugOverlay(this.canvas);
-      this.debugRaycast = new DebugRaycast(this.device, this.format);
+      this.labelOverlay = new LabelOverlay(canvas);
+      this.debugOverlay = new DebugOverlay(canvas);
+      this.debugRaycast = new DebugRaycast(device, format);
       this.debugRaycast.init();
 
       this.transformGizmo.onTransformUpdate = (transform) => {
@@ -537,7 +453,7 @@ export class WebGPURenderer implements IRendererStateProvider {
 
       // Update module references
       this.inputHandler.setCameraSystem(this.cameraSystem);
-      this.inputHandler.setUIInputRouter(this.uiInputRouter);
+      this.inputHandler.setUIInputRouter(this.uiInputRouter!);
       this.sceneSync.setTransformGizmo(this.transformGizmo);
       this.updateAccessorReferences();
 
@@ -562,8 +478,8 @@ export class WebGPURenderer implements IRendererStateProvider {
       pixelationSystem: this.pixelationSystem,
       postProcessStack: this.postProcessStack,
       boatReader: this.boatReader,
-      canvas: this.canvas,
-      viewports: this.viewports,
+      canvas: this.getCanvas(),
+      viewports: this.getViewports(),
       debugRaycast: this.debugRaycast,
       debugOverlay: this.debugOverlay,
       profilingOverlay: this.profilingOverlay,
@@ -630,48 +546,26 @@ export class WebGPURenderer implements IRendererStateProvider {
   }
 
   setViewportCount(count: number): void {
-    this.updateViewports(count);
-  }
-
-  private updateViewports(count: number): void {
-    this.viewportCount = count;
-    this.viewports = [];
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    if (count === 1) {
-      this.viewports.push({ x: 0, y: 0, w, h });
-    } else if (count === 2) {
-      this.viewports.push({ x: 0, y: 0, w: w / 2, h });
-      this.viewports.push({ x: w / 2, y: 0, w: w / 2, h });
-    } else if (count === 3) {
-      this.viewports.push({ x: 0, y: 0, w, h: h / 2 });
-      this.viewports.push({ x: 0, y: h / 2, w: w / 2, h: h / 2 });
-      this.viewports.push({ x: w / 2, y: h / 2, w: w / 2, h: h / 2 });
-    } else if (count >= 4) {
-      this.viewports.push({ x: 0, y: 0, w: w / 2, h: h / 2 });
-      this.viewports.push({ x: w / 2, y: 0, w: w / 2, h: h / 2 });
-      this.viewports.push({ x: 0, y: h / 2, w: w / 2, h: h / 2 });
-      this.viewports.push({ x: w / 2, y: h / 2, w: w / 2, h: h / 2 });
-    }
+    super.setViewportCount(count);
     this.updateAccessorReferences();
   }
 
   start(): void {
-    this.running = true;
-    this.lastTime = performance.now();
+    this._running = true;
+    this._lastTime = performance.now();
     this.scheduleRaf();
   }
 
   stop(): void {
-    this.running = false;
-    this.cancelRaf();
+    this._running = false;
+    this.cancelRafLoop();
   }
 
   /** Set a target FPS limit for test mode. 0 = unlimited (uses rAF). */
   setTargetFPS(fps: number): void {
     this.targetFPS = Math.max(0, fps);
-    if (this.running) {
-      this.cancelRaf();
+    if (this._running) {
+      this.cancelRafLoop();
       this.scheduleRaf();
     }
   }
@@ -682,15 +576,15 @@ export class WebGPURenderer implements IRendererStateProvider {
       const interval = 1000 / this.targetFPS;
       this.renderTimer = setTimeout(() => {
         this.renderTimer = 0;
-        this.rafHandle = requestAnimationFrame(this.render);
+        this.rafHandle = requestAnimationFrame(this.frameLoop);
       }, interval) as unknown as number;
     } else {
       if (this.rafHandle) return;
-      this.rafHandle = requestAnimationFrame(this.render);
+      this.rafHandle = requestAnimationFrame(this.frameLoop);
     }
   }
 
-  private cancelRaf(): void {
+  private cancelRafLoop(): void {
     if (this.rafHandle) {
       cancelAnimationFrame(this.rafHandle);
       this.rafHandle = 0;
@@ -704,9 +598,9 @@ export class WebGPURenderer implements IRendererStateProvider {
   /** Render a single frame on demand. Used in test/headless mode where the
    *  continuous render loop is paused to save CPU. */
   renderOneFrame(): void {
-    if (!this.device) return;
+    if (!this.getDevice()) return;
     try {
-      this.renderFrame();
+      this.drawFrame();
     } catch (err) {
       console.error(`[RENDERER] renderOneFrame error: ${(err as Error).message}`);
     }
@@ -714,58 +608,59 @@ export class WebGPURenderer implements IRendererStateProvider {
 
   /** Whether the continuous render loop is currently running. */
   isRunning(): boolean {
-    return this.running;
+    return this._running;
   }
 
   setFrameRateLimit(refreshRate: number): void {
     if (refreshRate > 0) {
-      this.targetFrameTime = 1000 / refreshRate;
-      this.updateLimiterState();
+      this._targetFrameTime = 1000 / refreshRate;
+      this.updateLimiter();
     } else {
-      this.targetFrameTime = 0;
-      this.limiterActive = false;
+      this._targetFrameTime = 0;
+      this._limiterActive = false;
     }
   }
 
-  private updateLimiterState(): void {
-    if (this.targetFrameTime <= 0 || this.rafInterval <= 0) {
-      this.limiterActive = false;
+  private updateLimiter(): void {
+    if (this._targetFrameTime <= 0 || this._rafInterval <= 0) {
+      this._limiterActive = false;
       return;
     }
-    this.limiterActive = this.rafInterval < this.targetFrameTime * 0.85;
-    this.frameAccum = 0;
+    this._limiterActive = this._rafInterval < this._targetFrameTime * 0.85;
+    this._frameAccum = 0;
   }
 
-  private render = (): void => {
+  private frameLoop = (): void => {
     this.rafHandle = 0;
-    if (!this.running) return;
-    if (!this.device) {
+    if (!this._running) return;
+    if (!this.getDevice()) {
       this.scheduleRaf();
       return;
     }
 
     const rafNow = performance.now();
-    if (this.lastRafTime > 0) {
-      this.rafSum += rafNow - this.lastRafTime;
-      this.rafCount++;
-      if (this.rafCount >= 60) {
-        this.rafInterval = this.rafSum / this.rafCount;
-        this.rafSum = 0;
-        this.rafCount = 0;
-        this.updateLimiterState();
+    if (this._lastRafTime > 0) {
+      this._rafSum += rafNow - this._lastRafTime;
+      this._rafCount++;
+      if (this._rafCount >= 60) {
+        this._rafInterval = this._rafSum / this._rafCount;
+        this._rafSum = 0;
+        this._rafCount = 0;
+        this.updateLimiter();
       }
     }
-    this.lastRafTime = rafNow;
+    this._lastRafTime = rafNow;
 
-    if (this.deviceLost) return;
+    if (this._deviceLost) return;
 
     try {
-      this.renderFrame();
+      this.drawFrame();
     } catch (err) {
       console.error(`[RENDERER] Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
-      if (this.device?.lost) {
-        this.device.lost.then((info: GPUDeviceLostInfo) => {
-          this.deviceLost = true;
+      const dev = this.getDevice();
+      if (dev?.lost) {
+        dev.lost.then((info: GPUDeviceLostInfo) => {
+          this._deviceLost = true;
           console.error(`[RENDERER] WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
         });
       }
@@ -773,28 +668,28 @@ export class WebGPURenderer implements IRendererStateProvider {
     }
   };
 
-  private renderFrame(): void {
+  private drawFrame(): void {
     const now = performance.now();
-    if (this.limiterActive && this.targetFrameTime > 0) {
-      this.frameAccum += this.rafInterval / this.targetFrameTime;
-      if (this.frameAccum < 1) {
+    if (this._limiterActive && this._targetFrameTime > 0) {
+      this._frameAccum += this._rafInterval / this._targetFrameTime;
+      if (this._frameAccum < 1) {
         // Idle frame — offer headroom to GC controller for proactive collection
         if (this.gcController) {
-          const headroom = this.targetFrameTime - (performance.now() - now);
-          this.gcController.maybeCollect(Math.max(0, headroom), this.targetFrameTime);
+          const headroom = this._targetFrameTime - (performance.now() - now);
+          this.gcController.maybeCollect(Math.max(0, headroom), this._targetFrameTime);
         }
         this.scheduleRaf();
         return;
       }
-      this.frameAccum -= 1;
+      this._frameAccum -= 1;
     }
-    const dt = Math.min(0.1, (now - this.lastTime) / 1000);
-    this.lastTime = now;
-    this.elapsedTime += dt;
-    this.frameCount++;
+    const dt = Math.min(0.1, (now - this._lastTime) / 1000);
+    this._lastTime = now;
+    this._elapsedTime += dt;
+    this._frameCount++;
     this.surfaceFrameCounter++;
-    this.fpsTimer += dt;
-    if (this.fpsTimer >= 1) { this.accessors.fps = this.frameCount; this.frameCount = 0; this.fpsTimer = 0; }
+    this._fpsTimer += dt;
+    if (this._fpsTimer >= 1) { this.accessors.fps = this._frameCount; this._frameCount = 0; this._fpsTimer = 0; }
     if (this.profilingOverlay) { this.profilingOverlay.update(dt); }
     if (this.cameraSystem && this.simReader && this.simReader.isValid()) {
       const ps0 = this.simReader.getPlayerSlot(0);
@@ -816,10 +711,13 @@ export class WebGPURenderer implements IRendererStateProvider {
         }
       }
     }
-    this.inputHandler.processInput(this.viewportCount);
+    this.inputHandler.processInput(this.getViewportCount());
     this.onInputProcessed?.();
 
-    const commandEncoder = this.device!.createCommandEncoder();
+    const device = this.getDevice()!;
+    const context = this.getContext()!;
+    const canvas = this.getCanvas();
+    const commandEncoder = device.createCommandEncoder();
 
     if (this.particleSystem && this.simReader && this.simReader.isValid()) {
       const wt = this.simReader.getWeatherType() as WeatherType;
@@ -831,7 +729,7 @@ export class WebGPURenderer implements IRendererStateProvider {
         if (ps0) { cp[0] = ps0.f32[PLR.POS_X]; cp[1] = ps0.f32[PLR.POS_Y]; cp[2] = ps0.f32[PLR.POS_Z]; }
         else { cp[0] = 0; cp[1] = 10; cp[2] = 0; }
         const dc = this.pooledDummyCamera;
-        dc.target[0] = cp[0]; dc.target[1] = cp[1]; dc.target[2] = cp[2] - 1; dc.aspect = this.canvas.width / this.canvas.height;
+        dc.target[0] = cp[0]; dc.target[1] = cp[1]; dc.target[2] = cp[2] - 1; dc.aspect = canvas.width / canvas.height;
         let vd: VoxelCollisionData | null = null;
         if (this.entityRenderer) {
           const dx = cp[0] - this.cachedVoxelCamX;
@@ -855,59 +753,60 @@ export class WebGPURenderer implements IRendererStateProvider {
     }
     const usePix = this.pixelationSystem?.isEnabled() ?? false;
     const usePP = this.postProcessStack?.hasEnabledEffects() ?? false;
-    if (usePix && this.device) {
-      this.pixelationSystem!.ensureTargets(this.canvas.width, this.canvas.height);
-      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "pixelation", commandEncoder); }
-      const cv = this.context!.getCurrentTexture().createView();
-      this.pixelationSystem!.applyPostprocess(commandEncoder, cv, this.canvas.width, this.canvas.height);
-    } else if (usePP && this.device) {
-      this.postProcessStack!.ensureTargets(this.canvas.width, this.canvas.height);
-      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "postprocess", commandEncoder); }
-      const cv = this.context!.getCurrentTexture().createView();
-      this.postProcessStack!.applyChain(commandEncoder, this.postProcessStack!.getSceneDepthView(), cv, this.canvas.width, this.canvas.height);
+    const vpCount = this.getViewportCount();
+    if (usePix) {
+      this.pixelationSystem!.ensureTargets(canvas.width, canvas.height);
+      for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "pixelation", commandEncoder); }
+      const cv = context.getCurrentTexture().createView();
+      this.pixelationSystem!.applyPostprocess(commandEncoder, cv, canvas.width, canvas.height);
+    } else if (usePP) {
+      this.postProcessStack!.ensureTargets(canvas.width, canvas.height);
+      for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "postprocess", commandEncoder); }
+      const cv = context.getCurrentTexture().createView();
+      this.postProcessStack!.applyChain(commandEncoder, this.postProcessStack!.getSceneDepthView(), cv, canvas.width, canvas.height);
     } else {
-      for (let v = 0; v < this.viewportCount; v++) { this.renderViewport(v, dt, "none", commandEncoder); }
+      for (let v = 0; v < vpCount; v++) { this.drawViewport(v, dt, "none", commandEncoder); }
     }
-    if (this.uiRenderer && this.uiRoot && this.device && this.context) {
+    if (this.uiRenderer && this.uiRoot) {
       if (this.accessors.uiNeedsLayout && this.uiLayoutEngine) { this.uiLayoutEngine.layout(this.uiRoot); this.accessors.uiNeedsLayout = false; }
       const ds = this.uiRoot.getDrawable();
       if (ds.length > 0) {
-        const cv = this.context.getCurrentTexture().createView();
+        const cv = context.getCurrentTexture().createView();
         const up = commandEncoder.beginRenderPass({ colorAttachments: [{ view: cv, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "load" as GPULoadOp, storeOp: "store" as GPUStoreOp }] });
-        this.uiRenderer.render({ device: this.device, pass: new TrackedRenderPass(up) } as unknown as RenderContext, ds);
+        this.uiRenderer.render({ device, pass: new TrackedRenderPass(up) } as unknown as RenderContext, ds);
         up.end();
       }
     }
     if (this.gpuProfiler) {
       this.gpuProfiler.resolveGpuTimers(commandEncoder);
     }
-    this.device!.queue.submit([commandEncoder.finish()]);
+    device.queue.submit([commandEncoder.finish()]);
     this.iblSystem?.endFrame();
     if (this.gpuProfiler) { this.gpuProfiler.readGpuTimers().then(() => {}).catch(() => {}); }
     if (this.telemetryCollector) {
       this.telemetryCollector.recordFrame(dt * 1000);
-      this.telemetryCollector.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
+      this.telemetryCollector.recordDrawStats(this._frameDrawCalls, this._frameTriangles);
       this.telemetryCollector.recordGraphSample(dt * 1000);
       if (this.gpuProfiler) { for (const t of this.gpuProfiler.getPassTimings()) { this.telemetryCollector.recordPassTiming(t); } }
-      if (this.gpuResourceTracker && now - this.lastResourceStatsTime > WebGPURenderer.RESOURCE_STATS_INTERVAL) {
-        this.lastResourceStatsTime = now;
+      if (this.gpuResourceTracker && now - this._lastResourceStatsTime > WebGPURenderer.RES_STATS_INTERVAL) {
+        this._lastResourceStatsTime = now;
         const rs = this.gpuResourceTracker.getStats();
         this.telemetryCollector.recordResourceStats({ textureCount: rs.textureCount, bufferCount: rs.bufferCount, totalBytes: rs.totalBytes, textureBytes: rs.textureBytes, bufferBytes: rs.bufferBytes, resources: rs.resources.map(r => ({ id: r.id, type: r.type, label: r.label, size: r.size, callsite: r.callsite, width: r.width, height: r.height, format: r.format })) });
       }
-      this.frameDrawCalls = 0; this.frameTriangles = 0;
+      this._frameDrawCalls = 0; this._frameTriangles = 0;
     }
     this.scheduleRaf();
   }
 
-  private renderViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "pixelation" | "postprocess" = "none", encoder: GPUCommandEncoder): void {
+  private drawViewport(viewportIdx: number, dt: number, offscreenMode: "none" | "pixelation" | "postprocess" = "none", encoder: GPUCommandEncoder): void {
     if (!this.simReader) return;
-    if (!this.device) return;
+    if (!this.getDevice()) return;
     if (!this.simReader.isValid()) {
       if (this.simWasValid && viewportIdx === 0 && performance.now() - (this.lastInvalidLog ?? 0) > 2000) { this.lastInvalidLog = performance.now(); console.warn("[RENDERER] Sim buffer invalid — not rendering."); }
       return;
     }
     this.simWasValid = true;
-    const origViewport = this.viewports[viewportIdx];
+    const origViewport = this.getViewports()[viewportIdx];
     if (!origViewport) return;
     const useOffscreen = offscreenMode !== "none";
     const viewport = offscreenMode === "pixelation" ? this.pixelationSystem!.scaleViewport(origViewport) : origViewport;
@@ -1123,7 +1022,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     // --- GPU render pass ---
     this.entityRenderer!.dispatchSkinningCompute(encoder);
     const colorView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenColorView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneColorView() : this.getSurfaceView();
-    const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTexture(origViewport.w, origViewport.h);
+    const depthView = offscreenMode === "pixelation" ? this.pixelationSystem!.getOffscreenDepthView() : offscreenMode === "postprocess" ? this.postProcessStack!.getSceneDepthView() : this.createDepthTextureView(origViewport.w, origViewport.h);
     const isFirst = viewportIdx === 0;
     const loadOp: GPULoadOp = useOffscreen && !isFirst ? "load" : "clear";
 
@@ -1131,14 +1030,14 @@ export class WebGPURenderer implements IRendererStateProvider {
     // The graph owns the render pass encoder + attachments; the scene's
     // sub-draws (sky, terrain, entities, clouds, water, etc.) execute inside
     // a single graph pass's execute() via drawScene().
-    if (!this.frameGraph) return;
+    const graph = this.getGraph();
     if (!this.graphColorHandle) {
-      this.graphColorHandle = this.frameGraph.importTextureView("color", null);
-      this.graphDepthHandle = this.frameGraph.importTextureView("depth", null);
-      this.frameGraph.markDirty();
+      this.graphColorHandle = graph.importTextureView("color", null);
+      this.graphDepthHandle = graph.importTextureView("depth", null);
+      graph.markDirty();
     }
-    this.frameGraph.setImportedTextureView(this.graphColorHandle!, colorView);
-    this.frameGraph.setImportedTextureView(this.graphDepthHandle!, depthView);
+    graph.setImportedTextureView(this.graphColorHandle!, colorView);
+    graph.setImportedTextureView(this.graphDepthHandle!, depthView);
 
     if (viewportIdx === 0) { this.gpuProfiler!.beginFrame(); }
 
@@ -1167,8 +1066,8 @@ export class WebGPURenderer implements IRendererStateProvider {
     };
 
     // Register/rebuild the scene pass each frame (it depends on per-viewport state).
-    this.frameGraph.markDirty();
-    this.frameGraph.clearPasses();
+    graph.markDirty();
+    graph.clearPasses();
     const scenePass = new SceneRenderPass(
       "Scene",
       this.graphColorHandle!,
@@ -1177,22 +1076,25 @@ export class WebGPURenderer implements IRendererStateProvider {
       sceneState,
       (passEncoder: GPURenderPassEncoder, state: ScenePassState) => this.drawScene(passEncoder, state, encoder),
     );
-    this.frameGraph.addPass(scenePass);
-    this.frameGraph.compile(this.device!, this.canvas.width, this.canvas.height);
-    this.graphCompiled = true;
+    graph.addPass(scenePass);
+    const device = this.getDevice()!;
+    const canvas = this.getCanvas();
+    graph.compile(device, canvas.width, canvas.height);
+    this._graphCompiled = true;
 
+    const vpCount = this.getViewportCount();
     const ctx: RenderContext = {
-      device: this.device,
+      device,
       encoder,
       pass: null,
       camera,
       viewport,
       viewportIdx,
-      viewportCount: this.viewportCount,
+      viewportCount: vpCount,
       dt,
-      elapsedTime: this.elapsedTime,
+      elapsedTime: this._elapsedTime,
       isFirstViewport: isFirst,
-      isLastViewport: viewportIdx === this.viewportCount - 1,
+      isLastViewport: viewportIdx === vpCount - 1,
       width: viewport.w,
       height: viewport.h,
       viewProj,
@@ -1211,14 +1113,14 @@ export class WebGPURenderer implements IRendererStateProvider {
       opaqueIndexBuffer: null,
       opaqueIndexCount: 0,
       opaqueIndexFormat: "uint32",
-      getView: (h: TextureHandle) => this.frameGraph!.getTextureView(h),
-      getTexture: (h: TextureHandle) => this.frameGraph!.getTexture(h),
-      addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
-      addTriangles: (n: number) => { this.frameTriangles += n; },
+      getView: (h: TextureHandle) => graph.getTextureView(h),
+      getTexture: (h: TextureHandle) => graph.getTexture(h),
+      addDrawCalls: (n: number) => { this._frameDrawCalls += n; },
+      addTriangles: (n: number) => { this._frameTriangles += n; },
     };
-    this.frameGraph.execute(ctx);
+    graph.execute(ctx);
 
-    if (viewportIdx === this.viewportCount - 1) { this.entityRenderer!.cleanupStaleDecorations(); this.entityRenderer!.cleanupStaleIslandMeshes(); }
+    if (viewportIdx === vpCount - 1) { this.entityRenderer!.cleanupStaleDecorations(); this.entityRenderer!.cleanupStaleIslandMeshes(); }
   }
 
   /**
@@ -1232,8 +1134,8 @@ export class WebGPURenderer implements IRendererStateProvider {
     // Sky
     if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Sky", passEncoder, viewportIdx); }
     if (weatherType !== this.skyDisplayedWeatherType) { this.skyPrevWeatherType = this.skyDisplayedWeatherType; this.skyDisplayedWeatherType = weatherType; this.skyWeatherBlend = 0.0; }
-    if (this.skyWeatherBlend < 1.0) { const sd = this.skyLastTime > 0 ? Math.min(0.1, this.elapsedTime - this.skyLastTime) : 0; this.skyWeatherBlend = Math.min(1.0, this.skyWeatherBlend + sd / this.skyWeatherTransitionDuration); }
-    this.skyLastTime = this.elapsedTime;
+    if (this.skyWeatherBlend < 1.0) { const sd = this.skyLastTime > 0 ? Math.min(0.1, this._elapsedTime - this.skyLastTime) : 0; this.skyWeatherBlend = Math.min(1.0, this.skyWeatherBlend + sd / this.skyWeatherTransitionDuration); }
+    this.skyLastTime = this._elapsedTime;
     const eb = this.skyWeatherBlend * this.skyWeatherBlend * (3 - 2 * this.skyWeatherBlend);
     const sa = timeOfDay * Math.PI * 2 - Math.PI / 2; const ca = Math.cos(sa); const sn = Math.sin(sa); const rz = 0.3; const sl = Math.sqrt(ca * ca + sn * sn + rz * rz);
     const su = this.pooledSkyUniforms;
@@ -1242,9 +1144,9 @@ export class WebGPURenderer implements IRendererStateProvider {
     su.sunIntensity = Math.max(0, sn); su.moonIntensity = Math.max(0, -sn);
     su.viewProj = viewProj;
     su.cameraPos[0] = camera.position[0]; su.cameraPos[1] = camera.position[1]; su.cameraPos[2] = camera.position[2];
-    su.timeOfDay = timeOfDay; su.weatherType = this.skyDisplayedWeatherType; su.time = this.elapsedTime; su.prevWeatherType = this.skyPrevWeatherType; su.weatherBlend = eb;
+    su.timeOfDay = timeOfDay; su.weatherType = this.skyDisplayedWeatherType; su.time = this._elapsedTime; su.prevWeatherType = this.skyPrevWeatherType; su.weatherBlend = eb;
     this.skyDomePass!.setUniforms(su);
-    this.skyDomePass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
+    this.skyDomePass!.execute({ device: this.getDevice()!, pass: passEncoder } as unknown as RenderContext);
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Sky", passEncoder, viewportIdx); }
     // IBL — recapture environment from sky dome (throttled by IBLSystem)
     if (viewportIdx === 0 && this.iblSystem) {
@@ -1269,20 +1171,20 @@ export class WebGPURenderer implements IRendererStateProvider {
     const tvp = viewProj;
     const tc = this.pooledTerrainCameraPos; tc[0] = camera.position[0]; tc[1] = camera.position[1]; tc[2] = camera.position[2];
     this.terrainPass!.setUniforms({ viewProj: tvp, cameraPos: tc, time: performance.now() / 1000, patchSize: 512, originX: Math.round((playerPos.x - 256) / 4.0) * 4.0, originZ: Math.round((playerPos.z - 256) / 4.0) * 4.0, sunDir: lp.sunDir, sunIntensity: lp.sunIntensity, timeOfDay });
-    this.terrainPass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
+    this.terrainPass!.execute({ device: this.getDevice()!, pass: passEncoder } as unknown as RenderContext);
     if (viewportIdx === 0) { this.gpuProfiler!.endPass("Terrain", passEncoder, viewportIdx); }
     // Entities
     if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Entities", passEncoder, viewportIdx); }
-    const _ed = this.frameDrawCalls;
-    this.entityRenderer!.renderInstanced(passEncoder); this.frameDrawCalls++;
-    for (let d = 0; d < drawEntityCount.length; d++) { this.entityRenderer!.render(passEncoder, d); this.frameDrawCalls++; }
-    this.frameTriangles += this.entityRenderer!.getLastFrameTriangles();
+    const _ed = this._frameDrawCalls;
+    this.entityRenderer!.renderInstanced(passEncoder); this._frameDrawCalls++;
+    for (let d = 0; d < drawEntityCount.length; d++) { this.entityRenderer!.render(passEncoder, d); this._frameDrawCalls++; }
+    this._frameTriangles += this.entityRenderer!.getLastFrameTriangles();
     this.entityRenderer!.renderAnchors(passEncoder, this.simReader!);
-    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Entities", passEncoder, viewportIdx, this.frameDrawCalls - _ed, this.entityRenderer!.getLastFrameTriangles()); }
+    if (viewportIdx === 0) { this.gpuProfiler!.endPass("Entities", passEncoder, viewportIdx, this._frameDrawCalls - _ed, this.entityRenderer!.getLastFrameTriangles()); }
     // Clouds
     if (this.cloudSystem) {
       if (viewportIdx === 0) { this.gpuProfiler!.beginPass("Clouds", passEncoder, viewportIdx); }
-      this.cloudSystem.render(passEncoder, camera, timeOfDay, weatherType, windSpeed, windDir.x, windDir.z, this.elapsedTime, playerPos, lp.sunDir, lp.sunIntensity, lp.moonDir, lp.moonIntensity, lp.fogColor, 0.0008);
+      this.cloudSystem.render(passEncoder, camera, timeOfDay, weatherType, windSpeed, windDir.x, windDir.z, this._elapsedTime, playerPos, lp.sunDir, lp.sunIntensity, lp.moonDir, lp.moonIntensity, lp.fogColor, 0.0008);
       if (viewportIdx === 0) { this.gpuProfiler!.endPass("Clouds", passEncoder, viewportIdx); }
     }
     // Water
@@ -1292,8 +1194,8 @@ export class WebGPURenderer implements IRendererStateProvider {
       const ps = this.waterReader.getPatchSize(); const hg = (256 * ps) / 2;
       const ox = Math.round((camera.position[0] - hg) / ps) * ps; const oz = Math.round((camera.position[2] - hg) / ps) * ps;
       this.waterPass!.setHeightData(this.waterReader.heights);
-      this.waterPass!.setUniforms({ viewProj: wvp, cameraPos: camera.position, time: this.elapsedTime, gridSize: 256, patchSize: ps, originX: ox, originZ: oz, visibility, weatherType, timeOfDay, waveHeight: 2.0, windSpeed, windDirX: windDir.x, windDirZ: windDir.z, weatherIntensity, sunDir: lp.sunDir, sunIntensity: lp.sunIntensity, wakeCount: 0, shoreCount: 0 });
-      this.waterPass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
+      this.waterPass!.setUniforms({ viewProj: wvp, cameraPos: camera.position, time: this._elapsedTime, gridSize: 256, patchSize: ps, originX: ox, originZ: oz, visibility, weatherType, timeOfDay, waveHeight: 2.0, windSpeed, windDirX: windDir.x, windDirZ: windDir.z, weatherIntensity, sunDir: lp.sunDir, sunIntensity: lp.sunIntensity, wakeCount: 0, shoreCount: 0 });
+      this.waterPass!.execute({ device: this.getDevice()!, pass: passEncoder } as unknown as RenderContext);
       if (viewportIdx === 0) { this.gpuProfiler!.endPass("Water", passEncoder, viewportIdx); }
     }
     // Debug
@@ -1352,8 +1254,8 @@ export class WebGPURenderer implements IRendererStateProvider {
     const cd = cwh - camera.position[1];
     if (cd > 0) {
       this.gpuProfiler!.beginPass("UnderwaterFog", passEncoder, viewportIdx);
-      this.underwaterFogPass!.setDepth(cd, this.elapsedTime);
-      this.underwaterFogPass!.execute({ device: this.device, pass: passEncoder } as unknown as RenderContext);
+      this.underwaterFogPass!.setDepth(cd, this._elapsedTime);
+      this.underwaterFogPass!.execute({ device: this.getDevice()!, pass: passEncoder } as unknown as RenderContext);
       this.gpuProfiler!.endPass("UnderwaterFog", passEncoder, viewportIdx);
     }
 
@@ -1374,8 +1276,8 @@ export class WebGPURenderer implements IRendererStateProvider {
         cameraRight: [r0 / rl, r1 / rl, r2 / rl],
         cameraUp: [camera.up[0], camera.up[1], camera.up[2]],
         cameraPosition: [camera.position[0], camera.position[1], camera.position[2]],
-        canvasWidth: this.canvas.clientWidth,
-        canvasHeight: this.canvas.clientHeight,
+        canvasWidth: this.getCanvas().clientWidth,
+        canvasHeight: this.getCanvas().clientHeight,
       };
       this.osrManager.render(osrCam, passEncoder);
 
@@ -1400,7 +1302,7 @@ export class WebGPURenderer implements IRendererStateProvider {
         if (!this.osrManager.isHoveringBillboard() && !this.osrManager.isForcedFocus()) {
           if (this._osrCursorResetTimer) { clearTimeout(this._osrCursorResetTimer); }
           this._osrCursorResetTimer = setTimeout(() => {
-            this.canvas.style.cursor = "default";
+            this.getCanvas().style.cursor = "default";
             this._osrCursorResetTimer = null;
           }, 100);
         } else if (this._osrCursorResetTimer) {
@@ -1418,19 +1320,20 @@ export class WebGPURenderer implements IRendererStateProvider {
     if (this.cachedSurfaceView && this.cachedSurfaceFrame === frame) {
       return this.cachedSurfaceView;
     }
-    this.cachedSurfaceView = this.context!.getCurrentTexture().createView();
+    this.cachedSurfaceView = this.getContext()!.getCurrentTexture().createView();
     this.cachedSurfaceFrame = frame;
     return this.cachedSurfaceView;
   }
 
-  private createDepthTexture(w: number, h: number): GPUTextureView {
-    if (!this.device) throw new Error("No device");
+  private createDepthTextureView(w: number, h: number): GPUTextureView {
+    const device = this.getDevice();
+    if (!device) throw new Error("No device");
     const key = `${w}x${h}`;
-    let entry = this.depthTextures.get(key);
+    let entry = this._depthTextures.get(key);
     if (!entry) {
-      const tex = this.device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+      const tex = device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT });
       entry = { texture: tex, view: tex.createView() };
-      this.depthTextures.set(key, entry);
+      this._depthTextures.set(key, entry);
     }
     return entry.view;
   }
@@ -1449,17 +1352,17 @@ export class WebGPURenderer implements IRendererStateProvider {
   setupInputListeners(): void { this.inputHandler.setupInputListeners(); }
   setOSRForcedFocus(active: boolean): void { this.inputHandler.setOSRForcedFocus(active); }
   getInputHandler(): RendererInputHandler { return this.inputHandler; }
-  getCanvas(): HTMLCanvasElement { return this.canvas; }
+  getCanvas(): HTMLCanvasElement { return super.getCanvas(); }
 
   /** Capture the current canvas contents as a PNG blob. If the render loop
    *  is paused (test/headless mode), render a single frame first so the
    *  screenshot reflects current simulation state. */
   async captureScreenshot(): Promise<Blob | null> {
-    if (!this.running) {
+    if (!this._running) {
       this.renderOneFrame();
     }
     return new Promise((resolve) => {
-      this.canvas.toBlob((blob) => resolve(blob), "image/png");
+      this.getCanvas().toBlob((blob) => resolve(blob), "image/png");
     });
   }
   getFPS(): number { return this.accessors.getFPS(); }
@@ -1472,7 +1375,7 @@ export class WebGPURenderer implements IRendererStateProvider {
   getUIRoot() { return this.accessors.getUIRoot(); }
   getUIInputRouter() { return this.accessors.getUIInputRouter(); }
   markUILayoutDirty(): void { this.accessors.markUILayoutDirty(); }
-  updateUIScreenSize(): void { this.accessors.updateUIScreenSize(); }
+  refreshUIScreenSize(): void { this.accessors.updateUIScreenSize(); }
   toggleProfilingOverlay(): void { this.accessors.toggleProfilingOverlay(); }
   isProfilingOverlayVisible(): boolean { return this.accessors.isProfilingOverlayVisible(); }
   getTelemetryCollector() { return this.accessors.getTelemetryCollector(); }
@@ -1542,8 +1445,9 @@ export class WebGPURenderer implements IRendererStateProvider {
   isGizmoDragging(): boolean { return this.sceneSync.isGizmoDragging(); }
 
   initOSR(ipc: OSRIPC): OSRManager | null {
-    if (!this.device) return null;
-    this.osrManager = new OSRManager(this.device, this.format, DEPTH_FORMAT as GPUTextureFormat);
+    const device = this.getDevice();
+    if (!device) return null;
+    this.osrManager = new OSRManager(device, this.getFormat(), DEPTH_FORMAT as GPUTextureFormat);
     this.osrManager.init(ipc);
     this.inputHandler.onOSRKey = (type, keyCode, modifiers) => {
       this.osrManager?.handleKey(type, String(keyCode), modifiers);
@@ -1557,7 +1461,7 @@ export class WebGPURenderer implements IRendererStateProvider {
     const osrMgr = this.osrManager;
     osrMgr.onCursorStyleChange((cursor: string) => {
       console.log(`[OSR] Applying cursor style: ${cursor}`);
-      this.canvas.style.cursor = cursor;
+      this.getCanvas().style.cursor = cursor;
     });
     return this.osrManager;
   }
@@ -1567,9 +1471,8 @@ export class WebGPURenderer implements IRendererStateProvider {
   }
 
   destroy(): void {
-    this.running = false;
-    this.resizeWatcher?.destroy();
-    this.resizeWatcher = null;
+    this._running = false;
+    this.cancelRafLoop();
     this.inputHandler.destroy();
     this.osrManager?.destroy();
     this.osrManager = null;
@@ -1584,18 +1487,15 @@ export class WebGPURenderer implements IRendererStateProvider {
     this.debugOverlay?.destroy();
     this.debugRaycast?.destroy();
     this.iblSystem?.destroy();
-    this.profilingOverlay?.destroy();
-    this.profilingOverlay = null;
-    this.gpuProfiler?.destroy();
-    this.gpuProfiler = null;
-    this.telemetryCollector = null;
     this.gcController?.dispose();
     this.gcController = null;
     this.terrainMeshPool?.destroy();
     this.terrainMeshPool = null;
-    this.device = null;
-    for (const entry of this.depthTextures.values()) { entry.texture.destroy(); }
-    this.depthTextures.clear();
+    for (const entry of this._depthTextures.values()) { entry.texture.destroy(); }
+    this._depthTextures.clear();
+    // GameRenderer.destroy() handles: resize watcher, input manager, profiling
+    // overlay, gpu profiler, telemetry collector, device cleanup, depth textures.
+    super.destroy();
   }
 
   // --- IRendererStateProvider ---

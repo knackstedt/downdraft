@@ -1,5 +1,5 @@
-import { downdraft, getCanvas, getOverlay } from "@downdraft/app/renderer";
-import { createSimStatsPanelExtension, createSimStatsProvider, initDevTools } from "@downdraft/plugin-devtools";
+import { bootstrapGame } from "@downdraft/app/renderer";
+import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/plugin-devtools";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
@@ -8,47 +8,42 @@ import { useGameStore } from "./stores/game-store";
 import { autosave, loadAutosave } from "./stores/save-system";
 import "./styles/globals.css";
 
-const AUTOSAVE_INTERVAL_MS = 3000;
+bootstrapGame({
+  // --- UI (React) ---
+  mountUI: (overlay) => {
+    const root = createRoot(overlay);
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>,
+    );
+  },
 
-async function bootstrap() {
-  const root = createRoot(getOverlay(0));
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
-  );
+  // --- Renderer ---
+  createRenderer: (canvas) => new AlchemyRenderer(canvas),
+  initRenderer: (renderer) => renderer.init(),
+  onRendererInit: (renderer) => {
+    useGameStore.getState().setRenderer(renderer);
+  },
 
-  const canvas = getCanvas(0);
-  const deterministic = downdraft?.deterministic === true;
-
-  const renderer = new AlchemyRenderer(canvas);
-  const ok = await renderer.init();
-  if (!ok) {
-    console.error("AlchemyRenderer init failed");
-    return;
-  }
-
-  useGameStore.getState().setRenderer(renderer);
-
-  // --- DevTools: one-line wiring via initDevTools() ---
-  const simStatsProvider = createSimStatsProvider({
-    getWorkerHost: () => renderer.getWorkerHost(),
-    getStorePaused: () => useGameStore.getState().paused,
-    setStorePaused: (paused) => useGameStore.getState().setPaused(paused),
-    clearSim: () => renderer.clearAll(),
-    getExtra: () => {
-      const store = useGameStore.getState();
-      return {
-        grid: `${renderer.getGridW()}x${renderer.getGridH()}`,
-        renderFPS: renderer.getFPS(),
-        money: store.money,
-        potions: store.potions.length,
-        activeStation: store.activeStation,
-      };
-    },
-  });
-  await initDevTools(renderer, {
-    simStatsProvider,
+  // --- DevTools ---
+  devtools: {
+    createSimStatsProvider: (renderer) => createSimStatsProvider({
+      getWorkerHost: () => renderer.getWorkerHost(),
+      getStorePaused: () => useGameStore.getState().paused,
+      setStorePaused: (paused) => useGameStore.getState().setPaused(paused),
+      clearSim: () => renderer.clearAll(),
+      getExtra: () => {
+        const store = useGameStore.getState();
+        return {
+          grid: `${renderer.getGridW()}x${renderer.getGridH()}`,
+          renderFPS: renderer.getFPS(),
+          money: store.money,
+          potions: store.potions.length,
+          activeStation: store.activeStation,
+        };
+      },
+    }),
     panels: [
       createSimStatsPanelExtension({
         extraRows: (stats) => {
@@ -64,60 +59,41 @@ async function bootstrap() {
         },
       }),
     ],
-  });
+  },
 
-  // Start the render loop immediately — don't let a hung autosave load
-  // (e.g. IndexedDB locked by another process) block the canvas from rendering.
-  renderer.start();
+  // --- Autosave ---
+  autosave: {
+    load: loadAutosave,
+    save: async () => {
+      const renderer = useGameStore.getState().renderer;
+      if (!renderer) return;
+      const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
+      const s = useGameStore.getState();
+      await autosave(gridW, gridH, grid, fields, {
+        money: s.money,
+        ingredientInventory: s.ingredientInventory,
+        potions: s.potions,
+        unlockedTiers: s.unlockedTiers,
+        discoveredRecipes: s.discoveredRecipes,
+      });
+    },
+    onLoad: async (saved) => {
+      const renderer = useGameStore.getState().renderer;
+      if (!renderer) return;
+      await renderer.loadSave(saved.grid, saved.fields, saved.gridW, saved.gridH);
+      useGameStore.getState().loadFullState({
+        money: saved.money,
+        ingredientInventory: saved.ingredientInventory,
+        potions: saved.potions,
+        unlockedTiers: saved.unlockedTiers,
+        discoveredRecipes: saved.discoveredRecipes,
+      });
+      console.log("[autosave] Restored last session");
+    },
+  },
 
-  setInterval(() => {
-    useGameStore.getState().setFPS(renderer.getFPS());
-  }, 500);
-
-  // Autoload (after the render loop is running, with a 5s timeout so a
-  // locked IndexedDB doesn't block the autosave interval setup)
-  if (!deterministic) {
-    try {
-      const saved = await Promise.race([
-        loadAutosave(),
-        new Promise<null>((r) => setTimeout(() => r(null), 5000)),
-      ]);
-      if (saved) {
-        await renderer.loadSave(saved.grid, saved.fields, saved.gridW, saved.gridH);
-        useGameStore.getState().loadFullState({
-          money: saved.money,
-          ingredientInventory: saved.ingredientInventory,
-          potions: saved.potions,
-          unlockedTiers: saved.unlockedTiers,
-          discoveredRecipes: saved.discoveredRecipes,
-        });
-        console.log("[autosave] Restored last session");
-      }
-    } catch (e) {
-      console.warn("[autosave] Failed to load:", e);
-    }
-  }
-
-  // Autosave
-  if (!deterministic) {
-    setInterval(async () => {
-      try {
-        const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
-        const s = useGameStore.getState();
-        await autosave(gridW, gridH, grid, fields, {
-          money: s.money,
-          ingredientInventory: s.ingredientInventory,
-          potions: s.potions,
-          unlockedTiers: s.unlockedTiers,
-          discoveredRecipes: s.discoveredRecipes,
-        });
-      } catch (e) {
-        console.warn("[autosave] Failed to save:", e);
-      }
-    }, AUTOSAVE_INTERVAL_MS);
-  }
-}
-
-bootstrap().catch((e) => {
+  // --- FPS polling ---
+  onFpsUpdate: (fps) => useGameStore.getState().setFPS(fps),
+}).catch((e) => {
   console.error("[main] Fatal:", e);
 });

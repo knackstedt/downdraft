@@ -31,6 +31,8 @@ export function attemptMatch(
   now: number,
   boardOriginSandCol: number,
   boardOriginSandRow: number,
+  tileSandW: number = TILE_CELL_SIZE,
+  tileSandH: number = TILE_CELL_SIZE,
 ): MatchResult {
   const tileA = board.at(aCol, aRow, aLayer);
   const tileB = board.at(bCol, bRow, bLayer);
@@ -75,8 +77,8 @@ export function attemptMatch(
 
   // Produce crumble events.
   const crumble: CrumbleEvent[] = [
-    makeCrumble(tileA, boardOriginSandCol, boardOriginSandRow),
-    makeCrumble(tileB, boardOriginSandCol, boardOriginSandRow),
+    makeCrumble(tileA, boardOriginSandCol, boardOriginSandRow, tileSandW, tileSandH),
+    makeCrumble(tileB, boardOriginSandCol, boardOriginSandRow, tileSandW, tileSandH),
   ];
 
   // Remove tiles from the board.
@@ -86,13 +88,21 @@ export function attemptMatch(
   return { ok: true, path, score, combo, crumble };
 }
 
-function makeCrumble(tile: Tile, boardOriginSandCol: number, boardOriginSandRow: number): CrumbleEvent {
+function makeCrumble(
+  tile: Tile,
+  boardOriginSandCol: number,
+  boardOriginSandRow: number,
+  tileSandW: number,
+  tileSandH: number,
+): CrumbleEvent {
   return {
     tile,
     element: tile.element,
     sandMaterial: elementToMaterial(tile.element),
-    sandCol: boardOriginSandCol + tile.col * TILE_CELL_SIZE,
-    sandRow: boardOriginSandRow + tile.row * TILE_CELL_SIZE,
+    sandCol: Math.round(boardOriginSandCol + tile.col * tileSandW),
+    sandRow: Math.round(boardOriginSandRow + tile.row * tileSandH),
+    sandW: Math.max(1, Math.round(tileSandW)),
+    sandH: Math.max(1, Math.round(tileSandH)),
   };
 }
 

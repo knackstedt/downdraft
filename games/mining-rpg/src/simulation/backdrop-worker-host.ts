@@ -15,15 +15,15 @@
 // not partially written when the renderer uploads it.
 // ============================================================================
 
-import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import { BaseWorkerHost } from "@downdraft/core";
 import {
-    BACKDROP_CHUNK_H,
-    BACKDROP_CHUNK_W,
-    BACKDROP_GRID_H,
-    BACKDROP_GRID_OFFSET,
-    BACKDROP_GRID_W,
-    BACKDROP_STATS_OFFSET,
-    BACKDROP_TOTAL_SAB_BYTES,
+  BACKDROP_CHUNK_H,
+  BACKDROP_CHUNK_W,
+  BACKDROP_GRID_H,
+  BACKDROP_GRID_OFFSET,
+  BACKDROP_GRID_W,
+  BACKDROP_STATS_OFFSET,
+  BACKDROP_TOTAL_SAB_BYTES,
 } from "../shared/constants";
 
 type BackdropWorkerApi = {
@@ -32,11 +32,7 @@ type BackdropWorkerApi = {
   shutdown(): Promise<void>;
 };
 
-export class BackdropWorkerHost {
-  private sab: SharedArrayBuffer;
-  private proxy: WorkerProxy<BackdropWorkerApi> | null = null;
-  private worker: Worker | null = null;
-  private ready = false;
+export class BackdropWorkerHost extends BaseWorkerHost<BackdropWorkerApi> {
   // Last window set to the worker (chunk coords of top-left)
   private lastOriginCx = Number.MIN_SAFE_INTEGER;
   private lastOriginCy = Number.MIN_SAFE_INTEGER;
@@ -50,12 +46,8 @@ export class BackdropWorkerHost {
   private lastUploadedVersion = -1;
 
   constructor() {
-    this.sab = new SharedArrayBuffer(BACKDROP_TOTAL_SAB_BYTES);
+    super(new SharedArrayBuffer(BACKDROP_TOTAL_SAB_BYTES));
     this.stableGrid = new Uint32Array(BACKDROP_GRID_W * BACKDROP_GRID_H);
-  }
-
-  getSimBuffer(): SharedArrayBuffer {
-    return this.sab;
   }
 
   /** Get the stable backdrop grid (safe to upload — no partial writes). */
@@ -73,36 +65,18 @@ export class BackdropWorkerHost {
     return this.stableOriginY;
   }
 
-  isReady(): boolean {
-    return this.ready;
-  }
-
-  async start(): Promise<void> {
-    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+  protected createWorker(): Worker {
+    // CRITICAL: `new URL(...)` must be inlined directly inside `new Worker()` —
     // Vite only bundles worker modules when it sees this exact pattern.
     // Assigning the URL to a variable first causes Vite to emit the worker
     // as a raw unbundled asset (bare imports unresolved), breaking prod.
-    this.worker = new Worker(new URL("./backdrop-worker.ts", import.meta.url), { type: "module" });
-    this.proxy = wrap<BackdropWorkerApi>(this.worker);
-
-    this.worker.onerror = (e: ErrorEvent) => {
-      console.error("[BackdropWorkerHost] Worker error:", e.message);
-    };
-
-    await this.proxy.proxy.init(this.sab);
-    this.ready = true;
+    return new Worker(new URL("./backdrop-worker.ts", import.meta.url), { type: "module" });
   }
 
-  async stop(): Promise<void> {
-    if (this.proxy) {
-      try {
-        await this.proxy.proxy.shutdown();
-      } catch {}
-      this.proxy.terminate();
-    }
-    this.proxy = null;
-    this.worker = null;
-    this.ready = false;
+  protected async onInit(): Promise<void> {
+    await this.getProxy()!.proxy.init(this.getSimBuffer());
+    // The backdrop worker doesn't emit a "ready" event — mark ready after init.
+    this.ready = true;
   }
 
   /**
@@ -112,7 +86,7 @@ export class BackdropWorkerHost {
    * finished writing a new window (version double-check).
    */
   updateWindowIfNeeded(fgOriginCx: number, fgOriginCy: number): void {
-    if (!this.ready || !this.proxy) return;
+    if (!this.ready || !this.getProxy()) return;
     if (fgOriginCx !== this.lastOriginCx || fgOriginCy !== this.lastOriginCy) {
       const isFirstWindow = this.lastOriginCx === Number.MIN_SAFE_INTEGER;
       if (!isFirstWindow) {
@@ -122,7 +96,7 @@ export class BackdropWorkerHost {
       }
       this.lastOriginCx = fgOriginCx;
       this.lastOriginCy = fgOriginCy;
-      this.proxy.proxy.setWindow(fgOriginCx, fgOriginCy).catch(() => {});
+      this.getProxy()!.proxy.setWindow(fgOriginCx, fgOriginCy).catch(() => {});
       // Skip refreshStableGrid this frame. The worker just received a new
       // setWindow and hasn't processed it yet — the SAB still contains data
       // for the previous window. refreshStableGrid (next frame onward) will
@@ -192,8 +166,8 @@ export class BackdropWorkerHost {
    * (which causes flashing when crossing chunk boundaries).
    */
   private refreshStableGrid(): void {
-    const statsI32 = new Int32Array(this.sab, BACKDROP_STATS_OFFSET, 4);
-    const sabGrid = new Uint32Array(this.sab, BACKDROP_GRID_OFFSET, BACKDROP_GRID_W * BACKDROP_GRID_H);
+    const statsI32 = new Int32Array(this.getSimBuffer(), BACKDROP_STATS_OFFSET, 4);
+    const sabGrid = new Uint32Array(this.getSimBuffer(), BACKDROP_GRID_OFFSET, BACKDROP_GRID_W * BACKDROP_GRID_H);
 
     // Read version BEFORE copying
     const v1 = Atomics.load(statsI32, 2);
