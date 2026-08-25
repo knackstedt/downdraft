@@ -197,6 +197,38 @@ function resolvePlacement(
   }
 }
 
+/**
+ * Build the cross-origin isolation headers for a response.
+ *
+ * COOP (Cross-Origin-Opener-Policy: same-origin) is always safe — it enables
+ * crossOriginIsolated and does not block worker loading from file://.
+ *
+ * COEP (Cross-Origin-Embedder-Policy: require-corp) is only set for non-file://
+ * responses. In packaged builds the renderer is loaded from file:// protocol,
+ * which has an opaque origin. Chromium blocks Web Worker creation from file://
+ * when the parent page has COEP: require-corp — the worker script is never
+ * fetched and Worker.onerror fires with an undefined message. This breaks
+ * ALL game workers (mining-worker, sand-step-worker, save-worker, etc.) in
+ * production builds.
+ *
+ * SharedArrayBuffer still works in packaged builds without COEP because
+ * webPreferences.enableBlinkFeatures: "SharedArrayBuffer" is set on the
+ * BrowserWindow, which enables SAB regardless of cross-origin isolation.
+ */
+export function buildCrossOriginIsolationHeaders(
+  url: string,
+  existingHeaders: Record<string, string[]> = {},
+): Record<string, string[]> {
+  const isFileUrl = url.startsWith("file:");
+  return {
+    ...existingHeaders,
+    "Cross-Origin-Opener-Policy": ["same-origin"],
+    ...(isFileUrl
+      ? {} // No COEP for file:// — it blocks worker loading in packaged builds
+      : { "Cross-Origin-Embedder-Policy": ["require-corp"] }),
+  };
+}
+
 export interface CreateWindowOptions {
   config: DowndraftWindowConfig;
   isDev: boolean;
@@ -214,32 +246,9 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
   const { config, isDev, app, BrowserWindow, screen, session, consoleForwarding, windowStatePersistence, devtools, preloadPath } = opts;
 
   // Enable cross-origin isolation for SharedArrayBuffer.
-  //
-  // COOP (Cross-Origin-Opener-Policy: same-origin) is always safe — it enables
-  // crossOriginIsolated and does not block worker loading from file://.
-  //
-  // COEP (Cross-Origin-Embedder-Policy: require-corp) is only set for non-file://
-  // responses. In packaged builds the renderer is loaded from file:// protocol,
-  // which has an opaque origin. Chromium blocks Web Worker creation from file://
-  // when the parent page has COEP: require-corp — the worker script is never
-  // fetched and the Worker.onerror fires with an undefined message. This breaks
-  // ALL game workers (mining-worker, sand-step-worker, save-worker, etc.) in
-  // production builds.
-  //
-  // SharedArrayBuffer still works in packaged builds without COEP because
-  // webPreferences.enableBlinkFeatures: "SharedArrayBuffer" is set on the
-  // BrowserWindow, which enables SAB regardless of cross-origin isolation.
+  // See buildCrossOriginIsolationHeaders() for the COEP/file:// rationale.
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const isFileUrl = details.url.startsWith("file:");
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Cross-Origin-Opener-Policy": ["same-origin"],
-        ...(isFileUrl
-          ? {} // No COEP for file:// — it blocks worker loading in packaged builds
-          : { "Cross-Origin-Embedder-Policy": ["require-corp"] }),
-      },
-    });
+    callback({ responseHeaders: buildCrossOriginIsolationHeaders(details.url, details.responseHeaders) });
   });
 
   const savedState = windowStatePersistence ? loadWindowState(app, config.stateFile) : null;
