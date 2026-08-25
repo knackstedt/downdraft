@@ -1,6 +1,7 @@
 {
   "name": "overburden",
   "version": "0.1.0",
+  "productName": "Overburden",
   "private": true,
   "type": "module",
   "dependencies": {

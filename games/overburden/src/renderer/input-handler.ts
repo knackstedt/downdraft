@@ -60,6 +60,15 @@ export interface BlockheadsInputState {
   // Character gender toggle (C key): when pressed, switches between male/female
   // player models. The renderer sets this callback to wire into CharacterPass.
   onToggleGender?: () => void;
+
+  // Map mode toggle (M key / Esc when in map mode): when pressed, snaps
+  // between full map view and the previous zoom level. The renderer wires
+  // this to toggle the camera zoom + recenter on the player.
+  onToggleMap?: () => void;
+  // Exit map mode (Esc when in map mode): restore the pre-map zoom. The
+  // renderer checks isMapMode() before acting so Esc still works as pause
+  // when not in map mode.
+  onExitMap?: () => void;
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
@@ -90,6 +99,9 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     inspectClickX: 0,
     inspectClickY: 0,
     forceFruitSpawnPending: false,
+    onToggleGender: undefined,
+    onToggleMap: undefined,
+    onExitMap: undefined,
   };
 
   const keyMap: Record<string, keyof BlockheadsInputState> = {
@@ -150,6 +162,18 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     else if (e.key === "c" || e.key === "C") {
       state.onToggleGender?.();
       e.preventDefault();
+    }
+    // Map mode toggle (M key): snap to full map or restore previous zoom.
+    else if (e.key === "m" || e.key === "M") {
+      state.onToggleMap?.();
+      e.preventDefault();
+    }
+    // Esc: exit map mode (if active). The renderer's onExitMap checks
+    // isMapMode() so this is a no-op when not in map mode, letting Esc
+    // fall through to the app's pause handler.
+    else if (e.key === "Escape") {
+      state.onExitMap?.();
+      // Don't preventDefault — the app's pause menu also listens for Esc.
     }
   });
 

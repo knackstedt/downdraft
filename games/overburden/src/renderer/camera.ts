@@ -27,12 +27,22 @@ export class Camera {
   private panStartCamX = 0;
   private panStartCamY = 0;
 
-  // Zoom limits (pixels per block)
-  static readonly MIN_ZOOM = 32;
+  // Zoom limits (pixels per block).
+  // MIN_ZOOM is small enough that the full map region (8192 blocks wide)
+  // fits on a ≥2048px screen. The 3D scene cross-fades into the 2D map
+  // overview between MAP_FADE_START and MAP_FADE_END (see getMapOpacity).
+  static readonly MIN_ZOOM = 0.25;
   static readonly MAX_ZOOM = 256;
 
-  // Zoom levels — tuned for 3D perspective: 10-15 blocks visible at default
-  static readonly ZOOM_LEVELS = [32, 48, 64, 96, 128, 192, 256];
+  // Map-mode fade band (px/block). Above MAP_FADE_START the view is pure 3D
+  // scene; below MAP_FADE_END it is pure 2D map. In between, both layers are
+  // blended by getMapOpacity() so the zoom-out gesture feels continuous.
+  static readonly MAP_FADE_START = 6;
+  static readonly MAP_FADE_END = 3;
+
+  // Zoom levels — sorted descending so +/- stepping is monotonic in both
+  // directions across the block-mode → map-mode boundary (256 → 6).
+  static readonly ZOOM_LEVELS = [256, 192, 128, 96, 64, 48, 32, 6, 4, 2, 1, 0.5, 0.25];
 
   constructor(canvasW: number, canvasH: number) {
     this.canvasW = canvasW;
@@ -114,5 +124,21 @@ export class Camera {
     const gx = (screenX - this.canvasW / 2) / this.zoom + this.x;
     const gy = (screenY - this.canvasH / 2) / this.zoom + this.y;
     return { x: gx, y: gy };
+  }
+
+  /**
+   * Map-mode opacity in [0,1]. 0 in pure block mode (zoom >= MAP_FADE_START),
+   * 1 in pure map mode (zoom <= MAP_FADE_END), linearly interpolated between.
+   * Used to cross-fade the 3D canvas and drive the map overlay's rAF.
+   */
+  getMapOpacity(): number {
+    if (this.zoom >= Camera.MAP_FADE_START) return 0;
+    if (this.zoom <= Camera.MAP_FADE_END) return 1;
+    return (Camera.MAP_FADE_START - this.zoom) / (Camera.MAP_FADE_START - Camera.MAP_FADE_END);
+  }
+
+  /** True when the view is fully replaced by the 2D map overview. */
+  isMapMode(): boolean {
+    return this.zoom <= Camera.MAP_FADE_END;
   }
 }
