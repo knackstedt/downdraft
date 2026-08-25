@@ -6,9 +6,7 @@
 // The engine handles all Electron machinery (window, switches, IPC, OSR, MCP)
 // driven by this config. Raw Electron access is available via the extend hook.
 
-import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
-
-const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
+import { createDowndraftApp } from "@downdraft/app/main";
 
 createDowndraftApp({
   appId: "downdraft-to-the-ocean",
@@ -21,21 +19,9 @@ createDowndraftApp({
     backgroundColor: "#001a33",
     placement: "remember",
     stateFile: "window-state.json",
-    webPreferences: {
-      webgpu: true,
-      sharedTexture: true,
-    },
   },
-  switches: webGpuSwitches(),
   features: {
-    saves: { engineVersion: "0.1.0", mode: "auto", maxGenerations: 3 },
     osr: true,
-    mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
-    // Devtools defaults are now deterministic-aware in resolveDevtoolsConfig().
-    devtools: true,
-    gpuInfo: true,
-    consoleForwarding: true,
-    errorDialog: !deterministic,
-    windowStatePersistence: !deterministic,
+    saves: { engineVersion: "0.1.0", mode: "auto", maxGenerations: 3 },
   },
 });

@@ -1,4 +1,4 @@
-import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
+import { createSimWorker, exposeEvents, type SimWorkerControl } from "@downdraft/core";
 import { SandStepPool, SandWorld } from "@downdraft/library-sand";
 import {
     INPUT,
@@ -19,26 +19,17 @@ const events = exposeEvents();
 // writes only to its own layer's grid + field region (non-overlapping), reads
 // the shared input region, and — for layer 0 only — writes the player + stats
 // regions.
-//
-// Multi-threaded sand physics: instead of a single SandWorld stepping on this
-// worker's thread, we use a SandStepPool that splits the grid into N vertical
-// strips processed by N nested sand-step workers sharing a SAB-backed grid.
-// This mirrors mining-rpg's ChunkWorld integration (commit af3e63c). The
-// boundaryWorld (pool.getBoundaryWorld()) is the coordinator's SAB-backed
-// SandWorld with full-grid write bounds — used for painting, player physics,
-// boundary cleanup, and copying the grid to the sim-buffer SAB for rendering.
 let pool: SandStepPool | null = null;
 let world: SandWorld | null = null;  // = pool.getBoundaryWorld()
 let layerIndex = 0;
 let writer: SimBufferWriter | null = null;
 let sabRef: SharedArrayBuffer | null = null;
-let running = false;
-let paused = false;
-let lastTick = 0;
-let tickCount = 0;
-let frameCount = 0;
-let fpsTimer = 0;
-let fps = 0;
+// createSimWorker control — captured in onInit so extraApi methods (loadGrid)
+// can use withLoopStopped to safely tear down + recreate the pool without
+// racing the tick loop. Without this, loadGrid's inline pool recreation
+// overlaps with onTick's SandStepPool.step(), causing a double-init that
+// spawns 2x workers and crashes on `strip.startX` (undefined strip).
+let simControl: SimWorkerControl | null = null;
 
 let prevMouseX = 0;
 let prevMouseY = 0;
@@ -49,43 +40,25 @@ let player: PlayerState | null = null;
 // on every tick (readInput + player update were each doing this 30×/sec).
 let inputBuf: Int32Array | null = null;
 
-const TICK_MS = 1000 / 60;
-const MAX_STEPS_PER_FRAME = 5;
-let tickAccumulator = 0;
-let speedMultiplier = 1;
-// When true, the loop runs exactly one tick then re-pauses (for the Step button).
-let stepOnce = false;
-// Guards the loop during resize: when false, the loop exits without scheduling
-// the next iteration. resize() sets this to false, waits for any in-flight
-// pool.step() to finish, then recreates the pool and restarts the loop.
-let loopActive = true;
-// True while awaiting pool.step() — used by resize() to wait for the step to
-// finish before shutting down the pool (which would orphan the await).
-let stepInProgress = false;
-
 // Number of strip-workers for multi-threaded sand physics.
 // Leave one core for this coordinator worker + the renderer/main thread.
 // Falls back to single-threaded (1 strip-worker) on low-core machines.
 const NUM_SAND_WORKERS = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
 
-expose({
-  async init(sab: SharedArrayBuffer, gridW: number, gridH: number, layer: number): Promise<void> {
+createSimWorker({
+  fixedDt: 1 / 60,
+  maxStepsPerFrame: 5,
+
+  async onInit(sab: SharedArrayBuffer, control: SimWorkerControl, gridW: number, gridH: number, layer: number): Promise<void> {
     sabRef = sab;
     layerIndex = layer;
+    simControl = control;
     (globalThis as any).__ddThreadTag = `S${layer}`;
     writer = new SimBufferWriter(sab, OFFSETS, gridW, gridH);
     // Cache the input view once — avoids a per-tick Int32Array allocation.
     inputBuf = new Int32Array(sab, INPUT_OFFSET, INPUT_BYTES / 4);
-    // NOTE: do NOT call writer.init() here — the host already initialized the
-    // SAB (including all layer field regions and the input region) before
-    // spawning any workers. Calling writer.init() from every worker would
-    // re-clear the shared input region and overwrite other layers' field data
-    // in the SAB, racing with workers that are already ticking.
 
     // --- Backend: multi-threaded SandStepPool ---
-    // The pool allocates its own SAB for the grid + fields + skip mask +
-    // histogram, shared with N nested sand-step workers. The boundaryWorld
-    // is the coordinator's SAB-backed SandWorld (full-grid write bounds).
     pool = new SandStepPool({
       W: gridW,
       H: gridH,
@@ -93,32 +66,72 @@ expose({
     });
     await pool.init();
     world = pool.getBoundaryWorld();
-    // Seed the boundary world's PRNG (used for painting, ignite, player).
-    // Strip-workers seed themselves in their init.
     world.reseed(0x9e3779b9 ^ (layerIndex * 0x85ebca6b));
     if (layerIndex === 0) {
       player = createPlayer(gridW, gridH);
     }
 
-    running = true;
-    paused = false;
-    lastTick = performance.now();
     prevMouseX = 0;
     prevMouseY = 0;
     wasMouseDown = false;
-    events.emit("ready", {});
-    loop();
   },
 
-  async resize(gridW: number, gridH: number): Promise<void> {
+  async onTick(_dt: number, ctx): Promise<void> {
+    if (!world || !writer || !sabRef || !pool || !inputBuf) return;
+
+    readInput();
+    // Multi-threaded step: dispatch to strip-workers + boundary cleanup.
+    const stepPool: SandStepPool | null = pool;
+    if (!stepPool) return;
+    await stepPool.step(world.frame);
+    // If resize replaced the pool during the await, exit — the new pool's
+    // loop was already started by resize (via withLoopStopped).
+    if (pool !== stepPool) return;
+    // Increment the frame counter (normally done by SandWorld.step()).
+    world.frame++;
+    writer.writeGrid(world.grid, layerIndex);
+    writer.writeFieldGrid(world.fields, layerIndex);
+
+    // Player physics on layer 0 only
+    if (player && layerIndex === 0) {
+      const ib = inputBuf;
+      const input = {
+        left: ib[INPUT.LEFT / 4] !== 0,
+        right: ib[INPUT.RIGHT / 4] !== 0,
+        up: ib[INPUT.UP / 4] !== 0,
+        down: ib[INPUT.DOWN / 4] !== 0,
+        jump: ib[INPUT.JUMP / 4] !== 0,
+      };
+      updatePlayer(player, input, world.grid, world.W, world.H);
+      writer.writePlayerF32(PLAYER.PX, player.x);
+      writer.writePlayerF32(PLAYER.PY, player.y);
+      writer.writePlayerF32(PLAYER.VX, player.vx);
+      writer.writePlayerF32(PLAYER.VY, player.vy);
+      writer.writePlayerI32(PLAYER.ON_GROUND, player.onGround ? 1 : 0);
+      writer.writePlayerI32(PLAYER.FACING, player.facing);
+      writer.writePlayerI32(PLAYER.ANIM_FRAME, player.animFrame);
+      writer.writePlayerI32(PLAYER.HEALTH, player.health);
+    }
+
+    // Stats written by layer 0 only (the "primary" worker).
+    if (layerIndex === 0) {
+      writer.writeStat(STATS.FRAME, world.frame);
+      writer.writeStat(STATS.TICK, ctx.tickCount);
+    }
+  },
+
+  onAfterTicks(ctx): void {
+    if (!writer || layerIndex !== 0) return;
+    writer.writeStat(STATS.FPS, ctx.fps);
+  },
+
+  async onResize(gridW: number, gridH: number): Promise<void> {
+    // The resize RPC already wraps onResize in withLoopStopped, so we can
+    // safely tear down + recreate the pool here directly.
     await doResize(gridW, gridH);
   },
 
-  pause(): void { paused = true; },
-  resume(): void { paused = false; lastTick = performance.now(); },
-  shutdown(): void {
-    running = false;
-    loopActive = false;
+  onShutdown(): void {
     if (pool) {
       pool.shutdown();
       pool = null;
@@ -126,67 +139,45 @@ expose({
     world = null;
   },
 
-  setSpeed(speed: number): void {
-    speedMultiplier = Math.max(0, speed);
-  },
+  extraApi: {
+    clear(): void {
+      if (!world) return;
+      world.grid.fill(0);
+      const cells = world.W * world.H;
+      for (let i = 0; i < cells * 4; i += 4) {
+        world.fields[i] = 128;     // DEFAULT_GRAVITY
+        world.fields[i + 1] = 128; // DEFAULT_TEMP
+      }
+    },
 
-  step(): void {
-    // Advance exactly one tick, then re-pause. The loop checks stepOnce.
-    stepOnce = true;
-    paused = false;
-    lastTick = performance.now();
-  },
-
-  clear(): void {
-    if (!world) return;
-    // Clear the SAB-backed grid + reset fields to defaults. The grid is shared
-    // with strip-workers, so clearing here is visible to all workers on the
-    // next step.
-    world.grid.fill(0);
-    const cells = world.W * world.H;
-    for (let i = 0; i < cells * 4; i += 4) {
-      world.fields[i] = 128;     // DEFAULT_GRAVITY
-      world.fields[i + 1] = 128; // DEFAULT_TEMP
-    }
-  },
-
-  async loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void> {
-    if (!writer || !world || !pool) return;
-    // Recreate pool at the new dimensions if needed. doResize handles the
-    // loopActive guard + pool shutdown/recreation safely.
-    if (world.W !== gridW || world.H !== gridH) {
-      await doResize(gridW, gridH);
-    }
-    // Copy saved grid + field data into the SAB-backed world (shared with
-    // strip-workers). The data is visible to all workers on the next step.
-    world.grid.set(grid.subarray(0, gridW * gridH));
-    world.fields.set(fields.subarray(0, gridW * gridH * 4));
-  },
-
-  getStats(): { fps: number; tick: number; frame: number } {
-    return { fps, tick: tickCount, frame: frameCount };
+    async loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void> {
+      if (!writer || !world || !pool) return;
+      // Recreate pool at the new dimensions if needed. Route through
+      // withLoopStopped so the tick loop is paused + drained before we tear
+      // down the old pool and build a new one. Without this, loadGrid's pool
+      // recreation races onTick's SandStepPool.step(): the concurrent init()
+      // calls each spawn a full set of workers, leaving workers.length >
+      // strips.length and crashing step() on `strip.startX` (undefined strip).
+      if (world.W !== gridW || world.H !== gridH) {
+        await simControl?.withLoopStopped(() => doResize(gridW, gridH));
+        // doResize may have failed to rebuild the pool (e.g. writer/sabRef
+        // became null); bail out before touching world.
+        if (!world || !pool) return;
+      }
+      // Copy saved grid + field data into the SAB-backed world.
+      world.grid.set(grid.subarray(0, gridW * gridH));
+      world.fields.set(fields.subarray(0, gridW * gridH * 4));
+    },
   },
 });
 
 /**
- * Safely recreate the SandStepPool at new dimensions. Stops the loop, waits
- * for any in-flight pool.step() to finish, shuts down the old pool, creates
- * a new one, and restarts the loop. Used by both resize() and loadGrid().
+ * Tear down the current SandStepPool and build a new one at the given
+ * dimensions. Shared by onResize (wrapped in withLoopStopped by the resize
+ * RPC) and loadGrid (wrapped in withLoopStopped via simControl).
  */
 async function doResize(gridW: number, gridH: number): Promise<void> {
   if (!writer || !sabRef) return;
-  // Stop the loop to prevent a race between pool.step() and pool.shutdown().
-  // If the loop is in await pool.step() and we terminate the workers, the
-  // promise never resolves and the loop hangs.
-  loopActive = false;
-  // Wait for any in-flight step to complete (max ~50ms). If it doesn't
-  // finish in time, we proceed — the old pool's workers get terminated and
-  // the old loop's await hangs harmlessly (we start a fresh loop below).
-  for (let i = 0; i < 50 && stepInProgress; i++) {
-    await new Promise(resolve => setTimeout(resolve, 1));
-  }
-  stepInProgress = false;
-
   writer.setDims(gridW, gridH);
   // Shut down the old pool and create a new one at the new dimensions.
   if (pool) {
@@ -203,108 +194,6 @@ async function doResize(gridW: number, gridH: number): Promise<void> {
   if (layerIndex === 0) {
     player = createPlayer(gridW, gridH);
   }
-
-  // Restart the loop.
-  loopActive = true;
-  lastTick = performance.now();
-  loop();
-}
-
-async function loop(): Promise<void> {
-  if (!loopActive || !running || !world || !writer || !sabRef || !pool) return;
-
-  try {
-    const now = performance.now();
-    const elapsed = now - lastTick;
-
-    if (elapsed >= TICK_MS) {
-      lastTick = now - (elapsed % TICK_MS);
-      tickAccumulator += (elapsed / TICK_MS) * speedMultiplier;
-
-      if (!paused || stepOnce) {
-        let steps = 0;
-        const maxSteps = stepOnce ? 1 : MAX_STEPS_PER_FRAME;
-        while (tickAccumulator >= 1 && steps < maxSteps) {
-          readInput();
-          // Multi-threaded step: dispatch to strip-workers + boundary cleanup.
-          // The pool shares the SAB-backed grid with workers. The async step
-          // resolves when all workers finish + boundary cleanup is done.
-          // Capture the pool reference so we can detect if resize() replaced
-          // it while we were awaiting (resize shuts down the old pool).
-          const stepPool: SandStepPool | null = pool;
-          if (!stepPool) break;
-          stepInProgress = true;
-          await stepPool.step(world.frame);
-          stepInProgress = false;
-          // If resize() replaced the pool during the await, exit — the new
-          // pool's loop was already started by resize().
-          if (pool !== stepPool || !loopActive) return;
-          // Increment the frame counter (normally done by SandWorld.step()).
-          world.frame++;
-          writer.writeGrid(world.grid, layerIndex);
-          writer.writeFieldGrid(world.fields, layerIndex);
-
-          // Player physics on layer 0 only — reads input from the shared SAB
-          // input region, writes player state to the shared SAB player region.
-          if (player && layerIndex === 0) {
-            const ib = inputBuf!;
-            const input = {
-              left: ib[INPUT.LEFT / 4] !== 0,
-              right: ib[INPUT.RIGHT / 4] !== 0,
-              up: ib[INPUT.UP / 4] !== 0,
-              down: ib[INPUT.DOWN / 4] !== 0,
-              jump: ib[INPUT.JUMP / 4] !== 0,
-            };
-            updatePlayer(player, input, world.grid, world.W, world.H);
-            writer.writePlayerF32(PLAYER.PX, player.x);
-            writer.writePlayerF32(PLAYER.PY, player.y);
-            writer.writePlayerF32(PLAYER.VX, player.vx);
-            writer.writePlayerF32(PLAYER.VY, player.vy);
-            writer.writePlayerI32(PLAYER.ON_GROUND, player.onGround ? 1 : 0);
-            writer.writePlayerI32(PLAYER.FACING, player.facing);
-            writer.writePlayerI32(PLAYER.ANIM_FRAME, player.animFrame);
-            writer.writePlayerI32(PLAYER.HEALTH, player.health);
-          }
-
-          // Stats written by layer 0 only (the "primary" worker).
-          if (layerIndex === 0) {
-            writer.writeStat(STATS.FRAME, world.frame);
-            writer.writeStat(STATS.TICK, tickCount);
-          }
-          tickCount++;
-          tickAccumulator--;
-          steps++;
-        }
-        if (tickAccumulator > MAX_STEPS_PER_FRAME) {
-          tickAccumulator = 0;
-        }
-        // After a single-step, re-pause and clear the flag.
-        if (stepOnce) {
-          stepOnce = false;
-          paused = true;
-          tickAccumulator = 0;
-        }
-      }
-    }
-
-    frameCount++;
-    fpsTimer += elapsed;
-    if (fpsTimer >= 1000) {
-      fps = Math.round((frameCount * 1000) / fpsTimer);
-      if (layerIndex === 0) {
-        writer?.writeStat(STATS.FPS, fps);
-      }
-      frameCount = 0;
-      fpsTimer = 0;
-    }
-  } catch (err) {
-    // If the loop throws, the setTimeout(loop, 0) at the end would never be
-    // reached, silently killing the worker's tick loop. Log the error so we
-    // can diagnose it, then schedule the next iteration to keep the loop alive.
-    console.error(`[SandWorker L${layerIndex}] loop error:`, err);
-  }
-
-  if (loopActive) setTimeout(loop, 0);
 }
 
 function readInput(): void {
@@ -325,16 +214,13 @@ function readInput(): void {
   const impulseStrength = ib[INPUT.IMPULSE_STRENGTH / 4] / 1000;
 
   // Sync impulse settings to the pool (forwards to all strip-workers + the
-  // boundary world on the next step). This replaces setting fields directly
-  // on the world — strip-workers need the config via the step message.
+  // boundary world on the next step).
   pool.updateConfig({
     horizontalImpulseChance: impulseChance,
     horizontalImpulseStrength: impulseStrength,
   });
 
   // Paint on the boundary world (SAB-backed grid shared with strip-workers).
-  // With a single layer, layerIndex is always 0 and the active-layer check
-  // is always true — paint unconditionally when mouse is down.
   if (mouseDown) {
     if (!wasMouseDown) {
       prevMouseX = mouseX;

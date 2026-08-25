@@ -13,8 +13,9 @@
 // matters for games with much larger worlds.
 // ============================================================================
 
-import type { SaveState } from "@downdraft/core";
-import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
+import { createSaveStore, downdraft } from "@downdraft/app/renderer";
+import type { ISaveStore, SaveState } from "@downdraft/core";
+import { AutosaveManager } from "@downdraft/library-persistence/browser";
 import { WORLD_SEED } from "../shared/constants";
 import type { BuildMaterials, CraftedItems, InventoryEntry, MiningPlayerState, PlayerStats, PlayerUpgrades, SavedGlowstick } from "../shared/types";
 import { createCraftedItems, createPlayerStats } from "../shared/types";
@@ -51,13 +52,22 @@ export interface SaveData {
   savedAt: number;
 }
 
-let storePromise: Promise<OpfsSaveStore> | null = null;
+let storePromise: Promise<ISaveStore> | null = null;
 
-function getStore(): Promise<OpfsSaveStore> {
+function getStore(): Promise<ISaveStore> {
   if (!storePromise) {
     storePromise = (async () => {
-      const store = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
-      await store.init();
+      const store = await createSaveStore({
+        mode: "auto",
+        opfsOptions: { engineVersion: ENGINE_VERSION },
+        bridge: downdraft,
+      });
+      if (!store) {
+        const { OpfsSaveStore } = await import("@downdraft/library-persistence/browser");
+        const fallback = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
+        await fallback.init();
+        return fallback;
+      }
       return store;
     })();
   }
@@ -174,46 +184,25 @@ export async function deleteSave(): Promise<void> {
 }
 
 /**
- * AutosaveManager — runs saveWorld() on an interval.
- * Skipped when deterministic mode is active (DOWNDRAFT_DETERMINISTIC env).
+ * AutosaveManager — re-exported from @downdraft/library-persistence.
+ *
+ * The engine AutosaveManager is generic (works with any save function).
+ * This factory wraps it with the mining-rpg-specific saveWorld() call.
  */
-export class AutosaveManager {
-  private interval: ReturnType<typeof setInterval> | null = null;
-  private getSaveData: () => Promise<SaveData> | SaveData;
-  private deterministic: boolean;
-  private savedCallbacks: Array<() => void> = [];
-
-  constructor(getSaveData: () => Promise<SaveData> | SaveData, deterministic: boolean = false) {
-    this.getSaveData = getSaveData;
-    this.deterministic = deterministic;
-  }
-
-  /** Register a callback to be called after each successful save. */
-  onSaved(cb: () => void): void {
-    this.savedCallbacks.push(cb);
-  }
-
-  start(): void {
-    if (this.deterministic) return; // no autosave in deterministic mode
-    if (this.interval) return;
-    this.interval = setInterval(() => {
-      this.saveNow().catch((e) => console.error("[AutosaveManager] Save failed:", e));
-    }, AUTOSAVE_INTERVAL_MS);
-  }
-
-  stop(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-  }
-
-  async saveNow(): Promise<void> {
-    if (this.deterministic) return;
-    const data = await this.getSaveData();
-    await saveWorld(data);
-    for (let i = 0; i < this.savedCallbacks.length; i++) {
-      this.savedCallbacks[i]();
-    }
-  }
+export function createAutosaveManager(
+  getSaveData: () => Promise<SaveData> | SaveData,
+  deterministic: boolean = false,
+): AutosaveManager {
+  return new AutosaveManager({
+    save: async () => {
+      const data = await getSaveData();
+      await saveWorld(data);
+    },
+    intervalMs: AUTOSAVE_INTERVAL_MS,
+    deterministic,
+  });
 }
+
+// Re-export the engine AutosaveManager for backward compatibility
+// (already imported above — just re-export the binding)
+export { AutosaveManager };

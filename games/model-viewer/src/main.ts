@@ -6,7 +6,7 @@
 // No OSR, MCP, or saves needed. Also runs standalone in a browser via
 // its own vite.config.ts (port 5180).
 
-import { createDowndraftApp, webGpuSwitches } from "@downdraft/app/main";
+import { createDowndraftApp } from "@downdraft/app/main";
 
 createDowndraftApp({
   appId: "downdraft-model-viewer",
@@ -19,11 +19,7 @@ createDowndraftApp({
     backgroundColor: "#1a1a2e",
     placement: "center",
   },
-  switches: webGpuSwitches(),
   features: {
-    devtools: true,
-    consoleForwarding: true,
-    errorDialog: true,
     // No OSR, MCP, or saves needed for the model viewer.
     // gpuInfo stays enabled: the devtools BaseSceneInspector polls
     // gpu-system-info / electron-gpu-info / vulkan-validation-status every

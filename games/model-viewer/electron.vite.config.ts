@@ -50,5 +50,12 @@ function sidecarWriterPlugin(): Plugin {
 export default createDowndraftViteConfig({
   root: __dirname,
   game: "model-viewer",
+  html: {
+    title: "Downdraft Model Viewer",
+    layers: [
+      { type: "canvas", id: "game-canvas" },
+      { type: "dom", id: "root" },
+    ],
+  },
   rendererPlugins: [sidecarWriterPlugin()],
 });

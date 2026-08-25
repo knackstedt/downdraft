@@ -1,4 +1,4 @@
-import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import { BaseWorkerHost } from "@downdraft/core";
 import { allocateSimBuffer, INPUT, OFFSETS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
 
 type AlchemyWorkerApi = {
@@ -17,48 +17,34 @@ type AlchemyWorkerApi = {
   getStationState(): Promise<{ station: string | null; progress: number }>;
 };
 
-export class AlchemyWorkerHost {
-  private sab: SharedArrayBuffer;
+export class AlchemyWorkerHost extends BaseWorkerHost<AlchemyWorkerApi> {
   private writer: SimBufferWriter;
   private reader: SimBufferReader;
-  private proxy: WorkerProxy<AlchemyWorkerApi> | null = null;
-  private worker: Worker | null = null;
-  private ready = false;
   gridW: number;
   gridH: number;
 
   constructor(gridW: number, gridH: number) {
+    const sab = allocateSimBuffer();
+    super(sab);
     this.gridW = gridW;
     this.gridH = gridH;
-    this.sab = allocateSimBuffer();
-    this.writer = new SimBufferWriter(this.sab, OFFSETS, gridW, gridH);
-    this.reader = new SimBufferReader(this.sab, OFFSETS, gridW, gridH);
+    this.writer = new SimBufferWriter(sab, OFFSETS, gridW, gridH);
+    this.reader = new SimBufferReader(sab, OFFSETS, gridW, gridH);
     this.writer.init();
   }
 
-  getSimBuffer(): SharedArrayBuffer { return this.sab; }
   getReader(): SimBufferReader { return this.reader; }
-  isReady(): boolean { return this.ready; }
 
-  async start(): Promise<void> {
-    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+  protected createWorker(): Worker {
+    // CRITICAL: `new URL(...)` must be inlined directly inside `new Worker()` —
     // Vite only bundles worker modules when it sees this exact pattern.
     // Assigning the URL to a variable first causes Vite to emit the worker
     // as a raw unbundled asset (bare imports unresolved), breaking prod.
-    const worker = new Worker(new URL("./alchemy-worker.ts", import.meta.url), { type: "module" });
-    const wp = wrap<AlchemyWorkerApi>(worker);
+    return new Worker(new URL("./alchemy-worker.ts", import.meta.url), { type: "module" });
+  }
 
-    worker.onerror = (e: ErrorEvent) => {
-      console.error("[AlchemyWorkerHost] worker error:", e.message);
-    };
-
-    wp.onEvents((kind) => {
-      if (kind === "ready") this.ready = true;
-    });
-
-    this.proxy = wp;
-    this.worker = worker;
-    await wp.proxy.init(this.sab, this.gridW, this.gridH);
+  protected async onInit(): Promise<void> {
+    await this.getProxy()!.proxy.init(this.getSimBuffer(), this.gridW, this.gridH);
   }
 
   async resize(gridW: number, gridH: number): Promise<void> {
@@ -66,24 +52,14 @@ export class AlchemyWorkerHost {
     this.gridH = gridH;
     this.writer.setDims(gridW, gridH);
     this.reader.setDims(gridW, gridH);
-    await this.proxy?.proxy.resize(gridW, gridH);
+    await this.getProxy()?.proxy.resize(gridW, gridH);
   }
 
-  async stop(): Promise<void> {
-    if (this.proxy) {
-      try { await this.proxy.proxy.shutdown(); } catch { /* worker may already be dead */ }
-      this.proxy.terminate();
-    }
-    this.proxy = null;
-    this.worker = null;
-    this.ready = false;
-  }
-
-  pause(): void { this.proxy?.proxy.pause().catch(() => {}); }
-  resume(): void { this.proxy?.proxy.resume().catch(() => {}); }
-  setSpeed(speed: number): void { this.proxy?.proxy.setSpeed(speed).catch(() => {}); }
-  step(): void { this.proxy?.proxy.step().catch(() => {}); }
-  clear(): void { this.proxy?.proxy.clear().catch(() => {}); }
+  pause(): void { this.getProxy()?.proxy.pause().catch(() => {}); }
+  resume(): void { this.getProxy()?.proxy.resume().catch(() => {}); }
+  setSpeed(speed: number): void { this.getProxy()?.proxy.setSpeed(speed).catch(() => {}); }
+  step(): void { this.getProxy()?.proxy.step().catch(() => {}); }
+  clear(): void { this.getProxy()?.proxy.clear().catch(() => {}); }
 
   async loadGrid(grid: Uint32Array, fields: Uint8Array, gridW: number, gridH: number): Promise<void> {
     if (gridW !== this.gridW || gridH !== this.gridH) {
@@ -92,24 +68,24 @@ export class AlchemyWorkerHost {
       this.writer.setDims(gridW, gridH);
       this.reader.setDims(gridW, gridH);
     }
-    await this.proxy?.proxy.loadGrid(grid, fields, gridW, gridH);
+    await this.getProxy()?.proxy.loadGrid(grid, fields, gridW, gridH);
   }
 
   async getStats(): Promise<{ fps: number; tick: number; frame: number } | null> {
-    try { return await this.proxy?.proxy.getStats() ?? null; }
+    try { return await this.getProxy()?.proxy.getStats() ?? null; }
     catch { return null; }
   }
 
   runStation(station: "heat" | "cool" | "settle", durationTicks: number): void {
-    this.proxy?.proxy.runStation(station, durationTicks).catch(() => {});
+    this.getProxy()?.proxy.runStation(station, durationTicks).catch(() => {});
   }
 
   cancelStation(): void {
-    this.proxy?.proxy.cancelStation().catch(() => {});
+    this.getProxy()?.proxy.cancelStation().catch(() => {});
   }
 
   async getStationState(): Promise<{ station: string | null; progress: number }> {
-    try { return await this.proxy?.proxy.getStationState() ?? { station: null, progress: 0 }; }
+    try { return await this.getProxy()?.proxy.getStationState() ?? { station: null, progress: 0 }; }
     catch { return { station: null, progress: 0 }; }
   }
 

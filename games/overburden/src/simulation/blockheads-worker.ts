@@ -6,16 +6,16 @@
 // grid + blockhead state + stats back to the SAB.
 // ============================================================================
 
-import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
+import { createSimWorker, type SimWorkerControl } from "@downdraft/core";
 import { getBlockDef } from "../shared/block-registry";
 import {
-  ACTIVE_GRID_H,
-  ACTIVE_GRID_W,
-  BLOCK_AIR,
-  BLOCK_DIRT,
-  BLOCK_GRASS,
-  BLOCK_SAPLING,
-  SURFACE_Y, TICK_RATE, WORLD_W
+    ACTIVE_GRID_H,
+    ACTIVE_GRID_W,
+    BLOCK_AIR,
+    BLOCK_DIRT,
+    BLOCK_GRASS,
+    BLOCK_SAPLING,
+    SURFACE_Y, TICK_RATE, WORLD_W
 } from "../shared/constants";
 import { getWildCropByBlock, isCropBlock, isWildCropBlock } from "../shared/crops";
 import { decodeDropItem, encodeDropItem } from "../shared/drop-registry";
@@ -25,21 +25,21 @@ import { encodeMapRegion } from "../shared/map-buffer";
 import { pseudoRandom } from "../shared/pseudo-random";
 import { getRecipe, recipesForStation, type CraftStation } from "../shared/recipes";
 import {
-  MAX_DROPS as SAB_MAX_DROPS,
-  SimBufferWriter,
+    MAX_DROPS as SAB_MAX_DROPS,
+    SimBufferWriter,
 } from "../shared/sim-buffer";
 import { getStationByBlock, getStationByType } from "../shared/stations";
 import { getSpeciesIndex, isLeafBlock, isTreeBlock, isWoodBlock, pickTreeSpecies } from "../shared/tree-species";
 import type { BlockheadState } from "../shared/types";
 import {
-  animStateToCode,
-  BH_STRIDE
+    animStateToCode,
+    BH_STRIDE
 } from "../shared/types";
 import { BlockWorld } from "./block-world";
 import {
-  BH_H, BH_W,
-  createBlockhead, createDefaultInput, getMineTarget, updateBlockhead,
-  type BlockheadInput
+    BH_H, BH_W,
+    createBlockhead, createDefaultInput, getMineTarget, updateBlockhead,
+    type BlockheadInput
 } from "./blockhead";
 import { deleteSave, loadAllChunks, saveDirtyChunks } from "./chunk-storage";
 import { clearCropTracking, recordCropPlant, recordWildHarvest, stepCropGrowth } from "./crop-growth";
@@ -51,23 +51,16 @@ import { fellTree } from "./tree-fell";
 import { forceFruitSpawnTick, packSaplingVfx, stepTreeDaily } from "./tree-sim";
 import { stepVineGrowth } from "./vine-sim";
 
-const events = exposeEvents();
+let simEvents: { emit: (kind: string, data?: any) => void } | null = null;
+let simControl: SimWorkerControl | null = null;
 
 let world: BlockWorld | null = null;
 let writer: SimBufferWriter | null = null;
 let sabRef: SharedArrayBuffer | null = null;
-let running = false;
-let paused = false;
-let lastTick = 0;
-let tickCount = 0;
-let frameCount = 0;
-let fpsTimer = 0;
-let fps = 0;
+let tickCount = 0; // synced from ctx.tickCount in onTick (for helper functions)
 let lastSaveTime = 0;
 let autoSaveInFlight = false; // guards against overlapping auto-saves
 const SAVE_INTERVAL_MS = 5000; // save dirty chunks every 5 seconds
-let speedMultiplier = 1;
-let stepOnce = false;
 
 // --- Light recompute (event-driven, not per-tick) ---
 // Set to true whenever the grid changes (block edit, emitter change, active
@@ -84,10 +77,6 @@ let lastLightDaylight = -1;
 // per day (18000 ticks). Reset to -1 on active grid rebuild so the sim runs
 // on the first day tick after a rebuild.
 let lastTreeDay = -1;
-
-const TICK_MS = 1000 / TICK_RATE;
-const MAX_STEPS_PER_FRAME = 5;
-let tickAccumulator = 0;
 
 // --- Blockhead state ---
 let blockheads: BlockheadState[] = [];
@@ -578,8 +567,6 @@ async function setupWorld(loadSavedChunks: boolean): Promise<void> {
   drops.length = 0;
   nextJobId = 1;
   tickCount = 0;
-  frameCount = 0;
-  speedMultiplier = 1;
   lastLightDaylight = -1;
   lastTreeDay = -1;
 
@@ -665,108 +652,376 @@ async function setupWorld(loadSavedChunks: boolean): Promise<void> {
   }
 }
 
-expose({
-  async init(sab: SharedArrayBuffer): Promise<void> {
+simControl = createSimWorker({
+  fixedDt: 1 / TICK_RATE,
+  maxStepsPerFrame: 5,
+
+  async onInit(sab: SharedArrayBuffer, control: SimWorkerControl): Promise<void> {
     sabRef = sab;
     writer = new SimBufferWriter(sab);
     inputInt32 = writer.inputInt32;
     inputF32 = writer.inputF32;
 
+    simEvents = control.events;
+    simControl = control;
+
     await setupWorld(true);
-
-    running = true;
-    paused = false;
-    lastTick = performance.now();
-    events.emit("ready", {});
-    loop();
   },
 
-  /**
-   * Reset the whole game: delete the OPFS save, re-create the world from
-   * scratch (no saved chunks), reset the blockhead + inventory + task queues,
-   * and write fresh state to the SAB. The render loop keeps running.
-   */
-  async resetGame(): Promise<{ ok: boolean; error?: string }> {
-    // Pause the sim while we tear down + rebuild
-    const wasRunning = running;
-    paused = true;
+  onTick(dt: number, ctx): void {
+    if (!world) return;
+    tickCount = ctx.tickCount;
 
-    // Delete the OPFS save so the next boot starts fresh too
-    try {
-      await deleteSave();
-    } catch (e) {
-      console.warn("[blockheads-worker] resetGame: deleteSave failed:", e);
-      // Continue anyway — we can still reset the in-memory state
+    // Read input from SAB (direct control)
+    readInput();
+
+    // If the task queue has an active task, override input with the
+    // task's synthetic input (autonomous blockhead execution).
+    const queue = taskQueues[0];
+    if (queue && queue.length > 0) {
+      const task = queue[0];
+      // Handle CRAFT_AT task completion: queue the craft at the station
+      if (task.type === "CRAFT_AT" && task.status === "done" && task.recipeId) {
+        if (task.stationAx !== undefined && task.stationAy !== undefined) {
+          // Queue the craft at the station (ingredients consumed on job start)
+          const recipe = getRecipe(task.recipeId);
+          if (recipe) {
+            const state = getOrCreateStationState(task.stationAx, task.stationAy);
+            if (state) {
+              const job: CraftJob = {
+                id: nextJobId++,
+                recipeId: task.recipeId,
+                bhIndex: 0,
+                elapsed: 0,
+                status: "pending",
+              };
+              state.queue.push(job);
+              packStationState(state, task.stationAx, task.stationAy);
+            }
+          }
+        }
+        queue.shift();
+      }
+      // Remove completed/failed tasks from the front
+      if (task.status === "done" || task.status === "failed") {
+        queue.shift();
+      }
+      if (queue.length > 0) {
+        const current = queue[0];
+        const taskInput = executeTask(
+          blockheads[0], current, world.activeForeground, world.activeBackground,
+          world.getActiveOriginCx(), world.getActiveOriginCy(),
+          dt,
+        );
+        if (taskInput) {
+          // Override direct input with task input
+          input.left = taskInput.left;
+          input.right = taskInput.right;
+          input.up = taskInput.up;
+          input.down = taskInput.down;
+          input.jump = taskInput.jump;
+          input.noclip = false; // never noclip during tasks
+          input.mineX = taskInput.mineX;
+          input.mineY = taskInput.mineY;
+          input.placeX = taskInput.placeX;
+          input.placeY = taskInput.placeY;
+          input.placeBlockId = taskInput.placeBlockId;
+        }
+        // If executeTask returned null but task isn't done/failed,
+        // it means "use direct input" (e.g. MOVE_TO arrived). The task
+        // status was set to done, so it'll be shifted next tick.
+        if (current.status === "done" || current.status === "failed") {
+          queue.shift();
+        }
+      }
     }
 
-    // Rebuild the world from scratch (no saved chunks)
-    try {
-      await setupWorld(false);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error("[blockheads-worker] resetGame: setupWorld failed:", e);
-      return { ok: false, error: msg };
+    // Rebuild active grid if the focus has crossed a chunk boundary
+    updateFocus();
+    world.checkRebuild();
+    if (world.needsRebuild) {
+      // Save old origin before rebuild changes it
+      const oldOriginCx = world.getActiveOriginCx();
+      const oldOriginCy = world.getActiveOriginCy();
+      world.rebuildActiveGrid();
+      // Re-initialize fluid sim for the new active grid
+      initFluidSim(world.activeForeground);
+      // Clear station state cache (will be re-read from vfx on next access)
+      stationStates.clear();
+      // Clear crop tracking (ages are in active-grid coords, which shifted)
+      clearCropTracking();
+      // NOTE: do NOT reset lastTreeDay here. The tree daily sim is gated
+      // by the actual in-game day number (currentDay !== lastTreeDay), so
+      // it already runs exactly once per day. Resetting lastTreeDay to -1
+      // on every chunk crossing would trigger a bonus daily tick that:
+      //   1. Ages all existing fruit/seed drops by +1 (causing them to
+      //      fall/despawn prematurely — "drop the ones already on trees")
+      //   2. Spawns new fruit/seeds on newly-loaded leaves (which have no
+      //      drops since drops aren't saved to chunks)
+      // Sapling vfx (species + heights + days) IS saved to chunks, so
+      // saplings grow naturally on the next real day boundary.
+      // Invalidate all task path caches (grid shifted)
+      for (const queue of taskQueues) {
+        for (const task of queue) {
+          invalidatePath(task);
+        }
+      }
+      // Remap blockhead position from old active grid coords to new ones.
+      // The world shifted by (newOrigin - oldOrigin) * CHUNK_W blocks.
+      const dx = (world.getActiveOriginCx() - oldOriginCx) * 64;
+      const dy = (world.getActiveOriginCy() - oldOriginCy) * 64;
+      for (const bh of blockheads) {
+        bh.x = bh.x - dx;
+        bh.y = bh.y - dy;
+        // Clamp to valid range
+        bh.x = Math.max(0, Math.min(ACTIVE_GRID_W - BH_W, bh.x));
+        bh.y = Math.max(0, Math.min(ACTIVE_GRID_H - BH_H, bh.y));
+      }
+      // Remap drop positions (fruits/seeds/drops) to new active grid coords
+      for (let di = drops.length - 1; di >= 0; di--) {
+        const d = drops[di];
+        d.x = d.x - dx;
+        d.y = d.y - dy;
+        // Remove drops that are now out of bounds
+        if (d.x < 0 || d.x >= ACTIVE_GRID_W || d.y < 0 || d.y >= ACTIVE_GRID_H) {
+          drops.splice(di, 1);
+        }
+      }
+      // Active grid rebuilt → light field must be recomputed.
+      lightDirty = true;
     }
 
-    // Resume
-    running = wasRunning;
-    paused = false;
-    lastTick = performance.now();
-    tickAccumulator = 0;
-    return { ok: true };
+    // Step blockhead physics
+    for (const bh of blockheads) {
+      updateBlockhead(bh, input, world.activeForeground, world.activeBackground, dt);
+    }
+
+    // Process mining + placing
+    processMining(dt);
+    processPlacing();
+
+    // Update world drops (physics + pickup by blockhead)
+    updateDrops(dt);
+
+    // Step stations (fuel depletion, craft queue advancement)
+    stepStations(dt);
+
+    // Process task effects (EAT, SLEEP)
+    processTaskEffects(dt);
+
+    // Update fog of war: mark cells near blockhead as explored
+    updateExplored();
+
+    // Step fluid simulation (CA water/lava flow)
+    stepFluidSim(world.activeForeground, world.currentTick);
+
+    // Step vine growth (vines climb trees/walls/trellis over time).
+    // Runs every VINE_GROWTH_INTERVAL ticks; marks light dirty if any
+    // vine extended into a new cell.
+    if (stepVineGrowth(
+      world.activeForeground, world.activeBackground,
+      world.currentTick, ACTIVE_GRID_W, ACTIVE_GRID_H,
+    )) {
+      lightDirty = true;
+    }
+
+    // Step crop growth (crops advance through stages, mushrooms spread,
+    // wild crops regrow, winter kills cold-sensitive crops).
+    if (stepCropGrowth(
+      world.activeForeground, world.activeBackground,
+      world.activeLight, world.currentTick,
+      getSeason(world.currentTick),
+      ACTIVE_GRID_W, ACTIVE_GRID_H,
+    )) {
+      lightDirty = true;
+    }
+
+    // Day/night cycle: 10-minute day (18000 ticks at 30tps).
+    // Daylight follows a sine wave: starts at noon (full daylight),
+    // transitions to night, then back to day.
+    // Light propagation is event-driven (not per-tick): mark the field
+    // dirty when the smooth daylight changes so the light field
+    // recomputes with continuous brightness (no integer stepping).
+    const dayPhase = (tickCount % 18000) / 18000; // 0..1
+    const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5; // 0..1, starts at 1
+    const daylightSmooth = daylightF * 15;
+    const daylight = Math.round(daylightSmooth);
+    if (Math.abs(daylightSmooth - lastLightDaylight) > 0.01) {
+      lightDirty = true;
+    }
+
+    // Tree life-cycle: runs once per in-game day (18000 ticks).
+    // Spawns fruit + seeds on leaves (as spinning 2D drop entities),
+    // ages/falls/scatters them, and grows saplings (paused in winter).
+    // Gated by lastTreeDay so it only runs once per day.
+    const currentDay = Math.floor(tickCount / 18000);
+    if (currentDay !== lastTreeDay) {
+      lastTreeDay = currentDay;
+      if (stepTreeDaily(
+        world.activeForeground, world.activeBackground,
+        world.activeVfx, tickCount, getSeason(world.currentTick),
+        ACTIVE_GRID_W, ACTIVE_GRID_H,
+        drops, world,
+      )) {
+        lightDirty = true;
+      }
+    }
+
+    // Step the simulation tick
+    world.currentTick++;
   },
 
-  pause(): void {
-    paused = true;
+  onAfterTicks(ctx): void {
+    tickCount = ctx.tickCount;
+
+    // Flush pickup notifications once per frame (batched across all ticks
+    // that ran this frame). Emits a single tiny event regardless of how
+    // many pickups occurred — keeps the worker→host channel quiet even
+    // during a 500-block mining burst.
+    if (tickPickups.size > 0) {
+      simEvents?.emit("pickups", Object.fromEntries(tickPickups));
+      tickPickups.clear();
+    }
+
+    // Write to SAB once per frame
+    if (world && writer) {
+      // Compute current daylight for the header.
+      // `daylight` is the integer 0-15 level used by the per-cell light
+      // simulation (Minecraft-style light levels must be integers).
+      // `daylightSmooth` is the unrounded 0-15 value written to the SAB
+      // header so the sky pass can interpolate colors continuously
+      // instead of snapping between 16 discrete states.
+      const dayPhase = (tickCount % 18000) / 18000;
+      const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5;
+      const daylightSmooth = daylightF * 15;
+      const daylight = Math.round(daylightSmooth);
+
+      // Recompute the light field if anything changed since last frame
+      // (block edit, emitter change, active-grid rebuild, or daylight
+      // change). Runs at most once per frame, only when dirty.
+      // Uses the smooth (unrounded) daylight so sky-light brightness
+      // transitions continuously instead of stepping through 16 levels.
+      if (lightDirty) {
+        recomputeLight(world.activeForeground, world.activeLight, daylightSmooth);
+        lightDirty = false;
+        lastLightDaylight = daylightSmooth;
+      }
+
+      // Compute mining VFX data for the header
+      let mineX = -1, mineY = -1, mineDamageF = 0;
+      if (mineTarget) {
+        mineX = mineTarget.x;
+        mineY = mineTarget.y;
+        const key = mineTarget.y * ACTIVE_GRID_W + mineTarget.x;
+        const dmg = mineDamage.get(key) ?? 0;
+        const def = getBlockDef(mineTarget.blockId);
+        const hardness = def ? Math.max(1, def.hardness) : 1;
+        mineDamageF = Math.min(1, dmg / hardness);
+      }
+
+      writer.writeGrid(world);
+      writeBlockheads();
+      writeDropsToSab();
+      writer.writeHeader(
+        tickCount,
+        world.getActiveOriginCx(),
+        world.getActiveOriginCy(),
+        blockheads.length,
+        daylightSmooth,
+        mineX,
+        mineY,
+        mineDamageF,
+        0, // selectedSlot (renderer-managed)
+        Math.min(drops.length, SAB_MAX_DROPS),
+      );
+    }
+
+    // Periodically save dirty chunks to OPFS.
+    // Guard against overlapping saves: if the previous save hasn't finished
+    // yet (OPFS can be slow), skip this cycle rather than risk two writes
+    // racing — the last writer would win and could drop chunks the other
+    // write had already persisted.
+    const now = performance.now();
+    if (world && !autoSaveInFlight && now - lastSaveTime >= SAVE_INTERVAL_MS) {
+      lastSaveTime = now;
+      autoSaveInFlight = true;
+      // Sync the active grid back to chunks before saving — mining/placing/
+      // fluid/light/explored all modify the active grid directly, and the
+      // chunk arrays stay stale until a rebuild. Without this sync, saves
+      // write pre-edit chunk data and changes are lost on reload.
+      world.syncActiveForSave();
+      saveDirtyChunks(world.allChunks())
+        .catch((e) => {
+          console.warn("[blockheads-worker] Auto-save failed:", e);
+        })
+        .finally(() => {
+          autoSaveInFlight = false;
+        });
+    }
   },
-  resume(): void {
-    paused = false;
-    lastTick = performance.now();
-    tickAccumulator = 0;
-  },
-  async shutdown(): Promise<void> {
+
+  async onShutdown(): Promise<void> {
     // Save dirty chunks before shutting down
     if (world) {
       world.syncActiveForSave();
       await saveDirtyChunks(world.allChunks());
     }
-    running = false;
-  },
-  async saveNow(): Promise<number> {
-    if (!world) return 0;
-    world.syncActiveForSave();
-    return saveDirtyChunks(world.allChunks());
-  },
-  setSpeed(speed: number): void {
-    speedMultiplier = Math.max(0, speed);
-  },
-  step(): void {
-    stepOnce = true;
-    paused = false;
-    lastTick = performance.now();
-    tickAccumulator = 0;
   },
 
-  // Debug: force a fruit spawn tick (F7 keybind). Rolls the fruit-spawn dice
-  // for all fruit-capable leaf blocks immediately, without waiting for the
-  // daily tick. Returns the number of fruit drops spawned.
-  forceFruitSpawn(): number {
-    if (!world) return 0;
-    const spawned = forceFruitSpawnTick(
-      world.activeBackground, tickCount,
-      ACTIVE_GRID_W, ACTIVE_GRID_H, drops,
-    );
-    // Write drops to SAB immediately so they appear even if the sim loop
-    // hasn't ticked yet (e.g. paused or between frames).
-    writeDropsToSab();
-    return spawned;
-  },
+  extraApi: {
+    /**
+     * Reset the whole game: delete the OPFS save, re-create the world from
+     * scratch (no saved chunks), reset the blockhead + inventory + task queues,
+     * and write fresh state to the SAB. The render loop keeps running.
+     */
+    async resetGame(): Promise<{ ok: boolean; error?: string }> {
+      // Pause the sim while we tear down + rebuild
+      simControl?.pause();
 
-  getStats(): { fps: number; tick: number; frame: number } {
-    return { fps, tick: tickCount, frame: frameCount };
-  },
+      // Delete the OPFS save so the next boot starts fresh too
+      try {
+        await deleteSave();
+      } catch (e) {
+        console.warn("[blockheads-worker] resetGame: deleteSave failed:", e);
+        // Continue anyway — we can still reset the in-memory state
+      }
 
-  setFocus(x: number, y: number): void {
+      // Rebuild the world from scratch (no saved chunks)
+      try {
+        await setupWorld(false);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[blockheads-worker] resetGame: setupWorld failed:", e);
+        return { ok: false, error: msg };
+      }
+
+      // Resume
+      simControl?.resume();
+      return { ok: true };
+    },
+
+    async saveNow(): Promise<number> {
+      if (!world) return 0;
+      world.syncActiveForSave();
+      return saveDirtyChunks(world.allChunks());
+    },
+
+    // Debug: force a fruit spawn tick (F7 keybind). Rolls the fruit-spawn dice
+    // for all fruit-capable leaf blocks immediately, without waiting for the
+    // daily tick. Returns the number of fruit drops spawned.
+    forceFruitSpawn(): number {
+      if (!world) return 0;
+      const spawned = forceFruitSpawnTick(
+        world.activeBackground, tickCount,
+        ACTIVE_GRID_W, ACTIVE_GRID_H, drops,
+      );
+      // Write drops to SAB immediately so they appear even if the sim loop
+      // hasn't ticked yet (e.g. paused or between frames).
+      writeDropsToSab();
+      return spawned;
+    },
+
+    setFocus(x: number, y: number): void {
     if (!world) return;
     world.setFocus(x, y);
     world.checkRebuild();
@@ -1132,6 +1387,7 @@ expose({
     });
     const region = world.getMapRegion(centerCx);
     return encodeMapRegion(region);
+  },
   },
 });
 
@@ -1500,326 +1756,3 @@ function updateFocus(): void {
   world.setFocus(wx, wy);
 }
 
-async function loop(): Promise<void> {
-  if (!running) return;
-
-  try {
-    const now = performance.now();
-    const elapsed = now - lastTick;
-
-    if (elapsed >= TICK_MS) {
-      lastTick = now - (elapsed % TICK_MS);
-
-      if (!paused || stepOnce) {
-        tickAccumulator += (elapsed / TICK_MS) * speedMultiplier;
-        let steps = 0;
-        const maxSteps = stepOnce ? 1 : MAX_STEPS_PER_FRAME;
-
-        while (tickAccumulator >= 1 && steps < maxSteps) {
-          if (!world) break;
-
-          // Read input from SAB (direct control)
-          readInput();
-
-          // If the task queue has an active task, override input with the
-          // task's synthetic input (autonomous blockhead execution).
-          const queue = taskQueues[0];
-          if (queue && queue.length > 0) {
-            const task = queue[0];
-            // Handle CRAFT_AT task completion: queue the craft at the station
-            if (task.type === "CRAFT_AT" && task.status === "done" && task.recipeId) {
-              if (task.stationAx !== undefined && task.stationAy !== undefined) {
-                // Queue the craft at the station (ingredients consumed on job start)
-                const recipe = getRecipe(task.recipeId);
-                if (recipe) {
-                  const state = getOrCreateStationState(task.stationAx, task.stationAy);
-                  if (state) {
-                    const job: CraftJob = {
-                      id: nextJobId++,
-                      recipeId: task.recipeId,
-                      bhIndex: 0,
-                      elapsed: 0,
-                      status: "pending",
-                    };
-                    state.queue.push(job);
-                    packStationState(state, task.stationAx, task.stationAy);
-                  }
-                }
-              }
-              queue.shift();
-            }
-            // Remove completed/failed tasks from the front
-            if (task.status === "done" || task.status === "failed") {
-              queue.shift();
-            }
-            if (queue.length > 0) {
-              const current = queue[0];
-              const taskInput = executeTask(
-                blockheads[0], current, world.activeForeground, world.activeBackground,
-                world.getActiveOriginCx(), world.getActiveOriginCy(),
-                1 / TICK_RATE,
-              );
-              if (taskInput) {
-                // Override direct input with task input
-                input.left = taskInput.left;
-                input.right = taskInput.right;
-                input.up = taskInput.up;
-                input.down = taskInput.down;
-                input.jump = taskInput.jump;
-                input.noclip = false; // never noclip during tasks
-                input.mineX = taskInput.mineX;
-                input.mineY = taskInput.mineY;
-                input.placeX = taskInput.placeX;
-                input.placeY = taskInput.placeY;
-                input.placeBlockId = taskInput.placeBlockId;
-              }
-              // If executeTask returned null but task isn't done/failed,
-              // it means "use direct input" (e.g. MOVE_TO arrived). The task
-              // status was set to done, so it'll be shifted next tick.
-              if (current.status === "done" || current.status === "failed") {
-                queue.shift();
-              }
-            }
-          }
-
-          // Rebuild active grid if the focus has crossed a chunk boundary
-          updateFocus();
-          world.checkRebuild();
-          if (world.needsRebuild) {
-            // Save old origin before rebuild changes it
-            const oldOriginCx = world.getActiveOriginCx();
-            const oldOriginCy = world.getActiveOriginCy();
-            world.rebuildActiveGrid();
-            // Re-initialize fluid sim for the new active grid
-            initFluidSim(world.activeForeground);
-            // Clear station state cache (will be re-read from vfx on next access)
-            stationStates.clear();
-            // Clear crop tracking (ages are in active-grid coords, which shifted)
-            clearCropTracking();
-            // NOTE: do NOT reset lastTreeDay here. The tree daily sim is gated
-            // by the actual in-game day number (currentDay !== lastTreeDay), so
-            // it already runs exactly once per day. Resetting lastTreeDay to -1
-            // on every chunk crossing would trigger a bonus daily tick that:
-            //   1. Ages all existing fruit/seed drops by +1 (causing them to
-            //      fall/despawn prematurely — "drop the ones already on trees")
-            //   2. Spawns new fruit/seeds on newly-loaded leaves (which have no
-            //      drops since drops aren't saved to chunks)
-            // Sapling vfx (species + heights + days) IS saved to chunks, so
-            // saplings grow naturally on the next real day boundary.
-            // Invalidate all task path caches (grid shifted)
-            for (const queue of taskQueues) {
-              for (const task of queue) {
-                invalidatePath(task);
-              }
-            }
-            // Remap blockhead position from old active grid coords to new ones.
-            // The world shifted by (newOrigin - oldOrigin) * CHUNK_W blocks.
-            const dx = (world.getActiveOriginCx() - oldOriginCx) * 64;
-            const dy = (world.getActiveOriginCy() - oldOriginCy) * 64;
-            for (const bh of blockheads) {
-              bh.x = bh.x - dx;
-              bh.y = bh.y - dy;
-              // Clamp to valid range
-              bh.x = Math.max(0, Math.min(ACTIVE_GRID_W - BH_W, bh.x));
-              bh.y = Math.max(0, Math.min(ACTIVE_GRID_H - BH_H, bh.y));
-            }
-            // Remap drop positions (fruits/seeds/drops) to new active grid coords
-            for (let di = drops.length - 1; di >= 0; di--) {
-              const d = drops[di];
-              d.x = d.x - dx;
-              d.y = d.y - dy;
-              // Remove drops that are now out of bounds
-              if (d.x < 0 || d.x >= ACTIVE_GRID_W || d.y < 0 || d.y >= ACTIVE_GRID_H) {
-                drops.splice(di, 1);
-              }
-            }
-            // Active grid rebuilt → light field must be recomputed.
-            lightDirty = true;
-          }
-
-          // Step blockhead physics
-          const dt = 1 / TICK_RATE;
-          for (const bh of blockheads) {
-            updateBlockhead(bh, input, world.activeForeground, world.activeBackground, dt);
-          }
-
-          // Process mining + placing
-          processMining(dt);
-          processPlacing();
-
-          // Update world drops (physics + pickup by blockhead)
-          updateDrops(dt);
-
-          // Step stations (fuel depletion, craft queue advancement)
-          stepStations(dt);
-
-          // Process task effects (EAT, SLEEP)
-          processTaskEffects(dt);
-
-          // Update fog of war: mark cells near blockhead as explored
-          updateExplored();
-
-          // Step fluid simulation (CA water/lava flow)
-          stepFluidSim(world.activeForeground, world.currentTick);
-
-          // Step vine growth (vines climb trees/walls/trellis over time).
-          // Runs every VINE_GROWTH_INTERVAL ticks; marks light dirty if any
-          // vine extended into a new cell.
-          if (stepVineGrowth(
-            world.activeForeground, world.activeBackground,
-            world.currentTick, ACTIVE_GRID_W, ACTIVE_GRID_H,
-          )) {
-            lightDirty = true;
-          }
-
-          // Step crop growth (crops advance through stages, mushrooms spread,
-          // wild crops regrow, winter kills cold-sensitive crops).
-          if (stepCropGrowth(
-            world.activeForeground, world.activeBackground,
-            world.activeLight, world.currentTick,
-            getSeason(world.currentTick),
-            ACTIVE_GRID_W, ACTIVE_GRID_H,
-          )) {
-            lightDirty = true;
-          }
-
-          // Day/night cycle: 10-minute day (18000 ticks at 30tps).
-          // Daylight follows a sine wave: starts at noon (full daylight),
-          // transitions to night, then back to day.
-          // Light propagation is event-driven (not per-tick): mark the field
-          // dirty when the smooth daylight changes so the light field
-          // recomputes with continuous brightness (no integer stepping).
-          const dayPhase = (tickCount % 18000) / 18000; // 0..1
-          const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5; // 0..1, starts at 1
-          const daylightSmooth = daylightF * 15;
-          const daylight = Math.round(daylightSmooth);
-          if (Math.abs(daylightSmooth - lastLightDaylight) > 0.01) {
-            lightDirty = true;
-          }
-
-          // Tree life-cycle: runs once per in-game day (18000 ticks).
-          // Spawns fruit + seeds on leaves (as spinning 2D drop entities),
-          // ages/falls/scatters them, and grows saplings (paused in winter).
-          // Gated by lastTreeDay so it only runs once per day.
-          const currentDay = Math.floor(tickCount / 18000);
-          if (currentDay !== lastTreeDay) {
-            lastTreeDay = currentDay;
-            if (stepTreeDaily(
-              world.activeForeground, world.activeBackground,
-              world.activeVfx, tickCount, getSeason(world.currentTick),
-              ACTIVE_GRID_W, ACTIVE_GRID_H,
-              drops, world,
-            )) {
-              lightDirty = true;
-            }
-          }
-
-          // Step the simulation tick
-          world.currentTick++;
-
-          tickCount++;
-          steps++;
-          tickAccumulator -= 1;
-        }
-        stepOnce = false;
-
-        // Flush pickup notifications once per frame (batched across all ticks
-        // that ran this frame). Emits a single tiny event regardless of how
-        // many pickups occurred — keeps the worker→host channel quiet even
-        // during a 500-block mining burst.
-        if (tickPickups.size > 0) {
-          events.emit("pickups", Object.fromEntries(tickPickups));
-          tickPickups.clear();
-        }
-
-        // Write to SAB once per frame
-        if (steps > 0 && world && writer) {
-          // Compute current daylight for the header.
-          // `daylight` is the integer 0-15 level used by the per-cell light
-          // simulation (Minecraft-style light levels must be integers).
-          // `daylightSmooth` is the unrounded 0-15 value written to the SAB
-          // header so the sky pass can interpolate colors continuously
-          // instead of snapping between 16 discrete states.
-          const dayPhase = (tickCount % 18000) / 18000;
-          const daylightF = Math.sin(dayPhase * Math.PI * 2 + Math.PI / 2) * 0.5 + 0.5;
-          const daylightSmooth = daylightF * 15;
-          const daylight = Math.round(daylightSmooth);
-
-          // Recompute the light field if anything changed since last frame
-          // (block edit, emitter change, active-grid rebuild, or daylight
-          // change). Runs at most once per frame, only when dirty.
-          // Uses the smooth (unrounded) daylight so sky-light brightness
-          // transitions continuously instead of stepping through 16 levels.
-          if (lightDirty) {
-            recomputeLight(world.activeForeground, world.activeLight, daylightSmooth);
-            lightDirty = false;
-            lastLightDaylight = daylightSmooth;
-          }
-
-          // Compute mining VFX data for the header
-          let mineX = -1, mineY = -1, mineDamageF = 0;
-          if (mineTarget) {
-            mineX = mineTarget.x;
-            mineY = mineTarget.y;
-            const key = mineTarget.y * ACTIVE_GRID_W + mineTarget.x;
-            const dmg = mineDamage.get(key) ?? 0;
-            const def = getBlockDef(mineTarget.blockId);
-            const hardness = def ? Math.max(1, def.hardness) : 1;
-            mineDamageF = Math.min(1, dmg / hardness);
-          }
-
-          writer.writeGrid(world);
-          writeBlockheads();
-          writeDropsToSab();
-          writer.writeHeader(
-            tickCount,
-            world.getActiveOriginCx(),
-            world.getActiveOriginCy(),
-            blockheads.length,
-            daylightSmooth,
-            mineX,
-            mineY,
-            mineDamageF,
-            0, // selectedSlot (renderer-managed)
-            Math.min(drops.length, SAB_MAX_DROPS),
-          );
-        }
-      }
-    }
-
-    frameCount++;
-    fpsTimer += elapsed;
-    if (fpsTimer >= 1000) {
-      fps = Math.round((frameCount * 1000) / fpsTimer);
-      frameCount = 0;
-      fpsTimer = 0;
-    }
-
-    // Periodically save dirty chunks to OPFS.
-    // Guard against overlapping saves: if the previous save hasn't finished
-    // yet (OPFS can be slow), skip this cycle rather than risk two writes
-    // racing — the last writer would win and could drop chunks the other
-    // write had already persisted.
-    if (world && !autoSaveInFlight && now - lastSaveTime >= SAVE_INTERVAL_MS) {
-      lastSaveTime = now;
-      autoSaveInFlight = true;
-      // Sync the active grid back to chunks before saving — mining/placing/
-      // fluid/light/explored all modify the active grid directly, and the
-      // chunk arrays stay stale until a rebuild. Without this sync, saves
-      // write pre-edit chunk data and changes are lost on reload.
-      world.syncActiveForSave();
-      saveDirtyChunks(world.allChunks())
-        .catch((e) => {
-          console.warn("[blockheads-worker] Auto-save failed:", e);
-        })
-        .finally(() => {
-          autoSaveInFlight = false;
-        });
-    }
-
-    setTimeout(loop, 0);
-  } catch (e) {
-    console.error("[blockheads-worker] Loop error:", e);
-    setTimeout(loop, 0);
-  }
-}

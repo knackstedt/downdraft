@@ -8,10 +8,10 @@
 // the GPU — no JS loops on the main thread.
 // ============================================================================
 
-import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import { BaseWorkerHost } from "@downdraft/core";
 import {
-    createRenderBuffer,
-    RenderBufferReader,
+  createRenderBuffer,
+  RenderBufferReader,
 } from "../shared/render-buffer";
 
 type GridBuilderWorkerApi = {
@@ -20,60 +20,55 @@ type GridBuilderWorkerApi = {
   buildNow(): Promise<void>;
 };
 
-export class GridBuilderWorkerHost {
-  private renderSab: SharedArrayBuffer;
+export class GridBuilderWorkerHost extends BaseWorkerHost<GridBuilderWorkerApi> {
   private reader: RenderBufferReader;
-  private proxy: WorkerProxy<GridBuilderWorkerApi> | null = null;
-  private worker: Worker | null = null;
+  private simSab: SharedArrayBuffer | null = null;
   private started = false;
 
   constructor() {
-    this.renderSab = createRenderBuffer();
-    this.reader = new RenderBufferReader(this.renderSab as ArrayBufferLike);
+    const renderSab = createRenderBuffer();
+    super(renderSab);
+    this.reader = new RenderBufferReader(renderSab as ArrayBufferLike);
   }
 
   getRenderBuffer(): SharedArrayBuffer {
-    return this.renderSab;
+    return this.getSimBuffer();
   }
 
   getReader(): RenderBufferReader {
     return this.reader;
   }
 
-  async start(simSab: SharedArrayBuffer): Promise<void> {
-    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
-    // Vite only bundles worker modules when it sees this exact pattern.
-    // Assigning the URL to a variable first causes Vite to emit the worker
-    // as a raw unbundled asset (bare imports unresolved), breaking prod.
-    this.worker = new Worker(new URL("./grid-builder-worker.ts", import.meta.url), { type: "module" });
-    this.proxy = wrap<GridBuilderWorkerApi>(this.worker);
-
-    this.worker.onerror = (e: ErrorEvent) => {
-      console.error("[GridBuilderWorkerHost] Worker error:", e.message);
-    };
-
-    await this.proxy.proxy.init(simSab, this.renderSab);
-    this.started = true;
-  }
-
   isStarted(): boolean {
     return this.started;
   }
 
-  /** Force an immediate build (used for deterministic test mode). */
-  async buildNow(): Promise<void> {
-    await this.proxy?.proxy.buildNow();
+  protected createWorker(): Worker {
+    // CRITICAL: `new URL(...)` must be inlined directly inside `new Worker()` —
+    // Vite only bundles worker modules when it sees this exact pattern.
+    // Assigning the URL to a variable first causes Vite to emit the worker
+    // as a raw unbundled asset (bare imports unresolved), breaking prod.
+    return new Worker(new URL("./grid-builder-worker.ts", import.meta.url), { type: "module" });
   }
 
-  async shutdown(): Promise<void> {
-    if (this.proxy) {
-      try {
-        await this.proxy.proxy.shutdown();
-      } catch { /* ignore */ }
-      this.proxy.terminate();
-    }
-    this.worker = null;
-    this.proxy = null;
-    this.started = false;
+  protected async onInit(): Promise<void> {
+    if (!this.simSab) throw new Error("GridBuilderWorkerHost.start() requires simSab — call startWithSimSab()");
+    await this.getProxy()!.proxy.init(this.simSab, this.getSimBuffer());
+    this.started = true;
+  }
+
+  /**
+   * Spawn the worker and pass it the sim SAB + render SAB.
+   * Overrides BaseWorkerHost.start() because this host needs the sim SAB
+   * from the BlockheadsWorkerHost at startup.
+   */
+  async startWithSimSab(simSab: SharedArrayBuffer): Promise<void> {
+    this.simSab = simSab;
+    await this.start();
+  }
+
+  /** Force an immediate build (used for deterministic test mode). */
+  async buildNow(): Promise<void> {
+    await this.getProxy()?.proxy.buildNow();
   }
 }

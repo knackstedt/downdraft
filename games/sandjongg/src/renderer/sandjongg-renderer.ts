@@ -2,22 +2,20 @@
 // SandjonggRenderer — orchestrates the WebGPU sand pass + Canvas2D tile pass.
 // ============================================================================
 
-import { GPUDeviceManager } from "@downdraft/core";
+import { GameRenderer } from "@downdraft/core";
+import { MATERIALS } from "@downdraft/library-sand";
 import { computeGridDims, MAX_LAYERS, MAX_TILES } from "../shared/constants";
+import { getElement } from "../shared/elements";
 import { BOARD_ELEMENT_OFFSET, BOARD_META_OFFSET, SimBufferReader, STATS } from "../shared/sim-buffer";
+import type { DebugTileInfo } from "../shared/types";
 import { SandjonggWorkerHost } from "../simulation/sandjongg-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler, type InputHandler } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
 import { TileCanvasPass } from "./tile-canvas-pass";
 
-export class SandjonggRenderer {
-  private canvas: HTMLCanvasElement;
+export class SandjonggRenderer extends GameRenderer {
   private tileCanvas: HTMLCanvasElement;
-  private device: GPUDevice | null = null;
-  private deviceManager = new GPUDeviceManager();
-  private context: GPUCanvasContext | null = null;
-  private format: GPUTextureFormat = "bgra8unorm";
   private gridPass: SandGridPass | null = null;
   private tilePass: TileCanvasPass | null = null;
   private input: InputHandler | null = null;
@@ -25,32 +23,33 @@ export class SandjonggRenderer {
   private gridReader: SimBufferReader | null = null;
   private gridW = 0;
   private gridH = 0;
-  private running = false;
-  private raf = 0;
-  private lastTime = 0;
-  private frameCount = 0;
-  private fps = 0;
-  private fpsTimer = 0;
-  private resizeHandler: (() => void) | null = null;
   private storeUnsub: (() => void) | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private prevBoardCols = 0;
   private prevBoardRows = 0;
+  // Last option values pushed to the worker.
+  private prevNoAdjacent = false;
+  private prevCustomCols = 0;
+  private prevCustomRows = 0;
   // Cached SAB views to avoid per-frame allocations.
   private cachedBoardElements: Int32Array | null = null;
   private cachedBoardMeta: Int32Array | null = null;
   private cachedUniformBuf: Float32Array = new Float32Array(4);
-  // Frame rate cap — the renderer doesn't need to run faster than 60fps.
-  private static readonly MIN_FRAME_MS = 1000 / 60;
-  private lastFrameTime = 0;
 
   constructor(canvas: HTMLCanvasElement, tileCanvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+    super(canvas, {
+      mode: "2d",
+      clearColor: { r: 0.04, g: 0.04, b: 0.07, a: 1 },
+    });
+    // 2D mode with viewportCount=0: we do custom rendering in afterFrame.
+    this.setViewportCount(0);
     this.tileCanvas = tileCanvas;
+    // The renderer doesn't need to run faster than 60fps.
+    this.setFrameRateLimit(60);
   }
 
-  getFPS(): number { return this.fps; }
-  getCanvas(): HTMLCanvasElement { return this.canvas; }
+  getFPS(): number { return super.getFPS(); }
+  getCanvas(): HTMLCanvasElement { return super.getCanvas(); }
   getGridW(): number { return this.gridW; }
   getGridH(): number { return this.gridH; }
   getWorkerHost(): SandjonggWorkerHost | null { return this.workerHost; }
@@ -78,28 +77,20 @@ export class SandjonggRenderer {
   }
 
   async init(): Promise<boolean> {
-    this.device = await this.deviceManager.requestDevice();
-    if (!this.device) return false;
-    this.context = this.canvas.getContext("webgpu") as GPUCanvasContext;
-    if (!this.context) return false;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "opaque",
-    });
+    const ok = await super.init();
+    if (!ok) return false;
+
+    const device = this.getDevice()!;
+    const format = this.getFormat();
+    const canvas = this.getCanvas();
 
     this.input = createInputHandler(this.tileCanvas);
 
-    this.resizeCanvas();
-    const dims = computeGridDims(this.canvas.width, this.canvas.height);
+    const dims = computeGridDims(canvas.width, canvas.height);
     this.gridW = dims.w;
     this.gridH = dims.h;
 
-    this.resizeHandler = () => this.handleResize();
-    window.addEventListener("resize", this.resizeHandler);
-
-    this.gridPass = new SandGridPass(this.device, this.format, this.gridW, this.gridH);
+    this.gridPass = new SandGridPass(device, format, this.gridW, this.gridH);
     this.gridPass.init();
 
     this.tilePass = new TileCanvasPass(this.tileCanvas);
@@ -109,8 +100,14 @@ export class SandjonggRenderer {
     await this.workerHost.start();
     this.gridReader = this.workerHost.getReader();
 
+    // Push initial generation options to the worker.
+    this.pushOptions();
+
     // Subscribe to store for hint/clear actions.
     this.storeUnsub = useGameStore.subscribe((s) => {
+      // Push generation option changes to the worker first so any subsequent
+      // new-game action generates with the new options.
+      this.pushOptions();
       if (s._pendingHint) {
         this.workerHost?.requestHint();
         useGameStore.getState()._setPendingHint(false);
@@ -118,6 +115,13 @@ export class SandjonggRenderer {
       if (s._pendingShuffle) {
         this.workerHost?.requestShuffle();
         useGameStore.getState()._setPendingShuffle(false);
+      }
+      if (s._pendingApplyDims) {
+        // Custom dims changed — regenerate the current level with the new size.
+        this.workerHost?.requestNewGame(s.level);
+        useGameStore.getState()._setPendingApplyDims(false);
+        // Reset pan so the new board is centered.
+        this.tilePass?.resetPan();
       }
       if (s._pendingNewGame) {
         // Distinguish advance (keep score) from restart (reset score).
@@ -127,10 +131,12 @@ export class SandjonggRenderer {
         // is only for the toolbar "Restart" button which uses requestNewGame.
         this.workerHost?.requestNewGame(s._pendingNewGameLevel);
         useGameStore.getState()._setPendingNewGame(0);
+        this.tilePass?.resetPan();
       }
       if (s._pendingAdvance) {
         this.workerHost?.requestAdvance(s._pendingAdvanceLevel);
         useGameStore.getState()._setPendingAdvance(0);
+        this.tilePass?.resetPan();
       }
       if (s._pendingClearSand) {
         this.workerHost?.requestClearSand();
@@ -161,21 +167,25 @@ export class SandjonggRenderer {
         const s = useGameStore.getState();
         this.workerHost?.requestNewGame(s.level);
       }
+      if (e.key === "`" || e.key === "~") {
+        // Toggle debug mode (backtick key).
+        useGameStore.getState().toggleDebugMode();
+      }
     };
     window.addEventListener("keydown", this.keydownHandler);
 
     // Listen for worker events (match results, hints, dead-ends).
     this.workerHost.onEvents((kind: string, data?: unknown) => {
       if (kind === "matched" && this.tilePass && data) {
-        const d = data as { score: number; combo: number; path: { points: { col: number; row: number; layer: number }[]; turns: number }; element?: number };
-        // Trigger path animation.
-        // We need the element — get it from the first tile in the path.
-        const startPt = d.path.points[0];
-        const el = this.tilePass.state.boardElements[(startPt.col + startPt.row * this.tilePass.state.boardCols) * MAX_LAYERS + (startPt.layer ?? 0)];
+        const d = data as { score: number; combo: number; path: { points: { col: number; row: number; layer: number }[]; turns: number }; element: number };
+        // The worker includes the element in the event (the tiles are already
+        // removed from the board by the time we receive this, so we can't look
+        // it up from the cached board state).
+        const el = d.element;
         this.tilePass.state.pathAnim = {
           path: d.path,
           startTime: performance.now(),
-          element: el >= 0 ? el : 0,
+          element: el,
         };
         // Trigger crumble animations for the two matched tiles.
         const pts = d.path.points;
@@ -185,9 +195,27 @@ export class SandjonggRenderer {
           { col: first.col, row: first.row, element: el, startTime: performance.now() },
           { col: last.col, row: last.row, element: el, startTime: performance.now() },
         );
-        // Update store score.
+        // Spawn sand at the exact on-screen rect of each matched tile. The
+        // renderer knows the precise pixel position (including per-layer 3D
+        // offset) at match time — this avoids the rounding drift of the old
+        // generic layout-sync approach.
+        this.spawnSandForTile(first.col, first.row, first.layer ?? 0, el);
+        this.spawnSandForTile(last.col, last.row, last.layer ?? 0, el);
+        // Update store score + combo (with timestamp for the HUD countdown).
+        const now = performance.now();
         useGameStore.getState().addScore(d.score);
-        useGameStore.getState().setCombo(d.combo);
+        useGameStore.getState().setComboWithTime(d.combo, now);
+        // Floating "+score" popup at the path midpoint so the player sees
+        // immediately how many points a connection earned.
+        const midIdx = Math.floor(pts.length / 2);
+        const midPt = pts[midIdx] ?? first;
+        this.tilePass.state.scoreAnims.push({
+          col: midPt.col,
+          row: midPt.row,
+          score: d.score,
+          combo: d.combo,
+          startTime: now,
+        });
       }
       if (kind === "hint" && this.tilePass && data) {
         const d = data as { a: { col: number; row: number; layer: number }; b: { col: number; row: number; layer: number }; element: number };
@@ -230,17 +258,13 @@ export class SandjonggRenderer {
       }
     });
 
-    return true;
-  }
+    // Wire the afterFrame callback for custom 2D rendering.
+    this.setCallbacks({
+      afterFrame: (dt) => this.drawFrame(dt),
+      onResize: () => this.handleResize(),
+    });
 
-  private resizeCanvas(): void {
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.floor(window.innerWidth * dpr);
-    const h = Math.floor(window.innerHeight * dpr);
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
-    }
+    return true;
   }
 
   private resizeTileCanvas(): void {
@@ -257,10 +281,10 @@ export class SandjonggRenderer {
   }
 
   private handleResize(): void {
-    if (!this.device || !this.gridPass || !this.workerHost) return;
-    this.resizeCanvas();
+    if (!this.gridPass || !this.workerHost) return;
     this.resizeTileCanvas();
-    const dims = computeGridDims(this.canvas.width, this.canvas.height);
+    const canvas = this.getCanvas();
+    const dims = computeGridDims(canvas.width, canvas.height);
     if (dims.w === this.gridW && dims.h === this.gridH) return;
     this.gridW = dims.w;
     this.gridH = dims.h;
@@ -268,57 +292,53 @@ export class SandjonggRenderer {
     this.workerHost.resize(this.gridW, this.gridH);
   }
 
-  start(): void {
-    if (this.running) return;
-    this.running = true;
-    this.lastTime = performance.now();
-    this.raf = requestAnimationFrame((t) => this.frame(t));
-  }
-
   stop(): void {
-    this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
+    super.stop();
     this.workerHost?.stop();
-    if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
     if (this.storeUnsub) this.storeUnsub();
     if (this.keydownHandler) window.removeEventListener("keydown", this.keydownHandler);
     this.input?.destroy();
+    this.destroy();
   }
 
-  private frame(time: number): void {
-    if (!this.running || !this.device || !this.context || !this.input || !this.gridReader || !this.gridPass || !this.tilePass) return;
+  private drawFrame(dt: number): void {
+    const device = this.getDevice();
+    const context = this.getContext();
+    if (!device || !context || !this.input || !this.gridReader || !this.gridPass || !this.tilePass) return;
 
-    // Frame rate cap — don't render faster than 60fps to avoid burning CPU.
-    if (time - this.lastFrameTime < SandjonggRenderer.MIN_FRAME_MS) {
-      this.raf = requestAnimationFrame((t) => this.frame(t));
-      return;
-    }
-    this.lastFrameTime = time;
-
-    const dt = Math.min(0.1, (time - this.lastTime) / 1000);
-    this.lastTime = time;
-    this.frameCount++;
-    this.fpsTimer += dt;
-    if (this.fpsTimer >= 1) {
-      this.fps = this.frameCount;
-      this.frameCount = 0;
-      this.fpsTimer = 0;
+    // Process pan input (right/middle-drag) before clicks so a pan drag never
+    // registers as a tile click.
+    if (this.input.panDeltaX !== 0 || this.input.panDeltaY !== 0) {
+      const { dx, dy } = this.input.consumePanDelta();
+      if (dx !== 0 || dy !== 0) {
+        this.tilePass.applyPan(dx, dy);
+        this.tilePass.computeLayout(this.tileCanvas.width, this.tileCanvas.height);
+      }
     }
 
-    // Process click input.
+    // Process click input (left button only — pan buttons are consumed above).
     if (this.input.hasClick) {
       this.input.hasClick = false;
       const hit = this.tilePass.hitTest(this.input.mouseX, this.input.mouseY);
-      if (hit) {
+      // Debug mode: capture tile info instead of selecting/matching.
+      const dbg = useGameStore.getState();
+      if (dbg.debugMode) {
+        this.handleDebugClick(hit);
+      } else if (hit) {
         const el = this.tilePass.state.boardElements[(hit.col + hit.row * this.tilePass.state.boardCols) * MAX_LAYERS + hit.layer];
         if (el >= 0) {
-          // Tile click — handle selection logic.
-          if (this.tilePass.state.selected === null) {
+          const sel = this.tilePass.state.selected;
+          if (sel === null) {
             // First selection.
             this.tilePass.state.selected = hit;
+          } else if (sel.col === hit.col && sel.row === hit.row && sel.layer === hit.layer) {
+            // Clicked the already-selected tile → deselect (no red flash).
+            this.tilePass.state.selected = null;
+          } else if (sel.layer !== hit.layer) {
+            // Clicked a tile on a different layer → deselect (no red flash).
+            this.tilePass.state.selected = null;
           } else {
-            // Second selection — attempt match.
-            const sel = this.tilePass.state.selected;
+            // Same layer, different tile → attempt match.
             this.tilePass.state.selected = null;
             this.workerHost?.requestMatch(sel.col, sel.row, sel.layer, hit.col, hit.row, hit.layer);
           }
@@ -339,8 +359,15 @@ export class SandjonggRenderer {
     if (this.tilePass.state.boardCols !== this.prevBoardCols || this.tilePass.state.boardRows !== this.prevBoardRows) {
       this.prevBoardCols = this.tilePass.state.boardCols;
       this.prevBoardRows = this.tilePass.state.boardRows;
+      this.tilePass.resetPan();
       this.tilePass.computeLayout(this.tileCanvas.width, this.tileCanvas.height);
     }
+
+    // Sync debug tile highlight from the store.
+    const dbgTile = useGameStore.getState().debugTile;
+    this.tilePass.state.debugTile = dbgTile
+      ? { col: dbgTile.col, row: dbgTile.row, layer: dbgTile.layer }
+      : null;
 
     // Draw tiles on Canvas2D.
     this.tilePass.draw();
@@ -349,10 +376,10 @@ export class SandjonggRenderer {
     this.gridPass.updateGrid(this.gridReader.getGrid());
     this.gridPass.updateUniforms();
 
-    const commandEncoder = this.device.createCommandEncoder();
+    const commandEncoder = device.createCommandEncoder();
     const pass = commandEncoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
+        view: context.getCurrentTexture().createView(),
         clearValue: { r: 0.04, g: 0.04, b: 0.07, a: 1 },
         loadOp: "clear",
         storeOp: "store",
@@ -360,12 +387,10 @@ export class SandjonggRenderer {
     });
     this.gridPass.render(pass);
     pass.end();
-    this.device.queue.submit([commandEncoder.finish()]);
+    device.queue.submit([commandEncoder.finish()]);
 
     // Update store stats from SAB.
     this.updateStatsFromSAB();
-
-    this.raf = requestAnimationFrame((t) => this.frame(t));
   }
 
   private updateBoardFromSAB(): void {
@@ -401,5 +426,104 @@ export class SandjonggRenderer {
     if (level !== s.level) s.setLevel(level);
     s.setTilesLeft(tilesLeft);
     s.setLastStatsUpdate(performance.now());
+  }
+
+  /** Debug mode click handler — captures full tile info and pushes it to the
+   *  store so the debug panel can display it. */
+  private handleDebugClick(hit: { col: number; row: number; layer: number } | null): void {
+    if (!hit || !this.tilePass) {
+      useGameStore.getState().setDebugTile(null);
+      return;
+    }
+    const { boardElements, boardCols, boardRows } = this.tilePass.state;
+    const idx = (hit.col + hit.row * boardCols) * MAX_LAYERS + hit.layer;
+    const el = boardElements[idx];
+    if (el < 0) {
+      useGameStore.getState().setDebugTile(null);
+      return;
+    }
+    const elDef = getElement(el);
+    const matDef = MATERIALS[elDef.sandMaterial];
+    const rect = this.tilePass.tileRect(hit.col, hit.row, hit.layer);
+    const canvas = this.getCanvas();
+    const canvasW = canvas.width;
+    const canvasH = canvas.height;
+    // Sand-grid coords (same conversion as spawnSandForTile).
+    const sandCol = (rect.x * this.gridW) / canvasW;
+    const sandRow = (rect.y * this.gridH) / canvasH;
+    const sandW = (rect.w * this.gridW) / canvasW;
+    const sandH = (rect.h * this.gridH) / canvasH;
+    // Neighbors (same layer).
+    const neighborEl = (c: number, r: number): number => {
+      if (c < 0 || c >= boardCols || r < 0 || r >= boardRows) return -1;
+      return boardElements[(c + r * boardCols) * MAX_LAYERS + hit.layer];
+    };
+    // Topmost = no tile above this one in a higher layer.
+    let isTopmost = true;
+    for (let l = hit.layer + 1; l < MAX_LAYERS; l++) {
+      if (boardElements[(hit.col + hit.row * boardCols) * MAX_LAYERS + l] >= 0) {
+        isTopmost = false;
+        break;
+      }
+    }
+    const info: DebugTileInfo = {
+      col: hit.col,
+      row: hit.row,
+      layer: hit.layer,
+      element: el,
+      elementName: elDef.name,
+      elementColor: elDef.color,
+      glyph: elDef.glyph,
+      sandMaterialId: elDef.sandMaterial,
+      sandMaterialName: matDef?.name ?? `Material#${elDef.sandMaterial}`,
+      screenX: rect.x,
+      screenY: rect.y,
+      screenW: rect.w,
+      screenH: rect.h,
+      sandCol,
+      sandRow,
+      sandW,
+      sandH,
+      neighbors: {
+        n: neighborEl(hit.col, hit.row - 1),
+        s: neighborEl(hit.col, hit.row + 1),
+        e: neighborEl(hit.col + 1, hit.row),
+        w: neighborEl(hit.col - 1, hit.row),
+      },
+      isTopmost,
+    };
+    useGameStore.getState().setDebugTile(info);
+  }
+
+  /** Spawn sand at the exact on-screen rect of a tile. Converts the tile's
+   *  canvas-px rect (including per-layer 3D offset) to sand-grid coordinates
+   *  and calls the worker's spawnSand RPC. */
+  private spawnSandForTile(col: number, row: number, layer: number, element: number): void {
+    if (!this.tilePass || !this.workerHost || this.gridW === 0 || this.gridH === 0) return;
+    const canvas = this.getCanvas();
+    const canvasW = canvas.width;
+    const canvasH = canvas.height;
+    if (canvasW === 0 || canvasH === 0) return;
+    const rect = this.tilePass.tileRect(col, row, layer);
+    const sandCol = (rect.x * this.gridW) / canvasW;
+    const sandRow = (rect.y * this.gridH) / canvasH;
+    const sandW = (rect.w * this.gridW) / canvasW;
+    const sandH = (rect.h * this.gridH) / canvasH;
+    this.workerHost.spawnSand(sandCol, sandRow, sandW, sandH, element);
+  }
+
+  /** Push generation options (no-adjacent, custom dims) to the worker when they change. */
+  private pushOptions(): void {
+    if (!this.workerHost) return;
+    const s = useGameStore.getState();
+    if (s.noAdjacentSame !== this.prevNoAdjacent) {
+      this.prevNoAdjacent = s.noAdjacentSame;
+      this.workerHost.setNoAdjacentSame(s.noAdjacentSame);
+    }
+    if (s.customCols !== this.prevCustomCols || s.customRows !== this.prevCustomRows) {
+      this.prevCustomCols = s.customCols;
+      this.prevCustomRows = s.customRows;
+      this.workerHost.setCustomDims(s.customCols, s.customRows);
+    }
   }
 }

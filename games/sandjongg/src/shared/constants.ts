@@ -20,9 +20,12 @@ export const PIT_ROWS = 80;
 // Thickness of the pit walls (in sand cells).
 export const WALL_THICKNESS = 2;
 
-// Max board dimensions (in tiles).
-export const MAX_COLS = 24;
-export const MAX_ROWS = 16;
+// Max board dimensions (in tiles). Raised to support custom large boards
+// (the cols/rows sliders in the settings panel). The sand-grid footprint is
+// synced from the renderer's visual layout, so larger boards pan within the
+// viewport rather than overflowing the sand grid.
+export const MAX_COLS = 48;
+export const MAX_ROWS = 32;
 
 // Maximum number of tile layers (stacked tiles in Mahjongg style).
 export const MAX_LAYERS = 5;

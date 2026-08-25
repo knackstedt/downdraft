@@ -14,7 +14,7 @@
 //   - set_test_state: sim speed, pause/resume, render control
 // ============================================================================
 
-import { downdraft } from "@downdraft/app/renderer";
+import { createMcpHarness, downdraft } from "@downdraft/app/renderer";
 import type { BlockheadsRenderer } from "../renderer/blockheads-renderer";
 import type { BlockheadsInputState } from "../renderer/input-handler";
 import { getItemDef } from "../shared/items";
@@ -814,56 +814,8 @@ function createAutomationTools(ctx: {
 
 export function setupBlockheadsMcp(renderer: () => BlockheadsRenderer | null): void {
   const tools = createAutomationTools({ renderer });
-
-  const handleRequest = async (req: McpRequest): Promise<McpResponse> => {
-    const { id, method, params = {} } = req;
-    try {
-      if (method === "initialize") {
-        return {
-          id,
-          result: {
-            protocolVersion: "2024-11-05",
-            capabilities: { tools: {}, resources: {}, prompts: {} },
-            serverInfo: { name: "downdraft-overburden-automation", version: "0.1.0" },
-          },
-        };
-      }
-      if (method === "tools/list") {
-        return {
-          id,
-          result: {
-            tools: tools.map((t) => ({
-              name: t.def.name,
-              description: t.def.description,
-              inputSchema: t.def.inputSchema,
-            })),
-          },
-        };
-      }
-      if (method === "tools/call") {
-        const name = params.name as string;
-        const args = (params.arguments as Record<string, unknown>) ?? {};
-        const tool = tools.find((t) => t.def.name === name);
-        if (!tool) {
-          return { id, error: { code: -32602, message: `Unknown tool: ${name}` } };
-        }
-        const result = await tool.handler(args);
-        return { id, result };
-      }
-      if (method === "shutdown") {
-        return { id, result: {} };
-      }
-      return { id, error: { code: -32601, message: `Method not found: ${method}` } };
-    } catch (e) {
-      return { id, error: { code: -32603, message: (e as Error).message } };
-    }
-  };
-
-  if (!downdraft?.isAvailable || typeof downdraft.onMcpRequest !== "function") {
-    downdraft?.log?.("warn", "[MCP] Electron bridge or onMcpRequest not available; automation harness disabled");
-    return;
-  }
-
-  downdraft.onMcpRequest(async (request) => handleRequest(request as McpRequest));
-  downdraft.log("info", `[MCP] Overburden automation harness registered; tools: ${tools.map((t) => t.def.name).join(", ")}`);
+  createMcpHarness({
+    serverName: "downdraft-overburden-automation",
+    tools,
+  });
 }

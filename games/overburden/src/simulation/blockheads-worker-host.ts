@@ -6,7 +6,7 @@
 // the active grid + stats from the SAB.
 // ============================================================================
 
-import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import { BaseWorkerHost } from "@downdraft/core";
 import { decodeMapRegion, type MapRegionData } from "../shared/map-buffer";
 import type { CraftStation } from "../shared/recipes";
 import { createSimBuffer, SimBufferReader } from "../shared/sim-buffer";
@@ -71,29 +71,18 @@ type BlockheadsWorkerApi = {
   getMapRegion(centerCx: number): Promise<ArrayBuffer>;
 };
 
-export class BlockheadsWorkerHost {
-  private sab: SharedArrayBuffer;
+export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
   private reader: SimBufferReader;
-  private proxy: WorkerProxy<BlockheadsWorkerApi> | null = null;
-  private worker: Worker | null = null;
-  private ready = false;
   private pickupListener: ((data: Record<string, number>) => void) | null = null;
 
   constructor() {
-    this.sab = createSimBuffer();
-    this.reader = new SimBufferReader(this.sab as ArrayBufferLike);
-  }
-
-  getSimBuffer(): SharedArrayBuffer {
-    return this.sab;
+    const sab = createSimBuffer();
+    super(sab);
+    this.reader = new SimBufferReader(sab as ArrayBufferLike);
   }
 
   getReader(): SimBufferReader {
     return this.reader;
-  }
-
-  isReady(): boolean {
-    return this.ready;
   }
 
   /**
@@ -106,27 +95,24 @@ export class BlockheadsWorkerHost {
     this.pickupListener = cb;
   }
 
-  async start(): Promise<void> {
-    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+  protected createWorker(): Worker {
+    // CRITICAL: `new URL(...)` must be inlined directly inside `new Worker()` —
     // Vite only bundles worker modules when it sees this exact pattern.
     // Assigning the URL to a variable first causes Vite to emit the worker
     // as a raw unbundled asset (bare imports unresolved), breaking prod.
-    this.worker = new Worker(new URL("./blockheads-worker.ts", import.meta.url), { type: "module" });
-    this.proxy = wrap<BlockheadsWorkerApi>(this.worker);
+    return new Worker(new URL("./blockheads-worker.ts", import.meta.url), { type: "module" });
+  }
 
-    this.worker.onerror = (e: ErrorEvent) => {
-      console.error("[BlockheadsWorkerHost] Worker error:", e.message);
-    };
+  protected async onInit(): Promise<void> {
+    await this.getProxy()!.proxy.init(this.getSimBuffer());
+  }
 
-    this.proxy.onEvents((kind: string, data: any) => {
-      if (kind === "ready") {
-        this.ready = true;
-      } else if (kind === "pickups" && this.pickupListener && data) {
-        this.pickupListener(data as Record<string, number>);
-      }
-    });
-
-    await this.proxy.proxy.init(this.sab);
+  protected onEvent(kind: string, data?: unknown): void {
+    if (kind === "ready") {
+      this.ready = true;
+    } else if (kind === "pickups" && this.pickupListener && data) {
+      this.pickupListener(data as Record<string, number>);
+    }
   }
 
   /**
@@ -135,120 +121,110 @@ export class BlockheadsWorkerHost {
    * stays alive — only the simulation state is rebuilt.
    */
   async resetGame(): Promise<{ ok: boolean; error?: string }> {
-    if (!this.proxy) return { ok: false, error: "Worker not started" };
-    return this.proxy.proxy.resetGame();
+    const proxy = this.getProxy();
+    if (!proxy) return { ok: false, error: "Worker not started" };
+    return proxy.proxy.resetGame();
   }
 
   async pause(): Promise<void> {
-    await this.proxy?.proxy.pause();
+    await this.getProxy()?.proxy.pause();
   }
 
   async resume(): Promise<void> {
-    await this.proxy?.proxy.resume();
+    await this.getProxy()?.proxy.resume();
   }
 
   async setSpeed(speed: number): Promise<void> {
-    await this.proxy?.proxy.setSpeed(speed);
+    await this.getProxy()?.proxy.setSpeed(speed);
   }
 
   async forceFruitSpawn(): Promise<number> {
-    return await this.proxy?.proxy.forceFruitSpawn() ?? 0;
-  }
-
-  async shutdown(): Promise<void> {
-    if (this.proxy) {
-      try {
-        await this.proxy.proxy.shutdown();
-      } catch { /* ignore */ }
-      this.proxy.terminate();
-    }
-    this.worker = null;
-    this.proxy = null;
-    this.ready = false;
+    return await this.getProxy()?.proxy.forceFruitSpawn() ?? 0;
   }
 
   async saveNow(): Promise<number> {
-    if (!this.proxy) return 0;
-    return this.proxy.proxy.saveNow();
+    const proxy = this.getProxy();
+    if (!proxy) return 0;
+    return proxy.proxy.saveNow();
   }
 
   async setFocus(x: number, y: number): Promise<void> {
-    await this.proxy?.proxy.setFocus(x, y);
+    await this.getProxy()?.proxy.setFocus(x, y);
   }
 
   async setBlock(x: number, y: number, blockId: number): Promise<void> {
-    await this.proxy?.proxy.setBlock(x, y, blockId);
+    await this.getProxy()?.proxy.setBlock(x, y, blockId);
   }
 
   async getBlock(x: number, y: number): Promise<number> {
-    return await this.proxy?.proxy.getBlock(x, y) ?? 0;
+    return await this.getProxy()?.proxy.getBlock(x, y) ?? 0;
   }
 
   async getStats(): Promise<{ fps: number; tick: number; frame: number }> {
-    return await this.proxy?.proxy.getStats() ?? { fps: 0, tick: 0, frame: 0 };
+    return await this.getProxy()?.proxy.getStats() ?? { fps: 0, tick: 0, frame: 0 };
   }
 
   async getWorldStats(): Promise<{ loadedChunks: number; activeChunks: number; tick: number }> {
-    return await this.proxy?.proxy.getWorldStats() ?? { loadedChunks: 0, activeChunks: 0, tick: 0 };
+    return await this.getProxy()?.proxy.getWorldStats() ?? { loadedChunks: 0, activeChunks: 0, tick: 0 };
   }
 
   // --- Inventory + crafting ---
   async getInventory(bhIndex: number = 0): Promise<InventorySlot[]> {
-    return await this.proxy?.proxy.getInventory(bhIndex) ?? [];
+    return await this.getProxy()?.proxy.getInventory(bhIndex) ?? [];
   }
 
   async craft(recipeId: string, stationAx: number = -1, stationAy: number = -1, bhIndex: number = 0): Promise<{ ok: boolean; error?: string; jobId?: number }> {
-    return await this.proxy?.proxy.craft(recipeId, stationAx, stationAy, bhIndex) ?? { ok: false, error: "Worker not ready" };
+    return await this.getProxy()?.proxy.craft(recipeId, stationAx, stationAy, bhIndex) ?? { ok: false, error: "Worker not ready" };
   }
 
   async getRecipes(station?: CraftStation): Promise<{ id: string; name: string; station: CraftStation }[]> {
-    return await this.proxy?.proxy.getRecipes(station) ?? [];
+    return await this.getProxy()?.proxy.getRecipes(station) ?? [];
   }
 
   async giveItem(itemId: string, count: number = 1, bhIndex: number = 0): Promise<{ ok: boolean; added: number }> {
-    return await this.proxy?.proxy.giveItem(itemId, count, bhIndex) ?? { ok: false, added: 0 };
+    return await this.getProxy()?.proxy.giveItem(itemId, count, bhIndex) ?? { ok: false, added: 0 };
   }
 
   async setInventory(slots: unknown, bhIndex: number = 0): Promise<{ ok: boolean }> {
-    return await this.proxy?.proxy.setInventory(slots, bhIndex) ?? { ok: false };
+    return await this.getProxy()?.proxy.setInventory(slots, bhIndex) ?? { ok: false };
   }
 
   async moveSlot(from: number, to: number, bhIndex: number = 0): Promise<{ ok: boolean }> {
-    return await this.proxy?.proxy.moveSlot(from, to, bhIndex) ?? { ok: false };
+    return await this.getProxy()?.proxy.moveSlot(from, to, bhIndex) ?? { ok: false };
   }
 
   // --- Station crafting ---
   async getCraftQueue(stationAx: number, stationAy: number): Promise<CraftQueueSummary> {
-    return await this.proxy?.proxy.getCraftQueue(stationAx, stationAy) ?? { fuel: 0, activeJob: null, queue: [] };
+    return await this.getProxy()?.proxy.getCraftQueue(stationAx, stationAy) ?? { fuel: 0, activeJob: null, queue: [] };
   }
 
   async addFuel(stationAx: number, stationAy: number, itemId: string, count: number = 1, bhIndex: number = 0): Promise<{ ok: boolean; error?: string }> {
-    return await this.proxy?.proxy.addFuel(stationAx, stationAy, itemId, count, bhIndex) ?? { ok: false, error: "Worker not ready" };
+    return await this.getProxy()?.proxy.addFuel(stationAx, stationAy, itemId, count, bhIndex) ?? { ok: false, error: "Worker not ready" };
   }
 
   async rushCraft(stationAx: number, stationAy: number, jobId: number, bhIndex: number = 0): Promise<{ ok: boolean; error?: string }> {
-    return await this.proxy?.proxy.rushCraft(stationAx, stationAy, jobId, bhIndex) ?? { ok: false, error: "Worker not ready" };
+    return await this.getProxy()?.proxy.rushCraft(stationAx, stationAy, jobId, bhIndex) ?? { ok: false, error: "Worker not ready" };
   }
 
   async abortCraft(stationAx: number, stationAy: number, jobId: number): Promise<{ ok: boolean }> {
-    return await this.proxy?.proxy.abortCraft(stationAx, stationAy, jobId) ?? { ok: false };
+    return await this.getProxy()?.proxy.abortCraft(stationAx, stationAy, jobId) ?? { ok: false };
   }
 
   // --- Task queue ---
   async queueTask(type: TaskType, opts: TaskOpts, bhIndex: number = 0): Promise<{ ok: boolean; taskId: number; duplicate: boolean }> {
-    return await this.proxy?.proxy.queueTask(type, opts, bhIndex) ?? { ok: false, taskId: -1, duplicate: false };
+    return await this.getProxy()?.proxy.queueTask(type, opts, bhIndex) ?? { ok: false, taskId: -1, duplicate: false };
   }
 
   async getTasks(bhIndex: number = 0): Promise<TaskSummary[]> {
-    return await this.proxy?.proxy.getTasks(bhIndex) ?? [];
+    return await this.getProxy()?.proxy.getTasks(bhIndex) ?? [];
   }
 
   async clearTasks(bhIndex: number = 0): Promise<{ ok: boolean }> {
-    return await this.proxy?.proxy.clearTasks(bhIndex) ?? { ok: false };
+    return await this.getProxy()?.proxy.clearTasks(bhIndex) ?? { ok: false };
   }
 
   async cancelTask(type: TaskType, targetX: number, targetY: number, bhIndex: number = 0): Promise<{ ok: boolean }> {
-    return await this.proxy?.proxy.cancelTask(type, targetX, targetY, bhIndex) ?? { ok: false };
+    return await this.getProxy()?.proxy.cancelTask(type, targetX, targetY, bhIndex) ?? { ok: false };
   }
 
   /**
@@ -259,7 +235,7 @@ export class BlockheadsWorkerHost {
    * cloned across the worker boundary.
    */
   async getMapRegion(centerCx: number): Promise<MapRegionData | null> {
-    const buf = await this.proxy?.proxy.getMapRegion(centerCx);
+    const buf = await this.getProxy()?.proxy.getMapRegion(centerCx);
     if (!buf) return null;
     return decodeMapRegion(buf);
   }

@@ -104,4 +104,46 @@ describe("level-generator", () => {
     }
     expect(diff).toBe(true);
   });
+
+  it("noAdjacentSame avoids orthogonal same-element neighbours", () => {
+    // Use a large enough level that many pairs get placed, across several seeds.
+    let anyAdjacent = false;
+    for (let seed = 1; seed <= 8; seed++) {
+      const { board } = generateLevel(8, seed, { noAdjacentSame: true });
+      for (let l = 0; l < board.maxLayers; l++) {
+        for (let r = 0; r < board.rows; r++) {
+          for (let c = 0; c < board.cols; c++) {
+            const t = board.at(c, r, l);
+            if (!t) continue;
+            const neighbours = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+            for (const [dx, dy] of neighbours) {
+              const n = board.at(c + dx, r + dy, l);
+              if (n && n.element === t.element) { anyAdjacent = true; }
+            }
+          }
+        }
+      }
+    }
+    expect(anyAdjacent).toBe(false);
+  });
+
+  it("noAdjacentSame still produces solvable boards", () => {
+    for (let level = 1; level <= 10; level++) {
+      const { board } = generateLevel(level, 12345, { noAdjacentSame: true });
+      expect(board.remainingCount()).toBeGreaterThan(0);
+      expect(isSolvable(board)).toBe(true);
+    }
+  });
+
+  it("custom dims override level-based dimensions", () => {
+    const { spec } = generateLevel(1, 1, { cols: 20, rows: 14 });
+    expect(spec.cols).toBe(20);
+    expect(spec.rows).toBe(14);
+  });
+
+  it("custom dims are capped at MAX_COLS/MAX_ROWS", () => {
+    const { spec } = generateLevel(1, 1, { cols: 999, rows: 999 });
+    expect(spec.cols).toBe(MAX_COLS);
+    expect(spec.rows).toBe(MAX_ROWS);
+  });
 });

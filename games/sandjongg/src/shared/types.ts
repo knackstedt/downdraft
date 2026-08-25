@@ -58,6 +58,37 @@ export interface CrumbleEvent {
   sandCol: number;
   /** Top-left sand-cell row of the tile footprint. */
   sandRow: number;
+  /** Footprint width in sand cells (tile footprint on the sand grid). */
+  sandW: number;
+  /** Footprint height in sand cells (tile footprint on the sand grid). */
+  sandH: number;
+}
+
+/** Debug info for a clicked tile (debug mode only). */
+export interface DebugTileInfo {
+  col: number;
+  row: number;
+  layer: number;
+  element: number;
+  elementName: string;
+  elementColor: string;
+  glyph: string;
+  sandMaterialId: number;
+  sandMaterialName: string;
+  /** On-screen pixel rect (canvas coords). */
+  screenX: number;
+  screenY: number;
+  screenW: number;
+  screenH: number;
+  /** Sand-grid spawn rect (computed at click time). */
+  sandCol: number;
+  sandRow: number;
+  sandW: number;
+  sandH: number;
+  /** Orthogonal neighbors (same layer): element id or -1 for empty/off-board. */
+  neighbors: { n: number; s: number; e: number; w: number };
+  /** Whether the tile is currently selectable (topmost in its column). */
+  isTopmost: boolean;
 }
 
 /** Level specification. */

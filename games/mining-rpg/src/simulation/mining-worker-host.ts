@@ -6,7 +6,7 @@
 // radius) and read the active grid + player state + stats from the SAB.
 // ============================================================================
 
-import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
+import { BaseWorkerHost } from "@downdraft/core";
 import type { BuildMaterialType } from "../shared/constants";
 import { ACTIVE_GRID_H, ACTIVE_GRID_W, INPUT } from "../shared/constants";
 import {
@@ -37,81 +37,61 @@ type MiningWorkerApi = {
   placeTorch(targetX: number, targetY: number): Promise<boolean>;
 };
 
-export class MiningWorkerHost {
-  private sab: SharedArrayBuffer;
+export class MiningWorkerHost extends BaseWorkerHost<MiningWorkerApi> {
   private writer: MiningSimBufferWriter;
   private reader: MiningSimBufferReader;
-  private proxy: WorkerProxy<MiningWorkerApi> | null = null;
-  private worker: Worker | null = null;
-  private ready = false;
   private onCollected: ((items: InventoryEntry[]) => void) | null = null;
   private onBuildMaterialsChanged: ((mats: BuildMaterials) => void) | null = null;
 
   constructor() {
-    this.sab = allocateMiningSimBuffer();
-    this.writer = new MiningSimBufferWriter(this.sab, OFFSETS, ACTIVE_GRID_W, ACTIVE_GRID_H);
-    this.reader = new MiningSimBufferReader(this.sab, OFFSETS, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    const sab = allocateMiningSimBuffer();
+    super(sab);
+    this.writer = new MiningSimBufferWriter(sab, OFFSETS, ACTIVE_GRID_W, ACTIVE_GRID_H);
+    this.reader = new MiningSimBufferReader(sab, OFFSETS, ACTIVE_GRID_W, ACTIVE_GRID_H);
     this.writer.init();
   }
 
-  getSimBuffer(): SharedArrayBuffer {
-    return this.sab;
-  }
   getReader(): MiningSimBufferReader {
     return this.reader;
   }
-  isReady(): boolean {
-    return this.ready;
-  }
 
-  async start(): Promise<void> {
-    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+  protected createWorker(): Worker {
+    // CRITICAL: `new URL(...)` must be inlined directly inside `new Worker()` —
     // Vite only bundles worker modules when it sees this exact pattern.
     // Assigning the URL to a variable first causes Vite to emit the worker
     // as a raw unbundled asset (bare imports unresolved), breaking prod.
-    this.worker = new Worker(new URL("./mining-worker.ts", import.meta.url), { type: "module" });
-    this.proxy = wrap<MiningWorkerApi>(this.worker);
-
-    this.worker.onerror = (e: ErrorEvent) => {
-      console.error("[MiningWorkerHost] Worker error:", e.message, "filename:", e.filename, "lineno:", e.lineno, "colno:", e.colno, "error:", e.error);
-    };
-
-    this.proxy.onEvents((kind, data) => {
-      if (kind === "ready") {
-        this.ready = true;
-      } else if (kind === "collected" && this.onCollected) {
-        this.onCollected(data as InventoryEntry[]);
-      } else if (kind === "buildMaterials" && this.onBuildMaterialsChanged) {
-        this.onBuildMaterialsChanged(data as BuildMaterials);
-      }
-    });
-
-    await this.proxy.proxy.init(this.sab);
+    return new Worker(new URL("./mining-worker.ts", import.meta.url), { type: "module" });
   }
 
-  async stop(): Promise<void> {
-    if (this.proxy) {
-      try {
-        await this.proxy.proxy.shutdown();
-      } catch {}
-      this.proxy.terminate();
+  protected async onInit(): Promise<void> {
+    await this.getProxy()!.proxy.init(this.getSimBuffer());
+  }
+
+  protected onEvent(kind: string, data?: unknown): void {
+    if (kind === "ready") {
+      this.ready = true;
+    } else if (kind === "collected" && this.onCollected) {
+      this.onCollected(data as InventoryEntry[]);
+    } else if (kind === "buildMaterials" && this.onBuildMaterialsChanged) {
+      this.onBuildMaterialsChanged(data as BuildMaterials);
     }
-    this.proxy = null;
-    this.worker = null;
-    this.ready = false;
+  }
+
+  protected onError(e: ErrorEvent): void {
+    console.error("[MiningWorkerHost] Worker error:", e.message, "filename:", e.filename, "lineno:", e.lineno, "colno:", e.colno, "error:", e.error);
   }
 
   pause(): void {
-    this.proxy?.proxy.pause().catch(() => {});
+    this.getProxy()?.proxy.pause().catch(() => {});
   }
   resume(): void {
-    this.proxy?.proxy.resume().catch(() => {});
+    this.getProxy()?.proxy.resume().catch(() => {});
   }
   setSpeed(speed: number): void {
-    this.proxy?.proxy.setSpeed(speed).catch(() => {});
+    this.getProxy()?.proxy.setSpeed(speed).catch(() => {});
   }
   step(): void {
-    this.proxy?.proxy.step().catch(() => {});
+    this.getProxy()?.proxy.step().catch(() => {});
   }
 
   onCollectedItems(cb: (items: InventoryEntry[]) => void): void {
@@ -177,9 +157,10 @@ export class MiningWorkerHost {
   }
 
   async getStats(): Promise<{ fps: number; tick: number; frame: number } | null> {
-    if (!this.proxy) return null;
+    const proxy = this.getProxy();
+    if (!proxy) return null;
     try {
-      return await this.proxy.proxy.getStats();
+      return await proxy.proxy.getStats();
     } catch {
       return null;
     }
@@ -188,50 +169,53 @@ export class MiningWorkerHost {
   // --- Save / Load ---
 
   async getSaveData(): Promise<{ player: MiningPlayerState; upgrades: PlayerUpgrades; buildMaterials: BuildMaterials; dirtyChunks: SavedChunk[]; tick: number } | null> {
-    if (!this.proxy) return null;
+    const proxy = this.getProxy();
+    if (!proxy) return null;
     try {
-      return await this.proxy.proxy.getSaveData();
+      return await proxy.proxy.getSaveData();
     } catch {
       return null;
     }
   }
 
   async loadSaveData(data: { player: MiningPlayerState; upgrades?: PlayerUpgrades; buildMaterials?: BuildMaterials; chunks: SavedChunk[]; tick: number }): Promise<void> {
-    if (!this.proxy) return;
+    const proxy = this.getProxy();
+    if (!proxy) return;
     try {
-      await this.proxy.proxy.loadSaveData(data);
+      await proxy.proxy.loadSaveData(data);
     } catch (e) {
       console.error("[MiningWorkerHost] Load save data failed:", e);
     }
   }
 
   setUpgrades(upgrades: PlayerUpgrades): void {
-    this.proxy?.proxy.setUpgrades(upgrades).catch(() => {});
+    this.getProxy()?.proxy.setUpgrades(upgrades).catch(() => {});
   }
 
   setInventory(inventory: InventoryEntry[]): void {
-    this.proxy?.proxy.setInventory(inventory).catch(() => {});
+    this.getProxy()?.proxy.setInventory(inventory).catch(() => {});
   }
 
   addBuildMaterial(type: BuildMaterialType, qty: number): void {
-    this.proxy?.proxy.addBuildMaterial(type, qty).catch(() => {});
+    this.getProxy()?.proxy.addBuildMaterial(type, qty).catch(() => {});
   }
 
   respawn(): void {
-    this.proxy?.proxy.respawn().catch(() => {});
+    this.getProxy()?.proxy.respawn().catch(() => {});
   }
   explode(x: number, y: number, radius: number): void {
-    this.proxy?.proxy.explode(x, y, radius).catch(() => {});
+    this.getProxy()?.proxy.explode(x, y, radius).catch(() => {});
   }
   damagePlayer(amount: number, cause: number): void {
-    this.proxy?.proxy.damagePlayer(amount, cause).catch(() => {});
+    this.getProxy()?.proxy.damagePlayer(amount, cause).catch(() => {});
   }
 
   /** Place a torch via raycast from the player toward the target world coords. */
   async placeTorch(targetX: number, targetY: number): Promise<boolean> {
-    if (!this.proxy) return false;
+    const proxy = this.getProxy();
+    if (!proxy) return false;
     try {
-      return await this.proxy.proxy.placeTorch(targetX, targetY);
+      return await proxy.proxy.placeTorch(targetX, targetY);
     } catch {
       return false;
     }

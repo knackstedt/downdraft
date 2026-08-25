@@ -79,6 +79,23 @@ canvas {
   color: #ffcc44;
 }
 
+/* --- Combo countdown bar --- */
+.sandjongg-combo-bar {
+  width: 56px;
+  height: 4px;
+  margin-top: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sandjongg-combo-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffce54, #ff8a3c);
+  border-radius: 2px;
+  transition: width 60ms linear;
+}
+
 /* --- Bottom toolbar --- */
 .sandjongg-toolbar {
   position: absolute;
@@ -113,6 +130,132 @@ canvas {
 
 .sandjongg-toolbar button:active {
   background: rgba(80, 80, 130, 1);
+}
+
+.sandjongg-toolbar button.sandjongg-btn-active {
+  background: rgba(90, 60, 130, 0.95);
+  border-color: rgba(180, 130, 255, 0.8);
+  color: #f0e8ff;
+}
+
+/* --- Settings panel fields --- */
+.sandjongg-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  font-size: 13px;
+  color: #ccccee;
+}
+
+.sandjongg-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: #ccccee;
+}
+
+.sandjongg-slider-row label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.sandjongg-slider-row input[type="range"] {
+  width: 100%;
+  accent-color: #b06bff;
+}
+
+.sandjongg-slider-row input[type="range"]:disabled {
+  opacity: 0.4;
+}
+
+.sandjongg-hint {
+  font-size: 12px;
+  color: #9999bb;
+  margin: 12px 0 0;
+}
+
+/* --- Debug mode panel --- */
+.sandjongg-debug-panel {
+  position: absolute;
+  top: 70px;
+  right: 12px;
+  width: 280px;
+  background: rgba(10, 10, 20, 0.92);
+  border: 1px solid rgba(100, 200, 255, 0.4);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #d0d8e0;
+  z-index: 200;
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
+}
+
+.sandjongg-debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(100, 200, 255, 0.2);
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: #6acfff;
+}
+
+.sandjongg-debug-close {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.sandjongg-debug-close:hover {
+  color: #fff;
+}
+
+.sandjongg-debug-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sandjongg-debug-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sandjongg-debug-row > span:first-child {
+  color: #8899aa;
+  flex-shrink: 0;
+}
+
+.sandjongg-debug-mono {
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  color: #a8d8ff;
+  text-align: right;
+}
+
+.sandjongg-debug-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+.sandjongg-debug-empty {
+  padding: 16px 10px;
+  text-align: center;
+  color: #8899aa;
 }
 
 /* --- FPS counter --- */

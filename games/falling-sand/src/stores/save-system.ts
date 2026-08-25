@@ -9,8 +9,8 @@
 // serialization cost that IndexedDB imposes on ArrayBuffer values.
 // ============================================================================
 
-import type { SaveState } from "@downdraft/core";
-import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
+import { createSaveStore, downdraft } from "@downdraft/app/renderer";
+import type { ISaveStore, SaveState } from "@downdraft/core";
 
 export interface SaveEntry {
   id: string;
@@ -36,13 +36,22 @@ export interface SaveMetadata {
 const AUTOSAVE_SLOT = "autosave";
 const ENGINE_VERSION = "0.1.0";
 
-let storePromise: Promise<OpfsSaveStore> | null = null;
+let storePromise: Promise<ISaveStore> | null = null;
 
-function getStore(): Promise<OpfsSaveStore> {
+function getStore(): Promise<ISaveStore> {
   if (!storePromise) {
     storePromise = (async () => {
-      const store = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
-      await store.init();
+      const store = await createSaveStore({
+        mode: "auto",
+        opfsOptions: { engineVersion: ENGINE_VERSION },
+        bridge: downdraft,
+      });
+      if (!store) {
+        const { OpfsSaveStore } = await import("@downdraft/library-persistence/browser");
+        const fallback = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
+        await fallback.init();
+        return fallback;
+      }
       return store;
     })();
   }

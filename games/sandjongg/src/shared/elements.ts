@@ -25,7 +25,7 @@ export const ELEMENTS: ElementDef[] = [
   { id: 2,  name: "Earth",           color: "#8b6f47", glyphColor: "#c4a878", sandMaterial: Material.Dirt,           glyph: "mountain" },
   { id: 3,  name: "Air",             color: "#b0c8d8", glyphColor: "#ffffff", sandMaterial: Material.Steam,          glyph: "swirl" },
   { id: 4,  name: "Lightning",       color: "#f0c020", glyphColor: "#ffffff", sandMaterial: Material.Fire,           glyph: "bolt" },
-  { id: 5,  name: "Ice",             color: "#6cb8e8", glyphColor: "#e0f0ff", sandMaterial: Material.Ice,            glyph: "snowflake" },
+  { id: 5,  name: "Mercury",         color: "#9aa0a8", glyphColor: "#e8ecf0", sandMaterial: Material.Mercury,        glyph: "quicksilver" },
   { id: 6,  name: "Plant",           color: "#3aa856", glyphColor: "#a8e8a0", sandMaterial: Material.Plant,         glyph: "leaf" },
   { id: 7,  name: "Metal",           color: "#9098a0", glyphColor: "#d0d8e0", sandMaterial: Material.Iron,          glyph: "ingot" },
   { id: 8,  name: "Shadow",          color: "#2a1a3a", glyphColor: "#6a4a8a", sandMaterial: Material.LiquidShadow,   glyph: "crescent" },

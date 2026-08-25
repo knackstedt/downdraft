@@ -7,6 +7,10 @@ import { MAX_LAYERS } from "../shared/constants";
 import { getElement } from "../shared/elements";
 import type { BoardPoint, Path } from "../shared/types";
 
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
 export interface TileCanvasState {
   /** Board elements from SAB: Int32Array of element per slot, -1 = empty.
    *  Indexed as boardElements[(col + row*cols) * MAX_LAYERS + layer]. */
@@ -25,6 +29,10 @@ export interface TileCanvasState {
   crumbleAnims: { col: number; row: number; element: number; startTime: number }[];
   /** Active failed-match animations (red flash). */
   failAnims: { col: number; row: number; layer: number; startTime: number }[];
+  /** Floating "+score" popups at match midpoints (rise + fade). */
+  scoreAnims: { col: number; row: number; score: number; combo: number; startTime: number }[];
+  /** Debug mode: the tile currently being inspected (highlighted on canvas). */
+  debugTile: { col: number; row: number; layer: number } | null;
 }
 
 export class TileCanvasPass {
@@ -32,9 +40,18 @@ export class TileCanvasPass {
   private ctx: CanvasRenderingContext2D;
   /** Tile pixel size on screen (computed from canvas size + board dims). */
   private tilePx = 48;
-  /** Board pixel offset (top-left of board on canvas). */
+  /** Board pixel offset (top-left of board on canvas), pan-adjusted. */
   private boardOffsetX = 0;
   private boardOffsetY = 0;
+  /** Board pixel size (tilePx * dims). */
+  private boardW = 0;
+  private boardH = 0;
+  /** View pan offset (canvas px) relative to the centered position. Clamped
+   *  in computeLayout so the board never pans past the viewport edge. */
+  panX = 0;
+  panY = 0;
+  /** Minimum tile size before the board overflows the viewport (enables panning). */
+  static readonly MIN_TILE_PX = 20;
   state: TileCanvasState;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -50,10 +67,24 @@ export class TileCanvasPass {
       pathAnim: null,
       crumbleAnims: [],
       failAnims: [],
+      scoreAnims: [],
+      debugTile: null,
     };
   }
 
   getCanvas(): HTMLCanvasElement { return this.canvas; }
+  getTilePx(): number { return this.tilePx; }
+  getBoardOffsetX(): number { return this.boardOffsetX; }
+  getBoardOffsetY(): number { return this.boardOffsetY; }
+
+  /** Reset pan to center (e.g. when board dims change). */
+  resetPan(): void { this.panX = 0; this.panY = 0; }
+
+  /** Apply a pan delta (canvas px). Offsets are clamped in computeLayout. */
+  applyPan(dx: number, dy: number): void {
+    this.panX += dx;
+    this.panY += dy;
+  }
 
   /** Compute tile pixel size and board offset from canvas dimensions. */
   computeLayout(canvasW: number, canvasH: number): void {
@@ -67,11 +98,29 @@ export class TileCanvasPass {
     const boardAreaH = canvasH * 0.6 - boardAreaTop;
     const maxTileW = canvasW / boardCols;
     const maxTileH = boardAreaH / boardRows;
-    this.tilePx = Math.floor(Math.min(maxTileW, maxTileH, 64));
-    const boardW = this.tilePx * boardCols;
-    const boardH = this.tilePx * boardRows;
-    this.boardOffsetX = Math.floor((canvasW - boardW) / 2);
-    this.boardOffsetY = Math.floor(boardAreaTop + (boardAreaH - boardH) / 2) + 8;
+    // Tiles cap at 64px but won't shrink below MIN_TILE_PX — if the board
+    // doesn't fit at MIN_TILE_PX, it overflows the viewport and the player
+    // pans to see the rest (right/middle-drag).
+    this.tilePx = Math.floor(Math.max(TileCanvasPass.MIN_TILE_PX, Math.min(maxTileW, maxTileH, 64)));
+    this.boardW = this.tilePx * boardCols;
+    this.boardH = this.tilePx * boardRows;
+
+    // Horizontal: center when the board fits, otherwise allow pan within
+    // [canvasW - boardW, 0] so the viewport always stays covered by the board.
+    const centeredX = (canvasW - this.boardW) / 2;
+    const minOffX = Math.min(0, canvasW - this.boardW);
+    const maxOffX = Math.max(0, canvasW - this.boardW);
+    const rawOffX = centeredX + this.panX;
+    this.boardOffsetX = Math.floor(clamp(rawOffX, minOffX, maxOffX));
+    this.panX = this.boardOffsetX - centeredX;
+
+    // Vertical: same idea but constrained to the board area (top 60%).
+    const centeredY = boardAreaTop + (boardAreaH - this.boardH) / 2;
+    const minOffY = Math.min(boardAreaTop, boardAreaTop + boardAreaH - this.boardH);
+    const maxOffY = Math.max(boardAreaTop, boardAreaTop + boardAreaH - this.boardH);
+    const rawOffY = centeredY + this.panY + 8;
+    this.boardOffsetY = Math.floor(clamp(rawOffY, minOffY, maxOffY));
+    this.panY = this.boardOffsetY - centeredY - 8;
   }
 
   /** Convert screen pixel coords to tile coords (or null if outside board).
@@ -101,10 +150,24 @@ export class TileCanvasPass {
     };
   }
 
+  /** Exact canvas-px rect of a tile (top-left x/y + width/height), accounting
+   *  for the per-layer 3D offset. Used by the renderer to spawn sand at the
+   *  tile's on-screen position at match time. */
+  tileRect(col: number, row: number, layer: number): { x: number; y: number; w: number; h: number } {
+    const layerOffset = Math.max(6, this.tilePx * 0.18);
+    const offset = layer * layerOffset;
+    return {
+      x: this.boardOffsetX + col * this.tilePx - offset,
+      y: this.boardOffsetY + row * this.tilePx - offset,
+      w: this.tilePx,
+      h: this.tilePx,
+    };
+  }
+
   /** Main draw call — called every frame by the renderer. */
   draw(): void {
     const ctx = this.ctx;
-    const { boardElements, boardCols, boardRows, boardLayers, selected, hint, pathAnim, crumbleAnims, failAnims } = this.state;
+    const { boardElements, boardCols, boardRows, boardLayers, selected, hint, pathAnim, crumbleAnims, failAnims, scoreAnims } = this.state;
     const now = performance.now();
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -118,9 +181,16 @@ export class TileCanvasPass {
     }
 
     // No board background — let the WebGPU sand canvas show through.
-    // Draw tiles layer by layer (bottom to top), with a pseudo-3D offset
-    // for higher layers so stacking is visually clear.
-    const layerOffset = Math.max(4, this.tilePx * 0.12);
+    // Draw tiles layer by layer (bottom to top) with a pseudo-3D stack: each
+    // higher layer is offset up-left and gets a visible "side face" (the
+    // thickness of the slab on the bottom + right) plus a stronger drop shadow,
+    // so stacked layers read clearly even at a glance. A small colored accent
+    // bar on the left edge of each layer (per-layer hue) makes layers
+    // distinguishable independent of the 3D offset.
+    const layerOffset = Math.max(6, this.tilePx * 0.18);
+    const sideDepth = Math.max(3, this.tilePx * 0.10);
+    // Per-layer accent hues (layer 0 gets none — it's the base).
+    const LAYER_ACCENTS = ["", "#5aa8ff", "#b06bff", "#ff9a3c", "#3ce0a0"];
     for (let layer = 0; layer < boardLayers; layer++) {
       const offset = layer * layerOffset;
       for (let r = 0; r < boardRows; r++) {
@@ -133,11 +203,27 @@ export class TileCanvasPass {
           const size = this.tilePx - 2;
           const elDef = getElement(el);
 
-          // Tile shadow for stacked layers.
+          // 3D side face: the slab thickness on the bottom + right, drawn as a
+          // single dark polygon so stacked tiles look like raised platforms.
           if (layer > 0) {
-            ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+            ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
             ctx.beginPath();
-            ctx.roundRect(x + 3, y + 3, size, size, 4);
+            // Right side.
+            ctx.moveTo(x + size + 1, y + 1);
+            ctx.lineTo(x + size + 1 + sideDepth, y + 1 - sideDepth);
+            ctx.lineTo(x + size + 1 + sideDepth, y + size + 1 - sideDepth);
+            ctx.lineTo(x + size + 1, y + size + 1);
+            // Bottom side.
+            ctx.lineTo(x + 1, y + size + 1);
+            ctx.lineTo(x + 1 + sideDepth, y + size + 1 - sideDepth);
+            ctx.lineTo(x + size + 1 + sideDepth, y + size + 1 - sideDepth);
+            ctx.closePath();
+            ctx.fill();
+
+            // Soft drop shadow offset by the stack height.
+            ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+            ctx.beginPath();
+            ctx.roundRect(x + offset * 0.4 + 2, y + offset * 0.4 + 2, size, size, 4);
             ctx.fill();
           }
 
@@ -148,6 +234,15 @@ export class TileCanvasPass {
           ctx.roundRect(x + 1, y + 1, size, size, 4);
           ctx.fill();
           ctx.globalAlpha = 1.0;
+
+          // Per-layer accent bar on the left edge (skipped for layer 0).
+          if (layer > 0) {
+            const accent = LAYER_ACCENTS[Math.min(layer, LAYER_ACCENTS.length - 1)];
+            if (accent) {
+              ctx.fillStyle = accent;
+              ctx.fillRect(x + 1, y + 1, 3, size);
+            }
+          }
 
           // Tile border.
           ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
@@ -253,6 +348,66 @@ export class TileCanvasPass {
       ctx.fill();
       return true;
     });
+
+    // Draw floating "+score" popups at match midpoints (rise + fade).
+    this.state.scoreAnims = scoreAnims.filter((a) => {
+      const elapsed = now - a.startTime;
+      const duration = 1000;
+      if (elapsed >= duration) return false;
+      const t = elapsed / duration;
+      const alpha = 1 - t;
+      const p = this.tileToPixel(a.col, a.row);
+      // Rise by ~1.5 tiles over the animation.
+      const rise = this.tilePx * 1.5 * t;
+      const cx = p.x;
+      const cy = p.y - rise;
+      const big = a.combo > 1;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `bold ${Math.floor(this.tilePx * (big ? 0.7 : 0.55))}px "Segoe UI", system-ui, sans-serif`;
+      // Dark outline for legibility over any tile color.
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+      const label = `+${a.score}`;
+      ctx.strokeText(label, cx, cy);
+      ctx.fillStyle = big ? "#ffd54a" : "#ffffff";
+      ctx.fillText(label, cx, cy);
+      // Combo badge below the score.
+      if (big) {
+        const sub = `x${a.combo} combo`;
+        const subY = cy + this.tilePx * 0.45;
+        ctx.font = `bold ${Math.floor(this.tilePx * 0.32)}px "Segoe UI", system-ui, sans-serif`;
+        ctx.lineWidth = 3;
+        ctx.strokeText(sub, cx, subY);
+        ctx.fillStyle = "#ffce54";
+        ctx.fillText(sub, cx, subY);
+      }
+      ctx.restore();
+      return true;
+    });
+
+    // Debug mode: highlight the inspected tile with a cyan outline + crosshair.
+    if (this.state.debugTile) {
+      const dt = this.state.debugTile;
+      const rect = this.tileRect(dt.col, dt.row, dt.layer);
+      ctx.save();
+      ctx.strokeStyle = "#6acfff";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.setLineDash([]);
+      // Corner ticks for precision.
+      const tick = 6;
+      ctx.beginPath();
+      ctx.moveTo(rect.x, rect.y + tick); ctx.lineTo(rect.x, rect.y); ctx.lineTo(rect.x + tick, rect.y);
+      ctx.moveTo(rect.x + rect.w - tick, rect.y); ctx.lineTo(rect.x + rect.w, rect.y); ctx.lineTo(rect.x + rect.w, rect.y + tick);
+      ctx.moveTo(rect.x + rect.w, rect.y + rect.h - tick); ctx.lineTo(rect.x + rect.w, rect.y + rect.h); ctx.lineTo(rect.x + rect.w - tick, rect.y + rect.h);
+      ctx.moveTo(rect.x + tick, rect.y + rect.h); ctx.lineTo(rect.x, rect.y + rect.h); ctx.lineTo(rect.x, rect.y + rect.h - tick);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   /** Draw a procedural element glyph. */
@@ -313,24 +468,25 @@ export class TileCanvasPass {
         ctx.closePath();
         ctx.fill();
         break;
-      case "snowflake":
-        ctx.lineWidth = 2;
-        for (let i = 0; i < 6; i++) {
-          const a = (i * Math.PI) / 3;
-          ctx.beginPath();
-          ctx.moveTo(cx, cy);
-          ctx.lineTo(cx + Math.cos(a) * s, cy + Math.sin(a) * s);
-          ctx.stroke();
-          // Small branches.
-          const bx = cx + Math.cos(a) * s * 0.6;
-          const by = cy + Math.sin(a) * s * 0.6;
-          ctx.beginPath();
-          ctx.moveTo(bx, by);
-          ctx.lineTo(bx + Math.cos(a + 0.5) * s * 0.3, by + Math.sin(a + 0.5) * s * 0.3);
-          ctx.moveTo(bx, by);
-          ctx.lineTo(bx + Math.cos(a - 0.5) * s * 0.3, by + Math.sin(a - 0.5) * s * 0.3);
-          ctx.stroke();
-        }
+      case "quicksilver":
+        // Liquid-metal bead: a silver sphere with a bright specular highlight,
+        // distinct from the water "drop" and the "bubble" glyphs.
+        ctx.beginPath();
+        ctx.arc(cx, cy, s * 0.78, 0, Math.PI * 2);
+        ctx.fill();
+        // Rim shading (darker crescent on the lower-right).
+        ctx.save();
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+        ctx.beginPath();
+        ctx.arc(cx + s * 0.28, cy + s * 0.28, s * 0.78, 0, Math.PI * 2);
+        ctx.fill();
+        // Specular highlight (top-left).
+        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.beginPath();
+        ctx.ellipse(cx - s * 0.28, cy - s * 0.3, s * 0.22, s * 0.12, -0.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
         break;
       case "leaf":
         ctx.beginPath();
