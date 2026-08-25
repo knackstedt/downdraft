@@ -1,6 +1,7 @@
 {
   "name": "alchemy",
   "version": "0.1.0",
+  "productName": "Alchemy",
   "private": true,
   "type": "module",
   "dependencies": {
