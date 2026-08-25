@@ -1,9 +1,10 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { ChunkDebugOverlay } from "./components/chunk-debug-overlay";
 import { StationPanel } from "./components/station-panel";
 import { TaskQueueDisplay } from "./components/task-queue-display";
 import { encodeDropItem, getDropColor } from "./shared/drop-registry";
 import { getAllItems, getItemDef, type ItemCategory } from "./shared/items";
+import { getRecipe } from "./shared/recipes";
 import { useGameStore } from "./stores/game-store";
 
 const titleStyle: React.CSSProperties = {
@@ -168,21 +169,7 @@ const hotbarSlotLabelStyle: React.CSSProperties = {
   pointerEvents: "none",
 };
 
-// Hotbar slot definitions: item ID + display color.
-// Must match HOTBAR_BLOCKS in blockheads-renderer.ts.
-const HOTBAR_SLOTS: { itemId: string; color: [number, number, number] }[] = [
-  { itemId: "dirt", color: [120, 80, 50] },
-  { itemId: "grass", color: [80, 160, 60] },
-  { itemId: "stone", color: [128, 128, 128] },
-  { itemId: "wood", color: [140, 100, 60] },
-  { itemId: "sand", color: [220, 200, 140] },
-  { itemId: "torch", color: [240, 200, 80] },
-  { itemId: "ladder", color: [180, 140, 80] },
-  { itemId: "rope", color: [200, 180, 120] },
-  { itemId: "scaffolding", color: [160, 130, 90] },
-];
-
-// Color map for all placeable items (for dynamic hotbar display)
+// Color map for all placeable items (for hotbar + inventory display)
 const ITEM_COLORS: Record<string, [number, number, number]> = {
   dirt: [120, 80, 50],
   grass: [80, 160, 60],
@@ -592,59 +579,35 @@ const GenderIndicator = memo(function GenderIndicator() {
   );
 });
 
-// --- Hotbar (dynamic from inventory) ---
+// --- Hotbar (first 9 inventory slots) ---
 // Re-renders only when inventory or selectedSlot changes.
 const Hotbar = memo(function Hotbar() {
   const inventory = useGameStore((s) => s.inventory);
   const selectedSlot = useGameStore((s) => s.selectedSlot);
 
-  const invCount = (itemId: string): number => {
-    const slot = inventory.find((s) => s.itemId === itemId);
-    return slot ? slot.count : 0;
-  };
-
-  // Build dynamic hotbar slots from inventory (placeable items first, then defaults)
-  const hotbarSlots: ({ itemId: string; color: [number, number, number] } | null)[] = useMemo(() => {
-    const slots: ({ itemId: string; color: [number, number, number] } | null)[] = new Array(9).fill(null);
-    let idx = 0;
-    for (const slot of inventory) {
-      if (idx >= 9) break;
-      if (slot.count <= 0) continue;
-      const def = getItemDef(slot.itemId);
-      if (def && def.placeBlock > 0) {
-        slots[idx] = { itemId: slot.itemId, color: ITEM_COLORS[slot.itemId] ?? [128, 128, 128] };
-        idx++;
-      }
-    }
-    for (let i = idx; i < 9; i++) {
-      const defaultSlot = HOTBAR_SLOTS[i];
-      if (defaultSlot) {
-        slots[i] = defaultSlot;
-      }
-    }
-    return slots;
-  }, [inventory]);
+  // The hotbar is the first 9 slots of the inventory slot array.
+  const hotbarSlots = inventory.slice(0, 9);
 
   return (
     <div style={hotbarContainerStyle}>
       {hotbarSlots.map((slot, i) => {
-        const count = slot ? invCount(slot.itemId) : 0;
-        const has = count > 0;
-        const itemName = slot ? (getItemDef(slot.itemId)?.name ?? slot.itemId) : "";
+        const has = slot !== null && slot.count > 0;
+        const itemId = slot?.itemId ?? "";
+        const itemName = itemId ? (getItemDef(itemId)?.name ?? itemId) : "";
+        const color = itemId ? getItemColor(itemId) : [128, 128, 128] as [number, number, number];
         return (
           <div
             key={i}
             style={hotbarSlotStyle(selectedSlot === i)}
-            title={slot ? `${itemName}${count > 0 ? ` (${count})` : ""}` : "Empty"}
+            title={has ? `${itemName} (${slot!.count})` : "Empty"}
           >
             <span style={hotbarSlotNumStyle}>{i + 1}</span>
-            {slot && (
+            {has && (
               <div style={{
                 width: 28,
                 height: 28,
-                background: `rgb(${slot.color[0]}, ${slot.color[1]}, ${slot.color[2]})`,
+                background: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
                 borderRadius: 2,
-                opacity: has ? 1 : 0.25,
               }} />
             )}
             <span style={{
@@ -654,8 +617,8 @@ const Hotbar = memo(function Hotbar() {
               fontSize: 9,
               color: has ? "white" : "rgba(255,255,255,0.3)",
               textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-            }}>{count > 0 ? count : ""}</span>
-            {slot && (
+            }}>{has ? slot!.count : ""}</span>
+            {has && (
               <span style={hotbarSlotLabelStyle}>{itemName}</span>
             )}
           </div>
@@ -710,17 +673,16 @@ const PanelRouter = memo(function PanelRouter() {
   const showTaskQueue = useGameStore((s) => s.showTaskQueue);
   const selectedStation = useGameStore((s) => s.selectedStation);
   const recipes = useGameStore((s) => s.recipes);
-  const inventory = useGameStore((s) => s.inventory);
   const paused = useGameStore((s) => s.paused);
   const deterministic = useGameStore((s) => s.deterministic);
 
   return (
     <>
-      {/* Inventory panel (toggle with I) — includes crafting inline */}
-      {showInventoryPanel && <InventoryPanel recipes={recipes} inventory={inventory} />}
+      {/* Inventory panel (toggle with I) — tabbed: Inventory / Crafting / Creative */}
+      {showInventoryPanel && <InventoryPanel recipes={recipes} />}
 
       {/* Standalone crafting panel (toggle with C) — only when inventory panel is closed */}
-      {showCraftPanel && !showInventoryPanel && <CraftPanel recipes={recipes} inventory={inventory} />}
+      {showCraftPanel && !showInventoryPanel && <CraftPanel recipes={recipes} />}
 
       {/* Station panel (shown when a station is selected) */}
       {selectedStation && <StationPanel ax={selectedStation.ax} ay={selectedStation.ay} />}
@@ -804,14 +766,9 @@ const craftRowStyle: React.CSSProperties = {
   color: "white",
 };
 
-function CraftPanel({ recipes, inventory }: { recipes: { id: string; name: string; station: string }[]; inventory: { itemId: string; count: number }[] }) {
+function CraftPanel({ recipes }: { recipes: { id: string; name: string; station: string }[] }) {
   const renderer = useGameStore((s) => s.renderer);
   const [status, setStatus] = useState<string>("");
-
-  const invCount = (itemId: string): number => {
-    const slot = inventory.find((s) => s.itemId === itemId);
-    return slot ? slot.count : 0;
-  };
 
   const handleCraft = async (recipeId: string) => {
     const host = renderer?.getWorkerHost();
@@ -933,23 +890,146 @@ const invItemCountStyle: React.CSSProperties = {
   textShadow: "0 1px 2px rgba(0,0,0,0.8)",
 };
 
-// Item color swatches (for items without a block color, use a category-based color)
-const CATEGORY_COLORS: Record<ItemCategory, [number, number, number]> = {
-  block: [128, 128, 128],
-  material: [180, 140, 80],
-  tool: [120, 180, 220],
-  food: [200, 80, 80],
+// --- Tab bar styles ---
+const tabBarStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 0,
+  marginBottom: 12,
+  borderBottom: "1px solid rgba(255,255,255,0.1)",
 };
 
-function InventoryPanel({ recipes, inventory }: { recipes: { id: string; name: string; station: string }[]; inventory: { itemId: string; count: number }[] }) {
+const tabStyle = (active: boolean): React.CSSProperties => ({
+  padding: "6px 16px",
+  fontSize: 12,
+  fontWeight: active ? "bold" : "normal",
+  color: active ? "rgba(79,195,247,1)" : "rgba(255,255,255,0.5)",
+  cursor: "pointer",
+  borderBottom: active ? "2px solid rgba(79,195,247,0.8)" : "2px solid transparent",
+  transition: "color 0.15s, border-bottom 0.15s",
+});
+
+// --- Sparse inventory grid styles ---
+const sparseGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(9, 48px)",
+  gap: 4,
+  justifyContent: "center",
+};
+
+const sparseSlotStyle = (isHotbar: boolean): React.CSSProperties => ({
+  position: "relative",
+  width: 48,
+  height: 48,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "rgba(255,255,255,0.05)",
+  border: isHotbar ? "1px solid rgba(79,195,247,0.3)" : "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 4,
+  cursor: "pointer",
+});
+
+const sparseSwatchStyle = (color: [number, number, number]): React.CSSProperties => ({
+  width: 28,
+  height: 28,
+  background: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
+  borderRadius: 2,
+});
+
+const sparseCountStyle: React.CSSProperties = {
+  position: "absolute",
+  bottom: 1,
+  right: 3,
+  fontSize: 10,
+  fontWeight: "bold",
+  color: "white",
+  textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+};
+
+const hotbarLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: "bold",
+  color: "rgba(79,195,247,0.7)",
+  textTransform: "uppercase" as const,
+  letterSpacing: 1,
+  margin: "8px 0 4px 0",
+  textAlign: "center" as const,
+};
+
+// --- Creative tab styles ---
+const creativeSearchStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "6px 10px",
+  marginBottom: 8,
+  fontSize: 12,
+  fontFamily: "monospace",
+  background: "rgba(255,255,255,0.1)",
+  border: "1px solid rgba(255,255,255,0.2)",
+  borderRadius: 4,
+  color: "white",
+  outline: "none",
+};
+
+const creativeGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, 64px)",
+  gap: 6,
+  justifyContent: "start",
+};
+
+const creativeSlotStyle: React.CSSProperties = {
+  position: "relative",
+  width: 64,
+  height: 64,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 2,
+  background: "rgba(255,255,255,0.05)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 4,
+  fontSize: 8,
+  color: "rgba(255,255,255,0.7)",
+  cursor: "pointer",
+  transition: "background 0.15s",
+};
+
+const creativeMaxStackStyle: React.CSSProperties = {
+  position: "absolute",
+  bottom: 2,
+  right: 4,
+  fontSize: 9,
+  fontWeight: "bold",
+  color: "rgba(79,195,247,1)",
+  textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+};
+
+function InventoryPanel({ recipes }: { recipes: { id: string; name: string; station: string }[] }) {
   const renderer = useGameStore((s) => s.renderer);
+  const inventory = useGameStore((s) => s.inventory);
+  const inventoryTab = useGameStore((s) => s.inventoryTab);
+  const setInventoryTab = useGameStore((s) => s.setInventoryTab);
   const setShowInventoryPanel = useGameStore((s) => s.setShowInventoryPanel);
   const setShowCraftPanel = useGameStore((s) => s.setShowCraftPanel);
   const [status, setStatus] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   const invCount = (itemId: string): number => {
-    const slot = inventory.find((s) => s.itemId === itemId);
-    return slot ? slot.count : 0;
+    let total = 0;
+    for (const s of inventory) {
+      if (s && s.itemId === itemId) total += s.count;
+    }
+    return total;
+  };
+
+  const refreshInventory = async () => {
+    const host = renderer?.getWorkerHost();
+    if (!host) return;
+    const inv = await host.getInventory(0);
+    useGameStore.getState().setInventory(inv);
+    renderer?.setHotbarFromInventory(inv);
   };
 
   const handleCraft = async (recipeId: string) => {
@@ -964,12 +1044,37 @@ function InventoryPanel({ recipes, inventory }: { recipes: { id: string; name: s
     setTimeout(() => setStatus(""), 2000);
   };
 
+  const handleCreativeGive = async (itemId: string, maxStack: number) => {
+    const host = renderer?.getWorkerHost();
+    if (!host) return;
+    const result = await host.giveItem(itemId, maxStack, 0);
+    if (result.ok) {
+      setStatus(`Added ${result.added} × ${getItemDef(itemId)?.name ?? itemId}`);
+    } else {
+      setStatus("Failed to add item");
+    }
+    setTimeout(() => setStatus(""), 2000);
+    await refreshInventory();
+  };
+
+  const handleDrop = async (to: number) => {
+    if (dragFrom === null || dragFrom === to) {
+      setDragFrom(null);
+      return;
+    }
+    const host = renderer?.getWorkerHost();
+    if (!host) return;
+    await host.moveSlot(dragFrom, to, 0);
+    setDragFrom(null);
+    await refreshInventory();
+  };
+
   const close = () => {
     setShowInventoryPanel(false);
     setShowCraftPanel(false);
   };
 
-  // Group all registered items by category
+  // Group all registered items by category (for creative tab)
   const allItems = getAllItems();
   const categories: ItemCategory[] = ["block", "material", "tool", "food"];
   const categoryLabels: Record<ItemCategory, string> = {
@@ -978,6 +1083,11 @@ function InventoryPanel({ recipes, inventory }: { recipes: { id: string; name: s
     tool: "Tools",
     food: "Food",
   };
+
+  // Filter items by search query (creative tab)
+  const filteredItems = searchQuery
+    ? allItems.filter((it) => it.name.toLowerCase().includes(searchQuery.toLowerCase()) || it.id.toLowerCase().includes(searchQuery.toLowerCase()))
+    : allItems;
 
   return (
     <div style={invOverlayStyle} onClick={close}>
@@ -989,71 +1099,165 @@ function InventoryPanel({ recipes, inventory }: { recipes: { id: string; name: s
           </span>
         </div>
 
-        {/* Item grid grouped by category */}
-        {categories.map((cat) => {
-          const items = allItems.filter((it) => it.category === cat);
-          if (items.length === 0) return null;
-          return (
-            <div key={cat}>
-              <div style={invCategoryLabelStyle}>{categoryLabels[cat]}</div>
-              <div style={invGridStyle}>
-                {items.map((item) => {
-                  const count = invCount(item.id);
-                  const has = count > 0;
-                  const color = item.placeBlock > 0
-                    ? (getItemDef(item.id)?.placeBlock ?? 0) > 0
-                      ? CATEGORY_COLORS.block
-                      : CATEGORY_COLORS[cat]
-                    : CATEGORY_COLORS[cat];
-                  return (
-                    <div key={item.id} style={{
-                      ...invSlotStyle,
-                      opacity: has ? 1 : 0.35,
-                    }}>
-                      <div style={{
-                        width: 28,
-                        height: 28,
-                        background: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
-                        borderRadius: 2,
-                      }} />
-                      <span style={{ fontSize: 8, textAlign: "center", lineHeight: 1.1 }}>
-                        {item.name}
-                      </span>
-                      {has && <span style={invItemCountStyle}>{count}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Crafting section (inline) */}
-        <div style={invCategoryLabelStyle}>Crafting (hand)</div>
-        {recipes.length === 0 && (
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>No recipes available</div>
-        )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {recipes.map((r) => {
-            // Look up the recipe to check ingredients
-            const recipe = r;
-            return (
-              <div
-                key={recipe.id}
-                style={craftRowStyle}
-                onClick={() => handleCraft(recipe.id)}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,195,247,0.2)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-              >
-                <span>{recipe.name}</span>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>click to craft</span>
-              </div>
-            );
-          })}
+        {/* Tab bar */}
+        <div style={tabBarStyle}>
+          <div style={tabStyle(inventoryTab === "inventory")} onClick={() => setInventoryTab("inventory")}>Inventory</div>
+          <div style={tabStyle(inventoryTab === "crafting")} onClick={() => setInventoryTab("crafting")}>Crafting</div>
+          <div style={tabStyle(inventoryTab === "creative")} onClick={() => setInventoryTab("creative")}>Creative</div>
         </div>
 
+        {/* --- Inventory tab: sparse 9×6 grid --- */}
+        {inventoryTab === "inventory" && (
+          <>
+            <div style={hotbarLabelStyle}>Hotbar</div>
+            <div style={sparseGridStyle}>
+              {inventory.slice(0, 9).map((slot, i) => (
+                <div
+                  key={i}
+                  style={sparseSlotStyle(true)}
+                  draggable={slot !== null && slot.count > 0}
+                  onDragStart={() => setDragFrom(i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleDrop(i)}
+                  title={slot ? `${getItemDef(slot.itemId)?.name ?? slot.itemId} (${slot.count})` : "Empty"}
+                >
+                  {slot && slot.count > 0 && (
+                    <>
+                      <div style={sparseSwatchStyle(getItemColor(slot.itemId))} />
+                      <span style={sparseCountStyle}>{slot.count}</span>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ ...hotbarLabelStyle, marginTop: "12px" }}>Storage</div>
+            <div style={sparseGridStyle}>
+              {inventory.slice(9).map((slot, relIdx) => {
+                const i = relIdx + 9;
+                return (
+                  <div
+                    key={i}
+                    style={sparseSlotStyle(false)}
+                    draggable={slot !== null && slot.count > 0}
+                    onDragStart={() => setDragFrom(i)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleDrop(i)}
+                    title={slot ? `${getItemDef(slot.itemId)?.name ?? slot.itemId} (${slot.count})` : "Empty"}
+                  >
+                    {slot && slot.count > 0 && (
+                      <>
+                        <div style={sparseSwatchStyle(getItemColor(slot.itemId))} />
+                        <span style={sparseCountStyle}>{slot.count}</span>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* --- Crafting tab: hand recipes with ingredient details --- */}
+        {inventoryTab === "crafting" && (
+          <>
+            {recipes.length === 0 && (
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>No recipes available</div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {recipes.map((r) => {
+                const fullRecipe = getRecipe(r.id);
+                const canCraft = fullRecipe ? fullRecipe.inputs.every((inp) => invCount(inp.itemId) >= inp.count) : false;
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      ...craftRowStyle,
+                      opacity: canCraft ? 1 : 0.4,
+                      background: canCraft ? "rgba(79,195,247,0.1)" : "rgba(255,255,255,0.05)",
+                    }}
+                    onClick={() => canCraft && handleCraft(r.id)}
+                    onMouseEnter={(e) => { if (canCraft) e.currentTarget.style.background = "rgba(79,195,247,0.2)"; }}
+                    onMouseLeave={(e) => { if (canCraft) e.currentTarget.style.background = "rgba(79,195,247,0.1)"; }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span style={{ fontWeight: "bold" }}>{r.name}</span>
+                      {fullRecipe && (
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
+                          {fullRecipe.inputs.map((inp, i) => {
+                            const have = invCount(inp.itemId);
+                            const itemDef = getItemDef(inp.itemId);
+                            return (
+                              <span key={i} style={{ color: have >= inp.count ? "rgba(255,255,255,0.5)" : "#e74c3c" }}>
+                                {i > 0 && ", "}{inp.count}× {itemDef?.name ?? inp.itemId}
+                              </span>
+                            );
+                          })}
+                          {" → "}
+                          {fullRecipe.outputs.map((out, i) => {
+                            const itemDef = getItemDef(out.itemId);
+                            return (
+                              <span key={i}>
+                                {i > 0 && ", "}{out.count}× {itemDef?.name ?? out.itemId}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{canCraft ? "click" : "missing"}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* --- Creative tab: searchable grid of all items --- */}
+        {inventoryTab === "creative" && (
+          <>
+            <input
+              style={creativeSearchStyle}
+              type="text"
+              placeholder="Search items..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {categories.map((cat) => {
+              const items = filteredItems.filter((it) => it.category === cat);
+              if (items.length === 0) return null;
+              return (
+                <div key={cat}>
+                  <div style={invCategoryLabelStyle}>{categoryLabels[cat]}</div>
+                  <div style={creativeGridStyle}>
+                    {items.map((item) => {
+                      const color = getItemColor(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          style={creativeSlotStyle}
+                          onClick={() => handleCreativeGive(item.id, item.maxStack)}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,195,247,0.15)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                          title={`${item.name} — click to add ${item.maxStack}`}
+                        >
+                          <div style={sparseSwatchStyle(color)} />
+                          <span style={{ fontSize: 8, textAlign: "center", lineHeight: 1.1 }}>
+                            {item.name}
+                          </span>
+                          <span style={creativeMaxStackStyle}>×{item.maxStack}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+
         {status && (
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", marginTop: 8 }}>{status}</div>
+          <div style={{ fontSize: 10, color: "rgba(79,195,247,1)", marginTop: 8 }}>{status}</div>
         )}
       </div>
     </div>
@@ -1088,7 +1292,7 @@ export default function App() {
       try {
         const saved = localStorage.getItem(INVENTORY_SAVE_KEY);
         if (saved && host) {
-          const slots = JSON.parse(saved) as { itemId: string; count: number }[];
+          const slots = JSON.parse(saved) as unknown;
           if (Array.isArray(slots) && slots.length > 0) {
             host.setInventory(slots, 0).then(() => {
               // Refresh the store after loading
@@ -1158,10 +1362,10 @@ export default function App() {
           let changed = prevInv.length !== inv.length;
           if (!changed) {
             for (let i = 0; i < inv.length; i++) {
-              if (prevInv[i].itemId !== inv[i].itemId || prevInv[i].count !== inv[i].count) {
-                changed = true;
-                break;
-              }
+              const a = prevInv[i];
+              const b = inv[i];
+              if ((a === null) !== (b === null)) { changed = true; break; }
+              if (a && b && (a.itemId !== b.itemId || a.count !== b.count)) { changed = true; break; }
             }
           }
           if (changed) {

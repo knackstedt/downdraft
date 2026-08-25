@@ -5,6 +5,15 @@
 // Mahjongg Connect board logic instead of player physics.
 // ============================================================================
 
+// Global error handler — catches errors during module evaluation and forwards
+// them to the main thread so they're visible in the console.
+self.addEventListener("error", (e: ErrorEvent) => {
+  console.error("[sandjongg-worker] global error:", e.message, e.filename, e.lineno, e.error?.stack);
+});
+self.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
+  console.error("[sandjongg-worker] unhandled rejection:", String(e.reason));
+});
+
 import { expose, exposeEvents } from "@downdraft/core/worker/rpc";
 import {
     Material,
@@ -97,8 +106,13 @@ expose({
     inputBuf = new Int32Array(sab, INPUT_OFFSET, INPUT_BYTES / 4);
 
     // Create the sand step pool.
-    pool = new SandStepPool({ W: gridW, H: gridH, numWorkers: NUM_SAND_WORKERS, gravityOverrides: GRAVITY_OVERRIDES });
-    await pool.init();
+    try {
+      pool = new SandStepPool({ W: gridW, H: gridH, numWorkers: NUM_SAND_WORKERS, gravityOverrides: GRAVITY_OVERRIDES });
+      await pool.init();
+    } catch (err) {
+      console.error("[sandjongg-worker] SandStepPool init failed:", String(err));
+      throw err;
+    }
     world = pool.getBoundaryWorld();
     world.reseed(0x9e3779b9);
 

@@ -10,9 +10,7 @@ import { GPUDeviceManager } from "@downdraft/core";
 import { getBlockDef } from "../shared/block-registry";
 import {
     ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LADDER,
-    BLOCK_ROPE, BLOCK_SAND, BLOCK_SCAFFOLDING, BLOCK_STONE, BLOCK_TORCH,
-    BLOCK_WOOD,
+    BLOCK_AIR,
     CHUNK_H, CHUNK_W, TICK_MS
 } from "../shared/constants";
 import { CROP_LOOKUP } from "../shared/crops";
@@ -35,22 +33,10 @@ import { SkyPass } from "./sky-pass";
 import { StickmanPass } from "./stickman-pass";
 import { TaskMarkerPass, type MarkerData } from "./task-marker-pass";
 
-// Default hotbar block IDs (selectable with number keys 1-9).
-// Each slot maps to a placeable block; placing consumes the matching item
-// from the blockhead's inventory (handled in the sim worker).
-// This is the fallback; the actual hotbar is updated dynamically from the
-// inventory via setHotbarFromInventory().
-const DEFAULT_HOTBAR_BLOCKS = [
-  BLOCK_DIRT,
-  BLOCK_GRASS,
-  BLOCK_STONE,
-  BLOCK_WOOD,
-  BLOCK_SAND,
-  BLOCK_TORCH,
-  BLOCK_LADDER,
-  BLOCK_ROPE,
-  BLOCK_SCAFFOLDING,
-];
+// The hotbar is the first 9 slots of the inventory. Each slot maps to a
+// placeable block ID (from the item's placeBlock property); empty slots
+// map to BLOCK_AIR. Updated from the inventory via setHotbarFromInventory().
+const EMPTY_HOTBAR: number[] = new Array(9).fill(BLOCK_AIR);
 
 export class BlockheadsRenderer {
   private canvas: HTMLCanvasElement;
@@ -85,8 +71,8 @@ export class BlockheadsRenderer {
   private fpsTimer = 0;
   private inputInterval = 0; // separate interval for input processing (works even when render loop is paused)
 
-  // Hotbar: dynamic array of block IDs (updated from inventory)
-  private hotbarBlocks: number[] = [...DEFAULT_HOTBAR_BLOCKS];
+  // Hotbar: block IDs for the first 9 inventory slots (updated from inventory)
+  private hotbarBlocks: number[] = [...EMPTY_HOTBAR];
 
   // Render passes
   blockGridPass: BlockGridPass3D | null = null;
@@ -202,28 +188,18 @@ export class BlockheadsRenderer {
   }
 
   /**
-   * Update the hotbar from the inventory snapshot.
-   * Builds a 9-slot array of block IDs from the first 9 placeable items
-   * in the inventory. Slots that have no item are set to BLOCK_AIR.
-   * Preserves default blocks for items that aren't in the inventory yet
-   * (so the hotbar isn't empty at game start before inventory loads).
+   * Update the hotbar from the inventory slot-array snapshot.
+   * The hotbar is the first 9 slots of the inventory. Each slot's block ID
+   * is resolved from the item's placeBlock property; empty slots → BLOCK_AIR.
    */
-  setHotbarFromInventory(inventory: { itemId: string; count: number }[]): void {
+  setHotbarFromInventory(inventory: ({ itemId: string; count: number } | null)[]): void {
     const slots: number[] = new Array(9).fill(BLOCK_AIR);
-    let idx = 0;
-    // First, fill from placeable inventory items
-    for (const slot of inventory) {
-      if (idx >= 9) break;
-      if (slot.count <= 0) continue;
-      const def = getItemDef(slot.itemId);
-      if (def && def.placeBlock > 0) {
-        slots[idx] = def.placeBlock;
-        idx++;
+    for (let i = 0; i < 9; i++) {
+      const s = inventory[i];
+      if (s && s.count > 0) {
+        const def = getItemDef(s.itemId);
+        if (def && def.placeBlock > 0) slots[i] = def.placeBlock;
       }
-    }
-    // If fewer than 9 placeable items, fill remaining with defaults
-    for (let i = idx; i < 9; i++) {
-      slots[i] = DEFAULT_HOTBAR_BLOCKS[i] ?? BLOCK_AIR;
     }
     this.hotbarBlocks = slots;
   }
@@ -523,7 +499,7 @@ export class BlockheadsRenderer {
     // Reset renderer-side state to match the fresh world
     this._taskMarkers.length = 0;
     this.markerDataDirty = true;
-    this.hotbarBlocks = [...DEFAULT_HOTBAR_BLOCKS];
+    this.hotbarBlocks = [...EMPTY_HOTBAR];
     // Clear drops display (worker already cleared the drop array)
     this.cachedDropData = [];
     this.lastDropTick = RENDER_TICK_SENTINEL;

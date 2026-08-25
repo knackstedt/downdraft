@@ -41,8 +41,11 @@ export class GridBuilderWorkerHost {
   }
 
   async start(simSab: SharedArrayBuffer): Promise<void> {
-    const workerUrl = new URL("./grid-builder-worker.ts", import.meta.url);
-    this.worker = new Worker(workerUrl, { type: "module" });
+    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+    // Vite only bundles worker modules when it sees this exact pattern.
+    // Assigning the URL to a variable first causes Vite to emit the worker
+    // as a raw unbundled asset (bare imports unresolved), breaking prod.
+    this.worker = new Worker(new URL("./grid-builder-worker.ts", import.meta.url), { type: "module" });
     this.proxy = wrap<GridBuilderWorkerApi>(this.worker);
 
     this.worker.onerror = (e: ErrorEvent) => {

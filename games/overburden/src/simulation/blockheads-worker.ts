@@ -184,16 +184,23 @@ function recordPickup(itemId: string, count: number): void {
 /** Spawn a drop entity at the given active-grid position with a small random pop velocity. */
 function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): void {
   if (drops.length >= MAX_DROPS) {
-    // Drop limit reached — merge into inventory directly as fallback
+    // Drop limit reached — merge into inventory directly as fallback.
+    // Overflow is discarded (no ground drop possible).
     const inv = inventories[0];
-    if (inv) { inv.add(itemId, count); recordPickup(itemId, count); }
+    if (inv) {
+      const added = count - inv.add(itemId, count);
+      if (added > 0) recordPickup(itemId, added);
+    }
     return;
   }
   const code = encodeDropItem(itemId);
   if (code === 0) {
-    // Unknown item — add to inventory directly
+    // Unknown item — add to inventory directly. Overflow is discarded.
     const inv = inventories[0];
-    if (inv) { inv.add(itemId, count); recordPickup(itemId, count); }
+    if (inv) {
+      const added = count - inv.add(itemId, count);
+      if (added > 0) recordPickup(itemId, added);
+    }
     return;
   }
   // Pop velocity: slight upward + horizontal spread (deterministic from position)
@@ -248,8 +255,18 @@ function updateDrops(dt: number): void {
         const dy = d.y - bhCy;
         if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
           const itemId = decodeDropItem(d.itemCode);
-          if (itemId) { inv.add(itemId, d.count); recordPickup(itemId, d.count); }
-          drops.splice(i, 1);
+          if (itemId) {
+            const overflow = inv.add(itemId, d.count);
+            const pickedUp = d.count - overflow;
+            if (pickedUp > 0) recordPickup(itemId, pickedUp);
+            if (overflow > 0) {
+              // Inventory full — keep the remainder in the drop on the ground.
+              d.count = overflow;
+            } else {
+              drops.splice(i, 1);
+            }
+          }
+          else drops.splice(i, 1);
         }
       }
       continue; // skip physics entirely
@@ -310,10 +327,17 @@ function updateDrops(dt: number): void {
           // Decode item and add to inventory
           const itemId = decodeDropItem(d.itemCode);
           if (itemId) {
-            inv.add(itemId, d.count);
-            recordPickup(itemId, d.count);
+            const overflow = inv.add(itemId, d.count);
+            const pickedUp = d.count - overflow;
+            if (pickedUp > 0) recordPickup(itemId, pickedUp);
+            if (overflow > 0) {
+              // Inventory full — keep the remainder in the drop on the ground.
+              d.count = overflow;
+            } else {
+              drops.splice(i, 1);
+            }
           }
-          drops.splice(i, 1);
+          else drops.splice(i, 1);
         }
       }
     }
@@ -465,11 +489,12 @@ function stepStations(dt: number): void {
 
       // Check completion
       if (state.activeJob.elapsed >= recipe.craftTime) {
-        // Add outputs to the blockhead's inventory
+        // Add outputs to the blockhead's inventory; overflow drops at the station.
         const inv = inventories[state.activeJob.bhIndex];
         if (inv) {
           for (const out of recipe.outputs) {
-            inv.add(out.itemId, out.count);
+            const overflow = inv.add(out.itemId, out.count);
+            if (overflow > 0) spawnDrop(ax, ay, out.itemId, overflow);
           }
         }
         state.activeJob.status = "done";
@@ -767,9 +792,9 @@ expose({
   },
 
   // --- Inventory + crafting ---
-  getInventory(bhIndex: number = 0): { itemId: string; count: number }[] {
+  getInventory(bhIndex: number = 0): ({ itemId: string; count: number } | null)[] {
     const inv = inventories[bhIndex];
-    return inv ? inv.snapshot() : [];
+    return inv ? inv.snapshot() : new Array(54).fill(null);
   },
 
   craft(recipeId: string, stationAx: number = -1, stationAy: number = -1, bhIndex: number = 0): { ok: boolean; error?: string; jobId?: number } {
@@ -783,7 +808,11 @@ expose({
       if (!inv.hasIngredients(recipe.inputs)) {
         return { ok: false, error: "Insufficient ingredients" };
       }
-      inv.applyRecipe(recipe);
+      // Drop overflow at the blockhead's position.
+      const bh = blockheads[bhIndex];
+      const bx = bh ? Math.floor(bh.x + BH_W * 0.5) : 0;
+      const by = bh ? Math.floor(bh.y + BH_H * 0.5) : 0;
+      inv.applyRecipe(recipe, (itemId, count) => spawnDrop(bx, by, itemId, count));
       return { ok: true };
     }
 
@@ -949,8 +978,7 @@ expose({
         state.queue.splice(qIdx, 1);
         return { ok: false, error: "Insufficient ingredients" };
       }
-      inv.applyRecipe(recipe);
-      for (const out of recipe.outputs) inv.add(out.itemId, out.count);
+      inv.applyRecipe(recipe, (itemId, count) => spawnDrop(stationAx, stationAy, itemId, count));
       state.queue.splice(qIdx, 1);
       return { ok: true };
     }
@@ -961,8 +989,11 @@ expose({
     const inv = inventories[bhIndex];
     if (!inv) return { ok: false, error: "No inventory" };
     if (!inv.remove("crystal", cost)) return { ok: false, error: `Need ${cost} crystals to rush` };
-    // Complete the job
-    for (const out of recipe.outputs) inv.add(out.itemId, out.count);
+    // Complete the job; overflow drops at the station.
+    for (const out of recipe.outputs) {
+      const overflow = inv.add(out.itemId, out.count);
+      if (overflow > 0) spawnDrop(stationAx, stationAy, out.itemId, overflow);
+    }
     job.status = "done";
     state.activeJob = null;
     packStationState(state, stationAx, stationAy);
@@ -982,7 +1013,8 @@ expose({
         const inv = inventories[state.activeJob.bhIndex];
         if (inv) {
           for (const inp of recipe.inputs) {
-            inv.add(inp.itemId, inp.count);
+            const overflow = inv.add(inp.itemId, inp.count);
+            if (overflow > 0) spawnDrop(stationAx, stationAy, inp.itemId, overflow);
           }
         }
       }
@@ -1004,17 +1036,28 @@ expose({
     return { ok: false };
   },
 
-  // Give an item (creative mode / testing). Bypasses inventory limits.
-  giveItem(itemId: string, count: number = 1, bhIndex: number = 0): { ok: boolean } {
+  // Give an item (creative mode / testing). Overflow is discarded by design
+  // (creative grants cap at maxStack). Returns the count actually added.
+  giveItem(itemId: string, count: number = 1, bhIndex: number = 0): { ok: boolean; added: number } {
+    const inv = inventories[bhIndex];
+    if (!inv) return { ok: false, added: 0 };
+    const overflow = inv.add(itemId, count);
+    return { ok: true, added: count - overflow };
+  },
+
+  // Move a stack from one slot to another (drag-and-drop in the UI).
+  moveSlot(from: number, to: number, bhIndex: number = 0): { ok: boolean } {
     const inv = inventories[bhIndex];
     if (!inv) return { ok: false };
-    inv.add(itemId, count);
+    if (from < 0 || from >= inv.size || to < 0 || to >= inv.size) return { ok: false };
+    inv.move(from, to);
     return { ok: true };
   },
 
   // Set inventory from a snapshot (used for save/load persistence).
-  // Replaces the entire inventory for the given blockhead.
-  setInventory(slots: { itemId: string; count: number }[], bhIndex: number = 0): { ok: boolean } {
+  // Replaces the entire inventory for the given blockhead. Accepts both the
+  // legacy {itemId,count}[] shape and the new (InventorySlot|null)[] shape.
+  setInventory(slots: unknown, bhIndex: number = 0): { ok: boolean } {
     const inv = inventories[bhIndex];
     if (!inv) return { ok: false };
     inv.loadSnapshot(slots);
@@ -1283,8 +1326,10 @@ function processMining(dt: number): void {
             // are reproducible (no Math.random).
             const roll = pseudoRandom(target.x, target.y, tickCount, drop.itemId);
             if (roll <= drop.chance) {
-              inv.add(drop.itemId, drop.count);
-              recordPickup(drop.itemId, drop.count);
+              const overflow = inv.add(drop.itemId, drop.count);
+              const pickedUp = drop.count - overflow;
+              if (pickedUp > 0) recordPickup(drop.itemId, pickedUp);
+              if (overflow > 0) spawnDrop(target.x, target.y, drop.itemId, overflow);
             }
           }
         }

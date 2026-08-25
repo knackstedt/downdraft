@@ -52,12 +52,23 @@ export class SandjonggWorkerHost {
   }
 
   async start(): Promise<void> {
-    const workerUrl = new URL("./sandjongg-worker.ts", import.meta.url);
-    const worker = new Worker(workerUrl, { type: "module" });
+    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+    // Vite only bundles worker modules when it sees this exact pattern. Assigning
+    // the URL to a variable first causes Vite to emit the worker as a raw
+    // unbundled asset (bare imports unresolved), breaking production builds.
+    const worker = new Worker(new URL("./sandjongg-worker.ts", import.meta.url), { type: "module" });
     const wp = wrap<SandjonggWorkerApi>(worker);
 
     worker.onerror = (e: ErrorEvent) => {
-      console.error("[SandjonggWorkerHost] worker error:", e.message);
+      const errStr = e.error ? (e.error.stack || e.error.message || String(e.error)) : "null";
+      console.error(
+        `[SandjonggWorkerHost] worker error: msg=${e.message ?? "undefined"} ` +
+        `file=${e.filename ?? "none"} line=${e.lineno} col=${e.colno} ` +
+        `error=${errStr} type=${e.type}`,
+      );
+    };
+    worker.onmessageerror = (e: MessageEvent) => {
+      console.error("[SandjonggWorkerHost] worker message error:", String(e.data));
     };
 
     wp.onEvents((kind) => {

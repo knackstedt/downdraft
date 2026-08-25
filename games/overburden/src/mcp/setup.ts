@@ -17,6 +17,7 @@
 import { downdraft } from "@downdraft/app/renderer";
 import type { BlockheadsRenderer } from "../renderer/blockheads-renderer";
 import type { BlockheadsInputState } from "../renderer/input-handler";
+import { getItemDef } from "../shared/items";
 
 interface ToolDef {
   name: string;
@@ -397,7 +398,7 @@ function createAutomationTools(ctx: {
     {
       def: {
         name: "get_inventory",
-        description: "Read the blockhead's inventory (list of {itemId, count} slots) via worker RPC.",
+        description: "Read the blockhead's inventory as a fixed-length slot array (54 slots; null = empty slot; slots 0-8 are the hotbar). Each non-null entry is { itemId, count }.",
         inputSchema: {
           type: "object",
           properties: {
@@ -570,12 +571,12 @@ function createAutomationTools(ctx: {
     {
       def: {
         name: "give_item",
-        description: "Give an item to the blockhead (creative/testing mode). Bypasses inventory limits.",
+        description: "Give an item to the blockhead (creative/testing mode). Respects maxStack — overflow is discarded. If count is omitted, grants the item's full maxStack (a complete stack).",
         inputSchema: {
           type: "object",
           properties: {
             itemId: { type: "string", description: "Item ID (e.g. 'dirt', 'wood', 'torch', 'stone_pickaxe')" },
-            count: { type: "number", default: 1 },
+            count: { type: "number", description: "Amount to give. Defaults to the item's maxStack (full stack)." },
             playerIndex: { type: "number", default: 0 },
           },
           required: ["itemId"],
@@ -586,9 +587,11 @@ function createAutomationTools(ctx: {
         if (!renderer) return errorResult("Renderer not initialized");
         const host = renderer.getWorkerHost();
         if (!host) return errorResult("Worker host not available");
+        const itemId = params.itemId as string;
+        const count = (params.count as number) ?? getItemDef(itemId)?.maxStack ?? 1;
         const result = await host.giveItem(
-          params.itemId as string,
-          (params.count as number) ?? 1,
+          itemId,
+          count,
           (params.playerIndex as number) ?? 0,
         );
         return jsonResult(result);

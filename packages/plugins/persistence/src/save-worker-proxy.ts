@@ -8,18 +8,18 @@
 // via postMessage (with ArrayBuffer transfer for zero-copy blob/thumbnail
 // transfer).
 
-import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type {
-  ISaveStore,
-  LoadOptions,
-  LoadResult,
-  SaveGenerationInfo,
-  SaveOptions,
-  SaveResult,
-  SaveSlotInfo,
-  SaveState,
-  SaveWarning,
+    ISaveStore,
+    LoadOptions,
+    LoadResult,
+    SaveGenerationInfo,
+    SaveOptions,
+    SaveResult,
+    SaveSlotInfo,
+    SaveState,
+    SaveWarning,
 } from "@downdraft/core";
+import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type { OpfsSaveStoreOptions } from "./opfs-save-store";
 import type { SaveWorkerApi } from "./save-worker";
 
@@ -44,8 +44,13 @@ export class SaveWorkerProxy implements ISaveStore {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const workerUrl = this.opts.workerUrl ?? new URL("./save-worker.ts", import.meta.url);
-    const worker = new Worker(workerUrl, { type: "module" });
+    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+    // Vite only bundles worker modules when it sees this exact pattern.
+    // Assigning the URL to a variable first causes Vite to emit the worker
+    // as a raw unbundled asset (bare imports unresolved), breaking prod.
+    const worker = this.opts.workerUrl
+      ? new Worker(this.opts.workerUrl, { type: "module" })
+      : new Worker(new URL("./save-worker.ts", import.meta.url), { type: "module" });
     this.wp = wrap<SaveWorkerApi>(worker);
 
     await this.wp.proxy.init(this.opts.storeOptions);
