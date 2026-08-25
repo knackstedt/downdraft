@@ -456,6 +456,11 @@ const DEFAULT_ERROR_PATTERNS = [
   /GPU process exited unexpectedly/i,
   /WebGPU.*not available/i,
   /adapter request failed/i,
+  // Worker load failures. COEP/file:// issues, missing worker chunks, or
+  // unbundled worker assets all surface as "Worker error: undefined" — the
+  // worker script is never fetched so ErrorEvent fields are all undefined.
+  /\[.*WorkerHost.*\]\s*Worker error:/i,
+  /\[.*WorkerHost.*\]\s*worker error:/i,
 ];
 
 const DEFAULT_IGNORE_PATTERNS = [

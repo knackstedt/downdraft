@@ -57,6 +57,22 @@ createDowndraftApp({
 });
 ```
 
+## Cross-origin isolation: COEP and file:// worker loading
+
+The engine sets `Cross-Origin-Opener-Policy: same-origin` (COOP) and `Cross-Origin-Embedder-Policy: require-corp` (COEP) on all responses to enable `SharedArrayBuffer` via cross-origin isolation. **However, COEP is only set for non-`file://` responses.**
+
+In packaged builds, the renderer loads via `win.loadFile()` → `file://` protocol. Chromium blocks Web Worker creation from `file://` when the parent page has `COEP: require-corp` — the worker script is **never fetched** and `Worker.onerror` fires with `message: undefined`, `filename: undefined`, `lineno: undefined`. This silently breaks ALL game workers (mining-worker, sand-step-worker, save-worker, solid-worker, etc.) in production builds. In dev mode the renderer loads from `http://localhost:5173` (Vite dev server), where COEP works fine — which is why this bug only appears in packaged builds.
+
+`SharedArrayBuffer` still works in packaged builds without COEP because `webPreferences.enableBlinkFeatures: "SharedArrayBuffer"` is set on the BrowserWindow, which enables SAB regardless of cross-origin isolation.
+
+**Never add `Cross-Origin-Embedder-Policy: require-corp` unconditionally to all responses.** Always check `details.url.startsWith("file:")` and skip COEP for file:// URLs. The header logic is extracted into `buildCrossOriginIsolationHeaders()` in `packages/app/src/main/window.ts` and covered by `packages/app/src/main/window.spec.ts`.
+
+### Files
+
+- `packages/app/src/main/window.ts` — `buildCrossOriginIsolationHeaders()` (the header logic) + `createWindow()` (wires it into `session.defaultSession.webRequest.onHeadersReceived`).
+- `packages/app/src/main/window.spec.ts` — unit tests for the COEP/file:// logic (7 tests).
+- `tests/e2e/harness.ts` — `DEFAULT_ERROR_PATTERNS` includes `Worker error:` patterns so e2e tests catch worker load failures.
+
 ## Process management & debugging games
 
 ### Killing game processes — never use generic `pkill electron`
@@ -152,6 +168,7 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun test packages/plugins/models/src/normalize.spec.ts` — full normalization pipeline specs.
 - `bun test packages/core/src/plugin/host.spec.ts` — PluginHost activation order, deferred registration, dispose order (12 tests).
 - `bun test packages/plugins/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
+- `bun test packages/app/src/main/window.spec.ts` — cross-origin isolation header logic (COEP/file:// worker loading, 7 tests).
 - `bun test packages/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
 - `bun test games/to-the-ocean/plugins/wildlife/src/wildlife-plugin.spec.ts` — game plugin wrappers (wildlife, buoyancy, collision) (9 tests).
 - `bun test packages/plugins/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
