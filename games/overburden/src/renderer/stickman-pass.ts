@@ -8,6 +8,8 @@
 // would look due to the missing top-face perspective).
 // ============================================================================
 
+import { DEPTH_FORMAT } from "@downdraft/core";
+
 import { type Mat4 } from "./matrix";
 
 // Uniform layout (must match the WGSL below):
@@ -93,7 +95,7 @@ export class StickmanPass {
   private _uniform: Float32Array<ArrayBuffer> = new Float32Array(UNIFORM_FLOATS);
   private _verts: Float32Array<ArrayBuffer> = new Float32Array(36 * 3);
 
-  constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth24plus") {
+  constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = DEPTH_FORMAT) {
     this.device = device;
     this.format = format;
     this.depthFormat = depthFormat;

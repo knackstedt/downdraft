@@ -7,6 +7,8 @@
 // pass so markers stay aligned with blocks at any camera angle/zoom.
 // ============================================================================
 
+import { DEPTH_FORMAT } from "@downdraft/core";
+
 const MARKER_WGSL = `
 struct Uniforms {
   viewProj : mat4x4f,
@@ -74,6 +76,7 @@ const MAX_MARKERS = 100;
 
 // Per-marker: gridX, gridY, r, g, b, pad = 6 floats × 4 bytes = 24 bytes
 const MARKER_STRIDE = 6 * 4;
+
 
 export interface MarkerData {
   gridX: number;
@@ -149,7 +152,7 @@ export class TaskMarkerPass {
       },
       primitive: { topology: "triangle-strip" },
       depthStencil: {
-        format: "depth24plus",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "always", // markers always render on top
       },

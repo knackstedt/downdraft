@@ -24,6 +24,7 @@ import { BlockheadsWorkerHost } from "../simulation/blockheads-worker-host";
 import { GridBuilderWorkerHost } from "../simulation/grid-builder-worker-host";
 import { BlockGridPass3D } from "./block-grid-pass-3d";
 import { Camera } from "./camera";
+import { CharacterPass, type CharacterGender } from "./character-pass";
 import { CropSpritePass } from "./crop-sprite-pass";
 import { DropPass, type DropRenderData } from "./drop-pass";
 import {
@@ -90,6 +91,15 @@ export class BlockheadsRenderer {
   // Render passes
   blockGridPass: BlockGridPass3D | null = null;
   private stickmanPass: StickmanPass | null = null;
+  private characterPass: CharacterPass | null = null;
+  private characterGender: CharacterGender = "male";
+  // Cached player position (active-grid coords) + movement state for the
+  // character render pass. Set during the update phase, consumed during the
+  // render phase.
+  private _charLocalX = 0;
+  private _charLocalY = 0;
+  private _charVx = 0;
+  private _charWallClimbing = false;
   private skyPass: SkyPass | null = null;
   private taskMarkerPass: TaskMarkerPass | null = null;
   private dropPass: DropPass | null = null;
@@ -228,6 +238,24 @@ export class BlockheadsRenderer {
     return this.camera;
   }
 
+  /** Switch the player character model gender (male/female). */
+  setCharacterGender(gender: CharacterGender): void {
+    this.characterGender = gender;
+    this.characterPass?.setGender(gender);
+  }
+
+  /** Get the current character gender. */
+  getCharacterGender(): CharacterGender {
+    return this.characterGender;
+  }
+
+  /** Toggle between male and female character models. */
+  toggleCharacterGender(): CharacterGender {
+    const next: CharacterGender = this.characterGender === "male" ? "female" : "male";
+    this.setCharacterGender(next);
+    return next;
+  }
+
   /** Active grid origin + size in active-grid coords (for debug overlay). */
   getActiveGridOrigin(): { x: number; y: number; w: number; h: number } {
     return { x: 0, y: 0, w: ACTIVE_GRID_W, h: ACTIVE_GRID_H };
@@ -276,6 +304,20 @@ export class BlockheadsRenderer {
     this.stickmanPass = new StickmanPass(this.device, this.format);
     this.stickmanPass.init();
 
+    // Initialize the character pass (rigged FBX models via ModelRenderer).
+    // Non-blocking: if this fails, we fall back to the stickman box.
+    this.characterPass = new CharacterPass();
+    try {
+      await this.characterPass.init(this.device, this.format);
+      await this.characterPass.loadGender("male");
+      await this.characterPass.loadGender("female");
+      this.characterPass.setGender("male");
+    } catch (e) {
+      console.warn("[Renderer] CharacterPass init failed, falling back to stickman box:", e);
+      this.characterPass?.destroy();
+      this.characterPass = null;
+    }
+
     this.skyPass = new SkyPass(this.device, this.format);
     this.skyPass.init();
 
@@ -310,6 +352,11 @@ export class BlockheadsRenderer {
 
     // Set up input handlers
     this.input = createInputHandler(this.canvas);
+    // Wire the C-key gender toggle to the character pass + game store
+    this.input.onToggleGender = () => {
+      const gender = this.toggleCharacterGender();
+      console.log(`[Overburden] Character gender: ${gender}`);
+    };
 
     // Listen for window resize
     window.addEventListener("resize", this.resizeHandler);
@@ -447,6 +494,8 @@ export class BlockheadsRenderer {
       this.resizeObserver = null;
     }
     this.stickmanPass?.destroy();
+    this.characterPass?.destroy();
+    this.characterPass = null;
     this.skyPass?.destroy();
     this.taskMarkerPass?.destroy();
     this.dropPass?.destroy();
@@ -581,6 +630,53 @@ export class BlockheadsRenderer {
     // 3) Nothing hit — fall back to Z=1 plane for placement in empty space
     const plane = rayToZ0(ray.origin, ray.dir);
     return plane ?? { x: this.camera.x, y: this.camera.y };
+  }
+
+  /**
+   * Check if a click position (active-grid float coords) hits a world drop.
+   * Drops are rendered as ~0.6-block quads centered at their position, so
+   * we use a 0.5-block radius hit test. Returns the drop's position if hit,
+   * or null if no drop is near the click.
+   */
+  private hitTestDrops(clickX: number, clickY: number): { x: number; y: number } | null {
+    const radius = 0.5;
+    const r2 = radius * radius;
+    for (const d of this.cachedDropData) {
+      const dx = d.x - clickX;
+      const dy = d.y - clickY;
+      if (dx * dx + dy * dy < r2) {
+        return { x: d.x, y: d.y };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Check if a cell (active-grid int coords) is adjacent to any solid block
+   * in the foreground or background layer. "Adjacent" means any of the 4
+   * orthogonal neighbors (N, S, E, W) has a non-air block. This is used to
+   * determine if an empty cell is potentially reachable (has ground or a
+   * wall nearby to stand on / climb).
+   */
+  private isAdjacentToSolid(
+    ax: number, ay: number,
+    fg: Uint16Array, bg: Uint16Array,
+  ): boolean {
+    const W = ACTIVE_GRID_W;
+    const H = ACTIVE_GRID_H;
+    const neighbors = [
+      [ax, ay - 1], // N
+      [ax, ay + 1], // S
+      [ax - 1, ay], // W
+      [ax + 1, ay], // E
+    ];
+    for (const [nx, ny] of neighbors) {
+      if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+      const idx = ny * W + nx;
+      if ((fg[idx] & 0xFF) !== BLOCK_AIR) return true;
+      if ((bg[idx] & 0xFF) !== BLOCK_AIR) return true;
+    }
+    return false;
   }
 
   /**
@@ -729,23 +825,66 @@ export class BlockheadsRenderer {
     if (this.input.taskMode && this.input.taskClickPending) {
       this.input.taskClickPending = false;
       const clickGrid = this.screenToGrid3D(this.input.taskClickX, this.input.taskClickY);
-      const worldX = Math.floor(clickGrid.x + this.renderOriginCx * 64);
-      const worldY = Math.floor(clickGrid.y + this.renderOriginCy * 64);
-      const action: "mine" | "move" = this.input.taskClickButton === 2 ? "move" : "mine";
-      const markerGX = Math.floor(clickGrid.x);
-      const markerGY = Math.floor(clickGrid.y);
+      const ax = Math.floor(clickGrid.x);
+      const ay = Math.floor(clickGrid.y);
+      const worldX = ax + this.renderOriginCx * 64;
+      const worldY = ay + this.renderOriginCy * 64;
+      const isRightClick = this.input.taskClickButton === 2;
 
-      // Toggle: if a task already exists at this position, cancel it.
-      // Otherwise, queue a new one. The marker sync interval (in app.tsx)
-      // will pick up the change from getTasks().
       const host = this.workerHost;
       if (host) {
-        const taskType = action === "mine" ? "MINE_BLOCK" : "MOVE_TO";
-        host.queueTask(taskType, { targetX: worldX, targetY: worldY }, 0).then((result) => {
-          if (result.duplicate) {
-            host.cancelTask(taskType, worldX, worldY, 0);
+        // Use a labeled block so we can skip the cell-based task queueing
+        // when a drop was clicked (or when the cell is unreachable).
+        taskClick: {
+          // 1) Drop hit check (left-click only): if the click is near a world
+          //    drop, queue COLLECT_ITEM at the drop's world coords. The auto-
+          //    pickup logic in the worker handles the actual collection when the
+          //    blockhead gets close enough.
+          if (!isRightClick) {
+            const dropHit = this.hitTestDrops(clickGrid.x, clickGrid.y);
+            if (dropHit) {
+              const dx = Math.floor(dropHit.x + this.renderOriginCx * 64);
+              const dy = Math.floor(dropHit.y + this.renderOriginCy * 64);
+              host.queueTask("COLLECT_ITEM", { targetX: dx, targetY: dy }, 0).then((r) => {
+                if (r.duplicate) host.cancelTask("COLLECT_ITEM", dx, dy, 0);
+              });
+              break taskClick;
+            }
           }
-        });
+
+          // 2) Determine task type for the clicked cell.
+          //    Right-click → MOVE_TO (always).
+          //    Left-click → MINE_BLOCK if the cell has a block, else MOVE_TO if
+          //    the empty cell is adjacent to solid (fg or bg), else ignore.
+          let taskType: "MINE_BLOCK" | "MOVE_TO";
+          if (isRightClick) {
+            taskType = "MOVE_TO";
+          } else {
+            const fg = this.simReader!.foreground;
+            const bg = this.simReader!.background;
+            const cellIdx = ay * ACTIVE_GRID_W + ax;
+            const inBounds = ax >= 0 && ax < ACTIVE_GRID_W && ay >= 0 && ay < ACTIVE_GRID_H;
+            const fgId = inBounds ? (fg[cellIdx] & 0xFF) : BLOCK_AIR;
+            const bgId = inBounds ? (bg[cellIdx] & 0xFF) : BLOCK_AIR;
+            if (fgId !== BLOCK_AIR || bgId !== BLOCK_AIR) {
+              taskType = "MINE_BLOCK";
+            } else if (inBounds && this.isAdjacentToSolid(ax, ay, fg, bg)) {
+              taskType = "MOVE_TO";
+            } else {
+              // Empty cell not adjacent to solid — can't navigate there
+              break taskClick;
+            }
+          }
+
+          // Toggle: if a task already exists at this position, cancel it.
+          // Otherwise, queue a new one. The marker sync interval (in app.tsx)
+          // will pick up the change from getTasks().
+          host.queueTask(taskType, { targetX: worldX, targetY: worldY }, 0).then((result) => {
+            if (result.duplicate) {
+              host.cancelTask(taskType, worldX, worldY, 0);
+            }
+          });
+        }
       }
     }
 
@@ -1007,28 +1146,41 @@ export class BlockheadsRenderer {
     // amplifies the delta.
     this.updateInput();
 
-    // Update stickman pass with 3D perspective (use smoothed position)
-    if (this.simReader && this.stickmanPass) {
+    // Update player render pass (character or stickman fallback) with 3D
+    // perspective, using the smoothed interpolated position.
+    if (this.simReader) {
       const bhCount = this.simReader.getBlockheadCount();
       if (bhCount > 0) {
         const bh = this.simReader.getBlockhead(0);
         // Convert interpolated world position → active-grid coords for rendering.
         // Uses the render origin (matches the grid data on the GPU) so the
-        // stickman stays aligned with the terrain during chunk-boundary
+        // player stays aligned with the terrain during chunk-boundary
         // crossings. The world position itself comes from the sim SAB origin
         // (cachedOriginCx/Cy) — see the interpolation block above.
         const localX = this.interpWorldX - this.renderOriginCx * CHUNK_W;
         const localY = this.interpWorldY - this.renderOriginCy * CHUNK_H;
-        this.stickmanPass.update3D(
-          localX, localY,
-          bh[4], // facing
-          bh[6], // animFrame
-          this.blockGridPass.getViewProj(),
-          this.camera.canvasW, this.camera.canvasH,
-          bh[7], // health
-          bh[5] !== 0, // onGround
-          bh[2], // vx
-        );
+
+        if (this.characterPass) {
+          // Cache position + movement state for the render section
+          // (beginFrame/render are called from the render pass below, not
+          // here, because they need the pass encoder).
+          this._charLocalX = localX;
+          this._charLocalY = localY;
+          this._charVx = bh[2]; // vx
+          this._charWallClimbing = bh[15] !== 0; // wallClimbing flag
+        } else if (this.stickmanPass) {
+          // Fallback: stickman box
+          this.stickmanPass.update3D(
+            localX, localY,
+            bh[4], // facing
+            bh[6], // animFrame
+            this.blockGridPass.getViewProj(),
+            this.camera.canvasW, this.camera.canvasH,
+            bh[7], // health
+            bh[5] !== 0, // onGround
+            bh[2], // vx
+          );
+        }
       }
     }
 
@@ -1158,9 +1310,18 @@ export class BlockheadsRenderer {
       this.skyPass?.render(pass);
       // Render 3D block grid (with depth testing)
       this.blockGridPass.render(pass);
-      // Render stickman on top (with depth testing)
+      // Render player character (or stickman box fallback) with depth testing
       if (this.simReader && this.simReader.getBlockheadCount() > 0) {
-        this.stickmanPass?.render(pass);
+        if (this.characterPass) {
+          this.characterPass.beginFrame(
+            this.blockGridPass.getViewProj(),
+            [this.camera.x, this.camera.y, 0],
+            daylightNorm,
+          );
+          this.characterPass.render(pass, this._charLocalX, this._charLocalY, this._charVx, this._charWallClimbing);
+        } else {
+          this.stickmanPass?.render(pass);
+        }
       }
       // Render task markers on top (no depth, alpha blended)
       this.taskMarkerPass?.render(pass);

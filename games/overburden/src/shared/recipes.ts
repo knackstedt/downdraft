@@ -379,6 +379,15 @@ const DEFS: RecipeDef[] = [
     craftTime: 15,
     fuelCost: 1,
   },
+  {
+    id: "glass_kiln",
+    name: "Glass (Kiln)",
+    station: "kiln",
+    inputs: [{ itemId: "sand", count: 2 }],
+    outputs: [{ itemId: "glass", count: 1 }],
+    craftTime: 12,
+    fuelCost: 1,
+  },
 
   // --- Furnace recipes (fueled, craftTime: 15-30s, fuelCost: 1-3) ---
   {

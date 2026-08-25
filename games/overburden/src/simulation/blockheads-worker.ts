@@ -1118,7 +1118,7 @@ function writeBlockheads(): void {
     writer.blockheads[off + 12] = bh.environment;
     writer.blockheads[off + 13] = animStateToCode(bh.animState);
     writer.blockheads[off + 14] = bh.id;
-    writer.blockheads[off + 15] = 0; // pad
+    writer.blockheads[off + 15] = bh.wallClimbing ? 1 : 0;
   }
 }
 

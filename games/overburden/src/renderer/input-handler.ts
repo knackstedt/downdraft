@@ -56,6 +56,10 @@ export interface BlockheadsInputState {
   // for all fruit-capable leaf blocks immediately. Consumed once by the
   // renderer which calls workerHost.forceFruitSpawn().
   forceFruitSpawnPending: boolean;
+
+  // Character gender toggle (C key): when pressed, switches between male/female
+  // player models. The renderer sets this callback to wire into CharacterPass.
+  onToggleGender?: () => void;
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
@@ -140,6 +144,11 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     // fruit-capable leaves immediately (without waiting for the daily tick).
     else if (e.key === "F7") {
       state.forceFruitSpawnPending = true;
+      e.preventDefault();
+    }
+    // Character gender toggle (C key)
+    else if (e.key === "c" || e.key === "C") {
+      state.onToggleGender?.();
       e.preventDefault();
     }
   });

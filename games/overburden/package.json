@@ -6,10 +6,12 @@
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
+    "@downdraft/library-entities": "workspace:*",
     "@downdraft/library-sand": "workspace:*",
     "@downdraft/library-stickman": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",
     "@downdraft/plugin-devtools": "workspace:*",
+    "@downdraft/plugin-models": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

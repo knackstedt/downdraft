@@ -438,14 +438,14 @@ export function executeTask(
 }
 
 /** Type of movement needed to reach the next path node. */
-type MoveType = "walk" | "jump" | "fall" | "climb" | "step-up";
+export type MoveType = "walk" | "jump" | "fall" | "climb" | "step-up";
 
 /**
  * Classify the movement needed to go from the blockhead's current position
  * to the next path node, based on the relative position and the previous
  * path node (to detect jump-moves across gaps).
  */
-function classifyMove(
+export function classifyMove(
   bh: BlockheadState,
   prevNode: PathNode | null,
   node: PathNode,
@@ -577,7 +577,7 @@ function pathToAndWalk(
  * @param moveType    Type of movement needed (classified from path context)
  * @param targetNode  The path node being walked toward (null for greedy fallback)
  */
-function walkToward(
+export function walkToward(
   bh: BlockheadState,
   dx: number, dy: number,
   fg: Uint16Array, bg: Uint16Array,
@@ -616,23 +616,34 @@ function walkToward(
       if (dx > 0.1) input.right = true;
       else if (dx < -0.1) input.left = true;
       else {
-        // Target is directly below — check which side has a gap
-        const footY = Math.floor(bh.y + 0.5);
-        const checkY = footY + 1;
+        // Target is directly below — check which side has a gap (no floor).
+        // Check the FLOOR level (cell below the blockhead's feet), not the
+        // body level. This correctly detects edges/gaps: if the cell below
+        // the feet in the adjacent column is air, the blockhead will fall
+        // when it walks there.
+        const floorY = Math.floor(bh.y + BH_H + 0.01);
         const rightX = Math.floor(bh.x + BH_W + 0.5);
         const leftX = Math.floor(bh.x - 0.5);
         let rightGap = false;
         let leftGap = false;
-        if (rightX >= 0 && rightX < ACTIVE_GRID_W && checkY >= 0 && checkY < ACTIVE_GRID_H) {
-          rightGap = !isSolid(fg[checkY * ACTIVE_GRID_W + rightX]);
+        if (rightX >= 0 && rightX < ACTIVE_GRID_W && floorY >= 0 && floorY < ACTIVE_GRID_H) {
+          rightGap = !isSolid(fg[floorY * ACTIVE_GRID_W + rightX]);
         }
-        if (leftX >= 0 && leftX < ACTIVE_GRID_W && checkY >= 0 && checkY < ACTIVE_GRID_H) {
-          leftGap = !isSolid(fg[checkY * ACTIVE_GRID_W + leftX]);
+        if (leftX >= 0 && leftX < ACTIVE_GRID_W && floorY >= 0 && floorY < ACTIVE_GRID_H) {
+          leftGap = !isSolid(fg[floorY * ACTIVE_GRID_W + leftX]);
         }
         if (rightGap && !leftGap) input.right = true;
         else if (leftGap && !rightGap) input.left = true;
-        else if (bh.facing > 0) input.right = true;
-        else input.left = true;
+        else if (rightGap && leftGap) {
+          // Both sides are gaps — use facing direction
+          if (bh.facing > 0) input.right = true;
+          else input.left = true;
+        } else {
+          // Neither side has a gap (shouldn't happen if pathfinder is correct,
+          // but handle gracefully) — walk toward target X or use facing
+          if (bh.facing > 0) input.right = true;
+          else input.left = true;
+        }
       }
     } else {
       // Airborne — falling, just press down (helps with swim/climb on landing)
@@ -652,11 +663,9 @@ function walkToward(
     }
 
     if (bh.onGround) {
-      // Need to jump to become airborne, then press into wall + up
-      input.jump = true;
-      input.up = true;
-
-      // Look for foreground walls to climb
+      // Look for foreground walls to climb BEFORE jumping.
+      // Only jump if there's actually a wall or back wall to climb —
+      // otherwise the blockhead jumps in place repeatedly (stuck).
       const footY = Math.floor(bh.y + 0.5);
       const headY = Math.floor(bh.y - 0.5);
       const facingWallX = bh.facing > 0
@@ -667,14 +676,14 @@ function walkToward(
         : Math.floor(bh.x + BH_W + 0.5);
 
       let foundWall = false;
+      let wallDir = 0; // -1 = left, +1 = right
       for (const wallX of [facingWallX, oppositeWallX]) {
         if (wallX < 0 || wallX >= ACTIVE_GRID_W) continue;
         if (footY < 0 || footY >= ACTIVE_GRID_H) continue;
         const wallAtFeet = isSolid(fg[footY * ACTIVE_GRID_W + wallX]);
         const wallAtHead = headY >= 0 && isSolid(fg[headY * ACTIVE_GRID_W + wallX]);
         if (wallAtFeet || wallAtHead) {
-          if (wallX > bh.x + BH_W / 2) input.right = true;
-          else input.left = true;
+          wallDir = wallX > bh.x + BH_W / 2 ? 1 : -1;
           foundWall = true;
           break;
         }
@@ -697,6 +706,19 @@ function walkToward(
           }
           if (foundWall) break;
         }
+      }
+
+      if (foundWall) {
+        // Jump to become airborne, then press into wall + up to climb
+        input.jump = true;
+        input.up = true;
+        if (wallDir > 0) input.right = true;
+        else if (wallDir < 0) input.left = true;
+      } else {
+        // No wall found — walk toward the target node's X to get closer
+        // to the wall. Don't jump (would just jump in place).
+        if (dx > 0.1) input.right = true;
+        else if (dx < -0.1) input.left = true;
       }
     } else {
       // Airborne — press up + toward wall to maintain climb

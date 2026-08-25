@@ -781,6 +781,31 @@ function createAutomationTools(ctx: {
         return jsonResult({ ok: true, actions });
       },
     },
+
+    // --- set_character_gender ---
+    {
+      def: {
+        name: "set_character_gender",
+        description: "Switch the player character model between male and female.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            gender: { type: "string", enum: ["male", "female"], description: "Character gender to switch to" },
+          },
+          required: ["gender"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const gender = params.gender as string;
+        if (gender !== "male" && gender !== "female") {
+          return errorResult("Invalid gender: must be 'male' or 'female'");
+        }
+        renderer.setCharacterGender(gender);
+        return jsonResult({ ok: true, gender: renderer.getCharacterGender() });
+      },
+    },
   ];
 }
 

@@ -569,6 +569,29 @@ const AttributeBars = memo(function AttributeBars() {
   );
 });
 
+// --- Character gender indicator ---
+// Small label showing the current player model gender. Toggle with C key.
+const GenderIndicator = memo(function GenderIndicator() {
+  const gender = useGameStore((s) => s.characterGender);
+  return (
+    <div style={{
+      position: "absolute",
+      bottom: 8,
+      right: 12,
+      background: "rgba(0, 0, 0, 0.5)",
+      color: "rgba(255, 255, 255, 0.7)",
+      padding: "4px 10px",
+      borderRadius: "4px",
+      fontSize: "12px",
+      fontFamily: "monospace",
+      pointerEvents: "none",
+      userSelect: "none",
+    }}>
+      {gender === "male" ? "Male" : "Female"} (C to toggle)
+    </div>
+  );
+});
+
 // --- Hotbar (dynamic from inventory) ---
 // Re-renders only when inventory or selectedSlot changes.
 const Hotbar = memo(function Hotbar() {
@@ -744,6 +767,7 @@ function Hud() {
       <NotificationToast />
       <PickupNotifications />
       <Hotbar />
+      <GenderIndicator />
     </div>
   );
 }
@@ -1117,6 +1141,12 @@ export default function App() {
         if (prevSlot !== input.selectedSlot) {
           useGameStore.getState().setSelectedSlot(input.selectedSlot);
         }
+      }
+      // Sync character gender from renderer (toggled via C key)
+      const prevGender = useGameStore.getState().characterGender;
+      const curGender = renderer.getCharacterGender();
+      if (prevGender !== curGender) {
+        useGameStore.getState().setCharacterGender(curGender);
       }
       // Poll inventory from the worker (async RPC)
       const h = renderer.getWorkerHost();

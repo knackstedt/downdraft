@@ -18,6 +18,7 @@ import {
     BLOCK_DIRT,
     BLOCK_FARMLAND,
     BLOCK_FURNACE,
+    BLOCK_GLASS,
     BLOCK_GOLD_ORE,
     BLOCK_GRASS,
     BLOCK_GRAVEL,
@@ -343,7 +344,7 @@ const DEFS: BlockDef[] = [
     lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
     fuelValue: 1, liquidFlow: 0, drops: [{ itemId: "trellis", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
-    isStation: false,
+    isStation: false, lightPasses: true,
   },
 
   // --- Vines (climbable, grow on trees/walls/trellis) ---
@@ -353,7 +354,7 @@ const DEFS: BlockDef[] = [
     lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "kiwi", count: 1, chance: 0.06 }],
     placeable: true, backwallProjection: false,
-    isStation: false,
+    isStation: false, lightPasses: true,
   },
   {
     id: BLOCK_VINE_GRAPE, name: "Grape Vine", category: "special",
@@ -361,7 +362,7 @@ const DEFS: BlockDef[] = [
     lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: true, flammable: true,
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "grape", count: 1, chance: 0.08 }],
     placeable: true, backwallProjection: false,
-    isStation: false,
+    isStation: false, lightPasses: true,
   },
 
   // --- Farmland (tilled soil, no collision) ---
@@ -380,6 +381,16 @@ const DEFS: BlockDef[] = [
     fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "dirt", count: 1, chance: 1 }],
     placeable: true, backwallProjection: false,
     isStation: false,
+  },
+
+  // --- Glass (placeable transparent block — solid collision, light passes through) ---
+  {
+    id: BLOCK_GLASS, name: "Glass", category: "solid",
+    hardness: 3, color: [200, 225, 235], textureVariant: 71,
+    lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: false,
+    fuelValue: 0, liquidFlow: 0, drops: [{ itemId: "glass", count: 1, chance: 1 }],
+    placeable: true, backwallProjection: false,
+    isStation: false, lightPasses: true,
   },
 ];
 
@@ -432,7 +443,7 @@ const TREE_LIFECYCLE_DEFS: BlockDef[] = [
     lightEmit: 0, lightColor: [0, 0, 0], conductive: false, climbable: false, flammable: true,
     fuelValue: 0, liquidFlow: 0, drops: [],
     placeable: false, backwallProjection: false,
-    isStation: false,
+    isStation: false, lightPasses: true,
   },
 ];
 
@@ -466,7 +477,7 @@ for (const crop of Object.values(CROPS)) {
       drops,
       placeable: false, // seeds are planted via the crop system, not placed directly
       backwallProjection: false,
-      isStation: false,
+      isStation: false, lightPasses: true,
     });
   }
 }
@@ -487,7 +498,7 @@ for (const wc of WILD_CROPS) {
     drops: [{ itemId: wc.foodItem, count: 1, chance: 1 }],
     placeable: false, // wild crops are spawned by terrain gen, not placed by player
     backwallProjection: false,
-    isStation: false,
+    isStation: false, lightPasses: true,
   });
 }
 

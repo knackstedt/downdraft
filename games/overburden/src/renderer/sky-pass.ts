@@ -7,6 +7,8 @@
 // orange/pink.
 // ============================================================================
 
+import { DEPTH_FORMAT } from "@downdraft/core";
+
 const SKY_WGSL = /* wgsl */ `
 struct SkyUniforms {
   // Gradient colors (linear RGB, 0-1)
@@ -41,6 +43,7 @@ fn fs_main(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
 
 const UNIFORM_SIZE = 48; // 2 vec4s + 1 vec4 (screenSize + pad)
 
+
 export class SkyPass {
   private device: GPUDevice;
   private format: GPUTextureFormat;
@@ -51,7 +54,7 @@ export class SkyPass {
   // Preallocated uniform array (avoid per-frame allocation)
   private _uniform: Float32Array<ArrayBuffer> = new Float32Array(12);
 
-  constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth24plus") {
+  constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = DEPTH_FORMAT) {
     this.device = device;
     this.format = format;
     this.depthFormat = depthFormat;

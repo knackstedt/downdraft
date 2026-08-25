@@ -179,6 +179,12 @@ export const BLOCK_WILD_MUSHROOM = 98;
 // rendered by DropPass, living on tree leaves and falling to the ground.
 export const BLOCK_SAPLING = 99;
 
+// --- Glass (placeable, solid collision but light passes through) ---
+// A transparent building block: it has collision and is mineable like a solid
+// block, but the volumetric light sim treats it as non-opaque (lightPasses),
+// so sky light and emitter light flow through it unobstructed.
+export const BLOCK_GLASS = 100;
+
 // Mask flags (bitfield for the mask plane) ---
 export const MASK_SOLID = 1 << 0; // blocks movement
 export const MASK_CLIMBABLE = 1 << 1; // ladder, rope — allows vertical movement
