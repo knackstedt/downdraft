@@ -73,6 +73,8 @@ interface GameState {
   year: number;
   // Renderer reference (set by main.tsx after init)
   renderer: BlockheadsRenderer | null;
+  // Player character gender (male/female model toggle)
+  characterGender: "male" | "female";
   // Actions
   setShowTitleScreen: (show: boolean) => void;
   setPaused: (paused: boolean) => void;
@@ -92,6 +94,7 @@ interface GameState {
   addPickups: (entries: Record<string, number>) => void;
   prunePickups: (now: number) => void;
   setSeasonInfo: (season: Season, dayInSeason: number, year: number) => void;
+  setCharacterGender: (gender: "male" | "female") => void;
 }
 
 const defaultBh: BlockheadUIState = {
@@ -123,6 +126,7 @@ export const useGameStore = create<GameState>((set) => ({
   dayInSeason: 0,
   year: 0,
   renderer: null,
+  characterGender: "male",
   setShowTitleScreen: (show) => set({ showTitleScreen: show }),
   setPaused: (paused) => set({ paused }),
   setFps: (fps) => set({ fps }),
@@ -165,4 +169,5 @@ export const useGameStore = create<GameState>((set) => ({
     return { pickups: next };
   }),
   setSeasonInfo: (season, dayInSeason, year) => set({ season, dayInSeason, year }),
+  setCharacterGender: (gender) => set({ characterGender: gender }),
 }));

@@ -16,6 +16,8 @@
 // narrows and widens, mimicking a spinning item.
 // ============================================================================
 
+import { DEPTH_FORMAT } from "@downdraft/core";
+
 import fruitSpritesheetUrl from "../assets/fruit-spritesheet.png";
 import {
     getDropColor, getFruitSprite,
@@ -246,7 +248,7 @@ export class DropPass {
       },
       primitive: { topology: "triangle-strip" },
       depthStencil: {
-        format: "depth24plus",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "always", // drops always render on top
       },

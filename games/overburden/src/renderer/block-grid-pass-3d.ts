@@ -6,6 +6,8 @@
 // Background blocks at Z=-1, foreground at Z=0 (true 2.5D depth layering).
 // ============================================================================
 
+import { DEPTH_FORMAT } from "@downdraft/core";
+
 import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw";
 import { getBlockPalette } from "../shared/block-registry";
 import {
@@ -157,7 +159,7 @@ export class BlockGridPass3D {
   private depthW = 0;
   private depthH = 0;
 
-  constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = "depth24plus") {
+  constructor(device: GPUDevice, format: GPUTextureFormat, depthFormat: GPUTextureFormat = DEPTH_FORMAT) {
     this.device = device;
     this.format = format;
     this.depthFormat = depthFormat;

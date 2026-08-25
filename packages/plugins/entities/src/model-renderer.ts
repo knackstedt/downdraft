@@ -61,6 +61,11 @@ export class ModelRenderer {
   private modelResources: Map<string, ModelGPUResources[]> = new Map();
   private viewProjCache: Float32Array | null = null;
   private cameraPosCache: [number, number, number] = [0, 0, 0];
+  // Light state for the fragment shader (defaults match the old hardcoded values).
+  // lightDir is in world space (does not need to be normalized — the shader normalizes).
+  private lightDirCache: [number, number, number] = [0.5, 0.8, 0.3];
+  private lightAmbientCache = 0.5;
+  private lightIntensityCache = 0.5;
   private nextUniformOffset = 0;
   private reusableUniforms = new Float32Array(64);
   private reusableUniformsU32 = new Uint32Array(this.reusableUniforms.buffer);
@@ -591,6 +596,22 @@ export class ModelRenderer {
   }
 
   /**
+   * Set the directional light state for the fragment shader.
+   * Call once per frame before render(). All values are in world space.
+   *
+   * @param dir Light direction (the direction the light travels). The shader
+   *   normalizes this. For a sun at the top of the sky in a Y-down world, use
+   *   a negative Y (e.g. [0.5, -0.8, 0.3]).
+   * @param ambient Ambient light level (0-1). Combined with directional.
+   * @param intensity Directional light intensity (0-1). Final lighting = ambient + ndotl * intensity.
+   */
+  setLightState(dir: [number, number, number], ambient: number, intensity: number): void {
+    this.lightDirCache = dir;
+    this.lightAmbientCache = ambient;
+    this.lightIntensityCache = intensity;
+  }
+
+  /**
    * Upload bone skin matrices for the current frame. The `matrices` buffer is
    * a flat Float32Array of boneCount * 16 floats (column-major mat4s). It is
    * copied into the shared skin matrix storage buffer. If the buffer is too
@@ -677,6 +698,14 @@ export class ModelRenderer {
       // materialIndex (u32) at float slot 32 — write via Uint32Array view so
       // the shader reads the correct u32 bit pattern (not a float reinterpretation).
       this.reusableUniformsU32[32] = res.materialIndex;
+      // Light state at float slots 33-35 (the former _pad3/_pad4/_pad5 slots):
+      //   33: lightDir.x, 34: lightDir.y, 35: lightDir.z
+      //   36: ambient, 37: intensity
+      uniforms[33] = this.lightDirCache[0];
+      uniforms[34] = this.lightDirCache[1];
+      uniforms[35] = this.lightDirCache[2];
+      uniforms[36] = this.lightAmbientCache;
+      uniforms[37] = this.lightIntensityCache;
 
       this.device.queue.writeBuffer(
         this.uniformBuffer,

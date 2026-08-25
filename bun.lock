@@ -68,22 +68,6 @@
         "zustand": "^5.0.2",
       },
     },
-    "games/blockheads": {
-      "name": "blockheads",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/app": "workspace:*",
-        "@downdraft/core": "workspace:*",
-        "@downdraft/library-persistence": "workspace:*",
-        "@downdraft/library-sand": "workspace:*",
-        "@downdraft/library-stickman": "workspace:*",
-        "@downdraft/plugin-devtools": "workspace:*",
-        "@downdraft/ui": "workspace:*",
-        "react": "^19.2.8",
-        "react-dom": "^19.2.8",
-        "zustand": "^5.0.2",
-      },
-    },
     "games/falling-sand": {
       "name": "falling-sand",
       "version": "0.1.0",
@@ -119,6 +103,24 @@
       },
       "devDependencies": {
         "vite-plugin-solid": "2.11.14",
+      },
+    },
+    "games/overburden": {
+      "name": "overburden",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/app": "workspace:*",
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-entities": "workspace:*",
+        "@downdraft/library-persistence": "workspace:*",
+        "@downdraft/library-sand": "workspace:*",
+        "@downdraft/library-stickman": "workspace:*",
+        "@downdraft/plugin-devtools": "workspace:*",
+        "@downdraft/plugin-models": "workspace:*",
+        "@downdraft/ui": "workspace:*",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
+        "zustand": "^5.0.2",
       },
     },
     "games/sandjongg": {
@@ -986,8 +988,6 @@
 
     "bl": ["bl@4.1.0", "", { "dependencies": { "buffer": "^5.5.0", "inherits": "^2.0.4", "readable-stream": "^3.4.0" } }, "sha512-1W07cM9gS6DcLperZfFSj+bWLtaPGSOHWhPiGzXmvVJbRLdG82sH/Kn8EtW1VqWVA54AKf2h5k5BbnIbwF3h6w=="],
 
-    "blockheads": ["blockheads@workspace:games/blockheads"],
-
     "bluebird": ["bluebird@3.7.2", "", {}, "sha512-XpNj6GDQzdfW+r2Wnn7xiSAd7TM3jzkxGXBGTtWKuSXv1xUV+azxAm8jdWZN06QTQk+2N2XB9jRDkvbmQmcRtg=="],
 
     "bluebird-lst": ["bluebird-lst@1.0.9", "", { "dependencies": { "bluebird": "^3.5.5" } }, "sha512-7B1Rtx82hjnSD4PGLAjVWeYH3tHAcVUmChh85a3lltKQm6FresXh9ErQo6oAv6CqxttczC3/kEg8SY5NluPuUw=="],
@@ -1437,6 +1437,8 @@
     "onetime": ["onetime@5.1.2", "", { "dependencies": { "mimic-fn": "^2.1.0" } }, "sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg=="],
 
     "ora": ["ora@5.4.1", "", { "dependencies": { "bl": "^4.1.0", "chalk": "^4.1.0", "cli-cursor": "^3.1.0", "cli-spinners": "^2.5.0", "is-interactive": "^1.0.0", "is-unicode-supported": "^0.1.0", "log-symbols": "^4.1.0", "strip-ansi": "^6.0.0", "wcwidth": "^1.0.1" } }, "sha512-5b6Y85tPxZZ7QytO+BQzysW31HJku27cRIlkbAXaNx+BdcVi+LlRFmVXzeF6a7JCwJpyw5c4b+YSVImQIrBpuQ=="],
+
+    "overburden": ["overburden@workspace:games/overburden"],
 
     "oxlint": ["oxlint@1.76.0", "", { "optionalDependencies": { "@oxlint/binding-android-arm-eabi": "1.76.0", "@oxlint/binding-android-arm64": "1.76.0", "@oxlint/binding-darwin-arm64": "1.76.0", "@oxlint/binding-darwin-x64": "1.76.0", "@oxlint/binding-freebsd-x64": "1.76.0", "@oxlint/binding-linux-arm-gnueabihf": "1.76.0", "@oxlint/binding-linux-arm-musleabihf": "1.76.0", "@oxlint/binding-linux-arm64-gnu": "1.76.0", "@oxlint/binding-linux-arm64-musl": "1.76.0", "@oxlint/binding-linux-ppc64-gnu": "1.76.0", "@oxlint/binding-linux-riscv64-gnu": "1.76.0", "@oxlint/binding-linux-riscv64-musl": "1.76.0", "@oxlint/binding-linux-s390x-gnu": "1.76.0", "@oxlint/binding-linux-x64-gnu": "1.76.0", "@oxlint/binding-linux-x64-musl": "1.76.0", "@oxlint/binding-openharmony-arm64": "1.76.0", "@oxlint/binding-win32-arm64-msvc": "1.76.0", "@oxlint/binding-win32-ia32-msvc": "1.76.0", "@oxlint/binding-win32-x64-msvc": "1.76.0" }, "peerDependencies": { "oxlint-tsgolint": ">=7.0.2001", "vite-plus": "*" }, "optionalPeers": ["oxlint-tsgolint", "vite-plus"], "bin": { "oxlint": "bin/oxlint" } }, "sha512-6QoFioEU4fNdiUx/2Eo6TRd6NG7H7njnRCz8rhB66cZmMHDTqcm1Rjvl8Wry+ZTQMBAmyb4Mlf62Mk5X+eHSOw=="],
 

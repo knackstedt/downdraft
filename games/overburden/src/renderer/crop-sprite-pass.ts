@@ -18,6 +18,8 @@
 //   - Wild crops render at full size (0.85)
 // ============================================================================
 
+import { DEPTH_FORMAT } from "@downdraft/core";
+
 import { CROP_LOOKUP, getCropByBlock, getWildCropByBlock } from "../shared/crops";
 import { type Mat4 } from "./matrix";
 
@@ -156,7 +158,7 @@ export class CropSpritePass {
       },
       primitive: { topology: "triangle-strip" },
       depthStencil: {
-        format: "depth24plus",
+        format: DEPTH_FORMAT,
         depthWriteEnabled: false,
         depthCompare: "always", // crops always render on top (2D overlay)
       },

@@ -6,9 +6,12 @@ struct Uniforms {
   modelScale: vec3<f32>,
   modelRot: vec4<f32>,
   materialIndex: u32,
-  _pad3: u32,
-  _pad4: u32,
-  _pad5: u32,
+  lightDirX: f32,
+  lightDirY: f32,
+  lightDirZ: f32,
+  lightAmbient: f32,
+  lightIntensity: f32,
+  _pad6: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -158,10 +161,9 @@ fn vs_skinned(input: SkinnedVertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  let lightDir = normalize(vec3<f32>(0.5, 0.8, 0.3));
+  let lightDir = normalize(vec3<f32>(uniforms.lightDirX, uniforms.lightDirY, uniforms.lightDirZ));
   let ndotl = max(dot(normalize(input.normal), lightDir), 0.0);
-  let ambient = 0.5;
-  let lighting = ambient + ndotl * 0.5;
+  let lighting = uniforms.lightAmbient + ndotl * uniforms.lightIntensity;
 
   // Bindless albedo sample: index the material SSBO by materialIndex, then
   // sample the texture_2d_array page/layer the material points at.

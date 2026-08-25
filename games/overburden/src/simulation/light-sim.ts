@@ -13,7 +13,9 @@
 //   by (lightEmit/15).
 // - Light spreads to ALL 4 neighbors (including solid blocks) with per-channel
 //   max-blend: newC = max(neighbor.C, source.C - atten). Attenuation is
-//   17 (air/liquid, =1 old level) or 34 (solid/special, =2 old levels).
+//   17 (air/liquid/lightPasses, =1 old level) or 34 (solid/special, =2 old
+//   levels). Blocks with lightPasses=true (bushes, glass, ...) neither block
+//   sky light nor use solid attenuation — light flows through them like air.
 // - Pure-black fog-of-war is handled in the shader (unexplored cells); this
 //   sim only computes the light field for explored/visible volumes.
 //
@@ -50,6 +52,8 @@ function isOpaque(packedBlockId: number): boolean {
   if (blockId === BLOCK_AIR) return false;
   const def = getBlockDef(blockId);
   if (!def) return true;
+  // lightPasses blocks (bushes, glass, ...) do not block sky light at all.
+  if (def.lightPasses) return false;
   // Liquids attenuate but don't fully block
   if (def.category === "liquid") return false;
   // Solid + special blocks are opaque
@@ -76,6 +80,8 @@ function attenuation(toPackedBlockId: number): number {
   if (blockId === BLOCK_AIR) return ATTEN_AIR;
   const def = getBlockDef(blockId);
   if (!def) return ATTEN_SOLID;
+  // lightPasses blocks (bushes, glass, ...) attenuate like air, not solid.
+  if (def.lightPasses) return ATTEN_AIR;
   if (def.category === "liquid") return ATTEN_AIR;
   return ATTEN_SOLID; // solid/special
 }

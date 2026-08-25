@@ -5,7 +5,8 @@
 import { describe, expect, it } from "bun:test";
 import {
     ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_AIR, BLOCK_STONE, BLOCK_TORCH,
+    BLOCK_AIR,
+    BLOCK_GLASS, BLOCK_STONE, BLOCK_TORCH, BLOCK_WILD_BERRY_BUSH,
 } from "../shared/constants";
 import { recomputeLight } from "./light-sim";
 
@@ -33,6 +34,11 @@ function setSolid(fg: Uint16Array, x: number, y: number): void {
 // Helper: set a torch at (x, y)
 function setTorch(fg: Uint16Array, x: number, y: number): void {
   fg[y * ACTIVE_GRID_W + x] = BLOCK_TORCH;
+}
+
+// Helper: set an arbitrary block at (x, y)
+function setBlock(fg: Uint16Array, block: number, x: number, y: number): void {
+  fg[y * ACTIVE_GRID_W + x] = block;
 }
 
 describe("recomputeLight", () => {
@@ -179,5 +185,93 @@ describe("recomputeLight", () => {
       if (light1[i] !== light2[i]) diff++;
     }
     expect(diff).toBe(0);
+  });
+
+  // --- lightPasses blocks (bushes, glass, ...) -----------------------------
+  // These blocks have collision/masking but must NOT block volumetric light:
+  // sky light flows through them like air, and light spreading INTO them uses
+  // air attenuation (17), not solid attenuation (34).
+
+  it("a bush (lightPasses) does not block sky light — the cell below stays fully lit", () => {
+    const x = 400;
+    const fg = makeAirGrid();
+    // Bush at y=5; air above (y=0..4) and below (y=6..).
+    setBlock(fg, BLOCK_WILD_BERRY_BUSH, x, 5);
+
+    const light = makeLight();
+    recomputeLight(fg, light, 15);
+
+    // The bush cell itself is sky-lit (light enters it).
+    const bush = rgbAt(light, x, 5);
+    expect(bush[0]).toBe(200);
+    expect(bush[1]).toBe(220);
+    expect(bush[2]).toBe(255);
+
+    // The air cell directly below the bush is ALSO fully sky-lit — sky light
+    // passed straight through the bush (no opacity stop, no attenuation).
+    const below = rgbAt(light, x, 6);
+    expect(below[0]).toBe(200);
+    expect(below[1]).toBe(220);
+    expect(below[2]).toBe(255);
+  });
+
+  it("a glass block (solid category, lightPasses) does not block sky light", () => {
+    const x = 410;
+    const fg = makeAirGrid();
+    // Glass at y=5; air above and below.
+    setBlock(fg, BLOCK_GLASS, x, 5);
+
+    const light = makeLight();
+    recomputeLight(fg, light, 15);
+
+    // Glass cell is sky-lit.
+    const glass = rgbAt(light, x, 5);
+    expect(glass[0]).toBe(200);
+    expect(glass[1]).toBe(220);
+    expect(glass[2]).toBe(255);
+
+    // Cell below the glass is fully sky-lit (light passed through).
+    const below = rgbAt(light, x, 6);
+    expect(below[0]).toBe(200);
+    expect(below[1]).toBe(220);
+    expect(below[2]).toBe(255);
+  });
+
+  it("sky light is blocked by a solid (non-lightPasses) block but not by a bush", () => {
+    const xBush = 420;
+    const xStone = 430;
+    const fg = makeAirGrid();
+    setBlock(fg, BLOCK_WILD_BERRY_BUSH, xBush, 5);
+    setBlock(fg, BLOCK_STONE, xStone, 5);
+
+    const light = makeLight();
+    recomputeLight(fg, light, 15);
+
+    // Below the bush: full sky light (passed through).
+    const belowBush = rgbAt(light, xBush, 6);
+    expect(belowBush[0]).toBe(200);
+
+    // Below the stone: NOT full sky light. The column stops at the opaque
+    // stone, so the cell below only gets BFS-spread light attenuated by ≥17.
+    const belowStone = rgbAt(light, xStone, 6);
+    expect(belowStone[0]).toBeLessThan(200);
+  });
+
+  it("light spreading INTO a lightPasses block uses air attenuation (17), not solid (34)", () => {
+    const fg = makeAirGrid();
+    const light = makeLight();
+    // No sky light (daylight=0); torch is the only source.
+    const x = 440, y = 200;
+    setTorch(fg, x, y);
+    // Bush immediately to the right of the torch.
+    setBlock(fg, BLOCK_WILD_BERRY_BUSH, x + 1, y);
+    recomputeLight(fg, light, 0);
+
+    // Torch emit = [238,168,75]. Bush neighbor atten = 17 (lightPasses → air).
+    // bush = [238-17, 168-17, 75-17] = [221,151,58].
+    const bush = rgbAt(light, x + 1, y);
+    expect(bush[0]).toBe(221);
+    expect(bush[1]).toBe(151);
+    expect(bush[2]).toBe(58);
   });
 });

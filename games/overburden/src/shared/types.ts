@@ -24,6 +24,10 @@ export interface BlockDef {
   backwallProjection: boolean; // does this block project a backwall behind it?
   isStation: boolean; // is this a crafting surface?
   stationType?: CraftStation; // linked recipe station (if isStation)
+  /** Light passes through this block without being blocked (bushes, glass, ...).
+   *  When true, the volumetric light sim treats the cell as non-opaque and uses
+   *  air attenuation when spreading light into it, even if category is solid/special. */
+  lightPasses?: boolean;
 }
 
 export type BlockCategory = "solid" | "liquid" | "gas" | "backwall" | "special";
@@ -98,6 +102,10 @@ export interface BlockheadState {
   mantleFromY: number;
   mantleToX: number;
   mantleToY: number;
+  // Wall climbing state: true when the blockhead is actively climbing or
+  // holding onto a wall. Used to distinguish "released climb → hold position"
+  // from "walked off a ledge near a wall → fall normally".
+  wallClimbing: boolean;
   // Inventory + tasks are stored separately (not in SAB)
 }
 
@@ -195,7 +203,7 @@ export interface SabLayout {
 // Floats per blockhead in the SAB blockhead region:
 //   0: x, 1: y, 2: vx, 3: vy, 4: facing, 5: onGround, 6: animFrame,
 //   7: health, 8: hunger, 9: energy, 10: air, 11: happiness, 12: environment,
-//   13: animState (encoded as int), 14: id, 15: pad
+//   13: animState (encoded as int), 14: id, 15: wallClimbing (1/0)
 export const BH_STRIDE = 16;
 export const MAX_BLOCKHEADS = 32;
 

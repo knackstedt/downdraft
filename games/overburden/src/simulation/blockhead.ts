@@ -98,6 +98,7 @@ export function createBlockhead(worldX: number, worldY: number): BlockheadState 
     mantleFromY: 0,
     mantleToX: 0,
     mantleToY: 0,
+    wallClimbing: false,
   };
 }
 
@@ -476,7 +477,10 @@ export function updateBlockhead(
   // Foreground walls are only present when you jump into them, so pressing
   // toward them to climb feels natural.
   //
-  // To descend: stop pressing up / into the wall and you fall normally.
+  // Releasing the climb: if the blockhead was actively climbing and releases
+  // (stops pressing up/into wall) without pressing down, they HOLD position
+  // at half stamina drain. This lets the player pause mid-climb without
+  // falling. Pressing down or running out of stamina resumes falling.
   //
   // Exception: when mining (AI), hold position on the wall to work on the
   // target block without climbing past it or falling.
@@ -492,10 +496,12 @@ export function updateBlockhead(
 
   if (onLadder) {
     // Climbing (ladder/rope): suspend gravity, allow up/down. No stamina drain.
+    bh.wallClimbing = false;
     bh.vy = 0;
     if (input.up) bh.vy = -CLIMB_SPEED;
     if (input.down) bh.vy = CLIMB_SPEED;
   } else if (inLiquid) {
+    bh.wallClimbing = false;
     // Swimming: buoyancy counteracts gravity, can swim up/down
     if (input.up || input.jump) {
       bh.vy = -SWIM_SPEED;
@@ -510,12 +516,14 @@ export function updateBlockhead(
     // Airborne and adjacent to a wall or back wall.
     if (isMining && bh.energy > 0) {
       // AI mining: hold position on wall to work on the target block.
+      bh.wallClimbing = true;
       bh.vy = 0;
       climbingStaminaDrain = WALL_HOLD_STAMINA;
     } else if (bh.energy > 0 && (input.up || pressingIntoFgWall)) {
       // Wall climbing up.
       // Foreground wall: triggered by pressing up OR pressing into the wall.
       // Back wall: triggered only by pressing up (prevents accidental sticking).
+      bh.wallClimbing = true;
       if (wallLeft || wallRight) {
         bh.vy = -WALL_CLIMB_SPEED;
         climbingStaminaDrain = WALL_CLIMB_STAMINA;
@@ -523,17 +531,26 @@ export function updateBlockhead(
         bh.vy = -BG_WALL_CLIMB_SPEED;
         climbingStaminaDrain = WALL_CLIMB_STAMINA;
       }
+    } else if (bh.energy > 0 && bh.wallClimbing && !input.down) {
+      // Was climbing, released without pressing down → hold position.
+      // Half stamina drain (WALL_HOLD_STAMINA = 0.4 vs WALL_CLIMB_STAMINA = 0.8).
+      bh.vy = 0;
+      climbingStaminaDrain = WALL_HOLD_STAMINA;
     } else if (bh.energy <= 0) {
       // No stamina — slide down with grip (reduced fall speed)
+      bh.wallClimbing = false;
       bh.vy += GRAVITY * 0.4;
       if (bh.vy > MAX_FALL * 0.3) bh.vy = MAX_FALL * 0.3;
     } else {
-      // Not pressing up or into a foreground wall — fall normally.
+      // Not climbing (walked off a ledge, or pressing down to descend) —
+      // fall normally. Don't stick to walls the player never climbed.
+      bh.wallClimbing = false;
       bh.vy += GRAVITY;
       if (bh.vy > MAX_FALL) bh.vy = MAX_FALL;
     }
   } else {
-    // Normal gravity
+    // Normal gravity (on ground, or airborne with no wall nearby)
+    bh.wallClimbing = false;
     if (input.jump && bh.onGround) {
       bh.vy = -JUMP_FORCE;
       bh.onGround = false;
@@ -636,11 +653,10 @@ export function updateBlockhead(
 
   // --- Animation state ---
   const moving = Math.abs(bh.vx) > 0.05;
-  // Show climb animation only when actively climbing (pressing up or into a
-  // foreground wall) or holding position to mine — not just when adjacent
-  // to a wall.
+  // Show climb animation when actively climbing, holding position after
+  // releasing, or mining on a wall.
   const wallClimbing = !bh.onGround && (wallLeft || wallRight || onBackWall)
-    && bh.energy > 0 && (input.up || pressingIntoFgWall || isMining);
+    && bh.energy > 0 && (input.up || pressingIntoFgWall || isMining || bh.wallClimbing);
   if (onLadder && (input.up || input.down)) {
     bh.animState = "climb";
   } else if (wallClimbing) {
