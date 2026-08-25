@@ -1,6 +1,7 @@
 {
   "name": "mining-rpg",
   "version": "0.1.0",
+  "productName": "Mining RPG",
   "private": true,
   "type": "module",
   "dependencies": {

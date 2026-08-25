@@ -1,6 +1,7 @@
 {
   "name": "falling-sand",
   "version": "0.1.0",
+  "productName": "Falling Sand",
   "private": true,
   "type": "module",
   "dependencies": {
