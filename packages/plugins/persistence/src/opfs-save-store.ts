@@ -330,7 +330,19 @@ export class OpfsSaveStore implements ISaveStore {
 
   // ── ISaveStore: save ────────────────────────────────────────────────────
 
+  /** Serializes concurrent save() calls so they don't overlap.
+   *  Concurrent OPFS writes to the same files (body.zst, meta.json, blobs)
+   *  can corrupt save data or hang on file locks. The chain resolves even
+   *  when a save rejects so subsequent saves aren't permanently blocked. */
+  private saveChain: Promise<unknown> = Promise.resolve();
+
   async save(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult> {
+    const result = this.saveChain.then(() => this.doSave(slot, state, opts));
+    this.saveChain = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async doSave(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult> {
     try {
       this.ensureInit();
       const slotDir = await this.getSlotDir(slot, true);

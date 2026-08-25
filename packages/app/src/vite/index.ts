@@ -19,6 +19,7 @@ import { resolve } from "path";
 import { hotReloadPlugin } from "../../../core/src/vite/hot-reload-plugin";
 import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
+import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
 
 export interface DowndraftViteConfigOptions {
   /** The game directory (usually `__dirname` from the game's electron.vite.config.ts). */
@@ -382,6 +383,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
           rendererPaths,
           excludePaths,
         }),
+        // Guard against the silent prod-break pattern of assigning a worker
+        // URL to a variable before `new Worker()`. Warns at build time.
+        workerUrlGuardPlugin(),
         ...(options.rendererPlugins ?? []),
       ],
     },

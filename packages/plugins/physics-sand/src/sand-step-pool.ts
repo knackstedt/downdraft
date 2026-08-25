@@ -2,19 +2,22 @@
 // Sand step pool — multi-threaded coordinator for SandWorld.step().
 //
 // Runs inside the mining worker. Spawns N sand-step workers, each processing
-// a vertical strip of the grid. The grid + fields are backed by a single
-// SharedArrayBuffer shared across all workers.
+// a vertical strip of the grid. The grid + fields + deferred mask are backed
+// by a single SharedArrayBuffer shared across all workers.
 //
 // Per step:
 //   1. Dispatch step messages to all workers (postMessage, fire-and-forget).
 //   2. Wait for all workers to report done (Promise.all of message events).
-//   3. Boundary cleanup: re-run the movement pass on the 1-cell-wide columns
-//      at each strip boundary so cross-strip moves (trySwap/tryFlow that were
-//      skipped by write guards) get a chance to execute.
+//   3. Boundary cleanup: re-run the movement pass on boundary columns, but
+//      ONLY for cells whose cross-strip move was deferred by the write guard
+//      (marked in the shared deferredMask). Write bounds are restricted to
+//      the adjacent strip so only cross-strip moves are attempted, and RNG
+//      gates are skipped (boundaryPass mode) to avoid giving boundary cells
+//      an unfair second movement chance.
 //
 // The boundary cleanup runs on the coordinator's own SandWorld instance
-// (full-grid bounds, no strip restriction) but only iterates the boundary
-// columns. This is O(boundaryColumns * H) — typically 3*(N-1) columns —
+// but only iterates the boundary columns and only the deferred cells within
+// them. This is O(boundaryColumns * H) — typically 2*(N-1) columns —
 // much cheaper than the full O(W*H) step.
 // ============================================================================
 
@@ -24,11 +27,12 @@ export interface SandStepPoolOptions {
   W: number;
   H: number;
   numWorkers: number;
-  // The SAB backing the grid + fields + skip mask. If not provided, the pool allocates one.
+  // The SAB backing the grid + fields + skip mask + deferred mask. If not provided, the pool allocates one.
   sab?: SharedArrayBuffer;
   gridOffset?: number;
   fieldsOffset?: number;
   skipMaskOffset?: number;
+  deferredMaskOffset?: number;
   histogramOffset?: number;
   // Game-specific config forwarded to each worker's SandWorld.
   preserveFlagsMask?: number;
@@ -52,6 +56,7 @@ export class SandStepPool {
   private gridOffset: number;
   private fieldsOffset: number;
   private skipMaskOffset: number;
+  private deferredMaskOffset: number;
   private histogramOffset: number;
   private strips: { startX: number; endX: number }[] = [];
   // The coordinator's own SandWorld for boundary cleanup. It shares the same
@@ -59,6 +64,12 @@ export class SandStepPool {
   private boundaryWorld: SandWorld;
   private workerUrl: string | null;
   private initialized = false;
+  // In-flight init() promise — deduplicates concurrent init() calls so that
+  // two callers (e.g. loadGrid + onTick racing) share one initialization
+  // instead of each spawning a full set of workers. Without this, concurrent
+  // init() calls each push numWorkers workers into `this.workers`, leaving
+  // workers.length > strips.length and crashing step() on `strip.startX`.
+  private initPromise: Promise<void> | null = null;
   private gravityOverrides: { mat: number; gravityDir: number; gravity: number }[] | undefined;
   // Rebalance throttle: only rebalance every N steps to avoid overhead.
   private stepCount = 0;
@@ -72,20 +83,23 @@ export class SandStepPool {
     const gridBytes = cells * 4;
     const fieldsBytes = cells * 4;
     const skipMaskBytes = cells; // 1 byte per cell
+    const deferredMaskBytes = cells; // 1 byte per cell
     const histogramBytes = opts.W * 4; // 1 uint32 per column
     if (opts.sab) {
       this.sab = opts.sab;
       this.gridOffset = opts.gridOffset ?? 0;
       this.fieldsOffset = opts.fieldsOffset ?? gridBytes;
       this.skipMaskOffset = opts.skipMaskOffset ?? (gridBytes + fieldsBytes);
-      this.histogramOffset = opts.histogramOffset ?? (gridBytes + fieldsBytes + skipMaskBytes);
+      this.deferredMaskOffset = opts.deferredMaskOffset ?? (gridBytes + fieldsBytes + skipMaskBytes);
+      this.histogramOffset = opts.histogramOffset ?? (gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes);
     } else {
-      // Allocate a SAB for grid + fields + skip mask + histogram.
-      this.sab = new SharedArrayBuffer(gridBytes + fieldsBytes + skipMaskBytes + histogramBytes);
+      // Allocate a SAB for grid + fields + skip mask + deferred mask + histogram.
+      this.sab = new SharedArrayBuffer(gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes + histogramBytes);
       this.gridOffset = 0;
       this.fieldsOffset = gridBytes;
       this.skipMaskOffset = gridBytes + fieldsBytes;
-      this.histogramOffset = gridBytes + fieldsBytes + skipMaskBytes;
+      this.deferredMaskOffset = gridBytes + fieldsBytes + skipMaskBytes;
+      this.histogramOffset = gridBytes + fieldsBytes + skipMaskBytes + deferredMaskBytes;
     }
     // Compute strip boundaries — divide W into numWorkers roughly-equal strips.
     this.strips = this.computeStrips(opts.W, this.numWorkers);
@@ -95,6 +109,7 @@ export class SandStepPool {
       gridOffset: this.gridOffset,
       fieldsOffset: this.fieldsOffset,
       skipMaskOffset: this.skipMaskOffset,
+      deferredMaskOffset: this.deferredMaskOffset,
       histogramOffset: this.histogramOffset,
       skipStoneFloor: true,
     });
@@ -176,6 +191,20 @@ export class SandStepPool {
   /** Initialize all workers. Must be called before step(). */
   async init(): Promise<void> {
     if (this.initialized) return;
+    // Deduplicate concurrent init() calls. If two callers race into init()
+    // (e.g. loadGrid's pool recreation overlapping with onTick's
+    // `if (!this.initialized) await this.init()`), they share the same
+    // initialization promise instead of each spawning numWorkers workers.
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.runInit();
+    try {
+      await this.initPromise;
+    } finally {
+      this.initPromise = null;
+    }
+  }
+
+  private async runInit(): Promise<void> {
     const initPromises: Promise<void>[] = [];
     for (let i = 0; i < this.numWorkers; i++) {
       // Use inline `new Worker(new URL(...))` when no custom URL is provided
@@ -205,6 +234,7 @@ export class SandStepPool {
           gridOffset: this.gridOffset,
           fieldsOffset: this.fieldsOffset,
           skipMaskOffset: this.skipMaskOffset,
+          deferredMaskOffset: this.deferredMaskOffset,
           histogramOffset: this.histogramOffset,
           W: this.W,
           H: this.H,
@@ -309,53 +339,111 @@ export class SandStepPool {
   }
 
   /**
-   * Boundary cleanup: re-run the movement pass on boundary columns.
+   * Boundary cleanup: re-run the movement pass on boundary columns, but ONLY
+   * for cells whose cross-strip move was deferred by the write guard during
+   * the worker pass (marked in the shared deferredMask).
    *
    * For each interior strip boundary (between strip i and i+1), we process:
-   *   - The last column of strip i (writeXMax-1) — can now write into strip i+1.
-   *   - The first column of strip i+1 (writeXMin) — can now write into strip i.
-   * We temporarily set the boundary world's write bounds to cover both strips
-   * so trySwap/tryFlow can cross the boundary.
+   *   - The last column of strip i — can now write into strip i+1.
+   *   - The first column of strip i+1 — can now write into strip i.
+   *
+   * Key differences from the old approach (which re-ran the FULL tryMove on
+   * every boundary cell with full-grid write bounds):
+   *
+   * 1. Only deferred cells are processed. Cells that didn't attempt a
+   *    cross-strip move (friction-blocked, obstacle-blocked, or already moved)
+   *    are skipped. This prevents the cleanup from re-rolling RNG gates
+   *    (friction, flicker, impulse, wind) and giving boundary cells an unfair
+   *    second movement chance — the root cause of "fast falling" artifacts at
+   *    strip boundaries.
+   *
+   * 2. Write bounds are restricted to the adjacent strip for each column, so
+   *    only cross-strip moves are attempted. Within-strip moves (which the
+   *    worker already handled) are blocked by the write guard.
+   *
+   * 3. The boundaryPass flag on the boundary world skips all RNG-based
+   *    movement gates in tryMove — those already had their chance during the
+   *    worker pass.
    *
    * This is a movement-only pass — reactions, combustion, and aging already
-   * ran in the workers. We only need to handle the movement writes that were
-   * skipped at the boundaries.
+   * ran in the workers. We only handle the cross-strip movement writes that
+   * were skipped at the boundaries.
    */
   private runBoundaryCleanup(frame: number): void {
     if (this.numWorkers <= 1) return; // no boundaries with a single worker
-    this.boundaryWorld.frame = frame;
-    // For each interior boundary, process the 2 columns around it.
-    // We set write bounds to the full grid so trySwap can cross.
-    this.boundaryWorld.writeXMin = 0;
-    this.boundaryWorld.writeXMax = this.W;
-    // Process bottom-to-top (same as the main movement pass).
-    const leftToRight = frame % 2 === 0;
-    // We need the active Y bounds. The workers updated the shared grid but
-    // not the coordinator's minActiveY/maxActiveY. We approximate by scanning
-    // the boundary columns for non-empty cells. This is cheap (2*N columns).
-    let minY = this.H, maxY = 0;
-    const grid = this.boundaryWorld.grid;
+    const bw = this.boundaryWorld;
+    bw.frame = frame;
+    bw.boundaryPass = true;
+    const grid = bw.grid;
+    const deferred = bw.deferredMask;
+    if (deferred === null) {
+      // No deferred mask (non-SAB mode) — nothing to do.
+      bw.boundaryPass = false;
+      return;
+    }
+    const W = this.W;
+    const H = this.H;
+    // Process each interior boundary pair separately so we can restrict
+    // write bounds to the adjacent strip for each column.
     for (let bi = 0; bi < this.strips.length - 1; bi++) {
-      const leftEnd = this.strips[bi].endX - 1; // last col of left strip
-      const rightStart = this.strips[bi + 1].startX; // first col of right strip
-      for (let y = 0; y < this.H; y++) {
-        if (grid[y * this.W + leftEnd] !== 0 || grid[y * this.W + rightStart] !== 0) {
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
+      const leftStrip = this.strips[bi];
+      const rightStrip = this.strips[bi + 1];
+      const leftCol = leftStrip.endX - 1;  // last col of left strip
+      const rightCol = rightStrip.startX;   // first col of right strip
+
+      // Process the left boundary column — can only write into the right strip.
+      bw.writeXMin = rightStrip.startX;
+      bw.writeXMax = rightStrip.endX;
+      this.processBoundaryColumn(bw, grid, deferred, leftCol, W, H);
+
+      // Process the right boundary column — can only write into the left strip.
+      bw.writeXMin = leftStrip.startX;
+      bw.writeXMax = leftStrip.endX;
+      this.processBoundaryColumn(bw, grid, deferred, rightCol, W, H);
+    }
+    // Reset boundary pass state.
+    bw.boundaryPass = false;
+    bw.writeXMin = 0;
+    bw.writeXMax = W;
+    // Clear the deferred mask on all boundary columns — the mask is also
+    // cleared at the start of the next frame by buildActiveListAndClearFlags,
+    // but clearing here prevents any stale markers from affecting a potential
+    // second cleanup call within the same frame.
+    for (let bi = 0; bi < this.strips.length - 1; bi++) {
+      const leftCol = this.strips[bi].endX - 1;
+      const rightCol = this.strips[bi + 1].startX;
+      for (let y = 0; y < H; y++) {
+        deferred[y * W + leftCol] = 0;
+        deferred[y * W + rightCol] = 0;
       }
     }
-    if (minY > maxY) return; // no active cells at boundaries
-    // Run tryMove on the boundary columns. We use the private method via
-    // a public wrapper. Since tryMove is private, we add a public method
-    // to SandWorld for boundary cleanup.
-    const cols: number[] = [];
-    for (let bi = 0; bi < this.strips.length - 1; bi++) {
-      cols.push(this.strips[bi].endX - 1);
-      cols.push(this.strips[bi + 1].startX);
+  }
+
+  /**
+   * Process a single boundary column: find the Y range of cells with the
+   * deferred marker, then run tryMove on them bottom-to-top (matching the
+   * main movement pass order). Only deferred cells are processed — tryMove
+   * early-returns for cells without the marker when boundaryPass is true.
+   */
+  private processBoundaryColumn(
+    bw: SandWorld, grid: Uint32Array, deferred: Uint8Array,
+    col: number, W: number, H: number,
+  ): void {
+    let minY = H, maxY = 0;
+    let hasDeferred = false;
+    for (let y = 0; y < H; y++) {
+      const idx = y * W + col;
+      if (grid[idx] !== 0 && deferred[idx] !== 0) {
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        hasDeferred = true;
+      }
     }
-    this.boundaryWorld.runBoundaryMovement(cols, minY, maxY, leftToRight);
-    // Reset write bounds to full grid (already set above, but be explicit).
+    if (!hasDeferred) return;
+    // Process bottom-to-top (same as the main movement pass). tryMove
+    // early-returns for non-deferred cells when boundaryPass is true, so
+    // iterating the full [minY, maxY] range is cheap.
+    bw.runBoundaryMovement([col], minY, maxY, true);
   }
 
   /** Get the shared grid (for the chunk-world to read/write directly). */
@@ -386,5 +474,8 @@ export class SandStepPool {
     }
     this.workers = [];
     this.initialized = false;
+    // Clear any in-flight init promise so a subsequent init() can rebuild
+    // workers from scratch after shutdown.
+    this.initPromise = null;
   }
 }

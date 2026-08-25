@@ -68,10 +68,13 @@ export type {
 // ─────────────────────────────────────────────────────────────────────────────
 // Worker
 // ─────────────────────────────────────────────────────────────────────────────
+export { BaseWorkerHost } from "./worker/base-worker-host";
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery";
 export type { CrashRecoveryConfig, RecoveryState, SimWorkerLike } from "./worker/crash-recovery";
 export { expose, exposeEvents, getWorkerHost, wrap } from "./worker/rpc";
 export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, WorkerHost, WorkerProxy } from "./worker/rpc";
+export { createSimWorker } from "./worker/sim-worker-base";
+export type { CreateSimWorkerOptions, SimAfterTicksContext, SimTickContext, SimWorkerControl, SimWorkerStats } from "./worker/sim-worker-base";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input

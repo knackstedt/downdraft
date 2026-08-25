@@ -162,12 +162,36 @@ export class SandWorld {
   // strip's columns). Read by the coordinator after all workers finish to
   // rebalance strip boundaries for load balancing.
   histogram: Uint32Array | null = null;
+  // Per-cell "deferred move" marker (length = W*H, SAB-backed when
+  // multi-threaded). Set by movement functions (trySwap/tryFlow/etc.) when a
+  // move is blocked SOLELY by the strip write guard — i.e. the destination is
+  // in an adjacent strip and the move would have been valid if not for the
+  // guard. The coordinator's boundary cleanup pass reads this to know which
+  // cells need a cross-strip move attempt, and clears it after processing.
+  //
+  // Without this, the boundary cleanup would re-run the FULL tryMove on every
+  // boundary cell — re-rolling friction/flicker/impulse RNG gates and giving
+  // boundary cells a second movement chance that interior cells don't get.
+  // This caused "fast falling" artifacts at strip boundaries: sand in boundary
+  // columns fell ~1.3× faster because edge friction (30% skip/frame) was
+  // effectively rolled twice (9% skip).
+  //
+  // null = no deferred tracking (single-threaded / non-SAB mode — no boundary
+  // cleanup needed).
+  deferredMask: Uint8Array | null = null;
+  // When true, tryMove is running in the boundary cleanup pass. This skips all
+  // RNG-based movement gates (friction, gas flicker, horizontal impulse, wind)
+  // — those already had their chance during the worker pass — and only
+  // processes cells marked in deferredMask. Write bounds are restricted to the
+  // adjacent strip so only cross-strip moves are attempted.
+  boundaryPass = false;
 
   constructor(w: number, h: number, options?: {
     sab?: SharedArrayBuffer;
     gridOffset?: number;
     fieldsOffset?: number;
     skipMaskOffset?: number;
+    deferredMaskOffset?: number;
     histogramOffset?: number;
     skipStoneFloor?: boolean;
   }) {
@@ -188,6 +212,13 @@ export class SandWorld {
       // Optional SAB-backed skip mask — shared between coordinator and workers.
       if (options.skipMaskOffset !== undefined) {
         this.skipMask = new Uint8Array(options.sab, options.skipMaskOffset, cells);
+      }
+      // Optional SAB-backed deferred-move mask — shared between workers and
+      // the coordinator. Each worker writes only to its own strip's cells
+      // (the source cell of a blocked move is always within the strip), so
+      // there are no races. The coordinator reads it in the boundary cleanup.
+      if (options.deferredMaskOffset !== undefined) {
+        this.deferredMask = new Uint8Array(options.sab, options.deferredMaskOffset, cells);
       }
       // Optional SAB-backed per-column active cell histogram — used by the
       // coordinator to rebalance strip boundaries for load balancing.
@@ -525,13 +556,15 @@ export class SandWorld {
    * writes (which were skipped by write guards during the parallel step) get
    * a chance to execute.
    *
-   * This is a movement-only pass — reactions, combustion, and aging already
-   * ran in the workers. We only need to handle the movement writes that were
-   * skipped at the boundaries.
+   * When boundaryPass is true on this world, tryMove only processes cells
+   * marked in deferredMask (cells whose cross-strip move was blocked by the
+   * write guard) and skips all RNG-based movement gates. The caller must set
+   * writeXMin/writeXMax to the adjacent strip's bounds so only cross-strip
+   * moves are attempted.
    *
-   * The caller must set writeXMin/writeXMax to cover the full grid (or at
-   * least the columns adjacent to the boundary columns) so trySwap/tryFlow
-   * can cross strip boundaries.
+   * This is a movement-only pass — reactions, combustion, and aging already
+   * ran in the workers. We only handle the cross-strip movement writes that
+   * were skipped at the boundaries.
    */
   runBoundaryMovement(cols: number[], minY: number, maxY: number, leftToRight: boolean): void {
     // Sort columns in the iteration order matching the main movement pass.
@@ -589,6 +622,11 @@ export class SandWorld {
     if (histogram !== null) {
       for (let x = sx0; x < sx1; x++) histogram[x] = 0;
     }
+    // Clear the deferred-move mask for this strip's columns. Each worker only
+    // clears its own strip (no cross-strip writes). The mask is set during the
+    // movement pass and read by the coordinator's boundary cleanup after all
+    // workers finish.
+    const deferred = this.deferredMask;
     let minY = H, maxY = 0;
     let count = 0;
     for (let y = 0; y < H; y++) {
@@ -600,6 +638,7 @@ export class SandWorld {
       // Build active list only for the strip range
       for (let x = sx0; x < sx1; x++) {
         const i = rowBase + x;
+        if (deferred !== null) deferred[i] = 0;
         if (grid[i] !== 0 && !(skip !== null && skip[i] !== 0)) {
           const mat = grid[i] & 0xff;
           // Static solids (gravityDir=0) are included if their lifetime field
@@ -690,6 +729,17 @@ export class SandWorld {
     const flags = (packed >> 16) & 0xff;
     if (flags & FLAG_UPDATED) return;
 
+    // Boundary cleanup pass: only process cells whose cross-strip move was
+    // deferred by the write guard during the worker pass. Cells that didn't
+    // attempt a cross-strip move (friction-blocked, obstacle-blocked, or
+    // already moved) have no deferred marker and are skipped — this prevents
+    // the cleanup from re-rolling RNG gates and giving boundary cells an
+    // unfair second movement chance.
+    if (this.boundaryPass) {
+      const deferred = this.deferredMask;
+      if (deferred === null || deferred[idx] === 0) return;
+    }
+
     // Spark-flagged fire (visual flames emitted by BurningOil) rises straight
     // up without horizontal drift — the fire should stay above its fuel source
     // (the BurningOil cell), not scatter sideways. Horizontal wind, impulse,
@@ -750,72 +800,80 @@ export class SandWorld {
     const isGas = (matFlags & MAT_GAS) !== 0;
     const matGravity = MAT_GRAVITY[mat];
 
-    // --- Wind: apply horizontal/vertical force from the fluid grid ---
-    // The fluid grid provides float velocities; scale to cell-frame units.
-    // A velocity of ~1.0 means "move every frame" (100% chance).
-    // Spark fire (visual flames from BurningOil/fuse) skips wind entirely —
-    // the emit impulse gives it a fixed horizontal component at birth, and
-    // sampling that back here moves it diagonally (up-left/up-right) in a
-    // straight streak for its whole short life. Sparks rise straight up via
-    // gas gravity instead. The upward impulse still pushes neighboring
-    // smoke/gas up via the fluid grid; it just doesn't steer the spark itself.
-    // BurningOil also skips wind — its own spark emission creates upward wind
-    // in the fluid grid above it, which would blow the BurningOil itself
-    // upward off the oil surface. BurningOil flows via gravity only (sinks,
-    // spreads horizontally on the oil surface).
-    const windMag = Math.abs(windX) + Math.abs(windY);
-    if (!isSparkFire && mat !== Material.BurningOil && windMag > 0.05) {
-      const wdx = windX > 0 ? 1 : windX < 0 ? -1 : 0;
-      const wdy = windY > 0 ? 1 : windY < 0 ? -1 : 0;
-      // Scale chance with wind magnitude: 1.0 = 100% move chance.
-      const windChance = Math.min(1, windMag);
-      if (this.rng.random() < windChance) {
-        // Strong wind can shove into occupied cells (displace liquids/gases)
-        if (windMag >= 1.5) {
-          if (this.tryShove(x, y, x + wdx, y + wdy, packed)) return;
-        } else {
-          if (this.trySwap(x, y, x + wdx, y + wdy, packed, mat, matGravity, isGas)) return;
+    // In the boundary cleanup pass, skip all RNG-based movement gates (wind,
+    // friction, gas flicker, horizontal impulse). These already had their
+    // chance during the worker pass — re-rolling them would give boundary
+    // cells an unfair second movement attempt. The cell is only here because
+    // a cross-strip move was deferred by the write guard; we attempt only
+    // gravity/diagonal/flow moves into the adjacent strip.
+    if (!this.boundaryPass) {
+      // --- Wind: apply horizontal/vertical force from the fluid grid ---
+      // The fluid grid provides float velocities; scale to cell-frame units.
+      // A velocity of ~1.0 means "move every frame" (100% chance).
+      // Spark fire (visual flames from BurningOil/fuse) skips wind entirely —
+      // the emit impulse gives it a fixed horizontal component at birth, and
+      // sampling that back here moves it diagonally (up-left/up-right) in a
+      // straight streak for its whole short life. Sparks rise straight up via
+      // gas gravity instead. The upward impulse still pushes neighboring
+      // smoke/gas up via the fluid grid; it just doesn't steer the spark itself.
+      // BurningOil also skips wind — its own spark emission creates upward wind
+      // in the fluid grid above it, which would blow the BurningOil itself
+      // upward off the oil surface. BurningOil flows via gravity only (sinks,
+      // spreads horizontally on the oil surface).
+      const windMag = Math.abs(windX) + Math.abs(windY);
+      if (!isSparkFire && mat !== Material.BurningOil && windMag > 0.05) {
+        const wdx = windX > 0 ? 1 : windX < 0 ? -1 : 0;
+        const wdy = windY > 0 ? 1 : windY < 0 ? -1 : 0;
+        // Scale chance with wind magnitude: 1.0 = 100% move chance.
+        const windChance = Math.min(1, windMag);
+        if (this.rng.random() < windChance) {
+          // Strong wind can shove into occupied cells (displace liquids/gases)
+          if (windMag >= 1.5) {
+            if (this.tryShove(x, y, x + wdx, y + wdy, packed)) return;
+          } else {
+            if (this.trySwap(x, y, x + wdx, y + wdy, packed, mat, matGravity, isGas)) return;
+          }
         }
       }
-    }
 
-    // --- Edge friction ---
-    const hasLeft = x > 0 && this.grid[y * W + (x - 1)] !== 0;
-    const hasRight = x < W - 1 && this.grid[y * W + (x + 1)] !== 0;
-    const isExterior = !hasLeft || !hasRight;
+      // --- Edge friction ---
+      const hasLeft = x > 0 && this.grid[y * W + (x - 1)] !== 0;
+      const hasRight = x < W - 1 && this.grid[y * W + (x + 1)] !== 0;
+      const isExterior = !hasLeft || !hasRight;
 
-    // Honey: very thick — high friction, barely flows
-    if (mat === Material.Honey && isExterior && this.rng.random() < 0.7) return;
-    // Tar: extremely viscous — even higher friction than honey, oozes slowly.
-    if (mat === Material.Tar && isExterior && this.rng.random() < 0.85) return;
+      // Honey: very thick — high friction, barely flows
+      if (mat === Material.Honey && isExterior && this.rng.random() < 0.7) return;
+      // Tar: extremely viscous — even higher friction than honey, oozes slowly.
+      if (mat === Material.Tar && isExterior && this.rng.random() < 0.85) return;
 
-    // Exterior particles have a chance to skip falling (friction).
-    if (isExterior && !isGas) {
-      const frictionChance = 0.3 / Math.max(1, matGravity);
-      if (this.rng.random() < frictionChance) return;
-    }
-
-    // --- Gas flicker: random chance to not move at all ---
-    // Prevents gasses from rising in uniform horizontal lines. Each particle
-    // has a chance to "flicker" in place, creating organic, non-uniform spread.
-    if (isGas) {
-      const flickerChance = (mat === Material.Fire || mat === Material.FuseFire) ? 0.35 : 0.25;
-      if (this.rng.random() < flickerChance) return;
-    }
-
-    // --- Density-scaled horizontal impulse ---
-    // Lighter materials (low gravity) get more impulse; denser materials get less.
-    // Sand (gravity 1) → full impulse, Water (gravity 2) → half, Lava (gravity 3) → third
-    // Gasses (fire/smoke/steam) also get impulse so they drift sideways while rising.
-    // Spark fire (visual flames from BurningOil) skips this — no horizontal drift.
-    if (this.horizontalImpulseChance > 0 && !isSparkFire) {
-      const scaledChance = this.horizontalImpulseChance / Math.max(1, matGravity);
-      if (this.rng.random() < scaledChance) {
-        const nudgeDir = this.rng.random() < 0.5 ? -1 : 1;
-        const nudge = nudgeDir * Math.max(1, Math.round(this.horizontalImpulseStrength));
-        if (this.trySwap(x, y, x + nudge, y + dy, packed, mat, matGravity, isGas)) return;
+      // Exterior particles have a chance to skip falling (friction).
+      if (isExterior && !isGas) {
+        const frictionChance = 0.3 / Math.max(1, matGravity);
+        if (this.rng.random() < frictionChance) return;
       }
-    }
+
+      // --- Gas flicker: random chance to not move at all ---
+      // Prevents gasses from rising in uniform horizontal lines. Each particle
+      // has a chance to "flicker" in place, creating organic, non-uniform spread.
+      if (isGas) {
+        const flickerChance = (mat === Material.Fire || mat === Material.FuseFire) ? 0.35 : 0.25;
+        if (this.rng.random() < flickerChance) return;
+      }
+
+      // --- Density-scaled horizontal impulse ---
+      // Lighter materials (low gravity) get more impulse; denser materials get less.
+      // Sand (gravity 1) → full impulse, Water (gravity 2) → half, Lava (gravity 3) → third
+      // Gasses (fire/smoke/steam) also get impulse so they drift sideways while rising.
+      // Spark fire (visual flames from BurningOil) skips this — no horizontal drift.
+      if (this.horizontalImpulseChance > 0 && !isSparkFire) {
+        const scaledChance = this.horizontalImpulseChance / Math.max(1, matGravity);
+        if (this.rng.random() < scaledChance) {
+          const nudgeDir = this.rng.random() < 0.5 ? -1 : 1;
+          const nudge = nudgeDir * Math.max(1, Math.round(this.horizontalImpulseStrength));
+          if (this.trySwap(x, y, x + nudge, y + dy, packed, mat, matGravity, isGas)) return;
+        }
+      }
+    } // end if (!this.boundaryPass)
 
     // 1. Try gravity direction
     if (this.trySwap(x, y, x, y + dy, packed, mat, matGravity, isGas)) {
@@ -973,7 +1031,16 @@ export class SandWorld {
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
     // Strip mode write guard: don't write to cells outside our strip.
     // The coordinator's boundary cleanup handles deferred cross-strip moves.
-    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
+    if (nx < this.writeXMin || nx >= this.writeXMax) {
+      // Mark the source cell as deferred so the boundary cleanup knows to
+      // re-attempt this cross-strip move. Only set during the worker pass
+      // (not during the boundary cleanup itself).
+      if (!this.boundaryPass) {
+        const dm = this.deferredMask;
+        if (dm !== null) dm[y * W + x] = 1;
+      }
+      return false;
+    }
     const destIdx = ny * W + nx;
     const srcIdx = y * W + x;
     const destPacked = this.grid[destIdx];
@@ -1060,7 +1127,13 @@ export class SandWorld {
     const W = this.W, H = this.H;
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) return false;
     // Strip mode write guard
-    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
+    if (nx < this.writeXMin || nx >= this.writeXMax) {
+      if (!this.boundaryPass) {
+        const dm = this.deferredMask;
+        if (dm !== null) dm[y * W + x] = 1;
+      }
+      return false;
+    }
     const destIdx = ny * W + nx;
     const srcIdx = y * W + x;
     const destPacked = this.grid[destIdx];
@@ -1092,7 +1165,13 @@ export class SandWorld {
       const nx = x + dir * step;
       if (nx < 0 || nx >= W) return false;
       // Strip mode write guard
-      if (nx < this.writeXMin || nx >= this.writeXMax) return false;
+      if (nx < this.writeXMin || nx >= this.writeXMax) {
+        if (!this.boundaryPass) {
+          const dm = this.deferredMask;
+          if (dm !== null) dm[srcIdx] = 1;
+        }
+        return false;
+      }
       const destIdx = y * W + nx;
       if (this.grid[destIdx] !== 0) return false;
 
@@ -1135,7 +1214,13 @@ export class SandWorld {
     const nx = x + dir;
     if (nx < 0 || nx >= W) return false;
     // Strip mode write guard
-    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
+    if (nx < this.writeXMin || nx >= this.writeXMax) {
+      if (!this.boundaryPass) {
+        const dm = this.deferredMask;
+        if (dm !== null) dm[y * W + x] = 1;
+      }
+      return false;
+    }
     const destIdx = y * W + nx;
     const destPacked = this.grid[destIdx];
     if (destPacked === 0) return false; // empty — tryFlow already handled this
@@ -1226,7 +1311,13 @@ export class SandWorld {
     const nx = x + dir;
     if (nx < 0 || nx >= W) return false;
     // Strip mode write guard
-    if (nx < this.writeXMin || nx >= this.writeXMax) return false;
+    if (nx < this.writeXMin || nx >= this.writeXMax) {
+      if (!this.boundaryPass) {
+        const dm = this.deferredMask;
+        if (dm !== null) dm[srcIdx] = 1;
+      }
+      return false;
+    }
     const destIdx = y * W + nx;
     if (this.grid[destIdx] !== 0) return false;
 

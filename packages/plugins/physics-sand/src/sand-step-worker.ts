@@ -51,6 +51,7 @@ self.onmessage = (e: MessageEvent) => {
         gridOffset: msg.gridOffset,
         fieldsOffset: msg.fieldsOffset,
         skipMaskOffset: msg.skipMaskOffset,
+        deferredMaskOffset: msg.deferredMaskOffset,
         histogramOffset: msg.histogramOffset,
         skipStoneFloor: true,
       });

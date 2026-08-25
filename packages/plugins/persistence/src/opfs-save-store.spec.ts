@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach } from "bun:test";
-import { OpfsSaveStore } from "./opfs-save-store";
+import type { SaveOptions, SaveState } from "@downdraft/core";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { createMockOpfsRoot, type MockDirHandle } from "./mock-opfs";
-import type { SaveState, SaveOptions } from "@downdraft/core";
+import { OpfsSaveStore } from "./opfs-save-store";
 
 // ============================================================================
 // Test compression: prefix byte + copy (same as file-save-store.spec.ts)
@@ -350,5 +350,30 @@ describe("OpfsSaveStore", () => {
     expect(warning).not.toBeNull();
     expect(warning.kind).toBe("abandoned_data");
     expect(warning.component).toBe("custom");
+  });
+
+  it("serializes concurrent saves to prevent overlapping writes", async () => {
+    // Fire 5 saves concurrently. Without serialization, they would all read
+    // the same existingMeta (currentGen=0), compute currentGen=1, and overwrite
+    // the same gen directory — losing 4 of the 5 saves. With serialization,
+    // each save sees the previous one's generation and increments correctly.
+    const saves = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => store.save("slot1", makeState(i + 1))),
+    );
+
+    // All saves should succeed
+    for (const result of saves) {
+      expect(result.success).toBe(true);
+    }
+
+    // Generations should be 1, 2, 3, 4, 5 (not all 1)
+    const gens = saves.map(r => r.gen);
+    expect(gens).toEqual([1, 2, 3, 4, 5]);
+
+    // The latest save should be gen 5
+    const loaded = await store.load("slot1");
+    expect(loaded.state).not.toBeNull();
+    expect(loaded.gen).toBe(5);
+    expect((loaded.state!.components.world.data as any).tick).toBe(5);
   });
 });

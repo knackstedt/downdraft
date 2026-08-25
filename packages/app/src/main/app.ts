@@ -14,8 +14,8 @@ import { startMcpProxy } from "./handlers/mcp";
 import { registerOsrHandlers } from "./handlers/osr";
 import { registerSaveHandlers } from "./handlers/saves";
 import { cleanupStaleStorage, resolveUserDataDir } from "./storage";
-import { applySwitches } from "./switches";
-import type { DowndraftAppConfig, MainContext } from "./types";
+import { applySwitches, webGpuSwitches } from "./switches";
+import type { DowndraftAppConfig, DowndraftFeatures, MainContext } from "./types";
 import { createWindow } from "./window";
 
 const log = createLogger("info");
@@ -33,8 +33,43 @@ const log = createLogger("info");
 export function createDowndraftApp(config: DowndraftAppConfig): void {
   (globalThis as any).__ddThreadTag = "M0";
   const isDev = !app.isPackaged;
-  const features = config.features ?? {};
+  const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
+
+  // --- Default features ---
+  // Games can override any of these by passing config.features.
+  // The defaults encode the common config shared by all 7 games:
+  //   - devtools, gpuInfo, consoleForwarding: always on
+  //   - errorDialog, windowStatePersistence: off in deterministic mode
+  //   - mcp: default port from MCP_PORT env (9876 in dev)
+  //   - saves: default engine version 0.1.0
+  //   - osr: off (only to-the-ocean overrides this)
+  const features: DowndraftFeatures = {
+    devtools: true,
+    gpuInfo: true,
+    consoleForwarding: true,
+    errorDialog: !deterministic,
+    windowStatePersistence: !deterministic,
+    mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
+    saves: { engineVersion: "0.1.0" },
+    osr: false,
+    ...config.features,
+  };
   const devtools = resolveDevtoolsConfig(features.devtools);
+
+  // --- Default switches ---
+  // webGpuSwitches() is the standard Chromium flag set for WebGPU + gaming.
+  const switches = config.switches ?? webGpuSwitches();
+
+  // --- Default webPreferences ---
+  // Merge game-specific webPreferences over the engine defaults.
+  const windowConfig = {
+    ...config.window,
+    webPreferences: {
+      webgpu: true,
+      sharedTexture: true,
+      ...config.window.webPreferences,
+    },
+  };
 
   // --- Per-game userData directory ---
   // Must be set before anything touches app.getPath("userData") and before
@@ -46,8 +81,8 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
   }
 
   // --- Apply chrome switches before app.whenReady ---
-  if (config.switches) {
-    applySwitches(app, config.switches);
+  if (switches) {
+    applySwitches(app, switches);
   }
   if (devtools.enabled && devtools.debugPort != null) {
     app.commandLine.appendSwitch("remote-debugging-port", String(devtools.debugPort));
@@ -103,7 +138,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
 
     // --- Create the main window ---
     mainWindow = await createWindow({
-      config: config.window,
+      config: windowConfig,
       isDev,
       app,
       BrowserWindow,
@@ -190,7 +225,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
       await config.lifecycle.onActivate(ctx);
     } else if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = await createWindow({
-        config: config.window,
+        config: windowConfig,
         isDev,
         app,
         BrowserWindow,

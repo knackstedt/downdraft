@@ -79,9 +79,21 @@ export const downdraft: DowndraftBridge = (() => {
 // Import cache adapter — Electron IPC-backed with memory fallback
 export { createElectronImportCache } from "./import-cache";
 
+// Bootstrap orchestrator + composable hooks
+export { bootstrapGame } from "./bootstrap";
+export type { BootstrapAutosaveOptions, BootstrapDevToolsOptions, BootstrapGameOptions } from "./bootstrap";
+export { useAutosave, useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
+
 // Save store factory + IPC fallback
 export { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
 export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type SaveStoreMode } from "./save-store-factory";
+
+// AutosaveManager (re-exported from @downdraft/library-persistence)
+export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/library-persistence/browser";
+
+// MCP automation harness factory
+export { createMcpHarness } from "./mcp-harness";
+export type { McpHarnessOptions, McpRequest, McpResponse, McpToolDef, McpToolRegistration } from "./mcp-harness";
 
 // --- Canvas / overlay layer helpers ---
 
