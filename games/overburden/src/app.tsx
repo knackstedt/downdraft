@@ -141,7 +141,7 @@ const hotbarSlotStyle = (selected: boolean): React.CSSProperties => ({
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: 10,
+  fontSize: 12,
   color: "rgba(255,255,255,0.5)",
   background: selected ? "rgba(79,195,247,0.3)" : "rgba(255,255,255,0.05)",
   border: selected ? "2px solid rgba(79,195,247,0.8)" : "1px solid rgba(255,255,255,0.1)",
@@ -153,7 +153,7 @@ const hotbarSlotNumStyle: React.CSSProperties = {
   position: "absolute",
   top: 1,
   left: 3,
-  fontSize: 8,
+  fontSize: 12,
   color: "rgba(255,255,255,0.4)",
   pointerEvents: "none",
 };
@@ -163,7 +163,7 @@ const hotbarSlotLabelStyle: React.CSSProperties = {
   bottom: -14,
   left: "50%",
   transform: "translateX(-50%)",
-  fontSize: 8,
+  fontSize: 12,
   whiteSpace: "nowrap",
   color: "rgba(255,255,255,0.6)",
   textShadow: "0 1px 2px rgba(0,0,0,0.8)",
@@ -615,7 +615,7 @@ const Hotbar = memo(function Hotbar() {
               position: "absolute",
               bottom: 0,
               right: 2,
-              fontSize: 9,
+              fontSize: 12,
               color: has ? "white" : "rgba(255,255,255,0.3)",
               textShadow: "0 1px 2px rgba(0,0,0,0.8)",
             }}>{has ? slot!.count : ""}</span>
@@ -669,7 +669,6 @@ const NotificationToast = memo(function NotificationToast() {
 // --- Panels (inventory, craft, station, task queue, pause menu) ---
 // Re-renders only when panel visibility flags or their data change.
 const PanelRouter = memo(function PanelRouter() {
-  const showCraftPanel = useGameStore((s) => s.showCraftPanel);
   const showInventoryPanel = useGameStore((s) => s.showInventoryPanel);
   const showTaskQueue = useGameStore((s) => s.showTaskQueue);
   const selectedStation = useGameStore((s) => s.selectedStation);
@@ -679,11 +678,8 @@ const PanelRouter = memo(function PanelRouter() {
 
   return (
     <>
-      {/* Inventory panel (toggle with I) — tabbed: Inventory / Crafting / Creative */}
+      {/* Inventory panel (toggle with I or C) — tabbed: Inventory / Crafting / Creative */}
       {showInventoryPanel && <InventoryPanel recipes={recipes} />}
-
-      {/* Standalone crafting panel (toggle with C) — only when inventory panel is closed */}
-      {showCraftPanel && !showInventoryPanel && <CraftPanel recipes={recipes} />}
 
       {/* Station panel (shown when a station is selected) */}
       {selectedStation && <StationPanel ax={selectedStation.ax} ay={selectedStation.ay} />}
@@ -737,80 +733,18 @@ function Hud() {
 }
 
 // --- Crafting panel ---
-const craftPanelStyle: React.CSSProperties = {
-  position: "absolute",
-  top: 80,
-  left: "50%",
-  transform: "translateX(-50%)",
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-  padding: 8,
-  background: "rgba(0,0,0,0.8)",
-  borderRadius: 6,
-  border: "1px solid rgba(79,195,247,0.3)",
-  pointerEvents: "auto",
-  maxHeight: 400,
-  overflowY: "auto",
-  zIndex: 20,
-};
-
 const craftRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: 8,
-  padding: "4px 8px",
+  padding: "6px 10px",
   background: "rgba(255,255,255,0.05)",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 12,
   color: "white",
 };
-
-function CraftPanel({ recipes }: { recipes: { id: string; name: string; station: string }[] }) {
-  const renderer = useGameStore((s) => s.renderer);
-  const [status, setStatus] = useState<string>("");
-
-  const handleCraft = async (recipeId: string) => {
-    const host = renderer?.getWorkerHost();
-    if (!host) return;
-    const result = await host.craft(recipeId);
-    if (result.ok) {
-      setStatus(`Crafted ${recipeId}`);
-    } else {
-      setStatus(`Failed: ${result.error ?? "unknown"}`);
-    }
-    // Clear status after 2s
-    setTimeout(() => setStatus(""), 2000);
-  };
-
-  return (
-    <div style={craftPanelStyle}>
-      <div style={{ fontSize: 13, fontWeight: "bold", marginBottom: 4, color: "rgba(79,195,247,1)" }}>
-        Craft (C to close)
-      </div>
-      {recipes.length === 0 && (
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>No recipes available</div>
-      )}
-      {recipes.map((r) => (
-        <div
-          key={r.id}
-          style={craftRowStyle}
-          onClick={() => handleCraft(r.id)}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(79,195,247,0.2)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-        >
-          <span>{r.name}</span>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>click</span>
-        </div>
-      ))}
-      {status && (
-        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", marginTop: 4 }}>{status}</div>
-      )}
-    </div>
-  );
-}
 
 // --- Full inventory panel (I key) ---
 const invOverlayStyle: React.CSSProperties = {
@@ -827,7 +761,7 @@ const invOverlayStyle: React.CSSProperties = {
 const invPanelStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  width: 520,
+  width: 560,
   maxHeight: "80vh",
   padding: 16,
   background: "rgba(20,22,35,0.95)",
@@ -849,7 +783,7 @@ const invHeaderStyle: React.CSSProperties = {
 };
 
 const invCategoryLabelStyle: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 12,
   fontWeight: "bold",
   color: "rgba(255,255,255,0.5)",
   textTransform: "uppercase" as const,
@@ -878,7 +812,7 @@ const invSlotStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.05)",
   border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: 4,
-  fontSize: 9,
+  fontSize: 12,
   color: "rgba(255,255,255,0.7)",
 };
 
@@ -886,7 +820,7 @@ const invItemCountStyle: React.CSSProperties = {
   position: "absolute",
   bottom: 2,
   right: 4,
-  fontSize: 11,
+  fontSize: 12,
   fontWeight: "bold",
   color: "white",
   textShadow: "0 1px 2px rgba(0,0,0,0.8)",
@@ -942,14 +876,14 @@ const sparseCountStyle: React.CSSProperties = {
   position: "absolute",
   bottom: 1,
   right: 3,
-  fontSize: 10,
+  fontSize: 12,
   fontWeight: "bold",
   color: "white",
   textShadow: "0 1px 2px rgba(0,0,0,0.8)",
 };
 
 const hotbarLabelStyle: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 12,
   fontWeight: "bold",
   color: "rgba(79,195,247,0.7)",
   textTransform: "uppercase" as const,
@@ -991,7 +925,7 @@ const creativeSlotStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.05)",
   border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: 4,
-  fontSize: 8,
+  fontSize: 12,
   color: "rgba(255,255,255,0.7)",
   cursor: "pointer",
   transition: "background 0.15s",
@@ -1001,7 +935,7 @@ const creativeMaxStackStyle: React.CSSProperties = {
   position: "absolute",
   bottom: 2,
   right: 4,
-  fontSize: 9,
+  fontSize: 12,
   fontWeight: "bold",
   color: "rgba(79,195,247,1)",
   textShadow: "0 1px 2px rgba(0,0,0,0.8)",
@@ -1096,7 +1030,7 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
       <div style={invPanelStyle} onClick={(e) => e.stopPropagation()}>
         <div style={invHeaderStyle}>
           <span>Inventory</span>
-          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", fontWeight: "normal" }}>
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontWeight: "normal" }}>
             I or Esc to close
           </span>
         </div>
@@ -1164,7 +1098,7 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
         {inventoryTab === "crafting" && (
           <>
             {recipes.length === 0 && (
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>No recipes available</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>No recipes available</div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {recipes.map((r) => {
@@ -1185,7 +1119,7 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
                     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                       <span style={{ fontWeight: "bold" }}>{r.name}</span>
                       {fullRecipe && (
-                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
+                        <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>
                           {fullRecipe.inputs.map((inp, i) => {
                             const have = invCount(inp.itemId);
                             const itemDef = getItemDef(inp.itemId);
@@ -1207,7 +1141,7 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
                         </span>
                       )}
                     </div>
-                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>{canCraft ? "click" : "missing"}</span>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{canCraft ? "click" : "missing"}</span>
                   </div>
                 );
               })}
@@ -1244,7 +1178,7 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
                           title={`${item.name} — click to add ${item.maxStack}`}
                         >
                           <div style={sparseSwatchStyle(color)} />
-                          <span style={{ fontSize: 8, textAlign: "center", lineHeight: 1.1 }}>
+                          <span style={{ fontSize: 12, textAlign: "center", lineHeight: 1.1 }}>
                             {item.name}
                           </span>
                           <span style={creativeMaxStackStyle}>×{item.maxStack}</span>
@@ -1259,7 +1193,7 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
         )}
 
         {status && (
-          <div style={{ fontSize: 10, color: "rgba(79,195,247,1)", marginTop: 8 }}>{status}</div>
+          <div style={{ fontSize: 12, color: "rgba(79,195,247,1)", marginTop: 8 }}>{status}</div>
         )}
       </div>
     </div>
@@ -1442,13 +1376,18 @@ export default function App() {
           s.setPaused(!s.paused);
         }
       } else if (e.key === "i" || e.key === "I") {
-        // I toggles the full inventory panel (which includes crafting inline)
+        // I toggles the full inventory panel
         s.setShowInventoryPanel(!s.showInventoryPanel);
         if (!s.showInventoryPanel) s.setShowCraftPanel(false);
       } else if (e.key === "c" || e.key === "C") {
-        // C toggles the standalone craft panel (hidden when inventory is open)
-        if (s.showInventoryPanel) return;
-        s.setShowCraftPanel(!s.showCraftPanel);
+        // C opens the inventory panel on the Crafting tab
+        // (if already on the crafting tab, toggle it closed)
+        if (s.showInventoryPanel && s.inventoryTab === "crafting") {
+          s.setShowInventoryPanel(false);
+        } else {
+          s.setShowInventoryPanel(true);
+          s.setInventoryTab("crafting");
+        }
       } else if (e.key === "q" || e.key === "Q") {
         // Q toggles the task queue display
         s.setShowTaskQueue(!s.showTaskQueue);
@@ -1499,7 +1438,7 @@ export default function App() {
           Start Game
         </button>
         <div style={helpStyle}>
-          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: craft | T: task mode | Q: task queue | M: map (click map to walk) | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
+          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: crafting | T: task mode | Q: task queue | M: map (click map to walk) | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
         </div>
       </div>
     );
