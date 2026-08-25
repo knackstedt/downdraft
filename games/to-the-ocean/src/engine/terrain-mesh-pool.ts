@@ -50,9 +50,12 @@ export class TerrainMeshPool {
     if (this.destroyed) return;
 
     try {
-      const workerUrl = new URL("./terrain-mesh-worker.ts", import.meta.url);
       for (let i = 0; i < this.workerCount; i++) {
-        const worker = new Worker(workerUrl, { type: "module" });
+        // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+        // Vite only bundles worker modules when it sees this exact pattern.
+        // Assigning the URL to a variable first causes Vite to emit the worker
+        // as a raw unbundled asset (bare imports unresolved), breaking prod.
+        const worker = new Worker(new URL("./terrain-mesh-worker.ts", import.meta.url), { type: "module" });
         worker.onerror = (e: ErrorEvent) => {
           console.error(`[TerrainMeshPool] Worker ${i} error:`, e.message);
         };

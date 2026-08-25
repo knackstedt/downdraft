@@ -45,8 +45,6 @@ export class SandWorkerHost {
   isReady(): boolean { return this.readyCount >= NUM_LAYERS; }
 
   async start(): Promise<void> {
-    const workerUrl = new URL("./sand-worker.ts", import.meta.url);
-
     // Snapshot the grid dimensions at spawn time. The await on init() below
     // yields to the event loop, which can fire a resize event between spawning
     // worker 0 and worker 1 — causing them to be initialized with different
@@ -57,7 +55,11 @@ export class SandWorkerHost {
     const spawnH = this.gridH;
 
     for (let i = 0; i < NUM_LAYERS; i++) {
-      const worker = new Worker(workerUrl, { type: "module" });
+      // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+      // Vite only bundles worker modules when it sees this exact pattern.
+      // Assigning the URL to a variable first causes Vite to emit the worker
+      // as a raw unbundled asset (bare imports unresolved), breaking prod.
+      const worker = new Worker(new URL("./sand-worker.ts", import.meta.url), { type: "module" });
       const wp = wrap<SandLayerApi>(worker);
 
       worker.onerror = (e: ErrorEvent) => {

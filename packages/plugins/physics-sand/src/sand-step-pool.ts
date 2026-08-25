@@ -37,8 +37,9 @@ export interface SandStepPoolOptions {
   // but need to fall in the game's context. Patched in each sand-step worker.
   gravityOverrides?: { mat: number; gravityDir: number; gravity: number }[];
   // Worker script URL (the sand-step-worker.ts compiled output).
-  // If not provided, defaults to resolving sand-step-worker.ts relative to
-  // this module via import.meta.url (works with Vite's worker bundling).
+  // If not provided, workers are created via the inline
+  // `new Worker(new URL("./sand-step-worker.ts", import.meta.url))` pattern
+  // in init() so that Vite can properly bundle the nested worker.
   workerUrl?: string;
 }
 
@@ -56,7 +57,7 @@ export class SandStepPool {
   // The coordinator's own SandWorld for boundary cleanup. It shares the same
   // SAB-backed grid as the workers but has full-grid write bounds.
   private boundaryWorld: SandWorld;
-  private workerUrl: string;
+  private workerUrl: string | null;
   private initialized = false;
   private gravityOverrides: { mat: number; gravityDir: number; gravity: number }[] | undefined;
   // Rebalance throttle: only rebalance every N steps to avoid overhead.
@@ -107,8 +108,10 @@ export class SandStepPool {
         if (o.gravity !== 0) MAT_GRAVITY[o.mat] = o.gravity;
       }
     }
-    // Default worker URL: resolve relative to this module (Vite handles this).
-    this.workerUrl = opts.workerUrl ?? new URL("./sand-step-worker.ts", import.meta.url).href;
+    // Custom worker URL — when provided, workers are created from this URL.
+    // When not provided, init() uses the inline `new Worker(new URL(...))`
+    // pattern so Vite can bundle the nested worker for production builds.
+    this.workerUrl = opts.workerUrl ?? null;
   }
 
   private computeStrips(W: number, n: number): { startX: number; endX: number }[] {
@@ -175,13 +178,23 @@ export class SandStepPool {
     if (this.initialized) return;
     const initPromises: Promise<void>[] = [];
     for (let i = 0; i < this.numWorkers; i++) {
-      const worker = new Worker(this.workerUrl, { type: "module" });
+      // Use inline `new Worker(new URL(...))` when no custom URL is provided
+      // so Vite can detect and bundle the nested worker for production builds.
+      // Assigning the URL to a variable first breaks Vite's worker bundling.
+      const worker = this.workerUrl
+        ? new Worker(this.workerUrl, { type: "module" })
+        : new Worker(new URL("./sand-step-worker.ts", import.meta.url), { type: "module" });
       this.workers.push(worker);
       const strip = this.strips[i];
-      initPromises.push(new Promise<void>((resolve) => {
+      initPromises.push(new Promise<void>((resolve, reject) => {
+        const onWorkerError = (e: ErrorEvent) => {
+          reject(new Error(`sand-step-worker ${i} error: ${e.message ?? "undefined"} file=${e.filename ?? "none"}`));
+        };
+        worker.addEventListener("error", onWorkerError);
         const handler = (e: MessageEvent) => {
           if (e.data.type === "ready") {
             worker.removeEventListener("message", handler);
+            worker.removeEventListener("error", onWorkerError);
             resolve();
           }
         };

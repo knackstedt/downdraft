@@ -17,6 +17,12 @@ export interface InventorySlotUI {
   count: number;
 }
 
+/** A slot-array inventory snapshot (null = empty slot). Length = INVENTORY_SIZE (54). */
+export type InventoryUI = (InventorySlotUI | null)[];
+
+/** Active tab in the inventory panel. */
+export type InventoryTab = "inventory" | "crafting" | "creative";
+
 export interface RecipeUI {
   id: string;
   name: string;
@@ -59,8 +65,10 @@ interface GameState {
   blockhead: BlockheadUIState;
   // Selected hotbar slot
   selectedSlot: number;
-  // Inventory (polled from worker via RPC)
-  inventory: InventorySlotUI[];
+  // Inventory (polled from worker via RPC) — fixed-length slot array
+  inventory: InventoryUI;
+  // Active tab in the inventory panel
+  inventoryTab: InventoryTab;
   // Available recipes (hand-craftable)
   recipes: RecipeUI[];
   // Notification toast (auto-dismisses after a few seconds)
@@ -88,7 +96,8 @@ interface GameState {
   setRenderer: (renderer: BlockheadsRenderer | null) => void;
   setBlockhead: (bh: BlockheadUIState) => void;
   setSelectedSlot: (slot: number) => void;
-  setInventory: (inv: InventorySlotUI[]) => void;
+  setInventory: (inv: InventoryUI) => void;
+  setInventoryTab: (tab: InventoryTab) => void;
   setRecipes: (recipes: RecipeUI[]) => void;
   setNotification: (msg: string | null) => void;
   addPickups: (entries: Record<string, number>) => void;
@@ -118,7 +127,8 @@ export const useGameStore = create<GameState>((set) => ({
   selectedStation: null,
   blockhead: defaultBh,
   selectedSlot: 0,
-  inventory: [],
+  inventory: new Array(54).fill(null),
+  inventoryTab: "inventory",
   recipes: [],
   notification: null,
   pickups: [],
@@ -140,6 +150,7 @@ export const useGameStore = create<GameState>((set) => ({
   setBlockhead: (bh) => set({ blockhead: bh }),
   setSelectedSlot: (slot) => set({ selectedSlot: slot }),
   setInventory: (inventory) => set({ inventory }),
+  setInventoryTab: (inventoryTab) => set({ inventoryTab }),
   setRecipes: (recipes) => set({ recipes }),
   setNotification: (msg) => set({ notification: msg }),
   addPickups: (entries) => set((s) => {

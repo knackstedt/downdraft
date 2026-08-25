@@ -174,8 +174,11 @@ export function StationPanel({ ax, ay }: { ax: number; ay: number }) {
   )?.station ?? "workbench");
 
   const invCount = (itemId: string): number => {
-    const slot = inventory.find((s) => s.itemId === itemId);
-    return slot ? slot.count : 0;
+    let total = 0;
+    for (const s of inventory) {
+      if (s && s.itemId === itemId) total += s.count;
+    }
+    return total;
   };
 
   const handleCraft = async (recipeId: string) => {

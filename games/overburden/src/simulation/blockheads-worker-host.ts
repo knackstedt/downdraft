@@ -11,7 +11,7 @@ import type { CraftStation } from "../shared/recipes";
 import { createSimBuffer, SimBufferReader } from "../shared/sim-buffer";
 import type { TaskType } from "./task-queue";
 
-type InventorySlot = { itemId: string; count: number };
+type InventorySlot = { itemId: string; count: number } | null;
 type TaskSummary = { id: number; type: TaskType; targetX: number; targetY: number; blockId: number; status: string; failReason?: string };
 
 type CraftJobSummary = {
@@ -53,8 +53,9 @@ type BlockheadsWorkerApi = {
   getInventory(bhIndex?: number): Promise<InventorySlot[]>;
   craft(recipeId: string, stationAx?: number, stationAy?: number, bhIndex?: number): Promise<{ ok: boolean; error?: string; jobId?: number }>;
   getRecipes(station?: CraftStation): Promise<{ id: string; name: string; station: CraftStation }[]>;
-  giveItem(itemId: string, count?: number, bhIndex?: number): Promise<{ ok: boolean }>;
-  setInventory(slots: InventorySlot[], bhIndex?: number): Promise<{ ok: boolean }>;
+  giveItem(itemId: string, count?: number, bhIndex?: number): Promise<{ ok: boolean; added: number }>;
+  setInventory(slots: unknown, bhIndex?: number): Promise<{ ok: boolean }>;
+  moveSlot(from: number, to: number, bhIndex?: number): Promise<{ ok: boolean }>;
   // Station crafting
   getCraftQueue(stationAx: number, stationAy: number): Promise<CraftQueueSummary>;
   addFuel(stationAx: number, stationAy: number, itemId: string, count?: number, bhIndex?: number): Promise<{ ok: boolean; error?: string }>;
@@ -103,8 +104,11 @@ export class BlockheadsWorkerHost {
   }
 
   async start(): Promise<void> {
-    const workerUrl = new URL("./blockheads-worker.ts", import.meta.url);
-    this.worker = new Worker(workerUrl, { type: "module" });
+    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+    // Vite only bundles worker modules when it sees this exact pattern.
+    // Assigning the URL to a variable first causes Vite to emit the worker
+    // as a raw unbundled asset (bare imports unresolved), breaking prod.
+    this.worker = new Worker(new URL("./blockheads-worker.ts", import.meta.url), { type: "module" });
     this.proxy = wrap<BlockheadsWorkerApi>(this.worker);
 
     this.worker.onerror = (e: ErrorEvent) => {
@@ -198,12 +202,16 @@ export class BlockheadsWorkerHost {
     return await this.proxy?.proxy.getRecipes(station) ?? [];
   }
 
-  async giveItem(itemId: string, count: number = 1, bhIndex: number = 0): Promise<{ ok: boolean }> {
-    return await this.proxy?.proxy.giveItem(itemId, count, bhIndex) ?? { ok: false };
+  async giveItem(itemId: string, count: number = 1, bhIndex: number = 0): Promise<{ ok: boolean; added: number }> {
+    return await this.proxy?.proxy.giveItem(itemId, count, bhIndex) ?? { ok: false, added: 0 };
   }
 
-  async setInventory(slots: InventorySlot[], bhIndex: number = 0): Promise<{ ok: boolean }> {
+  async setInventory(slots: unknown, bhIndex: number = 0): Promise<{ ok: boolean }> {
     return await this.proxy?.proxy.setInventory(slots, bhIndex) ?? { ok: false };
+  }
+
+  async moveSlot(from: number, to: number, bhIndex: number = 0): Promise<{ ok: boolean }> {
+    return await this.proxy?.proxy.moveSlot(from, to, bhIndex) ?? { ok: false };
   }
 
   // --- Station crafting ---

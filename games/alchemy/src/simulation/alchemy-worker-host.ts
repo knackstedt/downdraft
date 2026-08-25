@@ -41,8 +41,11 @@ export class AlchemyWorkerHost {
   isReady(): boolean { return this.ready; }
 
   async start(): Promise<void> {
-    const workerUrl = new URL("./alchemy-worker.ts", import.meta.url);
-    const worker = new Worker(workerUrl, { type: "module" });
+    // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+    // Vite only bundles worker modules when it sees this exact pattern.
+    // Assigning the URL to a variable first causes Vite to emit the worker
+    // as a raw unbundled asset (bare imports unresolved), breaking prod.
+    const worker = new Worker(new URL("./alchemy-worker.ts", import.meta.url), { type: "module" });
     const wp = wrap<AlchemyWorkerApi>(worker);
 
     worker.onerror = (e: ErrorEvent) => {

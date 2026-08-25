@@ -271,11 +271,21 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   }
 
   private async startInternal(config: SimWebWorkerConfig, cacheBust?: number): Promise<void> {
-    const workerUrl = new URL("./sim-worker-web.ts", import.meta.url);
+    let worker: Worker;
     if (cacheBust) {
+      // Dev hot-reload: cache-bust query param forces Vite dev server to
+      // re-serve the worker module. Variable pattern is fine here — Vite's
+      // dev server compiles .ts on the fly and the query param is supported.
+      const workerUrl = new URL("./sim-worker-web.ts", import.meta.url);
       workerUrl.searchParams.set("t", String(cacheBust));
+      worker = new Worker(workerUrl, { type: "module" });
+    } else {
+      // NOTE: `new URL(...)` must be inlined directly inside `new Worker()` —
+      // Vite only bundles worker modules when it sees this exact pattern.
+      // Assigning the URL to a variable first causes Vite to emit the worker
+      // as a raw unbundled asset (bare imports unresolved), breaking prod.
+      worker = new Worker(new URL("./sim-worker-web.ts", import.meta.url), { type: "module" });
     }
-    const worker = new Worker(workerUrl, { type: "module" });
 
     this.wp = wrap<SimApi>(worker);
 
