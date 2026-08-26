@@ -25,13 +25,17 @@ import {
 } from "../shared/map-buffer";
 import type { Chunk } from "../shared/types";
 import { createChunk, getBlock, setBlock as setChunkBlock } from "./chunk";
-import { generateChunk } from "./terrain-gen";
+import {
+    generateFeatures,
+    generateTerrain, generateTrees,
+    type ChunkAccessor
+} from "./terrain-gen";
 
 function chunkKey(cx: number, cy: number): string {
   return `${cx},${cy}`;
 }
 
-export class BlockWorld {
+export class BlockWorld implements ChunkAccessor {
   private chunks = new Map<string, Chunk>();
   // Pre-loaded saved chunks (restored from OPFS on init). When ensureChunk
   // creates a new chunk, it checks here first before generating from seed.
@@ -106,8 +110,40 @@ export class BlockWorld {
       this.chunks.set(key, chunk);
     }
     if (!chunk.generated) {
-      generateChunk(chunk, this.seed);
+      // Phase 1: terrain (foreground + background base blocks)
+      if (!chunk.terrainGenerated) {
+        generateTerrain(chunk, this.seed);
+      }
+      // Phase 2: trees (with cross-chunk overflow via this as ChunkAccessor)
+      generateTrees(chunk, this.seed, this);
+      // Phase 3: features (wild crops + explored flags)
+      generateFeatures(chunk, this.seed);
       chunk.generated = true;
+    }
+    return chunk;
+  }
+
+  /**
+   * Ensure a chunk's terrain is generated (phase 1 only — no trees or
+   * features). Used by tree overflow so that canopy/trunk blocks extending
+   * into a neighbor chunk have terrain to sit on top of, without triggering
+   * the neighbor's own tree generation (which would recurse).
+   */
+  ensureChunkTerrainOnly(cx: number, cy: number): Chunk {
+    const key = chunkKey(cx, cy);
+    let chunk = this.chunks.get(key);
+    if (!chunk) {
+      const saved = this.savedChunks.get(key);
+      if (saved) {
+        chunk = saved;
+        this.savedChunks.delete(key);
+      } else {
+        chunk = createChunk(cx, cy);
+      }
+      this.chunks.set(key, chunk);
+    }
+    if (!chunk.terrainGenerated) {
+      generateTerrain(chunk, this.seed);
     }
     return chunk;
   }

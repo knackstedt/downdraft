@@ -91,6 +91,7 @@ export async function loadAllChunks(): Promise<Map<string, Chunk>> {
       chunk.explored.set(view.subarray(off, off + CHUNK_CELLS), 0);
 
       chunk.generated = true;
+      chunk.terrainGenerated = true;
       chunk.dirty = false;
       result.set(`${cx},${cy}`, chunk);
     }

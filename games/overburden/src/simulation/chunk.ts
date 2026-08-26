@@ -16,6 +16,7 @@ export function createChunk(cx: number, cy: number): Chunk {
     light: new Uint8Array(4 * CHUNK_CELLS), // RGBA8 per cell
     explored: new Uint8Array(CHUNK_CELLS),
     generated: false,
+    terrainGenerated: false,
     active: false,
     dirty: false,
   };

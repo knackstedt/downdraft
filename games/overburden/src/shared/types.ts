@@ -71,7 +71,8 @@ export interface Chunk {
   light: Uint8Array; // per-cell RGBA8 light (R,G,B,A per cell; 4 * CHUNK_CELLS bytes)
   explored: Uint8Array; // 1 = explored by blockhead (fog of war)
   // Metadata:
-  generated: boolean; // has terrain been generated for this chunk?
+  generated: boolean; // has terrain + trees + features been generated?
+  terrainGenerated: boolean; // has the base terrain (fg + bg) been generated?
   active: boolean; // is this chunk in the active grid?
   dirty: boolean; // has data changed since last render?
 }
