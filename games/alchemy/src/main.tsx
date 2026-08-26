@@ -69,7 +69,8 @@ bootstrapGame({
       if (!renderer) return;
       const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
       const s = useGameStore.getState();
-      await autosave(gridW, gridH, grid, fields, {
+      await autosave({
+        gridW, gridH, grid, fields,
         money: s.money,
         ingredientInventory: s.ingredientInventory,
         potions: s.potions,

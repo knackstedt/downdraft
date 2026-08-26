@@ -1,11 +1,11 @@
 // ============================================================================
-// Save system — persists game state via @downdraft/app/renderer createSaveStore.
+// Save system — persists game state via the engine's createGridSaveSystem.
 // Migrated from localStorage to OPFS/IPC save store for consistency with
 // other games. High score stays in localStorage (small, separate).
 // ============================================================================
 
-import { createSaveStore, downdraft } from "@downdraft/app/renderer";
-import type { ISaveStore, SaveState } from "@downdraft/core";
+import { createDefaultSaveStore } from "@downdraft/app/renderer";
+import { createGridSaveSystem, type SaveState } from "@downdraft/core";
 import type { SerializedBoard } from "./shared/types";
 
 export interface SandjonggSaveData {
@@ -25,44 +25,28 @@ export interface SandjonggSaveData {
   savedAt: number;
 }
 
-const AUTOSAVE_SLOT = "autosave";
 const ENGINE_VERSION = "0.1.0";
 const SAVE_VERSION = 2;
 const HIGHSCORE_KEY = "sandjongg-highscore-v1";
 
-let storePromise: Promise<ISaveStore> | null = null;
-
-function getStore(): Promise<ISaveStore> {
-  if (!storePromise) {
-    storePromise = (async () => {
-      const store = await createSaveStore({
-        mode: "auto",
-        opfsOptions: { engineVersion: ENGINE_VERSION },
-        bridge: downdraft,
-      });
-      if (!store) {
-        const { OpfsSaveStore } = await import("@downdraft/library-persistence/browser");
-        const fallback = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
-        await fallback.init();
-        return fallback;
-      }
-      return store;
-    })();
-  }
-  return storePromise;
+export interface SandjonggMeta {
+  gridW: number;
+  gridH: number;
+  grid: Uint32Array;
+  fields: Uint8Array;
+  score: number;
+  level: number;
+  combo: number;
+  highScore: number;
+  board: SerializedBoard | null;
 }
 
-function buildState(
-  gridW: number,
-  gridH: number,
-  meta: { score: number; level: number; combo: number; highScore: number },
-  board: SerializedBoard | null,
-): SaveState {
+function buildState(meta: SandjonggMeta): SaveState {
   return {
     components: {
-      world: { v: 1, data: { gridW, gridH, version: SAVE_VERSION } },
+      world: { v: 1, data: { gridW: meta.gridW, gridH: meta.gridH, version: SAVE_VERSION } },
       progress: { v: 1, data: { score: meta.score, level: meta.level, combo: meta.combo, highScore: meta.highScore } },
-      board: { v: 1, data: { board } },
+      board: { v: 1, data: { board: meta.board } },
     },
     meta: {
       engineVersion: ENGINE_VERSION,
@@ -72,6 +56,43 @@ function buildState(
     },
   };
 }
+
+function buildBlobs(meta: SandjonggMeta): Record<string, ArrayBuffer> {
+  return {
+    grid: meta.grid.buffer.slice(meta.grid.byteOffset, meta.grid.byteOffset + meta.grid.byteLength) as ArrayBuffer,
+    fields: meta.fields.buffer.slice(meta.fields.byteOffset, meta.fields.byteOffset + meta.fields.byteLength) as ArrayBuffer,
+  };
+}
+
+function parseEntry(state: SaveState, blobs: Record<string, ArrayBuffer> | null): SandjonggSaveData | null {
+  const world = state.components.world?.data as { gridW: number; gridH: number; version: number } | undefined;
+  const progress = state.components.progress?.data as { score: number; level: number; combo: number; highScore: number } | undefined;
+  const boardComp = state.components.board?.data as { board: SerializedBoard | null } | undefined;
+  if (!world || !progress || !blobs) return null;
+  const grid = new Uint32Array(blobs.grid);
+  const fields = new Uint8Array(blobs.fields);
+  return {
+    version: world.version ?? SAVE_VERSION,
+    level: progress.level,
+    score: progress.score,
+    combo: progress.combo,
+    highScore: progress.highScore,
+    gridW: world.gridW,
+    gridH: world.gridH,
+    grid,
+    fields,
+    board: boardComp?.board ?? null,
+    savedAt: state.meta.timestamp * 1000,
+  };
+}
+
+const system = createGridSaveSystem<SandjonggMeta, SandjonggSaveData>({
+  createStore: () => createDefaultSaveStore(ENGINE_VERSION),
+  autosaveSlot: "autosave",
+  buildState,
+  buildBlobs,
+  parseEntry,
+});
 
 // --- High score API (stays in localStorage — small, separate) ---
 
@@ -94,48 +115,12 @@ export function saveHighScore(score: number): void {
 
 // --- Autosave API ---
 
-export async function autosave(
-  gridW: number,
-  gridH: number,
-  grid: Uint32Array,
-  fields: Uint8Array,
-  meta: { score: number; level: number; combo: number; highScore: number },
-  board: SerializedBoard | null,
-): Promise<void> {
-  const store = await getStore();
-  const state = buildState(gridW, gridH, meta, board);
-  await store.save(AUTOSAVE_SLOT, state, {
-    properties: { name: "Autosave", savedAt: Date.now() },
-    blobs: {
-      grid: grid.buffer.slice(grid.byteOffset, grid.byteOffset + grid.byteLength) as ArrayBuffer,
-      fields: fields.buffer.slice(fields.byteOffset, fields.byteOffset + fields.byteLength) as ArrayBuffer,
-    },
-  });
+export async function autosave(meta: SandjonggMeta): Promise<void> {
+  await system.autosave(meta);
 }
 
 export async function loadAutosave(): Promise<SandjonggSaveData | null> {
-  const store = await getStore();
-  const result = await store.load(AUTOSAVE_SLOT);
-  if (!result.state) return null;
-  const world = result.state.components.world?.data as { gridW: number; gridH: number; version: number } | undefined;
-  const progress = result.state.components.progress?.data as { score: number; level: number; combo: number; highScore: number } | undefined;
-  const boardComp = result.state.components.board?.data as { board: SerializedBoard | null } | undefined;
-  if (!world || !progress || !result.blobs) return null;
-  const grid = new Uint32Array(result.blobs.grid);
-  const fields = new Uint8Array(result.blobs.fields);
-  return {
-    version: world.version ?? SAVE_VERSION,
-    level: progress.level,
-    score: progress.score,
-    combo: progress.combo,
-    highScore: progress.highScore,
-    gridW: world.gridW,
-    gridH: world.gridH,
-    grid,
-    fields,
-    board: boardComp?.board ?? null,
-    savedAt: result.state.meta.timestamp * 1000,
-  };
+  return system.loadAutosave();
 }
 
 /** Decode the grid from a save data object. (Now returns the already-decoded grid.) */
