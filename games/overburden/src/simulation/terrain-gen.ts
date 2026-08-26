@@ -1,12 +1,32 @@
 // ============================================================================
 // Overburden — terrain generation
 //
-// Generates the 6-plane chunk data for a chunk:
-// - Surface: grass + dirt + stone layers with rolling hills
-// - Underground: stone with ore veins (Perlin worms) and caves (noise threshold)
-// - Water: fills up to sea level
-// - Lava: at the bottom of the world
-// - Bedrock: immovable layer at the very bottom
+// Generates chunk data in three phases:
+//   1. generateTerrain() — foreground + background base blocks (grass, dirt,
+//      stone, sand, water, lava, bedrock) using the biome system for surface
+//      height + block types. Caves carve the foreground (layers 1 & 2) only;
+//      the background (layers 3 & 4) stays as stone cave walls.
+//   2. generateTrees()   — trees + vines in the background plane. Trees can
+//      overflow across chunk borders (trunk + canopy extending into the chunk
+//      above or to the sides) via the ChunkAccessor interface. A virtual grid
+//      approach lets canopy shapes extend into neighbor chunks without
+//      modifying the shape functions in tree-species.ts.
+//   3. generateFeatures() — wild crops + fog-of-war explored flags.
+//
+// generateChunk() runs all three phases (for backward compatibility with
+// tests that don't need cross-chunk tree overflow). BlockWorld.ensureChunk()
+// calls terrain + trees separately so that tree overflow can trigger terrain-
+// only generation on neighbor chunks without recursing into their tree pass.
+//
+// Biome system (see biomes.ts): low-frequency noise assigns each world X
+// column a biome (ocean, plains, desert, mountain). Biomes control surface
+// height, surface/dirt block types, tree density, and cave parameters.
+//
+// Layer terminology:
+//   Layer 1 = foreground front (Z=0)   — main terrain (caves carve this)
+//   Layer 2 = foreground back (Z=-1)   — same terrain, darker
+//   Layer 3 = background main (Z=-2)   — trees + back wall
+//   Layer 4 = back wall only (Z=-3)    — terrain back wall, no trees
 // ============================================================================
 
 import { fbm2D, hash2, valueNoise2D } from "@downdraft/core";
@@ -20,36 +40,65 @@ import {
     BLOCK_WATER,
     CHUNK_H,
     CHUNK_W,
+    CHUNKS_X,
     MAGMA_Y, SEA_LEVEL, SURFACE_Y, WORLD_H
 } from "../shared/constants";
 import { WILD_CROPS } from "../shared/crops";
 import {
     isTreeBlock, makeTaggedBlock,
     pickTreeSpecies, pickVineSpecies, VINE_SPECIES,
+    type TreeSpecies,
 } from "../shared/tree-species";
 import type { Chunk } from "../shared/types";
+import { biomeAt, type Biome, type BiomeInfo } from "./biomes";
 import { cellIndex } from "./chunk";
 import { setFlow } from "./fluid-sim";
 
+// --- Chunk accessor interface ---
+// Allows tree generation to write overflow blocks into neighbor chunks.
+// BlockWorld implements this. When no accessor is provided (e.g. in tests),
+// tree overflow is silently dropped (trees get truncated at chunk borders,
+// same as the old behavior).
+export interface ChunkAccessor {
+  /** Ensure a chunk's terrain is generated (no trees) and return it. */
+  ensureChunkTerrainOnly(cx: number, cy: number): Chunk;
+}
+
+// --- Canopy overflow margin ---
+// Max canopy radius (blocks) that can extend past chunk borders. Must be ≥
+// the largest canopy shape radius (spruce cone halfW ≈ 3, dome radiusX ≈ 3,
+// banana droop ≈ 3). 8 gives ample headroom.
+const CANOPY_MARGIN = 8;
+const VG_W = CHUNK_W + 2 * CANOPY_MARGIN;
+const VG_H = CHUNK_H + 2 * CANOPY_MARGIN;
+
 // --- Surface height ---
-// fBm noise for rolling hills. Returns world Y of the surface at world X.
+// Delegates to the biome system. Returns world Y of the surface at world X.
 function surfaceHeightAt(wx: number, seed: number): number {
-  const noise = fbm2D(wx * 0.005, 0, seed, 4, 2.0, 0.5);
-  return SURFACE_Y + Math.floor(noise * 60 - 30);
+  return biomeAt(wx, seed).surfaceY;
 }
 
 // --- Dirt depth ---
+// Delegates to the biome system.
 function dirtDepthAt(wx: number, seed: number): number {
-  const noise = fbm2D(wx * 0.02, 100, seed, 2, 2.0, 0.5);
-  return 4 + Math.floor(noise * 6); // 4-10 blocks
+  return biomeAt(wx, seed).dirtDepth;
 }
 
 // --- Cave generation ---
 // fBm noise threshold check. Returns true if this cell is a cave.
-function isCave(wx: number, wy: number, seed: number): boolean {
-  if (wy < SURFACE_Y + 20) return false; // no caves near surface
-  const noise = fbm2D(wx * 0.03, wy * 0.03, seed + 500, 4, 2.0, 0.5);
-  return noise > 0.72;
+// Caves carve the FOREGROUND (layers 1 & 2) only; the background stays as
+// stone (cave walls in layers 3 & 4). Caves are excluded in the first few
+// blocks below the surface (so the surface doesn't collapse into holes) and
+// near the magma layer (so the magma chamber stays intact).
+function isCave(wx: number, wy: number, seed: number, surfaceY: number): boolean {
+  // No caves within 10 blocks of the surface (prevents surface collapse)
+  if (wy < surfaceY + 10) return false;
+  // No caves near the magma layer
+  if (wy > MAGMA_Y - 10) return false;
+  // 2D fBm with different X/Y scales for tunnel-like shapes
+  const noise = fbm2D(wx * 0.025, wy * 0.04, seed + 500, 4, 2.0, 0.5);
+  // Threshold ~0.58 → ~15-20% of underground cells become caves
+  return noise > 0.58;
 }
 
 // --- Ore generation ---
@@ -79,12 +128,13 @@ function oreAt(wx: number, wy: number, seed: number): number {
 }
 
 // --- Tree generation ---
-// Returns true if a tree trunk starts at this surface cell. 5% chance,
-// only near the surface band. Species is picked separately (deterministic
-// per cell via hash2) so each tree gets one of the 13 species.
-function treeAt(wx: number, wy: number, seed: number): boolean {
-  if (wy < SURFACE_Y - 20 || wy > SURFACE_Y + 20) return false;
-  return hash2(wx, wy, seed + 999) < 0.05; // 5% chance for more trees
+// Returns true if a tree trunk starts at this surface cell.
+// Chance is biome-dependent (deserts have very few, oceans have none).
+function treeAt(wx: number, wy: number, seed: number, biome: BiomeInfo): boolean {
+  if (biome.treeChance === 0) return false;
+  // Trees only spawn near the surface band
+  if (wy < biome.surfaceY - 5 || wy > biome.surfaceY + 5) return false;
+  return hash2(wx, wy, seed + 999) < biome.treeChance;
 }
 
 // --- Vine generation ---
@@ -99,8 +149,44 @@ function vineAtBase(wx: number, wy: number, seed: number): number {
   return 0;
 }
 
-// --- Main generation ---
-export function generateChunk(chunk: Chunk, seed: number): void {
+// --- Surface block selection by biome ---
+// Returns the foreground surface block for a given biome + surface Y.
+function surfaceBlockFor(biome: Biome, surfaceY: number): number {
+  switch (biome) {
+    case "ocean":
+      // Ocean floor: sand near shore, stone in deep areas
+      if (surfaceY > SEA_LEVEL - 20) return BLOCK_SAND;
+      return BLOCK_STONE;
+    case "desert":
+      return BLOCK_SAND;
+    case "mountain":
+      // Mountain: grass at lower elevations, stone at high peaks
+      if (surfaceY < SURFACE_Y + 70) return BLOCK_GRASS;
+      return BLOCK_STONE;
+    default:
+      // Plains: grass, with sand beaches near sea level
+      if (surfaceY >= SEA_LEVEL - 3 && surfaceY <= SEA_LEVEL + 3) return BLOCK_SAND;
+      return BLOCK_GRASS;
+  }
+}
+
+// --- Subsurface block selection by biome ---
+// Returns the block below the surface (dirt for plains/mountain, sand for
+// desert/ocean).
+function subsurfaceBlockFor(biome: Biome): number {
+  switch (biome) {
+    case "ocean": return BLOCK_SAND;
+    case "desert": return BLOCK_SAND;
+    case "mountain": return BLOCK_DIRT;
+    default: return BLOCK_DIRT;
+  }
+}
+
+// ============================================================================
+// Phase 1: Terrain generation (foreground + background base blocks)
+// ============================================================================
+
+export function generateTerrain(chunk: Chunk, seed: number): void {
   const baseWx = chunk.cx * CHUNK_W;
   const baseWy = chunk.cy * CHUNK_H;
 
@@ -114,7 +200,8 @@ export function generateChunk(chunk: Chunk, seed: number): void {
       let foreground = BLOCK_AIR;
       let background = BLOCK_AIR;
 
-      const surfaceY = surfaceHeightAt(wx, seed);
+      const info = biomeAt(wx, seed);
+      const surfaceY = info.surfaceY;
 
       if (wy < surfaceY) {
         // Above surface: air (or water if below sea level)
@@ -124,27 +211,22 @@ export function generateChunk(chunk: Chunk, seed: number): void {
         // Background matches foreground above surface (air/water)
         // so the back wall doesn't fill the sky.
       } else if (wy === surfaceY) {
-        // Surface block: grass (or sand near water)
-        if (surfaceY >= SEA_LEVEL - 3 && surfaceY <= SEA_LEVEL + 3) {
-          // Near sea level: sand beaches
-          foreground = BLOCK_SAND;
-          background = BLOCK_SAND;
-        } else {
-          foreground = BLOCK_GRASS;
-          background = BLOCK_GRASS; // background matches foreground
-        }
-      } else if (wy < surfaceY + dirtDepthAt(wx, seed)) {
-        // Dirt layer
-        foreground = BLOCK_DIRT;
-        background = BLOCK_DIRT;
+        // Surface block: biome-dependent
+        foreground = surfaceBlockFor(info.biome, surfaceY);
+        background = foreground;
+      } else if (wy < surfaceY + info.dirtDepth) {
+        // Subsurface layer (dirt or sand depending on biome)
+        const subBlock = subsurfaceBlockFor(info.biome);
+        foreground = subBlock;
+        background = subBlock;
       } else if (wy < MAGMA_Y - 5) {
         // Stone layer (with ores + caves)
-        if (isCave(wx, wy, seed)) {
-          // Cave: air (or water if below sea level)
+        if (isCave(wx, wy, seed, surfaceY)) {
+          // Cave: air (or water if below sea level) — foreground only
           if (wy > SEA_LEVEL) {
             foreground = setFlow(BLOCK_WATER, 7);
           }
-          // Background behind caves: stone (so you see the cave wall behind)
+          // Background behind caves: stone (cave wall in layers 3 & 4)
           background = BLOCK_STONE;
         } else {
           const ore = oreAt(wx, wy, seed);
@@ -197,21 +279,149 @@ export function generateChunk(chunk: Chunk, seed: number): void {
     }
   }
 
-  // --- Trees ---
-  // Plant trees on the surface in the BACKGROUND layer (layer 3).
-  // Trees are behind the player (layer 2) but in front of the back wall (layer 4).
-  // Each tree is one of 13 species, each with its own wood + leaf block IDs and
-  // a distinct canopy shape. Vines (kiwi, grape) may spawn at a tree's base and
-  // climb up the trunk in adjacent empty background cells.
+  chunk.terrainGenerated = true;
+}
+
+// ============================================================================
+// Phase 2: Tree + vine generation (background plane, with cross-chunk overflow)
+// ============================================================================
+
+/**
+ * Get the background block at world coordinates (wx, wy), reading from the
+ * appropriate chunk. Uses the accessor to fetch neighbor chunks if needed.
+ * Returns BLOCK_AIR (0) if the chunk is out of world bounds or no accessor.
+ */
+function getBackgroundAt(
+  baseChunk: Chunk,
+  wx: number,
+  wy: number,
+  accessor: ChunkAccessor | null,
+): number {
+  const cx = ((Math.floor(wx / CHUNK_W) % CHUNKS_X) + CHUNKS_X) % CHUNKS_X;
+  const cy = Math.floor(wy / CHUNK_H);
+  if (cy < 0 || cy >= WORLD_H / CHUNK_H) return 1; // non-air (world bounds)
+
+  if (cx === baseChunk.cx && cy === baseChunk.cy) {
+    const lx = wx - cx * CHUNK_W;
+    const ly = wy - cy * CHUNK_H;
+    return baseChunk.background[cellIndex(lx, ly)];
+  }
+  if (!accessor) return 0; // air (no overflow possible)
+  const neighbor = accessor.ensureChunkTerrainOnly(cx, cy);
+  const lx = wx - cx * CHUNK_W;
+  const ly = wy - cy * CHUNK_H;
+  return neighbor.background[cellIndex(lx, ly)];
+}
+
+/**
+ * Set a tagged background block at world coordinates (wx, wy), writing to the
+ * appropriate chunk. Only writes if the target cell is currently BLOCK_AIR.
+ */
+function setBackgroundAt(
+  baseChunk: Chunk,
+  wx: number,
+  wy: number,
+  blockId: number,
+  treeTag: number,
+  accessor: ChunkAccessor | null,
+): void {
+  const cx = ((Math.floor(wx / CHUNK_W) % CHUNKS_X) + CHUNKS_X) % CHUNKS_X;
+  const cy = Math.floor(wy / CHUNK_H);
+  if (cy < 0 || cy >= WORLD_H / CHUNK_H) return;
+
+  let chunk: Chunk;
+  if (cx === baseChunk.cx && cy === baseChunk.cy) {
+    chunk = baseChunk;
+  } else if (accessor) {
+    chunk = accessor.ensureChunkTerrainOnly(cx, cy);
+  } else {
+    return; // no accessor, drop overflow
+  }
+
+  const lx = wx - cx * CHUNK_W;
+  const ly = wy - cy * CHUNK_H;
+  const idx = cellIndex(lx, ly);
+  if (chunk.background[idx] === BLOCK_AIR) {
+    chunk.background[idx] = makeTaggedBlock(blockId, treeTag);
+    chunk.dirty = true;
+  }
+}
+
+/**
+ * Place a canopy with cross-chunk overflow support using a virtual grid.
+ *
+ * Creates a temporary grid larger than the chunk (CHUNK_W + 2*MARGIN) ×
+ * (CHUNK_H + 2*MARGIN), copies existing background blocks from the chunk +
+ * neighbors into it, runs the species' canopy shape function on the virtual
+ * grid, then writes newly-placed leaves back to the appropriate chunks
+ * (in-bounds → current chunk, out-of-bounds → neighbor chunks via accessor).
+ */
+function placeCanopyWithOverflow(
+  baseChunk: Chunk,
+  baseWx: number,
+  baseWy: number,
+  lx: number,
+  ly: number,
+  trunkTopLy: number,
+  trunkHeight: number,
+  species: TreeSpecies,
+  treeTag: number,
+  accessor: ChunkAccessor | null,
+): void {
+  // 1. Build virtual grid: copy existing background blocks from chunk + neighbors
+  const vg = new Uint16Array(VG_W * VG_H);
+  const occupied = new Uint8Array(VG_W * VG_H); // 1 = was non-zero before canopy
+
+  for (let vgy = 0; vgy < VG_H; vgy++) {
+    for (let vgx = 0; vgx < VG_W; vgx++) {
+      const wx = baseWx + (vgx - CANOPY_MARGIN);
+      const wy = baseWy + (vgy - CANOPY_MARGIN);
+      const val = getBackgroundAt(baseChunk, wx, wy, accessor);
+      const vi = vgy * VG_W + vgx;
+      vg[vi] = val;
+      if (val !== 0) occupied[vi] = 1;
+    }
+  }
+
+  // 2. Run canopy placement on the virtual grid (coordinates offset by MARGIN)
+  const vgLx = lx + CANOPY_MARGIN;
+  const vgLy = ly + CANOPY_MARGIN;
+  const vgTrunkTopLy = trunkTopLy + CANOPY_MARGIN;
+  species.placeCanopy(vg, VG_W, VG_H, vgLx, vgLy, vgTrunkTopLy, trunkHeight, species.leafBlock, treeTag);
+
+  // 3. Write newly-placed leaves back to chunks
+  for (let vgy = 0; vgy < VG_H; vgy++) {
+    for (let vgx = 0; vgx < VG_W; vgx++) {
+      const vi = vgy * VG_W + vgx;
+      if (occupied[vi]) continue; // was already non-zero, skip
+      const val = vg[vi];
+      if (val === 0) continue; // still air, no leaf placed
+      // Newly placed leaf → write to the appropriate chunk
+      const wx = baseWx + (vgx - CANOPY_MARGIN);
+      const wy = baseWy + (vgy - CANOPY_MARGIN);
+      const blockId = val & 0xFF;
+      const tag = (val >> 8) & 0xFF;
+      setBackgroundAt(baseChunk, wx, wy, blockId, tag, accessor);
+    }
+  }
+}
+
+export function generateTrees(chunk: Chunk, seed: number, accessor: ChunkAccessor | null = null): void {
+  const baseWx = chunk.cx * CHUNK_W;
+  const baseWy = chunk.cy * CHUNK_H;
+
   for (let ly = 0; ly < CHUNK_H; ly++) {
     for (let lx = 0; lx < CHUNK_W; lx++) {
       const wx = baseWx + lx;
       const wy = baseWy + ly;
       const idx = cellIndex(lx, ly);
 
-      // Trees grow on grass in the foreground (the surface block)
-      if (chunk.foreground[idx] !== BLOCK_GRASS) continue;
-      if (!treeAt(wx, wy, seed)) continue;
+      // Trees grow on the surface block in the foreground
+      const fg = chunk.foreground[idx];
+      if (fg !== BLOCK_GRASS && fg !== BLOCK_SAND) continue;
+
+      const info = biomeAt(wx, seed);
+      if (!treeAt(wx, wy, seed, info)) continue;
 
       // Pick a species deterministically for this cell.
       const species = pickTreeSpecies(hash2(wx, wy, seed + 333));
@@ -219,82 +429,83 @@ export function generateChunk(chunk: Chunk, seed: number): void {
         Math.floor(hash2(wx, wy, seed + 111) * (species.trunkMax - species.trunkMin + 1));
 
       // Per-tree group tag: stored in the upper 8 bits of the background
-      // Uint16 so fellTree flood-fill stays within this tree only. Derived
-      // from the trunk base world coords; never 0 (0 = untagged/old save).
-      // Two adjacent trees always have different wx (≥1 apart), and the
-      // hash mixes wx + wy so even same-X-different-Y trees differ. Trees
-      // 256 blocks apart could collide, but their canopies can't touch.
+      // Uint16 so fellTree flood-fill stays within this tree only.
       let treeTag = (Math.imul(wx, 31) + Math.imul(wy, 17)) & 0xFF;
       if (treeTag === 0) treeTag = 1;
 
       // Trunk: wood blocks growing upward in the background plane.
-      let trunkTopLy = ly;
+      // Uses setBackgroundAt so the trunk can overflow into the chunk above.
+      let trunkTopWy = wy;
       for (let h = 1; h <= trunkHeight; h++) {
-        const treeY = ly - h;
-        if (treeY < 0) break; // tree goes into chunk above (skip for now)
-        const treeIdx = cellIndex(lx, treeY);
-        if (chunk.background[treeIdx] === BLOCK_AIR) {
-          chunk.background[treeIdx] = makeTaggedBlock(species.woodBlock, treeTag);
-          trunkTopLy = treeY;
+        const treeWy = wy - h;
+        if (treeWy < 0) break; // above the world
+        // Check if the target cell is air before placing
+        const existing = getBackgroundAt(chunk, wx, treeWy, accessor);
+        if (existing === BLOCK_AIR) {
+          setBackgroundAt(chunk, wx, treeWy, species.woodBlock, treeTag, accessor);
+          trunkTopWy = treeWy;
+        } else {
+          break; // blocked by existing block
         }
       }
 
-      // Canopy: species-specific shape (places leaves into empty bg cells).
-      species.placeCanopy(chunk.background, CHUNK_W, CHUNK_H, lx, ly, trunkTopLy, trunkHeight, species.leafBlock, treeTag);
+      // Canopy: species-specific shape with cross-chunk overflow support.
+      const trunkTopLy = trunkTopWy - baseWy;
+      placeCanopyWithOverflow(
+        chunk, baseWx, baseWy, lx, ly, trunkTopLy, trunkHeight,
+        species, treeTag, accessor,
+      );
 
       // Maybe spawn a vine at the base that climbs up the trunk.
       const vineBlock = vineAtBase(wx, wy, seed);
       if (vineBlock !== 0) {
         const vineSp = VINE_SPECIES.find((v) => v.block === vineBlock)!;
-        // Climb in the background plane, in the empty cell to one side of the
-        // trunk (alternate sides per height so the vine hugs the trunk).
         const side = hash2(wx, wy, seed + 555) < 0.5 ? -1 : 1;
         for (let h = 1; h <= vineSp.maxHeight; h++) {
-          const vy = ly - h;
+          const vy = wy - h;
           if (vy < 0) break;
-          // Alternate the side so the vine weaves up the trunk.
-          const vx = lx + (h % 2 === 0 ? side : -side);
-          if (vx < 0 || vx >= CHUNK_W) continue;
-          const vIdx = cellIndex(vx, vy);
-          // Only grow into empty background cells that are adjacent to the
-          // trunk (the tree's wood) — i.e. the vine is climbing the tree.
-          const trunkIdx = cellIndex(lx, vy);
-          if (chunk.background[vIdx] === BLOCK_AIR &&
-              isTreeBlock(chunk.background[trunkIdx])) {
-            chunk.background[vIdx] = makeTaggedBlock(vineBlock, treeTag);
-          } else if (chunk.background[vIdx] === BLOCK_AIR) {
-            // Trunk ended above — stop climbing (no more support).
-            break;
+          const vxSide = wx + (h % 2 === 0 ? side : -side);
+          // Check trunk support at this height
+          const trunkVal = getBackgroundAt(chunk, wx, vy, accessor);
+          if (!isTreeBlock(trunkVal)) break; // trunk ended
+          // Try to place vine in the side cell if it's air
+          const sideVal = getBackgroundAt(chunk, vxSide, vy, accessor);
+          if (sideVal === BLOCK_AIR) {
+            setBackgroundAt(chunk, vxSide, vy, vineBlock, treeTag, accessor);
           }
         }
       }
     }
   }
+}
+
+// ============================================================================
+// Phase 3: Features (wild crops + fog-of-war explored flags)
+// ============================================================================
+
+export function generateFeatures(chunk: Chunk, seed: number): void {
+  const baseWx = chunk.cx * CHUNK_W;
+  const baseWy = chunk.cy * CHUNK_H;
 
   // Wild crops (berry bushes, wild mushrooms) spawn on grass cells above
   // the surface. Each wild crop type has a spawn chance per grass cell.
-  // Wild mushrooms spawn in darker areas (caves, under trees); berry bushes
-  // spawn in open grass. They're single mature blocks that regrow after harvest.
   for (let ly = 0; ly < CHUNK_H; ly++) {
     for (let lx = 0; lx < CHUNK_W; lx++) {
       const wx = baseWx + lx;
       const wy = baseWy + ly;
       const idx = cellIndex(lx, ly);
-      // Wild crops only grow on grass in the foreground, with air above.
       if (chunk.foreground[idx] !== BLOCK_GRASS) continue;
       const aboveIdx = ly > 0 ? cellIndex(lx, ly - 1) : -1;
       if (aboveIdx >= 0 && (chunk.foreground[aboveIdx] & 0xFF) !== BLOCK_AIR) continue;
-      // Don't spawn on top of a tree trunk (background has wood at this cell).
       if (isTreeBlock(chunk.background[idx])) continue;
 
       for (const wc of WILD_CROPS) {
         const roll = hash2(wx, wy, seed + 999 + wc.blockId);
         if (roll < wc.spawnChance) {
-          // Place the wild crop in the foreground, one block above the grass.
           if (aboveIdx >= 0) {
             chunk.foreground[aboveIdx] = wc.blockId;
           }
-          break; // only one wild crop per cell
+          break;
         }
       }
     }
@@ -309,4 +520,17 @@ export function generateChunk(chunk: Chunk, seed: number): void {
       }
     }
   }
+}
+
+// ============================================================================
+// Full generation (all 3 phases) — backward-compatible wrapper
+// ============================================================================
+
+export function generateChunk(chunk: Chunk, seed: number): void {
+  if (!chunk.terrainGenerated) {
+    generateTerrain(chunk, seed);
+  }
+  generateTrees(chunk, seed, null);
+  generateFeatures(chunk, seed);
+  chunk.generated = true;
 }
