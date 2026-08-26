@@ -110,6 +110,20 @@ export class PluginHost implements PluginContext {
   }
 
   /**
+   * Register and activate multiple plugins in dependency-resolved order.
+   * This is the standard batch registration pattern — equivalent to
+   * calling `registerPluginDeferred()` for each plugin followed by
+   * `activateAll()`. Use this when multiple plugins have interdependencies
+   * (via `provides`/`requires` typed tokens).
+   */
+  usePlugins(plugins: Plugin[]): void {
+    for (let i = 0; i < plugins.length; i++) {
+      this.registerPluginDeferred(plugins[i]);
+    }
+    this.activateAll();
+  }
+
+  /**
    * Validate a single plugin's requires against already-active providers.
    * Used for immediate-activation (registerPlugin) path.
    */
