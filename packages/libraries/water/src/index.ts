@@ -19,13 +19,15 @@ export { DEFAULT_PHYSICS_CONFIG, WaterPhysics } from "./water-physics";
 export type { GerstnerWaveParams, WaterPhysicsConfig } from "./water-physics";
 export { DEFAULT_RENDER_CONFIG, WaterRenderer } from "./water-renderer";
 export type { WaterRenderConfig, WaterRendererOptions } from "./water-renderer";
-export {
-    MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS, collectShoreSources, collectWakeSources, packShoreSources
-} from "./wave-sources";
+export { collectShoreSources, collectWakeSources, MAX_SHORES, MAX_WAKES, packShoreSources, SHORE_FLOATS, WAKE_FLOATS } from "./wave-sources";
 export type { ShoreProvider, ShoreSource, WakeProvider, WakeSource } from "./wave-sources";
 
 // Water SAB Channel (defineChannel-based SharedArrayBuffer protocol)
 export { WATER_FLOW_OFFSET_SAB, WATER_GRID_SAB, WATER_HDR_SAB, WATER_HEIGHT_OFFSET_SAB, WATER_MAGIC_SAB, WATER_NORMAL_OFFSET_SAB, WATER_VERSION_SAB, WaterBufferReader, WaterBufferWriter, WaterChannel } from "./water-sab";
+
+// Declarative library descriptor
+export { WaterLib, WaterReaderTok, WaterWriterTok } from "./library";
+export type { WaterLibConfig } from "./library";
 
 export interface WaterPluginResources {
   buffer: WaterBuffer;

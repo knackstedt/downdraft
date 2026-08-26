@@ -325,26 +325,34 @@ export class SandjonggRenderer extends GameRenderer {
       if (dbg.debugMode) {
         this.handleDebugClick(hit);
       } else if (hit) {
-        const el = this.tilePass.state.boardElements[(hit.col + hit.row * this.tilePass.state.boardCols) * MAX_LAYERS + hit.layer];
-        if (el >= 0) {
-          const sel = this.tilePass.state.selected;
-          if (sel === null) {
-            // First selection.
-            this.tilePass.state.selected = hit;
-          } else if (sel.col === hit.col && sel.row === hit.row && sel.layer === hit.layer) {
-            // Clicked the already-selected tile → deselect (no red flash).
-            this.tilePass.state.selected = null;
-          } else if (sel.layer !== hit.layer) {
-            // Clicked a tile on a different layer → deselect (no red flash).
-            this.tilePass.state.selected = null;
-          } else {
-            // Same layer, different tile → attempt match.
-            this.tilePass.state.selected = null;
-            this.workerHost?.requestMatch(sel.col, sel.row, sel.layer, hit.col, hit.row, hit.layer);
-          }
-        } else {
-          // Clicked empty cell — deselect.
+        // Per-layer top-down lock: a layer can't be started until the layer
+        // above it is fully cleared. Clicks on locked layers are rejected with
+        // a red flash so the player understands why nothing happened.
+        if (this.tilePass.isLayerLocked(hit.layer)) {
+          this.tilePass.state.failAnims.push({ col: hit.col, row: hit.row, layer: hit.layer, startTime: performance.now() });
           this.tilePass.state.selected = null;
+        } else {
+          const el = this.tilePass.state.boardElements[(hit.col + hit.row * this.tilePass.state.boardCols) * MAX_LAYERS + hit.layer];
+          if (el >= 0) {
+            const sel = this.tilePass.state.selected;
+            if (sel === null) {
+              // First selection.
+              this.tilePass.state.selected = hit;
+            } else if (sel.col === hit.col && sel.row === hit.row && sel.layer === hit.layer) {
+              // Clicked the already-selected tile → deselect (no red flash).
+              this.tilePass.state.selected = null;
+            } else if (sel.layer !== hit.layer) {
+              // Clicked a tile on a different layer → deselect (no red flash).
+              this.tilePass.state.selected = null;
+            } else {
+              // Same layer, different tile → attempt match.
+              this.tilePass.state.selected = null;
+              this.workerHost?.requestMatch(sel.col, sel.row, sel.layer, hit.col, hit.row, hit.layer);
+            }
+          } else {
+            // Clicked empty cell — deselect.
+            this.tilePass.state.selected = null;
+          }
         }
       } else {
         // Clicked outside board — deselect.

@@ -150,11 +150,31 @@ export class TileCanvasPass {
     };
   }
 
+  /** Highest layer index that contains any tile, computed from the SAB board
+   *  view. Returns -1 if the board is empty. */
+  maxOccupiedLayer(): number {
+    const { boardElements, boardCols, boardRows, boardLayers } = this.state;
+    for (let layer = boardLayers - 1; layer >= 0; layer--) {
+      for (let r = 0; r < boardRows; r++) {
+        for (let c = 0; c < boardCols; c++) {
+          if (boardElements[(c + r * boardCols) * MAX_LAYERS + layer] >= 0) return layer;
+        }
+      }
+    }
+    return -1;
+  }
+
+  /** Per-layer top-down lock: a layer is locked while any layer above it still
+   *  has tiles. The topmost occupied layer is always unlocked. */
+  isLayerLocked(layer: number): boolean {
+    return layer < this.maxOccupiedLayer();
+  }
+
   /** Exact canvas-px rect of a tile (top-left x/y + width/height), accounting
    *  for the per-layer 3D offset. Used by the renderer to spawn sand at the
    *  tile's on-screen position at match time. */
   tileRect(col: number, row: number, layer: number): { x: number; y: number; w: number; h: number } {
-    const layerOffset = Math.max(6, this.tilePx * 0.18);
+    const layerOffset = Math.max(8, this.tilePx * 0.26);
     const offset = layer * layerOffset;
     return {
       x: this.boardOffsetX + col * this.tilePx - offset,
@@ -182,15 +202,29 @@ export class TileCanvasPass {
 
     // No board background — let the WebGPU sand canvas show through.
     // Draw tiles layer by layer (bottom to top) with a pseudo-3D stack: each
-    // higher layer is offset up-left and gets a visible "side face" (the
-    // thickness of the slab on the bottom + right) plus a stronger drop shadow,
-    // so stacked layers read clearly even at a glance. A small colored accent
-    // bar on the left edge of each layer (per-layer hue) makes layers
-    // distinguishable independent of the 3D offset.
-    const layerOffset = Math.max(6, this.tilePx * 0.18);
-    const sideDepth = Math.max(3, this.tilePx * 0.10);
-    // Per-layer accent hues (layer 0 gets none — it's the base).
-    const LAYER_ACCENTS = ["", "#5aa8ff", "#b06bff", "#ff9a3c", "#3ce0a0"];
+    // higher layer is offset up-left and gets a two-tone extruded slab (a
+    // darker right face + a lighter front/bottom face) plus a drop shadow whose
+    // opacity grows with stack height, so stacked layers read clearly even at a
+    // glance. A subtle per-layer color tint washed across the whole tile
+    // (cool→warm ramp; layer 0 is the untinted base) makes each layer
+    // distinguishable as a distinct color band independent of the 3D offset.
+    //
+    // Per-layer top-down lock: only the highest occupied layer is playable;
+    // every layer below it is locked and noticeably darkened so the player can
+    // see what's coming but can't interact with it until the layer above is
+    // fully cleared.
+    const layerOffset = Math.max(8, this.tilePx * 0.26);
+    const sideDepth = Math.max(4, this.tilePx * 0.16);
+    const activeLayer = this.maxOccupiedLayer();
+    // Per-layer tint overlays (cool→warm ramp; layer 0 is untinted). Applied as
+    // a low-alpha wash over the element color so the element still reads.
+    const LAYER_TINTS = [
+      "",
+      "rgba(90, 168, 255, 0.16)",  // 1 — blue
+      "rgba(176, 107, 255, 0.16)",  // 2 — purple
+      "rgba(255, 154, 60, 0.16)",   // 3 — orange
+      "rgba(60, 224, 160, 0.16)",   // 4 — green
+    ];
     for (let layer = 0; layer < boardLayers; layer++) {
       const offset = layer * layerOffset;
       for (let r = 0; r < boardRows; r++) {
@@ -202,28 +236,43 @@ export class TileCanvasPass {
           const y = this.boardOffsetY + r * this.tilePx - offset;
           const size = this.tilePx - 2;
           const elDef = getElement(el);
+          // A layer is locked while any layer above it still has tiles.
+          const locked = layer < activeLayer;
 
-          // 3D side face: the slab thickness on the bottom + right, drawn as a
-          // single dark polygon so stacked tiles look like raised platforms.
+          // 3D extruded slab: the slab thickness is drawn as two separate
+          // shaded faces on the bottom-right (the side facing the layer below,
+          // which sits down-right because each layer is offset up-left). The
+          // right face is darker and the front/bottom face lighter for a
+          // two-tone extruded look, instead of one flat dark polygon.
           if (layer > 0) {
-            ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+            const dx = sideDepth;
+            const dy = sideDepth;
+            // Drop shadow first (behind the slab sides); opacity grows with
+            // layer so taller stacks cast a deeper, more visible shadow.
+            const shadowAlpha = 0.16 + Math.min(0.18, 0.06 * layer);
+            ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
             ctx.beginPath();
-            // Right side.
+            ctx.roundRect(x + offset * 0.4 + 2, y + offset * 0.4 + 2, size, size, 4);
+            ctx.fill();
+
+            // Right face (darker).
+            ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
+            ctx.beginPath();
             ctx.moveTo(x + size + 1, y + 1);
-            ctx.lineTo(x + size + 1 + sideDepth, y + 1 - sideDepth);
-            ctx.lineTo(x + size + 1 + sideDepth, y + size + 1 - sideDepth);
+            ctx.lineTo(x + size + 1 + dx, y + 1 + dy);
+            ctx.lineTo(x + size + 1 + dx, y + size + 1 + dy);
             ctx.lineTo(x + size + 1, y + size + 1);
-            // Bottom side.
-            ctx.lineTo(x + 1, y + size + 1);
-            ctx.lineTo(x + 1 + sideDepth, y + size + 1 - sideDepth);
-            ctx.lineTo(x + size + 1 + sideDepth, y + size + 1 - sideDepth);
             ctx.closePath();
             ctx.fill();
 
-            // Soft drop shadow offset by the stack height.
-            ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+            // Front (bottom) face (lighter).
+            ctx.fillStyle = "rgba(0, 0, 0, 0.26)";
             ctx.beginPath();
-            ctx.roundRect(x + offset * 0.4 + 2, y + offset * 0.4 + 2, size, size, 4);
+            ctx.moveTo(x + 1, y + size + 1);
+            ctx.lineTo(x + 1 + dx, y + size + 1 + dy);
+            ctx.lineTo(x + size + 1 + dx, y + size + 1 + dy);
+            ctx.lineTo(x + size + 1, y + size + 1);
+            ctx.closePath();
             ctx.fill();
           }
 
@@ -235,26 +284,53 @@ export class TileCanvasPass {
           ctx.fill();
           ctx.globalAlpha = 1.0;
 
-          // Per-layer accent bar on the left edge (skipped for layer 0).
+          // Per-layer color tint: a subtle wash across the whole tile (cool→warm
+          // ramp) so each layer reads as a distinct color band. Layer 0 is the
+          // untinted base. Drawn over the element color but under the glyph.
           if (layer > 0) {
-            const accent = LAYER_ACCENTS[Math.min(layer, LAYER_ACCENTS.length - 1)];
-            if (accent) {
-              ctx.fillStyle = accent;
-              ctx.fillRect(x + 1, y + 1, 3, size);
+            const tint = LAYER_TINTS[Math.min(layer, LAYER_TINTS.length - 1)];
+            if (tint) {
+              ctx.fillStyle = tint;
+              ctx.beginPath();
+              ctx.roundRect(x + 1, y + 1, size, size, 4);
+              ctx.fill();
             }
+
+            // Top-edge highlight: a thin light line along the top of the slab,
+            // drawn on top of the tile face to enhance the "raised platform"
+            // read against the layer below.
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(x + 1, y + 1);
+            ctx.lineTo(x + size + 1, y + 1);
+            ctx.stroke();
           }
 
           // Tile border.
           ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
           ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(x + 1, y + 1, size, size, 4);
           ctx.stroke();
 
           // Element glyph.
           this.drawGlyph(ctx, elDef.glyph, x + size / 2, y + size / 2, size * 0.6, elDef.glyphColor);
 
+          // Locked-layer darkening: tiles on a layer below the active layer are
+          // noticeably dimmed so the player can see what's coming but can't
+          // interact with it until the layer above is fully cleared.
+          if (locked) {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
+            ctx.beginPath();
+            ctx.roundRect(x + 1, y + 1, size, size, 4);
+            ctx.fill();
+          }
+
           // Same-element highlight: when a tile is selected, subtly outline
-          // all other tiles of the same element to help find matches.
-          if (selected && selectedElement >= 0 && el === selectedElement &&
+          // all other tiles of the same element to help find matches. Skipped
+          // for locked tiles (they can't be matched yet).
+          if (!locked && selected && selectedElement >= 0 && el === selectedElement &&
               !(selected.col === c && selected.row === r && selected.layer === layer)) {
             const pulse = 0.3 + 0.2 * Math.sin(now / 300);
             ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
@@ -612,53 +688,81 @@ export class TileCanvasPass {
         ctx.stroke();
         break;
       case "popcorn":
-        // Fluffy popped kernel — cluster of bumps.
+        // Fluffy popped kernel — cluster of bumps with a dark outline so the
+        // shape reads clearly against the cream-colored tile.
         const popBumps = [
           [-0.3, -0.2, 0.4], [0.3, -0.25, 0.38], [0.0, 0.05, 0.45],
           [-0.35, 0.3, 0.32], [0.35, 0.3, 0.34],
         ];
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(60, 30, 0, 0.55)";
         for (const [dx, dy, r] of popBumps) {
           ctx.beginPath();
           ctx.arc(cx + dx * s, cy + dy * s, r * s, 0, Math.PI * 2);
           ctx.fill();
+          ctx.stroke();
         }
         break;
       case "salt":
-        // Crystalline grains — small rotated squares.
-        ctx.lineWidth = 1;
+        // Crystalline grains — chunky rotated cubes with a dark outline so
+        // individual crystals are clearly distinguishable on the white tile.
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(20, 40, 60, 0.65)";
         const saltCrystals = [
-          [-0.35, -0.3, 0.18], [0.3, -0.35, 0.16], [0.4, 0.2, 0.2],
-          [-0.1, 0.05, 0.22], [-0.3, 0.35, 0.15], [0.1, 0.4, 0.16],
+          [-0.4, -0.35, 0.26], [0.35, -0.4, 0.24], [0.45, 0.2, 0.28],
+          [-0.15, 0.05, 0.3], [-0.35, 0.4, 0.22], [0.15, 0.45, 0.24],
         ];
         for (const [dx, dy, r] of saltCrystals) {
           ctx.save();
           ctx.translate(cx + dx * s, cy + dy * s);
           ctx.rotate(Math.PI / 4);
-          ctx.fillRect(-r * s, -r * s, r * s * 2, r * s * 2);
+          ctx.beginPath();
+          ctx.rect(-r * s, -r * s, r * s * 2, r * s * 2);
+          ctx.fill();
+          ctx.stroke();
+          // Inner facet highlight to reinforce the "crystal" read.
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(-r * s, -r * s);
+          ctx.lineTo(r * s, -r * s);
+          ctx.stroke();
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = "rgba(20, 40, 60, 0.65)";
           ctx.restore();
         }
         break;
-      case "frost":
-        // Jagged frost crystal — 6 sharp spikes with side branches.
+      case "dewar":
+        // Cryogenic dewar flask — a rounded vessel with a narrow neck and
+        // vapor wisps billowing out. Distinct from the snowflake-like "frost"
+        // shape so liquid nitrogen reads as a cryogen, not snow.
         ctx.lineWidth = 2;
-        for (let i = 0; i < 6; i++) {
-          const a = (i * Math.PI) / 3;
-          ctx.beginPath();
-          ctx.moveTo(cx, cy);
-          ctx.lineTo(cx + Math.cos(a) * s, cy + Math.sin(a) * s);
-          ctx.stroke();
-          // Jagged side branches.
-          for (const dist of [0.4, 0.7]) {
-            const bx = cx + Math.cos(a) * s * dist;
-            const by = cy + Math.sin(a) * s * dist;
-            ctx.beginPath();
-            ctx.moveTo(bx, by);
-            ctx.lineTo(bx + Math.cos(a + 1.05) * s * 0.22, by + Math.sin(a + 1.05) * s * 0.22);
-            ctx.moveTo(bx, by);
-            ctx.lineTo(bx + Math.cos(a - 1.05) * s * 0.22, by + Math.sin(a - 1.05) * s * 0.22);
-            ctx.stroke();
-          }
-        }
+        // Flask body (wide rounded bottom).
+        ctx.beginPath();
+        ctx.moveTo(cx - s * 0.55, cy + s * 0.8);
+        ctx.quadraticCurveTo(cx - s * 0.7, cy, cx - s * 0.35, cy - s * 0.35);
+        ctx.lineTo(cx - s * 0.25, cy - s * 0.55);
+        ctx.lineTo(cx + s * 0.25, cy - s * 0.55);
+        ctx.lineTo(cx + s * 0.35, cy - s * 0.35);
+        ctx.quadraticCurveTo(cx + s * 0.7, cy, cx + s * 0.55, cy + s * 0.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        // Neck rim.
+        ctx.beginPath();
+        ctx.moveTo(cx - s * 0.25, cy - s * 0.55);
+        ctx.lineTo(cx - s * 0.25, cy - s * 0.7);
+        ctx.lineTo(cx + s * 0.25, cy - s * 0.7);
+        ctx.lineTo(cx + s * 0.25, cy - s * 0.55);
+        ctx.stroke();
+        // Vapor wisps rising from the neck.
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - s * 0.15, cy - s * 0.75);
+        ctx.quadraticCurveTo(cx - s * 0.35, cy - s * 0.95, cx - s * 0.05, cy - s * 1.05);
+        ctx.moveTo(cx + s * 0.15, cy - s * 0.75);
+        ctx.quadraticCurveTo(cx + s * 0.35, cy - s * 0.95, cx + s * 0.05, cy - s * 1.05);
+        ctx.stroke();
         break;
     }
     ctx.restore();

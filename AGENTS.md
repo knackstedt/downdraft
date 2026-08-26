@@ -4,9 +4,26 @@
 
 The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **plugins** (opt-in game features with lifecycle + typed DI + diagnostics).
 
-- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a plugin lifecycle. Games import and wire these directly. Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
+- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a plugin lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
 - **Engine plugins** (namespace `@downdraft/plugin-*`, located in `packages/plugins/`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle + typed DI. Engine plugins: camera-controls, devtools, electron-osr, mcp, xr.
 - **Game plugins** (namespace `@to-the-ocean/plugin-*` / `@to-the-ocean/library-*`, located in `games/<game>/plugins/`): game-specific features. Game plugins: crafting, inventory. Game libraries: boats, fishing, economy, survival, wildlife, items, buoyancy, collision.
+
+### Engine library descriptors (Phase 3)
+
+Engine libraries can expose an `EngineLibrary` descriptor (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) that lets games declare them declaratively in `GameModule.libraries[]`:
+
+```ts
+import { WaterLib, PhysicsRapierLib } from "@downdraft/library-water";
+
+startGame({
+  libraries: [WaterLib, [PhysicsRapierLib, { maxEntities: 8192 }]],
+  // ...
+});
+```
+
+The `LibraryHost` auto-wires each library: allocates SAB channels, creates sim-side systems, creates renderer-side passes, and registers provided resources in the DI graph via typed tokens (e.g. `WaterWriterTok`, `WaterReaderTok`, `PhysicsAPITok`). Games inject these tokens from `GameContext` in their `onReady` hook.
+
+Bare class exports remain as an escape hatch — games that need full control can still import and wire `WaterBufferWriter`, `RapierPhysicsBackend`, etc. directly.
 
 No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/plugins/` for its game-specific systems.
 

@@ -35,9 +35,9 @@ export const ELEMENTS: ElementDef[] = [
   { id: 12, name: "Gunpowder",       color: "#333333", glyphColor: "#aaaaaa", sandMaterial: Material.Gunpowder,     glyph: "powder" },
   { id: 13, name: "Dynamite",        color: "#b33326", glyphColor: "#ffce54", sandMaterial: Material.Dynamite,      glyph: "dynamite" },
   { id: 14, name: "Plasma",          color: "#1a66cc", glyphColor: "#aaeeff", sandMaterial: Material.Plasma,        glyph: "plasma" },
-  { id: 15, name: "Popcorn",         color: "#f2e5b3", glyphColor: "#ffd54a", sandMaterial: Material.Popcorn,       glyph: "popcorn" },
-  { id: 16, name: "Salt",            color: "#e8e8e0", glyphColor: "#a8c8d8", sandMaterial: Material.Salt,          glyph: "salt" },
-  { id: 17, name: "Liquid Nitrogen", color: "#5a8cb8", glyphColor: "#e0f0ff", sandMaterial: Material.LiquidNitrogen, glyph: "frost" },
+  { id: 15, name: "Popcorn",         color: "#f2e5b3", glyphColor: "#b8731e", sandMaterial: Material.Popcorn,       glyph: "popcorn" },
+  { id: 16, name: "Salt",            color: "#e8e8e0", glyphColor: "#3a5a7a", sandMaterial: Material.Salt,          glyph: "salt" },
+  { id: 17, name: "Liquid Nitrogen", color: "#5a8cb8", glyphColor: "#e0f0ff", sandMaterial: Material.LiquidNitrogen, glyph: "dewar" },
 ];
 
 export const NUM_ELEMENTS = ELEMENTS.length;

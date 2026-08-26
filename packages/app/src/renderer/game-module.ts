@@ -20,7 +20,7 @@
 // still call `bootstrapGame()` directly.
 // ============================================================================
 
-import type { ISaveStore } from "@downdraft/core";
+import type { ISaveStore, LibraryEntry } from "@downdraft/core";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
 import { createSaveStore, type SaveStoreMode } from "./save-store-factory";
@@ -154,6 +154,20 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   /** Save configuration. If omitted, no autosave is wired. */
   save?: GameSaveConfig;
 
+  // ── Engine libraries ──
+  /**
+   * Engine libraries to auto-wire (water, physics, terrain, etc.).
+   * Each entry is either a bare `EngineLibrary` (uses default config) or
+   * a `[library, config]` tuple to override config.
+   *
+   * The host allocates SABs, instantiates sim-side systems + renderer-side
+   * passes, and registers provided resources in the DI graph.
+   *
+   * Games can still import and wire library classes manually (escape hatch)
+   * if they need more control than the descriptor provides.
+   */
+  libraries?: LibraryEntry[];
+
   // ── DevTools ──
   /** DevTools config. If omitted, DevTools is not wired. */
   devtools?: BootstrapDevToolsOptions;
@@ -216,6 +230,7 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
  * Start a game from a declarative `GameModule`.
  *
  * This is the high-level entry point. It wraps `bootstrapGame()` and adds:
+ *   - Engine library auto-wiring (SAB allocation, sim systems, renderer passes)
  *   - Sim worker spawn + SAB capture
  *   - Declarative event routing (the `events` map)
  *   - Save store initialization
@@ -256,6 +271,19 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     deterministic,
     isDev,
   };
+
+  // 3b. Allocate library SABs and merge into extraBuffers (if libraries declared)
+  if (module.libraries && module.libraries.length > 0) {
+    const { LibraryHostImpl } = await import("@downdraft/core");
+    const libHost = new LibraryHostImpl(module.libraries);
+    const libBuffers = libHost.allocateBuffers();
+    // Merge library SABs into extraBuffers so they're available via ctx
+    for (const [name, sab] of Object.entries(libBuffers)) {
+      ctx.extraBuffers[name] = sab;
+    }
+    // Store the host on ctx for the game's onReady hook to access
+    (ctx as any).libraryHost = libHost;
+  }
 
   // 4. Wire event routing from the declarative events map
   if (module.events) {
