@@ -1,5 +1,5 @@
 import { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "@downdraft/core";
-import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@downdraft/plugin-marching-cubes";
+import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@downdraft/library-marching-cubes";
 import { generateDecorationMesh, generateDecorations } from "@shared/island-decorations";
 import { extractMesh, extractMeshSubRegion } from "@shared/marching-cubes";
 import {

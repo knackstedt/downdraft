@@ -1,6 +1,6 @@
 // Extracted from TerrainGenerator.ts — part of terrain decomposition
 
-import { ChunkedVoxelField } from "@downdraft/plugin-marching-cubes";
+import { ChunkedVoxelField } from "@downdraft/library-marching-cubes";
 import { TERRAIN_CONFIG } from "../terrain-config";
 import { ChunkedFieldContext, computeDensityAt } from "./terrain-chunked";
 

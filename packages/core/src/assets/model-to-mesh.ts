@@ -1,7 +1,7 @@
 import type { MeshData as EngineMeshData } from "../mesh/builder";
 import { PBR_VERTEX_LAYOUT, SKINNED_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, type VertexLayout } from "../mesh/vertex-layout";
 
-// Plugin ModelData types (mirrored from @downdraft/plugin-models types.ts)
+// Plugin ModelData types (mirrored from @downdraft/library-models types.ts)
 interface PluginMeshData {
   vertices: Float32Array;
   indices: Uint16Array | Uint32Array;

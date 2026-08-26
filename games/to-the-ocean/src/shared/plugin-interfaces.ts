@@ -26,7 +26,7 @@ export interface BiomeProvider {
  * Water provider — grid-based water surface height query.
  *
  * Used by the fishing plugin for water proximity checks.
- * The underlying implementation is WaterBufferWriter (from @downdraft/plugin-water),
+ * The underlying implementation is WaterBufferWriter (from @downdraft/library-water),
  * which stores water heights on a grid.
  *
  * Note: the buoyancy plugin uses a different, world-coordinate-based

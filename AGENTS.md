@@ -2,16 +2,51 @@
 
 ## Plugin architecture: engine vs game boundary
 
-Packages in `packages/plugins/` and `games/<game>/plugins/` are split into two categories:
+The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **plugins** (opt-in game features with lifecycle + typed DI + diagnostics).
 
-- **Plugins** (namespace `@downdraft/plugin-*` / `@to-the-ocean/plugin-*`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle. Engine plugins: physics-rapier, audio-kira, networking, marching-cubes, water, xr, models, camera-controls, devtools, electron-osr, mcp, surface-nets, weatherfx, physics-native. Game plugins: crafting, inventory.
-- **Libraries** (namespace `@downdraft/library-*` / `@to-the-ocean/library-*`): packages that export classes/functions without a plugin lifecycle. Engine libraries: entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats. Game libraries: boats, fishing, economy, survival, wildlife, items, buoyancy, collision.
-
-Both types live in the same `packages/plugins/` or `games/<game>/plugins/` directories. The distinction is whether the package implements the `Plugin` interface (has `register()`/`onDispose()`) or is just a library of classes/functions.
+- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a plugin lifecycle. Games import and wire these directly. Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
+- **Engine plugins** (namespace `@downdraft/plugin-*`, located in `packages/plugins/`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle + typed DI. Engine plugins: camera-controls, devtools, electron-osr, mcp, xr.
+- **Game plugins** (namespace `@to-the-ocean/plugin-*` / `@to-the-ocean/library-*`, located in `games/<game>/plugins/`): game-specific features. Game plugins: crafting, inventory. Game libraries: boats, fishing, economy, survival, wildlife, items, buoyancy, collision.
 
 No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/plugins/` for its game-specific systems.
 
-Config that must be updated when moving/adding packages: `package.json` (root workspaces), `tsconfig.web.json` + `tsconfig.node.json` (path mappings + include globs), `packages/app/src/vite/index.ts` (renderer aliases + hot-reload simPaths/excludePaths).
+### Typed DI (provide/inject + provides/requires)
+
+Plugins use typed `ResourceToken<T>`-based dependency injection instead of stringly-typed resource names:
+
+```ts
+import { resourceToken, type Plugin } from "@downdraft/core";
+
+export const WeatherState = resourceToken<WeatherStateData>("weatherState");
+
+export const SailingPlugin: Plugin = {
+  name: "sailing",
+  version: "1.0.0",
+  requires: [WeatherState, PhysicsAPI],   // validated before register()
+  provides: [SailingState, BuoyancyAPI],  // declared, checked for duplicates
+  register(ctx) {
+    const weather = ctx.inject(WeatherState);  // typed; throws if absent
+    ctx.provide(SailingState, sailingState);
+    ctx.onDispose(() => sailingState.destroy());
+  },
+};
+```
+
+- `ctx.provide(token, value)` — typed write; in `DOWNDRAFT_STRICT` mode throws on duplicate key.
+- `ctx.inject(token)` — typed read; throws if the token has no provider (use `injectOptional` for safe reads).
+- `provides`/`requires` arrays — the host validates the dependency graph at activation, before any `register()` runs. Missing provider → hard error naming both plugins.
+- The stringly-typed `registerResource(name, value)` / `getResource(name)` API has been **removed**. Use `resourceToken<T>(key)` + `provide`/`inject` instead.
+
+### DOWNDRAFT_STRICT diagnostics
+
+When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the plugin hosts validate the dependency graph and catch common footguns:
+- Duplicate `provide` → hard error.
+- Missing `requires` provider at activation → hard error.
+- Leak detection: plugin provides resources / allocates SAB channels but registers no `onDispose()` cleanup → warning on unload.
+
+Set `DOWNDRAFT_STRICT=0` to force-disable in dev, `DOWNDRAFT_STRICT=1` to force-enable in prod.
+
+Config that must be updated when moving/adding packages: `package.json` (root workspaces), `tsconfig.web.json` + `tsconfig.node.json` (path mappings + include globs), `packages/app/src/vite/index.ts` (renderer aliases + hot-reload simPaths/excludePaths). Engine libraries live in `packages/libraries/`; engine plugins live in `packages/plugins/`.
 
 ## HTML generation and canvas/DOM layer stacking
 

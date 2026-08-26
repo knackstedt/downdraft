@@ -1,4 +1,5 @@
 import type { ComponentId } from "../ecs/component";
+import type { ResourceToken } from "../ecs/resource";
 import type { Stage, System, SystemFn } from "../ecs/system";
 
 export interface SABChannel {
@@ -29,7 +30,21 @@ export interface PluginContext {
   /** Register a pre-built System object (with queries) to the world schedule. */
   registerSystemObject(system: System): void;
   allocateSABChannel(name: string, size: number): SABChannel;
-  registerResource<T>(name: string, value: T): void;
+  /**
+   * Provide a typed resource to the plugin graph. Other plugins can
+   * `inject()` it by the same token. In DOWNDRAFT_STRICT mode, duplicate
+   * provides of the same token throw a DiagnosticError.
+   */
+  provide<T>(token: ResourceToken<T>, value: T): void;
+  /**
+   * Read a typed resource provided by another plugin. Throws if the token
+   * has no provider (use `injectOptional` for safe reads).
+   */
+  inject<T>(token: ResourceToken<T>): T;
+  /**
+   * Read a typed resource, returning `undefined` if no plugin provides it.
+   */
+  injectOptional<T>(token: ResourceToken<T>): T | undefined;
   registerMigration(fromVersion: number, fn: (data: unknown) => unknown): void;
   onDispose(fn: () => void): void;
   /**
@@ -44,5 +59,10 @@ export interface Plugin {
   name: string;
   version: string;
   dependencies?: string[];
+  /** Typed tokens this plugin provides to the graph. Validated at activation. */
+  provides?: ResourceToken<unknown>[];
+  /** Typed tokens this plugin requires from the graph. Validated at activation. */
+  requires?: ResourceToken<unknown>[];
   register(ctx: PluginContext): void;
 }
+

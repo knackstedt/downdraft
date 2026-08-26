@@ -2,7 +2,7 @@
 // Player Manager — health, movement, swimming, oxygen tanks, death/respawn
 // ============================================================================
 
-import { shoreDamping, shoreDisplacement, waterCutout } from "@downdraft/plugin-water";
+import { shoreDamping, shoreDisplacement, waterCutout } from "@downdraft/library-water";
 import {
   HOTBAR_SLOTS, HOTBAR_TOOLS,
   PLAYER_DIVE_FORCE,
@@ -20,7 +20,7 @@ import { InputBufferReader, KEY } from "@downdraft/core";
 import { collectShoreSources, type ShoreSource } from "../../shared/shore-damping";
 import { PLR_FLAG } from "@downdraft/core";
 import { CameraMode } from "../../shared/types";
-import { WATER_GRID_SAB as WATER_GRID, WaterBufferWriter } from "@downdraft/plugin-water";
+import { WATER_GRID_SAB as WATER_GRID, WaterBufferWriter } from "@downdraft/library-water";
 import { PlayerMoveRequest } from "../physics/rapier-physics-system";
 import { SimEntity, SimPlayer } from "../simulation";
 

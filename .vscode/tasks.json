@@ -100,10 +100,10 @@
       "filePattern": "games/sandjongg/**"
     },
     {
-      "label": "Build: Game",
-      "detail": "Pick a game + target platform(s), then build + package with electron-builder",
+      "label": "Build: Game(s)",
+      "detail": "Pick game(s) + target platform(s), then build + package each with electron-builder",
       "type": "shell",
-      "command": "set -e; G=\"${input:game}\"; echo \"[Build] Building $G with Vite...\"; npx electron-vite build --config \"games/$G/electron.vite.config.ts\"; WIN=\"\"; LINUX=\"\"; MAC=\"\"; for pt in ${input:platforms}; do p=\"${pt%%:*}\"; t=\"${pt#*:}\"; case \"$p\" in win) WIN=\"$WIN $t\";; linux) LINUX=\"$LINUX $t\";; mac) MAC=\"$MAC $t\";; esac; done; EB_ARGS=\"\"; [ -n \"$WIN\" ] && EB_ARGS=\"$EB_ARGS --win$WIN\"; [ -n \"$LINUX\" ] && EB_ARGS=\"$EB_ARGS --linux$LINUX\"; [ -n \"$MAC\" ] && EB_ARGS=\"$EB_ARGS --mac$MAC\"; echo \"[Build] Packaging with electron-builder ($EB_ARGS)...\"; npx electron-builder $EB_ARGS; echo '[Build] Done. Opening release folder...'; OPENER=xdg-open; command -v xdg-open >/dev/null 2>&1 || OPENER=open; $OPENER \"${workspaceFolder}/release\"",
+      "command": "set -e; WIN=\"\"; LINUX=\"\"; MAC=\"\"; for pt in ${input:platforms}; do p=\"${pt%%:*}\"; t=\"${pt#*:}\"; case \"$p\" in win) WIN=\"$WIN $t\";; linux) LINUX=\"$LINUX $t\";; mac) MAC=\"$MAC $t\";; esac; done; EB_ARGS=\"\"; [ -n \"$WIN\" ] && EB_ARGS=\"$EB_ARGS --win$WIN\"; [ -n \"$LINUX\" ] && EB_ARGS=\"$EB_ARGS --linux$LINUX\"; [ -n \"$MAC\" ] && EB_ARGS=\"$EB_ARGS --mac$MAC\"; echo \"[Build] Target platforms:$EB_ARGS\"; FAIL=0; for G in ${input:game}; do GAME_PKG=\"games/$G/package.json\"; PRODUCT_NAME=$(node -e \"const p=require('./'+process.argv[1]); console.log(p.productName || p.build?.productName || String(p.name).replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))\" \"$GAME_PKG\"); APP_ID=$(node -e \"const p=require('./'+process.argv[1]); console.log(p.build?.appId || 'com.downdraft.'+process.argv[2])\" \"$GAME_PKG\" \"$G\"); echo \"\"; echo \"[Build] Game: $G | Product: \\\"$PRODUCT_NAME\\\" | AppId: $APP_ID\"; echo \"[Build] Building $G with Vite...\"; npx electron-vite build --config \"games/$G/electron.vite.config.ts\" || { echo \"[Build] Vite build failed for $G — skipping\"; FAIL=1; continue; }; echo \"[Build] Packaging $G with electron-builder ($EB_ARGS)...\"; npx electron-builder -c.productName=\"$PRODUCT_NAME\" -c.appId=\"$APP_ID\" -c.extraMetadata.name=\"$G\" $EB_ARGS || { echo \"[Build] electron-builder failed for $G — skipping\"; FAIL=1; continue; }; echo \"[Build] $G done.\"; done; echo \"\"; if [ \"$FAIL\" = \"1\" ]; then echo '[Build] One or more games failed — see output above.'; fi; echo '[Build] All selected games processed. Opening release folder...'; OPENER=xdg-open; command -v xdg-open >/dev/null 2>&1 || OPENER=open; $OPENER \"${workspaceFolder}/release\"",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -120,16 +120,6 @@
   ],
   "inputs": [
     {
-      "id": "game",
-      "type": "command",
-      "command": "shellCommand.execute",
-      "args": {
-        "command": "find games -mindepth 2 -maxdepth 2 -name electron.vite.config.ts | sed 's#games/##;s#/electron.vite.config.ts##'",
-        "cwd": "${workspaceFolder}",
-        "description": "Select the game to build"
-      }
-    },
-    {
       "id": "platforms",
       "type": "command",
       "command": "shellCommand.execute",
@@ -139,6 +129,19 @@
         "multiselect": true,
         "multiselectSeparator": " ",
         "description": "Select target format(s) \u2014 pick multiple to build several at once"
+      }
+    },
+    {
+      "id": "game",
+      "type": "command",
+      "command": "shellCommand.execute",
+      "args": {
+        "command": "node -e \"const fs=require('fs');for(const d of fs.readdirSync('games')){const c='games/'+d+'/electron.vite.config.ts',j='games/'+d+'/package.json';if(!fs.existsSync(c))continue;let pn=d;try{pn=JSON.parse(fs.readFileSync(j,'utf8')).productName||d}catch{};console.log(d+'|'+pn+'|Build '+pn)}\"",
+        "cwd": "${workspaceFolder}",
+        "fieldSeparator": "|",
+        "multiselect": true,
+        "multiselectSeparator": " ",
+        "description": "Select game(s) to build — pick multiple to build several at once"
       }
     }
   ]

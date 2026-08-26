@@ -9,11 +9,11 @@
     "@downdraft/library-lighting": "workspace:*",
     "@downdraft/library-navmesh": "workspace:*",
     "@downdraft/library-weather": "workspace:*",
-    "@downdraft/plugin-water": "workspace:*",
-    "@downdraft/plugin-networking": "workspace:*",
-    "@downdraft/plugin-physics-rapier": "workspace:*",
-    "@downdraft/plugin-audio-kira": "workspace:*",
-    "@downdraft/plugin-marching-cubes": "workspace:*",
+    "@downdraft/library-water": "workspace:*",
+    "@downdraft/library-networking": "workspace:*",
+    "@downdraft/library-physics-rapier": "workspace:*",
+    "@downdraft/library-audio-kira": "workspace:*",
+    "@downdraft/library-marching-cubes": "workspace:*",
     "@downdraft/plugin-mcp": "workspace:*"
   }
 }

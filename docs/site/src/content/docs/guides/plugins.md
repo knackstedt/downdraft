@@ -1,30 +1,50 @@
 ---
 title: Plugins
-description: Plugin system architecture and first-party plugins
+description: Plugin system architecture, typed DI, and first-party plugins
 ---
 
-DownDraft has a tiered plugin system supporting both TypeScript and WASM plugins.
+DownDraft has a tiered plugin system supporting both TypeScript and WASM plugins. The engine is split into **core + libraries** (standard engine building blocks, used directly) vs **plugins** (opt-in game features with lifecycle + typed DI + diagnostics).
 
 ## Plugin Interface
 
-Plugins can register systems, components, resources, and assets. The plugin interface is the primary extension point for the engine.
+Plugins can register systems, components, and typed resources. The plugin interface is the primary extension point for opt-in game features.
 
 ```typescript
-import { GameWorld, Scene, World } from "@downdraft/core";
-import { PhysicsRapierPlugin } from "@downdraft/plugin-physics-rapier";
-import { AudioKiraPlugin } from "@downdraft/plugin-audio-kira";
-import { WaterPlugin } from "@downdraft/plugin-water";
-import { MarchingCubesPlugin } from "@downdraft/plugin-marching-cubes";
-import { NetworkingPlugin } from "@downdraft/plugin-networking";
+import { GameWorld, resourceToken, type Plugin } from "@downdraft/core";
+
+// Define a typed resource token
+export const WeatherState = resourceToken<{ windSpeed: number }>("weatherState");
+
+export const SailingPlugin: Plugin = {
+  name: "sailing",
+  version: "1.0.0",
+  requires: [WeatherState],   // validated before register()
+  provides: [SailingState],   // declared, checked for duplicates
+  register(ctx) {
+    const weather = ctx.inject(WeatherState);  // typed; throws if absent
+    ctx.provide(SailingState, { speed: weather.windSpeed });
+    ctx.onDispose(() => console.log("sailing unloaded"));
+  },
+};
 
 const gameWorld = new GameWorld(new Scene(new World()));
-
-gameWorld.usePlugin(PhysicsRapierPlugin);
-gameWorld.usePlugin(AudioKiraPlugin);
-gameWorld.usePlugin(WaterPlugin);
-gameWorld.usePlugin(MarchingCubesPlugin);
-gameWorld.usePlugin(NetworkingPlugin);
+gameWorld.usePlugin(SailingPlugin);
 ```
+
+### Typed DI (provide/inject + provides/requires)
+
+Plugins use typed `ResourceToken<T>`-based dependency injection instead of stringly-typed resource names:
+
+- `ctx.provide(token, value)` — typed write; in `DOWNDRAFT_STRICT` mode throws on duplicate key.
+- `ctx.inject(token)` — typed read; throws if the token has no provider (use `injectOptional` for safe reads).
+- `provides`/`requires` arrays — the host validates the dependency graph at activation, before any `register()` runs. Missing provider → hard error naming both plugins.
+
+### DOWNDRAFT_STRICT diagnostics
+
+When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the plugin hosts validate the dependency graph and catch common footguns:
+- Duplicate `provide` → hard error.
+- Missing `requires` provider at activation → hard error.
+- Leak detection: plugin provides resources / allocates SAB channels but registers no `onDispose()` cleanup → warning on unload.
 
 ## Plugin Tiers
 
@@ -46,37 +66,60 @@ gameWorld.usePlugin(NetworkingPlugin);
 
 The plugin registry handles dependency resolution — plugins can declare dependencies on other plugins, and the registry ensures correct load order.
 
-## First-Party Plugins
+## Engine Libraries
+
+Engine libraries (namespace `@downdraft/library-*`, located in `packages/libraries/`) export classes/functions without a plugin lifecycle. Games import and wire these directly.
+
+| Library | Description |
+|---|---|
+| `@downdraft/library-water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
+| `@downdraft/library-marching-cubes` | Voxel terrain mesh extraction, LOD, deformation |
+| `@downdraft/library-surface-nets` | Surface-nets voxel terrain mesh extraction |
+| `@downdraft/library-physics-rapier` | Rapier3D physics backend |
+| `@downdraft/library-physics-native` | Native (JS) physics backend |
+| `@downdraft/library-audio-kira` | Kira audio backend (Rust FFI) |
+| `@downdraft/library-networking` | WebSocket/WebRTC transport, state replication, RPCs |
+| `@downdraft/library-models` | Model format parsers (FBX, GLTF/GLB, OBJ, DAE, STL) |
+| `@downdraft/library-weather` | Weather system |
+| `@downdraft/library-weatherfx` | Weather visual effects |
+| `@downdraft/library-lighting` | Lighting system |
+| `@downdraft/library-postfx` | Post-processing effects |
+| `@downdraft/library-navmesh` | Navigation mesh generation |
+| `@downdraft/library-persistence` | Save/load (File, OPFS, Firebird WASM/native/Rust) |
+| `@downdraft/library-gaussian-splats` | Gaussian splatting renderer |
+| `@downdraft/library-entities` | Generic entity rendering (ModelRenderer) |
+| `@downdraft/library-sand` | Falling-sand simulation |
+| `@downdraft/library-stickman` | Stickman skeletal animation |
+| `@downdraft/library-undertow` | Flow field fluid simulation |
+
+## Engine Plugins
+
+Engine plugins (namespace `@downdraft/plugin-*`, located in `packages/plugins/`) implement the `Plugin` or `RendererPlugin` interface with lifecycle + typed DI.
 
 | Plugin | Description |
 |---|---|
-| `@downdraft/plugin-water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
-| `@downdraft/plugin-marching-cubes` | Voxel terrain with LOD and deformation |
-| `@downdraft/plugin-physics-rapier` | Rapier3D physics backend |
-| `@downdraft/plugin-audio-kira` | Kira audio backend (Rust FFI) |
-| `@downdraft/plugin-networking` | WebSocket transport, state replication, RPCs |
-| `@downdraft/plugin-weather` | Weather system |
 | `@downdraft/plugin-camera-controls` | Orbit/pan/zoom camera controller (renderer plugin) |
 | `@downdraft/plugin-devtools` | Transform gizmo, debug overlays (renderer plugin) |
 | `@downdraft/plugin-electron-osr` | Electron offscreen render UI (renderer plugin) |
+| `@downdraft/plugin-mcp` | MCP (Model Context Protocol) automation server |
 | `@downdraft/plugin-xr` | WebXR VR sessions (sim + renderer plugin) |
 
 ## Game Plugins (to-the-ocean)
 
-Game-specific plugins live in `games/to-the-ocean/plugins/` under the `@to-the-ocean/plugin-*` namespace. They depend on engine plugins and `@downdraft/core` but are owned by the game.
+Game-specific plugins live in `games/to-the-ocean/plugins/` under the `@to-the-ocean/plugin-*` / `@to-the-ocean/library-*` namespaces. They depend on engine libraries/plugins and `@downdraft/core` but are owned by the game.
 
 | Plugin | Description |
 |---|---|
-| `@to-the-ocean/plugin-boats` | Boat design system and boat data buffer |
-| `@to-the-ocean/plugin-items` | Item definitions and registry |
-| `@to-the-ocean/plugin-inventory` | Inventory management |
 | `@to-the-ocean/plugin-crafting` | Crafting recipes and system |
-| `@to-the-ocean/plugin-economy` | Market system and price history |
-| `@to-the-ocean/plugin-fishing` | Fishing mechanics |
-| `@to-the-ocean/plugin-survival` | Survival mechanics |
-| `@to-the-ocean/plugin-wildlife` | Wildlife simulation |
-| `@to-the-ocean/plugin-buoyancy` | Boat buoyancy physics |
-| `@to-the-ocean/plugin-collision` | Voxel collision system |
+| `@to-the-ocean/plugin-inventory` | Inventory management |
+| `@to-the-ocean/library-boats` | Boat design system and boat data buffer |
+| `@to-the-ocean/library-items` | Item definitions and registry |
+| `@to-the-ocean/library-economy` | Market system and price history |
+| `@to-the-ocean/library-fishing` | Fishing mechanics |
+| `@to-the-ocean/library-survival` | Survival mechanics |
+| `@to-the-ocean/library-wildlife` | Wildlife simulation |
+| `@to-the-ocean/library-buoyancy` | Boat buoyancy physics |
+| `@to-the-ocean/library-collision` | Voxel collision system |
 
 ## Renderer Plugins
 

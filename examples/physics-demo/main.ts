@@ -5,7 +5,7 @@ import {
     type PhysicsBody,
     type PhysicsPluginConfig,
 } from "@downdraft/core";
-import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/plugin-physics-rapier";
+import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
 
 const log = createLogger();
 

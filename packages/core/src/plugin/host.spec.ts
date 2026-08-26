@@ -1,7 +1,9 @@
 import { component } from "../ecs/component";
+import { resourceToken } from "../ecs/resource";
 import { World } from "../ecs/world";
-import type { Plugin, PluginContext } from "./plugin";
+import { setStrict } from "./diagnostics";
 import { PluginHost } from "./host";
+import type { Plugin, PluginContext } from "./plugin";
 import { PluginRegistry } from "./registry";
 
 // Minimal plugins for testing activation order.
@@ -238,18 +240,95 @@ describe("PluginHost activation", () => {
     expect(systemAdded).toBe(true);
   });
 
-  it("registerResource stores value in world", () => {
+  it("provide/inject stores and retrieves typed values", () => {
     const world = makeWorld();
     const host = new PluginHost(world);
+    const TestResource = resourceToken<{ count: number }>("test:resource");
     const testValue = { count: 42 };
     const plugin: Plugin = {
       name: "test-resource",
       version: "1.0.0",
+      provides: [TestResource],
       register(ctx) {
-        ctx.registerResource("test:resource", testValue);
+        ctx.provide(TestResource, testValue);
+        // Round-trip: inject what we just provided
+        const got = ctx.inject(TestResource);
+        expect(got).toBe(testValue);
       },
     };
     host.registerPlugin(plugin);
-    expect(world.getResource("test:resource")).toBe(testValue);
+  });
+
+  it("inject throws on missing provider", () => {
+    const world = makeWorld();
+    const host = new PluginHost(world);
+    const MissingResource = resourceToken<unknown>("missing:resource");
+    const plugin: Plugin = {
+      name: "test-inject-missing",
+      version: "1.0.0",
+      register(ctx) {
+        expect(() => ctx.inject(MissingResource)).toThrow();
+      },
+    };
+    host.registerPlugin(plugin);
+  });
+
+  it("injectOptional returns undefined on missing provider", () => {
+    const world = makeWorld();
+    const host = new PluginHost(world);
+    const MissingResource = resourceToken<unknown>("missing:resource");
+    const plugin: Plugin = {
+      name: "test-inject-optional",
+      version: "1.0.0",
+      register(ctx) {
+        expect(ctx.injectOptional(MissingResource)).toBeUndefined();
+      },
+    };
+    host.registerPlugin(plugin);
+  });
+
+  it("STRICT: duplicate provide throws DiagnosticError", () => {
+    setStrict(true);
+    try {
+      const world = makeWorld();
+      const host = new PluginHost(world);
+      const DupResource = resourceToken<unknown>("dup:resource");
+      const pluginA: Plugin = {
+        name: "a",
+        version: "1.0.0",
+        provides: [DupResource],
+        register(ctx) { ctx.provide(DupResource, "from-a"); },
+      };
+      const pluginB: Plugin = {
+        name: "b",
+        version: "1.0.0",
+        provides: [DupResource],
+        register(ctx) { ctx.provide(DupResource, "from-b"); },
+      };
+      host.registerPluginDeferred(pluginA);
+      host.registerPluginDeferred(pluginB);
+      expect(() => host.activateAll()).toThrow(/already provided/);
+    } finally {
+      setStrict(false);
+    }
+  });
+
+  it("STRICT: missing requires throws with both plugin names", () => {
+    setStrict(true);
+    try {
+      const world = makeWorld();
+      const host = new PluginHost(world);
+      const NeededResource = resourceToken<unknown>("needed:resource");
+      const consumer: Plugin = {
+        name: "consumer",
+        version: "1.0.0",
+        requires: [NeededResource],
+        register() {},
+      };
+      host.registerPluginDeferred(consumer);
+      expect(() => host.activateAll()).toThrow(/consumer.*needed:resource/);
+    } finally {
+      setStrict(false);
+    }
   });
 });

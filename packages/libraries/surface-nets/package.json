@@ -1,0 +1,11 @@
+{
+  "name": "@downdraft/library-surface-nets",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@downdraft/library-marching-cubes": "workspace:*"
+  }
+}

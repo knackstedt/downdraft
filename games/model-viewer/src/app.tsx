@@ -2,7 +2,7 @@
 // App — React UI overlay for the model viewer
 // ============================================================================
 
-import type { ImportSettings, SkinData, UnitSystem, UpAxis } from "@downdraft/plugin-models";
+import type { ImportSettings, SkinData, UnitSystem, UpAxis } from "@downdraft/library-models";
 import { useEffect, useRef, useState } from "react";
 import { registerAnimDisplay } from "./anim-display";
 import type { AnimationData, LoadedModel, ModelEntry, ModelStats } from "./model-loader";

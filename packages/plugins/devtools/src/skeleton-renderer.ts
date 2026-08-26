@@ -1,5 +1,5 @@
 import { calculateViewProj, composeMat4Into, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, multiplyMat4Into, type CameraState } from "@downdraft/core";
-import type { SkinData } from "@downdraft/plugin-models";
+import type { SkinData } from "@downdraft/library-models";
 
 const SKELETON_WGSL = /* wgsl */ `
 struct Uniforms {

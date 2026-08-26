@@ -23,7 +23,7 @@ import {
 import { ModelRenderer } from "@downdraft/library-entities";
 import { createCameraController } from "@downdraft/plugin-camera-controls";
 import { DevToolsDataBridge, GridRenderer, HeightRulerRenderer, SkeletonRenderer, TransformGizmo, type IDevToolsDataRenderer } from "@downdraft/plugin-devtools";
-import type { MeshData } from "@downdraft/plugin-models";
+import type { MeshData } from "@downdraft/library-models";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { updateAnimDisplay } from "./anim-display";

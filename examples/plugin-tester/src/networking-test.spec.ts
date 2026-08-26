@@ -1,4 +1,4 @@
-import type { NetMessage, ReplicatedField } from "@downdraft/plugin-networking";
+import type { NetMessage, ReplicatedField } from "@downdraft/library-networking";
 import {
     AuthorityManager,
     ConnectionManager,
@@ -12,7 +12,7 @@ import {
     ReplicationManager,
     SessionManager,
     createMockPlatformAdapter,
-} from "@downdraft/plugin-networking";
+} from "@downdraft/library-networking";
 import { beforeEach, describe, expect, it, vi } from "bun:test";
 
 // ============================================================================

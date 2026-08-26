@@ -28,6 +28,7 @@
     "packages/shader-graph",
     "packages/cli",
     "packages/plugins/*",
+    "packages/libraries/*",
     "games/to-the-ocean",
     "games/to-the-ocean/plugins/*",
     "games/falling-sand",

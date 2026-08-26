@@ -1,6 +1,9 @@
-import { Camera, createLogger, MeshBuilder, World } from "@downdraft/core";
+import { Camera, createLogger, MeshBuilder, resourceToken, World } from "@downdraft/core";
 
 const log = createLogger();
+
+const CameraResource = resourceToken<Camera>("camera");
+const CubeMeshResource = resourceToken<unknown>("cubeMesh");
 
 export function init(ctx: any) {
   const world = new World();
@@ -9,10 +12,10 @@ export function init(ctx: any) {
   camera.distance = 5;
   camera.orbit(0, 0.3);
 
-  world.setResource("camera", camera);
+  world.setResourceTyped(CameraResource, camera);
 
   const mesh = MeshBuilder.cube(1);
-  world.setResource("cubeMesh", mesh);
+  world.setResourceTyped(CubeMeshResource, mesh);
 
   log.info("minimal", "initialized");
 }

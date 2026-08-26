@@ -28,7 +28,7 @@ import {
 } from "../../shared/constants";
 import { InputBufferReader } from "@downdraft/core";
 import { SimToMainMessage } from "../../shared/types";
-import { WaterBufferWriter } from "@downdraft/plugin-water";
+import { WaterBufferWriter } from "@downdraft/library-water";
 import { addItem } from "../inventory/inventory-system";
 import { SimPlayer } from "../simulation";
 import { BiomeSystem } from "../world/biome-system";

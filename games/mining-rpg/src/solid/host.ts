@@ -15,7 +15,7 @@
 //   - A message handler for worker→main actions (pause, teleport, save, etc.)
 // ============================================================================
 
-import { MainThreadHost } from "undertow";
+import { MainThreadHost } from "@downdraft/library-undertow";
 import type { MiningRenderer } from "../renderer/mining-renderer";
 import { PLAYER, STATS } from "../shared/constants";
 import type { useGameStore } from "../stores/game-store";
