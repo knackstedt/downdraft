@@ -16,6 +16,14 @@ export * from "./scene";
 export * from "./util";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Engine version — single source of truth for the engine's semver.
+// Used by the feature log, save headers (via features.saves.engineVersion
+// default), and any code that needs to report the running engine version.
+// Bump this in lockstep with the root package.json "version" field.
+// ─────────────────────────────────────────────────────────────────────────────
+export const ENGINE_VERSION = "0.1.0";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Worker (task-worker lives outside ecs/)
 // ─────────────────────────────────────────────────────────────────────────────
 export { hasTask, registerTask, unregisterTask } from "./worker/task-worker";

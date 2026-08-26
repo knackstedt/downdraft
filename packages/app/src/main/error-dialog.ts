@@ -2,8 +2,10 @@
 // Error dialog + process-level crash handlers
 // ============================================================================
 
+import { encodeFeatureLogLine } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
 import type { app as AppType, BrowserWindow as BrowserWindowType } from "electron";
+import { getCachedMainFeatureLog } from "./feature-log";
 
 const log = createLogger("info");
 
@@ -33,6 +35,14 @@ export function showErrorDialog(title: string, detail: string): void {
   if (errorDialogOpen || !BrowserWindowRef || !appRef) return;
   errorDialogOpen = true;
 
+  // Append the cached main-process feature log so a crash report carries the
+  // originating environment. The renderer line is unavailable in a
+  // main-process crash; the error stack is already shown above.
+  const mainLog = getCachedMainFeatureLog();
+  const fullDetail = mainLog
+    ? `${detail}\n\n--- Feature Log ---\n${encodeFeatureLogLine(mainLog)}`
+    : detail;
+
   const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -52,7 +62,7 @@ export function showErrorDialog(title: string, detail: string): void {
 <body>
   <div class="container">
     <h1>${title.replace(/</g, "&lt;")}</h1>
-    <pre id="detail">${detail.replace(/</g, "&lt;")}</pre>
+    <pre id="detail">${fullDetail.replace(/</g, "&lt;")}</pre>
     <div class="actions">
       <button class="secondary" onclick="window.close()">Close</button>
       <button onclick="copyText()">Copy</button>

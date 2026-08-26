@@ -2,11 +2,13 @@
 // createDowndraftApp() — main process orchestrator
 // ============================================================================
 
+import { encodeFeatureLogLine, ENGINE_VERSION } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { join } from "path";
 import { IPC } from "../shared/messages";
 import { installErrorHandlers } from "./error-dialog";
+import { collectMainFeatureLog, registerFeatureLogHandlers } from "./feature-log";
 import { registerDevtoolsHandlers, resolveDevtoolsConfig } from "./handlers/devtools";
 import { registerGpuInfoHandlers } from "./handlers/gpu-info";
 import { closeImportCache, registerImportCacheHandlers } from "./handlers/import-cache";
@@ -50,7 +52,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     errorDialog: !deterministic,
     windowStatePersistence: !deterministic,
     mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
-    saves: { engineVersion: "0.1.0" },
+    saves: { engineVersion: ENGINE_VERSION },
     osr: false,
     ...config.features,
   };
@@ -163,6 +165,21 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     if (features.gpuInfo !== false) {
       registerGpuInfoHandlers();
     }
+
+    // --- Feature log (main process) ---
+    // Collect + emit the `dd-main|...` startup line. Synchronous; GPU identity
+    // is best-effort from cached Electron GPU info (the renderer line carries
+    // WebGPU adapter identity regardless). Registered as an IPC handler so the
+    // renderer can fetch main's data for the combined DevTools/MCP view.
+    const switchNames = switches.map((s) => s[0]);
+    const mainFeatureLog = collectMainFeatureLog({
+      app,
+      isDev,
+      deterministic,
+      switches: switchNames,
+    });
+    log.info("feature", encodeFeatureLogLine(mainFeatureLog));
+    registerFeatureLogHandlers();
 
     if (features.osr) {
       osrManager = registerOsrHandlers(ctx);

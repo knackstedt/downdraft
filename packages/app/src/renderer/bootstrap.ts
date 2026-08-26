@@ -20,6 +20,8 @@
 // use any framework (React createRoot, Solid render, or nothing).
 // ============================================================================
 
+import { encodeFeatureLogLine } from "@downdraft/core";
+import { collectRendererFeatureLog } from "./feature-log";
 import { downdraft, getCanvas, getOverlay } from "./index";
 
 export interface BootstrapAutosaveOptions {
@@ -93,6 +95,11 @@ export interface BootstrapGameOptions {
   onFpsUpdate?: (fps: number) => void;
   /** FPS polling interval in milliseconds. Default: 500. */
   fpsPollIntervalMs?: number;
+
+  // --- Feature log ---
+  /** Optional getter for active plugin names (e.g. () => gameWorld.pluginHost.listPlugins()).
+   *  Populates the `plug` field of the renderer feature log line. */
+  getActivePlugins?: () => string[];
 }
 
 /**
@@ -151,6 +158,21 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   if (typeof renderer.start === "function") {
     renderer.start();
   }
+
+  // 5b. Feature log (renderer process) — collect + emit the `dd-render|...`
+  //     startup line. Synchronous; reads WebGPU adapter/features/limits,
+  //     navigator, SAB/COOP-COEP, and active plugins (if getActivePlugins
+  //     provided). The main-process `dd-main|...` line is emitted separately
+  //     from app.ts; both are fetched together via getCombinedFeatureLog()
+  //     for the DevTools copy button and MCP get_features tool.
+  const isDev = !!(downdraft?.isDev) || import.meta.env.DEV === true;
+  const renderFeatureLog = collectRendererFeatureLog({
+    renderer,
+    isDev,
+    deterministic,
+    getActivePlugins: opts.getActivePlugins,
+  });
+  console.info(encodeFeatureLogLine(renderFeatureLog));
 
   // 6. FPS polling (if onFpsUpdate provided)
   if (opts.onFpsUpdate) {

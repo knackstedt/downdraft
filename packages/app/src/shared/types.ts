@@ -6,6 +6,7 @@
 // bridge, IPC handlers, and renderer accessor.  They are type-only — no runtime
 // code — so importing them from any process (main / preload / renderer) is safe.
 
+import type { FeatureLogData } from "@downdraft/core";
 import type {
     AtlasLayout,
     AtlasPanelRect,
@@ -280,6 +281,8 @@ export interface DowndraftBridgeAPI {
   getGPUSystemInfo(): Promise<GPUSystemInfo | null>;
   getElectronGPUInfo(): Promise<ElectronGPUInfo | null>;
   getVulkanValidationStatus(): Promise<VulkanValidationStatus>;
+  /** Fetch the cached main-process feature log (for the combined DevTools/MCP view). */
+  getFeatureLog(): Promise<FeatureLogData | null>;
   openChromeUrl(url: string): void;
   /** Capture the full page (WebGPU canvas + DOM overlay) as a PNG buffer.
    *  Returns null if the window is gone or the capture is empty. */
