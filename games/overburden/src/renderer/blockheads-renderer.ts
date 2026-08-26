@@ -105,6 +105,12 @@ export class BlockheadsRenderer extends GameRenderer {
   private curWorldY = 0;
   private lastTick = -1;
   private tickArrivalTime = 0; // wall-clock ms when we first saw the current tick
+  // Number of sim ticks between the previous and current observed tick. The
+  // sim may batch multiple fixed-step ticks into one loop iteration (catch-up
+  // via the accumulator), and onAfterTicks writes the SAB only once with the
+  // final position. We spread the prev→cur lerp over tickDelta * TICK_MS so a
+  // multi-tick batch is rendered at the player's real speed instead of N×.
+  private tickDelta = 1;
   private interpInit = false;
   // Interpolated world position (computed each frame from prev/cur + alpha)
   private interpWorldX = 0;
@@ -583,6 +589,7 @@ export class BlockheadsRenderer extends GameRenderer {
     this.camWorldInit = false;
     this.interpInit = false;
     this.lastTick = -1;
+    this.tickDelta = 1;
     // Re-center camera on the spawn point (active grid center, surface level)
     this.camera.detached = false;
     this.camera.endPan();
@@ -1046,6 +1053,12 @@ export class BlockheadsRenderer extends GameRenderer {
         // Tick changed: read origin + bh position together (consistent snapshot)
         this.cachedOriginCx = this.simReader.getOriginCx();
         this.cachedOriginCy = this.simReader.getOriginCy();
+        // Capture how many sim ticks elapsed since the last observed tick
+        // BEFORE overwriting lastTick. The sim may batch multiple fixed-step
+        // ticks into one loop iteration (catch-up via the accumulator); the
+        // SAB is written once with the final position, so we spread the
+        // prev→cur lerp over tickDelta * TICK_MS to render at real speed.
+        this.tickDelta = this.lastTick < 0 ? 1 : Math.max(1, tick - this.lastTick);
         this.lastTick = tick;
         this.tickArrivalTime = now;
 
@@ -1077,23 +1090,20 @@ export class BlockheadsRenderer extends GameRenderer {
           }
         }
       }
-      // Compute alpha from wall-clock time since the tick arrived.
-      // Allow extrapolation past alpha=1.0 (up to 1.5) using the per-tick
-      // velocity. This keeps motion smooth when the sim runs slightly late
-      // (setTimeout jitter) — without it, the player would "stop" for a few
-      // frames while waiting for the next tick, causing micro-stutters.
+      // Compute alpha from wall-clock time since the tick arrived, scaled by
+      // the number of sim ticks in this batch (tickDelta). We clamp to [0,1]
+      // and do NOT extrapolate past the current tick: extrapolating forward
+      // at the previous tick's velocity and then snapping prev back to the
+      // (non-extrapolated) sim position on the next tick produced a visible
+      // rubber-band (speed surge → snap-back) whenever the sim ran a few ms
+      // late, which is the norm for setTimeout-driven tick loops. Clamping
+      // means the player holds at `cur` for a frame when a tick is late —
+      // far less noticeable than the oscillation.
       const timeSinceTick = now - this.tickArrivalTime;
-      const alpha = Math.min(1.5, Math.max(0, timeSinceTick / TICK_MS));
-      if (alpha <= 1) {
-        this.interpWorldX = this.prevWorldX + (this.curWorldX - this.prevWorldX) * alpha;
-        this.interpWorldY = this.prevWorldY + (this.curWorldY - this.prevWorldY) * alpha;
-      } else {
-        // Extrapolate: continue at the same velocity past the current tick
-        const vx = this.curWorldX - this.prevWorldX;
-        const vy = this.curWorldY - this.prevWorldY;
-        this.interpWorldX = this.curWorldX + vx * (alpha - 1);
-        this.interpWorldY = this.curWorldY + vy * (alpha - 1);
-      }
+      const windowMs = this.tickDelta * TICK_MS;
+      const alpha = Math.max(0, Math.min(1, timeSinceTick / windowMs));
+      this.interpWorldX = this.prevWorldX + (this.curWorldX - this.prevWorldX) * alpha;
+      this.interpWorldY = this.prevWorldY + (this.curWorldY - this.prevWorldY) * alpha;
     }
 
     // --- Camera position ---

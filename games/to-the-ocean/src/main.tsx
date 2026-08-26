@@ -1,13 +1,13 @@
 // ============================================================================
-// Renderer Entry Point — React app + WebGPU bootstrap
+// Renderer Entry Point — declarative GameModule + startGame()
 //
-// Migrated to bootstrapGame() (framework-orchestrated bootstrap). The common
-// sequence (UI mount, renderer create+init, render loop start, FPS polling,
+// Migrated from bootstrapGame() callback-soup to the declarative startGame()
+// API. The common sequence (UI mount, renderer create+init, sim worker spawn,
+// SAB capture, event routing, save store init, render loop, FPS polling,
 // display info, hot-reload dispose, deterministic mode) is handled by
-// bootstrapGame(). The bespoke parts (sim web worker + event routing, OSR
-// debug billboard, save store init, DevTools/SceneInspector, HUD polling,
-// debug store subscriptions, hot-reload event handlers) remain here, wired
-// from within the bootstrapGame callbacks.
+// startGame(). Game-specific wiring (OSR billboard, DevTools/SceneInspector,
+// HUD polling, debug store subscriptions, hot-reload handlers) lives in the
+// onReady hook.
 // ============================================================================
 
 import React from "react";
@@ -24,10 +24,10 @@ import "@fontsource/urbanist/400.css";
 import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
-import { bootstrapGame, createSaveStore, downdraft, type SaveStoreMode } from "@downdraft/app/renderer";
-import { ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats, type ISaveStore } from "@downdraft/core";
+import { downdraft, startGame } from "@downdraft/app/renderer";
+import { ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { initDevTools, useDebugStore } from "@downdraft/plugin-devtools";
-import { CameraMode, EntityType, SimToMainMessage } from "@shared/types";
+import { CameraMode, EntityType } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
 import { WebGPURenderer } from "./engine/webgpu-renderer";
@@ -37,38 +37,19 @@ import "./styles/globals.css";
 
 (globalThis as any).__ddThreadTag = "R0";
 
-// --- Module-scope state shared across bootstrapGame() callbacks ---
-// The sim worker is created in `createRenderer` (so event routing can be set
-// up before `simWorker.start()` runs in `initRenderer`) and is then accessed
-// from `initRenderer` and `onRendererInit`.
-let simWorker: SimWebWorker;
-let simSAB: SharedArrayBuffer;
-let inputSAB: SharedArrayBuffer;
-let waterSAB: SharedArrayBuffer;
-let boatSAB: SharedArrayBuffer;
-let canvas: HTMLCanvasElement;
-let renderer: WebGPURenderer;
-
-// Save mode — determined later during save store init, but the sim event
-// handler (set up in createRenderer) needs to know it. Default to "ipc" until
-// the save store is initialized in onRendererInit.
-let bridgeSaveMode: "inline" | "worker" | "ipc" = "ipc";
-
-let isDev = !!(downdraft?.isDev) || import.meta.env.DEV === true;
-const deterministic = !!(downdraft as any)?.deterministic;
-
 // Intervals/handles tracked for hot-reload dispose.
 let hudInterval: ReturnType<typeof setInterval> | null = null;
 let statsInterval: ReturnType<typeof setInterval> | null = null;
 let rendererGcHandle: GCProfilerHandle | null = null;
 
-bootstrapGame({
-  // --- UI (React) ---
+startGame({
+  // ── Renderer + Sim ──
+  renderer: (canvas) => new WebGPURenderer(canvas),
+  sim: () => new SimWebWorker(),
+  simConfig: { seed: 12345, gamemode: 0, rules: {}, isDev: !!(downdraft?.isDev) || import.meta.env.DEV },
+
+  // ── UI (React) ──
   mountUI: (overlay) => {
-    // React UI runs on the main thread directly.
-    // (The undertow worker-DOM plugin was previously shelved — see
-    // packages/plugins/undertow/STATUS.md for the current status. It has
-    // been revived for the mining-rpg Solid-in-worker integration.)
     const root = createRoot(overlay);
     root.render(
       <React.StrictMode>
@@ -77,181 +58,126 @@ bootstrapGame({
     );
   },
 
-  // --- Renderer (+ sim worker spawn + event routing) ---
-  // The sim worker is created here so its event routing is wired before
-  // `simWorker.start()` runs in `initRenderer`. The SABs are captured at
-  // module scope so `onRendererInit` can hand them to `renderer.setBuffers()`.
-  createRenderer: (canvasEl) => {
-    canvas = canvasEl;
-    renderer = new WebGPURenderer(canvasEl);
-
-    // Register for sim-ready event from main process (carries isDev flag)
-    if (downdraft?.onSimReady) {
-      downdraft.onSimReady((data: any) => {
-        if (data?.isDev) {
-          isDev = true;
-          useGameStore.getState().setIsDev(true);
-        }
-      });
-    }
-
-    // --- Spawn simulation Web Worker in renderer process ---
-    // SharedArrayBuffers are shared directly between renderer and worker — zero-copy.
-    // No IPC buffer copy loop needed.
-    simWorker = new SimWebWorker();
-    simSAB = simWorker.getSimBuffer();
-    inputSAB = simWorker.getInputBuffer();
-    waterSAB = simWorker.getWaterBuffer();
-    boatSAB = simWorker.getBoatBuffer();
-
-    // Route sim events to the renderer
-    simWorker.onEvent((msg: SimToMainMessage) => {
-      switch (msg.kind) {
-        case "ready":
-          console.log("[Renderer] Sim Web Worker ready");
-          useGameStore.getState().setSimReady(true);
-          break;
-        case "error":
-          console.error(`[Renderer] Sim error: ${msg.data?.message ?? JSON.stringify(msg.data)}`);
-          break;
-        case "weather_changed":
-          useGameStore.getState().setWeather(msg.data);
-          break;
-        case "player_died":
-          useGameStore.getState().setPlayerDied(msg.data);
-          break;
-        case "fishing_result":
-          if (msg.data?.message) {
-            useGameStore.getState().addNotification(
-              msg.data.message,
-              msg.data.success ? "success" : "warning",
+  // ── Sim→Renderer event routing (declarative) ──
+  events: {
+    ready: (_data, ctx) => {
+      console.log("[Renderer] Sim Web Worker ready");
+      useGameStore.getState().setSimReady(true);
+      // Mark isDev if the sim reports it
+      if (ctx.isDev) useGameStore.getState().setIsDev(true);
+    },
+    error: (data) => {
+      console.error(`[Renderer] Sim error: ${data?.message ?? JSON.stringify(data)}`);
+    },
+    weather_changed: (data) => useGameStore.getState().setWeather(data),
+    player_died: (data) => useGameStore.getState().setPlayerDied(data),
+    fishing_result: (data) => {
+      if (data?.message) {
+        useGameStore.getState().addNotification(data.message, data.success ? "success" : "warning");
+      }
+    },
+    boat_design_update: (data, ctx) => ctx.renderer.setBoatDesign(data.entityId, data.designJson),
+    boat_design_remove: (data, ctx) => ctx.renderer.removeBoatDesign(data.entityId),
+    terrain_deformed: (data, ctx) => {
+      if (Array.isArray(data)) {
+        console.log(`[Renderer] Received ${data.length} terrain deformations`);
+        const er = ctx.renderer.getEntityRenderer();
+        if (er) {
+          for (let i = 0; i < data.length; i++) {
+            const d = data[i];
+            er.applyTerrainDeformation(
+              d.chunkX, d.chunkZ, d.isPort,
+              d.worldX, d.worldY, d.worldZ,
+              d.entityWorldX, d.entityWorldY, d.entityWorldZ,
+              d.radius, d.strength,
             );
           }
-          break;
-        case "boat_design_update":
-          renderer.setBoatDesign(msg.data.entityId, msg.data.designJson);
-          break;
-        case "boat_design_remove":
-          renderer.removeBoatDesign(msg.data.entityId);
-          break;
-        case "terrain_deformed":
-          if (Array.isArray(msg.data)) {
-            console.log(`[Renderer] Received ${msg.data.length} terrain deformations`);
-            const er = renderer.getEntityRenderer();
-            if (er) {
-              for (let i = 0; i < msg.data.length; i++) {
-                const d = msg.data[i];
-                er.applyTerrainDeformation(
-                  d.chunkX, d.chunkZ, d.isPort,
-                  d.worldX, d.worldY, d.worldZ,
-                  d.entityWorldX, d.entityWorldY, d.entityWorldZ,
-                  d.radius, d.strength,
-                );
-              }
-            }
-          }
-          break;
-        case "terrain_lod_changed":
-          if (Array.isArray(msg.data)) {
-            const er = renderer.getEntityRenderer();
-            if (er) {
-              for (let i = 0; i < msg.data.length; i++) {
-                const d = msg.data[i];
-                er.handleTerrainLODChange(d.chunkX, d.chunkZ, d.newVoxelSize);
-              }
-            }
-          }
-          break;
-        case "ship_hold_update":
-          useGameStore.getState().setShipHoldData(msg.data);
-          break;
-        case "gc_stats":
-          useDebugStore.getState().updateGCStats(msg.data);
-          break;
-        case "gc_controller_stats":
-          useDebugStore.getState().updateGCControllerStats(msg.data?.label ?? "sim-worker", msg.data);
-          break;
-        case "perf_stats":
-          (window as any).__perfMetrics = (window as any).__perfMetrics ?? {};
-          (window as any).__perfMetrics[msg.data.process] = msg.data;
-          if (msg.data.process === "sim" && Array.isArray(msg.data.systems)) {
-            const telemetry = renderer.getTelemetryCollector();
-            if (telemetry) {
-              for (let i = 0; i < msg.data.systems.length; i++) {
-                const t = msg.data.systems[i];
-                telemetry.recordSystemTiming(t.name, t.ms);
-              }
-            }
-          }
-          break;
-        case "collision_log":
-          useDebugStore.getState().setCollisionLog(msg.data);
-          break;
-        case "saved":
-          // In inline/worker mode, the save is already written to OPFS by the
-          // worker. Only forward to IPC in the fallback "ipc" mode.
-          if (bridgeSaveMode === "ipc" && downdraft && msg.data?.stateJson) {
-            downdraft.saveGameState(msg.data.slotName, msg.data.stateJson);
-          }
-          break;
-        case "performance":
-          // Command results etc. — could be forwarded to debug store if needed
-          break;
-        case "sim_speed_changed":
-          useGameStore.getState().setCurrentSimSpeed(msg.data?.speed ?? 1.0);
-          console.log(`[Renderer] Sim speed changed to ${msg.data?.speed}x`);
-          break;
+        }
       }
-    });
-
-    return renderer;
+    },
+    terrain_lod_changed: (data, ctx) => {
+      if (Array.isArray(data)) {
+        const er = ctx.renderer.getEntityRenderer();
+        if (er) {
+          for (let i = 0; i < data.length; i++) {
+            const d = data[i];
+            er.handleTerrainLODChange(d.chunkX, d.chunkZ, d.newVoxelSize);
+          }
+        }
+      }
+    },
+    ship_hold_update: (data) => useGameStore.getState().setShipHoldData(data),
+    gc_stats: (data) => useDebugStore.getState().updateGCStats(data),
+    gc_controller_stats: (data) => useDebugStore.getState().updateGCControllerStats(data?.label ?? "sim-worker", data),
+    perf_stats: (data, ctx) => {
+      (window as any).__perfMetrics = (window as any).__perfMetrics ?? {};
+      (window as any).__perfMetrics[data.process] = data;
+      if (data.process === "sim" && Array.isArray(data.systems)) {
+        const telemetry = ctx.renderer.getTelemetryCollector();
+        if (telemetry) {
+          for (let i = 0; i < data.systems.length; i++) {
+            const t = data.systems[i];
+            telemetry.recordSystemTiming(t.name, t.ms);
+          }
+        }
+      }
+    },
+    collision_log: (data) => useDebugStore.getState().setCollisionLog(data),
+    saved: (data, ctx) => {
+      // In inline/worker mode, the save is already written to OPFS by the
+      // worker. Only forward to IPC in the fallback "ipc" mode.
+      if (ctx.saveMode === "ipc" && ctx.bridge && data?.stateJson) {
+        ctx.bridge.saveGameState(data.slotName, data.stateJson);
+      }
+    },
+    performance: () => { /* Command results — no-op */ },
+    sim_speed_changed: (data) => {
+      useGameStore.getState().setCurrentSimSpeed(data?.speed ?? 1.0);
+      console.log(`[Renderer] Sim speed changed to ${data?.speed}x`);
+    },
   },
 
-  // --- Renderer init (parallel with sim worker start) ---
-  // Start renderer init and sim worker in parallel — avoids 2.2s LUT generation
-  // blocking sim worker setup (island spawning, physics field generation, etc.)
-  // When DOWNDRAFT_DETERMINISTIC=1 is set (e.g. by the e2e test harness), use a
-  // fixed seed and skip autosave so test runs are reproducible.
-  initRenderer: async (r) => {
-    const seed = deterministic ? 99999 : 12345;
+  // ── Save ──
+  save: {
+    mode: "auto",
+    engineVersion: "0.1.0",
+    maxGenerations: 3,
+  },
+
+  // ── Renderer init (parallel with sim worker start) ──
+  onInit: async (ctx) => {
+    const seed = ctx.deterministic ? 99999 : 12345;
+    const config: SimWebWorkerConfig = { seed, gamemode: 0, rules: {}, isDev: ctx.isDev };
 
     const [rendererSuccess] = await Promise.all([
-      r.init(),
-      simWorker.start({
-        seed,
-        gamemode: 0,
-        rules: {},
-        isDev,
-      }),
+      ctx.renderer.init(),
+      ctx.sim.start(config),
     ]);
     if (!rendererSuccess) {
       console.error("WebGPU initialization failed");
       return false;
     }
-    if (isDev) useGameStore.getState().setIsDev(true);
+    if (ctx.isDev) useGameStore.getState().setIsDev(true);
 
     // Wait for the PBR BRDF LUT to finish generating before starting the render
     // loop and spawning the player. The LUT computation is chunked across frames
     // to avoid blocking the main thread — this shows the loading screen during
     // that time for a smooth startup experience.
-    await r.getLUTReady();
+    await ctx.renderer.getLUTReady();
     useGameStore.getState().setLutReady(true);
 
     // Add default player
-    simWorker.addPlayer(0, "Player 1");
-
+    await ctx.sim.addPlayer?.(0, "Player 1");
     return true;
   },
 
-  // --- Post-init wiring (bespoke game setup) ---
-  // Runs after renderer init + LUT ready + player spawn, but before
-  // renderer.start() (so setBuffers/display-info are wired first).
-  onRendererInit: async (r) => {
+  // ── Post-init wiring (bespoke game setup) ──
+  onReady: async (ctx) => {
+    const { renderer, sim, simSAB, inputSAB, extraBuffers } = ctx;
+
     // Mark renderer as ready early — the UI (key handlers, HUD, etc.) can
-    // activate before the save store finishes initializing. The save store
-    // init can hang in some environments (e.g. SwiftShader test env), which
-    // would prevent the UI from ever becoming interactive.
-    useGameStore.getState().setRenderer(r);
+    // activate before the save store finishes initializing.
+    useGameStore.getState().setRenderer(renderer);
     useGameStore.getState().setReady(true);
 
     // Register MCP automation harness early — before the save store init,
@@ -261,55 +187,14 @@ bootstrapGame({
     // Tools that need the sim reader (get_world_state, get_player_state)
     // gracefully return "not available" until setBuffers() wires the SAB.
     const { setupTtolMcp } = await import("./mcp/setup");
-    setupTtolMcp(r, simWorker);
-
-    // --- Save store initialization (before autosave loading) ---
-    // Detect save mode from config and create the appropriate ISaveStore.
-    // "inline": OpfsSaveStore runs inside the sim worker (zero-copy saves).
-    // "worker": Dedicated save Web Worker with OpfsSaveStore.
-    // "auto":   Pick "worker" if OPFS available, else IPC fallback.
-    const saveMode = "auto" as SaveStoreMode;
-    let saveStore: ISaveStore | null = null;
-
-    try {
-      if (saveMode === "inline") {
-        // Initialize OpfsSaveStore inside the sim worker
-        await simWorker.initSaveStore({
-          engineVersion: "0.1.0",
-          maxGenerations: 3,
-        });
-        bridgeSaveMode = "inline";
-      } else {
-        // "worker" or "auto" — createSaveStore handles OPFS detection
-        saveStore = await createSaveStore({
-          mode: saveMode,
-          opfsOptions: {
-            engineVersion: "0.1.0",
-            maxGenerations: 3,
-          },
-          bridge: downdraft,
-        });
-        bridgeSaveMode = saveStore ? "worker" : "ipc";
-      }
-    } catch (e) {
-      console.warn("[Renderer] Save store initialization failed, falling back to IPC:", e);
-      bridgeSaveMode = "ipc";
-    }
+    setupTtolMcp(renderer, sim as SimWebWorker);
 
     // Auto-load saved state if available (skip in deterministic/test mode).
-    // Tries the save store (OPFS) first, falls back to IPC for legacy saves.
-    if (!deterministic) {
+    if (!ctx.deterministic) {
       try {
         let savedState: string | null = null;
-        if (bridgeSaveMode === "inline") {
-          // Inline mode: worker loads from its own OPFS store
-          const loaded = await simWorker.load("autosave");
-          if (loaded) {
-            console.log("[Renderer] Auto-loaded saved game state (inline OPFS)");
-          }
-        } else if (saveStore) {
-          // Worker mode: load from the dedicated save store
-          const loadResult = await saveStore.load("autosave");
+        if (ctx.saveStore) {
+          const loadResult = await ctx.saveStore.load("autosave");
           if (loadResult.state) {
             savedState = JSON.stringify(loadResult.state.components);
           }
@@ -319,14 +204,14 @@ bootstrapGame({
           savedState = await downdraft.loadGameState("autosave");
         }
         if (savedState) {
-          if (bridgeSaveMode !== "inline") {
-            await simWorker.load("autosave", savedState);
+          if (ctx.saveMode !== "inline") {
+            await sim.load?.("autosave", savedState);
           }
           // Restore renderer meta if present
           try {
             const components = JSON.parse(savedState);
-            if (components.renderer?.data && r.restoreRendererMeta) {
-              r.restoreRendererMeta(components.renderer.data);
+            if (components.renderer?.data && renderer.restoreRendererMeta) {
+              renderer.restoreRendererMeta(components.renderer.data);
             }
           } catch { /* ignore */ }
           console.log("[Renderer] Auto-loaded saved game state");
@@ -343,12 +228,11 @@ bootstrapGame({
         if (downdraft?.loadGameState) {
           const hotReloadState = await downdraft.loadGameState("hot-reload");
           if (hotReloadState) {
-            await simWorker.restoreFromState(hotReloadState);
-            // Restore renderer meta if present
+            await sim.restoreFromState?.(hotReloadState);
             try {
               const components = JSON.parse(hotReloadState);
-              if (components.renderer?.data && r.restoreRendererMeta) {
-                r.restoreRendererMeta(components.renderer.data);
+              if (components.renderer?.data && renderer.restoreRendererMeta) {
+                renderer.restoreRendererMeta(components.renderer.data);
               }
             } catch { /* ignore */ }
             console.log("[HMR] Restored state after page reload");
@@ -361,8 +245,8 @@ bootstrapGame({
     }
 
     // Set buffers on renderer — same SABs the sim worker writes to (zero-copy)
-    r.setBuffers(simSAB, waterSAB, inputSAB, boatSAB);
-    r.setupInputListeners();
+    renderer.setBuffers(simSAB, extraBuffers.water, inputSAB, extraBuffers.boat);
+    renderer.setupInputListeners();
 
     // --- Debug: Electron OSR billboard at helm position ---
     // Creates a dedicated OSR renderer loading google.com and places a
@@ -370,13 +254,12 @@ bootstrapGame({
     {
       if (downdraft?.osr) {
         try {
-          const osrManager = r.initOSR(downdraft.osr);
+          const osrManager = renderer.initOSR(downdraft.osr);
           if (osrManager) {
             const RENDERER_ID = "debug-helm-google";
             const TEX_W = 1920;
             const TEX_H = 1080;
 
-            // Create a dedicated OSR renderer (single high-res texture)
             osrManager.createRenderer({
               id: RENDERER_ID,
               mode: "dedicated",
@@ -385,10 +268,8 @@ bootstrapGame({
               frameRate: 30,
             });
 
-            // Load YouTube to test audio playback through OSR
             downdraft.osr.loadURL(RENDERER_ID, "https://www.youtube.com");
 
-            // Add a world-space UI element — will be positioned each frame
             osrManager.addElement({
               id: "helm-google-billboard",
               position: [0, 0, 0],
@@ -399,8 +280,7 @@ bootstrapGame({
               uvScale: [1, 1],
             });
 
-            // Update billboard position to follow the ship's helm each frame
-            const sim = r.getSimReader();
+            const sim = renderer.getSimReader();
             if (sim) {
               let helmLogDone = false;
               const updateHelmBillboard = () => {
@@ -415,12 +295,11 @@ bootstrapGame({
                   shipX = es.f32[ENT.POS_X];
                   shipY = es.f32[ENT.POS_Y];
                   shipZ = es.f32[ENT.POS_Z];
-                  shipHeading = es.f32[ENT.DATA + 3]; // SHIP_DATA.HEADING = data slot 3
+                  shipHeading = es.f32[ENT.DATA + 3];
                   found = true;
                   break;
                 }
                 if (found) {
-                  // Helm local offset: (0, 1.5, 1) — rotated by heading
                   const helmX = shipX + Math.sin(shipHeading) * 1;
                   const helmZ = shipZ + Math.cos(shipHeading) * 1;
                   if (!helmLogDone) {
@@ -444,8 +323,6 @@ bootstrapGame({
 
             console.log("[OSR Debug] Helm billboard initialized (google.com)");
 
-            // F8: manually focus OSR billboard (bypasses raycast for mouse+keyboard)
-            // F9: unfocus, return to raycast-based input
             window.addEventListener("keydown", (e) => {
               if (e.repeat) return;
               if (e.keyCode === 119) { // F8
@@ -457,12 +334,12 @@ bootstrapGame({
                 const rect = cv?.getBoundingClientRect();
                 const id = osrManager.focusBillboard(rect?.width, rect?.height);
                 if (id) {
-                  r.setOSRForcedFocus(true);
+                  renderer.setOSRForcedFocus(true);
                   window.dispatchEvent(new CustomEvent("osr-forced-focus-change", { detail: true }));
                 }
               } else if (e.keyCode === 120) { // F9
                 osrManager.unfocusBillboard();
-                r.setOSRForcedFocus(false);
+                renderer.setOSRForcedFocus(false);
                 window.dispatchEvent(new CustomEvent("osr-forced-focus-change", { detail: false }));
               }
             });
@@ -474,67 +351,44 @@ bootstrapGame({
     }
 
     // Create the sim bridge with typed dependencies and store it for UI access.
-    // Replaces the old window.__simWorker / window.__renderer service-locator pattern.
-    // (saveStore and bridgeSaveMode were initialized earlier, before autosave loading)
-    const bridge = createSimBridge({ worker: simWorker, renderer: r, downdraft, saveStore, saveMode: bridgeSaveMode });
+    const bridge = createSimBridge({ worker: sim as SimWebWorker, renderer, downdraft, saveStore: ctx.saveStore, saveMode: ctx.saveMode });
     useGameStore.getState().setSimBridge(bridge);
 
     // Initialize Scene Inspector for DevTools integration via initDevTools().
-    // to-the-ocean uses the full 3D scene inspector (BaseSceneInspector subclass)
-    // with custom panels, overlay toggles, and game-specific API methods.
-    // Worker manifests are synced so sim plugins (wildlife, buoyancy, collision)
-    // can self-register debug panels via ctx.devtools.registerPanel().
-    const devtoolsProxy = simWorker.getDevToolsProxy();
-    const sceneInspector = await initDevTools(r, {
+    const devtoolsProxy = (sim as SimWebWorker).getDevToolsProxy();
+    const sceneInspector = await initDevTools(renderer, {
       bridgeClass: SceneInspector,
       workerHosts: devtoolsProxy ? [{ prefix: "sim", proxy: devtoolsProxy }] : [],
     }) as SceneInspector;
     sceneInspector.setSimBridge(bridge);
 
     // Gizmo mouse interaction handlers on canvas
+    const canvas = ctx.canvas;
     canvas.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
       if (document.pointerLockElement) return;
-      const handled = r.handleGizmoMouseDown(
-        e.clientX, e.clientY,
-        canvas.width, canvas.height,
-      );
-      if (handled) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+      const handled = renderer.handleGizmoMouseDown(e.clientX, e.clientY, canvas.width, canvas.height);
+      if (handled) { e.preventDefault(); e.stopPropagation(); }
     });
-
     canvas.addEventListener("mousemove", (e) => {
-      if (r.isGizmoDragging()) {
-        r.handleGizmoMouseMove(
-          e.clientX, e.clientY,
-          canvas.width, canvas.height,
-        );
+      if (renderer.isGizmoDragging()) {
+        renderer.handleGizmoMouseMove(e.clientX, e.clientY, canvas.width, canvas.height);
         e.preventDefault();
       }
     });
-
-    const gizmoMouseUpHandler = () => {
-      r.handleGizmoMouseUp();
-    };
+    const gizmoMouseUpHandler = () => renderer.handleGizmoMouseUp();
     canvas.addEventListener("mouseup", gizmoMouseUpHandler);
     window.addEventListener("mouseup", gizmoMouseUpHandler);
 
-    // Input is now zero-copy — the sim worker reads the input SAB directly.
-    // No IPC round-trip needed. The renderer writes to the shared inputSAB
-    // and the sim worker's InputBufferReader reads from the same SharedArrayBuffer.
-    r.onInputProcessed = () => {
-      // No-op: input is written directly to the shared SAB by the renderer's
-      // InputBufferWriter. The sim worker reads from the same SharedArrayBuffer.
-    };
+    // Input is zero-copy — the sim worker reads the input SAB directly.
+    renderer.onInputProcessed = () => { /* no-op */ };
 
     // Listen for display scale factor (DPR) changes
     try {
       if (downdraft?.onDisplayMetricsChanged) {
         downdraft.onDisplayMetricsChanged((data: { scaleFactor: number }) => {
           console.log(`[Renderer] Display scale factor changed: ${data.scaleFactor}`);
-          r.handleDprChange(data.scaleFactor);
+          renderer.handleDprChange(data.scaleFactor);
         });
       }
     } catch (e) {
@@ -554,11 +408,8 @@ bootstrapGame({
     }
 
     // --- HUD state polling (main thread) ---
-    // The HUD component reads health/hunger/thirst/timeOfDay/weather/camera mode
-    // etc. from the sim buffer. We poll the sim buffer here on the main thread
-    // and write the values into the game store so the HUD can render.
     hudInterval = setInterval(() => {
-      const simReader = r.getSimReader() as SimBufferReader | null;
+      const simReader = renderer.getSimReader() as SimBufferReader | null;
       if (!simReader || !simReader.isValid()) return;
       const playerSlot = simReader.getPlayerSlot(0);
       if (!playerSlot) return;
@@ -585,7 +436,6 @@ bootstrapGame({
         playerZ: playerSlot.f32[PLR.POS_Z],
         heading: playerSlot.f32[PLR.HEADING],
       });
-      // Auto-unhide HUD when leaving freecam
       const camMode = playerSlot.u32[PLR.CAMERA_MODE];
       if (camMode !== CameraMode.FreeCam && useGameStore.getState().hudHidden) {
         useGameStore.getState().setHudHidden(false);
@@ -602,34 +452,34 @@ bootstrapGame({
               useDebugStore.getState().updateGCStats(stats);
             });
           }
-          r.setDebugMode(true);
+          renderer.setDebugMode(true);
           useGameStore.getState().simBridge?.setDebugMode(true);
           statsInterval = setInterval(() => {
-            const sim = r.getSimReader();
+            const sim = renderer.getSimReader();
             if (sim && sim.isValid()) {
               const playerSlot = sim.getPlayerSlot(0);
               if (playerSlot) {
                 const f32 = playerSlot.f32;
                 const u32 = playerSlot.u32;
                 useDebugStore.getState().setRendererStats({
-                  fps: r.getFPS(),
+                  fps: renderer.getFPS(),
                   entityCount: sim.getEntityCount(),
                   playerCount: sim.getPlayerCount(),
                   tick: sim.getTick(),
-                  canvasW: r.getCanvasWidth(),
-                  canvasH: r.getCanvasHeight(),
-                  viewportW: r.getViewportWidth(0),
-                  viewportH: r.getViewportHeight(0),
+                  canvasW: renderer.getCanvasWidth(),
+                  canvasH: renderer.getCanvasHeight(),
+                  viewportW: renderer.getViewportWidth(0),
+                  viewportH: renderer.getViewportHeight(0),
                   extra: {
-                    waterValid: r.getWaterReader()?.isValid() ?? false,
-                    waterGrid: r.getWaterReader()?.getGridSize() ?? 0,
+                    waterValid: renderer.getWaterReader()?.isValid() ?? false,
+                    waterGrid: renderer.getWaterReader()?.getGridSize() ?? 0,
                     cameraPos: [0, 0, 0],
                     cameraTarget: [0, 0, 0],
                     playerPos: [f32[PLR.POS_X], f32[PLR.POS_Y], f32[PLR.POS_Z]],
                     heading: f32[PLR.HEADING],
                     pitch: f32[PLR.PITCH] ?? 0,
                     cameraMode: u32[PLR.CAMERA_MODE],
-                    keys: Array.from((r as any).keysDown as Set<number>).map((k) => String.fromCharCode(k)).join(","),
+                    keys: Array.from((renderer as any).keysDown as Set<number>).map((k) => String.fromCharCode(k)).join(","),
                   },
                 });
               }
@@ -638,49 +488,32 @@ bootstrapGame({
         } else {
           rendererGcHandle?.stop();
           rendererGcHandle = null;
-          r.setDebugMode(false);
+          renderer.setDebugMode(false);
           useGameStore.getState().simBridge?.setDebugMode(false);
           if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
         }
       },
     );
 
-    // Hitbox visualization toggle
-    useDebugStore.subscribe(
-      (s) => s.showHitboxes,
-      (show) => { r.setShowHitboxes(show); },
-    );
-
-    // Light gizmo visualization toggle
-    useDebugStore.subscribe(
-      (s) => s.showLightGizmos,
-      (show) => { r.setShowLightGizmos(show); },
-    );
-
-    // Debug raycast visualization toggle
-    useDebugStore.subscribe(
-      (s) => s.showRaycast,
-      (show) => { r.setShowRaycast(show); },
-    );
+    // Debug visualization toggles
+    useDebugStore.subscribe((s) => s.showHitboxes, (show) => renderer.setShowHitboxes(show));
+    useDebugStore.subscribe((s) => s.showLightGizmos, (show) => renderer.setShowLightGizmos(show));
+    useDebugStore.subscribe((s) => s.showRaycast, (show) => renderer.setShowRaycast(show));
+    useDebugStore.subscribe((s) => s.hitboxLineWidth, (width) => renderer.setHitboxLineWidth(width));
 
     // --- Hot-Reload event handlers (dev only) ---
     if (import.meta.env.DEV && import.meta.hot) {
-      const simConfig: SimWebWorkerConfig = { seed: 12345, gamemode: 0, rules: {}, isDev };
+      const simConfig: SimWebWorkerConfig = { seed: 12345, gamemode: 0, rules: {}, isDev: ctx.isDev };
 
       import.meta.hot.on("sim:hot-reload", async (data: { file: string; timestamp: number }) => {
         const store = useHotReloadStore.getState();
         if (!store.enabled) return;
-
-        // Ack so the plugin doesn't trigger a fallback full-reload
         import.meta.hot!.send("sim:hot-reload:ack", {});
-
         console.log(`%c[HMR] Sim file changed: ${data.file}`, "color: cyan");
         store.setStatus("reloading");
         const t0 = performance.now();
-
-        // Full worker swap (preserves state via HotReloadPipeline)
         try {
-          await simWorker.hotReload(simConfig, store.preserveState);
+          await sim.hotReload?.(simConfig, store.preserveState);
           const elapsed = (performance.now() - t0).toFixed(0);
           console.log(`%c[HMR] Sim worker swap complete (${elapsed}ms)`, "color: cyan; font-weight: bold");
           store.setStatus("ready");
@@ -696,21 +529,16 @@ bootstrapGame({
       import.meta.hot.on("renderer:hot-reload", async (data: { file: string; timestamp: number }) => {
         const store = useHotReloadStore.getState();
         if (!store.enabled) return;
-
-        // Ack so the plugin doesn't trigger a fallback full-reload
         import.meta.hot!.send("renderer:hot-reload:ack", {});
-
         console.log(`%c[HMR] Renderer file changed: ${data.file}`, "color: yellow");
         store.setStatus("reloading");
-
         if (store.preserveState) {
           try {
-            const result = await simWorker.save("hot-reload");
+            const result = await sim.save?.("hot-reload");
             if (result?.stateJson && downdraft?.saveGameState) {
-              // Merge renderer meta into save state
               let components = JSON.parse(result.stateJson);
-              if (r.serializeRendererMeta) {
-                components.renderer = { v: 1, data: r.serializeRendererMeta() };
+              if (renderer.serializeRendererMeta) {
+                components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
               }
               downdraft.saveGameState("hot-reload", JSON.stringify(components));
               sessionStorage.setItem("hot-reload-pending", "1");
@@ -720,40 +548,28 @@ bootstrapGame({
             console.warn(`[HMR] State save failed, reloading without preservation: ${err}`);
           }
         }
-
         window.location.reload();
       });
-
-      // Shader (`*.wgsl`) and asset hot-reload are handled by the wgslHmrPlugin
-      // via the wgslHotReload registry — no custom WebSocket events needed here.
     }
-
-    // Hitbox line width
-    useDebugStore.subscribe(
-      (s) => s.hitboxLineWidth,
-      (width) => { r.setHitboxLineWidth(width); },
-    );
   },
 
-  // --- FPS polling (write to store for HUD/debug panels) ---
-  onFpsUpdate: (fps) => {
-    useGameStore.getState().setFPS(fps);
-  },
+  // ── FPS polling (write to store for HUD/debug panels) ──
+  onFpsUpdate: (fps) => useGameStore.getState().setFPS(fps),
 
-  // --- Display info (refresh rate → frame rate limit) ---
-  onDisplayInfo: (refreshRate) => {
+  // ── Display info (refresh rate → frame rate limit) ──
+  onDisplayInfo: (refreshRate, ctx) => {
     console.log(`[Renderer] Display refresh rate: ${refreshRate}Hz`);
-    renderer.setFrameRateLimit(refreshRate);
+    ctx.renderer.setFrameRateLimit(refreshRate);
   },
 
-  // --- Deterministic mode: pause render loop (on-demand rendering only) ---
-  onDeterministic: (r) => {
-    r.stop();
+  // ── Deterministic mode: pause render loop (on-demand rendering only) ──
+  onDeterministic: (ctx) => {
+    ctx.renderer.stop();
     console.log("[Renderer] Deterministic mode: render loop paused (on-demand rendering only)");
   },
 
-  // --- Hot-reload dispose: clean up tracked intervals/handles ---
-  onHotReloadDispose: () => {
+  // ── Hot-reload dispose: clean up tracked intervals/handles ──
+  onDispose: () => {
     if (hudInterval) { clearInterval(hudInterval); hudInterval = null; }
     if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
     rendererGcHandle?.stop();

@@ -369,6 +369,11 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       } as any,
       plugins: [
         ...(htmlOpts ? [downdraftHtmlPlugin(htmlOpts)] : []),
+        // Silence "Sourcemap for ... points to missing source files" warnings
+        // from @bokuweb/zstd-wasm (excluded from dep pre-bundling above, so
+        // served raw from node_modules — its .js.map files reference sources
+        // the package author didn't publish). See silence-sourcemap-warnings-plugin.ts.
+        silenceSourcemapWarningsPlugin(),
         // Exclude src/solid/** from the React plugin so it doesn't inject
         // React Refresh code (which references `window`) into the Solid worker
         // chunk. The Solid plugin (added via rendererPlugins) handles those files.
