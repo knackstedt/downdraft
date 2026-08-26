@@ -1,0 +1,73 @@
+import { startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
+import { WaterLib } from "@downdraft/library-water";
+import { createTerrainPlugin } from "@downdraft/plugin-terrain";
+
+// ============================================================================
+// GameModule template — declarative game with libraries + plugins
+//
+// This template shows the full declarative pattern:
+// - Engine libraries (WaterLib) for SAB allocation + DI tokens
+// - Feature plugins (terrain) for composable game systems
+// - Declarative event routing (events map)
+// - Save config
+// - Game-specific hooks (onReady, onDispose)
+// ============================================================================
+
+startGame({
+  // ── Engine libraries (declarative SAB allocation + DI tokens) ──
+  libraries: [WaterLib],
+
+  // ── Renderer + Sim ──
+  renderer: (canvas) => new WebGPURenderer(canvas),
+  sim: (seed?: SimWorkerSeed) => new SimWebWorker(seed?.libraryBuffers),
+  simConfig: { seed: 12345, gamemode: 0, rules: {} },
+
+  // ── UI ──
+  mountUI: (overlay) => {
+    // Mount your UI framework here
+    // React: createRoot(overlay).render(<App />)
+    // Solid: render(() => <App />, overlay)
+    overlay.innerHTML = '<div id="root"></div>';
+  },
+
+  // ── Sim→Renderer event routing (declarative) ──
+  events: {
+    ready: (_data, ctx) => {
+      console.log("[game] Sim ready");
+    },
+    error: (data) => {
+      console.error("[game] Sim error:", data);
+    },
+  },
+
+  // ── Save ──
+  save: {
+    mode: "auto",
+    engineVersion: "0.1.0",
+    maxGenerations: 3,
+  },
+
+  // ── Post-init wiring ──
+  onReady: (ctx) => {
+    // Set buffers on renderer
+    ctx.renderer.setBuffers(
+      ctx.simSAB,
+      ctx.extraBuffers.water,
+      ctx.inputSAB,
+    );
+    ctx.renderer.setupInputListeners();
+
+    // Register feature plugins
+    // const terrainPlugin = createTerrainPlugin({ meshWorkerCount: 4 });
+    // gameWorld.pluginHost.registerPlugin(terrainPlugin);
+
+    console.log("[game] ready");
+  },
+
+  // ── Cleanup ──
+  onDispose: () => {
+    console.log("[game] disposed");
+  },
+}).catch((e) => {
+  console.error("[game] Fatal:", e);
+});

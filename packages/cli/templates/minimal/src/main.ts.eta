@@ -1,26 +1,49 @@
-import { Camera, createLogger, MeshBuilder, World } from "@downdraft/core";
+import { startGame } from "@downdraft/app/renderer";
 
-const log = createLogger();
+// ============================================================================
+// Minimal game template — declarative GameModule + startGame()
+//
+// This template shows the minimal structure for a Downdraft game. For a more
+// complete example with WebGPU rendering, sim worker, and libraries, see the
+// "full" template (`draft init --template full`).
+// ============================================================================
 
-export function init(ctx: any) {
-  const world = new World();
-  const camera = new Camera();
-  camera.setAspect(16, 9);
-  camera.distance = 5;
-  camera.orbit(0, 0.3);
+startGame({
+  // Renderer factory — creates the renderer from a canvas element
+  renderer: (canvas) => ({
+    async init() { return true; },
+    setBuffers() {},
+    setupInputListeners() {},
+    render() {},
+    stop() {},
+    getFPS() { return 0; },
+  }),
 
-  world.setResource("camera", camera);
+  // Sim worker factory — creates the sim worker
+  sim: () => ({
+    async start(_config: unknown) {},
+    onEvent(_cb: (msg: any) => void) {},
+    getSimBuffer() { return new SharedArrayBuffer(1024); },
+    getInputBuffer() { return new SharedArrayBuffer(1024); },
+  }),
 
-  const mesh = MeshBuilder.cube(1);
-  world.setResource("cubeMesh", mesh);
+  // Sim config (passed to sim.start())
+  simConfig: { seed: 12345 },
 
-  log.info("initialized");
-}
+  // UI mount — mount your UI framework here (React, Solid, vanilla, etc.)
+  mountUI: (overlay) => {
+    overlay.innerHTML = '<h1 style="color:white;font-family:monospace">Hello Downdraft!</h1>';
+  },
 
-export function tick(ctx: any, dt: number) {
-  // Game logic here
-}
+  // Post-init wiring — called after renderer init + sim start
+  onReady: (ctx) => {
+    console.log("[game] ready", { sim: ctx.sim, renderer: ctx.renderer });
+  },
 
-export function dispose(ctx: any) {
-  log.info("disposed");
-}
+  // Cleanup — called on hot-reload dispose
+  onDispose: () => {
+    console.log("[game] disposed");
+  },
+}).catch((e) => {
+  console.error("[game] Fatal:", e);
+});
