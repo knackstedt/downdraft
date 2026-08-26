@@ -46,13 +46,16 @@ export function attemptMatch(
   if (tileA.element !== tileB.element) {
     return { ok: false, path: null, score: 0, combo: state.combo, crumble: [], reason: "different-element" };
   }
-  // Both tiles must be selectable (top of their stack).
-  if (!board.isSelectable(aCol, aRow, aLayer) || !board.isSelectable(bCol, bRow, bLayer)) {
-    return { ok: false, path: null, score: 0, combo: state.combo, crumble: [], reason: "not-selectable" };
-  }
-  // Tiles must be on the same layer for pathfinding.
+  // Tiles must be on the same layer for pathfinding. Checked before
+  // selectability so a cross-layer attempt reports the more specific cause
+  // (under the per-layer top-down lock a lower-layer tile would otherwise be
+  // rejected as "not-selectable" first).
   if (aLayer !== bLayer) {
     return { ok: false, path: null, score: 0, combo: state.combo, crumble: [], reason: "different-layer" };
+  }
+  // Both tiles must be selectable (on the highest occupied layer).
+  if (!board.isSelectable(aCol, aRow, aLayer) || !board.isSelectable(bCol, bRow, bLayer)) {
+    return { ok: false, path: null, score: 0, combo: state.combo, crumble: [], reason: "not-selectable" };
   }
 
   const path = findPath(board, aCol, aRow, bCol, bRow, aLayer);

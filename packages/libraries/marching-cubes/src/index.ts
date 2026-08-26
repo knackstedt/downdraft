@@ -18,6 +18,10 @@ export type { ChunkedVoxelField } from "./chunked-field";
 export { DEFAULT_STREAMING_CONFIG, getLODVoxelSize } from "./streaming-config";
 export type { LODLevelConfig, TerrainStreamingConfig } from "./streaming-config";
 
+// Declarative library descriptor
+export { MarchingCubesLib, TerrainStreamingConfigTok } from "./library";
+export type { MarchingCubesLibConfig } from "./library";
+
 // Terrain streaming manager
 export { TerrainStreamingManager } from "./streaming-manager";
 export type {

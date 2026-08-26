@@ -8,6 +8,7 @@
 // Sub-barrel re-exports — these aggregate all items from their respective domains.
 export * from "./assets";
 export * from "./ecs";
+export * from "./library";
 export * from "./material";
 export * from "./physics";
 export * from "./plugin";

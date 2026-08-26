@@ -3,8 +3,11 @@
 // ============================================================================
 //
 // Tiles are stored in a 3D structure: tiles[(col + row*cols) * MAX_LAYERS + layer].
-// A tile at (col, row, layer) is "selectable" if no tile exists at
-// (col, row, layer+1) — i.e. nothing is stacked on top of it.
+//
+// Selectability uses a per-layer top-down lock: a tile is selectable only if it
+// sits on the highest occupied layer (maxOccupiedLayer). Lower layers stay
+// locked until every layer above them is fully cleared — you clear the board
+// top-down, one layer at a time.
 //
 // Pathfinding (Shisen-Sho connect) operates within a single layer: the path
 // can only traverse cells that are empty on that specific layer.
@@ -45,10 +48,24 @@ export class TileBoard {
     return null;
   }
 
-  /** Is the tile at (col, row, layer) selectable? (no tile above it) */
+  /** Highest layer index that contains any tile, or -1 if the board is empty. */
+  maxOccupiedLayer(): number {
+    for (let layer = this.maxLayers - 1; layer >= 0; layer--) {
+      for (let r = 0; r < this.rows; r++) {
+        for (let c = 0; c < this.cols; c++) {
+          if (this.tiles[(c + r * this.cols) * MAX_LAYERS + layer] !== null) return layer;
+        }
+      }
+    }
+    return -1;
+  }
+
+  /** Is the tile at (col, row, layer) selectable? Per-layer top-down lock: only
+   *  tiles on the highest occupied layer are selectable — a layer stays locked
+   *  until the layer above is fully cleared. */
   isSelectable(col: number, row: number, layer: number): boolean {
-    if (layer + 1 >= this.maxLayers) return true;
-    return this.at(col, row, layer + 1) === null;
+    if (this.at(col, row, layer) === null) return false;
+    return layer === this.maxOccupiedLayer();
   }
 
   /** Place a tile at (col, row, layer). Returns the placed tile. */
@@ -108,12 +125,15 @@ export class TileBoard {
     return out;
   }
 
-  /** Get all selectable tiles (top of their stack). */
+  /** Get all selectable tiles — all tiles on the highest occupied layer
+   *  (the only layer that is unlocked under the per-layer top-down rule). */
   selectableTiles(): Tile[] {
+    const top = this.maxOccupiedLayer();
+    if (top < 0) return [];
     const out: Tile[] = [];
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < this.cols; c++) {
-        const t = this.topTile(c, r);
+        const t = this.at(c, r, top);
         if (t !== null) out.push(t);
       }
     }
