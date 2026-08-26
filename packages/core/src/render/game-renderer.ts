@@ -47,6 +47,17 @@ export interface GameRendererConfig {
   /** Max number of cached depth textures (per resolution). Older entries are evicted. Default: 3. */
   depthTextureCacheSize?: number;
   /**
+   * Whether clicking the canvas auto-requests pointer lock (hides + confines
+   * the cursor). Default: false.
+   *
+   * Pointer lock is an opt-in FPS-style concern. 2D click-based games must
+   * leave this off so the cursor stays visible and free-moving for
+   * click-to-dig / click-to-place interactions. 3D games that want pointer
+   * lock can either enable this or manage pointer lock themselves (e.g.
+   * to-the-ocean uses its own RendererInputHandler and leaves this off).
+   */
+  enablePointerLock?: boolean;
+  /**
    * Renderer mode:
    * - "3d" (default): Camera-based rendering with viewports. Each viewport
    *   requires camera info from onViewport callback or renderer plugins.
@@ -209,7 +220,7 @@ export class GameRenderer implements CanvasResizeHandler {
     this.depthTextureCacheSize = config.depthTextureCacheSize ?? 3;
     this.mode = config.mode ?? "3d";
     this.deviceManager = new GPUDeviceManager();
-    this.inputManager = new InputManager(canvas);
+    this.inputManager = new InputManager(canvas, config.enablePointerLock ?? false);
     this.frameGraph = new FrameGraph();
   }
 

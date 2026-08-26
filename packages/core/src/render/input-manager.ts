@@ -20,12 +20,24 @@ export class InputManager {
   private pointerLocked = false;
   private pointerLockRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private pointerLockRetryCount = 0;
+  // When false (the default), the canvas does not auto-grab the pointer on
+  // click. Pointer lock is an opt-in FPS-style concern; 2D click-based games
+  // (mining-rpg, alchemy, falling-sand, …) must not have their cursor
+  // captured/hidden. 3D games that want pointer lock either set this flag or
+  // manage pointer lock themselves (e.g. to-the-ocean's RendererInputHandler).
+  private enablePointerLock: boolean;
 
   private uiInputRouter: UIInputRouter | null = null;
   private listeners: Array<{ target: EventTarget; event: string; handler: EventListener }> = [];
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, enablePointerLock = false) {
     this.canvas = canvas;
+    this.enablePointerLock = enablePointerLock;
+  }
+
+  /** Toggle whether clicking the canvas requests pointer lock. */
+  setPointerLockEnabled(enabled: boolean): void {
+    this.enablePointerLock = enabled;
   }
 
   setUIInputRouter(router: UIInputRouter | null): void {
@@ -52,34 +64,39 @@ export class InputManager {
       this.uiInputRouter?.handleKeyUp(e.keyCode);
     }) as EventListener);
 
-    add(this.canvas, "click", (() => {
-      if (!this.pointerLocked) {
-        this.pointerLockRetryCount = 0;
-        this.tryLockPointer();
-      }
-    }) as EventListener);
-
-    add(document, "pointerlockchange", (() => {
-      const wasLocked = this.pointerLocked;
-      this.pointerLocked = document.pointerLockElement === this.canvas;
-      if (this.pointerLocked) {
-        this.pointerLockRetryCount = 0;
-        if (this.pointerLockRetryTimer) {
-          clearTimeout(this.pointerLockRetryTimer);
-          this.pointerLockRetryTimer = null;
+    // Pointer lock is opt-in: only 3D FPS-style games request it. 2D
+    // click-based games (mining-rpg, alchemy, …) must keep a visible,
+    // free-moving cursor so click-to-dig / click-to-place works.
+    if (this.enablePointerLock) {
+      add(this.canvas, "click", (() => {
+        if (!this.pointerLocked) {
+          this.pointerLockRetryCount = 0;
+          this.tryLockPointer();
         }
-      } else if (wasLocked) {
-        this.keysDown.clear();
-        this.mouseState.left = false;
-        this.mouseState.right = false;
-        this.mouseDelta.dx = 0;
-        this.mouseDelta.dy = 0;
-      }
-    }) as EventListener);
+      }) as EventListener);
 
-    add(document, "pointerlockerror", (() => {
-      // No action needed — tryLockPointer's fallback timer will retry.
-    }) as EventListener);
+      add(document, "pointerlockchange", (() => {
+        const wasLocked = this.pointerLocked;
+        this.pointerLocked = document.pointerLockElement === this.canvas;
+        if (this.pointerLocked) {
+          this.pointerLockRetryCount = 0;
+          if (this.pointerLockRetryTimer) {
+            clearTimeout(this.pointerLockRetryTimer);
+            this.pointerLockRetryTimer = null;
+          }
+        } else if (wasLocked) {
+          this.keysDown.clear();
+          this.mouseState.left = false;
+          this.mouseState.right = false;
+          this.mouseDelta.dx = 0;
+          this.mouseDelta.dy = 0;
+        }
+      }) as EventListener);
+
+      add(document, "pointerlockerror", (() => {
+        // No action needed — tryLockPointer's fallback timer will retry.
+      }) as EventListener);
+    }
 
     add(window, "blur", (() => {
       this.keysDown.clear();
