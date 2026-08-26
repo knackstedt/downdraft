@@ -7,8 +7,8 @@
 import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, type GCControllerConfig, type GCControllerStats, type IHotReloadable, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
-import type { DevToolsManifest } from "@downdraft/plugin-devtools";
 import { WaterChannel } from "@downdraft/library-water";
+import type { DevToolsManifest } from "@downdraft/plugin-devtools";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
 import { SimToMainMessage } from "@shared/types";
 import { allocateBoatBuffer } from "@to-the-ocean/library-boats/boat-sab";
@@ -90,6 +90,8 @@ export interface ISimWorker {
   getInputBuffer(): SharedArrayBuffer;
   getWaterBuffer(): SharedArrayBuffer;
   getBoatBuffer(): SharedArrayBuffer;
+  /** Extra SABs exposed via GameContext.extraBuffers (water + boat). */
+  getExtraBuffers?(): Record<string, SharedArrayBuffer>;
   isReady(): boolean;
 }
 
@@ -114,6 +116,10 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   getInputBuffer(): SharedArrayBuffer { return this.inputBuffer; }
   getWaterBuffer(): SharedArrayBuffer { return this.waterBuffer; }
   getBoatBuffer(): SharedArrayBuffer { return this.boatBuffer; }
+  /** Extra SABs exposed via GameContext.extraBuffers (water + boat). */
+  getExtraBuffers(): Record<string, SharedArrayBuffer> {
+    return { water: this.waterBuffer, boat: this.boatBuffer };
+  }
 
   isReady(): boolean { return this.ready; }
 

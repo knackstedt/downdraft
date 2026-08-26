@@ -83,6 +83,16 @@ export { createElectronImportCache } from "./import-cache";
 // Bootstrap orchestrator + composable hooks
 export { bootstrapGame } from "./bootstrap";
 export type { BootstrapAutosaveOptions, BootstrapDevToolsOptions, BootstrapGameOptions } from "./bootstrap";
+export { startGame } from "./game-module";
+export type {
+    GameContext,
+    GameModule,
+    GameSaveConfig,
+    GameSimWorker,
+    RendererFactory,
+    SimEventMap,
+    SimWorkerFactory
+} from "./game-module";
 export { useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
 
 // Save store factory + IPC fallback
