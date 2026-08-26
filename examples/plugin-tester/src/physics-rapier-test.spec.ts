@@ -1,5 +1,5 @@
 import type { BodyDesc, ColliderDesc, Entity, PhysicsRealmConfig } from "@downdraft/core";
-import { RapierPhysicsBackend } from "@downdraft/plugin-physics-rapier";
+import { RapierPhysicsBackend } from "@downdraft/library-physics-rapier";
 import { beforeEach, describe, expect, it } from "bun:test";
 
 // ============================================================================

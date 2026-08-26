@@ -53,7 +53,7 @@ async function testHDR() {
 
 // OBJ
 async function testOBJ() {
-  const { parseOBJ } = await import("@downdraft/plugin-models");
+  const { parseOBJ } = await import("@downdraft/library-models");
   const data = readFileSync(join(FIXTURES, "models", "cube.obj")).buffer as ArrayBuffer;
   const result = parseOBJ(data, "cube");
   assert(result.meshes.length > 0, `OBJ: expected meshes>0, got ${result.meshes.length}`);
@@ -67,7 +67,7 @@ async function testOBJ() {
 
 // GLB (glTF Binary)
 async function testGLB() {
-  const { parseGLTF } = await import("@downdraft/plugin-models");
+  const { parseGLTF } = await import("@downdraft/library-models");
   const data = readFileSync(join(FIXTURES, "models", "Box.glb")).buffer as ArrayBuffer;
   const result = await parseGLTF(data, "Box", true);
   assert(result.meshes.length > 0, `GLB: expected meshes>0, got ${result.meshes.length}`);
@@ -79,7 +79,7 @@ async function testGLB() {
 
 // STL
 async function testSTL() {
-  const { parseSTL } = await import("@downdraft/plugin-models");
+  const { parseSTL } = await import("@downdraft/library-models");
   const data = readFileSync(join(FIXTURES, "models", "cube.stl")).buffer as ArrayBuffer;
   const result = parseSTL(data, "cube");
   assert(result.meshes.length > 0, `STL: expected meshes>0, got ${result.meshes.length}`);
@@ -96,7 +96,7 @@ async function testDAE() {
 
 // PLY (ASCII)
 async function testPLYASCII() {
-  const { parsePLY } = await import("@downdraft/plugin-models");
+  const { parsePLY } = await import("@downdraft/library-models");
   const data = readFileSync(join(FIXTURES, "models", "tetra.ply")).buffer as ArrayBuffer;
   const result = parsePLY(data, "tetra");
   assert(result.meshes.length > 0, `PLY ASCII: expected meshes>0, got ${result.meshes.length}`);
@@ -109,7 +109,7 @@ async function testPLYASCII() {
 
 // PLY (Binary)
 async function testPLYBinary() {
-  const { parsePLY } = await import("@downdraft/plugin-models");
+  const { parsePLY } = await import("@downdraft/library-models");
   const data = readFileSync(join(FIXTURES, "models", "tetra_binary.ply")).buffer as ArrayBuffer;
   const result = parsePLY(data, "tetra_binary");
   assert(result.meshes.length > 0, `PLY Binary: expected meshes>0, got ${result.meshes.length}`);
@@ -121,7 +121,7 @@ async function testPLYBinary() {
 
 // 3DS
 async function test3DS() {
-  const { parse3DS } = await import("@downdraft/plugin-models");
+  const { parse3DS } = await import("@downdraft/library-models");
   const data = readFileSync(join(FIXTURES, "models", "triangle.3ds")).buffer as ArrayBuffer;
   const result = parse3DS(data, "triangle");
   assert(result.meshes.length > 0, `3DS: expected meshes>0, got ${result.meshes.length}`);
@@ -142,7 +142,7 @@ async function test3DS() {
 
 // glTF extensions
 async function testGLTFExtensions() {
-  const { getSupportedExtensions, isExtensionSupported, processMaterialExtensions } = await import("@downdraft/plugin-models");
+  const { getSupportedExtensions, isExtensionSupported, processMaterialExtensions } = await import("@downdraft/library-models");
   const supported = getSupportedExtensions();
   assert(supported.length >= 5, `glTF ext: expected >=5 supported, got ${supported.length}`);
   assert(isExtensionSupported("KHR_materials_unlit"), "glTF ext: KHR_materials_unlit should be supported");
@@ -169,7 +169,7 @@ async function testGLTFExtensions() {
 // ─── Format Detection ──────────────────────────────────────────────────────
 
 async function testFormatDetection() {
-  const { detectFormat } = await import("@downdraft/plugin-models");
+  const { detectFormat } = await import("@downdraft/library-models");
   assert(detectFormat("model.obj") === "obj", "detectFormat: .obj should detect obj");
   assert(detectFormat("model.gltf") === "gltf", "detectFormat: .gltf should detect gltf");
   assert(detectFormat("model.glb") === "glb", "detectFormat: .glb should detect glb");

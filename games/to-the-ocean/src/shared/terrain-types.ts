@@ -2,7 +2,7 @@
 // TerrainTypes — shared types for volumetric island terrain
 // ============================================================================
 // Game-specific terrain types and SAB header layout.
-// Generic voxel field types come from @downdraft/plugin-marching-cubes.
+// Generic voxel field types come from @downdraft/library-marching-cubes.
 //
 
 // Terrain material type at a surface point (determines vertex color)

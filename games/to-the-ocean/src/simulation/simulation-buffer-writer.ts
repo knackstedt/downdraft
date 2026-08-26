@@ -1,10 +1,10 @@
 // SharedArrayBuffer writing — extracted from Simulation.ts
 
-import { shoreDamping, shoreDisplacement, waterCutout, type ShoreSource } from "@downdraft/plugin-water";
+import { shoreDamping, shoreDisplacement, waterCutout, type ShoreSource } from "@downdraft/library-water";
 import { WeatherSystem } from "@downdraft/library-weather";
 import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "@downdraft/core";
 import { GameMode, SimToMainMessage } from "../shared/types";
-import { WATER_GRID_SAB as WATER_GRID, WaterBufferWriter } from "@downdraft/plugin-water";
+import { WATER_GRID_SAB as WATER_GRID, WaterBufferWriter } from "@downdraft/library-water";
 import { BoatCellSystem } from "./boat/boat-cell-system";
 import { BoatSystem } from "./boat/boat-system";
 import { CameraController } from "./camera/camera-controller";

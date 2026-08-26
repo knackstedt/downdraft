@@ -10,7 +10,7 @@
     "isolatedModules": true,
     "paths": {
       "xxh3-ts": [
-        "./packages/plugins/persistence/src/xxh3-ts.d.ts"
+        "./packages/libraries/persistence/src/xxh3-ts.d.ts"
       ],
       "@shared/*": [
         "./games/to-the-ocean/src/shared/*",
@@ -40,59 +40,59 @@
       "@downdraft/cli/*": [
         "./packages/cli/src/*"
       ],
-      "@downdraft/plugin-water": [
-        "./packages/plugins/water/src/index.ts"
+      "@downdraft/library-water": [
+        "./packages/libraries/water/src/index.ts"
       ],
-      "@downdraft/plugin-water/*": [
-        "./packages/plugins/water/src/*"
+      "@downdraft/library-water/*": [
+        "./packages/libraries/water/src/*"
       ],
-      "undertow": [
-        "./packages/plugins/undertow/src/index.ts"
+      "@downdraft/library-undertow": [
+        "./packages/libraries/undertow/src/index.ts"
       ],
-      "undertow/*": [
-        "./packages/plugins/undertow/src/*"
+      "@downdraft/library-undertow/*": [
+        "./packages/libraries/undertow/src/*"
       ],
-      "@downdraft/plugin-physics-rapier": [
-        "./packages/plugins/physics-rapier/src/index.ts"
+      "@downdraft/library-physics-rapier": [
+        "./packages/libraries/physics-rapier/src/index.ts"
       ],
-      "@downdraft/plugin-audio-kira": [
-        "./packages/plugins/audio-kira/src/index.ts"
+      "@downdraft/library-audio-kira": [
+        "./packages/libraries/audio-kira/src/index.ts"
       ],
       "@downdraft/library-postfx": [
-        "./packages/plugins/postfx/src/index.ts"
+        "./packages/libraries/postfx/src/index.ts"
       ],
       "@downdraft/library-postfx/*": [
-        "./packages/plugins/postfx/src/*"
+        "./packages/libraries/postfx/src/*"
       ],
       "@downdraft/library-lighting": [
-        "./packages/plugins/lighting/src/index.ts"
+        "./packages/libraries/lighting/src/index.ts"
       ],
       "@downdraft/library-lighting/*": [
-        "./packages/plugins/lighting/src/*"
+        "./packages/libraries/lighting/src/*"
       ],
-      "@downdraft/plugin-weatherfx": [
-        "./packages/plugins/weatherfx/src/index.ts"
+      "@downdraft/library-weatherfx": [
+        "./packages/libraries/weatherfx/src/index.ts"
       ],
-      "@downdraft/plugin-weatherfx/*": [
-        "./packages/plugins/weatherfx/src/*"
+      "@downdraft/library-weatherfx/*": [
+        "./packages/libraries/weatherfx/src/*"
       ],
       "@downdraft/library-weather": [
-        "./packages/plugins/weather/src/index.ts"
+        "./packages/libraries/weather/src/index.ts"
       ],
       "@downdraft/library-weather/*": [
-        "./packages/plugins/weather/src/*"
+        "./packages/libraries/weather/src/*"
       ],
       "@downdraft/library-entities": [
-        "./packages/plugins/entities/src/index.ts"
+        "./packages/libraries/entities/src/index.ts"
       ],
       "@downdraft/library-entities/*": [
-        "./packages/plugins/entities/src/*"
+        "./packages/libraries/entities/src/*"
       ],
-      "@downdraft/plugin-models": [
-        "./packages/plugins/models/src/index.ts"
+      "@downdraft/library-models": [
+        "./packages/libraries/models/src/index.ts"
       ],
-      "@downdraft/plugin-models/*": [
-        "./packages/plugins/models/src/*"
+      "@downdraft/library-models/*": [
+        "./packages/libraries/models/src/*"
       ],
       "@downdraft/plugin-devtools": [
         "./packages/plugins/devtools/src/index.ts"

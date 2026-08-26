@@ -9,7 +9,7 @@
     "@downdraft/core": "workspace:*",
     "@downdraft/plugin-camera-controls": "workspace:*",
     "@downdraft/plugin-devtools": "workspace:*",
-    "@downdraft/plugin-models": "workspace:*",
+    "@downdraft/library-models": "workspace:*",
     "@downdraft/library-entities": "workspace:*",
     "fflate": "^0.8.2",
     "react": "^19.2.8",

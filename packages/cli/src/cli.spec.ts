@@ -212,7 +212,7 @@ describe("CLI new — physics template", () => {
 
   it("should include physics-rapier dependency", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/plugin-physics-rapier"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("workspace:*");
   });
 
   it("should include physics-rapier plugin in config", async () => {
@@ -267,10 +267,10 @@ describe("CLI new — full template", () => {
 
   it("should include all plugin dependencies", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.dependencies["@downdraft/plugin-water"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/plugin-physics-rapier"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/plugin-marching-cubes"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/plugin-models"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/library-water"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/library-marching-cubes"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/library-models"]).toBe("workspace:*");
     expect(pkg.dependencies["@downdraft/plugin-devtools"]).toBe("workspace:*");
   });
 

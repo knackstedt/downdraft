@@ -24,7 +24,7 @@ import {
     skinDataToSkeletonData,
     type Quat
 } from "@downdraft/core";
-import type { AnimationData, SkinData } from "@downdraft/plugin-models";
+import type { AnimationData, SkinData } from "@downdraft/library-models";
 
 /** Normalize a bone/channel name. The FBX parser now strips the "Model" suffix,
  * so this is a passthrough — kept for API compatibility. */

@@ -7,13 +7,13 @@ import { MaterialLibrary, MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceT
 import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
 import type { ModelRenderer } from "@downdraft/library-entities";
 import type { LightSystem } from "@downdraft/library-lighting";
-import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/plugin-models";
+import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/library-models";
 import type { PixelationSystem } from "@downdraft/library-postfx";
-import type { ParticleSystem } from "@downdraft/plugin-weatherfx";
+import type { ParticleSystem } from "@downdraft/library-weatherfx";
 import type { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import type { SimBufferReader } from "@downdraft/core";
 import { PLR } from "@downdraft/core";
-import type { WaterBufferReader } from "@downdraft/plugin-water";
+import type { WaterBufferReader } from "@downdraft/library-water";
 import type { CameraSystem } from "./camera-system";
 import type { EntityRenderer } from "./entity-renderer";
 

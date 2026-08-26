@@ -1,7 +1,7 @@
 // Extracted from TerrainGenerator.ts — part of terrain decomposition
 
 import { PerlinNoise3D } from "@downdraft/core";
-import { VoxelField } from "@downdraft/plugin-marching-cubes";
+import { VoxelField } from "@downdraft/library-marching-cubes";
 import { TERRAIN_CONFIG } from "../terrain-config";
 import { PerlinNoise } from "../world/perlin-noise";
 

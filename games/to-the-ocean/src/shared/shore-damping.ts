@@ -1,11 +1,11 @@
 // ============================================================================
 // Shore Damping — game-specific shore source collection
 // Math functions (shoreDamping, shoreDisplacement, waterCutout) live in
-// @downdraft/plugin-water. This file keeps only collectShoreSources, which
+// @downdraft/library-water. This file keeps only collectShoreSources, which
 // depends on game-specific SimEntity and island blob generation.
 // ============================================================================
 
-import type { ShoreSource } from "@downdraft/plugin-water";
+import type { ShoreSource } from "@downdraft/library-water";
 export type { ShoreSource };
 
     import { SimEntity } from "../simulation/simulation";

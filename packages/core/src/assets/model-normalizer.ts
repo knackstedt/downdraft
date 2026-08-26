@@ -6,7 +6,7 @@
 // the existing convertZUpToYUp pattern.
 //
 // Higher-level orchestration (sidecar resolution, node-transform baking, the
-// full normalize pipeline) lives in @downdraft/plugin-models/src/normalize.ts.
+// full normalize pipeline) lives in @downdraft/library-models/src/normalize.ts.
 //
 
 // The normalizer works on the plugin's interleaved [pos(3) + normal(3)] layout

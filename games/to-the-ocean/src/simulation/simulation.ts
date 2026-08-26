@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { InputBufferReader, PLR_FLAG, SimBufferWriter } from "@downdraft/core";
-import { WaterBufferWriter } from "@downdraft/plugin-water";
+import { WaterBufferWriter } from "@downdraft/library-water";
 import {
     MAX_ENTITIES,
     SIM_TICK_DT

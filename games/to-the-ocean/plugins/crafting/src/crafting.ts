@@ -1,4 +1,4 @@
-import { Component, getComponentId, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
+import { Component, getComponentId, resourceToken, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
 import { addItem, countItem, GridInventory, removeItemById, type InventoryGrid } from "@to-the-ocean/plugin-inventory";
 import { CRAFTING_TIER_RECIPES, RECIPES, type Recipe } from "./recipes";
 
@@ -12,6 +12,11 @@ export const CraftState = Component.register("CraftState", {
   unlockedRecipes: new Set<string>(CRAFTING_TIER_RECIPES[0] ?? []),
   craftingTier: 0,
 });
+
+/** Token for the crafting stations set resource. */
+export const CraftingStationsTok = resourceToken<Set<string>>("craftingStations");
+/** Token for the player inventory grid resource. */
+export const PlayerInventoryGridTok = resourceToken<InventoryGrid>("playerInventoryGrid");
 
 export function unlockRecipesForTier(tier: number, unlocked: Set<string>): void {
   for (let t = 0; t <= tier && t < CRAFTING_TIER_RECIPES.length; t++) {
@@ -49,7 +54,7 @@ const gridInvId = getComponentId("GridInventory");
 
 const craftingSystemFn = system("crafting-queue", Stage.Update, (ctx) => {
   const dt = ctx.dt;
-  const stations = ctx.world.getResource<Set<string>>("craftingStations") ?? new Set<string>();
+  const stations = ctx.world.getResourceTyped(CraftingStationsTok) ?? new Set<string>();
 
   for (const arch of ctx.world.allArchetypes) {
     const craftCol = arch.columns.get(CraftState.id);
@@ -76,7 +81,7 @@ const craftingSystemFn = system("crafting-queue", Stage.Update, (ctx) => {
       if (invCol) {
         grid = (invCol[i] as typeof GridInventory.defaults).grid;
       } else {
-        grid = ctx.world.getResource<InventoryGrid>("playerInventoryGrid") ?? null;
+        grid = ctx.world.getResourceTyped(PlayerInventoryGridTok) ?? null;
       }
 
       if (!grid || !canCraft(recipe, grid)) {

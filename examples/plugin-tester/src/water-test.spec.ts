@@ -1,4 +1,4 @@
-import { WaterPhysics, WaterBuffer, DEFAULT_PHYSICS_CONFIG } from "@downdraft/plugin-water";
+import { WaterPhysics, WaterBuffer, DEFAULT_PHYSICS_CONFIG } from "@downdraft/library-water";
 
 describe("WaterBuffer", () => {
   it("should create a buffer with correct size", () => {

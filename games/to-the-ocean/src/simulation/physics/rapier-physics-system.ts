@@ -1,5 +1,5 @@
 // ============================================================================
-// RapierPhysicsSystem — Physics integration via @downdraft/plugin-physics-rapier
+// RapierPhysicsSystem — Physics integration via @downdraft/library-physics-rapier
 //
 // Migrated from direct Rapier WASM calls to the UniversalPhysicsAPI. The game
 // keeps its bespoke orchestration (chunked island trimeshes, time-budgeted
@@ -8,8 +8,8 @@
 // ============================================================================
 
 import type { CharacterControllerHandle, PhysicsBody, PhysicsTimingData } from "@downdraft/core";
-import type { VoxelField } from "@downdraft/plugin-marching-cubes";
-import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/plugin-physics-rapier";
+import type { VoxelField } from "@downdraft/library-marching-cubes";
+import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
 import {
     getPortColliderDims,
     getPortCollisionBoxes,

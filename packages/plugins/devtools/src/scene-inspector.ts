@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { compileGraphToMaterialWithGraph, compileUIGraphToMaterial, isExtremeScale, MaterialLibrary, maxDimension, uiGraphToMaterialGraph, type Material, type UIConnection, type UINodeData } from "@downdraft/core";
-import { createDefaultDdmeta, createDefaultImportSettings, detectFormat, loadModel, normalizeModel, writeDdmeta } from "@downdraft/plugin-models";
+import { createDefaultDdmeta, createDefaultImportSettings, detectFormat, loadModel, normalizeModel, writeDdmeta } from "@downdraft/library-models";
 import { DevToolsDataBridge } from "./data-bridge";
 import { useSceneStore, type GizmoMode, type SceneTreeSnapshot } from "./scene-store";
 import type {

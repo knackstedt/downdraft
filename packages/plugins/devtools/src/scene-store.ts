@@ -3,7 +3,7 @@
 // Tracks sim entities (read-only) and imported models (editable)
 // ============================================================================
 
-import type { ModelData } from "@downdraft/plugin-models";
+import type { ModelData } from "@downdraft/library-models";
 import { create } from "zustand";
 
 import { type GizmoMode } from "./index";

@@ -5,7 +5,7 @@
 // ============================================================================
 
 import { PerlinNoise3D } from "@downdraft/core";
-import { VoxelField } from "@downdraft/plugin-marching-cubes";
+import { VoxelField } from "@downdraft/library-marching-cubes";
 import { WeatherType } from "./types";
 
 // --- Cloud layer types ---

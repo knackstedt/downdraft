@@ -9,13 +9,13 @@ import {
     type ImportSettings,
     type MaterialData,
     type ModelData
-} from "@downdraft/plugin-models";
+} from "@downdraft/library-models";
 import { gunzipSync, strFromU8 } from "fflate";
 
 export type { AnimationData };
 
 // Node-transform baking, up-axis conversion, and unit scaling are now handled
-// by the engine's normalization pipeline in @downdraft/plugin-models
+// by the engine's normalization pipeline in @downdraft/library-models
 // (loadModel → normalizeModel → bakeNodeTransforms). The local quaternion
 // helpers and bakeNodeTransforms function have been removed.
 

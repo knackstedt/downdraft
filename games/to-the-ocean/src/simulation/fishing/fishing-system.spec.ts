@@ -12,7 +12,7 @@ import {
 import { InputBufferReader, InputBufferWriter, KEY } from "@downdraft/core";
 import { PLR_FLAG } from "@downdraft/core";
 import { BiomeType, WeatherState, WeatherType } from "../../shared/types";
-import { WaterBufferWriter } from "@downdraft/plugin-water";
+import { WaterBufferWriter } from "@downdraft/library-water";
 import { createGrid } from "../inventory/inventory-system";
 import { SimPlayer } from "../simulation";
 import { BiomeSystem } from "../world/biome-system";

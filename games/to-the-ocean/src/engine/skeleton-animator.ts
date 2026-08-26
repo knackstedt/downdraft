@@ -1,6 +1,6 @@
 // Re-export SkeletonAnimator from @downdraft/core with game-specific update logic
 import { SkeletonAnimator as CoreSkeletonAnimator, type AnimState, type SkinData } from "@downdraft/core";
-import type { AnimationData } from "@downdraft/plugin-models";
+import type { AnimationData } from "@downdraft/library-models";
 
 export type { AnimationData, AnimState, SkinData };
 

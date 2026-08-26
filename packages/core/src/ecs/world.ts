@@ -232,14 +232,6 @@ export class World {
     this.flushCommands();
   }
 
-  setResource<T>(name: string, value: T): void {
-    this.resources.set(name, value);
-  }
-
-  getResource<T>(name: string): T | undefined {
-    return this.resources.get(name) as T | undefined;
-  }
-
   setResourceTyped<T>(token: ResourceToken<T>, value: T): void {
     this.resources.set(token.key, value);
   }

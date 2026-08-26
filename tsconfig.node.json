@@ -18,7 +18,7 @@
     "outDir": "dist",
     "paths": {
       "xxh3-ts": [
-        "./packages/plugins/persistence/src/xxh3-ts.d.ts"
+        "./packages/libraries/persistence/src/xxh3-ts.d.ts"
       ],
       "@shared/*": [
         "./packages/app/src/shared/*"
@@ -53,71 +53,71 @@
       "@downdraft/cli/*": [
         "./packages/cli/src/*"
       ],
-      "@downdraft/plugin-water": [
-        "./packages/plugins/water/src/index.ts"
+      "@downdraft/library-water": [
+        "./packages/libraries/water/src/index.ts"
       ],
-      "@downdraft/plugin-water/*": [
-        "./packages/plugins/water/src/*"
+      "@downdraft/library-water/*": [
+        "./packages/libraries/water/src/*"
       ],
-      "undertow": [
-        "./packages/plugins/undertow/src/index.ts"
+      "@downdraft/library-undertow": [
+        "./packages/libraries/undertow/src/index.ts"
       ],
-      "undertow/*": [
-        "./packages/plugins/undertow/src/*"
+      "@downdraft/library-undertow/*": [
+        "./packages/libraries/undertow/src/*"
       ],
-      "@downdraft/plugin-physics-rapier": [
-        "./packages/plugins/physics-rapier/src/index.ts"
+      "@downdraft/library-physics-rapier": [
+        "./packages/libraries/physics-rapier/src/index.ts"
       ],
-      "@downdraft/plugin-audio-kira": [
-        "./packages/plugins/audio-kira/src/index.ts"
+      "@downdraft/library-audio-kira": [
+        "./packages/libraries/audio-kira/src/index.ts"
       ],
       "@downdraft/library-postfx": [
-        "./packages/plugins/postfx/src/index.ts"
+        "./packages/libraries/postfx/src/index.ts"
       ],
       "@downdraft/library-postfx/*": [
-        "./packages/plugins/postfx/src/*"
+        "./packages/libraries/postfx/src/*"
       ],
       "@downdraft/library-sand": [
-        "./packages/plugins/physics-sand/src/index.ts"
+        "./packages/libraries/sand/src/index.ts"
       ],
       "@downdraft/library-sand/*": [
-        "./packages/plugins/physics-sand/src/*"
+        "./packages/libraries/sand/src/*"
       ],
       "@downdraft/library-lighting": [
-        "./packages/plugins/lighting/src/index.ts"
+        "./packages/libraries/lighting/src/index.ts"
       ],
       "@downdraft/library-lighting/*": [
-        "./packages/plugins/lighting/src/*"
+        "./packages/libraries/lighting/src/*"
       ],
-      "@downdraft/plugin-weatherfx": [
-        "./packages/plugins/weatherfx/src/index.ts"
+      "@downdraft/library-weatherfx": [
+        "./packages/libraries/weatherfx/src/index.ts"
       ],
-      "@downdraft/plugin-weatherfx/*": [
-        "./packages/plugins/weatherfx/src/*"
+      "@downdraft/library-weatherfx/*": [
+        "./packages/libraries/weatherfx/src/*"
       ],
       "@downdraft/library-weather": [
-        "./packages/plugins/weather/src/index.ts"
+        "./packages/libraries/weather/src/index.ts"
       ],
       "@downdraft/library-weather/*": [
-        "./packages/plugins/weather/src/*"
+        "./packages/libraries/weather/src/*"
       ],
       "@downdraft/library-entities": [
-        "./packages/plugins/entities/src/index.ts"
+        "./packages/libraries/entities/src/index.ts"
       ],
       "@downdraft/library-entities/*": [
-        "./packages/plugins/entities/src/*"
+        "./packages/libraries/entities/src/*"
       ],
       "@downdraft/library-stickman": [
-        "./packages/plugins/stickman/src/index.ts"
+        "./packages/libraries/stickman/src/index.ts"
       ],
       "@downdraft/library-stickman/*": [
-        "./packages/plugins/stickman/src/*"
+        "./packages/libraries/stickman/src/*"
       ],
-      "@downdraft/plugin-models": [
-        "./packages/plugins/models/src/index.ts"
+      "@downdraft/library-models": [
+        "./packages/libraries/models/src/index.ts"
       ],
-      "@downdraft/plugin-models/*": [
-        "./packages/plugins/models/src/*"
+      "@downdraft/library-models/*": [
+        "./packages/libraries/models/src/*"
       ],
       "@downdraft/plugin-devtools": [
         "./packages/plugins/devtools/src/index.ts"
@@ -125,23 +125,23 @@
       "@downdraft/plugin-devtools/*": [
         "./packages/plugins/devtools/src/*"
       ],
-      "@downdraft/plugin-marching-cubes": [
-        "./packages/plugins/marching-cubes/src/index.ts"
+      "@downdraft/library-marching-cubes": [
+        "./packages/libraries/marching-cubes/src/index.ts"
       ],
-      "@downdraft/plugin-marching-cubes/*": [
-        "./packages/plugins/marching-cubes/src/*"
+      "@downdraft/library-marching-cubes/*": [
+        "./packages/libraries/marching-cubes/src/*"
       ],
-      "@downdraft/plugin-surface-nets": [
-        "./packages/plugins/surface-nets/src/index.ts"
+      "@downdraft/library-surface-nets": [
+        "./packages/libraries/surface-nets/src/index.ts"
       ],
-      "@downdraft/plugin-surface-nets/*": [
-        "./packages/plugins/surface-nets/src/*"
+      "@downdraft/library-surface-nets/*": [
+        "./packages/libraries/surface-nets/src/*"
       ],
       "@downdraft/library-persistence": [
-        "./packages/plugins/persistence/src/index.ts"
+        "./packages/libraries/persistence/src/index.ts"
       ],
       "@downdraft/library-persistence/*": [
-        "./packages/plugins/persistence/src/*"
+        "./packages/libraries/persistence/src/*"
       ],
       "@downdraft/plugin-electron-osr": [
         "./packages/plugins/electron-osr/src/index.ts"
@@ -156,10 +156,10 @@
         "./packages/plugins/xr/src/*"
       ],
       "@downdraft/library-gaussian-splats": [
-        "./packages/plugins/gaussian-splats/src/index.ts"
+        "./packages/libraries/gaussian-splats/src/index.ts"
       ],
       "@downdraft/library-gaussian-splats/*": [
-        "./packages/plugins/gaussian-splats/src/*"
+        "./packages/libraries/gaussian-splats/src/*"
       ],
       "@downdraft/plugin-mcp": [
         "./packages/plugins/mcp/src/index.ts"
@@ -167,23 +167,23 @@
       "@downdraft/plugin-mcp/*": [
         "./packages/plugins/mcp/src/*"
       ],
-      "@downdraft/plugin-physics-native": [
-        "./packages/plugins/physics-native/src/index.ts"
+      "@downdraft/library-physics-native": [
+        "./packages/libraries/physics-native/src/index.ts"
       ],
-      "@downdraft/plugin-physics-native/*": [
-        "./packages/plugins/physics-native/src/*"
+      "@downdraft/library-physics-native/*": [
+        "./packages/libraries/physics-native/src/*"
       ],
-      "@downdraft/plugin-networking": [
-        "./packages/plugins/networking/src/index.ts"
+      "@downdraft/library-networking": [
+        "./packages/libraries/networking/src/index.ts"
       ],
-      "@downdraft/plugin-networking/*": [
-        "./packages/plugins/networking/src/*"
+      "@downdraft/library-networking/*": [
+        "./packages/libraries/networking/src/*"
       ],
       "@downdraft/library-navmesh": [
-        "./packages/plugins/navmesh/src/index.ts"
+        "./packages/libraries/navmesh/src/index.ts"
       ],
       "@downdraft/library-navmesh/*": [
-        "./packages/plugins/navmesh/src/*"
+        "./packages/libraries/navmesh/src/*"
       ],
       "@downdraft/app": [
         "./packages/app/src/index.ts"
@@ -287,6 +287,7 @@
     "packages/ui/src/**/*",
     "packages/shader-graph/src/**/*.ts",
     "packages/plugins/*/src/**/*.ts",
+    "packages/libraries/*/src/**/*.ts",
     "games/*/plugins/*/src/**/*.ts",
     "games/*/src/util/**/*.ts",
     "games/*/src/shared/plugin-interfaces.ts",

@@ -26,7 +26,7 @@
 // globals at module load time).
 // ============================================================================
 
-import { installPolyfill, WorkerRuntime } from "undertow";
+import { installPolyfill, WorkerRuntime } from "@downdraft/library-undertow";
 import { isInitMessage, type MainToWorkerEvent, type WorkerInbound, type WorkerToMainAction } from "./bridge-protocol";
 
 let rt: WorkerRuntime | null = null;

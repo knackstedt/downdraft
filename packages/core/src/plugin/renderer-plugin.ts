@@ -11,6 +11,7 @@
 // loop. See docs/site/src/content/docs/guides/plugins.md.
 // ============================================================================
 
+import type { ResourceToken } from "../ecs/resource";
 import type { CameraState } from "../render/camera";
 import type { FrameGraph, SlotRegistry } from "../render/frame-graph";
 import type {
@@ -176,6 +177,23 @@ export interface RendererPluginContext {
    */
   readonly devtools: import("../plugin/plugin").PluginDevToolsAPI;
 
+  // ── Typed DI ──
+  /**
+   * Provide a typed resource to the renderer plugin graph. Other renderer
+   * plugins can `inject()` it by the same token. In DOWNDRAFT_STRICT mode,
+   * duplicate provides of the same token throw a DiagnosticError.
+   */
+  provide<T>(token: ResourceToken<T>, value: T): void;
+  /**
+   * Read a typed resource provided by another renderer plugin. Throws if
+   * the token has no provider (use `injectOptional` for safe reads).
+   */
+  inject<T>(token: ResourceToken<T>): T;
+  /**
+   * Read a typed resource, returning `undefined` if no plugin provides it.
+   */
+  injectOptional<T>(token: ResourceToken<T>): T | undefined;
+
   // ── Lifecycle ──
   onDispose(fn: () => void): void;
 }
@@ -191,5 +209,9 @@ export interface RendererPlugin {
   version: string;
   /** Other renderer plugins that must be registered first. */
   dependencies?: string[];
+  /** Typed tokens this plugin provides to the graph. Validated at activation. */
+  provides?: ResourceToken<unknown>[];
+  /** Typed tokens this plugin requires from the graph. Validated at activation. */
+  requires?: ResourceToken<unknown>[];
   register(ctx: RendererPluginContext): void;
 }

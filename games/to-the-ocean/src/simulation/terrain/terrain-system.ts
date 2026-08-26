@@ -3,7 +3,7 @@
 // Runs in the sim worker. Handles deformation from all damage sources.
 // ============================================================================
 
-import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@downdraft/plugin-marching-cubes";
+import { CHUNK_FULL, ChunkedVoxelField, VoxelField, getChunkedVoxel, setChunkedVoxel } from "@downdraft/library-marching-cubes";
 import {
     createChunkedVoxelField, ensureChunkGenerated,
     generatePortVoxelField,

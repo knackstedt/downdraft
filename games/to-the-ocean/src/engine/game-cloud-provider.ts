@@ -2,7 +2,7 @@
 // Game-specific CloudMeshProvider — bridges @shared cloud generation to plugin
 // ============================================================================
 
-import type { CloudExtractedMesh, CloudLayerConfig, CloudMeshProvider, CloudVoxelField } from "@downdraft/plugin-weatherfx";
+import type { CloudExtractedMesh, CloudLayerConfig, CloudMeshProvider, CloudVoxelField } from "@downdraft/library-weatherfx";
 import {
     CLOUD_CONFIG,
     CloudLayerType,

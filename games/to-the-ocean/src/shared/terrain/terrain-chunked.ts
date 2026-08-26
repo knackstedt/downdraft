@@ -1,7 +1,7 @@
 // Extracted from TerrainGenerator.ts — part of terrain decomposition
 
 import { PerlinNoise3D } from "@downdraft/core";
-import { CHUNK_EMPTY, CHUNK_FULL, CHUNK_SOLID, ChunkedVoxelField, getChunkedVoxel, promoteChunk, VoxelField } from "@downdraft/plugin-marching-cubes";
+import { CHUNK_EMPTY, CHUNK_FULL, CHUNK_SOLID, ChunkedVoxelField, getChunkedVoxel, promoteChunk, VoxelField } from "@downdraft/library-marching-cubes";
 import { TERRAIN_CONFIG } from "../terrain-config";
 import { PerlinNoise } from "../world/perlin-noise";
 import { BlobCenter, mulberry32, smoothUnion } from "./terrain-voxel-field";

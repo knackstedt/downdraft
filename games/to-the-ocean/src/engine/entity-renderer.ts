@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type BindlessMaterialManager, type BindlessTextureRegistry } from "@downdraft/core";
-import type { MeshData, ModelData } from "@downdraft/plugin-models";
+import type { MeshData, ModelData } from "@downdraft/library-models";
 import { BoatBufferReader } from "@to-the-ocean/library-boats/boat-sab";
 import { RuntimeBoatGeometry, type BoatDesign } from "@shared/boat-design";
 import {

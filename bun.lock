@@ -41,16 +41,16 @@
       "dependencies": {
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-audio-kira": "workspace:*",
         "@downdraft/library-lighting": "workspace:*",
+        "@downdraft/library-marching-cubes": "workspace:*",
         "@downdraft/library-navmesh": "workspace:*",
+        "@downdraft/library-networking": "workspace:*",
+        "@downdraft/library-physics-rapier": "workspace:*",
+        "@downdraft/library-water": "workspace:*",
         "@downdraft/library-weather": "workspace:*",
         "@downdraft/mcp": "workspace:*",
-        "@downdraft/plugin-audio-kira": "workspace:*",
-        "@downdraft/plugin-marching-cubes": "workspace:*",
         "@downdraft/plugin-mcp": "workspace:*",
-        "@downdraft/plugin-networking": "workspace:*",
-        "@downdraft/plugin-physics-rapier": "workspace:*",
-        "@downdraft/plugin-water": "workspace:*",
       },
     },
     "games/alchemy": {
@@ -112,11 +112,11 @@
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
         "@downdraft/library-entities": "workspace:*",
+        "@downdraft/library-models": "workspace:*",
         "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/library-stickman": "workspace:*",
         "@downdraft/plugin-devtools": "workspace:*",
-        "@downdraft/plugin-models": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -144,13 +144,13 @@
         "@dimforge/rapier3d-compat": "^0.19.3",
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
+        "@downdraft/library-marching-cubes": "workspace:*",
+        "@downdraft/library-models": "workspace:*",
+        "@downdraft/library-physics-rapier": "workspace:*",
+        "@downdraft/library-surface-nets": "workspace:*",
+        "@downdraft/library-water": "workspace:*",
         "@downdraft/library-weather": "workspace:*",
         "@downdraft/plugin-electron-osr": "workspace:*",
-        "@downdraft/plugin-marching-cubes": "workspace:*",
-        "@downdraft/plugin-models": "workspace:*",
-        "@downdraft/plugin-physics-rapier": "workspace:*",
-        "@downdraft/plugin-surface-nets": "workspace:*",
-        "@downdraft/plugin-water": "workspace:*",
         "@floating-ui/react": "^0.27.0",
         "@fontsource/doto": "^5.1.1",
         "@fontsource/linefont": "^5.1.1",
@@ -276,15 +276,151 @@
         "wgpu-matrix": "^3.4.2",
       },
     },
-    "packages/mcp": {
-      "name": "@downdraft/mcp",
+    "packages/libraries/audio-kira": {
+      "name": "@downdraft/library-audio-kira",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
     },
-    "packages/plugins/audio-kira": {
-      "name": "@downdraft/plugin-audio-kira",
+    "packages/libraries/entities": {
+      "name": "@downdraft/library-entities",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-models": "workspace:*",
+      },
+    },
+    "packages/libraries/gaussian-splats": {
+      "name": "@downdraft/library-gaussian-splats",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/lighting": {
+      "name": "@downdraft/library-lighting",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-weather": "workspace:*",
+      },
+    },
+    "packages/libraries/marching-cubes": {
+      "name": "@downdraft/library-marching-cubes",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/models": {
+      "name": "@downdraft/library-models",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "comment-json": "^5.0.0",
+        "draco3dgltf": "^1.5.7",
+        "fflate": "^0.8.2",
+        "meshoptimizer": "^1.2.0",
+      },
+    },
+    "packages/libraries/navmesh": {
+      "name": "@downdraft/library-navmesh",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/networking": {
+      "name": "@downdraft/library-networking",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/persistence": {
+      "name": "@downdraft/library-persistence",
+      "version": "0.1.0",
+      "dependencies": {
+        "@bokuweb/zstd-wasm": "^0.0.27",
+        "@downdraft/core": "workspace:*",
+        "buffer": "^6.0.3",
+        "xxh3-ts": "^2.0.1",
+        "xxhash-wasm": "^0.4.2",
+      },
+    },
+    "packages/libraries/physics-native": {
+      "name": "@downdraft/library-physics-native",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/physics-rapier": {
+      "name": "@downdraft/library-physics-rapier",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/postfx": {
+      "name": "@downdraft/library-postfx",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/sand": {
+      "name": "@downdraft/library-sand",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/stickman": {
+      "name": "@downdraft/library-stickman",
+      "version": "0.1.0",
+    },
+    "packages/libraries/surface-nets": {
+      "name": "@downdraft/library-surface-nets",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-marching-cubes": "workspace:*",
+      },
+    },
+    "packages/libraries/undertow": {
+      "name": "@downdraft/library-undertow",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/water": {
+      "name": "@downdraft/library-water",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/weather": {
+      "name": "@downdraft/library-weather",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/weatherfx": {
+      "name": "@downdraft/library-weatherfx",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-marching-cubes": "workspace:*",
+        "@downdraft/library-weather": "workspace:*",
+      },
+    },
+    "packages/mcp": {
+      "name": "@downdraft/mcp",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -302,42 +438,12 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-models": "workspace:*",
+        "@downdraft/library-models": "workspace:*",
         "zustand": "^5.0.2",
       },
     },
     "packages/plugins/electron-osr": {
       "name": "@downdraft/plugin-electron-osr",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/entities": {
-      "name": "@downdraft/library-entities",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-models": "workspace:*",
-      },
-    },
-    "packages/plugins/gaussian-splats": {
-      "name": "@downdraft/library-gaussian-splats",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/lighting": {
-      "name": "@downdraft/library-lighting",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/library-weather": "workspace:*",
-      },
-    },
-    "packages/plugins/marching-cubes": {
-      "name": "@downdraft/plugin-marching-cubes",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -349,112 +455,6 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/mcp": "workspace:*",
-      },
-    },
-    "packages/plugins/models": {
-      "name": "@downdraft/plugin-models",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "comment-json": "^5.0.0",
-        "draco3dgltf": "^1.5.7",
-        "fflate": "^0.8.2",
-        "meshoptimizer": "^1.2.0",
-      },
-    },
-    "packages/plugins/navmesh": {
-      "name": "@downdraft/library-navmesh",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/networking": {
-      "name": "@downdraft/plugin-networking",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/persistence": {
-      "name": "@downdraft/library-persistence",
-      "version": "0.1.0",
-      "dependencies": {
-        "@bokuweb/zstd-wasm": "^0.0.27",
-        "@downdraft/core": "workspace:*",
-        "buffer": "^6.0.3",
-        "xxh3-ts": "^2.0.1",
-        "xxhash-wasm": "^0.4.2",
-      },
-    },
-    "packages/plugins/physics-native": {
-      "name": "@downdraft/plugin-physics-native",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/physics-rapier": {
-      "name": "@downdraft/plugin-physics-rapier",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/physics-sand": {
-      "name": "@downdraft/library-sand",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/postfx": {
-      "name": "@downdraft/library-postfx",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/stickman": {
-      "name": "@downdraft/library-stickman",
-      "version": "0.1.0",
-    },
-    "packages/plugins/surface-nets": {
-      "name": "@downdraft/plugin-surface-nets",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/plugin-marching-cubes": "workspace:*",
-      },
-    },
-    "packages/plugins/undertow": {
-      "name": "undertow",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/water": {
-      "name": "@downdraft/plugin-water",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/weather": {
-      "name": "@downdraft/library-weather",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/plugins/weatherfx": {
-      "name": "@downdraft/plugin-weatherfx",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/library-weather": "workspace:*",
-        "@downdraft/plugin-marching-cubes": "workspace:*",
       },
     },
     "packages/plugins/xr": {
@@ -578,27 +578,45 @@
 
     "@downdraft/core": ["@downdraft/core@workspace:packages/core"],
 
-    "@downdraft/library-entities": ["@downdraft/library-entities@workspace:packages/plugins/entities"],
+    "@downdraft/library-audio-kira": ["@downdraft/library-audio-kira@workspace:packages/libraries/audio-kira"],
 
-    "@downdraft/library-gaussian-splats": ["@downdraft/library-gaussian-splats@workspace:packages/plugins/gaussian-splats"],
+    "@downdraft/library-entities": ["@downdraft/library-entities@workspace:packages/libraries/entities"],
 
-    "@downdraft/library-lighting": ["@downdraft/library-lighting@workspace:packages/plugins/lighting"],
+    "@downdraft/library-gaussian-splats": ["@downdraft/library-gaussian-splats@workspace:packages/libraries/gaussian-splats"],
 
-    "@downdraft/library-navmesh": ["@downdraft/library-navmesh@workspace:packages/plugins/navmesh"],
+    "@downdraft/library-lighting": ["@downdraft/library-lighting@workspace:packages/libraries/lighting"],
 
-    "@downdraft/library-persistence": ["@downdraft/library-persistence@workspace:packages/plugins/persistence"],
+    "@downdraft/library-marching-cubes": ["@downdraft/library-marching-cubes@workspace:packages/libraries/marching-cubes"],
 
-    "@downdraft/library-postfx": ["@downdraft/library-postfx@workspace:packages/plugins/postfx"],
+    "@downdraft/library-models": ["@downdraft/library-models@workspace:packages/libraries/models"],
 
-    "@downdraft/library-sand": ["@downdraft/library-sand@workspace:packages/plugins/physics-sand"],
+    "@downdraft/library-navmesh": ["@downdraft/library-navmesh@workspace:packages/libraries/navmesh"],
 
-    "@downdraft/library-stickman": ["@downdraft/library-stickman@workspace:packages/plugins/stickman"],
+    "@downdraft/library-networking": ["@downdraft/library-networking@workspace:packages/libraries/networking"],
 
-    "@downdraft/library-weather": ["@downdraft/library-weather@workspace:packages/plugins/weather"],
+    "@downdraft/library-persistence": ["@downdraft/library-persistence@workspace:packages/libraries/persistence"],
+
+    "@downdraft/library-physics-native": ["@downdraft/library-physics-native@workspace:packages/libraries/physics-native"],
+
+    "@downdraft/library-physics-rapier": ["@downdraft/library-physics-rapier@workspace:packages/libraries/physics-rapier"],
+
+    "@downdraft/library-postfx": ["@downdraft/library-postfx@workspace:packages/libraries/postfx"],
+
+    "@downdraft/library-sand": ["@downdraft/library-sand@workspace:packages/libraries/sand"],
+
+    "@downdraft/library-stickman": ["@downdraft/library-stickman@workspace:packages/libraries/stickman"],
+
+    "@downdraft/library-surface-nets": ["@downdraft/library-surface-nets@workspace:packages/libraries/surface-nets"],
+
+    "@downdraft/library-undertow": ["@downdraft/library-undertow@workspace:packages/libraries/undertow"],
+
+    "@downdraft/library-water": ["@downdraft/library-water@workspace:packages/libraries/water"],
+
+    "@downdraft/library-weather": ["@downdraft/library-weather@workspace:packages/libraries/weather"],
+
+    "@downdraft/library-weatherfx": ["@downdraft/library-weatherfx@workspace:packages/libraries/weatherfx"],
 
     "@downdraft/mcp": ["@downdraft/mcp@workspace:packages/mcp"],
-
-    "@downdraft/plugin-audio-kira": ["@downdraft/plugin-audio-kira@workspace:packages/plugins/audio-kira"],
 
     "@downdraft/plugin-camera-controls": ["@downdraft/plugin-camera-controls@workspace:packages/plugins/camera-controls"],
 
@@ -606,23 +624,7 @@
 
     "@downdraft/plugin-electron-osr": ["@downdraft/plugin-electron-osr@workspace:packages/plugins/electron-osr"],
 
-    "@downdraft/plugin-marching-cubes": ["@downdraft/plugin-marching-cubes@workspace:packages/plugins/marching-cubes"],
-
     "@downdraft/plugin-mcp": ["@downdraft/plugin-mcp@workspace:packages/plugins/mcp"],
-
-    "@downdraft/plugin-models": ["@downdraft/plugin-models@workspace:packages/plugins/models"],
-
-    "@downdraft/plugin-networking": ["@downdraft/plugin-networking@workspace:packages/plugins/networking"],
-
-    "@downdraft/plugin-physics-native": ["@downdraft/plugin-physics-native@workspace:packages/plugins/physics-native"],
-
-    "@downdraft/plugin-physics-rapier": ["@downdraft/plugin-physics-rapier@workspace:packages/plugins/physics-rapier"],
-
-    "@downdraft/plugin-surface-nets": ["@downdraft/plugin-surface-nets@workspace:packages/plugins/surface-nets"],
-
-    "@downdraft/plugin-water": ["@downdraft/plugin-water@workspace:packages/plugins/water"],
-
-    "@downdraft/plugin-weatherfx": ["@downdraft/plugin-weatherfx@workspace:packages/plugins/weatherfx"],
 
     "@downdraft/plugin-xr": ["@downdraft/plugin-xr@workspace:packages/plugins/xr"],
 
@@ -1641,8 +1643,6 @@
     "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "undertow": ["undertow@workspace:packages/plugins/undertow"],
 
     "undici": ["undici@7.29.0", "", {}, "sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw=="],
 

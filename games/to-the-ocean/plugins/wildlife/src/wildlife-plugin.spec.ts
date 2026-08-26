@@ -7,6 +7,7 @@ import { createWildlifePlugin } from "./wildlife-plugin";
 // Mock PluginContext that records all calls
 function makeMockCtx(): { ctx: PluginContext; calls: { method: string; args: unknown[] }[] } {
   const calls: { method: string; args: unknown[] }[] = [];
+  const resources = new Map<string, unknown>();
   const ctx: PluginContext = {
     registerComponent: (name: string, schema: unknown) => {
       calls.push({ method: "registerComponent", args: [name, schema] });
@@ -22,14 +23,30 @@ function makeMockCtx(): { ctx: PluginContext; calls: { method: string; args: unk
       calls.push({ method: "allocateSABChannel", args: [name, size] });
       return { name, buffer: new SharedArrayBuffer(size) };
     },
-    registerResource: (name: string, value: unknown) => {
-      calls.push({ method: "registerResource", args: [name, value] });
+    provide: (token: any, value: unknown) => {
+      calls.push({ method: "provide", args: [token, value] });
+      resources.set(token.key, value);
+    },
+    inject: (token: any) => {
+      calls.push({ method: "inject", args: [token] });
+      return resources.get(token.key);
+    },
+    injectOptional: (token: any) => {
+      calls.push({ method: "injectOptional", args: [token] });
+      return resources.get(token.key);
     },
     registerMigration: (version: number, fn) => {
       calls.push({ method: "registerMigration", args: [version, fn] });
     },
     onDispose: (fn: () => void) => {
       calls.push({ method: "onDispose", args: [fn] });
+    },
+    devtools: {
+      registerPanel: () => {},
+      registerOverlayToggle: () => {},
+      registerDataFeed: () => {},
+      registerCommand: () => {},
+      registerSABStat: () => {},
     },
   };
   return { ctx, calls };

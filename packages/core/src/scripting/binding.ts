@@ -1,11 +1,11 @@
-import type { World } from "../ecs/world";
-import type { Entity } from "../ecs/entity";
 import type { ComponentId } from "../ecs/component";
 import { getComponentId } from "../ecs/component";
-import type { Stage, SystemFn } from "../ecs/system";
+import type { Entity } from "../ecs/entity";
 import type { Query } from "../ecs/query";
-import { query, queryExcluded, queryChanged } from "../ecs/query";
-import type { ScriptContext, ScriptHandle, ScriptModule } from "./script";
+import { query, queryChanged, queryExcluded } from "../ecs/query";
+import type { ResourceToken } from "../ecs/resource";
+import type { Stage, SystemFn } from "../ecs/system";
+import type { World } from "../ecs/world";
 
 export type { ScriptContext, ScriptHandle, ScriptModule } from "./script";
 
@@ -20,8 +20,8 @@ export interface ScriptBinding {
   hasComponent(entity: Entity, componentName: string): boolean;
   spawn(components: Map<string, unknown>): Entity;
   despawn(entity: Entity): void;
-  getResource<T>(name: string): T | undefined;
-  setResource<T>(name: string, value: T): void;
+  getResource<T>(token: ResourceToken<T>): T | undefined;
+  setResource<T>(token: ResourceToken<T>, value: T): void;
   sendEvent<T>(eventName: string, event: T): void;
   readEvents<T>(eventName: string): T[];
 }
@@ -108,12 +108,12 @@ export function createScriptBinding(
       world.despawn(entity);
     },
 
-    getResource<T>(name: string): T | undefined {
-      return world.getResource<T>(name);
+    getResource<T>(token: ResourceToken<T>): T | undefined {
+      return world.getResourceTyped<T>(token);
     },
 
-    setResource<T>(name: string, value: T): void {
-      world.setResource(name, value);
+    setResource<T>(token: ResourceToken<T>, value: T): void {
+      world.setResourceTyped(token, value);
     },
 
     sendEvent<T>(eventName: string, event: T): void {

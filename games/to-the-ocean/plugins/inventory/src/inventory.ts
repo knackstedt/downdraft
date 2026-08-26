@@ -1,5 +1,8 @@
-import { Component, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
+import { Component, resourceToken, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
 import { getItem } from "@to-the-ocean/library-items";
+
+/** Token for the day-duration resource (seconds per in-game day). */
+export const DayDurationTok = resourceToken<number>("dayDuration");
 
 export interface ItemStack {
   itemId: string;
@@ -342,7 +345,7 @@ export const GridInventory = Component.register("GridInventory", {
 // Spoilage system — runs each tick, decays perishable items
 const spoilageSystemFn = system("grid-spoilage", Stage.Update, (ctx) => {
   const dt = ctx.dt;
-  const dayDuration = ctx.world.getResource<number>("dayDuration") ?? 600;
+  const dayDuration = ctx.world.getResourceTyped(DayDurationTok) ?? 600;
   const gameHoursPerSecond = 24 / dayDuration;
 
   for (const arch of ctx.world.allArchetypes) {

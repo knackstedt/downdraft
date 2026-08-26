@@ -1,6 +1,10 @@
+import { resourceToken } from "../ecs/resource";
 import type { Stage, SystemFn } from "../ecs/system";
 import type { World } from "../ecs/world";
 import { confinePath } from "../safety/path";
+
+/** Token for the input resource exposed to scripts via `ctx.getInput()`. */
+export const InputResource = resourceToken<unknown>("input");
 
 export interface ScriptContext {
   world: World;
@@ -59,7 +63,7 @@ export class ScriptingSystem {
           queries: [],
         });
       },
-      getInput: () => this.world.getResource("input"),
+      getInput: () => this.world.getResourceTyped(InputResource),
       query: (entity: unknown) => entity,
     };
 

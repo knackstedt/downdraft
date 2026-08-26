@@ -4,7 +4,7 @@
 // via Transferable TypedArrays (zero-copy).
 // ============================================================================
 
-import { ChunkedVoxelField } from "@downdraft/plugin-marching-cubes";
+import { ChunkedVoxelField } from "@downdraft/library-marching-cubes";
 import { generateDecorationMesh, generateDecorations } from "@shared/island-decorations";
 import { extractMesh, extractMeshSubRegion } from "@shared/marching-cubes";
 import {

@@ -24,7 +24,7 @@ import {
     type Quat,
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
-import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/plugin-models";
+import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/library-models";
 
 import femaleFbxUrl from "../assets/Stylized Lowpoly Characters/mesh/LP_fe_mesh.fbx?url";
 import maleFbxUrl from "../assets/Stylized Lowpoly Characters/mesh/LP_male_mesh.fbx?url";
