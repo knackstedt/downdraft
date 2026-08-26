@@ -26,6 +26,8 @@ export { asyncFetchArrayBuffer, bufferCache, evictThumbnailCache, findBinForGLTF
 
 // Data bridge (non-abstract, data-feeds only) & base inspector & interfaces
 export { DevToolsDataBridge } from "./data-bridge";
+export { createDoctorPanelExtension } from "./doctor-panel";
+export type { DoctorPanelOptions } from "./doctor-panel";
 export { BaseSceneInspector } from "./scene-inspector";
 export { createSimStatsPanelExtension } from "./sim-stats-panel";
 export type { SimStatsPanelOptions } from "./sim-stats-panel";

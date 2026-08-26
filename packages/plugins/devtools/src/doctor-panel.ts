@@ -1,0 +1,143 @@
+// ============================================================================
+// downdraft doctor — devtools panel for plugin graph diagnostics
+//
+// Displays the resolved plugin graph, resource table, system schedule,
+// diagnostics (unresolved requires, version conflicts, leaks), and the
+// cross-thread dependency report (sim + renderer).
+// ============================================================================
+
+import type { CrossThreadReport, PluginThreadInfo } from "@downdraft/core";
+import type { IDevToolsPanelExtension } from "./types";
+
+export interface DoctorPanelOptions {
+  /** Snapshot provider for sim-side plugins. */
+  getSimPlugins?: () => PluginThreadInfo[];
+  /** Snapshot provider for renderer-side plugins. */
+  getRendererPlugins?: () => PluginThreadInfo[];
+  /** Snapshot provider for the cross-thread report (pre-built). */
+  getReport?: () => CrossThreadReport | null;
+}
+
+export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevToolsPanelExtension {
+  return {
+    id: "downdraft-doctor",
+    tabLabel: "Doctor",
+    tabTooltip: "Plugin graph diagnostics: resolved dependencies, resource table, version conflicts, leak detection",
+    order: 5,
+
+    html: `
+      <div class="dd-doctor">
+        <div class="dd-doctor__header">
+          <h2>downdraft doctor</h2>
+          <button class="dd-doctor__refresh">Refresh</button>
+        </div>
+        <div class="dd-doctor__summary"></div>
+        <div class="dd-doctor__plugins"></div>
+        <div class="dd-doctor__resources"></div>
+        <div class="dd-doctor__issues"></div>
+      </div>
+    `,
+
+    css: `
+      .dd-doctor { padding: 12px; font-family: monospace; font-size: 12px; color: #ccc; }
+      .dd-doctor h2 { margin: 0 0 8px; font-size: 16px; color: #4fc3f7; }
+      .dd-doctor__header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+      .dd-doctor__refresh { padding: 4px 12px; background: #333; color: #ccc; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+      .dd-doctor__refresh:hover { background: #444; }
+      .dd-doctor__summary { margin-bottom: 16px; padding: 8px; background: #1a1a2e; border-radius: 4px; }
+      .dd-doctor__summary div { margin: 2px 0; }
+      .dd-doctor__plugins h3, .dd-doctor__resources h3, .dd-doctor__issues h3 { color: #4fc3f7; margin: 12px 0 4px; font-size: 13px; }
+      .dd-doctor__table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+      .dd-doctor__table th { text-align: left; padding: 4px 8px; background: #1a1a2e; color: #888; font-weight: normal; }
+      .dd-doctor__table td { padding: 4px 8px; border-bottom: 1px solid #222; }
+      .dd-doctor__table .dd-thread-sim { color: #81c784; }
+      .dd-doctor__table .dd-thread-renderer { color: #64b5f6; }
+      .dd-doctor__table .dd-thread-shared { color: #ffb74d; }
+      .dd-doctor__issue { padding: 6px 8px; margin: 4px 0; border-radius: 4px; }
+      .dd-doctor__issue--error { background: #3e1e1e; color: #ef5350; }
+      .dd-doctor__issue--warning { background: #3e3a1e; color: #ffb74d; }
+      .dd-doctor__issue--ok { background: #1e3e2a; color: #81c784; }
+    `,
+
+    script: `(() => {
+      const helpers = arguments[0];
+      const container = helpers.container;
+      const opts = window.__ddDoctorOpts || {};
+      let refreshTimer = null;
+
+      function render() {
+        const simPlugins = opts.getSimPlugins ? opts.getSimPlugins() : [];
+        const rendererPlugins = opts.getRendererPlugins ? opts.getRendererPlugins() : [];
+        let report = opts.getReport ? opts.getReport() : null;
+        if (!report && (simPlugins.length || rendererPlugins.length)) {
+          // Build report inline if no pre-built report provider
+          const { buildCrossThreadReport } = window.__ddCrossThread || {};
+          if (buildCrossThreadReport) {
+            report = buildCrossThreadReport(simPlugins, rendererPlugins);
+          }
+        }
+        if (!report) {
+          report = { plugins: [...simPlugins, ...rendererPlugins], unresolved: [], shared: [], versionConflicts: [] };
+        }
+
+        // Summary
+        const summary = container.querySelector('.dd-doctor__summary');
+        const simCount = report.plugins.filter(p => p.thread === 'sim').length;
+        const rendererCount = report.plugins.filter(p => p.thread === 'renderer').length;
+        const sharedCount = report.shared.length;
+        const unresolvedCount = report.unresolved.length;
+        const conflictCount = report.versionConflicts.length;
+        summary.innerHTML = [
+          '<div>Sim plugins: <b>' + simCount + '</b></div>',
+          '<div>Renderer plugins: <b>' + rendererCount + '</b></div>',
+          '<div>Shared resources: <b>' + sharedCount + '</b></div>',
+          '<div>Unresolved requires: <b style="color:' + (unresolvedCount ? '#ef5350' : '#81c784') + '">' + unresolvedCount + '</b></div>',
+          '<div>Version conflicts: <b style="color:' + (conflictCount ? '#ef5350' : '#81c784') + '">' + conflictCount + '</b></div>',
+        ].join('');
+
+        // Plugins table
+        const pluginsDiv = container.querySelector('.dd-doctor__plugins');
+        if (report.plugins.length === 0) {
+          pluginsDiv.innerHTML = '<h3>Plugins</h3><p>No plugins registered.</p>';
+        } else {
+          let html = '<h3>Plugins (' + report.plugins.length + ')</h3>';
+          html += '<table class="dd-doctor__table"><thead><tr><th>Name</th><th>Version</th><th>Thread</th><th>Provides</th><th>Requires</th><th>Status</th></tr></thead><tbody>';
+          for (const p of report.plugins) {
+            const threadClass = 'dd-thread-' + p.thread;
+            html += '<tr><td>' + p.name + '</td><td>' + p.version + '</td><td class="' + threadClass + '">' + p.thread + '</td><td>' + (p.provides.join(', ') || '—') + '</td><td>' + (p.requires.join(', ') || '—') + '</td><td>' + (p.active ? '✓ active' : 'inactive') + '</td></tr>';
+          }
+          html += '</tbody></table>';
+          pluginsDiv.innerHTML = html;
+        }
+
+        // Issues
+        const issuesDiv = container.querySelector('.dd-doctor__issues');
+        let issuesHtml = '<h3>Diagnostics</h3>';
+        if (report.unresolved.length > 0) {
+          issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--error">Unresolved requires: ' + report.unresolved.join(', ') + '</div>';
+        }
+        if (report.versionConflicts.length > 0) {
+          for (const vc of report.versionConflicts) {
+            issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--error">Version conflict: ' + vc.name + ' (sim=' + vc.simVersion + ', renderer=' + vc.rendererVersion + ')</div>';
+          }
+        }
+        if (report.shared.length > 0) {
+          issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--ok">Shared resources: ' + report.shared.join(', ') + '</div>';
+        }
+        if (report.unresolved.length === 0 && report.versionConflicts.length === 0) {
+          issuesHtml += '<div class="dd-doctor__issue dd-doctor__issue--ok">✓ No issues detected</div>';
+        }
+        issuesDiv.innerHTML = issuesHtml;
+      }
+
+      container.querySelector('.dd-doctor__refresh').addEventListener('click', render);
+      render();
+
+      return {
+        onActivate() { refreshTimer = setInterval(render, 2000); },
+        onDeactivate() { if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; } },
+        onDestroy() { if (refreshTimer) clearInterval(refreshTimer); }
+      };
+    })`,
+  };
+}

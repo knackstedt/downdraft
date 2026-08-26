@@ -1,6 +1,8 @@
 // Plugin sub-barrel — re-exports all plugin-related items.
 export { createABIVTable, WASM_ABI_VERSION } from "./abi";
 export type { ABIVTable } from "./abi";
+export { crossThreadToken, buildCrossThreadReport } from "./cross-thread";
+export type { CrossThreadReport, CrossThreadToken, PluginThreadInfo, ThreadTag } from "./cross-thread";
 export { DiagnosticError, isStrict, setStrict } from "./diagnostics";
 export { PluginHost } from "./host";
 export type { Plugin, PluginContext, PluginDevToolsAPI, SABChannel } from "./plugin";
