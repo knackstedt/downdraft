@@ -125,6 +125,30 @@
       "@downdraft/plugin-devtools/*": [
         "./packages/plugins/devtools/src/*"
       ],
+      "@downdraft/plugin-terrain": [
+        "./packages/plugins/terrain/src/index.ts"
+      ],
+      "@downdraft/plugin-terrain/*": [
+        "./packages/plugins/terrain/src/*"
+      ],
+      "@downdraft/plugin-movement-3d": [
+        "./packages/plugins/movement-3d/src/index.ts"
+      ],
+      "@downdraft/plugin-movement-3d/*": [
+        "./packages/plugins/movement-3d/src/*"
+      ],
+      "@downdraft/plugin-movement-2d": [
+        "./packages/plugins/movement-2d/src/index.ts"
+      ],
+      "@downdraft/plugin-movement-2d/*": [
+        "./packages/plugins/movement-2d/src/*"
+      ],
+      "@downdraft/plugin-sailing": [
+        "./packages/plugins/sailing/src/index.ts"
+      ],
+      "@downdraft/plugin-sailing/*": [
+        "./packages/plugins/sailing/src/*"
+      ],
       "@downdraft/library-marching-cubes": [
         "./packages/libraries/marching-cubes/src/index.ts"
       ],
