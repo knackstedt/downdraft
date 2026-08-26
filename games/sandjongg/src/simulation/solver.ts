@@ -71,7 +71,11 @@ function solveGreedy(board: TileBoard, ctx: SolveCtx): boolean {
   return false;
 }
 
-/** Find all valid matchable pairs among selectable tiles. */
+/** Find all valid matchable pairs among selectable tiles.
+ *
+ *  Sandjongg mode: same-layer selectable tiles connected by a ≤2-turn path.
+ *  Mahjongg mode: any two free tiles sharing an element (cross-layer allowed,
+ *  no path constraint). */
 function findAllPairs(board: TileBoard): [Tile, Tile][] {
   // Only selectable tiles can be matched.
   const tiles = board.selectableTiles();
@@ -89,11 +93,17 @@ function findAllPairs(board: TileBoard): [Tile, Tile][] {
   for (const group of byElement.values()) {
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
-        // Only same-layer tiles can be matched (pathfinding is per-layer).
-        if (group[i].layer !== group[j].layer) continue;
-        const path = findPath(board, group[i].col, group[i].row, group[j].col, group[j].row, group[i].layer);
-        if (path !== null) {
+        if (board.mode === "mahjongg") {
+          // Classic Mahjongg: any two free tiles of the same element match.
           pairs.push([group[i], group[j]]);
+        } else {
+          // Sandjongg: only same-layer tiles can be matched (pathfinding is
+          // per-layer), and they must be connectable by a ≤2-turn path.
+          if (group[i].layer !== group[j].layer) continue;
+          const path = findPath(board, group[i].col, group[i].row, group[j].col, group[j].row, group[i].layer);
+          if (path !== null) {
+            pairs.push([group[i], group[j]]);
+          }
         }
       }
     }
@@ -151,6 +161,13 @@ export function findHint(board: TileBoard): Hint | null {
   for (const group of byElement.values()) {
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
+        if (board.mode === "mahjongg") {
+          return {
+            a: { col: group[i].col, row: group[i].row, layer: group[i].layer },
+            b: { col: group[j].col, row: group[j].row, layer: group[j].layer },
+            element: group[i].element,
+          };
+        }
         if (group[i].layer !== group[j].layer) continue;
         const path = findPath(board, group[i].col, group[i].row, group[j].col, group[j].row, group[i].layer);
         if (path !== null) {

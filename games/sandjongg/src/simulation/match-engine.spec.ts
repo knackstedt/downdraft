@@ -179,4 +179,44 @@ describe("match-engine", () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("different-layer");
   });
+
+  // --- Mahjongg mode: free-tile matching, cross-layer allowed, no path ---
+
+  it("mahjongg: two free same-element tiles match without a connect path", () => {
+    const b = new TileBoard(6, 6, 1, "mahjongg");
+    // Place a wall of unique elements between the pair so no Shisen-Sho path
+    // exists — Mahjongg matching ignores paths and should still succeed.
+    b.place(0, 0, 0, 0);
+    b.place(1, 0, 1, 0);
+    b.place(2, 0, 2, 0);
+    b.place(3, 0, 3, 0);
+    b.place(4, 0, 4, 0);
+    b.place(5, 0, 0, 0); // same element as (0,0), both edge tiles → free
+    const state = resetComboState();
+    const result = attemptMatch(b, 0, 0, 0, 5, 0, 0, state, 1000, ORIGIN_COL, ORIGIN_ROW);
+    expect(result.ok).toBe(true);
+    expect(result.path).not.toBeNull();
+    expect(b.at(0, 0, 0)).toBeNull();
+    expect(b.at(5, 0, 0)).toBeNull();
+  });
+
+  it("mahjongg: cross-layer match is allowed when both tiles are free", () => {
+    const b = new TileBoard(6, 6, 2, "mahjongg");
+    b.place(0, 0, 0, 0); // layer 0, left edge → free
+    b.place(5, 0, 0, 1); // layer 1, right edge, nothing on top → free
+    const state = resetComboState();
+    const result = attemptMatch(b, 0, 0, 0, 5, 0, 1, state, 1000, ORIGIN_COL, ORIGIN_ROW);
+    expect(result.ok).toBe(true);
+  });
+
+  it("mahjongg: covered tile is not selectable", () => {
+    const b = new TileBoard(6, 6, 2, "mahjongg");
+    b.place(0, 0, 0, 0);
+    b.place(0, 0, 1, 1); // covers (0,0,0)
+    b.place(5, 0, 0, 0);
+    const state = resetComboState();
+    const result = attemptMatch(b, 0, 0, 0, 5, 0, 0, state, 1000, ORIGIN_COL, ORIGIN_ROW);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("not-selectable");
+  });
 });

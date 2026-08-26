@@ -36,7 +36,7 @@ import {
     STATS,
     SimBufferWriter,
 } from "../shared/sim-buffer";
-import type { SerializedBoard } from "../shared/types";
+import type { GameMode, SerializedBoard } from "../shared/types";
 import { TileBoard } from "./board";
 import { generateLevel } from "./level-generator";
 import { attemptMatch, resetComboState, type MatchEngineState } from "./match-engine";
@@ -119,6 +119,8 @@ let noAdjacentSame = false;
 // customCols/customRows: when > 0, override level-based board dimensions.
 let customCols = 0;
 let customRows = 0;
+// Game mode — drives board generation + selectability + matching rules.
+let mode: GameMode = "sandjongg";
 
 // Game state.
 let level = 1;
@@ -315,6 +317,9 @@ createSimWorker({
     /** Restore a serialized board state (for loading a save). */
     loadBoardState(data: SerializedBoard): void {
       board = TileBoard.deserialize(data);
+      // Sync local mode from the restored board so subsequent generation +
+      // matching use the saved mode.
+      mode = board.mode;
       boardCols = board.cols;
       boardRows = board.rows;
       // Recompute board origin within the sand grid.
@@ -361,6 +366,14 @@ createSimWorker({
       customRows = Math.max(0, Math.floor(rows));
     },
 
+    /** Set the game mode. Applied to the live board immediately and used for
+     *  the next generated level. The renderer triggers a new game after
+     *  calling this so the board is regenerated in the new mode. */
+    setMode(newMode: GameMode): void {
+      mode = newMode;
+      if (board) board.mode = newMode;
+    },
+
     /** Spawn sand at an exact sand-grid rect (driven by the renderer, which
      *  knows the tile's on-screen position at match time). This replaces the
      *  old crumble-event approach that computed positions from a generic layout
@@ -401,6 +414,7 @@ function startLevel(levelNum: number, seed: number): void {
     noAdjacentSame,
     cols: customCols,
     rows: customRows,
+    mode,
   });
   board = result.board;
   boardCols = board.cols;

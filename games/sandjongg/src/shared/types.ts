@@ -4,6 +4,15 @@
 
 import type { BoardShape } from "./constants";
 
+/** Game mode.
+ *  - "sandjongg": Shisen-Sho connect (≤2 turns) + falling-sand pit. Per-layer
+ *    top-down lock — only the highest occupied layer is playable.
+ *  - "mahjongg": Classic Mahjongg Solitaire. A tile is "free" when nothing
+ *    stacks on top of it and at least one horizontal neighbour is empty.
+ *    Same-element free pairs match (no connect path); cross-layer matches
+ *    are allowed. */
+export type GameMode = "sandjongg" | "mahjongg";
+
 /** A tile on the board. */
 export interface Tile {
   /** Unique id within the board (used for tracking). */
@@ -101,6 +110,8 @@ export interface LevelSpec {
   layers: number;
   /** Number of tiles placed. */
   tileCount: number;
+  /** Game mode this level was generated for. */
+  mode?: GameMode;
 }
 
 /** Serialized board for saves. */
@@ -113,6 +124,8 @@ export interface SerializedBoard {
    *  Indexed as tiles[(col + row*cols) * maxLayers + layer]. */
   tiles: number[];
   nextId: number;
+  /** Game mode the board was generated for (defaults to "sandjongg"). */
+  mode?: GameMode;
 }
 
 /** Hint result: a valid pair to match. */

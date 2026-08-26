@@ -380,3 +380,236 @@ canvas {
   from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* --- Mode badge in the top HUD --- */
+.sandjongg-mode-badge .value {
+  font-size: 13px;
+  color: #b06bff;
+}
+
+/* --- Pause button (top-right corner) --- */
+.sandjongg-pause-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 15, 30, 0.85);
+  border: 1px solid rgba(100, 100, 200, 0.4);
+  border-radius: 8px;
+  color: #e8e8f0;
+  font-size: 18px;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 130;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.sandjongg-pause-btn:hover {
+  background: rgba(60, 60, 100, 0.9);
+  border-color: rgba(150, 150, 255, 0.6);
+}
+
+/* --- Main menu (mode select) --- */
+.sandjongg-mainmenu {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(20, 18, 40, 0.92), rgba(8, 8, 16, 0.98));
+  pointer-events: auto;
+  z-index: 300;
+  backdrop-filter: blur(6px);
+}
+
+.sandjongg-mainmenu-content {
+  width: min(880px, 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.sandjongg-mainmenu-title {
+  margin: 0;
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #ffcc44;
+  text-shadow: 0 0 24px rgba(255, 204, 68, 0.35);
+}
+
+.sandjongg-mainmenu-subtitle {
+  margin: 0 0 20px;
+  font-size: 15px;
+  color: #9999bb;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.sandjongg-mainmenu-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  width: 100%;
+}
+
+.sandjongg-mainmenu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 24px;
+  background: rgba(22, 22, 44, 0.85);
+  border: 1px solid rgba(100, 100, 200, 0.35);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+}
+
+.sandjongg-mainmenu-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sandjongg-mainmenu-card-name {
+  font-size: 24px;
+  font-weight: 700;
+  color: #e8e8f0;
+}
+
+.sandjongg-mainmenu-card-tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #b06bff;
+}
+
+.sandjongg-mainmenu-card-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #ccccee;
+  flex: 1;
+}
+
+.sandjongg-mainmenu-card-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.sandjongg-mainmenu-btn {
+  padding: 9px 18px;
+  background: rgba(40, 40, 70, 0.8);
+  border: 1px solid rgba(100, 100, 200, 0.4);
+  border-radius: 6px;
+  color: #e8e8f0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.sandjongg-mainmenu-btn:hover {
+  background: rgba(60, 60, 100, 0.9);
+  border-color: rgba(150, 150, 255, 0.6);
+}
+
+.sandjongg-mainmenu-btn.primary {
+  background: rgba(90, 60, 130, 0.95);
+  border-color: rgba(180, 130, 255, 0.8);
+  color: #f0e8ff;
+}
+
+.sandjongg-mainmenu-btn.primary:hover {
+  background: rgba(110, 80, 160, 1);
+}
+
+/* --- Pause menu overlay --- */
+.sandjongg-pause-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  pointer-events: auto;
+  z-index: 280;
+  backdrop-filter: blur(6px);
+}
+
+.sandjongg-pause-content {
+  width: min(360px, 90vw);
+  padding: 24px 28px;
+  background: rgba(20, 20, 40, 0.95);
+  border: 1px solid rgba(100, 100, 200, 0.4);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.sandjongg-pause-content h2 {
+  margin: 0 0 16px;
+  font-size: 24px;
+  color: #ffcc44;
+}
+
+.sandjongg-pause-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sandjongg-pause-actions button {
+  padding: 10px 16px;
+  background: rgba(40, 40, 70, 0.8);
+  border: 1px solid rgba(100, 100, 200, 0.4);
+  border-radius: 6px;
+  color: #e8e8f0;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.sandjongg-pause-actions button:hover {
+  background: rgba(60, 60, 100, 0.9);
+  border-color: rgba(150, 150, 255, 0.6);
+}
+
+.sandjongg-pause-actions button.sandjongg-btn-active {
+  background: rgba(90, 60, 130, 0.95);
+  border-color: rgba(180, 130, 255, 0.8);
+  color: #f0e8ff;
+}
+
+.sandjongg-pause-actions button.primary {
+  background: rgba(90, 60, 130, 0.95);
+  border-color: rgba(180, 130, 255, 0.8);
+  color: #f0e8ff;
+}
+
+.sandjongg-pause-actions button.primary:hover {
+  background: rgba(110, 80, 160, 1);
+}
+
+.sandjongg-pause-mainmenu {
+  margin-top: 6px;
+  border-color: rgba(200, 80, 80, 0.5) !important;
+  color: #ffb0b0 !important;
+}
+
+.sandjongg-pause-mainmenu:hover {
+  background: rgba(80, 40, 50, 0.9) !important;
+}
+
+.sandjongg-pause-mode {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: #8888aa;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+

@@ -4,7 +4,7 @@
 
 import { BaseWorkerHost } from "@downdraft/core";
 import { allocateSimBuffer, INPUT, OFFSETS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
-import type { SerializedBoard } from "../shared/types";
+import type { GameMode, SerializedBoard } from "../shared/types";
 
 type SandjonggWorkerApi = {
   init(sab: SharedArrayBuffer, gridW: number, gridH: number): Promise<void>;
@@ -25,6 +25,7 @@ type SandjonggWorkerApi = {
   setBoardLayout(originCol: number, originRow: number, tileW: number, tileH: number): Promise<void>;
   setNoAdjacentSame(enabled: boolean): Promise<void>;
   setCustomDims(cols: number, rows: number): Promise<void>;
+  setMode(mode: GameMode): Promise<void>;
   spawnSand(sandCol: number, sandRow: number, sandW: number, sandH: number, element: number): Promise<void>;
 };
 
@@ -163,6 +164,10 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
 
   setCustomDims(cols: number, rows: number): void {
     this.getProxy()?.proxy.setCustomDims(cols, rows).catch(() => {});
+  }
+
+  setMode(mode: GameMode): void {
+    this.getProxy()?.proxy.setMode(mode).catch(() => {});
   }
 
   /** Spawn sand at an exact sand-grid rect (driven by the renderer at match

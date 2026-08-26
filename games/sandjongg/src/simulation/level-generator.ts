@@ -9,7 +9,7 @@
 
 import { ALL_SHAPES, type BoardShape, MAX_COLS, MAX_LAYERS, MAX_ROWS } from "../shared/constants";
 import { NUM_ELEMENTS } from "../shared/elements";
-import type { LevelSpec } from "../shared/types";
+import type { GameMode, LevelSpec } from "../shared/types";
 import { TileBoard } from "./board";
 import { findPath } from "./pathfinding";
 import { isSolvable } from "./solver";
@@ -126,26 +126,34 @@ export interface GenerateLevelOptions {
   cols?: number;
   /** Override board rows (0 = use level-based scaling). */
   rows?: number;
+  /** Game mode — drives generation strategy. Defaults to "sandjongg". */
+  mode?: GameMode;
 }
 
 /**
- * Generate a solvable board for a given level using reverse construction.
+ * Generate a solvable board for a given level.
  *
- * Reverse construction: start with an empty board of the shape, then repeatedly
- * pick two random empty cells that are connectable (findPath succeeds) and place
- * a pair of a random element. This guarantees the board is solvable in forward
- * play because every pair was placed at a connectable position.
+ * Sandjongg mode uses reverse construction: start with an empty board of the
+ * shape, then repeatedly pick two random empty cells that are connectable
+ * (findPath succeeds) and place a pair of a random element. This guarantees
+ * the board is solvable in forward play because every pair was placed at a
+ * connectable position.
+ *
+ * Mahjongg mode uses random pair assignment over a layered pyramid layout,
+ * then verifies solvability with the (path-free) Mahjongg solver, retrying
+ * with re-shuffles until a solvable deal is found.
  *
  * If the shape has an odd number of cells, the last cell is left empty.
- * If reverse construction stalls (no connectable pair found for remaining
- * cells), we fall back to verifying with isSolvable and regenerating with a
- * different seed if needed.
  */
 export function generateLevel(
   level: number,
   seed: number,
   opts: GenerateLevelOptions = {},
 ): { board: TileBoard; spec: LevelSpec } {
+  const mode: GameMode = opts.mode ?? "sandjongg";
+  if (mode === "mahjongg") {
+    return generateMahjonggLevel(level, seed, opts);
+  }
   const maxAttempts = 20;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const rng = makeRng(seed + attempt * 0x9e3779b9);
@@ -367,6 +375,131 @@ function shuffleIndices(n: number, rng: () => number): number[] {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+// ============================================================================
+// Mahjongg (classic layered solitaire) generation.
+//
+// A layered pyramid layout is built from the shape mask (layer 0 = full shape,
+// each higher layer inset by one cell per side). Element pairs are dealt
+// randomly across the layout positions, then solvability is verified with the
+// path-free Mahjongg solver. We retry with re-shuffles (and fresh seeds) until
+// a solvable deal is found.
+// ============================================================================
+
+/** Build the layered layout — list of (col,row,layer) positions — for a
+ *  Mahjongg board. Higher layers are inset pyramids so lower-layer tiles have
+ *  exposed horizontal sides (required by the free-tile rule). */
+function buildMahjonggLayout(
+  shape: BoardShape,
+  cols: number,
+  rows: number,
+  numLayers: number,
+): { col: number; row: number; layer: number }[] {
+  const mask = shapeMask(shape, cols, rows);
+  const positions: { col: number; row: number; layer: number }[] = [];
+  for (let layer = 0; layer < numLayers; layer++) {
+    const inset = layer;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (!mask[c + r * cols]) continue;
+        // Inset: keep only cells fully surrounded by `inset` ring of shape.
+        if (inset > 0) {
+          let ok = true;
+          for (let dy = -inset; dy <= inset && ok; dy++) {
+            for (let dx = -inset; dx <= inset && ok; dx++) {
+              if (Math.abs(dx) + Math.abs(dy) <= inset) {
+                const nc = c + dx, nr = r + dy;
+                if (nc < 0 || nc >= cols || nr < 0 || nr >= rows || !mask[nc + nr * cols]) ok = false;
+              }
+            }
+          }
+          if (!ok) continue;
+        }
+        positions.push({ col: c, row: r, layer });
+      }
+    }
+  }
+  return positions;
+}
+
+function generateMahjonggLevel(
+  level: number,
+  seed: number,
+  opts: GenerateLevelOptions,
+): { board: TileBoard; spec: LevelSpec } {
+  const shape = levelShape(level);
+  const dims = (opts.cols && opts.cols > 0 && opts.rows && opts.rows > 0)
+    ? { cols: opts.cols, rows: opts.rows }
+    : levelDims(level);
+  const cols = Math.min(MAX_COLS, dims.cols);
+  const rows = Math.min(MAX_ROWS, dims.rows);
+  // Mahjongg feels best with more layers; use the level-based layer count but
+  // at least 2 so the stacking/free-tile rule is meaningful.
+  const numLayers = Math.max(2, levelLayers(level));
+  const noAdjacent = !!opts.noAdjacentSame;
+
+  const layout = buildMahjonggLayout(shape, cols, rows, numLayers);
+  // Even number of tiles — drop the last position if odd.
+  const usable = layout.length % 2 === 0 ? layout : layout.slice(0, layout.length - 1);
+  if (usable.length < 2) {
+    // Layout too small — fall back to a flat rectangle.
+    const board = new TileBoard(cols, rows, 1, "mahjongg");
+    return { board, spec: { level, shape, cols, rows, layers: 1, tileCount: 0, mode: "mahjongg" } };
+  }
+
+  const maxSeedAttempts = 20;
+  const maxShuffleAttempts = 12;
+  for (let seedAttempt = 0; seedAttempt < maxSeedAttempts; seedAttempt++) {
+    const rng = makeRng(seed + seedAttempt * 0x9e3779b9);
+    for (let shuffleAttempt = 0; shuffleAttempt < maxShuffleAttempts; shuffleAttempt++) {
+      const board = new TileBoard(cols, rows, numLayers, "mahjongg");
+      // Deal pairs: pick an element for each pair of positions.
+      const posOrder = shuffleIndices(usable.length, rng);
+      for (let i = 0; i + 1 < posOrder.length; i += 2) {
+        const p1 = usable[posOrder[i]];
+        const p2 = usable[posOrder[i + 1]];
+        let element = Math.floor(rng() * NUM_ELEMENTS);
+        if (noAdjacent) {
+          const order = shuffleIndices(NUM_ELEMENTS, rng);
+          let chosen = -1;
+          for (const el of order) {
+            if (!hasAdjacentSame(board, p1.col, p1.row, p1.layer, el) &&
+                !hasAdjacentSame(board, p2.col, p2.row, p2.layer, el)) {
+              chosen = el;
+              break;
+            }
+          }
+          element = chosen >= 0 ? chosen : element;
+        }
+        board.place(p1.col, p1.row, element, p1.layer);
+        board.place(p2.col, p2.row, element, p2.layer);
+      }
+
+      // Verify solvability. The Mahjongg solver is path-free so we can afford
+      // to check larger boards than the sandjongg verifier.
+      if (isSolvable(board)) {
+        let placed = 0;
+        for (let l = 0; l < numLayers; l++) {
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              if (board.at(c, r, l) !== null) placed++;
+            }
+          }
+        }
+        return { board, spec: { level, shape, cols, rows, layers: numLayers, tileCount: placed, mode: "mahjongg" } };
+      }
+    }
+  }
+
+  // Fallback: a small flat rectangle dealt as pairs (guaranteed solvable for a
+  // 2-tile board). Keep mode = mahjongg so the rules still apply.
+  const fbCols = Math.min(cols, 8);
+  const fbRows = Math.min(rows, 6);
+  const fb = new TileBoard(fbCols, fbRows, 1, "mahjongg");
+  fb.place(0, 0, 0, 0);
+  fb.place(fbCols - 1, 0, 0, 0);
+  return { board: fb, spec: { level, shape: "rectangle", cols: fbCols, rows: fbRows, layers: 1, tileCount: 2, mode: "mahjongg" } };
 }
 
 /**
