@@ -192,8 +192,8 @@ export class SandjonggRenderer extends GameRenderer {
         const first = pts[0];
         const last = pts[pts.length - 1];
         this.tilePass.state.crumbleAnims.push(
-          { col: first.col, row: first.row, element: el, startTime: performance.now() },
-          { col: last.col, row: last.row, element: el, startTime: performance.now() },
+          { col: first.col, row: first.row, layer: first.layer ?? 0, element: el, startTime: performance.now() },
+          { col: last.col, row: last.row, layer: last.layer ?? 0, element: el, startTime: performance.now() },
         );
         // Spawn sand at the exact on-screen rect of each matched tile. The
         // renderer knows the precise pixel position (including per-layer 3D
@@ -212,6 +212,7 @@ export class SandjonggRenderer extends GameRenderer {
         this.tilePass.state.scoreAnims.push({
           col: midPt.col,
           row: midPt.row,
+          layer: midPt.layer ?? 0,
           score: d.score,
           combo: d.combo,
           startTime: now,

@@ -26,11 +26,11 @@ export interface TileCanvasState {
   /** Active path animation (fades over time). */
   pathAnim: { path: Path; startTime: number; element: number } | null;
   /** Active crumble animations. */
-  crumbleAnims: { col: number; row: number; element: number; startTime: number }[];
+  crumbleAnims: { col: number; row: number; layer: number; element: number; startTime: number }[];
   /** Active failed-match animations (red flash). */
   failAnims: { col: number; row: number; layer: number; startTime: number }[];
   /** Floating "+score" popups at match midpoints (rise + fade). */
-  scoreAnims: { col: number; row: number; score: number; combo: number; startTime: number }[];
+  scoreAnims: { col: number; row: number; layer: number; score: number; combo: number; startTime: number }[];
   /** Debug mode: the tile currently being inspected (highlighted on canvas). */
   debugTile: { col: number; row: number; layer: number } | null;
 }
@@ -380,6 +380,10 @@ export class TileCanvasPass {
       if (elapsed < duration) {
         const alpha = 1 - elapsed / duration;
         const points = pathAnim.path.points;
+        // All path points share the same layer (pathfinding is per-layer);
+        // offset the entire path by that layer's up-left stack offset.
+        const pathLayer = points[0]?.layer ?? 0;
+        const layerOff = pathLayer * layerOffset;
         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.lineWidth = 4;
         ctx.shadowColor = getElement(pathAnim.element).color;
@@ -387,8 +391,8 @@ export class TileCanvasPass {
         ctx.beginPath();
         for (let i = 0; i < points.length; i++) {
           const p = this.tileToPixel(points[i].col, points[i].row);
-          if (i === 0) ctx.moveTo(p.x, p.y);
-          else ctx.lineTo(p.x, p.y);
+          if (i === 0) ctx.moveTo(p.x - layerOff, p.y - layerOff);
+          else ctx.lineTo(p.x - layerOff, p.y - layerOff);
         }
         ctx.stroke();
         ctx.shadowBlur = 0;
@@ -401,8 +405,9 @@ export class TileCanvasPass {
       const duration = 400;
       if (elapsed >= duration) return false;
       const alpha = 1 - elapsed / duration;
-      const x = this.boardOffsetX + a.col * this.tilePx;
-      const y = this.boardOffsetY + a.row * this.tilePx;
+      const offset = a.layer * layerOffset;
+      const x = this.boardOffsetX + a.col * this.tilePx - offset;
+      const y = this.boardOffsetY + a.row * this.tilePx - offset;
       const size = this.tilePx - 2;
       ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
       ctx.beginPath();
@@ -440,11 +445,12 @@ export class TileCanvasPass {
       if (elapsed >= duration) return false;
       const t = elapsed / duration;
       const alpha = 1 - t;
+      const layerOff = a.layer * layerOffset;
       const p = this.tileToPixel(a.col, a.row);
       // Rise by ~1.5 tiles over the animation.
       const rise = this.tilePx * 1.5 * t;
-      const cx = p.x;
-      const cy = p.y - rise;
+      const cx = p.x - layerOff;
+      const cy = p.y - layerOff - rise;
       const big = a.combo > 1;
       ctx.save();
       ctx.globalAlpha = alpha;
