@@ -105,11 +105,16 @@ export class SimWebWorker implements IHotReloadable, ISimWorker {
   private unsubEvents: (() => void) | null = null;
   private ready: boolean = false;
 
-  constructor() {
+  /**
+   * @param externalBuffers Optional pre-allocated SABs (e.g. from EngineLibrary
+   *   descriptors). If provided, the worker uses these instead of allocating
+   *   its own. Keys: "water", "boat" (sim/input are always self-allocated).
+   */
+  constructor(externalBuffers?: { water?: SharedArrayBuffer; boat?: SharedArrayBuffer }) {
     this.simBuffer = allocateSimBuffer();
     this.inputBuffer = allocateInputBuffer();
-    this.waterBuffer = WaterChannel.allocate();
-    this.boatBuffer = allocateBoatBuffer();
+    this.waterBuffer = externalBuffers?.water ?? WaterChannel.allocate();
+    this.boatBuffer = externalBuffers?.boat ?? allocateBoatBuffer();
   }
 
   getSimBuffer(): SharedArrayBuffer { return this.simBuffer; }

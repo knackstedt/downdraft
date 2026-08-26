@@ -57,8 +57,16 @@ export interface GameSimWorker {
   getDevToolsProxy?(): unknown;
 }
 
-/** Factory that creates a sim worker. Receives the typed GameContext seed. */
-export type SimWorkerFactory<T extends GameSimWorker = GameSimWorker> = () => T;
+/** Optional seed passed to the sim worker factory. */
+export interface SimWorkerSeed {
+  /** SABs allocated by EngineLibrary descriptors (keyed by channel name). */
+  libraryBuffers?: Record<string, SharedArrayBuffer>;
+}
+
+/** Factory that creates a sim worker. Receives a seed with library-allocated
+ *  SABs (if any libraries declared). Games can pass these to their sim worker
+ *  constructor to avoid double-allocating SABs. */
+export type SimWorkerFactory<T extends GameSimWorker = GameSimWorker> = (seed?: SimWorkerSeed) => T;
 
 /** Factory that creates the renderer from a canvas element. */
 export type RendererFactory = (canvas: HTMLCanvasElement) => any;
@@ -246,9 +254,20 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   const canvas = getCanvas(module.canvasLayer ?? 0);
   const overlay = getOverlay(module.overlayLayer ?? 0);
 
-  // 1. Create sim worker + capture SABs (before renderer so event routing
-  //    is wired before sim.start())
-  const simWorker = module.sim();
+  // 0b. Allocate library SABs (if any libraries declared) — before sim worker
+  //     creation so the sim factory can receive externally-allocated SABs.
+  let libHost: any = null;
+  let libBuffers: Record<string, SharedArrayBuffer> = {};
+  if (module.libraries && module.libraries.length > 0) {
+    const { LibraryHostImpl } = await import("@downdraft/core");
+    libHost = new LibraryHostImpl(module.libraries);
+    libBuffers = libHost.allocateBuffers();
+  }
+
+  // 1. Create sim worker + capture SABs. If libraries declared, pass the
+  //    library-allocated SABs to the sim factory via a seed object.
+  const simSeed = Object.keys(libBuffers).length > 0 ? { libraryBuffers: libBuffers } : undefined;
+  const simWorker = module.sim(simSeed as any);
   const simSAB = simWorker.getSimBuffer();
   const inputSAB = simWorker.getInputBuffer();
   const extraBuffers = simWorker.getExtraBuffers?.() ?? {};
@@ -272,16 +291,11 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     isDev,
   };
 
-  // 3b. Allocate library SABs and merge into extraBuffers (if libraries declared)
-  if (module.libraries && module.libraries.length > 0) {
-    const { LibraryHostImpl } = await import("@downdraft/core");
-    const libHost = new LibraryHostImpl(module.libraries);
-    const libBuffers = libHost.allocateBuffers();
-    // Merge library SABs into extraBuffers so they're available via ctx
+  // 3b. Merge library SABs into extraBuffers + store host on ctx
+  if (libHost) {
     for (const [name, sab] of Object.entries(libBuffers)) {
       ctx.extraBuffers[name] = sab;
     }
-    // Store the host on ctx for the game's onReady hook to access
     (ctx as any).libraryHost = libHost;
   }
 

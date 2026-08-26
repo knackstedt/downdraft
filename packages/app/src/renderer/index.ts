@@ -92,7 +92,8 @@ export type {
     GameSimWorker,
     RendererFactory,
     SimEventMap,
-    SimWorkerFactory
+    SimWorkerFactory,
+    SimWorkerSeed
 } from "./game-module";
 export { useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
 
