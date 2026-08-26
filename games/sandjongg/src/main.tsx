@@ -102,12 +102,14 @@ bootstrapGame({
       const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
       const board = await renderer.getWorkerHost()?.getBoardState();
       if (s.highScore > 0) saveHighScore(s.highScore);
-      await autosave(gridW, gridH, grid, fields, {
+      await autosave({
+        gridW, gridH, grid, fields,
         score: s.score,
         level: s.level,
         combo: s.combo,
         highScore: s.highScore,
-      }, board ?? null);
+        board: board ?? null,
+      });
     },
     onLoad: async (saved) => {
       const renderer = useGameStore.getState().renderer;

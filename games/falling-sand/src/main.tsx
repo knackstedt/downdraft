@@ -89,7 +89,7 @@ bootstrapGame({
       const renderer = useGameStore.getState().renderer;
       if (!renderer) return;
       const { grids, fields, gridW, gridH } = renderer.snapshotGrids();
-      await autosave(gridW, gridH, grids, fields);
+      await autosave({ gridW, gridH, grids, fields });
     },
     onLoad: async (saved) => {
       const renderer = useGameStore.getState().renderer;

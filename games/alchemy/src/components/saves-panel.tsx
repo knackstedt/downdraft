@@ -77,7 +77,8 @@ export function SavesPanel() {
       const thumb = await captureCanvasThumbnail(canvas);
       const { grid, fields, gridW, gridH } = renderer.snapshotGrid();
       const name = `Save ${new Date().toLocaleString()}`;
-      await saveGame(name, thumb, gridW, gridH, grid, fields, {
+      await saveGame(name, thumb, {
+        gridW, gridH, grid, fields,
         money, ingredientInventory, potions, unlockedTiers, discoveredRecipes,
       });
       await refreshSaves();

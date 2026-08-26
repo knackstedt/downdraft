@@ -14,6 +14,7 @@ import type {
     DowndraftBridgeAPI,
     DowndraftOsrBridgeAPI
 } from "../shared/types";
+import { createSaveStore as _createSaveStore } from "./save-store-factory";
 
 export type DowndraftOsrBridge = DowndraftOsrBridgeAPI;
 
@@ -82,11 +83,32 @@ export { createElectronImportCache } from "./import-cache";
 // Bootstrap orchestrator + composable hooks
 export { bootstrapGame } from "./bootstrap";
 export type { BootstrapAutosaveOptions, BootstrapDevToolsOptions, BootstrapGameOptions } from "./bootstrap";
-export { useAutosave, useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
+export { useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
 
 // Save store factory + IPC fallback
 export { IpcSaveStore, type SaveBridge } from "./ipc-save-store";
 export { createInlineSaveStore, createSaveStore, type CreateSaveStoreOptions, type SaveStoreMode } from "./save-store-factory";
+
+/**
+ * Create the default ISaveStore for a game: tries createSaveStore in "auto"
+ * mode (OPFS worker → IPC fallback), then falls back to an inline OpfsSaveStore
+ * if createSaveStore returns null (inline mode). This is the standard store
+ * creation pattern shared by all grid games.
+ */
+export async function createDefaultSaveStore(engineVersion: string): Promise<import("@downdraft/core").ISaveStore> {
+  const store = await _createSaveStore({
+    mode: "auto",
+    opfsOptions: { engineVersion },
+    bridge: downdraft,
+  });
+  if (!store) {
+    const { OpfsSaveStore } = await import("@downdraft/library-persistence/browser");
+    const fallback = new OpfsSaveStore({ engineVersion });
+    await fallback.init();
+    return fallback;
+  }
+  return store;
+}
 
 // AutosaveManager (re-exported from @downdraft/library-persistence)
 export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/library-persistence/browser";

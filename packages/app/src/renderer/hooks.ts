@@ -23,40 +23,6 @@ export function useFpsPolling(
 }
 
 /**
- * Set up autosave load + interval. Skips entirely in deterministic mode.
- * Returns a cleanup function that clears the interval.
- */
-export function useAutosave(
-  loadFn: () => Promise<any | null>,
-  saveFn: () => Promise<void>,
-  intervalMs: number = 3000,
-  deterministic: boolean = false,
-  onLoad?: (data: any) => Promise<void> | void,
-): () => void {
-  if (deterministic) return () => {};
-
-  // Load with 5s timeout
-  Promise.race([
-    loadFn(),
-    new Promise<null>((r) => setTimeout(() => r(null), 5000)),
-  ])
-    .then(async (saved) => {
-      if (saved && onLoad) await onLoad(saved);
-    })
-    .catch((e) => console.warn("[useAutosave] Load failed:", e));
-
-  const id = setInterval(async () => {
-    try {
-      await saveFn();
-    } catch (e) {
-      console.warn("[useAutosave] Save failed:", e);
-    }
-  }, intervalMs);
-
-  return () => clearInterval(id);
-}
-
-/**
  * In deterministic mode, pause the renderer's sim (so the e2e test can
  * control it via MCP). No-op in non-deterministic mode.
  */

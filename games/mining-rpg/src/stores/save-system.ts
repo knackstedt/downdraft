@@ -1,27 +1,22 @@
 // ============================================================================
-// Mining RPG save system — thin adapter over @downdraft/library-persistence
-// OpfsSaveStore. The engine handles OPFS storage, compression, hashing, and
-// generation history; this module only maps the game's save shape (player +
-// inventory + dirty chunks) to SaveState components + blobs.
+// Mining RPG save system — thin adapter over the engine's createGridSaveSystem.
+//
+// The engine handles OPFS storage, compression, hashing, and generation
+// history; this module only maps the game's save shape (player + inventory +
+// dirty chunks) to SaveState components + blobs.
 //
 // Only **dirty** chunks are persisted (unmodified chunks regenerate from
 // seed). Autosave runs every 3 seconds (skipped in deterministic mode).
-//
-// OPFS is used (not IndexedDB) because chunk voxel data is large binary blobs;
-// OPFS lets us write them directly to disk without the structured-clone
-// serialization cost that IndexedDB imposes on ArrayBuffer values, which
-// matters for games with much larger worlds.
 // ============================================================================
 
-import { createSaveStore, downdraft } from "@downdraft/app/renderer";
-import type { ISaveStore, SaveState } from "@downdraft/core";
+import { createDefaultSaveStore } from "@downdraft/app/renderer";
+import { createGridSaveSystem, type SaveState } from "@downdraft/core";
 import { AutosaveManager } from "@downdraft/library-persistence/browser";
 import { WORLD_SEED } from "../shared/constants";
 import type { BuildMaterials, CraftedItems, InventoryEntry, MiningPlayerState, PlayerStats, PlayerUpgrades, SavedGlowstick } from "../shared/types";
 import { createCraftedItems, createPlayerStats } from "../shared/types";
 import type { SavedChunk } from "../simulation/chunk-world";
 
-const SAVE_SLOT = "world";
 const ENGINE_VERSION = "0.1.0";
 const AUTOSAVE_INTERVAL_MS = 3000;
 
@@ -52,64 +47,12 @@ export interface SaveData {
   savedAt: number;
 }
 
-let storePromise: Promise<ISaveStore> | null = null;
-
-function getStore(): Promise<ISaveStore> {
-  if (!storePromise) {
-    storePromise = (async () => {
-      const store = await createSaveStore({
-        mode: "auto",
-        opfsOptions: { engineVersion: ENGINE_VERSION },
-        bridge: downdraft,
-      });
-      if (!store) {
-        const { OpfsSaveStore } = await import("@downdraft/library-persistence/browser");
-        const fallback = new OpfsSaveStore({ engineVersion: ENGINE_VERSION });
-        await fallback.init();
-        return fallback;
-      }
-      return store;
-    })();
-  }
-  return storePromise;
+interface MiningMeta {
+  data: SaveData;
 }
 
-function chunksToBlobs(chunks: SavedChunk[]): Record<string, ArrayBuffer> {
-  const blobs: Record<string, ArrayBuffer> = {};
-  for (let i = 0; i < chunks.length; i++) {
-    const c = chunks[i];
-    blobs[`chunk${i}_grid`] = c.grid.buffer.slice(c.grid.byteOffset, c.grid.byteOffset + c.grid.byteLength) as ArrayBuffer;
-    blobs[`chunk${i}_fields`] = c.fields.buffer.slice(c.fields.byteOffset, c.fields.byteOffset + c.fields.byteLength) as ArrayBuffer;
-    blobs[`chunk${i}_bgGrid`] = c.bgGrid.buffer.slice(c.bgGrid.byteOffset, c.bgGrid.byteOffset + c.bgGrid.byteLength) as ArrayBuffer;
-    blobs[`chunk${i}_explored`] = c.explored.buffer.slice(c.explored.byteOffset, c.explored.byteOffset + c.explored.byteLength) as ArrayBuffer;
-    blobs[`chunk${i}_wakeTick`] = c.wakeTick.buffer.slice(c.wakeTick.byteOffset, c.wakeTick.byteOffset + c.wakeTick.byteLength) as ArrayBuffer;
-  }
-  return blobs;
-}
-
-function blobsToChunks(blobs: Record<string, ArrayBuffer>, coords: { cx: number; cy: number }[]): SavedChunk[] {
-  const chunks: SavedChunk[] = [];
-  for (let i = 0; i < coords.length; i++) {
-    const grid = blobs[`chunk${i}_grid`];
-    const fields = blobs[`chunk${i}_fields`];
-    const bgGrid = blobs[`chunk${i}_bgGrid`];
-    const explored = blobs[`chunk${i}_explored`];
-    const wakeTick = blobs[`chunk${i}_wakeTick`];
-    if (!grid || !fields || !bgGrid || !wakeTick) continue;
-    chunks.push({
-      cx: coords[i].cx,
-      cy: coords[i].cy,
-      grid: new Uint32Array(grid),
-      fields: new Uint8Array(fields),
-      bgGrid: new Uint32Array(bgGrid),
-      explored: explored ? new Uint8Array(explored) : new Uint8Array(128 * 128),
-      wakeTick: new Uint32Array(wakeTick),
-    });
-  }
-  return chunks;
-}
-
-function buildState(data: SaveData): SaveState {
+function buildState(meta: MiningMeta): SaveState {
+  const data = meta.data;
   return {
     components: {
       meta: { v: 1, data: { version: data.version, seed: data.seed, savedAt: data.savedAt, zoom: data.zoom } },
@@ -138,27 +81,50 @@ function buildState(data: SaveData): SaveState {
   };
 }
 
-/** Save the world state via the engine OpfsSaveStore. */
-export async function saveWorld(data: SaveData): Promise<void> {
-  const store = await getStore();
-  await store.save(SAVE_SLOT, buildState(data), { blobs: chunksToBlobs(data.chunks) });
+function buildBlobs(meta: MiningMeta): Record<string, ArrayBuffer> {
+  const blobs: Record<string, ArrayBuffer> = {};
+  const chunks = meta.data.chunks;
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    blobs[`chunk${i}_grid`] = c.grid.buffer.slice(c.grid.byteOffset, c.grid.byteOffset + c.grid.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_fields`] = c.fields.buffer.slice(c.fields.byteOffset, c.fields.byteOffset + c.fields.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_bgGrid`] = c.bgGrid.buffer.slice(c.bgGrid.byteOffset, c.bgGrid.byteOffset + c.bgGrid.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_explored`] = c.explored.buffer.slice(c.explored.byteOffset, c.explored.byteOffset + c.explored.byteLength) as ArrayBuffer;
+    blobs[`chunk${i}_wakeTick`] = c.wakeTick.buffer.slice(c.wakeTick.byteOffset, c.wakeTick.byteOffset + c.wakeTick.byteLength) as ArrayBuffer;
+  }
+  return blobs;
 }
 
-/** Load the world state. Returns null if no save exists. */
-export async function loadWorld(): Promise<SaveData | null> {
-  const store = await getStore();
-  const result = await store.load(SAVE_SLOT);
-  if (!result.state) return null;
-  const meta = result.state.components.meta?.data as { version: number; seed: number; savedAt: number; zoom?: number } | undefined;
-  const player = result.state.components.player?.data as {
+function parseEntry(state: SaveState, blobs: Record<string, ArrayBuffer> | null): SaveData | null {
+  const meta = state.components.meta?.data as { version: number; seed: number; savedAt: number; zoom?: number } | undefined;
+  const player = state.components.player?.data as {
     player: MiningPlayerState; upgrades?: PlayerUpgrades; inventory?: InventoryEntry[];
     currency?: number; buildMaterials?: BuildMaterials; stats?: PlayerStats;
     unlockedAchievements?: string[]; craftedItems?: CraftedItems;
   } | undefined;
-  const chunksComp = result.state.components.chunks?.data as { count: number; coords: { cx: number; cy: number }[] } | undefined;
-  const glowsticksComp = result.state.components.glowsticks?.data as { list: SavedGlowstick[] } | undefined;
+  const chunksComp = state.components.chunks?.data as { count: number; coords: { cx: number; cy: number }[] } | undefined;
+  const glowsticksComp = state.components.glowsticks?.data as { list: SavedGlowstick[] } | undefined;
   if (!meta || !player) return null;
-  const chunks = chunksComp && result.blobs ? blobsToChunks(result.blobs, chunksComp.coords) : [];
+  const chunks: SavedChunk[] = [];
+  if (chunksComp && blobs) {
+    for (let i = 0; i < chunksComp.coords.length; i++) {
+      const grid = blobs[`chunk${i}_grid`];
+      const fields = blobs[`chunk${i}_fields`];
+      const bgGrid = blobs[`chunk${i}_bgGrid`];
+      const explored = blobs[`chunk${i}_explored`];
+      const wakeTick = blobs[`chunk${i}_wakeTick`];
+      if (!grid || !fields || !bgGrid || !wakeTick) continue;
+      chunks.push({
+        cx: chunksComp.coords[i].cx,
+        cy: chunksComp.coords[i].cy,
+        grid: new Uint32Array(grid),
+        fields: new Uint8Array(fields),
+        bgGrid: new Uint32Array(bgGrid),
+        explored: explored ? new Uint8Array(explored) : new Uint8Array(128 * 128),
+        wakeTick: new Uint32Array(wakeTick),
+      });
+    }
+  }
   return {
     version: meta.version,
     seed: meta.seed ?? WORLD_SEED,
@@ -177,10 +143,27 @@ export async function loadWorld(): Promise<SaveData | null> {
   };
 }
 
+const system = createGridSaveSystem<MiningMeta, SaveData>({
+  createStore: () => createDefaultSaveStore(ENGINE_VERSION),
+  autosaveSlot: "world",
+  buildState,
+  buildBlobs,
+  parseEntry,
+});
+
+/** Save the world state via the engine save store. */
+export async function saveWorld(data: SaveData): Promise<void> {
+  await system.autosave({ data });
+}
+
+/** Load the world state. Returns null if no save exists. */
+export async function loadWorld(): Promise<SaveData | null> {
+  return system.loadAutosave();
+}
+
 /** Delete the save data (new game / reset). */
 export async function deleteSave(): Promise<void> {
-  const store = await getStore();
-  await store.deleteSave(SAVE_SLOT);
+  await system.deleteSave("world");
 }
 
 /**
@@ -204,5 +187,4 @@ export function createAutosaveManager(
 }
 
 // Re-export the engine AutosaveManager for backward compatibility
-// (already imported above — just re-export the binding)
 export { AutosaveManager };

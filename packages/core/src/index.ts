@@ -202,6 +202,10 @@ export type {
     SaveWarningKind
 } from "./save/persist-types";
 
+// Grid save system factory — eliminates duplicated save-system boilerplate
+export { createGridSaveSystem } from "./save/grid-save-system";
+export type { GridSaveSystem, GridSaveSystemOptions, SaveListEntry } from "./save/grid-save-system";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Animation
 // ─────────────────────────────────────────────────────────────────────────────
