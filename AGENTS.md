@@ -616,3 +616,74 @@ All UI text rendered by the engine and games MUST use a font size of **at least 
 - When adapting third-party component styles or copying reference markup, bump any sub-12px font sizes up to 12px.
 - The base stylesheet (`packages/app/src/renderer/downdraft-base.css`) should not introduce a root font size below 12px; game theme overrides layered on top of it must also respect this floor.
 - This is a readability/accessibility floor, not a target — larger sizes are fine where appropriate.
+
+## Windows packaging — version info & PE compilation timestamp
+
+### Problem
+
+VirusTotal analysis of Windows `.exe` builds reported two issues:
+
+1. **File Version Information** showed engine branding (`Downdraft Engine`, `com.downdraft.engine`) instead of the game's name/copyright/description. This was because only the root `package.json` had an electron-builder `build` block — no game had its own config, so all games inherited engine metadata.
+2. **Compilation Timestamp** showed 2018-12-15 even though the build was done in 2026. electron-builder copies Electron's prebuilt `electron.exe` without recompiling, so the PE COFF `TimeDateStamp` field stays at Electron's fixed build timestamp.
+
+### Solution
+
+**Per-game branding** — `createDowndraftBuilderConfig()` factory (`packages/app/src/build/index.ts`) produces an electron-builder `Configuration` with per-game `appId`, `productName`, `copyright`, `description` (→ Windows `FileDescription`), `author` (→ Windows `CompanyName`), and `version` (→ Windows `FileVersion`). Each game has a `build.config.ts` that calls this factory. electron-builder's `WinPackager.signAndEditResources()` maps these fields to rcedit version-string arguments (`FileDescription`, `ProductName`, `LegalCopyright`, `CompanyName`, `FileVersion`, `ProductVersion`, `InternalName`).
+
+**PE timestamp patching** — `patchPeTimestamps()` (`packages/app/src/build/pe-timestamp.ts`) writes the actual build timestamp into the COFF `TimeDateStamp` field (`e_lfanew + 8`) of every produced `.exe`. The factory wires this into `afterAllArtifactBuild` automatically.
+
+**Timestamp source** — `resolveBuildTimestamp()` uses:
+1. `SOURCE_DATE_EPOCH` env var (reproducible builds) — if set & valid.
+2. Git HEAD commit date (`git log -1 --format=%ct`) — deterministic per commit.
+3. `Date.now() / 1000` — wall-clock fallback when git is unavailable.
+
+### `draft dist` CLI command
+
+`draft dist [--game=<name>] [--target=<win|linux|mac|all>] [--config=<path>]` loads the game's `build.config.ts` (or falls back to the `build` block in `package.json`) and invokes electron-builder's programmatic `build()` API. Config resolution order:
+
+1. `--config=<path>` flag (explicit).
+2. `games/<game>/build.config.ts` (monorepo layout).
+3. `./build.config.ts` in the current directory (standalone scaffolded project).
+4. `build` block in `games/<game>/package.json` (inline, back-compat).
+5. `build` block in `./package.json` (standalone inline).
+6. Root `package.json` `build` block (engine default — last resort).
+
+### Files
+
+- `packages/app/src/build/index.ts` — `createDowndraftBuilderConfig()` factory + `resolveBuildTimestamp()`.
+- `packages/app/src/build/pe-timestamp.ts` — `patchPeTimestamp()` / `patchPeTimestamps()`.
+- `packages/app/src/build/pe-timestamp.spec.ts` — PE patcher specs (11 tests).
+- `packages/app/package.json` — `./build` subpath export.
+- `packages/cli/src/dist.ts` — `draft dist` command.
+- `games/<game>/build.config.ts` — per-game builder config (to-the-ocean, mining-rpg, overburden, alchemy, falling-sand, sandjongg).
+- `packages/cli/templates/full/build.config.ts.eta` — scaffolded `build.config.ts` for the `full` template.
+
+### Code-signing note
+
+For signed Windows builds, the PE timestamp patch runs in `afterAllArtifactBuild` — **after** electron-builder's signing step. If you need the timestamp patched before signing, set `patchPeTimestamp: false` in `createDowndraftBuilderConfig()` and run `patchPeTimestamps()` manually before signing.
+
+## mining-rpg: Solid-js-in-Worker Vite workaround
+
+**Status:** Known workaround — revisit when `vite-plugin-solid` adds native worker support.
+
+mining-rpg runs its UI (Solid-js components) inside a Web Worker for offscreen rendering. This requires `vite-plugin-solid` to apply its JSX transform to `.tsx` files in worker bundles. The solid-js package has a `"worker"` export condition that maps to `dist/server.js` — a non-reactive SSR build where `createSignal`/`createStore` are no-ops. Vite uses the `"worker"` condition when resolving modules in a Web Worker context, which breaks all reactivity.
+
+### The 4 custom Vite plugins (`games/mining-rpg/vite-options.ts`)
+
+1. **`solidRemoveWorkerConditionPlugin()`** — A `"post"` plugin that removes `"worker"` from `resolve.conditions` so the `"browser"` → `"development"` conditions are used instead (selects `dist/dev.js` with real reactivity).
+
+2. **`solidBrowserResolvePlugin()`** — A `"pre"` plugin that intercepts `resolveId` for `solid-js`, `solid-js/web`, and `solid-js/store` and redirects them to the browser dev build files. Also includes a `configureServer` middleware that intercepts Vite's pre-bundled dep URLs (`.vite/deps/solid-js*.js`) and serves the browser dev build content instead — necessary because Vite's dep optimizer pre-bundles solid-js using the `"worker"` export condition, and no combination of `resolve.alias` / `optimizeDeps.exclude` / `esbuildOptions.conditions` reliably overrides this for the worker context.
+
+3. **`solidWorkerUrlPlugin()`** — A build-only plugin that replaces `__SOLID_WORKER_URL__` in the main bundle with the emitted worker chunk's URL. Uses `generateBundle` to find the worker filename and patch the main bundle's code before it's written to disk.
+
+4. **`solidEsbuildPlugin()`** — An esbuild plugin for Vite's dep pre-bundler that overrides solid-js resolution (forces the browser build instead of the server build).
+
+### Dev-vs-prod variance
+
+- **Dev mode:** Vite's dep pre-bundler uses the `"worker"` export condition → non-reactive server build. The `configureServer` middleware in `solidBrowserResolvePlugin` intercepts pre-bundled dep URLs and serves the browser dev build content instead. This is fragile — it depends on URL pattern matching (`/.vite/deps/solid-js*.js`).
+
+- **Prod build:** Rollup resolves via the `resolveId` hook in `solidBrowserResolvePlugin` (no pre-bundler). The `resolve.alias` entries also force the browser build. More robust than dev mode.
+
+### Future plan
+
+Extract these plugins into `@downdraft/app/vite` as a `solidWorkerPlugin()` factory, so other games that want Solid-js-in-worker can use it without copying the workaround. This should be done after `vite-plugin-solid` adds native worker context support (tracking: https://github.com/solidjs/vite-plugin-solid/issues). Until then, the workaround stays in `games/mining-rpg/vite-options.ts`.
