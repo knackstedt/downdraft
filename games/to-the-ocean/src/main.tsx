@@ -24,8 +24,9 @@ import "@fontsource/urbanist/400.css";
 import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
-import { downdraft, startGame } from "@downdraft/app/renderer";
+import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { WaterLib } from "@downdraft/library-water";
 import { initDevTools, useDebugStore } from "@downdraft/plugin-devtools";
 import { CameraMode, EntityType } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
@@ -43,9 +44,12 @@ let statsInterval: ReturnType<typeof setInterval> | null = null;
 let rendererGcHandle: GCProfilerHandle | null = null;
 
 startGame({
+  // ── Engine libraries (declarative SAB allocation + DI tokens) ──
+  libraries: [WaterLib],
+
   // ── Renderer + Sim ──
   renderer: (canvas) => new WebGPURenderer(canvas),
-  sim: () => new SimWebWorker(),
+  sim: (seed?: SimWorkerSeed) => new SimWebWorker(seed?.libraryBuffers),
   simConfig: { seed: 12345, gamemode: 0, rules: {}, isDev: !!(downdraft?.isDev) || import.meta.env.DEV },
 
   // ── UI (React) ──
