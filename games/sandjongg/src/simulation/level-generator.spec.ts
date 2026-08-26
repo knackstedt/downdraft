@@ -146,4 +146,31 @@ describe("level-generator", () => {
     expect(spec.cols).toBe(MAX_COLS);
     expect(spec.rows).toBe(MAX_ROWS);
   });
+
+  it("layers fill almost all usable cells (stalls reduced)", () => {
+    // For each shape (levels 1-5 cycle through all shapes), the generated
+    // board should fill nearly every usable cell on layer 0. The centrality-
+    // ordered pairing eliminates most stalls; at most 1 pair (2 cells) may
+    // remain unconnectable — a fundamental limit of greedy reverse
+    // construction without backtracking.
+    for (let level = 1; level <= 5; level++) {
+      const shape = levelShape(level);
+      for (let seed = 1; seed <= 5; seed++) {
+        const { board, spec } = generateLevel(level, seed * 1000, { cols: 12, rows: 10 });
+        expect(spec.shape).toBe(shape);
+        const mask = shapeMask(shape, spec.cols, spec.rows);
+        let filled = 0;
+        for (let i = 0; i < mask.length; i++) if (mask[i]) filled++;
+        if (filled % 2 !== 0) filled -= 1;
+        let layer0Tiles = 0;
+        for (let r = 0; r < spec.rows; r++) {
+          for (let c = 0; c < spec.cols; c++) {
+            if (board.at(c, r, 0) !== null) layer0Tiles++;
+          }
+        }
+        const gaps = filled - layer0Tiles;
+        expect(gaps).toBeLessThanOrEqual(2); // at most 1 unpaired pair
+      }
+    }
+  });
 });

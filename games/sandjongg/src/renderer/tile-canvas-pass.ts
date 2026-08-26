@@ -123,21 +123,30 @@ export class TileCanvasPass {
     this.panY = this.boardOffsetY - centeredY - 8;
   }
 
+  /** Per-layer up-left pixel offset used for the pseudo-3D stack. Shared by
+   *  hitTest, tileRect, and draw so they stay in sync. */
+  private layerOffsetPx(): number {
+    return Math.max(8, this.tilePx * 0.26);
+  }
+
   /** Convert screen pixel coords to tile coords (or null if outside board).
-   *  Returns the topmost occupied layer at that position. */
+   *  Tests from the topmost layer downward, undoing each layer's up-left
+   *  offset, so the click lands on the visually-drawn tile. Returns the first
+   *  occupied layer at the click point (topmost wins, matching draw order). */
   hitTest(px: number, py: number): { col: number; row: number; layer: number } | null {
-    const col = Math.floor((px - this.boardOffsetX) / this.tilePx);
-    const row = Math.floor((py - this.boardOffsetY) / this.tilePx);
-    if (col < 0 || col >= this.state.boardCols || row < 0 || row >= this.state.boardRows) return null;
-    // Check if the click is within the tile bounds (not in the gap between tiles).
-    const tileX = this.boardOffsetX + col * this.tilePx;
-    const tileY = this.boardOffsetY + row * this.tilePx;
-    if (px < tileX || px >= tileX + this.tilePx || py < tileY || py >= tileY + this.tilePx) return null;
-    // Find the topmost occupied layer at this position.
-    const { boardElements, boardCols, boardLayers } = this.state;
+    const { boardElements, boardCols, boardRows, boardLayers } = this.state;
+    const layerOffset = this.layerOffsetPx();
     for (let layer = boardLayers - 1; layer >= 0; layer--) {
-      const el = boardElements[(col + row * boardCols) * MAX_LAYERS + layer];
-      if (el >= 0) return { col, row, layer };
+      const offset = layer * layerOffset;
+      const col = Math.floor((px - this.boardOffsetX + offset) / this.tilePx);
+      const row = Math.floor((py - this.boardOffsetY + offset) / this.tilePx);
+      if (col < 0 || col >= boardCols || row < 0 || row >= boardRows) continue;
+      const tileX = this.boardOffsetX + col * this.tilePx - offset;
+      const tileY = this.boardOffsetY + row * this.tilePx - offset;
+      if (px < tileX || px >= tileX + this.tilePx || py < tileY || py >= tileY + this.tilePx) continue;
+      if (boardElements[(col + row * boardCols) * MAX_LAYERS + layer] >= 0) {
+        return { col, row, layer };
+      }
     }
     return null;
   }
@@ -174,8 +183,7 @@ export class TileCanvasPass {
    *  for the per-layer 3D offset. Used by the renderer to spawn sand at the
    *  tile's on-screen position at match time. */
   tileRect(col: number, row: number, layer: number): { x: number; y: number; w: number; h: number } {
-    const layerOffset = Math.max(8, this.tilePx * 0.26);
-    const offset = layer * layerOffset;
+    const offset = layer * this.layerOffsetPx();
     return {
       x: this.boardOffsetX + col * this.tilePx - offset,
       y: this.boardOffsetY + row * this.tilePx - offset,
@@ -213,7 +221,7 @@ export class TileCanvasPass {
     // every layer below it is locked and noticeably darkened so the player can
     // see what's coming but can't interact with it until the layer above is
     // fully cleared.
-    const layerOffset = Math.max(8, this.tilePx * 0.26);
+    const layerOffset = this.layerOffsetPx();
     const sideDepth = Math.max(4, this.tilePx * 0.16);
     const activeLayer = this.maxOccupiedLayer();
     // Per-layer tint overlays (cool→warm ramp; layer 0 is untinted). Applied as
