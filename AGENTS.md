@@ -5,8 +5,47 @@
 The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **plugins** (opt-in game features with lifecycle + typed DI + diagnostics).
 
 - **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a plugin lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
-- **Engine plugins** (namespace `@downdraft/plugin-*`, located in `packages/plugins/`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle + typed DI. Engine plugins: camera-controls, devtools, electron-osr, mcp, xr.
+- **Engine plugins** (namespace `@downdraft/plugin-*`, located in `packages/plugins/`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle + typed DI. Engine plugins: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, sailing.
 - **Game plugins** (namespace `@to-the-ocean/plugin-*` / `@to-the-ocean/library-*`, located in `games/<game>/plugins/`): game-specific features. Game plugins: crafting, inventory. Game libraries: boats, fishing, economy, survival, wildlife, items, buoyancy, collision.
+
+### Declarative GameModule + startGame()
+
+Games declare their renderer-side bootstrap as a `GameModule` and call `startGame()` from `@downdraft/app/renderer`. This replaces the old `bootstrapGame()` callback-soup with a declarative module:
+
+```ts
+startGame({
+  libraries: [WaterLib],                    // engine library descriptors
+  renderer: (canvas) => new WebGPURenderer(canvas),
+  sim: (seed) => new SimWebWorker(seed?.libraryBuffers),
+  simConfig: { seed: 12345, gamemode: 0, rules: {} },
+  mountUI: (overlay) => { /* React/Solid mount */ },
+  events: { weather_changed: (data, ctx) => store.setWeather(data) },
+  save: { mode: "auto", engineVersion: "0.1.0" },
+  onReady: (ctx) => { /* game-specific wiring */ },
+  onDispose: (ctx) => { /* cleanup */ },
+});
+```
+
+`startGame()` handles: library SAB allocation, sim worker spawn, event routing, save store init, renderer create+init, render loop, FPS polling, display info, hot-reload dispose, deterministic mode. `bootstrapGame()` remains available for games that need full control.
+
+### Engine library descriptors
+
+Engine libraries expose `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) for declarative wiring in `GameModule.libraries[]`. The `LibraryHost` auto-wires SAB allocation, sim systems, renderer passes, and typed DI tokens. Bare class exports remain as an escape hatch.
+
+### Feature plugins
+
+Feature plugins (`@downdraft/plugin-terrain`, `@downdraft/plugin-movement-3d`, `@downdraft/plugin-movement-2d`, `@downdraft/plugin-sailing`) use the factory pattern (`createXxxPlugin(config)`) and provide typed DI tokens. Games register them via `pluginHost.usePlugins([...])` for batch activation in dependency-resolved order.
+
+### Cross-thread plugin contract
+
+`CrossThreadToken<T>` tags resources with a thread ("sim" | "renderer" | "shared"). `buildCrossThreadReport()` detects unresolved requires, shared resources, and version conflicts across sim + renderer plugin hosts. The `downdraft doctor` devtools panel displays this report.
+
+### Migration guide (from old API)
+
+1. **String-based resources → typed tokens**: Replace `world.setResource("name", value)` / `world.getResource("name")` with `resourceToken<T>("name")` + `ctx.provide(token, value)` / `ctx.inject(token)`.
+2. **bootstrapGame() callbacks → startGame() module**: Replace the callback-soup `main.tsx` with a declarative `GameModule`. Move sim event handling into `events: {}`, game-specific wiring into `onReady`, cleanup into `onDispose`.
+3. **Manual library wiring → EngineLibrary descriptors**: Replace manual SAB allocation + system instantiation with `libraries: [WaterLib, ...]` in the GameModule. Use typed tokens to inject library-provided resources.
+4. **registerPluginDeferred + activateAll → usePlugins**: Replace the two-step batch registration with `pluginHost.usePlugins([...])`.
 
 ### Engine library descriptors (Phase 3)
 

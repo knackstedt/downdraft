@@ -1,0 +1,12 @@
+{
+  "name": "<%= it.name %>",
+<%~ include("_shared/partials/package-json-fields", it) %>
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@downdraft/app/renderer": "workspace:*",
+    "@downdraft/library-water": "workspace:*",
+    "@downdraft/plugin-terrain": "workspace:*"
+  },
+<%~ include("_shared/partials/dev-deps", it) %>
+<%~ include("_shared/partials/build-config", it) %>
+}
