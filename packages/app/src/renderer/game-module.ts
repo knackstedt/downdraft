@@ -203,6 +203,11 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   overlayLayer?: number;
   /** FPS polling interval in ms. Default: 500. */
   fpsPollIntervalMs?: number;
+
+  // ── Feature log ──
+  /** Optional getter for active plugin names (populates the `plug` field of the
+   *  renderer feature log line). e.g. () => gameWorld.pluginHost.listPlugins() */
+  getActivePlugins?: () => string[];
 }
 
 // ── startGame() ──
@@ -300,6 +305,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     canvasLayer: module.canvasLayer,
     overlayLayer: module.overlayLayer,
     fpsPollIntervalMs: module.fpsPollIntervalMs,
+    getActivePlugins: module.getActivePlugins,
 
     mountUI: module.mountUI
       ? (overlayEl) => module.mountUI!(overlayEl, ctx)

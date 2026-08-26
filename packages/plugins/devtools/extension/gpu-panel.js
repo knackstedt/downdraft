@@ -1191,6 +1191,47 @@
     });
   }
 
+  // --- Feature Log ---
+
+  function refreshFeatureLog() {
+    callInspector("getFeatureLog").then(function (res) {
+      if (res.err || !res.result) return;
+      var el = document.getElementById("feature-log-text");
+      if (el) el.textContent = res.result.line || "(feature log not yet collected)";
+    });
+  }
+
+  (function () {
+    var btn = document.getElementById("btn-copy-feature-log");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        callInspector("getFeatureLog").then(function (res) {
+          if (res.err || !res.result) return;
+          var text = res.result.line || "";
+          if (!text) return;
+          navigator.clipboard.writeText(text).then(function () {
+            btn.textContent = "Copied!";
+            setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+          }).catch(function () {
+            // Fallback: select + execCommand
+            var el = document.getElementById("feature-log-text");
+            if (el) {
+              var selection = window.getSelection();
+              var range = document.createRange();
+              range.selectNodeContents(el);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              document.execCommand("copy");
+              selection.removeAllRanges();
+              btn.textContent = "Copied!";
+              setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+            }
+          });
+        });
+      });
+    }
+  })();
+
   // --- Init: start refresh cycle immediately ---
 
   refreshGPUInfo();
@@ -1204,6 +1245,7 @@
   refreshGPUSystemMetrics();
   refreshElectronGPUInfo();
   refreshVulkanValidationStatus();
+  refreshFeatureLog();
 
   gpuTimer = setInterval(function () {
     refreshGPUInfo();
@@ -1215,6 +1257,7 @@
     refreshFrameGraph();
     refreshGPUSystemMetrics();
     refreshElectronGPUInfo();
+    refreshFeatureLog();
   }, 500);
 
   // Vulkan validation status rarely changes — check once on load

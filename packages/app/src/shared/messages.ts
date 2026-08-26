@@ -26,6 +26,7 @@ export const IPC = {
   GPU_SYSTEM_INFO: "gpu-system-info",
   ELECTRON_GPU_INFO: "electron-gpu-info",
   VULKAN_VALIDATION_STATUS: "vulkan-validation-status",
+  FEATURE_LOG: "feature-log",
   OPEN_CHROME_URL: "open-chrome-url",
 
   // Screenshot — Renderer -> Main (captures full page: canvas + DOM overlay)

@@ -47,6 +47,7 @@ const stubBridge: DowndraftBridge = {
   getGPUSystemInfo: () => Promise.resolve(null),
   getElectronGPUInfo: () => Promise.resolve(null),
   getVulkanValidationStatus: () => Promise.resolve({ enabled: false, envVar: null }),
+  getFeatureLog: () => Promise.resolve(null),
   openChromeUrl: noop,
   capturePage: () => Promise.resolve(null),
   importCacheGet: () => Promise.resolve(null),
@@ -126,6 +127,15 @@ export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/library
 // MCP automation harness factory
 export { createMcpHarness } from "./mcp-harness";
 export type { McpHarnessOptions, McpRequest, McpResponse, McpToolDef, McpToolRegistration } from "./mcp-harness";
+
+// Feature log (renderer collector + combined accessor + MCP tool factory)
+export {
+    collectRendererFeatureLog,
+    createFeatureLogMcpTool,
+    getCombinedFeatureLog,
+    getRendererFeatureLog
+} from "./feature-log";
+export type { CombinedFeatureLog, RendererFeatureLogOptions } from "./feature-log";
 
 // --- Canvas / overlay layer helpers ---
 

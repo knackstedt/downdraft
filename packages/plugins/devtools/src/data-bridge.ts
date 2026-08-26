@@ -28,6 +28,7 @@ export class DevToolsDataBridge {
   protected cachedGpuSystemInfo: any = null;
   protected cachedElectronGpuInfo: any = null;
   protected cachedVulkanValidation: any = null;
+  protected cachedFeatureLog: any = null;
   protected ipcFetchInterval: ReturnType<typeof setInterval> | null = null;
 
   // --- Optional overrides ---
@@ -142,6 +143,11 @@ export class DevToolsDataBridge {
       // --- GPU Debugging ---
       getGPUInfo: (): any => {
         return this.renderer?.getGPUInfo?.() ?? null;
+      },
+
+      // --- Feature Log (cached by fetchIpcData; sync for callInspector) ---
+      getFeatureLog: (): any => {
+        return this.cachedFeatureLog;
       },
 
       getGPUErrors: (): any => {
@@ -266,6 +272,11 @@ export class DevToolsDataBridge {
     if (w.downdraft?.getVulkanValidationStatus) {
       w.downdraft.getVulkanValidationStatus().then((data: any) => { this.cachedVulkanValidation = data; }).catch(() => {});
     }
+    // Feature log — combined main (via IPC) + renderer (cached). Dynamic import
+    // avoids pulling @downdraft/app/renderer at data-bridge construction time.
+    import("@downdraft/app/renderer").then(({ getCombinedFeatureLog }) => {
+      getCombinedFeatureLog().then((data: any) => { this.cachedFeatureLog = data; }).catch(() => {});
+    }).catch(() => {});
   }
 
   destroy(): void {

@@ -25,7 +25,7 @@ import "@fontsource/urbanist/700.css";
 import "@fontsource/wavefont/400.css";
 
 import { downdraft, startGame } from "@downdraft/app/renderer";
-import { ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
+import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { initDevTools, useDebugStore } from "@downdraft/plugin-devtools";
 import { CameraMode, EntityType } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
@@ -140,7 +140,7 @@ startGame({
   // ── Save ──
   save: {
     mode: "auto",
-    engineVersion: "0.1.0",
+    engineVersion: ENGINE_VERSION,
     maxGenerations: 3,
   },
 

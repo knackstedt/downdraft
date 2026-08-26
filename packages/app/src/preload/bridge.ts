@@ -10,6 +10,7 @@ import type {
     DisplayMetricsChangedData,
     DowndraftBridgeAPI,
     ElectronGPUInfo,
+    FeatureLogData,
     GCStatsData,
     GPUSystemInfo,
     ImportCacheEntry,
@@ -85,6 +86,7 @@ export function createDefaultBridge(): DowndraftBridgeAPI {
     getGPUSystemInfo: (): Promise<GPUSystemInfo | null> => ipcRenderer.invoke(IPC.GPU_SYSTEM_INFO),
     getElectronGPUInfo: (): Promise<ElectronGPUInfo | null> => ipcRenderer.invoke(IPC.ELECTRON_GPU_INFO),
     getVulkanValidationStatus: (): Promise<VulkanValidationStatus> => ipcRenderer.invoke(IPC.VULKAN_VALIDATION_STATUS),
+    getFeatureLog: (): Promise<FeatureLogData | null> => ipcRenderer.invoke(IPC.FEATURE_LOG),
     openChromeUrl: (url: string): void => { ipcRenderer.send(IPC.OPEN_CHROME_URL, url); },
 
     capturePage: (): Promise<ArrayBuffer | null> => ipcRenderer.invoke(IPC.CAPTURE_PAGE),
