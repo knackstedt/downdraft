@@ -46,6 +46,39 @@ export function attemptMatch(
   if (tileA.element !== tileB.element) {
     return { ok: false, path: null, score: 0, combo: state.combo, crumble: [], reason: "different-element" };
   }
+
+  // Mahjongg mode: classic free-tile matching. No connect path is required,
+  // and cross-layer matches are allowed (both tiles just need to be free).
+  if (board.mode === "mahjongg") {
+    if (!board.isSelectable(aCol, aRow, aLayer) || !board.isSelectable(bCol, bRow, bLayer)) {
+      return { ok: false, path: null, score: 0, combo: state.combo, crumble: [], reason: "not-selectable" };
+    }
+    // Synthesize a straight-line path between the two tiles for the renderer's
+    // connect-glow animation (purely cosmetic — no pathfinding constraint).
+    const path = {
+      points: [
+        { col: aCol, row: aRow, layer: aLayer },
+        { col: bCol, row: bRow, layer: bLayer },
+      ],
+      turns: 0,
+    };
+    let combo = 1;
+    if (now - state.lastMatchTime <= COMBO_WINDOW_MS && state.combo > 0) {
+      combo = state.combo + 1;
+    }
+    state.combo = combo;
+    state.lastMatchTime = now;
+    const multiplier = 1 + (combo - 1) * COMBO_MULTIPLIER_STEP;
+    const score = Math.round(BASE_MATCH_SCORE * multiplier);
+    const crumble: CrumbleEvent[] = [
+      makeCrumble(tileA, boardOriginSandCol, boardOriginSandRow, tileSandW, tileSandH),
+      makeCrumble(tileB, boardOriginSandCol, boardOriginSandRow, tileSandW, tileSandH),
+    ];
+    board.remove(aCol, aRow, aLayer);
+    board.remove(bCol, bRow, bLayer);
+    return { ok: true, path, score, combo, crumble };
+  }
+
   // Tiles must be on the same layer for pathfinding. Checked before
   // selectability so a cross-layer attempt reports the more specific cause
   // (under the per-layer top-down lock a lower-layer tile would otherwise be

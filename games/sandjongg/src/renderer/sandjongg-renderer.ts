@@ -31,6 +31,7 @@ export class SandjonggRenderer extends GameRenderer {
   private prevNoAdjacent = false;
   private prevCustomCols = 0;
   private prevCustomRows = 0;
+  private prevMode: "sandjongg" | "mahjongg" = "sandjongg";
   // Cached SAB views to avoid per-frame allocations.
   private cachedBoardElements: Int32Array | null = null;
   private cachedBoardMeta: Int32Array | null = null;
@@ -108,6 +109,17 @@ export class SandjonggRenderer extends GameRenderer {
       // Push generation option changes to the worker first so any subsequent
       // new-game action generates with the new options.
       this.pushOptions();
+      // Mirror the active mode into the tile pass so it can render free/blocked
+      // tiles correctly (sandjongg = per-layer lock, mahjongg = free-tile rule).
+      if (this.tilePass) this.tilePass.state.mode = s.mode;
+      if (s._pendingModeChange) {
+        // Mode changed — reconfigure the worker and regenerate the current
+        // level in the new mode (score resets, like a new game).
+        this.workerHost?.setMode(s.mode);
+        this.workerHost?.requestNewGame(s.level);
+        useGameStore.getState()._setPendingModeChange(false);
+        this.tilePass?.resetPan();
+      }
       if (s._pendingHint) {
         this.workerHost?.requestHint();
         useGameStore.getState()._setPendingHint(false);
@@ -147,13 +159,16 @@ export class SandjonggRenderer extends GameRenderer {
     // Keyboard shortcuts.
     this.keydownHandler = (e: KeyboardEvent) => {
       if (e.key === "p" || e.key === "P") {
+        // P toggles the pause menu (which pauses/resumes the sim).
         const s = useGameStore.getState();
-        if (s.paused) {
+        if (s.showPauseMenu) {
           this.workerHost?.resume();
           s.setPaused(false);
+          s.setShowPauseMenu(false);
         } else {
           this.workerHost?.pause();
           s.setPaused(true);
+          s.setShowPauseMenu(true);
         }
       }
       if (e.key === "h" || e.key === "H") {
@@ -326,10 +341,14 @@ export class SandjonggRenderer extends GameRenderer {
       if (dbg.debugMode) {
         this.handleDebugClick(hit);
       } else if (hit) {
-        // Per-layer top-down lock: a layer can't be started until the layer
-        // above it is fully cleared. Clicks on locked layers are rejected with
-        // a red flash so the player understands why nothing happened.
-        if (this.tilePass.isLayerLocked(hit.layer)) {
+        const mode = dbg.mode;
+        // Selectability UX check (the worker's match engine is the authority,
+        // but this gives immediate feedback for why a click did nothing).
+        // Sandjongg: per-layer top-down lock. Mahjongg: free-tile rule.
+        const blocked = mode === "mahjongg"
+          ? !this.tilePass.isTileFree(hit.col, hit.row, hit.layer)
+          : this.tilePass.isLayerLocked(hit.layer);
+        if (blocked) {
           this.tilePass.state.failAnims.push({ col: hit.col, row: hit.row, layer: hit.layer, startTime: performance.now() });
           this.tilePass.state.selected = null;
         } else {
@@ -342,11 +361,11 @@ export class SandjonggRenderer extends GameRenderer {
             } else if (sel.col === hit.col && sel.row === hit.row && sel.layer === hit.layer) {
               // Clicked the already-selected tile → deselect (no red flash).
               this.tilePass.state.selected = null;
-            } else if (sel.layer !== hit.layer) {
-              // Clicked a tile on a different layer → deselect (no red flash).
+            } else if (mode === "sandjongg" && sel.layer !== hit.layer) {
+              // Sandjongg: clicked a tile on a different layer → deselect.
               this.tilePass.state.selected = null;
             } else {
-              // Same layer, different tile → attempt match.
+              // Attempt match. (Mahjongg allows cross-layer matches.)
               this.tilePass.state.selected = null;
               this.workerHost?.requestMatch(sel.col, sel.row, sel.layer, hit.col, hit.row, hit.layer);
             }
@@ -506,9 +525,11 @@ export class SandjonggRenderer extends GameRenderer {
 
   /** Spawn sand at the exact on-screen rect of a tile. Converts the tile's
    *  canvas-px rect (including per-layer 3D offset) to sand-grid coordinates
-   *  and calls the worker's spawnSand RPC. */
+   *  and calls the worker's spawnSand RPC. Skipped entirely when the player
+   *  has disabled sand physics (sandEnabled = false). */
   private spawnSandForTile(col: number, row: number, layer: number, element: number): void {
     if (!this.tilePass || !this.workerHost || this.gridW === 0 || this.gridH === 0) return;
+    if (!useGameStore.getState().sandEnabled) return;
     const canvas = this.getCanvas();
     const canvasW = canvas.width;
     const canvasH = canvas.height;
@@ -521,10 +542,14 @@ export class SandjonggRenderer extends GameRenderer {
     this.workerHost.spawnSand(sandCol, sandRow, sandW, sandH, element);
   }
 
-  /** Push generation options (no-adjacent, custom dims) to the worker when they change. */
+  /** Push generation options (mode, no-adjacent, custom dims) to the worker when they change. */
   private pushOptions(): void {
     if (!this.workerHost) return;
     const s = useGameStore.getState();
+    if (s.mode !== this.prevMode) {
+      this.prevMode = s.mode;
+      this.workerHost.setMode(s.mode);
+    }
     if (s.noAdjacentSame !== this.prevNoAdjacent) {
       this.prevNoAdjacent = s.noAdjacentSame;
       this.workerHost.setNoAdjacentSame(s.noAdjacentSame);

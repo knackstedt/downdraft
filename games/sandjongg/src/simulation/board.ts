@@ -14,7 +14,7 @@
 //
 
 import { MAX_LAYERS } from "../shared/constants";
-import type { SerializedBoard, Tile } from "../shared/types";
+import type { GameMode, SerializedBoard, Tile } from "../shared/types";
 
 export class TileBoard {
   readonly cols: number;
@@ -23,13 +23,17 @@ export class TileBoard {
   /** tiles[(col + row*cols) * MAX_LAYERS + layer] or null. */
   readonly tiles: (Tile | null)[];
   private nextId: number;
+  /** Game mode — drives selectability + matching rules. Defaults to
+   *  "sandjongg" so existing callers (and tests) keep their behaviour. */
+  mode: GameMode;
 
-  constructor(cols: number, rows: number, maxLayers: number = 1) {
+  constructor(cols: number, rows: number, maxLayers: number = 1, mode: GameMode = "sandjongg") {
     this.cols = cols;
     this.rows = rows;
     this.maxLayers = Math.max(1, Math.min(MAX_LAYERS, maxLayers));
     this.tiles = new Array(cols * rows * MAX_LAYERS).fill(null);
     this.nextId = 0;
+    this.mode = mode;
   }
 
   /** Get the tile at (col, row, layer), or null if empty/out-of-bounds. */
@@ -60,11 +64,28 @@ export class TileBoard {
     return -1;
   }
 
-  /** Is the tile at (col, row, layer) selectable? Per-layer top-down lock: only
-   *  tiles on the highest occupied layer are selectable — a layer stays locked
-   *  until the layer above is fully cleared. */
+  /** Is the tile at (col, row, layer) selectable?
+   *
+   *  Sandjongg mode: per-layer top-down lock — only tiles on the highest
+   *  occupied layer are selectable; a layer stays locked until the layer
+   *  above is fully cleared.
+   *
+   *  Mahjongg mode: classic free-tile rule — a tile is free when no tile
+   *  sits on top of it (any higher layer at the same col,row) AND at least
+   *  one horizontal neighbour (left or right, same layer) is empty. */
   isSelectable(col: number, row: number, layer: number): boolean {
     if (this.at(col, row, layer) === null) return false;
+    if (this.mode === "mahjongg") {
+      // Nothing stacked on top (any higher layer at the same col,row).
+      for (let l = layer + 1; l < this.maxLayers; l++) {
+        if (this.at(col, row, l) !== null) return false;
+      }
+      // At least one horizontal neighbour (same layer) is empty.
+      // Out-of-bounds counts as empty (edge tiles are free on that side).
+      const left = this.at(col - 1, row, layer);
+      const right = this.at(col + 1, row, layer);
+      return left === null || right === null;
+    }
     return layer === this.maxOccupiedLayer();
   }
 
@@ -125,9 +146,21 @@ export class TileBoard {
     return out;
   }
 
-  /** Get all selectable tiles — all tiles on the highest occupied layer
-   *  (the only layer that is unlocked under the per-layer top-down rule). */
+  /** Get all selectable tiles. In sandjongg mode this is all tiles on the
+   *  highest occupied layer (per-layer top-down lock). In mahjongg mode this
+   *  is every free tile (nothing on top + a free horizontal side). */
   selectableTiles(): Tile[] {
+    if (this.mode === "mahjongg") {
+      const out: Tile[] = [];
+      for (let l = 0; l < this.maxLayers; l++) {
+        for (let r = 0; r < this.rows; r++) {
+          for (let c = 0; c < this.cols; c++) {
+            if (this.at(c, r, l) !== null && this.isSelectable(c, r, l)) out.push(this.at(c, r, l)!);
+          }
+        }
+      }
+      return out;
+    }
     const top = this.maxOccupiedLayer();
     if (top < 0) return [];
     const out: Tile[] = [];
@@ -156,13 +189,13 @@ export class TileBoard {
         }
       }
     }
-    return { cols: this.cols, rows: this.rows, maxLayers: this.maxLayers, tiles, nextId: this.nextId };
+    return { cols: this.cols, rows: this.rows, maxLayers: this.maxLayers, tiles, nextId: this.nextId, mode: this.mode };
   }
 
   /** Deserialize from saves. */
   static deserialize(data: SerializedBoard): TileBoard {
     const maxLayers = data.maxLayers ?? 1;
-    const board = new TileBoard(data.cols, data.rows, maxLayers);
+    const board = new TileBoard(data.cols, data.rows, maxLayers, data.mode ?? "sandjongg");
     board.nextId = data.nextId;
     for (let l = 0; l < maxLayers; l++) {
       for (let r = 0; r < data.rows; r++) {

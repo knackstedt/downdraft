@@ -5,7 +5,7 @@
 
 import { MAX_LAYERS } from "../shared/constants";
 import { getElement } from "../shared/elements";
-import type { BoardPoint, Path } from "../shared/types";
+import type { BoardPoint, GameMode, Path } from "../shared/types";
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -33,6 +33,9 @@ export interface TileCanvasState {
   scoreAnims: { col: number; row: number; layer: number; score: number; combo: number; startTime: number }[];
   /** Debug mode: the tile currently being inspected (highlighted on canvas). */
   debugTile: { col: number; row: number; layer: number } | null;
+  /** Active game mode — drives how "blocked" tiles are highlighted.
+   *  Sandjongg: per-layer top-down lock. Mahjongg: free-tile rule. */
+  mode: GameMode;
 }
 
 export class TileCanvasPass {
@@ -69,6 +72,7 @@ export class TileCanvasPass {
       failAnims: [],
       scoreAnims: [],
       debugTile: null,
+      mode: "sandjongg",
     };
   }
 
@@ -179,6 +183,22 @@ export class TileCanvasPass {
     return layer < this.maxOccupiedLayer();
   }
 
+  /** Mahjongg free-tile rule (mirrors TileBoard.isSelectable for mahjongg):
+   *  a tile is free when no tile stacks on top of it (any higher layer at the
+   *  same col,row) AND at least one horizontal neighbour (same layer) is empty
+   *  or off-board. */
+  isTileFree(col: number, row: number, layer: number): boolean {
+    const { boardElements, boardCols, boardRows, boardLayers } = this.state;
+    if (col < 0 || col >= boardCols || row < 0 || row >= boardRows) return false;
+    if (boardElements[(col + row * boardCols) * MAX_LAYERS + layer] < 0) return false;
+    for (let l = layer + 1; l < boardLayers; l++) {
+      if (boardElements[(col + row * boardCols) * MAX_LAYERS + l] >= 0) return false;
+    }
+    const leftEmpty = col <= 0 || boardElements[(col - 1 + row * boardCols) * MAX_LAYERS + layer] < 0;
+    const rightEmpty = col >= boardCols - 1 || boardElements[(col + 1 + row * boardCols) * MAX_LAYERS + layer] < 0;
+    return leftEmpty || rightEmpty;
+  }
+
   /** Exact canvas-px rect of a tile (top-left x/y + width/height), accounting
    *  for the per-layer 3D offset. Used by the renderer to spawn sand at the
    *  tile's on-screen position at match time. */
@@ -224,6 +244,7 @@ export class TileCanvasPass {
     const layerOffset = this.layerOffsetPx();
     const sideDepth = Math.max(4, this.tilePx * 0.16);
     const activeLayer = this.maxOccupiedLayer();
+    const isMahjongg = this.state.mode === "mahjongg";
     // Per-layer tint overlays (cool→warm ramp; layer 0 is untinted). Applied as
     // a low-alpha wash over the element color so the element still reads.
     const LAYER_TINTS = [
@@ -244,8 +265,10 @@ export class TileCanvasPass {
           const y = this.boardOffsetY + r * this.tilePx - offset;
           const size = this.tilePx - 2;
           const elDef = getElement(el);
-          // A layer is locked while any layer above it still has tiles.
-          const locked = layer < activeLayer;
+          // Blocked/unselectable tile. Sandjongg: a layer is locked while any
+          // layer above it still has tiles. Mahjongg: a tile is blocked when
+          // it isn't free (covered or horizontally hemmed in).
+          const locked = isMahjongg ? !this.isTileFree(c, r, layer) : layer < activeLayer;
 
           // 3D extruded slab: the slab thickness is drawn as two separate
           // shaded faces on the bottom-right (the side facing the layer below,
@@ -380,10 +403,11 @@ export class TileCanvasPass {
       if (elapsed < duration) {
         const alpha = 1 - elapsed / duration;
         const points = pathAnim.path.points;
-        // All path points share the same layer (pathfinding is per-layer);
-        // offset the entire path by that layer's up-left stack offset.
-        const pathLayer = points[0]?.layer ?? 0;
-        const layerOff = pathLayer * layerOffset;
+        // Each path point carries its own layer (sandjongg paths are
+        // per-layer so all points share one; mahjongg cross-layer matches
+        // can have endpoints on different layers). Offset each point by its
+        // own layer's up-left stack offset so the glow lines up with the
+        // drawn tiles.
         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.lineWidth = 4;
         ctx.shadowColor = getElement(pathAnim.element).color;
@@ -391,8 +415,9 @@ export class TileCanvasPass {
         ctx.beginPath();
         for (let i = 0; i < points.length; i++) {
           const p = this.tileToPixel(points[i].col, points[i].row);
-          if (i === 0) ctx.moveTo(p.x - layerOff, p.y - layerOff);
-          else ctx.lineTo(p.x - layerOff, p.y - layerOff);
+          const off = (points[i].layer ?? 0) * layerOffset;
+          if (i === 0) ctx.moveTo(p.x - off, p.y - off);
+          else ctx.lineTo(p.x - off, p.y - off);
         }
         ctx.stroke();
         ctx.shadowBlur = 0;

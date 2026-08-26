@@ -1,5 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { continueMode, refreshSaveAvailability, returnToMainMenu, startNewGame } from "./save-load";
 import { COMBO_WINDOW_MS, MAX_COLS, MAX_ROWS } from "./shared/constants";
+import type { GameMode } from "./shared/types";
 import { useGameStore } from "./stores/game-store";
 
 /** Combo stat + countdown bar. Isolated in its own component so the per-frame
@@ -31,12 +33,30 @@ const ComboTimer = memo(function ComboTimer() {
   );
 });
 
+const MODES: { id: GameMode; name: string; tagline: string; description: string }[] = [
+  {
+    id: "sandjongg",
+    name: "Sandjongg",
+    tagline: "Connect + Sand",
+    description:
+      "Shisen-Sho connect: match identical tiles by linking them with a path of at most 2 turns. " +
+      "Crumbling tiles fall into a reactive sand pit — fire ignites oil, water quenches lava, acid dissolves metal.",
+  },
+  {
+    id: "mahjongg",
+    name: "Mahjongg",
+    tagline: "Classic Layered",
+    description:
+      "Classic Mahjongg Solitaire: match pairs of free tiles (nothing stacked on top, at least one side open). " +
+      "Layered pyramid boards. Cross-layer matches allowed. Sand pit optional — disable it for a pure puzzle.",
+  },
+];
+
 export default function App() {
   const score = useGameStore((s) => s.score);
   const level = useGameStore((s) => s.level);
   const tilesLeft = useGameStore((s) => s.tilesLeft);
   const highScore = useGameStore((s) => s.highScore);
-  const paused = useGameStore((s) => s.paused);
   const showHelp = useGameStore((s) => s.showHelp);
   const fps = useGameStore((s) => s.fps);
   const toast = useGameStore((s) => s.toast);
@@ -57,7 +77,15 @@ export default function App() {
   const setCustomDims = useGameStore((s) => s.setCustomDims);
 
   const debugMode = useGameStore((s) => s.debugMode);
-  const debugTile = useGameStore((s) => s.debugTile);
+
+  // --- Menu state ---
+  const mode = useGameStore((s) => s.mode);
+  const sandEnabled = useGameStore((s) => s.sandEnabled);
+  const showMainMenu = useGameStore((s) => s.showMainMenu);
+  const showPauseMenu = useGameStore((s) => s.showPauseMenu);
+  const hasSave = useGameStore((s) => s.hasSave);
+  const toggleSandEnabled = useGameStore((s) => s.toggleSandEnabled);
+  const setShowPauseMenu = useGameStore((s) => s.setShowPauseMenu);
 
   // Track whether the game has ever reported a non-zero tile count.
   // This prevents the auto-advance from firing before the renderer/worker
@@ -69,11 +97,19 @@ export default function App() {
   const hasSeenTiles = useRef(false);
   if (tilesLeft > 0) hasSeenTiles.current = true;
 
+  // Refresh per-mode save availability whenever the main menu opens so the
+  // "Continue" buttons only appear when a save exists.
+  useEffect(() => {
+    if (showMainMenu) refreshSaveAvailability();
+  }, [showMainMenu]);
+
   // Auto-advance to next level when board is cleared.
   // Uses requestAdvance (not requestNewGame) so the score is preserved.
   // Only fire after the game has initialized (hasSeenTiles) so we don't
-  // auto-advance through empty levels during startup.
+  // auto-advance through empty levels during startup. Skipped while any
+  // menu is open (no gameplay progression while paused/in-menu).
   useEffect(() => {
+    if (showMainMenu || showPauseMenu) return;
     if (tilesLeft === 0 && level > 0 && hasSeenTiles.current) {
       // Board cleared — wait a moment for sand to fall, then advance.
       const timer = setTimeout(() => {
@@ -81,12 +117,13 @@ export default function App() {
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [tilesLeft, level]);
+  }, [tilesLeft, level, showMainMenu, showPauseMenu]);
 
   // Safety net: if tilesLeft is still 0 after 6s (advance didn't take effect),
   // retry the advance. This handles edge cases where the SAB action was lost
   // or the worker was busy during the first request.
   useEffect(() => {
+    if (showMainMenu || showPauseMenu) return;
     if (tilesLeft === 0 && level > 0 && hasSeenTiles.current) {
       const timer = setTimeout(() => {
         const s = useGameStore.getState();
@@ -97,7 +134,37 @@ export default function App() {
       }, 6000);
       return () => clearTimeout(timer);
     }
-  }, [tilesLeft, level]);
+  }, [tilesLeft, level, showMainMenu, showPauseMenu]);
+
+  // --- Pause menu open/close: pause/resume the sim to match. ---
+  const openPauseMenu = () => {
+    const r = useGameStore.getState().renderer;
+    r?.getWorkerHost()?.pause();
+    setPaused(true);
+    setShowPauseMenu(true);
+  };
+  const closePauseMenu = () => {
+    const r = useGameStore.getState().renderer;
+    r?.getWorkerHost()?.resume();
+    setPaused(false);
+    setShowPauseMenu(false);
+  };
+
+  // Don't render the gameplay HUD/toolbar while the main menu is up.
+  if (showMainMenu) {
+    return (
+      <div className="sandjongg-overlay">
+        <MainMenu
+          hasSave={hasSave}
+          onNewGame={(m) => startNewGame(m)}
+          onContinue={(m) => { void continueMode(m); }}
+        />
+        {toast && (
+          <div className="sandjongg-toast" key={toast.id}>{toast.message}</div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="sandjongg-overlay">
@@ -120,6 +187,10 @@ export default function App() {
           <span className="label">Tiles</span>
           <span className="value">{tilesLeft}</span>
         </div>
+        <div className="sandjongg-stat sandjongg-mode-badge">
+          <span className="label">Mode</span>
+          <span className="value">{mode === "mahjongg" ? "Mahjongg" : "Sandjongg"}</span>
+        </div>
       </div>
 
       {/* Toast notification */}
@@ -129,42 +200,24 @@ export default function App() {
         </div>
       )}
 
-      {/* Bottom toolbar */}
+      {/* Pause button (top-right corner) */}
+      <button
+        className="sandjongg-pause-btn"
+        onClick={openPauseMenu}
+        title="Pause menu (P)"
+      >
+        ⏸
+      </button>
+
+      {/* Bottom toolbar — in-game actions only. Menu items (settings, help,
+          restart, clear pit, no-adjacent, sand toggle, main menu) live in the
+          pause menu. */}
       <div className="sandjongg-toolbar">
         <button onClick={() => requestHint()} title="Hint (H)">
           Hint
         </button>
         <button onClick={() => requestShuffle()} title="Shuffle (F)">
           Shuffle
-        </button>
-        <button onClick={() => requestNewGame(level)} title="Restart (N)">
-          Restart
-        </button>
-        <button onClick={() => requestClearSand()} title="Clear sand">
-          Clear Pit
-        </button>
-        <button
-          onClick={() => toggleNoAdjacentSame()}
-          title="Prevent identical tiles spawning side-by-side (auto-on after level 10)"
-          className={noAdjacentSame ? "sandjongg-btn-active" : ""}
-        >
-          No-Adjacent
-        </button>
-        <button
-          onClick={() => {
-            const r = useGameStore.getState().renderer;
-            if (paused) { r?.getWorkerHost()?.resume(); setPaused(false); }
-            else { r?.getWorkerHost()?.pause(); setPaused(true); }
-          }}
-          title="Pause (P)"
-        >
-          {paused ? "Resume" : "Pause"}
-        </button>
-        <button onClick={toggleSettings} title="Board settings">
-          Settings
-        </button>
-        <button onClick={toggleHelp} title="Help">
-          Help
         </button>
         <button
           onClick={() => useGameStore.getState().toggleDebugMode()}
@@ -178,31 +231,59 @@ export default function App() {
       {/* FPS counter */}
       <div className="sandjongg-fps">{fps} FPS</div>
 
+      {/* Pause menu */}
+      {showPauseMenu && (
+        <PauseMenu
+          mode={mode}
+          sandEnabled={sandEnabled}
+          noAdjacentSame={noAdjacentSame}
+          onResume={closePauseMenu}
+          onRestart={() => { requestNewGame(level); closePauseMenu(); }}
+          onClearPit={() => { requestClearSand(); closePauseMenu(); }}
+          onToggleNoAdjacent={() => toggleNoAdjacentSame()}
+          onToggleSand={() => toggleSandEnabled()}
+          onOpenSettings={() => { closePauseMenu(); toggleSettings(); }}
+          onOpenHelp={() => { closePauseMenu(); toggleHelp(); }}
+          onMainMenu={() => returnToMainMenu()}
+        />
+      )}
+
       {/* Help modal */}
       {showHelp && (
         <div className="sandjongg-help" onClick={toggleHelp}>
           <div className="sandjongg-help-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Sandjongg</h2>
-            <p>
-              Match pairs of identical elemental tiles by connecting them with a path
-              of at most 2 turns. When matched, tiles crumble into elemental sand that
-              falls into the pit below — where it reacts! Fire ignites oil, water
-              extinguishes lava, acid dissolves metal, and more. Watch the chaos unfold.
-            </p>
+            <h2>{mode === "mahjongg" ? "Mahjongg" : "Sandjongg"}</h2>
+            {mode === "mahjongg" ? (
+              <p>
+                Classic Mahjongg Solitaire. Match pairs of identical tiles that are
+                <b> free</b> — a tile is free when nothing is stacked on top of it and at
+                least one of its left/right neighbours (same layer) is empty. Tiles on
+                different layers can be matched as long as both are free. Clear the
+                layered pyramid to win.
+              </p>
+            ) : (
+              <p>
+                Match pairs of identical elemental tiles by connecting them with a path
+                of at most 2 turns. When matched, tiles crumble into elemental sand that
+                falls into the pit below — where it reacts! Fire ignites oil, water
+                extinguishes lava, acid dissolves metal, and more. Watch the chaos unfold.
+              </p>
+            )}
             <h3>Controls</h3>
             <ul>
               <li><b>Click</b> a tile to select it, then click a matching tile to connect.</li>
               <li><b>H</b> — Show a hint (highlights a valid pair).</li>
               <li><b>F</b> — Shuffle remaining tiles.</li>
-              <li><b>N</b> — Restart the current level.</li>
-              <li><b>P</b> — Pause/resume the simulation.</li>
-              <li><b>Clear Pit</b> — Remove all sand from the pit below the board.</li>
+              <li><b>P</b> — Open the pause menu (resume, settings, restart, etc.).</li>
+              <li><b>Pause menu → Clear Pit</b> — Remove all sand from the pit below the board.</li>
+              <li><b>Pause menu → Disable Sand</b> — Skip spawning sand entirely (pure puzzle).</li>
             </ul>
             <h3>Scoring</h3>
             <p>
-              Each match scores points based on the path length and current combo.
-              Quick consecutive matches build a combo multiplier for higher scores.
-              Your best score is saved and shown as "Best" in the HUD.
+              Each match scores points based on the path length and current combo
+              (Sandjongg) or a flat base score (Mahjongg). Quick consecutive matches
+              build a combo multiplier for higher scores. Your best score is saved per
+              mode and shown as "Best" in the HUD.
             </p>
             <h3>Dead Ends</h3>
             <p>
@@ -215,7 +296,7 @@ export default function App() {
       )}
 
       {/* Level cleared overlay */}
-      {tilesLeft === 0 && (
+      {tilesLeft === 0 && !showPauseMenu && (
         <div className="sandjongg-level-cleared">
           <h2>Level {level} Cleared!</h2>
           <p>Advancing to level {level + 1}...</p>
@@ -282,61 +363,191 @@ export default function App() {
       {/* Debug mode panel — toggle with backtick (`) key.
           Click any tile to inspect its element, material, position, and neighbors. */}
       {debugMode && (
-        <div className="sandjongg-debug-panel">
-          <div className="sandjongg-debug-header">
-            <span>DEBUG</span>
-            <button className="sandjongg-debug-close" onClick={() => useGameStore.getState().toggleDebugMode()}>×</button>
-          </div>
-          {debugTile ? (
-            <div className="sandjongg-debug-body">
-              <div className="sandjongg-debug-row">
-                <span className="sandjongg-debug-swatch" style={{ background: debugTile.elementColor }} />
-                <b>{debugTile.elementName}</b>
-                <span className="sandjongg-debug-mono">#{debugTile.element}</span>
+        <DebugPanel />
+      )}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Main Menu — mode select screen shown at startup (and when returning from the
+// pause menu). Each mode has its own save, so "Continue" only appears when a
+// save exists for that mode.
+// ----------------------------------------------------------------------------
+
+function MainMenu({
+  hasSave,
+  onNewGame,
+  onContinue,
+}: {
+  hasSave: Record<GameMode, boolean>;
+  onNewGame: (mode: GameMode) => void;
+  onContinue: (mode: GameMode) => void;
+}) {
+  return (
+    <div className="sandjongg-mainmenu">
+      <div className="sandjongg-mainmenu-content">
+        <h1 className="sandjongg-mainmenu-title">Sandjongg</h1>
+        <p className="sandjongg-mainmenu-subtitle">Pick a game mode</p>
+        <div className="sandjongg-mainmenu-cards">
+          {MODES.map((m) => (
+            <div key={m.id} className="sandjongg-mainmenu-card">
+              <div className="sandjongg-mainmenu-card-header">
+                <span className="sandjongg-mainmenu-card-name">{m.name}</span>
+                <span className="sandjongg-mainmenu-card-tag">{m.tagline}</span>
               </div>
-              <div className="sandjongg-debug-row">
-                <span>Position</span>
-                <span className="sandjongg-debug-mono">
-                  col={debugTile.col} row={debugTile.row} layer={debugTile.layer}
-                </span>
-              </div>
-              <div className="sandjongg-debug-row">
-                <span>Topmost</span>
-                <span>{debugTile.isTopmost ? "yes (selectable)" : "no (covered)"}</span>
-              </div>
-              <div className="sandjongg-debug-row">
-                <span>Glyph</span>
-                <span className="sandjongg-debug-mono">{debugTile.glyph}</span>
-              </div>
-              <div className="sandjongg-debug-row">
-                <span>Sand material</span>
-                <span className="sandjongg-debug-mono">
-                  {debugTile.sandMaterialName} (id={debugTile.sandMaterialId})
-                </span>
-              </div>
-              <div className="sandjongg-debug-row">
-                <span>Screen rect</span>
-                <span className="sandjongg-debug-mono">
-                  {Math.round(debugTile.screenX)},{Math.round(debugTile.screenY)} {Math.round(debugTile.screenW)}×{Math.round(debugTile.screenH)}
-                </span>
-              </div>
-              <div className="sandjongg-debug-row">
-                <span>Sand rect</span>
-                <span className="sandjongg-debug-mono">
-                  {debugTile.sandCol.toFixed(1)},{debugTile.sandRow.toFixed(1)} {debugTile.sandW.toFixed(1)}×{debugTile.sandH.toFixed(1)}
-                </span>
-              </div>
-              <div className="sandjongg-debug-row">
-                <span>Neighbors (N/S/E/W)</span>
-                <span className="sandjongg-debug-mono">
-                  {debugTile.neighbors.n}/{debugTile.neighbors.s}/{debugTile.neighbors.e}/{debugTile.neighbors.w}
-                </span>
+              <p className="sandjongg-mainmenu-card-desc">{m.description}</p>
+              <div className="sandjongg-mainmenu-card-actions">
+                <button
+                  className="sandjongg-mainmenu-btn primary"
+                  onClick={() => onNewGame(m.id)}
+                >
+                  New Game
+                </button>
+                {hasSave[m.id] && (
+                  <button
+                    className="sandjongg-mainmenu-btn"
+                    onClick={() => onContinue(m.id)}
+                  >
+                    Continue
+                  </button>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="sandjongg-debug-empty">Click a tile to inspect it.</div>
-          )}
+          ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Pause Menu — rolls up the menu options (settings, no-adjacent, help, restart,
+// clear pit, disable sand, main menu). Opens via the top-right pause button or
+// the P key. While open the sim is paused.
+// ----------------------------------------------------------------------------
+
+function PauseMenu({
+  mode,
+  sandEnabled,
+  noAdjacentSame,
+  onResume,
+  onRestart,
+  onClearPit,
+  onToggleNoAdjacent,
+  onToggleSand,
+  onOpenSettings,
+  onOpenHelp,
+  onMainMenu,
+}: {
+  mode: GameMode;
+  sandEnabled: boolean;
+  noAdjacentSame: boolean;
+  onResume: () => void;
+  onRestart: () => void;
+  onClearPit: () => void;
+  onToggleNoAdjacent: () => void;
+  onToggleSand: () => void;
+  onOpenSettings: () => void;
+  onOpenHelp: () => void;
+  onMainMenu: () => void;
+}) {
+  return (
+    <div className="sandjongg-pause-overlay">
+      <div className="sandjongg-pause-content">
+        <h2>Paused</h2>
+        <div className="sandjongg-pause-actions">
+          <button className="sandjongg-pause-btn-menu primary" onClick={onResume}>
+            Resume
+          </button>
+          <button onClick={onRestart}>Restart Level</button>
+          <button onClick={onClearPit}>Clear Pit</button>
+          <button onClick={onOpenSettings}>Settings</button>
+          <button onClick={onOpenHelp}>Help</button>
+          <button
+            className={noAdjacentSame ? "sandjongg-btn-active" : ""}
+            onClick={onToggleNoAdjacent}
+            title="Prevent identical tiles spawning side-by-side (auto-on after level 10)"
+          >
+            No-Adjacent: {noAdjacentSame ? "ON" : "OFF"}
+          </button>
+          <button
+            className={!sandEnabled ? "sandjongg-btn-active" : ""}
+            onClick={onToggleSand}
+            title="Skip spawning crumbled-tile sand (disables the falling-sand pit)"
+          >
+            Sand: {sandEnabled ? "ON" : "OFF"}
+          </button>
+          <button className="sandjongg-pause-mainmenu" onClick={onMainMenu}>
+            Main Menu
+          </button>
+        </div>
+        <p className="sandjongg-pause-mode">Mode: {mode === "mahjongg" ? "Mahjongg" : "Sandjongg"}</p>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Debug panel — extracted so App doesn't re-render it every store tick.
+// ----------------------------------------------------------------------------
+
+function DebugPanel() {
+  const debugTile = useGameStore((s) => s.debugTile);
+  return (
+    <div className="sandjongg-debug-panel">
+      <div className="sandjongg-debug-header">
+        <span>DEBUG</span>
+        <button className="sandjongg-debug-close" onClick={() => useGameStore.getState().toggleDebugMode()}>×</button>
+      </div>
+      {debugTile ? (
+        <div className="sandjongg-debug-body">
+          <div className="sandjongg-debug-row">
+            <span className="sandjongg-debug-swatch" style={{ background: debugTile.elementColor }} />
+            <b>{debugTile.elementName}</b>
+            <span className="sandjongg-debug-mono">#{debugTile.element}</span>
+          </div>
+          <div className="sandjongg-debug-row">
+            <span>Position</span>
+            <span className="sandjongg-debug-mono">
+              col={debugTile.col} row={debugTile.row} layer={debugTile.layer}
+            </span>
+          </div>
+          <div className="sandjongg-debug-row">
+            <span>Topmost</span>
+            <span>{debugTile.isTopmost ? "yes (selectable)" : "no (covered)"}</span>
+          </div>
+          <div className="sandjongg-debug-row">
+            <span>Glyph</span>
+            <span className="sandjongg-debug-mono">{debugTile.glyph}</span>
+          </div>
+          <div className="sandjongg-debug-row">
+            <span>Sand material</span>
+            <span className="sandjongg-debug-mono">
+              {debugTile.sandMaterialName} (id={debugTile.sandMaterialId})
+            </span>
+          </div>
+          <div className="sandjongg-debug-row">
+            <span>Screen rect</span>
+            <span className="sandjongg-debug-mono">
+              {Math.round(debugTile.screenX)},{Math.round(debugTile.screenY)} {Math.round(debugTile.screenW)}×{Math.round(debugTile.screenH)}
+            </span>
+          </div>
+          <div className="sandjongg-debug-row">
+            <span>Sand rect</span>
+            <span className="sandjongg-debug-mono">
+              {debugTile.sandCol.toFixed(1)},{debugTile.sandRow.toFixed(1)} {debugTile.sandW.toFixed(1)}×{debugTile.sandH.toFixed(1)}
+            </span>
+          </div>
+          <div className="sandjongg-debug-row">
+            <span>Neighbors (N/S/E/W)</span>
+            <span className="sandjongg-debug-mono">
+              {debugTile.neighbors.n}/{debugTile.neighbors.s}/{debugTile.neighbors.e}/{debugTile.neighbors.w}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="sandjongg-debug-empty">Click a tile to inspect it.</div>
       )}
     </div>
   );

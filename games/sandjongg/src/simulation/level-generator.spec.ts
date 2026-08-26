@@ -173,4 +173,26 @@ describe("level-generator", () => {
       }
     }
   });
+
+  // --- Mahjongg mode generation ---
+
+  it("mahjongg: generates a solvable layered board", () => {
+    const { board, spec } = generateLevel(1, 12345, { mode: "mahjongg" });
+    expect(board.mode).toBe("mahjongg");
+    expect(spec.mode).toBe("mahjongg");
+    expect(spec.tileCount).toBeGreaterThanOrEqual(2);
+    expect(spec.tileCount % 2).toBe(0);
+    // At least 2 layers for the classic stacked feel.
+    expect(spec.layers).toBeGreaterThanOrEqual(2);
+    expect(isSolvable(board)).toBe(true);
+  });
+
+  it("mahjongg: every tile count is even", () => {
+    for (let level = 1; level <= 6; level++) {
+      const { board, spec } = generateLevel(level, level * 999, { mode: "mahjongg" });
+      expect(board.mode).toBe("mahjongg");
+      expect(spec.tileCount % 2).toBe(0);
+      expect(board.remainingCount()).toBe(spec.tileCount);
+    }
+  });
 });
