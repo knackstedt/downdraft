@@ -68,3 +68,8 @@ export type { MaterialAdapterOptions } from "./material-adapter";
 import { createModelAsyncLoader, registerModelLoaders } from "./loader";
 
 export { createModelAsyncLoader, registerModelLoaders };
+
+// Engine library descriptor (declarative GameModule wiring)
+    export { ModelLoaderTok, ModelsLib } from "./library";
+    export type { ModelAsyncLoader, ModelsLibConfig } from "./library";
+

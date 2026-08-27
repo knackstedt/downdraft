@@ -77,6 +77,8 @@ export class RendererPluginHost {
   private plugins: Map<string, RendererPlugin> = new Map();
   private loadOrder: string[] = [];
   private active: Map<string, ActiveRendererPlugin> = new Map();
+  /** Plugins registered via registerPluginDeferred() but not yet activated. */
+  private pending: Map<string, RendererPlugin> = new Map();
   /** Typed resource store: tokenKey → { token, value } */
   private resources: Map<string, ResourceEntry> = new Map();
   /** Reverse map: tokenKey → provider plugin name */
@@ -148,6 +150,113 @@ export class RendererPluginHost {
     this.activatePlugin(plugin);
   }
 
+  /**
+   * Register a renderer plugin without activating it.
+   * Call `activateAll()` after all plugins are registered
+   * to activate them in dependency-resolved order (topological sort).
+   */
+  registerPluginDeferred(plugin: RendererPlugin): void {
+    if (this.plugins.has(plugin.name)) {
+      throw new Error(`Renderer plugin "${plugin.name}" already registered`);
+    }
+    this.plugins.set(plugin.name, plugin);
+    this.pending.set(plugin.name, plugin);
+  }
+
+  /**
+   * Validate the full dependency graph across all pending + active renderer plugins.
+   * Called before batch activation in activateAll().
+   */
+  private validateGraph(): void {
+    if (!isStrict()) return;
+    // Build a complete providers map from all pending + active plugins
+    const allProviders = new Map<string, string>();
+    for (const [name, active] of this.active) {
+      for (const token of active.plugin.provides ?? []) {
+        allProviders.set(token.key, name);
+      }
+    }
+    for (const [name, plugin] of this.pending) {
+      for (const token of plugin.provides ?? []) {
+        if (allProviders.has(token.key)) {
+          throw new Error(
+            `Renderer plugin "${name}" provides "${token.key}" but it is already provided by "${allProviders.get(token.key)}". ` +
+              `Duplicate provides are not allowed.`,
+          );
+        }
+        allProviders.set(token.key, name);
+      }
+    }
+    // Check all requires
+    for (const [name, plugin] of this.pending) {
+      if (!plugin.requires) continue;
+      for (const token of plugin.requires) {
+        if (!allProviders.has(token.key)) {
+          assertRequired(allProviders, token, name);
+        }
+      }
+    }
+  }
+
+  /**
+   * Activate all plugins registered via `registerPluginDeferred()` in
+   * dependency-resolved order (topological sort by `dependencies`).
+   * Plugins with no dependencies are activated first.
+   *
+   * In DOWNDRAFT_STRICT mode, validates the full dependency graph
+   * (provides/requires) before activating any plugin.
+   */
+  activateAll(): void {
+    this.validateGraph();
+    // Topological sort by dependencies (string-based plugin names).
+    const resolved: string[] = [];
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+    const resolve = (name: string) => {
+      if (visited.has(name)) return;
+      if (visiting.has(name)) {
+        throw new Error(`Circular renderer plugin dependency detected at "${name}"`);
+      }
+      visiting.add(name);
+      const plugin = this.pending.get(name);
+      if (plugin?.dependencies) {
+        for (const dep of plugin.dependencies) {
+          if (this.pending.has(dep) || this.active.has(dep)) {
+            resolve(dep);
+          }
+        }
+      }
+      visiting.delete(name);
+      visited.add(name);
+      resolved.push(name);
+    };
+    for (const name of this.pending.keys()) {
+      resolve(name);
+    }
+    for (const name of resolved) {
+      if (this.pending.has(name) && !this.active.has(name)) {
+        const plugin = this.pending.get(name)!;
+        this.pending.delete(name);
+        this.loadOrder.push(name);
+        this.activatePlugin(plugin);
+      }
+    }
+  }
+
+  /**
+   * Register and activate multiple renderer plugins in dependency-resolved order.
+   * This is the standard batch registration pattern — equivalent to
+   * calling `registerPluginDeferred()` for each plugin followed by
+   * `activateAll()`. Use this when multiple plugins have interdependencies
+   * (via `provides`/`requires` typed tokens or `dependencies` string arrays).
+   */
+  usePlugins(plugins: RendererPlugin[]): void {
+    for (let i = 0; i < plugins.length; i++) {
+      this.registerPluginDeferred(plugins[i]);
+    }
+    this.activateAll();
+  }
+
   private activatePlugin(plugin: RendererPlugin): void {
     const active: ActiveRendererPlugin = {
       plugin,
@@ -202,6 +311,7 @@ export class RendererPluginHost {
     // onDispose before clearing hooks, so the plugin's dispose fn can do it.)
     this.active.delete(name);
     this.plugins.delete(name);
+    this.pending.delete(name);
     const idx = this.loadOrder.indexOf(name);
     if (idx >= 0) this.loadOrder.splice(idx, 1);
   }
@@ -319,7 +429,24 @@ export class RendererPluginHost {
     active.providedKeys.add(token.key);
   }
 
-  private injectResource<T>(token: ResourceToken<T>): T {
+  /**
+   * Provide a typed resource from an external provider (e.g. the LibraryHost).
+   * Unlike `provideResource`, this does not require an active plugin context.
+   * The `providerName` is used for diagnostics and cleanup tracking.
+   */
+  provideExternal<T>(providerName: string, token: ResourceToken<T>, value: T): void {
+    if (isStrict()) {
+      assertNoDuplicate(this.providers, token as ResourceToken<unknown>, providerName);
+    }
+    this.resources.set(token.key, { token: token as ResourceToken<unknown>, value });
+    this.providers.set(token.key, providerName);
+  }
+
+  /**
+   * Inject a typed resource from the renderer plugin graph. Public so the
+   * LibraryHost can read resources provided by renderer plugins.
+   */
+  injectResource<T>(token: ResourceToken<T>): T {
     const entry = this.resources.get(token.key);
     if (!entry) {
       throw new Error(
@@ -330,7 +457,11 @@ export class RendererPluginHost {
     return entry.value as T;
   }
 
-  private injectResourceOptional<T>(token: ResourceToken<T>): T | undefined {
+  /**
+   * Inject a typed resource optionally. Public so the LibraryHost can read
+   * resources provided by renderer plugins.
+   */
+  injectResourceOptional<T>(token: ResourceToken<T>): T | undefined {
     const entry = this.resources.get(token.key);
     return entry?.value as T | undefined;
   }

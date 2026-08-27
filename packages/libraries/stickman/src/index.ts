@@ -15,3 +15,8 @@ export {
 } from "./thick-line";
 
 export { STICKMAN_WGSL } from "./shader";
+
+// Declarative library descriptor
+export { StickmanLib, StickmanTok } from "./library";
+export type { StickmanLibConfig } from "./library";
+

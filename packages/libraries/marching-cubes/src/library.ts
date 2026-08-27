@@ -11,6 +11,7 @@
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/core";
+import { TerrainChannel } from "./sab";
 import { DEFAULT_STREAMING_CONFIG, type TerrainStreamingConfig } from "./streaming-config";
 
 // ── Config ──
@@ -39,20 +40,26 @@ export const MarchingCubesLib: EngineLibrary<MarchingCubesLibConfig> = {
   name: "marching-cubes",
   version: "1.0.0",
 
-  // SAB is optional — to-the-ocean uses RPC events for terrain deformation
-  // broadcast instead of a shared SAB. Games that want zero-copy terrain
-  // can set useSAB: true.
-  sabChannels: [],
+  // SAB channel for zero-copy terrain deformation broadcast.
+  // Allocated using TerrainChannel's layout. Games that prefer RPC events
+  // can ignore this channel (it's allocated but not required to be used).
+  sabChannels: [
+    { name: "terrain", size: TerrainChannel.byteLength },
+  ],
 
   provides: [TerrainStreamingConfigTok],
 
   sim: {
-    create(config, _ctx) {
+    create(config, ctx) {
       const streamingConfig = { ...DEFAULT_STREAMING_CONFIG, ...config.streaming };
+      ctx.provide(TerrainStreamingConfigTok, streamingConfig);
       // TerrainLODManager needs a DensityField (game-specific), so we just
       // provide the streaming config here. Games create the LOD manager
       // in onReady with their density field and inject TerrainStreamingConfigTok.
       return { streamingConfig };
+    },
+    dispose(_system) {
+      // The system is a plain config object — no resources to free.
     },
     // tick is game-specific (calls lodManager.updateLOD(), processDeformations(),
     // queueNearbyChunksForGeneration(), etc.) — games wire this via onReady.

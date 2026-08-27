@@ -49,3 +49,7 @@ export type {
     SaveWarningKind
 } from "@downdraft/core/index";
 
+// Declarative library descriptor
+export { PersistenceLib, PersistenceTok } from "./library";
+export type { PersistenceLibConfig } from "./library";
+

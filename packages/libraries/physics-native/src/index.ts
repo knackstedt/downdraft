@@ -8,3 +8,4 @@ export { integrate, resolveContact } from "./solver";
 export type { BodyData } from "./solver";
 export * from "./types";
 
+export { PhysicsNativeLib, PhysicsNativeAPITok } from "./library"; export type { PhysicsNativeLibConfig } from "./library";

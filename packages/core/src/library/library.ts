@@ -59,6 +59,8 @@ export interface LibrarySimSetup<C = unknown> {
 export interface LibrarySimContext {
   /** The SABs allocated for this library (keyed by channel name). */
   buffers: Record<string, SharedArrayBuffer>;
+  /** Provide a typed resource to the sim DI graph (other libraries/plugins can inject it). */
+  provide<T>(token: ResourceToken<T>, value: T): void;
   /** Inject a resource from the DI graph (e.g. another library's output). */
   inject<T>(token: ResourceToken<T>): T;
   injectOptional<T>(token: ResourceToken<T>): T | undefined;
@@ -91,8 +93,10 @@ export interface LibraryRendererSetup<C = unknown> {
   /**
    * Called when SABs are set on the renderer (`setBuffers()`).
    * Receives the renderer instance from `init()` + the SABs.
+   * The optional context provides `provide()` for registering resources
+   * into the DI graph (e.g. a buffer reader created during setBuffers).
    */
-  setBuffers?(instance: unknown, buffers: Record<string, SharedArrayBuffer>): void;
+  setBuffers?(instance: unknown, buffers: Record<string, SharedArrayBuffer>, ctx?: { provide<T>(token: ResourceToken<T>, value: T): void }): void;
   /**
    * Called per frame during the render pass.
    * Receives the renderer instance + frame context.
@@ -108,6 +112,8 @@ export interface LibraryRendererSetup<C = unknown> {
 export interface LibraryRendererInitContext {
   device: GPUDevice;
   format: GPUTextureFormat;
+  /** Provide a typed resource to the renderer DI graph (other libraries/plugins can inject it). */
+  provide<T>(token: ResourceToken<T>, value: T): void;
   /** Inject a resource from the renderer DI graph. */
   inject<T>(token: ResourceToken<T>): T;
   injectOptional<T>(token: ResourceToken<T>): T | undefined;
@@ -219,6 +225,12 @@ export interface LibraryHost {
   allocateBuffers(): Record<string, SharedArrayBuffer>;
   /** Initialize sim-side systems. Called during sim worker init. */
   initSim(ctx: LibrarySimContext): void;
+  /**
+   * Initialize sim-side systems reusing pre-allocated SABs (e.g. allocated
+   * on the renderer side and transferred to the sim worker via the seed).
+   * Use this in the sim worker instead of `allocateBuffers()` + `initSim()`.
+   */
+  initSimWithExistingBuffers(buffers: Record<string, SharedArrayBuffer>, ctx: Omit<LibrarySimContext, "buffers">): void;
   /** Run all library tick functions for a given phase. */
   tickPhase(phase: LibraryTickPhase, tickCtx: LibrarySimTickContext): void;
   /** Initialize renderer-side passes. Called during renderer init. */
@@ -231,4 +243,6 @@ export interface LibraryHost {
   disposeSim(): void;
   /** Dispose all renderer-side passes. */
   disposeRenderer(): void;
+  /** Validate the library dependency graph (provides/requires). Called automatically in STRICT mode during initSim/initRenderer. */
+  validateGraph(): void;
 }

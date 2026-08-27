@@ -6,7 +6,7 @@
 // library's WaterWriterTok to sample wave heights for buoyancy.
 // ============================================================================
 
-import { resourceToken, type Plugin, type PluginContext, type ResourceToken } from "@downdraft/core";
+import { resourceToken, type Plugin, type PluginContext } from "@downdraft/core";
 import { WaterWriterTok } from "@downdraft/library-water";
 
 export interface SailingConfig {
@@ -33,17 +33,19 @@ export function createSailingPlugin(config: SailingConfig = {}): Plugin {
   return {
     name: "sailing",
     version: "1.0.0",
-    requires: [WaterWriterTok as unknown as ResourceToken<unknown>],
+    requires: [WaterWriterTok],
     provides: [SailingStateTok, WindStateTok],
     register(ctx: PluginContext) {
-      // Inject the water writer (validated by `requires`)
-      // const waterWriter = ctx.inject(WaterWriterTok);
+      // Inject the water writer (validated by `requires`).
+      // The water writer is used by the game's sailing system to sample
+      // wave heights for buoyancy. The plugin validates the dependency
+      // exists; the game's system reads it from the DI graph.
+      ctx.injectOptional(WaterWriterTok);
       ctx.provide(SailingStateTok, cfg);
       ctx.provide(WindStateTok, { speed: cfg.baseWindSpeed, direction: cfg.baseWindDirection });
       // The actual sailing system (force calculation, rudder integration,
       // hull drag) is game-specific and registered as an ECS system by
       // the game. This plugin provides config + wind state via DI.
-      ctx.onDispose(() => {});
     },
   };
 }

@@ -1,16 +1,19 @@
 export {
-  parsePLY,
-  parseSplat,
-  parseGaussianSplatFile,
+    parseGaussianSplatFile, parsePLY,
+    parseSplat
 } from "./parser";
 export type {
-  GaussianSplat,
-  GaussianSplatData,
-  PLYHeader,
+    GaussianSplat,
+    GaussianSplatData,
+    PLYHeader
 } from "./parser";
+export { GaussianSplatRenderer } from "./renderer";
 export {
-  sortSplats,
-  filterByDistance,
+    filterByDistance, sortSplats
 } from "./sorter";
 export type { SortResult } from "./sorter";
-export { GaussianSplatRenderer } from "./renderer";
+
+// Declarative library descriptor
+export { GaussianSplatsLib, GaussianSplatsTok } from "./library";
+export type { GaussianSplatsLibConfig } from "./library";
+

@@ -29,7 +29,6 @@ export function createMovement2DPlugin(config: Movement2DConfig = {}): Plugin {
     provides: [Movement2DStateTok],
     register(ctx: PluginContext) {
       ctx.provide(Movement2DStateTok, cfg);
-      ctx.onDispose(() => {});
     },
   };
 }

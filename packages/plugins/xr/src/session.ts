@@ -130,6 +130,12 @@ export class XRSessionManager {
     this.referenceSpace = null;
     this.state = "idle";
   }
+
+  /** Public cleanup — called by the plugin's onDispose. */
+  destroy(): void {
+    this.cleanup();
+    this.resetCallbacks.length = 0;
+  }
 }
 
 export function isXRAvailable(): boolean {
