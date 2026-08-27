@@ -268,6 +268,19 @@ export class PluginHost implements PluginContext {
     }
   }
 
+  /**
+   * Provide a typed resource from an external provider (e.g. the LibraryHost).
+   * Unlike `provide()`, this does not require a current plugin context.
+   * The `providerName` is used for diagnostics.
+   */
+  provideExternal<T>(providerName: string, token: ResourceToken<T>, value: T): void {
+    if (isStrict()) {
+      assertNoDuplicate(this.providers, token as ResourceToken<unknown>, providerName);
+    }
+    this.resources.set(token.key, { token: token as ResourceToken<unknown>, value });
+    this.providers.set(token.key, providerName);
+  }
+
   inject<T>(token: ResourceToken<T>): T {
     const entry = this.resources.get(token.key);
     if (!entry) {

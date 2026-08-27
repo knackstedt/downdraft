@@ -4,3 +4,6 @@ export { WeatherBlend } from "./weather-blend";
 export type { WeatherLightingParams } from "./weather-blend";
 export { WeatherSystem } from "./weather-system";
 
+// Engine library descriptor
+export { WeatherLib, WeatherTok, type WeatherLibConfig } from "./library";
+

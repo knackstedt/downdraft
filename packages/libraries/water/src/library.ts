@@ -45,7 +45,12 @@ export const WaterLib: EngineLibrary<WaterLibConfig> = {
     create(config, ctx) {
       const writer = new WaterBufferWriter(ctx.buffers.water);
       writer.init(config.patchSize ?? 4);
+      ctx.provide(WaterWriterTok, writer);
       return writer;
+    },
+    dispose(_writer) {
+      // WaterBufferWriter holds only a SAB view — no GPU resources to free.
+      // The SAB itself is managed by the host.
     },
     // tick is game-specific (calls updateWaterBuffer with Gerstner waves,
     // shore damping, wake sources, etc.) — games wire this via onReady.
@@ -59,10 +64,17 @@ export const WaterLib: EngineLibrary<WaterLibConfig> = {
       // The game creates the pass in onReady and injects WaterReaderTok.
       return null;
     },
-    setBuffers(_instance, buffers) {
+    setBuffers(_instance, buffers, _ctx) {
       // The reader is created here and provided to the DI graph.
       // Games inject WaterReaderTok in onReady to get it.
-      return new WaterBufferReader(buffers.water);
+      const reader = new WaterBufferReader(buffers.water);
+      if (_ctx?.provide) {
+        _ctx.provide(WaterReaderTok, reader);
+      }
+      return reader;
+    },
+    dispose(_instance) {
+      // WaterBufferReader holds only a SAB view — no GPU resources to free.
     },
   },
 

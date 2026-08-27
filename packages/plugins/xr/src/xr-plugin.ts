@@ -27,7 +27,7 @@ export interface XRPluginOptions {
 }
 
 export class XRPlugin implements RendererPlugin {
-  readonly name = "@downdraft/plugin-xr";
+  readonly name = "@downdraft/plugin-xr:renderer";
   readonly version = "0.1.0";
 
   private sessionManager: XRSessionManager;

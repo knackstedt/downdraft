@@ -20,7 +20,7 @@
 // still call `bootstrapGame()` directly.
 // ============================================================================
 
-import type { ISaveStore, LibraryEntry } from "@downdraft/core";
+import type { ISaveStore, LibraryEntry, LibraryHost } from "@downdraft/core";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
 import { createSaveStore, type SaveStoreMode } from "./save-store-factory";
@@ -126,6 +126,9 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   deterministic: boolean;
   /** True if running in dev mode (Vite dev or downdraft.isDev). */
   isDev: boolean;
+  /** The library host (if engine libraries were declared). Games can access
+   *  library-provided resources via DI tokens from onReady. */
+  libraryHost?: LibraryHost;
 }
 
 /**
@@ -256,7 +259,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
 
   // 0b. Allocate library SABs (if any libraries declared) — before sim worker
   //     creation so the sim factory can receive externally-allocated SABs.
-  let libHost: any = null;
+  let libHost: LibraryHost | null = null;
   let libBuffers: Record<string, SharedArrayBuffer> = {};
   if (module.libraries && module.libraries.length > 0) {
     const { LibraryHostImpl } = await import("@downdraft/core");
@@ -296,7 +299,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     for (const [name, sab] of Object.entries(libBuffers)) {
       ctx.extraBuffers[name] = sab;
     }
-    (ctx as any).libraryHost = libHost;
+    ctx.libraryHost = libHost;
   }
 
   // 4. Wire event routing from the declarative events map
@@ -360,6 +363,39 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       : (r) => r.init(),
 
     onRendererInit: async (r) => {
+      // Initialize renderer-side library passes (after WebGPU device is ready).
+      if (libHost && r) {
+        const device = r.getDevice?.();
+        const format = r.getFormat?.();
+        const pluginHost = r.getRendererPluginHost?.();
+        if (device && format) {
+          libHost.initRenderer({
+            device,
+            format,
+            provide: (token, value) => {
+              // Provide into the renderer plugin host's DI graph so
+              // renderer plugins can inject library-provided resources.
+              if (pluginHost) {
+                pluginHost.provideExternal("library", token, value);
+              }
+            },
+            inject: (token) => {
+              if (pluginHost) {
+                return pluginHost.injectResource(token);
+              }
+              throw new Error(`Library inject("${token.key}") failed — no renderer plugin host available`);
+            },
+            injectOptional: (token) => {
+              if (pluginHost) {
+                return pluginHost.injectResourceOptional(token);
+              }
+              return undefined;
+            },
+          });
+          // Set the library-allocated SABs on the renderer passes.
+          libHost.setRendererBuffers(libBuffers);
+        }
+      }
       // Start sim worker in parallel with renderer init was handled by
       // onInit/onSimStart. If the game didn't override onInit, start the
       // sim worker here (after renderer.init() succeeds).
@@ -409,9 +445,13 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       ? (rate) => module.onDisplayInfo!(rate, ctx)
       : undefined,
 
-    onHotReloadDispose: module.onDispose
-      ? () => module.onDispose!(ctx)
-      : undefined,
+    onHotReloadDispose: () => {
+      // Dispose renderer-side library passes.
+      libHost?.disposeRenderer();
+      if (module.onDispose) {
+        module.onDispose(ctx);
+      }
+    },
 
     onDeterministic: module.onDeterministic
       ? () => module.onDeterministic!(ctx)

@@ -33,3 +33,4 @@ export type {
 
 // SAB channel (re-exported from MC plugin)
 export { TerrainChannel, TerrainSABChannel } from "./sab";
+export { SurfaceNetsLib, SurfaceNetsStreamingConfigTok } from "./library"; export type { SurfaceNetsLibConfig } from "./library";

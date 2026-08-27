@@ -7,23 +7,24 @@
 // wiring TerrainSystem + TerrainLODManager + mesh worker pools.
 //
 // Provides:
-//   - TerrainSystemTok   — the terrain system (sim-side: chunk gen, LOD, deform)
-//   - TerrainMeshPoolTok — the mesh worker pool (renderer-side: mesh extraction)
+//   - TerrainStreamingTok — the terrain streaming config (LOD levels, voxel sizes)
+//
+// The actual TerrainSystem and TerrainLODManager are game-specific (they need
+// a game-provided DensityField), so games create them in onReady and inject
+// TerrainStreamingTok for the config.
 //
 // Requires:
 //   - (none — terrain is self-contained; physics integration is optional)
 // ============================================================================
 
 import {
-  resourceToken,
-  type Plugin,
-  type PluginContext,
-  type ResourceToken,
+    resourceToken,
+    type Plugin,
+    type PluginContext,
 } from "@downdraft/core";
 import {
-  DEFAULT_STREAMING_CONFIG,
-  TerrainLODManager,
-  type TerrainStreamingConfig,
+    DEFAULT_STREAMING_CONFIG,
+    type TerrainStreamingConfig,
 } from "@downdraft/library-marching-cubes";
 
 // ── Config ──
@@ -43,11 +44,7 @@ export interface TerrainPluginConfig {
 
 // ── Typed tokens (DI) ──
 
-/** Token for the terrain system. Inject in sim systems that need terrain. */
-export const TerrainSystemTok = resourceToken<unknown>("terrain:system");
-/** Token for the terrain LOD manager. */
-export const TerrainLODMgrTok = resourceToken<TerrainLODManager>("terrain:lod-manager");
-/** Token for the terrain streaming config. */
+/** Token for the terrain streaming config. Inject to read LOD/streaming config. */
 export const TerrainStreamingTok = resourceToken<TerrainStreamingConfig>("terrain:streaming");
 
 // ── Plugin factory ──
@@ -62,30 +59,20 @@ export function createTerrainPlugin(config: TerrainPluginConfig = {}): Plugin {
     name: "terrain",
     version: "1.0.0",
 
-    provides: [TerrainSystemTok, TerrainLODMgrTok, TerrainStreamingTok],
+    provides: [TerrainStreamingTok],
 
     register(ctx: PluginContext) {
-      // Provide the streaming config so other systems/plugins can read it
+      // Provide the streaming config so other systems/plugins can read it.
       ctx.provide(TerrainStreamingTok, streamingConfig);
 
-      // The LOD manager needs a DensityField (game-specific), so we provide
-      // a factory that games can call with their density field. For now,
-      // we provide a placeholder that games replace in their onReady hook.
-      // This is a common pattern for plugins that need game-specific data.
-
-      // Register a system that runs in the terrain stage to process
-      // deformations and LOD updates. The actual terrain system class
-      // is game-specific (it ties into the sim's entity model), so this
-      // plugin provides the config + LOD manager and lets games register
-      // their own system that uses them.
-
-      ctx.onDispose(() => {
-        // Cleanup is handled by the game's terrain system
-      });
+      // The actual terrain system (chunk gen, LOD, deform) and LOD manager
+      // are game-specific — they need a game-provided DensityField. Games
+      // create them in onReady and inject TerrainStreamingTok for the config.
     },
   };
 }
 
 // Re-export library types for convenience
-export type { TerrainStreamingConfig } from "@downdraft/library-marching-cubes";
 export { DEFAULT_STREAMING_CONFIG } from "@downdraft/library-marching-cubes";
+export type { TerrainStreamingConfig } from "@downdraft/library-marching-cubes";
+

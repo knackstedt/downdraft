@@ -55,7 +55,7 @@ export const PhysicsRapierLib: EngineLibrary<PhysicsRapierLibConfig> = {
   provides: [PhysicsAPITok],
 
   sim: {
-    async create(config, _ctx) {
+    async create(config, ctx) {
       const backend = new RapierPhysicsBackend();
       await backend.init();
       const fullConfig: PhysicsPluginConfig = {
@@ -80,7 +80,11 @@ export const PhysicsRapierLib: EngineLibrary<PhysicsRapierLibConfig> = {
       };
       const api = new UniversalPhysicsAPI(backend, fullConfig);
       api.reserveMemory(config.reserveMemoryBytes ?? 64 * 1024 * 1024);
+      ctx.provide(PhysicsAPITok, api);
       return api;
+    },
+    dispose(api) {
+      (api as UniversalPhysicsAPI).destroy();
     },
     // tick is game-specific (calls api.step() with entity data, reads back
     // transforms, etc.) — games wire this via onReady or a sim system.

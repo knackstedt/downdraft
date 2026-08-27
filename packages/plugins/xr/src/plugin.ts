@@ -12,7 +12,12 @@ export const xrPlugin: Plugin = {
   version: "0.1.0",
   provides: [XRSessionManagerTok, XRInputMapperTok],
   register(ctx: PluginContext) {
-    ctx.provide(XRSessionManagerTok, new XRSessionManager());
-    ctx.provide(XRInputMapperTok, new XRInputMapper());
+    const session = new XRSessionManager();
+    const input = new XRInputMapper();
+    ctx.provide(XRSessionManagerTok, session);
+    ctx.provide(XRInputMapperTok, input);
+    ctx.onDispose(() => {
+      session.destroy();
+    });
   },
 };

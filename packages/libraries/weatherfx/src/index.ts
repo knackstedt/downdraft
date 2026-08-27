@@ -1,4 +1,9 @@
+export type { CloudExtractedMesh, CloudLayerConfig, CloudMeshProvider, CloudVoxelField } from "./cloud-provider";
 export { CloudSystem } from "./cloud-system";
-export { ParticleSystem, MAX_VOXEL_FLOATS, COLLISION_RADIUS } from "./particle-system";
+export { COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem } from "./particle-system";
 export type { VoxelCollisionData } from "./particle-system";
-export type { CloudMeshProvider, CloudVoxelField, CloudExtractedMesh, CloudLayerConfig } from "./cloud-provider";
+
+// Engine library descriptor (declarative GameModule wiring)
+export { WeatherFxLib, WeatherFxTok } from "./library";
+export type { WeatherFxLibConfig } from "./library";
+

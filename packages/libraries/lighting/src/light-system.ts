@@ -428,4 +428,24 @@ export class LightSystem extends LightingSystem {
     passEncoder.setIndexBuffer(this.debugSphereIndexBuffer, "uint16");
     passEncoder.drawIndexed(this.debugSphereIndexCount, count);
   }
+
+  /** Release all GPU resources. Call when the light system is no longer needed. */
+  destroy(): void {
+    this.lightStorageBuffer?.destroy();
+    this.lightStorageBuffer = null;
+    this.debugUniformBuffer?.destroy();
+    this.debugUniformBuffer = null;
+    this.debugSphereVerts?.destroy();
+    this.debugSphereVerts = null;
+    this.debugSphereIndexBuffer?.destroy();
+    this.debugSphereIndexBuffer = null;
+    this.debugInstanceBuffer?.destroy();
+    this.debugInstanceBuffer = null;
+    this.lightBindGroupLayout = null;
+    this.lightBindGroup = null;
+    this.debugPipeline = null;
+    this.debugBindGroupLayout = null;
+    this.debugBindGroup = null;
+    this.debugInstanceData = null;
+  }
 }

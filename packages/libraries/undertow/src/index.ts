@@ -80,3 +80,6 @@ export * as opIds from "./shared/op-ids";
 export { allOps, buildOpMap, getOp, registerOp, type ArgValue, type DecodedArgs, type MainExecCtx, type OpEntry, type OpKind, type Result } from "./shared/op-table";
 export * as protocol from "./shared/protocol";
 
+// Engine library descriptor
+export { UndertowLib, UndertowTok, type UndertowLibConfig } from "./library";
+

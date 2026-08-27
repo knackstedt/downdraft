@@ -37,7 +37,6 @@ export function createMovement3DPlugin(config: Movement3DConfig = {}): Plugin {
       // The actual system registration is game-specific (depends on the
       // sim's entity model + component layout). Games register a system
       // that reads cfg from Movement3DStateTok and applies movement.
-      ctx.onDispose(() => {});
     },
   };
 }
