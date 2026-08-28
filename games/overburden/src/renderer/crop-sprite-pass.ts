@@ -45,11 +45,14 @@ struct CropInstance {
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 @group(0) @binding(1) var<storage, read> crops : array<CropInstance>;
+@group(0) @binding(2) var lightTex : texture_2d<f32>;     // volumetric light (RGBA8)
+@group(0) @binding(3) var exploredTex : texture_2d<f32>;  // fog of war (R8)
 
 struct VsOut {
   @builtin(position) pos : vec4f,
   @location(0) color : vec3f,
   @location(1) edgeDist : f32,
+  @location(2) @interpolate(flat) gridCoords : vec2<i32>,
 };
 
 @vertex
@@ -76,14 +79,30 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
   out.pos = uniforms.viewProj * vec4f(worldX, worldY, worldZ, 1.0);
   out.color = vec3f(crop.r, crop.g, crop.b);
   out.edgeDist = max(abs(c.x), abs(c.y)) * 2.0;
+  // crop.x/y are centered on the cell (cell + 0.5), so the owning cell is
+  // floor(crop.x/y). i32() truncates toward zero, which is correct for the
+  // non-negative active-grid coordinates here.
+  out.gridCoords = vec2<i32>(i32(crop.x), i32(crop.y));
   return out;
 }
 
 @fragment
 fn fs_main(in : VsOut) -> @location(0) vec4f {
+  // Fog of war: unexplored cells are pure black (matches BlockGridPass3D).
+  let explored = textureLoad(exploredTex, in.gridCoords, 0).r;
+  if (explored == 0.0) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+
+  // Volumetric colored light: sample the per-cell light color (RGB) and
+  // modulate the sprite color, matching how BlockGridPass3D lights blocks.
+  // No ambient floor — only actual light sources (sky, torches, emitters)
+  // illuminate the cell, so bushes darken at night and glow near torches.
+  let lightMul = textureLoad(lightTex, in.gridCoords, 0).rgb;
+
   // Subtle border darkening so the sprite has a soft edge
   let border = smoothstep(0.85, 1.0, in.edgeDist);
-  let col = in.color * (1.0 - border * 0.4);
+  let col = in.color * (1.0 - border * 0.4) * lightMul;
   return vec4f(col, 1.0);
 }
 `;
@@ -104,6 +123,9 @@ export class CropSpritePass {
   private uniformBuffer: GPUBuffer | null = null;
   private instanceBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private bindGroupLayout: GPUBindGroupLayout | null = null;
+  private lightView: GPUTextureView | null = null;
+  private exploredView: GPUTextureView | null = null;
   private cropCount = 0;
   // Preallocated uniform + instance arrays (avoid per-frame allocation)
   private _uniform: Float32Array<ArrayBuffer> = new Float32Array(20);
@@ -112,6 +134,35 @@ export class CropSpritePass {
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
     this.format = format;
+  }
+
+  /**
+   * Attach the volumetric light + fog-of-war texture views owned by
+   * BlockGridPass3D so crop sprites are lit by the same per-cell light field
+   * as the surrounding blocks (day/night, torches, emitters) and respect
+   * fog-of-war. Can be called before or after init(); if called after, the
+   * bind group is rebuilt with the new views. Must be called before the first
+   * render (render() is a no-op until the bind group exists).
+   */
+  setLightTextures(lightView: GPUTextureView, exploredView: GPUTextureView): void {
+    this.lightView = lightView;
+    this.exploredView = exploredView;
+    // Rebuild the bind group if the pipeline is already initialized.
+    if (this.bindGroupLayout) this.buildBindGroup();
+  }
+
+  private buildBindGroup(): void {
+    if (!this.bindGroupLayout || !this.uniformBuffer || !this.instanceBuffer ||
+        !this.lightView || !this.exploredView) return;
+    this.bindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: this.instanceBuffer } },
+        { binding: 2, resource: this.lightView },
+        { binding: 3, resource: this.exploredView },
+      ],
+    });
   }
 
   init(): void {
@@ -129,23 +180,19 @@ export class CropSpritePass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const bindGroupLayout = this.device.createBindGroupLayout({
+    this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // light
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // explored
       ],
     });
 
-    this.bindGroup = this.device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: this.instanceBuffer } },
-      ],
-    });
+    this.buildBindGroup();
 
     const pipelineLayout = this.device.createPipelineLayout({
-      bindGroupLayouts: [bindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayout],
     });
 
     this.pipeline = this.device.createRenderPipeline({

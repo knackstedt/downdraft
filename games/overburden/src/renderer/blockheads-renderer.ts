@@ -9,9 +9,9 @@
 import { GameRenderer } from "@downdraft/core";
 import { getBlockDef } from "../shared/block-registry";
 import {
-    ACTIVE_GRID_H, ACTIVE_GRID_W,
-    BLOCK_AIR,
-    CHUNK_H, CHUNK_W, TICK_RATE
+  ACTIVE_GRID_H, ACTIVE_GRID_W,
+  BLOCK_AIR,
+  CHUNK_H, CHUNK_W, TICK_RATE
 } from "../shared/constants";
 import { CROP_LOOKUP } from "../shared/crops";
 import { getItemDef } from "../shared/items";
@@ -27,7 +27,7 @@ import { CharacterPass, type CharacterGender } from "./character-pass";
 import { CropSpritePass } from "./crop-sprite-pass";
 import { DropPass, type DropRenderData } from "./drop-pass";
 import {
-    createInputHandler, type BlockheadsInputState,
+  createInputHandler, type BlockheadsInputState,
 } from "./input-handler";
 import { invert, raycastGridSlab, rayToZ0, unprojectScreen } from "./matrix";
 import { SkyPass } from "./sky-pass";
@@ -458,6 +458,17 @@ export class BlockheadsRenderer extends GameRenderer {
 
     this.cropSpritePass = new CropSpritePass(device, format);
     this.cropSpritePass.init();
+
+    // Share the block grid's volumetric light + fog-of-war textures so crop
+    // sprites (bushes, mushrooms, crops) and world drops are lit by the same
+    // per-cell light field as the surrounding blocks — day/night darkening,
+    // torch glow, and unexplored-cell black-out.
+    const lightView = this.blockGridPass.getLightView();
+    const exploredView = this.blockGridPass.getExploredView();
+    if (lightView && exploredView) {
+      this.cropSpritePass.setLightTextures(lightView, exploredView);
+      this.dropPass.setLightTextures(lightView, exploredView);
+    }
 
     // Start the sim worker
     this.workerHost = new BlockheadsWorkerHost();

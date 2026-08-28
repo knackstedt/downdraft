@@ -398,6 +398,18 @@ export class BlockGridPass3D {
     return this.depthTexture?.createView() ?? null;
   }
 
+  /** Expose the volumetric light texture view so other passes (e.g. crop
+   *  sprites) can sample the same per-cell lighting as the block grid. */
+  getLightView(): GPUTextureView | null {
+    return this.lightView;
+  }
+
+  /** Expose the fog-of-war (explored) texture view so other passes can apply
+   *  the same unexplored-cell black-out as the block grid. */
+  getExploredView(): GPUTextureView | null {
+    return this.exploredView;
+  }
+
   /** Get the current view-projection matrix (computed in updateCamera). */
   getViewProj(): Mat4 {
     return this.viewProj;
