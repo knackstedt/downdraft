@@ -10,11 +10,11 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 | Package | Description |
 |---|---|
 | `@downdraft/core` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, plugins, particles, animation, physics, audio, assets, save system |
-| `@downdraft/app` | Electron app shell: main process, preload, renderer entry |
+| `@downdraft/app` | Electron app shell: main process, preload, renderer entry, mobile host |
 | `@downdraft/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
 | `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
 | `@downdraft/shader-graph` | Material/shader graph compiler and validator |
-| `@downdraft/cli` | CLI tool (`draft init/dev/debug/build/export`) |
+| `@downdraft/cli` | CLI tool (`draft init/dev/debug/build/export/mobile`) |
 
 ## First-Party Plugins
 

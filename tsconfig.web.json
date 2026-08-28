@@ -233,6 +233,12 @@
       "@downdraft/app/shared": [
         "./packages/app/src/shared/index.ts"
       ],
+      "@downdraft/app/mobile": [
+        "./packages/app/src/mobile/index.ts"
+      ],
+      "@downdraft/app/vite/mobile": [
+        "./packages/app/src/vite/mobile-vite-config.ts"
+      ],
       "@to-the-ocean/library-boats": [
         "./games/to-the-ocean/plugins/boats/src/index.ts"
       ],
@@ -316,6 +322,11 @@
   "include": [
     "packages/app/src/shared/**/*",
     "packages/app/src/renderer/**/*",
+    "packages/app/src/mobile/**/*",
+    "packages/app/src/vite/mobile-vite-config.ts",
+    "packages/app/src/vite/downdraft-html-plugin.ts",
+    "packages/app/src/vite/silence-sourcemap-warnings-plugin.ts",
+    "packages/app/src/vite/worker-url-guard-plugin.ts",
     "packages/core/src/**/*.ts",
     "packages/ui/src/**/*",
     "packages/shader-graph/src/**/*.ts",

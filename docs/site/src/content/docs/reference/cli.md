@@ -55,6 +55,29 @@ Packages the built game for distribution.
 | `--out=<dir>` | Output directory (default: `export`) |
 | `--no-compress` | Disable compression |
 
+## `draft mobile [options]`
+
+Builds and scaffolds a Capacitor mobile target (Android / iOS). Wraps the existing web-portable renderer/sim/worker stack in the system WebView. See the [Mobile guide](/guides/mobile/) for details.
+
+| Flag | Description |
+|---|---|
+| `--game=<name>` | Game to build (default: `DOWNDRAFT_GAME` env or detected from CWD) |
+| `--target=<plat>` | Target: `android` / `ios` / `all` (default: `all`) |
+| `--port=<n>` | Embedded HTTP server port (default: `8765`) |
+| `--skip-build` | Skip the web bundle build (use existing `dist/mobile/`) |
+| `--skip-cap-init` | Skip Capacitor init (use existing `android/ios` projects) |
+
+```bash
+# Build and scaffold for both platforms
+draft mobile --target=all
+
+# Android only, skip rebuild
+draft mobile --target=android --skip-build
+
+# iOS with custom port
+draft mobile --target=ios --port=9000
+```
+
 ## Examples
 
 ```bash
@@ -72,4 +95,7 @@ draft build --mode=prod --out=dist
 
 # Package for all platforms
 draft export --target=all --out=export
+
+# Build + scaffold mobile (Android + iOS)
+draft mobile --target=all
 ```
