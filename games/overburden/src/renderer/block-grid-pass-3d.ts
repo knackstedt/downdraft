@@ -84,6 +84,13 @@ const FACE_TOP    = 1 << 3; // -Y
 const FACE_FRONT  = 1 << 4; // +Z
 const FACE_BACK   = 1 << 5; // -Z
 
+/** A foreground neighbor is "transparent" for face-culling purposes if it's
+ *  air OR a crop/wild forageable block (bushes, mushrooms, ...). Those are
+ *  rendered as 2D sprites by CropSpritePass, not 3D cubes, so a solid block
+ *  adjacent to one must show its face — otherwise the bush leaves a visual
+ *  hole in the terrain surface that interrupts the light gradient. */
+const isAirOrCrop = (id: number): boolean => id === 0 || CROP_LOOKUP[id] !== 0;
+
 // Depth layering: 4-layer system.
 //   Layer 1 (Z= 0): foreground front  ← closest to camera
 //   Layer 2 (Z=-1): foreground back   ← player walks here
@@ -415,12 +422,30 @@ export class BlockGridPass3D {
     return this.viewProj;
   }
 
-  /** Build instance data from the grid. Called each sim tick (30Hz). */
-  updateGrid(foreground: Uint16Array, background: Uint16Array): void {
+  /** Build instance data from the grid. Called each sim tick (30Hz).
+   *  Optional camera params enable view culling (only build instances for
+   *  the visible rectangle). When omitted, the full grid is built. */
+  updateGrid(
+    foreground: Uint16Array,
+    background: Uint16Array,
+    camX = 0, camY = 0, camZoom = 0, camCW = 0, camCH = 0,
+  ): void {
     let idx = 0;
     const data = this.instanceData;
     const W = this.gridW;
     const H = this.gridH;
+
+    // View culling bounds (full grid if camera info not provided).
+    let xMin = 0, xMax = W, yMin = 0, yMax = H;
+    if (camZoom > 0 && camCW > 0 && camCH > 0) {
+      const CULL_MARGIN = 8;
+      const visW = camCW / camZoom;
+      const visH = camCH / camZoom;
+      xMin = Math.max(0, Math.floor(camX - visW * 0.5 - CULL_MARGIN));
+      xMax = Math.min(W, Math.ceil(camX + visW * 0.5 + CULL_MARGIN));
+      yMin = Math.max(0, Math.floor(camY - visH * 0.5 - CULL_MARGIN));
+      yMax = Math.min(H, Math.ceil(camY + visH * 0.5 + CULL_MARGIN));
+    }
 
     // Upload block IDs as textures so the shader can sample neighbor IDs
     // directly (avoids 4 per-cell neighbor lookups in JS).
@@ -431,8 +456,8 @@ export class BlockGridPass3D {
     // Both layers show top/bottom/side faces based on neighbors.
     for (let layer = 0; layer < NUM_FG_LAYERS; layer++) {
       const layerZ = FG_Z_LAYERS[layer];
-      for (let y = 0; y < H; y++) {
-        for (let x = 0; x < W; x++) {
+      for (let y = yMin; y < yMax; y++) {
+        for (let x = xMin; x < xMax; x++) {
           const cellIdx = y * W + x;
           const packedFg = foreground[cellIdx];
           const blockId = packedFg & 0xFF;
@@ -442,10 +467,10 @@ export class BlockGridPass3D {
           if (CROP_LOOKUP[blockId] !== 0) continue;
 
           let faceMask = 0;
-          if (x >= W - 1 || (foreground[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
-          if (x <= 0 || (foreground[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
-          if (y >= H - 1 || (foreground[(y + 1) * W + x] & 0xFF) === 0) faceMask |= FACE_BOTTOM;
-          if (y <= 0 || (foreground[(y - 1) * W + x] & 0xFF) === 0) faceMask |= FACE_TOP;
+          if (x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+          if (x <= 0 || isAirOrCrop(foreground[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+          if (y >= H - 1 || isAirOrCrop(foreground[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+          if (y <= 0 || isAirOrCrop(foreground[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
 
           if (layer === 0) {
             // Front layer (Z=0): show front face (facing camera)
@@ -475,8 +500,8 @@ export class BlockGridPass3D {
     // Render deepest first (layer 4) so painter's algorithm stacks correctly.
 
     // Layer 4: back wall (terrain only, no trees) at Z=-3
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    for (let y = yMin; y < yMax; y++) {
+      for (let x = xMin; x < xMax; x++) {
         const cellIdx = y * W + x;
         const packedBg = background[cellIdx];
         const blockId = packedBg & 0xFF;
@@ -505,8 +530,8 @@ export class BlockGridPass3D {
     this.bgWallInstanceCount = idx - this.fgInstanceCount;
 
     // Layer 3: all background blocks (trees + terrain) at Z=-2
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    for (let y = yMin; y < yMax; y++) {
+      for (let x = xMin; x < xMax; x++) {
         const cellIdx = y * W + x;
         const packedBg = background[cellIdx];
         const blockId = packedBg & 0xFF;

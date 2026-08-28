@@ -991,6 +991,11 @@ export class BlockheadsRenderer extends GameRenderer {
       inp[12] = 0;
       inpF[13] = this.camera.x;
       inpF[14] = this.camera.y;
+      inpF[15] = this.camera.zoom;
+      inpF[16] = this.camera.canvasW;
+      inpF[17] = this.camera.canvasH;
+      inpF[18] = this.camWorldX;
+      inpF[19] = this.camWorldY;
       return;
     }
 
@@ -1023,6 +1028,16 @@ export class BlockheadsRenderer extends GameRenderer {
     // Camera position in active grid coords (for worker reference)
     inpF[13] = this.camera.x;
     inpF[14] = this.camera.y;
+    // Camera zoom + canvas size (for grid-builder view culling)
+    inpF[15] = this.camera.zoom;
+    inpF[16] = this.camera.canvasW;
+    inpF[17] = this.camera.canvasH;
+    // Camera world position (origin-independent) for grid-builder culling.
+    // The grid-builder converts this to sim-origin active-grid coords using
+    // the sim SAB origin, avoiding the render-origin/sim-origin mismatch
+    // that caused terrain flashing during chunk-boundary crossings.
+    inpF[18] = this.camWorldX;
+    inpF[19] = this.camWorldY;
   }
 
   private drawFrame(dt: number): void {
