@@ -11,7 +11,7 @@ import { DEPTH_FORMAT } from "@downdraft/core";
 import BLOCK_RENDER_3D_FS from "../shaders/block-render-3d.wgsl?raw";
 import { getBlockPalette } from "../shared/block-registry";
 import {
-    ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W,
+    ACTIVE_GRID_CELLS, ACTIVE_GRID_H, ACTIVE_GRID_W
 } from "../shared/constants";
 import { CROP_LOOKUP } from "../shared/crops";
 import {
@@ -107,6 +107,7 @@ export class BlockGridPass3D {
   private depthFormat: GPUTextureFormat;
   private pipeline: GPURenderPipeline | null = null;
   private bgPipeline: GPURenderPipeline | null = null; // background: depth-tested cubes
+  private waterPipeline: GPURenderPipeline | null = null; // water: alpha-blended, no depth-write
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private cameraBuffer: GPUBuffer | null = null;
@@ -136,6 +137,7 @@ export class BlockGridPass3D {
   private bgWallInstanceCount = 0;  // back wall instances (Z=-3, drawn first)
   private bgTreeInstanceCount = 0;  // tree instances (Z=-2, drawn after back wall)
   private bgInstanceCount = 0;  // total background (back wall + trees)
+  private waterInstanceCount = 0; // water instances (transparent, drawn after characters)
   private instanceCount = 0;    // total (for buffer sizing)
 
   // Scratch light/explored upload buffers (padded to 256-byte rows)
@@ -336,6 +338,57 @@ export class BlockGridPass3D {
       },
     });
 
+    // Water pipeline: alpha-blended, depth-tested but NO depth-write.
+    // Water is rendered after the character pass so the player stays visible
+    // behind water. Disabling depth-write prevents water from occluding
+    // characters/objects drawn before it; depth-test still keeps water behind
+    // opaque terrain that's closer to the camera.
+    this.waterPipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: shader,
+        entryPoint: "vs_main",
+        buffers: [
+          {
+            arrayStride: VERT_STRIDE,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x3" },
+              { shaderLocation: 2, offset: 24, format: "float32" },
+            ],
+          },
+          {
+            arrayStride: INSTANCE_STRIDE,
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 3, offset: 0, format: "float32x3" },
+              { shaderLocation: 4, offset: 12, format: "float32x2" },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: shader,
+        entryPoint: "fs_main",
+        targets: [{
+          format: this.format,
+          blend: {
+            color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+            alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+          },
+        }],
+      },
+      primitive: {
+        topology: "triangle-list",
+        cullMode: "none",
+      },
+      depthStencil: {
+        format: this.depthFormat,
+        depthWriteEnabled: false,
+        depthCompare: "less",
+      },
+    });
+
     this.createBindGroup();
   }
 
@@ -465,6 +518,10 @@ export class BlockGridPass3D {
           // Crop + wild forageable blocks are rendered as 2D sprites by
           // CropSpritePass, not as 3D cubes here.
           if (CROP_LOOKUP[blockId] !== 0) continue;
+          // Water is rendered in a separate transparent pass (after characters)
+          // so the player stays visible behind it. Skip it here to avoid
+          // double-rendering in the opaque pass.
+          if (blockId === BLOCK_WATER) continue;
 
           let faceMask = 0;
           if (x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
@@ -555,6 +612,43 @@ export class BlockGridPass3D {
     }
     this.bgTreeInstanceCount = idx - this.fgInstanceCount - this.bgWallInstanceCount;
     this.bgInstanceCount = idx - this.fgInstanceCount;
+
+    // --- Water (transparent) instances — rendered separately after characters ---
+    // Water is excluded from the fg loop above so it's not double-rendered in
+    // the opaque pass. Here we build water-only instances at the end of the
+    // instance data, using the same 2-layer (Z=0, Z=-1) scheme as fg blocks.
+    for (let layer = 0; layer < NUM_FG_LAYERS; layer++) {
+      const layerZ = FG_Z_LAYERS[layer];
+      for (let y = yMin; y < yMax; y++) {
+        for (let x = xMin; x < xMax; x++) {
+          const cellIdx = y * W + x;
+          const packedFg = foreground[cellIdx];
+          const blockId = packedFg & 0xFF;
+          if (blockId !== BLOCK_WATER) continue;
+
+          let faceMask = 0;
+          if (x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+          if (x <= 0 || isAirOrCrop(foreground[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+          if (y >= H - 1 || isAirOrCrop(foreground[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+          if (y <= 0 || isAirOrCrop(foreground[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
+
+          if (layer === 0) {
+            faceMask |= FACE_FRONT;
+          } else {
+            if ((background[cellIdx] & 0xFF) === 0) faceMask |= FACE_BACK;
+            faceMask |= FACE_FRONT;
+          }
+
+          data[idx * 5 + 0] = x;
+          data[idx * 5 + 1] = y;
+          data[idx * 5 + 2] = layerZ;
+          data[idx * 5 + 3] = blockId;
+          data[idx * 5 + 4] = faceMask;
+          idx++;
+        }
+      }
+    }
+    this.waterInstanceCount = idx - this.fgInstanceCount - this.bgInstanceCount;
     this.instanceCount = idx;
 
     // Upload instance data
@@ -579,12 +673,14 @@ export class BlockGridPass3D {
     const fgCount = reader.getFgCount();
     const bgWallCount = reader.getBgWallCount();
     const bgTreeCount = reader.getBgTreeCount();
+    const waterCount = reader.getWaterCount();
     const totalCount = reader.getTotalCount();
 
     this.fgInstanceCount = fgCount;
     this.bgWallInstanceCount = bgWallCount;
     this.bgTreeInstanceCount = bgTreeCount;
     this.bgInstanceCount = bgWallCount + bgTreeCount;
+    this.waterInstanceCount = waterCount;
     this.instanceCount = totalCount;
 
     // Upload instance data (only the used portion).
@@ -695,11 +791,12 @@ export class BlockGridPass3D {
   }
 
   /** Debug: get instance counts for diagnostics. */
-  getInstanceCounts(): { fg: number; bgWall: number; bgTree: number; total: number } {
+  getInstanceCounts(): { fg: number; bgWall: number; bgTree: number; water: number; total: number } {
     return {
       fg: this.fgInstanceCount,
       bgWall: this.bgWallInstanceCount,
       bgTree: this.bgTreeInstanceCount,
+      water: this.waterInstanceCount,
       total: this.instanceCount,
     };
   }
@@ -864,6 +961,27 @@ export class BlockGridPass3D {
       pass.setVertexBuffer(1, this.instanceBuffer, 0);
       pass.drawIndexed(CUBE_INDICES.length, this.fgInstanceCount);
     }
+  }
+
+  /**
+   * Render water instances as a transparent, alpha-blended pass.
+   * Call AFTER the character pass so the player is visible behind water.
+   * Uses depth-test (so water is occluded by closer opaque terrain) but
+   * does NOT write depth (so water doesn't occlude objects drawn before it).
+   */
+  renderWater(pass: GPURenderPassEncoder): void {
+    if (!this.waterPipeline || !this.bindGroup || !this.cubeVertexBuffer ||
+        !this.cubeIndexBuffer || !this.instanceBuffer) return;
+    if (this.waterInstanceCount === 0) return;
+
+    // Water instances are stored after fg + bgWall + bgTree in the instance buffer.
+    const waterOffset = (this.fgInstanceCount + this.bgInstanceCount) * INSTANCE_STRIDE;
+    pass.setPipeline(this.waterPipeline);
+    pass.setBindGroup(0, this.bindGroup);
+    pass.setVertexBuffer(0, this.cubeVertexBuffer);
+    pass.setIndexBuffer(this.cubeIndexBuffer, "uint16");
+    pass.setVertexBuffer(1, this.instanceBuffer, waterOffset);
+    pass.drawIndexed(CUBE_INDICES.length, this.waterInstanceCount);
   }
 
   destroy(): void {

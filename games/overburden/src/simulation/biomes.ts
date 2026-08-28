@@ -98,9 +98,11 @@ export function biomeAt(wx: number, seed: number): BiomeInfo {
 
   if (elevation < OCEAN_THRESHOLD) {
     // Ocean: floor is BELOW sea level (Y > SEA_LEVEL since Y increases downward).
-    // t=0 (deepest) → SEA_LEVEL + 45, t=1 (shore) → SEA_LEVEL + 8
+    // t=0 (deepest) → SEA_LEVEL + 45, t=1 (shore) → SEA_LEVEL - 3
+    // The shore endpoint (SEA_LEVEL-3) matches the land segment's start so
+    // there is no height cliff at the ocean/land boundary.
     const t = smoothstep(elevation / OCEAN_THRESHOLD);
-    baseHeight = (SEA_LEVEL + 45) - Math.floor(t * 37); // SEA_LEVEL+45 to SEA_LEVEL+8
+    baseHeight = (SEA_LEVEL + 45) - Math.floor(t * (SEA_LEVEL + 45 - (SEA_LEVEL - 3))); // SEA_LEVEL+45 → SEA_LEVEL-3
   } else if (elevation < MOUNTAIN_THRESHOLD) {
     // Land (plains/desert): interpolate from shoreline to mountain base
     const t = smoothstep((elevation - OCEAN_THRESHOLD) / (MOUNTAIN_THRESHOLD - OCEAN_THRESHOLD));
@@ -111,14 +113,29 @@ export function biomeAt(wx: number, seed: number): BiomeInfo {
     baseHeight = (SURFACE_Y + 30) + Math.floor(t * 120); // SURFACE_Y+30 to SURFACE_Y+150
   }
 
-  // --- Detail noise (amplitude varies by biome) ---
-  let detailAmp: number;
-  switch (biome) {
-    case "ocean": detailAmp = 5; break;    // gentle undulating floor
-    case "desert": detailAmp = 6; break;   // very flat dunes
-    case "mountain": detailAmp = 25; break; // jagged peaks
-    default: detailAmp = 18; break;        // rolling hills
+  // --- Detail noise (amplitude varies continuously with elevation + aridity) ---
+  // A hard switch(biome) here caused cliffs at biome borders: plains (amp=18)
+  // and desert (amp=6) differ by 12, so the same detail noise value produced a
+  // 12-block height jump at the plains/desert boundary. Blending the amplitude
+  // smoothly across the thresholds eliminates the discontinuity.
+  let elevAmp: number;
+  if (elevation < OCEAN_THRESHOLD) {
+    // Ocean: 5 (deep) → 18 (shore, matches land)
+    const t = smoothstep(elevation / OCEAN_THRESHOLD);
+    elevAmp = 5 + t * (18 - 5);
+  } else if (elevation < MOUNTAIN_THRESHOLD) {
+    // Land base: 18 (rolling hills)
+    elevAmp = 18;
+  } else {
+    // Mountain: 18 (base) → 25 (peak)
+    const t = smoothstep((elevation - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD));
+    elevAmp = 18 + t * (25 - 18);
   }
+  // Desert reduces amplitude: blend by aridity near DESERT_THRESHOLD.
+  // The blend window (±0.04) matches the biome boundary region so the
+  // amplitude transitions in lockstep with the biome classification.
+  const desertBlend = smoothstep(clamp01((aridity - DESERT_THRESHOLD + 0.04) / 0.08));
+  const detailAmp = elevAmp + desertBlend * (6 - elevAmp); // blend toward desert amp=6
   const detailOffset = Math.floor(detail * detailAmp * 2 - detailAmp);
 
   const surfaceY = baseHeight + detailOffset;
@@ -142,26 +159,4 @@ export function biomeAt(wx: number, seed: number): BiomeInfo {
   }
 
   return { biome, surfaceY, dirtDepth, treeChance, elevation, aridity };
-}
-
-/**
- * Check whether a column is in a transition zone between two biomes.
- * Used by terrain-gen to blend surface blocks near biome borders.
- * Returns a blend factor [0, 1] where 0 = fully in the current biome,
- * 1 = fully in the next biome.
- */
-export function biomeBlendFactor(wx: number, seed: number): number {
-  // Use the raw elevation noise distance from thresholds to determine
-  // how close we are to a biome boundary.
-  const info = biomeAt(wx, seed);
-  const e = info.elevation;
-  const blendWidth = 0.04; // ±4% of noise range for blending
-
-  if (e < OCEAN_THRESHOLD + blendWidth && e > OCEAN_THRESHOLD - blendWidth) {
-    return clamp01(1 - Math.abs(e - OCEAN_THRESHOLD) / blendWidth);
-  }
-  if (e < MOUNTAIN_THRESHOLD + blendWidth && e > MOUNTAIN_THRESHOLD - blendWidth) {
-    return clamp01(1 - Math.abs(e - MOUNTAIN_THRESHOLD) / blendWidth);
-  }
-  return 0;
 }

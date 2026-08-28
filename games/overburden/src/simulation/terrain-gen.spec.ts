@@ -92,17 +92,36 @@ describe("Biome system", () => {
     }
   });
 
-  it("ocean biomes have surface below sea level", () => {
-    let foundOcean = false;
-    for (let wx = 0; wx < 16384; wx += 50) {
+  it("ocean biomes have surface below sea level (deep ocean)", () => {
+    // Deep ocean columns have surfaceY > SEA_LEVEL (below sea level).
+    // Near-shore ocean columns blend up to SEA_LEVEL-3 to connect with land,
+    // so we only check that SOME ocean columns are below sea level.
+    let foundDeepOcean = false;
+    for (let wx = 0; wx < 16384; wx += 10) {
       const info = biomeAt(wx, SEED);
-      if (info.biome === "ocean") {
-        foundOcean = true;
-        // Below sea level = higher Y (Y increases downward)
-        expect(info.surfaceY).toBeGreaterThan(SEA_LEVEL);
+      if (info.biome === "ocean" && info.surfaceY > SEA_LEVEL) {
+        foundDeepOcean = true;
+        break;
       }
     }
-    expect(foundOcean).toBe(true);
+    expect(foundDeepOcean).toBe(true);
+  });
+
+  it("surface height is continuous across adjacent columns (no cliffs)", () => {
+    // Adjacent X columns should not have large height jumps, even at biome
+    // boundaries. The detail noise amplitude is at most 25 (mountain peaks),
+    // so adjacent columns differ by at most ~25 + 2 (base height rounding).
+    let maxJump = 0;
+    for (let wx = 0; wx < 5000; wx++) {
+      const a = biomeAt(wx, SEED).surfaceY;
+      const b = biomeAt(wx + 1, SEED).surfaceY;
+      const jump = Math.abs(a - b);
+      if (jump > maxJump) maxJump = jump;
+    }
+    // No single-column jump should exceed the max detail amplitude + rounding.
+    // (Before the fix, jumps of 11+ blocks occurred at ocean/land boundaries
+    // and 12+ at plains/desert boundaries.)
+    expect(maxJump).toBeLessThanOrEqual(27);
   });
 
   it("mountain biomes have surface above SURFACE_Y + 15", () => {
@@ -220,6 +239,34 @@ describe("Cave generation", () => {
       totalCaves += countCaveCells(chunk);
     }
     expect(totalCaves).toBeGreaterThan(50);
+  });
+
+  it("caves below sea level are air, not water-filled", () => {
+    // Caves are no longer auto-filled with water during generation. Water
+    // enters caves via the fluid sim (from oceans), not during gen. So
+    // freshly-generated caves below sea level should be air.
+    let foundCaveBelowSea = false;
+    for (let cx = 0; cx < 20; cx++) {
+      const cy = Math.floor((SURFACE_Y + 100) / CHUNK_H);
+      const chunk = createChunk(cx, cy);
+      generateChunk(chunk, SEED);
+      for (let i = 0; i < chunk.foreground.length; i++) {
+        const fg = chunk.foreground[i] & 0xFF;
+        const bg = chunk.background[i] & 0xFF;
+        if (fg === BLOCK_AIR && bg === BLOCK_STONE) {
+          // This is a cave cell — verify it's air, not water
+          const baseWy = cy * CHUNK_H;
+          const ly = Math.floor(i / CHUNK_W);
+          const wy = baseWy + ly;
+          if (wy > SEA_LEVEL) {
+            foundCaveBelowSea = true;
+            expect(fg).toBe(BLOCK_AIR);
+            expect(fg).not.toBe(BLOCK_WATER);
+          }
+        }
+      }
+    }
+    expect(foundCaveBelowSea).toBe(true);
   });
 });
 

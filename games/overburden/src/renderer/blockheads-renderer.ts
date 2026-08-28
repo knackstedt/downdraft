@@ -1583,6 +1583,9 @@ export class BlockheadsRenderer extends GameRenderer {
           this.stickmanPass?.render(pass);
         }
       }
+      // Render water (transparent, depth-tested but no depth-write) after
+      // characters so the player is visible behind water.
+      this.blockGridPass.renderWater(pass);
       // Render task markers on top (no depth, alpha blended)
       this.taskMarkerPass?.render(pass);
       // Render crop sprites (2D billboarded quads, no depth, on top of terrain)

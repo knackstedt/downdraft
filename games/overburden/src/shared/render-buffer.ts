@@ -45,6 +45,7 @@ export const RENDER_HEADER_FG_COUNT = 4;    // Uint32 — foreground instance co
 export const RENDER_HEADER_BG_WALL_COUNT = 8; // Uint32 — back-wall instance count
 export const RENDER_HEADER_BG_TREE_COUNT = 12; // Uint32 — tree instance count
 export const RENDER_HEADER_TOTAL_COUNT = 16; // Uint32 — total instance count
+export const RENDER_HEADER_WATER_COUNT = 28; // Uint32 — water (transparent) instance count
 // Origin of the active grid this build corresponds to (Int32). The renderer
 // uses THIS origin (not the sim SAB origin) for camera/shader/stickman/input
 // positioning so it always matches the grid data currently on the GPU. This
@@ -114,12 +115,13 @@ export class RenderBufferWriter {
    */
   publishBuild(
     tick: number, fgCount: number, bgWallCount: number, bgTreeCount: number,
-    originCx: number, originCy: number,
+    originCx: number, originCy: number, waterCount: number = 0,
   ): void {
     this.header[RENDER_HEADER_FG_COUNT / 4] = fgCount;
     this.header[RENDER_HEADER_BG_WALL_COUNT / 4] = bgWallCount;
     this.header[RENDER_HEADER_BG_TREE_COUNT / 4] = bgTreeCount;
-    this.header[RENDER_HEADER_TOTAL_COUNT / 4] = fgCount + bgWallCount + bgTreeCount;
+    this.header[RENDER_HEADER_WATER_COUNT / 4] = waterCount;
+    this.header[RENDER_HEADER_TOTAL_COUNT / 4] = fgCount + bgWallCount + bgTreeCount + waterCount;
     this.headerI32[RENDER_HEADER_ORIGIN_CX / 4] = originCx;
     this.headerI32[RENDER_HEADER_ORIGIN_CY / 4] = originCy;
     // Write tick last with release ordering so the renderer sees all data.
@@ -168,6 +170,10 @@ export class RenderBufferReader {
 
   getTotalCount(): number {
     return Atomics.load(this.header, RENDER_HEADER_TOTAL_COUNT / 4);
+  }
+
+  getWaterCount(): number {
+    return Atomics.load(this.header, RENDER_HEADER_WATER_COUNT / 4);
   }
 
   /**
