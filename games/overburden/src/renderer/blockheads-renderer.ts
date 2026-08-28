@@ -863,9 +863,14 @@ export class BlockheadsRenderer extends GameRenderer {
   private processCameraInput(): void {
     if (!this.input || !this.simReader) return;
 
-    // Handle zoom — dynamic zoom with scroll wheel.
+    // Handle zoom — dynamic zoom with scroll wheel. Multiple wheel events can
+    // fire between frames (free-spin wheels, trackpads), so zoomDelta
+    // accumulates per event. Apply the full magnitude in one zoomAt call
+    // (1.2^N) rather than just the sign — otherwise fast scrolling discards
+    // all but one tick per frame and zoom feels laggy/unresponsive.
     if (this.input.zoomDelta !== 0) {
-      const factor = this.input.zoomDelta > 0 ? 1.2 : 1 / 1.2;
+      const steps = this.input.zoomDelta;
+      const factor = steps > 0 ? Math.pow(1.2, steps) : 1 / Math.pow(1.2, -steps);
       this.camera.zoomAt(this.input.mouseX, this.input.mouseY, factor);
       this.input.zoomDelta = 0;
     }
