@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { continueMode, refreshSaveAvailability, returnToMainMenu, startNewGame } from "./save-load";
 import { COMBO_WINDOW_MS, MAX_COLS, MAX_ROWS } from "./shared/constants";
+import { TILESET_IDS, type TilesetId, type TileTheme } from "./shared/tilesets";
 import type { GameMode } from "./shared/types";
 import { useGameStore } from "./stores/game-store";
 
@@ -32,6 +33,79 @@ const ComboTimer = memo(function ComboTimer() {
     </div>
   );
 });
+
+// ----------------------------------------------------------------------------
+// TilesetSelector — segmented control for picking the tileset (Elements /
+// Riichi) and theme (Light / Dark). Shared by the main menu and the Settings
+// panel so the player can pick before starting OR switch live mid-game.
+// Tileset change regenerates the current level (keeps score); theme change
+// is purely visual (reloads the SVG atlas, no regenerate).
+// ----------------------------------------------------------------------------
+
+const TILESET_LABELS: Record<TilesetId, string> = {
+  elements: "Elements",
+  riichi: "Riichi",
+};
+
+const TILETHEME_LABELS: Record<TileTheme, string> = {
+  light: "Light",
+  dark: "Dark",
+};
+
+function SegmentedControl<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly T[];
+  labels: Record<T, string>;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="sandjongg-segmented">
+      <span className="sandjongg-segmented-label">{label}</span>
+      <div className="sandjongg-segmented-options">
+        {options.map((opt) => (
+          <button
+            key={opt}
+            className={`sandjongg-segmented-btn${opt === value ? " sandjongg-btn-active" : ""}`}
+            onClick={() => onChange(opt)}
+          >
+            {TILESET_LABELS[opt as TilesetId] ?? TILETHEME_LABELS[opt as TileTheme] ?? opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TilesetSelector() {
+  const tileset = useGameStore((s) => s.tileset);
+  const tileTheme = useGameStore((s) => s.tileTheme);
+  const setTileset = useGameStore((s) => s.setTileset);
+  const setTileTheme = useGameStore((s) => s.setTileTheme);
+  return (
+    <div className="sandjongg-tileset-selector">
+      <SegmentedControl
+        label="Tileset"
+        value={tileset}
+        options={TILESET_IDS}
+        labels={TILESET_LABELS}
+        onChange={setTileset}
+      />
+      <SegmentedControl
+        label="Theme"
+        value={tileTheme}
+        options={["light", "dark"] as const}
+        labels={TILETHEME_LABELS}
+        onChange={setTileTheme}
+      />
+    </div>
+  );
+}
 
 const MODES: { id: GameMode; name: string; tagline: string; description: string }[] = [
   {
@@ -313,6 +387,13 @@ export default function App() {
               <b> right-drag</b> or <b>middle-drag</b> to pan the view.
             </p>
 
+            <h3>Tileset</h3>
+            <p className="sandjongg-hint">
+              Switch the tile faces. Theme is purely visual; tileset change
+              regenerates the current level (keeps your score).
+            </p>
+            <TilesetSelector />
+
             <label className="sandjongg-field">
               <input
                 type="checkbox"
@@ -389,6 +470,7 @@ function MainMenu({
       <div className="sandjongg-mainmenu-content">
         <h1 className="sandjongg-mainmenu-title">Sandjongg</h1>
         <p className="sandjongg-mainmenu-subtitle">Pick a game mode</p>
+        <TilesetSelector />
         <div className="sandjongg-mainmenu-cards">
           {MODES.map((m) => (
             <div key={m.id} className="sandjongg-mainmenu-card">

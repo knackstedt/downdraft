@@ -380,6 +380,9 @@
     "packages/libraries/stickman": {
       "name": "@downdraft/library-stickman",
       "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
     },
     "packages/libraries/surface-nets": {
       "name": "@downdraft/library-surface-nets",
@@ -455,6 +458,36 @@
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/mcp": "workspace:*",
+      },
+    },
+    "packages/plugins/movement-2d": {
+      "name": "@downdraft/plugin-movement-2d",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/movement-3d": {
+      "name": "@downdraft/plugin-movement-3d",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/plugins/sailing": {
+      "name": "@downdraft/plugin-sailing",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-water": "workspace:*",
+      },
+    },
+    "packages/plugins/terrain": {
+      "name": "@downdraft/plugin-terrain",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@downdraft/library-marching-cubes": "workspace:*",
       },
     },
     "packages/plugins/xr": {
@@ -625,6 +658,14 @@
     "@downdraft/plugin-electron-osr": ["@downdraft/plugin-electron-osr@workspace:packages/plugins/electron-osr"],
 
     "@downdraft/plugin-mcp": ["@downdraft/plugin-mcp@workspace:packages/plugins/mcp"],
+
+    "@downdraft/plugin-movement-2d": ["@downdraft/plugin-movement-2d@workspace:packages/plugins/movement-2d"],
+
+    "@downdraft/plugin-movement-3d": ["@downdraft/plugin-movement-3d@workspace:packages/plugins/movement-3d"],
+
+    "@downdraft/plugin-sailing": ["@downdraft/plugin-sailing@workspace:packages/plugins/sailing"],
+
+    "@downdraft/plugin-terrain": ["@downdraft/plugin-terrain@workspace:packages/plugins/terrain"],
 
     "@downdraft/plugin-xr": ["@downdraft/plugin-xr@workspace:packages/plugins/xr"],
 

@@ -25,7 +25,6 @@ import {
     SandWorld,
 } from "@downdraft/library-sand";
 import { MAX_LAYERS, MAX_TILES, TILE_CELL_SIZE, WALL_THICKNESS } from "../shared/constants";
-import { elementToMaterial } from "../shared/elements";
 import {
     BOARD_ELEMENT_OFFSET,
     BOARD_META_OFFSET,
@@ -36,6 +35,7 @@ import {
     STATS,
     SimBufferWriter,
 } from "../shared/sim-buffer";
+import { tilesetMaterial, type TilesetId } from "../shared/tilesets";
 import type { GameMode, SerializedBoard } from "../shared/types";
 import { TileBoard } from "./board";
 import { generateLevel } from "./level-generator";
@@ -121,6 +121,11 @@ let customCols = 0;
 let customRows = 0;
 // Game mode — drives board generation + selectability + matching rules.
 let mode: GameMode = "sandjongg";
+// Active tileset — determines the number of distinct tile types dealt and the
+// sand-material mapping for crumbled tiles. Defaults to "elements" (18
+// procedural elemental tiles). Changed via setTileset(); the renderer triggers
+// a board regenerate after changing it because the tile count differs.
+let activeTileset: TilesetId = "elements";
 
 // Game state.
 let level = 1;
@@ -374,6 +379,16 @@ createSimWorker({
       if (board) board.mode = newMode;
     },
 
+    /** Set the active tileset. Used for the next generated level (the tile
+     *  count differs between tilesets, so the current board's ids are
+     *  invalidated — the renderer triggers a regenerate after calling this).
+     *  Also updates the sand-material mapping for any subsequent spawnSand()
+     *  calls. The tile count is read from the tileset registry so the worker
+     *  doesn't need to know the specific tilesets. */
+    setTileset(id: TilesetId): void {
+      activeTileset = id;
+    },
+
     /** Spawn sand at an exact sand-grid rect (driven by the renderer, which
      *  knows the tile's on-screen position at match time). This replaces the
      *  old crumble-event approach that computed positions from a generic layout
@@ -381,7 +396,7 @@ createSimWorker({
      *  offset mismatch. */
     spawnSand(sandCol: number, sandRow: number, sandW: number, sandH: number, element: number): void {
       if (!world) return;
-      const mat = elementToMaterial(element);
+      const mat = tilesetMaterial(activeTileset, element);
       if (mat === 0) return;
       const W = world.W;
       const fields = world.fields;
@@ -415,6 +430,7 @@ function startLevel(levelNum: number, seed: number): void {
     cols: customCols,
     rows: customRows,
     mode,
+    tileset: activeTileset,
   });
   board = result.board;
   boardCols = board.cols;

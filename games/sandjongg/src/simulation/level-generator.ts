@@ -9,6 +9,7 @@
 
 import { ALL_SHAPES, type BoardShape, MAX_COLS, MAX_LAYERS, MAX_ROWS } from "../shared/constants";
 import { NUM_ELEMENTS } from "../shared/elements";
+import { getTileCount, type TilesetId } from "../shared/tilesets";
 import type { GameMode, LevelSpec } from "../shared/types";
 import { TileBoard } from "./board";
 import { findPath } from "./pathfinding";
@@ -128,6 +129,11 @@ export interface GenerateLevelOptions {
   rows?: number;
   /** Game mode — drives generation strategy. Defaults to "sandjongg". */
   mode?: GameMode;
+  /** Active tileset — determines the number of distinct tile types dealt
+   *  (= getTileCount(tileset)). Defaults to "elements" (18). The generator
+   *  deals random ids in 0..count-1; the renderer + sand spawner interpret
+   *  them via the tileset. */
+  tileset?: TilesetId;
 }
 
 /**
@@ -154,15 +160,19 @@ export function generateLevel(
   if (mode === "mahjongg") {
     return generateMahjonggLevel(level, seed, opts);
   }
+  // Tile count from the active tileset (defaults to elements = 18, preserving
+  // the original behaviour). The generator deals random ids in 0..count-1;
+  // the renderer + sand spawner interpret them via the tileset.
+  const numTiles = getTileCount(opts.tileset ?? "elements");
   const maxAttempts = 20;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const rng = makeRng(seed + attempt * 0x9e3779b9);
-    const result = tryGenerate(level, rng, opts);
+    const result = tryGenerate(level, rng, opts, numTiles);
     if (result !== null) return result;
   }
   // Fallback: simple rectangle that's guaranteed solvable.
   const rng = makeRng(seed);
-  const result = tryGenerate(1, rng, {});
+  const result = tryGenerate(1, rng, {}, NUM_ELEMENTS);
   if (result !== null) return result;
   // Ultimate fallback: empty board (should never happen).
   const { cols, rows } = levelDims(level);
@@ -186,6 +196,7 @@ function tryGenerate(
   level: number,
   rng: () => number,
   opts: GenerateLevelOptions,
+  numTiles: number,
 ): { board: TileBoard; spec: LevelSpec } | null {
   const shape = levelShape(level);
   const dims = (opts.cols && opts.cols > 0 && opts.rows && opts.rows > 0)
@@ -268,9 +279,9 @@ function tryGenerate(
           // element in a shuffled order and pick the first that doesn't create an
           // orthogonal same-element neighbour at either cell of the pair. If none
           // qualify, relax to a random element so generation doesn't stall.
-          let element = Math.floor(rng() * NUM_ELEMENTS);
+          let element = Math.floor(rng() * numTiles);
           if (noAdjacent) {
-            const order = shuffleIndices(NUM_ELEMENTS, rng);
+            const order = shuffleIndices(numTiles, rng);
             let chosen = -1;
             for (const el of order) {
               // Check cell1 against existing neighbours; cell2 is still empty so
@@ -438,6 +449,8 @@ function generateMahjonggLevel(
   // at least 2 so the stacking/free-tile rule is meaningful.
   const numLayers = Math.max(2, levelLayers(level));
   const noAdjacent = !!opts.noAdjacentSame;
+  // Tile count from the active tileset (defaults to elements = 18).
+  const numTiles = getTileCount(opts.tileset ?? "elements");
 
   const layout = buildMahjonggLayout(shape, cols, rows, numLayers);
   // Even number of tiles — drop the last position if odd.
@@ -459,9 +472,9 @@ function generateMahjonggLevel(
       for (let i = 0; i + 1 < posOrder.length; i += 2) {
         const p1 = usable[posOrder[i]];
         const p2 = usable[posOrder[i + 1]];
-        let element = Math.floor(rng() * NUM_ELEMENTS);
+        let element = Math.floor(rng() * numTiles);
         if (noAdjacent) {
-          const order = shuffleIndices(NUM_ELEMENTS, rng);
+          const order = shuffleIndices(numTiles, rng);
           let chosen = -1;
           for (const el of order) {
             if (!hasAdjacentSame(board, p1.col, p1.row, p1.layer, el) &&
