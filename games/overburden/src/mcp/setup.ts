@@ -335,7 +335,9 @@ function createAutomationTools(ctx: {
       handler: (params: Record<string, unknown>) => {
         const renderer = ctx.renderer();
         if (!renderer) return errorResult("Renderer not initialized");
-        const state = readPlayer(renderer, (params.playerIndex as number) ?? 0);
+        const explicitIdx = params.playerIndex as number | undefined;
+        const idx = explicitIdx !== undefined ? explicitIdx : renderer.getActiveBhIndex();
+        const state = readPlayer(renderer, idx);
         if (!state) return errorResult("Player not available");
         return jsonResult(state);
       },
@@ -374,7 +376,9 @@ function createAutomationTools(ctx: {
         if (!renderer) return errorResult("Renderer not initialized");
         const host = renderer.getWorkerHost();
         if (!host) return errorResult("Worker host not available");
-        const inv = await host.getInventory((params.playerIndex as number) ?? 0);
+        const explicitIdx = params.playerIndex as number | undefined;
+        const idx = explicitIdx !== undefined ? explicitIdx : renderer.getActiveBhIndex();
+        const inv = await host.getInventory(idx);
         return jsonResult({ inventory: inv });
       },
     },
@@ -404,7 +408,7 @@ function createAutomationTools(ctx: {
           params.recipeId as string,
           (params.stationAx as number) ?? -1,
           (params.stationAy as number) ?? -1,
-          (params.playerIndex as number) ?? 0,
+          (params.playerIndex as number) ?? renderer.getActiveBhIndex(),
         );
         return jsonResult(result);
       },
@@ -555,7 +559,7 @@ function createAutomationTools(ctx: {
         const result = await host.giveItem(
           itemId,
           count,
-          (params.playerIndex as number) ?? 0,
+          (params.playerIndex as number) ?? renderer.getActiveBhIndex(),
         );
         return jsonResult(result);
       },
@@ -598,7 +602,7 @@ function createAutomationTools(ctx: {
         const result = await host.queueTask(
           params.type as "MOVE_TO" | "MINE_BLOCK" | "PLACE_BLOCK" | "CHOP_TREE" | "CRAFT_AT" | "COLLECT_ITEM" | "EAT" | "SLEEP",
           opts,
-          (params.playerIndex as number) ?? 0,
+          (params.playerIndex as number) ?? renderer.getActiveBhIndex(),
         );
         return jsonResult(result);
       },
@@ -621,7 +625,7 @@ function createAutomationTools(ctx: {
         if (!renderer) return errorResult("Renderer not initialized");
         const host = renderer.getWorkerHost();
         if (!host) return errorResult("Worker host not available");
-        const tasks = await host.getTasks((params.playerIndex as number) ?? 0);
+        const tasks = await host.getTasks((params.playerIndex as number) ?? renderer.getActiveBhIndex());
         return jsonResult({ tasks });
       },
     },
@@ -643,7 +647,7 @@ function createAutomationTools(ctx: {
         if (!renderer) return errorResult("Renderer not initialized");
         const host = renderer.getWorkerHost();
         if (!host) return errorResult("Worker host not available");
-        const result = await host.clearTasks((params.playerIndex as number) ?? 0);
+        const result = await host.clearTasks((params.playerIndex as number) ?? renderer.getActiveBhIndex());
         return jsonResult(result);
       },
     },
@@ -745,6 +749,125 @@ function createAutomationTools(ctx: {
         }
 
         return jsonResult({ ok: true, actions });
+      },
+    },
+
+    // --- spawn_blockhead ---
+    {
+      def: {
+        name: "spawn_blockhead",
+        description: "Spawn a new blockhead (free — creative/MCP). If x/y omitted, spawns near the active blockhead. Returns the new blockhead's index + id.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            x: { type: "number", description: "World X coordinate to spawn near (optional — defaults to active blockhead's position)" },
+            y: { type: "number", description: "World Y coordinate to spawn near (optional)" },
+            gender: { type: "string", enum: ["male", "female"], description: "Character gender (optional, default male)" },
+          },
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        try {
+          const result = await host.spawnBlockhead(
+            params.x as number | undefined,
+            params.y as number | undefined,
+            params.gender as string | undefined,
+          );
+          return jsonResult(result);
+        } catch (e) {
+          return errorResult(`spawn_blockhead failed: ${(e as Error).message}`);
+        }
+      },
+    },
+
+    // --- set_active_blockhead ---
+    {
+      def: {
+        name: "set_active_blockhead",
+        description: "Set which blockhead receives direct WASD/mouse input (0-indexed). Use get_all_players to see available indices.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            index: { type: "number", description: "Blockhead index (0-based)" },
+          },
+          required: ["index"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const idx = params.index as number;
+        renderer.setActiveBhIndex(idx);
+        const result = await host.setActiveBhIndex(idx);
+        return jsonResult(result);
+      },
+    },
+
+    // --- get_active_blockhead ---
+    {
+      def: {
+        name: "get_active_blockhead",
+        description: "Get the index of the currently active blockhead (the one receiving direct WASD/mouse input).",
+        inputSchema: { type: "object", properties: {} },
+      },
+      handler: async () => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const idx = await host.getActiveBhIndex();
+        return jsonResult({ activeBhIndex: idx });
+      },
+    },
+
+    // --- get_all_players ---
+    {
+      def: {
+        name: "get_all_players",
+        description: "Get a roster snapshot of all blockheads (id, index, position, stats, gender). Use to find available blockhead indices for set_active_blockhead.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      handler: async () => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const roster = await host.getBlockheads();
+        return jsonResult({ blockheads: roster });
+      },
+    },
+
+    // --- use_item ---
+    {
+      def: {
+        name: "use_item",
+        description: "Use an item from a blockhead's inventory (e.g. spawn_egg to spawn a new blockhead). Currently only spawn_egg has a use action.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            itemId: { type: "string", description: "Item ID to use (e.g. 'spawn_egg')" },
+            playerIndex: { type: "number", default: 0, description: "Blockhead index whose inventory to use from" },
+          },
+          required: ["itemId"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const renderer = ctx.renderer();
+        if (!renderer) return errorResult("Renderer not initialized");
+        const host = renderer.getWorkerHost();
+        if (!host) return errorResult("Worker host not available");
+        const itemId = params.itemId as string;
+        // Default to the active blockhead if playerIndex not specified.
+        const explicitIdx = params.playerIndex as number | undefined;
+        const bhIndex = explicitIdx !== undefined ? explicitIdx : renderer.getActiveBhIndex();
+        const result = await host.useItem(itemId, bhIndex);
+        return jsonResult(result);
       },
     },
 

@@ -6,7 +6,7 @@ import { TaskQueueDisplay } from "./components/task-queue-display";
 import { encodeDropItem, getDropColor } from "./shared/drop-registry";
 import { getAllItems, getItemDef, type ItemCategory } from "./shared/items";
 import { getRecipe } from "./shared/recipes";
-import { useGameStore } from "./stores/game-store";
+import { useGameStore, type BlockheadUIState } from "./stores/game-store";
 
 const titleStyle: React.CSSProperties = {
   position: "absolute",
@@ -382,8 +382,11 @@ function PauseMenu() {
     try {
       const result = await renderer.resetGame();
       if (result.ok) {
-        // Clear localStorage inventory save
-        try { localStorage.removeItem("overburden:inventory"); } catch { /* ignore */ }
+        // Clear localStorage saves (roster + legacy inventory)
+        try {
+          localStorage.removeItem("overburden:roster");
+          localStorage.removeItem("overburden:inventory");
+        } catch { /* ignore */ }
         // Reset all UI state to match the fresh world
         setTaskMode(false);
         setShowCraftPanel(false);
@@ -557,6 +560,75 @@ const AttributeBars = memo(function AttributeBars() {
   );
 });
 
+// --- Blockhead selector (multi-character) ---
+// A row of small portraits/tabs, one per blockhead. Click to switch active.
+// Tab cycles active. Shows a mini HP bar per portrait.
+const BlockheadSelector = memo(function BlockheadSelector() {
+  const blockheads = useGameStore((s) => s.blockheads);
+  const activeBhIndex = useGameStore((s) => s.activeBhIndex);
+  if (blockheads.length <= 1) return null; // hide when only one blockhead
+  return (
+    <div style={{
+      position: "absolute",
+      top: 8,
+      left: "50%",
+      transform: "translateX(-50%)",
+      display: "flex",
+      gap: 4,
+      background: "rgba(0,0,0,0.5)",
+      padding: 4,
+      borderRadius: 4,
+      pointerEvents: "auto",
+    }}>
+      {blockheads.map((bh, i) => {
+        const isActive = i === activeBhIndex;
+        const hpPct = Math.max(0, Math.min(100, bh.health));
+        return (
+          <button
+            key={i}
+            onClick={() => {
+              const { renderer } = useGameStore.getState();
+              if (renderer) {
+                renderer.setActiveBhIndex(i);
+                renderer.getWorkerHost()?.setActiveBhIndex(i).catch(() => {});
+              }
+            }}
+            style={{
+              width: 36,
+              height: 36,
+              border: isActive ? "2px solid #4fc3f7" : "2px solid transparent",
+              background: "rgba(255,255,255,0.1)",
+              borderRadius: 4,
+              cursor: "pointer",
+              padding: 2,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#fff",
+              fontSize: 10,
+              fontFamily: "monospace",
+              position: "relative",
+              overflow: "hidden",
+            }}
+            title={`Blockhead ${i + 1} — HP: ${Math.round(hpPct)}`}
+          >
+            <span style={{ zIndex: 1 }}>{i + 1}</span>
+            <div style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              width: `${hpPct}%`,
+              height: 3,
+              background: hpPct > 50 ? "#2ecc71" : hpPct > 20 ? "#e67e22" : "#e74c3c",
+            }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
 // --- Character gender indicator ---
 // Small label showing the current player model gender. Toggle with C key.
 const GenderIndicator = memo(function GenderIndicator() {
@@ -723,6 +795,7 @@ function Hud() {
       <ChunkDebugOverlay />
       <MapOverview />
       <AttributeBars />
+      <BlockheadSelector />
       <PanelRouter />
       <NotificationToast />
       <PickupNotifications />
@@ -971,7 +1044,8 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
   const handleCraft = async (recipeId: string) => {
     const host = renderer?.getWorkerHost();
     if (!host) return;
-    const result = await host.craft(recipeId);
+    const bhIdx = renderer?.getActiveBhIndex() ?? 0;
+    const result = await host.craft(recipeId, -1, -1, bhIdx);
     if (result.ok) {
       setStatus(`Crafted ${recipeId}`);
     } else {
@@ -983,7 +1057,8 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
   const handleCreativeGive = async (itemId: string, maxStack: number) => {
     const host = renderer?.getWorkerHost();
     if (!host) return;
-    const result = await host.giveItem(itemId, maxStack, 0);
+    const bhIdx = renderer?.getActiveBhIndex() ?? 0;
+    const result = await host.giveItem(itemId, maxStack, bhIdx);
     if (result.ok) {
       setStatus(`Added ${result.added} × ${getItemDef(itemId)?.name ?? itemId}`);
     } else {
@@ -1000,7 +1075,8 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
     }
     const host = renderer?.getWorkerHost();
     if (!host) return;
-    await host.moveSlot(dragFrom, to, 0);
+    const bhIdx = renderer?.getActiveBhIndex() ?? 0;
+    await host.moveSlot(dragFrom, to, bhIdx);
     setDragFrom(null);
     await refreshInventory();
   };
@@ -1152,6 +1228,33 @@ function InventoryPanel({ recipes }: { recipes: { id: string; name: string; stat
         {/* --- Creative tab: searchable grid of all items --- */}
         {inventoryTab === "creative" && (
           <>
+            <button
+              style={{
+                width: "100%",
+                padding: "8px",
+                marginBottom: 8,
+                background: "rgba(79,195,247,0.2)",
+                border: "1px solid rgba(79,195,247,0.4)",
+                borderRadius: 4,
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 13,
+                fontFamily: "monospace",
+              }}
+              onClick={async () => {
+                const host = renderer?.getWorkerHost();
+                if (!host) return;
+                const result = await host.spawnBlockhead();
+                if (result.ok) {
+                  setStatus(`Spawned blockhead #${(result.bhIndex ?? 0) + 1}`);
+                } else {
+                  setStatus(`Spawn failed: ${result.error ?? "unknown"}`);
+                }
+                setTimeout(() => setStatus(""), 2000);
+              }}
+            >
+              + Spawn Blockhead (free)
+            </button>
             <input
               style={creativeSearchStyle}
               type="text"
@@ -1221,22 +1324,45 @@ export default function App() {
       host.onPickups((data) => useGameStore.getState().addPickups(data));
     }
 
-    // --- Load saved inventory from localStorage on game start ---
-    // Skip in deterministic mode (e2e tests need fresh state)
+    // --- Load saved roster from localStorage on game start ---
+    // The roster includes all blockheads (position, stats, inventory, gender).
+    // Falls back to the legacy single-inventory key if no roster exists.
+    // Skip in deterministic mode (e2e tests need fresh state).
+    // NOTE: We check the global `downdraft.deterministic` flag directly (not
+    // the store) because the store's `deterministic` flag is set in
+    // onDeterministic(), which runs AFTER this useEffect.
+    const ROSTER_SAVE_KEY = "overburden:roster";
     const INVENTORY_SAVE_KEY = "overburden:inventory";
-    if (!useGameStore.getState().deterministic) {
+    const isDeterministic = (globalThis as unknown as { downdraft?: { deterministic?: boolean } }).downdraft?.deterministic === true
+      || useGameStore.getState().deterministic;
+    if (!isDeterministic && host) {
       try {
-        const saved = localStorage.getItem(INVENTORY_SAVE_KEY);
-        if (saved && host) {
-          const slots = JSON.parse(saved) as unknown;
-          if (Array.isArray(slots) && slots.length > 0) {
-            host.setInventory(slots, 0).then(() => {
+        const savedRoster = localStorage.getItem(ROSTER_SAVE_KEY);
+        if (savedRoster) {
+          const roster = JSON.parse(savedRoster);
+          if (roster && Array.isArray(roster.blockheads) && roster.blockheads.length > 0) {
+            host.setBlockheadRoster(roster).then(() => {
               // Refresh the store after loading
-              host.getInventory(0).then((inv) => {
+              const activeIdx = renderer.getActiveBhIndex();
+              host.getInventory(activeIdx).then((inv) => {
                 useGameStore.getState().setInventory(inv);
                 renderer.setHotbarFromInventory(inv);
               });
             });
+          }
+        } else {
+          // Legacy: load single inventory for blockhead 0
+          const saved = localStorage.getItem(INVENTORY_SAVE_KEY);
+          if (saved) {
+            const slots = JSON.parse(saved) as unknown;
+            if (Array.isArray(slots) && slots.length > 0) {
+              host.setInventory(slots, 0).then(() => {
+                host.getInventory(0).then((inv) => {
+                  useGameStore.getState().setInventory(inv);
+                  renderer.setHotbarFromInventory(inv);
+                });
+              });
+            }
           }
         }
       } catch {
@@ -1244,8 +1370,8 @@ export default function App() {
       }
     }
 
-    // Track last saved inventory to avoid redundant localStorage writes
-    let lastSavedJson = "";
+    // Track last saved roster JSON to avoid redundant localStorage writes
+    let lastSavedRosterJson = "";
 
     const interval = setInterval(() => {
       const reader = renderer.getSimReader();
@@ -1254,24 +1380,54 @@ export default function App() {
       useGameStore.getState().prunePickups(Date.now());
       const count = reader.getBlockheadCount();
       if (count > 0) {
-        const bh = reader.getBlockhead(0);
-        // Only update the store if a value actually changed — avoids
-        // triggering a React re-render (and blocking the rAF loop) every
-        // poll when the data is identical.
-        const prev = useGameStore.getState().blockhead;
-        if (
-          prev.health !== bh[7] || prev.hunger !== bh[8] ||
-          prev.energy !== bh[9] || prev.air !== bh[10] ||
-          prev.happiness !== bh[11] || prev.environment !== bh[12]
-        ) {
-          useGameStore.getState().setBlockhead({
-            health: bh[7],
-            hunger: bh[8],
-            energy: bh[9],
-            air: bh[10],
-            happiness: bh[11],
-            environment: bh[12],
-          });
+        // Build stats for all blockheads + the active one's stats for the
+        // attribute bars (backwards-compat with single-blockhead UI).
+        const activeIdx = renderer.getActiveBhIndex();
+        const clampedIdx = Math.min(activeIdx, count - 1);
+        const allBhs: BlockheadUIState[] = [];
+        let activeBh: BlockheadUIState | null = null;
+        for (let i = 0; i < count; i++) {
+          const bh = reader.getBlockhead(i);
+          const stats = {
+            health: bh[7], hunger: bh[8], energy: bh[9], air: bh[10],
+            happiness: bh[11], environment: bh[12],
+          };
+          allBhs.push(stats);
+          if (i === clampedIdx) activeBh = stats;
+        }
+        // Update the blockheads array + count (for the selector UI).
+        const prevCount = useGameStore.getState().blockheadCount;
+        if (prevCount !== count) {
+          useGameStore.getState().setBlockheadCount(count);
+        }
+        const prevAll = useGameStore.getState().blockheads;
+        let allChanged = prevAll.length !== allBhs.length;
+        if (!allChanged) {
+          for (let i = 0; i < allBhs.length; i++) {
+            const a = prevAll[i], b = allBhs[i];
+            if (a.health !== b.health || a.hunger !== b.hunger ||
+                a.energy !== b.energy || a.air !== b.air ||
+                a.happiness !== b.happiness || a.environment !== b.environment) {
+              allChanged = true; break;
+            }
+          }
+        }
+        if (allChanged) useGameStore.getState().setBlockheads(allBhs);
+        // Update the active blockhead's stats (for attribute bars).
+        if (activeBh) {
+          const prev = useGameStore.getState().blockhead;
+          if (
+            prev.health !== activeBh.health || prev.hunger !== activeBh.hunger ||
+            prev.energy !== activeBh.energy || prev.air !== activeBh.air ||
+            prev.happiness !== activeBh.happiness || prev.environment !== activeBh.environment
+          ) {
+            useGameStore.getState().setBlockhead(activeBh);
+          }
+        }
+        // Sync active index to store (in case Tab cycling changed it).
+        const prevActive = useGameStore.getState().activeBhIndex;
+        if (prevActive !== clampedIdx) {
+          useGameStore.getState().setActiveBhIndex(clampedIdx);
         }
       }
       // Sync selected slot from input
@@ -1291,7 +1447,8 @@ export default function App() {
       // Poll inventory from the worker (async RPC)
       const h = renderer.getWorkerHost();
       if (h) {
-        h.getInventory(0).then((inv) => {
+        const invBhIndex = renderer.getActiveBhIndex();
+        h.getInventory(invBhIndex).then((inv) => {
           // Only update the store if the inventory actually changed.
           // The worker returns a fresh array each call, so compare by value.
           const prevInv = useGameStore.getState().inventory;
@@ -1309,20 +1466,26 @@ export default function App() {
           }
           // Update the renderer's hotbar from the inventory
           renderer.setHotbarFromInventory(inv);
-          // --- Save inventory to localStorage on change ---
-          // Skip in deterministic mode (e2e tests)
-          if (!useGameStore.getState().deterministic) {
+        });
+
+        // --- Save roster to localStorage (every 2s, throttled by JSON diff) ---
+        // The roster includes all blockheads' positions, stats, inventories,
+        // and genders. Skip in deterministic mode (e2e tests).
+        const detSave = (globalThis as unknown as { downdraft?: { deterministic?: boolean } }).downdraft?.deterministic === true
+          || useGameStore.getState().deterministic;
+        if (!detSave) {
+          h.getBlockheadRoster().then((roster) => {
             try {
-              const json = JSON.stringify(inv);
-              if (json !== lastSavedJson) {
-                lastSavedJson = json;
-                localStorage.setItem(INVENTORY_SAVE_KEY, json);
+              const json = JSON.stringify(roster);
+              if (json !== lastSavedRosterJson) {
+                lastSavedRosterJson = json;
+                localStorage.setItem(ROSTER_SAVE_KEY, json);
               }
             } catch {
               // localStorage might not be available — ignore
             }
-          }
-        });
+          }).catch(() => { /* worker not ready — ignore */ });
+        }
       }
     }, 250);
 
@@ -1332,7 +1495,8 @@ export default function App() {
     const markerInterval = setInterval(() => {
       const h = renderer.getWorkerHost();
       if (h) {
-        h.getTasks(0).then((tasks) => {
+        const taskBhIndex = renderer.getActiveBhIndex();
+        h.getTasks(taskBhIndex).then((tasks) => {
           const reader = renderer.getSimReader();
           if (!reader) return;
           const originCx = reader.getOriginCx();
@@ -1438,7 +1602,7 @@ export default function App() {
           Start Game
         </button>
         <div style={helpStyle}>
-          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: crafting | T: task mode | Q: task queue | M: map (click map to walk) | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
+          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: crafting | T: task mode | Q: task queue | M: map (click map to walk) | Tab: switch blockhead | G: use item (spawn egg) | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
         </div>
       </div>
     );

@@ -444,6 +444,17 @@ const DEFS: RecipeDef[] = [
     craftTime: 30,
     fuelCost: 3,
   },
+
+  // --- Tailor's Bench recipes ---
+  {
+    id: "spawn_egg",
+    name: "Spawn Egg",
+    station: "tailor_bench",
+    inputs: [{ itemId: "planks", count: 4 }, { itemId: "rope", count: 2 }, { itemId: "coal", count: 1 }],
+    outputs: [{ itemId: "spawn_egg", count: 1 }],
+    craftTime: 20,
+    fuelCost: 0,
+  },
 ];
 
 const byId = new Map<string, RecipeDef>();

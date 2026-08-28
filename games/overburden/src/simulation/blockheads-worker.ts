@@ -33,7 +33,8 @@ import { getSpeciesIndex, isLeafBlock, isTreeBlock, isWoodBlock, pickTreeSpecies
 import type { BlockheadState } from "../shared/types";
 import {
     animStateToCode,
-    BH_STRIDE
+    BH_STRIDE,
+    MAX_BLOCKHEADS,
 } from "../shared/types";
 import { BlockWorld } from "./block-world";
 import {
@@ -84,12 +85,29 @@ let inventories: Inventory[] = [];
 let input: BlockheadInput = createDefaultInput();
 let inputInt32: Int32Array | null = null;
 let inputF32: Float32Array | null = null;
+// Index of the directly-controlled blockhead (WASD/mouse). Read from the SAB
+// input region each tick; clamped to alive blockheads. Non-active blockheads
+// are task-queue-only (their direct input is idle).
+let activeBhIndex = 0;
+// Per-blockhead gender (cosmetic, renderer-side; worker stores it for roster
+// persistence). Keyed by blockhead id.
+const bhGenders: Map<number, string> = new Map();
+// Next unique blockhead id (incremented on spawn).
+let nextBhId = 1;
 
-// --- Mining state ---
+// --- Mining state (per-blockhead) ---
 // Per-cell damage tracking. Key = y * ACTIVE_GRID_W + x, value = damage accumulated.
-const mineDamage = new Map<number, number>();
-let mineTarget: { x: number; y: number; blockId: number } | null = null;
-let mineCooldown = 0;
+// Each blockhead has its own damage map + target + cooldown.
+interface MineState {
+  damage: Map<number, number>;
+  target: { x: number; y: number; blockId: number } | null;
+  cooldown: number;
+}
+let mineStates: MineState[] = [];
+// Legacy single-target aliases for the SAB header (reports the active BH's mining).
+function activeMineState(): MineState {
+  return mineStates[activeBhIndex] ?? (mineStates[activeBhIndex] = { damage: new Map(), target: null, cooldown: 0 });
+}
 
 // --- Task queue (per-blockhead) ---
 const taskQueues: Task[][] = [];
@@ -174,9 +192,8 @@ function recordPickup(itemId: string, count: number): void {
 /** Spawn a drop entity at the given active-grid position with a small random pop velocity. */
 function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): void {
   if (drops.length >= MAX_DROPS) {
-    // Drop limit reached — merge into inventory directly as fallback.
-    // Overflow is discarded (no ground drop possible).
-    const inv = inventories[0];
+    // Drop limit reached — merge into the active blockhead's inventory as fallback.
+    const inv = inventories[activeBhIndex] ?? inventories[0];
     if (inv) {
       const added = count - inv.add(itemId, count);
       if (added > 0) recordPickup(itemId, added);
@@ -185,8 +202,8 @@ function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): v
   }
   const code = encodeDropItem(itemId);
   if (code === 0) {
-    // Unknown item — add to inventory directly. Overflow is discarded.
-    const inv = inventories[0];
+    // Unknown item — add to the active blockhead's inventory. Overflow is discarded.
+    const inv = inventories[activeBhIndex] ?? inventories[0];
     if (inv) {
       const added = count - inv.add(itemId, count);
       if (added > 0) recordPickup(itemId, added);
@@ -214,10 +231,22 @@ function spawnDrop(gx: number, gy: number, itemId: string, count: number = 1): v
 /** Update drop physics + check pickup by the blockhead. Called each tick. */
 function updateDrops(dt: number): void {
   if (!world) return;
-  const bh = blockheads[0];
-  const bhCx = bh ? bh.x + BH_W * 0.5 : -999;
-  const bhCy = bh ? bh.y + BH_H * 0.5 : -999;
-  const inv = inventories[0];
+
+  // Find the nearest blockhead to a drop position (for pickup attribution).
+  // Returns { bi, distSq } or null if no blockheads.
+  const findNearestBh = (dx: number, dy: number): { bi: number; distSq: number } | null => {
+    let best: { bi: number; distSq: number } | null = null;
+    for (let bi = 0; bi < blockheads.length; bi++) {
+      const bh = blockheads[bi];
+      const cx = bh.x + BH_W * 0.5;
+      const cy = bh.y + BH_H * 0.5;
+      const ddx = dx - cx;
+      const ddy = dy - cy;
+      const distSq = ddx * ddx + ddy * ddy;
+      if (!best || distSq < best.distSq) best = { bi, distSq };
+    }
+    return best;
+  };
 
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i];
@@ -232,34 +261,31 @@ function updateDrops(dt: number): void {
     }
 
     // Tree fruits/seeds that haven't fallen yet are stationary on the tree.
-    // They hang motionless (no physics) until stepTreeDaily sets fallen=true.
-    // Without this, the ground-collision check below would find no solid
-    // foreground block (trees are in the background), set onGround=false, and
-    // the fruit would immediately fall through the world.
     if (d.kind > 0 && !d.fallen) {
       d.spin += d.spinSpeed * dt;
-      // Pickup: fruits (kind=1) and seeds (kind=2) are pick-uppable by
-      // proximity while on the tree (no pickup delay).
-      if (bh && inv && (d.kind === 1 || d.kind === 2)) {
-        const dx = d.x - bhCx;
-        const dy = d.y - bhCy;
-        if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
-          const itemId = decodeDropItem(d.itemCode);
-          if (itemId) {
-            const overflow = inv.add(itemId, d.count);
-            const pickedUp = d.count - overflow;
-            if (pickedUp > 0) recordPickup(itemId, pickedUp);
-            if (overflow > 0) {
-              // Inventory full — keep the remainder in the drop on the ground.
-              d.count = overflow;
+      // Pickup by nearest blockhead (no pickup delay for fruits/seeds).
+      if (d.kind === 1 || d.kind === 2) {
+        const nearest = findNearestBh(d.x, d.y);
+        if (nearest && nearest.distSq < PICKUP_RADIUS * PICKUP_RADIUS) {
+          const inv = inventories[nearest.bi];
+          if (inv) {
+            const itemId = decodeDropItem(d.itemCode);
+            if (itemId) {
+              const overflow = inv.add(itemId, d.count);
+              const pickedUp = d.count - overflow;
+              if (pickedUp > 0) recordPickup(itemId, pickedUp);
+              if (overflow > 0) {
+                d.count = overflow;
+              } else {
+                drops.splice(i, 1);
+              }
             } else {
               drops.splice(i, 1);
             }
           }
-          else drops.splice(i, 1);
         }
       }
-      continue; // skip physics entirely
+      continue;
     }
 
     // Physics: gravity + collision with solid foreground blocks
@@ -270,21 +296,17 @@ function updateDrops(dt: number): void {
       d.vy = 0;
     }
 
-    // Horizontal movement with friction
     d.x += d.vx;
     d.vx *= DROP_FRICTION;
     if (Math.abs(d.vx) < 0.001) d.vx = 0;
 
-    // Vertical movement + ground collision
     const newY = d.y + d.vy;
-    // Check if the cell below the drop's new position is solid
     const checkX = Math.floor(d.x);
-    const checkY = Math.floor(newY + 0.3); // check slightly below center
+    const checkY = Math.floor(newY + 0.3);
     if (checkX >= 0 && checkX < ACTIVE_GRID_W && checkY >= 0 && checkY < ACTIVE_GRID_H) {
       const blockId = world.activeForeground[checkY * ACTIVE_GRID_W + checkX] & 0xFF;
       const def = getBlockDef(blockId);
       if (def && def.category === "solid") {
-        // Land on top of the block
         d.y = checkY - 0.5;
         d.vy = 0;
         d.onGround = true;
@@ -297,37 +319,33 @@ function updateDrops(dt: number): void {
       d.onGround = false;
     }
 
-    // Keep drop in bounds
     if (d.x < 0) { d.x = 0; d.vx = Math.abs(d.vx); }
     if (d.x >= ACTIVE_GRID_W) { d.x = ACTIVE_GRID_W - 0.01; d.vx = -Math.abs(d.vx); }
     if (d.y < 0) { d.y = 0; d.vy = 0; d.onGround = true; }
     if (d.y >= ACTIVE_GRID_H) { d.y = ACTIVE_GRID_H - 0.01; d.vy = 0; }
 
-    // Spin
     d.spin += d.spinSpeed * dt;
 
-    // Pickup: fruits (kind=1) and seeds (kind=2) are pick-uppable by
-    // proximity (no pickup delay). Regular drops (kind=0) use the pickup delay.
-    if (bh && inv) {
-      const canPickup = d.kind === 1 || d.kind === 2 || d.lifetime < DROP_LIFETIME - PICKUP_DELAY;
-      if (canPickup) {
-        const dx = d.x - bhCx;
-        const dy = d.y - bhCy;
-        if (dx * dx + dy * dy < PICKUP_RADIUS * PICKUP_RADIUS) {
-          // Decode item and add to inventory
+    // Pickup by nearest blockhead.
+    const canPickup = d.kind === 1 || d.kind === 2 || d.lifetime < DROP_LIFETIME - PICKUP_DELAY;
+    if (canPickup) {
+      const nearest = findNearestBh(d.x, d.y);
+      if (nearest && nearest.distSq < PICKUP_RADIUS * PICKUP_RADIUS) {
+        const inv = inventories[nearest.bi];
+        if (inv) {
           const itemId = decodeDropItem(d.itemCode);
           if (itemId) {
             const overflow = inv.add(itemId, d.count);
             const pickedUp = d.count - overflow;
             if (pickedUp > 0) recordPickup(itemId, pickedUp);
             if (overflow > 0) {
-              // Inventory full — keep the remainder in the drop on the ground.
               d.count = overflow;
             } else {
               drops.splice(i, 1);
             }
+          } else {
+            drops.splice(i, 1);
           }
-          else drops.splice(i, 1);
         }
       }
     }
@@ -559,9 +577,10 @@ async function setupWorld(loadSavedChunks: boolean): Promise<void> {
   blockheads = [];
   inventories = [];
   input = createDefaultInput();
-  mineDamage.clear();
-  mineTarget = null;
-  mineCooldown = 0;
+  mineStates = [];
+  activeBhIndex = 0;
+  nextBhId = 1;
+  bhGenders.clear();
   taskQueues.length = 0;
   stationStates.clear();
   drops.length = 0;
@@ -628,6 +647,7 @@ async function setupWorld(loadSavedChunks: boolean): Promise<void> {
   const bh = createBlockhead(bhX, surfaceGridY);
   bh.id = 0;
   blockheads = [bh];
+  bhGenders.set(0, "male");
 
   // Starting inventory — a few torches + ladders so the player can light
   // underground and climb back out of shallow holes immediately.
@@ -637,6 +657,7 @@ async function setupWorld(loadSavedChunks: boolean): Promise<void> {
   inventories = [inv];
   taskQueues.length = 0;
   taskQueues.push([]);
+  mineStates = [{ damage: new Map(), target: null, cooldown: 0 }];
 
   // Write initial SAB state so the renderer has valid data on the first frame
   if (world && writer) {
@@ -672,68 +693,84 @@ simControl = createSimWorker({
     if (!world) return;
     tickCount = ctx.tickCount;
 
-    // Read input from SAB (direct control)
+    // Read input from SAB (direct control for the active blockhead).
     readInput();
 
-    // If the task queue has an active task, override input with the
-    // task's synthetic input (autonomous blockhead execution).
-    const queue = taskQueues[0];
-    if (queue && queue.length > 0) {
-      const task = queue[0];
-      // Handle CRAFT_AT task completion: queue the craft at the station
-      if (task.type === "CRAFT_AT" && task.status === "done" && task.recipeId) {
-        if (task.stationAx !== undefined && task.stationAy !== undefined) {
-          // Queue the craft at the station (ingredients consumed on job start)
-          const recipe = getRecipe(task.recipeId);
-          if (recipe) {
-            const state = getOrCreateStationState(task.stationAx, task.stationAy);
-            if (state) {
-              const job: CraftJob = {
-                id: nextJobId++,
-                recipeId: task.recipeId,
-                bhIndex: 0,
-                elapsed: 0,
-                status: "pending",
-              };
-              state.queue.push(job);
-              packStationState(state, task.stationAx, task.stationAy);
+    // --- Per-blockhead task execution + input assembly ---
+    // The active blockhead uses the SAB direct input (read above), possibly
+    // overridden by its task queue's synthetic input. Non-active blockheads
+    // use their task queue's synthetic input, or idle input if no task.
+    // We build a per-blockhead input array, then run physics + mining +
+    // placing for each blockhead with its own input.
+    const bhInputs: BlockheadInput[] = [];
+    const originCx = world.getActiveOriginCx();
+    const originCy = world.getActiveOriginCy();
+    for (let bi = 0; bi < blockheads.length; bi++) {
+      const queue = taskQueues[bi];
+      let bhInput: BlockheadInput;
+      if (bi === activeBhIndex) {
+        // Active: start from direct SAB input (clone it so we don't mutate
+        // the shared `input` object when merging task input).
+        bhInput = { ...input };
+      } else {
+        // Non-active: start from idle input (no direct control).
+        bhInput = createDefaultInput();
+      }
+
+      if (queue && queue.length > 0) {
+        const task = queue[0];
+        // Handle CRAFT_AT task completion: queue the craft at the station
+        if (task.type === "CRAFT_AT" && task.status === "done" && task.recipeId) {
+          if (task.stationAx !== undefined && task.stationAy !== undefined) {
+            const recipe = getRecipe(task.recipeId);
+            if (recipe) {
+              const state = getOrCreateStationState(task.stationAx, task.stationAy);
+              if (state) {
+                const job: CraftJob = {
+                  id: nextJobId++,
+                  recipeId: task.recipeId,
+                  bhIndex: bi,
+                  elapsed: 0,
+                  status: "pending",
+                };
+                state.queue.push(job);
+                packStationState(state, task.stationAx, task.stationAy);
+              }
             }
           }
-        }
-        queue.shift();
-      }
-      // Remove completed/failed tasks from the front
-      if (task.status === "done" || task.status === "failed") {
-        queue.shift();
-      }
-      if (queue.length > 0) {
-        const current = queue[0];
-        const taskInput = executeTask(
-          blockheads[0], current, world.activeForeground, world.activeBackground,
-          world.getActiveOriginCx(), world.getActiveOriginCy(),
-          dt,
-        );
-        if (taskInput) {
-          // Override direct input with task input
-          input.left = taskInput.left;
-          input.right = taskInput.right;
-          input.up = taskInput.up;
-          input.down = taskInput.down;
-          input.jump = taskInput.jump;
-          input.noclip = false; // never noclip during tasks
-          input.mineX = taskInput.mineX;
-          input.mineY = taskInput.mineY;
-          input.placeX = taskInput.placeX;
-          input.placeY = taskInput.placeY;
-          input.placeBlockId = taskInput.placeBlockId;
-        }
-        // If executeTask returned null but task isn't done/failed,
-        // it means "use direct input" (e.g. MOVE_TO arrived). The task
-        // status was set to done, so it'll be shifted next tick.
-        if (current.status === "done" || current.status === "failed") {
           queue.shift();
         }
+        // Remove completed/failed tasks from the front
+        if (task.status === "done" || task.status === "failed") {
+          queue.shift();
+        }
+        if (queue.length > 0) {
+          const current = queue[0];
+          const taskInput = executeTask(
+            blockheads[bi], current, world.activeForeground, world.activeBackground,
+            originCx, originCy,
+            dt,
+          );
+          if (taskInput) {
+            // Override input with task input
+            bhInput.left = taskInput.left;
+            bhInput.right = taskInput.right;
+            bhInput.up = taskInput.up;
+            bhInput.down = taskInput.down;
+            bhInput.jump = taskInput.jump;
+            bhInput.noclip = false; // never noclip during tasks
+            bhInput.mineX = taskInput.mineX;
+            bhInput.mineY = taskInput.mineY;
+            bhInput.placeX = taskInput.placeX;
+            bhInput.placeY = taskInput.placeY;
+            bhInput.placeBlockId = taskInput.placeBlockId;
+          }
+          if (current.status === "done" || current.status === "failed") {
+            queue.shift();
+          }
+        }
       }
+      bhInputs.push(bhInput);
     }
 
     // Rebuild active grid if the focus has crossed a chunk boundary
@@ -750,66 +787,58 @@ simControl = createSimWorker({
       stationStates.clear();
       // Clear crop tracking (ages are in active-grid coords, which shifted)
       clearCropTracking();
-      // NOTE: do NOT reset lastTreeDay here. The tree daily sim is gated
-      // by the actual in-game day number (currentDay !== lastTreeDay), so
-      // it already runs exactly once per day. Resetting lastTreeDay to -1
-      // on every chunk crossing would trigger a bonus daily tick that:
-      //   1. Ages all existing fruit/seed drops by +1 (causing them to
-      //      fall/despawn prematurely — "drop the ones already on trees")
-      //   2. Spawns new fruit/seeds on newly-loaded leaves (which have no
-      //      drops since drops aren't saved to chunks)
-      // Sapling vfx (species + heights + days) IS saved to chunks, so
-      // saplings grow naturally on the next real day boundary.
       // Invalidate all task path caches (grid shifted)
       for (const queue of taskQueues) {
         for (const task of queue) {
           invalidatePath(task);
         }
       }
-      // Remap blockhead position from old active grid coords to new ones.
-      // The world shifted by (newOrigin - oldOrigin) * CHUNK_W blocks.
+      // Remap blockhead positions from old active grid coords to new ones.
       const dx = (world.getActiveOriginCx() - oldOriginCx) * 64;
       const dy = (world.getActiveOriginCy() - oldOriginCy) * 64;
       for (const bh of blockheads) {
         bh.x = bh.x - dx;
         bh.y = bh.y - dy;
-        // Clamp to valid range
         bh.x = Math.max(0, Math.min(ACTIVE_GRID_W - BH_W, bh.x));
         bh.y = Math.max(0, Math.min(ACTIVE_GRID_H - BH_H, bh.y));
       }
-      // Remap drop positions (fruits/seeds/drops) to new active grid coords
+      // Remap drop positions to new active grid coords
       for (let di = drops.length - 1; di >= 0; di--) {
         const d = drops[di];
         d.x = d.x - dx;
         d.y = d.y - dy;
-        // Remove drops that are now out of bounds
         if (d.x < 0 || d.x >= ACTIVE_GRID_W || d.y < 0 || d.y >= ACTIVE_GRID_H) {
           drops.splice(di, 1);
         }
       }
-      // Active grid rebuilt → light field must be recomputed.
       lightDirty = true;
     }
 
-    // Step blockhead physics
-    for (const bh of blockheads) {
-      updateBlockhead(bh, input, world.activeForeground, world.activeBackground, dt);
+    // Step blockhead physics (each with its own input)
+    for (let bi = 0; bi < blockheads.length; bi++) {
+      updateBlockhead(blockheads[bi], bhInputs[bi], world.activeForeground, world.activeBackground, dt);
     }
 
-    // Process mining + placing
-    processMining(dt);
-    processPlacing();
+    // Process mining + placing per blockhead
+    for (let bi = 0; bi < blockheads.length; bi++) {
+      processMiningFor(bi, bhInputs[bi], dt);
+      processPlacingFor(bi, bhInputs[bi]);
+    }
 
-    // Update world drops (physics + pickup by blockhead)
+    // Update world drops (physics + pickup by nearest blockhead)
     updateDrops(dt);
 
     // Step stations (fuel depletion, craft queue advancement)
     stepStations(dt);
 
-    // Process task effects (EAT, SLEEP)
+    // Process task effects (EAT, SLEEP) — already iterates all blockheads
     processTaskEffects(dt);
 
-    // Update fog of war: mark cells near blockhead as explored
+    // Passive stat decay + death checks (multi-character feature)
+    stepAttributes(dt);
+    checkDeaths();
+
+    // Update fog of war: mark cells near every blockhead as explored
     updateExplored();
 
     // Step fluid simulation (CA water/lava flow)
@@ -907,14 +936,15 @@ simControl = createSimWorker({
         lastLightDaylight = daylightSmooth;
       }
 
-      // Compute mining VFX data for the header
+      // Compute mining VFX data for the header (reports the active BH's target)
       let mineX = -1, mineY = -1, mineDamageF = 0;
-      if (mineTarget) {
-        mineX = mineTarget.x;
-        mineY = mineTarget.y;
-        const key = mineTarget.y * ACTIVE_GRID_W + mineTarget.x;
-        const dmg = mineDamage.get(key) ?? 0;
-        const def = getBlockDef(mineTarget.blockId);
+      const ams = mineStates[activeBhIndex];
+      if (ams && ams.target) {
+        mineX = ams.target.x;
+        mineY = ams.target.y;
+        const key = ams.target.y * ACTIVE_GRID_W + ams.target.x;
+        const dmg = ams.damage.get(key) ?? 0;
+        const def = getBlockDef(ams.target.blockId);
         const hardness = def ? Math.max(1, def.hardness) : 1;
         mineDamageF = Math.min(1, dmg / hardness);
       }
@@ -1388,6 +1418,176 @@ simControl = createSimWorker({
     const region = world.getMapRegion(centerCx);
     return encodeMapRegion(region);
   },
+
+  // --- Multi-character: spawn, active selection, roster ---
+  // Spawn a new blockhead (free — creative/MCP). If x/y omitted, spawns near
+  // the active blockhead. Returns the new blockhead's index + id.
+  spawnBlockhead(x?: number, y?: number, gender?: string): { ok: boolean; bhIndex?: number; id?: number; error?: string } {
+    if (!world) return { ok: false, error: "World not initialized" };
+    let wx: number, wy: number;
+    if (x !== undefined && y !== undefined) {
+      wx = x; wy = y;
+    } else if (blockheads.length > 0) {
+      const bh = blockheads[activeBhIndex] ?? blockheads[0];
+      wx = bh.x + world.getActiveOriginCx() * 64;
+      wy = bh.y + world.getActiveOriginCy() * 64;
+    } else {
+      return { ok: false, error: "No reference blockhead and no coords given" };
+    }
+    return spawnBlockheadInternal(wx, wy, gender ?? "male");
+  },
+
+  // Spawn a blockhead by consuming a spawn_egg from the given blockhead's inventory.
+  spawnBlockheadFromEgg(bhIndex: number): { ok: boolean; bhIndex?: number; id?: number; error?: string } {
+    const inv = inventories[bhIndex];
+    if (!inv) return { ok: false, error: "Invalid blockhead index" };
+    if (!inv.remove("spawn_egg", 1)) return { ok: false, error: "No spawn egg in inventory" };
+    const bh = blockheads[bhIndex];
+    const wx = bh.x + world!.getActiveOriginCx() * 64;
+    const wy = bh.y + world!.getActiveOriginCy() * 64;
+    const gender = bhGenders.get(bh.id) ?? "male";
+    return spawnBlockheadInternal(wx, wy, gender);
+  },
+
+  // Use an item from a blockhead's inventory (e.g. spawn egg). Currently only
+  // spawn_egg has a use action; other items are no-ops.
+  useItem(itemId: string, bhIndex: number = 0): { ok: boolean; error?: string } {
+    if (itemId === "spawn_egg") {
+      // Inline the egg-spawn logic (can't use `this` in RPC context).
+      const inv = inventories[bhIndex];
+      if (!inv) return { ok: false, error: "Invalid blockhead index" };
+      if (!inv.remove("spawn_egg", 1)) return { ok: false, error: "No spawn egg in inventory" };
+      const bh = blockheads[bhIndex];
+      if (!bh || !world) return { ok: false, error: "Blockhead or world not available" };
+      const wx = bh.x + world.getActiveOriginCx() * 64;
+      const wy = bh.y + world.getActiveOriginCy() * 64;
+      const gender = bhGenders.get(bh.id) ?? "male";
+      return spawnBlockheadInternal(wx, wy, gender);
+    }
+    return { ok: false, error: `Item ${itemId} has no use action` };
+  },
+
+  // Set the active blockhead index (which one receives direct WASD/mouse).
+  setActiveBhIndex(i: number): { ok: boolean; activeBhIndex: number } {
+    if (blockheads.length === 0) return { ok: false, activeBhIndex: 0 };
+    activeBhIndex = Math.max(0, Math.min(i, blockheads.length - 1));
+    return { ok: true, activeBhIndex };
+  },
+
+  // Get the active blockhead index.
+  getActiveBhIndex(): number {
+    return activeBhIndex;
+  },
+
+  // Get a roster snapshot of all blockheads (for UI/MCP).
+  getBlockheads(): { id: number; bhIndex: number; x: number; y: number; health: number; hunger: number; energy: number; air: number; happiness: number; environment: number; gender: string }[] {
+    return blockheads.map((bh, i) => ({
+      id: bh.id,
+      bhIndex: i,
+      x: bh.x + (world?.getActiveOriginCx() ?? 0) * 64,
+      y: bh.y + (world?.getActiveOriginCy() ?? 0) * 64,
+      health: bh.health,
+      hunger: bh.hunger,
+      energy: bh.energy,
+      air: bh.air,
+      happiness: bh.happiness,
+      environment: bh.environment,
+      gender: bhGenders.get(bh.id) ?? "male",
+    }));
+  },
+
+  // Set a blockhead's gender (cosmetic, for roster persistence).
+  setBhGender(id: number, gender: string): { ok: boolean } {
+    bhGenders.set(id, gender);
+    return { ok: true };
+  },
+
+  // --- Roster persistence (save/load across reloads) ---
+  // Returns a serializable roster snapshot of all blockheads.
+  getBlockheadRoster(): {
+    activeBhIndex: number;
+    blockheads: {
+      id: number; x: number; y: number; gender: string;
+      health: number; hunger: number; energy: number; air: number;
+      happiness: number; environment: number;
+      inventory: ({ itemId: string; count: number } | null)[];
+      tasks: { type: string; targetX?: number; targetY?: number; status: string }[];
+    }[];
+  } {
+    const originCx = world?.getActiveOriginCx() ?? 0;
+    const originCy = world?.getActiveOriginCy() ?? 0;
+    return {
+      activeBhIndex,
+      blockheads: blockheads.map((bh, i) => ({
+        id: bh.id,
+        x: bh.x + originCx * 64,
+        y: bh.y + originCy * 64,
+        gender: bhGenders.get(bh.id) ?? "male",
+        health: bh.health,
+        hunger: bh.hunger,
+        energy: bh.energy,
+        air: bh.air,
+        happiness: bh.happiness,
+        environment: bh.environment,
+        inventory: inventories[i]?.snapshot() ?? new Array(54).fill(null),
+        tasks: (taskQueues[i] ?? []).map((t) => ({
+          type: t.type,
+          targetX: t.targetX,
+          targetY: t.targetY,
+          status: t.status,
+        })),
+      })),
+    };
+  },
+
+  // Restore blockheads from a roster snapshot (called on init after chunks load).
+  setBlockheadRoster(roster: {
+    activeBhIndex?: number;
+    blockheads: {
+      id: number; x: number; y: number; gender: string;
+      health: number; hunger: number; energy: number; air: number;
+      happiness: number; environment: number;
+      inventory: ({ itemId: string; count: number } | null)[];
+      tasks: { type: string; targetX?: number; targetY?: number; status: string }[];
+    }[];
+  }): { ok: boolean } {
+    if (!world) return { ok: false };
+    const originCx = world.getActiveOriginCx();
+    const originCy = world.getActiveOriginCy();
+    blockheads = [];
+    inventories = [];
+    taskQueues.length = 0;
+    mineStates = [];
+    bhGenders.clear();
+    let maxId = 0;
+    for (const entry of roster.blockheads) {
+      if (blockheads.length >= MAX_BLOCKHEADS) break;
+      const ax = entry.x - originCx * 64;
+      const ay = entry.y - originCy * 64;
+      const bh = createBlockhead(
+        Math.max(0, Math.min(ACTIVE_GRID_W - BH_W, ax)),
+        Math.max(0, Math.min(ACTIVE_GRID_H - BH_H, ay)),
+      );
+      bh.id = entry.id;
+      bh.health = entry.health;
+      bh.hunger = entry.hunger;
+      bh.energy = entry.energy;
+      bh.air = entry.air;
+      bh.happiness = entry.happiness;
+      bh.environment = entry.environment;
+      blockheads.push(bh);
+      const inv = new Inventory();
+      inv.loadSnapshot(entry.inventory);
+      inventories.push(inv);
+      taskQueues.push([]);
+      mineStates.push({ damage: new Map(), target: null, cooldown: 0 });
+      bhGenders.set(entry.id, entry.gender);
+      if (entry.id > maxId) maxId = entry.id;
+    }
+    nextBhId = maxId + 1;
+    activeBhIndex = Math.max(0, Math.min(roster.activeBhIndex ?? 0, blockheads.length - 1));
+    return { ok: true };
+  },
   },
 });
 
@@ -1407,6 +1607,14 @@ function readInput(): void {
   input.placeX = placeActive ? inputF32[10] : -1;
   input.placeY = placeActive ? inputF32[11] : -1;
   input.placeBlockId = inputInt32[12];
+  // Read the active blockhead index from the SAB (slot 20 = byte offset 80).
+  // Clamped to alive blockheads; defaults to 0 if out of range.
+  const sabActive = inputInt32[20] | 0;
+  if (blockheads.length > 0) {
+    activeBhIndex = Math.max(0, Math.min(sabActive, blockheads.length - 1));
+  } else {
+    activeBhIndex = 0;
+  }
 }
 
 // --- Write blockhead state to SAB ---
@@ -1435,51 +1643,51 @@ function writeBlockheads(): void {
   }
 }
 
-// --- Process mining ---
-function processMining(dt: number): void {
+// --- Process mining (per-blockhead) ---
+function processMiningFor(bi: number, bhInput: BlockheadInput, dt: number): void {
   if (!world) return;
-  const bh = blockheads[0];
+  const bh = blockheads[bi];
   if (!bh) return;
+  const ms = mineStates[bi] ?? (mineStates[bi] = { damage: new Map(), target: null, cooldown: 0 });
 
-  if (input.mineX < 0 || input.mineY < 0) {
-    mineTarget = null;
-    mineDamage.clear();
+  if (bhInput.mineX < 0 || bhInput.mineY < 0) {
+    ms.target = null;
+    ms.damage.clear();
     return;
   }
 
   // Convert world mouse coords to active grid coords
-  const ax = input.mineX - world.getActiveOriginCx() * 64;
-  const ay = input.mineY - world.getActiveOriginCy() * 64;
+  const ax = bhInput.mineX - world.getActiveOriginCx() * 64;
+  const ay = bhInput.mineY - world.getActiveOriginCy() * 64;
 
   // Auto-target: if there's a foreground block at the click position, mine it.
   // If the foreground is air but there's a background block, mine the background.
-  // This lets the player click on what they see — no manual layer toggle needed.
   const fgTarget = getMineTarget(bh, ax, ay, world.activeForeground);
   const bgTarget = getMineTarget(bh, ax, ay, world.activeBackground);
   const target = fgTarget ?? bgTarget;
   const miningBackground = !fgTarget && !!bgTarget;
 
   if (!target) {
-    mineTarget = null;
+    ms.target = null;
     return;
   }
 
   // If target changed, reset damage
-  if (!mineTarget || mineTarget.x !== target.x || mineTarget.y !== target.y) {
-    mineTarget = target;
-    mineDamage.clear();
+  if (!ms.target || ms.target.x !== target.x || ms.target.y !== target.y) {
+    ms.target = target;
+    ms.damage.clear();
   }
 
   // Apply mining damage
-  mineCooldown -= dt;
-  if (mineCooldown <= 0) {
+  ms.cooldown -= dt;
+  if (ms.cooldown <= 0) {
     const def = getBlockDef(target.blockId);
     if (!def) return;
     const hardness = Math.max(1, def.hardness);
     const key = target.y * ACTIVE_GRID_W + target.x;
-    const dmg = (mineDamage.get(key) ?? 0) + 1;
-    mineDamage.set(key, dmg);
-    mineCooldown = 0.1; // 10 hits per second
+    const dmg = (ms.damage.get(key) ?? 0) + 1;
+    ms.damage.set(key, dmg);
+    ms.cooldown = 0.1; // 10 hits per second
 
     // Set anim state to dig
     bh.animState = "dig";
@@ -1487,10 +1695,7 @@ function processMining(dt: number): void {
     // When damage exceeds hardness, break the block
     if (dmg >= hardness) {
       // Tree felling: if the player mined a wood block in the background
-      // (a tree trunk), cut down the entire tree — all connected wood +
-      // leaf blocks in the background, plus any vines climbing the tree.
-      // Wood blocks spawn spinning wood drops; leaf blocks have a 30%
-      // chance to spawn a stick drop.
+      // (a tree trunk), cut down the entire tree.
       if (miningBackground && isWoodBlock(target.blockId)) {
         const felled = fellTree(
           world.activeBackground, ACTIVE_GRID_W, ACTIVE_GRID_H,
@@ -1500,26 +1705,22 @@ function processMining(dt: number): void {
           const cellDef = getBlockDef(cell.blockId);
           if (!cellDef) continue;
           world.setActiveBackground(cell.x, cell.y, BLOCK_AIR);
-          // Wood blocks → spawn wood drops (spinning world items)
           if (isWoodBlock(cell.blockId)) {
             spawnDrop(cell.x, cell.y, "wood", 1);
           }
-          // Leaf blocks → 30% chance to spawn a stick drop
           if (isLeafBlock(cell.blockId)) {
             const stickRoll = pseudoRandom(cell.x, cell.y, tickCount, "stick-drop");
             if (stickRoll <= 0.3) {
               spawnDrop(cell.x, cell.y, "stick", 1);
             }
-            // Fruit drops (species-specific) → also spawn as world drops
             for (const drop of cellDef.drops) {
-              if (drop.itemId === "stick") continue; // already handled above
+              if (drop.itemId === "stick") continue;
               const roll = pseudoRandom(cell.x, cell.y, tickCount, drop.itemId);
               if (roll <= drop.chance) {
                 spawnDrop(cell.x, cell.y, drop.itemId, drop.count);
               }
             }
           }
-          // Vine blocks → drop vine item
           if (!isWoodBlock(cell.blockId) && !isLeafBlock(cell.blockId)) {
             for (const drop of cellDef.drops) {
               const roll = pseudoRandom(cell.x, cell.y, tickCount, drop.itemId);
@@ -1531,17 +1732,14 @@ function processMining(dt: number): void {
         }
 
         // Remove fruit/seed drop entities at each felled tree cell.
-        // Fruit and seeds on the tree → spawn as regular world drops so the
-        // player can pick them up.
         for (const cell of felled) {
           for (let di = drops.length - 1; di >= 0; di--) {
             const d = drops[di];
-            if (d.kind === 0) continue; // skip regular drops
+            if (d.kind === 0) continue;
             const dx = d.x - (cell.x + 0.5);
             const dy = d.y - (cell.y + 0.5);
             if (Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0) {
               if (d.kind === 1 || d.kind === 2) {
-                // Fruit/seed → spawn as a regular drop so the player can pick it up
                 const itemId = decodeDropItem(d.itemCode);
                 if (itemId) spawnDrop(cell.x, cell.y, itemId, 1);
               }
@@ -1550,11 +1748,10 @@ function processMining(dt: number): void {
           }
         }
         lightDirty = true;
-        mineDamage.delete(key);
-        mineTarget = null;
-        // Stop mining — the whole tree is gone, no block to continue on.
-        input.mineX = -1;
-        input.mineY = -1;
+        ms.damage.delete(key);
+        ms.target = null;
+        bhInput.mineX = -1;
+        bhInput.mineY = -1;
         return;
       }
 
@@ -1563,7 +1760,6 @@ function processMining(dt: number): void {
       } else {
         world.setActiveBlock(target.x, target.y, BLOCK_AIR);
       }
-      // Block removed → light field must be recomputed.
       lightDirty = true;
 
       // Wild crop harvested: record harvest info for regrow timer.
@@ -1573,27 +1769,25 @@ function processMining(dt: number): void {
           recordWildHarvest(target.x, target.y, world.currentTick, wc.blockId, wc.regrowTicks);
         }
       }
-      // Leaf blocks mined individually: 30% chance to spawn a stick drop
-      // (as a spinning world item), plus any fruit drops.
+      // Leaf blocks mined individually: 30% chance to spawn a stick drop,
+      // plus any fruit drops.
       if (isLeafBlock(target.blockId)) {
         const stickRoll = pseudoRandom(target.x, target.y, tickCount, "stick-drop");
         if (stickRoll <= 0.3) {
           spawnDrop(target.x, target.y, "stick", 1);
         }
         for (const drop of def.drops) {
-          if (drop.itemId === "stick") continue; // handled above with 30% chance
+          if (drop.itemId === "stick") continue;
           const roll = pseudoRandom(target.x, target.y, tickCount, drop.itemId);
           if (roll <= drop.chance) {
             spawnDrop(target.x, target.y, drop.itemId, drop.count);
           }
         }
       } else {
-        // All other blocks: add drops directly to inventory (existing behavior)
-        const inv = inventories[0];
+        // All other blocks: add drops to this blockhead's inventory
+        const inv = inventories[bi];
         if (inv) {
           for (const drop of def.drops) {
-            // Deterministic drop roll based on block coords + tick so e2e tests
-            // are reproducible (no Math.random).
             const roll = pseudoRandom(target.x, target.y, tickCount, drop.itemId);
             if (roll <= drop.chance) {
               const overflow = inv.add(drop.itemId, drop.count);
@@ -1604,55 +1798,49 @@ function processMining(dt: number): void {
           }
         }
       }
-      mineDamage.delete(key);
-      mineTarget = null;
-      // Stop mining after breaking a foreground block — don't fall through
-      // to the background on the next tick. The player must click again to
-      // mine the background layer.
+      ms.damage.delete(key);
+      ms.target = null;
       if (!miningBackground) {
-        input.mineX = -1;
-        input.mineY = -1;
+        bhInput.mineX = -1;
+        bhInput.mineY = -1;
       }
     }
   }
 }
 
-// --- Process placing ---
-function processPlacing(): void {
+// --- Process placing (per-blockhead) ---
+function processPlacingFor(bi: number, bhInput: BlockheadInput): void {
   if (!world) return;
-  const bh = blockheads[0];
+  const bh = blockheads[bi];
   if (!bh) return;
 
-  if (input.placeX < 0 || input.placeY < 0) return;
-  if (input.placeBlockId === BLOCK_AIR) return;
+  if (bhInput.placeX < 0 || bhInput.placeY < 0) return;
+  if (bhInput.placeBlockId === BLOCK_AIR) return;
 
   // Convert world mouse coords to active grid coords
-  const ax = Math.floor(input.placeX - world.getActiveOriginCx() * 64);
-  const ay = Math.floor(input.placeY - world.getActiveOriginCy() * 64);
+  const ax = Math.floor(bhInput.placeX - world.getActiveOriginCx() * 64);
+  const ay = Math.floor(bhInput.placeY - world.getActiveOriginCy() * 64);
 
   if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) return;
 
-  // Don't place on a cell occupied by the blockhead
-  const bhX0 = Math.floor(bh.x);
-  const bhX1 = Math.floor(bh.x + BH_W - 0.001);
-  const bhY0 = Math.floor(bh.y);
-  const bhY1 = Math.floor(bh.y + BH_H - 0.001);
-  if (ax >= bhX0 && ax <= bhX1 && ay >= bhY0 && ay <= bhY1) return;
+  // Don't place on a cell occupied by ANY blockhead
+  for (const other of blockheads) {
+    const oX0 = Math.floor(other.x);
+    const oX1 = Math.floor(other.x + BH_W - 0.001);
+    const oY0 = Math.floor(other.y);
+    const oY1 = Math.floor(other.y + BH_H - 0.001);
+    if (ax >= oX0 && ax <= oX1 && ay >= oY0 && ay <= oY1) return;
+  }
 
   // --- Tree seed → plant a sapling in the BACKGROUND plane ---
-  // Saplings are background blocks (like adult trees) with species + target
-  // height encoded in the vfx plane. They require grass/dirt directly below
-  // (in the foreground) and an empty background cell. A random species is
-  // chosen (the source tree's species isn't preserved through the inventory).
-  if (input.placeBlockId === BLOCK_SAPLING) {
+  if (bhInput.placeBlockId === BLOCK_SAPLING) {
     if (world.getActiveBackground(ax, ay) !== BLOCK_AIR) return;
     const below = ay + 1;
     if (below >= ACTIVE_GRID_H) return;
     const groundId = world.getActiveBlock(ax, below) & 0xFF;
     if (groundId !== BLOCK_GRASS && groundId !== BLOCK_DIRT) return;
-    // Validate first, then consume the seed from inventory.
-    const inv = inventories[0];
-    if (!inv || !inv.remove("seed", 1)) return; // no seed → can't plant
+    const inv = inventories[bi];
+    if (!inv || !inv.remove("seed", 1)) return;
     const species = pickTreeSpecies(pseudoRandom(ax, ay, tickCount, "plant-species"));
     const speciesIdx = getSpeciesIndex(species);
     const heightRoll = pseudoRandom(ax, ay, tickCount, "plant-saplingHeight");
@@ -1668,25 +1856,24 @@ function processPlacing(): void {
   if (world.getActiveBlock(ax, ay) !== BLOCK_AIR) return;
 
   // Station placement: require support (adjacent solid or backwall)
-  const placeDef = getBlockDef(input.placeBlockId);
+  const placeDef = getBlockDef(bhInput.placeBlockId);
   if (placeDef?.isStation) {
     if (!hasSupport(ax, ay)) return;
   }
 
-  // Consume the corresponding item from inventory (if a placeable block)
-  const itemId = getItemForBlock(input.placeBlockId);
-  const inv = inventories[0];
+  // Consume the corresponding item from this blockhead's inventory
+  const itemId = getItemForBlock(bhInput.placeBlockId);
+  const inv = inventories[bi];
   if (itemId && inv) {
-    if (!inv.remove(itemId, 1)) return; // no item → can't place
+    if (!inv.remove(itemId, 1)) return;
   }
 
   // Place the block
-  world.setActiveBlock(ax, ay, input.placeBlockId);
-  // Block added → light field must be recomputed.
+  world.setActiveBlock(ax, ay, bhInput.placeBlockId);
   lightDirty = true;
 
   // If a seed/spore was planted, record the plant tick for crop growth timing.
-  if (isCropBlock(input.placeBlockId)) {
+  if (isCropBlock(bhInput.placeBlockId)) {
     recordCropPlant(ax, ay, world.currentTick);
   }
 }
@@ -1726,30 +1913,176 @@ function processTaskEffects(dt: number): void {
   }
 }
 
+// --- Passive stat decay + death causes (multi-character feature) ---
+// Rates are per-second. Stats deplete over ~30 minutes of normal play, so
+// short e2e tests (60s) are unaffected. Starvation/exposure drain health.
+const HUNGER_RATE = 0.05;   // -1 every 20s → ~33 min from 100 to 0
+const ENERGY_RATE = 0.04;   // -1 every 25s → ~42 min from 100 to 0 (idle)
+const ENERGY_REGEN = 0.06;  // +1 every ~17s when resting
+const HAPPINESS_RATE = 0.02; // slow baseline decay
+const ENV_RATE = 0.02;      // baseline; faster in darkness
+const STARVE_HP_RATE = 1.0;  // -1 hp/s when hunger is 0
+const EXPOSURE_HP_RATE = 0.5; // -0.5 hp/s when environment is 0
+
+function stepAttributes(dt: number): void {
+  if (!world) return;
+  for (const bh of blockheads) {
+    // Activity multiplier: active actions drain hunger/energy faster.
+    const active = bh.animState === "dig" || bh.animState === "chop" ||
+                   bh.animState === "walk" || bh.animState === "climb";
+    const hungerMul = active ? 1.5 : 1.0;
+    bh.hunger = Math.max(0, bh.hunger - HUNGER_RATE * hungerMul * dt);
+
+    // Energy: drains when active, regens when idle + on ground.
+    if (active) {
+      bh.energy = Math.max(0, bh.energy - ENERGY_RATE * dt);
+    } else if (bh.animState === "idle" && bh.onGround) {
+      bh.energy = Math.min(100, bh.energy + ENERGY_REGEN * dt);
+    }
+
+    // Happiness: slow decay; faster when hungry or exposed.
+    const happMul = (bh.hunger < 20 || bh.environment < 20) ? 2.0 : 1.0;
+    bh.happiness = Math.max(0, bh.happiness - HAPPINESS_RATE * happMul * dt);
+
+    // Environment: decays in darkness, regens near light.
+    // Sample the light level at the blockhead's cell.
+    const cx = Math.floor(bh.x + BH_W * 0.5);
+    const cy = Math.floor(bh.y + BH_H * 0.5);
+    let lightLevel = 0;
+    if (cx >= 0 && cx < ACTIVE_GRID_W && cy >= 0 && cy < ACTIVE_GRID_H) {
+      // Light is RGBA8; use the R channel as brightness.
+      lightLevel = world.activeLight[(cy * ACTIVE_GRID_W + cx) * 4];
+    }
+    if (lightLevel >= 8) {
+      bh.environment = Math.min(100, bh.environment + 0.05 * dt);
+    } else {
+      bh.environment = Math.max(0, bh.environment - (ENV_RATE + (lightLevel === 0 ? 0.08 : 0)) * dt);
+    }
+
+    // Death causes: starvation + exposure drain health.
+    if (bh.hunger <= 0) {
+      bh.health = Math.max(0, bh.health - STARVE_HP_RATE * dt);
+    }
+    if (bh.environment <= 0) {
+      bh.health = Math.max(0, bh.health - EXPOSURE_HP_RATE * dt);
+    }
+  }
+}
+
+// --- Death check: remove blockheads at 0 HP, drop inventory ---
+function checkDeaths(): void {
+  if (!world) return;
+  let anyDied = false;
+  for (let bi = blockheads.length - 1; bi >= 0; bi--) {
+    const bh = blockheads[bi];
+    if (bh.health > 0) continue;
+    anyDied = true;
+    // Drop entire inventory as world drops at the blockhead's position.
+    const inv = inventories[bi];
+    if (inv) {
+      for (const slot of inv.allSlots()) {
+        if (slot && slot.count > 0) {
+          spawnDrop(bh.x, bh.y, slot.itemId, slot.count);
+        }
+      }
+    }
+    // Remove from all parallel arrays.
+    const id = bh.id;
+    blockheads.splice(bi, 1);
+    inventories.splice(bi, 1);
+    taskQueues.splice(bi, 1);
+    if (bi < mineStates.length) mineStates.splice(bi, 1);
+    bhGenders.delete(id);
+    // Reassign active index if the dead one was active.
+    if (bi === activeBhIndex) {
+      activeBhIndex = Math.max(0, Math.min(activeBhIndex, blockheads.length - 1));
+    } else if (bi < activeBhIndex) {
+      activeBhIndex--;
+    }
+    console.log(`[Overburden] Blockhead ${id} died at (${bh.x}, ${bh.y}).`);
+    // TODO: emit a blockhead_died event to the renderer for UI notification.
+  }
+  if (anyDied && blockheads.length === 0) {
+    console.log("[Overburden] All blockheads have died — game over.");
+  }
+}
+
+// --- Spawn a new blockhead ---
+function spawnBlockheadInternal(
+  worldX: number, worldY: number, gender: string = "male",
+): { ok: boolean; bhIndex?: number; id?: number; error?: string } {
+  if (!world) return { ok: false, error: "World not initialized" };
+  if (blockheads.length >= MAX_BLOCKHEADS) {
+    return { ok: false, error: `Max blockheads (${MAX_BLOCKHEADS}) reached` };
+  }
+  // Find a clear spawn cell near (worldX, worldY). Convert to active-grid coords.
+  const ax0 = worldX - world.getActiveOriginCx() * 64;
+  const ay0 = worldY - world.getActiveOriginCy() * 64;
+  // Scan outward for a cell with solid ground below + air above.
+  let spawnX = ax0;
+  let spawnY = ay0;
+  const fg = world.activeForeground;
+  const isSolid = (x: number, y: number): boolean => {
+    if (x < 0 || x >= ACTIVE_GRID_W || y < 0 || y >= ACTIVE_GRID_H) return false;
+    const def = getBlockDef(fg[y * ACTIVE_GRID_W + x] & 0xFF);
+    return !!def && def.category === "solid";
+  };
+  if (!isSolid(Math.floor(ax0), Math.floor(ay0) + 1) || isSolid(Math.floor(ax0), Math.floor(ay0))) {
+    // Search in a spiral for a valid spawn.
+    let found = false;
+    for (let r = 1; r < 20 && !found; r++) {
+      for (let dy = -r; dy <= r && !found; dy++) {
+        for (let dx = -r; dx <= r && !found; dx++) {
+          const tx = Math.floor(ax0) + dx;
+          const ty = Math.floor(ay0) + dy;
+          if (tx < 0 || tx >= ACTIVE_GRID_W - 1 || ty < 0 || ty >= ACTIVE_GRID_H - 2) continue;
+          if (!isSolid(tx, ty + 1) && !isSolid(tx, ty) && !isSolid(tx, ty - 1)) {
+            spawnX = tx;
+            spawnY = ty;
+            found = true;
+          }
+        }
+      }
+    }
+  }
+  const id = nextBhId++;
+  const bh = createBlockhead(spawnX, spawnY);
+  bh.id = id;
+  blockheads.push(bh);
+  inventories.push(new Inventory());
+  taskQueues.push([]);
+  mineStates.push({ damage: new Map(), target: null, cooldown: 0 });
+  bhGenders.set(id, gender);
+  console.log(`[Overburden] Spawned blockhead ${id} at (${spawnX}, ${spawnY}) — index ${blockheads.length - 1}.`);
+  return { ok: true, bhIndex: blockheads.length - 1, id };
+}
+
 // --- Update focus to follow the blockhead ---
-// --- Update fog of war: mark cells near blockhead as explored ---
+// --- Update fog of war: mark cells near every blockhead as explored ---
 function updateExplored(): void {
   if (!world) return;
-  const bh = blockheads[0];
-  if (!bh) return;
-  const cx = Math.floor(bh.x + BH_W * 0.5);
-  const cy = Math.floor(bh.y + BH_H * 0.5);
-  const RADIUS = 120; // explore 120-block radius around blockhead (wide visibility)
+  const RADIUS = 120; // explore 120-block radius around each blockhead
   const RADIUS_SQ = RADIUS * RADIUS;
-  for (let dy = -RADIUS; dy <= RADIUS; dy++) {
-    for (let dx = -RADIUS; dx <= RADIUS; dx++) {
-      if (dx * dx + dy * dy > RADIUS_SQ) continue;
-      const ax = cx + dx;
-      const ay = cy + dy;
-      if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) continue;
-      world.activeExplored[ay * ACTIVE_GRID_W + ax] = 1;
+  for (const bh of blockheads) {
+    const cx = Math.floor(bh.x + BH_W * 0.5);
+    const cy = Math.floor(bh.y + BH_H * 0.5);
+    for (let dy = -RADIUS; dy <= RADIUS; dy++) {
+      for (let dx = -RADIUS; dx <= RADIUS; dx++) {
+        if (dx * dx + dy * dy > RADIUS_SQ) continue;
+        const ax = cx + dx;
+        const ay = cy + dy;
+        if (ax < 0 || ax >= ACTIVE_GRID_W || ay < 0 || ay >= ACTIVE_GRID_H) continue;
+        world.activeExplored[ay * ACTIVE_GRID_W + ax] = 1;
+      }
     }
   }
 }
 
 function updateFocus(): void {
   if (!world || blockheads.length === 0) return;
-  const bh = blockheads[0];
+  // Follow the active blockhead (clamped to alive blockheads).
+  const idx = Math.min(activeBhIndex, blockheads.length - 1);
+  const bh = blockheads[idx];
   // Convert active grid coords back to world coords
   const wx = bh.x + world.getActiveOriginCx() * 64;
   const wy = bh.y + world.getActiveOriginCy() * 64;

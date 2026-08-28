@@ -78,6 +78,7 @@ export const INP_PLACE_Y = 44;   // Float32 (world Y)
 export const INP_PLACE_BLOCK = 48; // Int32 (block ID to place)
 export const INP_CAMERA_X = 52;  // Float32 (camera center X in active grid coords)
 export const INP_CAMERA_Y = 56;  // Float32 (camera center Y in active grid coords)
+export const INP_ACTIVE_BH = 80; // Int32 — index of the directly-controlled blockhead (slot 20)
 export const INP_CAMERA_ZOOM = 60;  // Float32 (camera zoom — px per block)
 export const INP_CAMERA_CW = 64;    // Float32 (canvas width in CSS px)
 export const INP_CAMERA_CH = 68;    // Float32 (canvas height in CSS px)
@@ -173,6 +174,7 @@ export class SimBufferWriter {
     mineActive: boolean, mineX: number, mineY: number,
     placeActive: boolean, placeX: number, placeY: number, placeBlockId: number,
     camX: number, camY: number,
+    activeBh: number = 0,
   ): void {
     this.inputInt32[0] = left ? 1 : 0;
     this.inputInt32[1] = right ? 1 : 0;
@@ -189,6 +191,7 @@ export class SimBufferWriter {
     this.inputInt32[12] = placeBlockId;
     this.inputF32[13] = camX;
     this.inputF32[14] = camY;
+    this.inputInt32[20] = activeBh;
   }
 
   clearInput(): void {

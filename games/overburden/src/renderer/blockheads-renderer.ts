@@ -67,12 +67,22 @@ export class BlockheadsRenderer extends GameRenderer {
 
   // Hotbar: block IDs for the first 9 inventory slots (updated from inventory)
   private hotbarBlocks: number[] = [...EMPTY_HOTBAR];
+  // Hotbar: item IDs for the first 9 inventory slots (for useItem / display).
+  private hotbarItems: (string | null)[] = new Array(9).fill(null);
 
   // Render passes
   blockGridPass: BlockGridPass3D | null = null;
   private stickmanPass: StickmanPass | null = null;
   private characterPass: CharacterPass | null = null;
   private characterGender: CharacterGender = "male";
+  // Per-blockhead gender (keyed by blockhead id). Falls back to
+  // `characterGender` for ids not in the map. The C key toggles the active
+  // blockhead's gender here; the worker doesn't track gender (cosmetic only).
+  private bhGenders: Map<number, CharacterGender> = new Map();
+  // Index of the directly-controlled blockhead (WASD/mouse). Tab cycles this.
+  // The renderer writes it to the SAB input region each frame; the worker
+  // reads it and routes direct input to this blockhead.
+  private activeBhIndex = 0;
   // Cached player position (active-grid coords) + movement state for the
   // character render pass. Set during the update phase, consumed during the
   // render phase.
@@ -80,6 +90,13 @@ export class BlockheadsRenderer extends GameRenderer {
   private _charLocalY = 0;
   private _charVx = 0;
   private _charWallClimbing = false;
+  // Render list for all blockheads (populated each frame in the update phase,
+  // consumed in the render pass). The active blockhead uses the interpolated
+  // position; others use their raw SAB position converted to active-grid coords.
+  private _charRenderList: {
+    localX: number; localY: number; vx: number; wallClimbing: boolean;
+    gender: CharacterGender; id: number; isActive: boolean;
+  }[] = [];
   private skyPass: SkyPass | null = null;
   private taskMarkerPass: TaskMarkerPass | null = null;
   private dropPass: DropPass | null = null;
@@ -241,14 +258,17 @@ export class BlockheadsRenderer extends GameRenderer {
    */
   setHotbarFromInventory(inventory: ({ itemId: string; count: number } | null)[]): void {
     const slots: number[] = new Array(9).fill(BLOCK_AIR);
+    const items: (string | null)[] = new Array(9).fill(null);
     for (let i = 0; i < 9; i++) {
       const s = inventory[i];
       if (s && s.count > 0) {
+        items[i] = s.itemId;
         const def = getItemDef(s.itemId);
         if (def && def.placeBlock > 0) slots[i] = def.placeBlock;
       }
     }
     this.hotbarBlocks = slots;
+    this.hotbarItems = items;
   }
 
   /** Get the current hotbar block IDs (for UI display). */
@@ -256,27 +276,91 @@ export class BlockheadsRenderer extends GameRenderer {
     return this.hotbarBlocks;
   }
 
+  /** Get the current hotbar item IDs (for useItem / UI). */
+  getHotbarItems(): (string | null)[] {
+    return this.hotbarItems;
+  }
+
+  /**
+   * Use the active hotbar item (G key). Currently only the spawn egg has a
+   * use action; other items are no-ops. Delegates to the worker's useItem RPC.
+   */
+  useActiveHotbarItem(): void {
+    const slot = this.input?.selectedSlot ?? 0;
+    const itemId = this.hotbarItems[slot];
+    if (!itemId) return;
+    const host = this.workerHost;
+    if (!host) return;
+    host.useItem(itemId, this.activeBhIndex).then((result) => {
+      if (!result.ok) {
+        console.warn(`[Overburden] useItem(${itemId}) failed: ${result.error ?? "unknown"}`);
+      }
+    }).catch(() => { /* worker not ready — ignore */ });
+  }
+
   /** Expose camera for debug overlays (chunk grid, etc.). */
   getCamera(): Camera {
     return this.camera;
   }
 
-  /** Switch the player character model gender (male/female). */
+  /** Switch the active character model gender (male/female). */
   setCharacterGender(gender: CharacterGender): void {
     this.characterGender = gender;
-    this.characterPass?.setGender(gender);
+    const id = this.getActiveBhId();
+    if (id >= 0) this.bhGenders.set(id, gender);
+    // setGender on the pass is now per-render-call; no global set needed.
   }
 
-  /** Get the current character gender. */
+  /** Get the active character gender. */
   getCharacterGender(): CharacterGender {
+    const id = this.getActiveBhId();
+    if (id >= 0 && this.bhGenders.has(id)) return this.bhGenders.get(id)!;
     return this.characterGender;
   }
 
-  /** Toggle between male and female character models. */
+  /** Get the gender for a specific blockhead id (falls back to default). */
+  getBhGender(id: number): CharacterGender {
+    return this.bhGenders.get(id) ?? this.characterGender;
+  }
+
+  /** Toggle the active character's gender. */
   toggleCharacterGender(): CharacterGender {
-    const next: CharacterGender = this.characterGender === "male" ? "female" : "male";
+    const cur = this.getCharacterGender();
+    const next: CharacterGender = cur === "male" ? "female" : "male";
     this.setCharacterGender(next);
     return next;
+  }
+
+  /** Get the active blockhead index. */
+  getActiveBhIndex(): number {
+    return this.activeBhIndex;
+  }
+
+  /** Set the active blockhead index (clamped to alive blockheads). */
+  setActiveBhIndex(i: number): void {
+    const count = this.simReader?.getBlockheadCount() ?? 0;
+    this.activeBhIndex = Math.max(0, Math.min(i, Math.max(0, count - 1)));
+  }
+
+  /** Cycle the active blockhead index forward (Tab) or backward (Shift+Tab). */
+  cycleActiveBh(reverse: boolean = false): number {
+    const count = this.simReader?.getBlockheadCount() ?? 0;
+    if (count <= 1) { this.activeBhIndex = 0; return 0; }
+    if (reverse) {
+      this.activeBhIndex = (this.activeBhIndex - 1 + count) % count;
+    } else {
+      this.activeBhIndex = (this.activeBhIndex + 1) % count;
+    }
+    return this.activeBhIndex;
+  }
+
+  /** Get the active blockhead's id (from the SAB), or -1 if none. */
+  private getActiveBhId(): number {
+    if (!this.simReader) return -1;
+    const count = this.simReader.getBlockheadCount();
+    if (this.activeBhIndex >= count) return -1;
+    const bh = this.simReader.getBlockhead(this.activeBhIndex);
+    return bh[14]; // id is at offset 14
   }
 
   /** Active grid origin + size in active-grid coords (for debug overlay). */
@@ -498,6 +582,13 @@ export class BlockheadsRenderer extends GameRenderer {
     this.input.onToggleMap = () => this.toggleMapMode();
     // Wire Esc: exit map mode if active (no-op otherwise).
     this.input.onExitMap = () => this.exitMapMode();
+    // Wire Tab: cycle the active blockhead (which one receives WASD/mouse).
+    this.input.onCycleActiveBh = (reverse: boolean) => {
+      const idx = this.cycleActiveBh(reverse);
+      console.log(`[Overburden] Active blockhead: index ${idx}`);
+    };
+    // Wire G: use the active hotbar item (e.g. spawn egg).
+    this.input.onUseItem = () => this.useActiveHotbarItem();
 
     // Map-region poll: refresh the cached map snapshot every 2s so the
     // zoomed-out overview stays current as the player explores. The fetch
@@ -603,6 +694,7 @@ export class BlockheadsRenderer extends GameRenderer {
     this._taskMarkers.length = 0;
     this.markerDataDirty = true;
     this.hotbarBlocks = [...EMPTY_HOTBAR];
+    this.hotbarItems = new Array(9).fill(null);
     // Clear drops display (worker already cleared the drop array)
     this.cachedDropData = [];
     this.lastDropTick = RENDER_TICK_SENTINEL;
@@ -927,8 +1019,8 @@ export class BlockheadsRenderer extends GameRenderer {
             if (dropHit) {
               const dx = Math.floor(dropHit.x + this.renderOriginCx * 64);
               const dy = Math.floor(dropHit.y + this.renderOriginCy * 64);
-              host.queueTask("COLLECT_ITEM", { targetX: dx, targetY: dy }, 0).then((r) => {
-                if (r.duplicate) host.cancelTask("COLLECT_ITEM", dx, dy, 0);
+              host.queueTask("COLLECT_ITEM", { targetX: dx, targetY: dy }, this.activeBhIndex).then((r) => {
+                if (r.duplicate) host.cancelTask("COLLECT_ITEM", dx, dy, this.activeBhIndex);
               });
               break taskClick;
             }
@@ -961,9 +1053,9 @@ export class BlockheadsRenderer extends GameRenderer {
           // Toggle: if a task already exists at this position, cancel it.
           // Otherwise, queue a new one. The marker sync interval (in app.tsx)
           // will pick up the change from getTasks().
-          host.queueTask(taskType, { targetX: worldX, targetY: worldY }, 0).then((result) => {
+          host.queueTask(taskType, { targetX: worldX, targetY: worldY }, this.activeBhIndex).then((result) => {
             if (result.duplicate) {
-              host.cancelTask(taskType, worldX, worldY, 0);
+              host.cancelTask(taskType, worldX, worldY, this.activeBhIndex);
             }
           });
         }
@@ -996,6 +1088,7 @@ export class BlockheadsRenderer extends GameRenderer {
       inpF[17] = this.camera.canvasH;
       inpF[18] = this.camWorldX;
       inpF[19] = this.camWorldY;
+      inp[20] = this.activeBhIndex;
       return;
     }
 
@@ -1038,6 +1131,7 @@ export class BlockheadsRenderer extends GameRenderer {
     // that caused terrain flashing during chunk-boundary crossings.
     inpF[18] = this.camWorldX;
     inpF[19] = this.camWorldY;
+    inp[20] = this.activeBhIndex;
   }
 
   private drawFrame(dt: number): void {
@@ -1112,8 +1206,10 @@ export class BlockheadsRenderer extends GameRenderer {
         this.lastTick = tick;
 
         const bhCount = this.simReader.getBlockheadCount();
+        // Clamp active index to alive blockheads (death may have removed some).
+        if (this.activeBhIndex >= bhCount) this.activeBhIndex = Math.max(0, bhCount - 1);
         if (bhCount > 0) {
-          const bh = this.simReader.getBlockhead(0);
+          const bh = this.simReader.getBlockhead(this.activeBhIndex);
           const worldX = bh[0] + this.cachedOriginCx * CHUNK_W;
           const worldY = bh[1] + this.cachedOriginCy * CHUNK_H;
 
@@ -1266,39 +1362,57 @@ export class BlockheadsRenderer extends GameRenderer {
     this.updateInput();
 
     // Update player render pass (character or stickman fallback) with 3D
-    // perspective, using the smoothed interpolated position.
+    // perspective, using the smoothed interpolated position for the active
+    // blockhead and raw SAB positions for the others.
     if (this.simReader) {
       const bhCount = this.simReader.getBlockheadCount();
+      if (this.activeBhIndex >= bhCount) this.activeBhIndex = Math.max(0, bhCount - 1);
       if (bhCount > 0) {
-        const bh = this.simReader.getBlockhead(0);
-        // Convert interpolated world position → active-grid coords for rendering.
-        // Uses the render origin (matches the grid data on the GPU) so the
-        // player stays aligned with the terrain during chunk-boundary
-        // crossings. The world position itself comes from the sim SAB origin
-        // (cachedOriginCx/Cy) — see the interpolation block above.
-        const localX = this.interpWorldX - this.renderOriginCx * CHUNK_W;
-        const localY = this.interpWorldY - this.renderOriginCy * CHUNK_H;
-
-        if (this.characterPass) {
-          // Cache position + movement state for the render section
-          // (beginFrame/render are called from the render pass below, not
-          // here, because they need the pass encoder).
-          this._charLocalX = localX;
-          this._charLocalY = localY;
-          this._charVx = bh[2]; // vx
-          this._charWallClimbing = bh[15] !== 0; // wallClimbing flag
-        } else if (this.stickmanPass) {
-          // Fallback: stickman box
-          this.stickmanPass.update3D(
+        // Build the render list for all blockheads.
+        this._charRenderList.length = 0;
+        for (let i = 0; i < bhCount; i++) {
+          const bh = this.simReader.getBlockhead(i);
+          const id = bh[14];
+          let localX: number, localY: number;
+          if (i === this.activeBhIndex) {
+            // Active: use the interpolated world position for smoothness.
+            localX = this.interpWorldX - this.renderOriginCx * CHUNK_W;
+            localY = this.interpWorldY - this.renderOriginCy * CHUNK_H;
+            // Cache for the stickman fallback + any code reading these.
+            this._charLocalX = localX;
+            this._charLocalY = localY;
+            this._charVx = bh[2];
+            this._charWallClimbing = bh[15] !== 0;
+          } else {
+            // Non-active: raw SAB position → active-grid coords via sim origin.
+            localX = bh[0] + (this.cachedOriginCx - this.renderOriginCx) * CHUNK_W;
+            localY = bh[1] + (this.cachedOriginCy - this.renderOriginCy) * CHUNK_H;
+          }
+          this._charRenderList.push({
             localX, localY,
-            bh[4], // facing
-            bh[6], // animFrame
-            this.blockGridPass.getViewProj(),
-            this.camera.canvasW, this.camera.canvasH,
-            bh[7], // health
-            bh[5] !== 0, // onGround
-            bh[2], // vx
-          );
+            vx: bh[2],
+            wallClimbing: bh[15] !== 0,
+            gender: this.getBhGender(id),
+            id,
+            isActive: i === this.activeBhIndex,
+          });
+        }
+
+        // Stickman fallback: only render the active blockhead as a stickman
+        // (the stickman pass is a single-instance fallback when CharacterPass
+        // fails to init). Non-active blockheads are skipped in stickman mode.
+        if (!this.characterPass && this.stickmanPass) {
+          const active = this._charRenderList[this.activeBhIndex];
+          if (active) {
+            const bh = this.simReader.getBlockhead(this.activeBhIndex);
+            this.stickmanPass.update3D(
+              active.localX, active.localY,
+              bh[4], bh[6],
+              this.blockGridPass.getViewProj(),
+              this.camera.canvasW, this.camera.canvasH,
+              bh[7], bh[5] !== 0, bh[2],
+            );
+          }
         }
       }
     }
@@ -1428,7 +1542,11 @@ export class BlockheadsRenderer extends GameRenderer {
       this.skyPass?.render(pass);
       // Render 3D block grid (with depth testing)
       this.blockGridPass.render(pass);
-      // Render player character (or stickman box fallback) with depth testing
+      // Render player character(s) (or stickman box fallback) with depth testing.
+      // All blockheads render; the active one uses the interpolated position.
+      // Each blockhead needs a separate uniform slot in the ModelRenderer
+      // (instance index) — otherwise queue.writeBuffer overwrites the previous
+      // instance's uniforms before the render pass executes.
       if (this.simReader && this.simReader.getBlockheadCount() > 0) {
         if (this.characterPass) {
           this.characterPass.beginFrame(
@@ -1436,7 +1554,26 @@ export class BlockheadsRenderer extends GameRenderer {
             [this.camera.x, this.camera.y, 0],
             daylightNorm,
           );
-          this.characterPass.render(pass, this._charLocalX, this._charLocalY, this._charVx, this._charWallClimbing);
+          // Ensure enough instances are allocated per gender.
+          // Count how many blockheads use each gender.
+          const genderCounts: Map<string, number> = new Map();
+          for (const c of this._charRenderList) {
+            genderCounts.set(c.gender, (genderCounts.get(c.gender) ?? 0) + 1);
+          }
+          // Allocate instances via CharacterPass (which delegates to
+          // ModelRenderer.allocateInstance). Instance 0 is the original upload;
+          // instances 1+ are allocated on demand.
+          this.characterPass.ensureInstances(genderCounts);
+          // Build per-gender render-order index → instance index mapping.
+          const genderCounters: Map<string, number> = new Map();
+          for (let i = 0; i < this._charRenderList.length; i++) {
+            const c = this._charRenderList[i];
+            const idx = genderCounters.get(c.gender) ?? 0;
+            genderCounters.set(c.gender, idx + 1);
+            this.characterPass.render(
+              pass, c.localX, c.localY, c.vx, c.wallClimbing, c.gender, idx,
+            );
+          }
         } else {
           this.stickmanPass?.render(pass);
         }
