@@ -222,10 +222,9 @@ export function generateTerrain(chunk: Chunk, seed: number): void {
       } else if (wy < MAGMA_Y - 5) {
         // Stone layer (with ores + caves)
         if (isCave(wx, wy, seed, surfaceY)) {
-          // Cave: air (or water if below sea level) — foreground only
-          if (wy > SEA_LEVEL) {
-            foreground = setFlow(BLOCK_WATER, 7);
-          }
+          // Cave: air — foreground only. Water enters caves via the fluid
+          // sim (from oceans/surface water), not during generation. Isolated
+          // caves stay dry; caves connected to oceans fill naturally over time.
           // Background behind caves: stone (cave wall in layers 3 & 4)
           background = BLOCK_STONE;
         } else {

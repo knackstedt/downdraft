@@ -623,5 +623,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
   }
 
-  return vec4<f32>(color, 1.0);
+  // Water is semi-transparent so the player + terrain behind it stay visible.
+  // Water is rendered in a separate pass (waterPipeline) with alpha blending
+  // and depth-write disabled; opaque blocks always return alpha=1.0.
+  var alpha = 1.0;
+  if (blockId == BLK_WATER) {
+    alpha = 0.65;
+  }
+
+  return vec4<f32>(color, alpha);
 }

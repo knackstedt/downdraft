@@ -17,6 +17,7 @@ import { expose } from "@downdraft/core/worker/rpc";
 import {
     ACTIVE_GRID_H,
     ACTIVE_GRID_W,
+    BLOCK_WATER,
 } from "../shared/constants";
 import { CROP_LOOKUP } from "../shared/crops";
 import {
@@ -144,6 +145,10 @@ function build(): void {
         // Crop + wild forageable blocks are rendered as 2D sprites by
         // CropSpritePass, not as 3D cubes here.
         if (CROP_LOOKUP[blockId] !== 0) continue;
+        // Water is rendered in a separate transparent pass (after characters)
+        // so the player stays visible behind it. Skip it here to avoid
+        // double-rendering in the opaque pass.
+        if (blockId === BLOCK_WATER) continue;
 
         let faceMask = 0;
         if (x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
@@ -222,6 +227,43 @@ function build(): void {
   }
   const bgTreeInstanceCount = idx - fgInstanceCount - bgWallInstanceCount;
 
+  // --- Water (transparent) instances — rendered separately after characters ---
+  // Water is excluded from the fg loop above so it's not double-rendered in
+  // the opaque pass. Here we build water-only instances at the end of the
+  // instance data, using the same 2-layer (Z=0, Z=-1) scheme as fg blocks.
+  for (let layer = 0; layer < NUM_FG_LAYERS; layer++) {
+    const layerZ = FG_Z_LAYERS[layer];
+    for (let y = yMin; y < yMax; y++) {
+      for (let x = xMin; x < xMax; x++) {
+        const cellIdx = y * W + x;
+        const packedFg = foreground[cellIdx];
+        const blockId = packedFg & 0xFF;
+        if (blockId !== BLOCK_WATER) continue;
+
+        let faceMask = 0;
+        if (x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+        if (x <= 0 || isAirOrCrop(foreground[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+        if (y >= H - 1 || isAirOrCrop(foreground[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+        if (y <= 0 || isAirOrCrop(foreground[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
+
+        if (layer === 0) {
+          faceMask |= FACE_FRONT;
+        } else {
+          if ((background[cellIdx] & 0xFF) === 0) faceMask |= FACE_BACK;
+          faceMask |= FACE_FRONT;
+        }
+
+        data[idx * 5 + 0] = x;
+        data[idx * 5 + 1] = y;
+        data[idx * 5 + 2] = layerZ;
+        data[idx * 5 + 3] = blockId;
+        data[idx * 5 + 4] = faceMask;
+        idx++;
+      }
+    }
+  }
+  const waterInstanceCount = idx - fgInstanceCount - bgWallInstanceCount - bgTreeInstanceCount;
+
   // --- Pad light (RGBA8) into 256-byte-aligned rows ---
   const paddedLight = writer.paddedLight;
   const lightRowBytes = PADDED_LIGHT_ROW_BYTES;
@@ -250,7 +292,7 @@ function build(): void {
   // grid-builder has published the matching grid data).
   writer.publishBuild(
     tick, fgInstanceCount, bgWallInstanceCount, bgTreeInstanceCount,
-    simReader.getOriginCx(), simReader.getOriginCy(),
+    simReader.getOriginCx(), simReader.getOriginCy(), waterInstanceCount,
   );
   lastBuiltTick = tick;
 }
