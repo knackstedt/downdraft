@@ -44,7 +44,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
   //   - errorDialog, windowStatePersistence: off in deterministic mode
   //   - mcp: default port from MCP_PORT env (9876 in dev)
   //   - saves: default engine version 0.1.0
-  //   - osr: off (only to-the-ocean overrides this)
+  //   - osr: off (only games that need OSR override this)
   const features: DowndraftFeatures = {
     devtools: true,
     gpuInfo: true,

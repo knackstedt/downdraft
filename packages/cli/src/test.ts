@@ -2,6 +2,7 @@ import { createLogger } from "@downdraft/core";
 import { spawn } from "child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { detectGame } from "./detect-game";
 
 const log = createLogger();
 
@@ -26,7 +27,7 @@ interface TestArgs {
 
 function parseArgs(args: string[]): TestArgs {
   const opts: TestArgs = {
-    game: "to-the-ocean",
+    game: detectGame() ?? "to-the-ocean",
     mcpPort: 9976,
     spec: null,
     renderer: "cpu",
@@ -39,12 +40,17 @@ function parseArgs(args: string[]): TestArgs {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (arg === "--") continue; // skip bun run -- separator
     if (arg === "--game" || arg === "-g") {
       opts.game = args[++i] ?? opts.game;
+    } else if (arg.startsWith("--game=")) {
+      opts.game = arg.slice("--game=".length);
     } else if (arg === "--port" || arg === "-p") {
       opts.mcpPort = parseInt(args[++i] ?? "", 10) || opts.mcpPort;
     } else if (arg === "--spec" || arg === "-s") {
       opts.spec = args[++i] ?? null;
+    } else if (arg.startsWith("--spec=")) {
+      opts.spec = arg.slice("--spec=".length);
     } else if (arg === "--renderer" || arg === "-r") {
       const v = args[++i] as Renderer | undefined;
       if (v === "gpu" || v === "cpu") opts.renderer = v;

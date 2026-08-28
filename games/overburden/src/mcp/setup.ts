@@ -14,7 +14,7 @@
 //   - set_test_state: sim speed, pause/resume, render control
 // ============================================================================
 
-import { createMcpHarness, downdraft } from "@downdraft/app/renderer";
+import { blobToBase64, compositeScreenshot, createMcpHarness, downdraft } from "@downdraft/app/renderer";
 import type { BlockheadsRenderer } from "../renderer/blockheads-renderer";
 import type { BlockheadsInputState } from "../renderer/input-handler";
 import { getItemDef } from "../shared/items";
@@ -44,43 +44,6 @@ function errorResult(msg: string): { content: Array<{ type: string; text: string
 
 function jsonResult(data: unknown): { content: Array<{ type: string; text: string }> } {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] ?? result;
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function compositeScreenshot(
-  canvas: HTMLCanvasElement,
-  capturePagePng: ArrayBuffer,
-  width: number,
-  height: number,
-): Promise<Blob | null> {
-  const offscreen = document.createElement("canvas");
-  offscreen.width = width;
-  offscreen.height = height;
-  const ctx = offscreen.getContext("2d");
-  if (!ctx) return null;
-
-  ctx.drawImage(canvas, 0, 0, width, height);
-
-  const overlayBlob = new Blob([capturePagePng], { type: "image/png" });
-  const overlayBitmap = await createImageBitmap(overlayBlob);
-  ctx.drawImage(overlayBitmap, 0, 0, width, height);
-  overlayBitmap.close();
-
-  return new Promise((resolve) => {
-    offscreen.toBlob((blob) => resolve(blob), "image/png");
-  });
 }
 
 // --- Key name resolution ---

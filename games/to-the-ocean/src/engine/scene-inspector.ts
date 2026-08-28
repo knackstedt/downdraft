@@ -4,6 +4,7 @@
 // state, world control, weather, biome list, etc.).
 // ============================================================================
 
+import { ENT, PLR, PLR_FLAG } from "@downdraft/core";
 import {
     BaseSceneInspector,
     useDebugStore,
@@ -14,7 +15,7 @@ import {
     type IDevToolsPanelExtension,
     type IPerformanceMetricsProvider
 } from "@downdraft/plugin-devtools";
-import { ENT, PLR, PLR_FLAG } from "@downdraft/core";
+import { GAME_PLR } from "@shared/constants/buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
 import { getOverlayToggles, getPanelExtensions } from "../devtools/panel-extensions";
 import type { SimBridge } from "../sim-bridge";
@@ -206,7 +207,7 @@ export class SceneInspector extends BaseSceneInspector {
           oxygen: f32[PLR.OXYGEN],
           maxOxygen: f32[PLR.MAX_OXYGEN],
           temperature: f32[PLR.TEMPERATURE],
-          gold: f32[PLR.GOLD],
+          gold: f32[GAME_PLR.GOLD],
           cameraMode: u32[PLR.CAMERA_MODE],
           flags,
           flagNames,

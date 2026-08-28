@@ -28,7 +28,7 @@ export type { CanvasResizeHandler } from "./canvas-resize-watcher";
 export { DEPTH_FORMAT, MSAA_SAMPLE_COUNT } from "./constants";
 export { GPUDeviceManager } from "./device";
 export { FrameGraph, PassType, SlotRegistry, TextureHandle } from "./frame-graph";
-export type { ColorAttachmentDesc, DepthAttachmentDesc, FrameContext, RenderContext, TextureDesc } from "./frame-graph";
+export type { ColorAttachmentDesc, DepthAttachmentDesc, FrameContext, GraphRenderContext, RenderContext, TextureDesc } from "./frame-graph";
 export { computeAABB, cullItems, Frustum, transformAABB } from "./frustum";
 export type { AABB, CullableItem, FrustumPlane } from "./frustum";
 export { FULLSCREEN_VS } from "./fullscreen-vs";

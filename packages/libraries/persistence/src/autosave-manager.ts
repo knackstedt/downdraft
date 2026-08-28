@@ -1,7 +1,7 @@
 // ============================================================================
 // AutosaveManager — generic interval-based autosave for any save function.
 //
-// Extracted from mining-rpg's AutosaveManager and generalized to work with
+// Extracted from a game's AutosaveManager and generalized to work with
 // any save function (not just saveWorld). Skipped in deterministic mode.
 // ============================================================================
 

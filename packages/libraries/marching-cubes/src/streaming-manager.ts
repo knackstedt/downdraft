@@ -145,8 +145,8 @@ export class TerrainStreamingManager {
   private physicsFieldFactory: PhysicsFieldFactory;
   private chunkGenerator: ChunkGenerator;
   private chunkEmptyChecker: ChunkEmptyChecker;
-  private islandEntityType: number;
-  private portEntityType: number;
+  private terrainEntityType: number;
+  private structureEntityType: number;
 
   constructor(
     config: TerrainStreamingConfig,
@@ -156,16 +156,16 @@ export class TerrainStreamingManager {
       chunkGenerator: ChunkGenerator;
       chunkEmptyChecker: ChunkEmptyChecker;
     },
-    islandEntityType: number = 2,
-    portEntityType: number = 3,
+    terrainEntityType: number = 2,
+    structureEntityType: number = 3,
   ) {
     this.config = config;
     this.chunkFieldFactory = factories.chunkFieldFactory;
     this.physicsFieldFactory = factories.physicsFieldFactory;
     this.chunkGenerator = factories.chunkGenerator;
     this.chunkEmptyChecker = factories.chunkEmptyChecker;
-    this.islandEntityType = islandEntityType;
-    this.portEntityType = portEntityType;
+    this.terrainEntityType = terrainEntityType;
+    this.structureEntityType = structureEntityType;
   }
 
   registerIsland(
@@ -305,7 +305,7 @@ export class TerrainStreamingManager {
     for (let i = 0; i < entityCount; i++) {
       const ent = entities[i];
       if (!ent) continue;
-      if (ent.type !== this.islandEntityType && ent.type !== this.portEntityType) continue;
+      if (ent.type !== this.terrainEntityType && ent.type !== this.structureEntityType) continue;
       const terrain = this.terrains.get(ent.id);
       if (terrain) {
         terrain.worldX = ent.position.x;
@@ -527,7 +527,7 @@ export class TerrainStreamingManager {
     for (let i = 0; i < entityCount; i++) {
       const ent = entities[i];
       if (!ent) continue;
-      if (ent.type !== this.islandEntityType) continue;
+      if (ent.type !== this.terrainEntityType) continue;
       const terrain = this.terrains.get(ent.id);
       if (!terrain || terrain.isPort) continue;
 
@@ -588,7 +588,7 @@ export class TerrainStreamingManager {
     for (let i = 0; i < entityCount; i++) {
       const ent = entities[i];
       if (!ent) continue;
-      if (ent.type !== this.islandEntityType) continue;
+      if (ent.type !== this.terrainEntityType) continue;
       const terrain = this.terrains.get(ent.id);
       if (!terrain || !terrain.chunkedField || terrain.isPort) continue;
 

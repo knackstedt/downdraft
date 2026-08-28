@@ -4,7 +4,7 @@
 //
 // Deterministic: same seed + same (x, y) always produces the same value.
 // Uses hash-based lattice interpolation (simpler and faster than Perlin
-// gradient noise, but less natural-looking). Used by mining-rpg terrain.
+// gradient noise, but less natural-looking). Used for procedural terrain generation.
 
 /** Integer hash for (x, y, seed) — returns [0, 1). */
 export function hash2(x: number, y: number, seed: number): number {

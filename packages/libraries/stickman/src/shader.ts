@@ -5,9 +5,7 @@
 //
 //   ndc.xy = worldPos.xy * transform.xy + transform.zw
 //
-// falling-sand:  transform = (2/gridW, -2/gridH, -1, +1)
-// mining-rpg:    transform = (zoom*2/canvasW, -zoom*2/canvasH,
-//                            -camX*zoom*2/canvasW, +camY*zoom*2/canvasH)
+// 2D grid games: transform = (2/gridW, -2/gridH, -1, +1)
 //
 // Two segment types (detected via endpointB.z > 0):
 //   Line:  extrudes a thick stroke perpendicular to the segment.
@@ -15,7 +13,7 @@
 //     to draw a perfect anti-aliased circle ring.
 //
 // Light/volumetric textures are sampled at the player's world position
-// (half-res, matching the mining-rpg light-accum pass). falling-sand binds
+// (half-res, matching the game's light-accum pass). 2D grid games may bind
 // 1x1 white dummy textures so lighting is identity.
 
 export const STICKMAN_WGSL = /* wgsl */`

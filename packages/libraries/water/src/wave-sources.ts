@@ -1,6 +1,6 @@
 // ============================================================================
 // Wave Sources — wake and shore source collection from game entities
-// Ported from to-the-ocean's wake/shore source system
+// Wave/shore source system
 // ============================================================================
 
 import type { ShoreSource } from "./shore-damping";

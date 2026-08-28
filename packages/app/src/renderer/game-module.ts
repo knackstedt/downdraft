@@ -33,7 +33,7 @@ import { createSaveStore, type SaveStoreMode } from "./save-store-factory";
  * and exposes the worker via `GameContext.sim`.
  *
  * This is intentionally minimal — games implement this interface on top of
- * their own sim worker class (e.g. `SimWebWorker` in to-the-ocean).
+ * their own sim worker class (e.g. a game's `SimWebWorker`).
  *
  * Games that have a richer sim worker interface can pass their concrete type
  * as the generic parameter `T` to `GameModule<T>` — `GameContext.sim` will
@@ -114,7 +114,7 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   simSAB: SharedArrayBuffer;
   /** The input SAB (renderer writes, sim worker reads). */
   inputSAB: SharedArrayBuffer;
-  /** Extra SABs from `sim.getExtraBuffers()` (e.g. water, boat). */
+  /** Extra SABs from `sim.getExtraBuffers()` (e.g. water, custom-game-data). */
   extraBuffers: Record<string, SharedArrayBuffer>;
   /** The save store, if save config was provided and init succeeded. May be null. */
   saveStore: ISaveStore | null;

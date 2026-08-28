@@ -2,7 +2,7 @@
 // Per-game userData isolation + stale lock cleanup
 // ============================================================================
 //
-// Each game gets its own userData directory (e.g. `~/.config/downdraft-mining-rpg/`)
+// Each game gets its own userData directory (e.g. `~/.config/downdraft-my-game/`)
 // so that Chromium storage subsystems (OPFS, IndexedDB, Service Worker DB, cookies,
 // cache) are fully isolated. Without this, concurrent game instances share the
 // same LevelDB LOCK files and corrupt each other's storage.
@@ -41,7 +41,7 @@ const CHROMIUM_TEMP_PREFIX = ".org.chromium.Chromium.";
  * Resolve the per-game userData directory from an `appId`.
  *
  * Returns `join(app.getPath("appData"), appId)` — e.g. on Linux:
- *   `~/.config/downdraft-mining-rpg`
+ *   `~/.config/downdraft-my-game`
  *
  * Call this BEFORE `app.whenReady()` and before any code that touches
  * `app.getPath("userData")`.

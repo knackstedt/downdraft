@@ -27,6 +27,7 @@ import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
 import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
 import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/library-collision";
 import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/library-wildlife";
+import { InventoryGrid, createGrid, deserializeGrid, serializeGrid } from "@to-the-ocean/plugin-inventory";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import {
     BOAT_CELL_WORLD_SIZE,
@@ -67,7 +68,6 @@ import { PetSystem } from "./farming/pet-system";
 import { PlantSystem } from "./farming/plant-system";
 import { FishingSystem } from "./fishing/fishing-system";
 import { GameModeManager } from "./gamemode/game-mode-manager";
-import { InventoryGrid, createGrid, deserializeGrid, serializeGrid } from "./inventory/inventory-system";
 import { RapierPhysicsSystem } from "./physics/rapier-physics-system";
 import { StructureIntegrity } from "./physics/structure-integrity";
 import { LicenseSystem } from "./player/license-system";

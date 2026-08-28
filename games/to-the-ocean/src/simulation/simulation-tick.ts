@@ -2,6 +2,7 @@
 
 import { InputBufferReader, PLR_FLAG } from "@downdraft/core";
 import { WeatherSystem } from "@downdraft/library-weather";
+import { processSpoilage } from "@to-the-ocean/plugin-inventory";
 import { SIM_TICK_DT } from "../shared/constants";
 import {
     collectShoreSources,
@@ -16,7 +17,6 @@ import { SimEcsWorld } from "./ecs/sim-ecs-world";
 import { PLANT_DATA_SLOTS, PlantSystem } from "./farming/plant-system";
 import { FishingSystem } from "./fishing/fishing-system";
 import { GameModeManager } from "./gamemode/game-mode-manager";
-import { processSpoilage } from "./inventory/inventory-system";
 import { PlayerMoveRequest, RapierPhysicsSystem } from "./physics/rapier-physics-system";
 import { PlayerManager } from "./player/player-manager";
 import { ProgressionTree } from "./progression/progression-tree";

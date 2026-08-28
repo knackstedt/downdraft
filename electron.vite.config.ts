@@ -41,12 +41,15 @@ if (existsSync(viteOptionsPath)) {
     // Load the factory function via createRequire (CJS, resolves from game root)
     const factory = gameRequire(viteOptionsPath).default;
 
-    // Resolve vite-plugin-solid from the game's node_modules and load it.
-    // Using require() (CJS) avoids ESM resolution issues from the temp dir.
-    // The CJS export is the plugin function directly (no .default).
-    const solid = gameRequire("vite-plugin-solid");
-
-    gameOptions = factory(solid);
+    // Only resolve vite-plugin-solid if the factory expects a parameter
+    // (factory.length > 0). Games that don't use Solid export a zero-arg
+    // factory and don't need vite-plugin-solid in their node_modules.
+    if (factory.length > 0) {
+      const solid = gameRequire("vite-plugin-solid");
+      gameOptions = factory(solid);
+    } else {
+      gameOptions = factory();
+    }
   } catch (e) {
     console.warn(`[root config] Failed to load vite-options.ts for ${game}:`, e);
   }

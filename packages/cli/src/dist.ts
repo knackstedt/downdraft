@@ -18,6 +18,7 @@
 import { createLogger } from "@downdraft/core";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { detectGame } from "./detect-game";
 
 const log = createLogger();
 
@@ -30,7 +31,7 @@ interface DistArgs {
 
 function parseArgs(args: string[]): DistArgs {
   const opts: DistArgs = {
-    game: process.env.DOWNDRAFT_GAME ?? "to-the-ocean",
+    game: detectGame() ?? "to-the-ocean",
     target: "all",
     configPath: null,
     projectDir: null,

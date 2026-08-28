@@ -108,7 +108,7 @@ export interface DowndraftAppConfig {
   window: DowndraftWindowConfig;
   /**
    * Per-game application identifier. Used as the userData subdirectory name
-   * (e.g. `"downdraft-mining-rpg"` → `~/.config/downdraft-mining-rpg/`).
+   * (e.g. `"downdraft-my-game"` → `~/.config/downdraft-my-game/`).
    *
    * Each game MUST set a unique `appId` so that Chromium storage (OPFS,
    * IndexedDB, Service Worker DB, cookies, cache) is isolated per game.

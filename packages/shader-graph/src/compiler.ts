@@ -128,7 +128,7 @@ const NODE_WGSL: Record<string, NodeGenerator> = {
     return `fbm3DWarp(${p}, ${octaves}, ${warpScale}, ${warpStrength})`;
   },
 
-  // --- Sand sparkle (island-specific) ---
+  // --- Sand sparkle ---
   sand_sparkle: (_n, inputs) => {
     const worldPos = inputs[0] ?? "input.worldPos";
     const N = inputs[1] ?? "input.worldNormal";

@@ -7,8 +7,11 @@
 // PLR_FLAG values match the plugin's FISHING_FLAG bit positions.
 //
 
-import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/library-fishing";
+import { InputBufferReader } from "@downdraft/core";
+import { WaterBufferWriter } from "@downdraft/library-water";
 import { WeatherSystem } from "@downdraft/library-weather";
+import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/library-fishing";
+import { addItem } from "@to-the-ocean/plugin-inventory";
 import {
     FISHING_CAST_RANGE,
     FISHING_FISH_PULL_MULT,
@@ -26,10 +29,7 @@ import {
     FISHING_TENSION_MAX,
     FISHING_TENSION_SLIP,
 } from "../../shared/constants";
-import { InputBufferReader } from "@downdraft/core";
 import { SimToMainMessage } from "../../shared/types";
-import { WaterBufferWriter } from "@downdraft/library-water";
-import { addItem } from "../inventory/inventory-system";
 import { SimPlayer } from "../simulation";
 import { BiomeSystem } from "../world/biome-system";
 

@@ -79,7 +79,7 @@ const NODE_TYPES: Array<{ type: string; label: string; inputs: Array<{ name: str
   { type: "value_noise", label: "Value Noise", inputs: [{ name: "p", type: "vec3" }], outputs: [{ name: "value", type: "f32" }] },
   { type: "fbm", label: "FBM", inputs: [{ name: "p", type: "vec3" }, { name: "octaves", type: "u32" }], outputs: [{ name: "value", type: "f32" }] },
   { type: "fbm_warp", label: "FBM Warp", inputs: [{ name: "p", type: "vec3" }, { name: "octaves", type: "u32" }, { name: "warpScale", type: "f32" }, { name: "warpStrength", type: "f32" }], outputs: [{ name: "value", type: "vec3" }] },
-  // Sand sparkle (island-specific)
+  // Sand sparkle
   { type: "sand_sparkle", label: "Sand Sparkle", inputs: [{ name: "worldPos", type: "vec3" }, { name: "N", type: "vec3" }, { name: "V", type: "vec3" }, { name: "L", type: "vec3" }, { name: "sandMask", type: "f32" }], outputs: [{ name: "value", type: "vec3" }] },
 ];
 

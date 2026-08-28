@@ -9,6 +9,9 @@
   },
   "dependencies": {
     "wgpu-matrix": "^3.4.2",
-    "@downdraft/shader-graph": "workspace:*"
+    "@downdraft/shader-graph": "workspace:*",
+    "@downdraft/library-animation": "workspace:*",
+    "@downdraft/library-particles": "workspace:*",
+    "@downdraft/library-imui": "workspace:*"
   }
 }

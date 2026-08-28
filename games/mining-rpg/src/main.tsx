@@ -1,10 +1,25 @@
-import { bootstrapGame, downdraft, getOverlay } from "@downdraft/app/renderer";
+// ============================================================================
+// Renderer Entry Point — declarative GameModule + startGame()
+//
+// Migrated from bootstrapGame() to the declarative startGame() API. The
+// mining-rpg renderer (MiningRenderer) manages its own MiningWorkerHost
+// internally inside renderer.init() — it creates the worker, the SAB, the
+// sim reader, and the input handler. The MiningGameSim adapter below
+// satisfies the GameSimWorker interface that startGame() requires, but the
+// actual sim worker lifecycle is owned by the renderer. The adapter's
+// start() is a no-op (startGame() does not call it when onInit is provided)
+// and onEvent is a no-op (sim→renderer events are handled by the renderer's
+// internal worker host).
+// ============================================================================
+
+import { startGame, type GameSimWorker } from "@downdraft/app/renderer";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/plugin-devtools";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
 import { MiningRenderer } from "./renderer/mining-renderer";
 import { PLAYER, WORLD_SEED } from "./shared/constants";
+import { allocateMiningSimBuffer } from "./shared/sim-buffer";
 import { useGameStore } from "./stores/game-store";
 import "./styles/globals.css";
 
@@ -19,15 +34,87 @@ import { SolidHost } from "./solid/host";
 
 let solidHost: SolidHost | null = null;
 
-bootstrapGame({
-  // --- Renderer ---
-  createRenderer: (canvas) => {
-    const deterministic = downdraft?.deterministic === true;
+/**
+ * MiningGameSim — adapter that satisfies the GameSimWorker interface
+ * required by startGame().
+ *
+ * The mining-rpg renderer creates and manages its own MiningWorkerHost
+ * inside renderer.init() (it also creates the sim reader and input handler
+ * there). This adapter provides the SAB that startGame() captures for
+ * ctx.simSAB/ctx.inputSAB, but does NOT spawn a worker — the renderer's
+ * internal worker is the real simulation.
+ *
+ * start() is never called by startGame() when an onInit hook is provided
+ * (our onInit calls renderer.init() which starts the real worker). onEvent
+ * is never called because no `events` map is declared in the GameModule.
+ */
+class MiningGameSim implements GameSimWorker {
+  private sab: SharedArrayBuffer;
+
+  constructor() {
+    this.sab = allocateMiningSimBuffer();
+  }
+
+  async start(_config: unknown): Promise<void> {
+    // No-op: the renderer creates and starts its own MiningWorkerHost
+    // inside renderer.init(). This adapter only provides the SAB interface.
+  }
+
+  onEvent(_cb: (msg: any) => void): void {
+    // No-op: sim→renderer events are handled by the renderer's internal
+    // MiningWorkerHost. Mining-rpg does not use the GameModule declarative
+    // events map.
+  }
+
+  getSimBuffer(): SharedArrayBuffer {
+    return this.sab;
+  }
+
+  getInputBuffer(): SharedArrayBuffer {
+    // Mining-rpg's input region is embedded in the sim SAB (at INPUT_OFFSET),
+    // not a separate buffer. Return the sim SAB — the renderer manages input
+    // internally via its own worker host.
+    return this.sab;
+  }
+}
+
+startGame({
+  // ── Renderer + Sim ──
+  renderer: (canvas) => {
+    const deterministic = (globalThis as any).downdraft?.deterministic === true;
     return new MiningRenderer(canvas, deterministic);
   },
-  initRenderer: (renderer) => renderer.init(),
-  onRendererInit: (renderer) => {
-    useGameStore.getState().setRenderer(renderer);
+  sim: () => new MiningGameSim(),
+  simConfig: {},
+
+  // ── UI (React fallback — only mounted if Solid failed) ──
+  // mountUI is only called if we didn't mount Solid. We handle this in
+  // onReady below, so we skip mountUI here unless USE_REACT_UI is set.
+  mountUI: (overlay) => {
+    if ((globalThis as any).__USE_REACT_UI === true) {
+      const root = createRoot(overlay);
+      root.render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>,
+      );
+    }
+    // Otherwise: Solid UI was mounted in onReady, skip.
+  },
+
+  // ── Renderer init (creates + starts the internal sim worker) ──
+  onInit: async (ctx) => {
+    const ok = await ctx.renderer.init();
+    if (!ok) {
+      console.error("WebGPU initialization failed");
+      return false;
+    }
+    return true;
+  },
+
+  // ── Post-init wiring ──
+  onReady: (ctx) => {
+    useGameStore.getState().setRenderer(ctx.renderer);
 
     // --- UI mode: Solid-in-worker (default) or React fallback ---
     const useReactUI = (globalThis as any).__USE_REACT_UI === true;
@@ -35,7 +122,7 @@ bootstrapGame({
     if (!useReactUI) {
       // --- Solid-in-worker path ---
       try {
-        solidHost = new SolidHost({ renderer, reactStore: useGameStore });
+        solidHost = new SolidHost({ renderer: ctx.renderer, reactStore: useGameStore });
         solidHost.start().then(() => {
           console.log("[main] Solid-in-worker UI started");
         }).catch((e) => {
@@ -43,7 +130,7 @@ bootstrapGame({
           solidHost?.dispose();
           solidHost = null;
           // Fall back to React
-          const root = createRoot(getOverlay(0));
+          const root = createRoot(ctx.overlay);
           root.render(
             <React.StrictMode>
               <App />
@@ -54,7 +141,7 @@ bootstrapGame({
         console.error("[main] Solid UI failed, falling back to React:", e);
         solidHost?.dispose();
         solidHost = null;
-        const root = createRoot(getOverlay(0));
+        const root = createRoot(ctx.overlay);
         root.render(
           <React.StrictMode>
             <App />
@@ -64,23 +151,7 @@ bootstrapGame({
     }
   },
 
-  // --- UI (React fallback — only mounted if Solid failed) ---
-  // mountUI is only called if we didn't mount Solid. We handle this in
-  // onRendererInit above, so we skip mountUI here.
-  // NOTE: If USE_REACT_UI is set, we need mountUI. We use a conditional.
-  mountUI: (overlay) => {
-    if ((globalThis as any).__USE_REACT_UI === true) {
-      const root = createRoot(overlay);
-      root.render(
-        <React.StrictMode>
-          <App />
-        </React.StrictMode>,
-      );
-    }
-    // Otherwise: Solid UI was mounted in onRendererInit, skip.
-  },
-
-  // --- DevTools ---
+  // ── DevTools ──
   devtools: {
     createSimStatsProvider: (renderer) => createSimStatsProvider({
       getWorkerHost: () => renderer.getWorkerHost(),
@@ -142,18 +213,18 @@ bootstrapGame({
     ],
   },
 
-  // --- Display info → frame rate limiter ---
-  onDisplayInfo: (refreshRate) => {
-    const renderer = useGameStore.getState().renderer as MiningRenderer | null;
-    if (renderer) renderer.setFrameRateLimit(refreshRate);
+  // ── Display info → frame rate limiter ──
+  onDisplayInfo: (refreshRate, ctx) => {
+    const renderer = ctx.renderer as MiningRenderer;
+    renderer.setFrameRateLimit(refreshRate);
     solidHost?.setFrameRateLimit(refreshRate);
   },
 
-  // --- FPS polling ---
+  // ── FPS polling ──
   onFpsUpdate: (fps) => useGameStore.getState().setFPS(fps),
 
-  // --- Hot reload ---
-  onHotReloadDispose: async () => {
+  // ── Hot reload dispose ──
+  onDispose: async () => {
     solidHost?.dispose();
     const renderer = useGameStore.getState().renderer as MiningRenderer | null;
     if (renderer) await renderer.stop();

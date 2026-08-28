@@ -5,12 +5,12 @@
 // (SharedArrayBuffers, WebGPU canvas) rather than the generic EngineContext.
 // ============================================================================
 
-import { downdraft } from "@downdraft/app/renderer";
+import { blobToBase64, compositeScreenshot, downdraft } from "@downdraft/app/renderer";
+import { KEY, PLR, PLR_FLAG } from "@downdraft/core";
+import { GAME_PLR } from "@shared/constants/buffer";
 import { type InjectedInputFrame } from "../engine/renderer-input-handler";
 import type { SimWebWorker } from "../engine/sim-web-worker";
 import type { WebGPURenderer } from "../engine/webgpu-renderer";
-import { KEY } from "@downdraft/core";
-import { PLR, PLR_FLAG } from "@downdraft/core";
 import type { ToolRegistration } from "./mcp-types";
 import { errorResult, jsonResult } from "./mcp-types";
 
@@ -48,62 +48,6 @@ function resolveKeys(keys: (string | number)[]): Set<number> {
   return out;
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1];
-      resolve(base64 ?? "");
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-/**
- * Composite the WebGPU canvas screenshot with the DOM overlay into a single
- * PNG. The canvas is drawn first (bottom layer), then the overlay (captured
- * via Electron's webContents.capturePage()) is drawn on top.
- *
- * webContents.capturePage() captures the DOM compositor output (which includes
- * the HTML/React overlay) but NOT the WebGPU canvas (which renders directly to
- * the GPU, bypassing the DOM compositor). So we composite renderer-side:
- *   1. Draw the WebGPU canvas onto an offscreen 2D canvas
- *   2. Load the capturePage() PNG (DOM overlay) as an ImageBitmap
- *   3. Draw the overlay ImageBitmap on top
- *   4. Export the composited canvas as PNG
- *
- * Both images are same-origin (canvas.toBlob + IPC), so the canvas is NOT tainted.
- */
-async function compositeScreenshot(
-  canvas: HTMLCanvasElement,
-  capturePagePng: ArrayBuffer,
-  width: number,
-  height: number,
-): Promise<Blob | null> {
-  const offscreen = document.createElement("canvas");
-  offscreen.width = width;
-  offscreen.height = height;
-  const ctx = offscreen.getContext("2d");
-  if (!ctx) return null;
-
-  // Layer 1: WebGPU canvas (bottom)
-  ctx.drawImage(canvas, 0, 0, width, height);
-
-  // Layer 2: DOM overlay from webContents.capturePage() (top)
-  // The capturePage PNG has the DOM compositor output: the overlay elements
-  // on a transparent/black background. We draw it on top of the canvas.
-  const overlayBlob = new Blob([capturePagePng], { type: "image/png" });
-  const overlayBitmap = await createImageBitmap(overlayBlob);
-  ctx.drawImage(overlayBitmap, 0, 0, width, height);
-  overlayBitmap.close();
-
-  return new Promise((resolve) => {
-    offscreen.toBlob((blob) => resolve(blob), "image/png");
-  });
-}
-
 function readPlayer(renderer: WebGPURenderer, playerIndex: number) {
   const reader = renderer.getSimReader();
   if (!reader?.isValid()) return null;
@@ -122,7 +66,7 @@ function readPlayer(renderer: WebGPURenderer, playerIndex: number) {
     hunger: slot.f32[PLR.HUNGER],
     thirst: slot.f32[PLR.THIRST],
     oxygen: slot.f32[PLR.OXYGEN],
-    gold: slot.f32[PLR.GOLD],
+    gold: slot.f32[GAME_PLR.GOLD],
     flags: {
       dead: !!(flags & PLR_FLAG.DEAD),
       swimming: !!(flags & PLR_FLAG.SWIMMING),

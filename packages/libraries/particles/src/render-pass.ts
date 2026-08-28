@@ -1,6 +1,6 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { GraphRenderContext } from "../render/frame-graph";
-import { RenderPass } from "../render/render-pass";
+import type { GraphRenderContext } from "@downdraft/core";
+import { RenderPass } from "@downdraft/core";
 import type { ParticleGPUData } from "./particle-data";
 import { packParticleBuffer } from "./particle-data";
 

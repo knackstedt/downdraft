@@ -124,9 +124,11 @@ export const SimChannel = defineChannel({
         pitch: { type: "f32" },
         freecam: { type: "f32", count: 5 },
         thirdPersonDistance: { type: "f32" },
-        gold: { type: "f32" },
-        fishingTension: { type: "f32" },
-        fishingProgress: { type: "f32" },
+        // NOTE: The player slot is 256 bytes (64 f32s). Core fields use
+        // indices 0–30. Indices 31–63 are reserved padding — games can
+        // define their own extension constants (e.g. GAME_PLR.GOLD = 31)
+        // to store game-specific player state in this padding area without
+        // modifying the core SAB schema.
       },
     },
   ],
@@ -208,9 +210,8 @@ export const PLR = {
   FREECAM_X: 25, FREECAM_Y: 26, FREECAM_Z: 27,
   FREECAM_PITCH: 28, FREECAM_YAW: 29,
   THIRD_PERSON_DISTANCE: 30,
-  GOLD: 31,
-  FISHING_TENSION: 32,
-  FISHING_PROGRESS: 33,
+  // Indices 31–63 are reserved for game-specific player state.
+  // Games define their own extension constants (e.g. GAME_PLR.GOLD = 31).
 } as const;
 
 export const PLR_FLAG = {

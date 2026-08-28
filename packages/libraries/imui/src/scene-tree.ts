@@ -1,7 +1,5 @@
-import type { Entity } from "../ecs/entity";
-import { ROOT_ENTITY } from "../ecs/entity";
-import type { Hierarchy } from "../ecs/hierarchy";
-import type { World } from "../ecs/world";
+import type { Entity, Hierarchy, World } from "@downdraft/core";
+import { ROOT_ENTITY } from "@downdraft/core";
 
 export interface SceneTreeNode {
   entity: Entity;

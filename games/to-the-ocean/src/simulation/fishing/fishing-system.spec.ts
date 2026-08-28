@@ -1,6 +1,9 @@
 // Deterministic fishing system regression tests
 // Run with: bun test src/simulation/fishing/fishing-system.spec.ts
 
+import { InputBufferReader, InputBufferWriter, KEY, PLR_FLAG } from "@downdraft/core";
+import { WaterBufferWriter } from "@downdraft/library-water";
+import { createGrid } from "@to-the-ocean/plugin-inventory";
 import {
     FISHING_FISH_PULL_MULT,
     FISHING_MINIGAME_DURATION,
@@ -9,11 +12,7 @@ import {
     FISHING_REEL_POWER,
     FISHING_TENSION_MAX
 } from "../../shared/constants";
-import { InputBufferReader, InputBufferWriter, KEY } from "@downdraft/core";
-import { PLR_FLAG } from "@downdraft/core";
 import { BiomeType, WeatherState, WeatherType } from "../../shared/types";
-import { WaterBufferWriter } from "@downdraft/library-water";
-import { createGrid } from "../inventory/inventory-system";
 import { SimPlayer } from "../simulation";
 import { BiomeSystem } from "../world/biome-system";
 import { FishingSystem } from "./fishing-system";

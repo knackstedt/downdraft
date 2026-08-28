@@ -61,7 +61,8 @@ export interface DowndraftViteConfigOptions {
   /** Additional Rollup entry inputs for the renderer build (e.g. separate worker chunks).
    *  Each entry is { name: string, path: string } where path is relative to root. */
   extraRollupInputs?: Array<{ name: string; path: string }>;
-  /** Hot-reload sim paths (defaults to to-the-ocean's set if game name matches). */
+  /** Hot-reload sim paths (defaults to engine dirs if the game has a sim worker).
+   *  Games with their own plugin directories should append them here. */
   simPaths?: string[];
   /** Hot-reload renderer paths. */
   rendererPaths?: string[];
@@ -151,6 +152,12 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/library-weatherfx\//, replacement: resolve(repoRoot, "packages/libraries/weatherfx/src") + "/" },
     { find: /^@downdraft\/library-weather$/, replacement: resolve(repoRoot, "packages/libraries/weather/src/index.ts") },
     { find: /^@downdraft\/library-weather\//, replacement: resolve(repoRoot, "packages/libraries/weather/src") + "/" },
+    { find: /^@downdraft\/library-imui$/, replacement: resolve(repoRoot, "packages/libraries/imui/src/index.ts") },
+    { find: /^@downdraft\/library-imui\//, replacement: resolve(repoRoot, "packages/libraries/imui/src") + "/" },
+    { find: /^@downdraft\/library-animation$/, replacement: resolve(repoRoot, "packages/libraries/animation/src/index.ts") },
+    { find: /^@downdraft\/library-animation\//, replacement: resolve(repoRoot, "packages/libraries/animation/src") + "/" },
+    { find: /^@downdraft\/library-particles$/, replacement: resolve(repoRoot, "packages/libraries/particles/src/index.ts") },
+    { find: /^@downdraft\/library-particles\//, replacement: resolve(repoRoot, "packages/libraries/particles/src") + "/" },
     { find: /^@downdraft\/library-entities$/, replacement: resolve(repoRoot, "packages/libraries/entities/src/index.ts") },
     { find: /^@downdraft\/library-entities\//, replacement: resolve(repoRoot, "packages/libraries/entities/src") + "/" },
     { find: /^@downdraft\/library-stickman$/, replacement: resolve(repoRoot, "packages/libraries/stickman/src/index.ts") },
@@ -179,28 +186,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/library-navmesh\//, replacement: resolve(repoRoot, "packages/libraries/navmesh/src") + "/" },
     { find: /^@downdraft\/library-water$/, replacement: resolve(repoRoot, "packages/libraries/water/src/index.ts") },
     { find: /^@downdraft\/library-water\//, replacement: resolve(repoRoot, "packages/libraries/water/src") + "/" },
-    // @to-the-ocean game plugins (game-owned, depend on engine)
-    { find: /^@to-the-ocean\/library-boats$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/boats/src/index.ts") },
-    { find: /^@to-the-ocean\/library-boats\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/boats/src") + "/" },
-    { find: /^@to-the-ocean\/library-buoyancy$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/buoyancy/src/index.ts") },
-    { find: /^@to-the-ocean\/library-buoyancy\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/buoyancy/src") + "/" },
-    { find: /^@to-the-ocean\/library-collision$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/collision/src/index.ts") },
-    { find: /^@to-the-ocean\/library-collision\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/collision/src") + "/" },
-    { find: /^@to-the-ocean\/plugin-crafting$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/crafting/src/index.ts") },
-    { find: /^@to-the-ocean\/plugin-crafting\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/crafting/src") + "/" },
-    { find: /^@to-the-ocean\/library-economy$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/economy/src/index.ts") },
-    { find: /^@to-the-ocean\/library-economy\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/economy/src") + "/" },
-    { find: /^@to-the-ocean\/library-fishing$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/fishing/src/index.ts") },
-    { find: /^@to-the-ocean\/library-fishing\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/fishing/src") + "/" },
-    { find: /^@to-the-ocean\/plugin-inventory$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/inventory/src/index.ts") },
-    { find: /^@to-the-ocean\/plugin-inventory\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/inventory/src") + "/" },
-    { find: /^@to-the-ocean\/library-items$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/items/src/index.ts") },
-    { find: /^@to-the-ocean\/library-items\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/items/src") + "/" },
-    { find: /^@to-the-ocean\/library-survival$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/survival/src/index.ts") },
-    { find: /^@to-the-ocean\/library-survival\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/survival/src") + "/" },
-    { find: /^@to-the-ocean\/library-wildlife$/, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/wildlife/src/index.ts") },
-    { find: /^@to-the-ocean\/library-wildlife\//, replacement: resolve(repoRoot, "games/to-the-ocean/plugins/wildlife/src") + "/" },
-    { find: /^@to-the-ocean\/util\//, replacement: resolve(repoRoot, "games/to-the-ocean/src/util") + "/" },
+    // Game-owned plugin aliases are registered by each game's own
+    // electron.vite.config.ts via `rendererAliases` — the engine config
+    // must not hardcode any specific game's plugin paths.
     { find: /^@downdraft\/mcp$/, replacement: resolve(repoRoot, "packages/mcp/src/index.ts") },
     { find: /^@downdraft\/mcp\//, replacement: resolve(repoRoot, "packages/mcp/src") + "/" },
     { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src/index.ts") },
@@ -214,11 +202,14 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   ];
 
   // --- Hot-reload config ---
-  // to-the-ocean has a sim worker — simPaths trigger worker swap (with ack).
-  // Other games have no sim worker — let Vite's native HMR handle everything.
+  // Games with a sim worker pass simPaths to trigger worker swap (with ack).
+  // Games without a sim worker let Vite's native HMR handle everything.
+  // Game-specific plugin paths (e.g. games/<game>/plugins/) must be supplied
+  // by the game's own electron.vite.config.ts — the engine defaults only
+  // cover engine-owned directories.
   const hasSimWorker = existsSync(resolve(rendererRoot, "src/simulation"));
   const simPaths = options.simPaths ?? (hasSimWorker
-    ? ["simulation/", "shared/", "packages/core/", "packages/plugins/", "packages/libraries/", "games/to-the-ocean/plugins/"]
+    ? ["simulation/", "shared/", "packages/core/", "packages/plugins/", "packages/libraries/"]
     : []);
   const rendererPaths = options.rendererPaths ?? (hasSimWorker
     ? ["engine/", "stores/", "packages/plugins/electron-osr/src/renderer/"]
@@ -226,9 +217,6 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   const excludePaths = options.excludePaths ?? [
     "packages/plugins/electron-osr/src/main/",
     "simulation/ecs/ecs-",
-    "games/to-the-ocean/plugins/wildlife/src/",
-    "games/to-the-ocean/plugins/buoyancy/src/",
-    "games/to-the-ocean/plugins/collision/src/",
   ];
 
   // --- HTML generation ---

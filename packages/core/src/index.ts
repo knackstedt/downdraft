@@ -38,7 +38,7 @@ export { ChangeTracker } from "./change-detection/tracker";
 // Engine Types (math, identifiers, enums, message protocols)
 // ─────────────────────────────────────────────────────────────────────────────
 export { EntityFlags } from "./types/engine-types";
-export type { DbRequest, DbResponse, EntityData, MainToSimMessage, PlayerState, RendererToSimMessage, SimToMainMessage, SimToRendererMessage } from "./types/engine-types";
+export type { DbRequest, DbResponse, EntityData, MainToSimMessage, PlayerState, RendererToSimMessage, SimToMainKind, SimToMainMessage, SimToRendererMessage } from "./types/engine-types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SAB
@@ -216,27 +216,9 @@ export { createGridSaveSystem } from "./save/grid-save-system";
 export type { GridSaveSystem, GridSaveSystemOptions, SaveListEntry } from "./save/grid-save-system";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Animation
+// Animation (re-exported from @downdraft/library-animation)
 // ─────────────────────────────────────────────────────────────────────────────
-export { createAnimationEventTrack, getEventsInRange } from "./animation/animation-event";
-export type { AnimationEvent, AnimationEventTrack } from "./animation/animation-event";
-export { BoneMaskPreset, buildBoneMask, buildCustomBoneMask, registerCustomMask } from "./animation/bone-mask";
-export { AnimationClip, buildAnimationClipFromGLTF } from "./animation/clip";
-export type { AnimationClipData, KeyframeTrack, TrackPath } from "./animation/clip";
-export { DEFAULT_MIXAMO_CONFIG, MixamoRetargeter } from "./animation/mixamo";
-export type { MixamoRetargetConfig } from "./animation/mixamo";
-export { buildMorphTargetData, createMorphTargetTrack, findMorphKeyframeIndex, sampleMorphWeight } from "./animation/morph-target";
-export type { MorphTarget, MorphTargetData, MorphTargetTrack } from "./animation/morph-target";
-export { AnimationPlayer, MAX_MORPH_TARGETS } from "./animation/player";
-export type { LayerBlendMode, PlayOptions } from "./animation/player";
-export { buildRetargetMapping, retargetClip } from "./animation/retarget";
-export type { BoneMapping, RetargetMapping } from "./animation/retarget";
-export { buildSkeletonFromGLTF, Skeleton } from "./animation/skeleton";
-export type { Bone, GLTFSkin, SkeletonData } from "./animation/skeleton";
-export { SkeletonAnimator, skinDataToSkeletonData } from "./animation/skeleton-animator";
-export type { AnimationChannel, AnimationData, AnimState, BoneData, SkinData } from "./animation/skeleton-animator";
-export { AnimationStateMachine } from "./animation/state-machine";
-export type { AnimationState, AnimationTransition, BlendTree, BlendTree1D, BlendTree2D } from "./animation/state-machine";
+export * from "@downdraft/library-animation";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mesh Skinning
@@ -261,39 +243,14 @@ export { AudioSource, createAmbientAudioSource, createAudioSource, createSpatial
 export type { AudioSourceData } from "./audio/source";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Particles
+// Particles (extracted to @downdraft/library-particles)
 // ─────────────────────────────────────────────────────────────────────────────
-export { ParticleComputePass } from "./particles/compute-pass";
-export type { ParticleComputeParams } from "./particles/compute-pass";
-export { createExplosionEmitter, createFireEmitter, createParticleEmitter, createSmokeEmitter, createSparkEmitter, ParticleEmitter } from "./particles/emitter";
-export type { EmitterShape, ParticleEmitterData } from "./particles/emitter";
-export { createParticleGPUData, packParticleBuffer, PARTICLE_STRIDE } from "./particles/particle-data";
-export type { ParticleGPUData } from "./particles/particle-data";
-export { ParticleRenderPass } from "./particles/render-pass";
-export { ParticleSimulator } from "./particles/simulator";
-export { DEFAULT_PARTICLE_CONFIG, ParticleSystem } from "./particles/system";
-export type { ParticleSystemConfig } from "./particles/system";
+export * from "@downdraft/library-particles";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UI Panels
+// UI (re-exported from @downdraft/library-imui)
 // ─────────────────────────────────────────────────────────────────────────────
-export { InspectorPanel } from "./ui/inspector";
-export type { InspectorComponent, InspectorField, InspectorState } from "./ui/inspector";
-export { SceneTreePanel } from "./ui/scene-tree";
-export type { SceneTreeNode, SceneTreeState } from "./ui/scene-tree";
-
-// UI Rendering System
-export { Easing, UIAnimationManager, UILerpController, UIPropertyTween } from "./ui/animation";
-export type { EasingFunction, UIAnimationConfig } from "./ui/animation";
-export { UIButton, UIElement, UIImage, UILine, UIPanel, UIRoot, UIText } from "./ui/element";
-export type { UICallbacks, UIColor, UIDrawable, UIHorizontalAlign, UILayoutMode, UIStyle, UIVerticalAlign } from "./ui/element";
-export { UIInputRouter } from "./ui/input";
-export { LayoutEngine } from "./ui/layout";
-export { UIRenderer } from "./ui/renderer";
-export { UIScrollPanel } from "./ui/scroll";
-export { TextAtlasCache } from "./ui/text-cache";
-export type { TextCacheEntry, TextRenderOptions } from "./ui/text-cache";
-export { UIModal, UIProgressBar, UISlider, UITabBar, UITextInput, UIToggle } from "./ui/widgets";
+export * from "@downdraft/library-imui";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Math

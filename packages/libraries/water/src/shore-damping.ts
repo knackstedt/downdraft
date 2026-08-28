@@ -1,7 +1,6 @@
 // ============================================================================
-// Shore Damping — shared utility for flattening water near islands
-// Ported from to-the-ocean/src/shared/shore-damping.ts
-// Returns 0.0 inside islands (flat water), 1.0 far from shore (full waves).
+// Shore Damping — shared utility for flattening water near terrain regions
+// Returns 0.0 inside terrain (flat water), 1.0 far from shore (full waves).
 // Also provides shoreDisplacement — ring waves traveling inward toward shore.
 // ============================================================================
 
