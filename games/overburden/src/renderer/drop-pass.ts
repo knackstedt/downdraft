@@ -49,6 +49,8 @@ struct DropInstance {
 @group(0) @binding(1) var<storage, read> drops : array<DropInstance>;
 @group(0) @binding(2) var fruitSampler : sampler;
 @group(0) @binding(3) var fruitTexture : texture_2d<f32>;
+@group(0) @binding(4) var lightTex : texture_2d<f32>;     // volumetric light (RGBA8)
+@group(0) @binding(5) var exploredTex : texture_2d<f32>;  // fog of war (R8)
 
 struct VsOut {
   @builtin(position) pos : vec4f,
@@ -56,6 +58,7 @@ struct VsOut {
   @location(1) uv : vec2f,
   @location(2) isTextured : f32,
   @location(3) edgeDist : f32,
+  @location(4) @interpolate(flat) gridCoords : vec2<i32>,
 };
 
 const QUAD_SIZE = 0.6; // blocks
@@ -87,6 +90,10 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
   out.pos = uniforms.viewProj * vec4f(worldX, worldY, worldZ, 1.0);
   out.color = vec3f(drop.r, drop.g, drop.b);
   out.edgeDist = max(abs(c.x), abs(c.y)) * 2.0;
+  // drop.x/y are the drop's active-grid position; floor to the owning cell so
+  // the fragment shader can sample per-cell light + fog-of-war. i32()
+  // truncates toward zero, correct for the non-negative grid coords here.
+  out.gridCoords = vec2<i32>(i32(drop.x), i32(drop.y));
 
   // UV: map corner (-0.5..0.5) to (0..1) within the sprite cell.
   // For textured drops, offset by the sprite's UV in the atlas.
@@ -105,6 +112,18 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
 
 @fragment
 fn fs_main(in : VsOut) -> @location(0) vec4f {
+  // Fog of war: unexplored cells are pure black (matches BlockGridPass3D).
+  let explored = textureLoad(exploredTex, in.gridCoords, 0).r;
+  if (explored == 0.0) {
+    return vec4f(0.0, 0.0, 0.0, 0.0);
+  }
+
+  // Volumetric colored light: sample the per-cell light color (RGB) and
+  // modulate the drop color, matching how BlockGridPass3D lights blocks.
+  // No ambient floor — only actual light sources (sky, torches, emitters)
+  // illuminate the cell, so drops darken at night and glow near torches.
+  let lightMul = textureLoad(lightTex, in.gridCoords, 0).rgb;
+
   let border = smoothstep(0.85, 1.0, in.edgeDist);
 
   // Always sample the texture (textureSample requires uniform control flow,
@@ -114,8 +133,8 @@ fn fs_main(in : VsOut) -> @location(0) vec4f {
 
   // Mix between textured and solid color based on the isTextured flag.
   // Use select() for branchless blending — avoids non-uniform control flow.
-  let texFrag = vec4f(texColor.rgb * (1.0 - border * 0.3), texColor.a);
-  let solidFrag = vec4f(in.color * (1.0 - border * 0.4), 1.0);
+  let texFrag = vec4f(texColor.rgb * (1.0 - border * 0.3) * lightMul, texColor.a);
+  let solidFrag = vec4f(in.color * (1.0 - border * 0.4) * lightMul, 1.0);
 
   let useTextured = min(in.isTextured, uniforms.hasTexture);
   return mix(solidFrag, texFrag, step(0.5, useTextured));
@@ -142,6 +161,8 @@ export class DropPass {
   private bindGroup: GPUBindGroup | null = null;
   private fruitTexture: GPUTexture | null = null;
   private sampler: GPUSampler | null = null;
+  private lightView: GPUTextureView | null = null;
+  private exploredView: GPUTextureView | null = null;
   private dropCount = 0;
   private textureLoaded = false;
   // Preallocated buffers (avoid per-frame allocation)
@@ -151,6 +172,20 @@ export class DropPass {
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
     this.format = format;
+  }
+
+  /**
+   * Attach the volumetric light + fog-of-war texture views owned by
+   * BlockGridPass3D so world drops are lit by the same per-cell light field
+   * as the surrounding blocks (day/night, torches, emitters) and respect
+   * fog-of-war. Can be called before or after init(); if called after, the
+   * bind group is rebuilt with the new views. Must be called before the first
+   * render (render() is a no-op until the bind group exists).
+   */
+  setLightTextures(lightView: GPUTextureView, exploredView: GPUTextureView): void {
+    this.lightView = lightView;
+    this.exploredView = exploredView;
+    if (this.bindGroupLayout) this.buildBindGroup();
   }
 
   /** Async-load the fruit spritesheet. Safe to call after init(). */
@@ -218,6 +253,21 @@ export class DropPass {
       minFilter: "nearest",
     });
 
+    // Create the bind group layout eagerly (independent of whether the light
+    // views are attached yet) so the pipeline can be built now. The bind group
+    // itself is built later by buildBindGroup() once setLightTextures() has
+    // provided the light + explored views.
+    this.bindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // light
+        { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }, // explored
+      ],
+    });
+
     this.buildBindGroup();
 
     const pipelineLayout = this.device.createPipelineLayout({
@@ -258,18 +308,8 @@ export class DropPass {
   private bindGroupLayout: GPUBindGroupLayout | null = null;
 
   private buildBindGroup(): void {
-    if (!this.uniformBuffer || !this.instanceBuffer || !this.fruitTexture || !this.sampler) return;
-
-    if (!this.bindGroupLayout) {
-      this.bindGroupLayout = this.device.createBindGroupLayout({
-        entries: [
-          { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-          { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
-          { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-          { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-        ],
-      });
-    }
+    if (!this.bindGroupLayout || !this.uniformBuffer || !this.instanceBuffer ||
+        !this.fruitTexture || !this.sampler || !this.lightView || !this.exploredView) return;
 
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
@@ -278,6 +318,8 @@ export class DropPass {
         { binding: 1, resource: { buffer: this.instanceBuffer } },
         { binding: 2, resource: this.sampler },
         { binding: 3, resource: this.fruitTexture.createView() },
+        { binding: 4, resource: this.lightView },
+        { binding: 5, resource: this.exploredView },
       ],
     });
   }
