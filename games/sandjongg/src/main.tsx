@@ -115,6 +115,8 @@ bootstrapGame({
         highScore: s.highScore,
         board: board ?? null,
         mode: s.mode,
+        tileset: s.tileset,
+        tileTheme: s.tileTheme,
       });
     },
     onLoad: async (saved) => {

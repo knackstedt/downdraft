@@ -613,3 +613,64 @@ canvas {
   text-transform: uppercase;
 }
 
+/* --- Tileset + theme segmented controls (main menu + settings panel) --- */
+
+.sandjongg-tileset-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  margin: 0 0 24px;
+}
+
+.sandjongg-segmented {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sandjongg-segmented-label {
+  font-size: 11px;
+  color: #9999bb;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.sandjongg-segmented-options {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(20, 18, 32, 0.7);
+  border: 1px solid rgba(120, 100, 160, 0.35);
+  border-radius: 8px;
+}
+
+.sandjongg-segmented-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: #cccce0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.sandjongg-segmented-btn:hover {
+  background: rgba(120, 100, 160, 0.25);
+  color: #fff;
+}
+
+.sandjongg-segmented-btn.sandjongg-btn-active {
+  background: rgba(90, 60, 130, 0.95);
+  border-color: rgba(180, 130, 255, 0.8);
+  color: #fff;
+}
+
+/* Inside the settings modal the selector sits left-aligned with the other
+   fields, so drop the centering + bottom margin. */
+.sandjongg-help-content .sandjongg-tileset-selector {
+  justify-content: flex-start;
+  margin: 8px 0 16px;
+}
+

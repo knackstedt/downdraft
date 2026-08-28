@@ -10,6 +10,7 @@
 
 import { createDefaultSaveStore } from "@downdraft/app/renderer";
 import { createGridSaveSystem, type SaveState } from "@downdraft/core";
+import type { TilesetId, TileTheme } from "./shared/tilesets";
 import type { GameMode, SerializedBoard } from "./shared/types";
 
 export interface SandjonggSaveData {
@@ -28,11 +29,16 @@ export interface SandjonggSaveData {
   board: SerializedBoard | null;
   /** Game mode this save was made in. */
   mode: GameMode;
+  /** Active tileset when the save was made (v4+). Defaults to "elements" for
+   *  v3 saves (the only tileset that existed at v3). */
+  tileset: TilesetId;
+  /** Active theme when the save was made (v4+). Defaults to "light". */
+  tileTheme: TileTheme;
   savedAt: number;
 }
 
 const ENGINE_VERSION = "0.1.0";
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 // Sandjongg keeps its original autosave slot + high-score key so existing
 // players' progress carries over. Mahjongg (new mode) gets its own.
 const AUTOSAVE_SLOT: Record<GameMode, string> = {
@@ -55,6 +61,8 @@ export interface SandjonggMeta {
   highScore: number;
   board: SerializedBoard | null;
   mode: GameMode;
+  tileset: TilesetId;
+  tileTheme: TileTheme;
 }
 
 function buildState(meta: SandjonggMeta): SaveState {
@@ -62,7 +70,7 @@ function buildState(meta: SandjonggMeta): SaveState {
     components: {
       world: { v: 1, data: { gridW: meta.gridW, gridH: meta.gridH, version: SAVE_VERSION } },
       progress: { v: 1, data: { score: meta.score, level: meta.level, combo: meta.combo, highScore: meta.highScore } },
-      board: { v: 1, data: { board: meta.board, mode: meta.mode } },
+      board: { v: 1, data: { board: meta.board, mode: meta.mode, tileset: meta.tileset, tileTheme: meta.tileTheme } },
     },
     meta: {
       engineVersion: ENGINE_VERSION,
@@ -83,7 +91,7 @@ function buildBlobs(meta: SandjonggMeta): Record<string, ArrayBuffer> {
 function parseEntry(state: SaveState, blobs: Record<string, ArrayBuffer> | null): SandjonggSaveData | null {
   const world = state.components.world?.data as { gridW: number; gridH: number; version: number } | undefined;
   const progress = state.components.progress?.data as { score: number; level: number; combo: number; highScore: number } | undefined;
-  const boardComp = state.components.board?.data as { board: SerializedBoard | null; mode?: GameMode } | undefined;
+  const boardComp = state.components.board?.data as { board: SerializedBoard | null; mode?: GameMode; tileset?: TilesetId; tileTheme?: TileTheme } | undefined;
   if (!world || !progress || !blobs) return null;
   const grid = new Uint32Array(blobs.grid);
   const fields = new Uint8Array(blobs.fields);
@@ -99,6 +107,10 @@ function parseEntry(state: SaveState, blobs: Record<string, ArrayBuffer> | null)
     fields,
     board: boardComp?.board ?? null,
     mode: boardComp?.mode ?? "sandjongg",
+    // v3 saves have no tileset/theme field — default to elements/light (the
+    // only tileset that existed at v3) so old saves render exactly as before.
+    tileset: boardComp?.tileset ?? "elements",
+    tileTheme: boardComp?.tileTheme ?? "light",
     savedAt: state.meta.timestamp * 1000,
   };
 }

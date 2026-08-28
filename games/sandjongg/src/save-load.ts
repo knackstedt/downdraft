@@ -21,13 +21,18 @@ export async function applySave(saved: SandjonggSaveData): Promise<void> {
     await renderer.getWorkerHost()?.loadBoardState(saved.board);
   }
   await renderer.getWorkerHost()?.setProgress(saved.level, saved.score, saved.combo);
-  // Set the store mode quietly (no pending mode-change → no new game) so the
-  // UI + renderer use the saved mode's rules without regenerating the board.
+  // Set the store mode + tileset + theme quietly (no pending flags → no new
+  // game / no regenerate) so the UI + renderer use the saved mode's rules and
+  // the saved tileset's visuals without regenerating the board. The renderer's
+  // pushOptions() picks up the tileset change and syncs the worker; reloadAtlas
+  // picks up the theme change via the store subscription.
   useGameStore.setState({
     mode: saved.mode,
     score: saved.score,
     level: saved.level,
     combo: saved.combo,
+    tileset: saved.tileset,
+    tileTheme: saved.tileTheme,
   });
   if (saved.highScore > 0) {
     useGameStore.getState().setHighScore(saved.highScore);

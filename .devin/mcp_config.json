@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "ocean": {
+    "game": {
       "command": "node",
       "args": [".devin/mcp-stdio-bridge.mjs"],
       "env": {

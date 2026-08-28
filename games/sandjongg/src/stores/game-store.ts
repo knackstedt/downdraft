@@ -4,6 +4,7 @@
 
 import { create } from "zustand";
 import type { SandjonggRenderer } from "../renderer/sandjongg-renderer";
+import type { TilesetId, TileTheme } from "../shared/tilesets";
 import type { DebugTileInfo, GameMode } from "../shared/types";
 
 export interface GameStoreState {
@@ -29,6 +30,17 @@ export interface GameStoreState {
   /** When false, the renderer skips spawning crumbled-tile sand — the falling
    *  sand pit is disabled entirely. Board play is unaffected. */
   sandEnabled: boolean;
+
+  // --- Tileset + theme ---
+  /** Active tileset — determines the visual tile face (procedural elements vs
+   *  SVG riichi tiles) and the sand-material mapping for crumbled tiles.
+   *  Changing it regenerates the current level (the tile count differs, so
+   *  old board ids are invalid) but keeps the score. */
+  tileset: TilesetId;
+  /** Active theme (light/dark) — only affects asset-based tilesets (riichi).
+   *  Purely visual; changing it reloads the SVG atlas without regenerating
+   *  the board. */
+  tileTheme: TileTheme;
 
   // --- Menu state ---
   /** Main menu (mode select) is shown. While true, gameplay is hidden. */
@@ -75,6 +87,10 @@ export interface GameStoreState {
   /** Set when the mode changes and the worker should be reconfigured + a new
    *  game started in the new mode. */
   _pendingModeChange: boolean;
+  /** Set when the tileset changes and the worker should be reconfigured + the
+   *  current level regenerated (tile count differs → old ids invalid). The
+   *  theme is purely visual and does NOT set this flag. */
+  _pendingTilesetChange: boolean;
 
   // --- Actions ---
   setScore: (score: number) => void;
@@ -103,6 +119,12 @@ export interface GameStoreState {
   setMode: (mode: GameMode) => void;
   setSandEnabled: (enabled: boolean) => void;
   toggleSandEnabled: () => void;
+  // --- Tileset + theme actions ---
+  /** Set the active tileset. Sets _pendingTilesetChange so the renderer
+   *  regenerates the current level in the new tileset (keeps score). */
+  setTileset: (id: TilesetId) => void;
+  /** Set the active theme (light/dark). Purely visual — no regenerate. */
+  setTileTheme: (theme: TileTheme) => void;
   setShowMainMenu: (show: boolean) => void;
   setShowPauseMenu: (show: boolean) => void;
   togglePauseMenu: () => void;
@@ -121,6 +143,7 @@ export interface GameStoreState {
   _setPendingClearSand: (v: boolean) => void;
   _setPendingApplyDims: (v: boolean) => void;
   _setPendingModeChange: (v: boolean) => void;
+  _setPendingTilesetChange: (v: boolean) => void;
 }
 
 export const useGameStore = create<GameStoreState>((set) => ({
@@ -141,6 +164,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
   showMainMenu: false,
   showPauseMenu: false,
   hasSave: { sandjongg: false, mahjongg: false },
+
+  tileset: "elements",
+  tileTheme: "light",
 
   debugMode: false,
   debugTile: null,
@@ -163,6 +189,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   _pendingClearSand: false,
   _pendingApplyDims: false,
   _pendingModeChange: false,
+  _pendingTilesetChange: false,
 
   setScore: (score) => set((s) => {
     const highScore = Math.max(s.highScore, score);
@@ -218,6 +245,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setMode: (mode) => set({ mode, _pendingModeChange: true }),
   setSandEnabled: (enabled) => set({ sandEnabled: enabled }),
   toggleSandEnabled: () => set((s) => ({ sandEnabled: !s.sandEnabled })),
+  setTileset: (id) => set((s) => (s.tileset === id ? {} : { tileset: id, _pendingTilesetChange: true })),
+  setTileTheme: (theme) => set((s) => (s.tileTheme === theme ? {} : { tileTheme: theme })),
   setShowMainMenu: (show) => set({ showMainMenu: show }),
   setShowPauseMenu: (show) => set({ showPauseMenu: show }),
   togglePauseMenu: () => set((s) => ({ showPauseMenu: !s.showPauseMenu })),
@@ -236,4 +265,5 @@ export const useGameStore = create<GameStoreState>((set) => ({
   _setPendingClearSand: (v) => set({ _pendingClearSand: v }),
   _setPendingApplyDims: (v) => set({ _pendingApplyDims: v }),
   _setPendingModeChange: (v) => set({ _pendingModeChange: v }),
+  _setPendingTilesetChange: (v) => set({ _pendingTilesetChange: v }),
 }));

@@ -333,6 +333,13 @@ function createAutomationTools(ctx: {
                   boardRows: tilePass.state.boardRows,
                   boardElementsLen: tilePass.state.boardElements.length,
                   tilesCount: Array.from(tilePass.state.boardElements).filter(e => e >= 0).length,
+                  tileW: tilePass.getTileW(),
+                  tileH: tilePass.getTileH(),
+                  tileAspect: tilePass.state.tileAspect,
+                  tileset: tilePass.state.tileset,
+                  boardOffsetX: tilePass.getBoardOffsetX(),
+                  boardOffsetY: tilePass.getBoardOffsetY(),
+                  atlasLoaded: tilePass.state.atlas !== null,
                 } : null,
               }, null, 2),
             },
@@ -408,6 +415,41 @@ function createAutomationTools(ctx: {
                 nonEmptyCount: count,
                 bounds: count > 0 ? { minX, minY, maxX, maxY } : null,
                 samples,
+              }, null, 2),
+            },
+          ],
+        };
+      },
+    },
+    {
+      def: {
+        name: "set_tileset",
+        description: "Switch the active tileset at runtime (e.g. 'elements', 'riichi').",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tileset: { type: "string", description: "Tileset id: 'elements' or 'riichi'" },
+          },
+          required: ["tileset"],
+        },
+      },
+      handler: async (params: Record<string, unknown>) => {
+        const { useGameStore } = await import("../stores/game-store");
+        const id = params.tileset as string;
+        useGameStore.getState().setTileset(id as "elements" | "riichi");
+        await new Promise((r) => setTimeout(r, 1000));
+        const tilePass = ctx.renderer()?.getTilePass();
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                set: id,
+                tileW: tilePass?.getTileW(),
+                tileH: tilePass?.getTileH(),
+                tileAspect: tilePass?.state.tileAspect,
+                tileset: tilePass?.state.tileset,
+                atlasLoaded: tilePass?.state.atlas !== null,
               }, null, 2),
             },
           ],

@@ -1,11 +1,15 @@
 // ============================================================================
 // TileCanvasPass — draws tiles, selection, path-glow, and crumble animations
-// on a Canvas2D overlay. All glyphs are procedurally drawn (no external assets).
+// on a Canvas2D overlay. Procedural tilesets draw a colored tile + a Canvas2D
+// glyph; asset-based tilesets (e.g. riichi) blit a pre-rasterized SVG from
+// a TileAtlas. Selection, path-glow, locked darkening, and crumble animations
+// are drawn over the tile face for both kinds.
 // ============================================================================
 
 import { MAX_LAYERS } from "../shared/constants";
-import { getElement } from "../shared/elements";
+import { getTileDef, type TileTheme, type TilesetId } from "../shared/tilesets";
 import type { BoardPoint, GameMode, Path } from "../shared/types";
+import type { TileAtlas } from "./tile-atlas";
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -36,17 +40,32 @@ export interface TileCanvasState {
   /** Active game mode — drives how "blocked" tiles are highlighted.
    *  Sandjongg: per-layer top-down lock. Mahjongg: free-tile rule. */
   mode: GameMode;
+  /** Active tileset — determines whether tiles are drawn procedurally
+   *  (elements) or blitted from a pre-rasterized SVG atlas (riichi). */
+  tileset: TilesetId;
+  /** Active theme (light/dark) — only affects asset-based tilesets. */
+  tileTheme: TileTheme;
+  /** Tile cell aspect ratio (width / height) for the active tileset.
+   *  1.0 = square (elements). 0.75 = portrait (riichi 300×400). The layout
+   *  computes rectangular cells (tileW = tileH * tileAspect) so tiles render
+   *  at their natural proportions. */
+  tileAspect: number;
+  /** Pre-rasterized SVG atlas for the active (tileset, theme). null for
+   *  procedural tilesets or while the atlas is loading. */
+  atlas: TileAtlas | null;
 }
 
 export class TileCanvasPass {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  /** Tile pixel size on screen (computed from canvas size + board dims). */
-  private tilePx = 48;
+  /** Tile pixel size on screen (computed from canvas size + board dims +
+   *  tileset aspect ratio). tileW = tileH * tileAspect. */
+  private tileW = 48;
+  private tileH = 48;
   /** Board pixel offset (top-left of board on canvas), pan-adjusted. */
   private boardOffsetX = 0;
   private boardOffsetY = 0;
-  /** Board pixel size (tilePx * dims). */
+  /** Board pixel size (tileW * cols, tileH * rows). */
   private boardW = 0;
   private boardH = 0;
   /** View pan offset (canvas px) relative to the centered position. Clamped
@@ -55,6 +74,9 @@ export class TileCanvasPass {
   panY = 0;
   /** Minimum tile size before the board overflows the viewport (enables panning). */
   static readonly MIN_TILE_PX = 20;
+  /** Inset (px) between the tile cell edge and the tile face. Creates a visible
+   *  gap between adjacent tiles. */
+  static readonly TILE_GAP = 3;
   state: TileCanvasState;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -73,11 +95,16 @@ export class TileCanvasPass {
       scoreAnims: [],
       debugTile: null,
       mode: "sandjongg",
+      tileset: "elements",
+      tileTheme: "light",
+      tileAspect: 1.0,
+      atlas: null,
     };
   }
 
   getCanvas(): HTMLCanvasElement { return this.canvas; }
-  getTilePx(): number { return this.tilePx; }
+  getTileW(): number { return this.tileW; }
+  getTileH(): number { return this.tileH; }
   getBoardOffsetX(): number { return this.boardOffsetX; }
   getBoardOffsetY(): number { return this.boardOffsetY; }
 
@@ -90,9 +117,11 @@ export class TileCanvasPass {
     this.panY += dy;
   }
 
-  /** Compute tile pixel size and board offset from canvas dimensions. */
+  /** Compute tile pixel size and board offset from canvas dimensions.
+   *  Tile cells are rectangular when the active tileset has a non-square
+   *  aspect ratio (e.g. riichi portrait tiles): tileW = tileH * tileAspect. */
   computeLayout(canvasW: number, canvasH: number): void {
-    const { boardCols, boardRows } = this.state;
+    const { boardCols, boardRows, tileAspect } = this.state;
     if (boardCols === 0 || boardRows === 0) return;
     // Reserve top 60% of canvas for board, bottom 40% for sand pit.
     // The top HUD (level/score/combo/tiles) occupies roughly the top 70px,
@@ -102,12 +131,19 @@ export class TileCanvasPass {
     const boardAreaH = canvasH * 0.6 - boardAreaTop;
     const maxTileW = canvasW / boardCols;
     const maxTileH = boardAreaH / boardRows;
-    // Tiles cap at 64px but won't shrink below MIN_TILE_PX — if the board
-    // doesn't fit at MIN_TILE_PX, it overflows the viewport and the player
-    // pans to see the rest (right/middle-drag).
-    this.tilePx = Math.floor(Math.max(TileCanvasPass.MIN_TILE_PX, Math.min(maxTileW, maxTileH, 64)));
-    this.boardW = this.tilePx * boardCols;
-    this.boardH = this.tilePx * boardRows;
+    // Compute tileH first, then derive tileW from the aspect ratio.
+    // Constraints: tileH <= maxTileH, tileW = tileH * aspect <= maxTileW,
+    // tileH <= 64 (cap), tileH >= MIN_TILE_PX.
+    const cap = 64;
+    const tileH = Math.floor(Math.max(
+      TileCanvasPass.MIN_TILE_PX,
+      Math.min(cap, maxTileH, maxTileW / tileAspect),
+    ));
+    const tileW = Math.floor(tileH * tileAspect);
+    this.tileH = tileH;
+    this.tileW = tileW;
+    this.boardW = tileW * boardCols;
+    this.boardH = tileH * boardRows;
 
     // Horizontal: center when the board fits, otherwise allow pan within
     // [canvasW - boardW, 0] so the viewport always stays covered by the board.
@@ -128,9 +164,11 @@ export class TileCanvasPass {
   }
 
   /** Per-layer up-left pixel offset used for the pseudo-3D stack. Shared by
-   *  hitTest, tileRect, and draw so they stay in sync. */
+   *  hitTest, tileRect, and draw so they stay in sync. Based on the smaller
+   *  tile dimension so the offset scales with tile size but doesn't overwhelm
+   *  portrait tiles. */
   private layerOffsetPx(): number {
-    return Math.max(8, this.tilePx * 0.26);
+    return Math.max(8, Math.min(this.tileW, this.tileH) * 0.26);
   }
 
   /** Convert screen pixel coords to tile coords (or null if outside board).
@@ -142,12 +180,12 @@ export class TileCanvasPass {
     const layerOffset = this.layerOffsetPx();
     for (let layer = boardLayers - 1; layer >= 0; layer--) {
       const offset = layer * layerOffset;
-      const col = Math.floor((px - this.boardOffsetX + offset) / this.tilePx);
-      const row = Math.floor((py - this.boardOffsetY + offset) / this.tilePx);
+      const col = Math.floor((px - this.boardOffsetX + offset) / this.tileW);
+      const row = Math.floor((py - this.boardOffsetY + offset) / this.tileH);
       if (col < 0 || col >= boardCols || row < 0 || row >= boardRows) continue;
-      const tileX = this.boardOffsetX + col * this.tilePx - offset;
-      const tileY = this.boardOffsetY + row * this.tilePx - offset;
-      if (px < tileX || px >= tileX + this.tilePx || py < tileY || py >= tileY + this.tilePx) continue;
+      const tileX = this.boardOffsetX + col * this.tileW - offset;
+      const tileY = this.boardOffsetY + row * this.tileH - offset;
+      if (px < tileX || px >= tileX + this.tileW || py < tileY || py >= tileY + this.tileH) continue;
       if (boardElements[(col + row * boardCols) * MAX_LAYERS + layer] >= 0) {
         return { col, row, layer };
       }
@@ -158,8 +196,8 @@ export class TileCanvasPass {
   /** Convert tile coords to screen pixel center. */
   tileToPixel(col: number, row: number): { x: number; y: number } {
     return {
-      x: this.boardOffsetX + col * this.tilePx + this.tilePx / 2,
-      y: this.boardOffsetY + row * this.tilePx + this.tilePx / 2,
+      x: this.boardOffsetX + col * this.tileW + this.tileW / 2,
+      y: this.boardOffsetY + row * this.tileH + this.tileH / 2,
     };
   }
 
@@ -205,10 +243,10 @@ export class TileCanvasPass {
   tileRect(col: number, row: number, layer: number): { x: number; y: number; w: number; h: number } {
     const offset = layer * this.layerOffsetPx();
     return {
-      x: this.boardOffsetX + col * this.tilePx - offset,
-      y: this.boardOffsetY + row * this.tilePx - offset,
-      w: this.tilePx,
-      h: this.tilePx,
+      x: this.boardOffsetX + col * this.tileW - offset,
+      y: this.boardOffsetY + row * this.tileH - offset,
+      w: this.tileW,
+      h: this.tileH,
     };
   }
 
@@ -242,7 +280,7 @@ export class TileCanvasPass {
     // see what's coming but can't interact with it until the layer above is
     // fully cleared.
     const layerOffset = this.layerOffsetPx();
-    const sideDepth = Math.max(4, this.tilePx * 0.16);
+    const sideDepth = Math.max(4, Math.min(this.tileW, this.tileH) * 0.16);
     const activeLayer = this.maxOccupiedLayer();
     const isMahjongg = this.state.mode === "mahjongg";
     // Per-layer tint overlays (cool→warm ramp; layer 0 is untinted). Applied as
@@ -261,10 +299,13 @@ export class TileCanvasPass {
           const el = boardElements[(c + r * boardCols) * MAX_LAYERS + layer];
           if (el < 0) continue;
 
-          const x = this.boardOffsetX + c * this.tilePx - offset;
-          const y = this.boardOffsetY + r * this.tilePx - offset;
-          const size = this.tilePx - 2;
-          const elDef = getElement(el);
+          const x = this.boardOffsetX + c * this.tileW - offset;
+          const y = this.boardOffsetY + r * this.tileH - offset;
+          const g = TileCanvasPass.TILE_GAP;
+          const w = this.tileW - g * 2;
+          const h = this.tileH - g * 2;
+          const elDef = getTileDef(this.state.tileset, el);
+          const assetBased = this.state.atlas !== null;
           // Blocked/unselectable tile. Sandjongg: a layer is locked while any
           // layer above it still has tiles. Mahjongg: a tile is blocked when
           // it isn't free (covered or horizontally hemmed in).
@@ -283,37 +324,59 @@ export class TileCanvasPass {
             const shadowAlpha = 0.16 + Math.min(0.18, 0.06 * layer);
             ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
             ctx.beginPath();
-            ctx.roundRect(x + offset * 0.4 + 2, y + offset * 0.4 + 2, size, size, 4);
+            ctx.roundRect(x + offset * 0.4 + g, y + offset * 0.4 + g, w, h, 4);
             ctx.fill();
 
             // Right face (darker).
             ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
             ctx.beginPath();
-            ctx.moveTo(x + size + 1, y + 1);
-            ctx.lineTo(x + size + 1 + dx, y + 1 + dy);
-            ctx.lineTo(x + size + 1 + dx, y + size + 1 + dy);
-            ctx.lineTo(x + size + 1, y + size + 1);
+            ctx.moveTo(x + w + g, y + g);
+            ctx.lineTo(x + w + g + dx, y + g + dy);
+            ctx.lineTo(x + w + g + dx, y + h + g + dy);
+            ctx.lineTo(x + w + g, y + h + g);
             ctx.closePath();
             ctx.fill();
 
             // Front (bottom) face (lighter).
             ctx.fillStyle = "rgba(0, 0, 0, 0.26)";
             ctx.beginPath();
-            ctx.moveTo(x + 1, y + size + 1);
-            ctx.lineTo(x + 1 + dx, y + size + 1 + dy);
-            ctx.lineTo(x + size + 1 + dx, y + size + 1 + dy);
-            ctx.lineTo(x + size + 1, y + size + 1);
+            ctx.moveTo(x + g, y + h + g);
+            ctx.lineTo(x + g + dx, y + h + g + dy);
+            ctx.lineTo(x + w + g + dx, y + h + g + dy);
+            ctx.lineTo(x + w + g, y + h + g);
             ctx.closePath();
             ctx.fill();
           }
 
-          // Tile background (slightly transparent so sand is visible behind).
-          ctx.globalAlpha = 0.92;
-          ctx.fillStyle = elDef.color;
-          ctx.beginPath();
-          ctx.roundRect(x + 1, y + 1, size, size, 4);
-          ctx.fill();
-          ctx.globalAlpha = 1.0;
+          // Tile face. Asset-based tilesets blit a pre-rasterized SVG (the
+          // SVG includes the full tile face + glyph); procedural tilesets
+          // draw a colored background + a procedural Canvas2D glyph.
+          if (assetBased) {
+            const atlas = this.state.atlas!;
+            // Clip to the rounded tile rect so the SVG doesn't bleed past
+            // the tile border. High-quality smoothing anti-aliases the atlas
+            // slot (128 wide) downscale to the on-screen tile so glyph edges
+            // stay crisp instead of jagged.
+            ctx.save();
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.beginPath();
+            ctx.roundRect(x + g, y + g, w, h, 4);
+            ctx.clip();
+            atlas.draw(ctx, el, x + g, y + g, w, h);
+            ctx.restore();
+          } else {
+            // Tile background (slightly transparent so sand is visible behind).
+            ctx.globalAlpha = 0.92;
+            ctx.fillStyle = elDef.color;
+            ctx.beginPath();
+            ctx.roundRect(x + g, y + g, w, h, 4);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+
+            // Element glyph.
+            this.drawGlyph(ctx, elDef.glyph, x + g + w / 2, y + g + h / 2, Math.min(w, h) * 0.6, elDef.glyphColor);
+          }
 
           // Per-layer color tint: a subtle wash across the whole tile (cool→warm
           // ramp) so each layer reads as a distinct color band. Layer 0 is the
@@ -323,7 +386,7 @@ export class TileCanvasPass {
             if (tint) {
               ctx.fillStyle = tint;
               ctx.beginPath();
-              ctx.roundRect(x + 1, y + 1, size, size, 4);
+              ctx.roundRect(x + g, y + g, w, h, 4);
               ctx.fill();
             }
 
@@ -333,8 +396,8 @@ export class TileCanvasPass {
             ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.moveTo(x + 1, y + 1);
-            ctx.lineTo(x + size + 1, y + 1);
+            ctx.moveTo(x + g, y + g);
+            ctx.lineTo(x + g + w, y + g);
             ctx.stroke();
           }
 
@@ -342,11 +405,8 @@ export class TileCanvasPass {
           ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.roundRect(x + 1, y + 1, size, size, 4);
+          ctx.roundRect(x + g, y + g, w, h, 4);
           ctx.stroke();
-
-          // Element glyph.
-          this.drawGlyph(ctx, elDef.glyph, x + size / 2, y + size / 2, size * 0.6, elDef.glyphColor);
 
           // Locked-layer darkening: tiles on a layer below the active layer are
           // noticeably dimmed so the player can see what's coming but can't
@@ -354,7 +414,7 @@ export class TileCanvasPass {
           if (locked) {
             ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
             ctx.beginPath();
-            ctx.roundRect(x + 1, y + 1, size, size, 4);
+            ctx.roundRect(x + g, y + g, w, h, 4);
             ctx.fill();
           }
 
@@ -367,7 +427,7 @@ export class TileCanvasPass {
             ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.roundRect(x + 1, y + 1, size, size, 4);
+            ctx.roundRect(x + g, y + g, w, h, 4);
             ctx.stroke();
           }
 
@@ -376,7 +436,7 @@ export class TileCanvasPass {
             ctx.strokeStyle = "#ffffff";
             ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.roundRect(x + 1, y + 1, size, size, 4);
+            ctx.roundRect(x + g, y + g, w, h, 4);
             ctx.stroke();
           }
 
@@ -389,7 +449,7 @@ export class TileCanvasPass {
             ctx.strokeStyle = `rgba(255, 255, 0, ${0.5 + 0.5 * pulse})`;
             ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.roundRect(x + 1, y + 1, size, size, 4);
+            ctx.roundRect(x + g, y + g, w, h, 4);
             ctx.stroke();
           }
         }
@@ -410,7 +470,7 @@ export class TileCanvasPass {
         // drawn tiles.
         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.lineWidth = 4;
-        ctx.shadowColor = getElement(pathAnim.element).color;
+        ctx.shadowColor = getTileDef(this.state.tileset, pathAnim.element).color;
         ctx.shadowBlur = 12;
         ctx.beginPath();
         for (let i = 0; i < points.length; i++) {
@@ -431,12 +491,14 @@ export class TileCanvasPass {
       if (elapsed >= duration) return false;
       const alpha = 1 - elapsed / duration;
       const offset = a.layer * layerOffset;
-      const x = this.boardOffsetX + a.col * this.tilePx - offset;
-      const y = this.boardOffsetY + a.row * this.tilePx - offset;
-      const size = this.tilePx - 2;
+      const g = TileCanvasPass.TILE_GAP;
+      const x = this.boardOffsetX + a.col * this.tileW - offset;
+      const y = this.boardOffsetY + a.row * this.tileH - offset;
+      const w = this.tileW - g * 2;
+      const h = this.tileH - g * 2;
       ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
       ctx.beginPath();
-      ctx.roundRect(x + 1, y + 1, size, size, 4);
+      ctx.roundRect(x + g, y + g, w, h, 4);
       ctx.fill();
       return true;
     });
@@ -448,17 +510,19 @@ export class TileCanvasPass {
       if (elapsed >= duration) return false;
       const alpha = 1 - elapsed / duration;
       const offset = a.layer * layerOffset;
-      const x = this.boardOffsetX + a.col * this.tilePx - offset;
-      const y = this.boardOffsetY + a.row * this.tilePx - offset;
-      const size = this.tilePx - 2;
+      const g = TileCanvasPass.TILE_GAP;
+      const x = this.boardOffsetX + a.col * this.tileW - offset;
+      const y = this.boardOffsetY + a.row * this.tileH - offset;
+      const w = this.tileW - g * 2;
+      const h = this.tileH - g * 2;
       ctx.strokeStyle = `rgba(255, 60, 60, ${alpha})`;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.roundRect(x + 1, y + 1, size, size, 4);
+      ctx.roundRect(x + g, y + g, w, h, 4);
       ctx.stroke();
       ctx.fillStyle = `rgba(255, 60, 60, ${alpha * 0.3})`;
       ctx.beginPath();
-      ctx.roundRect(x + 1, y + 1, size, size, 4);
+      ctx.roundRect(x + g, y + g, w, h, 4);
       ctx.fill();
       return true;
     });
@@ -473,15 +537,16 @@ export class TileCanvasPass {
       const layerOff = a.layer * layerOffset;
       const p = this.tileToPixel(a.col, a.row);
       // Rise by ~1.5 tiles over the animation.
-      const rise = this.tilePx * 1.5 * t;
+      const rise = this.tileH * 1.5 * t;
       const cx = p.x - layerOff;
       const cy = p.y - layerOff - rise;
       const big = a.combo > 1;
+      const minTile = Math.min(this.tileW, this.tileH);
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = `bold ${Math.floor(this.tilePx * (big ? 0.7 : 0.55))}px "Segoe UI", system-ui, sans-serif`;
+      ctx.font = `bold ${Math.floor(minTile * (big ? 0.7 : 0.55))}px "Segoe UI", system-ui, sans-serif`;
       // Dark outline for legibility over any tile color.
       ctx.lineWidth = 4;
       ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
@@ -492,8 +557,8 @@ export class TileCanvasPass {
       // Combo badge below the score.
       if (big) {
         const sub = `x${a.combo} combo`;
-        const subY = cy + this.tilePx * 0.45;
-        ctx.font = `bold ${Math.floor(this.tilePx * 0.32)}px "Segoe UI", system-ui, sans-serif`;
+        const subY = cy + minTile * 0.45;
+        ctx.font = `bold ${Math.floor(minTile * 0.32)}px "Segoe UI", system-ui, sans-serif`;
         ctx.lineWidth = 3;
         ctx.strokeText(sub, cx, subY);
         ctx.fillStyle = "#ffce54";

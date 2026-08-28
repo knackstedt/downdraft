@@ -5,13 +5,14 @@
 import { GameRenderer } from "@downdraft/core";
 import { MATERIALS } from "@downdraft/library-sand";
 import { computeGridDims, MAX_LAYERS, MAX_TILES } from "../shared/constants";
-import { getElement } from "../shared/elements";
 import { BOARD_ELEMENT_OFFSET, BOARD_META_OFFSET, SimBufferReader, STATS } from "../shared/sim-buffer";
+import { getTileAspect, getTileDef, type TilesetId, type TileTheme } from "../shared/tilesets";
 import type { DebugTileInfo } from "../shared/types";
 import { SandjonggWorkerHost } from "../simulation/sandjongg-worker-host";
 import { useGameStore } from "../stores/game-store";
 import { createInputHandler, type InputHandler } from "./input-handler";
 import { SandGridPass } from "./sand-grid-pass";
+import { isAssetBased, loadTileAtlas } from "./tile-atlas";
 import { TileCanvasPass } from "./tile-canvas-pass";
 
 export class SandjonggRenderer extends GameRenderer {
@@ -27,11 +28,20 @@ export class SandjonggRenderer extends GameRenderer {
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private prevBoardCols = 0;
   private prevBoardRows = 0;
+  private prevTileAspect = 1.0;
   // Last option values pushed to the worker.
   private prevNoAdjacent = false;
   private prevCustomCols = 0;
   private prevCustomRows = 0;
   private prevMode: "sandjongg" | "mahjongg" = "sandjongg";
+  // Last tileset/theme pushed to the worker + atlas. The renderer reloads the
+  // SVG atlas when either changes and regenerates the board when the tileset
+  // changes (tile count differs → old ids invalid).
+  private prevTileset: TilesetId = "elements";
+  private prevTileTheme: TileTheme = "light";
+  // True while an atlas load is in flight for a new (tileset, theme). Prevents
+  // overlapping loads and lets us swap atomically when the new atlas is ready.
+  private atlasLoading = false;
   // Cached SAB views to avoid per-frame allocations.
   private cachedBoardElements: Int32Array | null = null;
   private cachedBoardMeta: Int32Array | null = null;
@@ -104,6 +114,22 @@ export class SandjonggRenderer extends GameRenderer {
     // Push initial generation options to the worker.
     this.pushOptions();
 
+    // Preload the SVG atlas for the active tileset+theme (no-op for procedural
+    // tilesets). The tile pass draws nothing from the atlas until it's loaded,
+    // so the first frames may show procedural fallback colors if the atlas
+    // isn't ready — but asset-based tilesets have no procedural fallback, so
+    // tiles simply don't render their face until the atlas swaps in (the 3D
+    // slab sides, border, and selection overlays still draw).
+    const initStore = useGameStore.getState();
+    this.prevTileset = initStore.tileset;
+    this.prevTileTheme = initStore.tileTheme;
+    if (this.tilePass) {
+      this.tilePass.state.tileset = initStore.tileset;
+      this.tilePass.state.tileTheme = initStore.tileTheme;
+      this.tilePass.state.tileAspect = getTileAspect(initStore.tileset);
+    }
+    void this.reloadAtlas(initStore.tileset, initStore.tileTheme);
+
     // Subscribe to store for hint/clear actions.
     this.storeUnsub = useGameStore.subscribe((s) => {
       // Push generation option changes to the worker first so any subsequent
@@ -112,6 +138,33 @@ export class SandjonggRenderer extends GameRenderer {
       // Mirror the active mode into the tile pass so it can render free/blocked
       // tiles correctly (sandjongg = per-layer lock, mahjongg = free-tile rule).
       if (this.tilePass) this.tilePass.state.mode = s.mode;
+      // Mirror tileset + theme into the tile pass. The atlas is reloaded
+      // asynchronously (see reloadAtlas); the tile pass keeps drawing with the
+      // old atlas until the new one swaps in, so there's no flash.
+      if (this.tilePass) {
+        this.tilePass.state.tileset = s.tileset;
+        this.tilePass.state.tileTheme = s.tileTheme;
+        this.tilePass.state.tileAspect = getTileAspect(s.tileset);
+      }
+      // Theme change: reload the atlas (live, no board regenerate). Only
+      // asset-based tilesets care about the theme.
+      if (s.tileTheme !== this.prevTileTheme) {
+        this.prevTileTheme = s.tileTheme;
+        void this.reloadAtlas(s.tileset, s.tileTheme);
+      }
+      if (s._pendingTilesetChange) {
+        // Tileset changed — push to the worker (affects sand-material mapping
+        // + generation count) and regenerate the current level (the tile count
+        // differs, so the old board's ids are invalid). Keeps score (like
+        // requestAdvance to the same level) so the player doesn't lose progress
+        // for swapping tilesets.
+        this.workerHost?.setTileset(s.tileset);
+        this.workerHost?.requestAdvance(s.level);
+        useGameStore.getState()._setPendingTilesetChange(false);
+        this.tilePass?.resetPan();
+        // Reload the atlas for the new tileset (and current theme).
+        void this.reloadAtlas(s.tileset, s.tileTheme);
+      }
       if (s._pendingModeChange) {
         // Mode changed — reconfigure the worker and regenerate the current
         // level in the new mode (score resets, like a new game).
@@ -383,10 +436,16 @@ export class SandjonggRenderer extends GameRenderer {
     // Read board from SAB.
     this.updateBoardFromSAB();
 
-    // Update tile pass layout if board dimensions changed.
-    if (this.tilePass.state.boardCols !== this.prevBoardCols || this.tilePass.state.boardRows !== this.prevBoardRows) {
+    // Update tile pass layout if board dimensions or tile aspect changed.
+    // The aspect changes when the player switches tilesets (e.g. elements=1.0
+    // square → riichi=0.75 portrait); the layout must be recomputed so tileW
+    // and tileH reflect the new aspect ratio.
+    if (this.tilePass.state.boardCols !== this.prevBoardCols ||
+        this.tilePass.state.boardRows !== this.prevBoardRows ||
+        this.tilePass.state.tileAspect !== this.prevTileAspect) {
       this.prevBoardCols = this.tilePass.state.boardCols;
       this.prevBoardRows = this.tilePass.state.boardRows;
+      this.prevTileAspect = this.tilePass.state.tileAspect;
       this.tilePass.resetPan();
       this.tilePass.computeLayout(this.tileCanvas.width, this.tileCanvas.height);
     }
@@ -470,7 +529,7 @@ export class SandjonggRenderer extends GameRenderer {
       useGameStore.getState().setDebugTile(null);
       return;
     }
-    const elDef = getElement(el);
+    const elDef = getTileDef(this.tilePass.state.tileset, el);
     const matDef = MATERIALS[elDef.sandMaterial];
     const rect = this.tilePass.tileRect(hit.col, hit.row, hit.layer);
     const canvas = this.getCanvas();
@@ -550,6 +609,14 @@ export class SandjonggRenderer extends GameRenderer {
       this.prevMode = s.mode;
       this.workerHost.setMode(s.mode);
     }
+    // Keep the worker's active tileset in sync with the store. The pending
+    // flag handles the regenerate-on-change flow; this covers save-restore
+    // (where the tileset is set quietly without a pending flag) and any
+    // other path that sets the tileset without going through setTileset().
+    if (s.tileset !== this.prevTileset) {
+      this.prevTileset = s.tileset;
+      this.workerHost.setTileset(s.tileset);
+    }
     if (s.noAdjacentSame !== this.prevNoAdjacent) {
       this.prevNoAdjacent = s.noAdjacentSame;
       this.workerHost.setNoAdjacentSame(s.noAdjacentSame);
@@ -558,6 +625,40 @@ export class SandjonggRenderer extends GameRenderer {
       this.prevCustomCols = s.customCols;
       this.prevCustomRows = s.customRows;
       this.workerHost.setCustomDims(s.customCols, s.customRows);
+    }
+  }
+
+  /** (Re)load the SVG atlas for a (tileset, theme) pair and swap it into the
+   *  tile pass atomically when ready. No-op for procedural tilesets (the tile
+   *  pass keeps atlas=null and draws procedural glyphs). Guards against
+   *  overlapping loads so a rapid theme toggle doesn't race. */
+  private async reloadAtlas(tileset: TilesetId, theme: TileTheme): Promise<void> {
+    if (!isAssetBased(tileset)) {
+      // Procedural tileset — no atlas. Clear any stale atlas on the tile pass.
+      if (this.tilePass) this.tilePass.state.atlas = null;
+      this.prevTileset = tileset;
+      this.prevTileTheme = theme;
+      return;
+    }
+    if (this.atlasLoading) return;
+    this.atlasLoading = true;
+    try {
+      const atlas = await loadTileAtlas(tileset, theme);
+      // Only swap if the tile pass still wants this (tileset, theme) — the
+      // player may have toggled again while we were loading.
+      const s = useGameStore.getState();
+      if (s.tileset === tileset && s.tileTheme === theme && this.tilePass) {
+        this.tilePass.state.atlas = atlas;
+      }
+      this.prevTileset = tileset;
+      this.prevTileTheme = theme;
+    } catch (err) {
+      console.error(`[sandjongg] Failed to load tile atlas for ${tileset}/${theme}:`, err);
+      // Fall back to no atlas — tiles will render without a face (just the
+      // 3D slab + border). Better than crashing.
+      if (this.tilePass) this.tilePass.state.atlas = null;
+    } finally {
+      this.atlasLoading = false;
     }
   }
 }
