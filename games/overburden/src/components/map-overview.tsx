@@ -17,11 +17,11 @@
 import { useEffect, useRef, useState } from "react";
 import { getBlockDef } from "../shared/block-registry";
 import {
-  ACTIVE_GRID_H, ACTIVE_GRID_W, CHUNK_H, CHUNK_W, SURFACE_Y, WORLD_H, WORLD_W,
+    ACTIVE_GRID_H, ACTIVE_GRID_W, CHUNK_H, CHUNK_W, SURFACE_Y, WORLD_H, WORLD_W,
 } from "../shared/constants";
 import {
-  MAP_REGION_COLS, MAP_REGION_ROWS, THUMB_H, THUMB_W,
-  type MapRegionData,
+    MAP_REGION_COLS, MAP_REGION_ROWS, THUMB_H, THUMB_W,
+    type MapRegionData,
 } from "../shared/map-buffer";
 import { useGameStore } from "../stores/game-store";
 
@@ -58,6 +58,11 @@ interface RendererLike {
   isMapRegionDirty: () => boolean;
   clearMapRegionDirty: () => void;
   getRenderOrigin: () => { cx: number; cy: number };
+  // Input state — used to forward wheel zoom deltas from the overlay canvas
+  // to the same accumulator the game canvas writes to. Without this, wheel
+  // events over the interactive map overlay never reach the game canvas's
+  // wheel listener and the user can't zoom back in once fully zoomed out.
+  getInput: () => { zoomDelta: number } | null;
   getWorkerHost: () => {
     queueTask: (type: "MOVE_TO", opts: { targetX: number; targetY: number }, bhIndex?: number) =>
       Promise<{ ok: boolean; taskId: number; duplicate: boolean }>;
@@ -98,6 +103,24 @@ export function MapOverview() {
     let running = true;
     let lastOpacity = -1;
     let atlasBuilt = false;
+
+    // Forward wheel zoom from the overlay canvas to the renderer's input
+    // state. When the overlay is interactive (pointer-events: auto, i.e. the
+    // view is fully in map mode), wheel events land on this canvas instead of
+    // the game canvas — whose wheel listener drives zoomDelta. Without this
+    // forwarding the user gets stuck at max zoom-out and can't scroll back in.
+    // Native listener (not React onWheel) so preventDefault works under
+    // passive event listeners.
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const store = useGameStore.getState();
+      const renderer = store.renderer as unknown as RendererLike | null;
+      const input = renderer?.getInput();
+      if (!input) return;
+      if (e.deltaY < 0) input.zoomDelta += 1;
+      else if (e.deltaY > 0) input.zoomDelta -= 1;
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     const tick = () => {
       if (!running) return;
@@ -244,6 +267,7 @@ export function MapOverview() {
     return () => {
       running = false;
       cancelAnimationFrame(raf);
+      canvas.removeEventListener("wheel", onWheel);
       const c = canvasRef.current;
       if (c) {
         const cx = c.getContext("2d");
