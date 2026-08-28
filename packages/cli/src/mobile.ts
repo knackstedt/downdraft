@@ -29,6 +29,22 @@ import { detectGame } from "./detect-game";
 
 const log = createLogger();
 
+/**
+ * Resolve the `cap` (Capacitor CLI) binary path.
+ *
+ * Capacitor is installed per-game (in `<gameDir>/node_modules/.bin/cap`), not
+ * at the repo root. `npx cap` fails because npx looks in the CWD's
+ * node_modules and the global path — neither has it. We resolve the local
+ * binary directly and fall back to `npx cap` if it's not found.
+ */
+function resolveCapBinary(gameDir: string): string {
+  const localCap = resolve(gameDir, "node_modules/.bin/cap");
+  if (existsSync(localCap)) return localCap;
+  // Fall back to npx (works if @capacitor/cli is globally installed or in the
+  // repo root's node_modules)
+  return "npx cap";
+}
+
 interface MobileArgs {
   game: string;
   target: "android" | "ios" | "all";
@@ -163,9 +179,10 @@ export default config;
     log.info("mobile", `Wrote ${capacitorConfigPath}`);
 
     // Add native platforms
+    const capBin = resolveCapBinary(gameDir);
     if (target === "android" || target === "all") {
       try {
-        execSync("npx cap add android", { cwd: gameDir, stdio: "inherit" });
+        execSync(`${capBin} add android`, { cwd: gameDir, stdio: "inherit" });
         log.info("mobile", "Android platform added.");
       } catch (err) {
         log.error("mobile", `Failed to add Android platform: ${(err as Error).message}`);
@@ -176,7 +193,7 @@ export default config;
 
     if (target === "ios" || target === "all") {
       try {
-        execSync("npx cap add ios", { cwd: gameDir, stdio: "inherit" });
+        execSync(`${capBin} add ios`, { cwd: gameDir, stdio: "inherit" });
         log.info("mobile", "iOS platform added.");
       } catch (err) {
         log.error("mobile", `Failed to add iOS platform: ${(err as Error).message}`);
@@ -200,7 +217,8 @@ async function syncCapacitor(gameDir: string, target: MobileArgs["target"]): Pro
   log.info("mobile", "Syncing web bundle to native projects...");
   const { execSync } = await import("node:child_process");
 
-  const capCmd = target === "all" ? "npx cap sync" : `npx cap sync ${target}`;
+  const capBin = resolveCapBinary(gameDir);
+  const capCmd = target === "all" ? `${capBin} sync` : `${capBin} sync ${target}`;
   try {
     execSync(capCmd, { cwd: gameDir, stdio: "inherit" });
     log.info("mobile", "Capacitor sync complete.");
@@ -351,11 +369,12 @@ export async function mobile(args: string[]): Promise<void> {
   log.info("mobile", "Mobile build complete.");
   log.info("mobile", "");
   log.info("mobile", "Next steps:");
+  const capBin = resolveCapBinary(gameDir);
   if (opts.target === "android" || opts.target === "all") {
-    log.info("mobile", "  Android: npx cap open android  (then Run in Android Studio)");
+    log.info("mobile", `  Android: ${capBin} open android  (then Run in Android Studio)`);
   }
   if (opts.target === "ios" || opts.target === "all") {
-    log.info("mobile", "  iOS:     npx cap open ios      (then Run in Xcode)");
+    log.info("mobile", `  iOS:     ${capBin} open ios      (then Run in Xcode)`);
   }
   log.info("mobile", "");
   log.info("mobile", "IMPORTANT: WebGPU requires Android WebView 121+ or iOS / iPadOS 26+.");
