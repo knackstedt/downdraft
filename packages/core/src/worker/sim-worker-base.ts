@@ -167,6 +167,15 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   let frameCount = 0;
   let fpsTimer = 0;
   let fps = 0;
+  // setTimeout truncates fractional milliseconds (e.g. 32.333 → 32), losing
+  // ~frac(tickMs) ms per iteration. For tickMs = 33.333 (30Hz), that's 0.333ms
+  // per iteration — after ~100 iterations (~3.3s) the deficit reaches one full
+  // tick, causing the accumulator to burst a 2-tick frame. This produces a
+  // slow, periodic oscillation in the effective tick rate (and thus in
+  // everything driven by dt: movement speed, drop spin, animation timing).
+  // We accumulate the sub-ms remainder and add it back when it exceeds 1ms,
+  // so the average setTimeout delay matches the desired interval exactly.
+  let timerRemainder = 0;
 
   const events = exposeEvents();
 
@@ -259,8 +268,20 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       }
 
       // Sleep until the next tick is due instead of spinning with setTimeout(0).
+      // Compensate for setTimeout's integer truncation: accumulate the sub-ms
+      // fractional part and add 1ms when it exceeds 1ms, so the average delay
+      // matches the desired interval exactly. Without this, a fractional tickMs
+      // (e.g. 33.333 for 30Hz) loses ~0.333ms per iteration to truncation,
+      // causing a ~3.3s periodic oscillation in the effective tick rate.
       const remaining = tickMs - (performance.now() - now);
-      if (loopActive) setTimeout(loop, remaining > 0 ? remaining : 0);
+      const intRemaining = Math.max(0, Math.floor(remaining));
+      timerRemainder += remaining - intRemaining;
+      let delay = intRemaining;
+      if (timerRemainder >= 1) {
+        delay += 1;
+        timerRemainder -= 1;
+      }
+      if (loopActive) setTimeout(loop, delay);
     } catch (e) {
       const err = e as Error;
       console.error(`[createSimWorker] Loop error: ${err.message}\n${err.stack}`);
@@ -283,6 +304,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
       frameCount = 0;
       fpsTimer = 0;
       fps = 0;
+      timerRemainder = 0;
       events.emit("ready", {});
       loop();
     },
