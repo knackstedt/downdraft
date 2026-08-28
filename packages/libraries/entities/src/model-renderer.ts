@@ -59,6 +59,10 @@ export class ModelRenderer {
   private static readonly INITIAL_BONE_CAPACITY = 256;
 
   private modelResources: Map<string, ModelGPUResources[]> = new Map();
+  // Per-model instance uniform base offsets. Key = nodeId, value = array of
+  // base offsets (in bytes) for each instance. Instance 0 uses the original
+  // offsets from modelResources; instances 1+ use allocated offsets from here.
+  private modelInstanceOffsets: Map<string, number[]> = new Map();
   private viewProjCache: Float32Array | null = null;
   private cameraPosCache: [number, number, number] = [0, 0, 0];
   // Light state for the fragment shader (defaults match the old hardcoded values).
@@ -366,6 +370,56 @@ export class ModelRenderer {
   }
 
   /**
+   * Allocate an additional uniform slot for an existing model, sharing its
+   * vertex/index buffers. Returns the instance index (1-based, since instance
+   * 0 uses the original offsets), or -1 if the model doesn't exist or the
+   * uniform buffer is full.
+   *
+   * Use with render()'s instanceIndex parameter to draw multiple instances of
+   * the same model at different positions in a single frame. Without this,
+   * multiple render() calls with the same nodeId overwrite each other's
+   * uniforms (device.queue.writeBuffer is a queue-level op, so all writes
+   * execute before the render pass — only the last write is visible).
+   */
+  allocateInstance(nodeId: string): number {
+    const resources = this.modelResources.get(nodeId);
+    if (!resources || resources.length === 0) return -1;
+
+    const meshCount = resources.length;
+    if (this.nextUniformOffset + meshCount > ModelRenderer.MAX_MODELS) return -1;
+
+    // Allocate `meshCount` contiguous uniform slots for this instance.
+    const baseOffset = this.nextUniformOffset * ModelRenderer.UNIFORM_SIZE;
+    this.nextUniformOffset += meshCount;
+
+    const instances = this.modelInstanceOffsets.get(nodeId) ?? [];
+    instances.push(baseOffset);
+    this.modelInstanceOffsets.set(nodeId, instances);
+    return instances.length; // 1-based instance index
+  }
+
+  /**
+   * Free all instance uniform slots for a model (except instance 0 which is
+   * tied to the model upload). Call when an instance is no longer needed.
+   */
+  freeInstances(nodeId: string): void {
+    const instances = this.modelInstanceOffsets.get(nodeId);
+    if (instances && instances.length > 0) {
+      // Reclaim uniform slots (simple: just reset nextUniformOffset if these
+      // were the last allocated. A production implementation would use a free
+      // list, but instance lifetimes are typically long-lived.)
+      this.nextUniformOffset = Math.max(0, this.nextUniformOffset - instances.length * this.modelResources.get(nodeId)!.length);
+      instances.length = 0;
+    }
+    this.modelInstanceOffsets.delete(nodeId);
+  }
+
+  /** Get the number of allocated instances for a model (0 = only the original). */
+  getInstanceCount(nodeId: string): number {
+    return this.modelInstanceOffsets.get(nodeId)?.length ?? 0;
+  }
+
+  /**
    * Build the per-mesh skin vertex buffer: joints as uint32x4 (4 bone indices,
    * upcast from uint8/uint16/uint32 source) followed by weights as float32x4.
    * 32 bytes/vertex. Returns undefined when the mesh has no skinning data.
@@ -655,11 +709,28 @@ export class ModelRenderer {
     position: [number, number, number],
     rotation: [number, number, number, number],
     scale: [number, number, number],
+    instanceIndex: number = 0,
   ): void {
     if (!this.pipeline || !this.bindGroup || !this.uniformBuffer || !this.viewProjCache) return;
 
     const resources = this.modelResources.get(nodeId);
     if (!resources) return;
+
+    // For instance 0, use the original uniform offsets stored in resources.
+    // For instance 1+, compute offsets from the allocated instance base.
+    let instanceBaseOffset = 0; // in bytes, added to each mesh's uniformOffset
+    if (instanceIndex > 0) {
+      const instances = this.modelInstanceOffsets.get(nodeId);
+      if (!instances || instanceIndex > instances.length) return;
+      instanceBaseOffset = instances[instanceIndex - 1];
+      // instanceBaseOffset is the absolute byte offset for mesh 0 of this
+      // instance. Mesh r's offset = instanceBaseOffset + r * UNIFORM_SIZE.
+      // But res.uniformOffset is already mesh 0's original offset + r * UNIFORM_SIZE.
+      // So the per-mesh offset for this instance = instanceBaseOffset + r * UNIFORM_SIZE.
+      // We compute it as: instanceBaseOffset - resources[0].uniformOffset + res.uniformOffset
+      // = instanceBaseOffset + (res.uniformOffset - resources[0].uniformOffset)
+      // = instanceBaseOffset + r * UNIFORM_SIZE (since original offsets are contiguous).
+    }
 
     // Set the bindless material bind group once per frame (group 3).
     if (this.bindlessBindGroup && !this.bindlessBindGroupSetThisFrame) {
@@ -675,8 +746,13 @@ export class ModelRenderer {
       this.skinBindGroupSetThisFrame = true;
     }
 
+    const mesh0Offset = resources[0].uniformOffset;
     for (let r = 0; r < resources.length; r++) {
       const res = resources[r];
+      // Compute the uniform offset for this instance + mesh.
+      const uniformOffset = instanceIndex === 0
+        ? res.uniformOffset
+        : instanceBaseOffset + (res.uniformOffset - mesh0Offset);
       const uniforms = this.reusableUniforms;
       for (let i = 0; i < 16; i++) uniforms[i] = this.viewProjCache[i];
       uniforms[16] = this.cameraPosCache[0];
@@ -709,7 +785,7 @@ export class ModelRenderer {
 
       this.device.queue.writeBuffer(
         this.uniformBuffer,
-        res.uniformOffset,
+        uniformOffset,
         uniforms as Float32Array<ArrayBuffer>,
       );
 
@@ -717,14 +793,14 @@ export class ModelRenderer {
       // otherwise the standard non-skinned pipeline.
       if (res.skinned && this.skinnedPipeline && res.skinVertexBuffer) {
         passEncoder.setPipeline(this.skinnedPipeline);
-        passEncoder.setBindGroup(0, this.bindGroup, [res.uniformOffset]);
+        passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setVertexBuffer(1, res.skinVertexBuffer);
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
         passEncoder.drawIndexed(res.indexCount);
       } else {
         passEncoder.setPipeline(this.pipeline);
-        passEncoder.setBindGroup(0, this.bindGroup, [res.uniformOffset]);
+        passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
         passEncoder.setVertexBuffer(0, res.vertexBuffer);
         passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
         passEncoder.drawIndexed(res.indexCount);

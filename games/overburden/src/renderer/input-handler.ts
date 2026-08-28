@@ -69,6 +69,14 @@ export interface BlockheadsInputState {
   // renderer checks isMapMode() before acting so Esc still works as pause
   // when not in map mode.
   onExitMap?: () => void;
+
+  // Cycle active blockhead (Tab / Shift+Tab). The renderer wires this to
+  // cycle which blockhead receives direct WASD/mouse input.
+  onCycleActiveBh?: (reverse: boolean) => void;
+
+  // Use the active hotbar item (G key). The renderer wires this to call the
+  // worker's useItem RPC (e.g. spawn egg).
+  onUseItem?: () => void;
 }
 
 export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputState {
@@ -102,6 +110,8 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     onToggleGender: undefined,
     onToggleMap: undefined,
     onExitMap: undefined,
+    onCycleActiveBh: undefined,
+    onUseItem: undefined,
   };
 
   const keyMap: Record<string, keyof BlockheadsInputState> = {
@@ -166,6 +176,16 @@ export function createInputHandler(canvas: HTMLCanvasElement): BlockheadsInputSt
     // Map mode toggle (M key): snap to full map or restore previous zoom.
     else if (e.key === "m" || e.key === "M") {
       state.onToggleMap?.();
+      e.preventDefault();
+    }
+    // Cycle active blockhead (Tab / Shift+Tab)
+    else if (e.key === "Tab") {
+      state.onCycleActiveBh?.(e.shiftKey);
+      e.preventDefault();
+    }
+    // Use active hotbar item (G key) — e.g. spawn egg
+    else if (e.key === "g" || e.key === "G") {
+      state.onUseItem?.();
       e.preventDefault();
     }
     // Esc: exit map mode (if active). The renderer's onExitMap checks

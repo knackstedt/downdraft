@@ -63,6 +63,10 @@ interface GameState {
   selectedStation: { ax: number; ay: number } | null;
   // Blockhead state (updated by polling SAB from the UI)
   blockhead: BlockheadUIState;
+  // Multi-character: all blockheads' stats + active index + count
+  blockheads: BlockheadUIState[];
+  activeBhIndex: number;
+  blockheadCount: number;
   // Selected hotbar slot
   selectedSlot: number;
   // Inventory (polled from worker via RPC) — fixed-length slot array
@@ -95,6 +99,9 @@ interface GameState {
   setSelectedStation: (station: { ax: number; ay: number } | null) => void;
   setRenderer: (renderer: BlockheadsRenderer | null) => void;
   setBlockhead: (bh: BlockheadUIState) => void;
+  setBlockheads: (bhs: BlockheadUIState[]) => void;
+  setActiveBhIndex: (i: number) => void;
+  setBlockheadCount: (n: number) => void;
   setSelectedSlot: (slot: number) => void;
   setInventory: (inv: InventoryUI) => void;
   setInventoryTab: (tab: InventoryTab) => void;
@@ -126,6 +133,9 @@ export const useGameStore = create<GameState>((set) => ({
   deterministic: false,
   selectedStation: null,
   blockhead: defaultBh,
+  blockheads: [defaultBh],
+  activeBhIndex: 0,
+  blockheadCount: 1,
   selectedSlot: 0,
   inventory: new Array(54).fill(null),
   inventoryTab: "inventory",
@@ -148,6 +158,9 @@ export const useGameStore = create<GameState>((set) => ({
   setSelectedStation: (station) => set({ selectedStation: station }),
   setRenderer: (renderer) => set({ renderer }),
   setBlockhead: (bh) => set({ blockhead: bh }),
+  setBlockheads: (bhs) => set({ blockheads: bhs }),
+  setActiveBhIndex: (i) => set({ activeBhIndex: i }),
+  setBlockheadCount: (n) => set({ blockheadCount: n }),
   setSelectedSlot: (slot) => set({ selectedSlot: slot }),
   setInventory: (inventory) => set({ inventory }),
   setInventoryTab: (inventoryTab) => set({ inventoryTab }),

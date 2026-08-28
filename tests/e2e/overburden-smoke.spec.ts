@@ -56,6 +56,11 @@ describe("overburden MCP automation smoke", () => {
     expect(names.has("queue_task")).toBe(true);
     expect(names.has("get_tasks")).toBe(true);
     expect(names.has("clear_tasks")).toBe(true);
+    // Multi-character
+    expect(names.has("spawn_blockhead")).toBe(true);
+    expect(names.has("set_active_blockhead")).toBe(true);
+    expect(names.has("get_all_players")).toBe(true);
+    expect(names.has("use_item")).toBe(true);
   });
 
   it("captures a non-empty screenshot", async () => {
@@ -130,6 +135,7 @@ describe("overburden MCP automation smoke", () => {
       type: "MOVE_TO",
       targetX,
       targetY,
+      playerIndex: 0,
     }));
     expect(data.ok).toBe(true);
     expect(data.taskId).toBeGreaterThan(0);
@@ -146,6 +152,85 @@ describe("overburden MCP automation smoke", () => {
 
   it("reports no console errors during boot", async () => {
     // Wait a bit more to catch any delayed errors.
+    await sleep(500);
+    const errors = game!.getConsoleErrors();
+    if (errors.length > 0) {
+      console.error("Console errors detected:", errors);
+    }
+    expect(errors).toHaveLength(0);
+  });
+
+  // --- Multi-character feature tests ---
+  it("exposes multi-character MCP tools", async () => {
+    const tools = await game!.mcpClient.listTools();
+    const names = new Set(tools.map((t) => t.name));
+    expect(names.has("spawn_blockhead")).toBe(true);
+    expect(names.has("set_active_blockhead")).toBe(true);
+    expect(names.has("get_active_blockhead")).toBe(true);
+    expect(names.has("get_all_players")).toBe(true);
+    expect(names.has("use_item")).toBe(true);
+  });
+
+  it("starts with exactly one blockhead", async () => {
+    const data = parseJsonContent(await game!.mcpClient.callTool("get_all_players", {}));
+    const roster = data.blockheads as { id: number; bhIndex: number }[];
+    expect(roster.length).toBe(1);
+    expect(roster[0].bhIndex).toBe(0);
+  });
+
+  it("spawns a second blockhead via MCP", async () => {
+    const result = parseJsonContent(await game!.mcpClient.callTool("spawn_blockhead", {}));
+    expect(result.ok).toBe(true);
+    expect(result.bhIndex).toBe(1);
+    expect(typeof result.id).toBe("number");
+    // Verify roster now has 2 blockheads
+    const data = parseJsonContent(await game!.mcpClient.callTool("get_all_players", {}));
+    const roster = data.blockheads as { id: number; bhIndex: number }[];
+    expect(roster.length).toBe(2);
+  });
+
+  it("switches active blockhead and back", async () => {
+    // Switch to blockhead 1
+    const r1 = parseJsonContent(await game!.mcpClient.callTool("set_active_blockhead", { index: 1 }));
+    expect(r1.ok).toBe(true);
+    expect(r1.activeBhIndex).toBe(1);
+    // Verify via get_active_blockhead
+    const active = parseJsonContent(await game!.mcpClient.callTool("get_active_blockhead", {}));
+    expect(active.activeBhIndex).toBe(1);
+    // Switch back to 0
+    const r2 = parseJsonContent(await game!.mcpClient.callTool("set_active_blockhead", { index: 0 }));
+    expect(r2.ok).toBe(true);
+    expect(r2.activeBhIndex).toBe(0);
+  });
+
+  it("gives a spawn egg and uses it to spawn a third blockhead", async () => {
+    // Check roster before
+    const before = parseJsonContent(await game!.mcpClient.callTool("get_all_players", {}));
+    const beforeRoster = before.blockheads as { id: number; bhIndex: number }[];
+    // Give the active blockhead (index 0) a spawn egg
+    await game!.mcpClient.callTool("give_item", { itemId: "spawn_egg", count: 1 });
+    await sleep(100);
+    // Verify it's in the inventory
+    const invData = parseJsonContent(await game!.mcpClient.callTool("get_inventory", { playerIndex: 0 }));
+    const inv = invData.inventory as ({ itemId: string; count: number } | null)[];
+    const egg = inv.find((s) => s && s.itemId === "spawn_egg");
+    expect(egg).toBeDefined();
+    expect(egg?.count).toBe(1);
+    // Use the spawn egg
+    const result = parseJsonContent(await game!.mcpClient.callTool("use_item", { itemId: "spawn_egg" }));
+    expect(result.ok).toBe(true);
+    // Verify roster now has 3 blockheads
+    const data = parseJsonContent(await game!.mcpClient.callTool("get_all_players", {}));
+    const roster = data.blockheads as { id: number; bhIndex: number }[];
+    expect(roster.length).toBe(beforeRoster.length + 1);
+    // Verify the spawn egg was consumed
+    const invData2 = parseJsonContent(await game!.mcpClient.callTool("get_inventory", { playerIndex: 0 }));
+    const inv2 = invData2.inventory as ({ itemId: string; count: number } | null)[];
+    const egg2 = inv2.find((s) => s && s.itemId === "spawn_egg");
+    expect(egg2).toBeUndefined();
+  });
+
+  it("reports no console errors after multi-character operations", async () => {
     await sleep(500);
     const errors = game!.getConsoleErrors();
     if (errors.length > 0) {

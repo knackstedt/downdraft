@@ -446,6 +446,11 @@ export function updateBlockhead(
     accel = CRAWL_ACCEL;
     maxSpd = CRAWL_SPEED;
   }
+  // Exhaustion: zero energy halves move speed + accel (can't sprint).
+  if (bh.energy <= 0) {
+    accel *= 0.5;
+    maxSpd *= 0.5;
+  }
 
   if (input.left) {
     bh.vx -= accel;
@@ -551,7 +556,7 @@ export function updateBlockhead(
   } else {
     // Normal gravity (on ground, or airborne with no wall nearby)
     bh.wallClimbing = false;
-    if (input.jump && bh.onGround) {
+    if (input.jump && bh.onGround && bh.energy > 0) {
       bh.vy = -JUMP_FORCE;
       bh.onGround = false;
     }
@@ -674,23 +679,13 @@ export function updateBlockhead(
   }
   bh.animTime += dt;
 
-  // --- Attribute decay (slow) ---
-  bh.hunger -= 0.002;
-  bh.energy -= 0.001;
-  // Stamina drain from climbing (computed in the vertical movement section)
+  // --- Stamina drain from climbing (computed in the vertical movement section) ---
+  // Passive stat decay (hunger/energy/happiness/environment) + death causes
+  // are handled by stepAttributes() in the worker, which runs once per tick
+  // for all blockheads. Here we only apply the climbing-specific energy drain.
   bh.energy -= climbingStaminaDrain * dt;
-  if (bh.hunger <= 0) {
-    bh.hunger = 0;
-    bh.health -= 0.1;
-  }
-  if (bh.energy <= 0) {
-    bh.energy = 0;
-  }
-  bh.health = Math.max(0, Math.min(100, bh.health));
-  bh.hunger = Math.max(0, Math.min(100, bh.hunger));
-  bh.energy = Math.max(0, Math.min(100, bh.energy));
-  bh.happiness = Math.max(0, Math.min(100, bh.happiness));
-  bh.environment = Math.max(0, Math.min(100, bh.environment));
+  if (bh.energy <= 0) bh.energy = 0;
+  bh.energy = Math.min(100, bh.energy);
 }
 
 // --- Mining ---

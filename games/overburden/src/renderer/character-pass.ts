@@ -68,6 +68,12 @@ interface LoadedCharacter {
     offsetX: number;
     offsetY: number;
     offsetZ: number;
+    // Per-instance allocation tracking. The ModelRenderer shares vertex
+    // buffers across instances but needs separate uniform slots per instance
+    // (otherwise queue.writeBuffer overwrites the previous instance's data
+    // before the render pass executes). We lazily allocate instances on first
+    // use and track the mapping from render-list index → instance index.
+    instanceIndices: Map<number, number>; // renderListIndex → instanceIndex
 }
 
 export class CharacterPass {
@@ -202,6 +208,7 @@ export class CharacterPass {
             offsetX,
             offsetY,
             offsetZ,
+            instanceIndices: new Map(),
         };
     }
 
@@ -242,6 +249,29 @@ export class CharacterPass {
     setGender(gender: CharacterGender): void {
         if (this.characters[gender]) {
             this.activeGender = gender;
+        }
+    }
+
+    /**
+     * Ensure the ModelRenderer has enough uniform slots allocated for the
+     * requested number of instances per gender. Call once per frame before
+     * render(). Instance 0 is the original model upload; instances 1+ are
+     * allocated on demand via ModelRenderer.allocateInstance().
+     *
+     * @param genderCounts Map of gender → number of instances needed.
+     */
+    ensureInstances(genderCounts: Map<string, number>): void {
+        if (!this.modelRenderer) return;
+        for (const [genderStr, count] of genderCounts) {
+            const gender = genderStr as CharacterGender;
+            const char = this.characters[gender];
+            if (!char) continue;
+            // Allocate until we have `count` instances (instance 0 is built-in).
+            while (char.instanceIndices.size < count - 1) {
+                const idx = this.modelRenderer.allocateInstance(char.nodeId);
+                if (idx < 0) break; // uniform buffer full
+                char.instanceIndices.set(char.instanceIndices.size + 1, idx);
+            }
         }
     }
 
@@ -290,8 +320,8 @@ export class CharacterPass {
     }
 
     /**
-     * Render the active character at the player's position.
-     * Must be called after `beginFrame()` and within the render pass.
+     * Render a character at the given position. Must be called after
+     * `beginFrame()` and within the render pass. Call once per blockhead.
      *
      * Facing logic:
      * - Moving horizontally (|vx| > threshold): face left/right based on vx sign.
@@ -302,6 +332,7 @@ export class CharacterPass {
      * @param localY Player Y in active-grid coords (top of collision box, Y-down).
      * @param vx Player horizontal velocity (positive = moving right).
      * @param wallClimbing True when the blockhead is actively climbing a wall.
+     * @param gender Which character model to render (defaults to active gender).
      */
     render(
         pass: GPURenderPassEncoder,
@@ -309,11 +340,32 @@ export class CharacterPass {
         localY: number,
         vx: number,
         wallClimbing: boolean,
+        gender: CharacterGender = this.activeGender,
+        instanceIndex: number = 0,
     ): void {
         if (!this.modelRenderer) return;
 
-        const char = this.characters[this.activeGender];
-        if (!char) return;
+        const char = this.characters[gender];
+        if (!char) {
+            // Requested gender not loaded — fall back to active gender.
+            const fallback = this.characters[this.activeGender];
+            if (!fallback) return;
+            this.renderWithChar(pass, fallback, localX, localY, vx, wallClimbing, instanceIndex);
+            return;
+        }
+        this.renderWithChar(pass, char, localX, localY, vx, wallClimbing, instanceIndex);
+    }
+
+    private renderWithChar(
+        pass: GPURenderPassEncoder,
+        char: LoadedCharacter,
+        localX: number,
+        localY: number,
+        vx: number,
+        wallClimbing: boolean,
+        instanceIndex: number = 0,
+    ): void {
+        if (!this.modelRenderer) return;
 
         // Upload bind-pose skin matrices (static, but must be set each frame
         // before render — especially after switching gender).
@@ -361,7 +413,7 @@ export class CharacterPass {
             char.uniformScale,
         ];
 
-        this.modelRenderer.render(pass, char.nodeId, position, rotation, scale);
+        this.modelRenderer.render(pass, char.nodeId, position, rotation, scale, instanceIndex);
     }
 
     destroy(): void {

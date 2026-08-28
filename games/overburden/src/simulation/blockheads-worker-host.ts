@@ -69,6 +69,35 @@ type BlockheadsWorkerApi = {
   cancelTask(type: TaskType, targetX: number, targetY: number, bhIndex?: number): Promise<{ ok: boolean }>;
   // Map region snapshot (encoded ArrayBuffer — see shared/map-buffer.ts)
   getMapRegion(centerCx: number): Promise<ArrayBuffer>;
+  // Multi-character: spawn, active selection, roster
+  spawnBlockhead(x?: number, y?: number, gender?: string): Promise<{ ok: boolean; bhIndex?: number; id?: number; error?: string }>;
+  spawnBlockheadFromEgg(bhIndex: number): Promise<{ ok: boolean; bhIndex?: number; id?: number; error?: string }>;
+  useItem(itemId: string, bhIndex?: number): Promise<{ ok: boolean; error?: string }>;
+  setActiveBhIndex(i: number): Promise<{ ok: boolean; activeBhIndex: number }>;
+  getActiveBhIndex(): Promise<number>;
+  getBlockheads(): Promise<{ id: number; bhIndex: number; x: number; y: number; health: number; hunger: number; energy: number; air: number; happiness: number; environment: number; gender: string }[]>;
+  setBhGender(id: number, gender: string): Promise<{ ok: boolean }>;
+  // Roster persistence
+  getBlockheadRoster(): Promise<{
+    activeBhIndex: number;
+    blockheads: {
+      id: number; x: number; y: number; gender: string;
+      health: number; hunger: number; energy: number; air: number;
+      happiness: number; environment: number;
+      inventory: ({ itemId: string; count: number } | null)[];
+      tasks: { type: string; targetX?: number; targetY?: number; status: string }[];
+    }[];
+  }>;
+  setBlockheadRoster(roster: {
+    activeBhIndex?: number;
+    blockheads: {
+      id: number; x: number; y: number; gender: string;
+      health: number; hunger: number; energy: number; air: number;
+      happiness: number; environment: number;
+      inventory: ({ itemId: string; count: number } | null)[];
+      tasks: { type: string; targetX?: number; targetY?: number; status: string }[];
+    }[];
+  }): Promise<{ ok: boolean }>;
 };
 
 export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
@@ -238,5 +267,60 @@ export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
     const buf = await this.getProxy()?.proxy.getMapRegion(centerCx);
     if (!buf) return null;
     return decodeMapRegion(buf);
+  }
+
+  // --- Multi-character: spawn, active selection, roster ---
+  async spawnBlockhead(x?: number, y?: number, gender?: string): Promise<{ ok: boolean; bhIndex?: number; id?: number; error?: string }> {
+    return await this.getProxy()?.proxy.spawnBlockhead(x, y, gender) ?? { ok: false, error: "Worker not ready" };
+  }
+
+  async spawnBlockheadFromEgg(bhIndex: number): Promise<{ ok: boolean; bhIndex?: number; id?: number; error?: string }> {
+    return await this.getProxy()?.proxy.spawnBlockheadFromEgg(bhIndex) ?? { ok: false, error: "Worker not ready" };
+  }
+
+  async useItem(itemId: string, bhIndex: number = 0): Promise<{ ok: boolean; error?: string }> {
+    return await this.getProxy()?.proxy.useItem(itemId, bhIndex) ?? { ok: false, error: "Worker not ready" };
+  }
+
+  async setActiveBhIndex(i: number): Promise<{ ok: boolean; activeBhIndex: number }> {
+    return await this.getProxy()?.proxy.setActiveBhIndex(i) ?? { ok: false, activeBhIndex: 0 };
+  }
+
+  async getActiveBhIndex(): Promise<number> {
+    return await this.getProxy()?.proxy.getActiveBhIndex() ?? 0;
+  }
+
+  async getBlockheads(): Promise<{ id: number; bhIndex: number; x: number; y: number; health: number; hunger: number; energy: number; air: number; happiness: number; environment: number; gender: string }[]> {
+    return await this.getProxy()?.proxy.getBlockheads() ?? [];
+  }
+
+  async setBhGender(id: number, gender: string): Promise<{ ok: boolean }> {
+    return await this.getProxy()?.proxy.setBhGender(id, gender) ?? { ok: false };
+  }
+
+  async getBlockheadRoster(): Promise<{
+    activeBhIndex: number;
+    blockheads: {
+      id: number; x: number; y: number; gender: string;
+      health: number; hunger: number; energy: number; air: number;
+      happiness: number; environment: number;
+      inventory: ({ itemId: string; count: number } | null)[];
+      tasks: { type: string; targetX?: number; targetY?: number; status: string }[];
+    }[];
+  }> {
+    return await this.getProxy()?.proxy.getBlockheadRoster() ?? { activeBhIndex: 0, blockheads: [] };
+  }
+
+  async setBlockheadRoster(roster: {
+    activeBhIndex?: number;
+    blockheads: {
+      id: number; x: number; y: number; gender: string;
+      health: number; hunger: number; energy: number; air: number;
+      happiness: number; environment: number;
+      inventory: ({ itemId: string; count: number } | null)[];
+      tasks: { type: string; targetX?: number; targetY?: number; status: string }[];
+    }[];
+  }): Promise<{ ok: boolean }> {
+    return await this.getProxy()?.proxy.setBlockheadRoster(roster) ?? { ok: false };
   }
 }
