@@ -44,6 +44,13 @@ const NUM_FG_LAYERS = FG_Z_LAYERS.length;
 const W = ACTIVE_GRID_W;
 const H = ACTIVE_GRID_H;
 
+/** A foreground neighbor is "transparent" for face-culling purposes if it's
+ *  air OR a crop/wild forageable block (bushes, mushrooms, ...). Those are
+ *  rendered as 2D sprites by CropSpritePass, not 3D cubes, so a solid block
+ *  adjacent to one must show its face — otherwise the bush leaves a visual
+ *  hole in the terrain surface that interrupts the light gradient. */
+const isAirOrCrop = (id: number): boolean => id === 0 || CROP_LOOKUP[id] !== 0;
+
 let simReader: SimBufferReader | null = null;
 let renderWriter: RenderBufferWriter | null = null;
 let lastBuiltTick = -1;
@@ -65,7 +72,52 @@ function build(): void {
   const data = writer.instanceData;
   let idx = 0;
 
+  // --- View culling bounds ---
+  // Compute the visible rectangle in active-grid coordinates and only build
+  // instances for cells within it. The full grid textures (fg/bg/light/
+  // explored) are still padded and uploaded at full size — the shader samples
+  // neighbors and light at arbitrary positions, so it needs the complete
+  // textures. Only the instance data (vertex shader work + draw call count)
+  // is culled.
+  //
+  // At default zoom (96), only ~20×11 blocks are visible but the active
+  // grid is 448×448 — without culling, 99.9% of instances are off-screen.
+  // The margin accounts for the 20° camera pitch, block faces extending
+  // beyond their cell, and a small buffer to avoid edge popping.
+  //
+  // CULL CENTER: The renderer writes the camera WORLD position (origin-
+  // independent) to the SAB. We convert it to sim-origin active-grid coords
+  // using the sim SAB's own origin — this is always consistent with the grid
+  // data we're reading, even during chunk-boundary crossings when the sim
+  // origin has advanced but the render origin hasn't caught up yet. Using
+  // the camera (not the blockhead) ensures detached-camera mode works: the
+  // camera can be far from the player, and culling must follow the camera.
+  const inpF = simReader.inputF32;
+  const camZoom = inpF[15];
+  const camCW = inpF[16];
+  const camCH = inpF[17];
+  const camWorldX = inpF[18];
+  const camWorldY = inpF[19];
+  let xMin = 0, xMax = W, yMin = 0, yMax = H;
+  if (camZoom > 0 && camCW > 0 && camCH > 0) {
+    const CULL_MARGIN = 8; // blocks beyond the flat visible rect
+    const visW = camCW / camZoom;
+    const visH = camCH / camZoom;
+    // Convert camera world position → sim-origin active-grid coords.
+    const simOriginCx = simReader.getOriginCx();
+    const simOriginCy = simReader.getOriginCy();
+    const cx = camWorldX - simOriginCx * 64; // CHUNK_W = CHUNK_H = 64
+    const cy = camWorldY - simOriginCy * 64;
+    xMin = Math.max(0, Math.floor(cx - visW * 0.5 - CULL_MARGIN));
+    xMax = Math.min(W, Math.ceil(cx + visW * 0.5 + CULL_MARGIN));
+    yMin = Math.max(0, Math.floor(cy - visH * 0.5 - CULL_MARGIN));
+    yMax = Math.min(H, Math.ceil(cy + visH * 0.5 + CULL_MARGIN));
+  }
+
   // --- Pad fg/bg block IDs into 256-byte-aligned rows ---
+  // Always pad the FULL grid — the shader samples neighbor block IDs and
+  // light at arbitrary positions (including just outside the visible area
+  // for edge blending), so partial textures would cause artifacts.
   const paddedFg = writer.paddedFgGrid;
   const paddedBg = writer.paddedBgGrid;
   const rowBytes = PADDED_GRID_ROW_BYTES;
@@ -79,10 +131,12 @@ function build(): void {
   }
 
   // --- Foreground blocks (rendered at 2 Z depths: Z=0 and Z=-1) ---
+  // Only iterate the visible rectangle — off-screen cells are skipped,
+  // dramatically reducing instance count and vertex shader work.
   for (let layer = 0; layer < NUM_FG_LAYERS; layer++) {
     const layerZ = FG_Z_LAYERS[layer];
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    for (let y = yMin; y < yMax; y++) {
+      for (let x = xMin; x < xMax; x++) {
         const cellIdx = y * W + x;
         const packedFg = foreground[cellIdx];
         const blockId = packedFg & 0xFF;
@@ -92,10 +146,10 @@ function build(): void {
         if (CROP_LOOKUP[blockId] !== 0) continue;
 
         let faceMask = 0;
-        if (x >= W - 1 || (foreground[y * W + (x + 1)] & 0xFF) === 0) faceMask |= FACE_RIGHT;
-        if (x <= 0 || (foreground[y * W + (x - 1)] & 0xFF) === 0) faceMask |= FACE_LEFT;
-        if (y >= H - 1 || (foreground[(y + 1) * W + x] & 0xFF) === 0) faceMask |= FACE_BOTTOM;
-        if (y <= 0 || (foreground[(y - 1) * W + x] & 0xFF) === 0) faceMask |= FACE_TOP;
+        if (x >= W - 1 || isAirOrCrop(foreground[y * W + (x + 1)] & 0xFF)) faceMask |= FACE_RIGHT;
+        if (x <= 0 || isAirOrCrop(foreground[y * W + (x - 1)] & 0xFF)) faceMask |= FACE_LEFT;
+        if (y >= H - 1 || isAirOrCrop(foreground[(y + 1) * W + x] & 0xFF)) faceMask |= FACE_BOTTOM;
+        if (y <= 0 || isAirOrCrop(foreground[(y - 1) * W + x] & 0xFF)) faceMask |= FACE_TOP;
 
         if (layer === 0) {
           faceMask |= FACE_FRONT;
@@ -116,8 +170,8 @@ function build(): void {
   const fgInstanceCount = idx;
 
   // --- Background layer 4: back wall (terrain only, no trees) at Z=-3 ---
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
+  for (let y = yMin; y < yMax; y++) {
+    for (let x = xMin; x < xMax; x++) {
       const cellIdx = y * W + x;
       const packedBg = background[cellIdx];
       const blockId = packedBg & 0xFF;
@@ -143,8 +197,8 @@ function build(): void {
   const bgWallInstanceCount = idx - fgInstanceCount;
 
   // --- Background layer 3: all background blocks (trees + terrain) at Z=-2 ---
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
+  for (let y = yMin; y < yMax; y++) {
+    for (let x = xMin; x < xMax; x++) {
       const cellIdx = y * W + x;
       const packedBg = background[cellIdx];
       const blockId = packedBg & 0xFF;

@@ -401,6 +401,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // block's color toward the neighbor's color using blocky noise. This matches
   // the game's pixel-art aesthetic — no smooth gradients.
   //
+  // PERF: The neighbor grid textures (fgGridTex/bgGridTex) are only sampled
+  // when the fragment is within BLEND_WIDTH of a face edge. For interior
+  // fragments (~70% of each face) we skip all 8 neighbor texture loads and
+  // the shouldBlend() checks entirely. This is the single biggest GPU cost
+  // in the shader — the unconditional version did 8 texture loads + 4-8
+  // shouldBlend chains per fragment.
+  //
   // Neighbor IDs are sampled from the grid textures (fgGridTex/bgGridTex)
   // at gridCoords ± 1. The correct texture is selected by instanceZ:
   //   Z >= -1 → foreground grid, Z < -1 → background grid.
@@ -415,107 +422,133 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let BLEND_WIDTH = 0.3; // how far the dither zone extends from the edge
   let lp = in.localPos;
 
-  // Sample neighbor block IDs from the appropriate grid texture.
-  // Sample both textures and select by instanceZ (can't select() on bindings).
+  // Compute the minimum distance to any relevant edge for this face type.
+  // If it's > BLEND_WIDTH, the fragment is in the face interior and edge
+  // blending cannot affect it — skip all neighbor texture loads.
   let gc = in.gridCoords;
   let isFg = in.instanceZ >= -1.0;
-  let fgL = textureLoad(fgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0;
-  let fgR = textureLoad(fgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0;
-  let fgT = textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0;
-  let fgB = textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0;
-  let bgL = textureLoad(bgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0;
-  let bgR = textureLoad(bgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0;
-  let bgT = textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0;
-  let bgB = textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0;
-  let nL = u32(select(bgL, fgL, isFg));
-  let nR = u32(select(bgR, fgR, isFg));
-  let nT = u32(select(bgT, fgT, isFg));
-  let nB = u32(select(bgB, fgB, isFg));
 
-  // World-aligned UV for stable noise across chunk boundaries
-  let wpos = vec2<f32>(f32(in.gridCoords.x) + cam.originX, f32(in.gridCoords.y) + cam.originY);
-  let fuv = faceUV(in.faceId, lp);
-  let noiseUV = wpos + fuv;
-
-  // Blocky noise for dithering (quantized to 6×6 sub-blocks per face)
-  let noiseVal = hash21(floor(noiseUV * 6.0));
-
-  // Track the dominant blend: the edge with the smallest distance that passes
-  // the dither test. blendColor/blendMask are set by the winning edge.
   var blendColor = blockColor;
   var blendMask = 0.0; // 0 = own color, 1 = neighbor color
   var blendEdgeDist = 1.0;
 
-  // Determine which edges to check based on face type
-  // Dither threshold: t=1 at edge (always neighbor), t=0 at BLEND_WIDTH (always own)
   if (in.faceId < 0.5 || in.faceId < 1.5) {
     // +X / -X side faces: top (lp.y=0) and bottom (lp.y=1) edges
-    if (shouldBlend(blockId, nT)) {
-      let ed = lp.y;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nT), 0), 0).rgb;
+    let minEdge = min(lp.y, 1.0 - lp.y);
+    if (minEdge < BLEND_WIDTH) {
+      // Load only the 2 relevant neighbors from the correct grid texture.
+      let nT = u32(textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0);
+      let nB = u32(textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0);
+      let bgT = u32(textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0);
+      let bgB = u32(textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0);
+      let sT = u32(select(bgT, nT, isFg));
+      let sB = u32(select(bgB, nB, isFg));
+
+      let wpos = vec2<f32>(f32(gc.x) + cam.originX, f32(gc.y) + cam.originY);
+      let noiseUV = wpos + faceUV(in.faceId, lp);
+      let noiseVal = hash21(floor(noiseUV * 6.0));
+
+      if (shouldBlend(blockId, sT)) {
+        let ed = lp.y;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sT), 0), 0).rgb;
+        }
       }
-    }
-    if (shouldBlend(blockId, nB)) {
-      let ed = 1.0 - lp.y;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nB), 0), 0).rgb;
+      if (shouldBlend(blockId, sB)) {
+        let ed = 1.0 - lp.y;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sB), 0), 0).rgb;
+        }
       }
     }
   } else if (in.faceId < 2.5 || in.faceId < 3.5) {
     // +Y / -Y top/bottom faces: left (lp.x=0) and right (lp.x=1) edges
-    if (shouldBlend(blockId, nL)) {
-      let ed = lp.x;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nL), 0), 0).rgb;
+    let minEdge = min(lp.x, 1.0 - lp.x);
+    if (minEdge < BLEND_WIDTH) {
+      let nL = u32(textureLoad(fgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0);
+      let nR = u32(textureLoad(fgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0);
+      let bgL = u32(textureLoad(bgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0);
+      let bgR = u32(textureLoad(bgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0);
+      let sL = u32(select(bgL, nL, isFg));
+      let sR = u32(select(bgR, nR, isFg));
+
+      let wpos = vec2<f32>(f32(gc.x) + cam.originX, f32(gc.y) + cam.originY);
+      let noiseUV = wpos + faceUV(in.faceId, lp);
+      let noiseVal = hash21(floor(noiseUV * 6.0));
+
+      if (shouldBlend(blockId, sL)) {
+        let ed = lp.x;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sL), 0), 0).rgb;
+        }
       }
-    }
-    if (shouldBlend(blockId, nR)) {
-      let ed = 1.0 - lp.x;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nR), 0), 0).rgb;
+      if (shouldBlend(blockId, sR)) {
+        let ed = 1.0 - lp.x;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sR), 0), 0).rgb;
+        }
       }
     }
   } else {
     // +Z / -Z front/back faces: all 4 edges
-    if (shouldBlend(blockId, nL)) {
-      let ed = lp.x;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nL), 0), 0).rgb;
+    let minEdge = min(min(lp.x, 1.0 - lp.x), min(lp.y, 1.0 - lp.y));
+    if (minEdge < BLEND_WIDTH) {
+      let nL = u32(textureLoad(fgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0);
+      let nR = u32(textureLoad(fgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0);
+      let nT = u32(textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0);
+      let nB = u32(textureLoad(fgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0);
+      let bgL = u32(textureLoad(bgGridTex, vec2<i32>(gc.x - 1, gc.y), 0).r * 255.0);
+      let bgR = u32(textureLoad(bgGridTex, vec2<i32>(gc.x + 1, gc.y), 0).r * 255.0);
+      let bgT = u32(textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y - 1), 0).r * 255.0);
+      let bgB = u32(textureLoad(bgGridTex, vec2<i32>(gc.x, gc.y + 1), 0).r * 255.0);
+      let sL = u32(select(bgL, nL, isFg));
+      let sR = u32(select(bgR, nR, isFg));
+      let sT = u32(select(bgT, nT, isFg));
+      let sB = u32(select(bgB, nB, isFg));
+
+      let wpos = vec2<f32>(f32(gc.x) + cam.originX, f32(gc.y) + cam.originY);
+      let noiseUV = wpos + faceUV(in.faceId, lp);
+      let noiseVal = hash21(floor(noiseUV * 6.0));
+
+      if (shouldBlend(blockId, sL)) {
+        let ed = lp.x;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sL), 0), 0).rgb;
+        }
       }
-    }
-    if (shouldBlend(blockId, nR)) {
-      let ed = 1.0 - lp.x;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nR), 0), 0).rgb;
+      if (shouldBlend(blockId, sR)) {
+        let ed = 1.0 - lp.x;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sR), 0), 0).rgb;
+        }
       }
-    }
-    if (shouldBlend(blockId, nT)) {
-      let ed = lp.y;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nT), 0), 0).rgb;
+      if (shouldBlend(blockId, sT)) {
+        let ed = lp.y;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sT), 0), 0).rgb;
+        }
       }
-    }
-    if (shouldBlend(blockId, nB)) {
-      let ed = 1.0 - lp.y;
-      let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
-      if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
-        blendMask = 1.0; blendEdgeDist = ed;
-        blendColor = textureLoad(paletteTex, vec2<i32>(i32(nB), 0), 0).rgb;
+      if (shouldBlend(blockId, sB)) {
+        let ed = 1.0 - lp.y;
+        let t = 1.0 - clamp(ed / BLEND_WIDTH, 0.0, 1.0);
+        if (noiseVal < t && (blendMask == 0.0 || ed < blendEdgeDist)) {
+          blendMask = 1.0; blendEdgeDist = ed;
+          blendColor = textureLoad(paletteTex, vec2<i32>(i32(sB), 0), 0).rgb;
+        }
       }
     }
   }

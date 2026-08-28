@@ -78,6 +78,11 @@ export const INP_PLACE_Y = 44;   // Float32 (world Y)
 export const INP_PLACE_BLOCK = 48; // Int32 (block ID to place)
 export const INP_CAMERA_X = 52;  // Float32 (camera center X in active grid coords)
 export const INP_CAMERA_Y = 56;  // Float32 (camera center Y in active grid coords)
+export const INP_CAMERA_ZOOM = 60;  // Float32 (camera zoom — px per block)
+export const INP_CAMERA_CW = 64;    // Float32 (canvas width in CSS px)
+export const INP_CAMERA_CH = 68;    // Float32 (canvas height in CSS px)
+export const INP_CAM_WORLD_X = 72;  // Float32 (camera world X — origin-independent, for grid-builder culling)
+export const INP_CAM_WORLD_Y = 76;  // Float32 (camera world Y — origin-independent, for grid-builder culling)
 
 // --- Header field offsets (within the 32-byte header) ---
 export const HDR_TICK = 0;        // Uint32 — current sim tick
