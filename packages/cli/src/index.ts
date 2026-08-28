@@ -6,6 +6,7 @@ import { debug } from "./debug";
 import { dev } from "./dev";
 import { dist } from "./dist";
 import { exportGame } from "./export";
+import { mobile } from "./mobile";
 import { newProject } from "./new";
 import { runTest } from "./test";
 
