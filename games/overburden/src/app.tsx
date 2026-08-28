@@ -498,8 +498,10 @@ const FpsBar = memo(function FpsBar() {
   const [cameraDetached, setCameraDetached] = useState(false);
   const [debugNoShadows, setDebugNoShadows] = useState(false);
   const [debugInspect, setDebugInspect] = useState(false);
+  const [showMovementDebug, setShowMovementDebug] = useState(false);
+  const [moveDebug, setMoveDebug] = useState("");
 
-  // F1 toggles shadow/fog disable (debug). F2 is handled by ChunkDebugOverlay.
+  // F1 toggles shadow/fog disable (debug). F4 toggles movement debug overlay.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F1") {
@@ -511,10 +513,15 @@ const FpsBar = memo(function FpsBar() {
         setDebugNoShadows(next);
         console.log(`[Overburden] Fog-of-war + shadows ${next ? "disabled" : "enabled"} (F1)`);
       }
+      if (e.key === "F4") {
+        e.preventDefault();
+        setShowMovementDebug((v) => !v);
+        console.log(`[Overburden] Movement debug ${!showMovementDebug ? "ON" : "OFF"} (F4)`);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [showMovementDebug]);
 
   // Poll camera detached state + debug flags for HUD indicator
   useEffect(() => {
@@ -528,6 +535,26 @@ const FpsBar = memo(function FpsBar() {
     return () => clearInterval(interval);
   }, []);
 
+  // Poll movement diagnostics when debug overlay is on
+  useEffect(() => {
+    if (!showMovementDebug) {
+      setMoveDebug("");
+      return;
+    }
+    const interval = setInterval(() => {
+      const { renderer } = useGameStore.getState();
+      if (!renderer || !renderer.getInterpDiagnostics) return;
+      const d = renderer.getInterpDiagnostics();
+      setMoveDebug(
+        `SIM ${d.simTickRate.toFixed(1)}tps | ` +
+        `vel=(${d.simVelX.toFixed(3)},${d.simVelY.toFixed(3)}) ${d.simSpeed.toFixed(3)}b/t | ` +
+        `render=${d.renderSpeed.toFixed(1)}b/s | ` +
+        `td=${d.tickDelta}`
+      );
+    }, 100);
+    return () => clearInterval(interval);
+  }, [showMovementDebug]);
+
   return (
     <div style={fpsStyle}>
       FPS: {fps}
@@ -539,6 +566,11 @@ const FpsBar = memo(function FpsBar() {
       {debugInspect && <span style={{ color: "#1abc9c", marginLeft: 8, fontWeight: "bold" }}>INSPECT (F6)</span>}
       {taskMode && <span style={{ color: "#f39c12", marginLeft: 8, fontWeight: "bold" }}>TASK MODE (T)</span>}
       {cameraDetached && <span style={{ color: "#9b59b6", marginLeft: 8, fontWeight: "bold" }}>CAM DETACHED (F)</span>}
+      {showMovementDebug && (
+        <div style={{ marginTop: 2, color: "#00ff88", fontVariantNumeric: "tabular-nums", fontSize: 11 }}>
+          {moveDebug}
+        </div>
+      )}
     </div>
   );
 });
@@ -1602,7 +1634,7 @@ export default function App() {
           Start Game
         </button>
         <div style={helpStyle}>
-          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: crafting | T: task mode | Q: task queue | M: map (click map to walk) | Tab: switch blockhead | G: use item (spawn egg) | F1: no-shadows | F2: chunk grid | F3: noclip | F6: inspect cell | ESC: pause
+          WASD/Arrows: move | Space: jump | Left-click: mine (auto FG/BG) | Right-click: place | Wheel: zoom | 1-9: hotbar | I: inventory | C: crafting | T: task mode | Q: task queue | M: map (click map to walk) | Tab: switch blockhead | G: use item (spawn egg) | F1: no-shadows | F2: chunk grid | F3: noclip | F4: movement debug | F6: inspect cell | ESC: pause
         </div>
       </div>
     );
