@@ -9,9 +9,9 @@
 import { GameRenderer } from "@downdraft/core";
 import { getBlockDef } from "../shared/block-registry";
 import {
-  ACTIVE_GRID_H, ACTIVE_GRID_W,
-  BLOCK_AIR,
-  CHUNK_H, CHUNK_W, TICK_RATE
+    ACTIVE_GRID_H, ACTIVE_GRID_W,
+    BLOCK_AIR,
+    CHUNK_H, CHUNK_W, TICK_RATE
 } from "../shared/constants";
 import { CROP_LOOKUP } from "../shared/crops";
 import { getItemDef } from "../shared/items";
@@ -27,7 +27,7 @@ import { CharacterPass, type CharacterGender } from "./character-pass";
 import { CropSpritePass } from "./crop-sprite-pass";
 import { DropPass, type DropRenderData } from "./drop-pass";
 import {
-  createInputHandler, type BlockheadsInputState,
+    createInputHandler, type BlockheadsInputState,
 } from "./input-handler";
 import { invert, raycastGridSlab, rayToZ0, unprojectScreen } from "./matrix";
 import { SkyPass } from "./sky-pass";
@@ -111,55 +111,40 @@ export class BlockheadsRenderer extends GameRenderer {
   private camWorldY = 0;
   private camWorldInit = false;
 
-  // Tick-based interpolation for smooth rendering at display framerate.
+  // --- Player position rendering (velocity advance + error decay) ---
   //
-  // The sim writes positions at 30Hz. The renderer runs at 60Hz (or whatever
-  // the display refreshes at). The two clocks drift relative to each other
-  // (sim uses setTimeout, renderer uses rAF/vsync). This drift produces a
-  // beat frequency: the renderer observes new sim ticks at intervals that
-  // quantize to frame boundaries (33.3ms = 2 frames or 50ms = 3 frames at
-  // 60Hz), and the proportion of 2-frame vs 3-frame observations slowly
-  // shifts. An alpha-based lerp (`alpha = timeSinceTick / windowMs`) can't
-  // produce constant speed under this quantization — the window never matches
-  // the actual interval, causing periodic pause/surge cycles whose proportion
-  // drifts with the beat (~1.5–10s period depending on the exact clock drift).
+  // The sim runs at 30Hz via setTimeout, which has jitter — sometimes it
+  // batches 1 tick per iteration, sometimes 2. This makes alpha-based lerp
+  // and hard snapping both fail:
+  //   - Alpha lerp: when 2 ticks batch, position delta is 2x but the window
+  //     is 1 tick → rendered speed doubles then stalls.
+  //   - Hard snap: when 2 ticks batch, the rendered position is 1 tick
+  //     behind the sim → the 0.35-block snap is visible (33px at 96 zoom).
   //
-  // Solution: velocity-based prediction. Instead of lerping between prev and
-  // cur using wall-clock alpha, we advance a predicted position at the sim's
-  // measured velocity (`pred += vel * frameDt`) and gently correct it toward
-  // the actual sim position each frame (`pred += (cur - pred) * 0.1`). This
-  // produces constant-speed movement regardless of when ticks arrive — the
-  // velocity advancement is frame-rate-driven, not tick-arrival-driven. The
-  // 10% correction absorbs drift within ~10 frames (~167ms at 60Hz) and is
-  // invisible per-frame (max correction ≈ 0.175 blocks for a 1-frame timing
-  // error at max walk speed).
+  // Solution: advance at the sim's velocity (constant, confirmed by
+  // diagnostics) and exponentially decay the position error toward zero.
+  // The error is computed at each tick arrival (simPos - renderPos) and
+  // decays by 15% per frame, converging in ~10 frames (167ms at 60Hz).
+  // The max per-frame correction is 0.35 * 0.15 = 0.05 blocks (5px) —
+  // invisible. At steady state (tickDelta=1), the error is ~0, so there's
+  // no correction and no speed variation.
   //
   // Everything is tracked in WORLD coords (active-grid pos + origin *
   // CHUNK_W) so chunk-boundary crossings don't cause jumps.
-  private prevWorldX = 0;
-  private prevWorldY = 0;
-  private curWorldX = 0;
-  private curWorldY = 0;
   private lastTick = -1;
-  // Number of sim ticks between the previous and current observed tick. The
-  // sim may batch multiple fixed-step ticks into one loop iteration (catch-up
-  // via the accumulator), and onAfterTicks writes the SAB only once with the
-  // final position. Used to compute the sim velocity (blocks/second).
-  private tickDelta = 1;
-  // Predicted world position (advanced each frame at sim velocity + corrected
-  // toward actual sim position). This is the smooth, jitter-free position
-  // used for camera + character rendering.
-  private predWorldX = 0;
-  private predWorldY = 0;
-  // Sim velocity in blocks/second, computed from (cur - prev) / tickSeconds
-  // when a new tick arrives.
-  private predVelX = 0;
-  private predVelY = 0;
-  private predInit = false;
-  // Interpolated world position (output = predicted position, used by camera +
-  // character rendering + map region centering).
+  // Raw sim velocity (blocks/tick) from the SAB.
+  private simVelX = 0;
+  private simVelY = 0;
+  // Rendered world position (advanced by velocity, corrected by error decay).
+  // Used by camera + character rendering + map centering.
   private interpWorldX = 0;
   private interpWorldY = 0;
+  // Position error (simPos - renderPos) at last tick arrival, decaying.
+  private posErrorX = 0;
+  private posErrorY = 0;
+  // --- Diagnostics ---
+  private tickDelta = 1;
+  private tickArrivalTimes: number[] = [];
 
   // Sim worker
   workerHost: BlockheadsWorkerHost | null = null;
@@ -376,6 +361,49 @@ export class BlockheadsRenderer extends GameRenderer {
   /** Interpolated player world position (for the map overlay marker). */
   getPlayerWorld(): { x: number; y: number } {
     return { x: this.interpWorldX, y: this.interpWorldY };
+  }
+
+  /**
+   * Diagnostics for debugging player movement speed issues.
+   *
+   * Key values to watch:
+   * - `simTickRate`: observed sim ticks/sec. Should be ~30.
+   * - `simVelX/Y`: raw sim velocity (blocks/tick) from the SAB. Should be
+   *   ~±0.35 at max walk speed.
+   * - `simSpeed`: |simVel| in blocks/tick.
+   * - `tickDelta`: how many sim ticks were in the last observed batch.
+   *   Should be 1. If 2+, the sim is batching (setTimeout jitter).
+   * - `renderSpeed`: current rendered speed in blocks/second
+   *   (= simSpeed * TICK_RATE). Should be ~10.5 at max walk.
+   */
+  getInterpDiagnostics(): {
+    simTickRate: number;
+    simVelX: number;
+    simVelY: number;
+    simSpeed: number;
+    renderSpeed: number;
+    tickDelta: number;
+    interpWorldX: number;
+    interpWorldY: number;
+    lastTick: number;
+  } {
+    let simTickRate = 0;
+    if (this.tickArrivalTimes.length >= 2) {
+      const span = this.tickArrivalTimes[this.tickArrivalTimes.length - 1] - this.tickArrivalTimes[0];
+      simTickRate = ((this.tickArrivalTimes.length - 1) / span) * 1000;
+    }
+    const simSpeed = Math.sqrt(this.simVelX * this.simVelX + this.simVelY * this.simVelY);
+    return {
+      simTickRate,
+      simVelX: this.simVelX,
+      simVelY: this.simVelY,
+      simSpeed,
+      renderSpeed: simSpeed * TICK_RATE,
+      tickDelta: this.tickDelta,
+      interpWorldX: this.interpWorldX,
+      interpWorldY: this.interpWorldY,
+      lastTick: this.lastTick,
+    };
   }
 
   /** Player facing direction (1 = right, -1 = left) for the map marker. */
@@ -718,11 +746,15 @@ export class BlockheadsRenderer extends GameRenderer {
     this.renderOriginCx = 0;
     this.renderOriginCy = 0;
     this.camWorldInit = false;
-    this.predInit = false;
-    this.predVelX = 0;
-    this.predVelY = 0;
     this.lastTick = -1;
     this.tickDelta = 1;
+    this.simVelX = 0;
+    this.simVelY = 0;
+    this.interpWorldX = 0;
+    this.interpWorldY = 0;
+    this.posErrorX = 0;
+    this.posErrorY = 0;
+    this.tickArrivalTimes.length = 0;
     // Re-center camera on the spawn point (active grid center, surface level)
     this.camera.detached = false;
     this.camera.endPan();
@@ -1191,90 +1223,66 @@ export class BlockheadsRenderer extends GameRenderer {
     // when the raycast runs later.
     this.processCameraInput();
 
-    // --- Velocity-based position prediction (world coords) ---
-    // See the field-level docs for why we use velocity-based prediction
-    // instead of alpha-based lerp. Short version: the sim (setTimeout, 30Hz)
-    // and renderer (rAF/vsync, 60Hz) clocks drift, producing a beat frequency
-    // that quantizes tick observations to frame boundaries. Alpha-based lerp
-    // can't produce constant speed under this quantization — it oscillates.
-    // Velocity-based prediction advances at constant speed regardless.
-    //
-    // Read the tick FIRST and cache the origin atomically — this prevents
-    // race conditions where the worker updates the SAB between reads.
+    // --- Player position: advance at sim velocity + decay position error ---
+    // See the field-level docs above. This approach is immune to sim tick
+    // batching because the advancement rate is driven by the sim velocity
+    // (constant) × render dt, not by the position delta between ticks.
+    // The error decay smoothly corrects drift without visible snapping.
     if (this.simReader) {
       const tick = this.simReader.getTick();
       if (tick !== this.lastTick) {
-        // Tick changed: read origin + bh position together (consistent snapshot)
         this.cachedOriginCx = this.simReader.getOriginCx();
         this.cachedOriginCy = this.simReader.getOriginCy();
         this.tickDelta = this.lastTick < 0 ? 1 : Math.max(1, tick - this.lastTick);
         this.lastTick = tick;
+        this.tickArrivalTimes.push(performance.now());
+        if (this.tickArrivalTimes.length > 60) this.tickArrivalTimes.shift();
 
         const bhCount = this.simReader.getBlockheadCount();
-        // Clamp active index to alive blockheads (death may have removed some).
         if (this.activeBhIndex >= bhCount) this.activeBhIndex = Math.max(0, bhCount - 1);
         if (bhCount > 0) {
           const bh = this.simReader.getBlockhead(this.activeBhIndex);
           const worldX = bh[0] + this.cachedOriginCx * CHUNK_W;
           const worldY = bh[1] + this.cachedOriginCy * CHUNK_H;
-
-          if (this.predInit) {
-            this.prevWorldX = this.curWorldX;
-            this.prevWorldY = this.curWorldY;
-            this.curWorldX = worldX;
-            this.curWorldY = worldY;
-            // Teleport detection: if the world position jumped too far
-            // for normal movement, snap the prediction to the new position.
-            const ddx = this.curWorldX - this.prevWorldX;
-            const ddy = this.curWorldY - this.prevWorldY;
-            if (ddx * ddx + ddy * ddy > 256) { // >16 blocks
-              this.predWorldX = worldX;
-              this.predWorldY = worldY;
-              this.predVelX = 0;
-              this.predVelY = 0;
+          this.simVelX = bh[2];
+          this.simVelY = bh[3];
+          if (this.lastTick > 0) {
+            // Compute position error (simPos - renderPos).
+            // Teleport detection: if error is huge, snap directly.
+            const errX = worldX - this.interpWorldX;
+            const errY = worldY - this.interpWorldY;
+            if (errX * errX + errY * errY > 256) { // >16 blocks
+              this.interpWorldX = worldX;
+              this.interpWorldY = worldY;
+              this.posErrorX = 0;
+              this.posErrorY = 0;
             } else {
-              // Compute sim velocity (blocks/second) from the position delta
-              // over the elapsed sim time. This is the true movement speed
-              // regardless of how many render frames elapsed between ticks.
-              const tickSeconds = this.tickDelta / TICK_RATE;
-              this.predVelX = (this.curWorldX - this.prevWorldX) / tickSeconds;
-              this.predVelY = (this.curWorldY - this.prevWorldY) / tickSeconds;
+              this.posErrorX = errX;
+              this.posErrorY = errY;
             }
           } else {
-            // First tick: initialize prediction to the sim position, zero velocity.
-            this.prevWorldX = worldX;
-            this.prevWorldY = worldY;
-            this.curWorldX = worldX;
-            this.curWorldY = worldY;
-            this.predWorldX = worldX;
-            this.predWorldY = worldY;
-            this.predVelX = 0;
-            this.predVelY = 0;
-            this.predInit = true;
+            // First tick: initialize to sim position.
+            this.interpWorldX = worldX;
+            this.interpWorldY = worldY;
+            this.posErrorX = 0;
+            this.posErrorY = 0;
           }
         }
       }
 
-      // Advance the predicted position at the sim's measured velocity.
-      // This produces constant-speed movement regardless of when ticks
-      // arrive — the advancement is driven by the render frame dt, not by
-      // tick arrival timing. In deterministic mode (dt=0), this is a no-op
-      // and the correction below snaps to the exact sim position.
-      this.predWorldX += this.predVelX * dt;
-      this.predWorldY += this.predVelY * dt;
+      // Advance at sim velocity (constant speed, immune to tick batching).
+      // simVelX is blocks/tick; dt * TICK_RATE converts to blocks/frame.
+      this.interpWorldX += this.simVelX * dt * TICK_RATE;
+      this.interpWorldY += this.simVelY * dt * TICK_RATE;
 
-      // Gently correct the prediction toward the actual sim position.
-      // This absorbs accumulated drift from velocity estimation error and
-      // timing mismatches. The 10% factor gives a ~167ms time constant at
-      // 60Hz — fast enough to correct drift within a few frames, slow enough
-      // to be invisible per-frame (max correction ≈ 0.018 blocks for a
-      // 1-frame timing error at max walk speed of 10.5 blocks/s).
-      const CORRECTION = 0.1;
-      this.predWorldX += (this.curWorldX - this.predWorldX) * CORRECTION;
-      this.predWorldY += (this.curWorldY - this.predWorldY) * CORRECTION;
-
-      this.interpWorldX = this.predWorldX;
-      this.interpWorldY = this.predWorldY;
+      // Exponentially decay position error toward 0.
+      // 15% per frame → converges in ~10 frames (167ms at 60Hz).
+      // Max per-frame correction: 0.35 blocks * 0.15 = 0.05 blocks (5px) — invisible.
+      const CORRECTION = 0.15;
+      this.interpWorldX += this.posErrorX * CORRECTION;
+      this.interpWorldY += this.posErrorY * CORRECTION;
+      this.posErrorX *= (1 - CORRECTION);
+      this.posErrorY *= (1 - CORRECTION);
     }
 
     // --- Camera position ---
