@@ -1,4 +1,4 @@
-import { Component } from "../ecs/component";
+import { Component } from "@downdraft/core";
 
 export type EmitterShape = "point" | "sphere" | "box" | "cone" | "disc";
 

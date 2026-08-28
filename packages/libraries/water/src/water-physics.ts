@@ -1,7 +1,7 @@
 // ============================================================================
 // Water Physics — updates the 256×256 heightfield grid each tick
 // Combines Gerstner waves + wind chop + shore damping + shore ring waves
-// Ported from to-the-ocean's simulation water buffer update logic
+// Water physics simulation
 // ============================================================================
 
 import { type ShoreSource, shoreDamping, shoreDisplacement, waterCutout } from "./shore-damping";

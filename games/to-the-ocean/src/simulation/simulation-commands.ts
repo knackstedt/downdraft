@@ -2,6 +2,12 @@
 
 import { clampSafeInt } from "@downdraft/core";
 import { WeatherSystem } from "@downdraft/library-weather";
+import {
+    addItem,
+    moveItem,
+    removeItem,
+    removeItemById
+} from "@to-the-ocean/plugin-inventory";
 import { getCropBySeed } from "../shared/data/crops";
 import {
     BiomeType,
@@ -17,12 +23,6 @@ import { PlaceableSystem } from "./building/placeable-system";
 import { MarketSystem } from "./economy/market-system";
 import { PLANT_DATA_SLOTS, PlantSystem } from "./farming/plant-system";
 import { GameModeManager } from "./gamemode/game-mode-manager";
-import {
-    addItem,
-    moveItem,
-    removeFirstOf,
-    removeItem
-} from "./inventory/inventory-system";
 import { LicenseSystem } from "./player/license-system";
 import type { SimEntity, SimPlayer } from "./simulation";
 import type { SimulationEntityManagerAccess } from "./simulation-entity-manager";
@@ -244,8 +244,8 @@ export function handleCommand(
       const crop = getCropBySeed(seedItemId);
       if (!crop) return { success: false, message: "Not a valid seed item" };
       // Consume one seed from anywhere in the inventory.
-      const removed = removeFirstOf(player.inventory, seedItemId, 1);
-      if (removed <= 0) return { success: false, message: "No seed in inventory" };
+      const removed = removeItemById(player.inventory, seedItemId, 1);
+      if (!removed) return { success: false, message: "No seed in inventory" };
       const entityId = sim.spawnEntity(EntityType.Plant, {
         position: { x, y, z },
         data: new Float32Array(PLANT_DATA_SLOTS),

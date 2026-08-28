@@ -1,6 +1,6 @@
 // ============================================================================
 // Water Renderer — flat-shaded low-poly water GPU pipeline
-// Ported from to-the-ocean/src/renderer/src/engine/WaterSystem.ts
+// Water renderer system
 // ============================================================================
 
 import { createLogger, destroyAll } from "@downdraft/core";

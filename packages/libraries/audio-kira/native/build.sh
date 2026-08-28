@@ -6,30 +6,30 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 build_target() {
     local target="$1"
-    local out_dir="$SCRIPT_DIR/../physics-rapier/native"
+    local out_dir="$SCRIPT_DIR/dist"
     mkdir -p "$out_dir"
 
-    echo "[physics-native] Building for $target..."
+    echo "[audio-native] Building for $target..."
 
     case "$target" in
         *linux*)
             cargo build --release --target "$target"
-            cp "target/$target/release/libdowndraft_physics.so" "$out_dir/"
+            cp "target/$target/release/libdowndraft_audio.so" "$out_dir/"
             ;;
         *darwin*)
             cargo build --release --target "$target"
-            cp "target/$target/release/libdowndraft_physics.dylib" "$out_dir/"
+            cp "target/$target/release/libdowndraft_audio.dylib" "$out_dir/"
             ;;
         *windows*)
             cargo build --release --target "$target"
-            cp "target/$target/release/downdraft_physics.dll" "$out_dir/"
+            cp "target/$target/release/downdraft_audio.dll" "$out_dir/"
             ;;
         *)
-            echo "[physics-native] Unknown target: $target"
+            echo "[audio-native] Unknown target: $target"
             return 1
             ;;
     esac
-    echo "[physics-native] Built $target -> $out_dir"
+    echo "[audio-native] Built $target -> $out_dir"
 }
 
 if [ "$TARGETS" = "all" ]; then
@@ -41,4 +41,4 @@ else
     done
 fi
 
-echo "[physics-native] Build complete."
+echo "[audio-native] Build complete."

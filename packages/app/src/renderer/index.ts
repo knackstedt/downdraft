@@ -125,8 +125,8 @@ export async function createDefaultSaveStore(engineVersion: string): Promise<imp
 // AutosaveManager (re-exported from @downdraft/library-persistence)
 export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/library-persistence/browser";
 
-// MCP automation harness factory
-export { createMcpHarness } from "./mcp-harness";
+// MCP automation harness factory + shared tool helpers
+export { blobToBase64, compositeScreenshot, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";
 export type { McpHarnessOptions, McpRequest, McpResponse, McpToolDef, McpToolRegistration } from "./mcp-harness";
 
 // Feature log (renderer collector + combined accessor + MCP tool factory)

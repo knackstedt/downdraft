@@ -1,15 +1,67 @@
-import { bootstrapGame } from "@downdraft/app/renderer";
+// ============================================================================
+// Renderer Entry Point — declarative GameModule + startGame()
+//
+// Migrated from bootstrapGame() to the declarative startGame() API. The common
+// sequence (UI mount, renderer create+init, render loop, FPS polling, DevTools,
+// hot-reload dispose) is handled by startGame(). Game-specific wiring (autosave
+// load/interval, renderer→store handoff) lives in the onReady/onDispose hooks.
+//
+// Note: The falling-sand renderer creates and manages its own SandWorkerHost
+// internally (in renderer.init()). The FallingSandSimAdapter below satisfies
+// the GameSimWorker interface required by startGame() without spawning a
+// duplicate worker — its start() is a no-op and the SABs it exposes are never
+// used by the renderer (which has its own). The real simulation lifecycle is
+// owned by the renderer.
+// ============================================================================
+
+import { startGame, type GameSimWorker } from "@downdraft/app/renderer";
 import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/plugin-devtools";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
 import { FallingSandRenderer } from "./renderer/falling-sand-renderer";
-import { NUM_LAYERS, PLAYER } from "./shared/sim-buffer";
+import { NUM_LAYERS, PLAYER, allocateSimBuffer } from "./shared/sim-buffer";
 import { useGameStore } from "./stores/game-store";
 import { autosave, loadAutosave } from "./stores/save-system";
 import "./styles/globals.css";
 
-bootstrapGame({
+// --- GameSimWorker adapter ---
+// The falling-sand renderer creates and manages its own SandWorkerHost
+// internally (in renderer.init()). This adapter satisfies the GameSimWorker
+// interface required by startGame() without spawning a duplicate worker.
+class FallingSandSimAdapter implements GameSimWorker {
+  private sab: SharedArrayBuffer;
+
+  constructor() {
+    this.sab = allocateSimBuffer();
+  }
+
+  async start(_config: unknown): Promise<void> {
+    // No-op: the FallingSandRenderer creates and starts its own SandWorkerHost
+    // internally during renderer.init(). This adapter exists only to satisfy
+    // the GameSimWorker interface for startGame().
+  }
+
+  onEvent(_cb: (msg: any) => void): void {
+    // The falling-sand sim does not emit events to the renderer.
+  }
+
+  getSimBuffer(): SharedArrayBuffer { return this.sab; }
+  getInputBuffer(): SharedArrayBuffer { return this.sab; }
+}
+
+// Track the autosave interval for hot-reload dispose.
+let autosaveInterval: ReturnType<typeof setInterval> | null = null;
+
+startGame({
+  // --- Renderer + Sim ---
+  renderer: (canvas) => {
+    const deterministic = (window as any).downdraft?.deterministic === true;
+    return new FallingSandRenderer(canvas, deterministic);
+  },
+  sim: () => new FallingSandSimAdapter(),
+  simConfig: {},
+
   // --- UI (React) ---
   mountUI: (overlay) => {
     const root = createRoot(overlay);
@@ -18,16 +70,6 @@ bootstrapGame({
         <App />
       </React.StrictMode>,
     );
-  },
-
-  // --- Renderer ---
-  createRenderer: (canvas) => {
-    const deterministic = (window as any).downdraft?.deterministic === true;
-    return new FallingSandRenderer(canvas, deterministic);
-  },
-  initRenderer: (renderer) => renderer.init(),
-  onRendererInit: (renderer) => {
-    useGameStore.getState().setRenderer(renderer);
   },
 
   // --- DevTools ---
@@ -82,21 +124,54 @@ bootstrapGame({
     ],
   },
 
-  // --- Autosave ---
-  autosave: {
-    load: loadAutosave,
-    save: async () => {
-      const renderer = useGameStore.getState().renderer;
-      if (!renderer) return;
-      const { grids, fields, gridW, gridH } = renderer.snapshotGrids();
-      await autosave({ gridW, gridH, grids, fields });
-    },
-    onLoad: async (saved) => {
-      const renderer = useGameStore.getState().renderer;
-      if (!renderer) return;
-      await renderer.loadSave(saved.grids, saved.fields, saved.gridW, saved.gridH);
-      console.log("[autosave] Restored last session");
-    },
+  // --- Renderer init ---
+  // Override onInit so startGame() does NOT call sim.start() (the adapter is
+  // a no-op). The renderer creates + starts its own SandWorkerHost internally.
+  onInit: async (ctx) => {
+    const ok = await ctx.renderer.init();
+    if (!ok) {
+      console.error("FallingSandRenderer initialization failed");
+      return false;
+    }
+    return true;
+  },
+
+  // --- Post-init wiring ---
+  onReady: async (ctx) => {
+    const { renderer, deterministic } = ctx;
+
+    // Wire renderer to the game store (was onRendererInit in bootstrapGame).
+    useGameStore.getState().setRenderer(renderer);
+
+    // --- Autosave (skip in deterministic/test mode) ---
+    if (!deterministic) {
+      // Load previous session
+      try {
+        const saved = await loadAutosave();
+        if (saved) {
+          await renderer.loadSave(saved.grids, saved.fields, saved.gridW, saved.gridH);
+          console.log("[autosave] Restored last session");
+        }
+      } catch {
+        console.log("[autosave] No autosave found, starting fresh");
+      }
+
+      // Set up autosave interval (every 3s, matching bootstrap default)
+      autosaveInterval = setInterval(async () => {
+        const r = useGameStore.getState().renderer;
+        if (!r) return;
+        const { grids, fields, gridW, gridH } = r.snapshotGrids();
+        await autosave({ gridW, gridH, grids, fields });
+      }, 3000);
+    }
+  },
+
+  // --- Cleanup (hot-reload dispose) ---
+  onDispose: () => {
+    if (autosaveInterval) {
+      clearInterval(autosaveInterval);
+      autosaveInterval = null;
+    }
   },
 
   // --- FPS polling ---

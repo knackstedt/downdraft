@@ -1,6 +1,6 @@
 // ============================================================================
 // Water Buffer — 256×256 heightfield grid for water physics + rendering sync
-// Ported from to-the-ocean/src/shared/water-buffer.ts
+// Water buffer definitions
 // ============================================================================
 
 export const WATER_GRID = 256;

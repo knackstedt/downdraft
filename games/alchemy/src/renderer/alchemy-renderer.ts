@@ -31,6 +31,14 @@ export class AlchemyRenderer extends GameRenderer {
   getGridH(): number { return this.gridH; }
   getWorkerHost(): AlchemyWorkerHost | null { return this.workerHost; }
 
+  /**
+   * Inject a pre-created worker host (e.g. from startGame()'s sim factory).
+   * When set, init() will use this host instead of creating its own.
+   */
+  setWorkerHost(host: AlchemyWorkerHost): void {
+    this.workerHost = host;
+  }
+
   /** Snapshot the cauldron grid + fields for saving. */
   snapshotGrid(): { grid: Uint32Array; fields: Uint8Array; gridW: number; gridH: number } {
     if (!this.gridReader) return { grid: new Uint32Array(0), fields: new Uint8Array(0), gridW: 0, gridH: 0 };
@@ -82,8 +90,12 @@ export class AlchemyRenderer extends GameRenderer {
     this.gridPass = new SandGridPass(device, format, this.gridW, this.gridH);
     this.gridPass.init();
 
-    this.workerHost = new AlchemyWorkerHost(this.gridW, this.gridH);
-    await this.workerHost.start();
+    if (!this.workerHost) {
+      this.workerHost = new AlchemyWorkerHost(this.gridW, this.gridH);
+      await this.workerHost.start();
+    } else if (this.workerHost.gridW !== this.gridW || this.workerHost.gridH !== this.gridH) {
+      await this.workerHost.resize(this.gridW, this.gridH);
+    }
     this.gridReader = this.workerHost.getReader();
 
     this.keydownHandler = (e: KeyboardEvent) => {

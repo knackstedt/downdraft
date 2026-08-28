@@ -1,5 +1,4 @@
-import type { Skeleton } from "../animation/skeleton";
-import type { SkeletonAnimator } from "../animation/skeleton-animator";
+import type { Skeleton, SkeletonAnimator } from "@downdraft/library-animation";
 import type { Entity } from "../ecs/entity";
 import type { Query } from "../ecs/query";
 import { Stage, system } from "../ecs/system";

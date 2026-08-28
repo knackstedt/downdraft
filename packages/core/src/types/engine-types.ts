@@ -95,8 +95,19 @@ export interface MainToSimMessage {
   data: any;
 }
 
+/** Base engine-level event kinds emitted by the sim thread. Games can extend
+ *  this with their own kinds — the `string` fallback allows game-specific event
+ *  names without modifying core. Use `(string & {})` to preserve IDE autocomplete
+ *  for the known base kinds while accepting any string. */
+export type SimToMainKind =
+  | "ready" | "saved" | "loaded" | "error" | "performance"
+  | "player_died" | "weather_changed" | "gc_stats" | "gc_controller_stats"
+  | "perf_stats" | "terrain_deformed" | "terrain_lod_changed"
+  | "sim_speed_changed"
+  | (string & {});
+
 export interface SimToMainMessage {
-  kind: "ready" | "saved" | "loaded" | "error" | "performance" | "player_died" | "weather_changed" | "gc_stats" | "gc_controller_stats" | "perf_stats" | "boat_design_update" | "boat_design_remove" | "collision_log" | "fishing_result" | "terrain_deformed" | "terrain_lod_changed" | "ship_hold_update" | "sim_speed_changed";
+  kind: SimToMainKind;
   data: any;
 }
 

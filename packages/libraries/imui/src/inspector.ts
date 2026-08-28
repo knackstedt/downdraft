@@ -1,7 +1,7 @@
-import type { World } from "../ecs/world";
-import type { Entity } from "../ecs/entity";
-import type { ComponentId } from "../ecs/component";
-import { getComponentName } from "../ecs/component";
+import type { World } from "@downdraft/core";
+import type { Entity } from "@downdraft/core";
+import type { ComponentId } from "@downdraft/core";
+import { getComponentName } from "@downdraft/core";
 
 export interface InspectorField {
   name: string;

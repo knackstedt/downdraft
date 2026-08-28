@@ -1,6 +1,7 @@
+import { SimBufferReader } from "@downdraft/core";
+import { GAME_PLR } from "@shared/constants/buffer";
 import React from "react";
 import { useGameStore } from "../stores/game-store";
-import { SimBufferReader, PLR } from "@downdraft/core";
 
 export default function FishingMinigame() {
   const renderer = useGameStore((s) => s.renderer);
@@ -14,8 +15,8 @@ export default function FishingMinigame() {
       if (!simReader || !simReader.isValid()) return;
       const playerSlot = simReader.getPlayerSlot(0);
       if (!playerSlot) return;
-      setTension(playerSlot.f32[PLR.FISHING_TENSION] ?? 50);
-      setProgress(playerSlot.f32[PLR.FISHING_PROGRESS] ?? 0);
+      setTension(playerSlot.f32[GAME_PLR.FISHING_TENSION] ?? 50);
+      setProgress(playerSlot.f32[GAME_PLR.FISHING_PROGRESS] ?? 0);
     }, 50);
     return () => clearInterval(interval);
   }, [renderer]);

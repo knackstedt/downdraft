@@ -8,11 +8,9 @@
 //
 // These constants are the single source of truth shared by:
 //   - the WGSL stickman shader (via computeSkeleton)
-//   - the DOM/SVG NPC overlay in games/mining-rpg/src/components/village-overlay.tsx
+//   - the DOM/SVG NPC overlay in games that use stickman rendering
 //
-// Keep them in sync with the player collision box in each game:
-//   - games/falling-sand/src/simulation/player.ts   (PW=3, PH=7)
-//   - games/mining-rpg/src/shared/constants.ts      (PLAYER_W=3, PLAYER_H=7)
+// Keep them in sync with the player collision box in each game.
 
 export const PLAYER_W = 3;
 export const PLAYER_H = 7;

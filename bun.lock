@@ -33,6 +33,7 @@
         "tailwindcss": "^3.4.0",
         "typescript": "^5.9.3",
         "vite": "^6.0.0",
+        "wgpu-matrix": "^3.4.2",
       },
     },
     "examples/plugin-tester": {
@@ -272,8 +273,18 @@
       "name": "@downdraft/core",
       "version": "0.1.0",
       "dependencies": {
+        "@downdraft/library-animation": "workspace:*",
+        "@downdraft/library-imui": "workspace:*",
+        "@downdraft/library-particles": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "wgpu-matrix": "^3.4.2",
+      },
+    },
+    "packages/libraries/animation": {
+      "name": "@downdraft/library-animation",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
       },
     },
     "packages/libraries/audio-kira": {
@@ -293,6 +304,13 @@
     },
     "packages/libraries/gaussian-splats": {
       "name": "@downdraft/library-gaussian-splats",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/imui": {
+      "name": "@downdraft/library-imui",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -336,6 +354,14 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
+      },
+    },
+    "packages/libraries/particles": {
+      "name": "@downdraft/library-particles",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "wgpu-matrix": "^3.4.2",
       },
     },
     "packages/libraries/persistence": {
@@ -611,11 +637,15 @@
 
     "@downdraft/core": ["@downdraft/core@workspace:packages/core"],
 
+    "@downdraft/library-animation": ["@downdraft/library-animation@workspace:packages/libraries/animation"],
+
     "@downdraft/library-audio-kira": ["@downdraft/library-audio-kira@workspace:packages/libraries/audio-kira"],
 
     "@downdraft/library-entities": ["@downdraft/library-entities@workspace:packages/libraries/entities"],
 
     "@downdraft/library-gaussian-splats": ["@downdraft/library-gaussian-splats@workspace:packages/libraries/gaussian-splats"],
+
+    "@downdraft/library-imui": ["@downdraft/library-imui@workspace:packages/libraries/imui"],
 
     "@downdraft/library-lighting": ["@downdraft/library-lighting@workspace:packages/libraries/lighting"],
 
@@ -626,6 +656,8 @@
     "@downdraft/library-navmesh": ["@downdraft/library-navmesh@workspace:packages/libraries/navmesh"],
 
     "@downdraft/library-networking": ["@downdraft/library-networking@workspace:packages/libraries/networking"],
+
+    "@downdraft/library-particles": ["@downdraft/library-particles@workspace:packages/libraries/particles"],
 
     "@downdraft/library-persistence": ["@downdraft/library-persistence@workspace:packages/libraries/persistence"],
 

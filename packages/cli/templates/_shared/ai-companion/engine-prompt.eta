@@ -83,25 +83,49 @@ const myPlugin: Plugin = {
 world.registerPlugin(myPlugin);
 ```
 
-### First-Party Plugins
-- `@downdraft/plugin-water` — Gerstner waves, refraction, reflection
-- `@downdraft/plugin-physics-rapier` — Rapier physics backend
-- `@downdraft/plugin-marching-cubes` — Volumetric deformable terrain
-- `@downdraft/plugin-models` — GLTF/GLB/PLY/3DS model loading
-- `@downdraft/plugin-devtools` — DevTools panel, scene inspector, GPU debugging
-- `@downdraft/plugin-items` — Item definitions and management
-- `@downdraft/plugin-inventory` — Inventory system
-- `@downdraft/plugin-crafting` — Crafting recipes and system
-- `@downdraft/library-weather` — Weather simulation
-- `@downdraft/plugin-fishing` — Fishing mechanics
-- `@downdraft/plugin-economy` — Market/trading system
-- `@downdraft/plugin-survival` — Survival stats (hunger, thirst, oxygen)
-- `@downdraft/plugin-boats` — Boat building and piloting
-- `@downdraft/plugin-wildlife` — Wildlife AI (fish, sharks, eels, etc.)
-- `@downdraft/plugin-buoyancy` — Water buoyancy physics
-- `@downdraft/plugin-collision` — Entity collision detection
+### Engine Libraries (`@downdraft/library-*`)
+- `@downdraft/library-water` — Gerstner waves, refraction, reflection
+- `@downdraft/library-physics-rapier` — Rapier physics backend
+- `@downdraft/library-physics-native` — Pure-TS physics backend
+- `@downdraft/library-marching-cubes` — Volumetric deformable terrain
+- `@downdraft/library-surface-nets` — Surface nets mesh extraction
+- `@downdraft/library-models` — GLTF/GLB/PLY/3DS model loading
+- `@downdraft/library-audio-kira` — Kira audio backend
+- `@downdraft/library-entities` — Generic model renderer
 - `@downdraft/library-lighting` — Lighting system
-- `@downdraft/plugin-networking` — Multiplayer networking
+- `@downdraft/library-weather` — Weather simulation
+- `@downdraft/library-weatherfx` — Cloud particle effects
+- `@downdraft/library-postfx` — Post-processing effects
+- `@downdraft/library-navmesh` — Navigation meshes
+- `@downdraft/library-persistence` — Save system (OPFS, File, Firebird)
+- `@downdraft/library-networking` — Multiplayer networking
+- `@downdraft/library-gaussian-splats` — Gaussian splat rendering
+- `@downdraft/library-sand` — Falling-sand simulation
+- `@downdraft/library-stickman` — Stickman skeleton rendering
+- `@downdraft/library-undertow` — DOM proxy for Web Workers
+
+### Engine Plugins (`@downdraft/plugin-*`)
+- `@downdraft/plugin-devtools` — DevTools panel, scene inspector, GPU debugging
+- `@downdraft/plugin-camera-controls` — Camera input handling
+- `@downdraft/plugin-terrain` — Terrain composition (marching-cubes + LOD)
+- `@downdraft/plugin-movement-3d` — 3D player movement
+- `@downdraft/plugin-movement-2d` — 2D grid-based movement
+- `@downdraft/plugin-sailing` — Sailing mechanics (wind, buoyancy, steering)
+- `@downdraft/plugin-electron-osr` — Offscreen rendering
+- `@downdraft/plugin-mcp` — MCP automation server
+- `@downdraft/plugin-xr` — WebXR support
+
+### Game Plugins (to-the-ocean example: `@to-the-ocean/*`)
+- `@to-the-ocean/plugin-crafting` — Crafting recipes and system
+- `@to-the-ocean/plugin-inventory` — Inventory system
+- `@to-the-ocean/library-items` — Item definitions and management
+- `@to-the-ocean/library-fishing` — Fishing mechanics
+- `@to-the-ocean/library-economy` — Market/trading system
+- `@to-the-ocean/library-survival` — Survival stats (hunger, thirst, oxygen)
+- `@to-the-ocean/library-boats` — Boat building and piloting
+- `@to-the-ocean/library-wildlife` — Wildlife AI (fish, sharks, eels, etc.)
+- `@to-the-ocean/library-buoyancy` — Water buoyancy physics
+- `@to-the-ocean/library-collision` — Entity collision detection
 
 ## Builder Modes
 

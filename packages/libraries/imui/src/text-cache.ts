@@ -56,7 +56,7 @@ export class TextAtlasCache {
     } else {
       this.atlasCanvas = document.createElement("canvas");
       (this.atlasCanvas as HTMLCanvasElement).width = MAX_ATLAS_WIDTH;
-      (this.atlasCanvas as HTMLCanvasElement). height = ATLAS_HEIGHT;
+      (this.atlasCanvas as HTMLCanvasElement).height = ATLAS_HEIGHT;
     }
     const ctx = this.atlasCanvas.getContext("2d")!;
     this.atlasCtx = ctx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;

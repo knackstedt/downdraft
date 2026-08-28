@@ -43,3 +43,24 @@ dells
 13" tall
 
 
+Overburden
+
+First loop
+- discover world, dig for dirt, flint, wood
+- workbench
+- craft pickaxe
+- collect stone, limestone
+- upgrade crafting stations
+
+Crafting tree loop
+
+- build shelter
+
+2nd Blockhead
+
+- FOOD
+- enemies (gorillas in trees)
+- explore
+- winter (seasons)
+
+- slow crafting, multiple characters

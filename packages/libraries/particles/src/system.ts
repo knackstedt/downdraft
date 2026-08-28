@@ -1,5 +1,5 @@
 import { type Mat4 } from "wgpu-matrix";
-import type { GraphRenderContext } from "../render/frame-graph";
+import type { GraphRenderContext } from "@downdraft/core";
 import { ParticleComputePass } from "./compute-pass";
 import type { ParticleEmitterData } from "./emitter";
 import type { ParticleGPUData } from "./particle-data";

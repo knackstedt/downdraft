@@ -60,7 +60,7 @@ Options:
   --inspector       Enable Node inspector
 
 Test options:
-  --game <name>       Game to test (default: to-the-ocean)
+  --game <name>       Game to test (default: DOWNDRAFT_GAME env or detected from CWD)
   --spec <path>       Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)
   --port <n>          MCP port (default: 9976)
   --renderer <gpu|cpu>  WebGPU backend: cpu=SwiftShader (default), gpu=hardware
@@ -70,7 +70,7 @@ Test options:
   --build-only        Only test the built app (skip dev server; requires prior build)
 
 Dist options:
-  --game <name>       Game to package (default: DOWNDRAFT_GAME or to-the-ocean)
+  --game <name>       Game to package (default: DOWNDRAFT_GAME env or detected from CWD)
   --target <plat>     Target platform: win, linux, mac, or all (default: all)
   --config <path>     Explicit path to a build.config.ts / config file
   --project-dir <p>   Override the project directory (default: repo root)

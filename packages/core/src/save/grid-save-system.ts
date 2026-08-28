@@ -2,8 +2,7 @@
 // createGridSaveSystem — generic save-system factory for grid-based games.
 //
 // Eliminates the duplicated getStore() singleton + save/load/list/delete/
-// autosave/loadAutosave boilerplate that was copy-pasted across alchemy,
-// falling-sand, mining-rpg, and sandjongg.
+// autosave/loadAutosave boilerplate that was copy-pasted across grid-based games.
 //
 // The factory owns:
 //   - Lazy ISaveStore singleton (via the game-provided createStore function)

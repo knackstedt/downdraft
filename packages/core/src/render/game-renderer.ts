@@ -6,16 +6,13 @@
 // logic through callback hooks.
 // ============================================================================
 
+import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "@downdraft/library-imui";
 import type { RendererPlugin } from "../plugin/renderer-plugin";
 import { TelemetryCollector } from "../telemetry/collector";
 import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
 import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
 import { GPUProfiler, type FrameGraphData, type GPUInfo } from "../telemetry/gpu-profiler";
 import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker";
-import { UIRoot } from "../ui/element";
-import { UIInputRouter } from "../ui/input";
-import { LayoutEngine } from "../ui/layout";
-import { UIRenderer } from "../ui/renderer";
 import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher";
 import { GPUDeviceManager } from "./device";
 import type { RenderContext } from "./frame-graph";

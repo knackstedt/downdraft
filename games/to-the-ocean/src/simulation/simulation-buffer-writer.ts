@@ -1,15 +1,15 @@
 // SharedArrayBuffer writing — extracted from Simulation.ts
 
-import { shoreDamping, shoreDisplacement, waterCutout, type ShoreSource } from "@downdraft/library-water";
-import { WeatherSystem } from "@downdraft/library-weather";
 import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "@downdraft/core";
+import { shoreDamping, shoreDisplacement, WATER_GRID_SAB as WATER_GRID, WaterBufferWriter, waterCutout, type ShoreSource } from "@downdraft/library-water";
+import { WeatherSystem } from "@downdraft/library-weather";
+import { GAME_PLR } from "@shared/constants/buffer";
+import { getGridStateForUI } from "@to-the-ocean/plugin-inventory";
 import { GameMode, SimToMainMessage } from "../shared/types";
-import { WATER_GRID_SAB as WATER_GRID, WaterBufferWriter } from "@downdraft/library-water";
 import { BoatCellSystem } from "./boat/boat-cell-system";
 import { BoatSystem } from "./boat/boat-system";
 import { CameraController } from "./camera/camera-controller";
 import { FishingSystem } from "./fishing/fishing-system";
-import { getGridStateForUI } from "./inventory/inventory-system";
 import { RapierPhysicsSystem } from "./physics/rapier-physics-system";
 import { fastCos, fastSin } from "./sim-trig";
 import type { SimulationEntityManagerAccess } from "./simulation-entity-manager";
@@ -155,12 +155,12 @@ export function writeToBuffer(sim: SimulationBufferWriterAccess): void {
     f32[PLR.VIEWPORT_W] = p.viewport.w;
     f32[PLR.VIEWPORT_H] = p.viewport.h;
     f32[PLR.THIRD_PERSON_DISTANCE] = p.thirdPersonDistance;
-    f32[PLR.GOLD] = p.gold;
+    f32[GAME_PLR.GOLD] = p.gold;
 
     // Write fishing state
     const fishState = sim.fishingSystem.getMinigameState(i);
-    f32[PLR.FISHING_TENSION] = fishState ? fishState.tension : 0;
-    f32[PLR.FISHING_PROGRESS] = fishState ? fishState.progress : 0;
+    f32[GAME_PLR.FISHING_TENSION] = fishState ? fishState.tension : 0;
+    f32[GAME_PLR.FISHING_PROGRESS] = fishState ? fishState.progress : 0;
 
     // Write freecam data
     const freecamPos = sim.cameraController.getFreecamPosition(p.playerId);

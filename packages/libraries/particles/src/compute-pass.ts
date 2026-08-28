@@ -1,5 +1,5 @@
-import type { GraphRenderContext } from "../render/frame-graph";
-import { RenderPass } from "../render/render-pass";
+import type { GraphRenderContext } from "@downdraft/core";
+import { RenderPass } from "@downdraft/core";
 
 const PARTICLE_COMPUTE_SHADER = `
 struct Particle {

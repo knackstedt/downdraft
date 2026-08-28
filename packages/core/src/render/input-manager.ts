@@ -3,7 +3,7 @@
 // Extracted from WebGPURenderer's input handling logic.
 // ============================================================================
 
-import { UIInputRouter } from "../ui/input";
+import { UIInputRouter } from "@downdraft/library-imui";
 
 export interface RenderInputState {
   keysDown: Set<number>;
@@ -22,9 +22,9 @@ export class InputManager {
   private pointerLockRetryCount = 0;
   // When false (the default), the canvas does not auto-grab the pointer on
   // click. Pointer lock is an opt-in FPS-style concern; 2D click-based games
-  // (mining-rpg, alchemy, falling-sand, …) must not have their cursor
+  // (2D grid-based games, …) must not have their cursor
   // captured/hidden. 3D games that want pointer lock either set this flag or
-  // manage pointer lock themselves (e.g. to-the-ocean's RendererInputHandler).
+  // manage pointer lock themselves (e.g. games that manage pointer lock themselves).
   private enablePointerLock: boolean;
 
   private uiInputRouter: UIInputRouter | null = null;
@@ -65,7 +65,7 @@ export class InputManager {
     }) as EventListener);
 
     // Pointer lock is opt-in: only 3D FPS-style games request it. 2D
-    // click-based games (mining-rpg, alchemy, …) must keep a visible,
+    // click-based games (2D grid-based games, …) must keep a visible,
     // free-moving cursor so click-to-dig / click-to-place works.
     if (this.enablePointerLock) {
       add(this.canvas, "click", (() => {

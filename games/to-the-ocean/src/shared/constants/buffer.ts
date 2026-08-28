@@ -29,3 +29,13 @@ export const WATER_HEIGHT_BYTES = WATER_GRID_SIZE * WATER_GRID_SIZE * 4;   // f3
 export const WATER_NORMAL_BYTES = WATER_GRID_SIZE * WATER_GRID_SIZE * 12; // f32x3
 export const WATER_FLOW_BYTES = WATER_GRID_SIZE * WATER_GRID_SIZE * 8;    // f32x2
 export const WATER_BUFFER_SIZE = WATER_HEADER_SIZE + WATER_HEIGHT_BYTES + WATER_NORMAL_BYTES + WATER_FLOW_BYTES;
+
+// --- Game-specific player SAB extension ---
+// The core engine player slot (SIM_PLAYER_SLOT_SIZE = 256 bytes = 64 f32s)
+// reserves indices 31–63 for game-specific state. These constants define
+// to-the-ocean's extension fields in that padding area.
+export const GAME_PLR = {
+  GOLD: 31,
+  FISHING_TENSION: 32,
+  FISHING_PROGRESS: 33,
+} as const;

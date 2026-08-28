@@ -238,7 +238,7 @@ Rust side:
 - Total: ~0.4ms (~2.4% of tick budget).
 - This is the most expensive layer but provides the strongest protection.
 
-**Implementation:** New Rust crate `protected-state` in `packages/audio-native/` style (or new `packages/security-native/`). Compiled to WASM, loaded in `sim-worker-web.ts`. Access through typed wrapper. Requires `wasm-pack` build step.
+**Implementation:** New Rust crate `protected-state` nested inside a library package (e.g. `packages/libraries/security/native/`). Compiled to WASM, loaded in `sim-worker-web.ts`. Access through typed wrapper. Requires `wasm-pack` build step.
 
 ---
 

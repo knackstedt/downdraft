@@ -1,6 +1,5 @@
+import type { AnimationClipData, SkeletonData } from "@downdraft/library-animation";
 import { Component } from "../ecs/component";
-import type { SkeletonData } from "../animation/skeleton";
-import type { AnimationClipData } from "../animation/clip";
 
 export interface SkinnedMeshData {
   skeleton: SkeletonData;

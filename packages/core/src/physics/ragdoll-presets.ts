@@ -1,5 +1,5 @@
-import type { Skeleton } from "../animation/skeleton";
-import type { RagdollConfig, RagdollBoneConfig, RagdollJointConfig } from "./ragdoll";
+import type { Skeleton } from "@downdraft/library-animation";
+import type { RagdollBoneConfig, RagdollConfig, RagdollJointConfig } from "./ragdoll";
 
 interface BoneMatch {
   names: string[];

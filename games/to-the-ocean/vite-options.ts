@@ -1,7 +1,30 @@
-import { resolve } from "path";
-import { createDowndraftViteConfig } from "../../packages/app/src/vite/index";
+// ============================================================================
+// vite-options — custom Vite options for to-the-ocean.
+//
+// These options are loaded by the root electron.vite.config.ts when
+// DOWNDRAFT_GAME=to-the-ocean. They provide the game-specific plugin
+// aliases, simPaths, excludePaths, and html config.
+//
+// For standalone builds (cd games/to-the-ocean && npx electron-vite build),
+// the electron.vite.config.ts in this directory calls
+// createDowndraftViteConfig() directly with the same options.
+//
+// This file exports a FACTORY FUNCTION to match the convention used by
+// other games (e.g. mining-rpg). to-the-ocean doesn't need any special
+// Vite plugins, so the factory takes no parameters.
+// ============================================================================
 
-const repoRoot = resolve(__dirname, "../..");
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { DowndraftViteConfigOptions } from "../../packages/app/src/vite/index";
+
+// Resolve the repo root from this file's location. Works in both ESM
+// (import.meta.url) and CJS (__dirname) contexts — the root config loads
+// this via createRequire which may use either.
+const here = typeof __dirname !== "undefined"
+  ? __dirname
+  : dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, "../..");
 
 // @to-the-ocean game plugin aliases — game-owned, depend on engine.
 // Registered here (not in the engine Vite config) so the engine stays
@@ -30,34 +53,34 @@ const toTheOceanAliases = [
   { find: /^@to-the-ocean\/util\//, replacement: resolve(repoRoot, "games/to-the-ocean/src/util") + "/" },
 ];
 
-export default createDowndraftViteConfig({
-  root: __dirname,
-  game: "to-the-ocean",
-  rendererAliases: toTheOceanAliases,
-  // to-the-ocean has a sim worker — simPaths trigger worker swap (with ack).
-  // Append our own plugin dir to the engine defaults.
-  simPaths: [
-    "simulation/",
-    "shared/",
-    "packages/core/",
-    "packages/plugins/",
-    "packages/libraries/",
-    "games/to-the-ocean/plugins/",
-  ],
-  // These plugin dirs are sim-side only — exclude from renderer HMR to avoid
-  // spurious full reloads.
-  excludePaths: [
-    "packages/plugins/electron-osr/src/main/",
-    "simulation/ecs/ecs-",
-    "games/to-the-ocean/plugins/wildlife/src/",
-    "games/to-the-ocean/plugins/buoyancy/src/",
-    "games/to-the-ocean/plugins/collision/src/",
-  ],
-  html: {
-    title: "To The Ocean",
-    layers: [
-      { type: "canvas", id: "game-canvas" },
-      { type: "dom", id: "root" },
+export default function buildOptions(): Partial<DowndraftViteConfigOptions> {
+  return {
+    rendererAliases: toTheOceanAliases,
+    // to-the-ocean has a sim worker — simPaths trigger worker swap (with ack).
+    // Append our own plugin dir to the engine defaults.
+    simPaths: [
+      "simulation/",
+      "shared/",
+      "packages/core/",
+      "packages/plugins/",
+      "packages/libraries/",
+      "games/to-the-ocean/plugins/",
     ],
-  },
-});
+    // These plugin dirs are sim-side only — exclude from renderer HMR to avoid
+    // spurious full reloads.
+    excludePaths: [
+      "packages/plugins/electron-osr/src/main/",
+      "simulation/ecs/ecs-",
+      "games/to-the-ocean/plugins/wildlife/src/",
+      "games/to-the-ocean/plugins/buoyancy/src/",
+      "games/to-the-ocean/plugins/collision/src/",
+    ],
+    html: {
+      title: "To The Ocean",
+      layers: [
+        { type: "canvas", id: "game-canvas" },
+        { type: "dom", id: "root" },
+      ],
+    },
+  };
+}

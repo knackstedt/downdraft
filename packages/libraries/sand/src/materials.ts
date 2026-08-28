@@ -52,7 +52,7 @@ export enum Material {
   TreeWood = 49,      // wood grown from seed (same behavior as wood)
   FuseFire = 50,      // yellow fuse fire (separate from normal red fire)
   BurningOil = 51,    // slow-burning oil fire (flows like liquid, controlled decay/spread)
-  // --- Mining RPG ores (solid, become falling particles when dug) ---
+  // --- Ores (solid, become falling particles when dug) ---
   TinOre = 52,
   CopperOre = 53,
   IronOre = 54,       // ore form (distinct from pure-metal Iron block above)
@@ -60,16 +60,16 @@ export enum Material {
   SilverOre = 56,
   GoldOre = 57,
   CobaltOre = 58,
-  // --- Mining RPG gases (toxic, rise) ---
+  // --- Gases (toxic, rise) ---
   MethaneGas = 59,    // flammable, rises
   SulfurGas = 60,     // toxic, non-flammable, rises
-  // --- Mining RPG: coal (solid, flammable, becomes falling when dug) ---
+  // --- Coal (solid, flammable, becomes falling when dug) ---
   Coal = 61,
-  // --- Mining RPG: stone debris (from mining stone) ---
+  // --- Stone debris (from mining stone) ---
   Gravel = 62,      // fine crushed stone — flows like a liquid, settles in place
   LooseStone = 63,  // coarse stone chunk — falls like a solid, re-settles to Stone
-  // --- Alchemy game: ingredients (games/alchemy) ---
-  // Ice (frozen water — produced by the cooling tray)
+  // --- Ingredients ---
+  // Ice (frozen water — produced by cooling)
   Ice = 64,
   // Liquids
   Ether = 65,            // ethereal solvent — light, volatile, glowing
@@ -102,11 +102,11 @@ export enum Material {
   // Gases
   EtherealVapor = 91,    // ether + fire byproduct, rises, glowing
   AlchemicalSlag = 92,   // waste byproduct of failed reactions, dense, inert
-  // --- Mining RPG: build materials (placeable by the player) ---
+  // --- Build materials (placeable by the player) ---
   Scaffolding = 93,  // wooden plank — solid, static, stand on it
   Ladder = 94,       // wooden ladder — non-solid, climbable
   Rope = 95,         // fiber rope — non-solid, climbable
-  Torch = 96,        // placeable torch — static, emits light (mining-rpg)
+  Torch = 96,        // placeable torch — static, emits light
   ColdVapor = 97,    // cold white vapor from liquid nitrogen — static, dissipates slowly
   // --- Chemistry: acid + base ---
   Acid = 98,         // corrosive liquid — eats adjacent materials, 50% consumed per eat
@@ -247,7 +247,7 @@ export const MATERIALS: Record<number, MaterialDef> = {
   [Material.Popcorn]: def(43, "Popcorn", [0.95, 0.9, 0.7, 1.0], { gravity: 0.3, gravityDir: 1, density: 0.05, solid: true, albedo: 0.5 }),
   [Material.Rubber]: def(44, "Rubber", [0.15, 0.15, 0.15, 1.0], { density: 1.2, solid: true, flammable: true, burnTime: 300, albedo: 0.3, reflectivity: 0.15 }),
 
-  // --- Mining RPG: ores (solid, fall when dug, non-flammable) ---
+  // --- Ores (solid, fall when dug, non-flammable) ---
   [Material.TinOre]: def(52, "Tin Ore", [0.70, 0.72, 0.74, 1.0], { gravity: 1, gravityDir: 1, density: 7.3, solid: true, albedo: 0.55, reflectivity: 0.35 }),
   [Material.CopperOre]: def(53, "Copper Ore", [0.72, 0.45, 0.25, 1.0], { gravity: 1, gravityDir: 1, density: 8.9, solid: true, albedo: 0.5, reflectivity: 0.3 }),
   [Material.IronOre]: def(54, "Iron Ore", [0.55, 0.45, 0.40, 1.0], { gravity: 1, gravityDir: 1, density: 7.8, solid: true, albedo: 0.45, reflectivity: 0.2 }),
@@ -256,10 +256,10 @@ export const MATERIALS: Record<number, MaterialDef> = {
   [Material.GoldOre]: def(57, "Gold Ore", [0.90, 0.78, 0.20, 1.0], { gravity: 1, gravityDir: 1, density: 19.3, solid: true, albedo: 0.55, reflectivity: 0.5 }),
   [Material.CobaltOre]: def(58, "Cobalt Ore", [0.25, 0.35, 0.80, 1.0], { gravity: 1, gravityDir: 1, density: 8.9, solid: true, albedo: 0.5, reflectivity: 0.3 }),
 
-  // --- Mining RPG: coal (solid, flammable, falls when dug) ---
+  // --- Coal (solid, flammable, falls when dug) ---
   [Material.Coal]: def(61, "Coal", [0.10, 0.10, 0.11, 1.0], { gravity: 1, gravityDir: 1, density: 1.3, solid: true, flammable: true, burnTime: 120, albedo: 0.15, reflectivity: 0.05, brightness: 0.8 }),
 
-  // --- Mining RPG: stone debris (from mining stone) ---
+  // --- Stone debris (from mining stone) ---
   // Gravel: fine crushed stone. Marked solid (so it doesn't displace like a
   // liquid) but has special flow logic in SandWorld.tryMove that lets it
   // spread horizontally like a liquid when unsupported, then settle firmly
@@ -273,14 +273,14 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // still contain LooseStone cells; applyAging still re-settles them to Stone.
   [Material.LooseStone]: def(63, "Loose Stone", [0.45, 0.45, 0.48, 1.0], { gravity: 1, gravityDir: 1, density: 2.5, solid: true, albedo: 0.5, reflectivity: 0.1 }),
 
-  // --- Mining RPG: gases (toxic, rise) ---
+  // --- Gases (toxic, rise) ---
   [Material.MethaneGas]: def(59, "Methane Gas", [0.75, 0.78, 0.65, 0.35], { gravity: 1, gravityDir: -1, density: 0.07, gas: true, flammable: true, burnTime: 0, lifetime: 200, albedo: 0.1, brightness: 0.5 }),
   [Material.SulfurGas]: def(60, "Sulfur Gas", [0.85, 0.80, 0.30, 0.4], { gravity: 1, gravityDir: -1, density: 0.15, gas: true, lifetime: 200, albedo: 0.1, brightness: 0.6 }),
 
-  // --- Alchemy game: Ice (cooling tray byproduct) ---
+  // --- Ice (cooling byproduct) ---
   [Material.Ice]: def(64, "Ice", [0.7, 0.85, 0.95, 0.9], { density: 0.92, solid: true, albedo: 0.4, reflectivity: 0.5, brightness: 1.0 }),
 
-  // --- Alchemy game: liquids ---
+  // --- Liquids ---
   [Material.Ether]: def(65, "Ether", [0.55, 0.45, 0.85, 0.8], { gravity: 1.5, gravityDir: 1, density: 0.7, liquid: true, flammable: true, burnTime: 40, albedo: 0.2, reflectivity: 0.4, brightness: 1.1 }),
   [Material.Blood]: def(66, "Blood", [0.7, 0.05, 0.05, 0.95], { gravity: 2, gravityDir: 1, density: 1.06, liquid: true, albedo: 0.3, reflectivity: 0.2, brightness: 0.8 }),
   [Material.Syrup]: def(67, "Syrup", [0.6, 0.4, 0.15, 0.95], { gravity: 1, gravityDir: 1, density: 1.4, liquid: true, albedo: 0.3, reflectivity: 0.3, brightness: 0.9 }),
@@ -325,7 +325,7 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // Flammable. Blocks falling particles.
   [Material.Rope]: def(95, "Rope", [0.78, 0.66, 0.40, 1.0], { density: 0.3, flammable: true, burnTime: 120, climbable: true, albedo: 0.4 }),
   // Torch: placeable light source. Static (gravity=0), non-solid, emits warm
-  // orange light (handled by the mining-rpg lighting system, not physics).
+  // orange light (handled by the game's lighting system, not physics).
   // Non-flammable so it doesn't burn away. Bright color so it's visible.
   [Material.Torch]: def(96, "Torch", [0.9, 0.5, 0.2, 1.0], { density: 0.4, albedo: 0.6, brightness: 1.5 }),
   // ColdVapor: visible white vapor produced when liquid nitrogen evaporates.

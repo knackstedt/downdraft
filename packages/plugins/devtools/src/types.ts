@@ -110,7 +110,7 @@ export interface GameDevToolsTab {
  * and returns lifecycle callbacks.
  */
 export interface IDevToolsPanelExtension {
-  /** Unique id for this extension (e.g. "debug-info", "boat-layout"). */
+  /** Unique id for this extension (e.g. "debug-info", "game-panel"). */
   id: string;
   /** Tab label shown in the tab bar. */
   tabLabel: string;

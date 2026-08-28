@@ -1,5 +1,7 @@
 // Entity & player lifecycle management — extracted from Simulation.ts
 
+import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
+import { InventoryGrid, createGrid } from "@to-the-ocean/plugin-inventory";
 import {
     MAX_ENTITIES, MAX_PLAYERS,
     NIGHT_END_FRAC, NIGHT_START_FRAC,
@@ -12,13 +14,11 @@ import {
     SHIP_DATA,
     SHIP_DATA_SLOTS,
 } from "../shared/constants";
-import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
 import { CameraMode, EntityId, EntityType } from "../shared/types";
 import { BoatCellSystem } from "./boat/boat-cell-system";
 import { BoatDesignSystem } from "./boat/boat-design-system";
 import { SimEcsWorld } from "./ecs/sim-ecs-world";
 import { GameModeManager } from "./gamemode/game-mode-manager";
-import { InventoryGrid, createGrid } from "./inventory/inventory-system";
 import { RapierPhysicsSystem } from "./physics/rapier-physics-system";
 import type { SimEntity, SimPlayer } from "./simulation";
 import { SurvivalSystem } from "./survival/survival-system";

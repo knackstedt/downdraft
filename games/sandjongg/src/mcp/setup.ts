@@ -3,7 +3,7 @@
 // Exposes capture_screenshot + match_tiles tools for e2e tests.
 // ============================================================================
 
-import { createMcpHarness, downdraft } from "@downdraft/app/renderer";
+import { blobToBase64, createMcpHarness, downdraft } from "@downdraft/app/renderer";
 import type { SandjonggRenderer } from "../renderer/sandjongg-renderer";
 
 interface ToolDef {
@@ -27,19 +27,6 @@ type McpResponse = { id: number; result?: unknown; error?: { code: number; messa
 
 function errorResult(msg: string): { content: Array<{ type: string; text: string }>; isError: boolean } {
   return { content: [{ type: "text", text: msg }], isError: true };
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] ?? result;
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
 }
 
 async function compositeScreenshot(

@@ -101,6 +101,24 @@
       "@downdraft/library-weather/*": [
         "./packages/libraries/weather/src/*"
       ],
+      "@downdraft/library-imui": [
+        "./packages/libraries/imui/src/index.ts"
+      ],
+      "@downdraft/library-imui/*": [
+        "./packages/libraries/imui/src/*"
+      ],
+      "@downdraft/library-animation": [
+        "./packages/libraries/animation/src/index.ts"
+      ],
+      "@downdraft/library-animation/*": [
+        "./packages/libraries/animation/src/*"
+      ],
+      "@downdraft/library-particles": [
+        "./packages/libraries/particles/src/index.ts"
+      ],
+      "@downdraft/library-particles/*": [
+        "./packages/libraries/particles/src/*"
+      ],
       "@downdraft/library-entities": [
         "./packages/libraries/entities/src/index.ts"
       ],

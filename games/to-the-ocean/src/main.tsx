@@ -28,6 +28,7 @@ import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/rendere
 import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { WaterLib } from "@downdraft/library-water";
 import { initDevTools, useDebugStore } from "@downdraft/plugin-devtools";
+import { GAME_PLR } from "@shared/constants/buffer";
 import { CameraMode, EntityType } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";
 import { SimWebWorker, type SimWebWorkerConfig } from "./engine/sim-web-worker";
@@ -430,12 +431,12 @@ startGame({
         weatherType: simReader.getWeatherType(),
         cameraMode: playerSlot.u32[PLR.CAMERA_MODE] as CameraMode,
         isFishing: (flags & PLR_FLAG.FISHING) !== 0,
-        fishingTension: playerSlot.f32[PLR.FISHING_TENSION] ?? 50,
-        fishingProgress: playerSlot.f32[PLR.FISHING_PROGRESS] ?? 0,
+        fishingTension: playerSlot.f32[GAME_PLR.FISHING_TENSION] ?? 50,
+        fishingProgress: playerSlot.f32[GAME_PLR.FISHING_PROGRESS] ?? 0,
         activeSlot: playerSlot.u32[PLR.ACTIVE_SLOT] ?? 0,
         isPiloting: (flags & PLR_FLAG.PILOTING) !== 0,
         isOnboard: (flags & PLR_FLAG.ONBOARD) !== 0,
-        gold: playerSlot.f32[PLR.GOLD] ?? 0,
+        gold: playerSlot.f32[GAME_PLR.GOLD] ?? 0,
         playerX: playerSlot.f32[PLR.POS_X],
         playerZ: playerSlot.f32[PLR.POS_Z],
         heading: playerSlot.f32[PLR.HEADING],

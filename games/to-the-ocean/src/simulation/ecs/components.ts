@@ -9,7 +9,7 @@
 import { Component } from "@downdraft/core";
 import type { EntityId, PlayerId } from "@shared/types";
 import { CameraMode, EntityType } from "@shared/types";
-import type { InventoryGrid } from "../inventory/inventory-system";
+import type { InventoryGrid } from "@to-the-ocean/plugin-inventory";
 
 // --- Entity Components ---
 

@@ -1,7 +1,7 @@
 // @downdraft/library-sand — reusable falling-sand simulation primitives.
 //
-// Extracted from games/falling-sand/ so multiple games (falling-sand, mining-rpg)
-// share the same material definitions, cell packing, and SandWorld simulation.
+// Extracted from a game so multiple games share the same material definitions,
+// cell packing, and SandWorld simulation.
 // Games keep their own SharedArrayBuffer/worker wiring but import the core
 // sim types and the SandWorld class from here.
 
@@ -72,4 +72,6 @@ export {
     type GridSimBufferOffsets
 } from "./grid-sim-buffer";
 
-export { SandLib, SandWorldTok } from "./library"; export type { SandLibConfig } from "./library";
+export { SandLib, SandWorldTok } from "./library";
+export type { SandLibConfig } from "./library";
+

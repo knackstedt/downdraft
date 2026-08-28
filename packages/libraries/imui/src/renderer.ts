@@ -1,4 +1,4 @@
-import type { GraphRenderContext } from "../render/frame-graph";
+import type { GraphRenderContext } from "@downdraft/core";
 import type { UIDrawable } from "./element";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";
 import { TextAtlasCache } from "./text-cache";
