@@ -778,3 +778,91 @@ mining-rpg runs its UI (Solid-js components) inside a Web Worker for offscreen r
 ### Future plan
 
 Extract these plugins into `@downdraft/app/vite` as a `solidWorkerPlugin()` factory, so other games that want Solid-js-in-worker can use it without copying the workaround. This should be done after `vite-plugin-solid` adds native worker context support (tracking: https://github.com/solidjs/vite-plugin-solid/issues). Until then, the workaround stays in `games/mining-rpg/vite-options.ts`.
+
+## Mobile targets (Android + iOS via Capacitor)
+
+The engine supports Android and iOS build targets by wrapping the existing web-portable renderer/sim/worker stack in Capacitor (system WebView). The renderer, sim workers, SAB layout, and libraries are **unchanged** from desktop — they run in the system WebView with the exact same WebGPU + Worker + SharedArrayBuffer code path.
+
+### Architecture: what is portable vs Electron-only
+
+- **Already web-portable (runs unchanged in a WebView):** `packages/core/src/render/*`, `packages/core/src/worker/*`, `packages/core/src/sab/*`, `packages/core/src/input/*`, `packages/core/src/ecs/*`, all `packages/libraries/*`, all `packages/plugins/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
+- **Electron-only (replaced/skipped on mobile):** `packages/app/src/main/*` (Electron main process), `packages/app/src/preload/*` (IPC bridge), `packages/plugins/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft dist` (electron-builder).
+
+### Gating constraints
+
+- **WebGPU floor:** Android WebView 121+ / iOS WKWebView 26+ (iPadOS 26+). **iOS 26, not iOS 18**, is the real WKWebView WebGPU floor — Safari-the-browser got WebGPU at iOS 18, but the WKWebView component only enabled it at iOS 26 (Tahoe). Older iOS devices cannot run Downdraft games via this path.
+- **SharedArrayBuffer:** Requires cross-origin isolation (COOP `same-origin` + COEP `require-corp`). Capacitor's default custom-scheme loading (`capacitor://localhost`) makes header control unreliable. The reliable fix is an **embedded local HTTP server** inside the native app that serves web assets with COOP/COEP headers, pointing the WebView at `http://127.0.0.1:<port>`. This mirrors what the Electron host does via `buildCrossOriginIsolationHeaders()`.
+
+### Files
+
+- `packages/app/src/mobile/index.ts` — `createDowndraftMobileApp()` entry point (mobile equivalent of `createDowndraftApp()`).
+- `packages/app/src/mobile/mobile-bridge.ts` — `DowndraftBridge` implementation for mobile (OPFS saves, web-API display info, Capacitor plugins for quit/external, no-ops for OSR/MCP/devtools).
+- `packages/app/src/mobile/touch-input-adapter.ts` — maps touch events → `InputBufferWriter` (dual-stick, tap-to-move, tap schemes).
+- `packages/app/src/mobile/webgpu-guard.ts` — boot-time WebGPU + cross-origin isolation check with user-facing error screen.
+- `packages/app/src/mobile/capacitor-plugin-types.d.ts` — ambient type declarations for optional `@capacitor/app` and `@capacitor/browser` plugins.
+- `packages/app/src/vite/mobile-vite-config.ts` — `createDowndraftMobileViteConfig()` web-only Vite build config (no main/preload, outputs `dist/mobile/`).
+- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (build + `cap init` + sync + inject embedded server).
+- `packages/cli/templates/mobile/android/EmbeddedServer.java` — NanoHTTPD-based HTTP server template (COOP/COEP headers).
+- `packages/cli/templates/mobile/android/README.md` — Android MainActivity wiring instructions.
+- `packages/cli/templates/mobile/ios/EmbeddedServer.swift` — Swift Network framework HTTP server template (COOP/COEP headers).
+- `packages/cli/templates/mobile/ios/README.md` — iOS AppDelegate/SceneDelegate wiring instructions + ATS config.
+
+### Per-feature Electron-only strategy
+
+| Electron-only feature | Mobile strategy |
+|---|---|
+| OSR (Offscreen Rendering) | Skip (`features.osr: false`). Use DOM overlay for UI. |
+| MCP automation harness | Skip in production (desktop dev/test only). |
+| DevTools extension | Skip (use Safari Web Inspector / Chrome Remote Debug). |
+| Pointer lock | Replace with `TouchInputAdapter` (dual-stick / tap-to-move / tap). |
+| Save game state via IPC | OPFS / IndexedDB (already supported via `createSaveStore("auto")` fallback). |
+| Per-game userData isolation | Handled by OS (each installed app is sandboxed). |
+| Chromium GPU switches | N/A (WebGPU enabled by the WebView itself on supported OS versions). |
+| Display refresh rate / DPR | Web APIs (`requestAnimationFrame` timing, `window.devicePixelRatio`). |
+| GPU info / feature log | WebGPU adapter info (`GPUDeviceManager` already captures `adapter.info`). |
+| Import cache | No-op on mobile (re-import each launch, or use IndexedDB adapter). |
+| `quit()` / `openExternal()` | Capacitor plugins (`@capacitor/app`, `@capacitor/browser`). |
+
+### Adding mobile support to a game
+
+1. Create `src/mobile.ts` that calls `createDowndraftMobileApp()`:
+   ```ts
+   import { createDowndraftMobileApp } from "@downdraft/app/mobile";
+   import { gameModule } from "./game-module"; // the shared GameModule
+   createDowndraftMobileApp({
+     appId: "downdraft-my-game",
+     module: gameModule,
+     simConfigOverrides: { maxEntities: 4096 },
+     touchInput: { scheme: "dual-stick" },
+   });
+   ```
+
+2. (Optional) Create `mobile.vite.config.ts` for custom Vite options, or use the engine default.
+
+3. Install Capacitor deps: `bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios`
+
+4. Run `draft mobile --target=android` (or `ios` / `all`).
+
+5. Wire the embedded HTTP server in the native project (see `packages/cli/templates/mobile/<platform>/README.md`).
+
+6. Open the native project: `npx cap open android` (or `ios`) and run.
+
+### `draft mobile` CLI
+
+```
+draft mobile [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-build] [--skip-cap-init]
+```
+
+- Builds the web bundle via `createDowndraftMobileViteConfig()` → `dist/mobile/`.
+- Initializes Capacitor (`npx cap add android/ios`) if not already done.
+- Syncs the web bundle to native projects (`npx cap sync`).
+- Injects the embedded HTTP server native code (COOP/COEP for SharedArrayBuffer).
+- Prints next steps (open Android Studio / Xcode).
+
+### Config that must be updated when adding mobile support
+
+- `packages/app/package.json` — `./mobile` and `./vite/mobile` export mappings (already done).
+- `tsconfig.web.json` — `packages/app/src/mobile/**` include + `@downdraft/app/mobile` path mapping (already done).
+- Game's `capacitor.config.ts` — `appId`, `webDir: "dist/mobile"`, `server.androidScheme: "http"`, `server.iosScheme: "http"`.
+- Native project — embedded HTTP server wiring (see templates README).
+

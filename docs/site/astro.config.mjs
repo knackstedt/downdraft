@@ -41,6 +41,7 @@ export default defineConfig({
 						{ label: 'Particles', slug: 'guides/particles' },
 						{ label: 'Plugins', slug: 'guides/plugins' },
 						{ label: 'MCP & AI Agents', slug: 'guides/mcp' },
+						{ label: 'Mobile (Android & iOS)', slug: 'guides/mobile' },
 					],
 				},
 				{

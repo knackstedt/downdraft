@@ -33,6 +33,9 @@ async function main() {
     case "export":
       await exportGame(process.argv.slice(3));
       break;
+    case "mobile":
+      await mobile(process.argv.slice(3));
+      break;
     case "assets":
       await assets(process.argv.slice(3));
       break;
@@ -51,6 +54,7 @@ Commands:
   build [options]   Build for target platform
   dist [options]    Package a game for distribution via electron-builder
   export [options]  Package for distribution
+  mobile [options]  Build + scaffold a Capacitor mobile target (Android / iOS)
   assets <cmd>      Manage remote asset packs (pull, push, list, init, add)
   test [options]    Run e2e tests via MCP automation (SwiftShader + deterministic by default)
 
@@ -74,6 +78,13 @@ Dist options:
   --target <plat>     Target platform: win, linux, mac, or all (default: all)
   --config <path>     Explicit path to a build.config.ts / config file
   --project-dir <p>   Override the project directory (default: repo root)
+
+Mobile options:
+  --game <name>       Game to build (default: DOWNDRAFT_GAME env or detected from CWD)
+  --target <plat>     Target platform: android, ios, or all (default: all)
+  --port <n>          Embedded HTTP server port (default: 8765)
+  --skip-build        Skip the web bundle build (use existing dist/mobile/)
+  --skip-cap-init     Skip Capacitor init (use existing android/ios projects)
 `);
       process.exit(1);
   }

@@ -20,6 +20,10 @@
       "types": "./src/renderer/index.ts",
       "import": "./src/renderer/index.ts"
     },
+    "./mobile": {
+      "types": "./src/mobile/index.ts",
+      "import": "./src/mobile/index.ts"
+    },
     "./shared": {
       "types": "./src/shared/index.ts",
       "import": "./src/shared/index.ts"
@@ -27,6 +31,10 @@
     "./vite": {
       "types": "./src/vite/index.ts",
       "import": "./src/vite/index.ts"
+    },
+    "./vite/mobile": {
+      "types": "./src/vite/mobile-vite-config.ts",
+      "import": "./src/vite/mobile-vite-config.ts"
     },
     "./build": {
       "types": "./src/build/index.ts",
