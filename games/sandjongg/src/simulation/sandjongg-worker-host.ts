@@ -84,9 +84,12 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
           writeRegions: [
             { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input" },
           ],
-          // Worker writes: everything except the input region
+          // Worker writes: everything (including input, which it clears
+          // after processing — e.g. ACTION → 0). The main thread reads
+          // the cleared input back so it doesn't re-send stale actions.
           readRegions: [
             { offset: 0, length: INPUT_OFFSET, name: "pre-input" },
+            { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input" },
             { offset: INPUT_OFFSET + INPUT_BYTES, length: TOTAL_BYTES - INPUT_OFFSET - INPUT_BYTES, name: "post-input" },
           ],
         },

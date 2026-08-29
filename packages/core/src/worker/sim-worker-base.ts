@@ -327,6 +327,10 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
         const { BufferSyncWorker: BSW } = await import("./buffer-sync");
         syncWorker = new BSW(opts.onSyncConfig(sab));
         syncWorker.start();
+        // Sync initial state (e.g. board data written during onInit) to the
+        // main thread immediately — the sim may be paused at startup and
+        // syncToMain() won't be called until the first tick batch.
+        syncWorker.syncToMain();
       }
 
       running = true;
