@@ -6,17 +6,27 @@
 // renderer↔sim communication). On desktop browsers and Electron, SAB requires
 // cross-origin isolation (COOP: same-origin + COEP: require-corp).
 //
-// On Android WebView, cross-origin isolation is not supported — the WebView
-// uses "logical" COI instead of "concrete" COI, so `self.crossOriginIsolated`
-// is always false even with COOP/COEP headers. However, SharedArrayBuffer can
-// still be enabled via the `--enable-features=SharedArrayBuffer` WebView
-// command-line flag (set in /data/local/tmp/webview-command-line for debug
-// builds, or via the app's native initialization for production builds).
+// On Android WebView, cross-origin isolation is NOT supported — the WebView
+// uses "logical" COI instead of "concrete" COI (it lacks process isolation,
+// which is the security mechanism that makes concrete COI safe). So
+// `self.crossOriginIsolated` is always false even with COOP/COEP headers,
+// and SharedArrayBuffer is unavailable.
+//
+// The `--enable-features=SharedArrayBuffer` command-line flag DOES work, but
+// ONLY on debuggable builds (debug APKs). The Chromium WebView provider only
+// reads `/data/local/tmp/webview-command-line` when `Build.IS_DEBUGGABLE` is
+// true; on production (release) builds it calls `CommandLine.init(null)` and
+// no flags are loaded. The file also requires adb/shell access to write —
+// the app itself cannot write it.
+//
+// For testing on your own device: build a debug APK and use adb to set the
+// flag (see `draft mobile --debug` + the adb instructions in the shell
+// README). For production distribution: a non-SAB fallback communication
+// path is required (TODO — not yet implemented).
 //
 // This guard checks for WebGPU AND SharedArrayBuffer directly, rather than
-// relying on `crossOriginIsolated`, to support both standard browsers (where
-// SAB is gated behind COI) and Android WebView (where SAB is enabled via
-// flags without COI).
+// relying on `crossOriginIsolated`, so that SAB enabled via the
+// command-line flag on debug builds is correctly detected.
 //
 // WebGPU floor:
 //   - Android WebView 121+
@@ -52,20 +62,22 @@ export function checkWebGpuAndIsolation(): WebGuardResult {
 
   // Check for SharedArrayBuffer directly. On desktop browsers, SAB is gated
   // behind cross-origin isolation (COOP/COEP). On Android WebView, SAB is
-  // enabled via the --enable-features=SharedArrayBuffer flag, so we check
-  // for the constructor directly rather than relying on crossOriginIsolated.
+  // only available on debuggable builds via the --enable-features=SharedArrayBuffer
+  // command-line flag (set via adb); production WebView builds do not support SAB
+  // at all due to lack of process isolation (logical COI, not concrete COI).
   if (typeof SharedArrayBuffer === "undefined") {
     return {
       ok: false,
       reason:
         "SharedArrayBuffer is not available. " +
         "On desktop browsers, this requires cross-origin isolation " +
-        "(COOP + COEP headers). On Android WebView, this requires the " +
-        "'--enable-features=SharedArrayBuffer' flag. " +
-        "Ensure the embedded HTTP server is serving assets with " +
-        "'Cross-Origin-Opener-Policy: same-origin' and " +
-        "'Cross-Origin-Embedder-Policy: require-corp', and that the " +
-        "WebView is configured with the SharedArrayBuffer feature flag.",
+        "(COOP + COEP headers). On Android WebView, SAB is only available " +
+        "on debuggable builds with the '--enable-features=SharedArrayBuffer' " +
+        "flag set via adb; production WebView builds do not support SAB " +
+        "(no process isolation → logical COI only). " +
+        "For testing: build a debug APK and run " +
+        "'adb shell \"echo _ --enable-features=SharedArrayBuffer > /data/local/tmp/webview-command-line\"'. " +
+        "For production: a non-SAB fallback is required (not yet implemented).",
     };
   }
 
