@@ -37,18 +37,18 @@ draft new --list-templates
 
 ## `draft dev [options]`
 
-Starts the engine in dev mode via `electron-vite dev` with HMR. The root `electron.vite.config.ts` is a `DOWNDRAFT_GAME` dispatcher that loads the selected game's options.
+Starts the engine in dev mode via `electron-vite dev` with HMR, loading the game's own `games/<game>/electron.vite.config.ts` entrypoint directly.
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to run (default: `DOWNDRAFT_GAME` env or detected from CWD) |
+| `--game <name>`, `-g` | Game to run (required; loads `games/<game>/electron.vite.config.ts`) |
 | `--entry <path>` | Game entrypoint file (reserved for future mobile support) |
 | `--port <n>` | MCP HTTP port (default: `9876`) |
 | `--watch` | Accepted for back-compat (HMR is always on) |
 | `--no-hmr` | Disable hot-module replacement |
 | `--verbose`, `-v` | Verbose logging |
 
-> **Note:** The primary dev workflow is `bun run dev` (which runs `electron-vite dev`). `draft dev` is a thin wrapper that sets `DOWNDRAFT_GAME` and spawns `electron-vite dev`. To run a specific game: `DOWNDRAFT_GAME=<game-name> bun run dev` or `draft dev --game=<game-name>`.
+> **Note:** Each game owns its own `electron.vite.config.ts` entrypoint. `draft dev --game=<name>` loads it directly — there is no root dispatcher or `DOWNDRAFT_GAME` env var. You can also run `npx electron-vite dev --config games/<game>/electron.vite.config.ts` directly.
 
 ## `draft debug [path] [options]`
 
@@ -92,7 +92,7 @@ Packages a game for distribution via `electron-builder`. Loads the game's `build
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to package (default: `DOWNDRAFT_GAME` env or detected from CWD) |
+| `--game <name>`, `-g` | Game to package (required; `games/<game>`) |
 | `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `all` (default: `all`) |
 | `--config <path>`, `-c` | Explicit path to a `build.config.ts` / config file |
 | `--project-dir <path>` | Override the project directory (default: repo root) |
@@ -117,7 +117,7 @@ Builds and scaffolds a Capacitor mobile target (Android / iOS) from the engine-o
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to build (default: `DOWNDRAFT_GAME` env or detected from CWD) |
+| `--game <name>`, `-g` | Game to build (required; `games/<game>`) |
 | `--target <t>`, `-t` | Target: `android` / `ios` / `all` (default: `all`) |
 | `--port <n>` | Embedded HTTP server port (default: `8765`) |
 | `--skip-build` | Skip the web bundle build (use existing `dist/mobile/`) |
@@ -186,7 +186,7 @@ Runs e2e tests via MCP automation. Boots the real Electron app with `DOWNDRAFT_D
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to test (default: `DOWNDRAFT_GAME` env or detected from CWD) |
+| `--game <name>`, `-g` | Game to test (required; `games/<game>`) |
 | `--spec <path>`, `-s` | Spec file to run (default: `tests/e2e/<game>-smoke.spec.ts`) |
 | `--port <n>`, `-p` | MCP port (default: `9976`) |
 | `--renderer <r>`, `-r` | WebGPU backend: `cpu` (SwiftShader) / `gpu` (hardware) (default: `cpu`) |
@@ -216,7 +216,6 @@ draft test --build
 
 | Variable | Value | Purpose |
 |---|---|---|
-| `DOWNDRAFT_GAME` | `<game>` | Selects which game to operate on |
 | `MCP_PORT` | `<port>` | MCP HTTP transport port |
 | `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) |
 | `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU backend selection |
@@ -228,7 +227,6 @@ draft test --build
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `DOWNDRAFT_GAME` | `dev`, `build`, `dist`, `export`, `mobile`, `test` | Game selection (priority 1 over CWD detection) |
 | `DD_RELEASE_KEYSTORE` | `mobile` | Release keystore path |
 | `DD_RELEASE_KEYSTORE_PASS` | `mobile` | Keystore password |
 | `DD_RELEASE_KEY_ALIAS` | `mobile` | Key alias |
@@ -259,9 +257,9 @@ draft new my-game
 draft new my-game --template=physics --ai-companion
 
 # Run in dev mode
-bun run dev
-DOWNDRAFT_GAME=my-game bun run dev
 draft dev --game=my-game
+# or directly:
+npx electron-vite dev --config games/my-game/electron.vite.config.ts
 
 # Build for production
 draft build --mode=prod --out=dist

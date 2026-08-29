@@ -50,18 +50,18 @@ This installs all workspace dependencies via Bun workspaces, including `@downdra
 
 ## Verify Installation
 
-Run the engine shell to verify everything works:
+Run a game to verify everything works:
 
 ```bash
-bun run dev
+draft dev --game=to-the-ocean
 ```
 
-This launches `electron-vite dev` with the default renderer from `packages/app`. You should see an Electron window with the WebGPU canvas and React UI overlay.
+This launches `electron-vite dev` against that game's own `games/<game>/electron.vite.config.ts` entrypoint. You should see an Electron window with the WebGPU canvas and React UI overlay.
 
 ## Running a Specific Game
 
 ```bash
-DOWNDRAFT_GAME=<game-name> bun run dev
+draft dev --game=<game-name>
 ```
 
 ## Next Steps

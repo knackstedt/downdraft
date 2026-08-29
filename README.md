@@ -8,9 +8,9 @@ An AI-Driven Game Engine built on **Electron + electron-vite + WebGPU** (TypeScr
 # Install dependencies
 bun install
 
-# Run a specific game (each game bootstraps itself via the host SDK)
-DOWNDRAFT_GAME=to-the-ocean bun run dev
-DOWNDRAFT_GAME=model-viewer bun run dev
+# Run a specific game (each game owns its own electron.vite.config.ts entrypoint)
+draft dev --game=to-the-ocean
+draft dev --game=model-viewer
 
 # Build for production
 draft build --mode=prod --out=dist
@@ -102,12 +102,12 @@ Scaffolds a new game project.
 - `--list-templates` — List available templates
 
 ### `draft dev [options]`
-Starts the engine in dev mode via `electron-vite dev` with HMR.
-- `--game <name>`, `-g` — Game to run (default: `DOWNDRAFT_GAME` env or detected from CWD)
+Starts the engine in dev mode via `electron-vite dev` with HMR, loading the game's own `games/<game>/electron.vite.config.ts` entrypoint.
+- `--game <name>`, `-g` — Game to run (required; loads `games/<game>/electron.vite.config.ts`)
 - `--port <n>` — MCP HTTP port (default: `9876`)
 - `--no-hmr` — Disable hot-module replacement
 
-> **Note:** The primary dev workflow is `bun run dev` (which runs `electron-vite dev`). `draft dev` is a thin wrapper that sets `DOWNDRAFT_GAME` and spawns `electron-vite dev`. To run a specific game, set `DOWNDRAFT_GAME=<game-name>`.
+> **Note:** Each game owns its own `electron.vite.config.ts` entrypoint. `draft dev --game=<name>` loads it directly — there is no root dispatcher or `DOWNDRAFT_GAME` env var. You can also run `npx electron-vite dev --config games/<game>/electron.vite.config.ts` directly.
 
 ### `draft debug [options]`
 Runs the engine in debug mode with profiling, debug draw, and visualization tools.

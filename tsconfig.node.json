@@ -333,7 +333,6 @@
     "games/*/plugins/*/src/**/*.ts",
     "games/*/src/util/**/*.ts",
     "games/*/src/shared/plugin-interfaces.ts",
-    "electron.vite.config.ts",
     "games/*/electron.vite.config.ts",
     "games/*/vite-options.ts",
     "games/*/build.config.ts",

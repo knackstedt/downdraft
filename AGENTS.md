@@ -170,27 +170,25 @@ In packaged builds, the renderer loads via `win.loadFile()` → `file://` protoc
 
 **NEVER run `pkill -9 electron`, `pkill -f electron`, `killall electron`, or any other generic Electron-killing command.** The user's machine may have other Electron apps running (VS Code, Slack, Discord, other games, the Devin desktop app itself). A generic pkill will terminate all of them, destroying the user's work and your own session.
 
-Each game runs as an Electron process launched with `DOWNDRAFT_GAME=<game>` in its environment (dev mode: `bun run dev` from the repo root; built mode: `npx electron .` from `games/<game>`). To kill a specific game instance, target **that game only**:
+Each game runs as an Electron process launched against its own `games/<game>/electron.vite.config.ts` entrypoint (dev mode: `draft dev --game=<game>` or `npx electron-vite dev --config games/<game>/electron.vite.config.ts` from the repo root; built mode: `npx electron .` from `games/<game>`). To kill a specific game instance, target **that game only**:
 
-- **Match the `DOWNDRAFT_GAME` env var** (visible in `/proc/<pid>/environ` on Linux):
+- **Match the per-game `--user-data-dir`** (each game sets a unique `downdraft-<game>` userData dir, visible in the process args):
   ```bash
   # Kill only the to-the-ocean game process and its children
-  for pid in $(grep -l 'DOWNDRAFT_GAME=to-the-ocean' /proc/*/environ 2>/dev/null | cut -d/ -f3); do
+  for pid in $(pgrep -f "user-data-dir=[^ ]*downdraft-to-the-ocean" 2>/dev/null); do
     kill -TERM "$pid" 2>/dev/null
   done
   ```
 - **Match the specific game path / cwd** if you launched it from a known directory:
   ```bash
   pkill -9 -f 'games/to-the-ocean'
-  # or, for a dev run from the repo root:
-  pkill -9 -f 'DOWNDRAFT_GAME=to-the-ocean'
   ```
 - **Match the MCP port** if you know which port the game's MCP HTTP transport is bound to (default 9876 for dev, 9976 for `draft test`):
   ```bash
   fuser -k 9876/tcp   # kills whatever is bound to the game's MCP port
   ```
 
-Prefer `kill -TERM` first (lets the game clean up storage locks via `cleanupStaleStorage()` and `requestSingleInstanceLock()`); only escalate to `kill -9` if the process doesn't exit within a few seconds. If you launched the game yourself (via `bun run dev`, `draft test`, or the e2e harness), prefer terminating the parent shell/process you spawned rather than hunting for the Electron child.
+Prefer `kill -TERM` first (lets the game clean up storage locks via `cleanupStaleStorage()` and `requestSingleInstanceLock()`); only escalate to `kill -9` if the process doesn't exit within a few seconds. If you launched the game yourself (via `draft dev`, `draft test`, or the e2e harness), prefer terminating the parent shell/process you spawned rather than hunting for the Electron child.
 
 ### Debugging games — do NOT use a browser / Playwright
 
@@ -220,7 +218,7 @@ A plain browser cannot reproduce any of this, and Playwright driving a browser w
 The typical debug loop is:
 ```bash
 # 1. Launch the game with deterministic mode + a known MCP port
-DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 bun run dev &
+DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev --game=to-the-ocean &
 # 2. Call ocean MCP tools (inject_input, get_player_state, capture_screenshot, ...)
 #    to drive the game and inspect state.
 # 3. When done, kill ONLY this game instance (see "Killing game processes" above).
@@ -527,7 +525,7 @@ Each Electron game owns:
 - `src/main.ts` — calls `createDowndraftApp({ window, switches, features, lifecycle, extend })`.
 - `src/preload.ts` — calls `createDowndraftBridge({ extend })`.
 
-The root `electron.vite.config.ts` is a `DOWNDRAFT_GAME` dispatcher that uses the factory with the selected game's root. `DOWNDRAFT_GAME=<game> bun run dev` still works.
+Each game owns its own `games/<game>/electron.vite.config.ts` entrypoint, loaded directly by `draft dev --game=<game>` (or `npx electron-vite dev --config games/<game>/electron.vite.config.ts`). There is no root dispatcher or `DOWNDRAFT_GAME` env var.
 
 ### Config-driven features
 
@@ -564,7 +562,7 @@ Input injection is merged with real DOM input in `processInput()` so the game lo
 The game's MCP HTTP transport (`packages/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. However, Devin's MCP client uses stdio for local servers. A stdio-to-HTTP bridge (`.devin/mcp-stdio-bridge.mjs`) forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
 
 To connect:
-1. Start the game: `DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 bun run dev`
+1. Start the game: `DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev --game=to-the-ocean`
 2. The MCP config (`.devin/mcp_config.json`) defines the `ocean` server using the bridge script.
 3. The bridge forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:9876/mcp`.
 4. Notifications (messages without an `id` field, like `notifications/initialized`) are silently ignored by the bridge.
@@ -619,7 +617,7 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 - `bun run test:e2e:headless` — same, but forces `DOWNDRAFT_GPU=swiftshader`.
 - `bun run test:e2e:local` — same, no env override (uses hardware GPU by default).
 
-`tests/e2e/harness.ts` launches `bun run dev` with `DOWNDRAFT_GAME=to-the-ocean`, waits for the MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
+`tests/e2e/harness.ts` launches `npx electron-vite dev --config games/<game>/electron.vite.config.ts`, waits for the MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/to-the-ocean-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
 
 **Build mode:** Pass `--build` to `draft test` to build the game with `electron-vite build` first, then test the packaged app from `dist/main/index.cjs` instead of the dev server. This catches production-only bugs (e.g. minification issues, missing assets, tree-shaking problems). Use `--build-only` to skip the dev server entirely (requires a prior build). The harness detects built mode via the `DOWNDRAFT_TEST_BUILT=1` env var.
 
@@ -637,7 +635,6 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Value | Purpose |
 |---|---|---|
-| `DOWNDRAFT_GAME` | `<game>` | Selects which game to operate on |
 | `MCP_PORT` | `<port>` | MCP HTTP transport port |
 | `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) |
 | `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU backend selection |
@@ -649,7 +646,6 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `DOWNDRAFT_GAME` | `dev`, `build`, `dist`, `export`, `mobile`, `test` | Game selection (priority 1 over CWD detection) |
 | `DD_RELEASE_KEYSTORE` | `mobile` | Release keystore path |
 | `DD_RELEASE_KEYSTORE_PASS` | `mobile` | Keystore password |
 | `DD_RELEASE_KEY_ALIAS` | `mobile` | Key alias |

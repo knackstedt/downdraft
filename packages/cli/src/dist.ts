@@ -19,7 +19,6 @@ import { createLogger } from "@downdraft/core";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
-import { detectGame } from "./detect-game";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -40,7 +39,7 @@ function parseDistArgs(args: string[]): DistArgs {
     process.exit(0);
   }
   return {
-    game: (parsed.flags.game as string) || detectGame() || "to-the-ocean",
+    game: parsed.flags.game as string,
     target: parsed.flags.target as DistArgs["target"],
     configPath: (parsed.flags.config as string) || null,
     projectDir: (parsed.flags["project-dir"] as string) || null,

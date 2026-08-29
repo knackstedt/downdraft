@@ -38,7 +38,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 1. Check the console output for the crash reason
 2. Try running in debug mode for more verbose logging:
    ```bash
-   bun run dev -- --verbose
+   draft dev --game=<game-name> --verbose
    ```
 3. If the crash is reproducible, use MCP `checkpoint` tools to save state before the crash point
 
@@ -57,7 +57,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 
 ## Build Fails
 
-**Symptom:** `draft build` or `bun run build` fails.
+**Symptom:** `draft build` fails.
 
 **Solutions:**
 
@@ -107,4 +107,4 @@ renderer.setFrameRateLimit(60); // or your monitor's refresh rate
 1. Check the DevTools console (Ctrl+Shift+I) for errors
 2. Ensure WebGPU is available (see above)
 3. Try running in dev mode to see detailed error messages
-4. Check that the correct game is being loaded (`DOWNDRAFT_GAME` environment variable)
+4. Check that the correct game is being loaded (pass `--game=<name>` to `draft dev`)
