@@ -14,7 +14,7 @@ self.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
   console.error("[sandjongg-worker] unhandled rejection:", String(e.reason));
 });
 
-import { createSimWorker, type SimWorkerControl } from "@downdraft/core";
+import { createSimWorker, usingRealSAB, type BufferSyncConfig, type SimWorkerControl } from "@downdraft/core";
 import {
     DEFAULT_GRAVITY,
     FIELD,
@@ -34,6 +34,7 @@ import {
     OFFSETS,
     STATS,
     SimBufferWriter,
+    TOTAL_BYTES,
 } from "../shared/sim-buffer";
 import { tilesetMaterial, type TilesetId } from "../shared/tilesets";
 import type { GameMode, SerializedBoard } from "../shared/types";
@@ -146,8 +147,13 @@ let matchState: MatchEngineState = resetComboState();
 // unreliable nested-worker path, we skip it entirely and step a standalone
 // SandWorld inline on this worker's thread. With a 512×512 grid and 1 worker,
 // there is no parallelism loss — only the nested-worker failure mode is removed.
+//
+// Additionally, when the SAB polyfill is active (Android WebView), the
+// SandStepPool cannot function — it spawns nested workers that share a SAB
+// for parallel sand physics, but the polyfilled SAB is not actually shared
+// (each thread gets its own ArrayBuffer copy). So we force inline mode.
 const NUM_SAND_WORKERS = 1;
-const USE_INLINE_FALLBACK = true; // Always inline — nested workers are unreliable
+const USE_INLINE_FALLBACK = true; // Always inline — nested workers are unreliable + SAB polyfill
 
 createSimWorker({
   fixedDt: 1 / 60,
@@ -169,7 +175,12 @@ createSimWorker({
     // "ready" but then hang on step messages, freezing the simulation. With
     // NUM_SAND_WORKERS = 1 there is no parallelism benefit, so we skip the
     // pool entirely and step a standalone SandWorld inline.
-    if (!USE_INLINE_FALLBACK) {
+    //
+    // Also skip when the SAB polyfill is active (Android WebView): the pool
+    // shares a SAB with nested workers, but the polyfilled SAB is not actually
+    // shared (each thread gets its own ArrayBuffer copy), so the pool would
+    // silently produce incorrect results.
+    if (!USE_INLINE_FALLBACK && usingRealSAB) {
       try {
         pool = new SandStepPool({ W: gridW, H: gridH, numWorkers: NUM_SAND_WORKERS, gravityOverrides: GRAVITY_OVERRIDES });
         await Promise.race([
@@ -253,6 +264,28 @@ createSimWorker({
   onShutdown(): void {
     if (pool) { pool.shutdown(); pool = null; }
     world = null;
+  },
+
+  // SAB polyfill: declare buffer sync regions (worker side).
+  // The worker writes everything except the input region; the main thread
+  // writes the input region (64 bytes at INPUT_OFFSET).
+  onSyncConfig(sab: SharedArrayBuffer): BufferSyncConfig {
+    return {
+      buffers: { sim: sab },
+      regions: {
+        sim: {
+          // Worker writes: everything except the input region
+          writeRegions: [
+            { offset: 0, length: INPUT_OFFSET, name: "pre-input" },
+            { offset: INPUT_OFFSET + INPUT_BYTES, length: TOTAL_BYTES - INPUT_OFFSET - INPUT_BYTES, name: "post-input" },
+          ],
+          // Main thread writes: input region only
+          readRegions: [
+            { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input" },
+          ],
+        },
+      },
+    };
   },
 
   extraApi: {

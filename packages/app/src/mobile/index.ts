@@ -28,6 +28,12 @@
 //   });
 //
 
+// Import the SAB polyfill FIRST — it must execute before any code that
+// references SharedArrayBuffer. On desktop/Electron this is a no-op.
+// On Android WebView (where SAB is unavailable), it polyfills SAB as an
+// ArrayBuffer subclass and shims Atomics.wait. See sab-polyfill.ts.
+import "@downdraft/core/sab/sab-polyfill";
+
 import type { InputBufferWriter } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
 import type { GameContext } from "../renderer/game-module";

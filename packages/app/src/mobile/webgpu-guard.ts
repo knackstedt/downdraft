@@ -1,5 +1,5 @@
 // ============================================================================
-// webgpu-guard — boot-time WebGPU + SharedArrayBuffer check for mobile
+// webgpu-guard — boot-time WebGPU check for mobile
 // ============================================================================
 //
 // The engine's sim architecture is built on SharedArrayBuffer (zero-copy
@@ -10,23 +10,22 @@
 // uses "logical" COI instead of "concrete" COI (it lacks process isolation,
 // which is the security mechanism that makes concrete COI safe). So
 // `self.crossOriginIsolated` is always false even with COOP/COEP headers,
-// and SharedArrayBuffer is unavailable.
+// and SharedArrayBuffer is unavailable on production builds.
 //
-// The `--enable-features=SharedArrayBuffer` command-line flag DOES work, but
-// ONLY on debuggable builds (debug APKs). The Chromium WebView provider only
-// reads `/data/local/tmp/webview-command-line` when `Build.IS_DEBUGGABLE` is
-// true; on production (release) builds it calls `CommandLine.init(null)` and
-// no flags are loaded. The file also requires adb/shell access to write —
-// the app itself cannot write it.
+// When SAB is unavailable, the SAB polyfill (sab-polyfill.ts) replaces it
+// with an ArrayBuffer subclass, and the BufferSyncManager (buffer-sync.ts)
+// synchronizes buffer regions between threads via postMessage. This is
+// transparent to all game and engine code — no fallback paths needed.
 //
-// For testing on your own device: build a debug APK and use adb to set the
-// flag (see `draft mobile --debug` + the adb instructions in the shell
-// README). For production distribution: a non-SAB fallback communication
-// path is required (TODO — not yet implemented).
+// The `--enable-features=SharedArrayBuffer` command-line flag works on
+// debuggable builds (debug APKs) and enables real SAB (bypassing the
+// polyfill). See `draft mobile --debug` + the adb instructions in the shell
+// README.
 //
-// This guard checks for WebGPU AND SharedArrayBuffer directly, rather than
-// relying on `crossOriginIsolated`, so that SAB enabled via the
-// command-line flag on debug builds is correctly detected.
+// This guard checks for WebGPU only (hard requirement). SAB is handled
+// transparently by the polyfill. We check for SAB directly (not
+// `crossOriginIsolated`) so that SAB enabled via the command-line flag on
+// debug builds is correctly detected and the polyfill is skipped.
 //
 // WebGPU floor:
 //   - Android WebView 121+
@@ -39,13 +38,12 @@ export interface WebGuardResult {
 }
 
 /**
- * Check that WebGPU and SharedArrayBuffer are available.
- * Returns `{ ok: true }` if both are present, otherwise `{ ok: false, reason }`.
+ * Check that WebGPU is available.
+ * Returns `{ ok: true }` if WebGPU is present, otherwise `{ ok: false, reason }`.
  *
- * On Android WebView, `crossOriginIsolated` is always false (the WebView uses
- * "logical" COI, not "concrete" COI). We check for SharedArrayBuffer directly
- * instead of relying on `crossOriginIsolated`, so that SAB enabled via the
- * `--enable-features=SharedArrayBuffer` flag is correctly detected.
+ * SharedArrayBuffer is no longer a hard requirement — when unavailable (Android
+ * WebView production builds), the SAB polyfill provides a transparent fallback
+ * via copy-based buffer sync. See sab-polyfill.ts + buffer-sync.ts.
  */
 export function checkWebGpuAndIsolation(): WebGuardResult {
   const nav = globalThis as unknown as { navigator?: { gpu?: unknown } };
@@ -60,26 +58,10 @@ export function checkWebGpuAndIsolation(): WebGuardResult {
     };
   }
 
-  // Check for SharedArrayBuffer directly. On desktop browsers, SAB is gated
-  // behind cross-origin isolation (COOP/COEP). On Android WebView, SAB is
-  // only available on debuggable builds via the --enable-features=SharedArrayBuffer
-  // command-line flag (set via adb); production WebView builds do not support SAB
-  // at all due to lack of process isolation (logical COI, not concrete COI).
-  if (typeof SharedArrayBuffer === "undefined") {
-    return {
-      ok: false,
-      reason:
-        "SharedArrayBuffer is not available. " +
-        "On desktop browsers, this requires cross-origin isolation " +
-        "(COOP + COEP headers). On Android WebView, SAB is only available " +
-        "on debuggable builds with the '--enable-features=SharedArrayBuffer' " +
-        "flag set via adb; production WebView builds do not support SAB " +
-        "(no process isolation → logical COI only). " +
-        "For testing: build a debug APK and run " +
-        "'adb shell \"echo _ --enable-features=SharedArrayBuffer > /data/local/tmp/webview-command-line\"'. " +
-        "For production: a non-SAB fallback is required (not yet implemented).",
-    };
-  }
+  // SharedArrayBuffer is optional — the polyfill handles it transparently.
+  // No SAB check here. The polyfill (sab-polyfill.ts) activates automatically
+  // when SAB is undefined and logs a warning with the debug identifier
+  // `globalThis.__DOWNDRAFT_SAB_POLYFILL = true`.
 
   return { ok: true };
 }

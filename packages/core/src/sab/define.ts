@@ -12,6 +12,36 @@ import type {
     SlotSectionDef,
 } from "./types";
 
+// ============================================================================
+// Single-writer constraint
+// ============================================================================
+//
+// All SAB channels in the Downdraft engine follow a single-writer-per-region
+// constraint: each buffer region (header, slots, records, grids, input, stats,
+// board) has exactly ONE thread that writes to it. The other thread only reads.
+//
+// This constraint is critical for the SAB polyfill (sab-polyfill.ts), which
+// replaces SharedArrayBuffer with an ArrayBuffer subclass on Android WebView.
+// The polyfill uses a copy-based buffer-sync protocol (buffer-sync.ts) that
+// copies each side's written regions to the other side via postMessage. If
+// both sides write to the same region, the sync will overwrite one side's
+// writes with stale data from the other, causing unpredictable behavior.
+//
+// When adding a new channel or buffer region:
+//   1. Document which thread writes (sim worker vs main/renderer).
+//   2. Ensure the other thread only reads (use Reader classes, not Writer).
+//   3. Declare the region in the BufferSyncConfig (see buffer-sync.ts).
+//
+// Current channel ownership:
+//   - SimChannel: worker writes (entities, players, header), main reads
+//   - InputChannel: main writes (input), worker reads
+//   - WaterChannel: worker writes, renderer reads
+//   - BoatChannel: worker writes, renderer reads
+//   - GridSimBuffer (sand): worker writes (grid, fields, stats, board),
+//     main writes (input region only — embedded at INPUT_OFFSET)
+//
+// ============================================================================
+
 // --- Type-level inference helpers ---
 
 type HeaderOffsets<Def extends ChannelDef> = {
