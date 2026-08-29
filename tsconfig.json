@@ -37,6 +37,12 @@
       "@downdraft/shader-graph/*": [
         "./packages/shader-graph/src/*"
       ],
+      "@downdraft/test": [
+        "./packages/test/src/index.ts"
+      ],
+      "@downdraft/test/*": [
+        "./packages/test/src/*"
+      ],
       "@downdraft/cli/*": [
         "./packages/cli/src/*"
       ],

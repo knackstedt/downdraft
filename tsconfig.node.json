@@ -50,6 +50,12 @@
       "@downdraft/shader-graph": [
         "./packages/shader-graph/src/index.ts"
       ],
+      "@downdraft/test": [
+        "./packages/test/src/index.ts"
+      ],
+      "@downdraft/test/*": [
+        "./packages/test/src/*"
+      ],
       "@downdraft/cli/*": [
         "./packages/cli/src/*"
       ],
@@ -325,6 +331,7 @@
     "packages/app/src/build/**/*",
     "packages/app/src/index.ts",
     "packages/core/src/**/*.ts",
+    "packages/test/src/**/*.ts",
     "packages/mcp/src/**/*.ts",
     "packages/ui/src/**/*",
     "packages/shader-graph/src/**/*.ts",

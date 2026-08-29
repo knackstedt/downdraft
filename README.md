@@ -187,17 +187,6 @@ Wireframe, hitboxes, normals, velocity, shadows, bloom, AABBs, overdraw, LOD vis
 ### Chrome DevTools Extension
 A custom DevTools extension (`devtools-extension/`) provides a 3D Scene Inspector when loaded into Chromium DevTools.
 
-## Vision Test Suite
-
-```typescript
-import { VisionTestSuite } from "@downdraft/core";
-
-const suite = new VisionTestSuite(device, canvas, 800, 600);
-// Supports pixel-level assertions, region color checks, and LLM-based visual verification
-```
-
-See `tests/` for example scene tests and pixel scan utilities.
-
 ## Tutorials
 
 ### Creating Your First Scene
