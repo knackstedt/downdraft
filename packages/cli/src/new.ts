@@ -1,19 +1,27 @@
 import { createLogger } from "@downdraft/core";
 import { basename, resolve } from "path";
+import { parseArgs, print, renderHelp } from "./args";
 import { listTemplates, scaffold, type ScaffoldOptions } from "./scaffold";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
 export async function newProject(args: string[]): Promise<void> {
-  const targetPath = args.find((a) => !a.startsWith("-")) ?? ".";
-  const templateArg = args.find((a) => a.startsWith("--template="))?.split("=")[1] ?? "minimal";
-  const nameArg = args.find((a) => a.startsWith("--name="))?.split("=")[1];
-  const descriptionArg = args.find((a) => a.startsWith("--description="))?.split("=")[1];
-  const authorArg = args.find((a) => a.startsWith("--author="))?.split("=")[1];
-  const versionArg = args.find((a) => a.startsWith("--version="))?.split("=")[1] ?? "0.1.0";
-  const aiCompanion = args.includes("--ai-companion");
-  const force = args.includes("--force");
-  const listFlag = args.includes("--list-templates");
+  const entry = getCommand("new")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
+
+  const templateArg = parsed.flags.template as string;
+  const nameArg = parsed.flags.name as string | undefined;
+  const descriptionArg = parsed.flags.description as string | undefined;
+  const authorArg = parsed.flags.author as string | undefined;
+  const versionArg = parsed.flags.version as string;
+  const aiCompanion = parsed.flags["ai-companion"] as boolean;
+  const force = parsed.flags.force as boolean;
+  const listFlag = parsed.flags["list-templates"] as boolean;
 
   if (listFlag) {
     const templates = listTemplates();
@@ -31,6 +39,7 @@ export async function newProject(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const targetPath = parsed.positionals[0] ?? ".";
   const absTarget = resolve(targetPath);
   const projectName = nameArg ?? basename(absTarget);
 

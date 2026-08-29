@@ -74,7 +74,7 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 | `@downdraft/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
 | `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
 | `@downdraft/shader-graph` | Material/shader graph compiler and validator |
-| `@downdraft/cli` | CLI tool (`draft init/dev/debug/build/export`) |
+| `@downdraft/cli` | CLI tool (`draft new/dev/debug/build/build-games/dist/export/mobile/assets/test`) |
 | `@downdraft/plugin-water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
 | `@downdraft/plugin-marching-cubes` | Voxel terrain with LOD and deformation |
 | `@downdraft/plugin-physics-rapier` | Rapier3D physics backend |
@@ -91,16 +91,23 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 
 ## CLI Commands
 
-The CLI is available via `bun run packages/cli/src/index.ts <command>` or as `draft` if installed globally.
+The CLI is available via `bun run packages/cli/src/index.ts <command>` or as `draft` if installed globally. Run `draft --help` for the full command list, or `draft <command> --help` for command-specific flags. See the [CLI reference](https://downdraft.dev/reference/cli) for complete documentation.
 
-### `draft init [path]`
-Scaffolds a new game project with directory structure, `main.ts` entry point, and `downdraft.config.json`.
+### `draft new [path] [options]`
+Scaffolds a new game project.
+- `--template=<name>` — `minimal` / `physics` / `full` / `gamemodule` (default: `minimal`)
+- `--name=<n>` — Project name
+- `--ai-companion` — Scaffold `.devin/` config + `engine-prompt.md`
+- `--force` — Scaffold into a non-empty directory
+- `--list-templates` — List available templates
 
 ### `draft dev [options]`
-Starts the engine in dev mode via `electron-vite dev`.
-- `--watch` — Enable hot reload
+Starts the engine in dev mode via `electron-vite dev` with HMR.
+- `--game <name>`, `-g` — Game to run (default: `DOWNDRAFT_GAME` env or detected from CWD)
+- `--port <n>` — MCP HTTP port (default: `9876`)
+- `--no-hmr` — Disable hot-module replacement
 
-> **Note:** The primary dev workflow is `bun run dev` (which runs `electron-vite dev`). To run a specific game, set `DOWNDRAFT_GAME=<game-name>`.
+> **Note:** The primary dev workflow is `bun run dev` (which runs `electron-vite dev`). `draft dev` is a thin wrapper that sets `DOWNDRAFT_GAME` and spawns `electron-vite dev`. To run a specific game, set `DOWNDRAFT_GAME=<game-name>`.
 
 ### `draft debug [options]`
 Runs the engine in debug mode with profiling, debug draw, and visualization tools.
@@ -110,17 +117,52 @@ Runs the engine in debug mode with profiling, debug draw, and visualization tool
 
 ### `draft build [options]`
 Builds the game for the target platform.
-- `--target=<platform>` — Target: current/windows/macos/linux
-- `--mode=<mode>` — Build mode: dev/debug/prod
-- `--out=<dir>` — Output directory (default: dist)
+- `--game <name>`, `-g` — Game to build (resolves `games/<game>`)
+- `--target=<t>` — Target: `current` / `win` / `linux` / `mac` (default: `current`)
+- `--mode=<m>` — Build mode: `dev` / `debug` / `prod` (default: `prod`)
+- `--out=<dir>` — Output directory (default: `dist`)
 - `--no-minify` — Disable minification
 - `--sourcemap` — Generate source maps
 
+### `draft build-games [options]`
+Builds + packages multiple games for desktop/mobile (VSCode task).
+- `--games=<csv>` — Comma-separated game names (required)
+- `--platforms=<csv>` — Comma-separated platform specs (required, e.g. `win:portable,android:all`)
+
+### `draft dist [options]`
+Packages a game for distribution via `electron-builder`.
+- `--game <name>`, `-g` — Game to package
+- `--target <t>`, `-t` — `win` / `linux` / `mac` / `all` (default: `all`)
+- `--config <path>`, `-c` — Explicit config file path
+
 ### `draft export [options]`
-Packages the built game for distribution.
-- `--target=<platform>` — Target: all/windows/macos/linux
-- `--out=<dir>` — Output directory (default: export)
+Packages a built game for distribution with per-platform launchers.
+- `--target=<t>` — Target: `win` / `linux` / `mac` / `all` (default: `all`)
+- `--out=<dir>` — Output directory (default: `export`)
 - `--no-compress` — Disable compression
+
+### `draft mobile [options]`
+Builds + scaffolds a Capacitor mobile target (Android / iOS).
+- `--game <name>`, `-g` — Game to build
+- `--target <t>`, `-t` — `android` / `ios` / `all` (default: `all`)
+- `--port <n>` — Embedded HTTP server port (default: `8765`)
+- `--skip-build` — Skip the web bundle build
+- `--skip-gradle` — Skip the Gradle APK build
+- `--no-icons` — Skip icon generation
+- `--no-overrides` — Skip `mobile-overrides/` merge layer
+
+### `draft assets <command> [project] [options]`
+Manages remote asset packs.
+- Subcommands: `init`, `add-store`, `add`, `pull`, `push`, `list`
+- Run `draft assets --help` for subcommand flags.
+
+### `draft test [options]`
+Runs e2e tests via MCP automation (SwiftShader + deterministic by default).
+- `--game <name>`, `-g` — Game to test
+- `--renderer <r>`, `-r` — `cpu` (SwiftShader) / `gpu` (hardware) (default: `cpu`)
+- `--headed` — Show the window instead of running headless
+- `--build` — Build the game before testing
+- `--build-only` — Only test the built app (skip dev server)
 
 ## Core API Reference
 

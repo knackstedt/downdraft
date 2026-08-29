@@ -205,8 +205,10 @@ npx cap open ios       # then Run in Xcode
 | `--target <plat>` | `android`, `ios`, or `all` (default: `all`) |
 | `--port <n>` | Embedded HTTP server port (default: `8765`) |
 | `--skip-build` | Skip web bundle build (use existing `dist/mobile/`) |
+| `--skip-gradle` | Skip the Gradle APK build (shell + sync only) |
 | `--no-icons` | Skip icon generation (use shell placeholder icons) |
 | `--no-overrides` | Skip `mobile-overrides/` merge layer |
+| `--verbose`, `-v` | Verbose logging |
 
 ## Touch input
 

@@ -26,7 +26,9 @@ import { createLogger } from "@downdraft/core";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ArgError, parseArgs as parseArgv, print, renderHelp } from "./args";
 import { mobile } from "./mobile";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
@@ -35,20 +37,16 @@ interface BuildGamesArgs {
   platforms: string[];
 }
 
-function parseArgs(argv: string[]): BuildGamesArgs {
-  let games = "";
-  let platforms = "";
-  for (const arg of argv) {
-    if (arg.startsWith("--games=")) games = arg.slice("--games=".length);
-    else if (arg.startsWith("--platforms=")) platforms = arg.slice("--platforms=".length);
-  }
+function parseBuildGamesArgs(argv: string[]): BuildGamesArgs {
+  const entry = getCommand("build-games")!;
+  const parsed = parseArgv(argv, entry.schema);
+  // parseArgv handles required-flag validation; if we get here, both are set.
+  const games = (parsed.flags.games as string) ?? "";
+  const platforms = (parsed.flags.platforms as string) ?? "";
   const gameList = games.split(",").map((s) => s.trim()).filter(Boolean);
   const platformList = platforms.split(",").map((s) => s.trim()).filter(Boolean);
   if (gameList.length === 0 || platformList.length === 0) {
-    log.error("build-games", "Usage: draft build-games --games=<g1,g2> --platforms=<p1,p2>");
-    log.info("build-games", "  --games      Comma-separated game directory names");
-    log.info("build-games", "  --platforms  Comma-separated platform specs (e.g. 'win:portable,android:all')");
-    process.exit(1);
+    throw new ArgError("Usage: draft build-games --games=<g1,g2> --platforms=<p1,p2>");
   }
   return { games: gameList, platforms: platformList };
 }
@@ -126,8 +124,14 @@ function openReleaseFolder(repoRoot: string): void {
 }
 
 export async function buildGames(argv: string[]): Promise<void> {
+  const entry = getCommand("build-games")!;
+  // Check for --help before parsing (parseArgv validates required flags).
+  if (argv.includes("--help") || argv.includes("-h")) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
   const repoRoot = process.cwd();
-  const { games, platforms } = parseArgs(argv);
+  const { games, platforms } = parseBuildGamesArgs(argv);
   const groups = groupPlatforms(platforms);
   const ebArgs = buildEbArgs(groups);
   const mobileTargets: string[] = [];

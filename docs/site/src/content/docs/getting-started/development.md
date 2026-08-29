@@ -37,7 +37,7 @@ downdraft-engine/
 │   ├── ui/            # React UI: devtools, profiler, material graph editor, asset browser
 │   ├── mcp/           # MCP server for AI agent interaction
 │   ├── shader-graph/  # Material/shader graph compiler
-│   ├── cli/           # CLI tool (draft init/dev/debug/build/export)
+│   ├── cli/           # CLI tool (draft new/dev/debug/build/dist/export/mobile/assets/test)
 │   └── plugins/       # First-party plugins (water, physics, audio, networking, etc.)
 ├── examples/
 │   ├── minimal/       # Minimal spinning cube
@@ -55,7 +55,7 @@ downdraft-engine/
 draft build --mode=prod --out=dist
 
 # Build for a specific target
-draft build --target=windows --mode=prod --out=dist
+draft build --target=win --mode=prod --out=dist
 ```
 
 ## Packaging for Distribution

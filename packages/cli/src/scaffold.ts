@@ -196,6 +196,11 @@ function getPluginsForTemplate(template: string): string[] {
       return ["physics-rapier"];
     case "full":
       return ["physics-rapier", "water", "marching-cubes", "models", "devtools"];
+    case "gamemodule":
+      // GameModule-based scaffold — uses the declarative startGame() API.
+      // No plugins pre-wired; the developer adds EngineLibrary descriptors
+      // and feature plugins in their GameModule.
+      return [];
     default:
       return [];
   }

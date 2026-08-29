@@ -2,7 +2,9 @@ import { createLogger } from "@downdraft/core";
 import { spawn } from "child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseArgs, print, renderHelp } from "./args";
 import { detectGame } from "./detect-game";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
@@ -25,51 +27,25 @@ interface TestArgs {
   buildOnly: boolean;
 }
 
-function parseArgs(args: string[]): TestArgs {
-  const opts: TestArgs = {
-    game: detectGame() ?? "to-the-ocean",
-    mcpPort: 9976,
-    spec: null,
-    renderer: "cpu",
-    deterministic: true,
-    headed: false,
-    verbose: args.includes("--verbose") || args.includes("-v"),
-    build: false,
-    buildOnly: false,
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--") continue; // skip bun run -- separator
-    if (arg === "--game" || arg === "-g") {
-      opts.game = args[++i] ?? opts.game;
-    } else if (arg.startsWith("--game=")) {
-      opts.game = arg.slice("--game=".length);
-    } else if (arg === "--port" || arg === "-p") {
-      opts.mcpPort = parseInt(args[++i] ?? "", 10) || opts.mcpPort;
-    } else if (arg === "--spec" || arg === "-s") {
-      opts.spec = args[++i] ?? null;
-    } else if (arg.startsWith("--spec=")) {
-      opts.spec = arg.slice("--spec=".length);
-    } else if (arg === "--renderer" || arg === "-r") {
-      const v = args[++i] as Renderer | undefined;
-      if (v === "gpu" || v === "cpu") opts.renderer = v;
-    } else if (arg.startsWith("--renderer=")) {
-      const v = arg.slice("--renderer=".length) as Renderer;
-      if (v === "gpu" || v === "cpu") opts.renderer = v;
-    } else if (arg === "--no-deterministic") {
-      opts.deterministic = false;
-    } else if (arg === "--headed") {
-      opts.headed = true;
-    } else if (arg === "--build") {
-      opts.build = true;
-    } else if (arg === "--build-only") {
-      opts.buildOnly = true;
-      opts.build = true; // build-only implies build
-    }
+function parseTestArgs(args: string[]): TestArgs {
+  const entry = getCommand("test")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    process.exit(0);
   }
-
-  return opts;
+  const port = parsed.flags.port as number;
+  return {
+    game: (parsed.flags.game as string) || detectGame() || "to-the-ocean",
+    mcpPort: port === 0 ? 9976 : port,
+    spec: (parsed.flags.spec as string) || null,
+    renderer: parsed.flags.renderer as Renderer,
+    deterministic: !(parsed.flags["no-deterministic"] as boolean),
+    headed: parsed.flags.headed as boolean,
+    verbose: parsed.flags.verbose as boolean,
+    build: parsed.flags.build as boolean,
+    buildOnly: parsed.flags["build-only"] as boolean,
+  };
 }
 
 /**
@@ -121,7 +97,7 @@ function buildGame(root: string, game: string): boolean {
 import { spawnSync } from "child_process";
 
 export async function runTest(args: string[]): Promise<void> {
-  const opts = parseArgs(args);
+  const opts = parseTestArgs(args);
   const ROOT = resolve(import.meta.dir, "../../..");
 
   const specPath = opts.spec
@@ -141,6 +117,7 @@ export async function runTest(args: string[]): Promise<void> {
   log.info("test", `  Deterministic: ${opts.deterministic}`);
   log.info("test", `  Headed:        ${opts.headed}`);
   log.info("test", `  Mode:          ${opts.build ? "built" : "dev"}${opts.buildOnly ? " (build-only)" : ""}`);
+  if (opts.verbose) log.info("test", `  Verbose:       on`);
   log.info("test", "");
 
   // If --build or --build-only is specified, build the game first.

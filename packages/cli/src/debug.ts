@@ -1,13 +1,27 @@
 import { Builder, createLogger } from "@downdraft/core";
 import { watch } from "fs";
+import { parseArgs, print, renderHelp } from "./args";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
 export async function debug(args: string[]): Promise<void> {
-  const projectPath = args[0] ?? ".";
-  const verbose = args.includes("--verbose") || args.includes("-v");
-  const noDevtools = args.includes("--no-devtools");
-  const inspector = args.includes("--inspector");
+  const entry = getCommand("debug")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
+
+  const projectPath = parsed.positionals[0] ?? ".";
+  const verbose = parsed.flags.verbose as boolean;
+  const noDevtools = parsed.flags["no-devtools"] as boolean;
+  const inspector = parsed.flags.inspector as boolean;
+
+  // Wire --no-devtools to the runtime env var so the engine picks it up.
+  if (noDevtools) {
+    process.env.DOWNDRAFT_DISABLE_DEVTOOLS = "1";
+  }
 
   const builder = new Builder("debug");
   const config = builder.getConfig();
@@ -62,7 +76,7 @@ export async function debug(args: string[]): Promise<void> {
 
   if (inspector) {
     log.info("debug", "Inspector mode: connect chrome://inspect to debug the engine process.");
-    }
+  }
 
   // Keep process alive
   await new Promise<void>((resolve) => {
