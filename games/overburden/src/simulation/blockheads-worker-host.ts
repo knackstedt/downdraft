@@ -103,6 +103,9 @@ type BlockheadsWorkerApi = {
 export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
   private reader: SimBufferReader;
   private pickupListener: ((data: Record<string, number>) => void) | null = null;
+  // Dedicated pather worker — spawned from the renderer (not the sim worker)
+  // so Vite can bundle it. Connected to the sim worker via a MessageChannel.
+  private patherWorker: Worker | null = null;
 
   constructor() {
     const sab = createSimBuffer();
@@ -134,6 +137,26 @@ export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
 
   protected async onInit(): Promise<void> {
     await this.getProxy()!.proxy.init(this.getSimBuffer());
+
+    // Spawn the dedicated pather worker and connect it to the sim worker via
+    // a MessageChannel. The pather worker is spawned HERE (renderer thread)
+    // because Vite can only bundle workers spawned from the renderer — not
+    // nested workers spawned from within other workers.
+    this.patherWorker = new Worker(
+      new URL("./pathfinding-worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    const channel = new MessageChannel();
+    // Send port1 + SAB to the pather worker (init handshake).
+    this.patherWorker.postMessage(
+      { __patherInit: true, sab: this.getSimBuffer() },
+      [channel.port1],
+    );
+    // Send port2 to the sim worker (it will pass it to PathfindingBroker).
+    this.worker!.postMessage(
+      { __patherPort: true },
+      [channel.port2],
+    );
   }
 
   protected onEvent(kind: string, data?: unknown): void {
@@ -322,5 +345,16 @@ export class BlockheadsWorkerHost extends BaseWorkerHost<BlockheadsWorkerApi> {
     }[];
   }): Promise<{ ok: boolean }> {
     return await this.getProxy()?.proxy.setBlockheadRoster(roster) ?? { ok: false };
+  }
+
+  /**
+   * Override stop() to also terminate the dedicated pather worker.
+   */
+  async stop(): Promise<void> {
+    if (this.patherWorker) {
+      this.patherWorker.terminate();
+      this.patherWorker = null;
+    }
+    await super.stop();
   }
 }
