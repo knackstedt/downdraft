@@ -58,20 +58,6 @@
       "filePattern": "games/mining-rpg/**"
     },
     {
-      "label": "Dev: Alchemy",
-      "type": "shell",
-      "command": "for p in $(grep -l 'DOWNDRAFT_GAME=alchemy' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-alchemy\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=alchemy' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-alchemy\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/alchemy/electron.vite.config.ts",
-      "runOptions": {
-        "instanceLimit": 2
-      },
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "filePattern": "games/alchemy/**"
-    },
-    {
       "label": "Dev: Overburden",
       "type": "shell",
       "command": "for p in $(grep -l 'DOWNDRAFT_GAME=overburden' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=overburden' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/overburden/electron.vite.config.ts",
