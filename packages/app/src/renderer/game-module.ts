@@ -20,7 +20,7 @@
 // still call `bootstrapGame()` directly.
 // ============================================================================
 
-import type { ISaveStore, LibraryEntry, LibraryHost } from "@downdraft/core";
+import { LibraryHostImpl, type ISaveStore, type LibraryEntry, type LibraryHost } from "@downdraft/core";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
 import { createSaveStore, type SaveStoreMode } from "./save-store-factory";
@@ -262,7 +262,6 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
   let libHost: LibraryHost | null = null;
   let libBuffers: Record<string, SharedArrayBuffer> = {};
   if (module.libraries && module.libraries.length > 0) {
-    const { LibraryHostImpl } = await import("@downdraft/core");
     libHost = new LibraryHostImpl(module.libraries);
     libBuffers = libHost.allocateBuffers();
   }

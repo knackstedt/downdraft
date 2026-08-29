@@ -11,6 +11,7 @@
 // (which hands the raw level data to WebGPU as a compressed-texture format).
 //
 
+import { parseKTX2FromBuffer } from "@downdraft/core";
 import type { TextureCodec, TextureCodecInput, TextureCodecOutput } from "./registry";
 
 let parseKtx2: ((buffer: ArrayBuffer) => {
@@ -24,11 +25,7 @@ let parseKtx2: ((buffer: ArrayBuffer) => {
 
 async function loadKtx2Parser(): Promise<NonNullable<typeof parseKtx2>> {
   if (parseKtx2) return parseKtx2;
-  // Lazy import from core to avoid a hard circular dep at module load.
-  const core = (await import("@downdraft/core")) as unknown as {
-    parseKTX2FromBuffer: typeof parseKtx2;
-  };
-  parseKtx2 = core.parseKTX2FromBuffer;
+  parseKtx2 = parseKTX2FromBuffer as unknown as NonNullable<typeof parseKtx2>;
   return parseKtx2!;
 }
 

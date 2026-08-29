@@ -343,6 +343,92 @@ gameWorld.usePlugin(MarchingCubesPlugin);
 gameWorld.usePlugin(NetworkingPlugin);
 ```
 
+## Mobile Development (Android)
+
+DownDraft games can be built for Android via Capacitor (system WebView). The engine owns a pre-wired native shell at `packages/mobile-shell/` — games commit zero native files. See `docs/site/src/content/docs/guides/mobile.md` for the full guide.
+
+### Prerequisites
+
+| Requirement | Version | Notes |
+|---|---|---|
+| **Android Studio** | Any recent | Includes SDK + emulator. Download from https://developer.android.com/studio |
+| **Android SDK** | API 36+ | Install via Android Studio's SDK Manager |
+| **JDK** | 21+ | `sudo apt install openjdk-21-jdk` (set `JAVA_HOME` to the JDK home) |
+| **Capacitor deps** | — | `bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios` |
+| **Android WebView** | 121+ | Required for WebGPU. Emulators with Google Play services include a compatible WebView. |
+
+### Environment variables
+
+```bash
+export ANDROID_HOME=$HOME/Android/Sdk
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+```
+
+### Build + run sandjongg on Android
+
+1. **Build + run on device/emulator** — use the VSCode task `Android: Sandjongg (build + run on device/emulator)`, or run manually:
+
+   ```bash
+   # Build web bundle + scaffold Android project
+   bun run packages/cli/src/index.ts mobile --game=sandjongg --target=android
+
+   # Assemble debug APK
+   cd games/sandjongg/android
+   echo "sdk.dir=$ANDROID_HOME" > local.properties
+   ./gradlew assembleDebug
+
+   # Install + launch (starts emulator if none connected)
+   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   adb shell "echo 'webview --enable-features=SharedArrayBuffer' > /data/local/tmp/webview-command-line"
+   adb shell am start -n com.downdraft.sandjongg/com.downdraft.shell.MainActivity
+   ```
+
+   The VSCode task automates all of this — including starting an emulator if no device is connected and enabling the SharedArrayBuffer flag. The app starts an embedded HTTP server (COOP/COEP headers for SharedArrayBuffer) and loads the WebView from `http://127.0.0.1:8765`.
+
+2. **Open in Android Studio** (optional, for debugging native code):
+
+   ```bash
+   cd games/sandjongg && bunx cap open android
+   ```
+
+### SharedArrayBuffer on Android WebView
+
+Android WebView does not support cross-origin isolation (`self.crossOriginIsolated` is always `false` even with COOP/COEP headers). The engine's boot guard checks for `SharedArrayBuffer` directly instead of relying on `crossOriginIsolated`.
+
+For **debug builds** on emulators or physical devices, enable SAB via the WebView command-line flag:
+
+```bash
+adb shell "echo 'webview --enable-features=SharedArrayBuffer' > /data/local/tmp/webview-command-line"
+# Force-stop and relaunch the app for the flag to take effect
+```
+
+> **Note:** `/data/local/tmp/webview-command-line` is only writable via `adb` (not from inside the app). Production builds must enable SAB through the WebView provider's configuration or a custom WebView build. See the [Android WebView command-line flags docs](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/android_webview/docs/commandline-flags.md) for details.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Blank screen / "Webpage not available" | Add `network_security_config.xml` allowing cleartext to `127.0.0.1` (already in the engine shell) |
+| "SharedArrayBuffer is not available" | Set the `--enable-features=SharedArrayBuffer` WebView flag (see above) |
+| "WebGPU is not available" | Use an emulator with Google Play services (includes WebView 121+) or a physical device with Chrome 121+ |
+| Build fails: `JAVA_HOME` not set | `export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64` |
+| Build fails: `sdk.dir` not found | `echo "sdk.dir=$ANDROID_HOME" > games/sandjongg/android/local.properties` |
+
+### WebGPU on the Android emulator — known limitation
+
+The Android emulator's GPU translation layer does **not** expose a WebGPU-compatible backend to Dawn (Chrome's WebGPU implementation). `navigator.gpu` exists and `canvas.getContext('webgpu')` returns an object, but `navigator.gpu.requestAdapter()` returns `null` regardless of:
+
+- GPU mode (`-gpu host`, `-gpu swiftshader_indirect`)
+- WebView command-line flags (`--enable-unsafe-webgpu`, `--ignore-gpu-blocklist`, `--use-webgpu-adapter=opengles`)
+- Compatibility mode (`requestAdapter({ featureLevel: "compatibility" })`)
+- Emulator features (`-feature GLESDynamicVersion`, `VulkanIgnoreGraphicsExtsWSI`)
+
+Forcing Vulkan (`--use-vulkan`) crashes the emulator's GPU process with SIGSEGV.
+
+**Result:** The game UI (React) renders correctly, but the WebGPU canvas stays blank — `renderer.init()` returns `false` because no adapter is available. The sim worker runs but the render loop never starts.
+
+**To test WebGPU on Android, use a physical device** with Chrome 121+ (Mali/Adreno GPUs). The emulator can be used to verify the build pipeline, UI layout, touch input, and sim worker — but not WebGPU rendering.
+
 ## License
 
 MIT

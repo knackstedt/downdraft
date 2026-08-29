@@ -11,6 +11,10 @@
 //   5. Applies the `mobile-overrides/` merge layer if present.
 //   6. Ensures `capacitor.config.ts` exists (writes one if missing).
 //   7. Runs `cap sync` to populate web assets + Capacitor plugin configs.
+//   8. Builds the release APK via the Gradle wrapper (Android target) and
+//      collects it into `release/` (+ unpacked to
+//      `release/android-unpacked/`), mirroring `draft dist` → electron-builder
+//      `release/` for desktop.
 //
 // The native shell is pre-wired with the embedded HTTP server (COOP/COEP
 // headers for SharedArrayBuffer cross-origin isolation). No manual native
@@ -18,7 +22,7 @@
 //
 // Usage:
 //   draft mobile [--game=<name>] [--target=<android|ios|all>]
-//                [--port=<n>] [--skip-build] [--no-icons] [--no-overrides]
+//                [--port=<n>] [--skip-build] [--skip-gradle] [--no-icons] [--no-overrides]
 //
 // Prerequisites:
 //   - Android: Android Studio + Android SDK (for `cap open android`)
@@ -28,7 +32,8 @@
 //     `createDowndraftMobileApp()`.
 
 import { createLogger } from "@downdraft/core";
-import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { detectGame } from "./detect-game";
 import { generateIcons } from "./mobile-icons";
@@ -56,6 +61,7 @@ export interface MobileArgs {
   target: "android" | "ios" | "all";
   port: number;
   skipBuild: boolean;
+  skipGradle: boolean;
   noIcons: boolean;
   noOverrides: boolean;
 }
@@ -66,6 +72,7 @@ function parseArgs(args: string[]): MobileArgs {
     target: "all",
     port: 8765,
     skipBuild: false,
+    skipGradle: false,
     noIcons: false,
     noOverrides: false,
   };
@@ -85,6 +92,8 @@ function parseArgs(args: string[]): MobileArgs {
       opts.port = parseInt(arg.slice("--port=".length), 10);
     } else if (arg === "--skip-build") {
       opts.skipBuild = true;
+    } else if (arg === "--skip-gradle") {
+      opts.skipGradle = true;
     } else if (arg === "--no-icons") {
       opts.noIcons = true;
     } else if (arg === "--no-overrides") {
@@ -683,12 +692,14 @@ export default config;
  */
 async function syncCapacitor(gameDir: string, target: MobileArgs["target"]): Promise<boolean> {
   log.info("mobile", "Syncing web bundle to native projects...");
-  const { execSync } = await import("node:child_process");
 
   const capBin = resolveCapBinary(gameDir);
-  const capCmd = target === "all" ? `${capBin} sync` : `${capBin} sync ${target}`;
+  const capArgs = target === "all" ? ["sync"] : ["sync", target];
   try {
-    execSync(capCmd, { cwd: gameDir, stdio: "inherit" });
+    const capResult = spawnSync(capBin, capArgs, { cwd: gameDir, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
+    if (capResult.stdout) process.stdout.write(capResult.stdout);
+    if (capResult.stderr) process.stderr.write(capResult.stderr);
+    if (capResult.status !== 0) throw new Error(`cap sync exited with code ${capResult.status}`);
     log.info("mobile", "Capacitor sync complete.");
     return true;
   } catch (err) {
@@ -697,6 +708,158 @@ async function syncCapacitor(gameDir: string, target: MobileArgs["target"]): Pro
     log.info("mobile", "  bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios");
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Native build + artifact collection
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the release APK via the Gradle wrapper.
+ *
+ * Runs `./gradlew assembleRelease` inside the game's `android/` directory.
+ * The Gradle wrapper (gradlew / gradlew.bat) ships with the engine-owned
+ * shell, so no system Gradle install is required — only the Android SDK.
+ *
+ * @returns true on success, false on failure.
+ */
+async function buildAndroidApk(gameDir: string): Promise<boolean> {
+  const androidDir = resolve(gameDir, "android");
+  if (!existsSync(androidDir)) {
+    log.error("mobile", `Android project not found at ${androidDir} (did sync run?)`);
+    return false;
+  }
+
+  const wrapper = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
+
+  // Write local.properties with the Android SDK path so Gradle can find it.
+  // Try ANDROID_HOME, ANDROID_SDK_ROOT, then common default locations.
+  const home = process.env.HOME ?? "";
+  const sdkCandidates = [
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    `${home}/Android/Sdk`,
+    `${home}/.local/share/android-sdk`,
+    "/opt/android-sdk",
+  ].filter(Boolean) as string[];
+  const sdkDir = sdkCandidates.find((p) => existsSync(p));
+  if (sdkDir) {
+    writeFileSync(resolve(androidDir, "local.properties"), `sdk.dir=${sdkDir}\n`);
+  } else {
+    log.warn("mobile", "ANDROID_HOME / ANDROID_SDK_ROOT not set and no SDK found at common locations.");
+    log.warn("mobile", "  Tried: " + sdkCandidates.join(", "));
+    log.warn("mobile", "  Set ANDROID_HOME to your SDK path or install via Android Studio → SDK Manager.");
+  }
+
+  // Stop any stale Gradle daemons from previous runs — they can hold locks
+  // and block the new build indefinitely. `gradlew --stop` is the graceful
+  // way and is sufficient with --no-daemon on the new build. We avoid pkill/
+  // pgrep here because the pattern can match the current process's command
+  // line (which contains the pattern as an argument), causing self-kill.
+  log.info("mobile", "Stopping stale Gradle daemons...");
+  spawnSync(wrapper, ["--stop"], { cwd: androidDir, stdio: "ignore", timeout: 10_000 });
+
+  log.info("mobile", "Building release APK (gradle assembleRelease)...");
+  log.info("mobile", "  Requires the Android SDK. First run may download Gradle — be patient.");
+  // Use spawnSync with piped stdio + a hard timeout + --no-daemon to prevent
+  // stuck Gradle daemons and TTY hangs. stdio: "inherit" can block forever in
+  // VSCode terminals when Gradle tries to read stdin; piping avoids that.
+  const result = spawnSync(wrapper, ["assembleRelease", "--no-daemon"], {
+    cwd: androidDir,
+    stdio: ["ignore", "pipe", "pipe"], // pipe stdout/stderr — we log it ourselves
+    timeout: 300_000, // 5 min hard timeout (cold Gradle + first build can be slow)
+  });
+  // Stream Gradle output to the console so the user sees progress.
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) {
+    log.error("mobile", `Gradle build failed to start: ${(result.error as Error).message}`);
+    return false;
+  }
+  if (result.signal === "SIGTERM") {
+    log.error("mobile", "Gradle build timed out after 5 minutes. Check for stuck daemons or SDK issues.");
+    return false;
+  }
+  if (result.status !== 0) {
+    log.error("mobile", `Gradle build failed with exit code ${result.status}.`);
+    log.info("mobile", "Ensure the Android SDK is installed (Android Studio → SDK Manager).");
+    log.info("mobile", "Set ANDROID_HOME / ANDROID_SDK_ROOT to the SDK location if not auto-detected.");
+    return false;
+  }
+  log.info("mobile", "APK build complete.");
+  return true;
+}
+
+/**
+ * Collect the built APK into the release directory, mirroring electron's
+ * `release/` convention (see `draft dist` → electron-builder `directories.output`).
+ *
+ * - Copies the release APK → `release/<appName>-<version>-android.apk`
+ * - Unpacks the APK contents → `release/android-unpacked/` (best-effort, for
+ *   inspection; skipped if `unzip` is unavailable).
+ *
+ * Both directories are gitignored (covered by the root `release` entry in
+ * `.gitignore`). Stale contents are cleared before each run so artifacts
+ * never accumulate from previous builds.
+ *
+ * @returns the path to the collected APK, or null if none was found.
+ */
+export function collectAndroidArtifacts(
+  gameDir: string,
+  repoRoot: string,
+  appName: string,
+  version: string,
+): string | null {
+  const apkDir = resolve(gameDir, "android/app/build/outputs/apk/release");
+  if (!existsSync(apkDir)) {
+    log.error("mobile", `No APK output directory found at ${apkDir}`);
+    log.info("mobile", "Did the gradle build produce an APK? Check android/app/build/outputs/.");
+    return null;
+  }
+
+  // Find the produced APK. Release builds without a signing config produce
+  // `app-release-unsigned.apk`; signed builds produce `app-release.apk`.
+  const apks = readdirSync(apkDir).filter((f) => f.endsWith(".apk"));
+  if (apks.length === 0) {
+    log.error("mobile", `No .apk files found in ${apkDir}`);
+    return null;
+  }
+  // Prefer a signed (non-"unsigned") apk if both exist; otherwise take the first.
+  const chosen = apks.find((f) => !f.includes("unsigned")) ?? apks[0];
+  const srcApk = resolve(apkDir, chosen);
+
+  // Prepare release/ + release/android-unpacked/ — clear stale APK artifacts.
+  const releaseDir = resolve(repoRoot, "release");
+  const releaseUnpackedDir = resolve(repoRoot, "release/android-unpacked");
+  if (!existsSync(releaseDir)) mkdirSync(releaseDir, { recursive: true });
+  rmSync(releaseUnpackedDir, { recursive: true, force: true });
+  // Remove stale .apk files from previous mobile builds (don't wipe the
+  // whole release/ dir — desktop builds put their artifacts here too).
+  for (const f of readdirSync(releaseDir)) {
+    if (f.endsWith(".apk")) rmSync(resolve(releaseDir, f), { force: true });
+  }
+
+  const destName = `${appName}-${version}-android.apk`;
+  const destApk = resolve(releaseDir, destName);
+  cpSync(srcApk, destApk, { force: true });
+  log.info("mobile", `  → APK collected: release/${destName}`);
+
+  // Best-effort unpack for inspection (APK is a zip). Skipped if `unzip`
+  // is unavailable — non-fatal.
+  try {
+    mkdirSync(releaseUnpackedDir, { recursive: true });
+    const unzipResult = spawnSync("unzip", ["-o", destApk, "-d", releaseUnpackedDir], {
+      stdio: ["ignore", "ignore", "pipe"],
+      timeout: 30_000,
+    });
+    if (unzipResult.status !== 0) throw new Error(`unzip exited with code ${unzipResult.status}`);
+    log.info("mobile", `  → Unpacked: release/android-unpacked/`);
+  } catch {
+    log.warn("mobile", "  ! Could not unpack APK (is `unzip` installed?). Skipping unpacked dir.");
+    rmSync(releaseUnpackedDir, { recursive: true, force: true });
+  }
+
+  return destApk;
 }
 
 // ---------------------------------------------------------------------------
@@ -719,6 +882,7 @@ export async function mobile(args: string[]): Promise<void> {
   log.info("mobile", `  Target:      ${opts.target}`);
   log.info("mobile", `  Port:        ${opts.port}`);
   log.info("mobile", `  Skip build:  ${opts.skipBuild}`);
+  log.info("mobile", `  Skip gradle: ${opts.skipGradle}`);
   log.info("mobile", `  No icons:    ${opts.noIcons}`);
   log.info("mobile", `  No overrides:${opts.noOverrides}`);
   log.info("mobile", "");
@@ -748,13 +912,15 @@ export async function mobile(args: string[]): Promise<void> {
     }
   }
 
-  // Determine appName from package.json productName or game name
+  // Determine appName + version from package.json (productName / version)
   let appName = opts.game;
+  let version = "0.0.0";
   const pkgJsonPath = resolve(gameDir, "package.json");
   if (existsSync(pkgJsonPath)) {
     try {
       const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
       if (pkg.productName) appName = pkg.productName;
+      if (pkg.version) version = pkg.version;
     } catch {
       // Ignore parse errors
     }
@@ -818,14 +984,34 @@ export async function mobile(args: string[]): Promise<void> {
   const syncOk = await syncCapacitor(gameDir, opts.target);
   if (!syncOk) process.exit(1);
 
-  // 9. Done
+  // 9. Build the release APK + collect it into release/ (Android only).
+  //    Mirrors `draft dist` (electron-builder → release/): the APK is built via
+  //    the Gradle wrapper, then copied to release/<name>-<ver>-android.apk
+  //    and unpacked to release/android-unpacked/ for inspection. Both paths are
+  //    gitignored (root `release` entry).
+  if (opts.target === "android" || opts.target === "all") {
+    if (opts.skipGradle) {
+      log.info("mobile", "Skipping Gradle APK build (--skip-gradle).");
+    } else {
+      const buildOk = await buildAndroidApk(gameDir);
+      if (!buildOk) process.exit(1);
+
+      const apkPath = collectAndroidArtifacts(gameDir, repoRoot, appName, version);
+      if (!apkPath) process.exit(1);
+    }
+  }
+
+  // 10. Done
   log.info("mobile", "");
   log.info("mobile", "Mobile build complete.");
   log.info("mobile", "");
   log.info("mobile", "Next steps:");
   const capBin = resolveCapBinary(gameDir);
   if (opts.target === "android" || opts.target === "all") {
-    log.info("mobile", `  Android: ${capBin} open android  (then Run in Android Studio)`);
+    log.info("mobile", `  APK:     release/${appName}-${version}-android.apk`);
+    log.info("mobile", `  Unpacked: release/android-unpacked/`);
+    log.info("mobile", `  Run on device/emulator: ${capBin} open android  (then Run in Android Studio)`);
+    log.info("mobile", `  The release APK is unsigned — sign it (jarsigner / apksigner) before distribution.`);
   }
   if (opts.target === "ios" || opts.target === "all") {
     log.info("mobile", `  iOS:     ${capBin} open ios      (then Run in Xcode)`);
@@ -834,4 +1020,9 @@ export async function mobile(args: string[]): Promise<void> {
   log.info("mobile", "IMPORTANT: WebGPU requires Android WebView 121+ or iOS / iPadOS 26+.");
   log.info("mobile", "The embedded HTTP server is pre-wired (COOP/COEP for SharedArrayBuffer).");
   log.info("mobile", "Native projects (android/ + ios/) are gitignored — regenerated from packages/mobile-shell/.");
+  log.info("mobile", "Release artifacts (release/ + release/android-unpacked/) are gitignored.");
+
+  // Exit explicitly — dynamic import() calls (vite, capacitor config) leave
+  // lingering handles that prevent the process from exiting on its own.
+  process.exit(0);
 }

@@ -5,6 +5,7 @@
 
 import { blobToBase64, createMcpHarness, downdraft } from "@downdraft/app/renderer";
 import type { SandjonggRenderer } from "../renderer/sandjongg-renderer";
+import { useGameStore } from "../stores/game-store";
 
 interface ToolDef {
   name: string;
@@ -421,7 +422,6 @@ function createAutomationTools(ctx: {
         },
       },
       handler: async (params: Record<string, unknown>) => {
-        const { useGameStore } = await import("../stores/game-store");
         const id = params.tileset as string;
         useGameStore.getState().setTileset(id as "elements" | "riichi");
         await new Promise((r) => setTimeout(r, 1000));

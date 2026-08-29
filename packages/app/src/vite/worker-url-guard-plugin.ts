@@ -62,31 +62,58 @@ export function workerUrlGuardPlugin(opts: WorkerUrlGuardOptions = {}): Plugin {
       for (const [fileName, chunk] of Object.entries(bundle) as [string, any][]) {
         if (chunk.type !== "chunk" || !chunk.code) continue;
 
-        // Find all `new Worker(` calls in this chunk
-        let match: RegExpExecArray | null;
+        // Skip chunks that are entirely from node_modules (third-party libraries
+        // like meshoptimizer's decoder create their own workers internally and
+        // can't use the inline `new URL(..., import.meta.url)` pattern).
+        const moduleIds: string[] = chunk.moduleIds ?? (chunk.modules ? Object.keys(chunk.modules) : []);
+        if (moduleIds.length > 0 && moduleIds.every((id: string) => id.includes("node_modules"))) {
+          continue;
+        }
+
         const code = chunk.code;
         NEW_WORKER_RE.lastIndex = 0;
 
+        // First pass: find all valid inline `new Worker(new URL(..., import.meta.url))` calls.
+        // If a chunk has at least one valid pattern, then any `new Worker(variable)` calls
+        // are likely the custom-URL branch of a conditional (e.g.
+        //   this.workerUrl ? new Worker(this.workerUrl) : new Worker(new URL(..., import.meta.url))
+        // ). The variable-based branch is intentional and safe — Vite bundles the
+        // default branch's worker, and the custom-URL branch is only used when the
+        // caller explicitly provides a pre-resolved URL.
+        let hasValidWorkerUrl = false;
+        let match: RegExpExecArray | null;
+        NEW_WORKER_RE.lastIndex = 0;
         while ((match = NEW_WORKER_RE.exec(code)) !== null) {
-          // Extract a window of text after `new Worker(` to check the argument
           const startIdx = match.index + match[0].length;
           const window = code.slice(startIdx, startIdx + 200);
-
-          // Skip if the first non-whitespace character is `new URL(` — check
-          // for the inline pattern
           const trimmed = window.trimStart();
-          if (trimmed.startsWith("new URL(")) {
-            // Verify it's `new URL("...", import.meta.url)`
-            if (INLINE_URL_RE.test(trimmed)) {
-              // This is a worker entry chunk — track it for SimWorkerLoop check
-              workerChunks.push(fileName);
-              continue;
-            }
+          if (trimmed.startsWith("new URL(") && INLINE_URL_RE.test(trimmed)) {
+            hasValidWorkerUrl = true;
+            workerChunks.push(fileName);
+            break;
+          }
+        }
+
+        // Second pass: find violations, skipping variable-based calls if the
+        // chunk also has at least one valid inline URL pattern.
+        NEW_WORKER_RE.lastIndex = 0;
+        while ((match = NEW_WORKER_RE.exec(code)) !== null) {
+          const startIdx = match.index + match[0].length;
+          const window = code.slice(startIdx, startIdx + 200);
+          const trimmed = window.trimStart();
+
+          // Valid inline URL pattern — already tracked above
+          if (trimmed.startsWith("new URL(") && INLINE_URL_RE.test(trimmed)) {
+            continue;
+          }
+
+          // Variable-based Worker creation — skip if this chunk also has a
+          // valid inline URL pattern (it's the custom-URL branch of a conditional)
+          if (hasValidWorkerUrl) {
+            continue;
           }
 
           // If the argument is a variable or anything else, it's a violation
-          // (unless it's a URL object passed from opts — which we can't easily
-          // distinguish, so we flag it as a potential issue)
           violations.push(
             `  ${fileName}: \`new Worker(...)\` does not use inline \`new URL(..., import.meta.url)\`. ` +
             `This will break production builds — Vite won't bundle the worker. ` +
