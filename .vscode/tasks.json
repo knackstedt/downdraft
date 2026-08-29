@@ -4,7 +4,7 @@
     {
       "label": "Dev: Ocean",
       "type": "shell",
-      "command": "for p in $(grep -l 'DOWNDRAFT_GAME=to-the-ocean' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-to-the-ocean\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=to-the-ocean' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-to-the-ocean\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/to-the-ocean/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-to-the-ocean\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-to-the-ocean\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/to-the-ocean/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -18,7 +18,7 @@
     {
       "label": "Dev: Model Viewer",
       "type": "shell",
-      "command": "for p in $(grep -l 'DOWNDRAFT_GAME=model-viewer' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-model-viewer\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=model-viewer' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-model-viewer\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/model-viewer/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-model-viewer\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-model-viewer\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/model-viewer/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -32,7 +32,7 @@
     {
       "label": "Dev: Sand",
       "type": "shell",
-      "command": "for p in $(grep -l 'DOWNDRAFT_GAME=falling-sand' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-falling-sand\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=falling-sand' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-falling-sand\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/falling-sand/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-falling-sand\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-falling-sand\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/falling-sand/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -46,7 +46,7 @@
     {
       "label": "Dev: Mining RPG",
       "type": "shell",
-      "command": "for p in $(grep -l 'DOWNDRAFT_GAME=mining-rpg' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-mining-rpg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=mining-rpg' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-mining-rpg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/mining-rpg/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-mining-rpg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-mining-rpg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/mining-rpg/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -60,7 +60,7 @@
     {
       "label": "Dev: Overburden",
       "type": "shell",
-      "command": "for p in $(grep -l 'DOWNDRAFT_GAME=overburden' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=overburden' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/overburden/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-overburden\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/overburden/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
@@ -74,7 +74,7 @@
     {
       "label": "Dev: Sandjongg",
       "type": "shell",
-      "command": "for p in $(grep -l 'DOWNDRAFT_GAME=sandjongg' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-sandjongg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(grep -l 'DOWNDRAFT_GAME=sandjongg' /proc/*/environ 2>/dev/null | cut -d/ -f3; pgrep -f \"user-data-dir=[^ ]*downdraft-sandjongg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/sandjongg/electron.vite.config.ts",
+      "command": "for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-sandjongg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -TERM -\"$pgid\" 2>/dev/null; done; sleep 1; for p in $(pgrep -f \"user-data-dir=[^ ]*downdraft-sandjongg\" 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; pgid=$(awk '/^(NSpgid|PGid):/{print $2}' /proc/$p/status 2>/dev/null | head -1); [ -n \"$pgid\" ] && kill -9 -\"$pgid\" 2>/dev/null; done; npx electron-vite dev --config games/sandjongg/electron.vite.config.ts",
       "runOptions": {
         "instanceLimit": 2
       },
