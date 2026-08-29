@@ -33,8 +33,9 @@
 
 import { createLogger } from "@downdraft/core";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import { detectGame } from "./detect-game";
 import { generateIcons } from "./mobile-icons";
 
@@ -863,6 +864,281 @@ export function collectAndroidArtifacts(
 }
 
 // ---------------------------------------------------------------------------
+// APK signing
+// ---------------------------------------------------------------------------
+//
+// `draft mobile` runs `gradlew assembleRelease` against a release buildType
+// that has no `signingConfig` (the shell's app/build.gradle is stock). This
+// produces an `app-release-unsigned.apk` that Android silently refuses to
+// install — the device shows a generic "you can't install the app" message
+// with no further detail. To avoid that footgun, we sign the collected APK
+// as a post-build step:
+//
+//   1. Resolve a signing config (release keystore → debug keystore fallback).
+//   2. Locate `apksigner` + `zipalign` from the Android SDK build-tools.
+//   3. zipalign (4-byte, page-aligned .so) → apksigner sign → verify.
+//
+// Signing is a post-step, not a Gradle concern, so the shell's build.gradle
+// stays stock and no secrets live in any Gradle file or game directory.
+
+export interface SigningConfig {
+  keystore: string;
+  storePass: string;
+  alias: string;
+  keyPass: string;
+  /** "release" = a real keystore was supplied; "debug" = debug-keystore fallback. */
+  mode: "release" | "debug";
+}
+
+/**
+ * Resolve the user's home directory.
+ *
+ * Prefers `process.env.HOME` (respects runtime overrides — important for
+ * tests and for environments that reassign HOME) and falls back to
+ * `os.homedir()`, which some runtimes cache at process start.
+ */
+function userHome(): string {
+  return process.env.HOME || homedir();
+}
+
+/**
+ * Resolve the keystore to sign the APK with.
+ *
+ * Precedence (env wins, per the "both, env wins" decision):
+ *   1. Env vars:  DD_RELEASE_KEYSTORE / DD_RELEASE_KEYSTORE_PASS /
+ *                 DD_RELEASE_KEY_ALIAS / DD_RELEASE_KEY_PASS
+ *   2. ~/.downdraft/keystore.properties (gitignored, user-level):
+ *        keystore=<path>
+ *        storepass=<password>
+ *        alias=<key alias>
+ *        keypass=<key password>
+ *   3. Fallback: ~/.android/debug.keystore (standard Android debug keystore,
+ *      credentials alias=androiddebugkey / pass=android). Emits a warning
+ *      that the APK is debug-signed and not suitable for distribution.
+ *
+ * @returns the resolved config, or null if no keystore is available at all
+ *          (not even the debug keystore) — caller should warn + leave unsigned.
+ */
+export function resolveSigningConfig(): SigningConfig | null {
+  // 1. Env vars
+  const envKeystore = process.env.DD_RELEASE_KEYSTORE;
+  if (envKeystore) {
+    if (!existsSync(envKeystore)) {
+      log.warn("mobile", `  ! DD_RELEASE_KEYSTORE points to a missing file: ${envKeystore}`);
+    } else {
+      return {
+        keystore: envKeystore,
+        storePass: process.env.DD_RELEASE_KEYSTORE_PASS ?? "",
+        alias: process.env.DD_RELEASE_KEY_ALIAS ?? "",
+        keyPass: process.env.DD_RELEASE_KEY_PASS ?? process.env.DD_RELEASE_KEYSTORE_PASS ?? "",
+        mode: "release",
+      };
+    }
+  }
+
+  // 2. ~/.downdraft/keystore.properties
+  const propsPath = join(userHome(), ".downdraft", "keystore.properties");
+  if (existsSync(propsPath)) {
+    const props = parsePropertiesFile(propsPath);
+    const keystore = props.keystore;
+    if (keystore && existsSync(keystore)) {
+      return {
+        keystore,
+        storePass: props.storepass ?? "",
+        alias: props.alias ?? "",
+        keyPass: props.keypass ?? props.storepass ?? "",
+        mode: "release",
+      };
+    }
+    if (keystore) {
+      log.warn("mobile", `  ! ~/.downdraft/keystore.properties references a missing keystore: ${keystore}`);
+    }
+  }
+
+  // 3. Debug keystore fallback
+  const debugKeystore = join(userHome(), ".android", "debug.keystore");
+  if (existsSync(debugKeystore)) {
+    log.warn("mobile", "  ! No release keystore configured — signing with the debug keystore.");
+    log.warn("mobile", "  ! The APK is installable for testing but NOT suitable for distribution.");
+    log.info("mobile", "  ! To sign for release, set DD_RELEASE_KEYSTORE* env vars or");
+    log.info("mobile", "  ! create ~/.downdraft/keystore.properties (see draft mobile docs).");
+    return {
+      keystore: debugKeystore,
+      storePass: "android",
+      alias: "androiddebugkey",
+      keyPass: "android",
+      mode: "debug",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Parse a minimal Java .properties file (key=value, # comments, blank lines).
+ * Leading/trailing whitespace is trimmed from both keys and values.
+ */
+function parsePropertiesFile(path: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of readFileSync(path, "utf-8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("!")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    if (key) out[key] = value;
+  }
+  return out;
+}
+
+export interface BuildToolsBinaries {
+  apksigner: string;
+  zipalign: string;
+}
+
+/**
+ * Locate `apksigner` + `zipalign` from the Android SDK build-tools directory.
+ *
+ * Checks ANDROID_HOME, ANDROID_SDK_ROOT, and ~/Android/Sdk (Android Studio's
+ * default install location on Linux/macOS). Picks the highest-versioned
+ * build-tools/ subdirectory that contains both binaries.
+ *
+ * @returns the binary paths, or null if the SDK / build-tools can't be found.
+ */
+export function resolveAndroidBuildTools(): BuildToolsBinaries | null {
+  const candidates = [
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    join(userHome(), "Android", "Sdk"),
+  ].filter((p): p is string => !!p && existsSync(p));
+
+  for (const sdk of candidates) {
+    const buildToolsRoot = join(sdk, "build-tools");
+    if (!existsSync(buildToolsRoot)) continue;
+    // Pick the highest version directory. Versions are like "35.0.0", "36.0.0".
+    const versions = readdirSync(buildToolsRoot)
+      .filter((d) => existsSync(join(buildToolsRoot, d, "apksigner")))
+      .sort((a, b) => compareVersions(a, b));
+    const latest = versions[versions.length - 1];
+    if (!latest) continue;
+    const dir = join(buildToolsRoot, latest);
+    const apksigner = join(dir, "apksigner");
+    const zipalign = join(dir, "zipalign");
+    if (existsSync(apksigner) && existsSync(zipalign)) {
+      return { apksigner, zipalign };
+    }
+  }
+  return null;
+}
+
+/** Compare dotted version strings (e.g. "35.0.0" vs "36.0.0"). Ascending. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * Sign an APK in place: zipalign (4-byte, page-aligned .so) → apksigner sign
+ * → apksigner verify. The original file is replaced by the signed copy.
+ *
+ * Order matters: zipalign MUST run before apksigner (apksigner v2/v3
+ * preserves alignment; signing first then aligning invalidates v2/v3).
+ *
+ * @returns "release" | "debug" if signing succeeded, "skipped" if no
+ *          keystore or build-tools were available (the APK is left unsigned
+ *          with a clear warning — see the caller's Next-steps output).
+ */
+export function signAndroidApk(apkPath: string): "release" | "debug" | "skipped" {
+  const config = resolveSigningConfig();
+  if (!config) {
+    log.warn("mobile", `  ! No keystore available (not even ~/.android/debug.keystore).`);
+    log.warn("mobile", `  ! APK left unsigned: ${apkPath}`);
+    log.warn("mobile", `  ! Android will refuse to install it. Generate a debug keystore with:`);
+    log.warn("mobile", `  !   keytool -genkey -v -keystore ~/.android/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android`);
+    return "skipped";
+  }
+
+  const tools = resolveAndroidBuildTools();
+  if (!tools) {
+    log.warn("mobile", `  ! Android SDK build-tools not found (looked in ANDROID_HOME, ANDROID_SDK_ROOT, ~/Android/Sdk).`);
+    log.warn("mobile", `  ! Cannot sign the APK — left unsigned: ${apkPath}`);
+    return "skipped";
+  }
+
+  log.info("mobile", `Signing APK (${config.mode} keystore)...`);
+
+  // 1. zipalign → temp file. -f overwrites, -p page-aligns .so to 4096 bytes.
+  const alignedTmp = `${apkPath}.aligned`;
+  const alignResult = spawnSync(
+    tools.zipalign,
+    ["-f", "-p", "4", apkPath, alignedTmp],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 },
+  );
+  if (alignResult.status !== 0) {
+    log.error("mobile", `  zipalign failed (exit ${alignResult.status}): ${alignResult.stderr?.toString().trim()}`);
+    rmSync(alignedTmp, { force: true });
+    log.warn("mobile", `  ! APK left unsigned: ${apkPath}`);
+    return "skipped";
+  }
+
+  // 2. apksigner sign on the aligned temp. v1 disabled (legacy JAR signing
+  //    is unnecessary on minSdk 24+); v2 + v3 enabled (required by Android 11+).
+  const signResult = spawnSync(
+    tools.apksigner,
+    [
+      "sign",
+      "--ks", config.keystore,
+      "--ks-key-alias", config.alias,
+      "--ks-pass", `pass:${config.storePass}`,
+      "--key-pass", `pass:${config.keyPass}`,
+      "--v1-signing-enabled", "false",
+      "--v2-signing-enabled", "true",
+      "--v3-signing-enabled", "true",
+      alignedTmp,
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 },
+  );
+  if (signResult.status !== 0) {
+    log.error("mobile", `  apksigner sign failed (exit ${signResult.status}): ${signResult.stderr?.toString().trim()}`);
+    rmSync(alignedTmp, { force: true });
+    log.warn("mobile", `  ! APK left unsigned: ${apkPath}`);
+    return "skipped";
+  }
+
+  // 3. Verify the signed temp before swapping it in.
+  const verifyResult = spawnSync(tools.apksigner, ["verify", "--verbose", alignedTmp], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 30_000,
+  });
+  if (verifyResult.status !== 0 || !verifyResult.stdout?.toString().includes("Verifies")) {
+    log.error("mobile", `  apksigner verify failed: ${verifyResult.stdout?.toString().trim()}`);
+    rmSync(alignedTmp, { force: true });
+    log.warn("mobile", `  ! APK left unsigned: ${apkPath}`);
+    return "skipped";
+  }
+
+  // 4. Replace the original with the signed + aligned copy.
+  rmSync(apkPath, { force: true });
+  // Rename across same directory — synchronous, atomic on same filesystem.
+  renameSync(alignedTmp, apkPath);
+
+  const schemes = verifyResult.stdout
+    .toString()
+    .split(/\r?\n/)
+    .filter((l) => l.includes("Verified using v") && l.includes(": true"))
+    .map((l) => l.replace(/Verified using /, "").replace(/ \(.*$/, "").trim());
+  log.info("mobile", `  ✓ Signed (${config.mode}, ${schemes.join(" + ") || "v2/v3"}): ${basename(apkPath)}`);
+  return config.mode;
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -988,7 +1264,9 @@ export async function mobile(args: string[]): Promise<void> {
   //    Mirrors `draft dist` (electron-builder → release/): the APK is built via
   //    the Gradle wrapper, then copied to release/<name>-<ver>-android.apk
   //    and unpacked to release/android-unpacked/ for inspection. Both paths are
-  //    gitignored (root `release` entry).
+  //    gitignored (root `release` entry). The collected APK is then signed
+  //    in place (release keystore → debug fallback) so it installs on devices.
+  let androidSignStatus: "release" | "debug" | "skipped" = "skipped";
   if (opts.target === "android" || opts.target === "all") {
     if (opts.skipGradle) {
       log.info("mobile", "Skipping Gradle APK build (--skip-gradle).");
@@ -998,6 +1276,12 @@ export async function mobile(args: string[]): Promise<void> {
 
       const apkPath = collectAndroidArtifacts(gameDir, repoRoot, appName, version);
       if (!apkPath) process.exit(1);
+
+      // Sign the collected APK in place (release keystore → debug fallback).
+      // Signing is a post-build step so the shell's build.gradle stays stock
+      // and no secrets live in any Gradle file. See signAndroidApk() docs.
+      const signStatus = signAndroidApk(apkPath);
+      androidSignStatus = signStatus;
     }
   }
 
@@ -1011,7 +1295,13 @@ export async function mobile(args: string[]): Promise<void> {
     log.info("mobile", `  APK:     release/${appName}-${version}-android.apk`);
     log.info("mobile", `  Unpacked: release/android-unpacked/`);
     log.info("mobile", `  Run on device/emulator: ${capBin} open android  (then Run in Android Studio)`);
-    log.info("mobile", `  The release APK is unsigned — sign it (jarsigner / apksigner) before distribution.`);
+    if (androidSignStatus === "release") {
+      log.info("mobile", `  Signed with release keystore — ready for distribution.`);
+    } else if (androidSignStatus === "debug") {
+      log.info("mobile", `  Signed with debug keystore — installable for testing, NOT for distribution.`);
+    } else {
+      log.info("mobile", `  UNSIGNED — Android will refuse to install it. See warnings above.`);
+    }
   }
   if (opts.target === "ios" || opts.target === "all") {
     log.info("mobile", `  iOS:     ${capBin} open ios      (then Run in Xcode)`);
