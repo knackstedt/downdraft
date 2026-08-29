@@ -16,6 +16,8 @@
 //   - expose() wiring with the standard API
 //   - "ready" event emission after onInit
 //   - Error recovery (logs error, retries after 100ms)
+//   - SAB polyfill buffer sync (when SharedArrayBuffer is unavailable, e.g.
+//     Android WebView — see sab-polyfill.ts + buffer-sync.ts)
 //
 // Usage in a game worker entry:
 //   createSimWorker({
@@ -25,9 +27,16 @@
 //     onAfterTicks(ctx) { ... },  // once-per-frame writes (e.g. SAB upload)
 //     onResize(gridW, gridH) { ... },
 //     startPaused: true,          // start paused (e.g. wait for save data)
+//     onSyncConfig(sab) { ... },  // buffer sync regions (SAB polyfill)
 //     extraApi: { clear: () => { ... }, loadGrid: (...) => { ... } },
 //   });
 // ============================================================================
+
+// Import the SAB polyfill FIRST — it must execute before any code that
+// references SharedArrayBuffer. On desktop/Electron this is a no-op.
+import "../sab/sab-polyfill";
+import { usingRealSAB } from "../sab/sab-polyfill";
+import type { BufferSyncConfig, BufferSyncWorker } from "./buffer-sync";
 
 import { expose, exposeEvents, type WorkerApi } from "./rpc";
 
@@ -130,6 +139,16 @@ export interface CreateSimWorkerOptions {
   onError?: (err: Error) => void;
 
   /**
+   * Returns the buffer sync config for the SAB polyfill (worker side).
+   * Called after onInit with the SAB. If provided and SharedArrayBuffer is
+   * unavailable (Android WebView), a BufferSyncWorker is created that syncs
+   * the declared write regions to the main thread after each tick batch.
+   * The regions should declare which regions the WORKER writes (sim data,
+   * stats, board) vs which it reads (input). See buffer-sync.ts.
+   */
+  onSyncConfig?: (sab: SharedArrayBuffer) => BufferSyncConfig;
+
+  /**
    * Additional API methods to expose beyond the standard set.
    * e.g. { clear: () => { ... }, loadGrid: (grid, fields, w, h) => { ... } }
    */
@@ -167,6 +186,9 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   let frameCount = 0;
   let fpsTimer = 0;
   let fps = 0;
+
+  // SAB polyfill: buffer sync worker (only created when SAB is unavailable).
+  let syncWorker: BufferSyncWorker | null = null;
   // setTimeout truncates fractional milliseconds (e.g. 32.333 → 32), losing
   // ~frac(tickMs) ms per iteration. For tickMs = 33.333 (30Hz), that's 0.333ms
   // per iteration — after ~100 iterations (~3.3s) the deficit reaches one full
@@ -255,6 +277,10 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
               frameCount,
               fps,
             });
+
+            // SAB polyfill: sync written regions to the main thread after
+            // each tick batch. No-op when real SAB is available (desktop).
+            syncWorker?.syncToMain();
           }
         }
       }
@@ -293,6 +319,16 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
   const standardApi: WorkerApi = {
     async init(sab: SharedArrayBuffer, ...args: any[]): Promise<void> {
       await opts.onInit(sab, control, ...args);
+
+      // SAB polyfill: set up buffer sync if SAB is unavailable and the game
+      // provided a sync config. The BufferSyncWorker posts written regions
+      // to the main thread after each tick batch (see syncToMain() above).
+      if (!usingRealSAB && opts.onSyncConfig) {
+        const { BufferSyncWorker: BSW } = await import("./buffer-sync");
+        syncWorker = new BSW(opts.onSyncConfig(sab));
+        syncWorker.start();
+      }
+
       running = true;
       loopActive = true;
       paused = opts.startPaused ?? false;
@@ -330,6 +366,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
     async shutdown(): Promise<void> {
       running = false;
       loopActive = false;
+      syncWorker = null; // release sync worker reference
       await opts.onShutdown?.();
     },
 

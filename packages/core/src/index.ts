@@ -78,12 +78,17 @@ export type {
 // Worker
 // ─────────────────────────────────────────────────────────────────────────────
 export { BaseWorkerHost } from "./worker/base-worker-host";
+export { BufferSyncHost, BufferSyncWorker, isBufferSyncMessage } from "./worker/buffer-sync";
+export type { BufferRegion, BufferSyncConfig, BufferSyncMessage, BufferSyncRegions, SeqField } from "./worker/buffer-sync";
 export { CrashRecoveryManager, DEFAULT_RECOVERY_CONFIG } from "./worker/crash-recovery";
 export type { CrashRecoveryConfig, RecoveryState, SimWorkerLike } from "./worker/crash-recovery";
 export { expose, exposeEvents, getWorkerHost, wrap } from "./worker/rpc";
 export type { ExposeOptions, HostMessageHandler, WorkerApi, WorkerEventEmitter, WorkerHost, WorkerProxy } from "./worker/rpc";
 export { createSimWorker } from "./worker/sim-worker-base";
 export type { CreateSimWorkerOptions, SimAfterTicksContext, SimTickContext, SimWorkerControl, SimWorkerStats } from "./worker/sim-worker-base";
+
+// SAB polyfill (for Android WebView — no-op on desktop/Electron)
+export { usingRealSAB } from "./sab/sab-polyfill";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input

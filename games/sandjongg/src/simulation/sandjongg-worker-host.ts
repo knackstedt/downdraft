@@ -2,8 +2,8 @@
 // Sandjongg worker host — wraps the sim worker with a proxy + SAB reader/writer.
 // ============================================================================
 
-import { BaseWorkerHost } from "@downdraft/core";
-import { allocateSimBuffer, INPUT, OFFSETS, SimBufferReader, SimBufferWriter } from "../shared/sim-buffer";
+import { BaseWorkerHost, type BufferSyncConfig } from "@downdraft/core";
+import { allocateSimBuffer, INPUT, INPUT_BYTES, INPUT_OFFSET, OFFSETS, SimBufferReader, SimBufferWriter, TOTAL_BYTES } from "../shared/sim-buffer";
 import type { TilesetId } from "../shared/tilesets";
 import type { GameMode, SerializedBoard } from "../shared/types";
 
@@ -65,6 +65,33 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
 
   protected async onInit(): Promise<void> {
     await this.getProxy()!.proxy.init(this.getSimBuffer(), this.gridW, this.gridH);
+  }
+
+  /**
+   * SAB polyfill: declare buffer sync regions for the copy-based protocol.
+   *
+   * Sandjongg uses a single SAB with embedded input at INPUT_OFFSET (64 bytes).
+   * The main thread writes the input region; the worker writes everything else
+   * (grid, fields, stats, board). The sync manager copies only the declared
+   * write regions between threads.
+   */
+  protected getSyncConfig(): BufferSyncConfig | null {
+    return {
+      buffers: { sim: this.getSimBuffer() },
+      regions: {
+        sim: {
+          // Main thread writes: input region only (64 bytes)
+          writeRegions: [
+            { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input" },
+          ],
+          // Worker writes: everything except the input region
+          readRegions: [
+            { offset: 0, length: INPUT_OFFSET, name: "pre-input" },
+            { offset: INPUT_OFFSET + INPUT_BYTES, length: TOTAL_BYTES - INPUT_OFFSET - INPUT_BYTES, name: "post-input" },
+          ],
+        },
+      },
+    };
   }
 
   protected onEvent(kind: string, data?: unknown): void {
