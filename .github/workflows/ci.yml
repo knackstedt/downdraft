@@ -60,7 +60,8 @@ jobs:
             packages/core/src/assets/model-normalizer.spec.ts \
             packages/plugins/models/src/bake-node-transforms.spec.ts \
             packages/plugins/models/src/sidecar/sidecar.spec.ts \
-            packages/plugins/models/src/normalize.spec.ts
+            packages/plugins/models/src/normalize.spec.ts \
+            packages/app/src/main/storage.spec.ts
 
   plugin-tests:
     name: Plugin Tests
