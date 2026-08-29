@@ -523,6 +523,10 @@
       "name": "@downdraft/shader-graph",
       "version": "0.1.0",
     },
+    "packages/test": {
+      "name": "@downdraft/test",
+      "version": "0.1.0",
+    },
     "packages/ui": {
       "name": "@downdraft/ui",
       "version": "0.1.0",
@@ -710,6 +714,8 @@
     "@downdraft/plugin-xr": ["@downdraft/plugin-xr@workspace:packages/plugins/xr"],
 
     "@downdraft/shader-graph": ["@downdraft/shader-graph@workspace:packages/shader-graph"],
+
+    "@downdraft/test": ["@downdraft/test@workspace:packages/test"],
 
     "@downdraft/ui": ["@downdraft/ui@workspace:packages/ui"],
 

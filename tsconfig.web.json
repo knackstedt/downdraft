@@ -224,6 +224,12 @@
       "@downdraft/shader-graph": [
         "./packages/shader-graph/src/index.ts"
       ],
+      "@downdraft/test": [
+        "./packages/test/src/index.ts"
+      ],
+      "@downdraft/test/*": [
+        "./packages/test/src/*"
+      ],
       "@downdraft/app/renderer": [
         "./packages/app/src/renderer/index.ts"
       ],
@@ -328,6 +334,7 @@
     "packages/app/src/vite/silence-sourcemap-warnings-plugin.ts",
     "packages/app/src/vite/worker-url-guard-plugin.ts",
     "packages/core/src/**/*.ts",
+    "packages/test/src/**/*.ts",
     "packages/ui/src/**/*",
     "packages/shader-graph/src/**/*.ts",
     "packages/plugins/*/src/**/*.ts",

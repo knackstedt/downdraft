@@ -23,6 +23,7 @@
     "packages/ui",
     "packages/mcp",
     "packages/shader-graph",
+    "packages/test",
     "packages/cli",
     "packages/plugins/*",
     "packages/libraries/*",
