@@ -34,6 +34,26 @@ export interface BufferRegion {
   offset: number;
   length: number;
   name: string;
+  /**
+   * If true, the sender zeros this region in the local buffer after copying
+   * it outbound. Used for input regions: the main thread writes input (e.g.
+   * ACTION=1), rAF copies + sends it, then clears the local copy so it
+   * doesn't re-send stale input on the next frame. The worker processes
+   * the received input and ignores subsequent zeros (ACTION=0 = no action).
+   *
+   * This eliminates the race where the worker sends the cleared input back
+   * to the main thread, overwriting a new click written between the worker's
+   * sync message and the next rAF.
+   */
+  clearAfterSend?: boolean;
+  /**
+   * If true, the region is only sent when it contains non-zero data. Used
+   * with clearAfterSend on input regions: after the input is sent and
+   * cleared, subsequent rAF frames see all-zeros and skip sending — so
+   * they don't overwrite the worker's pending input with zeros before
+   * the worker's tick loop processes it.
+   */
+  skipIfAllZero?: boolean;
 }
 
 /** Declares which regions of a buffer each side writes. */
@@ -130,12 +150,28 @@ export class BufferSyncHost {
 
       const copies: RegionCopy[] = [];
       for (const r of regionDef.writeRegions) {
+        const src = new Uint8Array(buf, r.offset, r.length);
+        // skipIfAllZero: don't send zero-filled regions (e.g. input with
+        // ACTION=0 after clearAfterSend). This prevents overwriting the
+        // worker's pending input with zeros before it processes the input.
+        if (r.skipIfAllZero) {
+          let allZero = true;
+          for (let i = 0; i < src.length; i++) {
+            if (src[i] !== 0) { allZero = false; break; }
+          }
+          if (allZero) continue;
+        }
         const copy = new ArrayBuffer(r.length);
-        new Uint8Array(copy).set(new Uint8Array(buf, r.offset, r.length));
+        new Uint8Array(copy).set(src);
         copies.push({ offset: r.offset, data: copy });
         transfers.push(copy);
+        // Clear-after-send: zero the local region so we don't re-send stale
+        // data on the next frame. Used for input regions (hand-off pattern).
+        if (r.clearAfterSend) {
+          new Uint8Array(buf, r.offset, r.length).fill(0);
+        }
       }
-      regions[name] = copies;
+      if (copies.length > 0) regions[name] = copies;
     }
 
     if (Object.keys(regions).length > 0) {

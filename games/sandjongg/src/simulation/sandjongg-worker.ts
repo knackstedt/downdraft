@@ -267,22 +267,17 @@ createSimWorker({
   },
 
   // SAB polyfill: declare buffer sync regions (worker side).
-  // The worker writes everything (including the input region, which it
-  // clears after processing — e.g. ACTION → 0). The main thread writes
-  // the input region (setting ACTION). This is a ping-pong protocol:
-  //   1. Main sends input (ACTION=1) to worker
-  //   2. Worker processes action, clears ACTION → 0
-  //   3. Worker sends sim data + cleared input back to main
-  //   4. Main sees ACTION=0, doesn't re-send stale action
+  // The worker writes everything except the input region. The main thread
+  // writes the input region and uses clearAfterSend to avoid re-sending
+  // stale input (hand-off pattern — no race condition).
   onSyncConfig(sab: SharedArrayBuffer): BufferSyncConfig {
     return {
       buffers: { sim: sab },
       regions: {
         sim: {
-          // Worker writes: everything (including input, which it clears)
+          // Worker writes: everything except the input region
           writeRegions: [
             { offset: 0, length: INPUT_OFFSET, name: "pre-input" },
-            { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input" },
             { offset: INPUT_OFFSET + INPUT_BYTES, length: TOTAL_BYTES - INPUT_OFFSET - INPUT_BYTES, name: "post-input" },
           ],
           // Main thread writes: input region only

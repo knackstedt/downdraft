@@ -80,16 +80,20 @@ export class SandjonggWorkerHost extends BaseWorkerHost<SandjonggWorkerApi> {
       buffers: { sim: this.getSimBuffer() },
       regions: {
         sim: {
-          // Main thread writes: input region only (64 bytes)
+          // Main thread writes: input region only (64 bytes).
+          // clearAfterSend: after rAF copies + sends the input, zero the
+          // local copy so we don't re-send stale input (e.g. ACTION=1)
+          // every frame. The worker processes the received input and
+          // ignores subsequent zeros (ACTION=0 = no action).
+          // skipIfAllZero: don't send zero-filled input — prevents
+          // overwriting the worker's pending input with zeros before
+          // the worker's tick loop processes it.
           writeRegions: [
-            { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input" },
+            { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input", clearAfterSend: true, skipIfAllZero: true },
           ],
-          // Worker writes: everything (including input, which it clears
-          // after processing — e.g. ACTION → 0). The main thread reads
-          // the cleared input back so it doesn't re-send stale actions.
+          // Worker writes: everything except the input region
           readRegions: [
             { offset: 0, length: INPUT_OFFSET, name: "pre-input" },
-            { offset: INPUT_OFFSET, length: INPUT_BYTES, name: "input" },
             { offset: INPUT_OFFSET + INPUT_BYTES, length: TOTAL_BYTES - INPUT_OFFSET - INPUT_BYTES, name: "post-input" },
           ],
         },
