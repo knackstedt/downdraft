@@ -173,6 +173,41 @@ describe("buffer-sync", () => {
       host.stop();
     });
 
+    it("clearAfterSend zeros the local buffer after sending", () => {
+      const mainBuf = new ArrayBuffer(1024);
+      const mockWorker = new MockWorker();
+
+      const config: BufferSyncConfig = {
+        buffers: { sim: mainBuf },
+        regions: {
+          sim: {
+            writeRegions: [{ offset: 0, length: 64, name: "input", clearAfterSend: true }],
+            readRegions: [{ offset: 64, length: 960, name: "sim" }],
+          },
+        },
+      };
+
+      // Write input data
+      const mainI32 = new Int32Array(mainBuf, 0, 16);
+      mainI32[0] = 42; // e.g. ACTION=1
+      mainI32[1] = 99; // e.g. click coords
+
+      const host = new BufferSyncHost(mockWorker as unknown as Worker, config);
+      host.start();
+
+      // The host should have sent the input data
+      expect(mockWorker.sent.length).toBe(1);
+      const sentI32 = new Int32Array(mockWorker.sent[0].msg.regions.sim[0].data);
+      expect(sentI32[0]).toBe(42);
+      expect(sentI32[1]).toBe(99);
+
+      // The local buffer should now be zeroed (clearAfterSend)
+      expect(mainI32[0]).toBe(0);
+      expect(mainI32[1]).toBe(0);
+
+      host.stop();
+    });
+
     it("skips buffers with no write regions", () => {
       const mainBuf = new ArrayBuffer(1024);
       const mockWorker = new MockWorker();
