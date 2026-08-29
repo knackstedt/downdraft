@@ -2,6 +2,7 @@
 import { createLogger } from "@downdraft/core";
 import { assets } from "./assets";
 import { build } from "./build";
+import { buildGames } from "./build-games";
 import { debug } from "./debug";
 import { dev } from "./dev";
 import { dist } from "./dist";
@@ -28,6 +29,9 @@ async function main() {
     case "build":
       await build(process.argv.slice(3));
       break;
+    case "build-games":
+      await buildGames(process.argv.slice(3));
+      break;
     case "dist":
       await dist(process.argv.slice(3));
       break;
@@ -53,6 +57,7 @@ Commands:
   dev [options]     Start dev server with HMR
   debug [options]   Run engine in debug mode with profiling/visualization
   build [options]   Build for target platform
+  build-games [opts] Build + package multiple games for desktop/mobile (used by VSCode task)
   dist [options]    Package a game for distribution via electron-builder
   export [options]  Package for distribution
   mobile [options]  Build + scaffold a Capacitor mobile target from the engine shell (Android / iOS)

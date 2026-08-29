@@ -782,7 +782,7 @@ The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` al
 - `packages/app/src/mobile/webgpu-guard.ts` — boot-time WebGPU + cross-origin isolation check with user-facing error screen.
 - `packages/app/src/mobile/capacitor-plugin-types.d.ts` — ambient type declarations for optional `@capacitor/app` and `@capacitor/browser` plugins.
 - `packages/app/src/vite/mobile-vite-config.ts` — `createDowndraftMobileViteConfig()` web-only Vite build config (no main/preload, outputs `dist/mobile/`).
-- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (copy-from-shell + patch + icons + overrides + sync).
+- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (copy-from-shell + patch + icons + overrides + sync + gradle APK build + collect into `release/android/`).
 - `packages/cli/src/mobile-icons.ts` — jimp-based icon + splash generation from `icon.png` (Android mipmaps + splash screens + iOS AppIcon + splash set). Generates solid-color placeholders if no `icon.png` is provided. The shell ships NO binary images.
 
 ### Per-feature Electron-only strategy
@@ -818,6 +818,7 @@ The only prerequisite is installing Capacitor deps: `bun add -d @capacitor/cli @
    - Copy the engine shell → gitignored `android/` + `ios/`
    - Generate icons + splash screens (from `icon.png` or solid-color placeholders)
    - Run `cap sync`
+   - Build the release APK via the Gradle wrapper (Android target) and collect it into `release/android/` (+ unpacked to `release/android-unpacked/`)
 
 2. Wire up the generated `src/mobile.tsx` stub — copy your renderer factory, sim adapter, and UI mount from `main.tsx`. Replace `startGame()` with `createDowndraftMobileApp()`.
 
@@ -825,9 +826,9 @@ The only prerequisite is installing Capacitor deps: `bun add -d @capacitor/cli @
 
 4. (Optional) Create a `mobile-overrides/` directory for game-specific native customization (extra permissions, deps, resources).
 
-5. Re-run `draft mobile` to regenerate native projects with your wired-up entry.
+5. Re-run `draft mobile` to regenerate native projects with your wired-up entry. The release APK lands at `release/android/<appName>-<version>-android.apk` (unsigned — sign with `jarsigner` / `apksigner` before distribution).
 
-6. Open the native project: `npx cap open android` (or `ios`) and run.
+6. To run on a device/emulator (rather than just producing the APK): `npx cap open android` (or `ios`) and Run in Android Studio / Xcode.
 
 **TODO (revisit later):** Extract a shared `game-module.ts` from each game's `main.tsx` so the auto-generated `mobile.tsx` stub can import and reuse it directly, eliminating the manual wiring step. Currently the stub has placeholder TODOs because games inline their `GameModule` into `startGame()` rather than exporting it.
 
@@ -844,7 +845,8 @@ draft mobile [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-b
 - Applies `mobile-overrides/` merge layer if present.
 - Ensures `capacitor.config.ts` exists (writes if missing).
 - Syncs the web bundle to native projects (`npx cap sync`).
-- Prints next steps (open Android Studio / Xcode).
+- Builds the release APK via the Gradle wrapper (`./gradlew assembleRelease`) and collects it into `release/android/<appName>-<version>-android.apk` (+ unpacked to `release/android-unpacked/`). Mirrors `draft dist` → electron-builder `release/` for desktop. Requires the Android SDK. The APK is unsigned — sign before distribution.
+- Prints next steps (APK location + open Android Studio / Xcode to run on device).
 
 ### Config that must be updated when adding mobile support
 
@@ -852,4 +854,60 @@ draft mobile [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-b
 - `tsconfig.web.json` — `packages/app/src/mobile/**` include + `@downdraft/app/mobile` path mapping (already done).
 - Game's `capacitor.config.ts` — `appId`, `webDir: "dist/mobile"`, `server.url: "http://127.0.0.1:<port>/index.html"`, `server.androidScheme: "http"`, `server.iosScheme: "http"`.
 - No native project editing required — the shell is pre-wired.
+
+### Android emulator + adb — always use hard timeouts
+
+**ALWAYS pass a hard `timeout` to `exec` when running `adb` or emulator commands.** The `adb` shell, `adb wait-for-device`, and emulator boot sequences can hang indefinitely (emulator fails to start, `adb` daemon dies, device enters an unrecoverable state). Without a hard timeout the exec call blocks forever and the session stalls.
+
+```bash
+# GOOD — hard timeout, fails fast if something is wrong
+timeout 120 adb wait-for-device
+timeout 30 adb shell getprop sys.boot_completed
+
+# BAD — can hang forever if the emulator never boots
+adb wait-for-device
+```
+
+Recommended timeout values:
+- `adb wait-for-device` — 120s (emulator boot can take 60-90s)
+- `adb shell <cmd>` — 15-30s (most shell commands return in <5s)
+- `adb install` — 60s (large APKs on slow emulators)
+- `adb logcat -d` — 10s (dump only, no streaming)
+- `emulator` startup — background it, then poll `adb shell getprop sys.boot_completed` with 5s sleeps inside a `timeout 120` loop
+- `gradlew assembleDebug` — 180s (cold Gradle daemon + first build can be slow)
+
+If a command times out, kill the emulator (`adb emu kill`) and restart it rather than retrying the same hung command.
+
+### WebGPU on the Android emulator
+
+The Android emulator's WebView often returns `null` from `navigator.gpu.requestAdapter()` even though `navigator.gpu` exists and `canvas.getContext('webgpu')` returns an object. This is because:
+
+1. **WebGPU requires a functional GPU backend** (Vulkan 1.1+ or OpenGL ES 3.1+ via compatibility mode). The emulator's GPU emulation (`-gpu host`, `-gpu swiftshader_indirect`) may not expose a Vulkan backend that Dawn (Chrome's WebGPU implementation) can use.
+2. **The GPU blocklist** may disable WebGPU even when a GPU is present. Enable `--ignore-gpu-blocklist` and `--enable-unsafe-webgpu` via the WebView command-line file.
+3. **Compatibility mode** (`featureLevel: "compatibility"` or `compatibilityMode: true` in `requestAdapter()`) can use the OpenGL ES backend on Chrome 135+, but the emulator's GLES emulation may still fail.
+
+**Emulator GPU modes to try (in order):**
+1. `-gpu host` — uses the host GPU (NVIDIA/AMD). Best chance of WebGPU working, but can crash with SIGSEGV if the Vulkan driver has issues.
+2. `-gpu swiftshader_indirect` — software renderer. Slower but more stable. WebGPU may still fail (SwiftShader doesn't always expose a WebGPU-compatible backend).
+3. `-gpu host -feature GLESDynamicVersion` — forces GLES version detection, sometimes helps with WebView GPU init.
+
+**WebView command-line flags to try:**
+```bash
+adb shell "echo 'webview --enable-features=SharedArrayBuffer,UnsafeWebGPU --ignore-gpu-blocklist' > /data/local/tmp/webview-command-line"
+```
+
+**If WebGPU cannot be enabled on the emulator**, the game will boot (React UI renders, sim worker runs) but the canvas will be blank — `renderer.init()` returns `false` because `requestAdapter()` returns `null`. This is an emulator limitation, not a code bug. Test on a physical Android device with Chrome 121+ (Mali/Adreno GPUs) for real WebGPU validation.
+
+### Debugging the running app via CDP
+
+The WebView exposes a Chrome DevTools Protocol endpoint that can be used for runtime inspection:
+
+```bash
+PID=$(adb shell pidof com.downdraft.sandjongg | tr -d '\r')
+adb forward tcp:9222 localabstract:webview_devtools_remote_$PID
+# Then connect to http://127.0.0.1:9222/json via Python websocket
+# or open chrome://inspect in a desktop Chrome browser
+```
+
+This allows evaluating JS in the WebView context to check `navigator.gpu`, `requestAdapter()`, DOM state, and console output — useful for diagnosing boot failures without logcat noise.
 

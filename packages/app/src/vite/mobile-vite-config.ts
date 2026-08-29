@@ -133,6 +133,8 @@ export function createDowndraftMobileViteConfig(
     { find: /^@downdraft\/library-undertow\//, replacement: resolve(repoRoot, "packages/libraries/undertow/src") + "/" },
     { find: /^node:fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
     { find: /^fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },
+    { find: /^node:path$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/path.ts") },
+    { find: /^path$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/path.ts") },
     { find: /^@downdraft\/library-marching-cubes$/, replacement: resolve(repoRoot, "packages/libraries/marching-cubes/src/index.ts") },
     { find: /^@downdraft\/library-marching-cubes\//, replacement: resolve(repoRoot, "packages/libraries/marching-cubes/src") + "/" },
     { find: /^@downdraft\/library-navmesh$/, replacement: resolve(repoRoot, "packages/libraries/navmesh/src/index.ts") },
@@ -191,7 +193,18 @@ export function createDowndraftMobileViteConfig(
       outDir: "dist/mobile",
       target: "esnext", // modern WebView (Android 121+, iOS 26+)
       sourcemap: "hidden",
+      chunkSizeWarningLimit: 2000, // mobile bundle includes engine + game in one chunk
       rollupOptions: {
+        onwarn(warning, defaultHandler) {
+          // Suppress "emitted file overwrites a previously emitted file" warnings.
+          // These occur when worker bundles and the main bundle emit sourcemap
+          // files with colliding names — harmless because hidden sourcemaps are
+          // not loaded at runtime.
+          if (warning.code === "ASSET_OVERWRITE" || (warning.message?.includes("overwrites a previously emitted file"))) {
+            return;
+          }
+          defaultHandler(warning);
+        },
         input: {
           index: resolve(rendererRoot, "index.html"),
           ...(Object.fromEntries(

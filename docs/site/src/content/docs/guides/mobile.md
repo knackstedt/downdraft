@@ -249,7 +249,7 @@ createDowndraftMobileApp({
 
 ## Boot guard
 
-The mobile host runs a boot-time check for WebGPU and cross-origin isolation before starting the game. If either is missing, it shows a user-facing error screen instead of a silent hang:
+The mobile host runs a boot-time check for WebGPU and SharedArrayBuffer before starting the game. If either is missing, it shows a user-facing error screen instead of a silent hang:
 
 ```typescript
 // This happens automatically inside createDowndraftMobileApp()
@@ -259,6 +259,8 @@ if (!guard.ok) {
   return;
 }
 ```
+
+The guard checks for `SharedArrayBuffer` directly (`typeof SharedArrayBuffer === "undefined"`) rather than relying on `self.crossOriginIsolated`. This is because Android WebView uses "logical" cross-origin isolation (not "concrete") — `crossOriginIsolated` is always `false` even with COOP/COEP headers, but SAB can be enabled via the `--enable-features=SharedArrayBuffer` WebView command-line flag. See the [Android WebView command-line flags docs](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/android_webview/docs/commandline-flags.md) for details.
 
 ## Files
 

@@ -1,5 +1,7 @@
 
 import { assertCount, MAX_MIP_LEVELS, MAX_TEXTURE_DIM } from "../safety/bounds";
+import { loadDDSTexture } from "./loader-dds";
+import { loadHDRFile } from "./loader-hdr";
 
 export interface TextureData {
   width: number;
@@ -236,13 +238,11 @@ export async function loadTexture(
   }
 
   if (fmt === "dds") {
-    const { loadDDSTexture } = await import("./loader-dds");
     const result = await loadDDSTexture(uri);
     if (result) return result;
   }
 
   if (fmt === "hdr" || fmt === "exr") {
-    const { loadHDRFile } = await import("./loader-hdr");
     const result = await loadHDRFile(uri);
     if (result) return result;
   }

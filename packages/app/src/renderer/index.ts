@@ -10,6 +10,7 @@
 // and this accessor returns a stub that no-ops / returns null. Callers that
 // need real values should guard with `downdraft?.isAvailable`.
 
+import { OpfsSaveStore } from "@downdraft/library-persistence/browser";
 import type {
     DowndraftBridgeAPI,
     DowndraftOsrBridgeAPI
@@ -114,7 +115,6 @@ export async function createDefaultSaveStore(engineVersion: string): Promise<imp
     bridge: downdraft,
   });
   if (!store) {
-    const { OpfsSaveStore } = await import("@downdraft/library-persistence/browser");
     const fallback = new OpfsSaveStore({ engineVersion });
     await fallback.init();
     return fallback;

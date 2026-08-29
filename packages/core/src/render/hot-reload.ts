@@ -1,3 +1,5 @@
+import { GLBLoader } from "../assets/loader-mesh";
+import { loadTexture } from "../assets/loader-texture";
 import { Material } from "../material/material";
 import type { MeshData } from "../mesh/builder";
 import { createLogger } from "../util/logger";
@@ -204,7 +206,6 @@ export class MaterialHotReloader {
 
   private async reloadMesh(path: string, onReload: HotReloadCallback<MeshData>): Promise<void> {
     try {
-      const { GLBLoader } = await import("../assets/loader-mesh");
       const response = await fetch(path);
       const buffer = await response.arrayBuffer();
       const loader = new GLBLoader();
@@ -219,7 +220,6 @@ export class MaterialHotReloader {
 
   private async reloadTexture(path: string, watched: WatchedTexture): Promise<void> {
     try {
-      const { loadTexture } = await import("../assets/loader-texture");
       const textureData = await loadTexture(path, {
         format: watched.format,
         generateMips: watched.generateMips,

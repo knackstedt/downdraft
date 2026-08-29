@@ -3,7 +3,7 @@ import { Jimp } from "jimp";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyOverrides, ensureMobileEntry, generateMobileEntryStub, patchShell } from "./mobile";
+import { applyOverrides, collectAndroidArtifacts, ensureMobileEntry, generateMobileEntryStub, patchShell } from "./mobile";
 import { generateIcons } from "./mobile-icons";
 
 // ---------------------------------------------------------------------------
@@ -554,5 +554,88 @@ describe("generateMobileEntryStub", () => {
     expect(stub).toContain("sim:");
     expect(stub).toContain("mountUI:");
     expect(stub).toContain("onReady:");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Android artifact collection tests
+// ---------------------------------------------------------------------------
+
+describe("collectAndroidArtifacts", () => {
+  let tempDir: string;
+  let gameDir: string;
+  let repoRoot: string;
+  let apkOutDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "mobile-collect-spec-"));
+    repoRoot = tempDir; // release/ lands inside the temp dir, not the real repo
+    gameDir = join(tempDir, "game");
+    apkOutDir = join(gameDir, "android/app/build/outputs/apk/release");
+    mkdirSync(apkOutDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("collects the release APK into release/ with a branded name", () => {
+    writeFileSync(join(apkOutDir, "app-release-unsigned.apk"), "FAKE-APK-BYTES");
+
+    const result = collectAndroidArtifacts(gameDir, repoRoot, "TestGame", "1.2.0");
+
+    expect(result).not.toBeNull();
+    const destName = "TestGame-1.2.0-android.apk";
+    expect(result).toBe(join(repoRoot, "release", destName));
+    expect(existsSync(join(repoRoot, "release", destName))).toBe(true);
+    expect(readFileSync(join(repoRoot, "release", destName), "utf-8")).toBe("FAKE-APK-BYTES");
+  });
+
+  it("prefers a signed APK over an unsigned one", () => {
+    writeFileSync(join(apkOutDir, "app-release-unsigned.apk"), "UNSIGNED-BYTES");
+    writeFileSync(join(apkOutDir, "app-release.apk"), "SIGNED-BYTES");
+
+    const result = collectAndroidArtifacts(gameDir, repoRoot, "TestGame", "1.0.0");
+    expect(result).not.toBeNull();
+
+    const dest = join(repoRoot, "release/TestGame-1.0.0-android.apk");
+    expect(readFileSync(dest, "utf-8")).toBe("SIGNED-BYTES");
+  });
+
+  it("clears stale artifacts in release/ before collecting", () => {
+    // Pre-populate release/ with a stale APK from a previous build.
+    mkdirSync(join(repoRoot, "release"), { recursive: true });
+    writeFileSync(join(repoRoot, "release/stale-old-build.apk"), "STALE");
+    writeFileSync(join(apkOutDir, "app-release-unsigned.apk"), "NEW");
+
+    collectAndroidArtifacts(gameDir, repoRoot, "TestGame", "2.0.0");
+
+    // Stale file must be gone; only the freshly collected APK remains.
+    expect(existsSync(join(repoRoot, "release/stale-old-build.apk"))).toBe(false);
+    expect(existsSync(join(repoRoot, "release/TestGame-2.0.0-android.apk"))).toBe(true);
+  });
+
+  it("returns null when the APK output directory does not exist", () => {
+    rmSync(apkOutDir, { recursive: true, force: true });
+    const result = collectAndroidArtifacts(gameDir, repoRoot, "TestGame", "1.0.0");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when no .apk files are present", () => {
+    // apkOutDir exists but is empty
+    const result = collectAndroidArtifacts(gameDir, repoRoot, "TestGame", "1.0.0");
+    expect(result).toBeNull();
+  });
+
+  it("cleans up release/android-unpacked/ when the APK is not a valid zip", () => {
+    // A plain-text fake APK: `unzip` (if present) fails → the unpacked dir is
+    // removed by the catch block. Robust whether or not `unzip` is installed.
+    writeFileSync(join(apkOutDir, "app-release-unsigned.apk"), "NOT-A-ZIP");
+
+    collectAndroidArtifacts(gameDir, repoRoot, "TestGame", "1.0.0");
+
+    expect(existsSync(join(repoRoot, "release/android-unpacked"))).toBe(false);
+    // The collected APK is still present regardless of the unpack failure.
+    expect(existsSync(join(repoRoot, "release/TestGame-1.0.0-android.apk"))).toBe(true);
   });
 });
