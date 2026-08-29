@@ -3,7 +3,15 @@ import { Jimp } from "jimp";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyOverrides, collectAndroidArtifacts, ensureMobileEntry, generateMobileEntryStub, patchShell } from "./mobile";
+import {
+    applyOverrides,
+    collectAndroidArtifacts,
+    ensureMobileEntry,
+    generateMobileEntryStub,
+    patchShell,
+    resolveAndroidBuildTools,
+    resolveSigningConfig,
+} from "./mobile";
 import { generateIcons } from "./mobile-icons";
 
 // ---------------------------------------------------------------------------
@@ -637,5 +645,233 @@ describe("collectAndroidArtifacts", () => {
     expect(existsSync(join(repoRoot, "release/android-unpacked"))).toBe(false);
     // The collected APK is still present regardless of the unpack failure.
     expect(existsSync(join(repoRoot, "release/TestGame-1.0.0-android.apk"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// APK signing config + build-tools resolution tests
+// ---------------------------------------------------------------------------
+//
+// resolveSigningConfig() and resolveAndroidBuildTools() read env vars and
+// the user's home directory (~/.downdraft/keystore.properties, ~/.android/
+// debug.keystore, ~/Android/Sdk). To keep these tests hermetic we point
+// HOME at a temp dir and set/unset the relevant env vars per test, restoring
+// them afterward.
+
+describe("resolveSigningConfig", () => {
+  let tempHome: string;
+  let savedHome: string | undefined;
+  const envKeys = [
+    "DD_RELEASE_KEYSTORE",
+    "DD_RELEASE_KEYSTORE_PASS",
+    "DD_RELEASE_KEY_ALIAS",
+    "DD_RELEASE_KEY_PASS",
+  ];
+  let savedEnv: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    tempHome = mkdtempSync(join(tmpdir(), "mobile-sign-home-"));
+    savedHome = process.env.HOME;
+    savedEnv = {};
+    for (const k of envKeys) savedEnv[k] = process.env[k];
+    // os.homedir() reads HOME on POSIX; set it so the function looks in tempHome.
+    process.env.HOME = tempHome;
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    for (const k of envKeys) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it("returns a release config from DD_RELEASE_KEYSTORE env vars", () => {
+    const ks = join(tempHome, "release.keystore");
+    writeFileSync(ks, "fake-keystore");
+    process.env.DD_RELEASE_KEYSTORE = ks;
+    process.env.DD_RELEASE_KEYSTORE_PASS = "store-secret";
+    process.env.DD_RELEASE_KEY_ALIAS = "release-key";
+    process.env.DD_RELEASE_KEY_PASS = "key-secret";
+
+    const cfg = resolveSigningConfig();
+
+    expect(cfg).not.toBeNull();
+    expect(cfg!.mode).toBe("release");
+    expect(cfg!.keystore).toBe(ks);
+    expect(cfg!.storePass).toBe("store-secret");
+    expect(cfg!.alias).toBe("release-key");
+    expect(cfg!.keyPass).toBe("key-secret");
+  });
+
+  it("falls back to keyPass = storePass when DD_RELEASE_KEY_PASS is unset", () => {
+    const ks = join(tempHome, "release.keystore");
+    writeFileSync(ks, "fake-keystore");
+    process.env.DD_RELEASE_KEYSTORE = ks;
+    process.env.DD_RELEASE_KEYSTORE_PASS = "shared-pass";
+    process.env.DD_RELEASE_KEY_ALIAS = "release-key";
+    // DD_RELEASE_KEY_PASS intentionally unset
+
+    const cfg = resolveSigningConfig();
+
+    expect(cfg).not.toBeNull();
+    expect(cfg!.keyPass).toBe("shared-pass");
+  });
+
+  it("returns a release config from ~/.downdraft/keystore.properties when env unset", () => {
+    const ks = join(tempHome, "release.keystore");
+    writeFileSync(ks, "fake-keystore");
+    mkdirSync(join(tempHome, ".downdraft"), { recursive: true });
+    writeFileSync(
+      join(tempHome, ".downdraft", "keystore.properties"),
+      `# release signing\nkeystore=${ks}\nstorepass=props-store\nalias=props-alias\nkeypass=props-key\n`,
+    );
+
+    const cfg = resolveSigningConfig();
+
+    expect(cfg).not.toBeNull();
+    expect(cfg!.mode).toBe("release");
+    expect(cfg!.keystore).toBe(ks);
+    expect(cfg!.storePass).toBe("props-store");
+    expect(cfg!.alias).toBe("props-alias");
+    expect(cfg!.keyPass).toBe("props-key");
+  });
+
+  it("env vars win over keystore.properties", () => {
+    const envKs = join(tempHome, "env.keystore");
+    const propsKs = join(tempHome, "props.keystore");
+    writeFileSync(envKs, "env");
+    writeFileSync(propsKs, "props");
+    mkdirSync(join(tempHome, ".downdraft"), { recursive: true });
+    writeFileSync(
+      join(tempHome, ".downdraft", "keystore.properties"),
+      `keystore=${propsKs}\nstorepass=props-pass\nalias=props-alias\n`,
+    );
+    process.env.DD_RELEASE_KEYSTORE = envKs;
+    process.env.DD_RELEASE_KEYSTORE_PASS = "env-pass";
+    process.env.DD_RELEASE_KEY_ALIAS = "env-alias";
+
+    const cfg = resolveSigningConfig();
+
+    expect(cfg).not.toBeNull();
+    expect(cfg!.keystore).toBe(envKs);
+    expect(cfg!.storePass).toBe("env-pass");
+    expect(cfg!.alias).toBe("env-alias");
+  });
+
+  it("falls back to debug keystore at ~/.android/debug.keystore with a warning", () => {
+    mkdirSync(join(tempHome, ".android"), { recursive: true });
+    writeFileSync(join(tempHome, ".android", "debug.keystore"), "fake-debug-keystore");
+
+    const cfg = resolveSigningConfig();
+
+    expect(cfg).not.toBeNull();
+    expect(cfg!.mode).toBe("debug");
+    expect(cfg!.keystore).toBe(join(tempHome, ".android", "debug.keystore"));
+    expect(cfg!.alias).toBe("androiddebugkey");
+    expect(cfg!.storePass).toBe("android");
+    expect(cfg!.keyPass).toBe("android");
+  });
+
+  it("returns null when no keystore is available anywhere", () => {
+    // tempHome has no .android/debug.keystore, no .downdraft/, and no env vars.
+    const cfg = resolveSigningConfig();
+    expect(cfg).toBeNull();
+  });
+
+  it("ignores keystore.properties whose keystore path is missing", () => {
+    mkdirSync(join(tempHome, ".downdraft"), { recursive: true });
+    writeFileSync(
+      join(tempHome, ".downdraft", "keystore.properties"),
+      `keystore=${join(tempHome, "does-not-exist.keystore")}\nstorepass=x\nalias=y\n`,
+    );
+    // No debug keystore either → should return null (not crash, not use bogus path).
+    const cfg = resolveSigningConfig();
+    expect(cfg).toBeNull();
+  });
+});
+
+describe("resolveAndroidBuildTools", () => {
+  let tempHome: string;
+  let savedHome: string | undefined;
+  let savedAndroidHome: string | undefined;
+  let savedAndroidSdkRoot: string | undefined;
+
+  beforeEach(() => {
+    tempHome = mkdtempSync(join(tmpdir(), "mobile-bt-home-"));
+    savedHome = process.env.HOME;
+    savedAndroidHome = process.env.ANDROID_HOME;
+    savedAndroidSdkRoot = process.env.ANDROID_SDK_ROOT;
+    delete process.env.ANDROID_HOME;
+    delete process.env.ANDROID_SDK_ROOT;
+    process.env.HOME = tempHome;
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedAndroidHome === undefined) delete process.env.ANDROID_HOME;
+    else process.env.ANDROID_HOME = savedAndroidHome;
+    if (savedAndroidSdkRoot === undefined) delete process.env.ANDROID_SDK_ROOT;
+    else process.env.ANDROID_SDK_ROOT = savedAndroidSdkRoot;
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it("locates apksigner + zipalign in the highest build-tools version under ~/Android/Sdk", () => {
+    const sdk = join(tempHome, "Android", "Sdk", "build-tools");
+    // Two versions present; 36.0.0 should win over 35.0.0.
+    for (const v of ["35.0.0", "36.0.0"]) {
+      const dir = join(sdk, v);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "apksigner"), "#!/bin/sh\n");
+      writeFileSync(join(dir, "zipalign"), "#!/bin/sh\n");
+    }
+
+    const tools = resolveAndroidBuildTools();
+
+    expect(tools).not.toBeNull();
+    expect(tools!.apksigner).toBe(join(sdk, "36.0.0", "apksigner"));
+    expect(tools!.zipalign).toBe(join(sdk, "36.0.0", "zipalign"));
+  });
+
+  it("prefers ANDROID_HOME over ~/Android/Sdk", () => {
+    const customSdk = join(tempHome, "custom-sdk", "build-tools", "36.0.0");
+    mkdirSync(customSdk, { recursive: true });
+    writeFileSync(join(customSdk, "apksigner"), "");
+    writeFileSync(join(customSdk, "zipalign"), "");
+
+    const homeSdk = join(tempHome, "Android", "Sdk", "build-tools", "35.0.0");
+    mkdirSync(homeSdk, { recursive: true });
+    writeFileSync(join(homeSdk, "apksigner"), "");
+    writeFileSync(join(homeSdk, "zipalign"), "");
+
+    process.env.ANDROID_HOME = join(tempHome, "custom-sdk");
+
+    const tools = resolveAndroidBuildTools();
+
+    expect(tools).not.toBeNull();
+    expect(tools!.apksigner).toBe(join(customSdk, "apksigner"));
+  });
+
+  it("skips build-tools dirs that lack apksigner", () => {
+    const sdk = join(tempHome, "Android", "Sdk", "build-tools");
+    const v35 = join(sdk, "35.0.0");
+    mkdirSync(v35, { recursive: true });
+    writeFileSync(join(v35, "zipalign"), ""); // missing apksigner
+    const v36 = join(sdk, "36.0.0");
+    mkdirSync(v36, { recursive: true });
+    writeFileSync(join(v36, "apksigner"), "");
+    writeFileSync(join(v36, "zipalign"), "");
+
+    const tools = resolveAndroidBuildTools();
+
+    expect(tools).not.toBeNull();
+    expect(tools!.apksigner).toBe(join(v36, "apksigner"));
+  });
+
+  it("returns null when no SDK is present", () => {
+    expect(resolveAndroidBuildTools()).toBeNull();
   });
 });
