@@ -15,7 +15,7 @@
 //   - Excludes `@downdraft/app/main`, `@downdraft/app/preload`, and
 //     `@downdraft/plugin-electron-osr` from the bundle (they're not imported
 //     by the mobile entry, so they tree-shake out naturally).
-//   - The mobile entry is `<root>/src/mobile.ts` (not `main.tsx`), which
+//   - The mobile entry is `<root>/src/mobile.tsx` (not `main.tsx`), which
 //     calls `createDowndraftMobileApp()` instead of `createDowndraftApp()`.
 //
 // Usage (from a game's `mobile.vite.config.ts`):
@@ -25,18 +25,18 @@
 //
 
 import react from "@vitejs/plugin-react";
-import { defineConfig, type PluginOption } from "vite";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { defineConfig, type PluginOption } from "vite";
+import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
-import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
 
 export interface DowndraftMobileViteConfigOptions {
   /** The game directory (usually `__dirname` from the game's mobile.vite.config.ts). */
   root: string;
-  /** Mobile entry script (default: `<root>/src/mobile.ts`). */
+  /** Mobile entry script (default: `<root>/src/mobile.tsx`). */
   entry?: string;
   /** Renderer root directory (default: `<root>`). Must contain `index.html` unless `html` is set. */
   rendererRoot?: string;
@@ -70,7 +70,7 @@ export function createDowndraftMobileViteConfig(
   const { root } = options;
   const repoRoot = resolve(root, "../..");
   const game = options.game ?? root.split("/").pop()!;
-  const entry = options.entry ?? resolve(root, "src/mobile.ts");
+  const entry = options.entry ?? resolve(root, "src/mobile.tsx");
   const rendererRoot = options.rendererRoot ?? root;
 
   // --- Shared core aliases (same as the desktop config) ---
@@ -160,7 +160,7 @@ export function createDowndraftMobileViteConfig(
           { type: "canvas", id: "game-canvas" },
           { type: "dom", id: "root" },
         ],
-        // Mobile entry is src/mobile.ts, not src/main.tsx
+        // Mobile entry is src/mobile.tsx, not src/main.tsx
         entry: entry.replace(rendererRoot, "").replace(/\\/g, "/"),
       };
 
@@ -198,6 +198,13 @@ export function createDowndraftMobileViteConfig(
             (options.extraRollupInputs ?? []).map((e) => [e.name, resolve(rendererRoot, e.path)]),
           )),
         },
+        // Externalize Capacitor runtime packages — they're provided by the
+        // native shell at runtime (not bundled into the web assets). The
+        // mobile-bridge.ts uses dynamic import() with @vite-ignore, but Rollup
+        // still needs them listed as external to avoid resolution errors.
+        external: [
+          /^@capacitor\//,
+        ],
       },
     },
     plugins: [

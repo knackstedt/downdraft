@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">__APP_NAME__</string>
+    <string name="title_activity_main">__APP_NAME__</string>
+    <string name="package_name">__APP_ID__</string>
+    <string name="custom_url_scheme">__APP_ID__</string>
+</resources>

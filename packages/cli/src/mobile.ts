@@ -4,28 +4,34 @@
 //
 // This command:
 //   1. Builds the web bundle via the mobile Vite config (dist/mobile/).
-//   2. Initializes Capacitor in the game directory (if not already done).
-//   3. Copies the web bundle to the Capacitor web assets directory.
-//   4. Injects the embedded local HTTP server native code (serves assets with
-//      COOP/COEP headers for SharedArrayBuffer cross-origin isolation).
-//   5. Patches the native WebView to load http://127.0.0.1:<port>/index.html
-//      instead of the Capacitor default scheme.
+//   2. Copies the engine-owned native shell (packages/mobile-shell/) into the
+//      game directory's gitignored `android/` + `ios/` folders.
+//   3. Patches game-specific values (appId, appName, port) into the shell.
+//   4. Generates app icons from the game's `icon.png` (via jimp) if provided.
+//   5. Applies the `mobile-overrides/` merge layer if present.
+//   6. Ensures `capacitor.config.ts` exists (writes one if missing).
+//   7. Runs `cap sync` to populate web assets + Capacitor plugin configs.
+//
+// The native shell is pre-wired with the embedded HTTP server (COOP/COEP
+// headers for SharedArrayBuffer cross-origin isolation). No manual native
+// code editing is required.
 //
 // Usage:
 //   draft mobile [--game=<name>] [--target=<android|ios|all>]
-//                [--port=<n>] [--skip-build] [--skip-cap-init]
+//                [--port=<n>] [--skip-build] [--no-icons] [--no-overrides]
 //
 // Prerequisites:
-//   - Android: Android Studio + Android SDK (for `npx cap open android`)
-//   - iOS: Xcode + CocoaPods (for `npx cap open ios`)
+//   - Android: Android Studio + Android SDK (for `cap open android`)
+//   - iOS: Xcode + CocoaPods (for `cap open ios`)
 //   - Capacitor CLI: `bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios`
 //   - The game must have a `src/mobile.ts` entry that calls
 //     `createDowndraftMobileApp()`.
 
 import { createLogger } from "@downdraft/core";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { detectGame } from "./detect-game";
+import { generateIcons } from "./mobile-icons";
 
 const log = createLogger();
 
@@ -45,12 +51,13 @@ function resolveCapBinary(gameDir: string): string {
   return "npx cap";
 }
 
-interface MobileArgs {
+export interface MobileArgs {
   game: string;
   target: "android" | "ios" | "all";
   port: number;
   skipBuild: boolean;
-  skipCapInit: boolean;
+  noIcons: boolean;
+  noOverrides: boolean;
 }
 
 function parseArgs(args: string[]): MobileArgs {
@@ -59,7 +66,8 @@ function parseArgs(args: string[]): MobileArgs {
     target: "all",
     port: 8765,
     skipBuild: false,
-    skipCapInit: false,
+    noIcons: false,
+    noOverrides: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -77,41 +85,124 @@ function parseArgs(args: string[]): MobileArgs {
       opts.port = parseInt(arg.slice("--port=".length), 10);
     } else if (arg === "--skip-build") {
       opts.skipBuild = true;
-    } else if (arg === "--skip-cap-init") {
-      opts.skipCapInit = true;
+    } else if (arg === "--no-icons") {
+      opts.noIcons = true;
+    } else if (arg === "--no-overrides") {
+      opts.noOverrides = true;
     }
   }
   return opts;
 }
 
 /**
- * Check that the game has a mobile entry file.
+ * Ensure the game has a mobile entry file. If none exists, auto-generate
+ * a stub at `src/mobile.tsx` with the correct structure.
+ *
+ * The generated stub is a starting point — it has a placeholder GameModule
+ * that the developer needs to wire up (same renderer/sim/UI as their
+ * desktop `main.tsx`). Once a shared `game-module.ts` is extracted (TODO),
+ * the stub becomes a one-liner that imports and reuses it.
+ *
+ * @returns true if an entry exists or was generated, false on error.
  */
-function checkMobileEntry(gameDir: string): boolean {
-  const mobileEntry = resolve(gameDir, "src/mobile.ts");
-  if (!existsSync(mobileEntry)) {
-    log.error("mobile", `No mobile entry found at ${mobileEntry}`);
-    log.info("mobile", `Create one that calls createDowndraftMobileApp() from "@downdraft/app/mobile".`);
-    return false;
+export function ensureMobileEntry(gameDir: string, game: string, appId: string): boolean {
+  const mobileEntryTs = resolve(gameDir, "src/mobile.ts");
+  const mobileEntryTsx = resolve(gameDir, "src/mobile.tsx");
+  if (existsSync(mobileEntryTs) || existsSync(mobileEntryTsx)) {
+    return true;
   }
+
+  log.info("mobile", `No mobile entry found — auto-generating src/mobile.tsx...`);
+
+  const stub = generateMobileEntryStub(game, appId);
+  writeFileSync(mobileEntryTsx, stub);
+  log.info("mobile", `  → Wrote ${mobileEntryTsx}`);
+  log.warn("mobile", "  ! This is a stub — wire up your renderer/sim/UI (same as main.tsx).");
+  log.info("mobile", "  ! Once customized, commit this file. It will not be regenerated.");
   return true;
 }
 
 /**
- * Check that the game has a mobile Vite config.
+ * Generate a mobile entry stub for a game.
+ *
+ * The stub has the correct `createDowndraftMobileApp()` call structure with
+ * a placeholder GameModule. The developer needs to fill in the renderer
+ * factory, sim adapter, and UI mount — copying from their `main.tsx`.
  */
-function checkMobileViteConfig(gameDir: string): string | null {
-  const configPath = resolve(gameDir, "mobile.vite.config.ts");
-  if (existsSync(configPath)) return configPath;
-  log.warn("mobile", `No mobile.vite.config.ts found at ${configPath}.`);
-  log.info("mobile", `Using default mobile Vite config (createDowndraftMobileViteConfig).`);
-  return null;
+export function generateMobileEntryStub(game: string, appId: string): string {
+  return `// ============================================================================
+// ${game} — Mobile Entry Point (auto-generated by \`draft mobile\`)
+// ============================================================================
+//
+// This is a STUB. Wire up your renderer, sim, and UI — same as src/main.tsx.
+// The key difference: use createDowndraftMobileApp() instead of startGame(),
+// and add touchInput config. No devtools/MCP/OSR (Electron-only).
+//
+// Once customized, commit this file. \`draft mobile\` will not regenerate it.
+//
+
+import { createDowndraftMobileApp } from "@downdraft/app/mobile";
+import type { GameModule, GameSimWorker } from "@downdraft/app/renderer";
+
+// TODO: Import your renderer, sim, UI — same as main.tsx
+// import React from "react";
+// import { createRoot } from "react-dom/client";
+// import App from "./app";
+// import { YourRenderer } from "./renderer/your-renderer";
+// import "./styles/globals.css";
+
+// TODO: Copy your GameSimWorker adapter from main.tsx (if any)
+class MobileSimAdapter implements GameSimWorker {
+  private sab = new SharedArrayBuffer(1024);
+  async start(_config: unknown): Promise<void> { /* wire up your sim */ }
+  onEvent(_cb: (msg: any) => void): void { /* wire up your sim events */ }
+  getSimBuffer(): SharedArrayBuffer { return this.sab; }
+  getInputBuffer(): SharedArrayBuffer { return this.sab; }
+}
+
+const mobileModule: GameModule = {
+  // TODO: Wire up your renderer factory (copy from main.tsx)
+  renderer: (canvas) => ({
+    async init() { return true; },
+    setBuffers() {},
+    setupInputListeners() {},
+    render() {},
+    stop() {},
+    getFPS() { return 0; },
+  }),
+
+  // TODO: Wire up your sim (copy from main.tsx)
+  sim: () => new MobileSimAdapter(),
+  simConfig: {},
+
+  // TODO: Wire up your UI mount (copy from main.tsx)
+  mountUI: (overlay) => {
+    overlay.innerHTML = '<h1 style="color:white;font-family:monospace">${game} — mobile stub</h1>';
+  },
+
+  onReady: (_ctx) => {
+    console.log("[mobile] ${game} ready");
+  },
+};
+
+createDowndraftMobileApp({
+  appId: "${appId}",
+  module: mobileModule,
+  // TODO: Choose a touch input scheme:
+  //   "dual-stick"   — 3D FPS/TPS (left=move, right=look)
+  //   "tap-to-move"  — 2D/3D click-to-move
+  //   "tap"          — 2D click-based (falling-sand, sandjongg)
+  touchInput: { scheme: "tap" },
+}).catch((e) => {
+  console.error("[mobile] Fatal:", e);
+});
+`;
 }
 
 /**
  * Build the web bundle for mobile using the mobile Vite config.
  */
-async function buildMobileWeb(gameDir: string, _configPath: string | null): Promise<boolean> {
+async function buildMobileWeb(gameDir: string): Promise<boolean> {
   log.info("mobile", "Building web bundle for mobile (dist/mobile/)...");
 
   // Use Vite's programmatic build API.
@@ -125,8 +216,9 @@ async function buildMobileWeb(gameDir: string, _configPath: string | null): Prom
     const mod = await import(gameConfigPath);
     config = mod.default;
   } else {
+    log.warn("mobile", `No mobile.vite.config.ts found. Using default mobile Vite config.`);
     const { createDowndraftMobileViteConfig } = await import(
-      "../../packages/app/src/vite/mobile-vite-config"
+      "../../app/src/vite/mobile-vite-config"
     );
     config = createDowndraftMobileViteConfig({ root: gameDir, game: basename(gameDir) });
   }
@@ -141,77 +233,453 @@ async function buildMobileWeb(gameDir: string, _configPath: string | null): Prom
   }
 }
 
+// ---------------------------------------------------------------------------
+// Shell copy + patch
+// ---------------------------------------------------------------------------
+
 /**
- * Initialize Capacitor in the game directory (if not already done).
+ * Copy the engine-owned native shell into the game directory.
+ *
+ * Copies `packages/mobile-shell/{android,ios}/` → `games/<game>/{android,ios}/`.
+ * Existing directories are replaced (rm + copy) so re-running `draft mobile`
+ * picks up shell updates cleanly.
  */
-async function initCapacitor(
-  gameDir: string,
-  game: string,
-  appId: string,
-  target: MobileArgs["target"],
-  skipCapInit: boolean,
-): Promise<boolean> {
-  const capacitorConfigPath = resolve(gameDir, "capacitor.config.ts");
+function copyShell(gameDir: string, shellDir: string, target: MobileArgs["target"]): boolean {
+  const platforms = target === "all" ? ["android", "ios"] : [target];
 
-  if (!existsSync(capacitorConfigPath) && !skipCapInit) {
-    log.info("mobile", "Initializing Capacitor...");
-    const { execSync } = await import("node:child_process");
-
-    // Write a capacitor.config.ts
-    const capConfig = `import type { CapacitorConfig } from "@capacitor/cli";
-
-const config: CapacitorConfig = {
-  appId: "${appId}",
-  appName: "${game}",
-  webDir: "dist/mobile",
-  server: {
-    // The embedded HTTP server serves assets with COOP/COEP headers for
-    // SharedArrayBuffer cross-origin isolation. The native code overrides
-    // this to load from http://127.0.0.1:${8765}/index.html at runtime.
-    androidScheme: "http",
-    iosScheme: "http",
-  },
-};
-
-export default config;
-`;
-    writeFileSync(capacitorConfigPath, capConfig);
-    log.info("mobile", `Wrote ${capacitorConfigPath}`);
-
-    // Add native platforms
-    const capBin = resolveCapBinary(gameDir);
-    if (target === "android" || target === "all") {
-      try {
-        execSync(`${capBin} add android`, { cwd: gameDir, stdio: "inherit" });
-        log.info("mobile", "Android platform added.");
-      } catch (err) {
-        log.error("mobile", `Failed to add Android platform: ${(err as Error).message}`);
-        log.info("mobile", "Ensure @capacitor/android is installed: bun add -d @capacitor/android @capacitor/cli");
-        return false;
-      }
+  for (const platform of platforms) {
+    const src = resolve(shellDir, platform);
+    if (!existsSync(src)) {
+      log.error("mobile", `Shell ${platform} project not found at ${src}`);
+      log.info("mobile", "Ensure packages/mobile-shell/ is present in the engine repo.");
+      return false;
     }
 
-    if (target === "ios" || target === "all") {
-      try {
-        execSync(`${capBin} add ios`, { cwd: gameDir, stdio: "inherit" });
-        log.info("mobile", "iOS platform added.");
-      } catch (err) {
-        log.error("mobile", `Failed to add iOS platform: ${(err as Error).message}`);
-        log.info("mobile", "Ensure @capacitor/ios is installed: bun add -d @capacitor/ios @capacitor/cli");
-        return false;
-      }
+    const dest = resolve(gameDir, platform);
+
+    // Remove existing directory (it's gitignored, so safe to replace)
+    if (existsSync(dest)) {
+      rmSync(dest, { recursive: true, force: true });
     }
-  } else if (skipCapInit) {
-    log.info("mobile", "Skipping Capacitor init (--skip-cap-init).");
-  } else {
-    log.info("mobile", "Capacitor already initialized (capacitor.config.ts exists).");
+
+    log.info("mobile", `Copying shell → ${platform}/...`);
+    cpSync(src, dest, {
+      recursive: true,
+      force: true,
+      // Skip build artifacts and gradle wrapper cache if present
+      filter: (srcPath) => {
+        const rel = srcPath.substring(src.length);
+        return !rel.includes("/build/") && !rel.includes("/.gradle/");
+      },
+    });
+    log.info("mobile", `  → ${platform}/ copied from packages/mobile-shell/${platform}/`);
   }
 
   return true;
 }
 
 /**
- * Copy the web bundle to the Capacitor web assets directory and sync.
+ * Patch game-specific values into the copied shell.
+ *
+ * Replaces placeholder strings in the native project files:
+ *   __APP_ID__       → game's Capacitor appId (e.g. com.downdraft.sandjongg)
+ *   __APP_NAME__     → game's display name (e.g. Sandjongg)
+ *   __SERVER_PORT__  → embedded server port (e.g. 8765)
+ *   com.downdraft.shell (iOS bundle ID) → game's appId
+ */
+export function patchShell(
+  gameDir: string,
+  appId: string,
+  appName: string,
+  port: number,
+  target: MobileArgs["target"],
+): void {
+  const portStr = String(port);
+  const platforms = target === "all" ? ["android", "ios"] : [target];
+
+  for (const platform of platforms) {
+    const platformDir = resolve(gameDir, platform);
+    if (!existsSync(platformDir)) continue;
+
+    log.info("mobile", `Patching ${platform} shell (appId=${appId}, name=${appName}, port=${port})...`);
+
+    if (platform === "android") {
+      patchFile(resolve(platformDir, "app/build.gradle"), [
+        { from: "__APP_ID__", to: appId },
+      ]);
+      patchFile(resolve(platformDir, "app/src/main/res/values/strings.xml"), [
+        { from: "__APP_NAME__", to: appName },
+        { from: "__APP_ID__", to: appId },
+      ]);
+      patchFile(resolve(platformDir, "app/src/main/java/com/downdraft/shell/MainActivity.java"), [
+        { from: "__SERVER_PORT__", to: portStr },
+      ]);
+    } else if (platform === "ios") {
+      patchFile(resolve(platformDir, "App/App/AppDelegate.swift"), [
+        { from: "__SERVER_PORT__", to: portStr },
+      ]);
+      patchFile(resolve(platformDir, "App/App/SceneDelegate.swift"), [
+        { from: "__SERVER_PORT__", to: portStr },
+      ]);
+      patchFile(resolve(platformDir, "App/App/Info.plist"), [
+        { from: "__APP_NAME__", to: appName },
+      ]);
+      patchFile(resolve(platformDir, "App/App.xcodeproj/project.pbxproj"), [
+        { from: "com.downdraft.shell", to: appId },
+      ]);
+    }
+  }
+}
+
+function patchFile(
+  filePath: string,
+  replacements: Array<{ from: string; to: string }>,
+): void {
+  if (!existsSync(filePath)) {
+    log.warn("mobile", `  ! File not found for patching: ${filePath}`);
+    return;
+  }
+  let content = readFileSync(filePath, "utf-8");
+  let changed = false;
+  for (const { from, to } of replacements) {
+    if (content.includes(from)) {
+      content = content.split(from).join(to);
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeFileSync(filePath, content);
+    log.info("mobile", `  ✓ Patched ${basename(filePath)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Override layer
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply the game's `mobile-overrides/` merge layer to the copied shell.
+ *
+ * This lets games add native permissions, dependencies, resources, and
+ * other customizations without owning the full native project.
+ *
+ * Supported overrides:
+ *   mobile-overrides/android/
+ *     AndroidManifest.xml    → merged (appends <uses-permission> + other children)
+ *     app/build.gradle       → appends dependency lines from dependencies { } block
+ *     res/                   → recursively copied into app/src/main/res/ (overrides icons)
+ *   mobile-overrides/ios/
+ *     Info.plist             → merged (appends keys)
+ *     Assets.xcassets/       → recursively copied (overrides icons)
+ *     App.entitlements       → copied into App/App/
+ *   mobile-overrides/native-deps.json  → structured extra deps
+ */
+export function applyOverrides(gameDir: string, target: MobileArgs["target"]): void {
+  const overridesDir = resolve(gameDir, "mobile-overrides");
+  if (!existsSync(overridesDir)) {
+    log.info("mobile", "No mobile-overrides/ directory found — using stock shell.");
+    return;
+  }
+
+  log.info("mobile", `Applying overrides from ${overridesDir}/...`);
+  const platforms = target === "all" ? ["android", "ios"] : [target];
+
+  for (const platform of platforms) {
+    const platformOverrides = resolve(overridesDir, platform);
+    if (!existsSync(platformOverrides)) continue;
+
+    const platformDir = resolve(gameDir, platform);
+    if (!existsSync(platformDir)) continue;
+
+    if (platform === "android") {
+      applyAndroidOverrides(platformOverrides, platformDir);
+    } else if (platform === "ios") {
+      applyIosOverrides(platformOverrides, platformDir);
+    }
+  }
+
+  // Apply structured native deps
+  const nativeDepsPath = resolve(overridesDir, "native-deps.json");
+  if (existsSync(nativeDepsPath)) {
+    applyNativeDeps(nativeDepsPath, gameDir, target);
+  }
+}
+
+function applyAndroidOverrides(overridesDir: string, androidDir: string): void {
+  // Merge AndroidManifest.xml
+  const manifestOverride = resolve(overridesDir, "AndroidManifest.xml");
+  if (existsSync(manifestOverride)) {
+    const shellManifest = resolve(androidDir, "app/src/main/AndroidManifest.xml");
+    mergeAndroidManifest(shellManifest, manifestOverride);
+  }
+
+  // Merge app/build.gradle (append dependencies)
+  const gradleOverride = resolve(overridesDir, "app/build.gradle");
+  if (existsSync(gradleOverride)) {
+    const shellGradle = resolve(androidDir, "app/build.gradle");
+    mergeGradleDeps(shellGradle, gradleOverride);
+  }
+
+  // Copy res/ overrides (icons, custom resources)
+  const resOverride = resolve(overridesDir, "res");
+  if (existsSync(resOverride)) {
+    const shellRes = resolve(androidDir, "app/src/main/res");
+    cpSync(resOverride, shellRes, { recursive: true, force: true });
+    log.info("mobile", "  ✓ Copied res/ overrides");
+  }
+}
+
+function applyIosOverrides(overridesDir: string, iosDir: string): void {
+  // Merge Info.plist
+  const plistOverride = resolve(overridesDir, "Info.plist");
+  if (existsSync(plistOverride)) {
+    const shellPlist = resolve(iosDir, "App/App/Info.plist");
+    mergeInfoPlist(shellPlist, plistOverride);
+  }
+
+  // Copy Assets.xcassets/ overrides (icons)
+  const assetsOverride = resolve(overridesDir, "Assets.xcassets");
+  if (existsSync(assetsOverride)) {
+    const shellAssets = resolve(iosDir, "App/App/Assets.xcassets");
+    cpSync(assetsOverride, shellAssets, { recursive: true, force: true });
+    log.info("mobile", "  ✓ Copied Assets.xcassets/ overrides");
+  }
+
+  // Copy entitlements
+  const entitlementsOverride = resolve(overridesDir, "App.entitlements");
+  if (existsSync(entitlementsOverride)) {
+    const shellEntitlements = resolve(iosDir, "App/App/App.entitlements");
+    cpSync(entitlementsOverride, shellEntitlements, { force: true });
+    log.info("mobile", "  ✓ Copied App.entitlements (configure CODE_SIGN_ENTITLEMENTS in Xcode)");
+  }
+}
+
+/**
+ * Merge <uses-permission> and other child elements from the override
+ * AndroidManifest.xml into the shell's manifest.
+ *
+ * This is a targeted merge: it extracts <uses-permission> tags and
+ * <application> child elements from the override and appends them to the
+ * shell manifest. It does NOT do full XML tree merging.
+ */
+function mergeAndroidManifest(shellPath: string, overridePath: string): void {
+  const shell = readFileSync(shellPath, "utf-8");
+  const override = readFileSync(overridePath, "utf-8");
+
+  // Extract <uses-permission> tags from override
+  const permRegex = /<uses-permission[^>]*\/>/g;
+  const overridePerms = override.match(permRegex) ?? [];
+
+  if (overridePerms.length === 0) {
+    log.warn("mobile", "  ! No <uses-permission> tags found in override AndroidManifest.xml");
+    return;
+  }
+
+  // Find existing permissions in shell to avoid duplicates
+  const shellPerms = new Set((shell.match(permRegex) ?? []));
+  const newPerms = overridePerms.filter((p) => !shellPerms.has(p));
+
+  if (newPerms.length === 0) {
+    log.info("mobile", "  → All override permissions already present in shell manifest");
+    return;
+  }
+
+  // Insert new permissions before the <application> tag
+  const manifestEnd = shell.indexOf("<application");
+  if (manifestEnd === -1) {
+    log.warn("mobile", "  ! Could not find <application> tag in shell manifest");
+    return;
+  }
+
+  const patched = shell.slice(0, manifestEnd) + newPerms.join("\n    ") + "\n    " + shell.slice(manifestEnd);
+  writeFileSync(shellPath, patched);
+  log.info("mobile", `  ✓ Merged ${newPerms.length} permission(s) into AndroidManifest.xml`);
+}
+
+/**
+ * Merge dependencies from the override build.gradle into the shell's.
+ *
+ * Extracts the contents of the `dependencies { }` block from the override
+ * and appends them to the shell's dependencies block.
+ */
+function mergeGradleDeps(shellPath: string, overridePath: string): void {
+  const shell = readFileSync(shellPath, "utf-8");
+  const override = readFileSync(overridePath, "utf-8");
+
+  // Extract dependencies block from override
+  const depMatch = override.match(/dependencies\s*\{([\s\S]*?)\}/);
+  if (!depMatch) {
+    log.warn("mobile", "  ! No dependencies { } block found in override build.gradle");
+    return;
+  }
+
+  const overrideDeps = depMatch[1].trim();
+  if (!overrideDeps) {
+    log.info("mobile", "  → Override build.gradle has no dependencies to merge");
+    return;
+  }
+
+  // Append to shell's dependencies block (before the closing })
+  const shellDepEnd = shell.lastIndexOf("}");
+  const shellDepStart = shell.lastIndexOf("dependencies", shellDepEnd);
+  if (shellDepStart === -1 || shellDepEnd === -1) {
+    log.warn("mobile", "  ! Could not find dependencies block in shell build.gradle");
+    return;
+  }
+
+  const patched = shell.slice(0, shellDepEnd) + "    // --- mobile-overrides ---\n    " + overrideDeps + "\n" + shell.slice(shellDepEnd);
+  writeFileSync(shellPath, patched);
+  log.info("mobile", "  ✓ Merged dependencies into app/build.gradle");
+}
+
+/**
+ * Merge keys from the override Info.plist into the shell's.
+ *
+ * This is a targeted merge: it extracts top-level <key> + <value> pairs from
+ * the override and inserts them into the shell's plist if they don't already
+ * exist. Existing keys are NOT overwritten (shell values take precedence).
+ */
+function mergeInfoPlist(shellPath: string, overridePath: string): void {
+  const shell = readFileSync(shellPath, "utf-8");
+  const override = readFileSync(overridePath, "utf-8");
+
+  // Extract key-value pairs from override plist
+  // Plist format: <key>KEY</key> followed by <type>value</type>
+  const keyValueRegex = /<key>([^<]+)<\/key>\s*<[^>]+>([^<]*)<\/[^>]+>/g;
+  const overridePairs = new Map<string, string>();
+  let match;
+  while ((match = keyValueRegex.exec(override)) !== null) {
+    overridePairs.set(match[1], match[0]);
+  }
+
+  if (overridePairs.size === 0) {
+    log.warn("mobile", "  ! No key-value pairs found in override Info.plist");
+    return;
+  }
+
+  // Find which keys are already in the shell
+  const newPairs: string[] = [];
+  for (const [key, xml] of overridePairs) {
+    if (!shell.includes(`<key>${key}</key>`)) {
+      newPairs.push(xml);
+    }
+  }
+
+  if (newPairs.length === 0) {
+    log.info("mobile", "  → All override plist keys already present in shell");
+    return;
+  }
+
+  // Insert before the closing </dict>
+  const closeDictIdx = shell.lastIndexOf("</dict>");
+  if (closeDictIdx === -1) {
+    log.warn("mobile", "  ! Could not find </dict> in shell Info.plist");
+    return;
+  }
+
+  const patched = shell.slice(0, closeDictIdx) + "\t" + newPairs.join("\n\t") + "\n" + shell.slice(closeDictIdx);
+  writeFileSync(shellPath, patched);
+  log.info("mobile", `  ✓ Merged ${newPairs.length} key(s) into Info.plist`);
+}
+
+/**
+ * Apply structured native dependencies from native-deps.json.
+ *
+ * Format:
+ * {
+ *   "android": ["com.some.sdk:sdk:1.0.0"],
+ *   "ios": ["pod 'SomeSDK', '~> 1.0'"]
+ * }
+ */
+function applyNativeDeps(
+  depsPath: string,
+  gameDir: string,
+  target: MobileArgs["target"],
+): void {
+  const deps = JSON.parse(readFileSync(depsPath, "utf-8"));
+  const platforms = target === "all" ? ["android", "ios"] : [target];
+
+  for (const platform of platforms) {
+    const platformDeps = deps[platform];
+    if (!platformDeps || !Array.isArray(platformDeps) || platformDeps.length === 0) continue;
+
+    if (platform === "android") {
+      const gradlePath = resolve(gameDir, "android/app/build.gradle");
+      if (!existsSync(gradlePath)) continue;
+      let gradle = readFileSync(gradlePath, "utf-8");
+      const depLines = platformDeps.map((d: string) => `    implementation "${d}"`).join("\n");
+      const closeBrace = gradle.lastIndexOf("}");
+      gradle = gradle.slice(0, closeBrace) + "    // --- native-deps.json ---\n" + depLines + "\n" + gradle.slice(closeBrace);
+      writeFileSync(gradlePath, gradle);
+      log.info("mobile", `  ✓ Added ${platformDeps.length} Android dep(s) from native-deps.json`);
+    } else if (platform === "ios") {
+      // iOS deps go into a Podfile memo — Capacitor manages the Podfile,
+      // so we just log instructions.
+      log.info("mobile", `  → iOS deps from native-deps.json: add to Podfile manually:`);
+      for (const dep of platformDeps) {
+        log.info("mobile", `      ${dep}`);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Capacitor config
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the game has a capacitor.config.ts. Write one if missing.
+ *
+ * If one already exists, read the appId from it. If not, write a default
+ * config with the embedded server URL.
+ */
+async function ensureCapacitorConfig(
+  gameDir: string,
+  appId: string,
+  appName: string,
+  port: number,
+): Promise<string> {
+  const capConfigPath = resolve(gameDir, "capacitor.config.ts");
+
+  if (existsSync(capConfigPath)) {
+    log.info("mobile", "capacitor.config.ts exists — using existing config.");
+    // Read appId from existing config
+    try {
+      const mod = await import(capConfigPath);
+      const capConfig = mod.default;
+      if (capConfig?.appId) return capConfig.appId;
+    } catch {
+      // Ignore parse errors
+    }
+    return appId;
+  }
+
+  // Write a new capacitor.config.ts
+  const capConfig = `import type { CapacitorConfig } from "@capacitor/cli";
+
+const config: CapacitorConfig = {
+  appId: "${appId}",
+  appName: "${appName}",
+  webDir: "dist/mobile",
+  server: {
+    // The embedded HTTP server (started by the shell's MainActivity/AppDelegate)
+    // serves assets with COOP/COEP headers for SharedArrayBuffer cross-origin
+    // isolation. Capacitor loads from this URL directly.
+    androidScheme: "http",
+    iosScheme: "http",
+    url: "http://127.0.0.1:${port}/index.html",
+  },
+};
+
+export default config;
+`;
+  writeFileSync(capConfigPath, capConfig);
+  log.info("mobile", `Wrote ${capConfigPath}`);
+  return appId;
+}
+
+/**
+ * Run `cap sync` to populate web assets + Capacitor plugin configs.
  */
 async function syncCapacitor(gameDir: string, target: MobileArgs["target"]): Promise<boolean> {
   log.info("mobile", "Syncing web bundle to native projects...");
@@ -225,82 +693,21 @@ async function syncCapacitor(gameDir: string, target: MobileArgs["target"]): Pro
     return true;
   } catch (err) {
     log.error("mobile", `Capacitor sync failed: ${(err as Error).message}`);
+    log.info("mobile", "Ensure @capacitor/cli + @capacitor/android + @capacitor/ios are installed:");
+    log.info("mobile", "  bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios");
     return false;
   }
 }
 
-/**
- * Inject the embedded HTTP server native code into the Android project.
- *
- * Copies the EmbeddedServer.java template and patches the MainActivity
- * to load from http://127.0.0.1:<port>/index.html.
- */
-function injectAndroidServer(gameDir: string, port: number): void {
-  const androidDir = resolve(gameDir, "android");
-  if (!existsSync(androidDir)) {
-    log.warn("mobile", "Android project not found — skipping Android server injection.");
-    return;
-  }
-
-  log.info("mobile", `Injecting embedded HTTP server into Android (port ${port})...`);
-
-  // Copy the EmbeddedServer.java template
-  const templateDir = resolve(import.meta.dir, "../templates/mobile/android");
-  const targetJavaDir = resolve(androidDir, "app/src/main/java/com/downdraft/embeddedserver");
-  if (existsSync(templateDir)) {
-    if (!existsSync(targetJavaDir)) mkdirSync(targetJavaDir, { recursive: true });
-    const serverTemplate = resolve(templateDir, "EmbeddedServer.java");
-    if (existsSync(serverTemplate)) {
-      let content = readFileSync(serverTemplate, "utf-8");
-      // Replace port placeholder
-      content = content.replace(/\{\{PORT\}\}/g, String(port));
-      writeFileSync(resolve(targetJavaDir, "EmbeddedServer.java"), content);
-      log.info("mobile", `  → EmbeddedServer.java (port ${port})`);
-    }
-  }
-
-  // Note: The actual MainActivity patching (to start the server + load the URL)
-  // is documented in the template README. Games need to add the server start
-  // call to their MainActivity.onCreate(). This is a one-time manual step
-  // because Android project structure varies.
-  log.info("mobile", "  → See packages/cli/templates/mobile/android/README.md for MainActivity wiring.");
-}
-
-/**
- * Inject the embedded HTTP server native code into the iOS project.
- */
-function injectIosServer(gameDir: string, port: number): void {
-  const iosDir = resolve(gameDir, "ios");
-  if (!existsSync(iosDir)) {
-    log.warn("mobile", "iOS project not found — skipping iOS server injection.");
-    return;
-  }
-
-  log.info("mobile", `Injecting embedded HTTP server into iOS (port ${port})...`);
-
-  // Copy the EmbeddedServer.swift template
-  const templateDir = resolve(import.meta.dir, "../templates/mobile/ios");
-  if (existsSync(templateDir)) {
-    const serverTemplate = resolve(templateDir, "EmbeddedServer.swift");
-    if (existsSync(serverTemplate)) {
-      let content = readFileSync(serverTemplate, "utf-8");
-      content = content.replace(/\{\{PORT\}\}/g, String(port));
-      // Copy into the iOS App folder
-      const appDir = resolve(iosDir, "App");
-      if (existsSync(appDir)) {
-        writeFileSync(resolve(appDir, "EmbeddedServer.swift"), content);
-        log.info("mobile", `  → App/EmbeddedServer.swift (port ${port})`);
-      }
-    }
-  }
-
-  log.info("mobile", "  → See packages/cli/templates/mobile/ios/README.md for AppDelegate wiring.");
-}
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
 
 export async function mobile(args: string[]): Promise<void> {
   const opts = parseArgs(args);
   const repoRoot = resolve(import.meta.dir, "../../..");
   const gameDir = resolve(repoRoot, "games", opts.game);
+  const shellDir = resolve(repoRoot, "packages/mobile-shell");
 
   log.info("mobile", `
   ╔══════════════════════════════════════════╗
@@ -312,6 +719,8 @@ export async function mobile(args: string[]): Promise<void> {
   log.info("mobile", `  Target:      ${opts.target}`);
   log.info("mobile", `  Port:        ${opts.port}`);
   log.info("mobile", `  Skip build:  ${opts.skipBuild}`);
+  log.info("mobile", `  No icons:    ${opts.noIcons}`);
+  log.info("mobile", `  No overrides:${opts.noOverrides}`);
   log.info("mobile", "");
 
   // 1. Check prerequisites
@@ -320,13 +729,13 @@ export async function mobile(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  if (!checkMobileEntry(gameDir)) {
+  if (!existsSync(shellDir)) {
+    log.error("mobile", `Mobile shell not found at ${shellDir}`);
+    log.info("mobile", "Ensure packages/mobile-shell/ is present in the engine repo.");
     process.exit(1);
   }
 
-  const configPath = checkMobileViteConfig(gameDir);
-
-  // Determine appId from the game's package.json or capacitor config
+  // Determine appId + appName
   let appId = `com.downdraft.${opts.game.replace(/-/g, "")}`;
   const capConfigPath = resolve(gameDir, "capacitor.config.ts");
   if (existsSync(capConfigPath)) {
@@ -338,33 +747,78 @@ export async function mobile(args: string[]): Promise<void> {
       // Ignore config parse errors — fall back to default appId
     }
   }
+
+  // Determine appName from package.json productName or game name
+  let appName = opts.game;
+  const pkgJsonPath = resolve(gameDir, "package.json");
+  if (existsSync(pkgJsonPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+      if (pkg.productName) appName = pkg.productName;
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // Ensure the game has a mobile entry file (auto-generate stub if missing)
+  if (!ensureMobileEntry(gameDir, opts.game, appId)) {
+    process.exit(1);
+  }
+
   log.info("mobile", `  AppId:       ${appId}`);
+  log.info("mobile", `  AppName:     ${appName}`);
   log.info("mobile", "");
 
   // 2. Build the web bundle
   if (!opts.skipBuild) {
-    const ok = await buildMobileWeb(gameDir, configPath);
+    const ok = await buildMobileWeb(gameDir);
     if (!ok) process.exit(1);
   } else {
     log.info("mobile", "Skipping web build (--skip-build).");
   }
 
-  // 3. Initialize Capacitor
-  const capOk = await initCapacitor(gameDir, opts.game, appId, opts.target, opts.skipCapInit);
-  if (!capOk) process.exit(1);
+  // 3. Copy the engine-owned native shell into the game directory
+  const copyOk = copyShell(gameDir, shellDir, opts.target);
+  if (!copyOk) process.exit(1);
 
-  // 4. Sync web bundle to native projects
+  // 4. Patch game-specific values into the shell
+  patchShell(gameDir, appId, appName, opts.port, opts.target);
+
+  // 5. Generate app icons + splash screens from icon.png (or placeholder)
+  //    The shell ships NO binary images — all icons/splashes are generated
+  //    at build time. If no icon.png is found, solid-color placeholders are
+  //    generated. Use --no-icons to skip (escape hatch for fast iteration;
+  //    the build will fail without icons unless overrides provide them).
+  if (!opts.noIcons) {
+    const androidDir = resolve(gameDir, "android");
+    const iosAppDir = resolve(gameDir, "ios/App/App");
+    if (opts.target === "android") {
+      await generateIcons(gameDir, androidDir, iosAppDir);
+    } else {
+      // ios or all — generate for both platforms
+      await generateIcons(gameDir, androidDir, iosAppDir);
+    }
+  } else {
+    log.info("mobile", "Skipping icon generation (--no-icons).");
+    log.warn("mobile", "  The shell has no placeholder images — build will fail without icons.");
+    log.info("mobile", "  Provide icons via mobile-overrides/ or remove --no-icons.");
+  }
+
+  // 6. Apply mobile-overrides/ merge layer (if present)
+  if (!opts.noOverrides) {
+    applyOverrides(gameDir, opts.target);
+  } else {
+    log.info("mobile", "Skipping overrides (--no-overrides).");
+  }
+
+  // 7. Ensure capacitor.config.ts exists (write if missing)
+  appId = await ensureCapacitorConfig(gameDir, appId, appName, opts.port);
+
+  // 8. Sync web bundle to native projects
   const syncOk = await syncCapacitor(gameDir, opts.target);
   if (!syncOk) process.exit(1);
 
-  // 5. Inject embedded HTTP server (COOP/COEP for SharedArrayBuffer)
-  if (opts.target === "android" || opts.target === "all") {
-    injectAndroidServer(gameDir, opts.port);
-  }
-  if (opts.target === "ios" || opts.target === "all") {
-    injectIosServer(gameDir, opts.port);
-  }
-
+  // 9. Done
   log.info("mobile", "");
   log.info("mobile", "Mobile build complete.");
   log.info("mobile", "");
@@ -378,6 +832,6 @@ export async function mobile(args: string[]): Promise<void> {
   }
   log.info("mobile", "");
   log.info("mobile", "IMPORTANT: WebGPU requires Android WebView 121+ or iOS / iPadOS 26+.");
-  log.info("mobile", "SharedArrayBuffer requires the embedded HTTP server (COOP/COEP headers).");
-  log.info("mobile", "See packages/cli/templates/mobile/ for native wiring instructions.");
+  log.info("mobile", "The embedded HTTP server is pre-wired (COOP/COEP for SharedArrayBuffer).");
+  log.info("mobile", "Native projects (android/ + ios/) are gitignored — regenerated from packages/mobile-shell/.");
 }

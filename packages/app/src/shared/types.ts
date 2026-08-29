@@ -15,6 +15,7 @@ import type {
     OSRRendererConfig,
     OSRRendererEvent,
 } from "@downdraft/plugin-electron-osr";
+export type { FeatureLogData };
 
 // ---------------------------------------------------------------------------
 // OSR (Offscreen Rendering) — re-exported from the plugin for convenience

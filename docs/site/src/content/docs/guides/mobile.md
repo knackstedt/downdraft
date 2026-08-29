@@ -26,6 +26,18 @@ Electron Main Process                 Native Shell (Android/iOS)
   └─────────────────────────────────────────────┘
 ```
 
+### Engine-owned native shell
+
+The engine owns a **canonical, pre-wired native shell** at `packages/mobile-shell/` containing complete Android + iOS projects with the embedded HTTP server already wired in. `draft mobile` copies this shell into a per-game **gitignored** directory and patches in game-specific values (appId, appName, port, icons).
+
+**Games commit zero native files.** The `android/` and `ios/` directories in each game are gitignored — regenerated from the shell on each `draft mobile` run. `draft mobile` auto-generates all config files if missing. Games only need to commit:
+
+- `src/mobile.tsx` — mobile entry (auto-generated stub if missing — wire up and commit)
+- `capacitor.config.ts` — auto-written if missing (can be customized)
+- `icon.png` (optional) — 1024×1024 app icon for auto-generated icon sets
+- `mobile-overrides/` (optional) — game-specific native customizations
+- `mobile.vite.config.ts` (optional) — only if customizing Vite options (defaulted at build time)
+
 ### What runs unchanged
 
 - `packages/core/src/render/*` — WebGPU renderer, device acquisition, input manager
@@ -60,30 +72,64 @@ The engine's sim architecture uses `SharedArrayBuffer` for zero-copy renderer↔
 
 Capacitor's default custom-scheme loading (`capacitor://localhost` on iOS) makes COOP/COEP header control unreliable. The reliable fix is an **embedded local HTTP server** inside the native app that serves the web assets with COOP/COEP headers, pointing the WebView at `http://127.0.0.1:<port>`.
 
-This mirrors what the Electron host already does via `buildCrossOriginIsolationHeaders()` — the mobile host just does it from a native embedded server instead of Electron's `session.webRequest`.
+The engine-owned native shell has the embedded server **pre-wired**:
 
-The `draft mobile` CLI command injects server templates into the native projects:
+- **Android:** `MainActivity.java` starts `EmbeddedServer` (NanoHTTPD) in `onCreate()` before the bridge loads, then overrides the WebView URL. The NanoHTTPD dependency is already in `app/build.gradle`.
+- **iOS:** `AppDelegate.swift` starts `EmbeddedServer` (Swift Network framework) in `didFinishLaunchingWithOptions()`. `SceneDelegate.swift` overrides the WebView URL. The ATS exception for `127.0.0.1` is in `Info.plist`.
 
-- **Android:** NanoHTTPD-based `EmbeddedServer.java` (single-file Java HTTP server)
-- **iOS:** Swift Network framework `EmbeddedServer.swift` (dependency-free TCP server)
-
-See the template README files for native wiring instructions:
-- `packages/cli/templates/mobile/android/README.md`
-- `packages/cli/templates/mobile/ios/README.md`
+**No manual native code editing is required.** The shell handles everything.
 
 ## Adding mobile support to a game
 
-### 1. Create a mobile entry
+### Zero-config path
 
-Create `src/mobile.ts` in your game directory:
+Just run `draft mobile --game=<name>`. The command auto-generates everything you need:
+
+| File | Auto-generated? | Notes |
+|---|---|---|
+| `capacitor.config.ts` | Written if missing | Correct appId, appName, webDir, server URL |
+| `mobile.vite.config.ts` | Defaulted at build time | No file needed unless customizing Vite options |
+| `src/mobile.tsx` | Written if missing | Stub with placeholder GameModule — wire up and commit |
+
+The only prerequisite is installing Capacitor deps (see below).
+
+### Full setup
+
+#### 1. Install Capacitor dependencies
+
+```bash
+bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios
+```
+
+#### 2. Run `draft mobile`
+
+```bash
+draft mobile --game=my-game --target=all
+```
+
+This will:
+- Auto-generate `src/mobile.tsx` (stub with placeholder GameModule)
+- Auto-generate `capacitor.config.ts` (if missing)
+- Copy the engine shell → gitignored `android/` + `ios/`
+- Generate icons + splash screens (from `icon.png` or solid-color placeholders)
+- Run `cap sync`
+
+#### 3. Wire up the mobile entry
+
+Open the generated `src/mobile.tsx` and replace the placeholder GameModule with your actual renderer factory, sim adapter, and UI mount — copying from your `src/main.tsx`. The key differences from desktop:
 
 ```typescript
 import { createDowndraftMobileApp } from "@downdraft/app/mobile";
-import { gameModule } from "./game-module"; // the shared GameModule
+// import your renderer, sim, UI — same as main.tsx
 
 createDowndraftMobileApp({
   appId: "downdraft-my-game",
-  module: gameModule,
+  module: {
+    renderer: (canvas) => new MyRenderer(canvas),  // same as main.tsx
+    sim: () => new MySimAdapter(),                  // same as main.tsx
+    mountUI: (overlay) => { /* React mount */ },    // same as main.tsx
+    onReady: (ctx) => { /* game wiring */ },        // same as main.tsx
+  },
   // Mobile-specific sim config overrides (lower entity counts, etc.)
   simConfigOverrides: { maxEntities: 4096 },
   // Touch input scheme: "dual-stick" (3D), "tap-to-move", or "tap" (2D)
@@ -91,15 +137,40 @@ createDowndraftMobileApp({
 });
 ```
 
-The `GameModule` is shared between desktop and mobile — only the host wrapper and config differ.
+No devtools, MCP, or OSR — those are Electron-only.
 
-### 2. Install Capacitor dependencies
+#### 4. (Optional) Add an app icon
 
-```bash
-bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios
+Add a 1024×1024 `icon.png` to your game directory. `draft mobile` will automatically generate:
+- **Android:** `ic_launcher.png` + `ic_launcher_round.png` + `ic_launcher_foreground.png` at all 5 mipmap densities (mdpi through xxxhdpi)
+- **Android splash screens:** portrait + landscape at all 5 densities + a default (11 total)
+- **iOS:** `AppIcon-512@2x.png` (1024×1024, Xcode 14+ single-size format)
+- **iOS splash:** 2732×2732 universal set (3 files for @1x/@2x/@3x)
+
+If no `icon.png` is provided, solid-color placeholder images (Downdraft brand dark teal) are generated for all assets. The shell ships **no binary images** — everything is generated at build time via jimp. You can override individual images via `mobile-overrides/` (see below).
+
+### 5. (Optional) Add native customization overrides
+
+If your game needs native permissions, extra dependencies, or custom resources, create a `mobile-overrides/` directory:
+
+```
+mobile-overrides/
+  android/
+    AndroidManifest.xml     # Extra <uses-permission> tags (merged into shell manifest)
+    app/build.gradle        # Extra dependencies (appended to shell's dependencies block)
+    res/                    # Custom resources (copied into app/src/main/res/, overrides icons)
+  ios/
+    Info.plist              # Extra keys (merged into shell plist)
+    Assets.xcassets/        # Custom icon assets (overrides generated icons)
+    App.entitlements        # Copied into App/App/ (configure CODE_SIGN_ENTITLEMENTS in Xcode)
+  native-deps.json          # Structured extra deps:
+                            #   {"android": ["com.some.sdk:sdk:1.0.0"],
+                            #    "ios": ["pod 'SomeSDK', '~> 1.0'"]}
 ```
 
-### 3. Build and scaffold
+The override layer is a **merge**, not a replacement — it adds to the shell's existing configuration. Games that need deeper native customization can `git add -f android/` to force-track the generated project and edit it directly (this defeats the zero-file benefit but is available as an escape hatch).
+
+### 6. Build and scaffold
 
 ```bash
 draft mobile --target=all
@@ -107,15 +178,16 @@ draft mobile --target=all
 
 This will:
 1. Build the web bundle via `createDowndraftMobileViteConfig()` → `dist/mobile/`
-2. Initialize Capacitor (`npx cap add android/ios`)
-3. Sync the web bundle to native projects (`npx cap sync`)
-4. Inject the embedded HTTP server native code (COOP/COEP)
+2. Copy the engine-owned shell (`packages/mobile-shell/`) → `android/` + `ios/` (gitignored)
+3. Patch game-specific values (appId, appName, port) into the native projects
+4. Generate app icons from `icon.png` (if provided)
+5. Apply `mobile-overrides/` merge layer (if present)
+6. Ensure `capacitor.config.ts` exists (write if missing)
+7. Run `cap sync` to populate web assets + Capacitor plugin configs
 
-### 4. Wire the embedded server
+The `android/` and `ios/` directories are **gitignored** — they're regenerated from the shell on each run. Do not commit them.
 
-Follow the platform-specific README to wire the embedded HTTP server into the native project (MainActivity for Android, AppDelegate for iOS).
-
-### 5. Run
+### 7. Run
 
 ```bash
 # Android
@@ -124,6 +196,17 @@ npx cap open android   # then Run in Android Studio
 # iOS
 npx cap open ios       # then Run in Xcode
 ```
+
+## CLI flags
+
+| Flag | Description |
+|------|-------------|
+| `--game <name>` | Game to build (default: detected from CWD or `DOWNDRAFT_GAME` env) |
+| `--target <plat>` | `android`, `ios`, or `all` (default: `all`) |
+| `--port <n>` | Embedded HTTP server port (default: `8765`) |
+| `--skip-build` | Skip web bundle build (use existing `dist/mobile/`) |
+| `--no-icons` | Skip icon generation (use shell placeholder icons) |
+| `--no-overrides` | Skip `mobile-overrides/` merge layer |
 
 ## Touch input
 
@@ -181,11 +264,13 @@ if (!guard.ok) {
 
 | File | Description |
 |---|---|
+| `packages/mobile-shell/` | Engine-owned canonical native shell (Android + iOS, pre-wired) |
+| `packages/mobile-shell/android/` | Pre-wired Android project (EmbeddedServer + MainActivity + NanoHTTPD) |
+| `packages/mobile-shell/ios/` | Pre-wired iOS project (EmbeddedServer + AppDelegate + ATS exception) |
 | `packages/app/src/mobile/index.ts` | `createDowndraftMobileApp()` entry point |
 | `packages/app/src/mobile/mobile-bridge.ts` | `DowndraftBridge` implementation for mobile |
 | `packages/app/src/mobile/touch-input-adapter.ts` | Touch → `InputBufferWriter` mapping |
 | `packages/app/src/mobile/webgpu-guard.ts` | Boot-time WebGPU + cross-origin isolation check |
 | `packages/app/src/vite/mobile-vite-config.ts` | Web-only Vite build config (no main/preload) |
-| `packages/cli/src/mobile.ts` | `draft mobile` CLI command |
-| `packages/cli/templates/mobile/android/` | NanoHTTPD embedded server template + README |
-| `packages/cli/templates/mobile/ios/` | Swift embedded server template + README |
+| `packages/cli/src/mobile.ts` | `draft mobile` CLI command (copy-from-shell + patch) |
+| `packages/cli/src/mobile-icons.ts` | jimp-based icon generation from `icon.png` |

@@ -201,6 +201,7 @@ export class SolidHost {
 
   /** Per-frame tick: drain undertow, write UiStatsSAB, post renderer snapshot. */
   private targetFrameTime = 0;
+  private limiterActive = false;
   private tick(): void {
     if (this.disposed) return;
 

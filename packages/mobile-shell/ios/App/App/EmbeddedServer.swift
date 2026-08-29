@@ -2,7 +2,7 @@
 // EmbeddedServer.swift — tiny HTTP server for Capacitor iOS (COOP/COEP)
 // ============================================================================
 //
-// Serves the Capacitor web assets (dist/mobile/) over http://127.0.0.1:{{PORT}}
+// Serves the Capacitor web assets (dist/mobile/) over http://127.0.0.1:8765
 // with Cross-Origin-Opener-Policy: same-origin and
 // Cross-Origin-Embedder-Policy: require-corp headers.
 //
@@ -14,9 +14,9 @@
 //
 // Start the server in your AppDelegate or SceneDelegate:
 //
-//   let server = EmbeddedServer(port: {{PORT}})
+//   let server = EmbeddedServer(port: 8765)
 //   try? server.start()
-//   webView.load(URLRequest(url: URL(string: "http://127.0.0.1:{{PORT}}/index.html")!))
+//   webView.load(URLRequest(url: URL(string: "http://127.0.0.1:8765/index.html")!))
 //
 // See README.md for full wiring instructions.
 

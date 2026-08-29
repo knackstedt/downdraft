@@ -4,15 +4,18 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
-    "types": ["vite/client", "@webgpu/types"],
+    "types": ["node", "vite/client", "@webgpu/types"],
     "noEmit": true,
     "paths": {
+      "xxh3-ts": ["../../../../packages/libraries/persistence/src/xxh3-ts.d.ts"],
       "@downdraft/library-undertow": ["../../../../packages/libraries/undertow/src/index.ts"],
       "@downdraft/library-undertow/*": ["../../../../packages/libraries/undertow/src/*"],
       "@downdraft/core/*": ["../../../../packages/core/src/*"],
       "@downdraft/core": ["../../../../packages/core/src/index.ts"],
       "@downdraft/library-sand": ["../../../../packages/libraries/sand/src/index.ts"],
       "@downdraft/library-sand/*": ["../../../../packages/libraries/sand/src/*"],
+      "@downdraft/library-models": ["../../../../packages/libraries/models/src/index.ts"],
+      "@downdraft/library-models/*": ["../../../../packages/libraries/models/src/*"],
       "@downdraft/library-persistence": ["../../../../packages/libraries/persistence/src/index.ts"],
       "@downdraft/library-persistence/*": ["../../../../packages/libraries/persistence/src/*"],
       "@downdraft/plugin-devtools": ["../../../../packages/plugins/devtools/src/index.ts"],
@@ -21,6 +24,11 @@
       "@mining-rpg/shared/*": ["../shared/*"]
     }
   },
-  "include": ["./**/*", "../shared/**/*"],
+  "include": [
+    "./**/*",
+    "../shared/**/*",
+    "../../../../packages/core/src/webgpu-destroy-augmentation.d.ts",
+    "../../../../packages/libraries/models/src/codecs/draco3dgltf.d.ts"
+  ],
   "exclude": ["**/*.spec.ts"]
 }

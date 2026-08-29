@@ -57,7 +57,7 @@ Packages the built game for distribution.
 
 ## `draft mobile [options]`
 
-Builds and scaffolds a Capacitor mobile target (Android / iOS). Wraps the existing web-portable renderer/sim/worker stack in the system WebView. See the [Mobile guide](/guides/mobile/) for details.
+Builds and scaffolds a Capacitor mobile target (Android / iOS) from the engine-owned native shell. Wraps the existing web-portable renderer/sim/worker stack in the system WebView. See the [Mobile guide](/guides/mobile/) for details.
 
 | Flag | Description |
 |---|---|
@@ -65,7 +65,8 @@ Builds and scaffolds a Capacitor mobile target (Android / iOS). Wraps the existi
 | `--target=<plat>` | Target: `android` / `ios` / `all` (default: `all`) |
 | `--port=<n>` | Embedded HTTP server port (default: `8765`) |
 | `--skip-build` | Skip the web bundle build (use existing `dist/mobile/`) |
-| `--skip-cap-init` | Skip Capacitor init (use existing `android/ios` projects) |
+| `--no-icons` | Skip icon generation (use shell placeholder icons) |
+| `--no-overrides` | Skip `mobile-overrides/` merge layer |
 
 ```bash
 # Build and scaffold for both platforms

@@ -55,7 +55,7 @@ Commands:
   build [options]   Build for target platform
   dist [options]    Package a game for distribution via electron-builder
   export [options]  Package for distribution
-  mobile [options]  Build + scaffold a Capacitor mobile target (Android / iOS)
+  mobile [options]  Build + scaffold a Capacitor mobile target from the engine shell (Android / iOS)
   assets <cmd>      Manage remote asset packs (pull, push, list, init, add)
   test [options]    Run e2e tests via MCP automation (SwiftShader + deterministic by default)
 
@@ -85,7 +85,8 @@ Mobile options:
   --target <plat>     Target platform: android, ios, or all (default: all)
   --port <n>          Embedded HTTP server port (default: 8765)
   --skip-build        Skip the web bundle build (use existing dist/mobile/)
-  --skip-cap-init     Skip Capacitor init (use existing android/ios projects)
+  --no-icons          Skip icon generation (use shell placeholder icons)
+  --no-overrides      Skip mobile-overrides/ merge layer
 `);
       process.exit(1);
   }

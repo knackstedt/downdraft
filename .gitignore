@@ -19,3 +19,8 @@ release
 
 # E2E test artifacts (screenshots, logs)
 tests/e2e/artifacts/
+
+# Mobile native projects (generated from packages/mobile-shell by `draft mobile`)
+# These are gitignored — regenerated from the engine-owned shell on each run.
+games/*/android/
+games/*/ios/

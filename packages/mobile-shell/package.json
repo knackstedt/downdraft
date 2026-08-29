@@ -1,0 +1,7 @@
+{
+  "name": "@downdraft/mobile-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canonical pre-wired Capacitor native shell for Android + iOS mobile builds. Copied + patched by `draft mobile` into per-game gitignored directories.",
+  "type": "module"
+}

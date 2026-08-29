@@ -2,7 +2,7 @@
 // EmbeddedServer.java — tiny HTTP server for Capacitor Android (COOP/COEP)
 // ============================================================================
 //
-// Serves the Capacitor web assets (dist/mobile/) over http://127.0.0.1:{{PORT}}
+// Serves the Capacitor web assets (dist/mobile/) over http://127.0.0.1:8765
 // with Cross-Origin-Opener-Policy: same-origin and
 // Cross-Origin-Embedder-Policy: require-corp headers.
 //
@@ -17,9 +17,9 @@
 //
 // Then start the server in your MainActivity.onCreate():
 //
-//   EmbeddedServer server = new EmbeddedServer(this, {{PORT}});
+//   EmbeddedServer server = new EmbeddedServer(this, 8765);
 //   server.start();
-//   webView.loadUrl("http://127.0.0.1:{{PORT}}/index.html");
+//   webView.loadUrl("http://127.0.0.1:8765/index.html");
 //
 // See README.md for full wiring instructions.
 
