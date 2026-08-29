@@ -21,6 +21,7 @@ import type { BlockheadInput } from "./blockhead";
 import { BH_H, BH_W } from "./blockhead";
 import { getBlockFromPacked } from "./fluid-sim";
 import { findPath, findPathToAdjacent, type PathNode } from "./grid-movement";
+import type { PathfindingBroker } from "./pathfinding-broker";
 
 export type TaskType =
   | "MOVE_TO" | "MINE_BLOCK" | "PLACE_BLOCK"
