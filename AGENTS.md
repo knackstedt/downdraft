@@ -629,6 +629,49 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 
 **Retry logic:** The harness `callToolWithRetry()` method retries MCP operations on transport errors (connection refused, timeouts) with exponential backoff. Tool-level errors (isError: true) are not retried.
 
+### CLI environment variables — consolidated reference
+
+The CLI reads and sets a number of environment variables. This is the complete list; see `docs/site/src/content/docs/reference/cli.md` for the full CLI flag reference.
+
+**Set by the CLI (`draft test`):**
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `DOWNDRAFT_GAME` | `<game>` | Selects which game to operate on |
+| `MCP_PORT` | `<port>` | MCP HTTP transport port |
+| `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) |
+| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU backend selection |
+| `DOWNDRAFT_DETERMINISTIC` | `1` | Fixed seed, paused render loop, no autosave |
+| `DOWNDRAFT_HEADED` | `1` | Show the window in deterministic mode |
+| `DOWNDRAFT_TEST_BUILT` | `1` | Launch the built app instead of the dev server |
+
+**Read by the CLI:**
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `DOWNDRAFT_GAME` | `dev`, `build`, `dist`, `export`, `mobile`, `test` | Game selection (priority 1 over CWD detection) |
+| `DD_RELEASE_KEYSTORE` | `mobile` | Release keystore path |
+| `DD_RELEASE_KEYSTORE_PASS` | `mobile` | Keystore password |
+| `DD_RELEASE_KEY_ALIAS` | `mobile` | Key alias |
+| `DD_RELEASE_KEY_PASS` | `mobile` | Key password (falls back to store pass) |
+| `AWS_ACCESS_KEY_ID` | `assets` | S3 credentials fallback (manifest config wins) |
+| `AWS_SECRET_ACCESS_KEY` | `assets` | S3 credentials fallback |
+| `ANDROID_HOME` | `mobile` | Android SDK path (build-tools + `local.properties`) |
+| `ANDROID_SDK_ROOT` | `mobile` | Android SDK path (fallback) |
+| `HOME` | `mobile` | `~/Android/Sdk`, `~/.android/debug.keystore`, `~/.downdraft/keystore.properties` |
+| `DISPLAY` | `test` | When absent, wraps in `xvfb-run` |
+| `ELECTRON_RUN_AS_NODE` | `test` | **Deleted** before spawning Electron |
+| `DOWNDRAFT_STRICT` | all commands | `1` → hard-error on unknown CLI flags (warns otherwise) |
+
+**Read by the runtime (set by CLI or user):**
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `DOWNDRAFT_STRICT` | `packages/core/src/plugin/diagnostics.ts` | `0`/`1` force-disable/enable plugin DI validation (else = Vite dev mode) |
+| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/plugins/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
+| `DOWNDRAFT_MCP` | `packages/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
+| `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/app/src/main/handlers/devtools.ts` | `1` disables devtools auto-open (set by `draft debug --no-devtools`) |
+
 ### E2E test verification — checking for JS errors
 
 **Do NOT rely solely on test pass/fail to verify correctness.** The e2e tests drive the game through MCP tool calls and assert on returned state, but uncaught JS errors in the game process (React DOM errors, uncaught Promise rejections, TypeError from polyfill gaps) will NOT cause test failures unless explicitly checked.

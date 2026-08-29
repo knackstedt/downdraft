@@ -1,17 +1,16 @@
-import { createLogger } from "@downdraft/core";
 import {
-  type AssetManifest,
-  type AssetPackEntry,
-  type BlobStoreConfig,
   DEFAULT_CACHE_DIR,
   MANIFEST_FILENAME,
-  createEmptyManifest,
-  packCacheKey,
-  validateManifest,
+  createEmptyManifest, createLogger, packCacheKey,
+  validateManifest, type AssetManifest,
+  type AssetPackEntry,
+  type BlobStoreConfig
 } from "@downdraft/core";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, relative, resolve, sep } from "path";
+import { parseArgs, print, renderHelp, type CommandSchema } from "./args";
 import { createBlobStore } from "./blob-store-s3";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
@@ -22,49 +21,117 @@ const ASSET_EXTENSIONS = [
   ".wgsl", ".json",
 ];
 
+// Per-subcommand schemas for the assets subcommands that take flags.
+const ADD_STORE_SCHEMA: CommandSchema = {
+  positionals: [
+    { name: "name", required: true, description: "Store name" },
+    { name: "project", description: "Project path (default: current dir)" },
+  ],
+  flags: [
+    { name: "bucket", type: "string", required: true, description: "S3 bucket name" },
+    { name: "endpoint", type: "string", description: "S3-compatible endpoint URL" },
+    { name: "region", type: "string", default: "us-east-1", description: "AWS region" },
+    { name: "path-style", type: "boolean", description: "Use path-style addressing" },
+  ],
+};
+
+const ADD_PACK_SCHEMA: CommandSchema = {
+  positionals: [
+    { name: "pack", required: true, description: "Pack name" },
+    { name: "project", description: "Project path (default: current dir)" },
+  ],
+  flags: [
+    { name: "version", type: "string", default: "1.0.0", description: "Pack version" },
+    { name: "store", type: "string", required: true, description: "Store name (must exist in manifest)" },
+    { name: "path", type: "string", description: "Remote path prefix (defaults to pack name)" },
+  ],
+};
+
+const PUSH_SCHEMA: CommandSchema = {
+  positionals: [{ name: "project", description: "Project path (default: current dir)" }],
+  flags: [
+    { name: "pack", type: "string", description: "Pack name to push (defaults to first pack)" },
+    { name: "store", type: "string", description: "Store name to push to" },
+    { name: "path", type: "string", description: "Remote path prefix override" },
+    { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
+  ],
+};
+
+const PULL_SCHEMA: CommandSchema = {
+  positionals: [{ name: "project", description: "Project path (default: current dir)" }],
+  flags: [
+    { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
+  ],
+};
+
+const LIST_SCHEMA: CommandSchema = {
+  positionals: [{ name: "project", description: "Project path (default: current dir)" }],
+  flags: [
+    { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
+  ],
+};
+
+const INIT_SCHEMA: CommandSchema = {
+  positionals: [{ name: "project", description: "Project path (default: current dir)" }],
+  flags: [],
+};
+
 export async function assets(args: string[]): Promise<void> {
-  const subcommand = args[0];
-  const projectPath = args.find((a) => !a.startsWith("-") && a !== subcommand) ?? ".";
-  const verbose = args.includes("--verbose") || args.includes("-v");
+  const entry = getCommand("assets")!;
+  // The outer parse extracts the subcommand + project + --verbose.
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
+
+  const subcommand = parsed.positionals[0];
+  const projectPath = parsed.positionals[1] ?? ".";
+  const verbose = parsed.flags.verbose as boolean;
 
   switch (subcommand) {
-    case "pull":
+    case "pull": {
+      const sub = parseArgs(args.filter((a) => a !== "pull" && a !== projectPath), PULL_SCHEMA);
+      if (sub.help) { print(renderHelp("draft assets pull [project]", PULL_SCHEMA)); return; }
       await pullAssets(projectPath, verbose);
       break;
-    case "push":
-      await pushAssets(projectPath, args, verbose);
+    }
+    case "push": {
+      const sub = parseArgs(args.filter((a) => a !== "push" && a !== projectPath), PUSH_SCHEMA);
+      if (sub.help) { print(renderHelp("draft assets push [project]", PUSH_SCHEMA)); return; }
+      await pushAssets(projectPath, sub.flags, verbose);
       break;
-    case "list":
+    }
+    case "list": {
+      const sub = parseArgs(args.filter((a) => a !== "list" && a !== projectPath), LIST_SCHEMA);
+      if (sub.help) { print(renderHelp("draft assets list [project]", LIST_SCHEMA)); return; }
       await listAssets(projectPath, verbose);
       break;
-    case "init":
+    }
+    case "init": {
+      const sub = parseArgs(args.filter((a) => a !== "init" && a !== projectPath), INIT_SCHEMA);
+      if (sub.help) { print(renderHelp("draft assets init [project]", INIT_SCHEMA)); return; }
       await initManifest(projectPath);
       break;
-    case "add":
-      await addPack(projectPath, args.slice(1));
+    }
+    case "add": {
+      const sub = parseArgs(args.slice(1), ADD_PACK_SCHEMA);
+      if (sub.help) { print(renderHelp("draft assets add <pack> [project]", ADD_PACK_SCHEMA)); return; }
+      const packName = sub.positionals[0];
+      const packProject = sub.positionals[1] ?? projectPath;
+      await addPackParsed(packProject, packName, sub.flags);
       break;
-    case "add-store":
-      await addStore(projectPath, args.slice(1));
+    }
+    case "add-store": {
+      const sub = parseArgs(args.slice(1), ADD_STORE_SCHEMA);
+      if (sub.help) { print(renderHelp("draft assets add-store <name> [project]", ADD_STORE_SCHEMA)); return; }
+      const storeName = sub.positionals[0];
+      const storeProject = sub.positionals[1] ?? projectPath;
+      await addStoreParsed(storeProject, storeName, sub.flags);
       break;
+    }
     default:
-      log.info("assets", `DownDraft Asset Management
-
-Usage: draft assets <command> [options]
-
-Commands:
-  init                Create an empty downdraft.assets.json manifest
-  add-store <name>    Add a blob store backend to the manifest
-                    Options: --bucket=<> --endpoint=<> --region=<> --path-style
-  add <pack>          Add an asset pack to the manifest
-                    Options: --version=<> --store=<> --path=<>
-  pull [project]      Download all manifest packs to local cache
-  push [project]      Upload local assets/ dir to configured store
-                    Options: --pack=<> --store=<> --path=<>
-  list [project]      Show manifest packs and local cache status
-
-Options:
-  --verbose, -v      Enable verbose logging
-`);
+      print(renderHelp(entry.usage, entry.schema));
       process.exit(1);
   }
 }
@@ -124,17 +191,20 @@ async function initManifest(projectPath: string): Promise<void> {
 
 // ─── add-store ─────────────────────────────────────────────────
 
-async function addStore(projectPath: string, args: string[]): Promise<void> {
-  const name = args[0];
+async function addStoreParsed(
+  projectPath: string,
+  name: string,
+  flags: Record<string, string | boolean | number | string[]>,
+): Promise<void> {
   if (!name) {
     log.error("assets", "Usage: draft assets add-store <name> --bucket=<> --endpoint=<> --region=<>");
     process.exit(1);
   }
 
-  const bucket = args.find((a) => a.startsWith("--bucket="))?.split("=")[1];
-  const endpoint = args.find((a) => a.startsWith("--endpoint="))?.split("=")[1];
-  const region = args.find((a) => a.startsWith("--region="))?.split("=")[1] ?? "us-east-1";
-  const forcePathStyle = args.includes("--path-style");
+  const bucket = flags.bucket as string;
+  const endpoint = (flags.endpoint as string) || undefined;
+  const region = (flags.region as string) || "us-east-1";
+  const forcePathStyle = flags["path-style"] as boolean;
 
   if (!bucket) {
     log.error("assets", "--bucket=<> is required");
@@ -157,16 +227,19 @@ async function addStore(projectPath: string, args: string[]): Promise<void> {
 
 // ─── add ────────────────────────────────────────────────────────
 
-async function addPack(projectPath: string, args: string[]): Promise<void> {
-  const name = args[0];
+async function addPackParsed(
+  projectPath: string,
+  name: string,
+  flags: Record<string, string | boolean | number | string[]>,
+): Promise<void> {
   if (!name) {
     log.error("assets", "Usage: draft assets add <pack-name> --version=<> --store=<> --path=<>");
     process.exit(1);
   }
 
-  const version = args.find((a) => a.startsWith("--version="))?.split("=")[1] ?? "1.0.0";
-  const store = args.find((a) => a.startsWith("--store="))?.split("=")[1];
-  const path = args.find((a) => a.startsWith("--path="))?.split("=")[1] ?? name;
+  const version = (flags.version as string) || "1.0.0";
+  const store = flags.store as string;
+  const path = (flags.path as string) || name;
 
   if (!store) {
     log.error("assets", "--store=<> is required (must match a store name in manifest)");
@@ -268,13 +341,17 @@ async function pullAssets(projectPath: string, verbose: boolean): Promise<void> 
 
 // ─── push ───────────────────────────────────────────────────────
 
-async function pushAssets(projectPath: string, args: string[], verbose: boolean): Promise<void> {
+async function pushAssets(
+  projectPath: string,
+  flags: Record<string, string | boolean | number | string[]>,
+  verbose: boolean,
+): Promise<void> {
   const manifest = loadManifest(projectPath);
   if (!manifest) return;
 
-  const packName = args.find((a) => a.startsWith("--pack="))?.split("=")[1];
-  const storeName = args.find((a) => a.startsWith("--store="))?.split("=")[1];
-  const remotePath = args.find((a) => a.startsWith("--path="))?.split("=")[1];
+  const packName = (flags.pack as string) || undefined;
+  const storeName = (flags.store as string) || undefined;
+  const remotePath = (flags.path as string) || undefined;
 
   const assetsDir = resolve(projectPath, "assets");
   if (!existsSync(assetsDir)) {

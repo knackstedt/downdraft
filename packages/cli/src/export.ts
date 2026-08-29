@@ -1,15 +1,32 @@
 import { confinePath, createLogger } from "@downdraft/core";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { join, relative, resolve } from "path";
+import { parseArgs, print, renderHelp } from "./args";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
+// Map normalized flag values → output directory names (kept stable for
+// back-compat of the generated layout: windows/macos/linux).
+const PLATFORM_DIR: Record<string, string> = {
+  win: "windows",
+  mac: "macos",
+  linux: "linux",
+};
+
 export async function exportGame(args: string[]): Promise<void> {
-  const projectPath = args.find((a) => !a.startsWith("-")) ?? ".";
-  const target = args.find((a) => a.startsWith("--target="))?.split("=")[1] ?? "all";
-  const outDir = args.find((a) => a.startsWith("--out="))?.split("=")[1] ?? "export";
-  const verbose = args.includes("--verbose") || args.includes("-v");
-  const compress = !args.includes("--no-compress");
+  const entry = getCommand("export")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
+
+  const projectPath = parsed.positionals[0] ?? ".";
+  const target = parsed.flags.target as string;
+  const outDir = parsed.flags.out as string;
+  const verbose = parsed.flags.verbose as boolean;
+  const compress = !(parsed.flags["no-compress"] as boolean);
 
   log.info("export", `
   ╔══════════════════════════════════════════╗
@@ -47,8 +64,11 @@ export async function exportGame(args: string[]): Promise<void> {
     log.debug("export", `Manifest: ${JSON.stringify(manifest, null, 2)}`);
   }
 
-  // Platform-specific export
-  const platforms = target === "all" ? ["windows", "macos", "linux"] : [target];
+  // Platform-specific export — normalize target values to output dir names.
+  const platforms =
+    target === "all"
+      ? [PLATFORM_DIR.win, PLATFORM_DIR.mac, PLATFORM_DIR.linux]
+      : [PLATFORM_DIR[target] ?? target];
 
   for (const platform of platforms) {
     const platformDir = join(outPath, platform);

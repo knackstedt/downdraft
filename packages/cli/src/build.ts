@@ -1,17 +1,30 @@
 import { Builder, confinePath, createLogger } from "@downdraft/core";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { basename, extname, join, relative, resolve } from "path";
+import { parseArgs, print, renderHelp } from "./args";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
 export async function build(args: string[]): Promise<void> {
-  const projectPath = args.find((a) => !a.startsWith("-")) ?? ".";
-  const target = args.find((a) => a.startsWith("--target="))?.split("=")[1] ?? "current";
-  const mode = args.find((a) => a.startsWith("--mode="))?.split("=")[1] ?? "prod";
-  const outDir = args.find((a) => a.startsWith("--out="))?.split("=")[1] ?? "dist";
-  const verbose = args.includes("--verbose") || args.includes("-v");
-  const minify = !args.includes("--no-minify");
-  const sourceMaps = args.includes("--sourcemap") || mode !== "prod";
+  const entry = getCommand("build")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
+
+  // --game overrides the path positional: resolve games/<game> as the project.
+  const gameArg = parsed.flags.game as string | undefined;
+  const projectPath = gameArg
+    ? resolve(import.meta.dir, "../../..", "games", gameArg)
+    : parsed.positionals[0] ?? ".";
+  const target = parsed.flags.target as string;
+  const mode = parsed.flags.mode as string;
+  const outDir = parsed.flags.out as string;
+  const verbose = parsed.flags.verbose as boolean;
+  const minify = !(parsed.flags["no-minify"] as boolean);
+  const sourceMaps = parsed.flags.sourcemap as boolean || mode !== "prod";
 
   log.info("build", `
   ╔══════════════════════════════════════════╗

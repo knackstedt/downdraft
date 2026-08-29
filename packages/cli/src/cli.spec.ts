@@ -397,3 +397,83 @@ describe("CLI export", () => {
     expect(summary.exportedAt).toBeDefined();
   });
 });
+
+describe("CLI --help and --version", () => {
+  it("export --target rejects old 'windows' value", async () => {
+    // The normalized vocabulary is win/linux/mac/all.
+    // 'windows' should be rejected by enum validation.
+    const { ArgError, parseArgs } = await import("./args");
+    expect(() =>
+      parseArgs(["--target=windows"], {
+        flags: [{ name: "target", type: "string", enum: ["win", "linux", "mac", "all"] }],
+      }),
+    ).toThrow(ArgError);
+  });
+
+  it("export --target accepts 'win' value", async () => {
+    const { parseArgs } = await import("./args");
+    const r = parseArgs(["--target=win"], {
+      flags: [{ name: "target", type: "string", enum: ["win", "linux", "mac", "all"] }],
+    });
+    expect(r.flags.target).toBe("win");
+  });
+
+  it("test --renderer rejects invalid value", async () => {
+    const { ArgError, parseArgs } = await import("./args");
+    expect(() =>
+      parseArgs(["--renderer=foo"], {
+        flags: [{ name: "renderer", type: "string", enum: ["gpu", "cpu"] }],
+      }),
+    ).toThrow(ArgError);
+  });
+
+  it("test --renderer accepts 'cpu' and 'gpu'", async () => {
+    const { parseArgs } = await import("./args");
+    expect(
+      parseArgs(["--renderer=cpu"], {
+        flags: [{ name: "renderer", type: "string", enum: ["gpu", "cpu"] }],
+      }).flags.renderer,
+    ).toBe("cpu");
+    expect(
+      parseArgs(["--renderer=gpu"], {
+        flags: [{ name: "renderer", type: "string", enum: ["gpu", "cpu"] }],
+      }).flags.renderer,
+    ).toBe("gpu");
+  });
+
+  it("parseArgs returns help=true for --help", async () => {
+    const { parseArgs } = await import("./args");
+    expect(
+      parseArgs(["--help"], {
+        flags: [{ name: "game", type: "string" }],
+      }).help,
+    ).toBe(true);
+  });
+
+  it("parseArgs returns help=true for -h", async () => {
+    const { parseArgs } = await import("./args");
+    expect(
+      parseArgs(["-h"], {
+        flags: [{ name: "game", type: "string" }],
+      }).help,
+    ).toBe(true);
+  });
+
+  it("renderTopLevelHelp lists all commands", async () => {
+    const { renderTopLevelHelp } = await import("./usage");
+    const help = renderTopLevelHelp("0.1.0");
+    expect(help).toContain("Usage: draft <command>");
+    expect(help).toContain("new");
+    expect(help).toContain("dev");
+    expect(help).toContain("test");
+    expect(help).toContain("assets");
+    expect(help).toContain("mobile");
+    expect(help).toContain("--version");
+  });
+
+  it("getCommand returns undefined for unknown command", async () => {
+    const { getCommand } = await import("./usage");
+    expect(getCommand("nonexistent")).toBeUndefined();
+    expect(getCommand("test")?.name).toBe("test");
+  });
+});

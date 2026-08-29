@@ -36,8 +36,10 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { parseArgs as parseArgv, print, renderHelp } from "./args";
 import { detectGame } from "./detect-game";
 import { generateIcons } from "./mobile-icons";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
@@ -65,43 +67,27 @@ export interface MobileArgs {
   skipGradle: boolean;
   noIcons: boolean;
   noOverrides: boolean;
+  verbose: boolean;
 }
 
-function parseArgs(args: string[]): MobileArgs {
-  const opts: MobileArgs = {
-    game: detectGame() ?? "to-the-ocean",
-    target: "all",
-    port: 8765,
-    skipBuild: false,
-    skipGradle: false,
-    noIcons: false,
-    noOverrides: false,
-  };
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--game" || arg === "-g") {
-      opts.game = args[++i] ?? opts.game;
-    } else if (arg?.startsWith("--game=")) {
-      opts.game = arg.slice("--game=".length);
-    } else if (arg === "--target" || arg === "-t") {
-      opts.target = (args[++i] as MobileArgs["target"]) ?? opts.target;
-    } else if (arg?.startsWith("--target=")) {
-      opts.target = arg.slice("--target=".length) as MobileArgs["target"];
-    } else if (arg === "--port") {
-      opts.port = parseInt(args[++i] ?? "8765", 10);
-    } else if (arg?.startsWith("--port=")) {
-      opts.port = parseInt(arg.slice("--port=".length), 10);
-    } else if (arg === "--skip-build") {
-      opts.skipBuild = true;
-    } else if (arg === "--skip-gradle") {
-      opts.skipGradle = true;
-    } else if (arg === "--no-icons") {
-      opts.noIcons = true;
-    } else if (arg === "--no-overrides") {
-      opts.noOverrides = true;
-    }
+function parseMobileArgs(args: string[]): MobileArgs {
+  const entry = getCommand("mobile")!;
+  const parsed = parseArgv(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    process.exit(0);
   }
-  return opts;
+  const port = parsed.flags.port as number;
+  return {
+    game: (parsed.flags.game as string) || detectGame() || "to-the-ocean",
+    target: parsed.flags.target as MobileArgs["target"],
+    port: port === 0 ? 8765 : port,
+    skipBuild: parsed.flags["skip-build"] as boolean,
+    skipGradle: parsed.flags["skip-gradle"] as boolean,
+    noIcons: parsed.flags["no-icons"] as boolean,
+    noOverrides: parsed.flags["no-overrides"] as boolean,
+    verbose: parsed.flags.verbose as boolean,
+  };
 }
 
 /**
@@ -191,7 +177,7 @@ const mobileModule: GameModule = {
   },
 
   onReady: (_ctx) => {
-    console.log("[mobile] ${game} ready");
+    print("[mobile] ${game} ready");
   },
 };
 
@@ -204,7 +190,7 @@ createDowndraftMobileApp({
   //   "tap"          — 2D click-based (falling-sand, sandjongg)
   touchInput: { scheme: "tap" },
 }).catch((e) => {
-  console.error("[mobile] Fatal:", e);
+  log.error("CLI", "[mobile] Fatal:", e);
 });
 `;
 }
@@ -1143,7 +1129,7 @@ export function signAndroidApk(apkPath: string): "release" | "debug" | "skipped"
 // ---------------------------------------------------------------------------
 
 export async function mobile(args: string[]): Promise<void> {
-  const opts = parseArgs(args);
+  const opts = parseMobileArgs(args);
   const repoRoot = resolve(import.meta.dir, "../../..");
   const gameDir = resolve(repoRoot, "games", opts.game);
   const shellDir = resolve(repoRoot, "packages/mobile-shell");
@@ -1161,6 +1147,7 @@ export async function mobile(args: string[]): Promise<void> {
   log.info("mobile", `  Skip gradle: ${opts.skipGradle}`);
   log.info("mobile", `  No icons:    ${opts.noIcons}`);
   log.info("mobile", `  No overrides:${opts.noOverrides}`);
+  if (opts.verbose) log.info("mobile", `  Verbose:     on`);
   log.info("mobile", "");
 
   // 1. Check prerequisites

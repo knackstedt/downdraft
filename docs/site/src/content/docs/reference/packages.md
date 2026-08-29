@@ -14,7 +14,7 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 | `@downdraft/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
 | `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
 | `@downdraft/shader-graph` | Material/shader graph compiler and validator |
-| `@downdraft/cli` | CLI tool (`draft init/dev/debug/build/export/mobile`) |
+| `@downdraft/cli` | CLI tool (`draft new/dev/debug/build/build-games/dist/export/mobile/assets/test`) |
 
 ## First-Party Plugins
 

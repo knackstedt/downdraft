@@ -13,12 +13,14 @@
 //
 // Usage:
 //   draft dist [--game=<name>] [--target=<win|linux|mac|all>]
-//              [--config=<path>] [--project-dir=<path>]
+//              [--config=<path>] [--project-dir=<path>] [--verbose]
 
 import { createLogger } from "@downdraft/core";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseArgs, print, renderHelp } from "./args";
 import { detectGame } from "./detect-game";
+import { getCommand } from "./usage";
 
 const log = createLogger();
 
@@ -27,36 +29,23 @@ interface DistArgs {
   target: "win" | "linux" | "mac" | "all";
   configPath: string | null;
   projectDir: string | null;
+  verbose: boolean;
 }
 
-function parseArgs(args: string[]): DistArgs {
-  const opts: DistArgs = {
-    game: detectGame() ?? "to-the-ocean",
-    target: "all",
-    configPath: null,
-    projectDir: null,
-  };
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--game" || arg === "-g") {
-      opts.game = args[++i] ?? opts.game;
-    } else if (arg?.startsWith("--game=")) {
-      opts.game = arg.slice("--game=".length);
-    } else if (arg === "--target" || arg === "-t") {
-      opts.target = (args[++i] as DistArgs["target"]) ?? opts.target;
-    } else if (arg?.startsWith("--target=")) {
-      opts.target = arg.slice("--target=".length) as DistArgs["target"];
-    } else if (arg === "--config" || arg === "-c") {
-      opts.configPath = args[++i] ?? null;
-    } else if (arg?.startsWith("--config=")) {
-      opts.configPath = arg.slice("--config=".length);
-    } else if (arg === "--project-dir") {
-      opts.projectDir = args[++i] ?? null;
-    } else if (arg?.startsWith("--project-dir=")) {
-      opts.projectDir = arg.slice("--project-dir=".length);
-    }
+function parseDistArgs(args: string[]): DistArgs {
+  const entry = getCommand("dist")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    process.exit(0);
   }
-  return opts;
+  return {
+    game: (parsed.flags.game as string) || detectGame() || "to-the-ocean",
+    target: parsed.flags.target as DistArgs["target"],
+    configPath: (parsed.flags.config as string) || null,
+    projectDir: (parsed.flags["project-dir"] as string) || null,
+    verbose: parsed.flags.verbose as boolean,
+  };
 }
 
 /**
@@ -174,7 +163,7 @@ async function resolveConfig(
 }
 
 export async function dist(args: string[]): Promise<void> {
-  const opts = parseArgs(args);
+  const opts = parseDistArgs(args);
   const repoRoot = resolve(import.meta.dir, "../../..");
 
   log.info("dist", `
@@ -186,6 +175,7 @@ export async function dist(args: string[]): Promise<void> {
   log.info("dist", `  Game:        ${opts.game}`);
   log.info("dist", `  Target:      ${opts.target}`);
   log.info("dist", `  Project dir: ${opts.projectDir ?? repoRoot}`);
+  if (opts.verbose) log.info("dist", `  Verbose:     on`);
 
   const { config, projectDir, source } = await resolveConfig(opts, repoRoot);
 
