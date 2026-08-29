@@ -1,9 +1,9 @@
 // ============================================================================
 // vite-options — custom Vite options for to-the-ocean.
 //
-// These options are loaded by the root electron.vite.config.ts when
-// DOWNDRAFT_GAME=to-the-ocean. They provide the game-specific plugin
-// aliases, simPaths, excludePaths, and html config.
+// These options are loaded by the game's own electron.vite.config.ts
+// (games/to-the-ocean/electron.vite.config.ts). They provide the
+// game-specific plugin aliases, simPaths, excludePaths, and html config.
 //
 // For standalone builds (cd games/to-the-ocean && npx electron-vite build),
 // the electron.vite.config.ts in this directory calls

@@ -1,8 +1,9 @@
 import { createLogger } from "@downdraft/core";
 import { spawn } from "child_process";
-import { resolve } from "path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
-import { detectGame } from "./detect-game";
+import { formatGamesList } from "./list-games";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -16,7 +17,16 @@ export async function dev(args: string[]): Promise<void> {
     return;
   }
 
-  const game = (parsed.flags.game as string) || detectGame() || "to-the-ocean";
+  const game = parsed.flags.game as string;
+  // Each game owns its own electron.vite.config.ts entrypoint — load it
+  // directly instead of dispatching through a root config + env var.
+  const gameConfig = resolve(ROOT, "games", game, "electron.vite.config.ts");
+  if (!existsSync(gameConfig)) {
+    log.error("DownDraft", `No electron.vite.config.ts found for game "${game}" at ${gameConfig}`);
+    print(formatGamesList(ROOT));
+    process.exit(1);
+  }
+
   const port = parsed.flags.port as number;
   const noHmr = parsed.flags["no-hmr"] as boolean;
   const verbose = parsed.flags.verbose as boolean;
@@ -24,22 +34,16 @@ export async function dev(args: string[]): Promise<void> {
 
   log.info("DownDraft", "Starting in dev mode...");
   log.info("DownDraft", `  Game: ${game}`);
+  log.info("DownDraft", `  Config: ${gameConfig}`);
   log.info("DownDraft", `  HMR:  ${noHmr ? "disabled" : "enabled"}`);
   if (port) log.info("DownDraft", `  MCP port: ${port}`);
   if (devEntry) log.info("DownDraft", `  Entry: ${devEntry}`);
   if (verbose) log.info("DownDraft", "  Verbose: on");
 
-  // The root electron.vite.config.ts is a DOWNDRAFT_GAME dispatcher that
-  // loads the selected game's vite-options.ts. Always pass the root config;
-  // DOWNDRAFT_GAME (set below) selects the game.
-  const rootConfig = resolve(ROOT, "electron.vite.config.ts");
-  const childArgs = ["electron-vite", "dev", "--config", rootConfig];
+  const childArgs = ["electron-vite", "dev", "--config", gameConfig];
   if (noHmr) childArgs.push("--no-watch");
 
-  const env: Record<string, string> = {
-    ...process.env,
-    DOWNDRAFT_GAME: game,
-  };
+  const env: Record<string, string> = { ...process.env };
   if (port) env.MCP_PORT = String(port);
   if (devEntry) env.DOWNDRAFT_DEV_ENTRY = devEntry;
   // Critical: Electron must NOT run as Node.js.

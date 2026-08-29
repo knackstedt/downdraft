@@ -201,7 +201,7 @@ npx cap open ios       # then Run in Xcode
 
 | Flag | Description |
 |------|-------------|
-| `--game <name>` | Game to build (default: detected from CWD or `DOWNDRAFT_GAME` env) |
+| `--game <name>` | Game to build (required; `games/<game>`) |
 | `--target <plat>` | `android`, `ios`, or `all` (default: `all`) |
 | `--port <n>` | Embedded HTTP server port (default: `8765`) |
 | `--skip-build` | Skip web bundle build (use existing `dist/mobile/`) |

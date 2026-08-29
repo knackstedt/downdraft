@@ -60,7 +60,7 @@ export const COMMANDS: CommandEntry[] = [
     summary: "Start the dev server with HMR (electron-vite dev)",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to run (default: DOWNDRAFT_GAME env or detected from CWD)" },
+        { name: "game", alias: "g", type: "string", required: true, description: "Game to run (loads games/<game>/electron.vite.config.ts)" },
         { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: 9876)" },
         { name: "watch", type: "boolean", description: "Alias for HMR (always on; accepted for back-compat)" },
@@ -117,7 +117,7 @@ export const COMMANDS: CommandEntry[] = [
     summary: "Package a game for distribution via electron-builder",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to package (default: DOWNDRAFT_GAME env or detected from CWD)" },
+        { name: "game", alias: "g", type: "string", required: true, description: "Game to package (games/<game>)" },
         { name: "target", alias: "t", type: "string", default: "all", enum: [...DESKTOP_TARGETS], description: "Target platform" },
         { name: "config", alias: "c", type: "string", description: "Explicit path to a build.config.ts / config file" },
         { name: "project-dir", type: "string", description: "Override the project directory (default: repo root)" },
@@ -145,7 +145,7 @@ export const COMMANDS: CommandEntry[] = [
     summary: "Build + scaffold a Capacitor mobile target (Android / iOS)",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to build (default: DOWNDRAFT_GAME env or detected from CWD)" },
+        { name: "game", alias: "g", type: "string", required: true, description: "Game to build (games/<game>)" },
         { name: "target", alias: "t", type: "string", default: "all", enum: [...MOBILE_TARGETS], description: "Target platform" },
         { name: "port", type: "number", default: 8765, description: "Embedded HTTP server port" },
         { name: "skip-build", type: "boolean", description: "Skip the web bundle build (use existing dist/mobile/)" },
@@ -176,7 +176,7 @@ export const COMMANDS: CommandEntry[] = [
     summary: "Run e2e tests via MCP automation (SwiftShader + deterministic by default)",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to test (default: DOWNDRAFT_GAME env or detected from CWD)" },
+        { name: "game", alias: "g", type: "string", required: true, description: "Game to test (games/<game>)" },
         { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)" },
         { name: "port", alias: "p", type: "number", default: 9976, description: "MCP port" },
         { name: "renderer", alias: "r", type: "string", default: "cpu", enum: [...RENDERER_TARGETS], description: "WebGPU backend: cpu=SwiftShader, gpu=hardware" },

@@ -3,7 +3,6 @@ import { spawn } from "child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
-import { detectGame } from "./detect-game";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -36,7 +35,7 @@ function parseTestArgs(args: string[]): TestArgs {
   }
   const port = parsed.flags.port as number;
   return {
-    game: (parsed.flags.game as string) || detectGame() || "to-the-ocean",
+    game: parsed.flags.game as string,
     mcpPort: port === 0 ? 9976 : port,
     spec: (parsed.flags.spec as string) || null,
     renderer: parsed.flags.renderer as Renderer,
@@ -130,7 +129,6 @@ export async function runTest(args: string[]): Promise<void> {
 
   const env: Record<string, string> = {
     ...process.env,
-    DOWNDRAFT_GAME: opts.game,
     MCP_PORT: String(opts.mcpPort),
     MCP_TIMEOUT_MS: "120000",
   };

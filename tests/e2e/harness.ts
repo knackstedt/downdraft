@@ -53,7 +53,7 @@ export interface LaunchOptions {
   gpu?: "auto" | "hardware" | "swiftshader";
   deterministic?: boolean;
   extraEnv?: Record<string, string>;
-  /** When true, launch the built app (dist/main/index.cjs) instead of `bun run dev`.
+  /** When true, launch the built app (dist/main/index.cjs) instead of the dev server.
    *  Requires the game to have been built first (`electron-vite build`). */
   built?: boolean;
   /** Working directory for the built app. Defaults to the game root. */
@@ -497,7 +497,6 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   const port = opts.mcpPort ?? (await findFreePort());
   const env: Record<string, string> = {
     ...process.env,
-    DOWNDRAFT_GAME: game,
     MCP_PORT: String(port),
     MCP_TIMEOUT_MS: "120000",
     // Set deterministic mode flag so the renderer can detect test environment
@@ -515,7 +514,8 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   delete env.ELECTRON_RUN_AS_NODE;
 
   // Determine the launch command based on mode.
-  // - Dev mode (default): `bun run dev` (electron-vite dev with HMR)
+  // - Dev mode (default): `electron-vite dev --config games/<game>/electron.vite.config.ts`
+  //   (each game owns its own entrypoint — no root dispatcher / env var).
   // - Built mode: `electron .` (launches the packaged app from dist/)
   // The DOWNDRAFT_TEST_BUILT env var is set by `draft test --build`.
   const useBuilt = opts.built || process.env.DOWNDRAFT_TEST_BUILT === "1";
@@ -529,9 +529,10 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     cmdArgs = ["electron", "."];
     cwd = opts.builtCwd ?? resolve(process.cwd(), "games", game);
   } else {
-    // Dev mode: start the Vite dev server which launches Electron.
-    cmd = "bun";
-    cmdArgs = ["run", "dev"];
+    // Dev mode: start the Vite dev server which launches Electron, loading
+    // the game's own electron.vite.config.ts entrypoint directly.
+    cmd = "npx";
+    cmdArgs = ["electron-vite", "dev", "--config", `games/${game}/electron.vite.config.ts`];
     cwd = process.cwd();
   }
 

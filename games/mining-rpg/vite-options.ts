@@ -1,15 +1,16 @@
 // ============================================================================
 // vite-options — custom Vite options for mining-rpg.
 //
-// These options are loaded by the root electron.vite.config.ts when
-// DOWNDRAFT_GAME=mining-rpg. They configure the Solid-in-worker UI:
+// These options are loaded by the game's own electron.vite.config.ts
+// (games/mining-rpg/electron.vite.config.ts). They configure the
+// Solid-in-worker UI:
 //   - workerPlugins: Solid plugin for worker bundles
 //   - rendererPlugins: Solid plugin (scoped to src/solid/**), URL replacement plugin
 //   - extraRollupInputs: Worker entry as a separate Rollup chunk
 //
-// This file exports a FACTORY FUNCTION rather than a static object so that
-// the root config can resolve `vite-plugin-solid` from the game's
-// node_modules (the root workspace doesn't have it as a dependency).
+// This file exports a FACTORY FUNCTION rather than a static object so the
+// game's electron.vite.config.ts can resolve `vite-plugin-solid` from the
+// game's node_modules (the root workspace doesn't have it as a dependency).
 //
 // For standalone builds (cd games/mining-rpg && npx electron-vite build),
 // the electron.vite.config.ts in this directory calls this factory directly.

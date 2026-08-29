@@ -5,16 +5,16 @@ description: Dev workflow, build modes, and project structure
 
 ## Dev Server
 
-The primary development workflow uses `electron-vite dev`:
+The primary development workflow uses `electron-vite dev`, loading a game's own entrypoint:
 
 ```bash
-bun run dev
+draft dev --game=<game-name>
 ```
 
-This starts the Electron app with hot reload, full DevTools, and telemetry enabled. To run a specific game:
+This starts the Electron app with hot reload, full DevTools, and telemetry enabled. Each game owns its own `games/<game>/electron.vite.config.ts` entrypoint — `draft dev` loads it directly. You can also invoke `electron-vite` yourself:
 
 ```bash
-DOWNDRAFT_GAME=<game-name> bun run dev
+npx electron-vite dev --config games/<game-name>/electron.vite.config.ts
 ```
 
 ## Build Modes

@@ -37,7 +37,6 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, r
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs as parseArgv, print, renderHelp } from "./args";
-import { detectGame } from "./detect-game";
 import { generateIcons } from "./mobile-icons";
 import { getCommand } from "./usage";
 
@@ -79,7 +78,7 @@ function parseMobileArgs(args: string[]): MobileArgs {
   }
   const port = parsed.flags.port as number;
   return {
-    game: (parsed.flags.game as string) || detectGame() || "to-the-ocean",
+    game: parsed.flags.game as string,
     target: parsed.flags.target as MobileArgs["target"],
     port: port === 0 ? 8765 : port,
     skipBuild: parsed.flags["skip-build"] as boolean,
