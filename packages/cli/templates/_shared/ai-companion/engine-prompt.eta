@@ -97,7 +97,7 @@ world.registerPlugin(myPlugin);
 - `@downdraft/library-weatherfx` — Cloud particle effects
 - `@downdraft/library-postfx` — Post-processing effects
 - `@downdraft/library-navmesh` — Navigation meshes
-- `@downdraft/library-persistence` — Save system (OPFS, File, Firebird)
+- `@downdraft/library-persistence` — Save system (OPFS, File, IndexedDB)
 - `@downdraft/library-networking` — Multiplayer networking
 - `@downdraft/library-gaussian-splats` — Gaussian splat rendering
 - `@downdraft/library-sand` — Falling-sand simulation

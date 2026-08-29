@@ -264,9 +264,6 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun test games/to-the-ocean/plugins/wildlife/src/wildlife-plugin.spec.ts` — game plugin wrappers (wildlife, buoyancy, collision) (9 tests).
 - `bun test packages/plugins/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
 - `bun test packages/plugins/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
-- `bun test packages/plugins/persistence/src/firebird-browser-save-store.spec.ts` — FirebirdBrowserSaveStore (WASM ISaveStore) specs (10 tests). Runs under Bun — uses the WASM engine, no native addon.
-- `FIREBIRD_LOCK=/tmp/fb-$USER/lock FIREBIRD_TMP=/tmp/fb-$USER/tmp npx tsx packages/plugins/persistence/src/benchmark.ts` — 3-way benchmark: WASM (`FirebirdBrowserSaveStore`) vs native (`FirebirdSaveStore`) vs Rust (`FirebirdRustSaveStore`) across body sizes (2KB–1.7MB), plus cloud save export/import timing for WASM and Rust. Requires Node+tsx (native backend crashes Bun) and the Rust addon built (`cd packages/plugins/persistence/firebird-rust-addon && cargo build --release && cp target/release/libfirebird_rust_addon.so target/release/firebird_rust_addon.linux-x64-gnu.node`).
-- FirebirdSaveStore (native) specs — `FIREBIRD_LOCK=/tmp/fb-$USER/lock FIREBIRD_TMP=/tmp/fb-$USER/tmp npx tsx --test packages/plugins/persistence/src/firebird-save-store.node-test.ts` (11 tests). **Not run under `bun test`**: firebird-wasm's Node native backend (`node-firebird-driver-native`, which dlopens `libfbclient` and uses pthreads) crashes Bun's test runner with a native segfault. The `*.spec.ts` is skipped under Bun; the `*.node-test.ts` runs under Node+tsx. Requires `libfbclient.so` on the system and a one-time native-addon build (`npx node-gyp configure && npx node-gyp build` in `node_modules/.bun/node-firebird-native-api@*/.../node-firebird-native-api`, with `node-addon-api` installed there).
 - `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
 - `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
 - `bun run draft:test -- --headed` — same but shows the Electron window (useful for debugging).
@@ -408,36 +405,6 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
   The `createSaveStore()` factory (`packages/app/src/renderer/save-store-factory.ts`) handles mode selection and OPFS detection. The `SimBridgeDeps.saveMode` field tells the sim bridge which path to use.
 
 - **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, used as the IPC fallback. One `.ddsave` file per slot (header + zstd body), rotated to `.bak` on each save; `.bak` is the load fallback on corruption/hash-mismatch. Node-only (`node:fs`). Now supports the extended `ISaveStore` interface: blobs stored in `<slot>.blobs/` directory, thumbnails in `<slot>.thumb`, properties in `<slot>.props.json` sidecar. `listGenerations()` returns a single synthetic generation; `deleteGeneration()` delegates to `deleteSave()`.
-- **`FirebirdSaveStore`** (`firebird-save-store.ts`) — Firebird embedded backend via `firebird-wasm` (`FirebirdLite`, Node native, `libfbclient`). One `.fdb` per store; each slot is a row with two generations (0 = current, 1 = backup). The compressed body and 16-byte hash are binary BLOBs. Rotation is a plain `UPDATE` of the `generation` column (BLOBs stay in place). Loads run inside an explicit transaction because firebird-wasm returns BLOB columns as lazy `{ id, attachment }` references bound to the fetching transaction; the store reads them via the transaction's internal `attachment.openBlob` → `BlobStream.read` (reached through a cast, since firebird-wasm does not expose blob reading on its public API). Forward-incompatibility, hash verification, migration, warnings, slot-name sanitization, and `.bak`-style fallback all mirror `FileSaveStore`.
-
-  Requirements/caveats: needs `libfbclient.so`/`fbclient.dll` on the system library path; the `node-firebird-native-api` native addon must be built once (`node-gyp build` after installing `node-addon-api` in that package's dir); Firebird embedded writes a lock file to `/tmp/firebird` (root/firebird-owned on most distros) so `FIREBIRD_LOCK`/`FIREBIRD_TMP` must point at a writable per-user dir — the constructor sets these via `process.env` (works under Node/Electron), but **Bun does not propagate `process.env` writes to the C `environ`** that native addons see, so under Bun they must be set on the command line. Additionally, **`bun test` crashes (native segfault) on the firebird driver** (pthreads + Bun's native-addon handling), so the FirebirdSaveStore spec is skipped under Bun and verified under Node+tsx instead — see the verification command above.
-
-- **`FirebirdRustSaveStore`** (`firebird-rust-save-store.ts`) — Firebird embedded backend via a Rust NAPI addon (`firebird-rust-addon/`, using the `rsfbclient` crate with `dynamic_loading` feature). Same concept as `FirebirdSaveStore` (native) but the FFI boundary is Rust→C instead of Node→C. Uses `BLOB SUB_TYPE BINARY` for body and hash (rsfbclient handles `Vec<u8>` BLOB params natively). Save path uses a single `EXECUTE BLOCK` to batch DELETE + UPDATE + INSERT into one statement (reduces rsfbclient's per-execute overhead — `isc_dsql_describe_bind` + `isc_dsql_sql_info` + XSQLDA allocation — from 3× to 1×). Database created with `page_size(16384)` (Firebird's max) — this is the single biggest optimization, reducing BLOB page splits by 4× vs the default 4096. Same ISaveStore contract. **After optimizations, 1.5x faster than the native Node addon** at 1.7MB (90.7ms vs 137.5ms) and competitive at all sizes. The native backend can't set page_size because `node-firebird-driver`'s `CreateDatabaseOptions` doesn't expose it — `rsfbclient` does, which is a real API advantage. Requirements: `libfbclient.so` at runtime (dynamic loading, no compile-time link), `FIREBIRD_LOCK`/`FIREBIRD_TMP` set, Rust toolchain + `cargo build --release` to build the addon. Does not crash Bun (no pthreads issue like the Node native addon), but still requires Node+tsx for the benchmark since the native `FirebirdSaveStore` is in the same benchmark.
-
-- **`FirebirdBrowserSaveStore`** (`firebird-browser-save-store.ts`) — Firebird WASM backend via `firebird-wasm/browser` (`FirebirdBrowser`). Runs entirely in the renderer — no main-process IPC, no native addon, no `libfbclient`, no `node-gyp`. The WASM engine (~9 MB) ships in the npm package and runs in a Worker (pthreads + SharedArrayBuffer require COOP/COEP, already set in `window.ts`). Persistence is automatic via IndexedDB (debounced 500 ms after writes; `persist()` forces a flush). Uses `memory://name` for ephemeral/test databases, `opfs://name` for OPFS, or a plain name for IndexedDB. The WASM backend cannot bind binary params or string params to BLOB columns, so compressed bodies are base64-encoded and stored in a chunk table (`dd_save_chunks`, VARCHAR(8000) per chunk, parameterized inserts); the 16-byte hash (~24 base64 chars) is stored as a BLOB via a SQL string literal (base64 is SQL-safe). No lazy blob refs — the browser backend materializes everything across the Worker boundary. Same ISaveStore contract: forward-incompatibility, hash verification, migration, warnings, slot sanitization, backup fallback. **Runs under `bun test` without crashing** (no native addon involved).
-
-  **Cloud saves:** `exportDatabase()` returns the entire live Firebird DB as a `Uint8Array` (via `FirebirdBrowser.dumpDataDir()` — reads the live engine, not the IndexedDB copy, so unsaved writes are included). `importDatabase(bytes)` closes the current connection and re-seeds from the provided bytes (via `loadDataDir`). The flow for cloud saves: renderer calls `exportDatabase()` → IPC to main process → `fs.writeFile(cloudPath)` → cloud sync (Steam Cloud / OneDrive / etc.) picks up the file. On restore: cloud sync delivers the file → `fs.readFile` → IPC → `importDatabase(bytes)`. The export is a full Firebird database image (page-aligned, 8 KB pages), not a JSON dump — it includes all slots, all generations, the chunk table, and the schema in one atomic file.
-
-  **Performance (4-way: WASM-mem vs WASM-IDB vs Native vs Rust):** The WASM backend was benchmarked in two configurations: `memory://` (ephemeral, no persistence — reference baseline) and IndexedDB with forced `persist()` after each save (simulates disk-backed persistence). The IndexedDB run uses `fake-indexeddb` (in-memory polyfill) since Node has no native IndexedDB — so WASM-IDB numbers include full IndexedDB transaction + serialization overhead but **not real disk I/O**. In a real browser, IndexedDB writes to LevelDB on disk and would be slower. The Native and Rust backends write to real `.fdb` files with fsync. The Rust backend uses `page_size=16384` (Firebird's max); the Native backend uses Firebird's default `page_size=4096` because `node-firebird-driver`'s `CreateDatabaseOptions` doesn't expose the parameter. Benchmark results (Node+tsx, 5 iterations per size, noop compression to isolate DB cost):
-
-  | Body size | W-mem save | W-idb save | Nat save | Rust save | W-mem load | W-idb load | Nat load | Rust load | W-mem total | W-idb total | Nat total | Rust total | W-idb/Nat | W-idb/Rust |
-  |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-  | 2 KB | 0.2 ms | 3.7 ms | 3.1 ms | 3.1 ms | 0.2 ms | 0.2 ms | 1.0 ms | 0.8 ms | 0.5 ms | 3.9 ms | 4.1 ms | 3.9 ms | 1.0x | 1.0x |
-  | 16 KB | 0.7 ms | 4.0 ms | 7.0 ms | 4.4 ms | 0.5 ms | 0.5 ms | 1.0 ms | 0.8 ms | 1.2 ms | 4.5 ms | 8.0 ms | 5.2 ms | 0.6x | 0.9x |
-  | 172 KB | 3.5 ms | 8.1 ms | 15.8 ms | 9.3 ms | 4.7 ms | 2.5 ms | 2.4 ms | 2.5 ms | 8.2 ms | 10.6 ms | 18.2 ms | 11.8 ms | 0.6x | 0.9x |
-  | 872 KB | 15.6 ms | 28.7 ms | 65.0 ms | 36.9 ms | 10.7 ms | 11.1 ms | 7.4 ms | 10.2 ms | 26.3 ms | 39.8 ms | 72.4 ms | 47.1 ms | 0.5x | 0.8x |
-  | 1.7 MB | 32.6 ms | 61.1 ms | 126.6 ms | 69.7 ms | 20.9 ms | 20.7 ms | 10.9 ms | 21.0 ms | 53.5 ms | 81.9 ms | 137.5 ms | 90.7 ms | 0.6x | 0.9x |
-
-  **Key findings:**
-  - **Rust is 1.5x faster than Native at 1.7MB** (90.7ms vs 137.5ms) after two optimizations: (1) `EXECUTE BLOCK` batches DELETE+UPDATE+INSERT into one statement, reducing rsfbclient's per-execute overhead (`isc_dsql_describe_bind` + `isc_dsql_sql_info` + XSQLDA allocation) from 3× to 1×; (2) `page_size=16384` reduces BLOB page splits by 4× vs the default 4096. Before these optimizations, Rust was 2.1x *slower* than Native at 1.7MB (269.4ms vs 137.5ms). The page_size change alone accounted for 63% of the save-time reduction (193ms→70ms at 1.7MB).
-  - **WASM-IDB is 1.6–1.9x faster than Native** at 16KB–1.7MB even with forced persist after every save. At 2KB they're tied (1.0x). This is with fake-indexeddb (in-memory) — real browser IndexedDB would narrow the gap, but the WASM engine's in-memory architecture still avoids FFI BLOB overhead on the engine write path.
-  - **WASM-IDB and Rust are roughly tied** at all sizes (0.8–1.0x). Rust is faster at 2KB (1.0x) and 16KB (0.9x); WASM-IDB is faster at 172KB+ (0.9x). But WASM-IDB uses in-memory IndexedDB (no real disk I/O) while Rust writes to real .fdb with fsync — so in a real browser, Rust would likely beat WASM-IDB.
-  - **WASM load is always fast regardless of persistence mode** — loads read from the WASM engine's in-memory state, never from IndexedDB. Native and Rust loads read from disk through the engine's page cache.
-  - **The persist() overhead is 4–28ms per save** (WASM-mem to WASM-IDB delta). In production with `autoPersist: true` (default 500ms debounce), most saves don't trigger a persist immediately — saves appear near-instant (engine write only) and persistence happens in the background. This is a structural advantage the Native/Rust backends can't match (every commit hits disk).
-  - **WASM-mem (ephemeral) is 8–10x faster than everything** — but it's not a fair comparison since there's no persistence. Included only as a reference baseline for the engine's raw SQL overhead.
-  - **Native backend page_size caveat:** The native `FirebirdSaveStore` uses Firebird's default page_size=4096 because `node-firebird-driver`'s `CreateDatabaseOptions` doesn't expose the parameter. If it also used 16384, it would likely close the gap with Rust. The Rust backend's `rsfbclient` crate exposes `page_size()` on the builder, which is a real API advantage.
-
-  Cloud save export/import: WASM-IDB export 4.6 ms / import 218.5 ms (26.9 MB image); Rust export 1.9 ms / import 20.0 ms (20.2 MB image — smaller because the Rust schema is simpler, no chunk table, and 16384-byte pages waste less space). The WASM-IDB import is slow because `importDatabase()` closes the connection, creates a new `FirebirdBrowser` with `loadDataDir`, and re-initializes through the IndexedDB VFS. The Rust addon lives at `packages/plugins/persistence/firebird-rust-addon/` (NAPI-RS crate using `rsfbclient` 0.27 with `dynamic_loading` feature, no compile-time libfbclient link). Build: `cd packages/plugins/persistence/firebird-rust-addon && cargo build --release && cp target/release/libfirebird_rust_addon.so target/release/firebird_rust_addon.linux-x64-gnu.node`. Benchmark script: `packages/plugins/persistence/src/benchmark.ts` — run with `FIREBIRD_LOCK=/tmp/fb-$USER/lock FIREBIRD_TMP=/tmp/fb-$USER/tmp npx tsx packages/plugins/persistence/src/benchmark.ts`.
 
 ### Devtools Auto-Fit
 
@@ -783,6 +750,17 @@ Extract these plugins into `@downdraft/app/vite` as a `solidWorkerPlugin()` fact
 
 The engine supports Android and iOS build targets by wrapping the existing web-portable renderer/sim/worker stack in Capacitor (system WebView). The renderer, sim workers, SAB layout, and libraries are **unchanged** from desktop — they run in the system WebView with the exact same WebGPU + Worker + SharedArrayBuffer code path.
 
+### Engine-owned native shell (zero native files per game)
+
+The engine owns a **canonical, pre-wired native shell** at `packages/mobile-shell/` containing complete Android + iOS projects with the embedded HTTP server (COOP/COEP for SharedArrayBuffer) already wired in. `draft mobile` copies this shell into a per-game **gitignored** `android/` + `ios/` directory and patches in game-specific values (appId, appName, port, icons).
+
+**Games commit zero native files.** The `android/` and `ios/` directories in each game are gitignored (via `games/*/android/` + `games/*/ios/` in root `.gitignore`) — regenerated from the shell on each `draft mobile` run. Games only commit:
+- `capacitor.config.ts`, `src/mobile.ts` (or `.tsx`), `mobile.vite.config.ts`
+- Optionally `icon.png` (1024×1024, auto-generates all icon sizes via jimp)
+- Optionally `mobile-overrides/` (game-specific native permissions, deps, resources)
+
+The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` already start the embedded server and override the WebView URL. **No manual native code editing is required.**
+
 ### Architecture: what is portable vs Electron-only
 
 - **Already web-portable (runs unchanged in a WebView):** `packages/core/src/render/*`, `packages/core/src/worker/*`, `packages/core/src/sab/*`, `packages/core/src/input/*`, `packages/core/src/ecs/*`, all `packages/libraries/*`, all `packages/plugins/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
@@ -791,21 +769,21 @@ The engine supports Android and iOS build targets by wrapping the existing web-p
 ### Gating constraints
 
 - **WebGPU floor:** Android WebView 121+ / iOS WKWebView 26+ (iPadOS 26+). **iOS 26, not iOS 18**, is the real WKWebView WebGPU floor — Safari-the-browser got WebGPU at iOS 18, but the WKWebView component only enabled it at iOS 26 (Tahoe). Older iOS devices cannot run Downdraft games via this path.
-- **SharedArrayBuffer:** Requires cross-origin isolation (COOP `same-origin` + COEP `require-corp`). Capacitor's default custom-scheme loading (`capacitor://localhost`) makes header control unreliable. The reliable fix is an **embedded local HTTP server** inside the native app that serves web assets with COOP/COEP headers, pointing the WebView at `http://127.0.0.1:<port>`. This mirrors what the Electron host does via `buildCrossOriginIsolationHeaders()`.
+- **SharedArrayBuffer:** Requires cross-origin isolation (COOP `same-origin` + COEP `require-corp`). Capacitor's default custom-scheme loading (`capacitor://localhost`) makes header control unreliable. The reliable fix is an **embedded local HTTP server** inside the native app that serves web assets with COOP/COEP headers, pointing the WebView at `http://127.0.0.1:<port>`. This is **pre-wired in the engine-owned shell** — no manual native editing needed.
 
 ### Files
 
+- `packages/mobile-shell/` — engine-owned canonical native shell (Android + iOS, pre-wired with embedded server).
+- `packages/mobile-shell/android/` — pre-wired Android project (`MainActivity` starts `EmbeddedServer` + overrides WebView URL; `app/build.gradle` has NanoHTTPD dep).
+- `packages/mobile-shell/ios/` — pre-wired iOS project (`AppDelegate` starts `EmbeddedServer`; `SceneDelegate` overrides WebView URL; `Info.plist` has ATS exception).
 - `packages/app/src/mobile/index.ts` — `createDowndraftMobileApp()` entry point (mobile equivalent of `createDowndraftApp()`).
 - `packages/app/src/mobile/mobile-bridge.ts` — `DowndraftBridge` implementation for mobile (OPFS saves, web-API display info, Capacitor plugins for quit/external, no-ops for OSR/MCP/devtools).
 - `packages/app/src/mobile/touch-input-adapter.ts` — maps touch events → `InputBufferWriter` (dual-stick, tap-to-move, tap schemes).
 - `packages/app/src/mobile/webgpu-guard.ts` — boot-time WebGPU + cross-origin isolation check with user-facing error screen.
 - `packages/app/src/mobile/capacitor-plugin-types.d.ts` — ambient type declarations for optional `@capacitor/app` and `@capacitor/browser` plugins.
 - `packages/app/src/vite/mobile-vite-config.ts` — `createDowndraftMobileViteConfig()` web-only Vite build config (no main/preload, outputs `dist/mobile/`).
-- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (build + `cap init` + sync + inject embedded server).
-- `packages/cli/templates/mobile/android/EmbeddedServer.java` — NanoHTTPD-based HTTP server template (COOP/COEP headers).
-- `packages/cli/templates/mobile/android/README.md` — Android MainActivity wiring instructions.
-- `packages/cli/templates/mobile/ios/EmbeddedServer.swift` — Swift Network framework HTTP server template (COOP/COEP headers).
-- `packages/cli/templates/mobile/ios/README.md` — iOS AppDelegate/SceneDelegate wiring instructions + ATS config.
+- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (copy-from-shell + patch + icons + overrides + sync).
+- `packages/cli/src/mobile-icons.ts` — jimp-based icon + splash generation from `icon.png` (Android mipmaps + splash screens + iOS AppIcon + splash set). Generates solid-color placeholders if no `icon.png` is provided. The shell ships NO binary images.
 
 ### Per-feature Electron-only strategy
 
@@ -825,44 +803,53 @@ The engine supports Android and iOS build targets by wrapping the existing web-p
 
 ### Adding mobile support to a game
 
-1. Create `src/mobile.ts` that calls `createDowndraftMobileApp()`:
-   ```ts
-   import { createDowndraftMobileApp } from "@downdraft/app/mobile";
-   import { gameModule } from "./game-module"; // the shared GameModule
-   createDowndraftMobileApp({
-     appId: "downdraft-my-game",
-     module: gameModule,
-     simConfigOverrides: { maxEntities: 4096 },
-     touchInput: { scheme: "dual-stick" },
-   });
-   ```
+**Zero-config path:** Just run `draft mobile --game=<name>`. The command auto-generates everything:
+- `capacitor.config.ts` — written if missing (correct appId, appName, webDir, server URL)
+- `mobile.vite.config.ts` — defaulted at build time (no file needed unless customizing)
+- `src/mobile.tsx` — auto-generated stub if missing (wire up renderer/sim/UI, then commit)
 
-2. (Optional) Create `mobile.vite.config.ts` for custom Vite options, or use the engine default.
+The only prerequisite is installing Capacitor deps: `bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios`
 
-3. Install Capacitor deps: `bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios`
+**Full setup:**
 
-4. Run `draft mobile --target=android` (or `ios` / `all`).
+1. Run `draft mobile --game=<name> --target=all`. This will:
+   - Auto-generate `src/mobile.tsx` (stub with placeholder GameModule)
+   - Auto-generate `capacitor.config.ts` (if missing)
+   - Copy the engine shell → gitignored `android/` + `ios/`
+   - Generate icons + splash screens (from `icon.png` or solid-color placeholders)
+   - Run `cap sync`
 
-5. Wire the embedded HTTP server in the native project (see `packages/cli/templates/mobile/<platform>/README.md`).
+2. Wire up the generated `src/mobile.tsx` stub — copy your renderer factory, sim adapter, and UI mount from `main.tsx`. Replace `startGame()` with `createDowndraftMobileApp()`.
+
+3. (Optional) Add a 1024×1024 `icon.png` to the game directory for custom app icons.
+
+4. (Optional) Create a `mobile-overrides/` directory for game-specific native customization (extra permissions, deps, resources).
+
+5. Re-run `draft mobile` to regenerate native projects with your wired-up entry.
 
 6. Open the native project: `npx cap open android` (or `ios`) and run.
+
+**TODO (revisit later):** Extract a shared `game-module.ts` from each game's `main.tsx` so the auto-generated `mobile.tsx` stub can import and reuse it directly, eliminating the manual wiring step. Currently the stub has placeholder TODOs because games inline their `GameModule` into `startGame()` rather than exporting it.
 
 ### `draft mobile` CLI
 
 ```
-draft mobile [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-build] [--skip-cap-init]
+draft mobile [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-build] [--no-icons] [--no-overrides]
 ```
 
 - Builds the web bundle via `createDowndraftMobileViteConfig()` → `dist/mobile/`.
-- Initializes Capacitor (`npx cap add android/ios`) if not already done.
+- Copies the engine-owned shell (`packages/mobile-shell/`) → gitignored `android/` + `ios/` in the game dir.
+- Patches game-specific values (appId, appName, port) into the native projects.
+- Generates app icons from `icon.png` (via jimp) if provided.
+- Applies `mobile-overrides/` merge layer if present.
+- Ensures `capacitor.config.ts` exists (writes if missing).
 - Syncs the web bundle to native projects (`npx cap sync`).
-- Injects the embedded HTTP server native code (COOP/COEP for SharedArrayBuffer).
 - Prints next steps (open Android Studio / Xcode).
 
 ### Config that must be updated when adding mobile support
 
 - `packages/app/package.json` — `./mobile` and `./vite/mobile` export mappings (already done).
 - `tsconfig.web.json` — `packages/app/src/mobile/**` include + `@downdraft/app/mobile` path mapping (already done).
-- Game's `capacitor.config.ts` — `appId`, `webDir: "dist/mobile"`, `server.androidScheme: "http"`, `server.iosScheme: "http"`.
-- Native project — embedded HTTP server wiring (see templates README).
+- Game's `capacitor.config.ts` — `appId`, `webDir: "dist/mobile"`, `server.url: "http://127.0.0.1:<port>/index.html"`, `server.androidScheme: "http"`, `server.iosScheme: "http"`.
+- No native project editing required — the shell is pre-wired.
 
