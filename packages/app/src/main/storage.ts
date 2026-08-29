@@ -29,6 +29,14 @@ const STALE_LOCK_REL_PATHS = [
   "IndexedDB/LOCK",
   "Local Storage/leveldb/LOCK",
   "Session Storage/LOCK",
+  // Electron single-instance lock artifacts (in the userData root).
+  // SingletonLock is a symlink pointing at "<host>-<pid>"; SingletonSocket is
+  // a Unix domain socket. Both are left behind when a process is killed
+  // (SIGKILL/CI timeout) without releasing the lock, and a subsequent launch
+  // may fail to reclaim them — causing requestSingleInstanceLock() to return
+  // false and the app to quit immediately.
+  "SingletonLock",
+  "SingletonSocket",
 ] as const;
 
 /**
@@ -55,8 +63,11 @@ export function resolveUserDataDir(app: { getPath: (name: any) => string }, appI
  * Remove stale LevelDB LOCK files and Chromium temp artifacts from a previous
  * run that didn't shut down cleanly.
  *
- * MUST only be called after `app.requestSingleInstanceLock()` succeeds —
- * otherwise we might delete locks held by a live process.
+ * In normal (non-deterministic) mode, MUST only be called after
+ * `app.requestSingleInstanceLock()` succeeds — otherwise we might delete
+ * locks held by a live process. In deterministic/test mode the single-
+ * instance lock is skipped entirely (the test harness guarantees no
+ * concurrent instance), so this is called unconditionally and is safe.
  */
 export function cleanupStaleStorage(userDataDir: string): void {
   let cleanedLocks = 0;

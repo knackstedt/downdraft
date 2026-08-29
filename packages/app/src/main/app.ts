@@ -105,19 +105,30 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
   // Prevents two instances of the same game from corrupting each other's
   // storage. After acquiring the lock, clean up stale LOCK files and Chromium
   // temp artifacts from a previous run that didn't shut down cleanly.
+  //
+  // In deterministic/test mode the lock is skipped: the test harness controls
+  // process lifecycle itself (dynamic MCP ports + process-group kills), so the
+  // lock provides no benefit. Worse, the singleton lock mechanism (a Unix
+  // socket + SingletonLock file in userData) can fail to initialize in
+  // sandboxed CI environments, which makes requestSingleInstanceLock() return
+  // false and causes the game to quit immediately — before the MCP health
+  // endpoint comes up, failing every E2E smoke test with "Game process was
+  // killed before MCP health endpoint became ready".
   if (config.appId) {
-    const gotLock = app.requestSingleInstanceLock();
-    if (!gotLock) {
-      log.info("main", `Another instance of "${config.appId}" is already running — quitting.`);
-      app.quit();
-      return;
-    }
-    app.on("second-instance", () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
+    if (!deterministic) {
+      const gotLock = app.requestSingleInstanceLock();
+      if (!gotLock) {
+        log.info("main", `Another instance of "${config.appId}" is already running — quitting.`);
+        app.quit();
+        return;
       }
-    });
+      app.on("second-instance", () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.focus();
+        }
+      });
+    }
     cleanupStaleStorage(app.getPath("userData"));
   }
 
