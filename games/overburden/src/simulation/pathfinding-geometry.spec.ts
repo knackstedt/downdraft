@@ -412,20 +412,22 @@ describe("geometry: shelves and overhangs", () => {
     expectReaches(findPath(fg, makeAirBg(), 98, 101, 105, 109, false), 105, 109);
   });
 
-  it("does not route through cells under a 1-high overhang (insufficient headroom)", () => {
+  it("routes through a 1-high overhang by crawling (high cost, no alternative)", () => {
     const fg = makeFloor();
     // Overhang: solid blocks at y=108 (directly above standable y=109)
-    // Blockhead at y=109 has head at y=108 — if y=108 is solid, can't stand there
+    // Blockhead at y=109 has head at y=108 — if y=108 is solid, can't stand
+    // there normally, but can CRAWL through (1-high gap, ground below).
     setFloor(fg, 105, 108, 108);
-    // The pathfinder should route around the overhang (over it or detour)
+    // No way over the overhang (can't jump up onto it), so the only route
+    // is crawling through the 1-high corridor at y=109.
     const path = findPath(fg, makeAirBg(), 100, STAND_Y, 112, STAND_Y, false);
-    expect(path).not.toBeNull();
-    // Should not pass through cells at y=109 where x=105..108 (under overhang)
-    for (const node of path!) {
-      if (node.x >= 105 && node.x <= 108) {
-        expect(node.y).not.toBe(STAND_Y);
-      }
-    }
+    expectReaches(path, 112, STAND_Y);
+    // The path should pass through the crawl corridor (y=109, x=105..108)
+    // since there's no alternative route.
+    const crawlNodes = path!.filter(
+      (n) => n.x >= 105 && n.x <= 108 && n.y === STAND_Y,
+    );
+    expect(crawlNodes.length).toBeGreaterThan(0);
   });
 
   it("navigates under a 2-high overhang (enough headroom)", () => {
@@ -437,7 +439,7 @@ describe("geometry: shelves and overhangs", () => {
     expectReaches(path, 112, STAND_Y);
   });
 
-  it("cannot pass through a 1-high gap in a full-height wall (blockhead is 2 tall)", () => {
+  it("crawls through a 1-high gap in a full-height wall (crawl routing)", () => {
     const fg = makeFloor();
     // Full-height wall at x=105-108, from y=0 to y=FLOOR_Y
     // with a 1-high gap at y=STAND_Y (y=109)
@@ -446,9 +448,11 @@ describe("geometry: shelves and overhangs", () => {
         if (y !== STAND_Y) fg[y * ACTIVE_GRID_W + x] = BLOCK_STONE;
       }
     }
-    // Blockhead is 2 tall — can't fit through a 1-high gap
-    // Can't climb over (wall extends to top of grid)
-    expectNoPath(findPath(fg, makeAirBg(), 100, STAND_Y, 112, STAND_Y, false));
+    // Blockhead can CRAWL through the 1-high gap (collapses to 1x1).
+    // Can't climb over (wall extends to top of grid), so crawl is the only
+    // route. The pathfinder should find a path through the gap.
+    const path = findPath(fg, makeAirBg(), 100, STAND_Y, 112, STAND_Y, false);
+    expectReaches(path, 112, STAND_Y);
   });
 
   it("can pass through a 2-high gap in a full-height wall (blockhead fits)", () => {

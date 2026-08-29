@@ -20,7 +20,7 @@ import type { BlockheadState } from "../shared/types";
 import type { BlockheadInput } from "./blockhead";
 import { BH_H, BH_W } from "./blockhead";
 import { getBlockFromPacked } from "./fluid-sim";
-import { findPath, findPathToAdjacent, type PathNode } from "./pathfinding";
+import { findPath, findPathToAdjacent, type PathNode } from "./grid-movement";
 
 export type TaskType =
   | "MOVE_TO" | "MINE_BLOCK" | "PLACE_BLOCK"
@@ -46,12 +46,28 @@ export interface Task {
   // Path cache (active grid coords)
   path?: PathNode[] | null;
   pathIndex?: number;
+  // In-flight async path request id (set by PathfindingBroker while a path
+  // is being computed on the dedicated pather worker). Transient — not
+  // persisted. When set, `path` is still `undefined` and the caller uses a
+  // greedy walkToward() fallback until the result arrives.
+  pathRequestId?: number;
   // Stuck detection: track time spent moving without progress
   stuckTimer?: number;
   lastDist?: number;
 }
 
 let nextTaskId = 1;
+
+// --- Async pathfinding broker (set by the sim worker on init) ---
+// When set, pathToAndWalk() offloads A* to the dedicated pather worker via
+// the broker and uses a greedy walkToward() fallback while the path is
+// in-flight. When null (unit tests, or before the worker is wired), it
+// falls back to synchronous grid-movement.findPath (pre-refactor behavior).
+let pathBroker: PathfindingBroker | null = null;
+
+export function setPathBroker(broker: PathfindingBroker | null): void {
+  pathBroker = broker;
+}
 
 export function createTask(
   type: TaskType,
@@ -210,7 +226,7 @@ export function executeTask(
       return null;
     }
     // Check adjacency (within 2 blocks)
-    const bhCx = bh.x + 0.5;
+    const bhCx = bh.x + BH_W / 2;
     const bhCy = bh.y + 1.0;
     const dx = sx - bhCx;
     const dy = sy - bhCy;
@@ -239,7 +255,7 @@ export function executeTask(
       task.status = "failed";
       return null;
     }
-    const bhCx = bh.x + 0.5;
+    const bhCx = bh.x + BH_W / 2;
     const bhCy = bh.y + 1.0;
     const dx = sx - bhCx;
     const dy = sy - bhCy;
@@ -258,7 +274,7 @@ export function executeTask(
       task.status = "failed";
       return null;
     }
-    const bhCx = bh.x + 0.5;
+    const bhCx = bh.x + BH_W / 2;
     const bhCy = bh.y + 1.0;
     const dx = targetAx - bhCx;
     const dy = targetAy - bhCy;
@@ -276,7 +292,7 @@ export function executeTask(
     return null;
   }
 
-  const bhCx = bh.x + 0.5;
+  const bhCx = bh.x + BH_W / 2;
   const bhCy = bh.y + 1.0;
   const dx = targetAx - bhCx;
   const dy = targetAy - bhCy;
@@ -450,9 +466,15 @@ export function classifyMove(
   prevNode: PathNode | null,
   node: PathNode,
 ): MoveType {
-  const bhCx = bh.x + 0.5;
+  // Use the ACTUAL blockhead center (BH_W/2 = 0.35), not 0.5.
+  // The blockhead's AABB spans [bh.x, bh.x + BH_W]; center is bh.x + BH_W/2.
+  const bhCx = bh.x + BH_W / 2;
   const bhCy = bh.y + 1.0;
-  const dx = node.x - bhCx;
+  // Path nodes are in cell coordinates (integers). The center of cell (x, y)
+  // is at (x + 0.5, y + 0.5) in world space. The blockhead's center is at
+  // (bh.x + BH_W/2, bh.y + 1.0). Use node.x + 0.5 so the blockhead walks to
+  // the CENTER of the target cell, not the left edge.
+  const dx = (node.x + 0.5) - bhCx;
   const dy = node.y - bhCy;
 
   // Target is above
@@ -495,19 +517,40 @@ function pathToAndWalk(
   bg: Uint16Array,
   adjacent: boolean = false,
 ): BlockheadInput {
-  // Find or reuse path
-  if (task.path === undefined || task.path === null) {
-    const sx = Math.floor(bh.x + 0.5);
+  // Find or reuse path.
+  //
+  // `task.path` states:
+  //   undefined  — no path yet (or was invalidated). Request one.
+  //   null       — pather reported no path; use greedy fallback permanently.
+  //   PathNode[] — cached path; walk along it.
+  //
+  // When a PathfindingBroker is wired in, the request is async: we post it to
+  // the dedicated pather worker and `task.path` stays `undefined` until the
+  // result arrives (via a microtask). While in-flight, we fall back to a
+  // greedy walkToward() so the blockhead keeps moving.
+  if (task.path === undefined) {
+    const sx = Math.floor(bh.x + BH_W / 2);
     const sy = Math.floor(bh.y + 1.0);
-    if (adjacent) {
-      task.path = findPathToAdjacent(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
-    } else {
-      task.path = findPath(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
+    if (pathBroker && task.pathRequestId === undefined) {
+      // Async: offload to the pather worker. Result writes task.path later.
+      pathBroker.requestPath(
+        task, sx, sy, Math.floor(targetAx), Math.floor(targetAy), adjacent, true,
+      );
+      // In degraded mode the broker writes task.path synchronously; otherwise
+      // it stays undefined and we greedy-walk below.
+    } else if (!pathBroker) {
+      // Sync fallback (unit tests, or before the broker is wired).
+      if (adjacent) {
+        task.path = findPathToAdjacent(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
+      } else {
+        task.path = findPath(fg, bg, sx, sy, Math.floor(targetAx), Math.floor(targetAy), true);
+      }
+      task.pathIndex = 0;
     }
-    task.pathIndex = 0;
-    if (task.path === null) {
-      // No path found — fall back to greedy walk
-      const dx = targetAx - (bh.x + 0.5);
+    // While in-flight (pathRequestId set, path still undefined) OR no path
+    // found (path === null), fall back to greedy walk toward the target.
+    if (task.path === undefined || task.path === null) {
+      const dx = (targetAx + 0.5) - (bh.x + BH_W / 2);
       const dy = targetAy - (bh.y + 1.0);
       return walkToward(bh, dx, dy, fg, bg, "walk", null);
     }
@@ -517,18 +560,22 @@ function pathToAndWalk(
   const path = task.path;
   if (!path) {
     // Should not happen (path was set above), but guard for type safety
-    const dx = targetAx - (bh.x + 0.5);
+    const dx = (targetAx + 0.5) - (bh.x + BH_W / 2);
     const dy = targetAy - (bh.y + 1.0);
     return walkToward(bh, dx, dy, fg, bg, "walk", null);
   }
   let idx = task.pathIndex ?? 0;
 
-  // Skip nodes we've already reached
+  // Skip nodes we've already reached.
+  // Path nodes are cell coordinates; the blockhead's center is at
+  // (bh.x + BH_W/2, bh.y + 1.0). A node is "reached" when the blockhead's
+  // center is within REACHED_THRESHOLD of the cell's CENTER (node.x + 0.5).
+  const REACHED_THRESHOLD = 0.4;
   while (idx < path.length) {
     const node = path[idx];
-    const dx = node.x - (bh.x + 0.5);
+    const dx = (node.x + 0.5) - (bh.x + BH_W / 2);
     const dy = node.y - (bh.y + 1.0);
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+    if (Math.abs(dx) < REACHED_THRESHOLD && Math.abs(dy) < REACHED_THRESHOLD) {
       idx++;
       continue;
     }
@@ -538,7 +585,7 @@ function pathToAndWalk(
 
   if (idx >= path.length) {
     // Reached end of path — walk directly to target
-    const dx = targetAx - (bh.x + 0.5);
+    const dx = (targetAx + 0.5) - (bh.x + BH_W / 2);
     const dy = targetAy - (bh.y + 1.0);
     return walkToward(bh, dx, dy, fg, bg, "walk", null);
   }
@@ -549,13 +596,14 @@ function pathToAndWalk(
   // the path and re-path from the current position. This prevents the
   // blockhead from getting stuck trying to reach an unreachable path node.
   const currentNode = path[idx];
-  const driftDx = currentNode.x - (bh.x + 0.5);
+  const driftDx = (currentNode.x + 0.5) - (bh.x + BH_W / 2);
   const driftDy = currentNode.y - (bh.y + 1.0);
   const driftDist = Math.sqrt(driftDx * driftDx + driftDy * driftDy);
   if (driftDist > 4.0 && idx > 0) {
     // Drifted too far from the path — invalidate and re-path
     task.path = undefined;
     task.pathIndex = undefined;
+    pathBroker?.cancel(task);
     return pathToAndWalk(bh, task, targetAx, targetAy, fg, bg, adjacent);
   }
 
@@ -563,7 +611,7 @@ function pathToAndWalk(
   const node = path[idx];
   const prevNode = idx > 0 ? path[idx - 1] : null;
   const moveType = classifyMove(bh, prevNode, node);
-  const dx = node.x - (bh.x + 0.5);
+  const dx = (node.x + 0.5) - (bh.x + BH_W / 2);
   const dy = node.y - (bh.y + 1.0);
   return walkToward(bh, dx, dy, fg, bg, moveType, node);
 }
@@ -612,16 +660,42 @@ export function walkToward(
   // the edge so gravity can pull it down.
   if (moveType === "fall") {
     if (bh.onGround) {
-      // Walk toward the target node's X to get off the edge
+      // First check: is the blockhead ALREADY over a gap? If its full body
+      // width has no solid floor below, it should fall — just press down.
+      // This handles the case where the blockhead is centered over a 1-wide
+      // hole: the adjacent columns have solid floor, but the blockhead's
+      // body is over the hole and should fall.
+      const floorY = Math.floor(bh.y + BH_H + 0.01);
+      const bodyLeftX = Math.floor(bh.x);
+      const bodyRightX = Math.floor(bh.x + BH_W - 0.001);
+      let bodyOverGap = true;
+      if (floorY >= 0 && floorY < ACTIVE_GRID_H) {
+        for (let bx = bodyLeftX; bx <= bodyRightX; bx++) {
+          if (bx < 0 || bx >= ACTIVE_GRID_W) continue;
+          if (isSolid(fg[floorY * ACTIVE_GRID_W + bx])) {
+            bodyOverGap = false;
+            break;
+          }
+        }
+      } else {
+        bodyOverGap = false;
+      }
+      if (bodyOverGap) {
+        // Body is fully over a gap — press down to fall.
+        input.down = true;
+        return input;
+      }
+
+      // Not over a gap yet — walk toward the target node's X to get off
+      // the edge. Use a small threshold so the blockhead keeps walking
+      // until its center is over the target cell center.
       if (dx > 0.1) input.right = true;
       else if (dx < -0.1) input.left = true;
       else {
-        // Target is directly below — check which side has a gap (no floor).
-        // Check the FLOOR level (cell below the blockhead's feet), not the
-        // body level. This correctly detects edges/gaps: if the cell below
-        // the feet in the adjacent column is air, the blockhead will fall
-        // when it walks there.
-        const floorY = Math.floor(bh.y + BH_H + 0.01);
+        // Target is directly below but body isn't fully over the gap yet.
+        // Check which side has a gap (no floor) at the FLOOR level and walk
+        // toward it. This handles the case where the blockhead needs to
+        // nudge sideways to get its body fully over the hole.
         const rightX = Math.floor(bh.x + BH_W + 0.5);
         const leftX = Math.floor(bh.x - 0.5);
         let rightGap = false;
@@ -635,12 +709,10 @@ export function walkToward(
         if (rightGap && !leftGap) input.right = true;
         else if (leftGap && !rightGap) input.left = true;
         else if (rightGap && leftGap) {
-          // Both sides are gaps — use facing direction
           if (bh.facing > 0) input.right = true;
           else input.left = true;
         } else {
-          // Neither side has a gap (shouldn't happen if pathfinder is correct,
-          // but handle gracefully) — walk toward target X or use facing
+          // Neither side has a gap — nudge toward target X using facing
           if (bh.facing > 0) input.right = true;
           else input.left = true;
         }
@@ -666,8 +738,10 @@ export function walkToward(
       // Look for foreground walls to climb BEFORE jumping.
       // Only jump if there's actually a wall or back wall to climb —
       // otherwise the blockhead jumps in place repeatedly (stuck).
-      const footY = Math.floor(bh.y + 0.5);
-      const headY = Math.floor(bh.y - 0.5);
+      // footY = the standing cell (blockhead's lower body).
+      // headY = the head cell (blockhead's upper body).
+      const footY = Math.floor(bh.y + 1.0);
+      const headY = Math.floor(bh.y);
       const facingWallX = bh.facing > 0
         ? Math.floor(bh.x + BH_W + 0.5)
         : Math.floor(bh.x - 0.5);
@@ -749,8 +823,11 @@ export function walkToward(
   const horizThreshold = (!bh.onGround && dy < -0.5) ? 0.6 : 0.3;
   if (dx > horizThreshold) {
     input.right = true;
-    const aheadX = Math.floor(bh.x + 1.5);
-    const footY = Math.floor(bh.y + 0.5);
+    // Check for a wall ahead at body level — if solid, jump to clear it.
+    // Use BH_W to check past the blockhead's right edge, and bh.y + 1.0
+    // (the standing cell) for the foot/body level.
+    const aheadX = Math.floor(bh.x + BH_W + 0.5);
+    const footY = Math.floor(bh.y + 1.0);
     if (aheadX < ACTIVE_GRID_W && footY >= 0 && footY < ACTIVE_GRID_H) {
       if (isSolid(fg[footY * ACTIVE_GRID_W + aheadX])) {
         input.jump = true;
@@ -759,7 +836,7 @@ export function walkToward(
   } else if (dx < -horizThreshold) {
     input.left = true;
     const aheadX = Math.floor(bh.x - 0.5);
-    const footY = Math.floor(bh.y + 0.5);
+    const footY = Math.floor(bh.y + 1.0);
     if (aheadX >= 0 && footY >= 0 && footY < ACTIVE_GRID_H) {
       if (isSolid(fg[footY * ACTIVE_GRID_W + aheadX])) {
         input.jump = true;
@@ -778,4 +855,7 @@ export function walkToward(
 export function invalidatePath(task: Task): void {
   task.path = undefined;
   task.pathIndex = undefined;
+  // Cancel any in-flight async path request so the stale result doesn't
+  // overwrite the newly-cleared cache.
+  pathBroker?.cancel(task);
 }

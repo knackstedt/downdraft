@@ -46,8 +46,9 @@ import { deleteSave, loadAllChunks, saveDirtyChunks } from "./chunk-storage";
 import { clearCropTracking, recordCropPlant, recordWildHarvest, stepCropGrowth } from "./crop-growth";
 import { initFluidSim, stepFluidSim } from "./fluid-sim";
 import { recomputeLight } from "./light-sim";
+import { PathfindingBroker } from "./pathfinding-broker";
 import { getSeason } from "./season-system";
-import { createTask, executeTask, invalidatePath, type Task, type TaskType } from "./task-queue";
+import { createTask, executeTask, invalidatePath, setPathBroker, type Task, type TaskType } from "./task-queue";
 import { fellTree } from "./tree-fell";
 import { forceFruitSpawnTick, packSaplingVfx, stepTreeDaily } from "./tree-sim";
 import { stepVineGrowth } from "./vine-sim";
@@ -58,7 +59,25 @@ let simControl: SimWorkerControl | null = null;
 let world: BlockWorld | null = null;
 let writer: SimBufferWriter | null = null;
 let sabRef: SharedArrayBuffer | null = null;
+// Dedicated pather worker broker — offloads A* pathfinding to a separate
+// thread (not the sim thread, not the renderer thread). Constructed in onInit
+// once the SAB is available; disposed in onShutdown.
+let pathBroker: PathfindingBroker | null = null;
 let tickCount = 0; // synced from ctx.tickCount in onTick (for helper functions)
+
+// --- Pather port listener ---
+// The renderer spawns the dedicated pather worker (Vite can only bundle
+// workers spawned from the renderer, not nested workers). It creates a
+// MessageChannel, sends one port to the pather worker and the other here.
+// We use addEventListener (not onmessage) so this coexists with the
+// expose() handler that createSimWorker() installs.
+self.addEventListener("message", (e: MessageEvent) => {
+  const data = e.data as { __patherPort?: boolean } | undefined;
+  if (!data?.__patherPort) return;
+  const port = e.ports[0];
+  if (!port || !pathBroker) return;
+  pathBroker.attachPort(port);
+});
 let lastSaveTime = 0;
 let autoSaveInFlight = false; // guards against overlapping auto-saves
 const SAVE_INTERVAL_MS = 5000; // save dirty chunks every 5 seconds
@@ -686,6 +705,13 @@ simControl = createSimWorker({
     simEvents = control.events;
     simControl = control;
 
+    // Create the pathfinding broker in degraded (sync) mode. The renderer
+    // will spawn the dedicated pather worker, create a MessageChannel, and
+    // transfer one port to this worker. When the port arrives (via the
+    // __patherPort listener below), the broker switches to async mode.
+    pathBroker = new PathfindingBroker(sab);
+    setPathBroker(pathBroker);
+
     await setupWorld(true);
   },
 
@@ -996,6 +1022,10 @@ simControl = createSimWorker({
       world.syncActiveForSave();
       await saveDirtyChunks(world.allChunks());
     }
+    // Tear down the dedicated pather worker.
+    pathBroker?.dispose();
+    pathBroker = null;
+    setPathBroker(null);
   },
 
   extraApi: {
