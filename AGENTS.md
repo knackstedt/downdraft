@@ -129,8 +129,8 @@ The framework generates `index.html` from a layer spec, so games don't need to m
 Each game MUST pass a unique `appId` to `createDowndraftApp()`. This sets a per-game Electron `userData` directory (e.g. `~/.config/downdraft-mining-rpg/`) so that Chromium storage subsystems (OPFS, IndexedDB, Service Worker DB, cookies, cache) are fully isolated per game. Without this, all games share the same `--user-data-dir` and concurrent instances corrupt each other's LevelDB locks (`File System/Origins/LOCK`, `Service Worker/LOCK`), causing OPFS init failures and games not loading.
 
 When `appId` is set, `createDowndraftApp()` also:
-1. Calls `app.requestSingleInstanceLock()` — prevents two instances of the same game from running concurrently (which would corrupt storage). A second launch focuses the existing window and quits.
-2. Calls `cleanupStaleStorage()` — removes stale LevelDB `LOCK` files and `.org.chromium.Chromium.*` temp artifacts from a previous run that crashed or was killed. Safe because the single-instance lock guarantees no live process is using the directory.
+1. Calls `app.requestSingleInstanceLock()` — prevents two instances of the same game from running concurrently (which would corrupt storage). A second launch focuses the existing window and quits. **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills), and the singleton lock mechanism (Unix socket + `SingletonLock` file in userData) can fail to initialize in sandboxed CI environments, causing the game to quit immediately and fail every E2E smoke test.
+2. Calls `cleanupStaleStorage()` — removes stale LevelDB `LOCK` files, Electron `SingletonLock`/`SingletonSocket` artifacts, and `.org.chromium.Chromium.*` temp files from a previous run that crashed or was killed. In non-deterministic mode this is safe because the single-instance lock guarantees no live process is using the directory; in deterministic mode the test harness guarantees no concurrent instance.
 
 ### Files
 
