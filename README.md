@@ -46,21 +46,21 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
     • GC profiling, performance stats
 ├─────────────────────────────────────────────┤
   Renderer Process (BrowserWindow)
-    ┌───────────────────┐  ┌──────────────────┐
+    ┌───────────────────┐  ┌───────────────────┐
     │  WebGPU Canvas    │  │  React UI Overlay │
     │  (RenderLoop)     │  │  (DevTools, HUD)  │
-    └────────┬──────────┘  └──────────────────┘
+    └────────┬──────────┘  └───────────────────┘
              │ SharedArrayBuffer (zero-copy)
-    ┌────────┴──────────┐
-    │  Sim Web Worker   │
-    │  (ECS World,      │
-    │   game systems,   │
+    ┌────────┴───────────┐
+    │  Sim Web Worker    │
+    │  (ECS World,       │
+    │   game systems,    │
     │   physics, plugins)│
-    └───────────────────┘
+    └────────────────────┘
 └─────────────────────────────────────────────┘
 ```
 
-- **Electron Main Process** — Window/lifecycle management, IPC handlers, GC/perf profiling, save/load (filesystem-based `FileSaveStore`). No render loop here.
+- **Electron Main Process** — Window/lifecycle management, IPC handlers, GC/perf profiling, save/load (filesystem-based `FileSaveStore`). No render loop here. No IPC bottlenecks, no complexity.
 - **Renderer Process** — React UI overlay + WebGPU `<canvas>` rendering. The `RenderLoop` runs here via `requestAnimationFrame`. Persistence uses an OPFS Web Worker for renderer-side saves.
 - **Sim Web Worker** — Spawned from the renderer. Runs the ECS `World`, game systems, physics, and plugins. Communicates with the renderer via `SharedArrayBuffer` (zero-copy) and postMessage events.
 
@@ -103,7 +103,7 @@ Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 | `@downdraft/library-gaussian-splats` | Gaussian splat rendering |
 | `@downdraft/library-sand` | Falling-sand simulation |
 | `@downdraft/library-stickman` | Stickman character system |
-| `@downdraft/library-undertow` | Undertow fluid/flow system |
+| `@downdraft/library-undertow` | Worker-side UI (Solid-in-worker DOM sync) |
 | `@downdraft/library-imui` | Immediate-mode UI |
 
 ### Engine plugins (`packages/plugins/`)
