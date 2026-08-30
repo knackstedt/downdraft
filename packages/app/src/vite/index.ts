@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "path";
 import { hotReloadPlugin } from "../../../core/src/vite/hot-reload-plugin";
 import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
+import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
@@ -85,6 +86,17 @@ export interface DowndraftViteConfigOptions {
    * Defaults to one canvas + one DOM root.
    */
   layers?: LayerSpec[];
+  /**
+   * Asset bake/optimization step. When enabled (default in build, lazy in
+   * dev), glTF/GLB/audio `?url` imports are baked into optimized formats
+   * (meshopt geometry + Basis KTX2 textures + normalized audio) and cached
+   * in `<root>/.downdraft/bake/`. Set to `false` to disable. The runtime
+   * decodes the baked formats with its existing codecs.
+   *
+   * Disabled when `DOWNDRAFT_BAKE=0`; forced re-bake when
+   * `DOWNDRAFT_BAKE_FORCE=1`.
+   */
+  assetBake?: AssetBakePluginOptions | false;
 }
 
 export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): ReturnType<typeof defineConfig> {
@@ -349,7 +361,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       // Excluding it lets Vite serve the original module with the correct
       // import.meta.url pointing into node_modules.
       optimizeDeps: {
-        exclude: ["@bokuweb/zstd-wasm", ...(options.optimizeDepsExclude ?? [])],
+        exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", ...(options.optimizeDepsExclude ?? [])],
         include: [...(options.optimizeDepsInclude ?? [])],
         esbuildOptions: {
           plugins: [...(options.optimizeDepsEsbuildPlugins ?? [])],
@@ -376,6 +388,10 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
       } as any,
       plugins: [
         ...(htmlOpts ? [downdraftHtmlPlugin(htmlOpts)] : []),
+        // Asset bake/optimization — intercepts bakeable `?url` imports and
+        // emits optimized (meshopt + Basis KTX2 + normalized audio) assets.
+        // Disabled via `assetBake: false` or DOWNDRAFT_BAKE=0.
+        ...(options.assetBake === false ? [] : [downdraftAssetBakePlugin(options.assetBake ?? {})]),
         // Silence "Sourcemap for ... points to missing source files" warnings
         // from @bokuweb/zstd-wasm (excluded from dep pre-bundling above, so
         // served raw from node_modules — its .js.map files reference sources
@@ -406,4 +422,6 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
 
 // Re-export HTML generation types for games that need them
 export type { CanvasLayer, DomLayer, DowndraftHtmlOptions, LayerSpec } from "./downdraft-html-plugin";
+// Re-export asset bake types
+export type { AssetBakeOptions, AssetBakePluginOptions } from "./asset-bake-plugin";
 

@@ -20,6 +20,7 @@
   },
   "workspaces": [
     "packages/app",
+    "packages/asset-bake",
     "packages/core",
     "packages/ui",
     "packages/mcp",

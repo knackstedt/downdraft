@@ -10,9 +10,9 @@
 //
 
 import { createLogger } from "@downdraft/core";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 
 const log = createLogger();
 
@@ -28,7 +28,7 @@ const log = createLogger();
  * @param game      game directory name under `games/`.
  * @returns true if the build succeeded, false otherwise.
  */
-export function buildDesktop(repoRoot: string, game: string): boolean {
+export function buildDesktop(repoRoot: string, game: string, env?: Record<string, string>): boolean {
   const configPath = resolve(repoRoot, "games", game, "electron.vite.config.ts");
   if (!existsSync(configPath)) {
     log.error("release:build:desktop", `No electron.vite.config.ts found for game "${game}" at ${configPath}`);
@@ -38,6 +38,7 @@ export function buildDesktop(repoRoot: string, game: string): boolean {
   const result = spawnSync("npx", ["electron-vite", "build", "--config", configPath], {
     cwd: repoRoot,
     stdio: "inherit",
+    env: { ...process.env, ...env },
   });
   if (result.status !== 0) {
     log.error("release:build:desktop", `Build failed with exit code ${result.status}`);

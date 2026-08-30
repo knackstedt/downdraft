@@ -29,6 +29,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig, type PluginOption } from "vite";
 import { wgslHmrPlugin } from "../../../core/src/vite/wgsl-hmr-plugin";
+import { downdraftAssetBakePlugin, type AssetBakePluginOptions } from "./asset-bake-plugin";
 import { downdraftHtmlPlugin, type DowndraftHtmlOptions, type LayerSpec } from "./downdraft-html-plugin";
 import { silenceSourcemapWarningsPlugin } from "./silence-sourcemap-warnings-plugin";
 import { workerUrlGuardPlugin } from "./worker-url-guard-plugin";
@@ -62,6 +63,12 @@ export interface DowndraftMobileViteConfigOptions {
   html?: DowndraftHtmlOptions | false;
   /** Convenience shorthand for `html.layers`. */
   layers?: LayerSpec[];
+  /**
+   * Asset bake/optimization step (same as desktop). When enabled, glTF/GLB/
+   * audio `?url` imports are baked into optimized formats. Set to `false` to
+   * disable. Disabled when `DOWNDRAFT_BAKE=0`.
+   */
+  assetBake?: AssetBakePluginOptions | false;
 }
 
 export function createDowndraftMobileViteConfig(
@@ -186,7 +193,7 @@ export function createDowndraftMobileViteConfig(
       plugins: (() => options.workerPlugins ?? []) as any,
     },
     optimizeDeps: {
-      exclude: ["@bokuweb/zstd-wasm", ...(options.optimizeDepsExclude ?? [])],
+      exclude: ["@bokuweb/zstd-wasm", "@h00w/basis-universal-transcoder", ...(options.optimizeDepsExclude ?? [])],
       include: [...(options.optimizeDepsInclude ?? [])],
     },
     build: {
@@ -222,6 +229,8 @@ export function createDowndraftMobileViteConfig(
     },
     plugins: [
       ...(htmlOpts ? [downdraftHtmlPlugin(htmlOpts)] : []),
+      // Asset bake/optimization (textures especially matter for mobile).
+      ...(options.assetBake === false ? [] : [downdraftAssetBakePlugin(options.assetBake ?? {})]),
       silenceSourcemapWarningsPlugin(),
       react({ exclude: "**/src/solid/**" }),
       wgslHmrPlugin(repoRoot),

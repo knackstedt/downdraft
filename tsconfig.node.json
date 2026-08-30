@@ -149,6 +149,12 @@
       "@downdraft/library-models/*": [
         "./packages/libraries/models/src/*"
       ],
+      "@downdraft/asset-bake": [
+        "./packages/asset-bake/src/index.ts"
+      ],
+      "@downdraft/asset-bake/*": [
+        "./packages/asset-bake/src/*"
+      ],
       "@downdraft/plugin-devtools": [
         "./packages/plugins/devtools/src/index.ts"
       ],
@@ -336,6 +342,7 @@
     "packages/app/src/vite/**/*",
     "packages/app/src/build/**/*",
     "packages/app/src/index.ts",
+    "packages/asset-bake/src/**/*.ts",
     "packages/core/src/**/*.ts",
     "packages/test/src/**/*.ts",
     "packages/mcp/src/**/*.ts",

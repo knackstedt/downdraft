@@ -1,5 +1,5 @@
 {
-  "name": "@downdraft/library-models",
+  "name": "@downdraft/asset-bake",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@downdraft/core": "workspace:*",
-    "@h00w/basis-universal-transcoder": "^2.1.0",
-    "comment-json": "^5.0.0",
-    "draco3dgltf": "^1.5.7",
+    "@gltf-transform/core": "^4.4.2",
+    "@gltf-transform/extensions": "^4.4.2",
+    "@gltf-transform/functions": "^4.4.2",
     "fflate": "^0.8.2",
+    "jimp": "^1.6.1",
+    "ktx2-encoder": "^0.6.0",
     "meshoptimizer": "^1.2.0"
   }
 }

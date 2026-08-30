@@ -197,8 +197,16 @@ createDowndraftMobileApp({
 /**
  * Build the web bundle for mobile using the mobile Vite config.
  */
-export async function buildMobileWeb(gameDir: string): Promise<boolean> {
+export async function buildMobileWeb(gameDir: string, env?: Record<string, string>): Promise<boolean> {
   log.info("mobile", "Building web bundle for mobile (dist/mobile/)...");
+
+  // Forward env (e.g. DOWNDRAFT_BAKE=0) into the build process so the Vite
+  // asset-bake plugin picks it up. Vite reads env at config-eval time.
+  if (env) {
+    for (const [k, v] of Object.entries(env)) {
+      if (process.env[k] === undefined) process.env[k] = v;
+    }
+  }
 
   // Use Vite's programmatic build API.
   const { build: viteBuild } = await import("vite");

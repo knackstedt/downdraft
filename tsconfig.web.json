@@ -336,6 +336,7 @@
     "packages/app/src/renderer/**/*",
     "packages/app/src/mobile/**/*",
     "packages/app/src/vite/mobile-vite-config.ts",
+    "packages/app/src/vite/asset-bake-plugin.ts",
     "packages/app/src/vite/downdraft-html-plugin.ts",
     "packages/app/src/vite/silence-sourcemap-warnings-plugin.ts",
     "packages/app/src/vite/worker-url-guard-plugin.ts",

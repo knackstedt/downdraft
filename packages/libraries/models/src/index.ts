@@ -9,12 +9,13 @@
 
 // Codec registry + bundled codecs
 export {
-    configureDracoWasmPath, createBasisuTextureCodec, createDracoMeshCodec,
+    configureBasisuWasmPath, configureDracoWasmPath, createBasisuTextureCodec, createDracoMeshCodec,
     createMeshoptBufferViewCodec, getDefaultCodecRegistry, GLTFCodecRegistry, registerDefaultCodecs,
     setDefaultCodecRegistry
 } from "./codecs";
 export type {
     AccessorLike,
+    BasisuWasmConfig,
     BufferViewCodec,
     BufferViewCodecInput,
     DecodedPrimitive,

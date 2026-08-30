@@ -17,6 +17,9 @@ release
 # Asset cache (downloaded from blob store)
 .downdraft-cache
 
+# Asset bake cache (optimized assets produced by the bake step)
+.downdraft/bake
+
 # E2E test artifacts (screenshots, logs)
 tests/e2e/artifacts/
 
