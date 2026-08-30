@@ -289,7 +289,7 @@ startGame({
 
 Feature plugins (e.g. `@downdraft/plugin-terrain`, `@downdraft/plugin-movement-3d`) use the factory pattern and are activated via `pluginHost.usePlugins([...])`. See `AGENTS.md` for the full plugin/library contract.
 
-## Mobile Development (Android)
+## Mobile Development (Android) 
 
 DownDraft games can be built for Android via Capacitor (system WebView). The engine owns a pre-wired native shell at `packages/mobile-shell/` — games commit zero native files. See `docs/site/src/content/docs/guides/mobile.md` for the full guide.
 
