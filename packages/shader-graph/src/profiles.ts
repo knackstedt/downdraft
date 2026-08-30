@@ -16,6 +16,18 @@ export interface BindGroupEntry {
   visibility: number;
   type: "uniform" | "storage-read" | "storage-write" | "texture-2d" | "texture-cube" | "sampler";
   label?: string;
+  /**
+   * WGSL type expression for the binding's resource. Used by the compiler's
+   * `buildBindGroupDecls` to emit the correct `var ... : <type>;` declaration.
+   *
+   * For `storage-read` / `storage-write` entries, this should be the element
+   * type of the storage buffer (e.g. `"LightStorage"`, `"array<vec4<f32>>"`).
+   * Defaults to `"array<vec4<f32>>"` for backward compatibility.
+   *
+   * For other entry types (`uniform`, `texture-2d`, `texture-cube`, `sampler`)
+   * the compiler emits a fixed type and this field is ignored.
+   */
+  typeWgsl?: string;
 }
 
 export interface BindGroupDescriptor {
@@ -154,7 +166,7 @@ export const PBR_PROFILE: ShaderGraphProfile = {
     {
       group: 1,
       entries: [
-        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData" },
+        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData", typeWgsl: "LightStorage" },
       ],
     },
     {
@@ -202,7 +214,7 @@ export const PBR_TEXTURED_PROFILE: ShaderGraphProfile = {
     {
       group: 1,
       entries: [
-        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData" },
+        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData", typeWgsl: "LightStorage" },
       ],
     },
     {
@@ -251,7 +263,7 @@ export const PBR_SKINNED_PROFILE: ShaderGraphProfile = {
     {
       group: 1,
       entries: [
-        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData" },
+        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData", typeWgsl: "LightStorage" },
       ],
     },
     {
@@ -272,7 +284,7 @@ export const PBR_SKINNED_PROFILE: ShaderGraphProfile = {
 
 export const PBR_INSTANCED_PROFILE: ShaderGraphProfile = {
   name: "pbr-instanced",
-  chunks: ["dynamic_lights", "pbr_functions", "pbr_bindings", "qrotate"],
+  chunks: ["dynamic_lights", "pbr_functions", "qrotate"],
   uniformFields: [
     { name: "viewProj", type: "mat4x4<f32>" },
     { name: "cameraPos", type: "vec3<f32>" },
@@ -292,7 +304,7 @@ export const PBR_INSTANCED_PROFILE: ShaderGraphProfile = {
     {
       group: 1,
       entries: [
-        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData" },
+        { binding: 0, visibility: SHADER_STAGE.FRAGMENT, type: "storage-read", label: "lightData", typeWgsl: "LightStorage" },
       ],
     },
     {

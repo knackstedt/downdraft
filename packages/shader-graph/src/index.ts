@@ -23,6 +23,13 @@ export {
 } from "./wgsl-struct-validator";
 export type { ParsedWgslField, ParsedWgslStruct, StructMismatch } from "./wgsl-struct-validator";
 
+// Bind-group declaration validator — catches duplicate @group/@binding var
+// declarations in assembled WGSL (regression guard for chunk-vs-compiler drift).
+export {
+    assertNoDuplicateBindings, findDuplicateBindings, parseWgslBindings
+} from "./wgsl-binding-validator";
+export type { DuplicateBinding, ParsedBinding } from "./wgsl-binding-validator";
+
 // Compute graph
 export { ComputeGraphCompiler } from "./compute-compiler";
 export type { ComputeCompileOptions, ComputeCompileResult } from "./compute-compiler";

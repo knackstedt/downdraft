@@ -2,6 +2,7 @@ import { getChunk } from "./chunks";
 import type { GraphNode, MaterialGraph } from "./graph";
 import type { BindGroupEntry, ShaderGraphProfile } from "./profiles";
 import { SIMPLE_PROFILE } from "./profiles";
+import { findDuplicateBindings, parseWgslBindings } from "./wgsl-binding-validator";
 
 interface Connection {
   from: string;
@@ -260,6 +261,22 @@ export class GraphCompiler {
 
     const fragmentExpr = expressions[0];
     const wgsl = this.buildShader(fragmentExpr, profile, namedOutputs, options?.variantFlags);
+
+    // Detect duplicate @group/@binding var declarations in the assembled WGSL.
+    // The compiler is the single emitter of bind-group declarations (from
+    // profile.bindGroups); chunks must NOT declare `@group/@binding var` inline.
+    // A duplicate is a WGSL validation error that would fail createShaderModule.
+    const dupes = findDuplicateBindings(parseWgslBindings(wgsl));
+    for (const d of dupes) {
+      const declLines = d.declarations.map(
+        (dec) => `@group(${dec.group}) @binding(${dec.binding}) var${dec.access ? `<${dec.access}>` : ""} ${dec.name}: ${dec.typeWgsl};`,
+      );
+      errors.push(
+        `Duplicate @group(${d.group}) @binding(${d.binding}) var declaration (${d.declarations.length} times):\n` +
+          declLines.map((l) => `  - ${l}`).join("\n"),
+      );
+    }
+
     return { wgsl, errors };
   }
 
@@ -477,10 +494,20 @@ ${fields}
   }
 
   private buildBindGroupDecls(profile: ShaderGraphProfile): string {
+    // Bindings emitted by buildVertexInput (instanced `instances` @group(0)
+    // @binding(1), skinned `boneMatrices` @group(0) @binding(3)). These are
+    // co-located with their struct definitions (InstanceData / bone matrix
+    // array) in buildVertexInput, so buildBindGroupDecls must NOT re-emit them
+    // — doing so produces duplicate `var` declarations (WGSL validation error).
+    const vertexInputBindings = new Set<string>();
+    if (profile.instanced) vertexInputBindings.add("0:1");
+    if (profile.skinned) vertexInputBindings.add("0:3");
+
     const lines: string[] = [];
     for (const bg of profile.bindGroups) {
       for (const entry of bg.entries) {
         if (entry.binding === 0 && bg.group === 0) continue; // Already declared in uniform struct
+        if (vertexInputBindings.has(`${bg.group}:${entry.binding}`)) continue; // Declared in buildVertexInput
         const label = entry.label ?? `binding_${entry.binding}`;
         const visStr = this.visibilityStr(entry);
         switch (entry.type) {
@@ -488,10 +515,10 @@ ${fields}
             lines.push(`@group(${bg.group}) @binding(${entry.binding}) ${visStr} var<uniform> ${label}: Uniforms;`);
             break;
           case "storage-read":
-            lines.push(`@group(${bg.group}) @binding(${entry.binding}) ${visStr} var<storage, read> ${label}: array<vec4<f32>>;`);
+            lines.push(`@group(${bg.group}) @binding(${entry.binding}) ${visStr} var<storage, read> ${label}: ${entry.typeWgsl ?? "array<vec4<f32>>"};`);
             break;
           case "storage-write":
-            lines.push(`@group(${bg.group}) @binding(${entry.binding}) ${visStr} var<storage, read_write> ${label}: array<vec4<f32>>;`);
+            lines.push(`@group(${bg.group}) @binding(${entry.binding}) ${visStr} var<storage, read_write> ${label}: ${entry.typeWgsl ?? "array<vec4<f32>>"};`);
             break;
           case "texture-2d":
             lines.push(`@group(${bg.group}) @binding(${entry.binding}) ${visStr} var ${label}: texture_2d<f32>;`);

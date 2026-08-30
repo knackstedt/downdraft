@@ -91,15 +91,17 @@ fn cookTorranceSpecular(N: vec3<f32>, V: vec3<f32>, L: vec3<f32>,
 }
 `;
 
-export const PBR_BINDINGS = /* wgsl */ `
-@group(2) @binding(0) var brdfLUT: texture_2d<f32>;
-@group(2) @binding(1) var brdfSampler: sampler;
-`;
+// NOTE: PBR_BINDINGS (the @group(2) @binding(0)/(1) var declarations for
+// brdfLUT / brdfSampler) used to live here as an inline chunk. They have been
+// removed — the compiler is now the single emitter of @group/@binding var
+// declarations, sourced from ShaderGraphProfile.bindGroups. Declaring them
+// here caused duplicate `var` declarations in the assembled WGSL (the chunk
+// declared them AND buildBindGroupDecls re-emitted them). The functions below
+// reference `brdfLUT` / `brdfSampler` by name, assuming the compiler emitted
+// the declarations from the profile's bindGroups.
 
 export const DYNAMIC_LIGHT_FUNCTIONS = /* wgsl */ `
 ${LIGHT_STRUCTS}
-
-@group(1) @binding(0) var<storage, read> lightData: LightStorage;
 
 fn applyDynamicLights(N: vec3<f32>, worldPos: vec3<f32>, viewDir: vec3<f32>,
                       specPower: f32, specIntensity: f32) -> vec3<f32> {
@@ -199,7 +201,6 @@ fn applyPBRDynamicLights(N: vec3<f32>, worldPos: vec3<f32>, V: vec3<f32>,
 export const PBR_LIGHTING_FUNCTION = /* wgsl */ `
 ${DYNAMIC_LIGHT_FUNCTIONS}
 ${PBR_FUNCTIONS}
-${PBR_BINDINGS}
 
 fn pbrLighting(N: vec3<f32>, worldPos: vec3<f32>, baseColor: vec3<f32>,
                metallic: f32, roughness: f32,
@@ -335,7 +336,6 @@ export const CHUNKS: Record<string, string> = {
   light_structs: LIGHT_STRUCTS,
   pbr_const: PBR_CONST,
   pbr_functions: PBR_FUNCTIONS,
-  pbr_bindings: PBR_BINDINGS,
   dynamic_lights: DYNAMIC_LIGHT_FUNCTIONS,
   pbr_lighting: PBR_LIGHTING_FUNCTION,
   qrotate: QROTATE_FN,
