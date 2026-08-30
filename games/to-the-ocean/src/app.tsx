@@ -2,7 +2,7 @@
 // App — root React component with canvas + HUD overlay
 // ============================================================================
 
-import { useDebugStore } from "@downdraft/plugin-devtools";
+import { useDebugStore } from "@downdraft/module-devtools";
 import { WeatherType } from "@shared/types";
 import { useEffect, useRef, useState } from "react";
 import BuildMenu from "./components/build-menu";

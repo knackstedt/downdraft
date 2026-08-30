@@ -1,7 +1,7 @@
 import type { MeshData as EngineMeshData } from "../mesh/builder";
 import { PBR_VERTEX_LAYOUT, SKINNED_VERTEX_LAYOUT, STANDARD_VERTEX_LAYOUT, type VertexLayout } from "../mesh/vertex-layout";
 
-// Plugin ModelData types (mirrored from @downdraft/library-models types.ts)
+// Module ModelData types (mirrored from @downdraft/library-models types.ts)
 interface PluginMeshData {
   vertices: Float32Array;
   indices: Uint16Array | Uint32Array;
@@ -137,7 +137,7 @@ export function convertPluginMesh(
   const stride = layout.stride / 4; // floats per vertex
   const vertexCount = pluginMesh.vertexCount;
 
-  // Plugin vertices are interleaved as: pos(3) + normal(3) = 6 floats per vertex
+  // Module vertices are interleaved as: pos(3) + normal(3) = 6 floats per vertex
   const positions = pluginMesh.vertices; // [px,py,pz, nx,ny,nz, ...]
   const normals = pluginMesh.vertices; // same array, offset by 3
 

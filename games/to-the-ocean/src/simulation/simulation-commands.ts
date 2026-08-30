@@ -7,7 +7,7 @@ import {
     moveItem,
     removeItem,
     removeItemById
-} from "@to-the-ocean/plugin-inventory";
+} from "@to-the-ocean/module-inventory";
 import { getCropBySeed } from "../shared/data/crops";
 import {
     BiomeType,

@@ -1,4 +1,4 @@
-import { UIButton, UILine, UIPanel, UIRoot, UIScrollPanel, UITabBar, UIText, type UIColor } from "@downdraft/library-imui";
+import { UIButton, UILine, UIPanel, UIRoot, UIScrollPanel, UITabBar, UIText, type UIColor } from "../imui";
 import type { SnapshotDiff } from "./collector";
 import { TelemetryCollector } from "./collector";
 

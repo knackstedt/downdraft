@@ -21,7 +21,7 @@ import type {
   PointerHandler,
   RendererInputBus,
   WheelHandler,
-} from "../plugin/renderer-plugin";
+} from "../module/renderer-module";
 
 interface Subscription<H> {
   handler: H;

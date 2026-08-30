@@ -18,8 +18,10 @@
       "@downdraft/library-models/*": ["../../../../packages/libraries/models/src/*"],
       "@downdraft/library-persistence": ["../../../../packages/libraries/persistence/src/index.ts"],
       "@downdraft/library-persistence/*": ["../../../../packages/libraries/persistence/src/*"],
-      "@downdraft/plugin-devtools": ["../../../../packages/plugins/devtools/src/index.ts"],
-      "@downdraft/plugin-devtools/*": ["../../../../packages/plugins/devtools/src/*"],
+      "@downdraft/module-devtools": ["../../../../packages/modules/devtools/src/index.ts"],
+      "@downdraft/module-devtools/*": ["../../../../packages/modules/devtools/src/*"],
+      "@downdraft/module-electron-osr": ["../../../../packages/modules/electron-osr/src/index.ts"],
+      "@downdraft/module-electron-osr/*": ["../../../../packages/modules/electron-osr/src/*"],
       "@downdraft/app/renderer": ["../../../../packages/app/src/renderer/index.ts"],
       "@mining-rpg/shared/*": ["../shared/*"]
     }

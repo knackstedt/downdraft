@@ -102,9 +102,9 @@ export interface BootstrapGameOptions {
   fpsPollIntervalMs?: number;
 
   // --- Feature log ---
-  /** Optional getter for active plugin names (e.g. () => gameWorld.pluginHost.listPlugins()).
+  /** Optional getter for active plugin names (e.g. () => gameWorld.moduleHost.listModules()).
    *  Populates the `plug` field of the renderer feature log line. */
-  getActivePlugins?: () => string[];
+  getActiveModules?: () => string[];
 }
 
 /**
@@ -150,7 +150,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
 
   // 4. Wire DevTools (if provided)
   if (opts.devtools) {
-    const { initDevTools } = await import("@downdraft/plugin-devtools");
+    const { initDevTools } = await import("@downdraft/module-devtools");
     const simStatsProvider = opts.devtools.createSimStatsProvider?.(renderer);
     const panels = typeof opts.devtools.panels === "function"
       ? opts.devtools.panels(renderer)
@@ -169,7 +169,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
 
   // 6. Feature log (renderer process) — collect + emit the `dd-render|...`
   //    startup line. Synchronous; reads WebGPU adapter/features/limits,
-  //    navigator, SAB/COOP-COEP, and active plugins (if getActivePlugins
+  //    navigator, SAB/COOP-COEP, and active plugins (if getActiveModules
   //    provided). The main-process `dd-main|...` line is emitted separately
   //    from app.ts; both are fetched together via getCombinedFeatureLog()
   //    for the DevTools copy button and MCP get_features tool.
@@ -178,7 +178,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     renderer,
     isDev,
     deterministic,
-    getActivePlugins: opts.getActivePlugins,
+    getActiveModules: opts.getActiveModules,
   });
   console.info(encodeFeatureLogLine(renderFeatureLog));
 

@@ -1,8 +1,8 @@
 import type { Entity } from "../ecs/entity";
 import { Hierarchy } from "../ecs/hierarchy";
 import type { World } from "../ecs/world";
-import { PluginHost } from "../plugin/host";
-import type { Plugin } from "../plugin/plugin";
+import { ModuleHost } from "../module/host";
+import type { Module } from "../module/module";
 import type { Camera } from "./camera";
 import { PrefabFactory, PrefabRegistry } from "./prefab";
 import type { Scene } from "./scene";
@@ -21,7 +21,7 @@ export class GameWorld {
   sceneManager: SceneManager;
   world: World;
   resources: WorldResources = { time: 0, dt: 0, alpha: 0 };
-  pluginHost: PluginHost;
+  moduleHost: ModuleHost;
   prefabRegistry: PrefabRegistry;
   prefabFactory: PrefabFactory;
   hierarchy: Hierarchy;
@@ -32,33 +32,33 @@ export class GameWorld {
     this.sceneManager = new SceneManager(this.world);
     this.sceneManager.register(scene);
     this.hierarchy = new Hierarchy();
-    this.pluginHost = new PluginHost(this.world);
+    this.moduleHost = new ModuleHost(this.world);
     this.prefabRegistry = new PrefabRegistry();
     this.prefabFactory = new PrefabFactory(this.world, this.prefabRegistry, this.hierarchy);
   }
 
-  usePlugin(plugin: Plugin): void {
-    this.pluginHost.registerPlugin(plugin);
+  useModule(plugin: Module): void {
+    this.moduleHost.registerModule(plugin);
   }
 
   /**
    * Register multiple plugins and activate them in dependency-resolved order.
-   * Preferred over `usePlugin()` when registering multiple plugins with
+   * Preferred over `useModule()` when registering multiple plugins with
    * interdependencies, as it activates them in topological order.
    */
-  usePlugins(plugins: Plugin[]): void {
+  useModules(plugins: Module[]): void {
     for (let i = 0; i < plugins.length; i++) {
-      this.pluginHost.registerPluginDeferred(plugins[i]);
+      this.moduleHost.registerModuleDeferred(plugins[i]);
     }
-    this.pluginHost.activateAll();
+    this.moduleHost.activateAll();
   }
 
-  async loadPlugin(pluginPath: string): Promise<void> {
-    await this.pluginHost.loadPlugin(pluginPath);
+  async loadModule(pluginPath: string): Promise<void> {
+    await this.moduleHost.loadModule(pluginPath);
   }
 
-  unloadPlugin(name: string): void {
-    this.pluginHost.unloadPlugin(name);
+  unloadModule(name: string): void {
+    this.moduleHost.unloadModule(name);
   }
 
   registerPrefab(name: string, components: Map<number, unknown>, tags?: string[]): void {
@@ -84,6 +84,6 @@ export class GameWorld {
 
   dispose(): void {
     this.sceneManager.dispose();
-    this.pluginHost.disposeAll();
+    this.moduleHost.disposeAll();
   }
 }

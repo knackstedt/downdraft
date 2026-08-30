@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // @downdraft/core — public API barrel
 //
-// Re-exports from sub-barrels (ecs, render, assets, material, plugin, scene,
+// Re-exports from sub-barrels (ecs, render, assets, material, module, scene,
 // physics, util) plus remaining direct exports for modules without a sub-barrel.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -10,8 +10,8 @@ export * from "./assets";
 export * from "./ecs";
 export * from "./library";
 export * from "./material";
+export * from "./module";
 export * from "./physics";
-export * from "./plugin";
 export * from "./render";
 export * from "./scene";
 export * from "./util";
@@ -221,9 +221,9 @@ export { createGridSaveSystem } from "./save/grid-save-system";
 export type { GridSaveSystem, GridSaveSystemOptions, SaveListEntry } from "./save/grid-save-system";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Animation (re-exported from @downdraft/library-animation)
+// Animation
 // ─────────────────────────────────────────────────────────────────────────────
-export * from "@downdraft/library-animation";
+export * from "./animation";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mesh Skinning
@@ -248,14 +248,14 @@ export { AudioSource, createAmbientAudioSource, createAudioSource, createSpatial
 export type { AudioSourceData } from "./audio/source";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Particles (extracted to @downdraft/library-particles)
+// Particles
 // ─────────────────────────────────────────────────────────────────────────────
-export * from "@downdraft/library-particles";
+export * from "./particles";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UI (re-exported from @downdraft/library-imui)
+// UI (imui)
 // ─────────────────────────────────────────────────────────────────────────────
-export * from "@downdraft/library-imui";
+export * from "./imui";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Math

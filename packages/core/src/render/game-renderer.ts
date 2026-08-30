@@ -6,8 +6,8 @@
 // logic through callback hooks.
 // ============================================================================
 
-import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "@downdraft/library-imui";
-import type { RendererPlugin } from "../plugin/renderer-plugin";
+import { LayoutEngine, UIInputRouter, UIRenderer, UIRoot } from "../imui";
+import type { RendererModule } from "../module/renderer-module";
 import { TelemetryCollector } from "../telemetry/collector";
 import { DebugOverlay as ProfilingOverlay } from "../telemetry/debug-overlay";
 import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
@@ -18,7 +18,7 @@ import { GPUDeviceManager } from "./device";
 import type { RenderContext } from "./frame-graph";
 import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
 import { InputManager } from "./input-manager";
-import { RendererPluginHost } from "./renderer-plugin-host";
+import { RendererModuleHost } from "./renderer-module-host";
 import { SurfaceManager } from "./surface";
 import { TrackedRenderPass } from "./tracked-render-pass";
 
@@ -139,7 +139,7 @@ export class GameRenderer implements CanvasResizeHandler {
   private resizeWatcher: CanvasResizeWatcher | null = null;
   private inputManager: InputManager;
   private frameGraph: FrameGraph;
-  private rendererPluginHost: RendererPluginHost | null = null;
+  private rendererModuleHost: RendererModuleHost | null = null;
 
   // Telemetry & profiling
   gpuProfiler: GPUProfiler | null = null;
@@ -340,7 +340,7 @@ export class GameRenderer implements CanvasResizeHandler {
       // Renderer plugin host — owns renderer-thread plugins (camera
       // controllers, gizmos, XR frame loops, OSR). Created after InputManager
       // so the host's input bus coexists with the FPS/pointer-lock layer.
-      this.rendererPluginHost = new RendererPluginHost(this.canvas, {
+      this.rendererModuleHost = new RendererModuleHost(this.canvas, {
         getCanvas: () => this.canvas,
         getDevice: () => this.device!,
         getFormat: () => this.format,
@@ -377,7 +377,7 @@ export class GameRenderer implements CanvasResizeHandler {
     this.updateViewports(this.viewportCount);
     this.updateUIScreenSize();
     this.callbacks.onResize?.(cssWidth, cssHeight, dpr);
-    this.rendererPluginHost?.dispatchResize(cssWidth, cssHeight, dpr);
+    this.rendererModuleHost?.dispatchResize(cssWidth, cssHeight, dpr);
   }
 
   // --- Viewport management ---
@@ -528,11 +528,11 @@ export class GameRenderer implements CanvasResizeHandler {
 
     // Before frame callback (game-specific: camera updates, input processing)
     this.callbacks.beforeFrame?.(dt, this.elapsedTime);
-    this.rendererPluginHost?.dispatchFrame("beforeFrame", dt, this.elapsedTime);
+    this.rendererModuleHost?.dispatchFrame("beforeFrame", dt, this.elapsedTime);
 
     // Before viewports callback (game-specific: particle ticks, pre-viewport setup)
     this.callbacks.beforeViewports?.(dt, this.elapsedTime);
-    this.rendererPluginHost?.dispatchFrame("beforeViewports", dt, this.elapsedTime);
+    this.rendererModuleHost?.dispatchFrame("beforeViewports", dt, this.elapsedTime);
 
     // If an uncaptured GPU error has fired, skip all GPU work this frame to
     // avoid the per-frame cascade of native "is invalid due to a previous
@@ -590,7 +590,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
     // After viewports callback
     this.callbacks.afterViewports?.(dt, this.elapsedTime);
-    this.rendererPluginHost?.dispatchFrame("afterViewports", dt, this.elapsedTime);
+    this.rendererModuleHost?.dispatchFrame("afterViewports", dt, this.elapsedTime);
 
     // Render GPU UI on top of final image (skip on GPU error to avoid cascade)
     if (!gpuError && this.uiRenderer && this.uiRoot && this.device && this.context) {
@@ -676,7 +676,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
     // After frame callback
     this.callbacks.afterFrame?.(dt, this.elapsedTime);
-    this.rendererPluginHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
+    this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
 
     this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
   }
@@ -700,11 +700,11 @@ export class GameRenderer implements CanvasResizeHandler {
     // game callback, then renderer plugin host's camera controller fallback.
     // The game callback is always called (even when the provider returns
     // non-null) so side effects like per-eye uniform updates still run.
-    const providerInfo = this.rendererPluginHost?.getViewportCameraInfo(viewportIdx, dt, this.elapsedTime) ?? null;
+    const providerInfo = this.rendererModuleHost?.getViewportCameraInfo(viewportIdx, dt, this.elapsedTime) ?? null;
     const gameInfo = this.callbacks.onViewport?.(viewportIdx, dt, this.elapsedTime) ?? null;
     let camInfo = providerInfo ?? gameInfo;
-    if (!camInfo && this.rendererPluginHost) {
-      const camState = this.rendererPluginHost.getCameraState(viewportIdx);
+    if (!camInfo && this.rendererModuleHost) {
+      const camState = this.rendererModuleHost.getCameraState(viewportIdx);
       if (camState) {
         camInfo = { camera: camState, viewport };
       }
@@ -927,15 +927,15 @@ export class GameRenderer implements CanvasResizeHandler {
 
   // --- Renderer plugins ---
 
-  useRendererPlugin(plugin: RendererPlugin): void {
-    if (!this.rendererPluginHost) {
-      throw new Error("RendererPluginHost not initialized — call init() first");
+  useRendererModule(plugin: RendererModule): void {
+    if (!this.rendererModuleHost) {
+      throw new Error("RendererModuleHost not initialized — call init() first");
     }
-    this.rendererPluginHost.registerPlugin(plugin);
+    this.rendererModuleHost.registerModule(plugin);
   }
 
-  getRendererPluginHost(): RendererPluginHost | null {
-    return this.rendererPluginHost;
+  getRendererModuleHost(): RendererModuleHost | null {
+    return this.rendererModuleHost;
   }
 
   // --- Getters ---
@@ -1067,8 +1067,8 @@ export class GameRenderer implements CanvasResizeHandler {
     this.running = false;
     this.resizeWatcher?.destroy();
     this.resizeWatcher = null;
-    this.rendererPluginHost?.disposeAll();
-    this.rendererPluginHost = null;
+    this.rendererModuleHost?.disposeAll();
+    this.rendererModuleHost = null;
     this.inputManager.destroy();
     this.profilingOverlay?.destroy();
     this.profilingOverlay = null;

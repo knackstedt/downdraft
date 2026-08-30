@@ -24,7 +24,7 @@ import type {
   IRaycastResult,
   ISceneEntitySnapshot,
   ISceneSyncProvider,
-} from "@downdraft/plugin-devtools";
+} from "@downdraft/module-devtools";
 
 const MAX_RENDER_DIST = 500;
 const RAY_MAX_DIST = 60;

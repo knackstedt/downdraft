@@ -247,12 +247,12 @@ export interface SnapshotHooks {
 }
 
 // ---------------------------------------------------------------------------
-// Plugin config
+// Module config
 // ---------------------------------------------------------------------------
 
 export type PredictionMode = "server-authoritative" | "client-prediction";
 
-export interface PhysicsPluginConfig {
+export interface PhysicsModuleConfig {
   gravity: [number, number, number];
   fixedDt: number;
   maxCatchUpSteps: number;

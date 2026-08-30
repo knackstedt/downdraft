@@ -1,8 +1,8 @@
-import type { PhysicsPluginConfig } from "@downdraft/core";
+import type { PhysicsModuleConfig } from "@downdraft/core";
 import { UniversalPhysicsAPI } from "./api";
 import { RapierPhysicsBackend } from "./backend";
 
-const config: PhysicsPluginConfig = {
+const config: PhysicsModuleConfig = {
   gravity: [0, -9.81, 0],
   fixedDt: 1 / 60,
   maxCatchUpSteps: 5,

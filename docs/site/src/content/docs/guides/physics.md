@@ -15,14 +15,14 @@ import { PhysicsRealm } from "@downdraft/core";
 const realm = new PhysicsRealm({ gravity: [0, -9.81, 0] });
 ```
 
-## Using the Rapier Plugin
+## Using the Rapier Module
 
 ```typescript
 import { GameWorld, Scene, World } from "@downdraft/core";
-import { PhysicsRapierPlugin } from "@downdraft/plugin-physics-rapier";
+import { PhysicsRapierModule } from "@downdraft/module-physics-rapier";
 
 const gameWorld = new GameWorld(new Scene(new World()));
-gameWorld.usePlugin(PhysicsRapierPlugin);
+gameWorld.useModule(PhysicsRapierModule);
 ```
 
 ## Components

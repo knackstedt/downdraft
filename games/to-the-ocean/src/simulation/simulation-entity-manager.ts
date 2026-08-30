@@ -1,7 +1,7 @@
 // Entity & player lifecycle management — extracted from Simulation.ts
 
 import { PLR_FLAG, SimBufferWriter } from "@downdraft/core";
-import { InventoryGrid, createGrid } from "@to-the-ocean/plugin-inventory";
+import { InventoryGrid, createGrid } from "@to-the-ocean/module-inventory";
 import {
     MAX_ENTITIES, MAX_PLAYERS,
     NIGHT_END_FRAC, NIGHT_START_FRAC,

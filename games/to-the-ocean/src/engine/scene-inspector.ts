@@ -14,7 +14,7 @@ import {
     type IDevToolsOverlayToggle,
     type IDevToolsPanelExtension,
     type IPerformanceMetricsProvider
-} from "@downdraft/plugin-devtools";
+} from "@downdraft/module-devtools";
 import { GAME_PLR } from "@shared/constants/buffer";
 import { EntityType, EntityTypeNames, WeatherType } from "@shared/types";
 import { getOverlayToggles, getPanelExtensions } from "../devtools/panel-extensions";

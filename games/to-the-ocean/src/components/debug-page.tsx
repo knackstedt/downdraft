@@ -1,5 +1,5 @@
 import type { GCStats } from "@downdraft/core";
-import { useDebugStore, type CollisionLogEntry } from "@downdraft/plugin-devtools";
+import { useDebugStore, type CollisionLogEntry } from "@downdraft/module-devtools";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 

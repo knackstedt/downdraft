@@ -2,7 +2,7 @@ import {
     RECIPES,
     canCraft, executeCraft,
     getRecipe, getRecipesByTier, getRecipesForTierUpTo,
-} from "@to-the-ocean/plugin-crafting";
+} from "@to-the-ocean/module-crafting";
 import { DEFAULT_ECONOMY_CONFIG, MarketSystem, PortSize } from "@to-the-ocean/library-economy";
 import { FISHING_KEY, FishingSystem, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/library-fishing";
 import {
@@ -14,12 +14,12 @@ import {
     removeItemById,
     serializeGrid,
     type InventoryGrid,
-} from "@to-the-ocean/plugin-inventory";
+} from "@to-the-ocean/module-inventory";
 import { ITEMS, ItemCategory, getItem, getItemsByCategory } from "@to-the-ocean/library-items";
 import { DEFAULT_SURVIVAL_CONFIG, SURVIVAL_FLAGS, SurvivalSystem, type SurvivalBiomeProvider, type SurvivalPlayer } from "@to-the-ocean/library-survival";
 
 // ============================================================================
-// Items Plugin Tests
+// Items Module Tests
 // ============================================================================
 
 describe("Items", () => {
@@ -68,7 +68,7 @@ describe("Items", () => {
 });
 
 // ============================================================================
-// Inventory Plugin Tests
+// Inventory Module Tests
 // ============================================================================
 
 describe("Inventory", () => {
@@ -164,7 +164,7 @@ describe("Inventory", () => {
 });
 
 // ============================================================================
-// Crafting Plugin Tests
+// Crafting Module Tests
 // ============================================================================
 
 describe("Crafting", () => {
@@ -260,7 +260,7 @@ describe("Crafting", () => {
 });
 
 // ============================================================================
-// Economy Plugin Tests
+// Economy Module Tests
 // ============================================================================
 
 describe("Economy / MarketSystem", () => {
@@ -353,7 +353,7 @@ describe("Economy / MarketSystem", () => {
 });
 
 // ============================================================================
-// Survival Plugin Tests
+// Survival Module Tests
 // ============================================================================
 
 const mockBiomeProvider: SurvivalBiomeProvider = {
@@ -464,7 +464,7 @@ describe("Survival", () => {
 });
 
 // ============================================================================
-// Fishing Plugin Tests
+// Fishing Module Tests
 // ============================================================================
 
 const mockFishingDeps: FishingDeps = {

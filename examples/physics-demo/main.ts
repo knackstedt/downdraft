@@ -3,7 +3,7 @@ import {
     RealmTier,
     type Entity,
     type PhysicsBody,
-    type PhysicsPluginConfig,
+    type PhysicsModuleConfig,
 } from "@downdraft/core";
 import { RapierPhysicsBackend, UniversalPhysicsAPI } from "@downdraft/library-physics-rapier";
 
@@ -22,7 +22,7 @@ const log = createLogger();
  * - Snapshot/restore round-trip
  */
 
-const config: PhysicsPluginConfig = {
+const config: PhysicsModuleConfig = {
   gravity: [0, -9.81, 0],
   fixedDt: 1 / 60,
   maxCatchUpSteps: 5,

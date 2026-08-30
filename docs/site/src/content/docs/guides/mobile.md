@@ -11,7 +11,7 @@ DownDraft Engine supports Android and iOS build targets by wrapping the existing
 
 ## How it works
 
-The engine is already cleanly split between **web-portable code** (renderer, sim, workers, libraries, plugins) and **Electron-only code** (main process, preload bridge, OSR, build tooling). Capacitor replaces only the Electron-only layer:
+The engine is already cleanly split between **web-portable code** (renderer, sim, workers, libraries, modules) and **Electron-only code** (main process, preload bridge, OSR, build tooling). Capacitor replaces only the Electron-only layer:
 
 ```
 Desktop (Electron)                    Mobile (Capacitor)
@@ -25,7 +25,7 @@ Electron Main Process                 Native Shell (Android/iOS)
         ▼                                     ▼
   ┌─────────────────────────────────────────────┐
   │  Renderer (WebGPU Canvas + UI Overlay)      │  ← unchanged
-  │  Sim Web Worker (ECS, physics, plugins)     │  ← unchanged
+  │  Sim Web Worker (ECS, physics, modules)     │  ← unchanged
   │  SharedArrayBuffer (zero-copy)              │  ← unchanged
   └─────────────────────────────────────────────┘
 ```
@@ -49,14 +49,14 @@ The engine owns a **canonical, pre-wired native shell** at `packages/mobile-shel
 - `packages/core/src/sab/*` — SharedArrayBuffer layouts (zero-copy sim↔renderer)
 - `packages/core/src/input/*`, `packages/core/src/ecs/*` — input state, job system
 - All `packages/libraries/*` — water, physics, persistence (OPFS/IndexedDB), etc.
-- All `packages/plugins/*` (except `electron-osr`) — camera, devtools, terrain, movement, sailing
+- All `packages/modules/*` (except `electron-osr`) — camera, devtools, terrain, movement, sailing
 - `packages/app/src/renderer/*` — `startGame()`, `GameModule`, `bootstrapGame()`, bridge accessor
 
 ### What is replaced/skipped
 
 - `packages/app/src/main/*` (Electron main) → `packages/app/src/mobile/*` (mobile host)
 - `packages/app/src/preload/*` (IPC bridge) → mobile bridge (web APIs + Capacitor plugins)
-- `packages/plugins/electron-osr/*` → skipped (use DOM overlay for UI)
+- `packages/modules/electron-osr/*` → skipped (use DOM overlay for UI)
 - `electron.vite.config.ts` → `mobile.vite.config.ts` (web-only Vite build)
 
 ## Platform requirements

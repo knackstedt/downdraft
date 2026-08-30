@@ -113,24 +113,6 @@
       "@downdraft/library-weather/*": [
         "./packages/libraries/weather/src/*"
       ],
-      "@downdraft/library-imui": [
-        "./packages/libraries/imui/src/index.ts"
-      ],
-      "@downdraft/library-imui/*": [
-        "./packages/libraries/imui/src/*"
-      ],
-      "@downdraft/library-animation": [
-        "./packages/libraries/animation/src/index.ts"
-      ],
-      "@downdraft/library-animation/*": [
-        "./packages/libraries/animation/src/*"
-      ],
-      "@downdraft/library-particles": [
-        "./packages/libraries/particles/src/index.ts"
-      ],
-      "@downdraft/library-particles/*": [
-        "./packages/libraries/particles/src/*"
-      ],
       "@downdraft/library-entities": [
         "./packages/libraries/entities/src/index.ts"
       ],
@@ -155,35 +137,35 @@
       "@downdraft/asset-bake/*": [
         "./packages/asset-bake/src/*"
       ],
-      "@downdraft/plugin-devtools": [
-        "./packages/plugins/devtools/src/index.ts"
+      "@downdraft/module-devtools": [
+        "./packages/modules/devtools/src/index.ts"
       ],
-      "@downdraft/plugin-devtools/*": [
-        "./packages/plugins/devtools/src/*"
+      "@downdraft/module-devtools/*": [
+        "./packages/modules/devtools/src/*"
       ],
-      "@downdraft/plugin-terrain": [
-        "./packages/plugins/terrain/src/index.ts"
+      "@downdraft/module-terrain": [
+        "./packages/modules/terrain/src/index.ts"
       ],
-      "@downdraft/plugin-terrain/*": [
-        "./packages/plugins/terrain/src/*"
+      "@downdraft/module-terrain/*": [
+        "./packages/modules/terrain/src/*"
       ],
-      "@downdraft/plugin-movement-3d": [
-        "./packages/plugins/movement-3d/src/index.ts"
+      "@downdraft/module-movement-3d": [
+        "./packages/modules/movement-3d/src/index.ts"
       ],
-      "@downdraft/plugin-movement-3d/*": [
-        "./packages/plugins/movement-3d/src/*"
+      "@downdraft/module-movement-3d/*": [
+        "./packages/modules/movement-3d/src/*"
       ],
-      "@downdraft/plugin-movement-2d": [
-        "./packages/plugins/movement-2d/src/index.ts"
+      "@downdraft/module-movement-2d": [
+        "./packages/modules/movement-2d/src/index.ts"
       ],
-      "@downdraft/plugin-movement-2d/*": [
-        "./packages/plugins/movement-2d/src/*"
+      "@downdraft/module-movement-2d/*": [
+        "./packages/modules/movement-2d/src/*"
       ],
-      "@downdraft/plugin-sailing": [
-        "./packages/plugins/sailing/src/index.ts"
+      "@downdraft/module-sailing": [
+        "./packages/modules/sailing/src/index.ts"
       ],
-      "@downdraft/plugin-sailing/*": [
-        "./packages/plugins/sailing/src/*"
+      "@downdraft/module-sailing/*": [
+        "./packages/modules/sailing/src/*"
       ],
       "@downdraft/library-marching-cubes": [
         "./packages/libraries/marching-cubes/src/index.ts"
@@ -203,17 +185,17 @@
       "@downdraft/library-persistence/*": [
         "./packages/libraries/persistence/src/*"
       ],
-      "@downdraft/plugin-electron-osr": [
-        "./packages/plugins/electron-osr/src/index.ts"
+      "@downdraft/module-electron-osr": [
+        "./packages/modules/electron-osr/src/index.ts"
       ],
-      "@downdraft/plugin-electron-osr/*": [
-        "./packages/plugins/electron-osr/src/*"
+      "@downdraft/module-electron-osr/*": [
+        "./packages/modules/electron-osr/src/*"
       ],
-      "@downdraft/plugin-xr": [
-        "./packages/plugins/xr/src/index.ts"
+      "@downdraft/module-xr": [
+        "./packages/modules/xr/src/index.ts"
       ],
-      "@downdraft/plugin-xr/*": [
-        "./packages/plugins/xr/src/*"
+      "@downdraft/module-xr/*": [
+        "./packages/modules/xr/src/*"
       ],
       "@downdraft/library-gaussian-splats": [
         "./packages/libraries/gaussian-splats/src/index.ts"
@@ -221,11 +203,11 @@
       "@downdraft/library-gaussian-splats/*": [
         "./packages/libraries/gaussian-splats/src/*"
       ],
-      "@downdraft/plugin-mcp": [
-        "./packages/plugins/mcp/src/index.ts"
+      "@downdraft/module-mcp": [
+        "./packages/modules/mcp/src/index.ts"
       ],
-      "@downdraft/plugin-mcp/*": [
-        "./packages/plugins/mcp/src/*"
+      "@downdraft/module-mcp/*": [
+        "./packages/modules/mcp/src/*"
       ],
       "@downdraft/library-physics-native": [
         "./packages/libraries/physics-native/src/index.ts"
@@ -267,64 +249,64 @@
         "./packages/app/src/build/index.ts"
       ],
       "@to-the-ocean/library-boats": [
-        "./games/to-the-ocean/plugins/boats/src/index.ts"
+        "./games/to-the-ocean/libraries/boats/src/index.ts"
       ],
       "@to-the-ocean/library-boats/*": [
-        "./games/to-the-ocean/plugins/boats/src/*"
+        "./games/to-the-ocean/libraries/boats/src/*"
       ],
-      "@to-the-ocean/library-buoyancy": [
-        "./games/to-the-ocean/plugins/buoyancy/src/index.ts"
+      "@to-the-ocean/module-buoyancy": [
+        "./games/to-the-ocean/modules/buoyancy/src/index.ts"
       ],
-      "@to-the-ocean/library-buoyancy/*": [
-        "./games/to-the-ocean/plugins/buoyancy/src/*"
+      "@to-the-ocean/module-buoyancy/*": [
+        "./games/to-the-ocean/modules/buoyancy/src/*"
       ],
-      "@to-the-ocean/library-collision": [
-        "./games/to-the-ocean/plugins/collision/src/index.ts"
+      "@to-the-ocean/module-collision": [
+        "./games/to-the-ocean/modules/collision/src/index.ts"
       ],
-      "@to-the-ocean/library-collision/*": [
-        "./games/to-the-ocean/plugins/collision/src/*"
+      "@to-the-ocean/module-collision/*": [
+        "./games/to-the-ocean/modules/collision/src/*"
       ],
-      "@to-the-ocean/plugin-crafting": [
-        "./games/to-the-ocean/plugins/crafting/src/index.ts"
+      "@to-the-ocean/module-crafting": [
+        "./games/to-the-ocean/modules/crafting/src/index.ts"
       ],
-      "@to-the-ocean/plugin-crafting/*": [
-        "./games/to-the-ocean/plugins/crafting/src/*"
+      "@to-the-ocean/module-crafting/*": [
+        "./games/to-the-ocean/modules/crafting/src/*"
       ],
       "@to-the-ocean/library-economy": [
-        "./games/to-the-ocean/plugins/economy/src/index.ts"
+        "./games/to-the-ocean/libraries/economy/src/index.ts"
       ],
       "@to-the-ocean/library-economy/*": [
-        "./games/to-the-ocean/plugins/economy/src/*"
+        "./games/to-the-ocean/libraries/economy/src/*"
       ],
       "@to-the-ocean/library-fishing": [
-        "./games/to-the-ocean/plugins/fishing/src/index.ts"
+        "./games/to-the-ocean/libraries/fishing/src/index.ts"
       ],
       "@to-the-ocean/library-fishing/*": [
-        "./games/to-the-ocean/plugins/fishing/src/*"
+        "./games/to-the-ocean/libraries/fishing/src/*"
       ],
-      "@to-the-ocean/plugin-inventory": [
-        "./games/to-the-ocean/plugins/inventory/src/index.ts"
+      "@to-the-ocean/module-inventory": [
+        "./games/to-the-ocean/modules/inventory/src/index.ts"
       ],
-      "@to-the-ocean/plugin-inventory/*": [
-        "./games/to-the-ocean/plugins/inventory/src/*"
+      "@to-the-ocean/module-inventory/*": [
+        "./games/to-the-ocean/modules/inventory/src/*"
       ],
       "@to-the-ocean/library-items": [
-        "./games/to-the-ocean/plugins/items/src/index.ts"
+        "./games/to-the-ocean/libraries/items/src/index.ts"
       ],
       "@to-the-ocean/library-items/*": [
-        "./games/to-the-ocean/plugins/items/src/*"
+        "./games/to-the-ocean/libraries/items/src/*"
       ],
       "@to-the-ocean/library-survival": [
-        "./games/to-the-ocean/plugins/survival/src/index.ts"
+        "./games/to-the-ocean/libraries/survival/src/index.ts"
       ],
       "@to-the-ocean/library-survival/*": [
-        "./games/to-the-ocean/plugins/survival/src/*"
+        "./games/to-the-ocean/libraries/survival/src/*"
       ],
-      "@to-the-ocean/library-wildlife": [
-        "./games/to-the-ocean/plugins/wildlife/src/index.ts"
+      "@to-the-ocean/module-wildlife": [
+        "./games/to-the-ocean/modules/wildlife/src/index.ts"
       ],
-      "@to-the-ocean/library-wildlife/*": [
-        "./games/to-the-ocean/plugins/wildlife/src/*"
+      "@to-the-ocean/module-wildlife/*": [
+        "./games/to-the-ocean/modules/wildlife/src/*"
       ],
       "@to-the-ocean/util/*": [
         "./games/to-the-ocean/src/util/*"
@@ -348,9 +330,11 @@
     "packages/mcp/src/**/*.ts",
     "packages/ui/src/**/*",
     "packages/shader-graph/src/**/*.ts",
-    "packages/plugins/*/src/**/*.ts",
+    "packages/modules/*/src/**/*.ts",
     "packages/libraries/*/src/**/*.ts",
     "games/*/plugins/*/src/**/*.ts",
+    "games/*/libraries/*/src/**/*.ts",
+    "games/*/modules/*/src/**/*.ts",
     "games/*/src/util/**/*.ts",
     "games/*/src/shared/plugin-interfaces.ts",
     "games/*/electron.vite.config.ts",

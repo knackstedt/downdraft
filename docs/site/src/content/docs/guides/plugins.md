@@ -1,13 +1,15 @@
 ---
-title: Plugins
-description: Plugin system architecture, typed DI, declarative GameModule, and first-party plugins
+title: Modules
+description: Module system architecture, typed DI, declarative GameModule, and first-party modules
 ---
 
 DownDraft has a tiered extension system with three layers:
 
 1. **Engine libraries** (`@downdraft/library-*`) — standard building blocks (water, physics, terrain, audio, etc.). Used directly or via declarative `EngineLibrary` descriptors.
-2. **Engine plugins** (`@downdraft/plugin-*`) — opt-in features with lifecycle + typed DI (devtools, camera-controls, terrain, movement, sailing, OSR, MCP, XR).
-3. **Game plugins** (`@<game>/plugin-*`) — game-specific systems (fishing, inventory, crafting, wildlife, etc.) using the same `Plugin` interface.
+2. **Engine modules** (`@downdraft/module-*`) — opt-in features with lifecycle + typed DI (devtools, camera-controls, terrain, movement, sailing, OSR, MCP, XR).
+3. **Game modules** (`@<game>/module-*`) — game-specific systems (fishing, inventory, crafting, wildlife, etc.) using the same `Module` interface.
+
+> **Note on terminology:** "module" refers to the engine's compile-time DI units. "plugin" is reserved for the upcoming user-authored plugin/modding system.
 
 ## Declarative GameModule
 
@@ -16,7 +18,7 @@ Games declare their renderer-side bootstrap as a `GameModule` and call `startGam
 ```typescript
 import { startGame } from "@downdraft/app/renderer";
 import { WaterLib } from "@downdraft/library-water";
-import { createTerrainPlugin } from "@downdraft/plugin-terrain";
+import { createTerrainModule } from "@downdraft/module-terrain";
 
 startGame({
   // Engine libraries (declarative SAB allocation + DI tokens)
@@ -54,14 +56,14 @@ startGame({
 
 ## Typed DI (provide/inject)
 
-Plugins use typed `ResourceToken<T>`-based dependency injection:
+Modules use typed `ResourceToken<T>`-based dependency injection:
 
 ```typescript
-import { resourceToken, type Plugin } from "@downdraft/core";
+import { resourceToken, type Module } from "@downdraft/core";
 
 export const WeatherState = resourceToken<{ windSpeed: number }>("weatherState");
 
-export const SailingPlugin: Plugin = {
+export const SailingModule: Module = {
   name: "sailing",
   version: "1.0.0",
   requires: [WeatherState],   // validated before register()
@@ -82,11 +84,11 @@ export const SailingPlugin: Plugin = {
 ### Batch registration
 
 ```typescript
-// Register multiple plugins in dependency-resolved order
-pluginHost.usePlugins([WeatherPlugin, SailingPlugin, NavigationPlugin]);
+// Register multiple modules in dependency-resolved order
+moduleHost.useModules([WeatherModule, SailingModule, NavigationModule]);
 ```
 
-`usePlugins()` registers all plugins deferred, then activates them in topological order with full graph validation.
+`useModules()` registers all modules deferred, then activates them in topological order with full graph validation.
 
 ## Engine Library Descriptors
 
@@ -131,40 +133,40 @@ Bare class exports remain as an escape hatch — games that need full control ca
 | physics-rapier | `PhysicsRapierLib` | `PhysicsAPITok` |
 | marching-cubes | `MarchingCubesLib` | `TerrainStreamingConfigTok` |
 
-## Feature Plugins
+## Feature Modules
 
-Feature plugins are opt-in game features with the `Plugin` interface:
+Feature modules are opt-in game features with the `Module` interface:
 
-| Plugin | Package | Description |
+| Module | Package | Description |
 |--------|---------|-------------|
-| terrain | `@downdraft/plugin-terrain` | Composes marching-cubes + LOD + streaming + deformation |
-| movement-3d | `@downdraft/plugin-movement-3d` | 3D first/third-person movement (walk, run, swim, fly) |
-| movement-2d | `@downdraft/plugin-movement-2d` | 2D top-down/side-scroll movement |
-| sailing | `@downdraft/plugin-sailing` | Sailing mechanics (wind, buoyancy, rudder, hull drag) |
-| devtools | `@downdraft/plugin-devtools` | Debug overlays, scene inspector, gizmos |
-| camera-controls | `@downdraft/plugin-camera-controls` | Camera modes (free, follow, orbit) |
-| electron-osr | `@downdraft/plugin-electron-osr` | Offscreen rendering for in-game web surfaces |
-| mcp | `@downdraft/plugin-mcp` | MCP automation harness for testing |
-| xr | `@downdraft/plugin-xr` | WebXR VR/AR support |
+| terrain | `@downdraft/module-terrain` | Composes marching-cubes + LOD + streaming + deformation |
+| movement-3d | `@downdraft/module-movement-3d` | 3D first/third-person movement (walk, run, swim, fly) |
+| movement-2d | `@downdraft/module-movement-2d` | 2D top-down/side-scroll movement |
+| sailing | `@downdraft/module-sailing` | Sailing mechanics (wind, buoyancy, rudder, hull drag) |
+| devtools | `@downdraft/module-devtools` | Debug overlays, scene inspector, gizmos |
+| camera-controls | `@downdraft/module-camera-controls` | Camera modes (free, follow, orbit) |
+| electron-osr | `@downdraft/module-electron-osr` | Offscreen rendering for in-game web surfaces |
+| mcp | `@downdraft/module-mcp` | MCP automation harness for testing |
+| xr | `@downdraft/module-xr` | WebXR VR/AR support |
 
-### Plugin factory pattern
+### Module factory pattern
 
-Plugins use a factory pattern so games can pass config at registration time:
+Modules use a factory pattern so games can pass config at registration time:
 
 ```typescript
-import { createTerrainPlugin } from "@downdraft/plugin-terrain";
+import { createTerrainModule } from "@downdraft/module-terrain";
 
-const terrainPlugin = createTerrainPlugin({
+const terrainModule = createTerrainModule({
   streaming: { baseVoxelSize: 0.5 },
   meshWorkerCount: 4,
 });
 
-gameWorld.pluginHost.registerPlugin(terrainPlugin);
+gameWorld.moduleHost.registerModule(terrainModule);
 ```
 
-## Cross-Thread Plugin Contract
+## Cross-Thread Module Contract
 
-In multi-threaded games, the sim worker and renderer each have their own `PluginHost`. Cross-thread tokens declare shared resources:
+In multi-threaded games, the sim worker and renderer each have their own `ModuleHost`. Cross-thread tokens declare shared resources:
 
 ```typescript
 import { crossThreadToken } from "@downdraft/core";
@@ -173,42 +175,42 @@ import { crossThreadToken } from "@downdraft/core";
 export const WaterSABTok = crossThreadToken<SharedArrayBuffer>("water:sab", "shared");
 ```
 
-The `buildCrossThreadReport()` function builds a dependency report from sim + renderer plugin snapshots, detecting:
+The `buildCrossThreadReport()` function builds a dependency report from sim + renderer module snapshots, detecting:
 - Unresolved requires (token required by one thread, provided by neither)
 - Shared resources (provided by both threads)
-- Version conflicts (same plugin name, different version across threads)
+- Version conflicts (same module name, different version across threads)
 
 ## downdraft doctor
 
-The `downdraft doctor` devtools panel displays plugin graph diagnostics:
+The `downdraft doctor` devtools panel displays module graph diagnostics:
 
-- **Plugin table**: name, version, thread (sim/renderer/shared), provides, requires, status
-- **Summary**: sim/renderer plugin counts, shared resources, unresolved requires, version conflicts
+- **Module table**: name, version, thread (sim/renderer/shared), provides, requires, status
+- **Summary**: sim/renderer module counts, shared resources, unresolved requires, version conflicts
 - **Diagnostics**: errors (unresolved, conflicts), warnings, OK status
 - Auto-refreshes every 2s when active
 
 Register it via:
 
 ```typescript
-import { createDoctorPanelExtension } from "@downdraft/plugin-devtools";
+import { createDoctorPanelExtension } from "@downdraft/module-devtools";
 
 devtools.registerPanel(createDoctorPanelExtension({
-  getSimPlugins: () => simPluginHost.snapshot(),
-  getRendererPlugins: () => rendererPluginHost.snapshot(),
+  getSimModules: () => simModuleHost.snapshot(),
+  getRendererModules: () => rendererModuleHost.snapshot(),
 }));
 ```
 
 ## DOWNDRAFT_STRICT Diagnostics
 
-When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the plugin hosts validate:
+When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the module hosts validate:
 - Duplicate `provide` → hard error
 - Missing `requires` provider at activation → hard error
-- Leak detection: plugin provides resources / allocates SAB channels but registers no `onDispose()` → warning
+- Leak detection: module provides resources / allocates SAB channels but registers no `onDispose()` → warning
 
-## Plugin Registration Patterns
+## Module Registration Patterns
 
-1. **Direct registration** — `pluginHost.registerPlugin(plugin)` — registers and immediately activates a single plugin.
+1. **Direct registration** — `moduleHost.registerModule(module)` — registers and immediately activates a single module.
 
-2. **Batch registration** — `pluginHost.usePlugins(plugins[])` — registers multiple plugins, then activates them in dependency-resolved topological order.
+2. **Batch registration** — `moduleHost.useModules(modules[])` — registers multiple modules, then activates them in dependency-resolved topological order.
 
-3. **Factory pattern** — `createXxxPlugin(config): Plugin` — plugins that accept config use a factory function. The config encapsulates all options and dependencies.
+3. **Factory pattern** — `createXxxModule(config): Module` — modules that accept config use a factory function. The config encapsulates all options and dependencies.

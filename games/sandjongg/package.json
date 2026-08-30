@@ -10,7 +10,7 @@
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
     "@downdraft/library-sand": "workspace:*",
-    "@downdraft/plugin-devtools": "workspace:*",
+    "@downdraft/module-devtools": "workspace:*",
     "@downdraft/ui": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

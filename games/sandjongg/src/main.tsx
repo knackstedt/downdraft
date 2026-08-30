@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { startGame } from "@downdraft/app/renderer";
-import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/plugin-devtools";
+import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
 import { sandjonggModule } from "./game-module";
 import { setupSandjonggMcp } from "./mcp/setup";
 import { useGameStore } from "./stores/game-store";

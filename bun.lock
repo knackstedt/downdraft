@@ -49,7 +49,7 @@
         "@downdraft/library-water": "workspace:*",
         "@downdraft/library-weather": "workspace:*",
         "@downdraft/mcp": "workspace:*",
-        "@downdraft/plugin-mcp": "workspace:*",
+        "@downdraft/module-mcp": "workspace:*",
       },
     },
     "games/falling-sand": {
@@ -61,7 +61,7 @@
         "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/library-stickman": "workspace:*",
-        "@downdraft/plugin-devtools": "workspace:*",
+        "@downdraft/module-devtools": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "react": "^19.2.8",
@@ -78,7 +78,7 @@
         "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/library-stickman": "workspace:*",
-        "@downdraft/plugin-devtools": "workspace:*",
+        "@downdraft/module-devtools": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "react": "^19.2.8",
@@ -101,7 +101,7 @@
         "@downdraft/library-persistence": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
         "@downdraft/library-stickman": "workspace:*",
-        "@downdraft/plugin-devtools": "workspace:*",
+        "@downdraft/module-devtools": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "react": "^19.2.8",
@@ -116,7 +116,7 @@
         "@downdraft/app": "workspace:*",
         "@downdraft/core": "workspace:*",
         "@downdraft/library-sand": "workspace:*",
-        "@downdraft/plugin-devtools": "workspace:*",
+        "@downdraft/module-devtools": "workspace:*",
         "@downdraft/ui": "workspace:*",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -142,7 +142,7 @@
         "@downdraft/library-surface-nets": "workspace:*",
         "@downdraft/library-water": "workspace:*",
         "@downdraft/library-weather": "workspace:*",
-        "@downdraft/plugin-electron-osr": "workspace:*",
+        "@downdraft/module-electron-osr": "workspace:*",
         "@floating-ui/react": "^0.27.0",
         "@fontsource/doto": "^5.1.1",
         "@fontsource/linefont": "^5.1.1",
@@ -151,15 +151,15 @@
         "@fontsource/urbanist": "^5.1.1",
         "@fontsource/wavefont": "^5.1.1",
         "@to-the-ocean/library-boats": "workspace:*",
-        "@to-the-ocean/library-buoyancy": "workspace:*",
-        "@to-the-ocean/library-collision": "workspace:*",
         "@to-the-ocean/library-economy": "workspace:*",
         "@to-the-ocean/library-fishing": "workspace:*",
         "@to-the-ocean/library-items": "workspace:*",
         "@to-the-ocean/library-survival": "workspace:*",
-        "@to-the-ocean/library-wildlife": "workspace:*",
-        "@to-the-ocean/plugin-crafting": "workspace:*",
-        "@to-the-ocean/plugin-inventory": "workspace:*",
+        "@to-the-ocean/module-buoyancy": "workspace:*",
+        "@to-the-ocean/module-collision": "workspace:*",
+        "@to-the-ocean/module-crafting": "workspace:*",
+        "@to-the-ocean/module-inventory": "workspace:*",
+        "@to-the-ocean/module-wildlife": "workspace:*",
         "fflate": "^0.8.2",
         "framer-motion": "^11.15.0",
         "lucide-react": "^0.468.0",
@@ -171,43 +171,21 @@
         "tailwindcss": "^3.4.0",
       },
     },
-    "games/to-the-ocean/plugins/boats": {
+    "games/to-the-ocean/libraries/boats": {
       "name": "@to-the-ocean/library-boats",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
     },
-    "games/to-the-ocean/plugins/buoyancy": {
-      "name": "@to-the-ocean/library-buoyancy",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "games/to-the-ocean/plugins/collision": {
-      "name": "@to-the-ocean/library-collision",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-      },
-    },
-    "games/to-the-ocean/plugins/crafting": {
-      "name": "@to-the-ocean/plugin-crafting",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@to-the-ocean/plugin-inventory": "workspace:*",
-      },
-    },
-    "games/to-the-ocean/plugins/economy": {
+    "games/to-the-ocean/libraries/economy": {
       "name": "@to-the-ocean/library-economy",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
     },
-    "games/to-the-ocean/plugins/fishing": {
+    "games/to-the-ocean/libraries/fishing": {
       "name": "@to-the-ocean/library-fishing",
       "version": "0.1.0",
       "dependencies": {
@@ -215,19 +193,11 @@
         "@downdraft/library-weather": "workspace:*",
       },
     },
-    "games/to-the-ocean/plugins/inventory": {
-      "name": "@to-the-ocean/plugin-inventory",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@to-the-ocean/library-items": "workspace:*",
-      },
-    },
-    "games/to-the-ocean/plugins/items": {
+    "games/to-the-ocean/libraries/items": {
       "name": "@to-the-ocean/library-items",
       "version": "0.1.0",
     },
-    "games/to-the-ocean/plugins/survival": {
+    "games/to-the-ocean/libraries/survival": {
       "name": "@to-the-ocean/library-survival",
       "version": "0.1.0",
       "dependencies": {
@@ -235,8 +205,38 @@
         "@downdraft/library-weather": "workspace:*",
       },
     },
-    "games/to-the-ocean/plugins/wildlife": {
-      "name": "@to-the-ocean/library-wildlife",
+    "games/to-the-ocean/modules/buoyancy": {
+      "name": "@to-the-ocean/module-buoyancy",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/modules/collision": {
+      "name": "@to-the-ocean/module-collision",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/modules/crafting": {
+      "name": "@to-the-ocean/module-crafting",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@to-the-ocean/module-inventory": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/modules/inventory": {
+      "name": "@to-the-ocean/module-inventory",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/core": "workspace:*",
+        "@to-the-ocean/library-items": "workspace:*",
+      },
+    },
+    "games/to-the-ocean/modules/wildlife": {
+      "name": "@to-the-ocean/module-wildlife",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -249,7 +249,7 @@
         "@downdraft/asset-bake": "workspace:*",
         "@downdraft/core": "workspace:*",
         "@downdraft/library-persistence": "workspace:*",
-        "@downdraft/plugin-electron-osr": "workspace:*",
+        "@downdraft/module-electron-osr": "workspace:*",
         "@downdraft/ui": "workspace:*",
       },
     },
@@ -284,18 +284,8 @@
       "name": "@downdraft/core",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/library-animation": "workspace:*",
-        "@downdraft/library-imui": "workspace:*",
-        "@downdraft/library-particles": "workspace:*",
         "@downdraft/shader-graph": "workspace:*",
         "wgpu-matrix": "^3.4.2",
-      },
-    },
-    "packages/libraries/animation": {
-      "name": "@downdraft/library-animation",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
       },
     },
     "packages/libraries/audio-kira": {
@@ -315,14 +305,6 @@
     },
     "packages/libraries/gaussian-splats": {
       "name": "@downdraft/library-gaussian-splats",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/shader-graph": "workspace:*",
-      },
-    },
-    "packages/libraries/imui": {
-      "name": "@downdraft/library-imui",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -368,15 +350,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
-      },
-    },
-    "packages/libraries/particles": {
-      "name": "@downdraft/library-particles",
-      "version": "0.1.0",
-      "dependencies": {
-        "@downdraft/core": "workspace:*",
-        "@downdraft/shader-graph": "workspace:*",
-        "wgpu-matrix": "^3.4.2",
       },
     },
     "packages/libraries/persistence": {
@@ -499,15 +472,15 @@
       "name": "@downdraft/mobile-shell",
       "version": "0.1.0",
     },
-    "packages/plugins/camera-controls": {
-      "name": "@downdraft/plugin-camera-controls",
+    "packages/modules/camera-controls": {
+      "name": "@downdraft/module-camera-controls",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
     },
-    "packages/plugins/devtools": {
-      "name": "@downdraft/plugin-devtools",
+    "packages/modules/devtools": {
+      "name": "@downdraft/module-devtools",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -515,53 +488,53 @@
         "zustand": "^5.0.2",
       },
     },
-    "packages/plugins/electron-osr": {
-      "name": "@downdraft/plugin-electron-osr",
+    "packages/modules/electron-osr": {
+      "name": "@downdraft/module-electron-osr",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
     },
-    "packages/plugins/mcp": {
-      "name": "@downdraft/plugin-mcp",
+    "packages/modules/mcp": {
+      "name": "@downdraft/module-mcp",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/mcp": "workspace:*",
       },
     },
-    "packages/plugins/movement-2d": {
-      "name": "@downdraft/plugin-movement-2d",
+    "packages/modules/movement-2d": {
+      "name": "@downdraft/module-movement-2d",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
     },
-    "packages/plugins/movement-3d": {
-      "name": "@downdraft/plugin-movement-3d",
+    "packages/modules/movement-3d": {
+      "name": "@downdraft/module-movement-3d",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
       },
     },
-    "packages/plugins/sailing": {
-      "name": "@downdraft/plugin-sailing",
+    "packages/modules/sailing": {
+      "name": "@downdraft/module-sailing",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/library-water": "workspace:*",
       },
     },
-    "packages/plugins/terrain": {
-      "name": "@downdraft/plugin-terrain",
+    "packages/modules/terrain": {
+      "name": "@downdraft/module-terrain",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
         "@downdraft/library-marching-cubes": "workspace:*",
       },
     },
-    "packages/plugins/xr": {
-      "name": "@downdraft/plugin-xr",
+    "packages/modules/xr": {
+      "name": "@downdraft/module-xr",
       "version": "0.1.0",
       "dependencies": {
         "@downdraft/core": "workspace:*",
@@ -709,15 +682,11 @@
 
     "@downdraft/core": ["@downdraft/core@workspace:packages/core"],
 
-    "@downdraft/library-animation": ["@downdraft/library-animation@workspace:packages/libraries/animation"],
-
     "@downdraft/library-audio-kira": ["@downdraft/library-audio-kira@workspace:packages/libraries/audio-kira"],
 
     "@downdraft/library-entities": ["@downdraft/library-entities@workspace:packages/libraries/entities"],
 
     "@downdraft/library-gaussian-splats": ["@downdraft/library-gaussian-splats@workspace:packages/libraries/gaussian-splats"],
-
-    "@downdraft/library-imui": ["@downdraft/library-imui@workspace:packages/libraries/imui"],
 
     "@downdraft/library-lighting": ["@downdraft/library-lighting@workspace:packages/libraries/lighting"],
 
@@ -728,8 +697,6 @@
     "@downdraft/library-navmesh": ["@downdraft/library-navmesh@workspace:packages/libraries/navmesh"],
 
     "@downdraft/library-networking": ["@downdraft/library-networking@workspace:packages/libraries/networking"],
-
-    "@downdraft/library-particles": ["@downdraft/library-particles@workspace:packages/libraries/particles"],
 
     "@downdraft/library-persistence": ["@downdraft/library-persistence@workspace:packages/libraries/persistence"],
 
@@ -759,23 +726,23 @@
 
     "@downdraft/mobile-shell": ["@downdraft/mobile-shell@workspace:packages/mobile-shell"],
 
-    "@downdraft/plugin-camera-controls": ["@downdraft/plugin-camera-controls@workspace:packages/plugins/camera-controls"],
+    "@downdraft/module-camera-controls": ["@downdraft/module-camera-controls@workspace:packages/modules/camera-controls"],
 
-    "@downdraft/plugin-devtools": ["@downdraft/plugin-devtools@workspace:packages/plugins/devtools"],
+    "@downdraft/module-devtools": ["@downdraft/module-devtools@workspace:packages/modules/devtools"],
 
-    "@downdraft/plugin-electron-osr": ["@downdraft/plugin-electron-osr@workspace:packages/plugins/electron-osr"],
+    "@downdraft/module-electron-osr": ["@downdraft/module-electron-osr@workspace:packages/modules/electron-osr"],
 
-    "@downdraft/plugin-mcp": ["@downdraft/plugin-mcp@workspace:packages/plugins/mcp"],
+    "@downdraft/module-mcp": ["@downdraft/module-mcp@workspace:packages/modules/mcp"],
 
-    "@downdraft/plugin-movement-2d": ["@downdraft/plugin-movement-2d@workspace:packages/plugins/movement-2d"],
+    "@downdraft/module-movement-2d": ["@downdraft/module-movement-2d@workspace:packages/modules/movement-2d"],
 
-    "@downdraft/plugin-movement-3d": ["@downdraft/plugin-movement-3d@workspace:packages/plugins/movement-3d"],
+    "@downdraft/module-movement-3d": ["@downdraft/module-movement-3d@workspace:packages/modules/movement-3d"],
 
-    "@downdraft/plugin-sailing": ["@downdraft/plugin-sailing@workspace:packages/plugins/sailing"],
+    "@downdraft/module-sailing": ["@downdraft/module-sailing@workspace:packages/modules/sailing"],
 
-    "@downdraft/plugin-terrain": ["@downdraft/plugin-terrain@workspace:packages/plugins/terrain"],
+    "@downdraft/module-terrain": ["@downdraft/module-terrain@workspace:packages/modules/terrain"],
 
-    "@downdraft/plugin-xr": ["@downdraft/plugin-xr@workspace:packages/plugins/xr"],
+    "@downdraft/module-xr": ["@downdraft/module-xr@workspace:packages/modules/xr"],
 
     "@downdraft/shader-graph": ["@downdraft/shader-graph@workspace:packages/shader-graph"],
 
@@ -1149,25 +1116,25 @@
 
     "@szmarczak/http-timer": ["@szmarczak/http-timer@4.0.6", "", { "dependencies": { "defer-to-connect": "^2.0.0" } }, "sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w=="],
 
-    "@to-the-ocean/library-boats": ["@to-the-ocean/library-boats@workspace:games/to-the-ocean/plugins/boats"],
+    "@to-the-ocean/library-boats": ["@to-the-ocean/library-boats@workspace:games/to-the-ocean/libraries/boats"],
 
-    "@to-the-ocean/library-buoyancy": ["@to-the-ocean/library-buoyancy@workspace:games/to-the-ocean/plugins/buoyancy"],
+    "@to-the-ocean/library-economy": ["@to-the-ocean/library-economy@workspace:games/to-the-ocean/libraries/economy"],
 
-    "@to-the-ocean/library-collision": ["@to-the-ocean/library-collision@workspace:games/to-the-ocean/plugins/collision"],
+    "@to-the-ocean/library-fishing": ["@to-the-ocean/library-fishing@workspace:games/to-the-ocean/libraries/fishing"],
 
-    "@to-the-ocean/library-economy": ["@to-the-ocean/library-economy@workspace:games/to-the-ocean/plugins/economy"],
+    "@to-the-ocean/library-items": ["@to-the-ocean/library-items@workspace:games/to-the-ocean/libraries/items"],
 
-    "@to-the-ocean/library-fishing": ["@to-the-ocean/library-fishing@workspace:games/to-the-ocean/plugins/fishing"],
+    "@to-the-ocean/library-survival": ["@to-the-ocean/library-survival@workspace:games/to-the-ocean/libraries/survival"],
 
-    "@to-the-ocean/library-items": ["@to-the-ocean/library-items@workspace:games/to-the-ocean/plugins/items"],
+    "@to-the-ocean/module-buoyancy": ["@to-the-ocean/module-buoyancy@workspace:games/to-the-ocean/modules/buoyancy"],
 
-    "@to-the-ocean/library-survival": ["@to-the-ocean/library-survival@workspace:games/to-the-ocean/plugins/survival"],
+    "@to-the-ocean/module-collision": ["@to-the-ocean/module-collision@workspace:games/to-the-ocean/modules/collision"],
 
-    "@to-the-ocean/library-wildlife": ["@to-the-ocean/library-wildlife@workspace:games/to-the-ocean/plugins/wildlife"],
+    "@to-the-ocean/module-crafting": ["@to-the-ocean/module-crafting@workspace:games/to-the-ocean/modules/crafting"],
 
-    "@to-the-ocean/plugin-crafting": ["@to-the-ocean/plugin-crafting@workspace:games/to-the-ocean/plugins/crafting"],
+    "@to-the-ocean/module-inventory": ["@to-the-ocean/module-inventory@workspace:games/to-the-ocean/modules/inventory"],
 
-    "@to-the-ocean/plugin-inventory": ["@to-the-ocean/plugin-inventory@workspace:games/to-the-ocean/plugins/inventory"],
+    "@to-the-ocean/module-wildlife": ["@to-the-ocean/module-wildlife@workspace:games/to-the-ocean/modules/wildlife"],
 
     "@tokenizer/inflate": ["@tokenizer/inflate@0.4.1", "", { "dependencies": { "debug": "^4.4.3", "token-types": "^6.1.1" } }, "sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA=="],
 

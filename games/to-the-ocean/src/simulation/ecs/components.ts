@@ -13,7 +13,7 @@
 import { Component, soaComponent } from "@downdraft/core";
 import type { EntityId, PlayerId } from "@shared/types";
 import { CameraMode } from "@shared/types";
-import type { InventoryGrid } from "@to-the-ocean/plugin-inventory";
+import type { InventoryGrid } from "@to-the-ocean/module-inventory";
 
 // --- Entity Components (SoA — hot path, numeric fields) ---
 

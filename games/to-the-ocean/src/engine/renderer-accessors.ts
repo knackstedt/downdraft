@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { MaterialLibrary, MSAA_SAMPLE_COUNT, type GPUProfiler, type GPUResourceTracker, type LayoutEngine, type PBRSystem, type PostProcessStack, type DebugOverlay as ProfilingOverlay, type TelemetryCollector, type UIInputRouter, type UIRenderer, type UIRoot } from "@downdraft/core";
-import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/plugin-devtools";
+import type { DebugOverlay, DebugRaycast, GizmoMode, TransformGizmo } from "@downdraft/module-devtools";
 import type { ModelRenderer } from "@downdraft/library-entities";
 import type { LightSystem } from "@downdraft/library-lighting";
 import { materialDataArrayToMaterials, type MaterialData, type MeshData } from "@downdraft/library-models";

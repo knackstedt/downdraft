@@ -8,7 +8,7 @@ import { allocateInputBuffer, allocateSimBuffer, HotReloadPipeline, type GCContr
 import { wrap, type WorkerProxy } from "@downdraft/core/worker/rpc";
 import type { OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
 import { WaterChannel } from "@downdraft/library-water";
-import type { DevToolsManifest } from "@downdraft/plugin-devtools";
+import type { DevToolsManifest } from "@downdraft/module-devtools";
 import { DEFAULT_GAME_RULES } from "@shared/constants";
 import { SimToMainMessage } from "@shared/types";
 import { allocateBoatBuffer } from "@to-the-ocean/library-boats/boat-sab";

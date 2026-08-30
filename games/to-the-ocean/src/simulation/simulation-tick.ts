@@ -2,7 +2,7 @@
 
 import { InputBufferReader, PLR_FLAG } from "@downdraft/core";
 import { WeatherSystem } from "@downdraft/library-weather";
-import { processSpoilage } from "@to-the-ocean/plugin-inventory";
+import { processSpoilage } from "@to-the-ocean/module-inventory";
 import { SIM_TICK_DT } from "../shared/constants";
 import {
     collectShoreSources,

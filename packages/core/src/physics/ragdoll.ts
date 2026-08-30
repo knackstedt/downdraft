@@ -1,4 +1,4 @@
-import type { Skeleton } from "@downdraft/library-animation";
+import type { Skeleton } from "../animation";
 import type { ComponentDefinition } from "../ecs/component";
 import { Component } from "../ecs/component";
 import type { Entity } from "../ecs/entity";

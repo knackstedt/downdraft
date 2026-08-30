@@ -1,5 +1,5 @@
 // ============================================================================
-// Shared Plugin Interfaces — common contracts used by multiple game plugins.
+// Shared Module Interfaces — common contracts used by multiple game plugins.
 //
 // These interfaces are extracted from the individual plugin type files to
 // eliminate duplicate definitions of the same concept across plugins.
@@ -71,7 +71,7 @@ export interface EntityProvider {
  * Minimal player state shared across plugins.
  *
  * Fishing and survival plugins both define player interfaces that include
- * these three fields with the same shape.  Plugin-specific player interfaces
+ * these three fields with the same shape.  Module-specific player interfaces
  * extend this base with additional fields (e.g. inventory, health, hunger).
  *
  * Note: the wildlife and collision plugins use a flat `x/y/z` layout instead

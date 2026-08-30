@@ -10,7 +10,7 @@ export { CollisionEventSystem } from "./collision-system";
 export { COLLISION_STARTED_CHANNEL, COLLISION_STOPPED_CHANNEL, computeCollisionEvents, computeTriggerEvents, CONTACT_CHANNEL, manifoldToStartedEvent, TRIGGER_ENTER_CHANNEL, TRIGGER_EXIT_CHANNEL } from "./events";
 export type { CollisionStartedEvent, CollisionStoppedEvent, ContactEvent, TriggerEnterEvent, TriggerExitEvent } from "./events";
 export { RealmTier } from "./interface";
-export type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, ImportanceWeight, IntersectionPair, IslandInfo, JointDesc, JointType, PhysicsBackend, PhysicsBody, PhysicsPluginConfig, PhysicsRealmConfig, PhysicsStats, PredictionMode, RaycastResult, RealmTierConfig, RealmTransferHook, ShapeCastResult, SnapshotHooks } from "./interface";
+export type { BodyDesc, BodyType, CharacterCollisionInfo, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ColliderDesc, ColliderShape, ContactManifold, ImportanceWeight, IntersectionPair, IslandInfo, JointDesc, JointType, PhysicsBackend, PhysicsBody, PhysicsModuleConfig, PhysicsRealmConfig, PhysicsStats, PredictionMode, RaycastResult, RealmTierConfig, RealmTransferHook, ShapeCastResult, SnapshotHooks } from "./interface";
 export { InterpolationBuffer } from "./interpolation-buffer";
 export { PhysicsLifecycle } from "./lifecycle";
 export type { BootstrapPhase } from "./lifecycle";

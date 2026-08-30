@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { resourceToken } from "../ecs/resource";
-import { setStrict } from "../plugin/diagnostics";
+import { setStrict } from "../module/diagnostics";
 import { LibraryHostImpl } from "./host";
 import type { EngineLibrary, LibrarySimContext } from "./library";
 

@@ -1,0 +1,15 @@
+{
+  "name": "@to-the-ocean/module-inventory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@downdraft/core": "workspace:*",
+    "@to-the-ocean/library-items": "workspace:*"
+  }
+}

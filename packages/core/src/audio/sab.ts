@@ -1,4 +1,4 @@
-import type { SABChannel } from "../plugin/plugin";
+import type { SABChannel } from "../module/module";
 import { defineChannel } from "../sab/define";
 import type { AudioListenerState } from "./interface";
 

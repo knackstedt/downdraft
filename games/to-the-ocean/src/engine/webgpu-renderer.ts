@@ -9,8 +9,8 @@ import { BindlessFrameBindings, BindlessMaterialManager, BindlessTextureRegistry
 import { ModelRenderer } from "@downdraft/library-entities";
 import { LightSystem } from "@downdraft/library-lighting";
 import { PixelationSystem } from "@downdraft/library-postfx";
-import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/plugin-devtools";
-import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/plugin-electron-osr";
+import { DebugOverlay, DebugRaycast, LabelOverlay, SceneSync, TransformGizmo, useSceneStore, type GizmoMode } from "@downdraft/module-devtools";
+import { OSRManager, type CameraState as OSRCameraState, type OSRIPC } from "@downdraft/module-electron-osr";
 import { loadModel, type MaterialData, type MeshData, type ModelData } from "@downdraft/library-models";
 import { WATER_GRID_SAB as WATER_GRID, WaterBufferReader } from "@downdraft/library-water";
 import { CloudSystem, COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, type VoxelCollisionData } from "@downdraft/library-weatherfx";

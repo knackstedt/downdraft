@@ -122,9 +122,9 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/mcp$/, replacement: resolve(repoRoot, "packages/mcp/src/index.ts") },
     { find: /^@downdraft\/shader-graph$/, replacement: resolve(repoRoot, "packages/shader-graph/src/index.ts") },
     { find: /^@downdraft\/shader-graph\//, replacement: resolve(repoRoot, "packages/shader-graph/src") + "/" },
-    { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src/index.ts") },
-    { find: /^@downdraft\/plugin-electron-osr\/main-entry$/, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src/main-entry.ts") },
-    { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src") + "/" },
+    { find: /^@downdraft\/module-electron-osr$/, replacement: resolve(repoRoot, "packages/modules/electron-osr/src/index.ts") },
+    { find: /^@downdraft\/module-electron-osr\/main-entry$/, replacement: resolve(repoRoot, "packages/modules/electron-osr/src/main-entry.ts") },
+    { find: /^@downdraft\/module-electron-osr\//, replacement: resolve(repoRoot, "packages/modules/electron-osr/src") + "/" },
     { find: /^@downdraft\/library-persistence$/, replacement: resolve(repoRoot, "packages/libraries/persistence/src/index.ts") },
     { find: /^@downdraft\/library-persistence\/browser$/, replacement: resolve(repoRoot, "packages/libraries/persistence/src/browser.ts") },
     { find: /^@downdraft\/library-persistence\//, replacement: resolve(repoRoot, "packages/libraries/persistence/src") + "/" },
@@ -164,30 +164,24 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     { find: /^@downdraft\/library-weatherfx\//, replacement: resolve(repoRoot, "packages/libraries/weatherfx/src") + "/" },
     { find: /^@downdraft\/library-weather$/, replacement: resolve(repoRoot, "packages/libraries/weather/src/index.ts") },
     { find: /^@downdraft\/library-weather\//, replacement: resolve(repoRoot, "packages/libraries/weather/src") + "/" },
-    { find: /^@downdraft\/library-imui$/, replacement: resolve(repoRoot, "packages/libraries/imui/src/index.ts") },
-    { find: /^@downdraft\/library-imui\//, replacement: resolve(repoRoot, "packages/libraries/imui/src") + "/" },
-    { find: /^@downdraft\/library-animation$/, replacement: resolve(repoRoot, "packages/libraries/animation/src/index.ts") },
-    { find: /^@downdraft\/library-animation\//, replacement: resolve(repoRoot, "packages/libraries/animation/src") + "/" },
-    { find: /^@downdraft\/library-particles$/, replacement: resolve(repoRoot, "packages/libraries/particles/src/index.ts") },
-    { find: /^@downdraft\/library-particles\//, replacement: resolve(repoRoot, "packages/libraries/particles/src") + "/" },
     { find: /^@downdraft\/library-entities$/, replacement: resolve(repoRoot, "packages/libraries/entities/src/index.ts") },
     { find: /^@downdraft\/library-entities\//, replacement: resolve(repoRoot, "packages/libraries/entities/src") + "/" },
     { find: /^@downdraft\/library-stickman$/, replacement: resolve(repoRoot, "packages/libraries/stickman/src/index.ts") },
     { find: /^@downdraft\/library-stickman\//, replacement: resolve(repoRoot, "packages/libraries/stickman/src") + "/" },
     { find: /^@downdraft\/library-models$/, replacement: resolve(repoRoot, "packages/libraries/models/src/index.ts") },
     { find: /^@downdraft\/library-models\//, replacement: resolve(repoRoot, "packages/libraries/models/src") + "/" },
-    { find: /^@downdraft\/plugin-devtools$/, replacement: resolve(repoRoot, "packages/plugins/devtools/src/index.ts") },
-    { find: /^@downdraft\/plugin-devtools\//, replacement: resolve(repoRoot, "packages/plugins/devtools/src") + "/" },
-    { find: /^@downdraft\/plugin-terrain$/, replacement: resolve(repoRoot, "packages/plugins/terrain/src/index.ts") },
-    { find: /^@downdraft\/plugin-terrain\//, replacement: resolve(repoRoot, "packages/plugins/terrain/src") + "/" },
-    { find: /^@downdraft\/plugin-movement-3d$/, replacement: resolve(repoRoot, "packages/plugins/movement-3d/src/index.ts") },
-    { find: /^@downdraft\/plugin-movement-3d\//, replacement: resolve(repoRoot, "packages/plugins/movement-3d/src") + "/" },
-    { find: /^@downdraft\/plugin-movement-2d$/, replacement: resolve(repoRoot, "packages/plugins/movement-2d/src/index.ts") },
-    { find: /^@downdraft\/plugin-movement-2d\//, replacement: resolve(repoRoot, "packages/plugins/movement-2d/src") + "/" },
-    { find: /^@downdraft\/plugin-sailing$/, replacement: resolve(repoRoot, "packages/plugins/sailing/src/index.ts") },
-    { find: /^@downdraft\/plugin-sailing\//, replacement: resolve(repoRoot, "packages/plugins/sailing/src") + "/" },
-    { find: /^@downdraft\/plugin-camera-controls$/, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src/index.ts") },
-    { find: /^@downdraft\/plugin-camera-controls\//, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src") + "/" },
+    { find: /^@downdraft\/module-devtools$/, replacement: resolve(repoRoot, "packages/modules/devtools/src/index.ts") },
+    { find: /^@downdraft\/module-devtools\//, replacement: resolve(repoRoot, "packages/modules/devtools/src") + "/" },
+    { find: /^@downdraft\/module-terrain$/, replacement: resolve(repoRoot, "packages/modules/terrain/src/index.ts") },
+    { find: /^@downdraft\/module-terrain\//, replacement: resolve(repoRoot, "packages/modules/terrain/src") + "/" },
+    { find: /^@downdraft\/module-movement-3d$/, replacement: resolve(repoRoot, "packages/modules/movement-3d/src/index.ts") },
+    { find: /^@downdraft\/module-movement-3d\//, replacement: resolve(repoRoot, "packages/modules/movement-3d/src") + "/" },
+    { find: /^@downdraft\/module-movement-2d$/, replacement: resolve(repoRoot, "packages/modules/movement-2d/src/index.ts") },
+    { find: /^@downdraft\/module-movement-2d\//, replacement: resolve(repoRoot, "packages/modules/movement-2d/src") + "/" },
+    { find: /^@downdraft\/module-sailing$/, replacement: resolve(repoRoot, "packages/modules/sailing/src/index.ts") },
+    { find: /^@downdraft\/module-sailing\//, replacement: resolve(repoRoot, "packages/modules/sailing/src") + "/" },
+    { find: /^@downdraft\/module-camera-controls$/, replacement: resolve(repoRoot, "packages/modules/camera-controls/src/index.ts") },
+    { find: /^@downdraft\/module-camera-controls\//, replacement: resolve(repoRoot, "packages/modules/camera-controls/src") + "/" },
     { find: /^@downdraft\/library-undertow$/, replacement: resolve(repoRoot, "packages/libraries/undertow/src/index.ts") },
     { find: /^@downdraft\/library-undertow\//, replacement: resolve(repoRoot, "packages/libraries/undertow/src") + "/" },
     { find: /^@downdraft\/library-pixi-ui$/, replacement: resolve(repoRoot, "packages/libraries/pixi-ui/src/index.ts") },
@@ -207,8 +201,8 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
     // must not hardcode any specific game's plugin paths.
     { find: /^@downdraft\/mcp$/, replacement: resolve(repoRoot, "packages/mcp/src/index.ts") },
     { find: /^@downdraft\/mcp\//, replacement: resolve(repoRoot, "packages/mcp/src") + "/" },
-    { find: /^@downdraft\/plugin-electron-osr$/, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src/index.ts") },
-    { find: /^@downdraft\/plugin-electron-osr\//, replacement: resolve(repoRoot, "packages/plugins/electron-osr/src") + "/" },
+    { find: /^@downdraft\/module-electron-osr$/, replacement: resolve(repoRoot, "packages/modules/electron-osr/src/index.ts") },
+    { find: /^@downdraft\/module-electron-osr\//, replacement: resolve(repoRoot, "packages/modules/electron-osr/src") + "/" },
     // @downdraft/app renderer accessor + base CSS
     { find: /^@downdraft\/app\/renderer$/, replacement: resolve(repoRoot, "packages/app/src/renderer/index.ts") },
     { find: /^@downdraft\/app\/renderer\/downdraft-base\.css$/, replacement: resolve(repoRoot, "packages/app/src/renderer/downdraft-base.css") },
@@ -225,13 +219,13 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   // cover engine-owned directories.
   const hasSimWorker = existsSync(resolve(rendererRoot, "src/simulation"));
   const simPaths = options.simPaths ?? (hasSimWorker
-    ? ["simulation/", "shared/", "packages/core/", "packages/plugins/", "packages/libraries/"]
+    ? ["simulation/", "shared/", "packages/core/", "packages/modules/", "packages/libraries/"]
     : []);
   const rendererPaths = options.rendererPaths ?? (hasSimWorker
-    ? ["engine/", "stores/", "packages/plugins/electron-osr/src/renderer/"]
+    ? ["engine/", "stores/", "packages/modules/electron-osr/src/renderer/"]
     : []);
   const excludePaths = options.excludePaths ?? [
-    "packages/plugins/electron-osr/src/main/",
+    "packages/modules/electron-osr/src/main/",
     "simulation/ecs/ecs-",
   ];
 
@@ -263,7 +257,7 @@ export function createDowndraftViteConfig(options: DowndraftViteConfigOptions): 
   return defineConfig({
     main: {
       plugins: [
-        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/plugin-electron-osr", "@downdraft/library-persistence"] }),
+        externalizeDepsPlugin({ exclude: ["@dimforge/rapier3d-compat", "@downdraft/module-electron-osr", "@downdraft/library-persistence"] }),
         {
           name: "force-cjs-main",
           configResolved(config) {

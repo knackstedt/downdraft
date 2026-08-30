@@ -1,5 +1,5 @@
 // Extracted from SceneInspector.ts — game-specific model asset discovery.
-// Generic fetch/cache utilities live in @downdraft/plugin-devtools (asset-utils).
+// Generic fetch/cache utilities live in @downdraft/module-devtools (asset-utils).
 
 import {
     asyncFetchArrayBuffer,
@@ -10,7 +10,7 @@ import {
     syncFetchArrayBuffer,
     thumbnailCache,
     type IAssetUrlMaps,
-} from "@downdraft/plugin-devtools";
+} from "@downdraft/module-devtools";
 
 // Re-export generic utilities for backward compat
 export { asyncFetchArrayBuffer, bufferCache, evictThumbnailCache, syncFetchArrayBuffer, thumbnailCache };

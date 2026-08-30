@@ -4,7 +4,7 @@
 // dynamically via __sceneInspector.getPanelExtensions() / getOverlayToggles().
 // ============================================================================
 
-import type { IDevToolsPanelExtension, IDevToolsOverlayToggle } from "@downdraft/plugin-devtools";
+import type { IDevToolsPanelExtension, IDevToolsOverlayToggle } from "@downdraft/module-devtools";
 
 // --- Debug Info Panel ---
 

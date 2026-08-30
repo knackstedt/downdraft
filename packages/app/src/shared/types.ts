@@ -14,7 +14,7 @@ import type {
     OSRPanelConfig,
     OSRRendererConfig,
     OSRRendererEvent,
-} from "@downdraft/plugin-electron-osr";
+} from "@downdraft/module-electron-osr";
 export type { FeatureLogData };
 
 // ---------------------------------------------------------------------------
