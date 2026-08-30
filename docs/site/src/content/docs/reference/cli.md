@@ -98,7 +98,7 @@ draft release --game=my-game --stage=package --target=win
 # Windows portable + Linux AppImage
 draft release --game=my-game --target=win,linux --format=win:portable,linux:AppImage
 
-# Mobile only (Android + iOS)
+# Mobile only (Android + iOS) — experimental
 draft release --game=my-game --target=android,ios
 
 # Multiple games at once
@@ -110,7 +110,7 @@ draft release --game=my-game --format=launcher
 
 ### Stages
 
-| Stage | Desktop | Mobile |
+| Stage | Desktop | Mobile (experimental) |
 |---|---|---|
 | `build` | `electron-vite build` → `dist/` | `vite build` (mobile config) → `dist/mobile/` |
 | `package` | electron-builder → `release/` (or launcher folders if `--format=launcher`) | Capacitor shell + patch + sync + Gradle + sign → `release/` |
@@ -257,7 +257,7 @@ draft build --game=to-the-ocean --target=win
 draft dist --target=all
 draft export --target=all --out=export
 
-# Build + scaffold mobile (Android + iOS)
+# Build + scaffold mobile (Android + iOS) — experimental
 draft mobile --target=all
 
 # Run e2e tests

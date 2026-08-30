@@ -800,7 +800,9 @@ mining-rpg runs its UI (Solid-js components) inside a Web Worker for offscreen r
 
 Extract these plugins into `@downdraft/app/vite` as a `solidWorkerPlugin()` factory, so other games that want Solid-js-in-worker can use it without copying the workaround. This should be done after `vite-plugin-solid` adds native worker context support (tracking: https://github.com/solidjs/vite-plugin-solid/issues). Until then, the workaround stays in `games/mining-rpg/vite-options.ts`.
 
-## Mobile targets (Android + iOS via Capacitor)
+## Mobile targets (Android + iOS via Capacitor) — Experimental
+
+> **⚠️ Experimental:** Mobile builds are under active development. The build pipeline, native shell, and WebGPU-on-WebView path have known limitations (e.g. the Android emulator does not expose a WebGPU-compatible backend — see "WebGPU on the Android emulator" below). Desktop builds are the stable, recommended target.
 
 The engine supports Android and iOS build targets by wrapping the existing web-portable renderer/sim/worker stack in Capacitor (system WebView). The renderer, sim workers, SAB layout, and libraries are **unchanged** from desktop — they run in the system WebView with the exact same WebGPU + Worker + SharedArrayBuffer code path.
 

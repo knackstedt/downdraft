@@ -12,7 +12,7 @@ bun install
 cd games/<your-game>
 draft dev
 
-# Build + package for distribution (desktop + mobile)
+# Build + package for distribution (desktop; mobile is experimental)
 draft release
 
 # Build only (Vite bundle, no packaging)
@@ -178,8 +178,8 @@ Packages a built game for distribution with per-platform launchers. `path` defau
 - `--out=<dir>` — Output directory (default: `export`)
 - `--no-compress` — Disable compression
 
-### `draft mobile [options]`
-Builds + scaffolds a Capacitor mobile target (Android / iOS).
+### `draft mobile [options]` — Experimental
+Builds + scaffolds a Capacitor mobile target (Android / iOS). Mobile builds are experimental.
 - `--game <name>`, `-g` — Game to build
 - `--target <t>`, `-t` — `android` / `ios` / `all` (default: `all`)
 - `--port <n>` — Embedded HTTP server port (default: `8765`)
@@ -289,7 +289,9 @@ startGame({
 
 Feature plugins (e.g. `@downdraft/plugin-terrain`, `@downdraft/plugin-movement-3d`) use the factory pattern and are activated via `pluginHost.usePlugins([...])`. See `AGENTS.md` for the full plugin/library contract.
 
-## Mobile Development (Android) 
+## Mobile Development (Android) — Experimental
+
+> **⚠️ Experimental:** Mobile (Android/iOS) builds are under active development. The build pipeline, native shell, and WebGPU-on-WebView path have known limitations (see [WebGPU on the Android emulator](#webgpu-on-the-android-emulator--known-limitation) below). Desktop builds are the stable, recommended target.
 
 DownDraft games can be built for Android via Capacitor (system WebView). The engine owns a pre-wired native shell at `packages/mobile-shell/` — games commit zero native files. See `docs/site/src/content/docs/guides/mobile.md` for the full guide.
 
