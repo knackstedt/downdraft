@@ -1,0 +1,20 @@
+{
+  "id": "sandjongg-speed-mode",
+  "name": "Speed Mode",
+  "version": "1.0.0",
+  "author": "Downdraft Engine",
+  "description": "Adds a speed mode that doubles tile match scoring for 30 seconds when activated. Demonstrates a QuickJS script-tier plugin: uses the event bus, KV state, and tick API.",
+  "engineVersion": "^0.1.0",
+  "game": "downdraft-sandjongg",
+  "format": "quickjs",
+  "tier": "script",
+  "thread": "renderer",
+  "entry": "./src/index.js",
+  "permissions": ["events", "state", "tick", "log"],
+  "provides": ["sandjongg:mode/speed"],
+  "requires": [],
+  "dependencies": [],
+  "quickjs": {
+    "instructionBudget": 500000
+  }
+}

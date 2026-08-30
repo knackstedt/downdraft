@@ -6,7 +6,7 @@
 // cross-thread dependency report (sim + renderer).
 // ============================================================================
 
-import type { CrossThreadReport, ModuleThreadInfo } from "@downdraft/core";
+import type { CrossThreadReport, ModuleThreadInfo, PluginInfo } from "@downdraft/core";
 import type { IDevToolsPanelExtension } from "./types";
 
 export interface DoctorPanelOptions {
@@ -16,6 +16,8 @@ export interface DoctorPanelOptions {
   getRendererModules?: () => ModuleThreadInfo[];
   /** Snapshot provider for the cross-thread report (pre-built). */
   getReport?: () => CrossThreadReport | null;
+  /** Snapshot provider for user-authored plugins (the modding system). */
+  getPlugins?: () => PluginInfo[];
 }
 
 export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevToolsPanelExtension {
@@ -33,6 +35,7 @@ export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevT
         </div>
         <div class="dd-doctor__summary"></div>
         <div class="dd-doctor__plugins"></div>
+        <div class="dd-doctor__user-plugins"></div>
         <div class="dd-doctor__resources"></div>
         <div class="dd-doctor__issues"></div>
       </div>
@@ -46,7 +49,16 @@ export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevT
       .dd-doctor__refresh:hover { background: #444; }
       .dd-doctor__summary { margin-bottom: 16px; padding: 8px; background: #1a1a2e; border-radius: 4px; }
       .dd-doctor__summary div { margin: 2px 0; }
-      .dd-doctor__plugins h3, .dd-doctor__resources h3, .dd-doctor__issues h3 { color: #4fc3f7; margin: 12px 0 4px; font-size: 13px; }
+      .dd-doctor__plugins h3, .dd-doctor__resources h3, .dd-doctor__issues h3, .dd-doctor__user-plugins h3 { color: #4fc3f7; margin: 12px 0 4px; font-size: 13px; }
+      .dd-doctor__badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-right: 4px; }
+      .dd-doctor__badge--format { background: #2a3a4a; color: #64b5f6; }
+      .dd-doctor__badge--tier { background: #3a2a4a; color: #ce93d8; }
+      .dd-doctor__badge--thread { background: #2a4a3a; color: #81c784; }
+      .dd-doctor__badge--perm { background: #4a3a2a; color: #ffb74d; }
+      .dd-doctor__status--active { color: #81c784; }
+      .dd-doctor__status--error { color: #ef5350; }
+      .dd-doctor__status--loading, .dd-doctor__status--pending { color: #ffb74d; }
+      .dd-doctor__status--disabled { color: #888; }
       .dd-doctor__table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
       .dd-doctor__table th { text-align: left; padding: 4px 8px; background: #1a1a2e; color: #888; font-weight: normal; }
       .dd-doctor__table td { padding: 4px 8px; border-bottom: 1px solid #222; }
@@ -108,6 +120,27 @@ export function createDoctorPanelExtension(opts: DoctorPanelOptions = {}): IDevT
           }
           html += '</tbody></table>';
           pluginsDiv.innerHTML = html;
+        }
+
+        // User-authored plugins (modding system)
+        const userPluginsDiv = container.querySelector('.dd-doctor__user-plugins');
+        const plugins = opts.getPlugins ? opts.getPlugins() : [];
+        if (plugins.length === 0) {
+          userPluginsDiv.innerHTML = '';
+        } else {
+          let phtml = '<h3>Plugins (' + plugins.length + ')</h3>';
+          phtml += '<table class="dd-doctor__table"><thead><tr><th>ID</th><th>Version</th><th>Format</th><th>Tier</th><th>Thread</th><th>Permissions</th><th>Status</th></tr></thead><tbody>';
+          for (const p of plugins) {
+            const fmtBadge = '<span class="dd-doctor__badge dd-doctor__badge--format">' + p.format + '</span>';
+            const tierBadge = '<span class="dd-doctor__badge dd-doctor__badge--tier">' + p.tier + '</span>';
+            const threadBadge = '<span class="dd-doctor__badge dd-doctor__badge--thread">' + p.thread + '</span>';
+            const permBadges = p.permissions.map(function(perm) { return '<span class="dd-doctor__badge dd-doctor__badge--perm">' + perm + '</span>'; }).join('');
+            const statusClass = 'dd-doctor__status--' + p.status;
+            const statusText = p.status + (p.error ? ': ' + p.error : '');
+            phtml += '<tr><td>' + p.id + '</td><td>' + p.version + '</td><td>' + fmtBadge + '</td><td>' + tierBadge + '</td><td>' + threadBadge + '</td><td>' + (permBadges || '—') + '</td><td class="' + statusClass + '">' + statusText + '</td></tr>';
+          }
+          phtml += '</tbody></table>';
+          userPluginsDiv.innerHTML = phtml;
         }
 
         // Issues

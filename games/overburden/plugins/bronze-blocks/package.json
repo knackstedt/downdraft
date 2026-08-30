@@ -1,0 +1,11 @@
+{
+  "name": "@overburden/plugin-bronze-blocks",
+  "version": "1.0.0",
+  "description": "Sample user-authored plugin: adds bronze blocks + a smelting recipe to Overburden.",
+  "author": "Downdraft Engine",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}

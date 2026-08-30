@@ -1,0 +1,17 @@
+{
+  "id": "overburden-bronze-blocks",
+  "name": "Bronze Blocks",
+  "version": "1.0.0",
+  "author": "Downdraft Engine",
+  "description": "Adds bronze blocks + a smelting recipe. Demonstrates a worker-js native-tier plugin: registers an ECS system, provides a typed token, and uses the event bus + KV state.",
+  "engineVersion": "^0.1.0",
+  "game": "downdraft-overburden",
+  "format": "worker-js",
+  "tier": "native",
+  "thread": "sim",
+  "entry": "./src/index.ts",
+  "permissions": ["ecs", "events", "state", "tick", "log"],
+  "provides": ["overburden:block/bronze"],
+  "requires": [],
+  "dependencies": []
+}

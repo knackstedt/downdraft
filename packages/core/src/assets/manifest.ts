@@ -14,11 +14,29 @@ export interface AssetPackEntry {
   files?: string[];
 }
 
+/**
+ * A plugin pack entry in a workshop asset manifest. Additive to `AssetManifest`
+ * (the `plugins` section) — backwards compatible: manifests without it are
+ * still valid.
+ */
+export interface PluginPackEntry {
+  /** Plugin id (must match the plugin's plugin.json id). */
+  id: string;
+  version: string;
+  store: string;
+  /** Path within the store to the plugin pack root (containing plugin.json). */
+  path: string;
+  /** Optional SHA-256 checksum of the pack archive for integrity verification. */
+  checksum?: string;
+}
+
 export interface AssetManifest {
   version: string;
   packs: AssetPackEntry[];
   stores: Record<string, BlobStoreConfig>;
   cacheDir?: string;
+  /** Workshop plugin packs (additive, optional). */
+  plugins?: PluginPackEntry[];
 }
 
 export const DEFAULT_CACHE_DIR = ".downdraft-cache";
@@ -44,6 +62,16 @@ export function validateManifest(manifest: unknown): manifest is AssetManifest {
     if (typeof pack.version !== "string") return false;
     if (typeof pack.store !== "string") return false;
     if (typeof pack.path !== "string") return false;
+  }
+  // plugins section is optional; validate if present.
+  if (m.plugins !== undefined) {
+    if (!Array.isArray(m.plugins)) return false;
+    for (const p of m.plugins) {
+      if (typeof p.id !== "string") return false;
+      if (typeof p.version !== "string") return false;
+      if (typeof p.store !== "string") return false;
+      if (typeof p.path !== "string") return false;
+    }
   }
   return true;
 }

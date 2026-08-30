@@ -1,0 +1,17 @@
+{
+  "id": "sandjongg-custom-scorer",
+  "name": "Custom Scorer",
+  "version": "1.0.0",
+  "author": "Downdraft Engine",
+  "description": "A WASM-based custom scoring algorithm that applies a Fibonacci bonus to consecutive matches. Demonstrates a WASM native-tier plugin with the ABI v2.",
+  "engineVersion": "^0.1.0",
+  "game": "downdraft-sandjongg",
+  "format": "wasm",
+  "tier": "native",
+  "thread": "own-worker",
+  "entry": "./custom_scorer.wasm",
+  "permissions": ["events", "state", "log"],
+  "provides": ["sandjongg:scorer/custom"],
+  "requires": [],
+  "dependencies": []
+}

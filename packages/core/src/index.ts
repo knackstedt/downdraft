@@ -12,6 +12,7 @@ export * from "./library";
 export * from "./material";
 export * from "./module";
 export * from "./physics";
+export * from "./plugin";
 export * from "./render";
 export * from "./scene";
 export * from "./util";

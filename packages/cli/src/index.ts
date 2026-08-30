@@ -95,6 +95,9 @@ async function main() {
       case "test":
         await runTest(process.argv.slice(3));
         break;
+      case "plugin":
+        await pluginCommand(process.argv.slice(3));
+        break;
       default:
         print(renderTopLevelHelp(getCliVersion()));
         process.exit(1);
