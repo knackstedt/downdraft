@@ -202,7 +202,7 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "test",
     usage: "draft test [options]",
-    summary: "Run e2e tests via MCP automation (SwiftShader + deterministic by default)",
+    summary: "Run e2e tests via bun:test (SwiftShader + deterministic by default; default specs use the in-game MCP RPC harness)",
     schema: {
       flags: [
         { name: "game", alias: "g", type: "string", required: true, description: "Game to test (games/<game>)" },

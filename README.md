@@ -194,7 +194,7 @@ Manages remote asset packs.
 - Run `draft assets <subcommand> --help` for subcommand flags.
 
 ### `draft test [options]`
-Runs e2e tests via MCP automation (SwiftShader + deterministic by default).
+Runs e2e tests via `bun:test` (SwiftShader + deterministic by default). The default smoke specs drive the game through the in-game MCP RPC harness, but `--spec` can point at any `bun:test` file.
 - `--game <name>`, `-g` — Game to test
 - `--renderer <r>`, `-r` — `cpu` (SwiftShader) / `gpu` (hardware) (default: `cpu`)
 - `--headed` — Show the window instead of running headless
