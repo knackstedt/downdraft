@@ -155,6 +155,14 @@ export function createMobileBridge(): DowndraftBridgeAPI {
     // --- Page capture: use canvas capture (no Electron capturePage) ---
     capturePage: () => Promise.resolve(null),
 
+    // --- Tracing: not available on mobile (no Electron main process) ---
+    startTrace: () => Promise.reject(new Error("Tracing not available on mobile")),
+    stopTrace: () => Promise.reject(new Error("Tracing not available on mobile")),
+    traceStatus: () => Promise.resolve({ recording: false }),
+    traceCategories: () => Promise.resolve({ categories: [] }),
+    captureHeapSnapshot: () => Promise.reject(new Error("Heap snapshot not available on mobile")),
+    processSnapshot: () => Promise.reject(new Error("Process snapshot not available on mobile")),
+
     // --- Import cache: no-op (re-import each launch on mobile) ---
     importCacheGet: () => Promise.resolve(null),
     importCacheSet: () => Promise.resolve(),

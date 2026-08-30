@@ -71,6 +71,12 @@ export interface DowndraftFeatures {
   windowStatePersistence?: boolean;
   /** SQLite-backed import cache for resolved model import settings. Default: true. */
   importCache?: boolean;
+  /**
+   * Main-process tracing & memory-dump toolkit (contentTracing, V8 heap
+   * snapshots, process snapshots). Exposed via MCP tools and the preload
+   * IPC bridge. Passive unless triggered. Default: true.
+   */
+  tracing?: boolean;
 }
 
 /**

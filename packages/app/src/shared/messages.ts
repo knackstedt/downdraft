@@ -32,6 +32,14 @@ export const IPC = {
   // Screenshot — Renderer -> Main (captures full page: canvas + DOM overlay)
   CAPTURE_PAGE: "capture-page",
 
+  // Tracing & memory-dump toolkit — Renderer -> Main (invoke)
+  TRACE_START: "trace-start",
+  TRACE_STOP: "trace-stop",
+  TRACE_STATUS: "trace-status",
+  TRACE_CATEGORIES: "trace-categories",
+  HEAP_SNAPSHOT: "heap-snapshot",
+  PROCESS_SNAPSHOT: "process-snapshot",
+
   // MCP proxy (Main <-> Renderer)
   MCP_REQUEST: "mcp-request",
 
