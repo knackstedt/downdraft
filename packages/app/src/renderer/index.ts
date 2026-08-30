@@ -98,6 +98,7 @@ export type {
     GameSaveConfig,
     GameSaveSource,
     GameSimWorker,
+    PluginRuntimeConfig,
     RendererFactory,
     SimEventMap,
     SimWorkerFactory,

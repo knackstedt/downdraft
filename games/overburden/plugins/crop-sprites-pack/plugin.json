@@ -1,0 +1,24 @@
+{
+  "id": "overburden-crop-sprites-pack",
+  "name": "Crop Sprites Pack",
+  "version": "1.0.0",
+  "author": "Downdraft Engine",
+  "description": "Adds a new crop sprite texture + crop data JSON. Demonstrates a data-tier asset plugin: no code, just assets registered into the AssetManager.",
+  "engineVersion": "^0.1.0",
+  "game": "downdraft-overburden",
+  "format": "asset",
+  "tier": "data",
+  "thread": "renderer",
+  "permissions": [],
+  "provides": ["overburden:asset/crop-sprites"],
+  "requires": [],
+  "dependencies": [],
+  "assets": {
+    "files": {
+      "tex/golden-wheat": "./assets/golden-wheat.png",
+      "data/golden-wheat-crop": "./assets/golden-wheat-crop.json"
+    },
+    "textures": ["./assets/golden-wheat.png"],
+    "data": ["./assets/golden-wheat-crop.json"]
+  }
+}

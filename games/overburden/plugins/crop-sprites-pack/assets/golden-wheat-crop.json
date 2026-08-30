@@ -1,0 +1,13 @@
+{
+  "id": "golden-wheat",
+  "name": "Golden Wheat",
+  "season": "summer",
+  "stageTicks": [400, 500, 600],
+  "harvestDrops": [
+    { "itemId": "golden_wheat", "count": 2, "chance": 1.0 },
+    { "itemId": "golden_wheat_seeds", "count": 1, "chance": 0.5 }
+  ],
+  "seedItemId": "golden_wheat_seeds",
+  "textureUri": "tex/golden-wheat",
+  "description": "A rare golden wheat variety with a higher yield. Brought by traders from the eastern valleys."
+}

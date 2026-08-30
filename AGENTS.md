@@ -1040,3 +1040,125 @@ adb forward tcp:9222 localabstract:webview_devtools_remote_$PID
 
 This allows evaluating JS in the WebView context to check `navigator.gpu`, `requestAdapter()`, DOM state, and console output — useful for diagnosing boot failures without logcat noise.
 
+## User-authored plugin (modding) system
+
+The engine supports a **plugin system** (distinct from the compile-time **module** system). Plugins are runtime-loadable extensions authored by end users / modders. They are discovered from local directories + remote workshop stores, validated against a permission manifest, and loaded into a sandboxed execution environment.
+
+### Terminology
+
+- **Modules** = compile-time DI units (`Module`, `ModuleHost`, typed tokens). Engine/game internals.
+- **Plugins** = runtime-loadable user-authored extensions (`PluginHost`, `PluginManifest`). Modding surface.
+
+### Plugin formats
+
+| Format | Tier | Thread | Description |
+|--------|------|--------|-------------|
+| `worker-js` | `native` | `sim` or `own-worker` | TypeScript/JavaScript in a Web Worker. Full ECS + typed-DI access (native tier) or limited API (script tier). |
+| `quickjs` | `script` | `renderer` | JavaScript in a QuickJS WASM VM. Hard isolation — only the `ddPlugin` bridged global exists. Instruction-budget limited. |
+| `wasm` | `native` | `own-worker` (always) | WebAssembly module with ABI v2. Host provides `env` imports; plugin exports `register`/`tick`/`dispose`/`on_event`. |
+| `asset` | `data` | `renderer` | Data-only: textures, audio, meshes, JSON. No code entry. Registered into the `AssetManager`. |
+
+### Capability tiers
+
+- **`data`** — no permissions, no runtime API. Asset plugins only.
+- **`script`** — limited API: events, state (KV), tick, log. QuickJS plugins.
+- **`native`** — full ECS + typed-DI access via `NativePluginContext`. Worker-js + WASM plugins.
+
+The modder declares the tier in `plugin.json`; the host enforces it via `resolvePermissions()` which checks the tier's allowed permission set.
+
+### Plugin manifest (`plugin.json`)
+
+```json
+{
+  "id": "my-cool-plugin",
+  "name": "My Cool Plugin",
+  "version": "1.0.0",
+  "engineVersion": "^0.1.0",
+  "game": "downdraft-overburden",
+  "format": "worker-js",
+  "tier": "native",
+  "thread": "sim",
+  "entry": "./src/index.ts",
+  "permissions": ["ecs", "events", "state", "tick", "log"],
+  "provides": ["mygame:resource/cool"],
+  "requires": [],
+  "dependencies": []
+}
+```
+
+### Game integration (`GameModule.plugins`)
+
+Games opt into the plugin system by declaring a `plugins` field on their `GameModule`:
+
+```ts
+startGame({
+  plugins: {
+    workerJs: "own-worker",  // or "sim"
+    sources: [...],          // discovery sources
+    permissions: new Set(["ecs", "events"]),  // game allowlist
+    manifests: [...],        // pre-resolved manifests (tests / first-party)
+  },
+  // ...
+});
+```
+
+`startGame()` constructs a renderer-side `PluginHost`, registers the `WorkerPluginLoader`, discovers plugins, and loads them after renderer init. The host is exposed on `GameContext.pluginHost` for diagnostics + reloads.
+
+### Plugin discovery
+
+- **Local**: `games/<game>/plugins/<plugin-id>/plugin.json` — discovered by the CLI (`dd plugin list`) and by the game's vite config.
+- **Remote workshop**: `WorkshopFetcher` downloads plugin packs from a `BlobStore`, caches them under `<cacheDir>/<id>@<version>/`, and returns validated manifests for the `PluginHost` to discover.
+
+### CLI
+
+```bash
+dd plugin new <name> --format <format> --game <game> [options]
+dd plugin list [--game <game>]
+```
+
+Scaffolds a new plugin directory with `plugin.json`, `package.json`, entry file, and README.
+
+### MCP automation tools
+
+`createPluginMcpTools(pluginHost)` returns MCP tool registrations for e2e testing:
+- `plugin_list` — list all plugins with status.
+- `plugin_get_info` — get detailed info for a single plugin.
+- `plugin_reload` — reload a plugin by id.
+- `plugin_unload` — unload a plugin by id.
+- `plugin_get_state` — get a plugin's KV state keys.
+
+### Doctor panel
+
+The `downdraft doctor` devtools panel displays a plugins table (id, version, format, tier, thread, permissions, status) when `getPlugins` is wired in the `DoctorPanelOptions`.
+
+### Key files
+
+- `packages/core/src/plugin/manifest.ts` — `PluginManifest` type + `validatePluginManifest`.
+- `packages/core/src/plugin/permissions.ts` — permission resolution + tier allowed sets + global allowlist.
+- `packages/core/src/plugin/context.ts` — `ScriptPluginContext` + `NativePluginContext` tiered facades.
+- `packages/core/src/plugin/registry.ts` — `PluginRegistry` (topological sort by dependencies).
+- `packages/core/src/plugin/host.ts` — `PluginHost` (discover/validate/load/unload/dispose/snapshot).
+- `packages/core/src/plugin/sandbox-shim.ts` — worker-side global restriction.
+- `packages/core/src/plugin/sandbox-worker.ts` — sandbox worker entry for worker-js plugins.
+- `packages/core/src/plugin/loader-worker.ts` — `WorkerPluginLoader` + `InlinePluginLoader`.
+- `packages/core/src/plugin/loader-asset.ts` — `AssetPluginLoader`.
+- `packages/core/src/plugin/loader-quickjs.ts` — `QuickjsPluginLoader`.
+- `packages/core/src/plugin/quickjs-bridge.ts` — QuickJS host↔VM bridge (handle tracking, marshaling, interrupt handler).
+- `packages/core/src/plugin/loader-wasm.ts` — `WasmPluginLoader` + `InlineWasmPluginLoader`.
+- `packages/core/src/plugin/wasm-abi.ts` — WASM ABI v2 types + memory marshaling helpers.
+- `packages/core/src/plugin/wasm-worker.ts` — WASM worker entry.
+- `packages/core/src/plugin/workshop.ts` — `WorkshopFetcher` (remote pack fetch + cache).
+- `packages/core/src/plugin/diagnostics.ts` — `PluginInfo` snapshot for the doctor panel.
+- `packages/core/src/plugin/mcp-tools.ts` — MCP automation tools.
+- `packages/cli/src/scaffold-plugin.ts` — CLI plugin scaffold.
+- `packages/cli/src/plugin-command.ts` — `dd plugin` CLI subcommand.
+- `packages/modules/devtools/src/doctor-panel.ts` — doctor panel with plugin table.
+- `packages/app/src/renderer/game-module.ts` — `PluginRuntimeConfig` + `GameModule.plugins` wiring.
+
+### Sample plugins
+
+- `games/overburden/plugins/bronze-blocks/` — worker-js native tier (ECS + typed DI).
+- `games/overburden/plugins/crop-sprites-pack/` — asset data tier (texture + JSON).
+- `games/sandjongg/plugins/speed-mode/` — quickjs script tier (events + state + tick).
+- `games/sandjongg/plugins/custom-scorer/` — wasm native tier (ABI v2, Fibonacci scorer).
+

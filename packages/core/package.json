@@ -8,7 +8,9 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "wgpu-matrix": "^3.4.2",
-    "@downdraft/shader-graph": "workspace:*"
+    "@downdraft/shader-graph": "workspace:*",
+    "@jitl/quickjs-singlefile-browser-release-sync": "^0.32.0",
+    "quickjs-emscripten": "^0.32.0",
+    "wgpu-matrix": "^3.4.2"
   }
 }

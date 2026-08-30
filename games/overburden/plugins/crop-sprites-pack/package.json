@@ -1,0 +1,11 @@
+{
+  "name": "@overburden/plugin-crop-sprites-pack",
+  "version": "1.0.0",
+  "description": "Sample user-authored plugin: a data-tier asset pack adding new crop sprite data + a texture to Overburden.",
+  "author": "Downdraft Engine",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}

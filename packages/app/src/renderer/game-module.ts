@@ -20,7 +20,19 @@
 // still call `bootstrapGame()` directly.
 // ============================================================================
 
-import { LibraryHostImpl, type ISaveStore, type LibraryEntry, type LibraryHost } from "@downdraft/core";
+import {
+    ENGINE_VERSION,
+    LibraryHostImpl,
+    PluginHost,
+    WorkerPluginLoader,
+    type ISaveStore,
+    type LibraryEntry,
+    type LibraryHost,
+    type PluginHostOptions,
+    type PluginManifest,
+    type PluginPermission,
+    type PluginSource,
+} from "@downdraft/core";
 import { bootstrapGame, type BootstrapDevToolsOptions } from "./bootstrap";
 import { downdraft, getCanvas, getOverlay } from "./index";
 import { createSaveStore, type SaveStoreMode } from "./save-store-factory";
@@ -161,6 +173,34 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   /** The library host (if engine libraries were declared). Games can access
    *  library-provided resources via DI tokens from onReady. */
   libraryHost?: LibraryHost;
+  /** The plugin host (if `module.plugins` was declared). Games can access
+   *  plugin diagnostics via `pluginHost.snapshot()` and trigger reloads. */
+  pluginHost?: PluginHost;
+}
+
+/**
+ * Plugin runtime configuration. Games opt into the user-authored plugin
+ * (modding) system by declaring a `plugins` field on their `GameModule`.
+ *
+ * The host constructs a renderer-side `PluginHost` and (for sim-thread
+ * plugins) forwards manifests to the sim worker. Games choose per-format
+ * whether worker-js plugins run on the sim worker or in a dedicated plugin
+ * worker; WASM is always forced to its own worker; QuickJS runs in-process on
+ * the renderer; asset plugins are data-only.
+ */
+export interface PluginRuntimeConfig {
+  /** Default thread for worker-js plugins: "sim" (inside the game's sim
+   *  worker) or "own-worker" (dedicated sandboxed worker). Default: "own-worker". */
+  workerJs?: "sim" | "own-worker";
+  /** Discovery sources. Local plugin dirs + remote workshop stores. */
+  sources?: PluginSource[];
+  /** Game-defined permission allowlist (further restricts tier). */
+  permissions?: ReadonlySet<PluginPermission>;
+  /** Game-defined event catalog for the plugin event bus. */
+  eventCatalog?: Record<string, unknown>;
+  /** Pre-resolved manifests to load (in addition to discovered sources).
+   *  Useful for tests and for bundling first-party plugins. */
+  manifests?: PluginManifest[];
 }
 
 /**
@@ -226,6 +266,15 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    * if they need more control than the descriptor provides.
    */
   libraries?: LibraryEntry[];
+
+  // ── User-authored plugins (modding) ──
+  /**
+   * Plugin runtime configuration. When declared, `startGame()` constructs a
+   * renderer-side `PluginHost`, discovers plugins from the configured sources,
+   * and loads them after renderer init. Sim-thread plugins are forwarded to
+   * the sim worker. See `PluginRuntimeConfig`.
+   */
+  plugins?: PluginRuntimeConfig;
 
   // ── DevTools ──
   /** DevTools config. If omitted, DevTools is not wired. */
@@ -327,6 +376,32 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     libBuffers = libHost.allocateBuffers();
   }
 
+  // 0c. Construct the renderer-side plugin host (if plugins declared).
+  //     Sim-thread plugins are forwarded to the sim worker after it starts;
+  //     renderer/own-worker plugins load here. The host is exposed on ctx so
+  //     games + the doctor panel can query snapshots.
+  let pluginHost: PluginHost | null = null;
+  if (module.plugins) {
+    const pCfg = module.plugins;
+    const hostOpts: PluginHostOptions = {
+      gameId: (downdraft as any)?.appId ?? "unknown",
+      engineVersion: ENGINE_VERSION,
+      gameAllow: pCfg.permissions,
+      eventCatalog: pCfg.eventCatalog,
+      sources: pCfg.sources,
+    };
+    pluginHost = new PluginHost(hostOpts);
+    // Register the worker-js loader (handles own-worker plugins on renderer).
+    pluginHost.registerLoader(new WorkerPluginLoader());
+    // Pre-resolved manifests (tests / first-party plugins).
+    for (const m of pCfg.manifests ?? []) {
+      pluginHost.discover(m, "inline");
+    }
+    // Local-dir discovery is performed by the game's vite config / preload;
+    // manifests are discovered via the plugin host's discover() API. Here we
+    // only load what's been discovered so far.
+  }
+
   // 1. Create sim worker + capture SABs (renderer-only games skip this).
   //    If libraries declared, pass the library-allocated SABs to the sim
   //    factory via a seed object so the sim can share them zero-copy.
@@ -362,6 +437,11 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       ctx.extraBuffers[name] = sab;
     }
     ctx.libraryHost = libHost;
+  }
+
+  // 3c. Expose the plugin host on ctx (if constructed).
+  if (pluginHost) {
+    ctx.pluginHost = pluginHost;
   }
 
   // 4. Wire event routing from the declarative events map (sim-worker only).
@@ -466,6 +546,20 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         }
       }
 
+      // ── Plugin loading ──
+      // Load all discovered plugins (renderer + own-worker threads). Sim-
+      // thread plugins are forwarded to the sim worker by the game's sim
+      // bridge (the sim worker runs its own PluginHost); here we load the
+      // renderer/own-worker subset. Failures are recorded on the plugin
+      // snapshot (ctx.pluginHost.snapshot()) and do not abort startup.
+      if (pluginHost) {
+        try {
+          await pluginHost.loadAll();
+        } catch (e) {
+          console.warn("[startGame] Plugin loading error:", e);
+        }
+      }
+
       // ── Game-specific wiring ──
       if (module.onReady) {
         await module.onReady(ctx);
@@ -517,6 +611,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       : undefined,
 
     onHotReloadDispose: () => {
+      pluginHost?.disposeAll();
       libHost?.disposeRenderer();
       if (module.onDispose) {
         module.onDispose(ctx);

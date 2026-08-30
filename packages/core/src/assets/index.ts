@@ -70,5 +70,5 @@ export {
     MANIFEST_FILENAME, packCacheKey,
     validateManifest
 } from "./manifest";
-export type { AssetManifest, AssetPackEntry } from "./manifest";
+export type { AssetManifest, AssetPackEntry, PluginPackEntry } from "./manifest";
 

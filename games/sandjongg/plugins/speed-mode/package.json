@@ -1,0 +1,11 @@
+{
+  "name": "@sandjongg/plugin-speed-mode",
+  "version": "1.0.0",
+  "description": "Sample user-authored plugin: a QuickJS script-tier speed mode for Sandjongg.",
+  "author": "Downdraft Engine",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@downdraft/core": "workspace:*"
+  }
+}
