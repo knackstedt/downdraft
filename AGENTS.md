@@ -734,9 +734,23 @@ VirusTotal analysis of Windows `.exe` builds reported two issues:
 2. Git HEAD commit date (`git log -1 --format=%ct`) — deterministic per commit.
 3. `Date.now() / 1000` — wall-clock fallback when git is unavailable.
 
-### `draft dist` CLI command
+### `draft release` CLI command (unified pipeline)
 
-`draft dist [--game=<name>] [--target=<win|linux|mac|all>] [--config=<path>]` loads the game's `build.config.ts` (or falls back to the `build` block in `package.json`) and invokes electron-builder's programmatic `build()` API. Config resolution order:
+`draft release` is the unified build + package + sign pipeline that replaces the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands. The old commands remain as deprecated backward-compat aliases that delegate to `release`.
+
+```
+draft release [--game=<name>] [--games=<csv>] [--target=<win|linux|mac|android|ios|all>]
+              [--format=<csv>] [--stage=<build|package|release>] [--mode=<dev|debug|prod>]
+              [--out=<dir>] [--config=<path>] [--port=<n>] [--skip-build] [--build-only]
+              [--skip-gradle] [--no-icons] [--no-overrides] [--no-minify] [--sourcemap] [--verbose]
+```
+
+Stages:
+- `build` = Vite-bundle only (desktop electron-vite + mobile web bundle)
+- `package` = package an existing build (electron-builder / Capacitor+Gradle)
+- `release` = build + package + sign + collect to `release/` (default)
+
+The desktop packaging step loads the game's `build.config.ts` (or falls back to the `build` block in `package.json`) and invokes electron-builder's programmatic `build()` API. Config resolution order:
 
 1. `--config=<path>` flag (explicit).
 2. `games/<game>/build.config.ts` (monorepo layout).
@@ -751,7 +765,8 @@ VirusTotal analysis of Windows `.exe` builds reported two issues:
 - `packages/app/src/build/pe-timestamp.ts` — `patchPeTimestamp()` / `patchPeTimestamps()`.
 - `packages/app/src/build/pe-timestamp.spec.ts` — PE patcher specs (11 tests).
 - `packages/app/package.json` — `./build` subpath export.
-- `packages/cli/src/dist.ts` — `draft dist` command.
+- `packages/cli/src/dist.ts` — `draft dist` command (deprecated alias for `draft release --stage=package`) + `packageDesktop()` export.
+- `packages/cli/src/release.ts` — `draft release` unified pipeline (build + package + sign).
 - `games/<game>/build.config.ts` — per-game builder config (to-the-ocean, mining-rpg, overburden, alchemy, falling-sand, sandjongg).
 - `packages/cli/templates/full/build.config.ts.eta` — scaffolded `build.config.ts` for the `full` template.
 
@@ -803,7 +818,7 @@ The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` al
 ### Architecture: what is portable vs Electron-only
 
 - **Already web-portable (runs unchanged in a WebView):** `packages/core/src/render/*`, `packages/core/src/worker/*`, `packages/core/src/sab/*`, `packages/core/src/input/*`, `packages/core/src/ecs/*`, all `packages/libraries/*`, all `packages/plugins/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
-- **Electron-only (replaced/skipped on mobile):** `packages/app/src/main/*` (Electron main process), `packages/app/src/preload/*` (IPC bridge), `packages/plugins/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft dist` (electron-builder).
+- **Electron-only (replaced/skipped on mobile):** `packages/app/src/main/*` (Electron main process), `packages/app/src/preload/*` (IPC bridge), `packages/plugins/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft release --target=win,linux,mac` (electron-builder desktop packaging).
 
 ### Gating constraints
 
@@ -821,7 +836,7 @@ The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` al
 - `packages/app/src/mobile/webgpu-guard.ts` — boot-time WebGPU + cross-origin isolation check with user-facing error screen.
 - `packages/app/src/mobile/capacitor-plugin-types.d.ts` — ambient type declarations for optional `@capacitor/app` and `@capacitor/browser` plugins.
 - `packages/app/src/vite/mobile-vite-config.ts` — `createDowndraftMobileViteConfig()` web-only Vite build config (no main/preload, outputs `dist/mobile/`).
-- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (copy-from-shell + patch + icons + overrides + sync + gradle APK build + collect into `release/android/`).
+- `packages/cli/src/mobile.ts` — `draft mobile` CLI command (deprecated alias for `draft release --target=android,ios`) + `packageMobile()` / `buildMobileWeb()` exports.
 - `packages/cli/src/mobile-icons.ts` — jimp-based icon + splash generation from `icon.png` (Android mipmaps + splash screens + iOS AppIcon + splash set). Generates solid-color placeholders if no `icon.png` is provided. The shell ships NO binary images.
 
 ### Per-feature Electron-only strategy
@@ -842,7 +857,7 @@ The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` al
 
 ### Adding mobile support to a game
 
-**Zero-config path:** Just run `draft mobile --game=<name>`. The command auto-generates everything:
+**Zero-config path:** Just run `draft release --game=<name> --target=android,ios` (or the deprecated `draft mobile --game=<name>`). The command auto-generates everything:
 - `capacitor.config.ts` — written if missing (correct appId, appName, webDir, server URL)
 - `mobile.vite.config.ts` — defaulted at build time (no file needed unless customizing)
 - `src/mobile.tsx` — auto-generated stub if missing (wire up renderer/sim/UI, then commit)
@@ -851,7 +866,7 @@ The only prerequisite is installing Capacitor deps: `bun add -d @capacitor/cli @
 
 **Full setup:**
 
-1. Run `draft mobile --game=<name> --target=all`. This will:
+1. Run `draft release --game=<name> --target=android,ios`. This will:
    - Auto-generate `src/mobile.tsx` (stub with placeholder GameModule)
    - Auto-generate `capacitor.config.ts` (if missing)
    - Copy the engine shell → gitignored `android/` + `ios/`
@@ -865,16 +880,16 @@ The only prerequisite is installing Capacitor deps: `bun add -d @capacitor/cli @
 
 4. (Optional) Create a `mobile-overrides/` directory for game-specific native customization (extra permissions, deps, resources).
 
-5. Re-run `draft mobile` to regenerate native projects with your wired-up entry. The release APK lands at `release/android/<appName>-<version>-android.apk` (unsigned — sign with `jarsigner` / `apksigner` before distribution).
+5. Re-run `draft release --target=android,ios` to regenerate native projects with your wired-up entry. The release APK lands at `release/<appName>-<version>-android.apk` (signed in place — release keystore → debug fallback).
 
 6. To run on a device/emulator (rather than just producing the APK): `npx cap open android` (or `ios`) and Run in Android Studio / Xcode.
 
 **TODO (revisit later):** Extract a shared `game-module.ts` from each game's `main.tsx` so the auto-generated `mobile.tsx` stub can import and reuse it directly, eliminating the manual wiring step. Currently the stub has placeholder TODOs because games inline their `GameModule` into `startGame()` rather than exporting it.
 
-### `draft mobile` CLI
+### `draft release --target=android,ios` (mobile) / `draft mobile` (deprecated alias)
 
 ```
-draft mobile [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-build] [--no-icons] [--no-overrides]
+draft release [--game=<name>] [--target=<android|ios|all>] [--port=<n>] [--skip-build] [--no-icons] [--no-overrides]
 ```
 
 - Builds the web bundle via `createDowndraftMobileViteConfig()` → `dist/mobile/`.

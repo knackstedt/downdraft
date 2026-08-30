@@ -1,7 +1,24 @@
+// ============================================================================
+// draft build — [DEPRECATED] alias for `draft release --stage=build`
+// ============================================================================
+//
+// The old `draft build` was a naive file-copy (no Vite bundling). It has been
+// superseded by `draft release --stage=build`, which runs the real
+// electron-vite build. This module remains as a backward-compat alias that
+// delegates to `release` with a deprecation warning.
+//
+// The original file-copy implementation is preserved as `legacyFileCopyBuild()`
+// below for games that still depend on the old `dist/manifest.json` output
+// (e.g. the `draft export` launcher path). The new `draft release --stage=build`
+// uses electron-vite and does not produce a manifest.json — `packageLauncher`
+// now falls back to package.json when manifest.json is absent.
+//
+
 import { Builder, confinePath, createLogger } from "@downdraft/core";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { basename, extname, join, relative, resolve } from "path";
 import { parseArgs, print, renderHelp } from "./args";
+import { release } from "./release";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -14,7 +31,46 @@ export async function build(args: string[]): Promise<void> {
     return;
   }
 
-  // --game overrides the path positional: resolve games/<game> as the project.
+  log.warn("build", "`draft build` is deprecated — use `draft release --stage=build` instead.");
+  log.warn("build", "The old file-copy build is preserved for back-compat. Delegating to `release`...");
+
+  // Map old build args → release args.
+  const gameArg = parsed.flags.game as string | undefined;
+  const target = parsed.flags.target as string;
+  const mode = parsed.flags.mode as string;
+
+  // Build the release argv from the old build args.
+  const releaseArgs: string[] = ["--stage=build", `--mode=${mode}`];
+  if (gameArg) releaseArgs.push(`--game=${gameArg}`);
+  // Map build target → release target (skip "current" — release defaults to all desktop).
+  if (target && target !== "current") releaseArgs.push(`--target=${target}`);
+  if (parsed.flags.verbose as boolean) releaseArgs.push("--verbose");
+  if (parsed.flags["no-minify"] as boolean) releaseArgs.push("--no-minify");
+  if (parsed.flags.sourcemap as boolean) releaseArgs.push("--sourcemap");
+
+  await release(releaseArgs);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy file-copy build (preserved for back-compat of the export/launcher path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Legacy file-copy build. Copies `src/` + `assets/` into `dist/` and writes
+ * `manifest.json`. This is the original `draft build` implementation, preserved
+ * here so games that depend on the `dist/manifest.json` output still work.
+ *
+ * The new `draft release --stage=build` uses electron-vite instead and does
+ * NOT produce a manifest.json.
+ */
+export async function legacyFileCopyBuild(args: string[]): Promise<void> {
+  const entry = getCommand("build")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
+
   const gameArg = parsed.flags.game as string | undefined;
   const projectPath = gameArg
     ? resolve(import.meta.dir, "../../..", "games", gameArg)
@@ -23,12 +79,10 @@ export async function build(args: string[]): Promise<void> {
   const mode = parsed.flags.mode as string;
   const outDir = parsed.flags.out as string;
   const verbose = parsed.flags.verbose as boolean;
-  const minify = !(parsed.flags["no-minify"] as boolean);
-  const sourceMaps = parsed.flags.sourcemap as boolean || mode !== "prod";
 
   log.info("build", `
   ╔══════════════════════════════════════════╗
-  ║   DownDraft Engine — Build               ║
+  ║   DownDraft Engine — Build (legacy)      ║
   ╚══════════════════════════════════════════╝
   `);
 
@@ -36,13 +90,10 @@ export async function build(args: string[]): Promise<void> {
   log.info("build", `  Target:   ${target}`);
   log.info("build", `  Mode:     ${mode}`);
   log.info("build", `  Output:   ${outDir}`);
-  log.info("build", `  Minify:   ${minify}`);
-  log.info("build", `  Maps:     ${sourceMaps}`);
 
   const builder = new Builder(mode as "dev" | "debug" | "prod");
   const config = builder.getConfig();
 
-  // Validate the output directory to prevent path traversal outside the project.
   const outPath = confinePath(projectPath, outDir);
   if (!existsSync(outPath)) {
     mkdirSync(outPath, { recursive: true });

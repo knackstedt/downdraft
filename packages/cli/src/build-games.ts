@@ -23,11 +23,7 @@
 //   JAVA_HOME     JDK path (defaults to /usr/lib/jvm/java-21-openjdk-amd64)
 
 import { createLogger } from "@downdraft/core";
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { ArgError, parseArgs as parseArgv, print, renderHelp } from "./args";
-import { mobile } from "./mobile";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -74,55 +70,6 @@ function groupPlatforms(platforms: string[]): PlatformGroups {
   return groups;
 }
 
-function buildEbArgs(groups: PlatformGroups): string[] {
-  const args: string[] = [];
-  if (groups.win.length) args.push(`--win${groups.win.join("")}`);
-  if (groups.linux.length) args.push(`--linux${groups.linux.join("")}`);
-  if (groups.mac.length) args.push(`--mac${groups.mac.join("")}`);
-  return args;
-}
-
-function getGameInfo(gameDir: string, game: string): { productName: string; appId: string } {
-  const pkgPath = resolve(gameDir, "package.json");
-  if (!existsSync(pkgPath)) return { productName: game, appId: `com.downdraft.${game}` };
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    const productName = pkg.productName ?? pkg.build?.productName ??
-      String(pkg.name ?? game).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    const appId = pkg.build?.appId ?? `com.downdraft.${game}`;
-    return { productName, appId };
-  } catch {
-    return { productName: game, appId: `com.downdraft.${game}` };
-  }
-}
-
-function runCommand(cmd: string, args: string[], cwd: string, label: string): boolean {
-  log.info("build-games", `[${label}] Running: ${cmd} ${args.join(" ")}`);
-  const result = spawnSync(cmd, args, {
-    cwd,
-    stdio: ["ignore", "inherit", "inherit"],
-    timeout: 600_000, // 10 min hard timeout
-  });
-  if (result.error) {
-    log.error("build-games", `[${label}] Failed to start: ${(result.error as Error).message}`);
-    return false;
-  }
-  if (result.status !== 0) {
-    log.error("build-games", `[${label}] Exited with code ${result.status}`);
-    return false;
-  }
-  return true;
-}
-
-function openReleaseFolder(repoRoot: string): void {
-  const releaseDir = resolve(repoRoot, "release");
-  if (!existsSync(releaseDir)) return;
-  log.info("build-games", "Opening release folder...");
-  // Background the opener so it doesn't block the terminal.
-  const opener = process.platform === "darwin" ? "open" : "xdg-open";
-  spawnSync(opener, [releaseDir], { stdio: "ignore", detached: true });
-}
-
 export async function buildGames(argv: string[]): Promise<void> {
   const entry = getCommand("build-games")!;
   // Check for --help before parsing (parseArgv validates required flags).
@@ -130,71 +77,38 @@ export async function buildGames(argv: string[]): Promise<void> {
     print(renderHelp(entry.usage, entry.schema));
     return;
   }
-  const repoRoot = process.cwd();
+
+  log.warn("build-games", "`draft build-games` is deprecated — use `draft release --games=<csv> --target=<csv>` instead.");
+  log.warn("build-games", "Delegating to `release`...");
+
   const { games, platforms } = parseBuildGamesArgs(argv);
   const groups = groupPlatforms(platforms);
-  const ebArgs = buildEbArgs(groups);
-  const mobileTargets: string[] = [];
-  if (groups.android) mobileTargets.push("android");
-  if (groups.ios) mobileTargets.push("ios");
 
-  let fail = 0;
-
-  // --- Desktop builds (electron-vite + electron-builder) ---
-  if (ebArgs.length > 0) {
-    log.info("build-games", `Desktop target platforms: ${ebArgs.join(" ")}`);
-    for (const game of games) {
-      const gameDir = resolve(repoRoot, "games", game);
-      const { productName, appId } = getGameInfo(gameDir, game);
-      log.info("build-games", "");
-      log.info("build-games", `Game: ${game} | Product: "${productName}" | AppId: ${appId}`);
-      log.info("build-games", `Building ${game} with Vite...`);
-      const viteOk = runCommand("npx", ["electron-vite", "build", "--config", `games/${game}/electron.vite.config.ts`], repoRoot, `Vite ${game}`);
-      if (!viteOk) { log.error("build-games", `Vite build failed for ${game} — skipping`); fail = 1; continue; }
-      log.info("build-games", `Packaging ${game} with electron-builder (${ebArgs.join(" ")})...`);
-      const ebOk = runCommand("npx", [
-        "electron-builder",
-        `-c.productName=${productName}`,
-        `-c.appId=${appId}`,
-        `-c.extraMetadata.name=${game}`,
-        ...ebArgs,
-      ], repoRoot, `electron-builder ${game}`);
-      if (!ebOk) { log.error("build-games", `electron-builder failed for ${game} — skipping`); fail = 1; continue; }
-      log.info("build-games", `${game} done.`);
-    }
+  // Build the release target string from the platform groups.
+  const targets: string[] = [];
+  if (groups.win.length || groups.linux.length || groups.mac.length) {
+    const desktop: string[] = [];
+    if (groups.win.length) desktop.push("win");
+    if (groups.linux.length) desktop.push("linux");
+    if (groups.mac.length) desktop.push("mac");
+    targets.push(...desktop);
   }
+  if (groups.android) targets.push("android");
+  if (groups.ios) targets.push("ios");
 
-  // --- Mobile builds (draft mobile → Capacitor + Gradle) ---
-  if (mobileTargets.length > 0) {
-    log.info("build-games", "");
-    log.info("build-games", `Mobile targets: ${mobileTargets.join(" ")}`);
-    for (const game of games) {
-      for (const target of mobileTargets) {
-        log.info("build-games", "");
-        log.info("build-games", `Mobile build: ${game} → ${target}`);
-        try {
-          await mobile(["--game", game, "--target", target]);
-        } catch (err) {
-          log.error("build-games", `Mobile build failed for ${game} (${target}): ${(err as Error).message}`);
-          fail = 1;
-        }
-        log.info("build-games", `${game} (${target}) done.`);
-      }
-    }
-  }
+  // Build the release format string from the platform sub-targets.
+  const formats: string[] = [];
+  for (const t of groups.win) if (t) formats.push(`win:${t}`);
+  for (const t of groups.linux) if (t) formats.push(`linux:${t}`);
+  for (const t of groups.mac) if (t) formats.push(`mac:${t}`);
 
-  // --- Summary ---
-  log.info("build-games", "");
-  if (fail) log.error("build-games", "One or more games failed — see output above.");
-  log.info("build-games", "All selected games processed.");
-  if (mobileTargets.length > 0) {
-    log.info("build-games", "Android APK: release/<name>-<version>-android.apk");
-    log.info("build-games", "iOS: open games/<game>/ios with Xcode");
-  }
+  const releaseArgs: string[] = [
+    `--games=${games.join(",")}`,
+    `--target=${targets.join(",")}`,
+  ];
+  if (formats.length > 0) releaseArgs.push(`--format=${formats.join(",")}`);
+  if (argv.includes("--verbose") || argv.includes("-v")) releaseArgs.push("--verbose");
 
-  openReleaseFolder(repoRoot);
-
-  // Hard exit — Vite/Capacitor/Gradle leave lingering handles that prevent
-  // the process from exiting on its own, which hangs the VSCode terminal.
-  process.exit(fail);
+  const { release } = await import("./release");
+  await release(releaseArgs);
 }

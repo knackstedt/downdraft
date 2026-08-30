@@ -57,7 +57,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 
 ## Build Fails
 
-**Symptom:** `draft build` fails.
+**Symptom:** `draft release --stage=build` (formerly `draft build`) fails.
 
 **Solutions:**
 
@@ -71,7 +71,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
    ```
 3. Try building with verbose logging:
    ```bash
-   draft build --mode=prod --out=dist --sourcemap
+   draft release --stage=build --mode=prod --out=dist --sourcemap
    ```
 
 ## High CPU Usage in Dev Mode
@@ -83,7 +83,7 @@ The sim worker supervisor automatically restarts on first crash from a DB checkp
 This is expected in dev mode due to telemetry, hot reload, and DevTools overhead. Use `prod` mode for performance testing:
 
 ```bash
-draft build --mode=prod --out=dist
+draft release --stage=build --mode=prod --out=dist
 ```
 
 ## Frame Rate Issues on Multi-Monitor Linux (X11)

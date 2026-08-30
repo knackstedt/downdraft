@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { build } from "./build";
-import { exportGame } from "./export";
+import { legacyFileCopyBuild } from "./build";
+import { packageLauncher } from "./export";
 import { newProject } from "./new";
 import { listTemplates } from "./scaffold";
 
@@ -56,9 +56,11 @@ describe("CLI new — minimal template", () => {
     expect(pkg.type).toBe("module");
     expect(pkg.dependencies["@downdraft/core"]).toBe("workspace:*");
     expect(pkg.scripts.dev).toBe("draft dev");
-    expect(pkg.scripts.build).toBe("draft build");
-    expect(pkg.scripts.export).toBe("draft export");
-    expect(pkg.scripts.dist).toBe("electron-vite build && draft dist");
+    expect(pkg.scripts.build).toBe("draft release --stage=build");
+    expect(pkg.scripts.export).toBe("draft release --stage=package --format=launcher");
+    expect(pkg.scripts.dist).toBe("draft release");
+    expect(pkg.scripts.release).toBe("draft release");
+    expect(pkg.scripts.mobile).toBe("draft release --target=android,ios");
     expect(pkg.scripts.typecheck).toBe("tsc --noEmit");
     expect(pkg.scripts.lint).toBe("oxlint");
     expect(pkg.scripts.test).toBe("npm test");
@@ -146,9 +148,8 @@ describe("CLI new — minimal template", () => {
     expect(tasks.version).toBe("2.0.0");
     const labels = tasks.tasks.map((t: any) => t.label);
     expect(labels).toContain("Dev");
-    expect(labels).toContain("Build");
-    expect(labels).toContain("Export");
-    expect(labels).toContain("Build & Export");
+    expect(labels).toContain("Release");
+    expect(labels).toContain("Build Only");
     expect(labels).toContain("Typecheck");
     expect(labels).toContain("Lint");
     expect(labels).toContain("Test");
@@ -156,10 +157,8 @@ describe("CLI new — minimal template", () => {
     expect(devTask.command).toBe("draft dev");
     expect(devTask.group.isDefault).toBe(true);
     const inputs = tasks.inputs.map((i: any) => i.id);
-    expect(inputs).toContain("buildTarget");
+    expect(inputs).toContain("releaseTarget");
     expect(inputs).toContain("buildMode");
-    expect(inputs).toContain("exportTarget");
-    expect(inputs).toContain("platformTarget");
   });
 
   it("should write valid tsconfig.json", async () => {
@@ -253,9 +252,9 @@ describe("CLI new — full template", () => {
     expect(existsSync(join(TEST_DIR, "build.config.ts"))).toBe(true);
   });
 
-  it("should use draft dist in the full template dist script", async () => {
+  it("should use draft release in the full template dist script", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.scripts.dist).toBe("electron-vite build && draft dist");
+    expect(pkg.scripts.dist).toBe("draft release");
   });
 
   it("should reference createDowndraftBuilderConfig in build.config.ts", async () => {
@@ -336,7 +335,7 @@ describe("CLI build", () => {
   });
 
   it("should build the project", async () => {
-    await build([TEST_DIR, "--out=dist"]);
+    await legacyFileCopyBuild([TEST_DIR, "--out=dist"]);
 
     const distDir = join(TEST_DIR, "dist");
     expect(existsSync(distDir)).toBe(true);
@@ -362,7 +361,7 @@ describe("CLI export", () => {
   beforeAll(async () => {
     ensureCleanDir();
     await newProject([TEST_DIR, "--template=minimal", "--name=my-game"]);
-    await build([TEST_DIR, "--out=dist"]);
+    await legacyFileCopyBuild([TEST_DIR, "--out=dist"]);
   });
 
   afterAll(() => {
@@ -370,7 +369,7 @@ describe("CLI export", () => {
   });
 
   it("should export for all platforms", async () => {
-    await exportGame([TEST_DIR, "--target=all", "--out=export"]);
+    await packageLauncher(TEST_DIR, "all", "export", false, false);
 
     const exportDir = join(TEST_DIR, "export");
     expect(existsSync(join(exportDir, "windows"))).toBe(true);
@@ -465,6 +464,7 @@ describe("CLI --help and --version", () => {
     expect(help).toContain("Usage: draft <command>");
     expect(help).toContain("new");
     expect(help).toContain("dev");
+    expect(help).toContain("release");
     expect(help).toContain("test");
     expect(help).toContain("assets");
     expect(help).toContain("mobile");

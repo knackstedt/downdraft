@@ -12,11 +12,11 @@ bun install
 cd games/<your-game>
 draft dev
 
-# Build for production
-draft build --mode=prod --out=dist
+# Build + package for distribution (desktop + mobile)
+draft release --game=<your-game>
 
-# Package for distribution
-draft export --target=all --out=export
+# Build only (Vite bundle, no packaging)
+draft release --game=<your-game> --stage=build
 ```
 
 ## Game-Bootstrapped Host Layer
@@ -75,7 +75,7 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 | `@downdraft/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
 | `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
 | `@downdraft/shader-graph` | Material/shader graph compiler and validator |
-| `@downdraft/cli` | CLI tool (`draft new/dev/debug/build/build-games/dist/export/mobile/assets/test`) |
+| `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test`) |
 
 ### Engine libraries (`packages/libraries/`)
 

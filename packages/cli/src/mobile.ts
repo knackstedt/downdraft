@@ -197,7 +197,7 @@ createDowndraftMobileApp({
 /**
  * Build the web bundle for mobile using the mobile Vite config.
  */
-async function buildMobileWeb(gameDir: string): Promise<boolean> {
+export async function buildMobileWeb(gameDir: string): Promise<boolean> {
   log.info("mobile", "Building web bundle for mobile (dist/mobile/)...");
 
   // Use Vite's programmatic build API.
@@ -1127,37 +1127,31 @@ export function signAndroidApk(apkPath: string): "release" | "debug" | "skipped"
 // Main entry point
 // ---------------------------------------------------------------------------
 
-export async function mobile(args: string[]): Promise<void> {
-  const opts = parseMobileArgs(args);
-  const repoRoot = resolve(import.meta.dir, "../../..");
+/**
+ * Package a game for mobile distribution (Capacitor shell + Gradle + sign).
+ *
+ * Extracted from `mobile()` so `draft release --stage=package` can call it
+ * directly without going through the argv-parsing entry point. This does
+ * steps 3–9 of the mobile pipeline (shell copy through APK sign + collect).
+ * The web bundle build (step 2) is handled separately by `buildMobileWeb()`.
+ *
+ * @returns the path to the collected APK (Android), or null for iOS-only.
+ */
+export async function packageMobile(
+  opts: MobileArgs,
+  repoRoot: string,
+): Promise<string | null> {
   const gameDir = resolve(repoRoot, "games", opts.game);
   const shellDir = resolve(repoRoot, "packages/mobile-shell");
 
-  log.info("mobile", `
-  ╔══════════════════════════════════════════╗
-  ║   DownDraft Engine — Mobile (Capacitor)  ║
-  ╚══════════════════════════════════════════╝
-  `);
-
-  log.info("mobile", `  Game:        ${opts.game}`);
-  log.info("mobile", `  Target:      ${opts.target}`);
-  log.info("mobile", `  Port:        ${opts.port}`);
-  log.info("mobile", `  Skip build:  ${opts.skipBuild}`);
-  log.info("mobile", `  Skip gradle: ${opts.skipGradle}`);
-  log.info("mobile", `  No icons:    ${opts.noIcons}`);
-  log.info("mobile", `  No overrides:${opts.noOverrides}`);
-  if (opts.verbose) log.info("mobile", `  Verbose:     on`);
-  log.info("mobile", "");
-
-  // 1. Check prerequisites
+  // Check prerequisites
   if (!existsSync(gameDir)) {
-    log.error("mobile", `Game directory not found: ${gameDir}`);
+    log.error("release:package:mobile", `Game directory not found: ${gameDir}`);
     process.exit(1);
   }
-
   if (!existsSync(shellDir)) {
-    log.error("mobile", `Mobile shell not found at ${shellDir}`);
-    log.info("mobile", "Ensure packages/mobile-shell/ is present in the engine repo.");
+    log.error("release:package:mobile", `Mobile shell not found at ${shellDir}`);
+    log.info("release:package:mobile", "Ensure packages/mobile-shell/ is present in the engine repo.");
     process.exit(1);
   }
 
@@ -1193,112 +1187,83 @@ export async function mobile(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  log.info("mobile", `  AppId:       ${appId}`);
-  log.info("mobile", `  AppName:     ${appName}`);
-  log.info("mobile", "");
+  log.info("release:package:mobile", `  AppId:       ${appId}`);
+  log.info("release:package:mobile", `  AppName:     ${appName}`);
+  log.info("release:package:mobile", "");
 
-  // 2. Build the web bundle
-  if (!opts.skipBuild) {
-    const ok = await buildMobileWeb(gameDir);
-    if (!ok) process.exit(1);
-  } else {
-    log.info("mobile", "Skipping web build (--skip-build).");
-  }
-
-  // 3. Copy the engine-owned native shell into the game directory
+  // Copy the engine-owned native shell into the game directory
   const copyOk = copyShell(gameDir, shellDir, opts.target);
   if (!copyOk) process.exit(1);
 
-  // 4. Patch game-specific values into the shell
+  // Patch game-specific values into the shell
   patchShell(gameDir, appId, appName, opts.port, opts.target);
 
-  // 5. Generate app icons + splash screens from icon.png (or placeholder)
-  //    The shell ships NO binary images — all icons/splashes are generated
-  //    at build time. If no icon.png is found, solid-color placeholders are
-  //    generated. Use --no-icons to skip (escape hatch for fast iteration;
-  //    the build will fail without icons unless overrides provide them).
+  // Generate app icons + splash screens from icon.png (or placeholder)
   if (!opts.noIcons) {
     const androidDir = resolve(gameDir, "android");
     const iosAppDir = resolve(gameDir, "ios/App/App");
-    if (opts.target === "android") {
-      await generateIcons(gameDir, androidDir, iosAppDir);
-    } else {
-      // ios or all — generate for both platforms
-      await generateIcons(gameDir, androidDir, iosAppDir);
-    }
+    await generateIcons(gameDir, androidDir, iosAppDir);
   } else {
-    log.info("mobile", "Skipping icon generation (--no-icons).");
-    log.warn("mobile", "  The shell has no placeholder images — build will fail without icons.");
-    log.info("mobile", "  Provide icons via mobile-overrides/ or remove --no-icons.");
+    log.info("release:package:mobile", "Skipping icon generation (--no-icons).");
+    log.warn("release:package:mobile", "  The shell has no placeholder images — build will fail without icons.");
+    log.info("release:package:mobile", "  Provide icons via mobile-overrides/ or remove --no-icons.");
   }
 
-  // 6. Apply mobile-overrides/ merge layer (if present)
+  // Apply mobile-overrides/ merge layer (if present)
   if (!opts.noOverrides) {
     applyOverrides(gameDir, opts.target);
   } else {
-    log.info("mobile", "Skipping overrides (--no-overrides).");
+    log.info("release:package:mobile", "Skipping overrides (--no-overrides).");
   }
 
-  // 7. Ensure capacitor.config.ts exists (write if missing)
+  // Ensure capacitor.config.ts exists (write if missing)
   appId = await ensureCapacitorConfig(gameDir, appId, appName, opts.port);
 
-  // 8. Sync web bundle to native projects
+  // Sync web bundle to native projects
   const syncOk = await syncCapacitor(gameDir, opts.target);
   if (!syncOk) process.exit(1);
 
-  // 9. Build the release APK + collect it into release/ (Android only).
-  //    Mirrors `draft dist` (electron-builder → release/): the APK is built via
-  //    the Gradle wrapper, then copied to release/<name>-<ver>-android.apk
-  //    and unpacked to release/android-unpacked/ for inspection. Both paths are
-  //    gitignored (root `release` entry). The collected APK is then signed
-  //    in place (release keystore → debug fallback) so it installs on devices.
-  let androidSignStatus: "release" | "debug" | "skipped" = "skipped";
+  // Build the release APK + collect it into release/ (Android only).
+  let apkPath: string | null = null;
   if (opts.target === "android" || opts.target === "all") {
     if (opts.skipGradle) {
-      log.info("mobile", "Skipping Gradle APK build (--skip-gradle).");
+      log.info("release:package:mobile", "Skipping Gradle APK build (--skip-gradle).");
     } else {
       const buildOk = await buildAndroidApk(gameDir);
       if (!buildOk) process.exit(1);
 
-      const apkPath = collectAndroidArtifacts(gameDir, repoRoot, appName, version);
+      apkPath = collectAndroidArtifacts(gameDir, repoRoot, appName, version);
       if (!apkPath) process.exit(1);
 
       // Sign the collected APK in place (release keystore → debug fallback).
-      // Signing is a post-build step so the shell's build.gradle stays stock
-      // and no secrets live in any Gradle file. See signAndroidApk() docs.
       const signStatus = signAndroidApk(apkPath);
-      androidSignStatus = signStatus;
+      if (signStatus === "release") {
+        log.info("release:package:mobile", `  Signed with release keystore — ready for distribution.`);
+      } else if (signStatus === "debug") {
+        log.info("release:package:mobile", `  Signed with debug keystore — installable for testing, NOT for distribution.`);
+      } else {
+        log.info("release:package:mobile", `  UNSIGNED — Android will refuse to install it. See warnings above.`);
+      }
     }
   }
 
-  // 10. Done
-  log.info("mobile", "");
-  log.info("mobile", "Mobile build complete.");
-  log.info("mobile", "");
-  log.info("mobile", "Next steps:");
-  const capBin = resolveCapBinary(gameDir);
-  if (opts.target === "android" || opts.target === "all") {
-    log.info("mobile", `  APK:     release/${appName}-${version}-android.apk`);
-    log.info("mobile", `  Unpacked: release/android-unpacked/`);
-    log.info("mobile", `  Run on device/emulator: ${capBin} open android  (then Run in Android Studio)`);
-    if (androidSignStatus === "release") {
-      log.info("mobile", `  Signed with release keystore — ready for distribution.`);
-    } else if (androidSignStatus === "debug") {
-      log.info("mobile", `  Signed with debug keystore — installable for testing, NOT for distribution.`);
-    } else {
-      log.info("mobile", `  UNSIGNED — Android will refuse to install it. See warnings above.`);
-    }
-  }
-  if (opts.target === "ios" || opts.target === "all") {
-    log.info("mobile", `  iOS:     ${capBin} open ios      (then Run in Xcode)`);
-  }
-  log.info("mobile", "");
-  log.info("mobile", "IMPORTANT: WebGPU requires Android WebView 121+ or iOS / iPadOS 26+.");
-  log.info("mobile", "The embedded HTTP server is pre-wired (COOP/COEP for SharedArrayBuffer).");
-  log.info("mobile", "Native projects (android/ + ios/) are gitignored — regenerated from packages/mobile-shell/.");
-  log.info("mobile", "Release artifacts (release/ + release/android-unpacked/) are gitignored.");
+  return apkPath;
+}
 
-  // Exit explicitly — dynamic import() calls (vite, capacitor config) leave
-  // lingering handles that prevent the process from exiting on its own.
-  process.exit(0);
+export async function mobile(args: string[]): Promise<void> {
+  const opts = parseMobileArgs(args);
+
+  log.warn("mobile", "`draft mobile` is deprecated — use `draft release --target=android,ios` instead.");
+  log.warn("mobile", "Delegating to `release`...");
+
+  // Map old mobile args → release args.
+  const releaseArgs: string[] = [`--game=${opts.game}`, `--target=${opts.target}`, `--port=${opts.port}`];
+  if (opts.skipBuild) releaseArgs.push("--skip-build");
+  if (opts.skipGradle) releaseArgs.push("--skip-gradle");
+  if (opts.noIcons) releaseArgs.push("--no-icons");
+  if (opts.noOverrides) releaseArgs.push("--no-overrides");
+  if (opts.verbose) releaseArgs.push("--verbose");
+
+  const { release } = await import("./release");
+  await release(releaseArgs);
 }

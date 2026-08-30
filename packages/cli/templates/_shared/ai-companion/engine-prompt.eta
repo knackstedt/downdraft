@@ -141,8 +141,8 @@ world.registerPlugin(myPlugin);
 draft new [path] [options]      Scaffold a new game project
 draft dev [options]             Start dev server with HMR
 draft debug [options]           Run engine in debug mode
-draft build [options]           Build for target platform
-draft export [options]          Package for distribution
+draft release [options]         Unified build + package + sign pipeline
+                                (--stage=build|package|release, --target=win|linux|mac|android|ios|all)
 draft assets <cmd>              Manage remote asset packs
 ```
 
