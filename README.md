@@ -60,12 +60,13 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 └─────────────────────────────────────────────┘
 ```
 
-- **Electron Main Process** — Window/lifecycle management, SurrealDB worker thread, IPC handlers, GC/perf profiling. No render loop here.
-- **Renderer Process** — React UI overlay + WebGPU `<canvas>` rendering. The `RenderLoop` runs here via `requestAnimationFrame`.
+- **Electron Main Process** — Window/lifecycle management, IPC handlers, GC/perf profiling, save/load (filesystem-based `FileSaveStore`). No render loop here.
+- **Renderer Process** — React UI overlay + WebGPU `<canvas>` rendering. The `RenderLoop` runs here via `requestAnimationFrame`. Persistence uses an OPFS Web Worker for renderer-side saves.
 - **Sim Web Worker** — Spawned from the renderer. Runs the ECS `World`, game systems, physics, and plugins. Communicates with the renderer via `SharedArrayBuffer` (zero-copy) and postMessage events.
-- **DB Worker Thread** — SurrealDB (SurrealKV) embedded in a Node.js worker thread in the main process. Handles save/load and game state queries.
 
 ## Packages
+
+### Engine core
 
 | Package | Description |
 |---|---|
@@ -75,19 +76,68 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 | `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
 | `@downdraft/shader-graph` | Material/shader graph compiler and validator |
 | `@downdraft/cli` | CLI tool (`draft new/dev/debug/build/build-games/dist/export/mobile/assets/test`) |
-| `@downdraft/plugin-water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
-| `@downdraft/plugin-marching-cubes` | Voxel terrain with LOD and deformation |
-| `@downdraft/plugin-physics-rapier` | Rapier3D physics backend |
-| `@downdraft/plugin-audio-kira` | Kira audio backend (Rust FFI via `packages/audio-native`) |
-| `@downdraft/plugin-networking` | WebSocket transport, state replication, RPCs |
-| `@downdraft/plugin-boats` | Boat design system and boat data buffer |
-| `@downdraft/plugin-items` | Item definitions and registry |
-| `@downdraft/plugin-inventory` | Inventory management |
-| `@downdraft/plugin-crafting` | Crafting recipes and system |
-| `@downdraft/plugin-economy` | Market system and price history |
-| `@downdraft/plugin-fishing` | Fishing mechanics |
-| `@downdraft/plugin-weather` | Weather system |
-| `@downdraft/plugin-survival` | Survival mechanics |
+
+### Engine libraries (`packages/libraries/`)
+
+Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRapierLib`) for declarative wiring in `GameModule.libraries[]`, plus bare class exports as an escape hatch.
+
+| Package | Description |
+|---|---|
+| `@downdraft/library-water` | Gerstner wave water rendering, buoyancy, shore/wake interactions |
+| `@downdraft/library-marching-cubes` | Voxel terrain with LOD and deformation |
+| `@downdraft/library-surface-nets` | Surface-nets mesh extraction from voxel fields |
+| `@downdraft/library-physics-rapier` | Rapier3D physics backend |
+| `@downdraft/library-physics-native` | Native physics backend |
+| `@downdraft/library-audio-kira` | Kira audio backend (Rust FFI via `packages/libraries/audio-kira/native`) |
+| `@downdraft/library-networking` | WebSocket transport, state replication, RPCs |
+| `@downdraft/library-weather` | Weather system |
+| `@downdraft/library-weatherfx` | Weather visual effects |
+| `@downdraft/library-lighting` | Lighting system |
+| `@downdraft/library-postfx` | Post-processing effects |
+| `@downdraft/library-entities` | Generic model renderer used by multiple games |
+| `@downdraft/library-models` | Model loading and management |
+| `@downdraft/library-animation` | Animation system |
+| `@downdraft/library-particles` | Particle system and emitters |
+| `@downdraft/library-navmesh` | Navigation mesh generation and pathfinding |
+| `@downdraft/library-persistence` | Save/load (filesystem + OPFS worker) |
+| `@downdraft/library-gaussian-splats` | Gaussian splat rendering |
+| `@downdraft/library-sand` | Falling-sand simulation |
+| `@downdraft/library-stickman` | Stickman character system |
+| `@downdraft/library-undertow` | Undertow fluid/flow system |
+| `@downdraft/library-imui` | Immediate-mode UI |
+
+### Engine plugins (`packages/plugins/`)
+
+Feature plugins use the factory pattern (`createXxxPlugin(config)`) and provide typed DI tokens. Games register them via `pluginHost.usePlugins([...])`.
+
+| Package | Description |
+|---|---|
+| `@downdraft/plugin-camera-controls` | Camera input and control modes |
+| `@downdraft/plugin-devtools` | DevTools overlay panel + Chromium DevTools extension (3D Scene Inspector) |
+| `@downdraft/plugin-electron-osr` | Electron offscreen rendering |
+| `@downdraft/plugin-mcp` | In-game MCP automation harness |
+| `@downdraft/plugin-xr` | WebXR / VR support |
+| `@downdraft/plugin-terrain` | Terrain system |
+| `@downdraft/plugin-movement-3d` | 3D movement system |
+| `@downdraft/plugin-movement-2d` | 2D movement system |
+| `@downdraft/plugin-sailing` | Sailing mechanics |
+
+### Game plugins / libraries (`games/<game>/plugins/`)
+
+Game-specific features live under each game's `plugins/` directory. No engine package depends on any game package. Examples from `games/to-the-ocean/plugins/`:
+
+| Package | Description |
+|---|---|
+| `@to-the-ocean/plugin-inventory` | Inventory management |
+| `@to-the-ocean/plugin-crafting` | Crafting recipes and system |
+| `@to-the-ocean/library-boats` | Boat design system and boat data buffer |
+| `@to-the-ocean/library-items` | Item definitions and registry |
+| `@to-the-ocean/library-economy` | Market system and price history |
+| `@to-the-ocean/library-fishing` | Fishing mechanics |
+| `@to-the-ocean/library-survival` | Survival mechanics |
+| `@to-the-ocean/library-wildlife` | Wildlife simulation |
+| `@to-the-ocean/library-buoyancy` | Buoyancy system |
+| `@to-the-ocean/library-collision` | Collision system |
 
 ## CLI Commands
 
@@ -109,14 +159,14 @@ Starts the engine in dev mode via `electron-vite dev` with HMR, loading the game
 
 > **Note:** Each game owns its own `electron.vite.config.ts` entrypoint. `draft dev --game=<name>` loads it directly — there is no root dispatcher or `DOWNDRAFT_GAME` env var. You can also run `npx electron-vite dev --config games/<game>/electron.vite.config.ts` directly.
 
-### `draft debug [options]`
-Runs the engine in debug mode with profiling, debug draw, and visualization tools.
+### `draft debug [path] [options]`
+Runs the engine in debug mode with profiling, debug draw, and visualization tools. `path` defaults to `.`.
 - `--verbose, -v` — Verbose logging
 - `--no-devtools` — Disable devtools overlay
 - `--inspector` — Enable Node inspector
 
-### `draft build [options]`
-Builds the game for the target platform.
+### `draft build [path] [options]`
+Builds the game for the target platform. `path` defaults to `.` (use `--game` to target `games/<game>` instead).
 - `--game <name>`, `-g` — Game to build (resolves `games/<game>`)
 - `--target=<t>` — Target: `current` / `win` / `linux` / `mac` (default: `current`)
 - `--mode=<m>` — Build mode: `dev` / `debug` / `prod` (default: `prod`)
@@ -135,8 +185,8 @@ Packages a game for distribution via `electron-builder`.
 - `--target <t>`, `-t` — `win` / `linux` / `mac` / `all` (default: `all`)
 - `--config <path>`, `-c` — Explicit config file path
 
-### `draft export [options]`
-Packages a built game for distribution with per-platform launchers.
+### `draft export [path] [options]`
+Packages a built game for distribution with per-platform launchers. `path` defaults to `.`.
 - `--target=<t>` — Target: `win` / `linux` / `mac` / `all` (default: `all`)
 - `--out=<dir>` — Output directory (default: `export`)
 - `--no-compress` — Disable compression
@@ -154,7 +204,7 @@ Builds + scaffolds a Capacitor mobile target (Android / iOS).
 ### `draft assets <command> [project] [options]`
 Manages remote asset packs.
 - Subcommands: `init`, `add-store`, `add`, `pull`, `push`, `list`
-- Run `draft assets --help` for subcommand flags.
+- Run `draft assets <subcommand> --help` for subcommand flags.
 
 ### `draft test [options]`
 Runs e2e tests via MCP automation (SwiftShader + deterministic by default).
@@ -167,13 +217,13 @@ Runs e2e tests via MCP automation (SwiftShader + deterministic by default).
 ## Editor UI
 
 ### DevTools Panel
-Overlay panel with debug toggles, telemetry graphs, entity inspector, and asset loader. Toggleable at runtime.
+Overlay panel with debug toggles, telemetry graphs, entity inspector, and asset loader. Conditionally rendered by the host (toggle via the host's show/hide control).
 
 ### Material Graph Editor
-Node-based shader editor with drag-and-drop connections, real-time WGSL compilation, and validation.
+Node-based shader editor with drag-and-drop connections, WGSL compilation, and validation (triggered via Compile/Validate buttons).
 
 ### Animation State Machine Editor
-Visual state machine editor with drag-and-drop states, transition arrows, parameter management, and blend tree support.
+Visual state machine editor with drag-and-drop states, transition arrows, and parameter management. Blend tree data types are exported for programmatic use.
 
 ### Asset Browser
 Grid/list view of project assets with type filtering, search, and import functionality.
@@ -185,23 +235,25 @@ Real-time frame time graph with CPU/GPU timing, p50/p95/p99 statistics, and per-
 Wireframe, hitboxes, normals, velocity, shadows, bloom, AABBs, overdraw, LOD visualization, depth buffer, and tangents.
 
 ### Chrome DevTools Extension
-A custom DevTools extension (`devtools-extension/`) provides a 3D Scene Inspector when loaded into Chromium DevTools.
+A custom DevTools extension (`packages/plugins/devtools/extension/`) provides a 3D Scene Inspector when loaded into Chromium DevTools.
 
 ## Tutorials
 
 ### Creating Your First Scene
 
 ```typescript
-import { Camera, Component, MeshBuilder, World } from "@downdraft/core";
+import { Camera, Component, MeshBuilder, resourceToken, World } from "@downdraft/core";
 
 const world = new World();
 const camera = new Camera();
 camera.setAspect(16, 9);
 camera.distance = 5;
-world.setResource("camera", camera);
+const CameraRes = resourceToken<Camera>("camera");
+world.setResourceTyped(CameraRes, camera);
 
 const mesh = MeshBuilder.cube(1);
-world.setResource("cubeMesh", mesh);
+const CubeMeshRes = resourceToken<typeof mesh>("cubeMesh");
+world.setResourceTyped(CubeMeshRes, mesh);
 ```
 
 See `examples/minimal/main.ts` for a complete minimal example and `examples/physics-demo/main.ts` for a physics demo with spawning entities and components.
@@ -224,27 +276,31 @@ const smokeId = particles.registerEmitter(
 
 // Update each frame
 particles.update(dt);
-particles.render(renderCtx, camera.viewProj, camera.position);
+particles.render(renderCtx, camera.getViewProjectionMatrix(), camera.position);
 ```
 
 ### Using Plugins
 
+Engine libraries expose `EngineLibrary` descriptors and are wired declaratively via `startGame()`:
+
 ```typescript
-import { GameWorld, Scene, World } from "@downdraft/core";
-import { PhysicsRapierPlugin } from "@downdraft/plugin-physics-rapier";
-import { AudioKiraPlugin } from "@downdraft/plugin-audio-kira";
-import { WaterPlugin } from "@downdraft/plugin-water";
-import { MarchingCubesPlugin } from "@downdraft/plugin-marching-cubes";
-import { NetworkingPlugin } from "@downdraft/plugin-networking";
+import { startGame } from "@downdraft/app/renderer";
+import { PhysicsRapierLib } from "@downdraft/library-physics-rapier";
+import { AudioKiraLib } from "@downdraft/library-audio-kira";
+import { WaterLib } from "@downdraft/library-water";
+import { MarchingCubesLib } from "@downdraft/library-marching-cubes";
+import { NetworkingLib } from "@downdraft/library-networking";
 
-const gameWorld = new GameWorld(new Scene(new World()));
-
-gameWorld.usePlugin(PhysicsRapierPlugin);
-gameWorld.usePlugin(AudioKiraPlugin);
-gameWorld.usePlugin(WaterPlugin);
-gameWorld.usePlugin(MarchingCubesPlugin);
-gameWorld.usePlugin(NetworkingPlugin);
+startGame({
+  libraries: [PhysicsRapierLib, AudioKiraLib, WaterLib, MarchingCubesLib, NetworkingLib],
+  renderer: (canvas) => new WebGPURenderer(canvas),
+  sim: (seed) => new SimWebWorker(seed?.libraryBuffers),
+  simConfig: { seed: 12345, gamemode: 0, rules: {} },
+  mountUI: (overlay) => { /* React/Solid mount */ },
+});
 ```
+
+Feature plugins (e.g. `@downdraft/plugin-terrain`, `@downdraft/plugin-movement-3d`) use the factory pattern and are activated via `pluginHost.usePlugins([...])`. See `AGENTS.md` for the full plugin/library contract.
 
 ## Mobile Development (Android)
 
@@ -296,7 +352,7 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 
 ### SharedArrayBuffer on Android WebView
 
-Android WebView does not support cross-origin isolation (`self.crossOriginIsolated` is always `false` even with COOP/COEP headers). The engine's boot guard checks for `SharedArrayBuffer` directly instead of relying on `crossOriginIsolated`.
+Android WebView does not support cross-origin isolation (`self.crossOriginIsolated` is always `false` even with COOP/COEP headers). The engine's boot guard checks for WebGPU (`navigator.gpu`) directly rather than relying on `crossOriginIsolated`, and transparently polyfills `SharedArrayBuffer` when the native constructor is unavailable — so games run on Android WebView regardless of whether real SAB is enabled.
 
 For **debug builds** on emulators or physical devices, enable SAB via the WebView command-line flag:
 

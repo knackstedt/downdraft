@@ -2,6 +2,7 @@
   "name": "downdraft-engine",
   "version": "0.1.0",
   "description": "AI-Driven Game Engine on Electron + WebGPU",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/main/index.cjs",
   "scripts": {
