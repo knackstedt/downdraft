@@ -12,6 +12,7 @@
     "./worker/*": "./src/worker/*.ts"
   },
   "dependencies": {
-    "@downdraft/core": "workspace:*"
+    "@downdraft/core": "workspace:*",
+    "cbor-x": "^1.6.5"
   }
 }
