@@ -72,6 +72,24 @@ export type SimWorkerFactory<T extends GameSimWorker = GameSimWorker> = (seed?: 
 export type RendererFactory = (canvas: HTMLCanvasElement) => any;
 
 /**
+ * Renderer-side save source — an alternative to the sim worker for providing
+ * serializable game state. Renderer-only games (no sim worker) declare a
+ * `saveSource` in their `GameModule` so the autosave wiring can call it
+ * instead of `sim.save()`.
+ *
+ * Sim-worker games do NOT need this — the sim worker's optional `save()`
+ * method is used directly. A game that declares both `sim` and `saveSource`
+ * is a configuration error; `saveSource` takes priority.
+ */
+export interface GameSaveSource {
+  /** Serialize current state and return it as a JSON string. */
+  save(slotName: string): Promise<{ stateJson: string; success: boolean } | null>;
+  /** Optional: load a previously saved state. If omitted, the save store's
+   *  own load path is used (OPFS / IPC). */
+  load?(slotName: string): Promise<string | null>;
+}
+
+/**
  * Declarative event handler map. Each key is a sim→renderer message `kind`;
  * each value is a handler that receives the message data and the game context.
  *
@@ -99,7 +117,14 @@ export interface GameSaveConfig {
  * framework-managed resource — no module-scope `let` variables needed.
  *
  * The `Sim` type parameter lets games specify their concrete sim worker type
- * so `ctx.sim` is typed correctly (no casting).
+ * so `ctx.sim` is typed correctly (no casting). For renderer-only games (no
+ * `sim` declared in the `GameModule`), `Sim` defaults to `GameSimWorker` and
+ * `ctx.sim` is `undefined` — hooks should not access it.
+ *
+ * Sim fields (`sim`, `simSAB`, `inputSAB`) are optional because renderer-only
+ * games don't have a sim worker. Games that declare `sim` can safely use
+ * non-null assertions (`ctx.sim!`) in their hooks — `startGame()` guarantees
+ * the sim worker is created when `module.sim` is declared.
  */
 export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   /** The renderer instance (typed as `any` — games cast to their renderer class). */
@@ -108,18 +133,25 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
   canvas: HTMLCanvasElement;
   /** The DOM overlay element (for UI mounting). */
   overlay: HTMLElement;
-  /** The sim worker instance. */
-  sim: Sim;
-  /** The sim SAB (entity/component data, zero-copy shared with the sim worker). */
-  simSAB: SharedArrayBuffer;
-  /** The input SAB (renderer writes, sim worker reads). */
-  inputSAB: SharedArrayBuffer;
-  /** Extra SABs from `sim.getExtraBuffers()` (e.g. water, custom-game-data). */
+  /** The sim worker instance. Undefined for renderer-only games (no `sim` declared). */
+  sim?: Sim;
+  /** The sim SAB (entity/component data, zero-copy shared with the sim worker).
+   *  Undefined for renderer-only games. */
+  simSAB?: SharedArrayBuffer;
+  /** The input SAB (renderer writes, sim worker reads).
+   *  Undefined for renderer-only games. */
+  inputSAB?: SharedArrayBuffer;
+  /** Extra SABs from `sim.getExtraBuffers()` (e.g. water, custom-game-data).
+   *  For renderer-only games, this contains only library-allocated SABs (if any). */
   extraBuffers: Record<string, SharedArrayBuffer>;
   /** The save store, if save config was provided and init succeeded. May be null. */
   saveStore: ISaveStore | null;
   /** The save mode that was actually selected (may differ from config in fallback). */
   saveMode: "inline" | "worker" | "ipc";
+  /** The renderer-side save source, if `module.saveSource` was declared.
+   *  Used by the autosave wiring for renderer-only games. Undefined for
+   *  sim-worker games (which use `sim.save()` instead). */
+  saveSource?: GameSaveSource;
   /** The typed downdraft bridge (window.downdraft). */
   bridge: typeof downdraft;
   /** True if running in deterministic/test mode (DOWNDRAFT_DETERMINISTIC=1). */
@@ -135,21 +167,32 @@ export interface GameContext<Sim extends GameSimWorker = GameSimWorker> {
  * A declarative game definition.
  *
  * Games create a `GameModule` and pass it to `startGame()`. The module
- * describes the renderer, sim worker, UI, event routing, save config,
- * devtools, and game-specific hooks. `startGame()` orchestrates the full
- * bootstrap sequence.
+ * describes the renderer, sim worker (optional), UI, event routing, save
+ * config, devtools, and game-specific hooks. `startGame()` orchestrates the
+ * full bootstrap sequence.
  *
  * The `Sim` generic parameter lets games specify their concrete sim worker
- * type so `GameContext.sim` is typed correctly (no casting).
+ * type so `GameContext.sim` is typed correctly (no casting). For renderer-only
+ * games, omit `sim` and `simConfig` — `Sim` defaults to `GameSimWorker` and
+ * the sim-related hooks (`events`, `onSimStart`) are ignored.
+ *
+ * Two topologies:
+ *   - **Sim-worker**: declare `sim` + `simConfig`. `startGame()` spawns the
+ *     worker, captures SABs, wires event routing, and starts the sim.
+ *   - **Renderer-only**: omit `sim` + `simConfig`. All logic runs on the
+ *     renderer thread. Declare `saveSource` if you need autosave. Use
+ *     engine libraries (e.g. `WeatherFxLib`, `ModelsLib`) for GPU-side work.
  */
 export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
-  // ── Required: renderer + sim ──
+  // ── Required: renderer ──
   /** Factory that creates the renderer from a canvas. */
   renderer: RendererFactory;
-  /** Factory that creates the sim worker. */
-  sim: SimWorkerFactory<Sim>;
-  /** Config passed to `sim.start()`. Typed as the game's sim config. */
-  simConfig: Record<string, unknown>;
+
+  // ── Optional: sim worker (omit for renderer-only games) ──
+  /** Factory that creates the sim worker. Omit for renderer-only games. */
+  sim?: SimWorkerFactory<Sim>;
+  /** Config passed to `sim.start()`. Required when `sim` is declared. */
+  simConfig?: Record<string, unknown>;
 
   // ── UI ──
   /** Mount the UI framework (React: createRoot().render(), Solid: render(), etc). */
@@ -157,13 +200,18 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
   /** CSS imports / side-effect imports to run before UI mount. Optional. */
   imports?: () => void;
 
-  // ── Event routing ──
-  /** Declarative sim→renderer event handler map. Replaces the switch block. */
+  // ── Event routing (sim-worker games only) ──
+  /** Declarative sim→renderer event handler map. Replaces the switch block.
+   *  Ignored for renderer-only games (no sim worker to emit events). */
   events?: SimEventMap<GameContext<Sim>>;
 
   // ── Save ──
   /** Save configuration. If omitted, no autosave is wired. */
   save?: GameSaveConfig;
+  /** Renderer-side save source for renderer-only games. When declared, the
+   *  autosave wiring calls `saveSource.save()` instead of `sim.save()`.
+   *  Ignored for sim-worker games (the sim worker's `save()` is used). */
+  saveSource?: GameSaveSource;
 
   // ── Engine libraries ──
   /**
@@ -201,9 +249,14 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
    */
   onInit?: (ctx: GameContext<Sim>) => Promise<boolean> | boolean;
   /**
-   * Called after the sim worker is started (in parallel with renderer init).
-   * Default: calls `sim.start(simConfig)`. Override to add player spawn
-   * after sim is ready.
+   * Called to start the sim worker (only when `sim` is declared and `onInit`
+   * is NOT overridden). Default: calls `sim.start(simConfig)`. Override to
+   * add player spawn after sim is ready. Ignored for renderer-only games.
+   *
+   * When `onInit` IS overridden, the game's `onInit` owns sim start — this
+   * hook is not called. This lets games start the sim in parallel with
+   * `renderer.init()` (e.g. to-the-ocean does `Promise.all([renderer.init(),
+   * sim.start(config)])` in its `onInit`).
    */
   onSimStart?: (ctx: GameContext<Sim>) => Promise<void> | void;
   /**
@@ -242,16 +295,24 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
  *
  * This is the high-level entry point. It wraps `bootstrapGame()` and adds:
  *   - Engine library auto-wiring (SAB allocation, sim systems, renderer passes)
- *   - Sim worker spawn + SAB capture
- *   - Declarative event routing (the `events` map)
- *   - Save store initialization
+ *   - Sim worker spawn + SAB capture (skipped for renderer-only games)
+ *   - Declarative event routing (the `events` map — sim-worker games only)
+ *   - Save store initialization (sim-worker or renderer-side save source)
  *   - Typed `GameContext` passed to all hooks
+ *
+ * Two topologies are supported:
+ *   - **Sim-worker**: `module.sim` is declared → worker spawned, SABs captured,
+ *     events routed, sim started after renderer init.
+ *   - **Renderer-only**: `module.sim` is omitted → no worker, no SABs, no
+ *     event routing. All logic runs on the renderer thread. Declare
+ *     `module.saveSource` for autosave support.
  *
  * Games that need full control can call `bootstrapGame()` directly.
  */
 export async function startGame<Sim extends GameSimWorker>(module: GameModule<Sim>): Promise<void> {
   const deterministic = !!(downdraft as any)?.deterministic;
   const isDev = !!(downdraft?.isDev) || import.meta.env.DEV === true;
+  const hasSim = !!module.sim;
 
   // 0. Resolve canvas + overlay
   const canvas = getCanvas(module.canvasLayer ?? 0);
@@ -266,28 +327,30 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     libBuffers = libHost.allocateBuffers();
   }
 
-  // 1. Create sim worker + capture SABs. If libraries declared, pass the
-  //    library-allocated SABs to the sim factory via a seed object.
+  // 1. Create sim worker + capture SABs (renderer-only games skip this).
+  //    If libraries declared, pass the library-allocated SABs to the sim
+  //    factory via a seed object so the sim can share them zero-copy.
   const simSeed = Object.keys(libBuffers).length > 0 ? { libraryBuffers: libBuffers } : undefined;
-  const simWorker = module.sim(simSeed as any);
-  const simSAB = simWorker.getSimBuffer();
-  const inputSAB = simWorker.getInputBuffer();
-  const extraBuffers = simWorker.getExtraBuffers?.() ?? {};
+  const simWorker = hasSim ? module.sim!(simSeed as any) : null;
+  const simSAB = simWorker?.getSimBuffer();
+  const inputSAB = simWorker?.getInputBuffer();
+  const extraBuffers = simWorker?.getExtraBuffers?.() ?? {};
 
   // 2. Create renderer
   const renderer = module.renderer(canvas);
 
-  // 3. Build the partial context (saveStore filled in later)
+  // 3. Build the game context. Sim fields are undefined for renderer-only games.
   const ctx: GameContext<Sim> = {
     renderer,
     canvas,
     overlay,
-    sim: simWorker,
+    sim: simWorker as Sim | undefined,
     simSAB,
     inputSAB,
     extraBuffers,
     saveStore: null,
     saveMode: "ipc",
+    saveSource: module.saveSource,
     bridge: downdraft,
     deterministic,
     isDev,
@@ -301,8 +364,8 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     ctx.libraryHost = libHost;
   }
 
-  // 4. Wire event routing from the declarative events map
-  if (module.events) {
+  // 4. Wire event routing from the declarative events map (sim-worker only).
+  if (module.events && simWorker) {
     const events = module.events;
     simWorker.onEvent((msg) => {
       const handler = events[msg.kind];
@@ -362,60 +425,48 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       : (r) => r.init(),
 
     onRendererInit: async (r) => {
-      // Initialize renderer-side library passes (after WebGPU device is ready).
+      // ── Library renderer setup ──
+      // Early renderer-only library setup (hosts, workers — no GPU needed).
+      // Runs before the GPU device is available so libraries like
+      // @downdraft/library-pixi-ui can construct their host + provide DI tokens.
       if (libHost && r) {
         const device = r.getDevice?.();
         const format = r.getFormat?.();
         const pluginHost = r.getRendererPluginHost?.();
-        // Build a shared provide/inject pair backed by the renderer plugin host.
-        // Used by both `createRenderer` (early, no GPU device needed) and
-        // `initRenderer` (GPU passes). `createRenderer` runs first so
-        // renderer-only libraries (e.g. @downdraft/library-pixi-ui) can
-        // construct their host + provide DI tokens before GPU-pass init.
         const libProvide = (token: any, value: unknown) => {
-          if (pluginHost) {
-            pluginHost.provideExternal("library", token, value);
-          }
+          if (pluginHost) pluginHost.provideExternal("library", token, value);
         };
         const libInject = (token: any) => {
-          if (pluginHost) {
-            return pluginHost.injectResource(token);
-          }
+          if (pluginHost) return pluginHost.injectResource(token);
           throw new Error(`Library inject("${token.key}") failed — no renderer plugin host available`);
         };
         const libInjectOptional = (token: any) => {
-          if (pluginHost) {
-            return pluginHost.injectResourceOptional(token);
-          }
+          if (pluginHost) return pluginHost.injectResourceOptional(token);
           return undefined;
         };
-        // Early renderer-only library setup (hosts, workers — no GPU needed).
-        libHost.createRenderer({
-          provide: libProvide,
-          inject: libInject,
-          injectOptional: libInjectOptional,
-        });
+        libHost.createRenderer({ provide: libProvide, inject: libInject, injectOptional: libInjectOptional });
+        // GPU-pass library init (after device is ready).
         if (device && format) {
-          libHost.initRenderer({
-            device,
-            format,
-            provide: libProvide,
-            inject: libInject,
-            injectOptional: libInjectOptional,
-          });
-          // Set the library-allocated SABs on the renderer passes.
+          libHost.initRenderer({ device, format, provide: libProvide, inject: libInject, injectOptional: libInjectOptional });
           libHost.setRendererBuffers(libBuffers);
         }
       }
-      // Start sim worker in parallel with renderer init was handled by
-      // onInit/onSimStart. If the game didn't override onInit, start the
-      // sim worker here (after renderer.init() succeeds).
-      if (!module.onInit && module.onSimStart) {
-        await module.onSimStart(ctx);
-      } else if (!module.onInit) {
-        await simWorker.start(module.simConfig);
+
+      // ── Sim worker start ──
+      // When `onInit` is NOT overridden, startGame owns sim start — it runs
+      // here, after renderer.init() has succeeded. When `onInit` IS overridden,
+      // the game's onInit owns sim start (e.g. to-the-ocean starts the sim in
+      // parallel with renderer.init() inside its onInit). Renderer-only games
+      // have no sim worker to start.
+      if (simWorker && !module.onInit) {
+        if (module.onSimStart) {
+          await module.onSimStart(ctx);
+        } else {
+          await simWorker.start(module.simConfig ?? {});
+        }
       }
-      // Run the game's onReady hook
+
+      // ── Game-specific wiring ──
       if (module.onReady) {
         await module.onReady(ctx);
       }
@@ -427,6 +478,11 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       ? {
           load: async () => {
             const slotName = module.save!.slotName ?? "autosave";
+            // Renderer-side save source load (renderer-only games)
+            if (ctx.saveSource?.load) {
+              const stateJson = await ctx.saveSource.load(slotName);
+              return stateJson ? JSON.parse(stateJson) : null;
+            }
             if (ctx.saveStore) {
               const result = await ctx.saveStore.load(slotName);
               return result?.state ?? null;
@@ -439,11 +495,15 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
           },
           save: async () => {
             const slotName = module.save!.slotName ?? "autosave";
-            if (simWorker.save) {
-              const result = await simWorker.save(slotName);
-              if (result?.stateJson && ctx.saveMode === "ipc" && downdraft?.saveGameState) {
-                await downdraft.saveGameState(slotName, result.stateJson);
-              }
+            // Renderer-side save source takes priority (renderer-only games);
+            // otherwise fall back to the sim worker's save() (sim-worker games).
+            const result = ctx.saveSource
+              ? await ctx.saveSource.save(slotName)
+              : simWorker?.save
+                ? await simWorker.save(slotName)
+                : null;
+            if (result?.stateJson && ctx.saveMode === "ipc" && downdraft?.saveGameState) {
+              await downdraft.saveGameState(slotName, result.stateJson);
             }
           },
           intervalMs: module.save?.intervalMs,
@@ -457,7 +517,6 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       : undefined,
 
     onHotReloadDispose: () => {
-      // Dispose renderer-side library passes.
       libHost?.disposeRenderer();
       if (module.onDispose) {
         module.onDispose(ctx);
