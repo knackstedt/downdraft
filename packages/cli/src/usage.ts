@@ -60,7 +60,7 @@ export const COMMANDS: CommandEntry[] = [
     summary: "Start the dev server with HMR (electron-vite dev)",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", required: true, description: "Game to run (loads games/<game>/electron.vite.config.ts)" },
+        { name: "game", alias: "g", type: "string", description: "Game to run (loads games/<game>/electron.vite.config.ts). If omitted, infers the game from the current directory by walking up for electron.vite.config.ts." },
         { name: "entry", type: "string", description: "Game entrypoint file (reserved for future mobile support)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: 9876)" },
         { name: "watch", type: "boolean", description: "Alias for HMR (always on; accepted for back-compat)" },

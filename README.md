@@ -8,9 +8,9 @@ An AI-Driven Game Engine built on **Electron + electron-vite + WebGPU** (TypeScr
 # Install dependencies
 bun install
 
-# Run a specific game (each game owns its own electron.vite.config.ts entrypoint)
-draft dev --game=to-the-ocean
-draft dev --game=model-viewer
+# Run a game from its own directory (each game owns its electron.vite.config.ts)
+cd games/to-the-ocean
+draft dev
 
 # Build for production
 draft build --mode=prod --out=dist
@@ -153,11 +153,11 @@ Scaffolds a new game project.
 
 ### `draft dev [options]`
 Starts the engine in dev mode via `electron-vite dev` with HMR, loading the game's own `games/<game>/electron.vite.config.ts` entrypoint.
-- `--game <name>`, `-g` — Game to run (required; loads `games/<game>/electron.vite.config.ts`)
+- `--game <name>`, `-g` — Game to run (resolves `games/<game>/electron.vite.config.ts` from the engine root). If omitted, `draft dev` walks up from the current directory looking for `electron.vite.config.ts` — so you can run `draft dev` from inside a game directory.
 - `--port <n>` — MCP HTTP port (default: `9876`)
 - `--no-hmr` — Disable hot-module replacement
 
-> **Note:** Each game owns its own `electron.vite.config.ts` entrypoint. `draft dev --game=<name>` loads it directly — there is no root dispatcher or `DOWNDRAFT_GAME` env var. You can also run `npx electron-vite dev --config games/<game>/electron.vite.config.ts` directly.
+> **Note:** Each game owns its own `electron.vite.config.ts` entrypoint. Run `draft dev` from the game directory (the scaffolded `package.json` sets `"dev": "draft dev"`), or use `--game <name>` from the engine root. You can also run `npx electron-vite dev --config games/<game>/electron.vite.config.ts` directly.
 
 ### `draft debug [path] [options]`
 Runs the engine in debug mode with profiling, debug draw, and visualization tools. `path` defaults to `.`.
