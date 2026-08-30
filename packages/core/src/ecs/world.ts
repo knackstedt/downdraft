@@ -6,7 +6,8 @@ import {
     createArchetype,
     findEntityRow,
     getArchetypeForComponents,
-    removeEntityFromArchetype,
+    getColumnValue,
+    removeEntityFromArchetype
 } from "./archetype";
 import type { ComponentDefinition, ComponentId, IComponent } from "./component";
 import type { Entity, EntityMeta } from "./entity";
@@ -115,7 +116,7 @@ export class World {
 
     const existingComponents = new Map<ComponentId, unknown>();
     for (const cid of oldArch.componentIds) {
-      existingComponents.set(cid, oldArch.columns.get(cid)![oldRow]);
+      existingComponents.set(cid, getColumnValue(oldArch.columns.get(cid), oldRow));
     }
     existingComponents.set(componentId, data);
 
@@ -146,7 +147,7 @@ export class World {
     const existingComponents = new Map<ComponentId, unknown>();
     for (const cid of oldArch.componentIds) {
       if (cid !== componentId) {
-        existingComponents.set(cid, oldArch.columns.get(cid)![oldRow]);
+        existingComponents.set(cid, getColumnValue(oldArch.columns.get(cid), oldRow));
       }
     }
 
@@ -182,7 +183,7 @@ export class World {
     const row = findEntityRow(arch, entity);
     if (row < 0) return null;
 
-    return arch.columns.get(componentId)![row] as T;
+    return (getColumnValue(arch.columns.get(componentId), row) ?? null) as T | null;
   }
 
   hasComponent(entity: Entity, componentId: ComponentId): boolean {

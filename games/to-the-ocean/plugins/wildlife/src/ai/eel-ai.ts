@@ -16,6 +16,11 @@ export function tickEelAI(
   let shockCooldown = d[2];
   shockCooldown -= dt;
 
+  const row = ent.row;
+  const tx = ent.transform.x[row]!;
+  const ty = ent.transform.y[row]!;
+  const tz = ent.transform.z[row]!;
+
   // Wander slowly
   if (d[4] <= 0) {
     d[0] = rng() * Math.PI * 2;
@@ -26,9 +31,9 @@ export function tickEelAI(
   // Check for nearby players to shock
   for (let p = 0; p < players.length; p++) {
     if (!players[p].active) continue;
-    const dx = players[p].x - ent.transform.x;
-    const dy = players[p].y - ent.transform.y;
-    const dz = players[p].z - ent.transform.z;
+    const dx = players[p].x - tx;
+    const dy = players[p].y - ty;
+    const dz = players[p].z - tz;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (dist < 5 && shockCooldown <= 0) {
@@ -39,7 +44,7 @@ export function tickEelAI(
 
   d[2] = shockCooldown;
 
-  ent.velocity.vx = Math.cos(heading) * speed;
-  ent.velocity.vz = Math.sin(heading) * speed;
-  ent.velocity.vy = Math.sin(performance.now() / 500) * 0.3;
+  ent.velocity.vx[row] = Math.cos(heading) * speed;
+  ent.velocity.vz[row] = Math.sin(heading) * speed;
+  ent.velocity.vy[row] = Math.sin(performance.now() / 500) * 0.3;
 }

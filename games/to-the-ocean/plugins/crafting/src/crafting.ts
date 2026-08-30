@@ -1,4 +1,4 @@
-import { Component, getComponentId, resourceToken, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
+import { Component, getColumnValue, getComponentId, resourceToken, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
 import { addItem, countItem, GridInventory, removeItemById, type InventoryGrid } from "@to-the-ocean/plugin-inventory";
 import { CRAFTING_TIER_RECIPES, RECIPES, type Recipe } from "./recipes";
 
@@ -62,7 +62,7 @@ const craftingSystemFn = system("crafting-queue", Stage.Update, (ctx) => {
     const invCol = arch.columns.get(gridInvId);
 
     for (let i = 0; i < arch.entities.length; i++) {
-      const craft = craftCol[i] as typeof CraftState.defaults;
+      const craft = getColumnValue(craftCol, i) as typeof CraftState.defaults;
       if (craft.queue.length === 0) continue;
 
       const entry = craft.queue[0];
@@ -79,7 +79,7 @@ const craftingSystemFn = system("crafting-queue", Stage.Update, (ctx) => {
 
       let grid: InventoryGrid | null = null;
       if (invCol) {
-        grid = (invCol[i] as typeof GridInventory.defaults).grid;
+        grid = (getColumnValue(invCol, i) as typeof GridInventory.defaults).grid;
       } else {
         grid = ctx.world.getResourceTyped(PlayerInventoryGridTok) ?? null;
       }

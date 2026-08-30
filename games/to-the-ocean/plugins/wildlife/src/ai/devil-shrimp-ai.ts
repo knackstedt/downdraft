@@ -15,13 +15,18 @@ export function tickDevilShrimpAI(
   let stateTimer = d[4];
   stateTimer -= dt;
 
+  const row = ent.row;
+  const tx = ent.transform.x[row]!;
+  const ty = ent.transform.y[row]!;
+  const tz = ent.transform.z[row]!;
+
   // Find nearest ship
   let nearestShip: WildlifeShip | null = null;
   let nearestShipDist = Infinity;
   for (let i = 0; i < ships.length; i++) {
     const s = ships[i];
-    const dx = s.x - ent.transform.x;
-    const dz = s.z - ent.transform.z;
+    const dx = s.x - tx;
+    const dz = s.z - tz;
     const dist = Math.sqrt(dx * dx + dz * dz);
     if (dist < nearestShipDist) {
       nearestShipDist = dist;
@@ -34,8 +39,8 @@ export function tickDevilShrimpAI(
   let nearestPlayerIdx = -1;
   for (let p = 0; p < players.length; p++) {
     if (!players[p].active) continue;
-    const dx = players[p].x - ent.transform.x;
-    const dz = players[p].z - ent.transform.z;
+    const dx = players[p].x - tx;
+    const dz = players[p].z - tz;
     const dist = Math.sqrt(dx * dx + dz * dz);
     if (dist < nearestPlayerDist) {
       nearestPlayerDist = dist;
@@ -45,8 +50,8 @@ export function tickDevilShrimpAI(
 
   switch (state) {
     case DevilShrimpState.Ambush:
-      ent.velocity.vx *= 0.9;
-      ent.velocity.vz *= 0.9;
+      ent.velocity.vx[row] *= 0.9;
+      ent.velocity.vz[row] *= 0.9;
       if (nearestShipDist < 40 || nearestPlayerDist < 30) {
         state = DevilShrimpState.Hunt;
         stateTimer = 30;
@@ -55,8 +60,8 @@ export function tickDevilShrimpAI(
 
     case DevilShrimpState.Hunt:
       if (nearestShip && nearestShipDist < 60) {
-        const dx = nearestShip.x - ent.transform.x;
-        const dz = nearestShip.z - ent.transform.z;
+        const dx = nearestShip.x - tx;
+        const dz = nearestShip.z - tz;
         d[0] = Math.atan2(dz, dx);
         if (nearestShipDist < 10) {
           state = DevilShrimpState.AttackShip;
@@ -64,8 +69,8 @@ export function tickDevilShrimpAI(
         }
       } else if (nearestPlayerIdx >= 0) {
         const player = players[nearestPlayerIdx];
-        const dx = player.x - ent.transform.x;
-        const dz = player.z - ent.transform.z;
+        const dx = player.x - tx;
+        const dz = player.z - tz;
         d[0] = Math.atan2(dz, dx);
         if (nearestPlayerDist < 5) {
           state = DevilShrimpState.AttackPlayer;
@@ -79,8 +84,8 @@ export function tickDevilShrimpAI(
 
     case DevilShrimpState.AttackShip:
       if (nearestShip) {
-        nearestShip.health.health = Math.max(0, nearestShip.health.health - config.devilShrimpAttackDamage * dt);
-        if (stateTimer <= 0 || nearestShip.health.health <= 0) {
+        nearestShip.health.health[nearestShip.row] = Math.max(0, nearestShip.health.health[nearestShip.row]! - config.devilShrimpAttackDamage * dt);
+        if (stateTimer <= 0 || nearestShip.health.health[nearestShip.row]! <= 0) {
           state = DevilShrimpState.Retreat;
           stateTimer = 5;
         }
@@ -103,8 +108,8 @@ export function tickDevilShrimpAI(
 
     case DevilShrimpState.Retreat:
       if (nearestShip) {
-        const dx = ent.transform.x - nearestShip.x;
-        const dz = ent.transform.z - nearestShip.z;
+        const dx = tx - nearestShip.x;
+        const dz = tz - nearestShip.z;
         d[0] = Math.atan2(dz, dx);
       }
       if (stateTimer <= 0) {
@@ -118,7 +123,7 @@ export function tickDevilShrimpAI(
 
   const heading = d[0];
   const speed = state === DevilShrimpState.Ambush ? 0 : 5;
-  ent.velocity.vx = Math.cos(heading) * speed;
-  ent.velocity.vz = Math.sin(heading) * speed;
-  ent.velocity.vy = (-20 - ent.transform.y) * 0.3;
+  ent.velocity.vx[row] = Math.cos(heading) * speed;
+  ent.velocity.vz[row] = Math.sin(heading) * speed;
+  ent.velocity.vy[row] = (-20 - ty) * 0.3;
 }

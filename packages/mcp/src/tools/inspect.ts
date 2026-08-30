@@ -1,6 +1,7 @@
+import { getColumnValue } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
-import { jsonResult, errorResult } from "../types";
+import { errorResult, jsonResult } from "../types";
 
 export function createInspectTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -164,7 +165,7 @@ function inspectEntityRecursive(ctx: EngineContext, entity: import("@downdraft/c
         (e) => e.index === entity.index && e.generation === entity.generation,
       );
       if (row >= 0) {
-        components[ctx.getComponentNameById(cid)] = col[row];
+        components[ctx.getComponentNameById(cid)] = getColumnValue(col, row);
       }
     }
   }

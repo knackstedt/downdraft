@@ -21,14 +21,19 @@ import type {
 } from "./types";
 
 // Pre-allocated arrays for entity collection (avoid GC pressure)
-interface CollisionEntity {
-  transform: CollisionTransform;
-  velocity: CollisionVelocity;
-  meta: CollisionEntityMeta;
+// These are plain-object copies of ECS component data, NOT SoA column views.
+// The SoA types (CollisionTransform, etc.) are TypedArray records indexed by row;
+// these buffer types use plain number fields for local mutation.
+interface CollisionEntityBuffer {
+  transform: { x: number; y: number; z: number; rotX: number; rotY: number; rotZ: number; rotW: number; scale: number };
+  velocity: { vx: number; vy: number; vz: number; angVx: number; angVy: number; angVz: number };
+  meta: { id: number; type: number; flags: number; parentId: number; chunkX: number; chunkZ: number };
   data: CollisionEntityData;
   isStatic: boolean;
   nearPlayer: boolean;
 }
+
+interface CollisionEntity extends CollisionEntityBuffer {}
 
 const MAX_COLLISION_ENTITIES = 4096;
 
@@ -95,7 +100,7 @@ export function createCollisionSystem(
       staticCount = 0;
       let maxEntitiesWarned = false;
       grid.clear();
-      allEntitiesQuery.iterate(ctx.tick, (_entity, comps) => {
+      allEntitiesQuery.iterate(ctx.tick, (_entity, comps, row) => {
         if (entityCount >= MAX_COLLISION_ENTITIES) {
           if (!maxEntitiesWarned) {
             maxEntitiesWarned = true;
@@ -108,16 +113,19 @@ export function createCollisionSystem(
         const meta = comps[2] as CollisionEntityMeta;
         const data = comps[3] as CollisionEntityData;
 
-        if (shipTypes.has(meta.type)) return;
-        if (meta.type === config.entityTypes.player) return;
+        const entityType = meta.type[row]!;
+        if (shipTypes.has(entityType)) return;
+        if (entityType === config.entityTypes.player) return;
 
-        const isStatic = (meta.flags & config.entityFlags.static) !== 0;
+        const isStatic = (meta.flags[row]! & config.entityFlags.static) !== 0;
 
         // Check if near any player (LOD culling)
+        const tx = transform.x[row]!;
+        const tz = transform.z[row]!;
         let nearPlayer = false;
         for (let p = 0; p < playerPosCount; p++) {
-          const dx = transform.x - playerPositions[p * 2];
-          const dz = transform.z - playerPositions[p * 2 + 1];
+          const dx = tx - playerPositions[p * 2];
+          const dz = tz - playerPositions[p * 2 + 1];
           if (dx * dx + dz * dz <= lodDistSq) { nearPlayer = true; break; }
         }
 
@@ -133,13 +141,13 @@ export function createCollisionSystem(
             isStatic: true,
             nearPlayer: true,
           });
-          statEnt.transform.x = transform.x;
-          statEnt.transform.y = transform.y;
-          statEnt.transform.z = transform.z;
-          statEnt.transform.scale = transform.scale;
-          statEnt.meta.id = meta.id;
-          statEnt.meta.type = meta.type;
-          statEnt.meta.flags = meta.flags;
+          statEnt.transform.x = tx;
+          statEnt.transform.y = transform.y[row]!;
+          statEnt.transform.z = tz;
+          statEnt.transform.scale = transform.scale[row]!;
+          statEnt.meta.id = meta.id[row]!;
+          statEnt.meta.type = entityType;
+          statEnt.meta.flags = meta.flags[row]!;
           statEnt.data.data = data.data;
           staticCount++;
           return;
@@ -147,23 +155,23 @@ export function createCollisionSystem(
 
         // Dynamic entity: collect into entities[] buffer
         const ent = entities[entityCount];
-        ent.transform.x = transform.x;
-        ent.transform.y = transform.y;
-        ent.transform.z = transform.z;
-        ent.transform.scale = transform.scale;
-        ent.velocity.vx = vel.vx;
-        ent.velocity.vy = vel.vy;
-        ent.velocity.vz = vel.vz;
-        ent.meta.id = meta.id;
-        ent.meta.type = meta.type;
-        ent.meta.flags = meta.flags;
+        ent.transform.x = tx;
+        ent.transform.y = transform.y[row]!;
+        ent.transform.z = tz;
+        ent.transform.scale = transform.scale[row]!;
+        ent.velocity.vx = vel.vx[row]!;
+        ent.velocity.vy = vel.vy[row]!;
+        ent.velocity.vz = vel.vz[row]!;
+        ent.meta.id = meta.id[row]!;
+        ent.meta.type = entityType;
+        ent.meta.flags = meta.flags[row]!;
         ent.data.data = data.data;
         ent.isStatic = false;
         ent.nearPlayer = nearPlayer;
 
         // Only insert near-player dynamic entities into the grid (shrinks broad phase).
         if (nearPlayer) {
-          grid.insert(entityCount, transform.x, transform.z);
+          grid.insert(entityCount, tx, tz);
         }
 
         entityCount++;

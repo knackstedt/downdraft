@@ -6,11 +6,14 @@
 // 2. Filters by EntityType.Livestock in the loop body
 // 3. Reads/writes through ECS components (not legacy arrays)
 // 4. Changes are written back to legacy arrays by SimEcsWorld.writeBackEntities
+//
+// SoA components (SimEntityMeta, SimHealth) are accessed via [row].
+// AoS components (SimEntityData) are accessed as regular objects.
 // ============================================================================
 
 import { hmrSwap, Stage, system, type SystemContext } from "@downdraft/core";
 import { EntityType } from "@shared/types";
-import { SimEntityData, SimEntityMeta, SimHealth } from "./components";
+import { SimEntityData, type SimEntityMetaSoA, type SimHealthSoA } from "./components";
 
 interface LivestockData {
   species: string;
@@ -32,14 +35,15 @@ export function createEcsAnimalSystem(query: import("@downdraft/core").Query) {
     Stage.Update,
     (ctx: SystemContext) => {
       const dt = ctx.dt;
-      query.iterate(ctx.tick, (entity, comps) => {
-        const meta = comps[0] as ReturnType<typeof SimEntityMeta.create>;
-        const health = comps[1] as ReturnType<typeof SimHealth.create>;
+      query.iterate(ctx.tick, (_entity, comps, row) => {
+        const meta = comps[0] as unknown as SimEntityMetaSoA;
+        const health = comps[1] as unknown as SimHealthSoA;
         const data = comps[2] as ReturnType<typeof SimEntityData.create>;
 
-        if (meta.type !== EntityType.Livestock) return;
+        if (meta.type[row] !== EntityType.Livestock) return;
 
-        let ls = livestock.get(meta.id);
+        const entityId = meta.id[row]!;
+        let ls = livestock.get(entityId);
         if (!ls) {
           ls = {
             species: "chicken",
@@ -52,7 +56,7 @@ export function createEcsAnimalSystem(query: import("@downdraft/core").Query) {
             isPenned: false,
             breedCooldown: 0,
           };
-          livestock.set(meta.id, ls);
+          livestock.set(entityId, ls);
         }
 
         ls.age += dt;
@@ -74,9 +78,9 @@ export function createEcsAnimalSystem(query: import("@downdraft/core").Query) {
         if (ls.breedCooldown > 0) ls.breedCooldown -= dt;
 
         if (ls.hunger <= 0) {
-          health.health -= 2 * dt;
-        } else if (ls.hunger > 50 && health.health < health.maxHealth) {
-          health.health += 0.5 * dt;
+          health.health[row] -= 2 * dt;
+        } else if (ls.hunger > 50 && health.health[row]! < health.maxHealth[row]!) {
+          health.health[row] += 0.5 * dt;
         }
       });
     },

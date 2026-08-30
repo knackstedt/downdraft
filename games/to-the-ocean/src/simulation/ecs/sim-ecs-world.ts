@@ -12,7 +12,7 @@
 //   - Mapping slot indices ↔ ECS entities
 // ============================================================================
 
-import { InputBufferReader, PluginHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
+import { getColumnValue, InputBufferReader, isSoAColumn, PluginHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
 import { devtools } from "@downdraft/plugin-devtools";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
@@ -30,6 +30,10 @@ import {
     SimPlayerState,
     SimTransform,
     SimVelocity,
+    type SimEntityMetaSoA,
+    type SimHealthSoA,
+    type SimTransformSoA,
+    type SimVelocitySoA,
 } from "./components";
 import { createEcsAnchorSystem } from "./ecs-anchor-system";
 import { createEcsAnimalSystem } from "./ecs-animal-system";
@@ -39,10 +43,6 @@ import { createEcsPetSystem } from "./ecs-pet-system";
 import { createEcsPirateSystem, shutdownEcsPirates } from "./ecs-pirate-system";
 import { createEcsStructureIntegritySystem } from "./ecs-structure-integrity-system";
 
-type TransformData = ReturnType<typeof SimTransform.create>;
-type VelocityData = ReturnType<typeof SimVelocity.create>;
-type HealthData = ReturnType<typeof SimHealth.create>;
-type EntityMetaData = ReturnType<typeof SimEntityMeta.create>;
 type EntityDataData = ReturnType<typeof SimEntityData.create>;
 type PlayerStateData = ReturnType<typeof SimPlayerState.create>;
 type PlayerInventoryData = ReturnType<typeof SimPlayerInventory.create>;
@@ -382,45 +382,53 @@ export class SimEcsWorld {
       if (!ar) continue;
       const { arch, row } = ar;
 
-      const transform = arch.columns.get(ComponentIds.Transform)?.[row] as TransformData | undefined;
-      if (transform) {
-        transform.x = ent.position.x;
-        transform.y = ent.position.y;
-        transform.z = ent.position.z;
-        transform.rotX = ent.rotation.x;
-        transform.rotY = ent.rotation.y;
-        transform.rotZ = ent.rotation.z;
-        transform.rotW = ent.rotation.w;
-        transform.scale = ent.scale;
+      // SoA components — write via TypedArray[row]
+      // SoA columns are SoAColumn objects with an .arrays property (TypedArray record).
+      const transformCol = arch.columns.get(ComponentIds.Transform);
+      if (transformCol && isSoAColumn(transformCol)) {
+        const t = transformCol.arrays as unknown as SimTransformSoA;
+        t.x[row] = ent.position.x;
+        t.y[row] = ent.position.y;
+        t.z[row] = ent.position.z;
+        t.rotX[row] = ent.rotation.x;
+        t.rotY[row] = ent.rotation.y;
+        t.rotZ[row] = ent.rotation.z;
+        t.rotW[row] = ent.rotation.w;
+        t.scale[row] = ent.scale;
       }
 
-      const vel = arch.columns.get(ComponentIds.Velocity)?.[row] as VelocityData | undefined;
-      if (vel) {
-        vel.vx = ent.velocity.x;
-        vel.vy = ent.velocity.y;
-        vel.vz = ent.velocity.z;
-        vel.angVx = ent.angularVelocity.x;
-        vel.angVy = ent.angularVelocity.y;
-        vel.angVz = ent.angularVelocity.z;
+      const velCol = arch.columns.get(ComponentIds.Velocity);
+      if (velCol && isSoAColumn(velCol)) {
+        const v = velCol.arrays as unknown as SimVelocitySoA;
+        v.vx[row] = ent.velocity.x;
+        v.vy[row] = ent.velocity.y;
+        v.vz[row] = ent.velocity.z;
+        v.angVx[row] = ent.angularVelocity.x;
+        v.angVy[row] = ent.angularVelocity.y;
+        v.angVz[row] = ent.angularVelocity.z;
       }
 
-      const health = arch.columns.get(ComponentIds.Health)?.[row] as HealthData | undefined;
-      if (health) {
-        health.health = ent.health;
-        health.maxHealth = ent.maxHealth;
+      const healthCol = arch.columns.get(ComponentIds.Health);
+      if (healthCol && isSoAColumn(healthCol)) {
+        const h = healthCol.arrays as unknown as SimHealthSoA;
+        h.health[row] = ent.health;
+        h.maxHealth[row] = ent.maxHealth;
       }
 
-      const meta = arch.columns.get(ComponentIds.EntityMeta)?.[row] as EntityMetaData | undefined;
-      if (meta) {
-        meta.id = ent.id;
-        meta.type = ent.type;
-        meta.flags = ent.flags;
-        meta.parentId = ent.parentId;
-        meta.chunkX = ent.chunkX;
-        meta.chunkZ = ent.chunkZ;
+      const metaCol = arch.columns.get(ComponentIds.EntityMeta);
+      if (metaCol && isSoAColumn(metaCol)) {
+        const m = metaCol.arrays as unknown as SimEntityMetaSoA;
+        m.id[row] = ent.id;
+        m.type[row] = ent.type;
+        m.flags[row] = ent.flags;
+        m.parentId[row] = ent.parentId;
+        m.chunkX[row] = ent.chunkX;
+        m.chunkZ[row] = ent.chunkZ;
       }
 
-      const data = arch.columns.get(ComponentIds.EntityData)?.[row] as EntityDataData | undefined;
+      // AoS component — write via object at row
+      const dataCol = arch.columns.get(ComponentIds.EntityData);
+      const data = dataCol ? getColumnValue(dataCol, row) as EntityDataData | undefined : undefined;
       if (data) {
         data.data = ent.data as Float32Array<ArrayBuffer>;
       }
@@ -439,7 +447,8 @@ export class SimEcsWorld {
       if (!ar) continue;
       const { arch, row } = ar;
 
-      const state = arch.columns.get(ComponentIds.PlayerState)?.[row] as PlayerStateData | undefined;
+      const stateCol = arch.columns.get(ComponentIds.PlayerState);
+      const state = stateCol ? getColumnValue(stateCol, row) as PlayerStateData | undefined : undefined;
       if (state) {
         state.playerId = p.playerId;
         state.entityId = p.entityId;
@@ -477,7 +486,8 @@ export class SimEcsWorld {
         state.gold = p.gold;
       }
 
-      const inv = arch.columns.get(ComponentIds.PlayerInventory)?.[row] as PlayerInventoryData | undefined;
+      const invCol = arch.columns.get(ComponentIds.PlayerInventory);
+      const inv = invCol ? getColumnValue(invCol, row) as PlayerInventoryData | undefined : undefined;
       if (inv) {
         inv.inventory = p.inventory;
         inv.licenses = p.licenses;
@@ -499,42 +509,47 @@ export class SimEcsWorld {
       if (!ar) continue;
       const { arch, row } = ar;
 
-      const transform = arch.columns.get(ComponentIds.Transform)?.[row] as TransformData | undefined;
-      if (transform) {
-        ent.position.x = transform.x;
-        ent.position.y = transform.y;
-        ent.position.z = transform.z;
-        ent.rotation.x = transform.rotX;
-        ent.rotation.y = transform.rotY;
-        ent.rotation.z = transform.rotZ;
-        ent.rotation.w = transform.rotW;
-        ent.scale = transform.scale;
+      // SoA components — read via TypedArray[row]
+      const transformCol = arch.columns.get(ComponentIds.Transform);
+      if (transformCol && isSoAColumn(transformCol)) {
+        const t = transformCol.arrays as unknown as SimTransformSoA;
+        ent.position.x = t.x[row]!;
+        ent.position.y = t.y[row]!;
+        ent.position.z = t.z[row]!;
+        ent.rotation.x = t.rotX[row]!;
+        ent.rotation.y = t.rotY[row]!;
+        ent.rotation.z = t.rotZ[row]!;
+        ent.rotation.w = t.rotW[row]!;
+        ent.scale = t.scale[row]!;
       }
 
-      const vel = arch.columns.get(ComponentIds.Velocity)?.[row] as VelocityData | undefined;
-      if (vel) {
-        ent.velocity.x = vel.vx;
-        ent.velocity.y = vel.vy;
-        ent.velocity.z = vel.vz;
-        ent.angularVelocity.x = vel.angVx;
-        ent.angularVelocity.y = vel.angVy;
-        ent.angularVelocity.z = vel.angVz;
+      const velCol = arch.columns.get(ComponentIds.Velocity);
+      if (velCol && isSoAColumn(velCol)) {
+        const v = velCol.arrays as unknown as SimVelocitySoA;
+        ent.velocity.x = v.vx[row]!;
+        ent.velocity.y = v.vy[row]!;
+        ent.velocity.z = v.vz[row]!;
+        ent.angularVelocity.x = v.angVx[row]!;
+        ent.angularVelocity.y = v.angVy[row]!;
+        ent.angularVelocity.z = v.angVz[row]!;
       }
 
-      const health = arch.columns.get(ComponentIds.Health)?.[row] as HealthData | undefined;
-      if (health) {
-        ent.health = health.health;
-        ent.maxHealth = health.maxHealth;
+      const healthCol = arch.columns.get(ComponentIds.Health);
+      if (healthCol && isSoAColumn(healthCol)) {
+        const h = healthCol.arrays as unknown as SimHealthSoA;
+        ent.health = h.health[row]!;
+        ent.maxHealth = h.maxHealth[row]!;
       }
 
-      const meta = arch.columns.get(ComponentIds.EntityMeta)?.[row] as EntityMetaData | undefined;
-      if (meta) {
-        ent.id = meta.id;
-        ent.type = meta.type;
-        ent.flags = meta.flags;
-        ent.parentId = meta.parentId;
-        ent.chunkX = meta.chunkX;
-        ent.chunkZ = meta.chunkZ;
+      const metaCol = arch.columns.get(ComponentIds.EntityMeta);
+      if (metaCol && isSoAColumn(metaCol)) {
+        const m = metaCol.arrays as unknown as SimEntityMetaSoA;
+        ent.id = m.id[row]!;
+        ent.type = m.type[row]!;
+        ent.flags = m.flags[row]!;
+        ent.parentId = m.parentId[row]!;
+        ent.chunkX = m.chunkX[row]!;
+        ent.chunkZ = m.chunkZ[row]!;
       }
     }
   }
@@ -551,7 +566,8 @@ export class SimEcsWorld {
       if (!ar) continue;
       const { arch, row } = ar;
 
-      const state = arch.columns.get(ComponentIds.PlayerState)?.[row] as PlayerStateData | undefined;
+      const stateCol = arch.columns.get(ComponentIds.PlayerState);
+      const state = stateCol ? getColumnValue(stateCol, row) as PlayerStateData | undefined : undefined;
       if (state) {
         p.playerId = state.playerId;
         p.entityId = state.entityId;

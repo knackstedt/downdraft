@@ -3,11 +3,14 @@
 //
 // Query: entities with EntityMeta + EntityData
 // Filters by EntityType.Plant in loop body
+//
+// SoA component (SimEntityMeta) via [row].
+// AoS component (SimEntityData) as regular object.
 // ============================================================================
 
 import { hmrSwap, Stage, system, type Query, type SystemContext } from "@downdraft/core";
 import { EntityType } from "@shared/types";
-import { SimEntityData, SimEntityMeta } from "./components";
+import { SimEntityData, type SimEntityMetaSoA } from "./components";
 
 interface PlantData {
   species: string;
@@ -28,13 +31,14 @@ export function createEcsPlantSystem(query: Query) {
     Stage.Update,
     (ctx: SystemContext) => {
       const dt = ctx.dt;
-      query.iterate(ctx.tick, (entity, comps) => {
-        const meta = comps[0] as ReturnType<typeof SimEntityMeta.create>;
+      query.iterate(ctx.tick, (_entity, comps, row) => {
+        const meta = comps[0] as unknown as SimEntityMetaSoA;
         const data = comps[1] as ReturnType<typeof SimEntityData.create>;
 
-        if (meta.type !== EntityType.Plant) return;
+        if (meta.type[row] !== EntityType.Plant) return;
 
-        let pd = plants.get(meta.id);
+        const entityId = meta.id[row]!;
+        let pd = plants.get(entityId);
         if (!pd) {
           pd = {
             species: "kelp",
@@ -44,7 +48,7 @@ export function createEcsPlantSystem(query: Query) {
             isHydroponic: false,
             yield: 1,
           };
-          plants.set(meta.id, pd);
+          plants.set(entityId, pd);
         }
 
         pd.waterLevel = Math.max(0, pd.waterLevel - 0.3 * dt);

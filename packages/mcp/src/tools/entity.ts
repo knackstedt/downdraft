@@ -1,4 +1,4 @@
-import { sanitizeObject, type Entity } from "@downdraft/core";
+import { getColumnValue, sanitizeObject, type Entity } from "@downdraft/core";
 import type { EngineContext } from "../engine-context";
 import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
@@ -170,7 +170,8 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
               (e) => e.index === entity.index && e.generation === entity.generation,
             );
             if (row >= 0) {
-              savedComponents.set(cid, { ...col[row] as Record<string, unknown> });
+              const val = getColumnValue(col, row);
+              savedComponents.set(cid, val ? { ...val as Record<string, unknown> } : val);
             }
           }
         }
@@ -239,7 +240,7 @@ export function createEntityTools(ctx: EngineContext, undoRedo: UndoRedoManager)
             (e) => e.index === entity.index && e.generation === entity.generation,
           );
           if (row >= 0) {
-            components[ctx.getComponentNameById(cid)] = col[row];
+            components[ctx.getComponentNameById(cid)] = getColumnValue(col, row);
           }
         }
 

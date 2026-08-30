@@ -16,6 +16,10 @@ export function tickFishAI(
   if (d[2] === 0) d[2] = speed;
   const baseSpeed = d[2];
 
+  const row = ent.row;
+  const tx = ent.transform.x[row]!;
+  const tz = ent.transform.z[row]!;
+
   // Find nearby fish for schooling via spatial grid (O(k) instead of O(N))
   let avgX = 0, avgZ = 0, alignX = 0, alignZ = 0, sepX = 0, sepZ = 0;
   let neighborCount = 0;
@@ -23,18 +27,18 @@ export function tickFishAI(
   // Query the 3x3 neighborhood around this fish. neighborOut is caller-owned
   // and reused across calls; we must clear it before querying.
   neighborOut.length = 0;
-  fishGrid.queryNeighbors(ent.transform.x, ent.transform.z, neighborOut);
+  fishGrid.queryNeighbors(tx, tz, neighborOut);
 
   for (let n = 0; n < neighborOut.length; n++) {
     const i = neighborOut[n]!;
     const other = allFish[i];
     if (other === ent) continue;
-    const dx = other.transform.x - ent.transform.x;
-    const dz = other.transform.z - ent.transform.z;
+    const dx = other.transform.x[other.row]! - tx;
+    const dz = other.transform.z[other.row]! - tz;
     const distSq = dx * dx + dz * dz;
     if (distSq < 100 && distSq > 0) {
-      avgX += other.transform.x;
-      avgZ += other.transform.z;
+      avgX += other.transform.x[other.row]!;
+      avgZ += other.transform.z[other.row]!;
       alignX += Math.cos(other.data.data[0]);
       alignZ += Math.sin(other.data.data[0]);
       if (distSq < 9) {
@@ -50,8 +54,8 @@ export function tickFishAI(
     avgZ /= neighborCount;
     alignX /= neighborCount;
     alignZ /= neighborCount;
-    const cohesionX = (avgX - ent.transform.x) * 0.01;
-    const cohesionZ = (avgZ - ent.transform.z) * 0.01;
+    const cohesionX = (avgX - tx) * 0.01;
+    const cohesionZ = (avgZ - tz) * 0.01;
     const targetHeading = Math.atan2(alignZ + cohesionZ + sepX, alignX + cohesionX + sepZ);
     let diff = targetHeading - heading;
     if (!Number.isFinite(diff)) diff = 0;
@@ -62,8 +66,8 @@ export function tickFishAI(
   // Flee from sharks
   let fleeing = false;
   for (let i = 0; i < sharkPositions.length; i++) {
-    const dx = sharkPositions[i].x - ent.transform.x;
-    const dz = sharkPositions[i].z - ent.transform.z;
+    const dx = sharkPositions[i].x - tx;
+    const dz = sharkPositions[i].z - tz;
     const distSq = dx * dx + dz * dz;
     if (distSq < 400) {
       const fleeAngle = Math.atan2(-dz, -dx);
@@ -77,7 +81,7 @@ export function tickFishAI(
   d[1] = finalSpeed;
 
   const finalHeading = d[0];
-  ent.velocity.vx = Math.cos(finalHeading) * finalSpeed;
-  ent.velocity.vz = Math.sin(finalHeading) * finalSpeed;
-  ent.velocity.vy = Math.sin(performance.now() / 1000 + ent.transform.x * 0.01) * 0.2;
+  ent.velocity.vx[row] = Math.cos(finalHeading) * finalSpeed;
+  ent.velocity.vz[row] = Math.sin(finalHeading) * finalSpeed;
+  ent.velocity.vy[row] = Math.sin(performance.now() / 1000 + tx * 0.01) * 0.2;
 }

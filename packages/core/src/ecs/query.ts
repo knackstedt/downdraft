@@ -1,5 +1,5 @@
 import type { Archetype } from "./archetype";
-import { archetypeMatches, getComponentColumn } from "./archetype";
+import { archetypeMatches, getComponentColumn, isSoAColumn, type Column } from "./archetype";
 import type { ComponentDefinition, ComponentId } from "./component";
 
 export interface QueryDescriptor {
@@ -15,7 +15,7 @@ export class Query {
   private cachedArchetypes: Set<number> = new Set();
 
   private iterComps: unknown[] = [];
-  private iterColumns: unknown[][] = [];
+  private iterColumns: Column[] = [];
 
   constructor(required: ComponentId[], excluded: ComponentId[] = [], changedFilter?: ComponentId) {
     this.descriptor = {
@@ -60,21 +60,43 @@ export class Query {
       const columns = this.iterColumns;
       if (columns.length !== ncomps) columns.length = ncomps;
       for (let r = 0; r < ncomps; r++) {
-        columns[r] = getComponentColumn(arch, required[r]);
+        columns[r] = getComponentColumn(arch, required[r])!;
       }
 
       if (changedFilter !== undefined) {
-        const changedCol = getComponentColumn<{ lastChanged: number }>(arch, changedFilter);
+        const changedCol = getComponentColumn(arch, changedFilter);
         if (!changedCol) continue;
-        for (let row = 0; row < count; row++) {
-          if (changedCol[row].lastChanged >= this.descriptor.lastReadTick) {
-            for (let c = 0; c < ncomps; c++) comps[c] = columns[c][row];
-            fn(entities[row], comps as T, row);
+        if (isSoAColumn(changedCol)) {
+          // SoA changed filter: read lastChanged from the TypedArray
+          const lastChangedArr = changedCol.arrays["lastChanged"] as Uint32Array | undefined;
+          if (!lastChangedArr) continue;
+          for (let row = 0; row < count; row++) {
+            if (lastChangedArr[row]! >= this.descriptor.lastReadTick) {
+              for (let c = 0; c < ncomps; c++) {
+                const col = columns[c]!;
+                comps[c] = isSoAColumn(col) ? col.arrays : (col as unknown[])[row];
+              }
+              fn(entities[row], comps as T, row);
+            }
+          }
+        } else {
+          const changedColArr = changedCol as { lastChanged: number }[];
+          for (let row = 0; row < count; row++) {
+            if (changedColArr[row].lastChanged >= this.descriptor.lastReadTick) {
+              for (let c = 0; c < ncomps; c++) {
+                const col = columns[c]!;
+                comps[c] = isSoAColumn(col) ? col.arrays : (col as unknown[])[row];
+              }
+              fn(entities[row], comps as T, row);
+            }
           }
         }
       } else {
         for (let row = 0; row < count; row++) {
-          for (let c = 0; c < ncomps; c++) comps[c] = columns[c][row];
+          for (let c = 0; c < ncomps; c++) {
+            const col = columns[c]!;
+            comps[c] = isSoAColumn(col) ? col.arrays : (col as unknown[])[row];
+          }
           fn(entities[row], comps as T, row);
         }
       }

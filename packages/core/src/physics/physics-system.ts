@@ -1,3 +1,4 @@
+import { getColumnValue } from "../ecs/archetype";
 import type { Entity } from "../ecs/entity";
 import type { Query } from "../ecs/query";
 import { Stage, system, type System } from "../ecs/system";
@@ -158,9 +159,9 @@ function* iterRigidBodies(world: World): Generator<{ entity: Entity; rb: RigidBo
       const entity = arch.entities[i];
       yield {
         entity,
-        rb: rbCol[i] as RigidBodyDataView,
-        transform: transformCol[i] as PhysicsTransformDataView,
-        velocity: velocityCol?.[i] as VelocityDataView | undefined,
+        rb: getColumnValue(rbCol, i) as RigidBodyDataView,
+        transform: getColumnValue(transformCol, i) as PhysicsTransformDataView,
+        velocity: getColumnValue(velocityCol, i) as VelocityDataView | undefined,
       };
     }
   }

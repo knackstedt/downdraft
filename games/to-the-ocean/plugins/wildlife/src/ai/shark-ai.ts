@@ -21,6 +21,11 @@ export function tickSharkAI(
 
   stateTimer = Math.max(0, stateTimer - dt);
 
+  const row = ent.row;
+  const tx = ent.transform.x[row]!;
+  const tz = ent.transform.z[row]!;
+  const ty = ent.transform.y[row]!;
+
   // Find nearest detectable player
   let nearestDist = Infinity;
   let nearestIdx = -1;
@@ -43,8 +48,8 @@ export function tickSharkAI(
       }
     }
     if (!detectable) continue;
-    const dx = player.x - ent.transform.x;
-    const dz = player.z - ent.transform.z;
+    const dx = player.x - tx;
+    const dz = player.z - tz;
     const dist = Math.sqrt(dx * dx + dz * dz);
     if (dist < nearestDist) {
       nearestDist = dist;
@@ -70,8 +75,8 @@ export function tickSharkAI(
     case SharkState.Investigate:
       if (nearestIdx >= 0) {
         const player = players[nearestIdx];
-        const dx = player.x - ent.transform.x;
-        const dz = player.z - ent.transform.z;
+        const dx = player.x - tx;
+        const dz = player.z - tz;
         d[0] = Math.atan2(dz, dx);
         if (nearestDist < 10) {
           state = SharkState.Attack;
@@ -89,8 +94,8 @@ export function tickSharkAI(
     case SharkState.Attack:
       if (nearestIdx >= 0) {
         const player = players[nearestIdx];
-        const dx = player.x - ent.transform.x;
-        const dz = player.z - ent.transform.z;
+        const dx = player.x - tx;
+        const dz = player.z - tz;
         const dist = Math.sqrt(dx * dx + dz * dz);
         d[0] = Math.atan2(dz, dx);
         d[1] = 8;
@@ -111,8 +116,8 @@ export function tickSharkAI(
     case SharkState.Flee:
       if (nearestIdx >= 0) {
         const player = players[nearestIdx];
-        const dx = ent.transform.x - player.x;
-        const dz = ent.transform.z - player.z;
+        const dx = tx - player.x;
+        const dz = tz - player.z;
         d[0] = Math.atan2(dz, dx);
       }
       if (stateTimer <= 0) {
@@ -126,8 +131,8 @@ export function tickSharkAI(
   // Move
   const heading = d[0];
   const speed = d[1] || 3;
-  ent.velocity.vx = Math.cos(heading) * speed;
-  ent.velocity.vz = Math.sin(heading) * speed;
+  ent.velocity.vx[row] = Math.cos(heading) * speed;
+  ent.velocity.vz[row] = Math.sin(heading) * speed;
   const targetY = -3;
-  ent.velocity.vy = (targetY - ent.transform.y) * 0.5;
+  ent.velocity.vy[row] = (targetY - ty) * 0.5;
 }

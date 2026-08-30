@@ -1,4 +1,4 @@
-import { Component, resourceToken, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
+import { Component, getColumnValue, resourceToken, Stage, system, type Plugin, type PluginContext } from "@downdraft/core";
 import { getItem } from "@to-the-ocean/library-items";
 
 /** Token for the day-duration resource (seconds per in-game day). */
@@ -352,7 +352,7 @@ const spoilageSystemFn = system("grid-spoilage", Stage.Update, (ctx) => {
     const col = arch.columns.get(GridInventory.id);
     if (!col) continue;
     for (let i = 0; i < arch.entities.length; i++) {
-      const inv = col[i] as typeof GridInventory.defaults;
+      const inv = getColumnValue(col, i) as typeof GridInventory.defaults;
       processSpoilage(inv.grid, dt, gameHoursPerSecond);
     }
   }
