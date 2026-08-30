@@ -109,7 +109,7 @@
     },
     {
       "label": "Build: Game(s)",
-      "detail": "Pick game(s) + target platform(s), then build + package each (electron-builder for desktop, draft mobile for Android/iOS)",
+      "detail": "Pick game(s) + target platform(s), then build + package each (desktop + mobile via draft release)",
       "type": "shell",
       "command": "bun run packages/cli/src/index.ts build-games --games=\"${input:game}\" --platforms=\"${input:platforms}\"",
       "options": {

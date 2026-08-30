@@ -17,30 +17,10 @@
       }
     },
     {
-      "label": "Build",
-      "detail": "Build the game for a target platform",
+      "label": "Release",
+      "detail": "Build + package for a target platform (desktop + mobile)",
       "type": "shell",
-      "command": "draft build --target=${input:buildTarget} --mode=${input:buildMode} --out=dist",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Export",
-      "detail": "Package the built game for distribution (run Build first)",
-      "type": "shell",
-      "command": "draft export --target=${input:exportTarget} --out=export",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Build & Export",
-      "detail": "Build then export for a chosen platform in one step",
-      "type": "shell",
-      "command": "set -e; draft build --target=${input:platformTarget} --mode=prod --out=dist; draft export --target=${input:platformTarget} --out=export",
+      "command": "draft release --target=${input:releaseTarget} --mode=${input:buildMode}",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -50,6 +30,16 @@
         "panel": "dedicated",
         "clear": true,
         "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Only",
+      "detail": "Bundle the game with Vite (no packaging)",
+      "type": "shell",
+      "command": "draft release --stage=build --mode=${input:buildMode}",
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     },
@@ -86,11 +76,11 @@
   ],
   "inputs": [
     {
-      "id": "buildTarget",
+      "id": "releaseTarget",
       "type": "pickString",
-      "options": ["current", "windows", "macos", "linux"],
-      "default": "current",
-      "description": "Build target platform"
+      "options": ["all", "win", "linux", "mac", "android", "ios"],
+      "default": "all",
+      "description": "Target platform(s)"
     },
     {
       "id": "buildMode",
@@ -98,20 +88,6 @@
       "options": ["prod", "dev", "debug"],
       "default": "prod",
       "description": "Build mode"
-    },
-    {
-      "id": "exportTarget",
-      "type": "pickString",
-      "options": ["all", "windows", "macos", "linux"],
-      "default": "all",
-      "description": "Export target platform(s)"
-    },
-    {
-      "id": "platformTarget",
-      "type": "pickString",
-      "options": ["all", "windows", "macos", "linux"],
-      "default": "all",
-      "description": "Platform to build and export for"
     }
   ]
 }

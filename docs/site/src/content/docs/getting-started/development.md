@@ -37,7 +37,7 @@ downdraft-engine/
 │   ├── ui/            # React UI: devtools, profiler, material graph editor, asset browser
 │   ├── mcp/           # MCP server for AI agent interaction
 │   ├── shader-graph/  # Material/shader graph compiler
-│   ├── cli/           # CLI tool (draft new/dev/debug/build/dist/export/mobile/assets/test)
+│   ├── cli/           # CLI tool (draft new/dev/debug/release/dist/export/mobile/assets/test)
 │   └── plugins/       # First-party plugins (water, physics, audio, networking, etc.)
 ├── examples/
 │   ├── minimal/       # Minimal spinning cube
@@ -52,16 +52,16 @@ downdraft-engine/
 
 ```bash
 # Build for current platform
-draft build --mode=prod --out=dist
+draft release --stage=build --mode=prod --out=dist
 
 # Build for a specific target
-draft build --target=win --mode=prod --out=dist
+draft release --stage=build --target=win --mode=prod --out=dist
 ```
 
 ## Packaging for Distribution
 
 ```bash
-draft export --target=all --out=export
+draft release --format=launcher --target=all --out=export
 ```
 
 ## DevTools Panel

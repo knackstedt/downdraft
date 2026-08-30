@@ -60,85 +60,73 @@ Runs the engine in debug mode with profiling, debug draw, and visualization tool
 | `--no-devtools` | Disable devtools overlay (sets `DOWNDRAFT_DISABLE_DEVTOOLS=1`) |
 | `--inspector` | Enable Node inspector (`chrome://inspect`) |
 
-## `draft build [path] [options]`
+## `draft release [options]`
 
-Builds the game for the target platform.
+Unified build + package + sign pipeline for desktop and mobile. Replaces the separate `build`, `dist`, `export`, `mobile`, and `build-games` commands (which remain as deprecated backward-compat aliases).
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to build (resolves `games/<game>`; overrides path) |
-| `--target=<t>` | Target: `current` / `win` / `linux` / `mac` (default: `current`) |
+| `--game <name>`, `-g` | Game to release (`games/<game>`). For multiple games, use `--games`. |
+| `--games=<csv>` | Comma-separated game names (e.g. `sandjongg,to-the-ocean`) |
+| `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `android` / `ios` / `all` (default: `all`) |
+| `--format=<csv>` | Per-platform format (e.g. `win:portable,linux:AppImage`). Use `launcher` for bun-launcher folders. |
+| `--stage=<s>` | Stage: `build` (Vite only) / `package` (package existing build) / `release` (build+package+sign, default) |
 | `--mode=<m>` | Build mode: `dev` / `debug` / `prod` (default: `prod`) |
-| `--out=<dir>` | Output directory (default: `dist`) |
-| `--no-minify` | Disable minification |
-| `--sourcemap` | Generate source maps (on by default in non-prod modes) |
-| `--verbose`, `-v` | Verbose logging |
-
-## `draft build-games [options]`
-
-Builds + packages multiple games for desktop and/or mobile. Used by VSCode tasks.
-
-| Flag | Description |
-|---|---|
-| `--games=<csv>` | Comma-separated game directory names (required) |
-| `--platforms=<csv>` | Comma-separated platform specs (required, e.g. `win:portable,android:all`) |
-| `--verbose`, `-v` | Verbose logging |
-
-Platform spec grammar: `win:portable|nsis`, `linux:AppImage|deb|rpm|flatpak`, `mac:dmg|zip`, `android:all`, `ios:all`.
-
-## `draft dist [options]`
-
-Packages a game for distribution via `electron-builder`. Loads the game's `build.config.ts` (factory-based, per-game branding) or falls back to the `build` block in `package.json`.
-
-| Flag | Description |
-|---|---|
-| `--game <name>`, `-g` | Game to package (required; `games/<game>`) |
-| `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `all` (default: `all`) |
-| `--config <path>`, `-c` | Explicit path to a `build.config.ts` / config file |
+| `--out=<dir>` | Artifact output directory (default: `release`) |
+| `--config <path>`, `-c` | Explicit path to an electron-builder config file |
 | `--project-dir <path>` | Override the project directory (default: repo root) |
-| `--verbose`, `-v` | Verbose logging |
-
-## `draft export [path] [options]`
-
-Packages a built game for distribution with per-platform launchers. Copies `dist/` and generates platform-specific launcher scripts.
-
-| Flag | Description |
-|---|---|
-| `--target=<t>` | Target: `win` / `linux` / `mac` / `all` (default: `all`) |
-| `--out=<dir>` | Output directory (default: `export`) |
-| `--no-compress` | Disable compression |
-| `--verbose`, `-v` | Verbose logging |
-
-> Output directory names remain `windows/`, `macos/`, `linux/` for back-compat of the generated layout; only the flag values are normalized to `win`/`mac`/`linux`.
-
-## `draft mobile [options]`
-
-Builds and scaffolds a Capacitor mobile target (Android / iOS) from the engine-owned native shell. See the [Mobile guide](/guides/mobile/) for details.
-
-| Flag | Description |
-|---|---|
-| `--game <name>`, `-g` | Game to build (required; `games/<game>`) |
-| `--target <t>`, `-t` | Target: `android` / `ios` / `all` (default: `all`) |
-| `--port <n>` | Embedded HTTP server port (default: `8765`) |
-| `--skip-build` | Skip the web bundle build (use existing `dist/mobile/`) |
-| `--skip-gradle` | Skip the Gradle APK build (shell + sync only) |
-| `--no-icons` | Skip icon generation (use `mobile-overrides/` or fail) |
-| `--no-overrides` | Skip `mobile-overrides/` merge layer |
+| `--port <n>` | Embedded HTTP server port (mobile, default: `8765`) |
+| `--skip-build` | Alias for `--stage=package` |
+| `--build-only` | Alias for `--stage=build` |
+| `--skip-gradle` | Skip Gradle APK build (mobile) |
+| `--no-icons` | Skip icon generation (mobile) |
+| `--no-overrides` | Skip `mobile-overrides/` merge layer (mobile) |
+| `--no-minify` | Disable minification (build stage) |
+| `--sourcemap` | Generate source maps |
 | `--verbose`, `-v` | Verbose logging |
 
 ```bash
-# Build and scaffold for both platforms
-draft mobile --target=all
+# Full release for all platforms (desktop + mobile)
+draft release --game=my-game
 
-# Android only, skip rebuild
-draft mobile --target=android --skip-build
+# Build only (Vite bundle, no packaging)
+draft release --game=my-game --stage=build
 
-# Android, skip Gradle (shell + sync only)
-draft mobile --target=android --skip-gradle
+# Package only (skip build, use existing dist/)
+draft release --game=my-game --stage=package --target=win
 
-# iOS with custom port
-draft mobile --target=ios --port=9000
+# Windows portable + Linux AppImage
+draft release --game=my-game --target=win,linux --format=win:portable,linux:AppImage
+
+# Mobile only (Android + iOS)
+draft release --game=my-game --target=android,ios
+
+# Multiple games at once
+draft release --games=sandjongg,to-the-ocean --target=all
+
+# Launcher folders (lightweight bun-based distribution)
+draft release --game=my-game --format=launcher
 ```
+
+### Stages
+
+| Stage | Desktop | Mobile |
+|---|---|---|
+| `build` | `electron-vite build` → `dist/` | `vite build` (mobile config) → `dist/mobile/` |
+| `package` | electron-builder → `release/` (or launcher folders if `--format=launcher`) | Capacitor shell + patch + sync + Gradle + sign → `release/` |
+| `release` | build → package → collect | build → package → sign → collect |
+
+### Deprecated commands (backward-compat aliases)
+
+The old commands still work but emit a deprecation warning and delegate to `release`:
+
+| Old command | Equivalent |
+|---|---|
+| `draft build` | `draft release --stage=build` |
+| `draft dist` | `draft release --stage=package` |
+| `draft export` | `draft release --stage=package --format=launcher` |
+| `draft mobile` | `draft release --target=android,ios` |
+| `draft build-games` | `draft release --games=<csv> --target=<csv>` |
 
 ## `draft assets <command> [project] [options]`
 

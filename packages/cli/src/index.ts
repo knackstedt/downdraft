@@ -12,6 +12,7 @@ import { dist } from "./dist";
 import { exportGame } from "./export";
 import { mobile } from "./mobile";
 import { newProject } from "./new";
+import { release } from "./release";
 import { runTest } from "./test";
 import { getCommand, renderTopLevelHelp } from "./usage";
 
@@ -63,6 +64,9 @@ async function main() {
     switch (command) {
       case "new":
         await newProject(process.argv.slice(3));
+        break;
+      case "release":
+        await release(process.argv.slice(3));
         break;
       case "dev":
         await dev(process.argv.slice(3));

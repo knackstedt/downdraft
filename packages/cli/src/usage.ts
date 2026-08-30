@@ -28,6 +28,8 @@ export interface CommandEntry {
 const DESKTOP_TARGETS = ["win", "linux", "mac", "all"] as const;
 const BUILD_TARGETS = ["current", "win", "linux", "mac"] as const;
 const MOBILE_TARGETS = ["android", "ios", "all"] as const;
+const RELEASE_TARGETS = ["win", "linux", "mac", "android", "ios", "all"] as const;
+const RELEASE_STAGES = ["build", "package", "release"] as const;
 const RENDERER_TARGETS = ["gpu", "cpu"] as const;
 const BUILD_MODES = ["dev", "debug", "prod"] as const;
 
@@ -36,6 +38,33 @@ const BUILD_MODES = ["dev", "debug", "prod"] as const;
 // ---------------------------------------------------------------------------
 
 export const COMMANDS: CommandEntry[] = [
+  {
+    name: "release",
+    usage: "draft release [options]",
+    summary: "Unified build + package + sign pipeline (desktop + mobile)",
+    schema: {
+      flags: [
+        { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games." },
+        { name: "games", type: "string", description: "Comma-separated game names (e.g. sandjongg,to-the-ocean)" },
+        { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, android, ios, or all" },
+        { name: "format", type: "string", description: "Per-platform format (e.g. win:portable,linux:AppImage). Use 'launcher' for bun-launcher folders." },
+        { name: "stage", type: "string", default: "release", enum: [...RELEASE_STAGES], description: "Stage: build (Vite only), package (package existing build), release (build+package+sign)" },
+        { name: "mode", type: "string", default: "prod", enum: [...BUILD_MODES], description: "Build mode" },
+        { name: "out", type: "string", default: "release", description: "Artifact output directory" },
+        { name: "config", alias: "c", type: "string", description: "Explicit path to an electron-builder config file" },
+        { name: "project-dir", type: "string", description: "Override the project directory (default: repo root)" },
+        { name: "port", type: "number", default: 8765, description: "Embedded HTTP server port (mobile)" },
+        { name: "skip-build", type: "boolean", description: "Alias for --stage=package (skip the Vite build step)" },
+        { name: "build-only", type: "boolean", description: "Alias for --stage=build (only bundle, don't package)" },
+        { name: "skip-gradle", type: "boolean", description: "Skip the Gradle APK build (mobile)" },
+        { name: "no-icons", type: "boolean", description: "Skip icon generation (mobile)" },
+        { name: "no-overrides", type: "boolean", description: "Skip the mobile-overrides/ merge layer" },
+        { name: "no-minify", type: "boolean", description: "Disable minification (build stage)" },
+        { name: "sourcemap", type: "boolean", description: "Generate source maps" },
+        { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
+      ],
+    },
+  },
   {
     name: "new",
     usage: "draft new [path] [options]",

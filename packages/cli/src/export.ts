@@ -14,61 +14,61 @@ const PLATFORM_DIR: Record<string, string> = {
   linux: "linux",
 };
 
-export async function exportGame(args: string[]): Promise<void> {
-  const entry = getCommand("export")!;
-  const parsed = parseArgs(args, entry.schema);
-  if (parsed.help) {
-    print(renderHelp(entry.usage, entry.schema));
-    return;
-  }
+/**
+ * Package a built game as per-platform launcher folders (bun-based).
+ *
+ * Extracted from `exportGame()` so `draft release --format=launcher` can
+ * call it directly. Copies `dist/` into per-platform folders with launcher
+ * scripts + platform.json. When `compress` is true, also produces a
+ * `.tar.gz` per platform (the old `export` command parsed `--no-compress`
+ * but never implemented compression — this fixes that).
+ *
+ * @returns array of produced artifact paths (directories or archives).
+ */
+export async function packageLauncher(
+  projectPath: string,
+  target: string,
+  outDir: string,
+  compress: boolean,
+  verbose: boolean,
+): Promise<string[]> {
+  log.info("release:package:launcher", `  Project:  ${projectPath}`);
+  log.info("release:package:launcher", `  Target:   ${target}`);
+  log.info("release:package:launcher", `  Output:   ${outDir}`);
+  log.info("release:package:launcher", `  Compress: ${compress}`);
 
-  const projectPath = parsed.positionals[0] ?? ".";
-  const target = parsed.flags.target as string;
-  const outDir = parsed.flags.out as string;
-  const verbose = parsed.flags.verbose as boolean;
-  const compress = !(parsed.flags["no-compress"] as boolean);
-
-  log.info("export", `
-  ╔══════════════════════════════════════════╗
-  ║   DownDraft Engine — Export              ║
-  ╚══════════════════════════════════════════╝
-  `);
-
-  log.info("export", `  Project:  ${projectPath}`);
-  log.info("export", `  Target:   ${target}`);
-  log.info("export", `  Output:   ${outDir}`);
-  log.info("export", `  Compress: ${compress}`);
-
-  // Validate the output directory to prevent path traversal outside the project.
   const outPath = confinePath(projectPath, outDir);
   if (!existsSync(outPath)) {
     mkdirSync(outPath, { recursive: true });
   }
 
-  // Check for build directory
   const buildDir = resolve(projectPath, "dist");
   if (!existsSync(buildDir)) {
-    log.error("export", `No build found at ${buildDir}. Run 'draft build' first.`);
+    log.error("release:package:launcher", `No build found at ${buildDir}. Run 'draft release --stage=build' first.`);
     process.exit(1);
   }
 
-  // Read build manifest
+  // Read build manifest if present (written by the old file-copy `draft build`).
+  // electron-vite build doesn't produce one, so fall back to package.json.
   const manifestPath = join(buildDir, "manifest.json");
-  if (!existsSync(manifestPath)) {
-    log.error("export", `No manifest found at ${manifestPath}`);
-    process.exit(1);
+  let manifest: { name?: string };
+  if (existsSync(manifestPath)) {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  } else {
+    const pkgJsonPath = resolve(projectPath, "package.json");
+    const pkg = existsSync(pkgJsonPath) ? JSON.parse(readFileSync(pkgJsonPath, "utf-8")) : {};
+    manifest = { name: pkg.name ?? "game" };
   }
-
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
   if (verbose) {
-    log.debug("export", `Manifest: ${JSON.stringify(manifest, null, 2)}`);
+    log.debug("release:package:launcher", `Manifest: ${JSON.stringify(manifest, null, 2)}`);
   }
 
-  // Platform-specific export — normalize target values to output dir names.
   const platforms =
     target === "all"
       ? [PLATFORM_DIR.win, PLATFORM_DIR.mac, PLATFORM_DIR.linux]
       : [PLATFORM_DIR[target] ?? target];
+
+  const artifacts: string[] = [];
 
   for (const platform of platforms) {
     const platformDir = join(outPath, platform);
@@ -76,7 +76,6 @@ export async function exportGame(args: string[]): Promise<void> {
       mkdirSync(platformDir, { recursive: true });
     }
 
-    // Copy build output
     const buildFiles = collectAllFiles(buildDir);
     for (const file of buildFiles) {
       const rel = relative(buildDir, file);
@@ -85,7 +84,6 @@ export async function exportGame(args: string[]): Promise<void> {
       copyFileSync(file, dest);
     }
 
-    // Platform-specific launcher
     const launcherName = manifest.name ?? "game";
     if (platform === "windows") {
       writeFileSync(join(platformDir, `${launcherName}.bat`), `@echo off\nbun run src/main.ts\n`);
@@ -98,7 +96,6 @@ export async function exportGame(args: string[]): Promise<void> {
       } catch {}
     }
 
-    // Platform info file
     writeFileSync(join(platformDir, "platform.json"), JSON.stringify({
       platform,
       arch: "x86_64",
@@ -107,10 +104,27 @@ export async function exportGame(args: string[]): Promise<void> {
       launcher: launcherName,
     }, null, 2));
 
-    log.info("export", `Exported ${platform} → ${platformDir}`);
+    log.info("release:package:launcher", `Exported ${platform} → ${platformDir}`);
+    artifacts.push(platformDir);
+
+    // Compress the platform folder into a .tar.gz (the old `export` command
+    // parsed --no-compress but never implemented compression — this fixes it).
+    if (compress) {
+      const archivePath = `${platformDir}.tar.gz`;
+      const { spawnSync } = await import("node:child_process");
+      const result = spawnSync("tar", ["-czf", archivePath, "-C", outPath, platform], {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 120_000,
+      });
+      if (result.status === 0) {
+        log.info("release:package:launcher", `Compressed ${platform} → ${archivePath}`);
+        artifacts.push(archivePath);
+      } else {
+        log.warn("release:package:launcher", `  ! Compression failed for ${platform} (tar exit ${result.status}). Skipping archive.`);
+      }
+    }
   }
 
-  // Write export summary
   const exportSummary = {
     exportedAt: new Date().toISOString(),
     platforms,
@@ -119,8 +133,39 @@ export async function exportGame(args: string[]): Promise<void> {
   };
   writeFileSync(join(outPath, "export-summary.json"), JSON.stringify(exportSummary, null, 2));
 
-  log.info("export", `Export complete → ${outPath}`);
-  log.info("export", `Platforms: ${platforms.join(", ")}`);
+  log.info("release:package:launcher", `Export complete → ${outPath}`);
+  log.info("release:package:launcher", `Platforms: ${platforms.join(", ")}`);
+  return artifacts;
+}
+
+export async function exportGame(args: string[]): Promise<void> {
+  const entry = getCommand("export")!;
+  const parsed = parseArgs(args, entry.schema);
+  if (parsed.help) {
+    print(renderHelp(entry.usage, entry.schema));
+    return;
+  }
+
+  log.warn("export", "`draft export` is deprecated — use `draft release --stage=package --format=launcher` instead.");
+  log.warn("export", "Delegating to `release`...");
+
+  const target = parsed.flags.target as string;
+  const verbose = parsed.flags.verbose as boolean;
+  const noCompress = parsed.flags["no-compress"] as boolean;
+
+  // Map old export args → release args.
+  const releaseArgs: string[] = ["--stage=package", "--format=launcher", `--target=${target}`];
+  if (verbose) releaseArgs.push("--verbose");
+  if (noCompress) releaseArgs.push("--no-minify"); // reuse no-minify as compress toggle
+
+  // Try to infer --game from the project path positional.
+  const projectPath = parsed.positionals[0] ?? ".";
+  const { basename } = await import("node:path");
+  const gameName = basename(projectPath);
+  if (gameName && gameName !== ".") releaseArgs.push(`--game=${gameName}`);
+
+  const { release } = await import("./release");
+  await release(releaseArgs);
 }
 
 function collectAllFiles(dir: string): string[] {

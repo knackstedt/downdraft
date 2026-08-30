@@ -18,8 +18,13 @@ export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
           properties: {
             target: {
               type: "string",
-              enum: ["win", "mac", "linux"],
+              enum: ["win", "mac", "linux", "android", "ios", "all"],
               description: "Build target platform",
+            },
+            stage: {
+              type: "string",
+              enum: ["build", "package", "release"],
+              description: "Release stage: build (Vite only), package (package existing build), release (build+package+sign). Default: release.",
             },
             output: { type: "string", description: "Output directory" },
             mode: {
@@ -33,12 +38,14 @@ export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
       },
       handler: (params) => {
         const target = params.target as string;
+        const stage = (params.stage as string) ?? "release";
         const mode = (params.mode as string) ?? "prod";
-        const output = (params.output as string) ?? `dist/${target}`;
+        const output = (params.output as string) ?? `release`;
 
         return jsonResult({
-          note: "Build system requires the CLI tool. Run 'draft build' from the project root.",
+          note: "Build system requires the CLI tool. Run 'draft release --stage=<stage> --target=<target>' from the project root.",
           target,
+          stage,
           mode,
           output,
         });

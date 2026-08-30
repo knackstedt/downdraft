@@ -56,7 +56,7 @@ function parseDistArgs(args: string[]): DistArgs {
  *   3. `build` block in `games/<game>/package.json` (inline, back-compat).
  *   4. Root `package.json` `build` block (engine default — last resort).
  */
-async function resolveConfig(
+export async function resolveConfig(
   opts: DistArgs,
   repoRoot: string,
 ): Promise<{ config: any; projectDir: string; source: string }> {
@@ -161,31 +161,27 @@ async function resolveConfig(
   process.exit(1);
 }
 
-export async function dist(args: string[]): Promise<void> {
-  const opts = parseDistArgs(args);
-  const repoRoot = resolve(import.meta.dir, "../../..");
-
-  log.info("dist", `
-  ╔══════════════════════════════════════════╗
-  ║   DownDraft Engine — Dist (Package)      ║
-  ╚══════════════════════════════════════════╝
-  `);
-
-  log.info("dist", `  Game:        ${opts.game}`);
-  log.info("dist", `  Target:      ${opts.target}`);
-  log.info("dist", `  Project dir: ${opts.projectDir ?? repoRoot}`);
-  if (opts.verbose) log.info("dist", `  Verbose:     on`);
-
+/**
+ * Package a game for desktop distribution via electron-builder.
+ *
+ * Extracted from `dist()` so `draft release --stage=package` can call it
+ * directly without going through the argv-parsing entry point.
+ *
+ * @returns array of artifact paths produced by electron-builder.
+ */
+export async function packageDesktop(
+  opts: DistArgs,
+  repoRoot: string,
+): Promise<string[]> {
   const { config, projectDir, source } = await resolveConfig(opts, repoRoot);
 
-  log.info("dist", `  Config:      ${source}`);
-  if (config.productName) log.info("dist", `  Product:     ${config.productName}`);
-  if (config.appId) log.info("dist", `  AppId:       ${config.appId}`);
-  if (config.copyright) log.info("dist", `  Copyright:   ${config.copyright}`);
-  if (config.extraMetadata?.version) log.info("dist", `  Version:     ${config.extraMetadata.version}`);
-  log.info("dist", "");
+  log.info("release:package:desktop", `  Config:      ${source}`);
+  if (config.productName) log.info("release:package:desktop", `  Product:     ${config.productName}`);
+  if (config.appId) log.info("release:package:desktop", `  AppId:       ${config.appId}`);
+  if (config.copyright) log.info("release:package:desktop", `  Copyright:   ${config.copyright}`);
+  if (config.extraMetadata?.version) log.info("release:package:desktop", `  Version:     ${config.extraMetadata.version}`);
+  log.info("release:package:desktop", "");
 
-  // Build the targets map for electron-builder.
   const { build, Platform, Arch, createTargets } = await import("electron-builder");
 
   const platformMap: Record<string, typeof Platform> = {
@@ -200,31 +196,41 @@ export async function dist(args: string[]): Promise<void> {
   } else {
     const plat = platformMap[opts.target];
     if (!plat) {
-      log.error("dist", `Unknown target: ${opts.target}. Use win, linux, mac, or all.`);
+      log.error("release:package:desktop", `Unknown target: ${opts.target}. Use win, linux, mac, or all.`);
       process.exit(1);
     }
     targets = createTargets([plat]);
   }
 
-  try {
-    const artifactPaths = await build({
-      config,
-      projectDir,
-      targets,
-      // Let electron-builder pick the current arch by default.
-      x64: true,
-    } as any);
+  const artifactPaths = await build({
+    config,
+    projectDir,
+    targets,
+    x64: true,
+  } as any);
 
-    log.info("dist", "");
-    log.info("dist", `Packaging complete. ${artifactPaths.length} artifact(s) produced:`);
-    for (const p of artifactPaths) {
-      log.info("dist", `  → ${p}`);
-    }
-  } catch (err) {
-    log.error("dist", `Packaging failed: ${(err as Error).message}`);
-    if ((err as Error).stack) {
-      log.error("dist", (err as Error).stack);
-    }
-    process.exit(1);
+  log.info("release:package:desktop", "");
+  log.info("release:package:desktop", `Packaging complete. ${artifactPaths.length} artifact(s) produced:`);
+  for (const p of artifactPaths) {
+    log.info("release:package:desktop", `  → ${p}`);
   }
+  return artifactPaths;
+}
+
+export async function dist(args: string[]): Promise<void> {
+  const opts = parseDistArgs(args);
+  const repoRoot = resolve(import.meta.dir, "../../..");
+
+  log.warn("dist", "`draft dist` is deprecated — use `draft release --stage=package` instead.");
+  log.warn("dist", "Delegating to `release`...");
+
+  // Map old dist args → release args.
+  const releaseArgs: string[] = ["--stage=package", `--game=${opts.game}`, `--target=${opts.target}`];
+  if (opts.configPath) releaseArgs.push(`--config=${opts.configPath}`);
+  if (opts.projectDir) releaseArgs.push(`--project-dir=${opts.projectDir}`);
+  if (opts.verbose) releaseArgs.push("--verbose");
+
+  // Import release dynamically to avoid circular dependency at module load.
+  const { release } = await import("./release");
+  await release(releaseArgs);
 }

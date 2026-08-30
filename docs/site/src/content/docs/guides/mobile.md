@@ -28,9 +28,9 @@ Electron Main Process                 Native Shell (Android/iOS)
 
 ### Engine-owned native shell
 
-The engine owns a **canonical, pre-wired native shell** at `packages/mobile-shell/` containing complete Android + iOS projects with the embedded HTTP server already wired in. `draft mobile` copies this shell into a per-game **gitignored** directory and patches in game-specific values (appId, appName, port, icons).
+The engine owns a **canonical, pre-wired native shell** at `packages/mobile-shell/` containing complete Android + iOS projects with the embedded HTTP server already wired in. `draft release --target=android,ios` (formerly `draft mobile`) copies this shell into a per-game **gitignored** directory and patches in game-specific values (appId, appName, port, icons).
 
-**Games commit zero native files.** The `android/` and `ios/` directories in each game are gitignored — regenerated from the shell on each `draft mobile` run. `draft mobile` auto-generates all config files if missing. Games only need to commit:
+**Games commit zero native files.** The `android/` and `ios/` directories in each game are gitignored — regenerated from the shell on each `draft release --target=android,ios` run. `draft release --target=android,ios` auto-generates all config files if missing. Games only need to commit:
 
 - `src/mobile.tsx` — mobile entry (auto-generated stub if missing — wire up and commit)
 - `capacitor.config.ts` — auto-written if missing (can be customized)
@@ -83,7 +83,7 @@ The engine-owned native shell has the embedded server **pre-wired**:
 
 ### Zero-config path
 
-Just run `draft mobile --game=<name>`. The command auto-generates everything you need:
+Just run `draft release --target=android,ios --game=<name>` (formerly `draft mobile`). The command auto-generates everything you need:
 
 | File | Auto-generated? | Notes |
 |---|---|---|
@@ -101,10 +101,10 @@ The only prerequisite is installing Capacitor deps (see below).
 bun add -d @capacitor/cli @capacitor/core @capacitor/android @capacitor/ios
 ```
 
-#### 2. Run `draft mobile`
+#### 2. Run `draft release --target=android,ios`
 
 ```bash
-draft mobile --game=my-game --target=all
+draft release --target=android,ios --game=my-game
 ```
 
 This will:
@@ -141,7 +141,7 @@ No devtools, MCP, or OSR — those are Electron-only.
 
 #### 4. (Optional) Add an app icon
 
-Add a 1024×1024 `icon.png` to your game directory. `draft mobile` will automatically generate:
+Add a 1024×1024 `icon.png` to your game directory. `draft release --target=android,ios` will automatically generate:
 - **Android:** `ic_launcher.png` + `ic_launcher_round.png` + `ic_launcher_foreground.png` at all 5 mipmap densities (mdpi through xxxhdpi)
 - **Android splash screens:** portrait + landscape at all 5 densities + a default (11 total)
 - **iOS:** `AppIcon-512@2x.png` (1024×1024, Xcode 14+ single-size format)
@@ -173,7 +173,7 @@ The override layer is a **merge**, not a replacement — it adds to the shell's 
 ### 6. Build and scaffold
 
 ```bash
-draft mobile --target=all
+draft release --target=android,ios
 ```
 
 This will:
@@ -202,7 +202,7 @@ npx cap open ios       # then Run in Xcode
 | Flag | Description |
 |------|-------------|
 | `--game <name>` | Game to build (required; `games/<game>`) |
-| `--target <plat>` | `android`, `ios`, or `all` (default: `all`) |
+| `--target <plat>` | `android`, `ios`, or `android,ios` (default: `android,ios`) |
 | `--port <n>` | Embedded HTTP server port (default: `8765`) |
 | `--skip-build` | Skip web bundle build (use existing `dist/mobile/`) |
 | `--skip-gradle` | Skip the Gradle APK build (shell + sync only) |
@@ -276,5 +276,5 @@ The guard checks for WebGPU (`navigator.gpu`) directly rather than relying on `s
 | `packages/app/src/mobile/touch-input-adapter.ts` | Touch → `InputBufferWriter` mapping |
 | `packages/app/src/mobile/webgpu-guard.ts` | Boot-time WebGPU + cross-origin isolation check |
 | `packages/app/src/vite/mobile-vite-config.ts` | Web-only Vite build config (no main/preload) |
-| `packages/cli/src/mobile.ts` | `draft mobile` CLI command (copy-from-shell + patch) |
+| `packages/cli/src/mobile.ts` | `draft release --target=android,ios` CLI command (copy-from-shell + patch; formerly `draft mobile`) |
 | `packages/cli/src/mobile-icons.ts` | jimp-based icon generation from `icon.png` |

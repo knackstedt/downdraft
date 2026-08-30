@@ -5,10 +5,11 @@ Canonical pre-wired Capacitor native shell for Android + iOS mobile builds.
 ## Purpose
 
 This package contains the **source of truth** for the native Android and iOS
-projects used by `draft mobile`. Instead of each game running `cap add` to
-generate ~143 native files (which must then be committed and hand-wired with
-the embedded HTTP server), `draft mobile` copies this shell into a per-game
-**gitignored** directory and patches in game-specific values.
+projects used by `draft release --target=android,ios` (and the deprecated
+`draft mobile`). Instead of each game running `cap add` to generate ~143
+native files (which must then be committed and hand-wired with the embedded
+HTTP server), `draft release` copies this shell into a per-game **gitignored**
+directory and patches in game-specific values.
 
 Games commit **zero native files** — only `capacitor.config.ts`, `src/mobile.ts`,
 `mobile.vite.config.ts`, and optionally `icon.png` + `mobile-overrides/`.
@@ -36,7 +37,7 @@ The shell's native projects already have the embedded HTTP server fully wired:
 
 ## Placeholders
 
-The shell uses placeholder strings that `draft mobile` replaces during the
+The shell uses placeholder strings that `draft release` replaces during the
 copy + patch step:
 
 | Placeholder | Replaced with | Files |
@@ -46,7 +47,7 @@ copy + patch step:
 | `__SERVER_PORT__` | Embedded server port (default: 8765) | `MainActivity.java`, `AppDelegate.swift`, `SceneDelegate.swift` |
 | `com.downdraft.shell` (bundle ID) | Game's appId | `project.pbxproj` |
 
-## What `draft mobile` does
+## What `draft release --target=android,ios` does
 
 1. Builds the web bundle → `dist/mobile/`
 2. Copies `packages/mobile-shell/{android,ios}/` → `games/<game>/{android,ios}/`
@@ -67,7 +68,7 @@ change. To update the shell:
 2. Diff the generated projects against `packages/mobile-shell/{android,ios}/`.
 3. Merge structural changes (new build settings, manifest entries, etc.) into
    the shell while preserving the embedded server wiring.
-4. Test with `draft mobile` on a game.
+4. Test with `draft release --target=android,ios` on a game.
 
 ## Files
 
