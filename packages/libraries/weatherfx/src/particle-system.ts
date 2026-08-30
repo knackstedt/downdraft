@@ -7,8 +7,54 @@
 import type { ITrackedRenderPass } from "@downdraft/core";
 import { calculateViewProj, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { WeatherType } from "@downdraft/library-weather";
+import { StructView, wgsl } from "@downdraft/shader-graph";
 import COMPUTE_WGSL from "./shaders/particle-compute.wgsl?raw";
 import RENDER_WGSL from "./shaders/particle-render.wgsl?raw";
+
+// --- Typed uniform structs (validate against particle-compute.wgsl / particle-render.wgsl) ---
+export const SimParamsStruct = wgsl.struct("SimParams", {
+  deltaTime: wgsl.f32,
+  time: wgsl.f32,
+  spawnCount: wgsl.f32,
+  maxParticles: wgsl.f32,
+  cursor: wgsl.f32,
+  weatherType: wgsl.f32,
+  isSnow: wgsl.f32,
+  _pad0: wgsl.f32,
+  cameraPos: wgsl.vec3f,
+  collisionRadius: wgsl.f32,
+  spawnSpread: wgsl.f32,
+  spawnHeight: wgsl.f32,
+  baseVelY: wgsl.f32,
+  particleSize: wgsl.f32,
+  lifetime: wgsl.f32,
+  colorR: wgsl.f32,
+  colorG: wgsl.f32,
+  colorB: wgsl.f32,
+  windX: wgsl.f32,
+  windZ: wgsl.f32,
+  _pad1: wgsl.f32,
+  _pad2: wgsl.f32,
+  voxelOrigin: wgsl.vec3f,
+  voxelSize: wgsl.f32,
+  voxelDimX: wgsl.f32,
+  voxelDimY: wgsl.f32,
+  voxelDimZ: wgsl.f32,
+  voxelCount: wgsl.f32,
+  isoLevel: wgsl.f32,
+  seed: wgsl.f32,
+});
+
+export const RenderUniformsStruct = wgsl.struct("RenderUniforms", {
+  viewProj: wgsl.mat4x4f,
+  cameraPos: wgsl.vec3f,
+  time: wgsl.f32,
+  particleCount: wgsl.f32,
+  weatherType: wgsl.f32,
+  aspect: wgsl.f32,
+  focalLength: wgsl.f32,
+  cullDistance: wgsl.f32,
+});
 
 // --- Particle layout (12 floats = 48 bytes per particle) ---
 // posX, posY, posZ, velX, velY, velZ, life, size, colorR, colorG, colorB, alive
@@ -102,17 +148,20 @@ export class ParticleSystem {
   particleCullDistance: number = 5.0;
 
   // Pooled CPU buffers
-  private simParamData: Float32Array;
+  private _simParamView: StructView | null = null;
+  private _simParamBuf: Float32Array | null = null;
   private counterData: Uint32Array;
-  private renderUniformData: Float32Array;
+  private _renderUniformView: StructView | null = null;
+  private _renderUniformBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
     this.device = device;
     this.format = format;
-    // SimParams layout: 32 floats = 128 bytes (padded to 256 for uniform alignment)
-    this.simParamData = new Float32Array(64);
+    this._simParamBuf = new Float32Array(64); // padded to 256 bytes
+    this._simParamView = SimParamsStruct.view(this._simParamBuf);
     this.counterData = new Uint32Array(2);
-    this.renderUniformData = new Float32Array(25);
+    this._renderUniformBuf = new Float32Array(RenderUniformsStruct.floatCount);
+    this._renderUniformView = RenderUniformsStruct.view(this._renderUniformBuf);
   }
 
   async init(): Promise<void> {
@@ -242,59 +291,48 @@ export class ParticleSystem {
     const spawnCount = Math.min(MAX_PARTICLES, Math.floor(this.spawnAccumulator));
     this.spawnAccumulator -= spawnCount;
 
-    // Write sim params — indices match WGSL SimParams struct layout (with vec3 alignment padding)
-    // offset 0:   deltaTime, time, spawnCount, maxParticles
-    // offset 16:  cursor, weatherType, isSnow, _pad0
-    // offset 32:  cameraPos.xyz, collisionRadius
-    // offset 48:  spawnSpread, spawnHeight, baseVelY, particleSize
-    // offset 64:  lifetime, colorR, colorG, colorB
-    // offset 80:  windX, windZ, _pad1, _pad2
-    // offset 96:  voxelOrigin.xyz, voxelSize
-    // offset 112: voxelDimX, voxelDimY, voxelDimZ, voxelCount
-    // offset 128: isoLevel, seed
-    const sp = this.simParamData;
-    sp.fill(0);
-    sp[0] = dt;
-    sp[1] = performance.now() / 1000;
-    sp[2] = spawnCount;
-    sp[3] = MAX_PARTICLES;
-    sp[4] = this.cursor;
-    sp[5] = weatherType;
-    sp[6] = params ? (params.isSnow ? 1 : 0) : 0;
-    // sp[7] = _pad0
-    sp[8] = camera.position[0];
-    sp[9] = camera.position[1];
-    sp[10] = camera.position[2];
-    sp[11] = COLLISION_RADIUS;
-    sp[12] = params ? params.spread : 50;
-    sp[13] = params ? params.heightRange : 25;
-    sp[14] = params ? params.velY : -15;
-    sp[15] = params ? params.size : 0.05;
-    sp[16] = params ? params.lifetime : 4;
-    sp[17] = params ? params.color[0] : 0.6;
-    sp[18] = params ? params.color[1] : 0.7;
-    sp[19] = params ? params.color[2] : 0.9;
-    sp[20] = windX;
-    sp[21] = windZ;
-    // sp[22], sp[23] = _pad1, _pad2
+    // Write sim params via typed view
+    const sp = this._simParamView!;
+    this._simParamBuf!.fill(0);
+    sp.set("deltaTime", dt);
+    sp.set("time", performance.now() / 1000);
+    sp.set("spawnCount", spawnCount);
+    sp.set("maxParticles", MAX_PARTICLES);
+    sp.set("cursor", this.cursor);
+    sp.set("weatherType", weatherType);
+    sp.set("isSnow", params ? (params.isSnow ? 1 : 0) : 0);
+    sp.set("cameraPos", camera.position);
+    sp.set("collisionRadius", COLLISION_RADIUS);
+    sp.set("spawnSpread", params ? params.spread : 50);
+    sp.set("spawnHeight", params ? params.heightRange : 25);
+    sp.set("baseVelY", params ? params.velY : -15);
+    sp.set("particleSize", params ? params.size : 0.05);
+    sp.set("lifetime", params ? params.lifetime : 4);
+    sp.set("colorR", params ? params.color[0] : 0.6);
+    sp.set("colorG", params ? params.color[1] : 0.7);
+    sp.set("colorB", params ? params.color[2] : 0.9);
+    sp.set("windX", windX);
+    sp.set("windZ", windZ);
     if (voxelData && voxelData.data.length > 0) {
-      sp[24] = voxelData.originX;
-      sp[25] = voxelData.originY;
-      sp[26] = voxelData.originZ;
-      sp[27] = voxelData.voxelSize;
-      sp[28] = voxelData.dimX;
-      sp[29] = voxelData.dimY;
-      sp[30] = voxelData.dimZ;
-      sp[31] = voxelData.data.length;
-      sp[32] = voxelData.isoLevel;
+      sp.set("voxelOrigin", [voxelData.originX, voxelData.originY, voxelData.originZ]);
+      sp.set("voxelSize", voxelData.voxelSize);
+      sp.set("voxelDimX", voxelData.dimX);
+      sp.set("voxelDimY", voxelData.dimY);
+      sp.set("voxelDimZ", voxelData.dimZ);
+      sp.set("voxelCount", voxelData.data.length);
+      sp.set("isoLevel", voxelData.isoLevel);
     } else {
-      sp[24] = 0; sp[25] = 0; sp[26] = 0;
-      sp[27] = 1; sp[28] = 0; sp[29] = 0; sp[30] = 0;
-      sp[31] = 0; sp[32] = 0;
+      sp.set("voxelOrigin", [0, 0, 0]);
+      sp.set("voxelSize", 1);
+      sp.set("voxelDimX", 0);
+      sp.set("voxelDimY", 0);
+      sp.set("voxelDimZ", 0);
+      sp.set("voxelCount", 0);
+      sp.set("isoLevel", 0);
     }
-    sp[33] = this.seed;
+    sp.set("seed", this.seed);
 
-    this.device.queue.writeBuffer(this.simParamBuffer!, 0, this.simParamData as unknown as GPUAllowSharedBufferSource);
+    this.device.queue.writeBuffer(this.simParamBuffer!, 0, this._simParamBuf as unknown as GPUAllowSharedBufferSource);
 
     // Upload voxel data if present
     if (voxelData && voxelData.data.length > 0 && voxelData.data.length <= MAX_VOXEL_FLOATS) {
@@ -347,19 +385,17 @@ export class ParticleSystem {
 
     // Write render uniforms
     const viewProj = calculateViewProj(camera);
-    const u = this.renderUniformData;
-    for (let i = 0; i < 16; i++) u[i] = viewProj[i];
-    u[16] = camera.position[0];
-    u[17] = camera.position[1];
-    u[18] = camera.position[2];
-    u[19] = performance.now() / 1000;
-    u[20] = MAX_PARTICLES;
-    u[21] = weatherType;
-    u[22] = camera.aspect;
-    u[23] = 1 / Math.tan((camera.fov * Math.PI / 180) / 2);
-    u[24] = this.particleCullDistance;
+    const u = this._renderUniformView!;
+    u.set("viewProj", viewProj);
+    u.set("cameraPos", camera.position);
+    u.set("time", performance.now() / 1000);
+    u.set("particleCount", MAX_PARTICLES);
+    u.set("weatherType", weatherType);
+    u.set("aspect", camera.aspect);
+    u.set("focalLength", 1 / Math.tan((camera.fov * Math.PI / 180) / 2));
+    u.set("cullDistance", this.particleCullDistance);
 
-    this.device.queue.writeBuffer(this.renderUniformBuffer, 0, u as unknown as GPUAllowSharedBufferSource);
+    this.device.queue.writeBuffer(this.renderUniformBuffer, 0, this._renderUniformBuf as unknown as GPUAllowSharedBufferSource);
 
     passEncoder.setPipeline(this.renderPipeline);
     passEncoder.setBindGroup(0, this.renderBindGroup);
@@ -389,5 +425,9 @@ export class ParticleSystem {
     this.renderBindGroup = null;
     this.computeBindGroupLayout = null;
     this.renderBindGroupLayout = null;
+    this._simParamView = null;
+    this._simParamBuf = null;
+    this._renderUniformView = null;
+    this._renderUniformBuf = null;
   }
 }

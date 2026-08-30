@@ -1,3 +1,5 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, u32, vec3f, vec3u, wgsl } from "@downdraft/shader-graph";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { PassType } from "../frame-graph";
 import { RenderPass } from "../render-pass";
@@ -11,9 +13,8 @@ import {
     packVolumetricUniforms
 } from "./volumetric-types";
 
-const VOLUMETRIC_SCATTERING_SHADER = /* wgsl */ `
-struct VolumetricUniforms {
-  froxelDims: vec3<u32>,
+const VolumetricUniforms: WgslStruct = wgsl.struct("VolumetricUniforms", {
+  froxelDims: vec3u,
   screenWidth: f32,
   screenHeight: f32,
   nearPlane: f32,
@@ -21,11 +22,20 @@ struct VolumetricUniforms {
   numLights: u32,
   density: f32,
   anisotropy: f32,
-  scattering: vec3<f32>,
-  absorption: vec3<f32>,
+  scattering: vec3f,
+  absorption: vec3f,
   _pad0: f32,
   _pad1: f32,
-};
+});
+
+const CompositeUniforms: WgslStruct = wgsl.struct("CompositeUniforms", {
+  invViewProj: mat4x4f,
+  cameraPos: vec3f,
+  _pad: f32,
+});
+
+const VOLUMETRIC_SCATTERING_SHADER = /* wgsl */ `
+${VolumetricUniforms.wgsl}
 
 struct LightData {
   position: vec4<f32>,
@@ -128,11 +138,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 
 const VOLUMETRIC_COMPOSITE_SHADER = /* wgsl */ `
-struct CompositeUniforms {
-  invViewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
-  _pad: f32,
-};
+${CompositeUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms: CompositeUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;

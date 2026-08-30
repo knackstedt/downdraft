@@ -1,21 +1,26 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-const SKY_DOME_SHADER = /* wgsl */ `
-struct Uniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   timeOfDay: f32,
   weatherType: u32,
-  sunDir: vec3<f32>,
+  sunDir: vec3f,
   sunIntensity: f32,
-  moonDir: vec3<f32>,
+  moonDir: vec3f,
   moonIntensity: f32,
   time: f32,
   prevWeatherType: u32,
   weatherBlend: f32,
-};
+});
+
+const SKY_DOME_SHADER = /* wgsl */ `
+${Uniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 
@@ -296,8 +301,8 @@ export class SkyDomePass extends RenderPass {
   private indexCount = 0;
   private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
-  private uniformData = new Float32Array(35);
-  private uniformU32View = new Uint32Array(this.uniformData.buffer);
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1) {
     super();
@@ -325,6 +330,8 @@ export class SkyDomePass extends RenderPass {
     const dev = this.device;
     this.shaderModule = dev.createShaderModule({ code: SKY_DOME_SHADER });
     this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._uniformBuf = new Float32Array(Uniforms.floatCount);
+    this._uniformView = Uniforms.view(this._uniformBuf);
     this.vertexBuffer = dev.createBuffer({ size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     dev.queue.writeBuffer(this.vertexBuffer, 0, vertices);
     this.indexBuffer = dev.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -349,25 +356,19 @@ export class SkyDomePass extends RenderPass {
 
   setUniforms(u: SkyDomeUniforms): void {
     if (!this.uniformBuffer) return;
-    const data = this.uniformData;
-    data.set(u.viewProj as Float32Array, 0);
-    data[16] = u.cameraPos[0];
-    data[17] = u.cameraPos[1];
-    data[18] = u.cameraPos[2];
-    data[19] = u.timeOfDay;
-    this.uniformU32View[20] = u.weatherType;
-    data[24] = u.sunDir[0];
-    data[25] = u.sunDir[1];
-    data[26] = u.sunDir[2];
-    data[27] = u.sunIntensity;
-    data[28] = u.moonDir[0];
-    data[29] = u.moonDir[1];
-    data[30] = u.moonDir[2];
-    data[31] = u.moonIntensity;
-    data[32] = u.time;
-    this.uniformU32View[33] = u.prevWeatherType;
-    data[34] = u.weatherBlend;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    const view = this._uniformView!;
+    view.set("viewProj", u.viewProj as Float32Array);
+    view.set("cameraPos", u.cameraPos);
+    view.set("timeOfDay", u.timeOfDay);
+    view.setU32("weatherType", u.weatherType);
+    view.set("sunDir", u.sunDir);
+    view.set("sunIntensity", u.sunIntensity);
+    view.set("moonDir", u.moonDir);
+    view.set("moonIntensity", u.moonIntensity);
+    view.set("time", u.time);
+    view.setU32("prevWeatherType", u.prevWeatherType);
+    view.set("weatherBlend", u.weatherBlend);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf! as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -396,5 +397,7 @@ export class SkyDomePass extends RenderPass {
     this.pipeline = null;
     this.shaderModule = null;
     this.bindGroup = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

@@ -1,3 +1,6 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, vec4f, wgsl } from "@downdraft/shader-graph";
+
 export interface SDFGlyph {
   char: string;
   charCode: number;
@@ -104,15 +107,17 @@ export function layoutSDFText(
   return { quads, width: penX, height: penY + lineHeight };
 }
 
-export const SDF_TEXT_SHADER = /* wgsl */ `
-struct TextUniforms {
-  color: vec4<f32>,
-  outlineColor: vec4<f32>,
+const TextUniforms: WgslStruct = wgsl.struct("TextUniforms", {
+  color: vec4f,
+  outlineColor: vec4f,
   outlineWidth: f32,
   smoothing: f32,
   _pad0: f32,
   _pad1: f32,
-};
+});
+
+export const SDF_TEXT_SHADER = /* wgsl */ `
+${TextUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: TextUniforms;
 @group(0) @binding(1) var atlasTex: texture_2d<f32>;

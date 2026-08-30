@@ -1,3 +1,5 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
@@ -8,15 +10,17 @@ import { TrackedRenderPass } from "../tracked-render-pass";
 export const MAX_POINT_LIGHT_SHADOWS = 4;
 const CUBE_FACES = 6;
 
-const POINT_SHADOW_SHADER = /* wgsl */ `
-struct FaceUniforms {
-  viewProj: mat4x4<f32>,
-  lightPos: vec4<f32>,
+const FaceUniforms: WgslStruct = wgsl.struct("FaceUniforms", {
+  viewProj: mat4x4f,
+  lightPos: vec4f,
   farPlane: f32,
   _pad0: f32,
   _pad1: f32,
   _pad2: f32,
-};
+});
+
+const POINT_SHADOW_SHADER = /* wgsl */ `
+${FaceUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> faceData: FaceUniforms;
 @group(0) @binding(1) var modelUniform: mat4x4<f32>;
@@ -50,6 +54,8 @@ export class PointLightShadowPass extends RenderPass {
   private shadowSamplers: GPUSampler[] = [];
   private uniformBuffer: GPUBuffer | null = null;
   private modelBuffer: GPUBuffer | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
   private pipelines: Map<number, GPURenderPipeline> = new Map();
   private bindGroups: Map<number, GPUBindGroup> = new Map();
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
@@ -81,6 +87,8 @@ export class PointLightShadowPass extends RenderPass {
       size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(FaceUniforms.floatCount);
+    this._uniformView = FaceUniforms.view(this._uniformBuf);
 
     this.modelBuffer = this.device.createBuffer({
       size: 64,
@@ -162,14 +170,14 @@ export class PointLightShadowPass extends RenderPass {
     for (let face = 0; face < CUBE_FACES; face++) {
       const viewProj = this.computeFaceViewProj(lightPos, face, aspect, farPlane);
 
-      const uniformData = new Float32Array(24);
-      for (let i = 0; i < 16; i++) uniformData[i] = viewProj[i];
-      uniformData[16] = lightPos[0];
-      uniformData[17] = lightPos[1];
-      uniformData[18] = lightPos[2];
-      uniformData[19] = farPlane;
-      uniformData[20] = farPlane;
-      this.device.queue.writeBuffer(this.uniformBuffer!, 0, uniformData as unknown as BufferSource);
+      const uv = this._uniformView!;
+      uv.set("viewProj", viewProj);
+      uv.set("lightPos", [lightPos[0], lightPos[1], lightPos[2], farPlane]);
+      uv.set("farPlane", farPlane);
+      uv.set("_pad0", 0);
+      uv.set("_pad1", 0);
+      uv.set("_pad2", 0);
+      this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
 
       const pass = encoder.beginRenderPass({
         colorAttachments: [],
@@ -245,6 +253,8 @@ export class PointLightShadowPass extends RenderPass {
     this.shadowSamplers.length = 0;
     this.uniformBuffer?.destroy();
     this.modelBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();

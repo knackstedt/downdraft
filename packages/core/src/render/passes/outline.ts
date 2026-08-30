@@ -1,5 +1,16 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const OutlineUniforms: WgslStruct = wgsl.struct("OutlineUniforms", {
+  texelSizeX: f32,
+  texelSizeY: f32,
+  outlineWidth: f32,
+  opacity: f32,
+  outlineColor: vec3f,
+  _pad0: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,14 +30,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const OUTLINE_DETECT_FS = /* wgsl */ `
-struct OutlineUniforms {
-  texelSizeX: f32,
-  texelSizeY: f32,
-  outlineWidth: f32,
-  opacity: f32,
-  outlineColor: vec3<f32>,
-  _pad0: f32,
-};
+${OutlineUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: OutlineUniforms;
 @group(0) @binding(1) var maskTex: texture_2d<f32>;
@@ -104,6 +108,8 @@ export class OutlinePass extends RenderPass {
   private uniformBuffer: GPUBuffer | null = null;
   private maskUniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
   private maskTexture: GPUTexture | null = null;
   private maskView: GPUTextureView | null = null;
@@ -127,6 +133,8 @@ export class OutlinePass extends RenderPass {
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(OutlineUniforms.floatCount);
+    this._uniformView = OutlineUniforms.view(this._uniformBuf);
     this.maskUniformBuffer = this.device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -214,16 +222,14 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
   }
 
   private writeUniforms(): void {
-    const data = new Float32Array(8);
-    data[0] = this.width > 0 ? 1.0 / this.width : 0.0;
-    data[1] = this.height > 0 ? 1.0 / this.height : 0.0;
-    data[2] = this.settings.outlineWidth;
-    data[3] = this.settings.opacity;
-    data[4] = this.settings.outlineColor[0];
-    data[5] = this.settings.outlineColor[1];
-    data[6] = this.settings.outlineColor[2];
-    data[7] = 0.0;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._uniformView!;
+    view.set("texelSizeX", this.width > 0 ? 1.0 / this.width : 0.0);
+    view.set("texelSizeY", this.height > 0 ? 1.0 / this.height : 0.0);
+    view.set("outlineWidth", this.settings.outlineWidth);
+    view.set("opacity", this.settings.opacity);
+    view.set("outlineColor", this.settings.outlineColor);
+    view.set("_pad0", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -306,5 +312,7 @@ fn mask_vs(@location(0) position: vec3<f32>) -> MaskVertexOutput {
     this.uniformBuffer?.destroy();
     this.maskUniformBuffer?.destroy();
     this.maskTexture?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

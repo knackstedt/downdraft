@@ -8,24 +8,31 @@
 // ============================================================================
 
 import { DEPTH_FORMAT } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, wgsl } from "@downdraft/shader-graph";
+
+// ─── Uniform/storage structs (single source of truth for layout) ───────────
+const UniformsStruct: WgslStruct = wgsl.struct("Uniforms", {
+  viewProj: mat4x4f,
+  canvasW: f32,
+  canvasH: f32,
+  markerCount: f32,
+  _pad: f32,
+});
+
+const MarkerStruct: WgslStruct = wgsl.struct("Marker", {
+  gridX: f32,
+  gridY: f32,
+  z: f32,
+  colorR: f32,
+  colorG: f32,
+  colorB: f32,
+});
 
 const MARKER_WGSL = `
-struct Uniforms {
-  viewProj : mat4x4f,
-  canvasW : f32,
-  canvasH : f32,
-  markerCount : f32,
-  _pad : f32,
-};
+${UniformsStruct.wgsl}
 
-struct Marker {
-  gridX : f32,
-  gridY : f32,
-  z : f32,
-  colorR : f32,
-  colorG : f32,
-  colorB : f32,
-};
+${MarkerStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 @group(0) @binding(1) var<storage, read> markers : array<Marker>;
@@ -94,7 +101,8 @@ export class TaskMarkerPass {
   private bindGroup: GPUBindGroup | null = null;
   private markerCount = 0;
   // Preallocated buffers (avoid per-frame allocation)
-  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(20);
+  private _uniformBuf: Float32Array<ArrayBuffer> | null = null;
+  private _uniformView: StructView | null = null;
   private _markerData: Float32Array<ArrayBuffer> = new Float32Array(MAX_MARKERS * 6);
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
@@ -110,6 +118,8 @@ export class TaskMarkerPass {
       size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(UniformsStruct.floatCount);
+    this._uniformView = UniformsStruct.view(this._uniformBuf);
 
     // Marker storage buffer
     this.markerBuffer = this.device.createBuffer({
@@ -166,12 +176,13 @@ export class TaskMarkerPass {
     const data = this._markerData;
     for (let i = 0; i < count; i++) {
       const m = markers[i];
-      data[i * 6 + 0] = m.gridX;
-      data[i * 6 + 1] = m.gridY;
-      data[i * 6 + 2] = m.z;
-      data[i * 6 + 3] = m.color[0];
-      data[i * 6 + 4] = m.color[1];
-      data[i * 6 + 5] = m.color[2];
+      const view = MarkerStruct.view(data.subarray(i * 6, i * 6 + 6));
+      view.set("gridX", m.gridX);
+      view.set("gridY", m.gridY);
+      view.set("z", m.z);
+      view.set("colorR", m.color[0]);
+      view.set("colorG", m.color[1]);
+      view.set("colorB", m.color[2]);
     }
     if (count > 0) {
       this.device.queue.writeBuffer(
@@ -187,13 +198,13 @@ export class TaskMarkerPass {
   /** Update camera uniforms — call every frame. */
   updateCamera(viewProj: Float32Array, canvasW: number, canvasH: number): void {
     if (!this.uniformBuffer) return;
-    const u = this._uniform; // 16 (mat4) + 4
-    u.set(viewProj, 0);
-    u[16] = canvasW;
-    u[17] = canvasH;
-    u[18] = this.markerCount;
-    u[19] = 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
+    const view = this._uniformView!;
+    view.set("viewProj", viewProj);
+    view.set("canvasW", canvasW);
+    view.set("canvasH", canvasH);
+    view.set("markerCount", this.markerCount);
+    view.set("_pad", 0);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf!);
   }
 
   render(pass: GPURenderPassEncoder): void {
@@ -206,5 +217,7 @@ export class TaskMarkerPass {
   destroy(): void {
     this.uniformBuffer?.destroy();
     this.markerBuffer?.destroy();
+    this._uniformBuf = null;
+    this._uniformView = null;
   }
 }

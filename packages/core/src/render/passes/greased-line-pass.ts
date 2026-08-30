@@ -1,15 +1,18 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { mat4x4f, vec2f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { GreasedLineData } from "../../mesh/greased-line";
+import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
-import type { FrameGraphBuilder, GraphRenderContext } from "../frame-graph";
-import type { TextureHandle } from "../frame-graph";
+
+const CameraUniforms: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  resolution: vec2f,
+  _pad: vec2f,
+});
 
 const GREASED_LINE_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  resolution: vec2<f32>,
-  _pad: vec2<f32>,
-};
+${CameraUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 
@@ -71,6 +74,8 @@ export class GreasedLinePass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private cameraBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private _cameraView: StructView | null = null;
+  private _cameraBuf: Float32Array | null = null;
   private lines: Array<{ data: GreasedLineData; modelMatrix: Mat4 }> = [];
   private vertexBuffers: Map<GreasedLineData, GPUBuffer> = new Map();
   private indexBuffers: Map<GreasedLineData, GPUBuffer> = new Map();
@@ -91,6 +96,8 @@ export class GreasedLinePass extends RenderPass {
         size: 80,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      this._cameraBuf = new Float32Array(CameraUniforms.floatCount);
+      this._cameraView = CameraUniforms.view(this._cameraBuf);
     }
   }
 
@@ -154,11 +161,11 @@ export class GreasedLinePass extends RenderPass {
 
   setCameraViewProj(viewProj: Mat4, resolution: [number, number]): void {
     if (!this.device || !this.cameraBuffer) return;
-    const data = new Float32Array(20);
-    data.set(viewProj as Float32Array, 0);
-    data[16] = resolution[0];
-    data[17] = resolution[1];
-    this.device.queue.writeBuffer(this.cameraBuffer, 0, data as unknown as BufferSource);
+    const view = this._cameraView!;
+    view.set("viewProj", viewProj as Float32Array);
+    view.set("resolution", resolution);
+    view.set("_pad", [0.0, 0.0]);
+    this.device.queue.writeBuffer(this.cameraBuffer, 0, this._cameraBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -218,5 +225,7 @@ export class GreasedLinePass extends RenderPass {
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();
     this.indexBuffers.clear();
+    this._cameraView = null;
+    this._cameraBuf = null;
   }
 }

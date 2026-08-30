@@ -12,6 +12,17 @@ export type {
 } from "./profiles";
 export { GraphValidator } from "./validator";
 
+// Typed WGSL struct system — single source of truth for uniform/storage layout.
+export {
+    arrayOf, f16, f32, i32, mat2x2f, mat2x4f, mat3x3f, mat3x4f, mat4x2f, mat4x3f, mat4x4f,
+    u32, vec2f, vec2i, vec2u, vec3f, vec3i, vec3u, vec4f, vec4i, vec4u, wgsl
+} from "./wgsl-struct";
+export type { StructView, WgslFieldLayout, WgslStruct, WgslType } from "./wgsl-struct";
+export {
+    assertWgslStructMatches, compareStruct, parseWgslStructs, wgslTypeFromString
+} from "./wgsl-struct-validator";
+export type { ParsedWgslField, ParsedWgslStruct, StructMismatch } from "./wgsl-struct-validator";
+
 // Compute graph
 export { ComputeGraphCompiler } from "./compute-compiler";
 export type { ComputeCompileOptions, ComputeCompileResult } from "./compute-compiler";

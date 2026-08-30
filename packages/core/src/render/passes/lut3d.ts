@@ -1,5 +1,14 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const LUT3DUniforms: WgslStruct = wgsl.struct("LUT3DUniforms", {
+  lutSize: f32,
+  enabled: f32,
+  _pad0: f32,
+  _pad1: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,12 +28,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const LUT3D_FS = /* wgsl */ `
-struct LUT3DUniforms {
-  lutSize: f32,
-  enabled: f32,
-  _pad0: f32,
-  _pad1: f32,
-};
+${LUT3DUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: LUT3DUniforms;
 @group(0) @binding(1) var sourceTex: texture_2d<f32>;
@@ -57,6 +61,8 @@ export class LUT3DPass extends RenderPass {
   private sampler: GPUSampler | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private pipeline: GPURenderPipeline | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
   private lutSize: number = 32;
   private enabled: boolean = false;
 
@@ -103,6 +109,8 @@ export class LUT3DPass extends RenderPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(LUT3DUniforms.floatCount);
+    this._uniformView = LUT3DUniforms.view(this._uniformBuf);
 
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -131,8 +139,12 @@ export class LUT3DPass extends RenderPass {
     const sourceView = ctx.getView(this.inputHandle);
     const outputView = ctx.getView(this.outputHandle);
 
-    const uniformData = new Float32Array([this.lutSize, this.enabled ? 1.0 : 0.0, 0, 0]);
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, uniformData as unknown as BufferSource);
+    const view = this._uniformView!;
+    view.set("lutSize", this.lutSize);
+    view.set("enabled", this.enabled ? 1.0 : 0.0);
+    view.set("_pad0", 0.0);
+    view.set("_pad1", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
 
     const bindGroup = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
@@ -163,5 +175,7 @@ export class LUT3DPass extends RenderPass {
   destroy(): void {
     this.lutTexture?.destroy();
     this.uniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

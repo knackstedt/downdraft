@@ -1,7 +1,14 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, wgsl } from "@downdraft/shader-graph";
+
+export const MAX_MORPH_TARGETS = 64;
+
+const MorphUniforms: WgslStruct = wgsl.struct("MorphUniforms", {
+  morphWeights: wgsl.array(f32, MAX_MORPH_TARGETS),
+});
+
 export const MORPH_TARGET_CHUNK_WGSL = `
-struct MorphUniforms {
-  morphWeights: array<f32, ${64}>,
-};
+${MorphUniforms.wgsl}
 
 @group(1) @binding(0) var<uniform> morphUniforms: MorphUniforms;
 
@@ -31,5 +38,3 @@ vec3 applyMorphTargets(vec3 basePos, uint vertexIndex) {
   return pos;
 }
 `;
-
-export const MAX_MORPH_TARGETS = 64;

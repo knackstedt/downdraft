@@ -1,23 +1,44 @@
-import type { ShaderGraphProfile } from "@downdraft/shader-graph";
-import { getProfile } from "@downdraft/shader-graph";
+import type { ShaderGraphProfile, StructView, WgslStruct } from "@downdraft/shader-graph";
+import { getProfile, mat4x4f, wgsl } from "@downdraft/shader-graph";
 import { mat4, type Mat4 } from "wgpu-matrix";
 import { compileVariant } from "../../material/graph-bridge";
 import type { Material } from "../../material/material";
 import { variantKey, type MaterialVariantFlags } from "../../material/variants";
 import type { MeshData } from "../../mesh/builder";
 import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams } from "../bindless";
+import { BindlessMaterialStruct } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
 
+// ─── Camera uniform structs (single source of truth for layout) ────────────
+// Previously these were hand-written inline in each shader string and mirrored
+// by magic-offset data.set() calls in updateCamera/updatePBRCamera/updateGraphCamera.
+
+/** GBUFFER_SHADER camera: 4× mat4x4 = 256 bytes. */
+const CameraUniformsGbuffer: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  prevViewProj: mat4x4f,
+  modelMatrix: mat4x4f,
+  prevModelMatrix: mat4x4f,
+});
+
+/** SIMPLE_SHADER camera: 2× mat4x4 = 128 bytes. */
+const CameraUniformsSimple: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  modelMatrix: mat4x4f,
+});
+
+/** PBR_GBUFFER_SHADER camera: 2× mat4x4 = 128 bytes (model/prevModel are
+ *  separate @binding(1)/(2) uniforms, not in this struct). */
+const CameraUniformsPBR: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  prevViewProj: mat4x4f,
+});
+
 const GBUFFER_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  prevViewProj: mat4x4<f32>,
-  modelMatrix: mat4x4<f32>,
-  prevModelMatrix: mat4x4<f32>,
-};
+${CameraUniformsGbuffer.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 
@@ -78,34 +99,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32>,
 `;
 
 const PBR_GBUFFER_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  prevViewProj: mat4x4<f32>,
-};
+${CameraUniformsPBR.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var modelUniform: mat4x4<f32>;
 @group(0) @binding(2) var prevModelUniform: mat4x4<f32>;
 @group(0) @binding(3) var<uniform> materialIndex: u32;
 
-// Bindless material binding model (@group(3))
-struct BindlessMaterial {
-  baseColor: vec4<f32>,
-  roughness: f32,
-  metallic: f32,
-  emissiveIntensity: f32,
-  hasTexTransform: f32,
-  albedoTex: u32,
-  normalTex: u32,
-  metallicRoughnessTex: u32,
-  aoEmissiveTex: u32,
-  texOffset: vec2<f32>,
-  texScale: vec2<f32>,
-  texRotation: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
-};
+// Bindless material binding model (@group(3)) — struct emitted from
+// BindlessMaterialStruct (single source of truth, shared with material-manager).
+${BindlessMaterialStruct.wgsl}
 
 @group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
 @group(3) @binding(1) var albedoArray0: texture_2d_array<f32>;
@@ -242,10 +245,7 @@ fn fs_main(input: VertexOutput) -> (
 `;
 
 const SIMPLE_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  modelMatrix: mat4x4<f32>,
-};
+${CameraUniformsSimple.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 
@@ -359,6 +359,13 @@ export class OpaquePass extends RenderPass {
   private graphInstanceBuffer: GPUBuffer | null = null;
   private graphInstanceCount: number = 0;
   private graphUniformData: Float32Array | null = null;
+  // Preallocated typed views for camera uniform writes (avoid per-frame alloc).
+  private _gbufferCamView: StructView | null = null;
+  private _gbufferCamBuf: Float32Array | null = null;
+  private _simpleCamView: StructView | null = null;
+  private _simpleCamBuf: Float32Array | null = null;
+  private _pbrCamView: StructView | null = null;
+  private _pbrCamBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, surfaceFormat?: GPUTextureFormat, mode: OpaquePassMode = "gbuffer") {
     super();
@@ -653,6 +660,8 @@ export class OpaquePass extends RenderPass {
     this.pbrModelBuffer = createUniformBuffer(this.device, 64);
     this.pbrPrevModelBuffer = createUniformBuffer(this.device, 64);
     this.pbrMaterialIndexBuffer = createUniformBuffer(this.device, 16); // u32 + padding (uniform buffer min alignment)
+    this._pbrCamBuf = new Float32Array(CameraUniformsPBR.floatCount);
+    this._pbrCamView = CameraUniformsPBR.view(this._pbrCamBuf);
 
     this.pbrPipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -735,10 +744,10 @@ export class OpaquePass extends RenderPass {
 
   private updatePBRCamera(viewProj: Mat4): void {
     if (!this.pbrCameraBuffer || !this.pbrModelBuffer || !this.pbrPrevModelBuffer) return;
-    const camData = new Float32Array(32);
-    camData.set(viewProj as Float32Array, 0);
-    camData.set(this.prevViewProj as Float32Array, 16);
-    this.device.queue.writeBuffer(this.pbrCameraBuffer, 0, camData as unknown as BufferSource);
+    const v = this._pbrCamView!;
+    v.set("viewProj", viewProj as Float32Array);
+    v.set("prevViewProj", this.prevViewProj as Float32Array);
+    this.device.queue.writeBuffer(this.pbrCameraBuffer, 0, this._pbrCamBuf! as unknown as BufferSource);
     this.device.queue.writeBuffer(this.pbrModelBuffer, 0, this.modelMatrix as unknown as BufferSource);
     this.device.queue.writeBuffer(this.pbrPrevModelBuffer, 0, this.prevModelMatrix as unknown as BufferSource);
   }
@@ -754,8 +763,12 @@ export class OpaquePass extends RenderPass {
 
     if (this.mode === "gbuffer") {
       this.cameraBuffer = createUniformBuffer(this.device, 256);
+      this._gbufferCamBuf = new Float32Array(CameraUniformsGbuffer.floatCount);
+      this._gbufferCamView = CameraUniformsGbuffer.view(this._gbufferCamBuf);
     } else {
       this.cameraBuffer = createUniformBuffer(this.device, 128);
+      this._simpleCamBuf = new Float32Array(CameraUniformsSimple.floatCount);
+      this._simpleCamView = CameraUniformsSimple.view(this._simpleCamBuf);
     }
 
     if (this.mode === "gbuffer") {
@@ -837,17 +850,17 @@ export class OpaquePass extends RenderPass {
     if (!this.cameraBuffer) return;
     this.lastViewProj = viewProj;
     if (this.mode === "gbuffer") {
-      const data = new Float32Array(64);
-      data.set(viewProj as Float32Array, 0);
-      data.set(this.prevViewProj as Float32Array, 16);
-      data.set(this.modelMatrix as Float32Array, 32);
-      data.set(this.prevModelMatrix as Float32Array, 48);
-      this.device.queue.writeBuffer(this.cameraBuffer, 0, data as unknown as BufferSource);
+      const v = this._gbufferCamView!;
+      v.set("viewProj", viewProj as Float32Array);
+      v.set("prevViewProj", this.prevViewProj as Float32Array);
+      v.set("modelMatrix", this.modelMatrix as Float32Array);
+      v.set("prevModelMatrix", this.prevModelMatrix as Float32Array);
+      this.device.queue.writeBuffer(this.cameraBuffer, 0, this._gbufferCamBuf! as unknown as BufferSource);
     } else {
-      const data = new Float32Array(32);
-      data.set(viewProj as Float32Array, 0);
-      data.set(this.modelMatrix as Float32Array, 16);
-      this.device.queue.writeBuffer(this.cameraBuffer, 0, data as unknown as BufferSource);
+      const v = this._simpleCamView!;
+      v.set("viewProj", viewProj as Float32Array);
+      v.set("modelMatrix", this.modelMatrix as Float32Array);
+      this.device.queue.writeBuffer(this.cameraBuffer, 0, this._simpleCamBuf! as unknown as BufferSource);
     }
   }
 
@@ -980,6 +993,10 @@ export class OpaquePass extends RenderPass {
     this.indexBuffer = null;
     this.depthTexture = null;
     this.cameraBuffer = null;
+    this._gbufferCamView = null;
+    this._gbufferCamBuf = null;
+    this._simpleCamView = null;
+    this._simpleCamBuf = null;
     this.pipeline = null;
     this.pbrPipeline = null;
     this.pbrShaderModule = null;
@@ -988,6 +1005,8 @@ export class OpaquePass extends RenderPass {
     this.pbrModelBuffer = null;
     this.pbrPrevModelBuffer = null;
     this.pbrMaterialIndexBuffer = null;
+    this._pbrCamView = null;
+    this._pbrCamBuf = null;
     this.pbrMaterial = null;
     this.pbrMaterialRegistered = false;
     this.graphCameraBuffer?.destroy();

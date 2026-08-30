@@ -1,4 +1,5 @@
 import type { GraphRenderContext } from "@downdraft/core";
+import { StructView, wgsl } from "@downdraft/shader-graph";
 import type { UIDrawable } from "./element";
 import { buildGlyphAtlasData, getAtlasDimensions, getGlyphUV } from "./glyph-atlas";
 import { TextAtlasCache } from "./text-cache";
@@ -7,6 +8,12 @@ import IMAGE_SHADER from "./shaders/image.wgsl?raw";
 import LINE_SHADER from "./shaders/line.wgsl?raw";
 import QUAD_SHADER from "./shaders/quad.wgsl?raw";
 import TEXT_SHADER from "./shaders/text.wgsl?raw";
+
+// --- Typed uniform struct (validate against quad/text/image/line .wgsl) ---
+export const ScreenUniformsStruct = wgsl.struct("ScreenUniforms", {
+  screenSize: wgsl.vec2f,
+  _pad: wgsl.vec2f,
+});
 
 const QUAD_VERTEX_STRIDE = 64; // 2 pos + 2 size + 4 color + 1 radius + 1 borderWidth + 4 borderColor + 2 localOffset = 16 floats * 4
 const TEXT_VERTEX_STRIDE = 32; // 2 pos + 2 uv + 4 color = 8 floats * 4
@@ -24,6 +31,8 @@ export class UIRenderer {
   private screenBuffer: GPUBuffer | null = null;
   private screenWidth: number = 0;
   private screenHeight: number = 0;
+  private _screenView: StructView | null = null;
+  private _screenBuf: Float32Array | null = null;
 
   private quadPipeline: GPURenderPipeline | null = null;
   private quadVertexBuffer: GPUBuffer | null = null;
@@ -63,6 +72,8 @@ export class UIRenderer {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._screenBuf = new Float32Array(ScreenUniformsStruct.floatCount);
+    this._screenView = ScreenUniformsStruct.view(this._screenBuf);
 
     this.quadShaderModule = device.createShaderModule({ code: QUAD_SHADER });
     this.textShaderModule = device.createShaderModule({ code: TEXT_SHADER });
@@ -235,11 +246,9 @@ export class UIRenderer {
   setScreenSize(width: number, height: number): void {
     this.screenWidth = width;
     this.screenHeight = height;
-    if (this.device && this.screenBuffer) {
-      const data = new Float32Array(4);
-      data[0] = width;
-      data[1] = height;
-      this.device.queue.writeBuffer(this.screenBuffer, 0, data as unknown as BufferSource);
+    if (this.device && this.screenBuffer && this._screenView && this._screenBuf) {
+      this._screenView.set("screenSize", [width, height]);
+      this.device.queue.writeBuffer(this.screenBuffer, 0, this._screenBuf as unknown as BufferSource);
     }
   }
 
@@ -519,6 +528,8 @@ export class UIRenderer {
     this.imageVertexBuffer = null;
     this.lineVertexBuffer = null;
     this.screenBuffer = null;
+    this._screenView = null;
+    this._screenBuf = null;
     this.glyphAtlasTexture = null;
     this.textCache = null;
     this.quadPipeline = null;

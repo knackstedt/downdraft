@@ -6,10 +6,32 @@
 
 import { calculateViewProj, createLogger, DEPTH_FORMAT, MSAA_SAMPLE_COUNT, type CameraState } from "@downdraft/core";
 import { WeatherType } from "@downdraft/library-weather";
+import { StructView, wgsl } from "@downdraft/shader-graph";
 import type { CloudExtractedMesh, CloudMeshProvider, CloudVoxelField } from "./cloud-provider";
 import CLOUD_WGSL from "./shaders/cloud.wgsl?raw";
 
 const log = createLogger();
+
+// --- Typed uniform structs (validate against cloud.wgsl) ---
+export const CloudUniformsStruct = wgsl.struct("CloudUniforms", {
+  viewProj: wgsl.mat4x4f,
+  cameraPos: wgsl.vec3f,
+  timeOfDay: wgsl.f32,
+  weatherType: wgsl.u32,
+  sunDir: wgsl.vec3f,
+  sunIntensity: wgsl.f32,
+  moonDir: wgsl.vec3f,
+  moonIntensity: wgsl.f32,
+  time: wgsl.f32,
+  weatherBlend: wgsl.f32,
+  fogColor: wgsl.vec3f,
+  fogDensity: wgsl.f32,
+});
+
+export const PerLayerUniformsStruct = wgsl.struct("PerLayerUniforms", {
+  layerPos: wgsl.vec3f,
+  _pad: wgsl.f32,
+});
 
 
 // --- Per-layer state ---
@@ -49,9 +71,10 @@ export class CloudSystem {
 
   private layers: CloudLayer[] = [];
   private genThisFrame = 0;
-  private uniformData = new Float32Array(40);
-  private uniformU32View = new Uint32Array(this.uniformData.buffer);
-  private perLayerData = new Float32Array(4);
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
+  private _perLayerView: StructView | null = null;
+  private _perLayerBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, format: GPUTextureFormat, provider: CloudMeshProvider) {
     this.device = device;
@@ -60,6 +83,11 @@ export class CloudSystem {
   }
 
   async init(): Promise<void> {
+    this._uniformBuf = new Float32Array(CloudUniformsStruct.floatCount);
+    this._uniformView = CloudUniformsStruct.view(this._uniformBuf);
+    this._perLayerBuf = new Float32Array(PerLayerUniformsStruct.floatCount);
+    this._perLayerView = PerLayerUniformsStruct.view(this._perLayerBuf);
+
     this.uniformBuffer = this.device.createBuffer({
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -280,34 +308,26 @@ export class CloudSystem {
     fogColor: [number, number, number],
     fogDensity: number,
   ): void {
-    if (!this.pipeline || !this.uniformBuffer) return;
+    if (!this.pipeline || !this.uniformBuffer || !this._uniformView || !this._uniformBuf) return;
 
     const viewProj = calculateViewProj(camera);
+    const v = this._uniformView;
 
-    // Write main uniforms (same layout as before)
-    const uniforms = this.uniformData;
-    for (let i = 0; i < 16; i++) uniforms[i] = viewProj[i];
-    uniforms[16] = camera.position[0];
-    uniforms[17] = camera.position[1];
-    uniforms[18] = camera.position[2];
-    uniforms[19] = timeOfDay;
-    this.uniformU32View[20] = weatherType;
-    uniforms[24] = sunDir[0];
-    uniforms[25] = sunDir[1];
-    uniforms[26] = sunDir[2];
-    uniforms[27] = sunIntensity;
-    uniforms[28] = moonDir[0];
-    uniforms[29] = moonDir[1];
-    uniforms[30] = moonDir[2];
-    uniforms[31] = moonIntensity;
-    uniforms[32] = elapsedTime;
-    uniforms[33] = 1.0;
-    uniforms[36] = fogColor[0];
-    uniforms[37] = fogColor[1];
-    uniforms[38] = fogColor[2];
-    uniforms[39] = fogDensity;
+    // Write main uniforms via typed view
+    v.set("viewProj", viewProj);
+    v.set("cameraPos", camera.position);
+    v.set("timeOfDay", timeOfDay);
+    v.setU32("weatherType", weatherType);
+    v.set("sunDir", sunDir);
+    v.set("sunIntensity", sunIntensity);
+    v.set("moonDir", moonDir);
+    v.set("moonIntensity", moonIntensity);
+    v.set("time", elapsedTime);
+    v.set("weatherBlend", 1.0);
+    v.set("fogColor", fogColor);
+    v.set("fogDensity", fogDensity);
 
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms as any);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf as any);
 
     passEncoder.setPipeline(this.pipeline);
 
@@ -315,12 +335,11 @@ export class CloudSystem {
       if (!layer.generated || !layer.vertexBuffer || !layer.indexBuffer || !layer.bindGroup) continue;
       if (layer.indexCount === 0) continue;
 
-      const perLayerData = this.perLayerData;
-      perLayerData[0] = layer.genCenterX - layer.windOffsetX;
-      perLayerData[1] = layer.altitude;
-      perLayerData[2] = layer.genCenterZ - layer.windOffsetZ;
-      perLayerData[3] = 0;
-      this.device.queue.writeBuffer(layer.perLayerUniform, 0, perLayerData);
+      if (!this._perLayerView || !this._perLayerBuf) continue;
+      const pv = this._perLayerView;
+      pv.set("layerPos", [layer.genCenterX - layer.windOffsetX, layer.altitude, layer.genCenterZ - layer.windOffsetZ]);
+      pv.set("_pad", 0);
+      this.device.queue.writeBuffer(layer.perLayerUniform, 0, this._perLayerBuf as any);
 
       passEncoder.setBindGroup(0, layer.bindGroup, [0]);
       passEncoder.setVertexBuffer(0, layer.vertexBuffer);
@@ -345,5 +364,9 @@ export class CloudSystem {
     this.pipeline = null;
     // GPUBindGroupLayout has no destroy() — just null it.
     this.bindGroupLayout = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
+    this._perLayerView = null;
+    this._perLayerBuf = null;
   }
 }

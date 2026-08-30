@@ -42,7 +42,8 @@ export const CTL_TOTAL_BYTES_IDX = 13; // current sab.byteLength (after grows)
 export const CTL_CAPABILITY_IDX = 14; // bitmask: see CAP_*
 export const CTL_DIRECTION_IDX = 15; // 0 = idle, 1 = main→worker in progress
 export const CTL_POINTER_LOCKED_IDX = 16; // 0 = unlocked, 1 = locked (set by main thread)
-// (17..63 reserved)
+export const CTL_STRING_GEN_IDX = 17; // bumped each time the string pool is reset (overflow)
+// (18..63 reserved)
 
 // Capability bits
 export const CAP_GROW = 1 << 0; // SharedArrayBuffer.prototype.grow() available
@@ -164,7 +165,7 @@ export const DEFAULT_MAX_BYTES = 256 * 1024 * 1024; // 256 MB cap
 export const DEFAULT_REQ_RING_BYTES = 1 * 1024 * 1024; // 1 MB
 export const DEFAULT_REPLY_RING_BYTES = 1 * 1024 * 1024;
 export const DEFAULT_EVENT_RING_BYTES = 1 * 1024 * 1024;
-export const DEFAULT_STRING_POOL_BYTES = 256 * 1024;
+export const DEFAULT_STRING_POOL_BYTES = 1024 * 1024; // 1 MB (was 256 KB — overflowed with dynamic CSS values)
 export const DEFAULT_PAYLOAD_HEAP_BYTES =
   DEFAULT_INITIAL_BYTES -
   CONTROL_BYTES -

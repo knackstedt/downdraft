@@ -1,14 +1,18 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec2f, vec3f, wgsl } from "@downdraft/shader-graph";
 import type { GaussianSplatData } from "./parser";
 import type { SortResult } from "./sorter";
 
-const GAUSSIAN_SPLAT_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+const CameraUniforms: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   _pad: f32,
-  resolution: vec2<f32>,
-  _pad2: vec2<f32>,
-};
+  resolution: vec2f,
+  _pad2: vec2f,
+});
+
+const GAUSSIAN_SPLAT_SHADER = `
+${CameraUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var splatData: array<vec4<f32>>;
@@ -84,6 +88,8 @@ export class GaussianSplatRenderer {
   private shaderModule: GPUShaderModule | null = null;
   private pipeline: GPURenderPipeline | null = null;
   private cameraBuffer: GPUBuffer | null = null;
+  private _cameraView: StructView | null = null;
+  private _cameraBuf: Float32Array | null = null;
   private splatBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private splatData: GaussianSplatData | null = null;
@@ -104,6 +110,8 @@ export class GaussianSplatRenderer {
         size: 96,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      this._cameraBuf = new Float32Array(CameraUniforms.floatCount);
+      this._cameraView = CameraUniforms.view(this._cameraBuf);
     }
   }
 
@@ -185,14 +193,13 @@ export class GaussianSplatRenderer {
     this.ensurePipeline();
     if (!this.pipeline || !this.bindGroup) return;
 
-    const camData = new Float32Array(24);
-    camData.set(viewProj, 0);
-    camData[16] = cameraPos[0];
-    camData[17] = cameraPos[1];
-    camData[18] = cameraPos[2];
-    camData[20] = resolution[0];
-    camData[21] = resolution[1];
-    this.device.queue.writeBuffer(this.cameraBuffer, 0, camData as unknown as BufferSource);
+    const camView = this._cameraView!;
+    camView.set("viewProj", viewProj);
+    camView.set("cameraPos", cameraPos);
+    camView.set("_pad", 0);
+    camView.set("resolution", resolution);
+    camView.set("_pad2", [0, 0]);
+    this.device.queue.writeBuffer(this.cameraBuffer, 0, this._cameraBuf! as unknown as GPUAllowSharedBufferSource);
 
     passEncoder.setPipeline(this.pipeline);
     passEncoder.setBindGroup(0, this.bindGroup);
@@ -206,6 +213,8 @@ export class GaussianSplatRenderer {
     this.shaderModule?.destroy();
     // GPUBindGroup has no destroy() — just null it.
     this.cameraBuffer = null;
+    this._cameraView = null;
+    this._cameraBuf = null;
     this.splatBuffer = null;
     this.pipeline = null;
     this.shaderModule = null;

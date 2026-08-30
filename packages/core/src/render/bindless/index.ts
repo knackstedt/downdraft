@@ -1,4 +1,5 @@
 // Bindless material binding model — public surface
+export { BINDLESS_MATERIAL_FLOATS, BINDLESS_MATERIAL_SIZE, BindlessMaterialStruct } from "./bindless-struct";
 export { BINDLESS_MATERIAL_CHUNK, BINDLESS_TEXTURE_BINDINGS_CHUNK, materialIndexAttribute } from "./bindless.wgsl";
 export { BindlessFrameBindings, DEFAULT_FORMAT_SLOTS } from "./frame-bindings";
 export type { BindlessFormatSlot, BindlessFrameBindingsOptions } from "./frame-bindings";

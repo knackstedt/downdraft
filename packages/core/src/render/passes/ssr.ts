@@ -1,5 +1,22 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const SSRUniforms: WgslStruct = wgsl.struct("SSRUniforms", {
+  projection: mat4x4f,
+  invProjection: mat4x4f,
+  view: mat4x4f,
+  maxSteps: f32,
+  rayStep: f32,
+  thickness: f32,
+  maxDistance: f32,
+  resolutionScale: f32,
+  fadeStart: f32,
+  fadeEnd: f32,
+  _pad0: f32,
+  _pad1: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,20 +36,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const SSR_FS = /* wgsl */ `
-struct SSRUniforms {
-  projection: mat4x4<f32>,
-  invProjection: mat4x4<f32>,
-  view: mat4x4<f32>,
-  maxSteps: f32,
-  rayStep: f32,
-  thickness: f32,
-  maxDistance: f32,
-  resolutionScale: f32,
-  fadeStart: f32,
-  fadeEnd: f32,
-  _pad0: f32,
-  _pad1: f32,
-};
+${SSRUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: SSRUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
@@ -137,6 +141,8 @@ export class SSRPass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
   // Cached bind group — invalidated when input texture views change (e.g., canvas resize).
   private cachedBindGroup: GPUBindGroup | null = null;
   private cachedColorView: GPUTextureView | null = null;
@@ -159,9 +165,11 @@ export class SSRPass extends RenderPass {
     });
 
     this.uniformBuffer = this.device.createBuffer({
-      size: 220,
+      size: SSRUniforms.size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(SSRUniforms.floatCount);
+    this._uniformView = SSRUniforms.view(this._uniformBuf);
 
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -179,18 +187,20 @@ export class SSRPass extends RenderPass {
   }
 
   setProjectionMatrices(proj: Float32Array, invProj: Float32Array, view: Float32Array): void {
-    const data = new Float32Array(55);
-    data.set(proj, 0);
-    data.set(invProj, 16);
-    data.set(view, 32);
-    data[48] = this.settings.maxSteps;
-    data[49] = this.settings.rayStep;
-    data[50] = this.settings.thickness;
-    data[51] = this.settings.maxDistance;
-    data[52] = this.settings.resolutionScale;
-    data[53] = this.settings.fadeStart;
-    data[54] = this.settings.fadeEnd;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    const v = this._uniformView!;
+    v.set("projection", proj);
+    v.set("invProjection", invProj);
+    v.set("view", view);
+    v.set("maxSteps", this.settings.maxSteps);
+    v.set("rayStep", this.settings.rayStep);
+    v.set("thickness", this.settings.thickness);
+    v.set("maxDistance", this.settings.maxDistance);
+    v.set("resolutionScale", this.settings.resolutionScale);
+    v.set("fadeStart", this.settings.fadeStart);
+    v.set("fadeEnd", this.settings.fadeEnd);
+    v.set("_pad0", 0.0);
+    v.set("_pad1", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -250,5 +260,7 @@ export class SSRPass extends RenderPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

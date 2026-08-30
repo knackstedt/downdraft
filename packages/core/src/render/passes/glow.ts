@@ -1,6 +1,30 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, vec4f, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { createUniformBuffer } from "../gpu-utils";
 import { RenderPass } from "../render-pass";
+
+const GlowBlurUniforms: WgslStruct = wgsl.struct("GlowBlurUniforms", {
+  texelSizeX: f32,
+  texelSizeY: f32,
+  directionX: f32,
+  directionY: f32,
+  blurRadius: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+});
+
+const GlowCompositeUniforms: WgslStruct = wgsl.struct("GlowCompositeUniforms", {
+  intensity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+});
+
+const GlowRenderUniforms: WgslStruct = wgsl.struct("GlowRenderUniforms", {
+  emissiveColor: vec4f,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -20,16 +44,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const GLOW_BLUR_FS = /* wgsl */ `
-struct GlowBlurUniforms {
-  texelSizeX: f32,
-  texelSizeY: f32,
-  directionX: f32,
-  directionY: f32,
-  blurRadius: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
-};
+${GlowBlurUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: GlowBlurUniforms;
 @group(0) @binding(1) var glowTex: texture_2d<f32>;
@@ -52,12 +67,7 @@ fn glow_blur_fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 `;
 
 const GLOW_COMPOSITE_FS = /* wgsl */ `
-struct GlowCompositeUniforms {
-  intensity: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
-};
+${GlowCompositeUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: GlowCompositeUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
@@ -73,9 +83,7 @@ fn glow_composite_fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 `;
 
 const GLOW_RENDER_FS = /* wgsl */ `
-struct GlowRenderUniforms {
-  emissiveColor: vec4<f32>,
-};
+${GlowRenderUniforms.wgsl}
 @group(0) @binding(0) var<uniform> u: GlowRenderUniforms;
 
 @fragment
@@ -121,6 +129,12 @@ export class GlowPass extends RenderPass {
   private compositeUniformBuffer: GPUBuffer | null = null;
   private renderUniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _blurView: StructView | null = null;
+  private _blurBuf: Float32Array | null = null;
+  private _compositeView: StructView | null = null;
+  private _compositeBuf: Float32Array | null = null;
+  private _renderView: StructView | null = null;
+  private _renderBuf: Float32Array | null = null;
 
   private glowTexture: GPUTexture | null = null;
   private glowView: GPUTextureView | null = null;
@@ -147,6 +161,12 @@ export class GlowPass extends RenderPass {
     this.blurUniformBuffer = createUniformBuffer(this.device, 32);
     this.compositeUniformBuffer = createUniformBuffer(this.device, 16);
     this.renderUniformBuffer = createUniformBuffer(this.device, 16);
+    this._blurBuf = new Float32Array(GlowBlurUniforms.floatCount);
+    this._blurView = GlowBlurUniforms.view(this._blurBuf);
+    this._compositeBuf = new Float32Array(GlowCompositeUniforms.floatCount);
+    this._compositeView = GlowCompositeUniforms.view(this._compositeBuf);
+    this._renderBuf = new Float32Array(GlowRenderUniforms.floatCount);
+    this._renderView = GlowRenderUniforms.view(this._renderBuf);
 
     const vsModule = this.device.createShaderModule({ code: FULLSCREEN_VS });
     const blurFsModule = this.device.createShaderModule({ code: GLOW_BLUR_FS });
@@ -218,21 +238,25 @@ fn glow_vs(@location(0) position: vec3<f32>) -> GlowVertexOutput {
   }
 
   private writeBlurUniforms(dirX: number, dirY: number): void {
-    const data = new Float32Array(8);
-    data[0] = this.width > 0 ? 1.0 / this.width : 0.0;
-    data[1] = this.height > 0 ? 1.0 / this.height : 0.0;
-    data[2] = dirX;
-    data[3] = dirY;
-    data[4] = this.settings.blurRadius;
-    data[5] = 0; data[6] = 0; data[7] = 0;
-    this.device.queue.writeBuffer(this.blurUniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._blurView!;
+    view.set("texelSizeX", this.width > 0 ? 1.0 / this.width : 0.0);
+    view.set("texelSizeY", this.height > 0 ? 1.0 / this.height : 0.0);
+    view.set("directionX", dirX);
+    view.set("directionY", dirY);
+    view.set("blurRadius", this.settings.blurRadius);
+    view.set("_pad0", 0);
+    view.set("_pad1", 0);
+    view.set("_pad2", 0);
+    this.device.queue.writeBuffer(this.blurUniformBuffer!, 0, this._blurBuf as unknown as BufferSource);
   }
 
   private writeCompositeUniforms(): void {
-    const data = new Float32Array(4);
-    data[0] = this.settings.intensity;
-    data[1] = 0; data[2] = 0; data[3] = 0;
-    this.device.queue.writeBuffer(this.compositeUniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._compositeView!;
+    view.set("intensity", this.settings.intensity);
+    view.set("_pad0", 0);
+    view.set("_pad1", 0);
+    view.set("_pad2", 0);
+    this.device.queue.writeBuffer(this.compositeUniformBuffer!, 0, this._compositeBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -250,7 +274,7 @@ fn glow_vs(@location(0) position: vec3<f32>) -> GlowVertexOutput {
 
     if (!this.blurPipeline || !this.compositePipeline || !this.renderPipeline || !ctx.device) return;
 
-    const renderUniformData = new Float32Array(4);
+    const renderView = this._renderView!;
     // DEVIATION: This pass creates its own command encoder and submits directly
     // instead of using the frame graph's shared encoder. Glow uses multiple
     // internal render passes (render → blur H → blur V → composite) with
@@ -269,11 +293,8 @@ fn glow_vs(@location(0) position: vec3<f32>) -> GlowVertexOutput {
     });
     glowPass.setPipeline(this.renderPipeline);
     for (const target of this.targets) {
-      renderUniformData[0] = target.emissiveColor[0];
-      renderUniformData[1] = target.emissiveColor[1];
-      renderUniformData[2] = target.emissiveColor[2];
-      renderUniformData[3] = target.emissiveColor[3];
-      ctx.device.queue.writeBuffer(this.renderUniformBuffer!, 0, renderUniformData as unknown as BufferSource);
+      renderView.set("emissiveColor", target.emissiveColor);
+      ctx.device.queue.writeBuffer(this.renderUniformBuffer!, 0, this._renderBuf as unknown as BufferSource);
       const bg = ctx.device.createBindGroup({
         layout: this.renderPipeline.getBindGroupLayout(0),
         entries: [
@@ -369,5 +390,11 @@ fn glow_vs(@location(0) position: vec3<f32>) -> GlowVertexOutput {
     this.glowTexture?.destroy();
     this.blurHTexture?.destroy();
     this.blurVTexture?.destroy();
+    this._blurView = null;
+    this._blurBuf = null;
+    this._compositeView = null;
+    this._compositeBuf = null;
+    this._renderView = null;
+    this._renderBuf = null;
   }
 }

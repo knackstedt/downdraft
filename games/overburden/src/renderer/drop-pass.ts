@@ -17,6 +17,8 @@
 // ============================================================================
 
 import { DEPTH_FORMAT } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, wgsl } from "@downdraft/shader-graph";
 
 import fruitSpritesheetUrl from "../assets/fruit-spritesheet.png";
 import {
@@ -25,25 +27,30 @@ import {
 } from "../shared/drop-registry";
 import { type Mat4 } from "./matrix";
 
-const DROP_WGSL = `
-struct Uniforms {
-  viewProj : mat4x4f,
-  canvasW : f32,
-  canvasH : f32,
-  dropCount : f32,
-  hasTexture : f32,
-};
+// ─── Uniform/storage structs (single source of truth for layout) ───────────
+const UniformsStruct: WgslStruct = wgsl.struct("Uniforms", {
+  viewProj: mat4x4f,
+  canvasW: f32,
+  canvasH: f32,
+  dropCount: f32,
+  hasTexture: f32,
+});
 
-struct DropInstance {
-  x : f32,
-  y : f32,
-  spin : f32,
-  uOffset : f32,   // >= 0 = textured (UV offset in atlas), < 0 = solid color
-  vOffset : f32,
-  r : f32,         // solid color (used when uOffset < 0)
-  g : f32,
-  b : f32,
-};
+const DropInstanceStruct: WgslStruct = wgsl.struct("DropInstance", {
+  x: f32,
+  y: f32,
+  spin: f32,
+  uOffset: f32,
+  vOffset: f32,
+  r: f32,
+  g: f32,
+  b: f32,
+});
+
+const DROP_WGSL = `
+${UniformsStruct.wgsl}
+
+${DropInstanceStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 @group(0) @binding(1) var<storage, read> drops : array<DropInstance>;
@@ -166,7 +173,8 @@ export class DropPass {
   private dropCount = 0;
   private textureLoaded = false;
   // Preallocated buffers (avoid per-frame allocation)
-  private _uniform: Float32Array<ArrayBuffer> = new Float32Array(21);
+  private _uniformBuf: Float32Array<ArrayBuffer> | null = null;
+  private _uniformView: StructView | null = null;
   private _instanceData: Float32Array<ArrayBuffer> = new Float32Array(MAX_DROP_INSTANCES * DROP_INSTANCE_STRIDE);
 
   constructor(device: GPUDevice, format: GPUTextureFormat) {
@@ -226,6 +234,8 @@ export class DropPass {
       size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(UniformsStruct.floatCount);
+    this._uniformView = UniformsStruct.view(this._uniformBuf);
 
     // Instance storage buffer
     this.instanceBuffer = this.device.createBuffer({
@@ -332,29 +342,30 @@ export class DropPass {
     for (let i = 0; i < count; i++) {
       const d = dropData[i];
       const off = i * DROP_INSTANCE_STRIDE;
-      data[off + 0] = d.x;
-      data[off + 1] = d.y;
-      data[off + 2] = d.spin;
+      const view = DropInstanceStruct.view(data.subarray(off, off + DROP_INSTANCE_STRIDE));
+      view.set("x", d.x);
+      view.set("y", d.y);
+      view.set("spin", d.spin);
 
       // Check if this drop has a fruit sprite
       const sprite = getFruitSprite(d.itemCode);
       if (sprite) {
         // Textured: compute UV offset in the atlas
-        data[off + 3] = sprite.col * SPRITESHEET_TILE_PX / (SPRITESHEET_COLS * SPRITESHEET_TILE_PX);
-        data[off + 4] = sprite.row * SPRITESHEET_TILE_PX / (SPRITESHEET_ROWS * SPRITESHEET_TILE_PX);
+        view.set("uOffset", sprite.col * SPRITESHEET_TILE_PX / (SPRITESHEET_COLS * SPRITESHEET_TILE_PX));
+        view.set("vOffset", sprite.row * SPRITESHEET_TILE_PX / (SPRITESHEET_ROWS * SPRITESHEET_TILE_PX));
         // Color is unused for textured drops, but set it as fallback
         const color = getDropColor(d.itemCode);
-        data[off + 5] = color[0] / 255;
-        data[off + 6] = color[1] / 255;
-        data[off + 7] = color[2] / 255;
+        view.set("r", color[0] / 255);
+        view.set("g", color[1] / 255);
+        view.set("b", color[2] / 255);
       } else {
         // Solid color: uOffset = -1 (sentinel for "not textured")
-        data[off + 3] = -1;
-        data[off + 4] = 0;
+        view.set("uOffset", -1);
+        view.set("vOffset", 0);
         const color = getDropColor(d.itemCode);
-        data[off + 5] = color[0] / 255;
-        data[off + 6] = color[1] / 255;
-        data[off + 7] = color[2] / 255;
+        view.set("r", color[0] / 255);
+        view.set("g", color[1] / 255);
+        view.set("b", color[2] / 255);
       }
     }
     // Only upload the active portion (not the full MAX_DROP_INSTANCES buffer)
@@ -372,13 +383,13 @@ export class DropPass {
   /** Update camera uniforms — call every frame. */
   updateCamera(viewProj: Mat4, canvasW: number, canvasH: number): void {
     if (!this.uniformBuffer) return;
-    const u = this._uniform; // 16 (mat4) + 5
-    u.set(viewProj, 0);
-    u[16] = canvasW;
-    u[17] = canvasH;
-    u[18] = this.dropCount;
-    u[19] = this.textureLoaded ? 1 : 0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, u);
+    const view = this._uniformView!;
+    view.set("viewProj", viewProj as Float32Array);
+    view.set("canvasW", canvasW);
+    view.set("canvasH", canvasH);
+    view.set("dropCount", this.dropCount);
+    view.set("hasTexture", this.textureLoaded ? 1 : 0);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf!);
   }
 
   render(pass: GPURenderPassEncoder): void {
@@ -392,5 +403,7 @@ export class DropPass {
     this.uniformBuffer?.destroy();
     this.instanceBuffer?.destroy();
     this.fruitTexture?.destroy();
+    this._uniformBuf = null;
+    this._uniformView = null;
   }
 }

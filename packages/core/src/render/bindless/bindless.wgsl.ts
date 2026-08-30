@@ -7,38 +7,21 @@
 // the renderer (see @location(K) materialIndex in the renderer's vertex shader).
 // ============================================================================
 
+import { BindlessMaterialStruct } from "./bindless-struct";
+
 /**
  * WGSL struct + bind group declarations for bindless materials.
  *
- * Material struct layout MUST match `MaterialParams` in material-manager.ts
- * (80 bytes / 20 floats). Texture handles are u32 packed as
- * (arrayIndex << 16) | layerIndex.
+ * The `struct BindlessMaterial` declaration is emitted from
+ * `BindlessMaterialStruct` (bindless-struct.ts) — the single source of truth
+ * shared with `BindlessMaterialManager.writeMaterial()`. Texture handles are
+ * u32 packed as (arrayIndex << 16) | layerIndex.
  *
  * `MAX_ARRAYS_PER_SLOT` must match `BindlessTextureRegistry.maxArrayBindingsPerFormat`.
  * The default is 8; override by string-replacing before injection if needed.
  */
 export const BINDLESS_MATERIAL_CHUNK = /* wgsl */ `
-struct BindlessMaterial {
-  baseColor: vec4<f32>,
-  roughness: f32,
-  metallic: f32,
-  emissiveIntensity: f32,
-  hasTexTransform: f32,
-  // Packed u32 texture handles (arrayIndex<<16 | layerIndex). For slots with
-  // two textures packed into one u32, low 16 = ao arrayIndex/layer, high 16 =
-  // emissive. See material-manager.ts writeMaterial().
-  albedoTex: u32,
-  normalTex: u32,
-  metallicRoughnessTex: u32,
-  aoEmissiveTex: u32,
-  // KHR_texture_transform UV transform (applied in vertex shader).
-  texOffset: vec2<f32>,
-  texScale: vec2<f32>,
-  texRotation: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
-};
+${BindlessMaterialStruct.wgsl}
 
 @group(3) @binding(0) var<storage, read> bindlessMaterials: array<BindlessMaterial>;
 

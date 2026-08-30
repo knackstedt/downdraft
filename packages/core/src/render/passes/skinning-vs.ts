@@ -1,5 +1,16 @@
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
+
 export const MAX_BONES_VS = 256;
 export const MAX_BONE_INFLUENCES = 8;
+
+const BoneTransforms: WgslStruct = wgsl.struct("BoneTransforms", {
+  transforms: wgsl.array(vec4f, MAX_BONES_VS * 3),
+});
+
+const InverseBindMatrices: WgslStruct = wgsl.struct("InverseBindMatrices", {
+  matrices: wgsl.array(mat4x4f, MAX_BONES_VS),
+});
 
 export const SKINNING_VS_GLSL = `
 uniform vec4 uBoneTransforms[${256}];
@@ -46,13 +57,9 @@ mat4 computeSkinMatrixVS(vec4 boneIndices, vec4 boneWeights) {
 `;
 
 export const SKINNING_VS_WGSL = `
-struct BoneTransforms {
-  transforms: array<vec4<f32>, ${256 * 3}>,
-};
+${BoneTransforms.wgsl}
 
-struct InverseBindMatrices {
-  matrices: array<mat4x4<f32>, ${256}>,
-};
+${InverseBindMatrices.wgsl}
 
 @group(2) @binding(0) var<uniform> boneTransforms: BoneTransforms;
 @group(2) @binding(1) var<uniform> inverseBindMatrices: InverseBindMatrices;

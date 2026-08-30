@@ -1,3 +1,5 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
@@ -7,15 +9,17 @@ import { TrackedRenderPass } from "../tracked-render-pass";
 
 export const MAX_SPOT_LIGHT_SHADOWS = 4;
 
-const SPOT_SHADOW_SHADER = /* wgsl */ `
-struct SpotShadowUniforms {
-  viewProj: mat4x4<f32>,
-  lightPos: vec4<f32>,
+const SpotShadowUniforms: WgslStruct = wgsl.struct("SpotShadowUniforms", {
+  viewProj: mat4x4f,
+  lightPos: vec4f,
   bias: f32,
   _pad0: f32,
   _pad1: f32,
   _pad2: f32,
-};
+});
+
+const SPOT_SHADOW_SHADER = /* wgsl */ `
+${SpotShadowUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> spotShadow: SpotShadowUniforms;
 @group(0) @binding(1) var modelUniform: mat4x4<f32>;
@@ -52,6 +56,8 @@ export class SpotLightShadowPass extends RenderPass {
   private uniformBuffer: GPUBuffer | null = null;
   private modelBuffer: GPUBuffer | null = null;
   private viewProjBuffer: GPUBuffer | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
   private pipelines: Map<number, GPURenderPipeline> = new Map();
   private bindGroups: Map<number, GPUBindGroup> = new Map();
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
@@ -87,6 +93,8 @@ export class SpotLightShadowPass extends RenderPass {
       size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(SpotShadowUniforms.floatCount);
+    this._uniformView = SpotShadowUniforms.view(this._uniformBuf);
 
     this.modelBuffer = this.device.createBuffer({
       size: 64,
@@ -165,14 +173,14 @@ export class SpotLightShadowPass extends RenderPass {
     const view = this.shadowViews[lightIndex];
     const vp = this.viewProjs[lightIndex];
 
-    const uniformData = new Float32Array(24);
-    for (let i = 0; i < 16; i++) uniformData[i] = vp[i];
-    uniformData[16] = 0;
-    uniformData[17] = 0;
-    uniformData[18] = 0;
-    uniformData[19] = 0;
-    uniformData[20] = 0.001;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, uniformData as unknown as BufferSource);
+    const uv = this._uniformView!;
+    uv.set("viewProj", vp);
+    uv.set("lightPos", [0, 0, 0, 0]);
+    uv.set("bias", 0.001);
+    uv.set("_pad0", 0);
+    uv.set("_pad1", 0);
+    uv.set("_pad2", 0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
 
     const pass = encoder.beginRenderPass({
       colorAttachments: [],
@@ -252,6 +260,8 @@ export class SpotLightShadowPass extends RenderPass {
     this.uniformBuffer?.destroy();
     this.modelBuffer?.destroy();
     this.viewProjBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();

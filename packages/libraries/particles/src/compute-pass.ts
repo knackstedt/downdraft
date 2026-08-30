@@ -1,5 +1,46 @@
 import type { GraphRenderContext } from "@downdraft/core";
 import { RenderPass } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, u32, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
+
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const SimParamsStruct: WgslStruct = wgsl.struct("SimParams", {
+  deltaTime: f32,
+  gravity: vec3f,
+  drag: f32,
+  emitCount: u32,
+  maxParticles: u32,
+  emissionRate: f32,
+  speed: f32,
+  speedVariance: f32,
+  lifetime: f32,
+  lifetimeVariance: f32,
+  startSize: f32,
+  endSize: f32,
+  sizeVariance: f32,
+  startColor: vec4f,
+  endColor: vec4f,
+  angularVelocity: f32,
+  angularVelocityVariance: f32,
+  emitterPos: vec3f,
+  emitterDir: vec3f,
+  seed: u32,
+});
+
+const EmitParamsStruct: WgslStruct = wgsl.struct("EmitParams", {
+  emitCount: u32,
+  maxParticles: u32,
+  speed: f32,
+  speedVariance: f32,
+  lifetime: f32,
+  lifetimeVariance: f32,
+  startSize: f32,
+  sizeVariance: f32,
+  startColor: vec4f,
+  emitterPos: vec3f,
+  emitterDir: vec3f,
+  seed: u32,
+});
 
 const PARTICLE_COMPUTE_SHADER = `
 struct Particle {
@@ -14,28 +55,7 @@ struct Particle {
   rotation: f32,
 };
 
-struct SimParams {
-  deltaTime: f32,
-  gravity: vec3<f32>,
-  drag: f32,
-  emitCount: u32,
-  maxParticles: u32,
-  emissionRate: f32,
-  speed: f32,
-  speedVariance: f32,
-  lifetime: f32,
-  lifetimeVariance: f32,
-  startSize: f32,
-  endSize: f32,
-  sizeVariance: f32,
-  startColor: vec4<f32>,
-  endColor: vec4<f32>,
-  angularVelocity: f32,
-  angularVelocityVariance: f32,
-  emitterPos: vec3<f32>,
-  emitterDir: vec3<f32>,
-  seed: u32,
-};
+${SimParamsStruct.wgsl}
 
 struct Counter {
   cursor: u32,
@@ -105,20 +125,7 @@ struct Particle {
   rotation: f32,
 };
 
-struct EmitParams {
-  emitCount: u32,
-  maxParticles: u32,
-  speed: f32,
-  speedVariance: f32,
-  lifetime: f32,
-  lifetimeVariance: f32,
-  startSize: f32,
-  sizeVariance: f32,
-  startColor: vec4<f32>,
-  emitterPos: vec3<f32>,
-  emitterDir: vec3<f32>,
-  seed: u32,
-};
+${EmitParamsStruct.wgsl}
 
 struct Counter {
   cursor: u32,
@@ -197,6 +204,10 @@ export class ParticleComputePass extends RenderPass {
   private maxParticles: number;
   private bindGroup: GPUBindGroup | null = null;
   private emitBindGroup: GPUBindGroup | null = null;
+  private _paramView: StructView | null = null;
+  private _paramBuf: Float32Array | null = null;
+  private _emitView: StructView | null = null;
+  private _emitBuf: Float32Array | null = null;
 
   constructor(maxParticles: number = 10000) {
     super();
@@ -225,14 +236,18 @@ export class ParticleComputePass extends RenderPass {
     });
 
     this.paramBuffer = device.createBuffer({
-      size: 128,
+      size: SimParamsStruct.size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._paramBuf = new Float32Array(SimParamsStruct.floatCount);
+    this._paramView = SimParamsStruct.view(this._paramBuf);
 
     this.emitParamBuffer = device.createBuffer({
       size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._emitBuf = new Float32Array(EmitParamsStruct.floatCount);
+    this._emitView = EmitParamsStruct.view(this._emitBuf);
 
     this.counterBuffer = device.createBuffer({
       size: 8,
@@ -279,27 +294,20 @@ export class ParticleComputePass extends RenderPass {
 
     if (emitCount === 0) return;
 
-    const emitData = new Float32Array(24);
-    emitData[0] = emitCount;
-    emitData[1] = this.maxParticles;
-    emitData[2] = params.speed ?? 5;
-    emitData[3] = params.speedVariance ?? 1;
-    emitData[4] = params.lifetime ?? 2;
-    emitData[5] = params.lifetimeVariance ?? 0.5;
-    emitData[6] = params.startSize ?? 0.2;
-    emitData[7] = params.sizeVariance ?? 0.05;
-    emitData[8] = params.startColor?.[0] ?? 1;
-    emitData[9] = params.startColor?.[1] ?? 1;
-    emitData[10] = params.startColor?.[2] ?? 1;
-    emitData[11] = params.startColor?.[3] ?? 1;
-    emitData[12] = params.emitterPos?.[0] ?? 0;
-    emitData[13] = params.emitterPos?.[1] ?? 0;
-    emitData[14] = params.emitterPos?.[2] ?? 0;
-    emitData[15] = params.emitterDir?.[0] ?? 0;
-    emitData[16] = params.emitterDir?.[1] ?? 1;
-    emitData[17] = params.emitterDir?.[2] ?? 0;
-    emitData[18] = Math.floor(Math.random() * 0xFFFFFFFF);
-    this.device.queue.writeBuffer(this.emitParamBuffer!, 0, emitData as unknown as BufferSource);
+    const view = this._emitView!;
+    view.setU32("emitCount", emitCount);
+    view.setU32("maxParticles", this.maxParticles);
+    view.set("speed", params.speed ?? 5);
+    view.set("speedVariance", params.speedVariance ?? 1);
+    view.set("lifetime", params.lifetime ?? 2);
+    view.set("lifetimeVariance", params.lifetimeVariance ?? 0.5);
+    view.set("startSize", params.startSize ?? 0.2);
+    view.set("sizeVariance", params.sizeVariance ?? 0.05);
+    view.set("startColor", params.startColor ?? [1, 1, 1, 1]);
+    view.set("emitterPos", params.emitterPos ?? [0, 0, 0]);
+    view.set("emitterDir", params.emitterDir ?? [0, 1, 0]);
+    view.setU32("seed", Math.floor(Math.random() * 0xFFFFFFFF));
+    this.device.queue.writeBuffer(this.emitParamBuffer!, 0, this._emitBuf! as unknown as BufferSource);
 
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginComputePass();
@@ -314,40 +322,28 @@ export class ParticleComputePass extends RenderPass {
     if (!this.device || !this.updatePipeline || !this.bindGroup) return;
     if (!(params.deltaTime > 0) || !Number.isFinite(params.deltaTime)) return;
 
-    const paramData = new Float32Array(32);
-    paramData[0] = params.deltaTime;
-    paramData[1] = params.gravity[0];
-    paramData[2] = params.gravity[1];
-    paramData[3] = params.gravity[2];
-    paramData[4] = params.drag;
-    paramData[5] = 0; // emitCount (unused in update)
-    paramData[6] = params.maxParticles;
-    paramData[7] = params.emissionRate;
-    paramData[8] = params.speed;
-    paramData[9] = params.speedVariance;
-    paramData[10] = params.lifetime;
-    paramData[11] = params.lifetimeVariance;
-    paramData[12] = params.startSize;
-    paramData[13] = params.endSize;
-    paramData[14] = params.sizeVariance;
-    paramData[15] = params.startColor[0];
-    paramData[16] = params.startColor[1];
-    paramData[17] = params.startColor[2];
-    paramData[18] = params.startColor[3];
-    paramData[19] = params.endColor[0];
-    paramData[20] = params.endColor[1];
-    paramData[21] = params.endColor[2];
-    paramData[22] = params.endColor[3];
-    paramData[23] = params.angularVelocity;
-    paramData[24] = params.angularVelocityVariance;
-    paramData[25] = params.emitterPos[0];
-    paramData[26] = params.emitterPos[1];
-    paramData[27] = params.emitterPos[2];
-    paramData[28] = params.emitterDir[0];
-    paramData[29] = params.emitterDir[1];
-    paramData[30] = params.emitterDir[2];
-    paramData[31] = Math.floor(Math.random() * 0xFFFFFFFF);
-    this.device.queue.writeBuffer(this.paramBuffer!, 0, paramData as unknown as BufferSource);
+    const view = this._paramView!;
+    view.set("deltaTime", params.deltaTime);
+    view.set("gravity", params.gravity);
+    view.set("drag", params.drag);
+    view.setU32("emitCount", 0);
+    view.setU32("maxParticles", params.maxParticles);
+    view.set("emissionRate", params.emissionRate);
+    view.set("speed", params.speed);
+    view.set("speedVariance", params.speedVariance);
+    view.set("lifetime", params.lifetime);
+    view.set("lifetimeVariance", params.lifetimeVariance);
+    view.set("startSize", params.startSize);
+    view.set("endSize", params.endSize);
+    view.set("sizeVariance", params.sizeVariance);
+    view.set("startColor", params.startColor);
+    view.set("endColor", params.endColor);
+    view.set("angularVelocity", params.angularVelocity);
+    view.set("angularVelocityVariance", params.angularVelocityVariance);
+    view.set("emitterPos", params.emitterPos);
+    view.set("emitterDir", params.emitterDir);
+    view.setU32("seed", Math.floor(Math.random() * 0xFFFFFFFF));
+    this.device.queue.writeBuffer(this.paramBuffer!, 0, this._paramBuf! as unknown as BufferSource);
 
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginComputePass();
@@ -373,5 +369,9 @@ export class ParticleComputePass extends RenderPass {
     this.counterBuffer = null;
     this.updatePipeline = null;
     this.emitPipeline = null;
+    this._paramView = null;
+    this._paramBuf = null;
+    this._emitView = null;
+    this._emitBuf = null;
   }
 }

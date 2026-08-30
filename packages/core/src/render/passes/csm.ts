@@ -1,3 +1,5 @@
+import type { StructView, WgslStruct, WgslType } from "@downdraft/shader-graph";
+import { mat4x4f, vec4f, wgsl } from "@downdraft/shader-graph";
 import { mat4, vec3, type Mat4 } from "wgpu-matrix";
 import type { MeshData } from "../../mesh/builder";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
@@ -25,11 +27,25 @@ export const DEFAULT_CSM_SETTINGS: CSMSettings = {
 
 const MAX_CASCADES = 4;
 
+const CascadeUniforms: WgslStruct = wgsl.struct("CascadeUniforms", {
+  viewProj: mat4x4f,
+  texelSize: vec4f,
+});
+
+// CSMUniforms contains a nested struct array (array<CascadeUniforms, N>).
+// The wgsl.struct emitter cannot produce valid WGSL for nested struct arrays
+// (it would inline the struct declaration inside array<...>), so the WGSL
+// declaration below is hand-written. The WgslStruct descriptor is still used
+// for the typed view layout (single source of truth for buffer offsets).
+const CSMUniforms: WgslStruct = wgsl.struct("CSMUniforms", {
+  cascades: wgsl.array(CascadeUniforms as unknown as WgslType, MAX_CASCADES),
+  cascadeSplits: vec4f,
+  lightDir: vec4f,
+  cascadeCount: vec4f,
+});
+
 const CSM_SHADER = /* wgsl */ `
-struct CascadeUniforms {
-  viewProj: mat4x4<f32>,
-  texelSize: vec4<f32>,
-};
+${CascadeUniforms.wgsl}
 
 struct CSMUniforms {
   cascades: array<CascadeUniforms, ${MAX_CASCADES}>,
@@ -78,6 +94,8 @@ export class CSMPass extends RenderPass {
   private shadowSampler: GPUSampler | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private modelBuffer: GPUBuffer | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
   private pipelines: Map<number, GPURenderPipeline> = new Map();
   private bindGroups: Map<number, GPUBindGroup> = new Map();
   private vertexBuffers: Map<MeshData, GPUBuffer> = new Map();
@@ -141,11 +159,13 @@ export class CSMPass extends RenderPass {
       minFilter: "linear",
     });
 
-    const uniformSize = MAX_CASCADES * 80 + 48;
+    const uniformSize = CSMUniforms.size;
     this.uniformBuffer = this.device.createBuffer({
       size: uniformSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(CSMUniforms.floatCount);
+    this._uniformView = CSMUniforms.view(this._uniformBuf);
 
     this.modelBuffer = this.device.createBuffer({
       size: 64,
@@ -207,38 +227,37 @@ export class CSMPass extends RenderPass {
   }
 
   private uploadUniforms(): void {
-    const cascadeSize = 80;
-    const totalSize = MAX_CASCADES * cascadeSize + 48;
-    const data = new Float32Array(totalSize / 4);
+    const buf = this._uniformBuf!;
+    const view = this._uniformView!;
+    buf.fill(0);
 
+    // Per-cascade viewProj + texelSize — written directly into the preallocated
+    // buffer (the typed view does not support indexed array-of-struct access).
+    const cascadeStride = CascadeUniforms.floatCount; // 20 floats per cascade
     for (let i = 0; i < MAX_CASCADES; i++) {
-      const off = i * (cascadeSize / 4);
-      const vp = this.cascadeViewProjs[i];
-      for (let j = 0; j < 16; j++) {
-        data[off + j] = vp[j];
-      }
-      data[off + 16] = 1.0 / this.settings.shadowMapSize;
-      data[off + 17] = 1.0 / this.settings.shadowMapSize;
-      data[off + 18] = 0;
-      data[off + 19] = 0;
+      const off = i * cascadeStride;
+      buf.set(this.cascadeViewProjs[i], off);
+      buf[off + 16] = 1.0 / this.settings.shadowMapSize;
+      buf[off + 17] = 1.0 / this.settings.shadowMapSize;
+      buf[off + 18] = 0;
+      buf[off + 19] = 0;
     }
 
-    const splitOff = MAX_CASCADES * (cascadeSize / 4);
-    for (let i = 0; i < MAX_CASCADES; i++) {
-      data[splitOff + i] = this.cascadeSplits[i] ?? 0;
-    }
+    view.set("cascadeSplits", [
+      this.cascadeSplits[0] ?? 0,
+      this.cascadeSplits[1] ?? 0,
+      this.cascadeSplits[2] ?? 0,
+      this.cascadeSplits[3] ?? 0,
+    ]);
+    view.set("lightDir", [0, 0, 0, 0]);
+    view.set("cascadeCount", [
+      this.settings.cascadeCount,
+      this.settings.bias,
+      this.settings.normalBias,
+      this.settings.blendDistance,
+    ]);
 
-    data[splitOff + 4] = 0;
-    data[splitOff + 5] = 0;
-    data[splitOff + 6] = 0;
-    data[splitOff + 7] = 0;
-
-    data[splitOff + 8] = this.settings.cascadeCount;
-    data[splitOff + 9] = this.settings.bias;
-    data[splitOff + 10] = this.settings.normalBias;
-    data[splitOff + 11] = this.settings.blendDistance;
-
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, buf as unknown as BufferSource);
   }
 
   private getPipeline(stride: number): GPURenderPipeline {
@@ -376,6 +395,8 @@ export class CSMPass extends RenderPass {
     this.shadowSampler = null;
     this.uniformBuffer?.destroy();
     this.modelBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
     for (const buf of this.vertexBuffers.values()) buf.destroy();
     for (const buf of this.indexBuffers.values()) buf.destroy();
     this.vertexBuffers.clear();

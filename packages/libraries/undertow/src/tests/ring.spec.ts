@@ -191,5 +191,52 @@ describe("payload heap + string pool", () => {
     expect(a3).not.toBe(a1);
     expect(pool.resolve(a3)).toBe("keydown");
   });
+
+  it("string pool resets on overflow and continues interning", () => {
+    // Use a tiny string pool to force overflow quickly.
+    const sab = allocateDomSab({ stringPoolBytes: 256, payloadHeapBytes: 4096 });
+    const regions = readRegions(sab);
+    const pool = new StringPool(sab, regions);
+    pool.init();
+
+    // Fill the pool with unique strings until it overflows.
+    const atoms: number[] = [];
+    for (let i = 0; i < 100; i++) {
+      const a = pool.intern(`str-${i}-padding-to-force-overflow-quickly`);
+      atoms.push(a);
+    }
+
+    // After overflow + reset, new strings should still intern successfully.
+    const lateAtom = pool.intern("after-overflow");
+    expect(lateAtom).toBeGreaterThan(0);
+    expect(pool.resolve(lateAtom)).toBe("after-overflow");
+
+    // The late atom should be resolvable from a second pool instance (simulating
+    // the other side reading from the same SAB).
+    const pool2 = new StringPool(sab, regions);
+    // pool2 hasn't called init() — it reads the existing SAB state.
+    expect(pool2.resolve(lateAtom)).toBe("after-overflow");
+  });
+
+  it("string pool resolve clamps highWater to regionBytes", () => {
+    // This test verifies that resolve() doesn't throw a RangeError even if
+    // the highWater pointer was advanced past the region by an overflow.
+    const sab = allocateDomSab({ stringPoolBytes: 128, payloadHeapBytes: 4096 });
+    const regions = readRegions(sab);
+    const pool = new StringPool(sab, regions);
+    pool.init();
+
+    // Intern a string to populate the pool.
+    const a1 = pool.intern("test");
+    expect(pool.resolve(a1)).toBe("test");
+
+    // Simulate a corrupted highWater (past the region) by directly writing
+    // to the SAB. resolve() should clamp it and not throw.
+    const i32 = new Int32Array(sab, regions.stringOffset, 2);
+    Atomics.store(i32, 1, 999999);
+
+    // Should not throw a RangeError.
+    expect(pool.resolve(999)).toBeNull();
+  });
 });
 

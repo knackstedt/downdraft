@@ -1,22 +1,27 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-const TERRAIN_SHADER = /* wgsl */ `
-struct Uniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   time: f32,
   patchSize: f32,
   originX: f32,
   originZ: f32,
   _pad0: f32,
-  sunDir: vec3<f32>,
+  sunDir: vec3f,
   sunIntensity: f32,
   timeOfDay: f32,
   waterHeight: f32,
   _pad1: f32,
-};
+});
+
+const TERRAIN_SHADER = /* wgsl */ `
+${Uniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 
@@ -212,7 +217,8 @@ export class TerrainPass extends RenderPass {
   private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
   private gridSize: number;
-  private uniformData = new Float32Array(32);
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1, gridSize = 128) {
     super();
@@ -245,6 +251,8 @@ export class TerrainPass extends RenderPass {
     const dev = this.device;
     this.shaderModule = dev.createShaderModule({ code: TERRAIN_SHADER });
     this.uniformBuffer = dev.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._uniformBuf = new Float32Array(32);
+    this._uniformView = Uniforms.view(this._uniformBuf);
     this.vertexBuffer = dev.createBuffer({ size: vertices.length * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     dev.queue.writeBuffer(this.vertexBuffer, 0, new Float32Array(vertices));
     this.indexBuffer = dev.createBuffer({ size: indices.length * 2, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -268,24 +276,21 @@ export class TerrainPass extends RenderPass {
 
   setUniforms(u: TerrainUniforms): void {
     if (!this.uniformBuffer) return;
-    const data = this.uniformData;
-    data.set(u.viewProj as Float32Array, 0);
-    data[16] = u.cameraPos[0];
-    data[17] = u.cameraPos[1];
-    data[18] = u.cameraPos[2];
-    data[19] = u.time;
-    data[20] = u.patchSize;
-    data[21] = u.originX;
-    data[22] = u.originZ;
-    // data[23] = padding (vec3 alignment)
+    const view = this._uniformView!;
+    view.set("viewProj", u.viewProj as Float32Array);
+    view.set("cameraPos", u.cameraPos);
+    view.set("time", u.time);
+    view.set("patchSize", u.patchSize);
+    view.set("originX", u.originX);
+    view.set("originZ", u.originZ);
+    // _pad0 is padding, left as 0
     const sd = u.sunDir ?? [0, 1, 0];
-    data[24] = sd[0];
-    data[25] = sd[1];
-    data[26] = sd[2];
-    data[27] = u.sunIntensity ?? 1.0;
-    data[28] = u.timeOfDay ?? 0.5;
-    data[29] = u.waterHeight ?? 0.0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    view.set("sunDir", sd);
+    view.set("sunIntensity", u.sunIntensity ?? 1.0);
+    view.set("timeOfDay", u.timeOfDay ?? 0.5);
+    view.set("waterHeight", u.waterHeight ?? 0.0);
+    // _pad1 is padding, left as 0
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf! as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -314,5 +319,7 @@ export class TerrainPass extends RenderPass {
     this.pipeline = null;
     this.shaderModule = null;
     this.bindGroup = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

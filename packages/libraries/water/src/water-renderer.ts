@@ -4,18 +4,16 @@
 // ============================================================================
 
 import { createLogger, destroyAll } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { WATER_GRID, WaterBuffer } from "./water-buffer";
 import { MAX_SHORES, MAX_WAKES, SHORE_FLOATS, WAKE_FLOATS } from "./wave-sources";
 
 const log = createLogger();
 
-const PREAMBLE = /* wgsl */ `
-const MAX_POINT_LIGHTS = 32u;
-const MAX_SPOT_LIGHTS = 8u;
-
-struct Uniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+const Uniforms: WgslStruct = wgsl.struct("Uniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   time: f32,
   gridSize: f32,
   patchSize: f32,
@@ -35,7 +33,13 @@ struct Uniforms {
   sunIntensity: f32,
   wakeCount: u32,
   shoreCount: u32,
-};
+});
+
+const PREAMBLE = /* wgsl */ `
+const MAX_POINT_LIGHTS = 32u;
+const MAX_SPOT_LIGHTS = 8u;
+
+${Uniforms.wgsl}
 
 struct WakeSource {
   pos: vec2<f32>,
@@ -487,6 +491,8 @@ export class WaterRenderer {
   private lightBindGroupLayout: GPUBindGroupLayout | null = null;
   private lightBindGroup: GPUBindGroup | null = null;
   private uniformBuffer: GPUBuffer | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
   private vertexBuffer: GPUBuffer | null = null;
   private indexBuffer: GPUBuffer | null = null;
   private indexCount = 0;
@@ -521,6 +527,8 @@ export class WaterRenderer {
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(Uniforms.floatCount);
+    this._uniformView = Uniforms.view(this._uniformBuf);
 
     const gridSize = WATER_GRID;
     const vertices: number[] = [];
@@ -726,34 +734,30 @@ export class WaterRenderer {
     const originX = Math.round((cameraPos[0] - halfGrid) / patchSize) * patchSize;
     const originZ = Math.round((cameraPos[2] - halfGrid) / patchSize) * patchSize;
 
-    const uniforms = new Float32Array(38);
-    for (let i = 0; i < 16; i++) uniforms[i] = viewProj[i];
-    uniforms[16] = cameraPos[0];
-    uniforms[17] = cameraPos[1];
-    uniforms[18] = cameraPos[2];
-    uniforms[19] = this.time;
-    uniforms[20] = gridSize;
-    uniforms[21] = patchSize;
-    uniforms[22] = originX;
-    uniforms[23] = originZ;
-    uniforms[24] = config.visibility;
-    const dv = new DataView(uniforms.buffer);
-    dv.setUint32(100, config.weatherType, true);
-    uniforms[26] = config.timeOfDay;
-    uniforms[27] = 2.0;
-    uniforms[28] = config.windSpeed;
-    uniforms[29] = config.windDirX;
-    uniforms[30] = config.windDirZ;
-    uniforms[31] = config.weatherIntensity;
-    uniforms[32] = config.sunDir[0];
-    uniforms[33] = config.sunDir[1];
-    uniforms[34] = config.sunDir[2];
-    uniforms[35] = config.sunIntensity;
-    const uniformU32 = new Uint32Array(uniforms.buffer, 144, 2);
-    uniformU32[0] = this.wakeCount;
-    uniformU32[1] = this.shoreCount;
+    const uv = this._uniformView!;
+    uv.set("viewProj", viewProj);
+    uv.set("cameraPos", cameraPos);
+    uv.set("time", this.time);
+    uv.set("gridSize", gridSize);
+    uv.set("patchSize", patchSize);
+    uv.set("originX", originX);
+    uv.set("originZ", originZ);
+    uv.set("visibility", config.visibility);
+    uv.setU32("weatherType", config.weatherType);
+    uv.set("timeOfDay", config.timeOfDay);
+    uv.set("waveHeight", 2.0);
+    uv.set("windSpeed", config.windSpeed);
+    uv.set("windDirX", config.windDirX);
+    uv.set("windDirZ", config.windDirZ);
+    uv.set("weatherIntensity", config.weatherIntensity);
+    uv.set("sunDirX", config.sunDir[0]);
+    uv.set("sunDirY", config.sunDir[1]);
+    uv.set("sunDirZ", config.sunDir[2]);
+    uv.set("sunIntensity", config.sunIntensity);
+    uv.setU32("wakeCount", this.wakeCount);
+    uv.setU32("shoreCount", this.shoreCount);
 
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf! as unknown as GPUAllowSharedBufferSource);
 
     passEncoder.setPipeline(this.pipeline);
     passEncoder.setBindGroup(0, this.bindGroup);
@@ -788,6 +792,8 @@ export class WaterRenderer {
     this.lightBindGroup = null;
     this.lightBindGroupLayout = null;
     this.uniformBuffer = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
     this.vertexBuffer = null;
     this.indexBuffer = null;
     this.heightTexture = null;

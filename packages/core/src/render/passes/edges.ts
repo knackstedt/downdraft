@@ -1,5 +1,16 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const EdgesUniforms: WgslStruct = wgsl.struct("EdgesUniforms", {
+  threshold: f32,
+  texelSizeX: f32,
+  texelSizeY: f32,
+  opacity: f32,
+  edgeColor: vec3f,
+  _pad0: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,14 +30,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const EDGES_FS = /* wgsl */ `
-struct EdgesUniforms {
-  threshold: f32,
-  texelSizeX: f32,
-  texelSizeY: f32,
-  opacity: f32,
-  edgeColor: vec3<f32>,
-  _pad0: f32,
-};
+${EdgesUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: EdgesUniforms;
 @group(0) @binding(1) var normalTex: texture_2d<f32>;
@@ -91,6 +95,8 @@ export class EdgesPass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
 
   constructor(device: GPUDevice, settings: Partial<EdgesSettings> = {}) {
@@ -111,6 +117,8 @@ export class EdgesPass extends RenderPass {
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(EdgesUniforms.floatCount);
+    this._uniformView = EdgesUniforms.view(this._uniformBuf);
 
     const vsModule = this.device.createShaderModule({ code: FULLSCREEN_VS });
     const fsModule = this.device.createShaderModule({ code: EDGES_FS });
@@ -140,16 +148,14 @@ export class EdgesPass extends RenderPass {
   }
 
   private writeUniforms(): void {
-    const data = new Float32Array(8);
-    data[0] = this.settings.threshold;
-    data[1] = this.width > 0 ? 1.0 / this.width : 0.0;
-    data[2] = this.height > 0 ? 1.0 / this.height : 0.0;
-    data[3] = this.settings.opacity;
-    data[4] = this.settings.edgeColor[0];
-    data[5] = this.settings.edgeColor[1];
-    data[6] = this.settings.edgeColor[2];
-    data[7] = 0.0;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._uniformView!;
+    view.set("threshold", this.settings.threshold);
+    view.set("texelSizeX", this.width > 0 ? 1.0 / this.width : 0.0);
+    view.set("texelSizeY", this.height > 0 ? 1.0 / this.height : 0.0);
+    view.set("opacity", this.settings.opacity);
+    view.set("edgeColor", this.settings.edgeColor);
+    view.set("_pad0", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -197,5 +203,7 @@ export class EdgesPass extends RenderPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

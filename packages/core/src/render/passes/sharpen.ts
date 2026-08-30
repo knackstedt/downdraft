@@ -1,5 +1,14 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const SharpenUniforms: WgslStruct = wgsl.struct("SharpenUniforms", {
+  sharpness: f32,
+  texelSizeX: f32,
+  texelSizeY: f32,
+  _pad0: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,12 +28,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const SHARPEN_FS = /* wgsl */ `
-struct SharpenUniforms {
-  sharpness: f32,
-  texelSizeX: f32,
-  texelSizeY: f32,
-  _pad0: f32,
-};
+${SharpenUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: SharpenUniforms;
 @group(0) @binding(1) var colorTex: texture_2d<f32>;
@@ -66,6 +70,8 @@ export class SharpenPass extends RenderPass {
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private sampler: GPUSampler | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
 
   constructor(device: GPUDevice, settings: Partial<SharpenSettings> = {}) {
@@ -86,6 +92,8 @@ export class SharpenPass extends RenderPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(SharpenUniforms.floatCount);
+    this._uniformView = SharpenUniforms.view(this._uniformBuf);
 
     const vsModule = this.device.createShaderModule({ code: FULLSCREEN_VS });
     const fsModule = this.device.createShaderModule({ code: SHARPEN_FS });
@@ -112,12 +120,12 @@ export class SharpenPass extends RenderPass {
   }
 
   private writeUniforms(): void {
-    const data = new Float32Array(4);
-    data[0] = this.settings.sharpness;
-    data[1] = this.width > 0 ? 1.0 / this.width : 0.0;
-    data[2] = this.height > 0 ? 1.0 / this.height : 0.0;
-    data[3] = 0.0;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    const view = this._uniformView!;
+    view.set("sharpness", this.settings.sharpness);
+    view.set("texelSizeX", this.width > 0 ? 1.0 / this.width : 0.0);
+    view.set("texelSizeY", this.height > 0 ? 1.0 / this.height : 0.0);
+    view.set("_pad0", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -162,5 +170,7 @@ export class SharpenPass extends RenderPass {
 
   destroy(): void {
     this.uniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

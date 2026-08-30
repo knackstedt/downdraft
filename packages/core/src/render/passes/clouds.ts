@@ -1,29 +1,36 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, u32, vec3f, wgsl } from "@downdraft/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 
-const CLOUD_SHADER = /* wgsl */ `
-struct CloudUniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const CloudUniformsStruct: WgslStruct = wgsl.struct("CloudUniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   timeOfDay: f32,
   weatherType: u32,
-  sunDir: vec3<f32>,
+  sunDir: vec3f,
   sunIntensity: f32,
-  moonDir: vec3<f32>,
+  moonDir: vec3f,
   moonIntensity: f32,
   time: f32,
   weatherBlend: f32,
-  fogColor: vec3<f32>,
+  fogColor: vec3f,
   fogDensity: f32,
-};
+});
+
+const PerLayerUniformsStruct: WgslStruct = wgsl.struct("PerLayerUniforms", {
+  layerPos: vec3f,
+  _pad: f32,
+});
+
+const CLOUD_SHADER = /* wgsl */ `
+${CloudUniformsStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> uniforms: CloudUniforms;
 
-struct PerLayerUniforms {
-  layerPos: vec3<f32>,
-  _pad: f32,
-};
+${PerLayerUniformsStruct.wgsl}
 
 @group(0) @binding(1) var<uniform> perLayer: PerLayerUniforms;
 
@@ -145,6 +152,10 @@ export class CloudPass extends RenderPass {
   private surfaceFormat: GPUTextureFormat;
   private msaaSampleCount: number = 1;
   private layers: CloudLayerData[] = [];
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
+  private _perLayerView: StructView | null = null;
+  private _perLayerBuf: Float32Array | null = null;
 
   constructor(device: GPUDevice, surfaceFormat: GPUTextureFormat, msaaSampleCount = 1) {
     super();
@@ -162,6 +173,10 @@ export class CloudPass extends RenderPass {
       size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(CloudUniformsStruct.floatCount);
+    this._uniformView = CloudUniformsStruct.view(this._uniformBuf);
+    this._perLayerBuf = new Float32Array(PerLayerUniformsStruct.floatCount);
+    this._perLayerView = PerLayerUniformsStruct.view(this._perLayerBuf);
 
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -200,29 +215,20 @@ export class CloudPass extends RenderPass {
 
   setUniforms(u: CloudUniforms): void {
     if (!this.uniformBuffer) return;
-    const data = new Float32Array(40);
-    data.set(u.viewProj as Float32Array, 0);
-    data[16] = u.cameraPos[0];
-    data[17] = u.cameraPos[1];
-    data[18] = u.cameraPos[2];
-    data[19] = u.timeOfDay;
-    const u32View = new Uint32Array(data.buffer);
-    u32View[20] = u.weatherType;
-    data[24] = u.sunDir[0];
-    data[25] = u.sunDir[1];
-    data[26] = u.sunDir[2];
-    data[27] = u.sunIntensity;
-    data[28] = u.moonDir[0];
-    data[29] = u.moonDir[1];
-    data[30] = u.moonDir[2];
-    data[31] = u.moonIntensity;
-    data[32] = u.time;
-    data[33] = u.weatherBlend;
-    data[36] = u.fogColor[0];
-    data[37] = u.fogColor[1];
-    data[38] = u.fogColor[2];
-    data[39] = u.fogDensity;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data as unknown as BufferSource);
+    const view = this._uniformView!;
+    view.set("viewProj", u.viewProj as Float32Array);
+    view.set("cameraPos", u.cameraPos);
+    view.set("timeOfDay", u.timeOfDay);
+    view.setU32("weatherType", u.weatherType);
+    view.set("sunDir", u.sunDir);
+    view.set("sunIntensity", u.sunIntensity);
+    view.set("moonDir", u.moonDir);
+    view.set("moonIntensity", u.moonIntensity);
+    view.set("time", u.time);
+    view.set("weatherBlend", u.weatherBlend);
+    view.set("fogColor", u.fogColor);
+    view.set("fogDensity", u.fogDensity);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformBuf! as unknown as BufferSource);
   }
 
   addLayer(layer: CloudLayerData): void {
@@ -242,11 +248,9 @@ export class CloudPass extends RenderPass {
     const layer = this.layers[index];
     if (!layer) return;
     layer.layerPos = layerPos;
-    const data = new Float32Array(4);
-    data[0] = layerPos[0];
-    data[1] = layerPos[1];
-    data[2] = layerPos[2];
-    this.device.queue.writeBuffer(layer.perLayerUniform, 0, data as unknown as BufferSource);
+    const view = this._perLayerView!;
+    view.set("layerPos", layerPos);
+    this.device.queue.writeBuffer(layer.perLayerUniform, 0, this._perLayerBuf! as unknown as BufferSource);
   }
 
   private ensureLayerBindGroup(layer: CloudLayerData): void {
@@ -275,11 +279,9 @@ export class CloudPass extends RenderPass {
       this.ensureLayerBindGroup(layer);
       if (!layer.bindGroup) continue;
 
-      const data = new Float32Array(4);
-      data[0] = layer.layerPos[0];
-      data[1] = layer.layerPos[1];
-      data[2] = layer.layerPos[2];
-      this.device.queue.writeBuffer(layer.perLayerUniform, 0, data as unknown as BufferSource);
+      const perLayerView = this._perLayerView!;
+      perLayerView.set("layerPos", layer.layerPos);
+      this.device.queue.writeBuffer(layer.perLayerUniform, 0, this._perLayerBuf! as unknown as BufferSource);
 
       tracked.setBindGroup(0, layer.bindGroup, [0]);
       tracked.setVertexBuffer(0, layer.vertexBuffer);
@@ -294,5 +296,9 @@ export class CloudPass extends RenderPass {
     this.uniformBuffer = null;
     this.pipeline = null;
     this.shaderModule = null;
+    this._uniformView = null;
+    this._uniformBuf = null;
+    this._perLayerView = null;
+    this._perLayerBuf = null;
   }
 }

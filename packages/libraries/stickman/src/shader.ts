@@ -16,14 +16,20 @@
 // (half-res, matching the game's light-accum pass). 2D grid games may bind
 // 1x1 white dummy textures so lighting is identity.
 
+import type { WgslStruct } from "@downdraft/shader-graph";
+import { f32, vec2f, vec3f, vec4f, wgsl } from "@downdraft/shader-graph";
+
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const StickmanUniformsStruct: WgslStruct = wgsl.struct("StickmanUniforms", {
+  transform: vec4f,
+  screenSize: vec2f,
+  lineWidth: f32,
+  color: vec3f,
+});
+
 export const STICKMAN_WGSL = /* wgsl */`
 
-struct StickmanUniforms {
-  transform: vec4<f32>,   // (scaleX, scaleY, offsetX, offsetY)
-  screenSize: vec2<f32>,  // (canvasW, canvasH) in pixels
-  lineWidth: f32,         // stroke half-width in cell units (scales with zoom)
-  color: vec3<f32>,       // health-tinted stroke color
-};
+${StickmanUniformsStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> u: StickmanUniforms;
 @group(0) @binding(1) var lightTex: texture_2d<f32>;

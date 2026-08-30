@@ -1,15 +1,20 @@
-import { type Mat4 } from "wgpu-matrix";
 import type { GraphRenderContext } from "@downdraft/core";
 import { RenderPass } from "@downdraft/core";
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/shader-graph";
+import { type Mat4 } from "wgpu-matrix";
 import type { ParticleGPUData } from "./particle-data";
 import { packParticleBuffer } from "./particle-data";
 
-const PARTICLE_VERTEX_SHADER = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
+// ─── Uniform structs (single source of truth for layout) ───────────────────
+const CameraUniformsStruct: WgslStruct = wgsl.struct("CameraUniforms", {
+  viewProj: mat4x4f,
+  cameraPos: vec3f,
   _pad: f32,
-};
+});
+
+const PARTICLE_VERTEX_SHADER = `
+${CameraUniformsStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 @group(0) @binding(1) var particleTex: texture_2d<f32>;
@@ -71,11 +76,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 `;
 
 const PARTICLE_VERTEX_SHADER_NO_TEX = `
-struct CameraUniforms {
-  viewProj: mat4x4<f32>,
-  cameraPos: vec3<f32>,
-  _pad: f32,
-};
+${CameraUniformsStruct.wgsl}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
 
@@ -147,6 +148,8 @@ export class ParticleRenderPass extends RenderPass {
   private sampler: GPUSampler | null = null;
   private maxInstances: number;
   private useTexture: boolean = false;
+  private _cameraView: StructView | null = null;
+  private _cameraBuf: Float32Array | null = null;
 
   constructor(surfaceFormat: GPUTextureFormat = "rgba16float", maxInstances: number = 10000) {
     super();
@@ -163,6 +166,8 @@ export class ParticleRenderPass extends RenderPass {
       size: 80, // mat4x4 (64) + vec3 (12) + pad (4)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._cameraBuf = new Float32Array(CameraUniformsStruct.floatCount);
+    this._cameraView = CameraUniformsStruct.view(this._cameraBuf);
 
     this.instanceBuffer = device.createBuffer({
       size: this.maxInstances * INSTANCE_STRIDE,
@@ -269,12 +274,10 @@ export class ParticleRenderPass extends RenderPass {
 
   setCamera(viewProj: Mat4, cameraPos: [number, number, number]): void {
     if (!this.device || !this.cameraBuffer) return;
-    const data = new Float32Array(20);
-    data.set(viewProj as Float32Array, 0);
-    data[16] = cameraPos[0];
-    data[17] = cameraPos[1];
-    data[18] = cameraPos[2];
-    this.device.queue.writeBuffer(this.cameraBuffer, 0, data as unknown as BufferSource);
+    const view = this._cameraView!;
+    view.set("viewProj", viewProj as Float32Array);
+    view.set("cameraPos", cameraPos);
+    this.device.queue.writeBuffer(this.cameraBuffer, 0, this._cameraBuf! as unknown as BufferSource);
   }
 
   setTexture(texture: GPUTexture): void {
@@ -355,5 +358,7 @@ export class ParticleRenderPass extends RenderPass {
     this.textureView = null;
     this.pipeline = null;
     this.pipelineNoTex = null;
+    this._cameraView = null;
+    this._cameraBuf = null;
   }
 }

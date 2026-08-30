@@ -1,5 +1,26 @@
+import type { StructView, WgslStruct } from "@downdraft/shader-graph";
+import { f32, mat4x4f, vec2f, wgsl } from "@downdraft/shader-graph";
 import { PassType, type FrameGraphBuilder, type GraphRenderContext, type TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
+
+const SSAOUniforms: WgslStruct = wgsl.struct("SSAOUniforms", {
+  projection: mat4x4f,
+  invProjection: mat4x4f,
+  view: mat4x4f,
+  kernelSize: f32,
+  radius: f32,
+  bias: f32,
+  noiseScale: vec2f,
+  screenSize: vec2f,
+  _pad0: f32,
+  _pad1: f32,
+});
+
+const BlurUniforms: WgslStruct = wgsl.struct("BlurUniforms", {
+  texelSize: vec2f,
+  _pad0: f32,
+  _pad1: f32,
+});
 
 const FULLSCREEN_VS = /* wgsl */ `
 struct VertexOutput {
@@ -19,18 +40,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
 `;
 
 const SSAO_FS = /* wgsl */ `
-struct SSAOUniforms {
-  projection: mat4x4<f32>,
-  invProjection: mat4x4<f32>,
-  view: mat4x4<f32>,
-  kernelSize: f32,
-  radius: f32,
-  bias: f32,
-  noiseScale: vec2<f32>,
-  screenSize: vec2<f32>,
-  _pad0: f32,
-  _pad1: f32,
-};
+${SSAOUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: SSAOUniforms;
 @group(0) @binding(1) var depthTex: texture_2d<f32>;
@@ -94,11 +104,7 @@ fn ssao_fs(@location(0) uv: vec2<f32>) -> @location(0) f32 {
 `;
 
 const SSAO_BLUR_FS = /* wgsl */ `
-struct BlurUniforms {
-  texelSize: vec2<f32>,
-  _pad0: f32,
-  _pad1: f32,
-};
+${BlurUniforms.wgsl}
 
 @group(0) @binding(0) var<uniform> u: BlurUniforms;
 @group(0) @binding(1) var ssaoTex: texture_2d<f32>;
@@ -158,6 +164,8 @@ export class SSAOPass extends RenderPass {
   private sampler: GPUSampler | null = null;
   private ssaoTexture: GPUTexture | null = null;
   private ssaoView: GPUTextureView | null = null;
+  private _uniformView: StructView | null = null;
+  private _uniformBuf: Float32Array | null = null;
 
 
   constructor(device: GPUDevice, settings: Partial<SSAOSettings> = {}) {
@@ -194,9 +202,11 @@ export class SSAOPass extends RenderPass {
     );
 
     this.uniformBuffer = this.device.createBuffer({
-      size: 220,
+      size: SSAOUniforms.size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this._uniformBuf = new Float32Array(SSAOUniforms.floatCount);
+    this._uniformView = SSAOUniforms.view(this._uniformBuf);
 
     this.blurUniformBuffer = this.device.createBuffer({
       size: 16,
@@ -231,18 +241,18 @@ export class SSAOPass extends RenderPass {
   }
 
   setProjectionMatrices(proj: Float32Array, invProj: Float32Array, view: Float32Array, screenWidth: number, screenHeight: number): void {
-    const data = new Float32Array(55);
-    data.set(proj, 0);
-    data.set(invProj, 16);
-    data.set(view, 32);
-    data[48] = this.settings.kernelSize;
-    data[49] = this.settings.radius;
-    data[50] = this.settings.bias;
-    data[51] = this.settings.noiseSize;
-    data[52] = this.settings.noiseSize;
-    data[53] = screenWidth;
-    data[54] = screenHeight;
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, data as unknown as BufferSource);
+    const v = this._uniformView!;
+    v.set("projection", proj);
+    v.set("invProjection", invProj);
+    v.set("view", view);
+    v.set("kernelSize", this.settings.kernelSize);
+    v.set("radius", this.settings.radius);
+    v.set("bias", this.settings.bias);
+    v.set("noiseScale", [this.settings.noiseSize, this.settings.noiseSize]);
+    v.set("screenSize", [screenWidth, screenHeight]);
+    v.set("_pad0", 0.0);
+    v.set("_pad1", 0.0);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._uniformBuf as unknown as BufferSource);
   }
 
   setup(builder: FrameGraphBuilder): void {
@@ -290,5 +300,7 @@ export class SSAOPass extends RenderPass {
     this.ssaoTexture?.destroy();
     this.uniformBuffer?.destroy();
     this.blurUniformBuffer?.destroy();
+    this._uniformView = null;
+    this._uniformBuf = null;
   }
 }

@@ -2,6 +2,8 @@
 // Shader Graph Profile — configures the compiler for a specific render context
 // ============================================================================
 
+import type { WgslStruct } from "./wgsl-struct";
+
 // Shader stage visibility flags — mirror GPUShaderStage values to avoid runtime WebGPU dependency
 const SHADER_STAGE = {
   VERTEX: 0x1,
@@ -42,8 +44,15 @@ export interface ShaderGraphProfile {
   name: string;
   // WGSL chunks to inject at the top of the shader (e.g. PBR functions, light structs)
   chunks: string[];
-  // Uniform struct fields for group 0 binding 0
+  // Uniform struct fields for group 0 binding 0 (legacy string-based form).
+  // Ignored when `uniformStruct` is set — prefer `uniformStruct` for new code.
   uniformFields: UniformField[];
+  // Optional typed uniform struct (replaces uniformFields when set).
+  // When provided, the compiler emits `struct.name.wgsl` instead of building
+  // the struct from `uniformFields` strings. This gives the profile a
+  // `WgslStruct` descriptor that can be used with `StructView` for typed
+  // buffer writes, eliminating magic-offset bugs.
+  uniformStruct?: WgslStruct;
   // Additional bind groups beyond group 0 binding 0
   bindGroups: BindGroupDescriptor[];
   // Vertex layout
