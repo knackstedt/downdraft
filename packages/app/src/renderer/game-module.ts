@@ -367,29 +367,41 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
         const device = r.getDevice?.();
         const format = r.getFormat?.();
         const pluginHost = r.getRendererPluginHost?.();
+        // Build a shared provide/inject pair backed by the renderer plugin host.
+        // Used by both `createRenderer` (early, no GPU device needed) and
+        // `initRenderer` (GPU passes). `createRenderer` runs first so
+        // renderer-only libraries (e.g. @downdraft/library-pixi-ui) can
+        // construct their host + provide DI tokens before GPU-pass init.
+        const libProvide = (token: any, value: unknown) => {
+          if (pluginHost) {
+            pluginHost.provideExternal("library", token, value);
+          }
+        };
+        const libInject = (token: any) => {
+          if (pluginHost) {
+            return pluginHost.injectResource(token);
+          }
+          throw new Error(`Library inject("${token.key}") failed — no renderer plugin host available`);
+        };
+        const libInjectOptional = (token: any) => {
+          if (pluginHost) {
+            return pluginHost.injectResourceOptional(token);
+          }
+          return undefined;
+        };
+        // Early renderer-only library setup (hosts, workers — no GPU needed).
+        libHost.createRenderer({
+          provide: libProvide,
+          inject: libInject,
+          injectOptional: libInjectOptional,
+        });
         if (device && format) {
           libHost.initRenderer({
             device,
             format,
-            provide: (token, value) => {
-              // Provide into the renderer plugin host's DI graph so
-              // renderer plugins can inject library-provided resources.
-              if (pluginHost) {
-                pluginHost.provideExternal("library", token, value);
-              }
-            },
-            inject: (token) => {
-              if (pluginHost) {
-                return pluginHost.injectResource(token);
-              }
-              throw new Error(`Library inject("${token.key}") failed — no renderer plugin host available`);
-            },
-            injectOptional: (token) => {
-              if (pluginHost) {
-                return pluginHost.injectResourceOptional(token);
-              }
-              return undefined;
-            },
+            provide: libProvide,
+            inject: libInject,
+            injectOptional: libInjectOptional,
           });
           // Set the library-allocated SABs on the renderer passes.
           libHost.setRendererBuffers(libBuffers);

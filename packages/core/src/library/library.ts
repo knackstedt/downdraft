@@ -80,14 +80,41 @@ export interface LibrarySimTickContext {
 // ── Renderer-side descriptor ──
 
 /**
+ * Context for `LibraryRendererSetup.create()` — the early renderer-side hook.
+ *
+ * Unlike `LibraryRendererInitContext`, this does NOT receive a GPU device —
+ * it runs before the WebGPU device is acquired. Use it for renderer-only
+ * libraries that need to construct a host, spawn a worker, or register a
+ * DI token without depending on the GPU (e.g. a PixiJS UI overlay worker
+ * that renders to its own OffscreenCanvas).
+ */
+export interface LibraryRendererCreateContext {
+  /** Provide a typed resource to the renderer DI graph (other libraries/plugins can inject it). */
+  provide<T>(token: ResourceToken<T>, value: T): void;
+  /** Inject a resource from the renderer DI graph. */
+  inject<T>(token: ResourceToken<T>): T;
+  injectOptional<T>(token: ResourceToken<T>): T | undefined;
+}
+
+/**
  * Renderer-side library wiring. Called from the renderer during `init()`
  * and `setBuffers()`.
  */
 export interface LibraryRendererSetup<C = unknown> {
   /**
+   * Called once early during renderer setup, BEFORE the WebGPU device is
+   * acquired and before `init()`. Use for renderer-only libraries that
+   * don't need the GPU (e.g. a UI overlay worker host). The returned
+   * instance is stored and passed to `init()`/`setBuffers()`/`draw()`/`dispose()`
+   * if those are also defined. Omit for GPU-pass libraries that only need `init()`.
+   */
+  create?(config: C, ctx: LibraryRendererCreateContext): unknown;
+  /**
    * Called once during renderer init (after WebGPU device is ready).
    * Receives the GPU device, format, and library config.
    * Returns a renderer-side instance (stored and passed to `draw()`).
+   * If `create()` returned an instance, it is passed in as the first arg
+   * instead of being overwritten.
    */
   init?(config: C, ctx: LibraryRendererInitContext): unknown;
   /**
@@ -195,7 +222,10 @@ export interface EngineLibrary<C = unknown> {
   tickPhase?: LibraryTickPhase;
 
   // ── Renderer-side ──
-  /** Renderer-side setup (pass creation + per-frame draw). Omit for sim-only. */
+  /** Renderer-side setup (early host creation + pass creation + per-frame draw).
+   *  Omit for sim-only libraries. `create` runs before the GPU device is ready
+   *  (renderer-only host/worker libraries); `init`/`setBuffers`/`draw`/`dispose`
+   *  run with the GPU device available. */
   renderer?: LibraryRendererSetup<C>;
 
   // ── Config ──
@@ -233,6 +263,13 @@ export interface LibraryHost {
   initSimWithExistingBuffers(buffers: Record<string, SharedArrayBuffer>, ctx: Omit<LibrarySimContext, "buffers">): void;
   /** Run all library tick functions for a given phase. */
   tickPhase(phase: LibraryTickPhase, tickCtx: LibrarySimTickContext): void;
+  /**
+   * Call `renderer.create` for all libraries that define it. Runs early,
+   * before the WebGPU device is acquired. Use for renderer-only libraries
+   * (host/worker setup that doesn't need the GPU). Optional — libraries
+   * without `renderer.create` are skipped.
+   */
+  createRenderer(ctx: LibraryRendererCreateContext): void;
   /** Initialize renderer-side passes. Called during renderer init. */
   initRenderer(ctx: LibraryRendererInitContext): void;
   /** Set buffers on renderer-side passes. Called during renderer setBuffers. */

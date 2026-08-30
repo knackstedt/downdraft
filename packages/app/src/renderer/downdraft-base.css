@@ -39,6 +39,20 @@ canvas[data-dd-layer] {
   pointer-events: auto;
 }
 
+/* Overlay canvas layers (layer 1+) — above the game canvas (z 0), below the
+ * DOM overlay (z 100). Default pointer-events: none so clicks pass through
+ * to the game canvas. The @downdraft/library-pixi-ui host re-enables
+ * pointer-events when the worker signals interactive mode. */
+canvas[data-dd-layer="1"],
+canvas[data-dd-layer="2"],
+canvas[data-dd-layer="3"],
+canvas[data-dd-layer="4"],
+canvas[data-dd-layer="5"] {
+  z-index: 50;
+  pointer-events: none;
+  image-rendering: auto; /* UI overlays should not be pixelated */
+}
+
 /* DOM overlay layers — stacked above all canvases.
  * The framework generates <div data-dd-overlay="0">, <div data-dd-overlay="1">, etc.
  * Overlays are above canvases by default; pointer-events: none lets clicks

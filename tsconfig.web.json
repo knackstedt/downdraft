@@ -140,6 +140,12 @@
       "@downdraft/library-undertow/*": [
         "./packages/libraries/undertow/src/*"
       ],
+      "@downdraft/library-pixi-ui": [
+        "./packages/libraries/pixi-ui/src/index.ts"
+      ],
+      "@downdraft/library-pixi-ui/*": [
+        "./packages/libraries/pixi-ui/src/*"
+      ],
       "@downdraft/library-marching-cubes": [
         "./packages/libraries/marching-cubes/src/index.ts"
       ],

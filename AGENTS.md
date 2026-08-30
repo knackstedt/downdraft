@@ -4,7 +4,7 @@
 
 The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **plugins** (opt-in game features with lifecycle + typed DI + diagnostics).
 
-- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a plugin lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
+- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a plugin lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, pixi-ui, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
 - **Engine plugins** (namespace `@downdraft/plugin-*`, located in `packages/plugins/`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle + typed DI. Engine plugins: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, sailing.
 - **Game plugins** (namespace `@to-the-ocean/plugin-*` / `@to-the-ocean/library-*`, located in `games/<game>/plugins/`): game-specific features. Game plugins: crafting, inventory. Game libraries: boats, fishing, economy, survival, wildlife, items, buoyancy, collision.
 
@@ -123,6 +123,76 @@ The framework generates `index.html` from a layer spec, so games don't need to m
 - `packages/app/src/renderer/downdraft-base.css` — framework base CSS with canvas/overlay stacking.
 - `packages/app/src/renderer/index.ts` — exports `getCanvas()`, `getOverlay()`, `getAllCanvases()`.
 - `packages/app/src/vite/index.ts` — `DowndraftViteConfigOptions.html` and `.layers` options.
+
+## PixiJS UI overlay library (`@downdraft/library-pixi-ui`)
+
+A worker-hosted PixiJS UI overlay: the library spawns a Web Worker that renders a GUI onto an `OffscreenCanvas` (via `transferControlToOffscreen`) stacked above the main game canvas. Games feed per-frame scalars via a `SharedArrayBuffer` (UiStatsSAB) and event-driven data via `postMessage`. The overlay canvas is `pointer-events: none` by default (game keeps all input); when the worker signals interactive/modal UI, the host flips the canvas to `pointer-events: auto` and forwards pointer events to the worker for PixiJS hit-testing.
+
+### Architecture
+
+- **Canvas layering**: the overlay canvas is `data-dd-layer="1"` (z-index 50, above the game canvas at z 0, below the DOM overlay at z 100). The host acquires an existing canvas with `data-dd-layer="1"` or creates one if absent. CSS rules in `downdraft-base.css` set `pointer-events: none` for overlay canvas layers.
+- **Worker lifecycle**: `PixiUiHost.start()` → `transferControlToOffscreen()` → spawn worker → send init message (OffscreenCanvas + UiStatsSAB + config, all transferable). Worker creates `PIXI.Application` on the OffscreenCanvas, dynamically imports the game's scene module, and runs a ticker loop.
+- **Data model**: `UiStatsSAB` (fixed-layout `SharedArrayBuffer` with a 16-byte header + float32 slots) for high-frequency per-frame scalars (health, fps, positions). `postMessage` for event-driven/structured data (inventory, menu toggles, notifications). Games call `host.writeStats({...})` from their game loop and `host.postEvent({...})` for events.
+- **Input model**: worker calls `ctx.setInteractive(true/false)` → host toggles `canvas.style.pointerEvents` + forwards pointer events to worker for PixiJS `eventMode` hit-testing. Modal UI (menus, buttons) flips interactive on; display-only HUDs keep it off.
+- **Renderer backend**: WebGL2 by default. Games override via `backend: "webgl2" | "webgpu" | "auto"`. WebGL2 is most reliable for a 2D UI overlay (avoids dual-WebGPU-device concerns with the main game canvas).
+- **`@pixi/react` adapter**: optional `@downdraft/library-pixi-ui/react` module for declarative React components rendering to PixiJS. Games add `@pixi/react` + `react` to their deps and `@vitejs/plugin-react` to `workerPlugins` in their vite config. The core library does NOT depend on React.
+
+### Declarative usage (via `GameModule.libraries[]`)
+
+```ts
+import { PixiUiLib, PixiUiHostTok } from "@downdraft/library-pixi-ui";
+
+startGame({
+  libraries: [[PixiUiLib, {
+    backend: "webgl2",
+    sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href,
+  }]],
+  // ...
+  onReady: async (ctx) => {
+    const host = ctx.libraryHost!.injectResource(PixiUiHostTok);
+    await host.start(); // transfer canvas + spawn worker
+    host.onAction = (action) => { /* handle pause/resume/save */ };
+    // In game loop: host.writeStats({ fps, health, ... });
+  },
+});
+```
+
+### Escape hatch (manual wiring)
+
+```ts
+import { PixiUiHost } from "@downdraft/library-pixi-ui";
+const host = new PixiUiHost({ sceneModuleUrl: new URL("./pixi-scene.ts", import.meta.url).href });
+await host.start();
+```
+
+### Scene module
+
+Games implement a `PixiUiScene` factory (default export of the scene module). The worker dynamically imports it and calls it with a `PixiUiSceneContext` (PIXI.Application, width/height, setInteractive, postAction). The scene's `update()` is called each frame with the latest SAB stats + drained events.
+
+### MCP automation tools
+
+`createPixiUiMcpTools(host)` returns MCP tool registrations for e2e testing:
+- `pixi_capture_overlay` — capture the overlay canvas alone as PNG base64.
+- `pixi_get_scene_state` — query the PixiJS scene-graph summary (named nodes, visibility, positions, text labels).
+- `pixi_dispatch_pointer` — send a synthetic pointer event to the worker for hit-testing.
+- `pixi_set_interactive` — force-toggle interactive mode.
+
+### `renderer.create` hook
+
+The library uses the `renderer.create` hook on `EngineLibrary` (the early renderer-side hook that runs before the WebGPU device is acquired). This is the clean fit for renderer-only libraries that need to construct a host + provide a DI token without GPU access. Other renderer-only libraries (audio, input routers) can use the same hook.
+
+### Files
+
+- `packages/libraries/pixi-ui/src/library.ts` — `PixiUiLib` descriptor + `PixiUiHostTok` token + config types.
+- `packages/libraries/pixi-ui/src/host.ts` — `PixiUiHost` (main thread): canvas acquire, `transferControlToOffscreen`, SAB alloc, worker spawn, pointer-events toggle, MCP query/capture.
+- `packages/libraries/pixi-ui/src/pixi-ui-worker.ts` — worker entry: PIXI.Application init on OffscreenCanvas, scene mounting, ticker loop, pointer hit-testing, scene-state query, capture.
+- `packages/libraries/pixi-ui/src/ui-stats-sab.ts` — UiStatsSAB layout + read/write helpers.
+- `packages/libraries/pixi-ui/src/bridge-protocol.ts` — typed main↔worker message protocol.
+- `packages/libraries/pixi-ui/src/scene.ts` — `PixiUiScene` interface + `PixiUiSceneContext`.
+- `packages/libraries/pixi-ui/src/react.ts` — optional `@pixi/react` adapter.
+- `packages/libraries/pixi-ui/src/mcp-tools.ts` — MCP automation tool registrations.
+- `examples/pixi-ui-demo/` — standalone example (health bar + FPS + pause button).
+- `tests/e2e/pixi-ui-demo.spec.ts` — e2e smoke test via MCP harness.
 
 ## Per-game storage isolation
 

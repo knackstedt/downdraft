@@ -60,6 +60,10 @@ export interface LaunchOptions {
   builtCwd?: string;
   /** Additional error patterns to ignore (regexes, matched against console output). */
   ignoreErrorPatterns?: RegExp[];
+  /** Explicit path to the electron.vite.config.ts (relative to cwd). Overrides
+   *  the default `games/<game>/electron.vite.config.ts` path — use for
+   *  launching examples (`examples/<name>/electron.vite.config.ts`). */
+  configPath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -531,8 +535,10 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
   } else {
     // Dev mode: start the Vite dev server which launches Electron, loading
     // the game's own electron.vite.config.ts entrypoint directly.
+    // If configPath is provided (e.g. for examples), use it instead of the
+    // default games/<game>/ path.
     cmd = "npx";
-    cmdArgs = ["electron-vite", "dev", "--config", `games/${game}/electron.vite.config.ts`];
+    cmdArgs = ["electron-vite", "dev", "--config", opts.configPath ?? `games/${game}/electron.vite.config.ts`];
     cwd = process.cwd();
   }
 

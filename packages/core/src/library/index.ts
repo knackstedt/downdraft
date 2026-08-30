@@ -3,6 +3,7 @@ export type {
     EngineLibrary,
     LibraryEntry,
     LibraryHost,
+    LibraryRendererCreateContext,
     LibraryRendererDrawContext,
     LibraryRendererInitContext,
     LibraryRendererSetup,
