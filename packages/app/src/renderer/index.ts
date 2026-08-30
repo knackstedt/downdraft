@@ -96,6 +96,7 @@ export type {
     GameContext,
     GameModule,
     GameSaveConfig,
+    GameSaveSource,
     GameSimWorker,
     RendererFactory,
     SimEventMap,

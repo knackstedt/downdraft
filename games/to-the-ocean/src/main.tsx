@@ -156,7 +156,7 @@ startGame({
 
     const [rendererSuccess] = await Promise.all([
       ctx.renderer.init(),
-      ctx.sim.start(config),
+      ctx.sim!.start(config),
     ]);
     if (!rendererSuccess) {
       console.error("WebGPU initialization failed");
@@ -172,13 +172,18 @@ startGame({
     useGameStore.getState().setLutReady(true);
 
     // Add default player
-    await ctx.sim.addPlayer?.(0, "Player 1");
+    await ctx.sim!.addPlayer?.(0, "Player 1");
     return true;
   },
 
   // ── Post-init wiring (bespoke game setup) ──
   onReady: async (ctx) => {
-    const { renderer, sim, simSAB, inputSAB, extraBuffers } = ctx;
+    const { renderer, extraBuffers } = ctx;
+    // ctx.sim/simSAB/inputSAB are guaranteed non-null because this module
+    // declares `sim`. The non-null assertions are safe.
+    const sim = ctx.sim!;
+    const simSAB = ctx.simSAB!;
+    const inputSAB = ctx.inputSAB!;
 
     // Mark renderer as ready early — the UI (key handlers, HUD, etc.) can
     // activate before the save store finishes initializing.

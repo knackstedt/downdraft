@@ -1,23 +1,28 @@
 // ============================================================================
 // bootstrapGame() — framework-orchestrated renderer bootstrap
 //
-// Centralizes the common bootstrap sequence shared by all 7 games:
+// Centralizes the common bootstrap sequence shared by all games (both
+// sim-worker and renderer-only topologies):
 //   1. Mount UI (framework-agnostic: React, Solid, or none)
-//   2. Get canvas + overlay
+//   2. Get canvas
 //   3. Create + init renderer
 //   4. Wire DevTools (if provided)
 //   5. Start the render loop immediately (don't block on autosave)
-//   6. FPS polling (if onFpsUpdate provided)
-//   7. Deterministic render-pause (if deterministic)
+//   6. Feature log (renderer process)
+//   7. FPS polling (if onFpsUpdate provided)
 //   8. Display info wiring (if onDisplayInfo provided)
-//   9. Autosave load with 5s timeout (if autosave provided, skip in deterministic)
-//   10. Autosave interval (if autosave provided, skip in deterministic)
-//   11. MCP setup (if provided)
-//   12. Hot-reload dispose (if provided)
-//   13. Deterministic callbacks (if onDeterministic provided)
+//   9. Autosave load with 5s timeout + interval (if autosave provided,
+//      skip in deterministic mode)
+//  10. MCP setup (if provided)
+//  11. Hot-reload dispose (if provided)
+//  12. Deterministic callbacks (if onDeterministic provided)
 //
 // This is NOT React-specific. Games provide a `mountUI` callback that can
 // use any framework (React createRoot, Solid render, or nothing).
+//
+// `startGame()` wraps this and adds sim worker spawn, SAB capture, event
+// routing, engine library auto-wiring, and save store initialization. Games
+// that need full control can call `bootstrapGame()` directly.
 // ============================================================================
 
 import { encodeFeatureLogLine } from "@downdraft/core";
@@ -106,11 +111,14 @@ export interface BootstrapGameOptions {
  * Bootstrap a game with the standard sequence.
  *
  * This orchestrator centralizes the common bootstrap pattern shared by all
- * 7 games, eliminating ~1200 lines of duplicated boilerplate and closing
- * the deterministic-mode variance gap (all gates are centralized here).
+ * games (both sim-worker and renderer-only topologies), eliminating ~1200
+ * lines of duplicated boilerplate and closing the deterministic-mode variance
+ * gap (all gates are centralized here).
  *
- * Games that need partial composition can use the individual hooks from
- * `./hooks.ts` instead.
+ * `startGame()` wraps this and adds sim worker spawn, SAB capture, event
+ * routing, engine library auto-wiring, and save store initialization. Games
+ * that need full control can call `bootstrapGame()` directly. Games that need
+ * partial composition can use the individual hooks from `./hooks.ts` instead.
  */
 export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   const canvasLayer = opts.canvasLayer ?? 0;
@@ -159,12 +167,12 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     renderer.start();
   }
 
-  // 5b. Feature log (renderer process) — collect + emit the `dd-render|...`
-  //     startup line. Synchronous; reads WebGPU adapter/features/limits,
-  //     navigator, SAB/COOP-COEP, and active plugins (if getActivePlugins
-  //     provided). The main-process `dd-main|...` line is emitted separately
-  //     from app.ts; both are fetched together via getCombinedFeatureLog()
-  //     for the DevTools copy button and MCP get_features tool.
+  // 6. Feature log (renderer process) — collect + emit the `dd-render|...`
+  //    startup line. Synchronous; reads WebGPU adapter/features/limits,
+  //    navigator, SAB/COOP-COEP, and active plugins (if getActivePlugins
+  //    provided). The main-process `dd-main|...` line is emitted separately
+  //    from app.ts; both are fetched together via getCombinedFeatureLog()
+  //    for the DevTools copy button and MCP get_features tool.
   const isDev = !!(downdraft?.isDev) || import.meta.env.DEV === true;
   const renderFeatureLog = collectRendererFeatureLog({
     renderer,
@@ -174,7 +182,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   });
   console.info(encodeFeatureLogLine(renderFeatureLog));
 
-  // 6. FPS polling (if onFpsUpdate provided)
+  // 7. FPS polling (if onFpsUpdate provided)
   if (opts.onFpsUpdate) {
     const fpsInterval = opts.fpsPollIntervalMs ?? 500;
     setInterval(() => {
@@ -184,7 +192,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     }, fpsInterval);
   }
 
-  // 7. Display info wiring (if onDisplayInfo provided)
+  // 8. Display info wiring (if onDisplayInfo provided)
   if (opts.onDisplayInfo && downdraft?.isAvailable) {
     downdraft.getDisplayInfo().then((info) => {
       if (info.refreshRate > 0) {
@@ -198,13 +206,16 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     });
   }
 
-  // 8. Autosave load + interval (skip in deterministic mode)
+  // 9. Autosave load + interval (skip in deterministic mode).
+  //    The load has a 5s timeout so a locked IndexedDB doesn't block the
+  //    autosave interval setup. The interval guards against overlapping
+  //    saves — if a save takes longer than the interval (e.g. the worker is
+  //    busy or OPFS is slow), the tick is skipped instead of piling up
+  //    concurrent saves that can corrupt OPFS data or hang on file locks.
   if (opts.autosave && !deterministic) {
     const autosaveOpts = opts.autosave;
     const intervalMs = autosaveOpts.intervalMs ?? 3000;
 
-    // Load with 5s timeout so a locked IndexedDB doesn't block the autosave
-    // interval setup.
     try {
       const saved = await Promise.race([
         autosaveOpts.load(),
@@ -217,11 +228,6 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       console.warn("[bootstrapGame] Autosave load failed:", e);
     }
 
-    // Autosave interval.
-    // Guard against overlapping saves: if a save takes longer than the
-    // interval (e.g. the worker is busy generating a level, or OPFS is
-    // slow), skip the tick instead of piling up concurrent saves.
-    // Concurrent saves can corrupt OPFS data or hang on file locks.
     let saveInProgress = false;
     setInterval(async () => {
       if (saveInProgress) return;
@@ -236,18 +242,18 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     }, intervalMs);
   }
 
-  // 9. MCP setup (if provided)
+  // 10. MCP setup (if provided)
   if (opts.mcp) {
     await opts.mcp();
   }
 
-  // 10. Hot-reload dispose (if provided)
+  // 11. Hot-reload dispose (if provided)
   if (opts.onHotReloadDispose) {
     const { dispose } = await import("./hooks");
     dispose(opts.onHotReloadDispose);
   }
 
-  // 11. Deterministic callbacks (if onDeterministic provided)
+  // 12. Deterministic callbacks (if onDeterministic provided)
   if (deterministic && opts.onDeterministic) {
     opts.onDeterministic(renderer);
   }

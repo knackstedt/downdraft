@@ -81,7 +81,8 @@ export interface DowndraftMobileAppConfig<Sim extends GameSimWorker = GameSimWor
   appId: string;
   /** The shared GameModule (same one used by the desktop Electron build). */
   module: GameModule<Sim>;
-  /** Mobile-specific simConfig overrides merged into module.simConfig. */
+  /** Mobile-specific simConfig overrides merged into module.simConfig.
+   *  Ignored for renderer-only games (no simConfig). */
   simConfigOverrides?: Record<string, unknown>;
   /** Touch input configuration. If omitted, no touch adapter is attached. */
   touchInput?: TouchInputConfig;
@@ -121,8 +122,9 @@ export async function createDowndraftMobileApp<Sim extends GameSimWorker>(
     return;
   }
 
-  // 3. Merge mobile simConfig overrides into the module.
-  const module: GameModule<Sim> = config.simConfigOverrides
+  // 3. Merge mobile simConfig overrides into the module (sim-worker games only).
+  //    Renderer-only games don't have simConfig, so overrides are ignored.
+  const module: GameModule<Sim> = config.simConfigOverrides && config.module.simConfig
     ? {
         ...config.module,
         simConfig: {
