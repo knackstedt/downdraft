@@ -187,6 +187,10 @@ function createAutomationTools(ctx: {
         const host = renderer.getWorkerHost();
         if (!host) return errorResult("Worker host not initialized");
         const stats = await host.getStats();
+        // Sync board state from the sim SAB before reading. The render loop is
+        // paused in deterministic/test mode, so the tile pass state may not
+        // have been updated by drawFrame yet.
+        renderer.syncBoardState();
         const tilePass = renderer.getTilePass();
         const cols = tilePass?.state.boardCols ?? 0;
         const rows = tilePass?.state.boardRows ?? 0;

@@ -402,14 +402,74 @@ function createMcpClient(port: number): McpClient {
 }
 
 // ---------------------------------------------------------------------------
-// Process management — kill the entire process group
+// Process management — kill the entire process tree
 // ---------------------------------------------------------------------------
 
 /**
- * Kill a process and its entire process group.
- * On Linux/macOS, uses `process.kill(-pid, signal)` to kill the group.
- * Falls back to killing just the process on platforms that don't support
- * negative PIDs (Windows would need taskkill, but the engine targets Linux).
+ * Collect all descendant PIDs of `rootPid` by walking /proc/<pid>/stat on
+ * Linux. Returns the tree in kill-order (children before parents is not
+ * required since we signal them all at once). Robust against Electron's
+ * multi-process tree (npx → electron-vite → electron → zygote/gpu/renderer/
+ * network/audio helpers), which spreads across several process groups and
+ * sessions — so a simple `process.kill(-pgid)` misses helpers that called
+ * setsid, and PID/PGID reuse across back-to-back e2e runs can even send the
+ * signal to the wrong group. Walking /proc by parent-PID is deterministic.
+ */
+function collectDescendants(rootPid: number): number[] {
+  const childrenOf = new Map<number, number[]>();
+  try {
+    const { readdirSync, readFileSync } = require("node:fs");
+    for (const entry of readdirSync("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      const pid = Number(entry);
+      if (pid === rootPid) continue;
+      try {
+        // /proc/<pid>/stat: fields are space-separated; field 4 (0-indexed 3)
+        // is ppid. comm (field 2) may contain spaces wrapped in parens, so
+        // parse from the last ")" to be safe.
+        const stat = readFileSync(`/proc/${entry}/stat`, "utf8");
+        const rparen = stat.lastIndexOf(")");
+        if (rparen < 0) continue;
+        const rest = stat.slice(rparen + 2).split(" ");
+        const ppid = Number(rest[1]); // state=rest[0], ppid=rest[1]
+        if (ppid === rootPid || childrenOf.has(ppid)) {
+          const list = childrenOf.get(ppid) ?? [];
+          list.push(pid);
+          childrenOf.set(ppid, list);
+        }
+      } catch {
+        // Process exited between readdir and read — ignore.
+      }
+    }
+  } catch {
+    // /proc unavailable (non-Linux) — fall back to just the root pid below.
+    return [];
+  }
+  // BFS from root to collect all descendants (handles arbitrary depth).
+  const result: number[] = [];
+  const queue = [rootPid];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const kids = childrenOf.get(cur);
+    if (kids) {
+      for (const k of kids) {
+        result.push(k);
+        queue.push(k);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Kill a process and its entire process group + descendant tree.
+ * The child was spawned with `detached: true`, so it is a process-group
+ * leader (PGID == child PID). We signal the whole group with `kill(-pgid)`
+ * — the group persists even after the leader exits, so Electron helper
+ * processes that get re-parented to init (PID 1) still receive the signal.
+ * A /proc ppid tree-walk is also done as a backup for any helpers that
+ * called setsid (creating their own session/group). This reliably releases
+ * the MCP port before the next sequential e2e run starts.
  */
 async function killProcessGroup(proc: ReturnType<typeof Bun.spawn>): Promise<void> {
   const pid = proc.pid;
@@ -417,27 +477,26 @@ async function killProcessGroup(proc: ReturnType<typeof Bun.spawn>): Promise<voi
     try { proc.kill(); } catch {}
     return;
   }
-  // Try to kill the process group (negative PID)
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    // Process group kill failed — either not supported or process already dead.
-    // Fall back to killing just the process.
-    try { proc.kill(); } catch {}
-  }
-  // Wait up to 5s for the process to exit, then SIGKILL
+  const signalAll = (sig: NodeJS.Signals) => {
+    // 1. Process-group kill (catches helpers that stayed in the group even
+    //    after being re-parented to init).
+    try { process.kill(-pid, sig); } catch { /* group already gone */ }
+    // 2. /proc tree-walk backup (catches helpers that called setsid).
+    const pids = [pid, ...collectDescendants(pid)];
+    for (const p of pids) {
+      try { process.kill(p, sig); } catch { /* already dead */ }
+    }
+  };
+
+  signalAll("SIGTERM");
+  // Wait up to 5s for the root process to exit, then force-kill the tree.
   try {
     await Promise.race([
       proc.exited,
       new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
     ]);
   } catch {
-    // Process didn't exit in 5s — force kill
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch {
-      try { proc.kill("SIGKILL"); } catch {}
-    }
+    signalAll("SIGKILL");
     try { await proc.exited; } catch {}
   }
 }
@@ -542,11 +601,20 @@ export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess>
     cwd = process.cwd();
   }
 
+  // Spawn in a new session (detached) so the child becomes a process-group
+  // leader (PGID == child PID). This lets `killProcessGroup` use
+  // `process.kill(-pid)` to reliably tear down the entire tree (npx →
+  // electron-vite → Electron + its zygote/gpu/renderer helpers). The process
+  // group persists even after the leader exits, so helper processes that
+  // get re-parented to init (PID 1) — and would thus be missed by a /proc
+  // ppid tree-walk — still receive the group signal. A /proc tree-walk is
+  // also done as a backup for any helpers that call setsid.
   const proc = Bun.spawn([cmd, ...cmdArgs], {
     env,
     stdout: "pipe",
     stderr: "pipe",
     cwd,
+    detached: true,
   });
 
   // Capture console output lines to detect JS errors.

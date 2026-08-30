@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "dependencies": {
     "@downdraft/core": "workspace:*",
+    "@downdraft/shader-graph": "workspace:*",
     "@downdraft/library-marching-cubes": "workspace:*",
     "@downdraft/library-weather": "workspace:*"
   }
