@@ -170,7 +170,7 @@ Manages remote asset packs (pull, push, list, init, add, add-store).
 
 ## `draft test [options]`
 
-Runs e2e tests via MCP automation. Boots the real Electron app with `DOWNDRAFT_DETERMINISTIC=1`, waits for the MCP HTTP endpoint, and runs the e2e spec via `bun test`.
+Runs e2e tests via `bun:test`. Sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, paused render loop, no autosave) and `DOWNDRAFT_GPU=swiftshader` by default, then spawns `bun test <spec>`. The default smoke specs (`tests/e2e/<game>-smoke.spec.ts`) use the in-game MCP RPC harness to drive the game, but `--spec` can point at any `bun:test` file — the MCP harness is not required.
 
 | Flag | Description |
 |---|---|
