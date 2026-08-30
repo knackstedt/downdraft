@@ -1,7 +1,11 @@
 ---
-title: Mobile (Android & iOS)
+title: Mobile (Android & iOS) — Experimental
 description: Build Android and iOS targets via Capacitor — reusing the existing WebGPU renderer, sim workers, and SAB architecture
 ---
+
+:::caution[Experimental]
+Mobile (Android/iOS) builds are under active development. The build pipeline, native shell, and WebGPU-on-WebView path have known limitations — in particular, the Android emulator does not expose a WebGPU-compatible backend (see [WebGPU on the Android emulator](#webgpu-on-the-android-emulator)). Desktop builds are the stable, recommended target.
+:::
 
 DownDraft Engine supports Android and iOS build targets by wrapping the existing web-portable renderer/sim/worker stack in **Capacitor** (system WebView). The renderer, sim workers, SharedArrayBuffer layout, and libraries are **unchanged** from desktop — they run in the system WebView with the exact same WebGPU + Worker + SharedArrayBuffer code path.
 

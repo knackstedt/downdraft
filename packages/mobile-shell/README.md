@@ -1,4 +1,6 @@
-# @downdraft/mobile-shell
+# @downdraft/mobile-shell — Experimental
+
+> **⚠️ Experimental:** Mobile (Android/iOS) builds are under active development. The native shell, build pipeline, and WebGPU-on-WebView path have known limitations. Desktop builds are the stable, recommended target.
 
 Canonical pre-wired Capacitor native shell for Android + iOS mobile builds.
 
