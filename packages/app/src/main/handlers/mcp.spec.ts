@@ -35,7 +35,18 @@ const loggerMock = {
 };
 
 // Register mocks before importing the module under test
-mock.module("electron", () => ({ ipcMain: ipcMainMock }));
+// Include a contentTracing stub so this mock is compatible with tracing.spec.ts
+// (both specs mock "electron"; bun:test applies mocks process-globally).
+mock.module("electron", () => ({
+  ipcMain: ipcMainMock,
+  contentTracing: {
+    startRecording: async () => {},
+    stopRecording: async () => "",
+    getCategories: async () => [],
+    getTraceBufferUsage: async () => ({ value: 0, percentage: 0 }),
+    enableHeapProfiling: async () => {},
+  },
+}));
 mock.module("@downdraft/mcp/http-transport", () => ({
   McpHttpTransport: McpHttpTransportMock,
 }));
@@ -85,8 +96,9 @@ describe("MCP proxy handler — concurrent request isolation", () => {
     const handler = capturedProxyHandler!;
 
     // Start two concurrent requests (don't await yet)
-    const req1 = handler({ method: "tools/list" });
-    const req2 = handler({ method: "tools/list" });
+    // Use resources/list (forwarded directly, not intercepted like tools/list)
+    const req1 = handler({ method: "resources/list" });
+    const req2 = handler({ method: "resources/list" });
 
     // Both requests should have sent mcp-request to the renderer with unique IDs
     expect(ctx.sentMessages.length).toBe(2);
@@ -110,8 +122,8 @@ describe("MCP proxy handler — concurrent request isolation", () => {
     // Start two concurrent requests with a very short timeout.
     // We'll manually simulate the timeout behavior by checking that
     // removeAllListeners is only called for the specific channel.
-    const _req1 = handler({ method: "tools/list" });
-    const req2 = handler({ method: "tools/list" });
+    const _req1 = handler({ method: "resources/list" });
+    const req2 = handler({ method: "resources/list" });
 
     expect(ctx.sentMessages.length).toBe(2);
     const id1 = ctx.sentMessages[0].data.id;
@@ -149,7 +161,8 @@ describe("MCP proxy handler — concurrent request isolation", () => {
     expect(capturedProxyHandler).not.toBeNull();
     const handler = capturedProxyHandler!;
 
-    const req = handler({ method: "tools/list" });
+    // Use resources/list (forwarded directly, not intercepted like tools/list)
+    const req = handler({ method: "resources/list" });
     const id = ctx.sentMessages[0].data.id;
 
     ipcEmitter.emit(`mcp-response-${id}`, {}, { error: { code: -1, message: "test error" } });
@@ -158,19 +171,116 @@ describe("MCP proxy handler — concurrent request isolation", () => {
     expect(res).toEqual({ error: { code: -1, message: "test error" } });
   });
 
-  it("should reject when no renderer window is available", async () => {
+  it("should reject when no renderer window is available (non-tools/list method)", async () => {
     expect(capturedProxyHandler).not.toBeNull();
     const handler = capturedProxyHandler!;
 
     ctx.window = null;
-    await expect(handler({ method: "tools/list" })).rejects.toThrow("No renderer window available");
+    await expect(handler({ method: "resources/list" })).rejects.toThrow("No renderer window available");
   });
 
-  it("should reject when renderer window is destroyed", async () => {
+  it("should reject when renderer window is destroyed (non-tools/list method)", async () => {
     expect(capturedProxyHandler).not.toBeNull();
     const handler = capturedProxyHandler!;
 
     ctx.window.isDestroyed = () => true;
-    await expect(handler({ method: "tools/list" })).rejects.toThrow("No renderer window available");
+    await expect(handler({ method: "resources/list" })).rejects.toThrow("No renderer window available");
+  });
+});
+
+describe("MCP proxy handler — main-process tools", () => {
+  let ctx: any;
+
+  beforeEach(async () => {
+    ipcEmitter.removeAllListeners();
+    capturedProxyHandler = null;
+    ctx = makeMockCtx();
+  });
+
+  it("should merge main tool defs into tools/list", async () => {
+    const mainTools = [
+      {
+        def: { name: "trace_start", description: "Start trace", inputSchema: { type: "object" as const, properties: {} } },
+        handler: async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+      },
+    ];
+    await startMcpProxy(ctx, mcpConfig, mainTools);
+    const handler = capturedProxyHandler!;
+
+    const req = handler({ method: "tools/list" });
+    const id = ctx.sentMessages[0].data.id;
+    ipcEmitter.emit(`mcp-response-${id}`, {}, { result: { tools: [{ name: "game_tool", description: "A game tool", inputSchema: {} }] } });
+
+    const res = await req as { tools: any[] };
+    const names = res.tools.map((t) => t.name);
+    expect(names).toContain("trace_start");
+    expect(names).toContain("game_tool");
+    // Main tools should come first
+    expect(res.tools[0].name).toBe("trace_start");
+  });
+
+  it("should dispatch tools/call locally for main tools (no renderer round-trip)", async () => {
+    let handlerCalled = false;
+    const mainTools = [
+      {
+        def: { name: "trace_status", description: "Trace status", inputSchema: { type: "object" as const, properties: {} } },
+        handler: async () => {
+          handlerCalled = true;
+          return { content: [{ type: "text" as const, text: '{"recording":false}' }] };
+        },
+      },
+    ];
+    await startMcpProxy(ctx, mcpConfig, mainTools);
+    const handler = capturedProxyHandler!;
+
+    const res = await handler({ method: "tools/call", params: { name: "trace_status", arguments: {} } });
+    expect(handlerCalled).toBe(true);
+    // Should NOT have sent anything to the renderer
+    expect(ctx.sentMessages.length).toBe(0);
+    expect((res as any).content[0].text).toBe('{"recording":false}');
+  });
+
+  it("should forward tools/call to renderer for non-main tools", async () => {
+    await startMcpProxy(ctx, mcpConfig, []);
+    const handler = capturedProxyHandler!;
+
+    const req = handler({ method: "tools/call", params: { name: "game_tool", arguments: {} } });
+    const id = ctx.sentMessages[0].data.id;
+    ipcEmitter.emit(`mcp-response-${id}`, {}, { result: { content: [{ type: "text", text: "game result" }] } });
+
+    const res = await req;
+    expect((res as any).content[0].text).toBe("game result");
+  });
+
+  it("should return main tools even when renderer fails on tools/list", async () => {
+    const mainTools = [
+      {
+        def: { name: "trace_start", description: "Start trace", inputSchema: { type: "object" as const, properties: {} } },
+        handler: async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+      },
+    ];
+    await startMcpProxy(ctx, mcpConfig, mainTools);
+    const handler = capturedProxyHandler!;
+
+    // Renderer window is gone — tools/list should still return main tools
+    ctx.window = null;
+    const res = await handler({ method: "tools/list" });
+    const names = (res as any).tools.map((t: any) => t.name);
+    expect(names).toEqual(["trace_start"]);
+  });
+
+  it("should handle main tool handler errors gracefully", async () => {
+    const mainTools = [
+      {
+        def: { name: "boom", description: "Always fails", inputSchema: { type: "object" as const, properties: {} } },
+        handler: async () => { throw new Error("kaboom"); },
+      },
+    ];
+    await startMcpProxy(ctx, mcpConfig, mainTools);
+    const handler = capturedProxyHandler!;
+
+    const res = await handler({ method: "tools/call", params: { name: "boom", arguments: {} } }) as any;
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("kaboom");
   });
 });

@@ -21,14 +21,14 @@ export type { FeatureLogData };
 // OSR (Offscreen Rendering) — re-exported from the plugin for convenience
 // ---------------------------------------------------------------------------
 
-export type {
-    AtlasLayout,
-    AtlasPanelRect,
-    OSRInputEvent,
-    OSRPanelConfig,
-    OSRRendererConfig,
-    OSRRendererEvent
-};
+    export type {
+        AtlasLayout,
+        AtlasPanelRect,
+        OSRInputEvent,
+        OSRPanelConfig,
+        OSRRendererConfig,
+        OSRRendererEvent
+    };
 
 /** Layout data sent via the `OSR_PANEL_LAYOUT` IPC event. */
 export type OSRPanelLayout = AtlasLayout;
@@ -235,6 +235,75 @@ export interface SharedTextureApi {
 }
 
 // ---------------------------------------------------------------------------
+// Tracing & memory-dump toolkit (main process)
+// ---------------------------------------------------------------------------
+
+export type TracePreset = "perf" | "memory" | "gpu" | "v8" | "custom";
+
+export interface TraceStartOptions {
+  preset?: TracePreset;
+  categories?: string[];
+  recordingMode?: "record-until-full" | "record-continuously" | "record-as-much-as-possible" | "trace-to-console";
+  bufferSizeKB?: number;
+  memoryDumpIntervalMs?: number;
+}
+
+export interface TraceStartResult {
+  started: boolean;
+  preset: TracePreset;
+  categories: string[];
+  recordingMode: string;
+}
+
+export interface TraceStopResult {
+  stopped: boolean;
+  path: string;
+  relativePath: string;
+  downloadUrl: string;
+  sizeBytes: number;
+  durationMs: number;
+  categories: string[];
+  preset: TracePreset;
+}
+
+export interface TraceStatusResult {
+  recording: boolean;
+  startedAt?: number;
+  preset?: TracePreset;
+  categories?: string[];
+  recordingMode?: string;
+  bufferUsage?: { value: number; percentage: number };
+}
+
+export interface HeapSnapshotResult {
+  path: string;
+  relativePath: string;
+  downloadUrl: string;
+  sizeBytes: number;
+  target: "main" | "renderer";
+  chunks?: number;
+}
+
+export interface ProcessSnapshotResult {
+  target: "main" | "renderer";
+  timestamp: number;
+  main?: {
+    rss: number;
+    heapTotal: number;
+    heapUsed: number;
+    external: number;
+    arrayBuffers: number;
+    cpuUser: number;
+    cpuSystem: number;
+    uptimeSec: number;
+  };
+  renderer?: {
+    metrics: Record<string, number>;
+    domCounters?: Record<string, number>;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // OSR Bridge API (sub-object of DowndraftBridgeAPI)
 // ---------------------------------------------------------------------------
 
@@ -288,6 +357,21 @@ export interface DowndraftBridgeAPI {
   /** Capture the full page (WebGPU canvas + DOM overlay) as a PNG buffer.
    *  Returns null if the window is gone or the capture is empty. */
   capturePage(): Promise<ArrayBuffer | null>;
+
+  // --- Tracing & memory-dump toolkit (main process) ---
+  /** Start a Chrome/Perfetto trace recording. */
+  startTrace(opts?: TraceStartOptions): Promise<TraceStartResult>;
+  /** Stop the current trace recording and write it to disk. */
+  stopTrace(): Promise<TraceStopResult>;
+  /** Get the current trace recording status. */
+  traceStatus(): Promise<TraceStatusResult>;
+  /** List available tracing category groups. */
+  traceCategories(): Promise<{ categories: string[] }>;
+  /** Capture a V8 heap snapshot (.heapsnapshot). */
+  captureHeapSnapshot(opts?: { target?: "main" | "renderer" }): Promise<HeapSnapshotResult>;
+  /** Capture a quick process memory/CPU snapshot. */
+  processSnapshot(opts?: { target?: "main" | "renderer" }): Promise<ProcessSnapshotResult>;
+
   importCacheGet(modelPath: string): Promise<ImportCacheEntry | null>;
   importCacheSet(modelPath: string, entry: ImportCacheEntry): Promise<void>;
   importCacheInvalidate(modelPath: string): Promise<void>;

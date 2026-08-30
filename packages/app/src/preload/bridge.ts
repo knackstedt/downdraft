@@ -91,6 +91,16 @@ export function createDefaultBridge(): DowndraftBridgeAPI {
 
     capturePage: (): Promise<ArrayBuffer | null> => ipcRenderer.invoke(IPC.CAPTURE_PAGE),
 
+    // --- Tracing & memory-dump toolkit (main process) ---
+    startTrace: (opts?: any): Promise<any> => ipcRenderer.invoke(IPC.TRACE_START, opts ?? {}),
+    stopTrace: (): Promise<any> => ipcRenderer.invoke(IPC.TRACE_STOP),
+    traceStatus: (): Promise<any> => ipcRenderer.invoke(IPC.TRACE_STATUS),
+    traceCategories: (): Promise<{ categories: string[] }> => ipcRenderer.invoke(IPC.TRACE_CATEGORIES),
+    captureHeapSnapshot: (opts?: { target?: "main" | "renderer" }): Promise<any> =>
+      ipcRenderer.invoke(IPC.HEAP_SNAPSHOT, opts ?? {}),
+    processSnapshot: (opts?: { target?: "main" | "renderer" }): Promise<any> =>
+      ipcRenderer.invoke(IPC.PROCESS_SNAPSHOT, opts ?? {}),
+
     // Import cache — caches resolved model import settings (SQLite-backed in main process)
     importCacheGet: (modelPath: string): Promise<ImportCacheEntry | null> =>
       ipcRenderer.invoke(IPC.IMPORT_CACHE_GET, modelPath),

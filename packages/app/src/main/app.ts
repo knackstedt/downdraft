@@ -4,6 +4,7 @@
 
 import { encodeFeatureLogLine, ENGINE_VERSION } from "@downdraft/core";
 import { createLogger } from "@downdraft/core/util/logger";
+import type { ToolRegistration } from "@downdraft/mcp";
 import { app, BrowserWindow, ipcMain, Menu, screen, session, shell } from "electron";
 import { join } from "path";
 import { IPC } from "../shared/messages";
@@ -15,6 +16,7 @@ import { closeImportCache, registerImportCacheHandlers } from "./handlers/import
 import { startMcpProxy } from "./handlers/mcp";
 import { registerOsrHandlers } from "./handlers/osr";
 import { registerSaveHandlers } from "./handlers/saves";
+import { createTracingTools, registerTracingHandlers } from "./handlers/tracing";
 import { cleanupStaleStorage, resolveUserDataDir } from "./storage";
 import { applySwitches, webGpuSwitches } from "./switches";
 import type { DowndraftAppConfig, DowndraftFeatures, MainContext } from "./types";
@@ -54,6 +56,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
     mcp: { port: parseInt(process.env.MCP_PORT ?? "9876", 10) },
     saves: { engineVersion: ENGINE_VERSION },
     osr: false,
+    tracing: true,
     ...config.features,
   };
   const devtools = resolveDevtoolsConfig(features.devtools);
@@ -201,6 +204,19 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
       registerImportCacheHandlers();
     }
 
+    // --- Tracing & memory-dump toolkit (main process) ---
+    // Exposes contentTracing, V8 heap snapshots, and process snapshots via
+    // MCP tools (handled locally in the proxy) + the preload IPC bridge.
+    // Passive unless triggered; safe under DOWNDRAFT_DETERMINISTIC.
+    let tracingTools: ToolRegistration[] = [];
+    let artifactDir: string | undefined;
+    if (features.tracing !== false) {
+      const mcpPort = features.mcp ? features.mcp.port : 9876;
+      tracingTools = createTracingTools(ctx, mcpPort);
+      registerTracingHandlers(ctx, mcpPort);
+      artifactDir = join(app.getPath("userData"), "debug-artifacts");
+    }
+
     // --- Deliberate escape hatch: raw Electron access ---
     if (config.extend) {
       config.extend(ctx);
@@ -216,7 +232,7 @@ export function createDowndraftApp(config: DowndraftAppConfig): void {
 
     // --- MCP proxy ---
     if (features.mcp) {
-      await startMcpProxy(ctx, features.mcp);
+      await startMcpProxy(ctx, features.mcp, tracingTools, artifactDir);
     }
   }
 

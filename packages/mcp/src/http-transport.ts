@@ -3,7 +3,10 @@
 // Supports direct mode (has MCPServer instance) or proxy mode (forwards via callback for IPC)
 // ============================================================================
 
+import { createReadStream } from "node:fs";
+import { stat as statFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { sep as pathSep, resolve as resolvePath } from "node:path";
 import type { MCPServer } from "./server";
 
 export type McpProxyHandler = (request: {
@@ -20,11 +23,15 @@ export class McpHttpTransport {
   private initialized = false;
   private sessionId: string | null = null;
   private sseResponse: ServerResponse | null = null;
+  /** Optional root directory for the GET /mcp/artifact/<path> download endpoint. */
+  private artifactDir: string | null = null;
 
   constructor(opts: {
     port?: number;
     mcpServer?: MCPServer;
     proxyHandler?: McpProxyHandler;
+    /** Root directory for artifact downloads (GET /mcp/artifact/<path>). */
+    artifactDir?: string;
   }) {
     this.port = opts.port ?? 9876;
     if (opts.mcpServer) {
@@ -38,6 +45,7 @@ export class McpHttpTransport {
     } else {
       throw new Error("McpHttpTransport requires either mcpServer or proxyHandler");
     }
+    this.artifactDir = opts.artifactDir ?? null;
   }
 
   start(): Promise<void> {
@@ -79,6 +87,81 @@ export class McpHttpTransport {
     res.end(JSON.stringify(data));
   }
 
+  /**
+   * Stream a file from the artifact directory. Supports HTTP Range requests
+   * for large trace files. Rejects paths that escape artifactDir.
+   */
+  private async handleArtifactDownload(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!this.artifactDir) {
+      this.sendJSON(res, 503, { error: "Artifact download not configured (no artifactDir)" });
+      return;
+    }
+    // Decode the relative path from the URL (after /mcp/artifact/).
+    const prefix = "/mcp/artifact/";
+    const rawRel = decodeURIComponent(req.url!.slice(prefix.length));
+    // Strip any query string.
+    const relPath = rawRel.split("?")[0];
+    // Resolve against artifactDir and verify the result stays inside it.
+    const resolved = resolvePath(this.artifactDir, relPath);
+    const root = resolvePath(this.artifactDir) + pathSep;
+    if (!resolved.startsWith(root)) {
+      this.sendJSON(res, 403, { error: "Path traversal rejected" });
+      return;
+    }
+
+    let fileSize: number;
+    try {
+      const s = await statFile(resolved);
+      if (!s.isFile()) {
+        this.sendJSON(res, 404, { error: "Not a file" });
+        return;
+      }
+      fileSize = s.size;
+    } catch {
+      this.sendJSON(res, 404, { error: "File not found" });
+      return;
+    }
+
+    // Content-Type by extension.
+    const lower = resolved.toLowerCase();
+    let contentType = "application/octet-stream";
+    if (lower.endsWith(".json")) contentType = "application/json";
+    else if (lower.endsWith(".heapsnapshot")) contentType = "application/octet-stream";
+
+    // Range support.
+    const rangeHeader = req.headers.range;
+    if (rangeHeader) {
+      const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader);
+      if (match) {
+        const start = parseInt(match[1], 10);
+        const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+        if (start >= fileSize || end >= fileSize || start > end) {
+          res.writeHead(416, {
+            "Content-Range": `bytes */${fileSize}`,
+            "Content-Type": contentType,
+          });
+          res.end();
+          return;
+        }
+        res.writeHead(206, {
+          "Content-Type": contentType,
+          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+          "Content-Length": end - start + 1,
+          "Accept-Ranges": "bytes",
+        });
+        createReadStream(resolved, { start, end }).pipe(res);
+        return;
+      }
+    }
+
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Content-Length": fileSize,
+      "Accept-Ranges": "bytes",
+    });
+    createReadStream(resolved).pipe(res);
+  }
+
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     this.setCORS(res);
 
@@ -96,6 +179,14 @@ export class McpHttpTransport {
         port: this.port,
         initialized: this.initialized,
       });
+      return;
+    }
+
+    // GET /mcp/artifact/<path> — stream a generated trace/heap-snapshot file.
+    // <path> is relative to the configured artifactDir. Path traversal is
+    // rejected: the resolved path must start with artifactDir + sep.
+    if (req.method === "GET" && req.url?.startsWith("/mcp/artifact/")) {
+      await this.handleArtifactDownload(req, res);
       return;
     }
 
