@@ -42,6 +42,7 @@
     }
   },
   "dependencies": {
+    "@downdraft/asset-bake": "workspace:*",
     "@downdraft/core": "workspace:*",
     "@downdraft/plugin-electron-osr": "workspace:*",
     "@downdraft/library-persistence": "workspace:*",

@@ -68,6 +68,7 @@ export async function dev(args: string[]): Promise<void> {
 
   const port = parsed.flags.port as number;
   const noHmr = parsed.flags["no-hmr"] as boolean;
+  const noBake = parsed.flags["no-bake"] as boolean;
   const verbose = parsed.flags.verbose as boolean;
   const devEntry = parsed.flags.entry as string;
 
@@ -85,6 +86,7 @@ export async function dev(args: string[]): Promise<void> {
   const env: Record<string, string> = { ...process.env };
   if (port) env.MCP_PORT = String(port);
   if (devEntry) env.DOWNDRAFT_DEV_ENTRY = devEntry;
+  if (noBake) env.DOWNDRAFT_BAKE = "0";
   // Critical: Electron must NOT run as Node.js.
   delete env.ELECTRON_RUN_AS_NODE;
 

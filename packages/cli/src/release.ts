@@ -68,6 +68,7 @@ interface ReleaseArgs {
   noIcons: boolean;
   noOverrides: boolean;
   noMinify: boolean;
+  noBake: boolean;
   sourcemap: boolean;
   verbose: boolean;
 }
@@ -117,6 +118,7 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
     noIcons: parsed.flags["no-icons"] as boolean,
     noOverrides: parsed.flags["no-overrides"] as boolean,
     noMinify: parsed.flags["no-minify"] as boolean,
+    noBake: parsed.flags["no-bake"] as boolean,
     sourcemap: parsed.flags.sourcemap as boolean,
     verbose: parsed.flags.verbose as boolean,
   };
@@ -246,6 +248,7 @@ async function runBuild(
   game: string,
   groups: TargetGroups,
   repoRoot: string,
+  opts: ReleaseArgs,
 ): Promise<boolean> {
   const gameDir = resolve(repoRoot, "games", game);
   if (!existsSync(gameDir)) {
@@ -253,15 +256,19 @@ async function runBuild(
     return false;
   }
 
+  // Forward bake disable to the Vite plugin via env.
+  const buildEnv: Record<string, string> = {};
+  if (opts.noBake) buildEnv.DOWNDRAFT_BAKE = "0";
+
   // Desktop: electron-vite build (produces dist/).
   if (groups.desktop.length > 0) {
-    const ok = buildDesktop(repoRoot, game);
+    const ok = buildDesktop(repoRoot, game, buildEnv);
     if (!ok) return false;
   }
 
   // Mobile: Vite build with mobile config (produces dist/mobile/).
   if (groups.mobile.length > 0) {
-    const ok = await buildMobileWeb(gameDir);
+    const ok = await buildMobileWeb(gameDir, buildEnv);
     if (!ok) return false;
   }
 
@@ -407,7 +414,7 @@ export async function release(args: string[]): Promise<void> {
     // Stage: build
     if (opts.stage === "build" || opts.stage === "release") {
       log.info("release", `[build] Building ${game}...`);
-      ok = await runBuild(game, groups, repoRoot);
+      ok = await runBuild(game, groups, repoRoot, opts);
       if (!ok) {
         log.error("release", `Build failed for ${game} — skipping remaining stages.`);
         fail = 1;

@@ -46,6 +46,7 @@ export async function build(args: string[]): Promise<void> {
   if (target && target !== "current") releaseArgs.push(`--target=${target}`);
   if (parsed.flags.verbose as boolean) releaseArgs.push("--verbose");
   if (parsed.flags["no-minify"] as boolean) releaseArgs.push("--no-minify");
+  if (parsed.flags["no-bake"] as boolean) releaseArgs.push("--no-bake");
   if (parsed.flags.sourcemap as boolean) releaseArgs.push("--sourcemap");
 
   await release(releaseArgs);
