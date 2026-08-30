@@ -13,10 +13,10 @@ cd games/<your-game>
 draft dev
 
 # Build + package for distribution (desktop + mobile)
-draft release --game=<your-game>
+draft release
 
 # Build only (Vite bundle, no packaging)
-draft release --game=<your-game> --stage=build
+draft release --stage=build
 ```
 
 ## Game-Bootstrapped Host Layer

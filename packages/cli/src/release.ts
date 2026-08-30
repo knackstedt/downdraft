@@ -6,6 +6,7 @@
 // `build-games` commands with a single pipeline:
 //
 //   draft release [--game=<name>] [--target=<csv>] [--format=<csv>]
+//                 (auto-detects the game from cwd or games/ when --game is omitted)
 //                 [--stage=<build|package|release>] [--games=<csv>]
 //                 [--mode=<dev|debug|prod>] [--out=<dir>] [--config=<path>]
 //                 [--port=<n>] [--skip-build] [--build-only]
@@ -35,12 +36,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
 import { buildDesktop } from "./build-helpers";
-import { getCommand } from "./usage";
-import { packageDesktop, resolveConfig, type DistArgs } from "./dist";
+import { packageDesktop, type DistArgs } from "./dist";
 import { packageLauncher } from "./export";
 import { buildMobileWeb, packageMobile, type MobileArgs } from "./mobile";
+import { getCommand } from "./usage";
 
 const log = createLogger();
+const CONFIG_FILE = "electron.vite.config.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,6 +120,44 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
     sourcemap: parsed.flags.sourcemap as boolean,
     verbose: parsed.flags.verbose as boolean,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Game resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the game(s) to release when neither --game nor --games is given.
+ *
+ * Resolution order:
+ *  1. Explicit flags (--game / --games) — handled by the caller before this.
+ *  2. cwd inference — walk up from `process.cwd()` looking for
+ *     `electron.vite.config.ts`. Lets games run `draft release` from their
+ *     own directory (the scaffolded `package.json` sets
+ *     `"release": "draft release"`).
+ *  3. Single-game fallback — if `games/` contains exactly one game, use it.
+ *
+ * Returns the detected game name, or `null` if none could be determined.
+ */
+function detectGame(repoRoot: string): string | null {
+  // 2. Cwd inference: walk up looking for electron.vite.config.ts.
+  let dir = process.cwd();
+  for (;;) {
+    const candidate = resolve(dir, CONFIG_FILE);
+    if (existsSync(candidate)) return basename(dir);
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached filesystem root
+    dir = parent;
+  }
+
+  // 3. Single-game fallback.
+  const games = listGames(repoRoot);
+  if (games.length === 1) {
+    log.info("release", `No game specified — defaulting to the only game found: ${games[0]}`);
+    return games[0];
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,9 +360,20 @@ export async function release(args: string[]): Promise<void> {
   const opts = parseReleaseArgs(args);
   const repoRoot = resolve(import.meta.dir, "../../..");
 
-  if (opts.games.length === 0) {
-    log.error("release", "No game specified. Use --game=<name> or --games=<csv>.");
-    process.exit(1);
+  // Auto-detect the game when neither --game nor --games is given.
+  let games = opts.games;
+  if (games.length === 0) {
+    const detected = detectGame(repoRoot);
+    if (detected) {
+      games = [detected];
+      opts.game = detected;
+    } else {
+      log.error("release", "No game specified and none could be auto-detected.");
+      log.error("release", "Run \"draft release\" from a game directory, or use \"--game <name>\" / \"--games <csv>\" from the engine root.");
+      log.error("release", "Available games:");
+      print(formatGamesList(repoRoot));
+      process.exit(1);
+    }
   }
 
   const groups = classifyTargets(opts.target);
@@ -334,7 +385,7 @@ export async function release(args: string[]): Promise<void> {
   ╚══════════════════════════════════════════╝
   `);
 
-  log.info("release", `  Game(s):     ${opts.games.join(", ")}`);
+  log.info("release", `  Game(s):     ${games.join(", ")}`);
   log.info("release", `  Target:      ${opts.target}`);
   log.info("release", `  Stage:       ${opts.stage}`);
   log.info("release", `  Mode:        ${opts.mode}`);
@@ -345,7 +396,7 @@ export async function release(args: string[]): Promise<void> {
 
   let fail = 0;
 
-  for (const game of opts.games) {
+  for (const game of games) {
     const gameDir = resolve(repoRoot, "games", game);
     const { productName, appId, version } = getGameInfo(gameDir, game);
     log.info("release", `Game: ${game} | Product: "${productName}" | AppId: ${appId} | v${version}`);

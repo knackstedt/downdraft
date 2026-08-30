@@ -44,7 +44,7 @@ export const COMMANDS: CommandEntry[] = [
     summary: "Unified build + package + sign pipeline (desktop + mobile)",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games." },
+        { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games. If omitted, infers from the current directory (walks up for electron.vite.config.ts), or defaults to the only game in games/." },
         { name: "games", type: "string", description: "Comma-separated game names (e.g. sandjongg,to-the-ocean)" },
         { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, android, ios, or all" },
         { name: "format", type: "string", description: "Per-platform format (e.g. win:portable,linux:AppImage). Use 'launcher' for bun-launcher folders." },
