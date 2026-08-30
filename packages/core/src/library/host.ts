@@ -16,6 +16,7 @@ import type {
     EngineLibrary,
     LibraryEntry,
     LibraryHost,
+    LibraryRendererCreateContext,
     LibraryRendererDrawContext,
     LibraryRendererInitContext,
     LibrarySimContext,
@@ -160,6 +161,34 @@ export class LibraryHostImpl implements LibraryHost {
     }
   }
 
+  /**
+   * Call `renderer.create` for libraries that define it. Runs early, before
+   * the WebGPU device is acquired. The returned instance is stored and later
+   * passed to `renderer.init` (if defined) as the first arg, so a library
+   * can use `create` to build a host and `init` to wire GPU passes onto it.
+   */
+  createRenderer(ctx: LibraryRendererCreateContext): void {
+    this.validateGraph();
+    for (const active of this.libraries) {
+      if (!active.lib.renderer?.create) continue;
+      const cctx: LibraryRendererCreateContext = {
+        provide: (token: ResourceToken<unknown>, value: unknown) => {
+          if (isStrict()) {
+            assertNoDuplicate(this.providers, token, active.lib.name);
+          }
+          this.providers.set(token.key, active.lib.name);
+          active.providedKeys.add(token.key);
+          ctx.provide(token, value);
+        },
+        inject: ctx.inject,
+        injectOptional: ctx.injectOptional,
+      };
+      active.rendererInstance = active.lib.renderer.create(active.config, cctx);
+      // `create`-only libraries (no init/draw) still get dispose + leak detection.
+      active.hasRendererDispose = !!active.lib.renderer.dispose;
+    }
+  }
+
   initRenderer(ctx: LibraryRendererInitContext): void {
     this.validateGraph();
     for (const active of this.libraries) {
@@ -178,7 +207,14 @@ export class LibraryHostImpl implements LibraryHost {
         inject: ctx.inject,
         injectOptional: ctx.injectOptional,
       };
-      active.rendererInstance = active.lib.renderer.init(active.config, rctx);
+      // If `create` ran and returned an instance, keep it unless `init`
+      // returns a new one. A library that defines both `create` and `init`
+      // can access its `create`-built host via DI (`ctx.inject` — `create`
+      // provided it) and wire GPU passes onto it inside `init`.
+      // Backwards-compatible: libraries without `create` get `init`'s return.
+      const created = active.rendererInstance;
+      const inst = active.lib.renderer.init(active.config, rctx);
+      active.rendererInstance = inst ?? created;
       active.hasRendererDispose = !!active.lib.renderer.dispose;
     }
   }

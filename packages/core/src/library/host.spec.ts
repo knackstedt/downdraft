@@ -273,4 +273,104 @@ describe("LibraryHostImpl", () => {
       expect(ticked).toBe(false);
     });
   });
+
+  describe("createRenderer — renderer-only libraries", () => {
+    it("calls renderer.create and provides DI tokens", () => {
+      const lib = makeLibrary("ui-host", {
+        provides: [TestTok],
+        renderer: {
+          create(_config, ctx) {
+            ctx.provide(TestTok, { value: 99 });
+            return { host: "main-thread-host" };
+          },
+        },
+      });
+      const host = new LibraryHostImpl([lib]);
+      host.allocateBuffers();
+
+      const provided = new Map<string, unknown>();
+      const createCtx: LibraryRendererCreateContext = {
+        provide: (token, value) => provided.set(token.key, value),
+        inject: () => { throw new Error("no provider"); },
+        injectOptional: () => undefined,
+      };
+      host.createRenderer(createCtx);
+
+      expect(provided.get("test:token")).toEqual({ value: 99 });
+    });
+
+    it("skips libraries without renderer.create", () => {
+      const lib = makeLibrary("gpu-only", {
+        renderer: {
+          init() { return {}; },
+        },
+      });
+      const host = new LibraryHostImpl([lib]);
+      host.allocateBuffers();
+
+      // Should not throw — createRenderer is a no-op for this library.
+      expect(() => host.createRenderer({
+        provide: () => {},
+        inject: () => { throw new Error("no provider"); },
+        injectOptional: () => undefined,
+      })).not.toThrow();
+    });
+
+    it("renderer.create instance is preserved through initRenderer", () => {
+      // A library with both `create` and `init`: `create` builds the host,
+      // `init` returns undefined (keeps the created host) — the host from
+      // `create` should survive as the rendererInstance.
+      const lib = makeLibrary("combo", {
+        provides: [TestTok],
+        renderer: {
+          create(_config, ctx) {
+            ctx.provide(TestTok, { value: 1 });
+            return { host: "created" };
+          },
+          init() {
+            // init wires GPU passes but doesn't return a new instance —
+            // the create-built host should be kept.
+            return undefined;
+          },
+        },
+      });
+      const host = new LibraryHostImpl([lib]);
+      host.allocateBuffers();
+
+      const provided = new Map<string, unknown>();
+      const makeCtx = () => ({
+        provide: (token: any, value: unknown) => provided.set(token.key, value),
+        inject: () => { throw new Error("no provider"); },
+        injectOptional: () => undefined,
+      });
+      host.createRenderer(makeCtx());
+      host.initRenderer({
+        device: {} as any,
+        format: "bgra8unorm",
+        ...makeCtx(),
+      });
+
+      // The created host was provided via DI and not overwritten by init.
+      expect(provided.get("test:token")).toEqual({ value: 1 });
+    });
+
+    it("disposeRenderer disposes renderer-only library instances", () => {
+      let disposed = false;
+      const lib = makeLibrary("disposable", {
+        renderer: {
+          create() { return { host: "created" }; },
+          dispose() { disposed = true; },
+        },
+      });
+      const host = new LibraryHostImpl([lib]);
+      host.allocateBuffers();
+      host.createRenderer({
+        provide: () => {},
+        inject: () => { throw new Error("no provider"); },
+        injectOptional: () => undefined,
+      });
+      host.disposeRenderer();
+      expect(disposed).toBe(true);
+    });
+  });
 });

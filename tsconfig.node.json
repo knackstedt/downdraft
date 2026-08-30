@@ -71,6 +71,12 @@
       "@downdraft/library-undertow/*": [
         "./packages/libraries/undertow/src/*"
       ],
+      "@downdraft/library-pixi-ui": [
+        "./packages/libraries/pixi-ui/src/index.ts"
+      ],
+      "@downdraft/library-pixi-ui/*": [
+        "./packages/libraries/pixi-ui/src/*"
+      ],
       "@downdraft/library-physics-rapier": [
         "./packages/libraries/physics-rapier/src/index.ts"
       ],

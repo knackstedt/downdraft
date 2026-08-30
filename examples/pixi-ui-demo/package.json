@@ -1,0 +1,10 @@
+{
+  "name": "pixi-ui-demo-example",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@downdraft/app": "workspace:*",
+    "@downdraft/core": "workspace:*",
+    "@downdraft/library-pixi-ui": "workspace:*"
+  }
+}
