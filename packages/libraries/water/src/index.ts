@@ -29,7 +29,7 @@ export { WATER_FLOW_OFFSET_SAB, WATER_GRID_SAB, WATER_HDR_SAB, WATER_HEIGHT_OFFS
 export { WaterLib, WaterReaderTok, WaterWriterTok } from "./library";
 export type { WaterLibConfig } from "./library";
 
-export interface WaterPluginResources {
+export interface WaterModuleResources {
   buffer: WaterBuffer;
   physics: WaterPhysics;
   buoyancy: BuoyancySystem;

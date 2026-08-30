@@ -24,10 +24,10 @@ import type { ISimulation } from "@downdraft/core";
 import type { JobScheduler } from "@downdraft/core/ecs/job-system";
 import { WeatherSystem } from "@downdraft/library-weather";
 import { BoatBufferWriter } from "@to-the-ocean/library-boats/boat-sab";
-import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
-import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/library-collision";
-import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/library-wildlife";
-import { InventoryGrid, createGrid, deserializeGrid, serializeGrid } from "@to-the-ocean/plugin-inventory";
+import type { BuoyancyConfig, BuoyancyDeps } from "@to-the-ocean/module-buoyancy";
+import type { CollisionConfig, CollisionDeps } from "@to-the-ocean/module-collision";
+import type { WildlifeConfig, WildlifeDeps } from "@to-the-ocean/module-wildlife";
+import { InventoryGrid, createGrid, deserializeGrid, serializeGrid } from "@to-the-ocean/module-inventory";
 import { validateBoatDesign } from "../shared/boat-design/validators";
 import {
     BOAT_CELL_WORLD_SIZE,

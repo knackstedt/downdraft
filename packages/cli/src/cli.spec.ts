@@ -270,7 +270,7 @@ describe("CLI new — full template", () => {
     expect(pkg.dependencies["@downdraft/library-physics-rapier"]).toBe("workspace:*");
     expect(pkg.dependencies["@downdraft/library-marching-cubes"]).toBe("workspace:*");
     expect(pkg.dependencies["@downdraft/library-models"]).toBe("workspace:*");
-    expect(pkg.dependencies["@downdraft/plugin-devtools"]).toBe("workspace:*");
+    expect(pkg.dependencies["@downdraft/module-devtools"]).toBe("workspace:*");
   });
 
   it("should include all plugins in config", async () => {
@@ -311,7 +311,7 @@ describe("CLI new — AI companion", () => {
     const prompt = readFileSync(join(TEST_DIR, "engine-prompt.md"), "utf-8");
     expect(prompt).toContain("DownDraft Engine");
     expect(prompt).toContain("ECS");
-    expect(prompt).toContain("Plugin System");
+    expect(prompt).toContain("Module System");
   });
 });
 

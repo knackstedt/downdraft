@@ -7,7 +7,7 @@ DownDraft is a TypeScript-first game engine built on Electron + Bun + WebGPU, wi
 **Four execution contexts:**
 1. **BrowserWindow** — React UI + input capture (transparent overlay)
 2. **Bun main process** — Engine orchestrator, render loop, MCP server, asset manager
-3. **Sim worker** — ECS world, game systems, physics, AI, plugins
+3. **Sim worker** — ECS world, game systems, physics, AI, modules
 4. **DB worker** — Persistence layer with schema versioning
 
 ## ECS (Entity Component System)
@@ -17,7 +17,7 @@ DownDraft is a TypeScript-first game engine built on Electron + Bun + WebGPU, wi
 - **Archetype**: Set of component types, SoA column storage for cache-friendly iteration
 - **Query**: Declares read/write access to component types, returns matching archetypes
 - **System**: Function `(query, resources, commands) => void`
-- **Schedule**: Single-threaded by default, dependency-ordered. Multi-threading via plugin/SAB.
+- **Schedule**: Single-threaded by default, dependency-ordered. Multi-threading via module/SAB.
 - **Events**: Double-buffered channels (written this tick, readable next tick)
 - **Commands**: Deferred operations (spawn/despawn, add/remove component) applied at stage boundaries
 
@@ -66,21 +66,21 @@ const cube = MeshBuilder.cube(1);
 const sphere = MeshBuilder.sphere(0.5, 16, 16);
 ```
 
-## Plugin System
+## Module System
 
-Plugins are loadable packages that register systems, components, resources, and assets.
+Modules are loadable packages that register systems, components, resources, and assets.
 
 ```typescript
-import { Plugin } from "@downdraft/core";
+import { Module } from "@downdraft/core";
 
-const myPlugin: Plugin = {
-  name: "my-plugin",
-  install(world: World) {
+const myModule: Module = {
+  name: "my-module",
+  register(ctx: ModuleContext) {
     // Register components, systems, resources
   },
 };
 
-world.registerPlugin(myPlugin);
+world.registerModule(myModule);
 ```
 
 ### Engine Libraries (`@downdraft/library-*`)
@@ -104,28 +104,30 @@ world.registerPlugin(myPlugin);
 - `@downdraft/library-stickman` — Stickman skeleton rendering
 - `@downdraft/library-undertow` — DOM proxy for Web Workers
 
-### Engine Plugins (`@downdraft/plugin-*`)
-- `@downdraft/plugin-devtools` — DevTools panel, scene inspector, GPU debugging
-- `@downdraft/plugin-camera-controls` — Camera input handling
-- `@downdraft/plugin-terrain` — Terrain composition (marching-cubes + LOD)
-- `@downdraft/plugin-movement-3d` — 3D player movement
-- `@downdraft/plugin-movement-2d` — 2D grid-based movement
-- `@downdraft/plugin-sailing` — Sailing mechanics (wind, buoyancy, steering)
-- `@downdraft/plugin-electron-osr` — Offscreen rendering
-- `@downdraft/plugin-mcp` — MCP automation server
-- `@downdraft/plugin-xr` — WebXR support
+### Engine Modules (`@downdraft/module-*`)
+- `@downdraft/module-devtools` — DevTools panel, scene inspector, GPU debugging
+- `@downdraft/module-camera-controls` — Camera input handling
+- `@downdraft/module-terrain` — Terrain composition (marching-cubes + LOD)
+- `@downdraft/module-movement-3d` — 3D player movement
+- `@downdraft/module-movement-2d` — 2D grid-based movement
+- `@downdraft/module-sailing` — Sailing mechanics (wind, buoyancy, steering)
+- `@downdraft/module-electron-osr` — Offscreen rendering
+- `@downdraft/module-mcp` — MCP automation server
+- `@downdraft/module-xr` — WebXR support
 
-### Game Plugins (to-the-ocean example: `@to-the-ocean/*`)
-- `@to-the-ocean/plugin-crafting` — Crafting recipes and system
-- `@to-the-ocean/plugin-inventory` — Inventory system
+### Game Modules (to-the-ocean example: `@to-the-ocean/module-*`)
+- `@to-the-ocean/module-crafting` — Crafting recipes and system
+- `@to-the-ocean/module-inventory` — Inventory system
+- `@to-the-ocean/module-wildlife` — Wildlife AI (fish, sharks, eels, etc.)
+- `@to-the-ocean/module-buoyancy` — Water buoyancy physics
+- `@to-the-ocean/module-collision` — Entity collision detection
+
+### Game Libraries (to-the-ocean example: `@to-the-ocean/library-*`)
 - `@to-the-ocean/library-items` — Item definitions and management
 - `@to-the-ocean/library-fishing` — Fishing mechanics
 - `@to-the-ocean/library-economy` — Market/trading system
 - `@to-the-ocean/library-survival` — Survival stats (hunger, thirst, oxygen)
 - `@to-the-ocean/library-boats` — Boat building and piloting
-- `@to-the-ocean/library-wildlife` — Wildlife AI (fish, sharks, eels, etc.)
-- `@to-the-ocean/library-buoyancy` — Water buoyancy physics
-- `@to-the-ocean/library-collision` — Entity collision detection
 
 ## Builder Modes
 

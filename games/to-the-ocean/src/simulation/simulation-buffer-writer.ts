@@ -4,7 +4,7 @@ import { ENT, PLR, PLR_FLAG, SimBufferWriter } from "@downdraft/core";
 import { shoreDamping, shoreDisplacement, WATER_GRID_SAB as WATER_GRID, WaterBufferWriter, waterCutout, type ShoreSource } from "@downdraft/library-water";
 import { WeatherSystem } from "@downdraft/library-weather";
 import { GAME_PLR } from "@shared/constants/buffer";
-import { getGridStateForUI } from "@to-the-ocean/plugin-inventory";
+import { getGridStateForUI } from "@to-the-ocean/module-inventory";
 import { GameMode, SimToMainMessage } from "../shared/types";
 import { BoatCellSystem } from "./boat/boat-cell-system";
 import { BoatSystem } from "./boat/boat-system";

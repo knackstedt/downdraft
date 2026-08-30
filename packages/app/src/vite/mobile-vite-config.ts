@@ -13,7 +13,7 @@
 //   - Sets `build.target` to "esnext" for modern WebView engines.
 //   - Sets `worker.format: "es"` for ES module workers.
 //   - Excludes `@downdraft/app/main`, `@downdraft/app/preload`, and
-//     `@downdraft/plugin-electron-osr` from the bundle (they're not imported
+//     `@downdraft/module-electron-osr` from the bundle (they're not imported
 //     by the mobile entry, so they tree-shake out naturally).
 //   - The mobile entry is `<root>/src/mobile.tsx` (not `main.tsx`), which
 //     calls `createDowndraftMobileApp()` instead of `createDowndraftApp()`.
@@ -111,12 +111,6 @@ export function createDowndraftMobileViteConfig(
     { find: /^@downdraft\/library-weatherfx\//, replacement: resolve(repoRoot, "packages/libraries/weatherfx/src") + "/" },
     { find: /^@downdraft\/library-weather$/, replacement: resolve(repoRoot, "packages/libraries/weather/src/index.ts") },
     { find: /^@downdraft\/library-weather\//, replacement: resolve(repoRoot, "packages/libraries/weather/src") + "/" },
-    { find: /^@downdraft\/library-imui$/, replacement: resolve(repoRoot, "packages/libraries/imui/src/index.ts") },
-    { find: /^@downdraft\/library-imui\//, replacement: resolve(repoRoot, "packages/libraries/imui/src") + "/" },
-    { find: /^@downdraft\/library-animation$/, replacement: resolve(repoRoot, "packages/libraries/animation/src/index.ts") },
-    { find: /^@downdraft\/library-animation\//, replacement: resolve(repoRoot, "packages/libraries/animation/src") + "/" },
-    { find: /^@downdraft\/library-particles$/, replacement: resolve(repoRoot, "packages/libraries/particles/src/index.ts") },
-    { find: /^@downdraft\/library-particles\//, replacement: resolve(repoRoot, "packages/libraries/particles/src") + "/" },
     { find: /^@downdraft\/library-entities$/, replacement: resolve(repoRoot, "packages/libraries/entities/src/index.ts") },
     { find: /^@downdraft\/library-entities\//, replacement: resolve(repoRoot, "packages/libraries/entities/src") + "/" },
     { find: /^@downdraft\/library-stickman$/, replacement: resolve(repoRoot, "packages/libraries/stickman/src/index.ts") },
@@ -124,18 +118,18 @@ export function createDowndraftMobileViteConfig(
     { find: /^@downdraft\/library-models$/, replacement: resolve(repoRoot, "packages/libraries/models/src/index.ts") },
     { find: /^@downdraft\/library-models\//, replacement: resolve(repoRoot, "packages/libraries/models/src") + "/" },
     // Engine plugins (excluding electron-osr — not used on mobile)
-    { find: /^@downdraft\/plugin-devtools$/, replacement: resolve(repoRoot, "packages/plugins/devtools/src/index.ts") },
-    { find: /^@downdraft\/plugin-devtools\//, replacement: resolve(repoRoot, "packages/plugins/devtools/src") + "/" },
-    { find: /^@downdraft\/plugin-terrain$/, replacement: resolve(repoRoot, "packages/plugins/terrain/src/index.ts") },
-    { find: /^@downdraft\/plugin-terrain\//, replacement: resolve(repoRoot, "packages/plugins/terrain/src") + "/" },
-    { find: /^@downdraft\/plugin-movement-3d$/, replacement: resolve(repoRoot, "packages/plugins/movement-3d/src/index.ts") },
-    { find: /^@downdraft\/plugin-movement-3d\//, replacement: resolve(repoRoot, "packages/plugins/movement-3d/src") + "/" },
-    { find: /^@downdraft\/plugin-movement-2d$/, replacement: resolve(repoRoot, "packages/plugins/movement-2d/src/index.ts") },
-    { find: /^@downdraft\/plugin-movement-2d\//, replacement: resolve(repoRoot, "packages/plugins/movement-2d/src") + "/" },
-    { find: /^@downdraft\/plugin-sailing$/, replacement: resolve(repoRoot, "packages/plugins/sailing/src/index.ts") },
-    { find: /^@downdraft\/plugin-sailing\//, replacement: resolve(repoRoot, "packages/plugins/sailing/src") + "/" },
-    { find: /^@downdraft\/plugin-camera-controls$/, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src/index.ts") },
-    { find: /^@downdraft\/plugin-camera-controls\//, replacement: resolve(repoRoot, "packages/plugins/camera-controls/src") + "/" },
+    { find: /^@downdraft\/module-devtools$/, replacement: resolve(repoRoot, "packages/modules/devtools/src/index.ts") },
+    { find: /^@downdraft\/module-devtools\//, replacement: resolve(repoRoot, "packages/modules/devtools/src") + "/" },
+    { find: /^@downdraft\/module-terrain$/, replacement: resolve(repoRoot, "packages/modules/terrain/src/index.ts") },
+    { find: /^@downdraft\/module-terrain\//, replacement: resolve(repoRoot, "packages/modules/terrain/src") + "/" },
+    { find: /^@downdraft\/module-movement-3d$/, replacement: resolve(repoRoot, "packages/modules/movement-3d/src/index.ts") },
+    { find: /^@downdraft\/module-movement-3d\//, replacement: resolve(repoRoot, "packages/modules/movement-3d/src") + "/" },
+    { find: /^@downdraft\/module-movement-2d$/, replacement: resolve(repoRoot, "packages/modules/movement-2d/src/index.ts") },
+    { find: /^@downdraft\/module-movement-2d\//, replacement: resolve(repoRoot, "packages/modules/movement-2d/src") + "/" },
+    { find: /^@downdraft\/module-sailing$/, replacement: resolve(repoRoot, "packages/modules/sailing/src/index.ts") },
+    { find: /^@downdraft\/module-sailing\//, replacement: resolve(repoRoot, "packages/modules/sailing/src") + "/" },
+    { find: /^@downdraft\/module-camera-controls$/, replacement: resolve(repoRoot, "packages/modules/camera-controls/src/index.ts") },
+    { find: /^@downdraft\/module-camera-controls\//, replacement: resolve(repoRoot, "packages/modules/camera-controls/src") + "/" },
     { find: /^@downdraft\/library-undertow$/, replacement: resolve(repoRoot, "packages/libraries/undertow/src/index.ts") },
     { find: /^@downdraft\/library-undertow\//, replacement: resolve(repoRoot, "packages/libraries/undertow/src") + "/" },
     { find: /^node:fs$/, replacement: resolve(repoRoot, "packages/app/src/renderer-shims/fs.ts") },

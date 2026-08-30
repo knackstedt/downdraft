@@ -21,8 +21,8 @@ import {
     type RenderContext,
 } from "@downdraft/core";
 import { ModelRenderer } from "@downdraft/library-entities";
-import { createCameraController } from "@downdraft/plugin-camera-controls";
-import { DevToolsDataBridge, GridRenderer, HeightRulerRenderer, SkeletonRenderer, TransformGizmo, type IDevToolsDataRenderer } from "@downdraft/plugin-devtools";
+import { createCameraController } from "@downdraft/module-camera-controls";
+import { DevToolsDataBridge, GridRenderer, HeightRulerRenderer, SkeletonRenderer, TransformGizmo, type IDevToolsDataRenderer } from "@downdraft/module-devtools";
 import type { MeshData } from "@downdraft/library-models";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -435,7 +435,7 @@ async function bootstrap() {
 
   // Init camera controller + input bus via the camera-controls plugin helper.
   // The model-viewer has a bespoke render loop (not GameRenderer-based), so we
-  // use `createCameraController` instead of `createCameraControlsPlugin`.
+  // use `createCameraController` instead of `createCameraControlsModule`.
   const inputBus = new RendererInputBusImpl(canvas);
   const cameraController = createCameraController(inputBus, {
     initialCamera: { fov: 45, near: 0.1, far: 500 },

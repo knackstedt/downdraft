@@ -11,7 +11,7 @@ import { InputBufferReader } from "@downdraft/core";
 import { WaterBufferWriter } from "@downdraft/library-water";
 import { WeatherSystem } from "@downdraft/library-weather";
 import { DEFAULT_FISHING_CONFIG, FishingSystem as PluginFishingSystem, type FishingConfig, type FishingDeps, type FishingInput, type FishingPlayer } from "@to-the-ocean/library-fishing";
-import { addItem } from "@to-the-ocean/plugin-inventory";
+import { addItem } from "@to-the-ocean/module-inventory";
 import {
     FISHING_CAST_RANGE,
     FISHING_FISH_PULL_MULT,

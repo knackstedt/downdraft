@@ -9,7 +9,7 @@
 // UniversalPhysicsAPI directly (escape hatch).
 // ============================================================================
 
-import { resourceToken, type EngineLibrary, type PhysicsPluginConfig } from "@downdraft/core";
+import { resourceToken, type EngineLibrary, type PhysicsModuleConfig } from "@downdraft/core";
 import { UniversalPhysicsAPI } from "./api";
 import { RapierPhysicsBackend } from "./backend";
 
@@ -29,9 +29,9 @@ export interface PhysicsRapierLibConfig {
   /** Worker count for physics realms. Default: 0 (single-threaded). */
   workerCount?: number;
   /** Prediction mode. Default: "server-authoritative". */
-  predictionMode?: PhysicsPluginConfig["predictionMode"];
-  /** Realm configs (near/mid/far tier settings). Required by PhysicsPluginConfig. */
-  realmConfigs?: PhysicsPluginConfig["realmConfigs"];
+  predictionMode?: PhysicsModuleConfig["predictionMode"];
+  /** Realm configs (near/mid/far tier settings). Required by PhysicsModuleConfig. */
+  realmConfigs?: PhysicsModuleConfig["realmConfigs"];
   /** Memory to reserve (bytes). Default: 64MB. */
   reserveMemoryBytes?: number;
   /** Dev mode (assert on invalid input). Default: false. */
@@ -58,7 +58,7 @@ export const PhysicsRapierLib: EngineLibrary<PhysicsRapierLibConfig> = {
     async create(config, ctx) {
       const backend = new RapierPhysicsBackend();
       await backend.init();
-      const fullConfig: PhysicsPluginConfig = {
+      const fullConfig: PhysicsModuleConfig = {
         gravity: config.gravity ?? [0, -9.8, 0],
         fixedDt: config.fixedDt ?? 1 / 60,
         maxCatchUpSteps: config.maxCatchUpSteps ?? 1,

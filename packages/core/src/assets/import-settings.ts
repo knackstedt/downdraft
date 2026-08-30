@@ -5,7 +5,7 @@
 // up-axis conversion, unit scaling, node-transform baking, centering, auto-fit.
 //
 // Defined in core (not plugin-models) so the ImportCache can store them
-// without a cross-package dependency. Plugin-models re-exports these.
+// without a cross-package dependency. Module-models re-exports these.
 //
 
 export type UpAxis = "y" | "z";

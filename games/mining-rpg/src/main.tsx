@@ -13,7 +13,7 @@
 // ============================================================================
 
 import { startGame, type GameSimWorker } from "@downdraft/app/renderer";
-import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/plugin-devtools";
+import { createSimStatsPanelExtension, createSimStatsProvider } from "@downdraft/module-devtools";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";

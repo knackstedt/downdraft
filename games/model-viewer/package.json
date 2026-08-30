@@ -7,8 +7,8 @@
   "dependencies": {
     "@downdraft/app": "workspace:*",
     "@downdraft/core": "workspace:*",
-    "@downdraft/plugin-camera-controls": "workspace:*",
-    "@downdraft/plugin-devtools": "workspace:*",
+    "@downdraft/module-camera-controls": "workspace:*",
+    "@downdraft/module-devtools": "workspace:*",
     "@downdraft/library-models": "workspace:*",
     "@downdraft/library-entities": "workspace:*",
     "fflate": "^0.8.2",

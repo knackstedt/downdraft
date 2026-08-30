@@ -1,5 +1,5 @@
-import type { UIRenderer, UIRoot } from "@downdraft/library-imui";
-import { LayoutEngine } from "@downdraft/library-imui";
+import type { UIRenderer, UIRoot } from "../../imui";
+import { LayoutEngine } from "../../imui";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { RenderPass } from "../render-pass";
 

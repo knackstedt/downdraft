@@ -12,13 +12,13 @@
 //   - Mapping slot indices ↔ ECS entities
 // ============================================================================
 
-import { getColumnValue, InputBufferReader, isSoAColumn, PluginHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
-import { devtools } from "@downdraft/plugin-devtools";
+import { getColumnValue, InputBufferReader, isSoAColumn, ModuleHost, Query, registerHmrSwap, Stage, system, World, type Entity, type System } from "@downdraft/core";
+import { devtools } from "@downdraft/module-devtools";
 import type { EntityId } from "@shared/types";
 import { EntityType, SecurityLevel } from "@shared/types";
-import { createBuoyancyPlugin, type BuoyancyConfig, type BuoyancyDeps } from "@to-the-ocean/library-buoyancy";
-import { createCollisionPlugin, type CollisionConfig, type CollisionDeps } from "@to-the-ocean/library-collision";
-import { createWildlifePlugin, type WildlifeConfig, type WildlifeDeps } from "@to-the-ocean/library-wildlife";
+import { createBuoyancyModule, type BuoyancyConfig, type BuoyancyDeps } from "@to-the-ocean/module-buoyancy";
+import { createCollisionModule, type CollisionConfig, type CollisionDeps } from "@to-the-ocean/module-collision";
+import { createWildlifeModule, type WildlifeConfig, type WildlifeDeps } from "@to-the-ocean/module-wildlife";
 import type { BoatCellSystem } from "../boat/boat-cell-system";
 import type { SimEntity, SimPlayer } from "../simulation";
 import {
@@ -51,8 +51,8 @@ type SystemRecreator = (newMod: Record<string, unknown>) => System;
 
 export class SimEcsWorld {
   readonly world: World;
-  /** Plugin host for systems migrated to the plugin system. */
-  readonly pluginHost: PluginHost;
+  /** Module host for systems migrated to the plugin system. */
+  readonly moduleHost: ModuleHost;
 
   // Mapping: legacy slot index → ECS entity
   private slotToEntity: Map<number, Entity> = new Map();
@@ -80,10 +80,10 @@ export class SimEcsWorld {
 
   constructor() {
     this.world = new World();
-    this.pluginHost = new PluginHost(this.world);
+    this.moduleHost = new ModuleHost(this.world);
     // Inject the devtools singleton so sim plugins can self-register
     // debug panels/data feeds via ctx.devtools.register*(...).
-    this.pluginHost.setDevToolsAPI(devtools);
+    this.moduleHost.setDevToolsAPI(devtools);
 
     // Query: all entities with Transform + EntityMeta (every SimEntity)
     this.allEntities = new Query([ComponentIds.Transform, ComponentIds.EntityMeta]);
@@ -199,18 +199,18 @@ export class SimEcsWorld {
   }
 
   registerWildlifeSystem(deps: WildlifeDeps, config: WildlifeConfig): void {
-    const plugin = createWildlifePlugin({
+    const plugin = createWildlifeModule({
       wildlifeQuery: this.wildlifeAI,
       playersQuery: this.players,
       shipsQuery: this.shipsWithHealth,
       allEntitiesQuery: this.allEntities,
       deps, config,
     });
-    this.pluginHost.registerPlugin(plugin);
+    this.moduleHost.registerModule(plugin);
     if (import.meta.env.DEV && import.meta.hot) {
       registerHmrSwap("wildlife-system", () => {
-        this.pluginHost.unloadPlugin("wildlife");
-        this.pluginHost.registerPlugin(createWildlifePlugin({
+        this.moduleHost.unloadModule("wildlife");
+        this.moduleHost.registerModule(createWildlifeModule({
           wildlifeQuery: this.wildlifeAI,
           playersQuery: this.players,
           shipsQuery: this.shipsWithHealth,
@@ -222,20 +222,20 @@ export class SimEcsWorld {
   }
 
   shutdownWildlife(): void {
-    this.pluginHost.unloadPlugin("wildlife");
+    this.moduleHost.unloadModule("wildlife");
   }
 
   registerBuoyancySystem(deps: BuoyancyDeps, config: BuoyancyConfig): void {
-    const plugin = createBuoyancyPlugin({
+    const plugin = createBuoyancyModule({
       shipsQuery: this.ships,
       allEntitiesQuery: this.allEntitiesWithVelocity,
       deps, config,
     });
-    this.pluginHost.registerPlugin(plugin);
+    this.moduleHost.registerModule(plugin);
     if (import.meta.env.DEV && import.meta.hot) {
       registerHmrSwap("buoyancy-system", () => {
-        this.pluginHost.unloadPlugin("buoyancy");
-        this.pluginHost.registerPlugin(createBuoyancyPlugin({
+        this.moduleHost.unloadModule("buoyancy");
+        this.moduleHost.registerModule(createBuoyancyModule({
           shipsQuery: this.ships,
           allEntitiesQuery: this.allEntitiesWithVelocity,
           deps, config,
@@ -245,16 +245,16 @@ export class SimEcsWorld {
   }
 
   registerCollisionSystem(deps: CollisionDeps, config: CollisionConfig): void {
-    const plugin = createCollisionPlugin({
+    const plugin = createCollisionModule({
       allEntitiesQuery: this.allEntitiesWithVelocity,
       playersQuery: this.players,
       deps, config,
     });
-    this.pluginHost.registerPlugin(plugin);
+    this.moduleHost.registerModule(plugin);
     if (import.meta.env.DEV && import.meta.hot) {
       registerHmrSwap("collision-system", () => {
-        this.pluginHost.unloadPlugin("collision");
-        this.pluginHost.registerPlugin(createCollisionPlugin({
+        this.moduleHost.unloadModule("collision");
+        this.moduleHost.registerModule(createCollisionModule({
           allEntitiesQuery: this.allEntitiesWithVelocity,
           playersQuery: this.players,
           deps, config,

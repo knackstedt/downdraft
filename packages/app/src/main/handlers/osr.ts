@@ -2,8 +2,8 @@
 // OSR (Offscreen Rendering) host — manager + IPC handlers
 // ============================================================================
 
-import type { OSRInputEvent, OSRPanelConfig, OSRRendererConfig } from "@downdraft/plugin-electron-osr/main-entry";
-import { InputForwarder, OSRDedicatedRenderer, OSRRendererManager } from "@downdraft/plugin-electron-osr/main-entry";
+import type { OSRInputEvent, OSRPanelConfig, OSRRendererConfig } from "@downdraft/module-electron-osr/main-entry";
+import { InputForwarder, OSRDedicatedRenderer, OSRRendererManager } from "@downdraft/module-electron-osr/main-entry";
 import { ipcMain } from "electron";
 import { IPC } from "../../shared/messages";
 import type { MainContext } from "../types";

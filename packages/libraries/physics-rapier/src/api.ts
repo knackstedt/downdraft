@@ -4,7 +4,7 @@ import type {
     Entity,
     PhysicsBackend,
     PhysicsBody,
-    PhysicsPluginConfig,
+    PhysicsModuleConfig,
     PhysicsStats,
     RaycastResult,
     RealmTransferHook,
@@ -37,9 +37,9 @@ export class UniversalPhysicsAPI {
   private safety: SafetyLayer;
   private ccdHeuristic: CCDHeuristic;
   private snapshotManager: SnapshotManager;
-  private config: PhysicsPluginConfig;
+  private config: PhysicsModuleConfig;
 
-  constructor(backend: PhysicsBackend, config: PhysicsPluginConfig) {
+  constructor(backend: PhysicsBackend, config: PhysicsModuleConfig) {
     this.backend = backend;
     this.config = config;
 
@@ -354,7 +354,7 @@ export class UniversalPhysicsAPI {
 
   // --- Config ---
 
-  configure(config: Partial<PhysicsPluginConfig>): void {
+  configure(config: Partial<PhysicsModuleConfig>): void {
     // Partial reconfiguration; for now, only update simple fields
     if (config.ccdTunnelingRatio !== undefined) {
       (this.ccdHeuristic as any).ccdTunnelingRatio = config.ccdTunnelingRatio;

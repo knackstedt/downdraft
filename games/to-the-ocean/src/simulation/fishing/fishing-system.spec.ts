@@ -3,7 +3,7 @@
 
 import { InputBufferReader, InputBufferWriter, KEY, PLR_FLAG } from "@downdraft/core";
 import { WaterBufferWriter } from "@downdraft/library-water";
-import { createGrid } from "@to-the-ocean/plugin-inventory";
+import { createGrid } from "@to-the-ocean/module-inventory";
 import {
     FISHING_FISH_PULL_MULT,
     FISHING_MINIGAME_DURATION,

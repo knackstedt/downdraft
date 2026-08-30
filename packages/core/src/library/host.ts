@@ -11,7 +11,7 @@
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
-import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "../plugin/diagnostics";
+import { assertNoDuplicate, assertRequired, isStrict, warnLeak } from "../module/diagnostics";
 import type {
     EngineLibrary,
     LibraryEntry,
@@ -121,7 +121,7 @@ export class LibraryHostImpl implements LibraryHost {
           }
           this.providers.set(token.key, active.lib.name);
           active.providedKeys.add(token.key);
-          // Delegate to the host's provide if available (for PluginHost integration)
+          // Delegate to the host's provide if available (for ModuleHost integration)
           ctx.provide(token, value);
         },
         inject: ctx.inject,

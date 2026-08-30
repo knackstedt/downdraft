@@ -9,13 +9,13 @@
 //    `distance = 3.5`)
 //
 // Implements `CameraControllerLike` so it can be registered as the active
-// camera provider on a `RendererPluginContext`.
+// camera provider on a `RendererModuleContext`.
 // ============================================================================
 
 import type {
     CameraControllerLike,
     RendererInputBus,
-} from "../plugin/renderer-plugin";
+} from "../module/renderer-module";
 import { Camera } from "../scene/camera";
 import type { CameraState } from "./camera";
 

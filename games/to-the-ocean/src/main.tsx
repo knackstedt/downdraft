@@ -27,7 +27,7 @@ import "@fontsource/wavefont/400.css";
 import { downdraft, startGame, type SimWorkerSeed } from "@downdraft/app/renderer";
 import { ENGINE_VERSION, ENT, PLR, PLR_FLAG, SimBufferReader, startGCProfiler, useHotReloadStore, type GCProfilerHandle, type GCStats } from "@downdraft/core";
 import { WaterLib } from "@downdraft/library-water";
-import { initDevTools, useDebugStore } from "@downdraft/plugin-devtools";
+import { initDevTools, useDebugStore } from "@downdraft/module-devtools";
 import { GAME_PLR } from "@shared/constants/buffer";
 import { CameraMode, EntityType } from "@shared/types";
 import { SceneInspector } from "./engine/scene-inspector";

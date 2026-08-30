@@ -1,12 +1,15 @@
 # Downdraft Engine — Agent Notes
 
-## Plugin architecture: engine vs game boundary
+## Module architecture: engine vs game boundary
 
-The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **plugins** (opt-in game features with lifecycle + typed DI + diagnostics).
+> **Terminology note:** The compile-time DI units that were previously called "plugins" are now called **modules** to disambiguate. The term **"plugin" is now reserved for the upcoming user-authored plugin system** (runtime-loadable extensions authored by end users / modders). Throughout this document, "module" refers to the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`, etc.).
 
-- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a plugin lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, pixi-ui, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
-- **Engine plugins** (namespace `@downdraft/plugin-*`, located in `packages/plugins/`): packages that implement the `Plugin` or `RendererPlugin` interface with a `register()` lifecycle + typed DI. Engine plugins: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, sailing.
-- **Game plugins** (namespace `@to-the-ocean/plugin-*` / `@to-the-ocean/library-*`, located in `games/<game>/plugins/`): game-specific features. Game plugins: crafting, inventory. Game libraries: boats, fishing, economy, survival, wildlife, items, buoyancy, collision.
+The engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). The `@downdraft/core` package also includes animation, particles, and imui subsystems directly (these were previously separate `@downdraft/library-*` packages but have been folded into core).
+
+- **Engine libraries** (namespace `@downdraft/library-*`, located in `packages/libraries/`): packages that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: water, physics-rapier, physics-native, marching-cubes, surface-nets, audio-kira, models, networking, weatherfx, undertow, pixi-ui, entities, lighting, weather, postfx, navmesh, persistence, gaussian-splats, sand, stickman.
+- **Engine modules** (namespace `@downdraft/module-*`, located in `packages/modules/`): packages that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, devtools, electron-osr, mcp, xr, terrain, movement-3d, movement-2d, sailing.
+- **Game modules** (namespace `@to-the-ocean/module-*`, located in `games/<game>/modules/`): game-specific features with a module lifecycle. Game modules: crafting, inventory, buoyancy, collision, wildlife.
+- **Game libraries** (namespace `@to-the-ocean/library-*`, located in `games/<game>/libraries/`): game-specific pure libraries without a module lifecycle. Game libraries: boats, economy, fishing, items, survival.
 
 ### Declarative GameModule + startGame()
 
@@ -32,20 +35,20 @@ startGame({
 
 Engine libraries expose `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) for declarative wiring in `GameModule.libraries[]`. The `LibraryHost` auto-wires SAB allocation, sim systems, renderer passes, and typed DI tokens. Bare class exports remain as an escape hatch.
 
-### Feature plugins
+### Feature modules
 
-Feature plugins (`@downdraft/plugin-terrain`, `@downdraft/plugin-movement-3d`, `@downdraft/plugin-movement-2d`, `@downdraft/plugin-sailing`) use the factory pattern (`createXxxPlugin(config)`) and provide typed DI tokens. Games register them via `pluginHost.usePlugins([...])` for batch activation in dependency-resolved order.
+Feature modules (`@downdraft/module-terrain`, `@downdraft/module-movement-3d`, `@downdraft/module-movement-2d`, `@downdraft/module-sailing`) use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])` for batch activation in dependency-resolved order.
 
-### Cross-thread plugin contract
+### Cross-thread module contract
 
-`CrossThreadToken<T>` tags resources with a thread ("sim" | "renderer" | "shared"). `buildCrossThreadReport()` detects unresolved requires, shared resources, and version conflicts across sim + renderer plugin hosts. The `downdraft doctor` devtools panel displays this report.
+`CrossThreadToken<T>` tags resources with a thread ("sim" | "renderer" | "shared"). `buildCrossThreadReport()` detects unresolved requires, shared resources, and version conflicts across sim + renderer module hosts. The `downdraft doctor` devtools panel displays this report.
 
 ### Migration guide (from old API)
 
 1. **String-based resources → typed tokens**: Replace `world.setResource("name", value)` / `world.getResource("name")` with `resourceToken<T>("name")` + `ctx.provide(token, value)` / `ctx.inject(token)`.
 2. **bootstrapGame() callbacks → startGame() module**: Replace the callback-soup `main.tsx` with a declarative `GameModule`. Move sim event handling into `events: {}`, game-specific wiring into `onReady`, cleanup into `onDispose`.
 3. **Manual library wiring → EngineLibrary descriptors**: Replace manual SAB allocation + system instantiation with `libraries: [WaterLib, ...]` in the GameModule. Use typed tokens to inject library-provided resources.
-4. **registerPluginDeferred + activateAll → usePlugins**: Replace the two-step batch registration with `pluginHost.usePlugins([...])`.
+4. **registerModuleDeferred + activateAll → useModules**: Replace the two-step batch registration with `moduleHost.useModules([...])`.
 
 ### Engine library descriptors (Phase 3)
 
@@ -64,18 +67,18 @@ The `LibraryHost` auto-wires each library: allocates SAB channels, creates sim-s
 
 Bare class exports remain as an escape hatch — games that need full control can still import and wire `WaterBufferWriter`, `RapierPhysicsBackend`, etc. directly.
 
-No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/plugins/` for its game-specific systems.
+No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `games/<game>/modules/` for its game-specific modules and `games/<game>/libraries/` for its game-specific pure libraries.
 
 ### Typed DI (provide/inject + provides/requires)
 
-Plugins use typed `ResourceToken<T>`-based dependency injection instead of stringly-typed resource names:
+Modules use typed `ResourceToken<T>`-based dependency injection instead of stringly-typed resource names:
 
 ```ts
-import { resourceToken, type Plugin } from "@downdraft/core";
+import { resourceToken, type Module } from "@downdraft/core";
 
 export const WeatherState = resourceToken<WeatherStateData>("weatherState");
 
-export const SailingPlugin: Plugin = {
+export const SailingModule: Module = {
   name: "sailing",
   version: "1.0.0",
   requires: [WeatherState, PhysicsAPI],   // validated before register()
@@ -90,19 +93,19 @@ export const SailingPlugin: Plugin = {
 
 - `ctx.provide(token, value)` — typed write; in `DOWNDRAFT_STRICT` mode throws on duplicate key.
 - `ctx.inject(token)` — typed read; throws if the token has no provider (use `injectOptional` for safe reads).
-- `provides`/`requires` arrays — the host validates the dependency graph at activation, before any `register()` runs. Missing provider → hard error naming both plugins.
+- `provides`/`requires` arrays — the host validates the dependency graph at activation, before any `register()` runs. Missing provider → hard error naming both modules.
 - The stringly-typed `registerResource(name, value)` / `getResource(name)` API has been **removed**. Use `resourceToken<T>(key)` + `provide`/`inject` instead.
 
 ### DOWNDRAFT_STRICT diagnostics
 
-When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the plugin hosts validate the dependency graph and catch common footguns:
+When `DOWNDRAFT_STRICT=1` (or in Vite dev mode), the module hosts validate the dependency graph and catch common footguns:
 - Duplicate `provide` → hard error.
 - Missing `requires` provider at activation → hard error.
-- Leak detection: plugin provides resources / allocates SAB channels but registers no `onDispose()` cleanup → warning on unload.
+- Leak detection: module provides resources / allocates SAB channels but registers no `onDispose()` cleanup → warning on unload.
 
 Set `DOWNDRAFT_STRICT=0` to force-disable in dev, `DOWNDRAFT_STRICT=1` to force-enable in prod.
 
-Config that must be updated when moving/adding packages: `package.json` (root workspaces), `tsconfig.web.json` + `tsconfig.node.json` (path mappings + include globs), `packages/app/src/vite/index.ts` (renderer aliases + hot-reload simPaths/excludePaths). Engine libraries live in `packages/libraries/`; engine plugins live in `packages/plugins/`.
+Config that must be updated when moving/adding packages: `package.json` (root workspaces), `tsconfig.web.json` + `tsconfig.node.json` (path mappings + include globs), `packages/app/src/vite/index.ts` (renderer aliases + hot-reload simPaths/excludePaths). Engine libraries live in `packages/libraries/`; engine modules live in `packages/modules/`.
 
 ## HTML generation and canvas/DOM layer stacking
 
@@ -294,21 +297,21 @@ DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 MCP_PORT=9876 draft dev --ga
 # 3. When done, kill ONLY this game instance (see "Killing game processes" above).
 ```
 
-## Plugin registration patterns
+## Module registration patterns
 
 The engine supports two registration patterns:
 
-1. **Direct registration** (`pluginHost.registerPlugin(plugin)`) — registers and immediately activates a single plugin. Use for standalone plugins with no interdependencies.
+1. **Direct registration** (`moduleHost.registerModule(module)`) — registers and immediately activates a single module. Use for standalone modules with no interdependencies.
 
-2. **Batch registration** (`pluginHost.registerPluginDeferred(plugin)` + `pluginHost.activateAll()`) — registers multiple plugins, then activates them in dependency-resolved topological order. Use when multiple plugins have `dependencies` arrays. `GameWorld.usePlugins(plugins[])` wraps this pattern.
+2. **Batch registration** (`moduleHost.registerModuleDeferred(module)` + `moduleHost.activateAll()`) — registers multiple modules, then activates them in dependency-resolved topological order. Use when multiple modules have `dependencies` arrays. `GameWorld.useModules(modules[])` wraps this pattern.
 
-Libraries that export factory functions (e.g., `createWildlifeSystem`) can be wrapped as plugins using a factory pattern:
+Libraries that export factory functions (e.g., `createWildlifeSystem`) can be wrapped as modules using a factory pattern:
 ```ts
-export function createWildlifePlugin(opts: WildlifePluginOptions): Plugin {
+export function createWildlifeModule(opts: WildlifeModuleOptions): Module {
   return { name: "wildlife", version: "1.0.0", register(ctx) { ... } };
 }
 ```
-The `opts` object encapsulates all config and dependencies. This is the standard pattern for migrating library packages to the plugin system.
+The `opts` object encapsulates all config and dependencies. This is the standard pattern for migrating library packages to the module system.
 
 ## Verification commands
 
@@ -316,22 +319,22 @@ The `opts` object encapsulates all config and dependencies. This is the standard
 - `bun run lint` — runs `oxlint` on the whole repo. Currently reports many pre-existing `no-console`/`no-unused-vars` warnings/errors.
 - `bun test packages/core/src/ecs/world.spec.ts packages/core/src/render/frustum.spec.ts packages/core/src/telemetry/collector.spec.ts`
 - `bun test packages/core/src/physics/*.spec.ts` — all physics specs (121 tests).
-- `bun test packages/plugins/physics-rapier/src/*.spec.ts` — rapier plugin specs (16 tests).
+- `bun test packages/modules/physics-rapier/src/*.spec.ts` — rapier module specs (16 tests).
 - `bun test packages/core/src/render/bindless/bindless.spec.ts` — bindless texture registry + material manager specs.
 - `bun test packages/core/src/material/material.spec.ts packages/core/src/material/variants.spec.ts` — material + variant specs.
 - `bun test packages/shader-graph/src/graph.spec.ts` — shader graph compiler specs (includes GBuffer multi-target + variant tests).
-- `bun test packages/plugins/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
+- `bun test packages/modules/models/src/material-adapter.spec.ts` — MaterialData→Material adapter specs.
 - `bun test packages/core/src/assets/model-normalizer.spec.ts` — model normalizer math (up-axis, units, bounds, auto-fit).
-- `bun test packages/plugins/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
-- `bun test packages/plugins/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
-- `bun test packages/plugins/models/src/normalize.spec.ts` — full normalization pipeline specs.
-- `bun test packages/core/src/plugin/host.spec.ts` — PluginHost activation order, deferred registration, dispose order (12 tests).
-- `bun test packages/plugins/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
+- `bun test packages/modules/models/src/bake-node-transforms.spec.ts` — node hierarchy transform baking specs.
+- `bun test packages/modules/models/src/sidecar/sidecar.spec.ts` — sidecar parsers (.ddmeta.json, Unity .meta, Godot .import, Blender extras).
+- `bun test packages/modules/models/src/normalize.spec.ts` — full normalization pipeline specs.
+- `bun test packages/core/src/module/host.spec.ts` — ModuleHost activation order, deferred registration, dispose order (12 tests).
+- `bun test packages/modules/devtools/src/api.spec.ts` — Unified DevTools API: realm detection, SAB data feeds, manifest, panel/command registration (17 tests).
 - `bun test packages/app/src/main/window.spec.ts` — cross-origin isolation header logic (COEP/file:// worker loading, 7 tests).
 - `bun test packages/core/src/render/gpu-utils.spec.ts` — GPU resource creation utilities (8 tests, uses mock GPUDevice).
-- `bun test games/to-the-ocean/plugins/wildlife/src/wildlife-plugin.spec.ts` — game plugin wrappers (wildlife, buoyancy, collision) (9 tests).
-- `bun test packages/plugins/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
-- `bun test packages/plugins/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
+- `bun test games/to-the-ocean/modules/wildlife/src/wildlife-module.spec.ts` — game module wrappers (wildlife, buoyancy, collision) (9 tests).
+- `bun test packages/modules/persistence/src/file-save-store.spec.ts` — FileSaveStore (filesystem ISaveStore) specs (9 tests).
+- `bun test packages/modules/persistence/src/opfs-save-store.spec.ts` — OpfsSaveStore (OPFS ISaveStore) specs (22 tests). Uses mock OPFS — no browser/worker environment needed.
 - `bun run draft:test` — e2e smoke test with hardware GPU (headless, deterministic). Equivalent to `draft test --renderer=gpu`.
 - `bun run draft:test-cpu` — e2e smoke test with SwiftShader software rendering (headless, deterministic). Equivalent to `draft test --renderer=cpu`. Use this for CI.
 - `bun run draft:test -- --headed` — same but shows the Electron window (useful for debugging).
@@ -359,42 +362,42 @@ These are set automatically by `draft test`. See the "Running the smoke test" se
 
 ## Unified DevTools API
 
-The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/plugin-devtools`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
+The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/module-devtools`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
 
 - **Main realm**: panels/feeds/commands registered directly on `window.__sceneInspector` via `DevToolsDataBridge`.
 - **Worker realm**: data feeds written to a devtools SharedArrayBuffer (zero-copy, synchronous reads); commands forwarded via IPC RPC; panel declarations synced to renderer via one-time manifest RPC.
 
 ### Architecture
 
-- **`devtools` singleton** (`packages/plugins/devtools/src/api.ts`) — the unified API. Auto-detects realm. Plugins import `devtools` and call `registerPanel()`, `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
+- **`devtools` singleton** (`packages/modules/devtools/src/api.ts`) — the unified API. Auto-detects realm. Modules import `devtools` and call `registerPanel()`, `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
 - **`DevToolsSABLayout`** — dedicated SAB region for JSON-serialized data feed results + direct numeric stats. Worker writes via `flushDataFeeds()` (called from sim loop); renderer reads synchronously. No IPC polling.
-- **`exposeDevToolsApi()`** (`packages/plugins/devtools/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
-- **`syncWorkerManifests()`** (`packages/plugins/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, merges panels, wires SAB data feed readers, wires command forwarders.
-- **`createDevToolsRendererAdapter()`** (`packages/plugins/devtools/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
-- **`createSimStatsProvider()`** (`packages/plugins/devtools/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
-- **`initDevTools()`** (`packages/plugins/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global registry panels, syncs worker manifests, exposes on `window.__sceneInspector`.
-- **`createMaterialStatsPanelExtension()`** (`packages/plugins/devtools/src/material-stats-panel.ts`) — reusable "Materials" tab for any game using the unified material system.
+- **`exposeDevToolsApi()`** (`packages/modules/devtools/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
+- **`syncWorkerManifests()`** (`packages/modules/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, merges panels, wires SAB data feed readers, wires command forwarders.
+- **`createDevToolsRendererAdapter()`** (`packages/modules/devtools/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
+- **`createSimStatsProvider()`** (`packages/modules/devtools/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
+- **`initDevTools()`** (`packages/modules/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global registry panels, syncs worker manifests, exposes on `window.__sceneInspector`.
+- **`createMaterialStatsPanelExtension()`** (`packages/modules/devtools/src/material-stats-panel.ts`) — reusable "Materials" tab for any game using the unified material system.
 
-### Plugin integration
+### Module integration
 
-Both `PluginContext` (sim) and `RendererPluginContext` (renderer) have a `devtools` property. Plugins self-register during `register()`:
+Both `ModuleContext` (sim) and `RendererModuleContext` (renderer) have a `devtools` property. Modules self-register during `register()`:
 
 ```ts
-// In a renderer plugin
-register(ctx: RendererPluginContext) {
+// In a renderer module
+register(ctx: RendererModuleContext) {
   ctx.devtools.registerPanel({ id: "physics", tabLabel: "Physics", ... });
   ctx.devtools.registerDataFeed("getPhysicsStats", () => ({ bodyCount: ... }));
 }
 
-// In a sim plugin (worker realm)
-register(ctx: PluginContext) {
+// In a sim module (worker realm)
+register(ctx: ModuleContext) {
   ctx.devtools.registerPanel({ id: "wildlife", tabLabel: "Wildlife", ... });
   ctx.devtools.registerDataFeed("getWildlifeStats", () => ({ count: ... }));
   ctx.devtools.registerCommand("cullWildlife", (max: number) => { ... });
 }
 ```
 
-The host injects the `devtools` singleton via `PluginHost.setDevToolsAPI()` / `RendererPluginHost.setDevToolsAPI()`. If not set, a no-op stub is used (plugins that call `ctx.devtools.registerPanel()` silently no-op).
+The host injects the `devtools` singleton via `ModuleHost.setDevToolsAPI()` / `RendererModuleHost.setDevToolsAPI()`. If not set, a no-op stub is used (modules that call `ctx.devtools.registerPanel()` silently no-op).
 
 ### Deterministic mode
 
@@ -403,8 +406,8 @@ The host injects the `devtools` singleton via `PluginHost.setDevToolsAPI()` / `R
 ### Panel order convention
 
 - `0–19`: core devtools tabs (Scene, Import, Perf, GC, Material, Render Graph)
-- `20–50`: renderer-plugin tabs (Physics, Water, Audio, Particles)
-- `50–80`: sim-plugin/worker tabs (Wildlife, Buoyancy, Collision, Sim Stats)
+- `20–50`: renderer-module tabs (Physics, Water, Audio, Particles)
+- `50–80`: sim-module/worker tabs (Wildlife, Buoyancy, Collision, Sim Stats)
 - `100+`: game-declared tabs (Debug Info, Boat Layout, World)
 
 ## Unified Material System
@@ -425,9 +428,9 @@ The material system is unified around the **shader graph as the single source of
 - `SIMPLE_PROFILE`, `PBR_PROFILE`, `PBR_TEXTURED_PROFILE`, `PBR_SKINNED_PROFILE`, `PBR_INSTANCED_PROFILE`, `PBR_COLOR_VERTEX_PROFILE` — single-target.
 - `GBUFFER_PROFILE` — multi-render-target deferred surface shader. 4 targets: albedo+AO, normal+roughness, metallic+emissive, velocity. Graph output nodes use names: `"albedo"`, `"normal"`, `"metallicEmissive"`, `"velocity"`.
 
-### Material adapter (plugin-models)
+### Material adapter (module-models)
 
-`materialDataToMaterial()` (`packages/plugins/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
+`materialDataToMaterial()` (`packages/modules/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
 
 ## Model Import Normalization Pipeline
 
@@ -437,9 +440,9 @@ The engine has a unified model import normalization pipeline that corrects commo
 
 - **`ImportSettings`** (`packages/core/src/assets/import-settings.ts`) — per-model normalization config: `upAxis`, `units`, `scale`, `rotation`, `centerToOrigin`, `autoFit`, `nodeTransforms`. Resolved from sidecar files or parser-detected defaults.
 - **`model-normalizer.ts`** (`packages/core/src/assets/model-normalizer.ts`) — pure transform math: `applyUpAxisConversion` (Z-up→Y-up), `applyUnitScale` (source units→meters), `applyRootScale`, `applyRootRotation` (quaternion), `computeBounds`, `centerToOrigin`, `autoFit`, `isExtremeScale`. Operates on interleaved [pos(3)+normal(3)] mesh vertices (6 floats/vertex).
-- **`bake-node-transforms.ts`** (`packages/plugins/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from model-viewer to the engine so all games benefit.
-- **`normalize.ts`** (`packages/plugins/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
-- **`loadModel()`** (`packages/plugins/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
+- **`bake-node-transforms.ts`** (`packages/modules/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from model-viewer to the engine so all games benefit.
+- **`normalize.ts`** (`packages/modules/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
+- **`loadModel()`** (`packages/modules/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
 
 ### Sidecar System
 
@@ -449,7 +452,7 @@ Per-model import settings are stored in sidecar files, tried in priority order:
 3. Godot `.import` (INI, `scale`/`rotation` params)
 4. Blender extras (glTF `asset.extras.glTF2ExportSettings.YUP`)
 
-Sidecar parsers: `packages/plugins/models/src/sidecar/` — `ddmeta.ts`, `unity-meta.ts`, `godot-import.ts`, `blender-extras.ts`, `resolver.ts`.
+Sidecar parsers: `packages/modules/models/src/sidecar/` — `ddmeta.ts`, `unity-meta.ts`, `godot-import.ts`, `blender-extras.ts`, `resolver.ts`.
 
 ### Parser Detection
 
@@ -461,7 +464,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ## Save system / storage backends
 
-`ISaveStore` (`packages/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/library-persistence` (`packages/plugins/persistence/`):
+`ISaveStore` (`packages/core/src/save/persist-types.ts`) is the storage interface for versioned game saves. The extended interface supports: `save`/`load` (with `SaveOptions`/`LoadOptions` for blobs, thumbnails, properties, generation control), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, and `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). The `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves (newer engine than current) are refused. Implementations live in `@downdraft/library-persistence` (`packages/modules/persistence/`):
 
 - **`OpfsSaveStore`** (`opfs-save-store.ts`) — **default** OPFS-backed store for Web Workers and renderer. Writes directly to OPFS (no IPC, no main process). Supports generation history (N snapshots per slot, previous gen is backup on corruption), binary blobs (stored as separate files per blob key), thumbnails (PNG/WebP bytes), and arbitrary properties (game mode, playtime, etc.). Uses `createSyncAccessHandle()` in workers (sync I/O) or `createWritable()` on main thread. Directory layout: `downdraft/saves/<slot>/meta.json` + `thumbnail.png` + `gen/<NNNN>/body.zst` + `body.hash` + `blobs/<key>`. The `meta.json` file is the commit point — written last after body + blobs. 22 tests in `opfs-save-store.spec.ts` (uses mock OPFS via `mock-opfs.ts`).
 
@@ -480,7 +483,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Devtools material editor
 
-`BaseSceneInspector` (`packages/plugins/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`). The editor UI (`packages/ui/src/editor/material-graph/material-graph-editor.tsx`) has a synced node palette (all compiler node types) and a Preview button.
+`BaseSceneInspector` (`packages/modules/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`). The editor UI (`packages/ui/src/editor/material-graph/material-graph-editor.tsx`) has a synced node palette (all compiler node types) and a Preview button.
 
 ### Hot reload
 
@@ -538,7 +541,7 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 
 ### Migration status
 
-- `ModelRenderer` (plugin-entities) — fully bindless. `setBindlessDeps()` + `setBindlessBindGroup()` wire the registry/material manager. The model shader samples albedo from `albedoArrays[arr]` using the material's `albedoTex` handle.
+- `ModelRenderer` (module-entities) — fully bindless. `setBindlessDeps()` + `setBindlessBindGroup()` wire the registry/material manager. The model shader samples albedo from `albedoArrays[arr]` using the material's `albedoTex` handle.
 - `PlayerMeshRenderer` (to-the-ocean) — fully bindless. Player texture registered via `BindlessTextureRegistry.registerFromImageBitmap`. `materialIndex` written into the entity uniform at float slot 44.
 - `OpaquePass` PBR path — fully bindless. `PBRMaterialResources` uses `*TextureSourceId` fields. `setBindlessDeps()` wires the registry. `materialIndex` uniform at `@group(0) binding(3)`.
 - `DecalPass` — fully bindless. Per-item bind group creation eliminated; bind group created once per pass. `materialIndex` in the decal uniform.
@@ -556,11 +559,11 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - **Raw fast-path handle mapping:** The `*Raw` methods in `rapier-backend.ts` receive `bodyId` (the game's `PhysicsBody.id`, sequential: 1, 2, 3...) but must pass the **Rapier rigid-body handle** (`body.handle`, starts at 0) to WASM functions like `rbSetTranslation`. The raw fast paths look up the `RigidBody` from `bodyMaps` to get `body.handle`. Passing `bodyId` directly causes out-of-bounds WASM access that corrupts internal state and triggers the aliasing panic.
 - **`swapColliderShapeRaw` shape type:** `ColliderDesc.trimesh()` returns a `SharedShape` (Eg) which stores vertices/indices but does NOT hold a `RawColliderShape`. `coSetShape` expects a `RawShape` (OA). Call `shape.intoRaw()` to get the `RawColliderShape`, pass it to `coSetShape`, then `.free()` it.
 
-## Universal Physics Plugin (physics-rapier 0.2.0)
+## Universal Physics Module (physics-rapier 0.2.0)
 
 - The `PhysicsBackend` interface is now `PhysicsBody`-keyed (opaque body refs). Raw Rapier `RigidBodyHandle` is no longer exported from `@downdraft/core`.
 - Multi-realm LOD: `RealmManager` drives near/mid/far tiers with promote/demote + dwell hysteresis. Static bodies are duplicated into all realms by default.
-- `UniversalPhysicsAPI` (`@downdraft/plugin-physics-rapier`) is the single public surface: body lifecycle, validated state access, realm queries, interpolation, raycast, snapshots, hooks.
+- `UniversalPhysicsAPI` (`@downdraft/module-physics-rapier`) is the single public surface: body lifecycle, validated state access, realm queries, interpolation, raycast, snapshots, hooks.
 - Subsystems: `PhysicsAccumulator` (fixed timestep), `InterpolationBuffer` (double-buffered), `LoadShedder` (island-aware freeze), `SafetyLayer` (NaN/Inf + hard-lock), `CCDHeuristic` (per-body), `SnapshotManager` (multiplayer), `RealmWorkerPool` (nested-worker parallelism, `workerCount:0` = single-threaded).
 - `PhysicsSystem` (ECS, `Stage.Physics`) wires all subsystems together; created via `createPhysicsSystem(resources)`.
 - Demo: `examples/physics-demo/main.ts` exercises realms, transfers, CCD, NaN injection, snapshot/restore.
@@ -733,8 +736,8 @@ The CLI reads and sets a number of environment variables. This is the complete l
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `DOWNDRAFT_STRICT` | `packages/core/src/plugin/diagnostics.ts` | `0`/`1` force-disable/enable plugin DI validation (else = Vite dev mode) |
-| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/plugins/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
+| `DOWNDRAFT_STRICT` | `packages/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
+| `DOWNDRAFT_OSR_DISABLE_SHARED_TEXTURE` | `packages/modules/electron-osr/.../osr-renderer.ts` | `1`/`true` disables OSR shared-texture path |
 | `DOWNDRAFT_MCP` | `packages/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/app/src/main/handlers/devtools.ts` | `1` disables devtools auto-open (set by `draft debug --no-devtools`) |
 
@@ -889,8 +892,8 @@ The shell's `MainActivity.java` / `AppDelegate.swift` / `SceneDelegate.swift` al
 
 ### Architecture: what is portable vs Electron-only
 
-- **Already web-portable (runs unchanged in a WebView):** `packages/core/src/render/*`, `packages/core/src/worker/*`, `packages/core/src/sab/*`, `packages/core/src/input/*`, `packages/core/src/ecs/*`, all `packages/libraries/*`, all `packages/plugins/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
-- **Electron-only (replaced/skipped on mobile):** `packages/app/src/main/*` (Electron main process), `packages/app/src/preload/*` (IPC bridge), `packages/plugins/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft release --target=win,linux,mac` (electron-builder desktop packaging).
+- **Already web-portable (runs unchanged in a WebView):** `packages/core/src/render/*`, `packages/core/src/worker/*`, `packages/core/src/sab/*`, `packages/core/src/input/*`, `packages/core/src/ecs/*`, all `packages/libraries/*`, all `packages/modules/*` (except `electron-osr`), `packages/shader-graph`, `packages/ui`, `packages/mcp`, and `packages/app/src/renderer/*` (the `downdraft` bridge accessor already returns a stub when `window.downdraft` is absent).
+- **Electron-only (replaced/skipped on mobile):** `packages/app/src/main/*` (Electron main process), `packages/app/src/preload/*` (IPC bridge), `packages/modules/electron-osr/*` (Offscreen Rendering), `electron.vite.config.ts` / `createDowndraftViteConfig()` (electron-vite build), `draft release --target=win,linux,mac` (electron-builder desktop packaging).
 
 ### Gating constraints
 

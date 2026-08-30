@@ -1,5 +1,5 @@
-import type { Bone, SkeletonData } from "@downdraft/library-animation";
-import { Skeleton } from "@downdraft/library-animation";
+import type { Bone, SkeletonData } from "../animation";
+import { Skeleton } from "../animation";
 import { query } from "../ecs/query";
 import { World } from "../ecs/world";
 import type { BodyDesc, CharacterControllerDesc, CharacterControllerHandle, CharacterMoveResult, ContactManifold, Entity, PhysicsBackend, PhysicsRealmConfig, RaycastResult, RigidBodyHandle, ShapeCastResult } from "./interface";

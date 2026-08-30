@@ -100,11 +100,11 @@
       "@downdraft/library-models/*": [
         "./packages/libraries/models/src/*"
       ],
-      "@downdraft/plugin-devtools": [
-        "./packages/plugins/devtools/src/index.ts"
+      "@downdraft/module-devtools": [
+        "./packages/modules/devtools/src/index.ts"
       ],
-      "@downdraft/plugin-devtools/*": [
-        "./packages/plugins/devtools/src/*"
+      "@downdraft/module-devtools/*": [
+        "./packages/modules/devtools/src/*"
       ],
       "@to-the-ocean/util/*": [
         "./games/to-the-ocean/src/util/*"

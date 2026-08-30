@@ -17,8 +17,8 @@ export interface RendererFeatureLogOptions {
   engineVersion?: string;
   isDev: boolean;
   deterministic: boolean;
-  /** Optional getter for active plugin names (e.g. () => gameWorld.pluginHost.listPlugins()). */
-  getActivePlugins?: () => string[];
+  /** Optional getter for active plugin names (e.g. () => gameWorld.moduleHost.listModules()). */
+  getActiveModules?: () => string[];
 }
 
 let cachedRendererFeatureLog: FeatureLogData | null = null;
@@ -31,7 +31,7 @@ let cachedRendererFeatureLog: FeatureLogData | null = null;
  * omitted (additive schema tolerates absence).
  */
 export function collectRendererFeatureLog(opts: RendererFeatureLogOptions): FeatureLogData {
-  const { renderer, isDev, deterministic, getActivePlugins } = opts;
+  const { renderer, isDev, deterministic, getActiveModules } = opts;
   const v = opts.engineVersion ?? ENGINE_VERSION;
 
   const data: FeatureLogData = {
@@ -100,9 +100,9 @@ export function collectRendererFeatureLog(opts: RendererFeatureLogOptions): Feat
   data.wk = "na";
 
   // --- Active plugins ---
-  if (getActivePlugins) {
+  if (getActiveModules) {
     try {
-      const plugins = getActivePlugins();
+      const plugins = getActiveModules();
       if (plugins && plugins.length > 0) {
         data.plug = plugins.join(",");
       }

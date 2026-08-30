@@ -3,7 +3,7 @@
 // Extracted from WebGPURenderer's input handling logic.
 // ============================================================================
 
-import { UIInputRouter } from "@downdraft/library-imui";
+import { UIInputRouter } from "../imui";
 
 export interface RenderInputState {
   keysDown: Set<number>;

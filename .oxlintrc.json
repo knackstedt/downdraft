@@ -19,7 +19,7 @@
   "overrides": [
     {
       "files": [
-        "packages/plugins/devtools/extension/**/*.js",
+        "packages/modules/devtools/extension/**/*.js",
         "docs/site/src/pages/index.astro"
       ],
       "rules": {

@@ -74,9 +74,9 @@ World management, entity bodies, characters, island/ship colliders, tick in one 
 
 ### 9. SceneInspector.ts (445 lines)
 **Current:** `games/to-the-ocean/src/engine/scene-inspector.ts`
-Now extends `BaseSceneInspector` from `@downdraft/plugin-devtools`. At 445 lines it
+Now extends `BaseSceneInspector` from `@downdraft/module-devtools`. At 445 lines it
 is below the original threshold for splitting. GPU info and profiling logic largely
-moved to the plugin. **No further split needed** unless it grows again.
+moved to the module. **No further split needed** unless it grows again.
 
 ## Execution Strategy
 1. Extract modules with clean import boundaries first

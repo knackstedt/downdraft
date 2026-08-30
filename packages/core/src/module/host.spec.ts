@@ -1,0 +1,334 @@
+import { component } from "../ecs/component";
+import { resourceToken } from "../ecs/resource";
+import { World } from "../ecs/world";
+import { setStrict } from "./diagnostics";
+import { ModuleHost } from "./host";
+import type { Module, ModuleContext } from "./module";
+import { ModuleRegistry } from "./registry";
+
+// Minimal plugins for testing activation order.
+// Each records its name into an array when register() is called.
+function makeModule(name: string, dependencies?: string[]): { plugin: Module; register: () => void } {
+  let called = false;
+  const plugin: Module = {
+    name,
+    version: "1.0.0",
+    dependencies,
+    register(ctx: ModuleContext) {
+      called = true;
+      // Touch the context to ensure it doesn't throw
+      ctx.onDispose(() => {});
+    },
+  };
+  return { plugin, register: () => { if (!called) throw new Error(`${name} was not activated`); } };
+}
+
+describe("ModuleRegistry", () => {
+  it("resolves dependency order via topological sort", () => {
+    const reg = new ModuleRegistry();
+    // Register in dependency-first order (required by register())
+    const a = makeModule("a");
+    const b = makeModule("b", ["a"]);
+    const c = makeModule("c", ["a", "b"]);
+    reg.register(a.plugin);
+    reg.register(b.plugin);
+    reg.register(c.plugin);
+
+    const order = reg.resolveOrder();
+    expect(order).toEqual(["a", "b", "c"]);
+  });
+
+  it("resolves diamond dependencies", () => {
+    const reg = new ModuleRegistry();
+    const a = makeModule("a");
+    const b = makeModule("b", ["a"]);
+    const c = makeModule("c", ["a"]);
+    const d = makeModule("d", ["b", "c"]);
+    reg.register(a.plugin);
+    reg.register(b.plugin);
+    reg.register(c.plugin);
+    reg.register(d.plugin);
+
+    const order = reg.resolveOrder();
+    // a must come first; d must come last; b and c can be in either order
+    expect(order[0]).toBe("a");
+    expect(order[order.length - 1]).toBe("d");
+    expect(order.indexOf("b")).toBeGreaterThan(order.indexOf("a"));
+    expect(order.indexOf("c")).toBeGreaterThan(order.indexOf("a"));
+    expect(order.indexOf("d")).toBeGreaterThan(order.indexOf("b"));
+    expect(order.indexOf("d")).toBeGreaterThan(order.indexOf("c"));
+  });
+
+  it("throws when registering a plugin with unregistered dependency", () => {
+    const reg = new ModuleRegistry();
+    const b = makeModule("b", ["a"]);
+    expect(() => reg.register(b.plugin)).toThrow("requires \"a\"");
+  });
+
+  it("unregister removes from load order", () => {
+    const reg = new ModuleRegistry();
+    const a = makeModule("a");
+    reg.register(a.plugin);
+    expect(reg.has("a")).toBe(true);
+    reg.unregister("a");
+    expect(reg.has("a")).toBe(false);
+    expect(reg.resolveOrder()).toEqual([]);
+  });
+});
+
+describe("ModuleHost activation", () => {
+  function makeWorld(): World {
+    const world = new World();
+    // Register a dummy component so the world is usable
+    component("Dummy", { x: 0 });
+    return world;
+  }
+
+  it("registerModule activates immediately", () => {
+    const host = new ModuleHost(makeWorld());
+    let activated = false;
+    const plugin: Module = {
+      name: "test-immediate",
+      version: "1.0.0",
+      register() { activated = true; },
+    };
+    host.registerModule(plugin);
+    expect(activated).toBe(true);
+    expect(host.listModules()).toContain("test-immediate");
+  });
+
+  it("registerModuleDeferred + activateAll activates in dependency order", () => {
+    const host = new ModuleHost(makeWorld());
+    const activationOrder: string[] = [];
+
+    const a: Module = {
+      name: "a",
+      version: "1.0.0",
+      register() { activationOrder.push("a"); },
+    };
+    const b: Module = {
+      name: "b",
+      version: "1.0.0",
+      dependencies: ["a"],
+      register() { activationOrder.push("b"); },
+    };
+    const c: Module = {
+      name: "c",
+      version: "1.0.0",
+      dependencies: ["a", "b"],
+      register() { activationOrder.push("c"); },
+    };
+
+    // Register in dependency order (required by registry)
+    host.registerModuleDeferred(a);
+    host.registerModuleDeferred(b);
+    host.registerModuleDeferred(c);
+
+    // None should be activated yet
+    expect(activationOrder).toEqual([]);
+
+    host.activateAll();
+    expect(activationOrder).toEqual(["a", "b", "c"]);
+  });
+
+  it("activateAll is idempotent — calling twice does not re-activate", () => {
+    const host = new ModuleHost(makeWorld());
+    const activationOrder: string[] = [];
+
+    const a: Module = {
+      name: "a",
+      version: "1.0.0",
+      register() { activationOrder.push("a"); },
+    };
+    host.registerModuleDeferred(a);
+    host.activateAll();
+    expect(activationOrder).toEqual(["a"]);
+
+    // Second call should not re-activate
+    host.activateAll();
+    expect(activationOrder).toEqual(["a"]);
+  });
+
+  it("disposeAll disposes in reverse dependency order", () => {
+    const host = new ModuleHost(makeWorld());
+    const disposeOrder: string[] = [];
+
+    const a: Module = {
+      name: "a",
+      version: "1.0.0",
+      register(ctx) { ctx.onDispose(() => disposeOrder.push("a")); },
+    };
+    const b: Module = {
+      name: "b",
+      version: "1.0.0",
+      dependencies: ["a"],
+      register(ctx) { ctx.onDispose(() => disposeOrder.push("b")); },
+    };
+    const c: Module = {
+      name: "c",
+      version: "1.0.0",
+      dependencies: ["a", "b"],
+      register(ctx) { ctx.onDispose(() => disposeOrder.push("c")); },
+    };
+
+    host.registerModuleDeferred(a);
+    host.registerModuleDeferred(b);
+    host.registerModuleDeferred(c);
+    host.activateAll();
+
+    host.disposeAll();
+    // Reverse order: c, b, a
+    expect(disposeOrder).toEqual(["c", "b", "a"]);
+  });
+
+  it("unloadModule removes plugin and runs disposers", () => {
+    const host = new ModuleHost(makeWorld());
+    let disposed = false;
+    const plugin: Module = {
+      name: "test-unload",
+      version: "1.0.0",
+      register(ctx) { ctx.onDispose(() => { disposed = true; }); },
+    };
+    host.registerModule(plugin);
+    expect(host.getModule("test-unload")).toBeDefined();
+
+    host.unloadModule("test-unload");
+    expect(disposed).toBe(true);
+    expect(host.getModule("test-unload")).toBeUndefined();
+  });
+
+  it("onDispose callbacks are called in reverse registration order", () => {
+    const host = new ModuleHost(makeWorld());
+    const calls: number[] = [];
+    const plugin: Module = {
+      name: "test-dispose-order",
+      version: "1.0.0",
+      register(ctx) {
+        ctx.onDispose(() => calls.push(1));
+        ctx.onDispose(() => calls.push(2));
+        ctx.onDispose(() => calls.push(3));
+      },
+    };
+    host.registerModule(plugin);
+    host.unloadModule("test-dispose-order");
+    // Disposers run in reverse: 3, 2, 1
+    expect(calls).toEqual([3, 2, 1]);
+  });
+
+  it("registerSystemObject adds to world schedule", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    let systemAdded = false;
+    const plugin: Module = {
+      name: "test-system",
+      version: "1.0.0",
+      register(ctx) {
+        const originalAdd = world.schedule.add.bind(world.schedule);
+        world.schedule.add = (sys) => {
+          systemAdded = true;
+          originalAdd(sys);
+        };
+        ctx.registerSystemObject({
+          name: "test-sys",
+          stage: "update" as never,
+          fn: () => {},
+          queries: [],
+        });
+      },
+    };
+    host.registerModule(plugin);
+    expect(systemAdded).toBe(true);
+  });
+
+  it("provide/inject stores and retrieves typed values", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    const TestResource = resourceToken<{ count: number }>("test:resource");
+    const testValue = { count: 42 };
+    const plugin: Module = {
+      name: "test-resource",
+      version: "1.0.0",
+      provides: [TestResource],
+      register(ctx) {
+        ctx.provide(TestResource, testValue);
+        // Round-trip: inject what we just provided
+        const got = ctx.inject(TestResource);
+        expect(got).toBe(testValue);
+      },
+    };
+    host.registerModule(plugin);
+  });
+
+  it("inject throws on missing provider", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    const MissingResource = resourceToken<unknown>("missing:resource");
+    const plugin: Module = {
+      name: "test-inject-missing",
+      version: "1.0.0",
+      register(ctx) {
+        expect(() => ctx.inject(MissingResource)).toThrow();
+      },
+    };
+    host.registerModule(plugin);
+  });
+
+  it("injectOptional returns undefined on missing provider", () => {
+    const world = makeWorld();
+    const host = new ModuleHost(world);
+    const MissingResource = resourceToken<unknown>("missing:resource");
+    const plugin: Module = {
+      name: "test-inject-optional",
+      version: "1.0.0",
+      register(ctx) {
+        expect(ctx.injectOptional(MissingResource)).toBeUndefined();
+      },
+    };
+    host.registerModule(plugin);
+  });
+
+  it("STRICT: duplicate provide throws DiagnosticError", () => {
+    setStrict(true);
+    try {
+      const world = makeWorld();
+      const host = new ModuleHost(world);
+      const DupResource = resourceToken<unknown>("dup:resource");
+      const pluginA: Module = {
+        name: "a",
+        version: "1.0.0",
+        provides: [DupResource],
+        register(ctx) { ctx.provide(DupResource, "from-a"); },
+      };
+      const pluginB: Module = {
+        name: "b",
+        version: "1.0.0",
+        provides: [DupResource],
+        register(ctx) { ctx.provide(DupResource, "from-b"); },
+      };
+      host.registerModuleDeferred(pluginA);
+      host.registerModuleDeferred(pluginB);
+      expect(() => host.activateAll()).toThrow(/already provided/);
+    } finally {
+      setStrict(false);
+    }
+  });
+
+  it("STRICT: missing requires throws with both plugin names", () => {
+    setStrict(true);
+    try {
+      const world = makeWorld();
+      const host = new ModuleHost(world);
+      const NeededResource = resourceToken<unknown>("needed:resource");
+      const consumer: Module = {
+        name: "consumer",
+        version: "1.0.0",
+        requires: [NeededResource],
+        register() {},
+      };
+      host.registerModuleDeferred(consumer);
+      expect(() => host.activateAll()).toThrow(/consumer.*needed:resource/);
+    } finally {
+      setStrict(false);
+    }
+  });
+});

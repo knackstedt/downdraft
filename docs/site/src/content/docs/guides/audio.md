@@ -9,9 +9,9 @@ DownDraft provides a pluggable audio system with a Kira backend via Rust FFI.
 
 ```typescript
 import { AudioEngine, createAudioSource } from "@downdraft/core";
-import { AudioKiraPlugin } from "@downdraft/plugin-audio-kira";
+import { AudioKiraModule } from "@downdraft/module-audio-kira";
 
-gameWorld.usePlugin(AudioKiraPlugin);
+gameWorld.useModule(AudioKiraModule);
 const source = createAudioSource({ buffer: "explosion.wav", volume: 0.8 });
 ```
 

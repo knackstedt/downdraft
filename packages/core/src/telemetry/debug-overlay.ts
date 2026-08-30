@@ -1,4 +1,4 @@
-import { UIPanel, UIRoot, UIText, type UIColor } from "@downdraft/library-imui";
+import { UIPanel, UIRoot, UIText, type UIColor } from "../imui";
 import type { TelemetryCollector } from "./collector";
 
 export interface DebugOverlayConfig {

@@ -314,7 +314,7 @@ export async function createWindow(opts: CreateWindowOptions): Promise<BrowserWi
   // Load DevTools extension for 3D Scene Inspector (only when DevTools is available)
   if (devtools.enabled) {
     const devtoolsExtPath = isDev
-      ? join(__dirname, "../../packages/plugins/devtools/extension")
+      ? join(__dirname, "../../packages/modules/devtools/extension")
       : join(process.resourcesPath, "devtools-extension");
 
     if (existsSync(devtoolsExtPath)) {

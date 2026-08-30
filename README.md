@@ -55,14 +55,14 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
     │  Sim Web Worker    │
     │  (ECS World,       │
     │   game systems,    │
-    │   physics, plugins)│
+    │   physics, modules)│
     └────────────────────┘
 └─────────────────────────────────────────────┘
 ```
 
 - **Electron Main Process** — Window/lifecycle management, IPC handlers, GC/perf profiling, save/load (filesystem-based `FileSaveStore`). No render loop here. No IPC bottlenecks, no complexity.
 - **Renderer Process** — React UI overlay + WebGPU `<canvas>` rendering. The `RenderLoop` runs here via `requestAnimationFrame`. Persistence uses an OPFS Web Worker for renderer-side saves.
-- **Sim Web Worker** — Spawned from the renderer. Runs the ECS `World`, game systems, physics, and plugins. Communicates with the renderer via `SharedArrayBuffer` (zero-copy) and postMessage events.
+- **Sim Web Worker** — Spawned from the renderer. Runs the ECS `World`, game systems, physics, and modules. Communicates with the renderer via `SharedArrayBuffer` (zero-copy) and postMessage events.
 
 ## Packages
 
@@ -70,7 +70,7 @@ See `AGENTS.md` for the full host SDK reference (subpath exports, config-driven 
 
 | Package | Description |
 |---|---|
-| `@downdraft/core` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, plugins, particles, animation, physics, audio, assets, save system |
+| `@downdraft/core` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
 | `@downdraft/app` | Electron app shell: main process, preload, renderer entry |
 | `@downdraft/ui` | React UI: devtools panel, profiler, material graph editor, animation state machine editor, asset browser |
 | `@downdraft/mcp` | MCP server for AI agent interaction (JSON-RPC over stdio) |
@@ -96,35 +96,32 @@ Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 | `@downdraft/library-postfx` | Post-processing effects |
 | `@downdraft/library-entities` | Generic model renderer used by multiple games |
 | `@downdraft/library-models` | Model loading and management |
-| `@downdraft/library-animation` | Animation system |
-| `@downdraft/library-particles` | Particle system and emitters |
 | `@downdraft/library-navmesh` | Navigation mesh generation and pathfinding |
 | `@downdraft/library-persistence` | Save/load (filesystem + OPFS worker) |
 | `@downdraft/library-gaussian-splats` | Gaussian splat rendering |
 | `@downdraft/library-sand` | Falling-sand simulation |
 | `@downdraft/library-stickman` | Stickman character system |
 | `@downdraft/library-undertow` | Worker-side UI (Solid-in-worker DOM sync) |
-| `@downdraft/library-imui` | Immediate-mode UI |
 
-### Engine plugins (`packages/plugins/`)
+### Engine modules (`packages/modules/`)
 
-Feature plugins use the factory pattern (`createXxxPlugin(config)`) and provide typed DI tokens. Games register them via `pluginHost.usePlugins([...])`.
+Feature modules use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])`.
 
 | Package | Description |
 |---|---|
-| `@downdraft/plugin-camera-controls` | Camera input and control modes |
-| `@downdraft/plugin-devtools` | DevTools overlay panel + Chromium DevTools extension (3D Scene Inspector) |
-| `@downdraft/plugin-electron-osr` | Electron offscreen rendering |
-| `@downdraft/plugin-mcp` | In-game MCP automation harness |
-| `@downdraft/plugin-xr` | WebXR / VR support |
-| `@downdraft/plugin-terrain` | Terrain system |
-| `@downdraft/plugin-movement-3d` | 3D movement system |
-| `@downdraft/plugin-movement-2d` | 2D movement system |
-| `@downdraft/plugin-sailing` | Sailing mechanics |
+| `@downdraft/module-camera-controls` | Camera input and control modes |
+| `@downdraft/module-devtools` | DevTools overlay panel + Chromium DevTools extension (3D Scene Inspector) |
+| `@downdraft/module-electron-osr` | Electron offscreen rendering |
+| `@downdraft/module-mcp` | In-game MCP automation harness |
+| `@downdraft/module-xr` | WebXR / VR support |
+| `@downdraft/module-terrain` | Terrain system |
+| `@downdraft/module-movement-3d` | 3D movement system |
+| `@downdraft/module-movement-2d` | 2D movement system |
+| `@downdraft/module-sailing` | Sailing mechanics |
 
-### Game plugins / libraries (`games/<game>/plugins/`)
+### Game modules / libraries (`games/<game>/modules/` + `games/<game>/libraries/`)
 
-Game-specific features live under each game's `plugins/` directory. No engine package depends on any game package. Games organize their features as `@<game-scope>/plugin-*` (lifecycle + typed DI) or `@<game-scope>/library-*` (bare classes) packages, following the same engine library/plugin split described above.
+Game-specific features live under each game's `modules/` and `libraries/` directories. No engine package depends on any game package. Games organize their features as `@<game-scope>/module-*` (lifecycle + typed DI) or `@<game-scope>/library-*` (bare classes) packages, following the same engine library/module split described above.
 
 ## CLI Commands
 
@@ -222,7 +219,7 @@ Real-time frame time graph with CPU/GPU timing, p50/p95/p99 statistics, and per-
 Wireframe, hitboxes, normals, velocity, shadows, bloom, AABBs, overdraw, LOD visualization, depth buffer, and tangents.
 
 ### Chrome DevTools Extension
-A custom DevTools extension (`packages/plugins/devtools/extension/`) provides a 3D Scene Inspector when loaded into Chromium DevTools.
+A custom DevTools extension (`packages/modules/devtools/extension/`) provides a 3D Scene Inspector when loaded into Chromium DevTools.
 
 ## Tutorials
 
@@ -266,7 +263,7 @@ particles.update(dt);
 particles.render(renderCtx, camera.getViewProjectionMatrix(), camera.position);
 ```
 
-### Using Plugins
+### Using Modules
 
 Engine libraries expose `EngineLibrary` descriptors and are wired declaratively via `startGame()`:
 
@@ -287,7 +284,7 @@ startGame({
 });
 ```
 
-Feature plugins (e.g. `@downdraft/plugin-terrain`, `@downdraft/plugin-movement-3d`) use the factory pattern and are activated via `pluginHost.usePlugins([...])`. See `AGENTS.md` for the full plugin/library contract.
+Feature modules (e.g. `@downdraft/module-terrain`, `@downdraft/module-movement-3d`) use the factory pattern and are activated via `moduleHost.useModules([...])`. See `AGENTS.md` for the full module/library contract.
 
 ## Mobile Development (Android) — Experimental
 

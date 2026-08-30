@@ -284,8 +284,8 @@ export interface GameModule<Sim extends GameSimWorker = GameSimWorker> {
 
   // ── Feature log ──
   /** Optional getter for active plugin names (populates the `plug` field of the
-   *  renderer feature log line). e.g. () => gameWorld.pluginHost.listPlugins() */
-  getActivePlugins?: () => string[];
+   *  renderer feature log line). e.g. () => gameWorld.moduleHost.listModules() */
+  getActiveModules?: () => string[];
 }
 
 // ── startGame() ──
@@ -412,7 +412,7 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
     canvasLayer: module.canvasLayer,
     overlayLayer: module.overlayLayer,
     fpsPollIntervalMs: module.fpsPollIntervalMs,
-    getActivePlugins: module.getActivePlugins,
+    getActiveModules: module.getActiveModules,
 
     mountUI: module.mountUI
       ? (overlayEl) => module.mountUI!(overlayEl, ctx)
@@ -432,16 +432,16 @@ export async function startGame<Sim extends GameSimWorker>(module: GameModule<Si
       if (libHost && r) {
         const device = r.getDevice?.();
         const format = r.getFormat?.();
-        const pluginHost = r.getRendererPluginHost?.();
+        const moduleHost = r.getRendererModuleHost?.();
         const libProvide = (token: any, value: unknown) => {
-          if (pluginHost) pluginHost.provideExternal("library", token, value);
+          if (moduleHost) moduleHost.provideExternal("library", token, value);
         };
         const libInject = (token: any) => {
-          if (pluginHost) return pluginHost.injectResource(token);
+          if (moduleHost) return moduleHost.injectResource(token);
           throw new Error(`Library inject("${token.key}") failed — no renderer plugin host available`);
         };
         const libInjectOptional = (token: any) => {
-          if (pluginHost) return pluginHost.injectResourceOptional(token);
+          if (moduleHost) return moduleHost.injectResourceOptional(token);
           return undefined;
         };
         libHost.createRenderer({ provide: libProvide, inject: libInject, injectOptional: libInjectOptional });

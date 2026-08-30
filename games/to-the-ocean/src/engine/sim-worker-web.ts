@@ -7,7 +7,7 @@
 import { GCController, InputBufferReader, PLR_FLAG, SimBufferWriter, SimStateHelper, SimWorkerLoop, TransientStateRegistry, startGCProfiler, type GCControllerConfig, type GCControllerStats, type GCProfilerHandle, type GCStats, type LoadOptions, type SaveOptions } from "@downdraft/core";
 import { expose, exposeEvents, getWorkerHost } from "@downdraft/core/worker/rpc";
 import { OpfsSaveStore, type OpfsSaveStoreOptions } from "@downdraft/library-persistence/browser";
-import { allocateDevToolsSAB, attachDevToolsSAB, devtools, exposeDevToolsApi } from "@downdraft/plugin-devtools";
+import { allocateDevToolsSAB, attachDevToolsSAB, devtools, exposeDevToolsApi } from "@downdraft/module-devtools";
 import { WaterBufferWriter } from "@downdraft/library-water";
 import { MAX_SIM_SPEED, MIN_SIM_SPEED, SIM_TICK_DT } from "@shared/constants/buffer";
 import { SimToMainMessage } from "@shared/types";
