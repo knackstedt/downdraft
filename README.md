@@ -9,7 +9,7 @@ An AI-Driven Game Engine built on **Electron + electron-vite + WebGPU** (TypeScr
 bun install
 
 # Run a game from its own directory (each game owns its electron.vite.config.ts)
-cd games/to-the-ocean
+cd games/<your-game>
 draft dev
 
 # Build for production
@@ -124,20 +124,7 @@ Feature plugins use the factory pattern (`createXxxPlugin(config)`) and provide 
 
 ### Game plugins / libraries (`games/<game>/plugins/`)
 
-Game-specific features live under each game's `plugins/` directory. No engine package depends on any game package. Examples from `games/to-the-ocean/plugins/`:
-
-| Package | Description |
-|---|---|
-| `@to-the-ocean/plugin-inventory` | Inventory management |
-| `@to-the-ocean/plugin-crafting` | Crafting recipes and system |
-| `@to-the-ocean/library-boats` | Boat design system and boat data buffer |
-| `@to-the-ocean/library-items` | Item definitions and registry |
-| `@to-the-ocean/library-economy` | Market system and price history |
-| `@to-the-ocean/library-fishing` | Fishing mechanics |
-| `@to-the-ocean/library-survival` | Survival mechanics |
-| `@to-the-ocean/library-wildlife` | Wildlife simulation |
-| `@to-the-ocean/library-buoyancy` | Buoyancy system |
-| `@to-the-ocean/library-collision` | Collision system |
+Game-specific features live under each game's `plugins/` directory. No engine package depends on any game package. Games organize their features as `@<game-scope>/plugin-*` (lifecycle + typed DI) or `@<game-scope>/library-*` (bare classes) packages, following the same engine library/plugin split described above.
 
 ## CLI Commands
 
@@ -323,23 +310,23 @@ export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ```
 
-### Build + run sandjongg on Android
+### Build + run a game on Android
 
-1. **Build + run on device/emulator** — use the VSCode task `Android: Sandjongg (build + run on device/emulator)`, or run manually:
+1. **Build + run on device/emulator** — use the VSCode task `Android: <game> (build + run on device/emulator)`, or run manually:
 
    ```bash
    # Build web bundle + scaffold Android project
-   bun run packages/cli/src/index.ts mobile --game=sandjongg --target=android
+   bun run packages/cli/src/index.ts mobile --game=<your-game> --target=android
 
    # Assemble debug APK
-   cd games/sandjongg/android
+   cd games/<your-game>/android
    echo "sdk.dir=$ANDROID_HOME" > local.properties
    ./gradlew assembleDebug
 
    # Install + launch (starts emulator if none connected)
    adb install -r app/build/outputs/apk/debug/app-debug.apk
    adb shell "echo 'webview --enable-features=SharedArrayBuffer' > /data/local/tmp/webview-command-line"
-   adb shell am start -n com.downdraft.sandjongg/com.downdraft.shell.MainActivity
+   adb shell am start -n com.downdraft.<your-game>/com.downdraft.shell.MainActivity
    ```
 
    The VSCode task automates all of this — including starting an emulator if no device is connected and enabling the SharedArrayBuffer flag. The app starts an embedded HTTP server (COOP/COEP headers for SharedArrayBuffer) and loads the WebView from `http://127.0.0.1:8765`.
@@ -347,7 +334,7 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 2. **Open in Android Studio** (optional, for debugging native code):
 
    ```bash
-   cd games/sandjongg && bunx cap open android
+   cd games/<your-game> && bunx cap open android
    ```
 
 ### SharedArrayBuffer on Android WebView
@@ -371,7 +358,7 @@ adb shell "echo 'webview --enable-features=SharedArrayBuffer' > /data/local/tmp/
 | "SharedArrayBuffer is not available" | Set the `--enable-features=SharedArrayBuffer` WebView flag (see above) |
 | "WebGPU is not available" | Use an emulator with Google Play services (includes WebView 121+) or a physical device with Chrome 121+ |
 | Build fails: `JAVA_HOME` not set | `export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64` |
-| Build fails: `sdk.dir` not found | `echo "sdk.dir=$ANDROID_HOME" > games/sandjongg/android/local.properties` |
+| Build fails: `sdk.dir` not found | `echo "sdk.dir=$ANDROID_HOME" > games/<your-game>/android/local.properties` |
 
 ### WebGPU on the Android emulator — known limitation
 
