@@ -259,12 +259,15 @@ describe("GraphCompiler", () => {
     g.addNode({ id: "out", type: "output", inputs: { value: "" }, outputs: {}, properties: {} });
     g.connect("n", "value", "out", "value");
     const compiler = new GraphCompiler();
-    const wgsl = compiler.compile(g, { profile: PBR_PROFILE });
-    expect(wgsl).toContain("entityPos");
-    expect(wgsl).toContain("entityScale");
-    expect(wgsl).toContain("qrotate");
-    expect(wgsl).toContain("sunDirIntensity");
-    expect(wgsl).toContain("fogColor");
+    const result = compiler.compileDetailed(g, { profile: PBR_PROFILE });
+    // Regression guard: the PBR profile's chunks (pbr_lighting → dynamic_lights)
+    // must NOT re-declare @group/@binding var that buildBindGroupDecls also emits.
+    expect(result.errors).toHaveLength(0);
+    expect(result.wgsl).toContain("entityPos");
+    expect(result.wgsl).toContain("entityScale");
+    expect(result.wgsl).toContain("qrotate");
+    expect(result.wgsl).toContain("sunDirIntensity");
+    expect(result.wgsl).toContain("fogColor");
   });
 
   it("should compile with PBR profile and generate pbrLighting call", () => {
@@ -296,10 +299,14 @@ describe("GraphCompiler", () => {
     g.addNode({ id: "out", type: "output", inputs: { value: "" }, outputs: {}, properties: {} });
     g.connect("n", "value", "out", "value");
     const compiler = new GraphCompiler();
-    const wgsl = compiler.compile(g, { profile: PBR_INSTANCED_PROFILE });
-    expect(wgsl).toContain("instance_index");
-    expect(wgsl).toContain("InstanceData");
-    expect(wgsl).toContain("instances");
+    const result = compiler.compileDetailed(g, { profile: PBR_INSTANCED_PROFILE });
+    // Regression guard: PBR_INSTANCED_PROFILE uses chunks dynamic_lights +
+    // pbr_functions (pbr_bindings removed); lightData is declared once by the
+    // compiler from profile.bindGroups with typeWgsl "LightStorage".
+    expect(result.errors).toHaveLength(0);
+    expect(result.wgsl).toContain("instance_index");
+    expect(result.wgsl).toContain("InstanceData");
+    expect(result.wgsl).toContain("instances");
   });
 
   it("should compile with skinned profile and generate skinning code", () => {
@@ -351,10 +358,15 @@ describe("GraphCompiler", () => {
     g.connect("wp", "value", "dl", "worldPos");
     g.connect("dl", "value", "out", "value");
     const compiler = new GraphCompiler();
-    const wgsl = compiler.compile(g, { profile: PBR_PROFILE });
-    expect(wgsl).toContain("applyDynamicLights(");
-    expect(wgsl).toContain("PointLight");
-    expect(wgsl).toContain("SpotLight");
+    const result = compiler.compileDetailed(g, { profile: PBR_PROFILE });
+    // Regression guard: the dynamic_lights chunk references `lightData`, which
+    // the compiler must declare exactly once (from profile.bindGroups, with
+    // typeWgsl "LightStorage"). Before the fix, the chunk also declared it
+    // inline → duplicate var + type mismatch (LightStorage vs array<vec4<f32>>).
+    expect(result.errors).toHaveLength(0);
+    expect(result.wgsl).toContain("applyDynamicLights(");
+    expect(result.wgsl).toContain("PointLight");
+    expect(result.wgsl).toContain("SpotLight");
   });
 
   // ── Multi-render-target (GBuffer) ──────────────────────────────────────
