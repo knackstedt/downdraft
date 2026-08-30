@@ -341,7 +341,7 @@ export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 
 ### SharedArrayBuffer on Android WebView
 
-Android WebView does not support cross-origin isolation (`self.crossOriginIsolated` is always `false` even with COOP/COEP headers). The engine's boot guard checks for WebGPU (`navigator.gpu`) directly rather than relying on `crossOriginIsolated`, and transparently polyfills `SharedArrayBuffer` when the native constructor is unavailable — so games run on Android WebView regardless of whether real SAB is enabled.
+Android WebView does not support cross-origin isolation (`self.crossOriginIsolated` is always `false` even with COOP/COEP headers). The engine's boot guard checks for WebGPU (`navigator.gpu`) directly rather than relying on `crossOriginIsolated`, and transparently polyfills `SharedArrayBuffer` when the native constructor is unavailable — so games run on Android WebView (and Chrome with appropriate GPU flags set) regardless of whether real SAB is enabled.
 
 For **debug builds** on emulators or physical devices, enable SAB via the WebView command-line flag:
 
