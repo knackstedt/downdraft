@@ -21,7 +21,7 @@ draft release --stage=build
 
 ## Game-Bootstrapped Host Layer
 
-Games bootstrap themselves by calling engine-exported host methods from their own `src/main.ts` and `src/preload.ts`. The engine obscures Electron's main/preload/renderer machinery behind a config-driven surface — devs set config, rarely touch raw Electron APIs.
+Games bootstrap by calling engine-exported host methods from their own `src/main.ts` and `src/preload.ts`. The engine obscures Electron's main/preload/renderer machinery behind a config-driven surface — devs set config, rarely touch raw Electron APIs.
 
 ```ts
 // games/my-game/src/main.ts
